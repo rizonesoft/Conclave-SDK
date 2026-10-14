@@ -1,6 +1,6 @@
 # Base kit
 
-Reusable starter overlay for adding Conclave and AgentForge agent instructions and skills to a project across Google Antigravity (`.agents/`), Claude Code (`.claude/`), and OpenAI Codex (`.codex/`). This is the generic agent layer; Laravel and WordPress stacks are sibling kits under `kits/`.
+Reusable starter overlay for adding Conclave-SDK agent instructions and skills to a project across Google Antigravity (`.agents/`), Claude Code (`.claude/`), and OpenAI Codex (`.codex/`). This is the generic agent layer; Laravel and WordPress stacks are sibling kits under `kits/`.
 
 ## Contents
 

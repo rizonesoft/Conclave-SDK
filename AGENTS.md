@@ -1,10 +1,10 @@
 # AGENTS.md
 
-Shared instructions for agents working in `AgentForge`. Each agent loads this file alongside its own isolated entrypoint (`GEMINI.md`, `CLAUDE.md`, or `CODEX.md`).
+Shared instructions for agents working in `Conclave-SDK`. Each agent loads this file alongside its own isolated entrypoint (`GEMINI.md`, `CLAUDE.md`, or `CODEX.md`).
 
 ## Purpose
 
-`AgentForge` holds the canonical isolated agent skills (`skills/agy/`, `skills/claude/`, `skills/codex/`), rules, prompts, plugins, templates, and stdlib-only Python tooling (`forge.py` and `scripts/todo-graph.py`) used to bootstrap and synchronize projects under `R:\GitHub`.
+`Conclave-SDK` holds the canonical isolated agent skills (`skills/agy/`, `skills/claude/`, `skills/codex/`), rules, prompts, plugins, templates, and stdlib-only Python tooling (`forge.py` and `scripts/todo-graph.py`) used to bootstrap and synchronize projects under `R:\GitHub`.
 
 ## Architecture and Working Rules
 

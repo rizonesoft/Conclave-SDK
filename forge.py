@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AgentForge CLI: provision, synchronize, and audit isolated agent customizations and stack kits.
+"""Conclave-SDK CLI: provision, synchronize, and audit isolated agent customizations and stack kits.
 
     python forge.py init <target> [--mode isolated|hybrid|inherit] [--agent all|agy|gemini|claude|codex] [--kit <kit>] [--with-todo] [--force]
     python forge.py sync <target> [--mode isolated|hybrid|inherit] [--agent all|agy|gemini|claude|codex] [--kit <kit>] [--include-scripts]

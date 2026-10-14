@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This repository follows the AgentForge and Conclave 3-agent conventions. Adapt this file to the project: name what the project is, where the code lives, and which commands verify it.
+This repository follows the Conclave-SDK 3-agent conventions. Adapt this file to the project: name what the project is, where the code lives, and which commands verify it.
 
 ## Working rules
 

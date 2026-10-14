@@ -1,6 +1,6 @@
-# AgentForge
+# Conclave-SDK
 
-AgentForge is the central repository for isolated agent skills, rules, subagent definitions, stack overlay kits (`base`, `laravel`, `wordpress`), prompts, plugins, templates, and the canonical TODO graph tooling (`todo-graph.py`).
+Conclave-SDK is the central repository for isolated agent skills, rules, subagent definitions, stack overlay kits (`base`, `laravel`, `wordpress`), prompts, plugins, templates, and the canonical TODO graph tooling (`todo-graph.py`).
 
 It is designed to be imported into any **new** or **existing** repository by **Google Antigravity / Gemini (`gemini` / `agy`)**, **Claude Code (`claude`)**, and **OpenAI Codex (`codex`)**:
 
@@ -21,7 +21,7 @@ Each agent reads only its own isolated folder and entrypoint alongside the share
 | `agents/claude/` | Claude Sonnet subagent definitions (`<target>/.claude/agents/`). |
 | `kits/` | Additive project and stack overlays (`base/`, `laravel/`, `wordpress/`). |
 | `rules/` | Shared and per-agent rule templates (`AGENTS`, `GEMINI`, `CLAUDE`, `CODEX`). |
-| `prompts/` | Copy-pasteable prompts to import AgentForge from Gemini, Claude, or Codex. |
+| `prompts/` | Copy-pasteable prompts to import Conclave-SDK from Gemini, Claude, or Codex. |
 | `plugins/todo-workflow/` | Antigravity plugin bundle (`plugin.json`) for TODO workflow skills. |
 | `scripts/` | Canonical `todo-graph.py`, `lib/todo_graph.py`, and `verify-agent-tiers.mjs`. |
 | `templates/todo/` | Starter `todo/` tree (`README.md`, root index, findings, section template). |
@@ -31,15 +31,15 @@ Each agent reads only its own isolated folder and entrypoint alongside the share
 
 ### 1. New Project (All Agents + Optional Stack Kit + Starter `todo/` Tree)
 
-Run from Windows PowerShell (or pass `/mnt/r/GitHub/AgentForge/forge.py` inside WSL):
+Run from Windows PowerShell (or pass `/mnt/r/GitHub/Conclave-SDK/forge.py` inside WSL):
 
 ```powershell
 # Generic new project
-python R:\GitHub\AgentForge\forge.py init R:\GitHub\MyProject --with-todo
+python R:\GitHub\Conclave-SDK\forge.py init R:\GitHub\MyProject --with-todo
 
 # New Laravel or WordPress project
-python R:\GitHub\AgentForge\forge.py init R:\GitHub\MyLaravelApp --kit laravel --with-todo
-python R:\GitHub\AgentForge\forge.py init R:\GitHub\MyWordPressSite --kit wordpress --with-todo
+python R:\GitHub\Conclave-SDK\forge.py init R:\GitHub\MyLaravelApp --kit laravel --with-todo
+python R:\GitHub\Conclave-SDK\forge.py init R:\GitHub\MyWordPressSite --kit wordpress --with-todo
 ```
 
 ### 2. Existing Project (Additive Sync + Stack Kit + Doctor)
@@ -48,25 +48,25 @@ On an existing project, `sync` and `kit` never overwrite `AGENTS.md`, `GEMINI.md
 
 ```powershell
 # Sync all 3 isolated agents into an existing repo
-python R:\GitHub\AgentForge\forge.py sync R:\GitHub\ExistingRepo --include-scripts
+python R:\GitHub\Conclave-SDK\forge.py sync R:\GitHub\ExistingRepo --include-scripts
 
 # Sync or import a stack kit for one specific agent (gemini, claude, or codex) or all
-python R:\GitHub\AgentForge\forge.py sync R:\GitHub\ExistingRepo --agent gemini
-python R:\GitHub\AgentForge\forge.py sync R:\GitHub\ExistingRepo --agent claude
-python R:\GitHub\AgentForge\forge.py sync R:\GitHub\ExistingRepo --agent codex
-python R:\GitHub\AgentForge\forge.py kit R:\GitHub\ExistingRepo laravel --agent all
+python R:\GitHub\Conclave-SDK\forge.py sync R:\GitHub\ExistingRepo --agent gemini
+python R:\GitHub\Conclave-SDK\forge.py sync R:\GitHub\ExistingRepo --agent claude
+python R:\GitHub\Conclave-SDK\forge.py sync R:\GitHub\ExistingRepo --agent codex
+python R:\GitHub\Conclave-SDK\forge.py kit R:\GitHub\ExistingRepo laravel --agent all
 
 # Run read-only health and setup checks
-python R:\GitHub\AgentForge\forge.py check R:\GitHub\ExistingRepo
-python R:\GitHub\AgentForge\forge.py doctor R:\GitHub\ExistingRepo
+python R:\GitHub\Conclave-SDK\forge.py check R:\GitHub\ExistingRepo
+python R:\GitHub\Conclave-SDK\forge.py doctor R:\GitHub\ExistingRepo
 ```
 
-### 3. Prompting Gemini, Claude, or Codex to Import AgentForge
+### 3. Prompting Gemini, Claude, or Codex to Import Conclave-SDK
 
-Paste the prompt from [`prompts/bootstrap-project-prompt.md`](file:///R:/GitHub/AgentForge/prompts/bootstrap-project-prompt.md) into any Gemini, Claude, or Codex session open in your target repository:
+Paste the prompt from [`prompts/bootstrap-project-prompt.md`](file:///R:/GitHub/Conclave-SDK/prompts/bootstrap-project-prompt.md) into any Gemini, Claude, or Codex session open in your target repository:
 
 ```text
-Import AgentForge into this repository by running `python R:\GitHub\AgentForge\forge.py init .` (or `sync . --include-scripts` if already initialized), apply any matching stack kit (`--kit laravel` if `artisan` exists, `--kit wordpress` if `wp-load.php` or `wp-config.php` exists), and verify with `python R:\GitHub\AgentForge\forge.py check .` and `python R:\GitHub\AgentForge\forge.py doctor .`.
+Import Conclave-SDK into this repository by running `python R:\GitHub\Conclave-SDK\forge.py init .` (or `sync . --include-scripts` if already initialized), apply any matching stack kit (`--kit laravel` if `artisan` exists, `--kit wordpress` if `wp-load.php` or `wp-config.php` exists), and verify with `python R:\GitHub\Conclave-SDK\forge.py check .` and `python R:\GitHub\Conclave-SDK\forge.py doctor .`.
 ```
 
 ## Overlay Kits (`kits/`)
@@ -80,12 +80,12 @@ Import AgentForge into this repository by running `python R:\GitHub\AgentForge\f
 ## Provisioning Modes
 
 * **`isolated` (Default):** Copies tracked skills and rules into `.agents/`, `.claude/`, and `.codex/` inside the target repository with zero external path dependencies. Every repository is 100% self-contained and each agent is isolated in its own directory.
-* **`hybrid`:** Optional mode that copies isolated skills and also writes `.agents/skills.json` pointing to `R:/GitHub/AgentForge/skills/agy`.
+* **`hybrid`:** Optional mode that copies isolated skills and also writes `.agents/skills.json` pointing to `R:/GitHub/Conclave-SDK/skills/agy`.
 * **`inherit`:** Optional mode that writes `.agents/skills.json` and `.agents/plugins.json` without copying skill Markdown files.
 
 ## TODO Workflow Discipline
 
-All ten core skills (`add-todo`, `authoring-skills`, `create-todo`, `groom-plan`, `local-tool-safety`, `process-phase`, `process-plan`, `process-todo-file`, `process-todo-section`, `review-todo-section`) and `templates/todo/` enforce the canonical AgentForge execution contract:
+All ten core skills (`add-todo`, `authoring-skills`, `create-todo`, `groom-plan`, `local-tool-safety`, `process-phase`, `process-plan`, `process-todo-file`, `process-todo-section`, `review-todo-section`) and `templates/todo/` enforce the canonical Conclave-SDK execution contract:
 
 * **Small, single-responsibility sections:** Multi-subsystem, multi-dialog, or multi-workflow work is split into small, single-responsibility sections rather than coarse umbrella sections.
 * **Readable table descriptions (`<= 88` chars):** Every section heading (`## N. <Title>`), `Deliverable` cell in `Implementation Order`, and `Scope` cell in index tables is a clear noun phrase of at most 88 characters (enforced by `todo-graph.py validate`) so raw Markdown table rows stay under 140 characters and do not wrap in raw `.md` editors.
