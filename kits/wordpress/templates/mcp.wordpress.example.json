@@ -1,0 +1,14 @@
+{
+  "_comment": "Merge the server object into .mcp.json. Values are ${VAR} placeholders resolved from a gitignored env file sourced from 1Password. Never commit an application password.",
+  "mcpServers": {
+    "wordpress-local": {
+      "command": "npx",
+      "args": ["-y", "@automattic/mcp-wordpress-remote"],
+      "env": {
+        "WP_API_URL": "${WP_API_URL}",
+        "WP_API_USERNAME": "${WP_API_USERNAME}",
+        "WP_API_PASSWORD": "${WP_API_PASSWORD}"
+      }
+    }
+  }
+}

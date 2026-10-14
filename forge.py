@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""AgentForge CLI: provision, synchronize, and audit isolated agent customizations across repositories.
+"""AgentForge CLI: provision, synchronize, and audit isolated agent customizations and stack kits.
 
-    python forge.py init <target> [--mode isolated|hybrid|inherit] [--agent all|agy|claude|codex] [--with-todo] [--force]
-    python forge.py sync <target> [--mode isolated|hybrid|inherit] [--agent all|agy|claude|codex] [--include-scripts]
+    python forge.py init <target> [--mode isolated|hybrid|inherit] [--agent all|agy|claude|codex] [--kit <kit>] [--with-todo] [--force]
+    python forge.py sync <target> [--mode isolated|hybrid|inherit] [--agent all|agy|claude|codex] [--kit <kit>] [--include-scripts]
+    python forge.py kit <target> <kit> [--dry-run]
+    python forge.py kits
     python forge.py check <target>
 
 Stdlib only. Uses atomic temp-file-then-replace writes. Default mode is 'isolated': each agent gets
@@ -42,7 +44,7 @@ def copy_tree_atomic(src_dir: Path, dst_dir: Path, overwrite: bool = True) -> li
         if item.is_file():
             rel = item.relative_to(src_dir)
             target = dst_dir / rel
-            if target.exists() and not overwrite:
+            if (target.exists() or target.is_symlink()) and not overwrite:
                 continue
             atomic_write(target, item.read_bytes())
             written.append(target.as_posix())
@@ -50,10 +52,167 @@ def copy_tree_atomic(src_dir: Path, dst_dir: Path, overwrite: bool = True) -> li
 
 
 def write_if_allowed(target: Path, content: bytes | str, overwrite: bool) -> bool:
-    if target.exists() and not overwrite:
+    if (target.exists() or target.is_symlink()) and not overwrite:
         return False
     atomic_write(target, content)
     return True
+
+
+def list_kits() -> list[str]:
+    kits_dir = FORGE_ROOT / "kits"
+    if not kits_dir.is_dir():
+        return []
+    return sorted(
+        d.name
+        for d in kits_dir.iterdir()
+        if d.is_dir() and (d / "templates").is_dir()
+    )
+
+
+def _has_unsafe_parent(target_root: Path, rel_path: str) -> bool:
+    parts = Path(rel_path).parts[:-1]
+    current = target_root
+    for part in parts:
+        current = current / part
+        if current.is_symlink() or (current.exists() and not current.is_dir()):
+            return True
+    return False
+
+
+def _find_laravel_app_root(target_root: Path) -> Path | None:
+    if (target_root / "artisan").is_file():
+        return target_root
+    if (target_root / "platform/artisan").is_file():
+        return target_root / "platform"
+    for child in sorted(target_root.iterdir()):
+        if child.is_dir() and not child.is_symlink() and (child / "artisan").is_file():
+            return child
+    return None
+
+
+def _is_wp_root(candidate: Path) -> bool:
+    return (
+        (candidate / "wp-load.php").is_file()
+        or (candidate / "wp-config.php").is_file()
+        or (candidate / "wp-includes/version.php").is_file()
+    )
+
+
+def _find_wordpress_root(target_root: Path) -> Path | None:
+    if _is_wp_root(target_root):
+        return target_root
+    for name in ("website", "wordpress", "wp"):
+        candidate = target_root / name
+        if candidate.is_dir() and not candidate.is_symlink() and _is_wp_root(candidate):
+            return candidate
+    for child in sorted(target_root.iterdir()):
+        if child.is_dir() and not child.is_symlink() and _is_wp_root(child):
+            return child
+    return None
+
+
+def apply_kit(target_root: Path, kit_name: str, *, dry_run: bool = False) -> dict:
+    """Apply an additive overlay kit ('base', 'laravel', 'wordpress') without overwriting existing files."""
+    target_root = Path(target_root)
+    if not target_root.exists() or not target_root.is_dir() or target_root.is_symlink():
+        raise ValueError(f"Target must be an existing non-symlink directory: {target_root}")
+    target_root = target_root.resolve()
+
+    available = list_kits()
+    if kit_name not in available:
+        raise ValueError(f"Unknown kit '{kit_name}'. Available kits: {', '.join(available)}")
+
+    template_root = FORGE_ROOT / "kits" / kit_name / "templates"
+    installed: list[str] = []
+    preserved: list[str] = []
+    merge_needed: list[str] = []
+    extra: dict[str, str] = {}
+
+    plan: list[tuple[Path, Path, str]] = []
+
+    if kit_name == "laravel":
+        app_root = _find_laravel_app_root(target_root)
+        if app_root is None:
+            raise ValueError(
+                f"No artisan found under {target_root} (looked at root, platform/, and first-level children)."
+            )
+        artisan_rel = (app_root / "artisan").relative_to(target_root).as_posix()
+        extra["artisan"] = artisan_rel
+        boost_rel = (app_root / "boost.json").relative_to(target_root).as_posix()
+        rel_items = [
+            "scripts/lsp-diagnostics.py",
+            "scripts/hooks/laravel-lsp-pre-push.sh",
+            "docs/laravel-agent-tooling.md",
+            ".agents/skills/laravel-boost/SKILL.md",
+            ".claude/skills/laravel-boost/SKILL.md",
+            ".codex/skills/laravel-boost/SKILL.md",
+            ".codex/skills/laravel-boost/agents/openai.yaml",
+        ]
+        for rel in rel_items:
+            plan.append((template_root / rel, target_root / rel, rel))
+        plan.append((template_root / "boost.json", app_root / "boost.json", boost_rel))
+    elif kit_name == "wordpress":
+        wp_root = _find_wordpress_root(target_root)
+        if wp_root is None:
+            raise ValueError(
+                f"No wp-load.php or wp-config.php under {target_root} (looked at root, website/, wordpress/, wp/, and first-level children)."
+            )
+        extra["wordpress"] = wp_root.relative_to(target_root).as_posix() if wp_root != target_root else "."
+        for src in sorted(template_root.rglob("*")):
+            if src.is_file():
+                rel = src.relative_to(template_root).as_posix()
+                plan.append((src, target_root / rel, rel))
+    else:
+        for src in sorted(template_root.rglob("*")):
+            if src.is_file():
+                rel = src.relative_to(template_root).as_posix()
+                plan.append((src, target_root / rel, rel))
+
+    # Preflight all planned destinations for symlink-parent traversal before writing any file
+    for _src, dst, rel in plan:
+        if dst.exists() or dst.is_symlink():
+            continue
+        if _has_unsafe_parent(target_root, rel):
+            raise ValueError(f"Refusing destination with unsafe parent: {rel}")
+
+    for src, dst, rel in plan:
+        if dst.exists() or dst.is_symlink():
+            preserved.append(rel)
+            continue
+        if not dry_run:
+            atomic_write(dst, src.read_bytes())
+        installed.append(rel)
+
+    if kit_name == "laravel":
+        mcp_path = target_root / ".mcp.json"
+        server_cfg = {"command": "php", "args": [extra["artisan"], "boost:mcp"]}
+        if mcp_path.exists() or mcp_path.is_symlink():
+            try:
+                data = json.loads(mcp_path.read_text(encoding="utf-8"))
+                servers = data.get("mcpServers") if isinstance(data, dict) else None
+                if isinstance(servers, dict) and "laravel-boost" in servers:
+                    preserved.append(".mcp.json")
+                else:
+                    preserved.append(".mcp.json")
+                    merge_needed.append(".mcp.json")
+            except (OSError, json.JSONDecodeError):
+                preserved.append(".mcp.json")
+                merge_needed.append(".mcp.json")
+        else:
+            payload = {"mcpServers": {"laravel-boost": server_cfg}}
+            if not dry_run:
+                atomic_write(mcp_path, json.dumps(payload, indent=4) + "\n")
+            installed.append(".mcp.json")
+
+    return {
+        "target": target_root.as_posix(),
+        "kit": kit_name,
+        "dry_run": dry_run,
+        "installed": installed,
+        "preserved": preserved,
+        "merge_needed": merge_needed,
+        **extra,
+    }
 
 
 def provision(
@@ -63,6 +222,7 @@ def provision(
     agent: str = "all",
     include_scripts: bool = True,
     with_todo: bool = False,
+    kits: list[str] | None = None,
     overwrite_existing_docs: bool = False,
     overwrite_skills: bool = True,
 ) -> dict:
@@ -181,6 +341,13 @@ def provision(
                 overwrite=overwrite_skills,
             ):
                 written.append(Path(p).relative_to(target_root).as_posix())
+            if (FORGE_ROOT / "agents/claude").is_dir():
+                for p in copy_tree_atomic(
+                    FORGE_ROOT / "agents/claude",
+                    target_root / ".claude/agents",
+                    overwrite=overwrite_skills,
+                ):
+                    written.append(Path(p).relative_to(target_root).as_posix())
 
     # 4. OpenAI Codex isolated customizations (.codex/ and CODEX.md)
     if do_codex:
@@ -210,15 +377,22 @@ def provision(
             ):
                 written.append(Path(p).relative_to(target_root).as_posix())
 
-    # 5. Canonical TODO graph scripts
+    # 5. Canonical TODO graph and agent-tier verification scripts
     if include_scripts:
-        for rel_script in ("scripts/todo-graph.py", "scripts/lib/todo_graph.py"):
+        for rel_script in (
+            "scripts/todo-graph.py",
+            "scripts/lib/todo_graph.py",
+            "scripts/verify-agent-tiers.mjs",
+        ):
+            src_script = FORGE_ROOT / rel_script
+            if not src_script.is_file():
+                continue
             dst = target_root / rel_script
             record(
                 dst,
                 write_if_allowed(
                     dst,
-                    (FORGE_ROOT / rel_script).read_bytes(),
+                    src_script.read_bytes(),
                     overwrite_skills,
                 ),
             )
@@ -232,13 +406,25 @@ def provision(
         ):
             written.append(Path(p).relative_to(target_root).as_posix())
 
-    return {
+    # 7. Optional additive stack kits
+    kit_results: list[dict] = []
+    if kits:
+        for kit_name in kits:
+            kit_res = apply_kit(target_root, kit_name, dry_run=False)
+            kit_results.append(kit_res)
+            written.extend(kit_res["installed"])
+            skipped.extend(kit_res["preserved"])
+
+    res = {
         "target": target_root.as_posix(),
         "mode": mode,
         "agent": agent,
         "written": written,
         "skipped": skipped,
     }
+    if kit_results:
+        res["kits"] = kit_results
+    return res
 
 
 def check_repo(target_root: Path) -> dict:
@@ -246,6 +432,7 @@ def check_repo(target_root: Path) -> dict:
     agy_skills = sorted(p.parent.name for p in (target_root / ".agents/skills").glob("*/SKILL.md"))
     claude_skills = sorted(p.parent.name for p in (target_root / ".claude/skills").glob("*/SKILL.md"))
     codex_skills = sorted(p.parent.name for p in (target_root / ".codex/skills").glob("*/SKILL.md"))
+    claude_agents = sorted(p.stem for p in (target_root / ".claude/agents").glob("*.md"))
     return {
         "target": target_root.as_posix(),
         "has_agents_md": (target_root / "AGENTS.md").is_file(),
@@ -255,9 +442,11 @@ def check_repo(target_root: Path) -> dict:
         "has_agy_skills_json": (target_root / ".agents/skills.json").is_file(),
         "has_agy_plugins_json": (target_root / ".agents/plugins.json").is_file(),
         "has_todo_graph": (target_root / "scripts/todo-graph.py").is_file(),
+        "has_verify_agent_tiers": (target_root / "scripts/verify-agent-tiers.mjs").is_file(),
         "agy_skills": agy_skills,
         "claude_skills": claude_skills,
         "codex_skills": codex_skills,
+        "claude_agents": claude_agents,
     }
 
 
@@ -268,11 +457,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_init = sub.add_parser("init", help="Initialize isolated agent skills, rules, and scripts in a target repo")
+    p_init = sub.add_parser("init", help="Initialize isolated agent skills, rules, scripts, and optional stack kits")
     p_init.add_argument("target", help="Target repository path")
     p_init.add_argument("--mode", choices=["isolated", "copy", "hybrid", "inherit"], default="isolated")
     p_init.add_argument("--agent", choices=["all", "agy", "claude", "codex"], default="all")
-    p_init.add_argument("--no-scripts", action="store_true", help="Do not copy scripts/todo-graph.py")
+    p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, laravel, wordpress)")
+    p_init.add_argument("--no-scripts", action="store_true", help="Do not copy scripts/todo-graph.py or verify-agent-tiers.mjs")
     p_init.add_argument("--with-todo", action="store_true", help="Seed starter todo/ directory")
     p_init.add_argument("--force", action="store_true", help="Overwrite existing AGENTS.md, GEMINI.md, CLAUDE.md, CODEX.md")
 
@@ -280,13 +470,31 @@ def main(argv: list[str] | None = None) -> int:
     p_sync.add_argument("target", help="Target repository path")
     p_sync.add_argument("--mode", choices=["isolated", "copy", "hybrid", "inherit"], default="isolated")
     p_sync.add_argument("--agent", choices=["all", "agy", "claude", "codex"], default="all")
-    p_sync.add_argument("--include-scripts", action="store_true", help="Also update scripts/todo-graph.py")
+    p_sync.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, laravel, wordpress)")
+    p_sync.add_argument("--include-scripts", action="store_true", help="Also update scripts/todo-graph.py and verify-agent-tiers.mjs")
+
+    p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, laravel, wordpress) to a target repo")
+    p_kit.add_argument("target", help="Target repository path")
+    p_kit.add_argument("kit_name", choices=list_kits(), help="Kit name to apply")
+    p_kit.add_argument("--dry-run", action="store_true", help="Preview files that would be installed without writing")
+
+    sub.add_parser("kits", help="List available overlay kits")
 
     p_check = sub.add_parser("check", help="Inspect a target repository's agent setup")
     p_check.add_argument("target", help="Target repository path")
 
     args = parser.parse_args(argv)
+
+    if args.command == "kits":
+        print(json.dumps({"kits": list_kits()}, indent=2))
+        return 0
+
     target = Path(args.target)
+
+    if args.command == "kit":
+        res = apply_kit(target, args.kit_name, dry_run=args.dry_run)
+        print(json.dumps(res, indent=2))
+        return 0
 
     if args.command == "init":
         res = provision(
@@ -295,6 +503,7 @@ def main(argv: list[str] | None = None) -> int:
             agent=args.agent,
             include_scripts=not args.no_scripts,
             with_todo=args.with_todo,
+            kits=args.kit,
             overwrite_existing_docs=args.force,
             overwrite_skills=True,
         )
@@ -308,6 +517,7 @@ def main(argv: list[str] | None = None) -> int:
             agent=args.agent,
             include_scripts=args.include_scripts,
             with_todo=False,
+            kits=args.kit,
             overwrite_existing_docs=False,
             overwrite_skills=True,
         )

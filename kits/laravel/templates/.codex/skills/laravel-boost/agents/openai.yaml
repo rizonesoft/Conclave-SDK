@@ -1,0 +1,4 @@
+interface:
+  display_name: "Laravel Boost"
+  short_description: "Use Boost MCP and Boost's own skills; never point database-query at production."
+  default_prompt: "Use Laravel Boost MCP for this Laravel app. Confirm a development database before database-query. Prefer search-docs and database-schema over guessing. Do not invent a second tool catalog."

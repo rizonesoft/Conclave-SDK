@@ -1,0 +1,12 @@
+{
+  "name": "conclave/wordpress-phpcs-toolchain",
+  "description": "Isolated PHPCS + WordPress Coding Standards. Run composer install in this directory after dependency approval.",
+  "require-dev": {
+    "wp-coding-standards/wpcs": "^3.1"
+  },
+  "config": {
+    "allow-plugins": {
+      "dealerdirect/phpcodesniffer-composer-installer": true
+    }
+  }
+}

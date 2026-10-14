@@ -1,0 +1,4 @@
+interface:
+  display_name: "WordPress site safety"
+  short_description: "One named site, read-only first, approval-gated writes, SecretRef credentials."
+  default_prompt: "Bind WordPress work to one named site and environment. Run read-only identity commands first. Treat writes as approval-gated. Never put application passwords in tracked config."
