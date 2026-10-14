@@ -1,18 +1,19 @@
 # Kits
 
-Reusable stack and agent overlays that AgentForge or Conclave copies into another repository. They do not scaffold an application. They do not install global binaries. Each kit is additive: existing files stay byte-for-byte.
+Reusable stack and agent overlays that AgentForge copies into a new or existing repository for **Gemini / Antigravity (`.agents/`)**, **Claude Code (`.claude/`)**, and **OpenAI Codex (`.codex/`)**. They do not scaffold an application. They do not install global binaries. Each kit is additive: existing files stay byte-for-byte.
 
 Install **base** on every project (or run `python forge.py init <target>`). Then install the stack kit that matches the app.
 
 ```powershell
-# Cross-platform via forge.py (Windows PowerShell, macOS, Linux, WSL)
+# Cross-platform via forge.py (supports --agent all|gemini|agy|claude|codex)
 python forge.py kit /path/to/project base
 python forge.py kit /path/to/laravel-project laravel
 python forge.py kit /path/to/wordpress-project wordpress
+python forge.py doctor /path/to/project
 ```
 
 ```bash
-# Or directly via bash installers
+# Or directly via bash installers in Linux / WSL / Git Bash
 kits/base/scripts/install.sh /path/to/project
 kits/laravel/scripts/install.sh /path/to/laravel-project
 kits/wordpress/scripts/install.sh /path/to/wordpress-project
@@ -24,9 +25,9 @@ Dry-run any of them with `--dry-run`. There is no `--force`.
 
 | Kit | What it is | Install when |
 | --- | ---------- | ------------ |
-| `base/` | Agent overlay (`AGENTS.md`, `.agents`, `.claude`, `.codex`) | Every new repo |
-| `laravel/` | Boost MCP, `boost.json`, LSP client, Boost skill, pre-push | Tree has `artisan` |
-| `wordpress/` | WP-CLI/PHPCS doctor, WPCS config, safety skill, MCP sample | Has `wp-load.php` |
+| `base/` | Agent overlay (`AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, safety skills) | Every new repository (not a stack) |
+| `laravel/` | Boost MCP, `boost.json`, stdio LSP client, `laravel-boost` skill, pre-push hook | Tree has `artisan` (root or child) |
+| `wordpress/` | WP-CLI/PHPCS doctor, WordPress-Extra config, site-safety skill, MCP example | Tree has `wp-load.php` or `wp-config.php` |
 
 `base` is the generic agent layer. Laravel and WordPress kits do not copy it. Install `base` (or `forge.py init`) first when the target should speak the 3-agent contract.
 
@@ -41,7 +42,7 @@ kits/<name>/
   templates/            # files copied into the target
 ```
 
-`doctor.sh` is read-only. Missing globals print `setup_required` and still exit 0 unless you pass `--strict`.
+`doctor` (`python forge.py doctor <target>` or `scripts/doctor.sh`) is read-only. Missing globals print `setup_required` and still exit 0 unless you pass `--strict`.
 
 ## Tests
 

@@ -1,6 +1,6 @@
 # Laravel agent tooling
 
-Every Laravel project starts or adopts this overlay.
+Every Laravel project starts or adopts this overlay across Gemini (`.agents/`), Claude (`.claude/`), and Codex (`.codex/`).
 
 ## Boost
 
@@ -23,11 +23,11 @@ For a monorepo whose app lives in `platform/`, the args are `["platform/artisan"
 
 One client: `scripts/lsp-diagnostics.py`. Three servers:
 
-| Server | Binary | Install | Gate |
-| ------ | ------ | ------- | ---- |
-| laravel | `laravel-lsp` | `composer global require laravel/lsp` | yes (routes/views/env) |
-| tailwind | `tailwindcss-language-server` | `npm i -g @tailwindcss/language-server` | yes |
-| php | `intelephense` | `npm i -g intelephense` | no (on demand) |
+| Server | Binary | Install | Gate? |
+| ------ | ------ | ------- | ----- |
+| laravel | `laravel-lsp` | `composer global require laravel/lsp` | yes (routes, config, views, env) |
+| tailwind | `tailwindcss-language-server` | `npm install -g @tailwindcss/language-server` | yes (class conflicts) |
+| php | `intelephense` | `npm install -g intelephense` | no (on demand; PHPStan + Pint cover gates) |
 
 ```bash
 python3 scripts/lsp-diagnostics.py --server laravel --server tailwind --staged
@@ -37,6 +37,10 @@ python3 scripts/lsp-diagnostics.py --server php path/to/File.php
 A missing binary is `SKIPPED` (exit 3 when every requested server is missing), never a silent pass.
 
 ## Doctor
+
+```powershell
+python forge.py doctor . laravel
+```
 
 ```bash
 kits/laravel/scripts/doctor.sh .

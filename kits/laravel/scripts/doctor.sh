@@ -97,6 +97,14 @@ else
 	report "intelephense" "setup_required" "npm install -g intelephense"
 fi
 
+for agent_dir in .agents .claude .codex; do
+	if [ -f "$target/$agent_dir/skills/laravel-boost/SKILL.md" ]; then
+		report "skill:$agent_dir" "ok" "$target/$agent_dir/skills/laravel-boost/SKILL.md"
+	else
+		report "skill:$agent_dir" "missing" "run the kit installer"
+	fi
+done
+
 if [ "$strict" = 1 ] && [ "$missing" -gt 0 ]; then
 	exit 3
 fi

@@ -1,6 +1,6 @@
 # WordPress kit
 
-Additive overlay for a WordPress site so every project gets WP-CLI/PHPCS wiring, a site-safety skill across all three agents, and an MCP example that uses SecretRef placeholders.
+Additive overlay for a WordPress site so every project gets WP-CLI/PHPCS wiring, a site-safety skill across Gemini (`.agents/`), Claude (`.claude/`), and Codex (`.codex/`), and an MCP example that uses SecretRef placeholders.
 
 This kit does not scaffold WordPress. It does not install WP-CLI, PHPCS, or a plugin. It copies the overlay into a tree that already has `wp-load.php` or `wp-config.php`.
 
@@ -10,20 +10,20 @@ Install `kits/base` (or `python forge.py init`) first when the repo should speak
 
 | Path | Role |
 | ---- | ---- |
-| `docs/wordpress-agent-tooling.md` | Bind WP-CLI, PHPCS WordPress-Extra, and MCP |
-| `.agents/skills/wordpress-site-safety/SKILL.md` | Antigravity (`agy`) skill copy |
+| `docs/wordpress-agent-tooling.md` | How to bind WP-CLI, PHPCS WordPress-Extra, and MCP to one site |
+| `.agents/skills/wordpress-site-safety/SKILL.md` | Gemini / Antigravity (`agy`) skill copy |
 | `.claude/skills/wordpress-site-safety/SKILL.md` | Claude Code (`claude`) skill copy |
-| `.codex/skills/wordpress-site-safety/SKILL.md` | OpenAI Codex (`codex`) copy + `openai.yaml` |
-| `phpcs.xml.dist` | WordPress-Extra ruleset |
-| `tools/phpcs/composer.json` | Isolated WPCS toolchain (`composer install`) |
-| `scripts/hooks/wordpress-phpcs-pre-push.sh` | Pre-push check |
-| `mcp.wordpress.example.json` | MCP fragment with `${WP_API_*}` placeholders |
+| `.codex/skills/wordpress-site-safety/SKILL.md` | OpenAI Codex (`codex`) skill copy plus `agents/openai.yaml` |
+| `phpcs.xml.dist` | WordPress-Extra ruleset configuration |
+| `tools/phpcs/composer.json` | Isolated WPCS toolchain (`composer install` is operator-approved) |
+| `scripts/hooks/wordpress-phpcs-pre-push.sh` | Pre-push check for staged PHP files |
+| `mcp.wordpress.example.json` | MCP adapter fragment with `${WP_API_*}` placeholders, never literals |
 
 ## Install
 
 ```powershell
-python forge.py kit /path/to/wordpress-project wordpress
-python forge.py kit /path/to/wordpress-project wordpress --dry-run
+python forge.py kit /path/to/wordpress-project wordpress [--agent all|gemini|claude|codex] [--dry-run]
+python forge.py doctor /path/to/wordpress-project wordpress
 ```
 
 ```bash

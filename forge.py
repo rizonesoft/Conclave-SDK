@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """AgentForge CLI: provision, synchronize, and audit isolated agent customizations and stack kits.
 
-    python forge.py init <target> [--mode isolated|hybrid|inherit] [--agent all|agy|claude|codex] [--kit <kit>] [--with-todo] [--force]
-    python forge.py sync <target> [--mode isolated|hybrid|inherit] [--agent all|agy|claude|codex] [--kit <kit>] [--include-scripts]
-    python forge.py kit <target> <kit> [--dry-run]
+    python forge.py init <target> [--mode isolated|hybrid|inherit] [--agent all|agy|gemini|claude|codex] [--kit <kit>] [--with-todo] [--force]
+    python forge.py sync <target> [--mode isolated|hybrid|inherit] [--agent all|agy|gemini|claude|codex] [--kit <kit>] [--include-scripts]
+    python forge.py kit <target> <kit> [--agent all|agy|gemini|claude|codex] [--dry-run]
+    python forge.py doctor <target> [laravel|wordpress] [--strict]
     python forge.py kits
     python forge.py check <target>
 
@@ -16,10 +17,16 @@ import argparse
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 
 FORGE_ROOT = Path(__file__).resolve().parent
+AGENT_CHOICES = ["all", "agy", "gemini", "claude", "codex"]
+
+
+def normalize_agent(agent: str) -> str:
+    return "agy" if agent == "gemini" else agent
 
 
 def atomic_write(path: Path, data: bytes | str) -> None:
@@ -111,8 +118,28 @@ def _find_wordpress_root(target_root: Path) -> Path | None:
     return None
 
 
-def apply_kit(target_root: Path, kit_name: str, *, dry_run: bool = False) -> dict:
-    """Apply an additive overlay kit ('base', 'laravel', 'wordpress') without overwriting existing files."""
+def _rel_allowed_for_agent(rel: str, agent: str) -> bool:
+    agent = normalize_agent(agent)
+    if agent == "all":
+        return True
+    if rel == "GEMINI.md" or rel.startswith(".agents/"):
+        return agent == "agy"
+    if rel == "CLAUDE.md" or rel.startswith(".claude/"):
+        return agent == "claude"
+    if rel == "CODEX.md" or rel.startswith(".codex/"):
+        return agent == "codex"
+    return True
+
+
+def apply_kit(
+    target_root: Path,
+    kit_name: str,
+    *,
+    agent: str = "all",
+    dry_run: bool = False,
+) -> dict:
+    """Apply an additive overlay kit ('base', 'laravel', 'wordpress') for all or one agent without overwriting existing files."""
+    agent = normalize_agent(agent)
     target_root = Path(target_root)
     if not target_root.exists() or not target_root.is_dir() or target_root.is_symlink():
         raise ValueError(f"Target must be an existing non-symlink directory: {target_root}")
@@ -149,7 +176,8 @@ def apply_kit(target_root: Path, kit_name: str, *, dry_run: bool = False) -> dic
             ".codex/skills/laravel-boost/agents/openai.yaml",
         ]
         for rel in rel_items:
-            plan.append((template_root / rel, target_root / rel, rel))
+            if _rel_allowed_for_agent(rel, agent):
+                plan.append((template_root / rel, target_root / rel, rel))
         plan.append((template_root / "boost.json", app_root / "boost.json", boost_rel))
     elif kit_name == "wordpress":
         wp_root = _find_wordpress_root(target_root)
@@ -161,12 +189,14 @@ def apply_kit(target_root: Path, kit_name: str, *, dry_run: bool = False) -> dic
         for src in sorted(template_root.rglob("*")):
             if src.is_file():
                 rel = src.relative_to(template_root).as_posix()
-                plan.append((src, target_root / rel, rel))
+                if _rel_allowed_for_agent(rel, agent):
+                    plan.append((src, target_root / rel, rel))
     else:
         for src in sorted(template_root.rglob("*")):
             if src.is_file():
                 rel = src.relative_to(template_root).as_posix()
-                plan.append((src, target_root / rel, rel))
+                if _rel_allowed_for_agent(rel, agent):
+                    plan.append((src, target_root / rel, rel))
 
     # Preflight all planned destinations for symlink-parent traversal before writing any file
     for _src, dst, rel in plan:
@@ -207,11 +237,77 @@ def apply_kit(target_root: Path, kit_name: str, *, dry_run: bool = False) -> dic
     return {
         "target": target_root.as_posix(),
         "kit": kit_name,
+        "agent": agent,
         "dry_run": dry_run,
         "installed": installed,
         "preserved": preserved,
         "merge_needed": merge_needed,
         **extra,
+    }
+
+
+def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
+    """Read-only stack health check for Laravel and/or WordPress overlays across all three agents."""
+    target_root = Path(target_root).resolve()
+    checks: list[dict[str, str]] = []
+
+    def add_check(name: str, status: str, detail: str) -> None:
+        checks.append({"name": name, "status": status, "detail": detail})
+
+    if kit_name is None:
+        if _find_laravel_app_root(target_root) is not None:
+            kit_name = "laravel"
+        elif _find_wordpress_root(target_root) is not None:
+            kit_name = "wordpress"
+        else:
+            kit_name = "base"
+
+    if kit_name == "laravel":
+        app_root = _find_laravel_app_root(target_root)
+        if app_root is not None:
+            add_check("artisan", "ok", (app_root / "artisan").as_posix())
+        else:
+            add_check("artisan", "missing", f"no artisan under {target_root.as_posix()}")
+        lsp_py = target_root / "scripts/lsp-diagnostics.py"
+        add_check("lsp-diagnostics.py", "ok" if lsp_py.is_file() else "missing", lsp_py.as_posix())
+        boost_json = (app_root / "boost.json") if app_root else (target_root / "boost.json")
+        add_check("boost.json", "ok" if boost_json.is_file() else "missing", boost_json.as_posix())
+        for agent_dir in (".agents", ".claude", ".codex"):
+            sk = target_root / agent_dir / "skills/laravel-boost/SKILL.md"
+            add_check(f"skill:{agent_dir}", "ok" if sk.is_file() else "missing", sk.as_posix())
+        for binary, hint in (
+            ("laravel-lsp", "composer global require laravel/lsp"),
+            ("tailwindcss-language-server", "npm install -g @tailwindcss/language-server"),
+            ("intelephense", "npm install -g intelephense"),
+        ):
+            found = shutil.which(binary)
+            add_check(binary, "ok" if found else "setup_required", found or hint)
+    elif kit_name == "wordpress":
+        wp_root = _find_wordpress_root(target_root)
+        if wp_root is not None:
+            add_check("wordpress-root", "ok", wp_root.as_posix())
+        else:
+            add_check("wordpress-root", "missing", "no wp-load.php or wp-config.php")
+        phpcs_xml = target_root / "phpcs.xml.dist"
+        add_check("phpcs.xml.dist", "ok" if phpcs_xml.is_file() else "missing", phpcs_xml.as_posix())
+        phpcs_comp = target_root / "tools/phpcs/composer.json"
+        add_check("phpcs-toolchain", "ok" if phpcs_comp.is_file() else "missing", phpcs_comp.as_posix())
+        for agent_dir in (".agents", ".claude", ".codex"):
+            sk = target_root / agent_dir / "skills/wordpress-site-safety/SKILL.md"
+            add_check(f"wordpress-rule:{agent_dir}", "ok" if sk.is_file() else "missing", sk.as_posix())
+        wp_bin = shutil.which("wp")
+        add_check("wp-cli", "ok" if wp_bin else "setup_required", wp_bin or "user-scoped WP-CLI")
+    else:
+        for entry in ("AGENTS.md", "GEMINI.md", "CLAUDE.md", "CODEX.md"):
+            p = target_root / entry
+            add_check(entry, "ok" if p.is_file() else "missing", p.as_posix())
+
+    missing_count = sum(1 for c in checks if c["status"] in ("missing", "setup_required"))
+    return {
+        "target": target_root.as_posix(),
+        "kit": kit_name,
+        "missing_or_setup_required": missing_count,
+        "checks": checks,
     }
 
 
@@ -228,6 +324,7 @@ def provision(
 ) -> dict:
     if mode == "copy":
         mode = "isolated"
+    agent = normalize_agent(agent)
     target_root = Path(target_root).resolve()
     target_root.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
@@ -252,7 +349,7 @@ def provision(
         ),
     )
 
-    # 2. Antigravity isolated customizations (.agents/ and GEMINI.md)
+    # 2. Antigravity / Gemini isolated customizations (.agents/ and GEMINI.md)
     if do_agy:
         gemini_md = target_root / "GEMINI.md"
         record(
@@ -410,7 +507,7 @@ def provision(
     kit_results: list[dict] = []
     if kits:
         for kit_name in kits:
-            kit_res = apply_kit(target_root, kit_name, dry_run=False)
+            kit_res = apply_kit(target_root, kit_name, agent=agent, dry_run=False)
             kit_results.append(kit_res)
             written.extend(kit_res["installed"])
             skipped.extend(kit_res["preserved"])
@@ -460,7 +557,7 @@ def main(argv: list[str] | None = None) -> int:
     p_init = sub.add_parser("init", help="Initialize isolated agent skills, rules, scripts, and optional stack kits")
     p_init.add_argument("target", help="Target repository path")
     p_init.add_argument("--mode", choices=["isolated", "copy", "hybrid", "inherit"], default="isolated")
-    p_init.add_argument("--agent", choices=["all", "agy", "claude", "codex"], default="all")
+    p_init.add_argument("--agent", choices=AGENT_CHOICES, default="all")
     p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, laravel, wordpress)")
     p_init.add_argument("--no-scripts", action="store_true", help="Do not copy scripts/todo-graph.py or verify-agent-tiers.mjs")
     p_init.add_argument("--with-todo", action="store_true", help="Seed starter todo/ directory")
@@ -469,14 +566,20 @@ def main(argv: list[str] | None = None) -> int:
     p_sync = sub.add_parser("sync", help="Synchronize isolated skills and rules into an existing repo")
     p_sync.add_argument("target", help="Target repository path")
     p_sync.add_argument("--mode", choices=["isolated", "copy", "hybrid", "inherit"], default="isolated")
-    p_sync.add_argument("--agent", choices=["all", "agy", "claude", "codex"], default="all")
+    p_sync.add_argument("--agent", choices=AGENT_CHOICES, default="all")
     p_sync.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, laravel, wordpress)")
     p_sync.add_argument("--include-scripts", action="store_true", help="Also update scripts/todo-graph.py and verify-agent-tiers.mjs")
 
     p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, laravel, wordpress) to a target repo")
     p_kit.add_argument("target", help="Target repository path")
     p_kit.add_argument("kit_name", choices=list_kits(), help="Kit name to apply")
+    p_kit.add_argument("--agent", choices=AGENT_CHOICES, default="all", help="Install kit files for all agents or one agent")
     p_kit.add_argument("--dry-run", action="store_true", help="Preview files that would be installed without writing")
+
+    p_doc = sub.add_parser("doctor", help="Run read-only stack and agent overlay health checks on a target repo")
+    p_doc.add_argument("target", help="Target repository path")
+    p_doc.add_argument("kit_name", nargs="?", choices=list_kits(), default=None, help="Optional kit name (auto-detects if omitted)")
+    p_doc.add_argument("--strict", action="store_true", help="Exit 3 if any check is missing or setup_required")
 
     sub.add_parser("kits", help="List available overlay kits")
 
@@ -492,8 +595,15 @@ def main(argv: list[str] | None = None) -> int:
     target = Path(args.target)
 
     if args.command == "kit":
-        res = apply_kit(target, args.kit_name, dry_run=args.dry_run)
+        res = apply_kit(target, args.kit_name, agent=args.agent, dry_run=args.dry_run)
         print(json.dumps(res, indent=2))
+        return 0
+
+    if args.command == "doctor":
+        res = doctor_repo(target, args.kit_name)
+        print(json.dumps(res, indent=2))
+        if args.strict and res["missing_or_setup_required"] > 0:
+            return 3
         return 0
 
     if args.command == "init":

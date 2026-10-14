@@ -1,6 +1,6 @@
 # Laravel kit
 
-Additive overlay for a Laravel application so every project gets the same agent toolchain: Laravel Boost, Laravel LSP, Tailwind LSP, and the PHP LSP (Intelephense).
+Additive overlay for a Laravel application so every project gets the same agent toolchain across Gemini (`.agents/`), Claude (`.claude/`), and Codex (`.codex/`): Laravel Boost, Laravel LSP, Tailwind LSP, and the PHP LSP (Intelephense).
 
 This kit does not scaffold a Laravel app. It does not install global binaries. It copies the overlay into an existing tree that already has `artisan`, and it tells you what is still `setup_required`.
 
@@ -10,20 +10,20 @@ Install `kits/base` (or `python forge.py init`) first when the repo should speak
 
 | Path | Role |
 | ---- | ---- |
-| `boost.json` | Boost skill list at the Laravel app root |
-| `scripts/lsp-diagnostics.py` | Stdio LSP client for Laravel, Tailwind, and PHP |
-| `scripts/hooks/laravel-lsp-pre-push.sh` | Pre-push check (missing servers skip, never silent) |
-| `docs/laravel-agent-tooling.md` | Wiring guide for Boost MCP and language servers |
-| `.agents/skills/laravel-boost/SKILL.md` | Antigravity (`agy`) skill copy |
+| `boost.json` | Boost skill list placed at the Laravel app root |
+| `scripts/lsp-diagnostics.py` | One stdio LSP client for Laravel, Tailwind, and Intelephense |
+| `scripts/hooks/laravel-lsp-pre-push.sh` | Pre-push check (missing servers skip, never pass silently) |
+| `docs/laravel-agent-tooling.md` | How to wire Boost MCP and the three language servers |
+| `.agents/skills/laravel-boost/SKILL.md` | Gemini / Antigravity (`agy`) skill copy |
 | `.claude/skills/laravel-boost/SKILL.md` | Claude Code (`claude`) skill copy |
-| `.codex/skills/laravel-boost/SKILL.md` | OpenAI Codex (`codex`) skill copy + `openai.yaml` |
-| `.mcp.json` | Created if missing; prints merge snippet if present |
+| `.codex/skills/laravel-boost/SKILL.md` | OpenAI Codex (`codex`) skill copy plus `agents/openai.yaml` |
+| `.mcp.json` | Created when missing; prints `laravel-boost` fragment if present |
 
 ## Install
 
 ```powershell
-python forge.py kit /path/to/laravel-project laravel
-python forge.py kit /path/to/laravel-project laravel --dry-run
+python forge.py kit /path/to/laravel-project laravel [--agent all|gemini|claude|codex] [--dry-run]
+python forge.py doctor /path/to/laravel-project laravel
 ```
 
 ```bash

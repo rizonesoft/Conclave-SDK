@@ -77,11 +77,13 @@ else
 	report "wp-cli" "setup_required" "user-scoped WP-CLI; do not drop a PHAR into the repo"
 fi
 
-if [ -f "$target/.claude/skills/wordpress-site-safety/SKILL.md" ]; then
-	report "wordpress-rule" "ok" "$target/.claude/skills/wordpress-site-safety/SKILL.md"
-else
-	report "wordpress-rule" "missing" "run the kit installer"
-fi
+for agent_dir in .agents .claude .codex; do
+	if [ -f "$target/$agent_dir/skills/wordpress-site-safety/SKILL.md" ]; then
+		report "wordpress-rule:$agent_dir" "ok" "$target/$agent_dir/skills/wordpress-site-safety/SKILL.md"
+	else
+		report "wordpress-rule:$agent_dir" "missing" "run the kit installer"
+	fi
+done
 
 if [ "$strict" = 1 ] && [ "$missing" -gt 0 ]; then
 	exit 3

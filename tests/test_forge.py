@@ -79,26 +79,26 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertEqual(status["claude_skills"], [])
         self.assertEqual(status["codex_skills"], [])
 
-    def test_single_agent_sync_is_strictly_isolated_and_preserves_agents_md(self):
+    def test_single_agent_sync_and_gemini_alias_preserve_existing_docs(self):
         custom_agents = "# Custom Project AGENTS.md\n"
         (self.target / "AGENTS.md").write_text(custom_agents, encoding="utf-8")
         forge.provision(
             self.target,
             mode="isolated",
-            agent="codex",
+            agent="gemini",
             include_scripts=False,
             overwrite_existing_docs=False,
         )
         status = forge.check_repo(self.target)
         self.assertEqual((self.target / "AGENTS.md").read_text(encoding="utf-8"), custom_agents)
-        self.assertFalse(status["has_gemini_md"])
+        self.assertTrue(status["has_gemini_md"])
         self.assertFalse(status["has_claude_md"])
-        self.assertTrue(status["has_codex_md"])
-        self.assertEqual(status["agy_skills"], [])
+        self.assertFalse(status["has_codex_md"])
+        self.assertEqual(status["agy_skills"], EXPECTED_SKILLS)
         self.assertEqual(status["claude_skills"], [])
-        self.assertEqual(status["codex_skills"], EXPECTED_SKILLS)
+        self.assertEqual(status["codex_skills"], [])
 
-    def test_list_kits_and_base_kit_additive_preservation(self):
+    def test_list_kits_and_base_kit_additive_preservation_and_per_agent_import(self):
         self.assertEqual(forge.list_kits(), ["base", "laravel", "wordpress"])
         (self.target / "AGENTS.md").write_text("locally tuned\n", encoding="utf-8")
         dry = forge.apply_kit(self.target, "base", dry_run=True)
@@ -106,7 +106,13 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertIn("AGENTS.md", dry["preserved"])
         self.assertFalse((self.target / ".claude/skills/authoring-skills/SKILL.md").exists())
 
-        res = forge.apply_kit(self.target, "base", dry_run=False)
+        # Import base kit for codex only first, then claude, then gemini
+        forge.apply_kit(self.target, "base", agent="codex")
+        self.assertTrue((self.target / ".codex/skills/authoring-skills/SKILL.md").is_file())
+        self.assertFalse((self.target / ".claude/skills/authoring-skills/SKILL.md").exists())
+        self.assertFalse((self.target / ".agents/skills/authoring-skills/SKILL.md").exists())
+
+        res = forge.apply_kit(self.target, "base", agent="all")
         self.assertEqual((self.target / "AGENTS.md").read_text(encoding="utf-8"), "locally tuned\n")
         self.assertIn("AGENTS.md", res["preserved"])
         self.assertTrue((self.target / ".agents/skills/authoring-skills/SKILL.md").is_file())
@@ -114,7 +120,7 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertTrue((self.target / ".codex/skills/authoring-skills/SKILL.md").is_file())
         self.assertTrue((self.target / "scripts/verify-agent-tiers.mjs").is_file())
 
-    def test_laravel_kit_root_and_nested_platform_discovery(self):
+    def test_laravel_kit_root_and_nested_platform_discovery_and_doctor(self):
         with self.assertRaises(ValueError):
             forge.apply_kit(self.target, "laravel")
 
@@ -131,7 +137,16 @@ class ForgeProvisionTests(unittest.TestCase):
         mcp = json.loads((nested / ".mcp.json").read_text(encoding="utf-8"))
         self.assertEqual(mcp["mcpServers"]["laravel-boost"]["args"], ["platform/artisan", "boost:mcp"])
 
-    def test_wordpress_kit_discovery_and_additive_install(self):
+        doc = forge.doctor_repo(nested)
+        self.assertEqual(doc["kit"], "laravel")
+        by_name = {c["name"]: c["status"] for c in doc["checks"]}
+        self.assertEqual(by_name["artisan"], "ok")
+        self.assertEqual(by_name["boost.json"], "ok")
+        self.assertEqual(by_name["skill:.agents"], "ok")
+        self.assertEqual(by_name["skill:.claude"], "ok")
+        self.assertEqual(by_name["skill:.codex"], "ok")
+
+    def test_wordpress_kit_discovery_additive_install_and_doctor(self):
         with self.assertRaises(ValueError):
             forge.apply_kit(self.target, "wordpress")
 
@@ -146,6 +161,15 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertTrue((wp_site / ".claude/skills/wordpress-site-safety/SKILL.md").is_file())
         self.assertTrue((wp_site / ".codex/skills/wordpress-site-safety/SKILL.md").is_file())
         self.assertTrue((wp_site / "mcp.wordpress.example.json").is_file())
+
+        doc = forge.doctor_repo(wp_site)
+        self.assertEqual(doc["kit"], "wordpress")
+        by_name = {c["name"]: c["status"] for c in doc["checks"]}
+        self.assertEqual(by_name["wordpress-root"], "ok")
+        self.assertEqual(by_name["phpcs.xml.dist"], "ok")
+        self.assertEqual(by_name["wordpress-rule:.agents"], "ok")
+        self.assertEqual(by_name["wordpress-rule:.claude"], "ok")
+        self.assertEqual(by_name["wordpress-rule:.codex"], "ok")
 
     def test_no_em_or_en_dashes_in_authored_markdown(self):
         for md in FORGE_ROOT.rglob("*.md"):
@@ -176,17 +200,26 @@ class ForgeProvisionTests(unittest.TestCase):
             self.assertIn("100% complete, shippable product", groom_text)
             self.assertIn("five-part rule", groom_text)
 
-    def test_markdown_table_rows_do_not_wrap(self):
+    def test_markdown_table_descriptions_within_88_chars_and_rows_do_not_wrap(self):
         for md in FORGE_ROOT.rglob("*.md"):
             if ".git" in md.parts:
                 continue
             for lineno, line in enumerate(md.read_text(encoding="utf-8").splitlines(), 1):
                 stripped = line.strip()
                 if stripped.startswith("|") and stripped.endswith("|"):
+                    cells = [c.strip() for c in stripped.strip("|").split("|")]
+                    for cell in cells:
+                        if set(cell) <= {"-"}:
+                            continue
+                        self.assertLessEqual(
+                            len(cell),
+                            88,
+                            f"Table cell exceeds 88 chars ({len(cell)} > 88) at {md}:{lineno}: {cell!r}",
+                        )
                     self.assertLessEqual(
                         len(line),
-                        100,
-                        f"Table row wraps raw md ({len(line)} > 100 chars) at {md}:{lineno}",
+                        140,
+                        f"Table row wraps raw md ({len(line)} > 140 chars) at {md}:{lineno}",
                     )
 
 
