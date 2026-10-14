@@ -6,12 +6,12 @@ Agent instructions for this repository. Each agent loads this shared contract al
 
 | Path | Purpose |
 | ---- | ------- |
-| `docs/plans/` | Foundation plan, architecture decisions, milestones, and performance targets. Read before any core or build work. |
-| `design/SPEC.md` | The interface source of truth. When a screenshot and the text disagree, the text wins. |
-| `todo/` | The live execution plan. Read `todo/README.md` before authoring or implementing; `todo/implementation-plan.md` is generated, never hand-edited. |
-| `scripts/` | The TODO graph tooling (`todo-graph.py` plus `lib/todo_graph.py`), stdlib-only Python. |
-| `tests/scripts/` | Tests for the TODO graph tooling. |
-| `.agents/` | Isolated skills and rules for Google Antigravity (`GEMINI.md`). |
+| `docs/plans/` | Foundation plan, architecture decisions, and milestones. |
+| `design/SPEC.md` | Interface source of truth (text wins over screenshots). |
+| `todo/` | Live execution plan (`todo/README.md`; generated plan). |
+| `scripts/` | TODO graph CLI (`todo-graph.py` and `lib/todo_graph.py`). |
+| `tests/scripts/` | Unit tests for the TODO graph tooling. |
+| `.agents/` | Isolated skills and rules for Antigravity (`GEMINI.md`). |
 | `.claude/` | Isolated skills and rules for Claude Code (`CLAUDE.md`). |
 | `.codex/` | Isolated skills and rules for OpenAI Codex (`CODEX.md`). |
 | `build/` | Ignored derived output, never an authoritative record. |
@@ -24,6 +24,7 @@ Core mechanics: the Implementation Order table in each TODO file is the dependen
 
 Granularity and 100% plan completeness:
 - **Small, single-responsibility sections:** Never bundle multiple subsystems, dialogs, or workflows into one coarse umbrella section. Split every TODO file into small, single-responsibility sections that each deliver one coherent, testable capability.
+- **Short table descriptions (`<= 55` chars):** Keep section headings (`## N. <Title>`), `Deliverable` cells in `Implementation Order`, and `Scope` cells in index tables to a concise noun phrase of at most 55 characters so raw Markdown table rows stay under 100 characters and never wrap in raw `.md` editors. Put file paths, symbols, CLI flags, and enumerations in the section body and micro-steps, never in the heading or table cell.
 - **Granular micro-step checklist items:** Every section carries 1 to 30 buildable micro-step items (typically 4 to 15 concrete micro-steps, never a 1-bullet summary stub), ending with `- [ ] Commit: <message>`. Each non-Commit item names one action, a concrete path/symbol/command in backticks, an observable `Done when:` in the same bullet, a `Cheaper substitute:` on UI and write items, and a source citation when copying behavior from the plan or SPEC.
 - **100% complete development plan:** Running `process-plan` to completion must produce a 100% complete, shippable product with zero unowned surfaces, controls, settings, refusal/error paths, undo/reverse paths, or persistence read-backs. Never cap operator-requested planning and never silently drop scope.
 
@@ -36,7 +37,7 @@ For TODO work, use the skill in your agent's isolated skill directory (`.agents/
 - **Writes are serial:** one session owns the working tree. Check `git status` before building over unfamiliar work.
 - **Fix at the owning layer:** a setting in its setting, behaviour in the code that produces it, a token in the token file. No output filters that hide a problem. Code changes end the report with a `Layer:` line.
 - **Tests prove claims:** a section's Test checkpoint must be able to fail, and is quoted, not paraphrased, in its stamp.
-- **No em dashes** in authored prose. One line per paragraph and list item in Markdown.
+- **No em dashes and no wrapping tables:** no em dashes or en dashes in authored prose; one line per paragraph and list item in Markdown; keep raw Markdown table rows under 100 characters so they do not wrap in raw `.md` view.
 - **Commits:** trunk-based `main`, concise imperative messages, the section ref in the body. Commits follow logical steps within a section; review fix-loop commits append to the candidate range. Never amend a candidate under review, never bypass hooks, never force-push.
 - **Credentials** never enter tracked files, arguments or logs.
 - **File writes:** every file write is temp-file-then-replace in the destination folder.

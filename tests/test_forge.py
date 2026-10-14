@@ -107,6 +107,19 @@ class ForgeProvisionTests(unittest.TestCase):
             self.assertIn("100% complete, shippable product", groom_text)
             self.assertIn("five-part rule", groom_text)
 
+    def test_markdown_table_rows_do_not_wrap(self):
+        for md in FORGE_ROOT.rglob("*.md"):
+            if ".git" in md.parts:
+                continue
+            for lineno, line in enumerate(md.read_text(encoding="utf-8").splitlines(), 1):
+                stripped = line.strip()
+                if stripped.startswith("|") and stripped.endswith("|"):
+                    self.assertLessEqual(
+                        len(line),
+                        100,
+                        f"Table row wraps raw md ({len(line)} > 100 chars) at {md}:{lineno}",
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()

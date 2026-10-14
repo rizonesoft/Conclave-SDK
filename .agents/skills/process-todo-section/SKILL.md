@@ -27,11 +27,11 @@ It prints the path, title, phase, needs, dependencies (met and unmet) and the se
 
 | Exit | Meaning | Do this |
 | :-: | --- | --- |
-| 0 | Resolved, open, dependencies met, no waiting Need | Proceed to step 1 |
-| 1 | No such section | Stop. Report the reference as unresolvable rather than guessing a near match. |
+| 0 | Open, dependencies met, no waiting Need | Proceed to step 1. |
+| 1 | No such section | Stop; report the reference as unresolvable. |
 | 2 | No section reference in the input | Stop and ask which section. |
-| 3 | The section is already `[x]` | Do not process it. Hand to `review-todo-section` in audit stance. |
-| 4 | Waiting: unmet dependencies, an inactive file, or a person Need (`owner-decision`, `third-party`, `operator`) | Stop at the gate and name what it waits on. |
+| 3 | The section is already `[x]` | Hand to `review-todo-section` in audit stance. |
+| 4 | Waiting on deps, file status, or person Need | Stop at the gate and name what it waits on. |
 
 Use the printed `skill_arg` (`DNN TNN §N`) as the canonical form for the rest of the run, including the commit message and the review call.
 
@@ -63,13 +63,13 @@ Seven questions, each answered against the repository and the governing document
 
 | Check | What you are asking | The failure it catches |
 | ----- | ------------------- | ---------------------- |
-| Legitimacy | Does a real source demand this: the foundation plan, the SPEC, upstream specification, a user need? | Work invented by the plan, built faithfully, wanted by nobody |
-| Currency | Do the files, classes, versions and API shapes it names still exist and behave that way? | A section pinned to a path or count that moved |
-| Consistency | Do its items agree with each other, the Current state, and the sections it depends on? | Two items specifying different things; the later silently wins |
-| Correctness | Are the behaviors it states what the source says (threading rules, WinUI behavior, SPEC tokens)? | A stale behavior ported confidently into code |
-| Sufficiency | Is there enough here to build without inventing? Are decisions made or dumped on the implementer? | A section that becomes a design session |
-| Verifiability | Can the Test checkpoint run, and can it fail? Do named fixtures and corpus files exist? | A checkpoint that passes by being unfalsifiable |
-| Accuracy | Is every concrete claim still literally true: paths, counts, versions, references, deferrals? | Authority that quietly cites things that moved |
+| Legitimacy | Does the plan, SPEC, or spec demand this? | Unwanted work invented by the plan |
+| Currency | Do named files, classes, and APIs match? | Section pinned to a moved path |
+| Consistency | Do items agree with Current state and deps? | Contradictory items in one file |
+| Correctness | Do stated behaviors match the source/SPEC? | Stale behavior ported into code |
+| Sufficiency | Can this build without inventing decisions? | Section becomes a design session |
+| Verifiability | Can the checkpoint run and fail on fixtures? | Unfalsifiable checkpoint passes |
+| Accuracy | Are paths, counts, refs, and deferrals true? | Authority citing moved facts |
 
 Ground each answer: `python scripts/todo-graph.py validate`, searches over `src/` and `tests/` for the named symbols, `git log --oneline -5 -- <touched paths>`. Check deferrals in both directions with `python scripts/todo-graph.py query deferred`: deferrals this section owns are part of its scope; deferrals this section wrote get re-read against today's tree (owner shipped means close it as `Resolved:`; description drifted means correct it; work quietly done elsewhere means verify it, close the deferral, and tick the owner's item).
 
@@ -77,7 +77,7 @@ Anything unclear becomes a question answered from the source. Where the source i
 
 ### 3. Correct the section when validation fails
 
-Fix findings in the TODO file, before implementation, so plan and build never disagree in the record. Stale facts are corrected in place and marked `**Corrected YYYY-MM-DD:**` with what they said before. Contradictions resolve toward the source and the later decision. Unbuildable or coarse 1-bullet summary items are decomposed into concrete five-part micro-steps (one action, named path/symbol in backticks, `Done when:` in the same bullet, `Cheaper substitute:` on UI and write items, and source citation). Items already 100% implemented in the codebase are ticked with the XREF, `file:line`, or commit SHA that shipped them; half-implemented items stay `[ ]` and are rewritten to name the exact missing pieces. Genuinely wrong work is struck with a stated reason, never silently dropped. An unfalsifiable checkpoint is rewritten so it can fail. A **frozen** behavior that looks wrong is not changed in code or plan: record the question for the operator and continue around it. If the whole section is wrong, stop and report instead of implementing.
+Fix findings in the TODO file, before implementation, so plan and build never disagree in the record. Stale facts are corrected in place and marked `**Corrected YYYY-MM-DD:**` with what they said before. Contradictions resolve toward the source and the later decision. Overlong `Deliverable` cells or `## N. <Title>` headings (`> 55` characters) are shortened to a concise noun phrase so raw Markdown table rows do not wrap. Unbuildable or coarse 1-bullet summary items are decomposed into concrete five-part micro-steps (one action, named path/symbol in backticks, `Done when:` in the same bullet, `Cheaper substitute:` on UI and write items, and source citation). Items already 100% implemented in the codebase are ticked with the XREF, `file:line`, or commit SHA that shipped them; half-implemented items stay `[ ]` and are rewritten to name the exact missing pieces. Genuinely wrong work is struck with a stated reason, never silently dropped. An unfalsifiable checkpoint is rewritten so it can fail. A **frozen** behavior that looks wrong is not changed in code or plan: record the question for the operator and continue around it. If the whole section is wrong, stop and report instead of implementing.
 
 Correct the plan, never the goalpost: narrowing a section so the code you were about to write happens to satisfy it is fitting the contract to the implementation. Report every plan correction alongside the implementation. If step 2 finds nothing, say so in one line and move on.
 

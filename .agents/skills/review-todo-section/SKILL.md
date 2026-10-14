@@ -60,12 +60,12 @@ Record every round in the findings file: round number, reviewer identifier, cand
 
 | Lens | Asks |
 | ---- | ---- |
-| `adversarial` | How does this fail on hostile input: malformed files, races, abort paths, macro-bearing Office files, links? |
-| `consistency` | Does it agree with the tree: module rules, naming, shared controls, settings store, error shape? |
-| `integration` | Do callers and consumers still hold: actor contract, tile hand-off, job queue, shell slots? |
-| `source-defect` | When a specification or SPEC detail is at stake: is the source read correctly and is any deviation declared? |
-| `design` | On a surface: the rendered result judged against the SPEC screenshot and tokens, never source alone. |
-| `record` | Is the record honest: evidence matches what ran, deferrals name owners, the flip is earned? |
+| `adversarial` | How does this fail on hostile input, races, aborts, macros, or links? |
+| `consistency` | Does it match module rules, naming, shared controls, and settings? |
+| `integration` | Do callers hold: actor contract, tile hand-off, jobs, shell slots? |
+| `source-defect` | Is the upstream spec or SPEC read accurately with deviations noted? |
+| `design` | Does the rendered UI match the SPEC screenshot and colour tokens? |
+| `record` | Does evidence match what ran, with owned deferrals and earned flip? |
 
 The loop is bounded: at most 3 rounds. Findings are fixed in new commits appended to the candidate, gates re-run, and the affected lenses re-run against the new tip. A unit patched three rounds running is stopped and re-thought instead of patched again. Round verdicts for the receipt: `clean` (no findings), `fixed` (findings found and fixed in a later round), `stopped-at-3` (cap reached; every leftover is filed through `add-todo` with an owner, or the run stops with no stamp when a leftover is safety, data-integrity or stamp-invalidating). When no independent reviewer can run, record the outage in the findings file with an owner and a due date and stop without a stamp: a single-context self-review pass is not a substitute.
 

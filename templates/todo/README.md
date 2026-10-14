@@ -52,7 +52,7 @@ In order: frontmatter, `# TODO-NN -- Title`, `> **Goal:**`, `> **Current state:*
 
 ### The Implementation Order table is the dependency graph
 
-Every `## N.` body section has exactly one row (`Order`, `§N`, `Deliverable`, `Depends On`, `[ ]`), and every row has exactly one body section. The validator enforces both directions, refuses cycles, refuses a prerequisite in a later phase than its consumer, and refuses a ticked row without its stamp. A file holds at most 55 sections: past that, the next work opens a new file in the same domain, split by subject. Section numbers are permanent addresses and are never renumbered.
+Every `## N.` body section has exactly one row (`Order`, `§N`, `Deliverable`, `Depends On`, `[ ]`), and every row has exactly one body section. Keep every section heading (`## N. <Title>`) and its `Deliverable` cell (plus `Scope` cells in index tables) to a concise noun phrase of at most 55 characters so raw Markdown table rows stay under 100 characters and never wrap in raw `.md` view; put file paths, symbol lists, and flags in the section body and checklist. The validator enforces both directions, refuses `Deliverable` or section titles over 55 characters, refuses cycles, refuses a prerequisite in a later phase than its consumer, and refuses a ticked row without its stamp. A file holds at most 55 sections: past that, the next work opens a new file in the same domain, split by subject. Section numbers are permanent addresses and are never renumbered.
 
 ### Cross-reference notation
 
@@ -79,6 +79,7 @@ Do not rewrite a `[x]` section's checklist: that is the contract its stamp cover
 ### Micro/small items and 100% complete development plan
 
 - **Small, single-responsibility sections:** Never bundle multiple subsystems, dialogs, or workflows into one coarse umbrella section. Split work into small, single-responsibility sections that each deliver one coherent capability, with explicit `Depends On` edges in the Implementation Order table.
+- **Short table descriptions (`<= 55` chars):** Every `Deliverable` cell and `## N. <Title>` heading is a short noun phrase (`<= 55` chars, enforced by `validate`) so raw `.md` table rows in `TODO-*.md` and `todo/implementation-plan.md` never wrap in the editor.
 - **Granular micro-step checklist items (five-part rule):** Never write a 1-bullet or 2-bullet summary checkbox for an entire subsystem. Decompose every section into individual micro-step checkboxes (typically 4 to 15 micro-steps per section, max 30). Every non-`Commit:` item carries: (1) one action (never "do X and then Y"), (2) a concrete path, symbol, or command in backticks, (3) `Done when:` observable end state in the same bullet, (4) `Cheaper substitute:` on UI and write items so the checkpoint and reviewer fail on shortcuts or wrong-layer edits, and (5) a source citation when copying behavior.
 - **100% complete development plan:** Running `process-plan` to completion must leave a 100% complete, shippable product. Every milestone commitment in the foundation plan and every screen, dialog, control, command, setting, error/refusal path, undo/reverse operation, and persistence read-back in `design/SPEC.md` is owned by a concrete section and micro-step. Never cap operator-requested planning and never silently drop scope.
 - **Surface completeness (`Surface: yes`):** Every control, menu item, dialog, and state on the SPEC surface is either working (proven on the rendered surface with real data and read-back) or deferred to a named, resolving section (`-> XREF: DNN TNN §N`). A disabled or stubbed control with no resolving owner section refuses validation and review.
@@ -124,17 +125,17 @@ python -m unittest tests.scripts.test_todo_graph   # the tooling's own tests
 
 | Skill | Use |
 | ----- | --- |
-| `add-todo` | Front door. Route new work to the right domain, file and section. |
-| `create-todo` | Author a whole new TODO file, wire XREFs, update indexes. |
-| `groom-plan` | Harden the tree for a weaker executor: sequence, drift, gaps, complete features. |
-| `process-todo-section` | Fact-check the plan, correct what has drifted, then ship exactly one section. |
-| `review-todo-section` | Quality gate after implementation; writes the stamp through `stamp`. |
-| `process-todo-file` | Loose-end sweep and closure when every section is `[x]`. |
-| `process-phase` | Attended phase runner: repair and gap-audit the phase, then ship it to 100% or park it. |
-| `process-plan` | Front door for `implementation-plan.md`; chains ready phases. |
+| `add-todo` | Route new work to the right domain, file, and section. |
+| `create-todo` | Author a new TODO file, wire XREFs, and update indexes. |
+| `groom-plan` | Harden sequence, drift, gaps, and micro-step granularity. |
+| `process-todo-section` | Fact-check, repair drift, and ship exactly one section. |
+| `review-todo-section` | Run review lenses and write the stamp via `stamp`. |
+| `process-todo-file` | Run loose-end sweep and close an all-`[x]` file. |
+| `process-phase` | Repair, gap-audit, and run a phase to 100% or park it. |
+| `process-plan` | Front door for `implementation-plan.md`; chains phases. |
 
 ## Rules for every file
 
-- One line per paragraph and per list item in Markdown prose; no em dashes or en dashes in new text.
+- One line per paragraph and per list item in Markdown prose; no em dashes or en dashes in new text; keep Markdown table rows under 100 characters so they do not wrap in raw `.md` view.
 - A defect noticed outside the current work is filed in `todo/findings.md` with `file:line`, not fixed on the side inside someone else's commit; scheduling it means writing a section through `add-todo`.
 - Questions that need a person are not TODO rows without a Need: the section names `owner-decision` or `third-party` and records the answer before the Need is removed.

@@ -29,10 +29,10 @@ python scripts/todo-graph.py query ready
 
 | State | Do this |
 | ----- | ------- |
-| Another writer holds the tree | Stop and say so. Two writers on one tree is how a call ships without its interface. |
-| Argument is `--audit` | Audit below, then stop. Do not start a run. |
-| Argument is a phase (`0`, `Phase 0`) | That is `process-phase` for that phase only. It does not chain. |
-| Empty argument, "the plan", or this file's path | Audit, then chain phases as above. |
+| Another writer holds the tree | Stop and say so; never run two writers on one tree. |
+| Argument is `--audit` | Run the audit below, then stop. Do not start a run. |
+| Argument is a phase (`0`, `Phase 0`) | Run `process-phase` for that phase only; do not chain. |
+| Empty argument, "the plan", or path | Audit below, then chain ready phases. |
 
 ## 1. Audit the whole plan
 
