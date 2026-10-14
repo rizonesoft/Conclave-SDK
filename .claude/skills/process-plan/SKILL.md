@@ -5,9 +5,9 @@ description: Front door for todo/implementation-plan.md. Audit the plan, then ru
 
 # Process the Implementation Plan
 
-The only front door for `todo/implementation-plan.md` when the user did not name a single phase. The file is a generated projection of the TODO graph: processing it is not "pick a row and improvise", and it is not "tick the boxes" (boxes flip only through `stamp`).
+The only front door for `todo/implementation-plan.md` when the user did not name a single phase. The file is a generated projection of the 100% complete development plan (small, single-responsibility sections and granular five-part micro-steps): processing it is not "pick a row and improvise", and it is not "tick the boxes" (boxes flip only through `stamp`).
 
-This skill does not ship a section and does not write a stamp. It audits, then chains `process-phase` runs. Writes stay serial: the run this skill starts is the only writer on the tree.
+This skill does not ship a section and does not write a stamp. It audits, then chains `process-phase` runs until the plan is 100% complete or every leftover row is blocked here. Writes stay serial: the run this skill starts is the only writer on the tree.
 
 ## The loop
 

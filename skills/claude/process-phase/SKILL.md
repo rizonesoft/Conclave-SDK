@@ -43,9 +43,9 @@ Read the most recent prior run file for this phase, if one exists: anything unre
 
 `[x]` rows are claims. Re-check the shipped rows an open row in this phase depends on (the spine): `resolve` exits 3, the receipt matches its stamp, and the section's Test checkpoint still passes when re-run. A checkpoint that no longer passes means the section regressed: treat it as this phase's work through `review-todo-section` in audit stance before building on it.
 
-## Step 2: gap-audit the phase
+## Step 2: gap-audit the phase for 100% completeness
 
-Read the phase as a user would use it, end to end, against its governing documents (the milestone "Done when" in the foundation plan, the SPEC sections the phase implements). Ask what is missing: screens, dialogs, controls, error paths, handoffs between domains nobody specified. File each gap with `add-todo` (evidence, owner, dependency) and sync the plan. A gap found is a gap filed the same turn.
+Read the phase as a user would use it, end to end, against its governing documents (the milestone "Done when" in the foundation plan, the SPEC sections the phase implements). Ask what is missing for a 100% complete phase: screens, dialogs, controls, settings consumers, refusal/error paths, undo/reverse paths, persistence read-backs, or handoffs between domains nobody specified. Split any coarse umbrella sections into small, single-responsibility sections and expand any summary checkboxes into concrete five-part micro-steps. File each gap with `add-todo` (evidence, owner, dependency) and sync the plan. Never cap planning or silently drop scope. A gap found is a gap filed the same turn.
 
 ## Step 3: ship the phase, one row at a time
 

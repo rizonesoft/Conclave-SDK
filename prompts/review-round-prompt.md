@@ -16,5 +16,5 @@ Report a verdict (`approve`, `needs-attention`, or `advisory`) for each lens wit
 - `consistency`: Module boundaries, naming, shared controls, settings store, typed error handling.
 - `integration`: Callers, consumers, actor/threading contracts, job queues, shell slots.
 - `source-defect`: Accuracy against upstream specifications and `design/SPEC.md`.
-- `design`: Rendered surface fidelity against `design/SPEC.md` and design tokens (for `Surface: yes` sections).
-- `record`: Honesty of quoted checkpoint outputs, deferral owners, and checklist completion.
+- `design`: Rendered surface fidelity against `design/SPEC.md` and design tokens (for `Surface: yes` sections), verifying 100% of controls on the surface are working or deferred to a resolving owner.
+- `record`: Honesty of quoted checkpoint outputs, deferral owners, and full completion of every micro-step's `Done when:` without taking the named `Cheaper substitute:`.

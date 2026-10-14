@@ -71,14 +71,22 @@ Never a bare number, and never a cross-TODO reference without a section. Cross-r
 - `**Surface:**` `yes` or `no`. A `yes` section builds or changes a user-facing surface and also carries four lines: `**Fidelity:**`, `**Job:**`, `**Treatment:**`, and `**Chrome:**`.
 - `**Freeze check:**` in every section of a `frozen: true` file, and nowhere else.
 - `**Build order:**` numbered steps, each naming a path, class, command or artifact in backticks and an observable `Done when:`.
-- A checklist of 1 to 30 micro-step items, `- [ ] Commit: <message>` last.
+- A checklist of 1 to 30 micro-step items, `- [ ] Commit: <message>` last. One item is one buildable step: one action, a named path or symbol in backticks, a `Done when:` observable end state in the same bullet, a `Cheaper substitute:` on UI and write items, and a source citation when behavior is copied from the SPEC, the foundation plan, or upstream specifications.
 - `**Test checkpoint:**` a runnable command in backticks with its expected result. It must be able to fail.
 
 Do not rewrite a `[x]` section's checklist: that is the contract its stamp covers. New granularity on shipped work is a new section.
 
+### Micro/small items and 100% complete development plan
+
+- **Small, single-responsibility sections:** Never bundle multiple subsystems, dialogs, or workflows into one coarse umbrella section. Split work into small, single-responsibility sections that each deliver one coherent capability, with explicit `Depends On` edges in the Implementation Order table.
+- **Granular micro-step checklist items (five-part rule):** Never write a 1-bullet or 2-bullet summary checkbox for an entire subsystem. Decompose every section into individual micro-step checkboxes (typically 4 to 15 micro-steps per section, max 30). Every non-`Commit:` item carries: (1) one action (never "do X and then Y"), (2) a concrete path, symbol, or command in backticks, (3) `Done when:` observable end state in the same bullet, (4) `Cheaper substitute:` on UI and write items so the checkpoint and reviewer fail on shortcuts or wrong-layer edits, and (5) a source citation when copying behavior.
+- **100% complete development plan:** Running `process-plan` to completion must leave a 100% complete, shippable product. Every milestone commitment in the foundation plan and every screen, dialog, control, command, setting, error/refusal path, undo/reverse operation, and persistence read-back in `design/SPEC.md` is owned by a concrete section and micro-step. Never cap operator-requested planning and never silently drop scope.
+- **Surface completeness (`Surface: yes`):** Every control, menu item, dialog, and state on the SPEC surface is either working (proven on the rendered surface with real data and read-back) or deferred to a named, resolving section (`-> XREF: DNN TNN §N`). A disabled or stubbed control with no resolving owner section refuses validation and review.
+- **Logical step commits:** Commits follow logical steps within a section; a section may land in one or more step commits, and review fix-loop commits append to the candidate range without amending.
+
 ### Adjacency: the surfaces a file owes beyond its record
 
-`## Outcome` carries one executable `**Adjacency:**` line. Write every key exactly once, separated by semicolons: `key=applicable`, `key=applicable @ DNN TNN §N` for an explicit owner, or `key=not-applicable (reason)`. A narrow non-feature file may declare `all=not-applicable (reason)`. The nine keys: `list`, `document`, `settings`, `reporting`, `notifications`, `permissions`, `audit`, `exchange`, `reverse`.
+`## Outcome` carries one executable `**Adjacency:**` line. Write every key exactly once, separated by semicolons: `key=applicable`, `key=applicable @ DNN TNN §N` for an explicit owner, or `key=not-applicable (reason)`. A narrow non-feature file may declare `all=not-applicable (reason)`. The nine keys: `list` (find a record without its identifier), `document` (what a user carries, sends, prints or files), `settings` (every tunable, with a named consumer), `reporting` (summaries and exports over the domain's data), `notifications` (lifecycle notices with recipient rules), `permissions` (refusals exercised, both ways), `audit` (who changed what, and the diagnostic trail), `exchange` (import and export), `reverse` (the undo of every create: cancel, reopen, revert). "Not applicable" is a declaration with a reason, not silence. Owner references must resolve; `python scripts/todo-graph.py query adjacency` prints every declaration. An `**Adjacency rationale:**` paragraph under the line records the substantive decisions for human review.
 
 ## Stamps and receipts
 

@@ -23,10 +23,10 @@ Copy `todo/templates/TODO-template.md` (or `.agents/skills/create-todo/todo-temp
 - **Inputs:** the plan and SPEC sections, existing files with what each section consumes, and `-> XREF:` lines to related work.
 - **Outcome:** observable end states, plus the one `**Adjacency:**` line (every key exactly once, or `all=not-applicable (reason)`) and an `**Adjacency rationale:**` paragraph. Silence is not a decision.
 - **Implementation Order:** one row per section with real `Depends On` edges. The table is the dependency graph.
-- **Sections:** context, Phase, Needs, Surface, Build order with a `Done when:` per step, micro-step checklist ending in `Commit:`, runnable Test checkpoint, Fidelity/Job/Treatment/Chrome on surface sections, Freeze check in frozen files.
+- **Sections:** context, Phase, Needs, Surface, Build order with a `Done when:` per step, granular micro-step checklist (typically 4 to 15 concrete micro-steps, max 30, never a 1-bullet summary stub) ending in `Commit:`, runnable Test checkpoint, Fidelity/Job/Treatment/Chrome on surface sections, Freeze check in frozen files. Every non-Commit micro-step follows the five-part rule: one action, named path/symbol in backticks, `Done when:` in the same bullet, `Cheaper substitute:` on UI and write items, and source citation.
 - **Verification:** the file-level checks `process-todo-file` will run.
 
-Size sections by what holds together: at most 30 checklist items per section, at most 55 sections per file (split by subject into a new file; section numbers are permanent addresses). Every section must be implementable with zero conversation context: no "as discussed".
+Size sections as small, single-responsibility deliverables: never bundle multiple subsystems, dialogs, or workflows into one coarse umbrella section. Keep at most 30 checklist items per section and at most 55 sections per file (split by subject into a new file; section numbers are permanent addresses). Plan the full feature lifecycle (CRUD, settings consumer, refusal/error/recovery, undo/reverse, atomic write plus read-back, and 100% of SPEC surface controls working or deferred to a resolving owner) so the development plan is 100% complete with zero silent drops. Every section must be implementable with zero conversation context: no "as discussed".
 
 ### 3. Wire it in
 
@@ -47,6 +47,7 @@ Commit as `todo: author <id> (<n> sections)`. Report the file, its phases, its d
 ## Guardrails
 
 - Do not author a file whose subject an existing file owns. Search first.
-- Do not write stub sections. Every section is born buildable.
+- Do not write stub sections, coarse umbrella sections, or 1-bullet summary checklists. Every section is born small, single-responsibility, and decomposed into five-part micro-steps.
+- Do not cap operator-requested planning or silently drop any feature, surface control, refusal path, or undo path.
 - Do not skip the Adjacency line or the indexes. The validator treats both as structure.
 - Do not end with the plan unsynced.

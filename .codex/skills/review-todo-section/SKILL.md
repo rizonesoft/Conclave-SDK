@@ -31,7 +31,7 @@ Every review answers these with code and behavior evidence, never assertion:
 
 ### 1. Fix the candidate
 
-Name the candidate: the implementation commit, or the commit range when fix-loop commits append (commits are never amended once review starts). Record the full SHA(s) in the findings file at `docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md`. For an audit, the candidate is the section's own stamped commit, not today's tree. Read the actual diff (`git show`), not memory of writing it. Map each ticked checklist item to the code that satisfies it; an item with no corresponding change is not done (untick it) or was already true (note where).
+Name the candidate: the implementation commit, or the commit range (`<BASE_SHA>..<TIP_SHA>`) when the section landed across multiple logical step commits or when fix-loop commits append (commits are never amended once review starts). Record the full SHA(s) in the findings file at `docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md`. For an audit, the candidate is the section's own stamped commit, not today's tree. Read the actual diff (`git show` or `git diff <BASE_SHA>..<TIP_SHA>`), not memory of writing it. Map each ticked micro-step checklist item (its `Done when:` and `Cheaper substitute:`) to the code and test that satisfy it; an item with no corresponding change or a partially met `Done when:` (`partial-flip-shipped`) is not done (untick it) or was already true (note where).
 
 ### 2. Self-review
 
@@ -73,9 +73,9 @@ Architecture check: on sections touching the bridge boundary, the threading cont
 
 After the last fix, re-run the section's Test checkpoint and its owed gates (affected test suites, build warnings clean, `validate`, the Freeze check in frozen files, ASan where the section names it). Quote the outputs in the findings file. A fix verified by reasoning is not verified. A red gate reopens the candidate: fix, re-run to green, and re-run the affected lens, because earlier verdicts rested on the broken candidate.
 
-### 5. Surface and frozen checks
+### 5. Surface, feature, and frozen checks
 
-Surface sections: every control, menu item, dialog and state on the Fidelity counterpart is working (proven on the rendered surface in this review) or deferred to a named, resolving section. Refuse the stamp for an unaccounted control. Frozen files: every `**Freeze check:**` ran and passed with the result quoted; a frozen behavior that moved without a recorded operator approval means no stamp and a question for the operator.
+Surface and feature completeness: 100% of every control, menu item, dialog and state on the Fidelity counterpart is working (proven on the rendered surface with real data and read-back in this review) or deferred to a named, resolving section, and every required refusal/error/undo path is exercised. Refuse the stamp for an unaccounted control or a `Cheaper substitute` shortcut. Frozen files: every `**Freeze check:**` ran and passed with the result quoted; a frozen behavior that moved without a recorded operator approval means no stamp and a question for the operator.
 
 ### 6. Stamp
 

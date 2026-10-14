@@ -86,6 +86,27 @@ class ForgeProvisionTests(unittest.TestCase):
             self.assertNotIn("\u2014", text, f"em dash found in {md}")
             self.assertNotIn("\u2013", text, f"en dash found in {md}")
 
+    def test_micro_todo_and_complete_plan_rules_present_across_all_agents(self):
+        forge.provision(self.target, mode="isolated", agent="all", with_todo=True, overwrite_existing_docs=True)
+        agents_text = (self.target / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertIn("Small, single-responsibility sections", agents_text)
+        self.assertIn("Granular micro-step checklist items", agents_text)
+        self.assertIn("100% complete development plan", agents_text)
+        self.assertIn("Commits follow logical steps", agents_text)
+        todo_readme = (self.target / "todo/README.md").read_text(encoding="utf-8")
+        self.assertIn("five-part rule", todo_readme)
+        self.assertIn("100% complete development plan", todo_readme)
+        for agent_dir in (".agents", ".claude", ".codex"):
+            for skill in ("add-todo", "create-todo", "groom-plan", "process-todo-section", "review-todo-section"):
+                skill_text = (self.target / agent_dir / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+                self.assertNotIn("One section is one logical commit", skill_text)
+            pts_text = (self.target / agent_dir / "skills/process-todo-section/SKILL.md").read_text(encoding="utf-8")
+            self.assertIn("Commits follow logical steps", pts_text)
+            self.assertIn("five-part micro-steps", pts_text)
+            groom_text = (self.target / agent_dir / "skills/groom-plan/SKILL.md").read_text(encoding="utf-8")
+            self.assertIn("100% complete, shippable product", groom_text)
+            self.assertIn("five-part rule", groom_text)
+
 
 if __name__ == "__main__":
     unittest.main()

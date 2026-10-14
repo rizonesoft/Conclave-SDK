@@ -29,24 +29,29 @@ Walk every open section's concrete claims against today's repository and governi
 - XREFs whose targets shipped or moved.
 - Current state blocks older than the last shipped section in their domain.
 
-### 3. Gap scan
+### 3. Gap scan and 100% complete plan audit
 
-Read the plan as the user will use the finished product, domain by domain, against `design/SPEC.md` (every screen, dialog and state) and the foundation plan's milestone "Done when" column. Ask what has no owner: surfaces, controls, handoffs, error paths, settings without consumers, writes without readback, conversions without a failure mode. File each gap with `add-todo` (evidence, owner, dependency) and sync the plan.
+Read the plan as the user will use the finished product, domain by domain, against `design/SPEC.md` (every screen, dialog and state) and the foundation plan's milestone "Done when" column. Running `process-plan` to completion must produce a 100% complete, shippable product with zero unowned surfaces, controls, settings, refusal/error paths, undo/reverse paths, or persistence read-backs. Ask what has no owner: surfaces, controls, handoffs, error paths, settings without consumers, writes without readback, conversions without a failure mode. File each gap with `add-todo` (evidence, owner, dependency) and sync the plan. Never cap operator-requested planning and never silently drop scope.
 
 Check the Adjacency declarations while here (`python scripts/todo-graph.py query adjacency`): an `applicable` with no owning section, or a `not-applicable` whose reason no longer holds, becomes work or a corrected declaration.
 
-### 4. Complete-feature pass
+### 4. Complete-feature and micro-step granularity pass
 
 For every user-facing surface in the plan, confirm the feature is whole against its SPEC screenshot: every control, menu item, dialog and state is working in a named section or deferred to a named, resolving section. For every engine surface, confirm the reverse and the failure path: cancel, abort, wrong password, damaged file, partial write. File what is missing; do not redesign what exists.
 
+Audit section and checklist granularity across every open file:
+- Split coarse umbrella sections (bundling multiple subsystems, dialogs, or workflows into one section) into small, single-responsibility sections with explicit `Depends On` edges.
+- Expand any 1-bullet or 2-bullet summary checklist into concrete buildable micro-steps (typically 4 to 15 micro-steps per section, max 30, ending with `Commit:`). Every non-Commit item must follow the five-part rule: one action, named path/symbol in backticks, `Done when:` observable end state in the same bullet, `Cheaper substitute:` on UI and write items, and source citation.
+
 ### 5. Report and commit
 
-Write the groom record: what was sequenced, what drifted and was corrected, what gaps were filed and where they landed, what `query stats` now says. Commit as `todo: groom <scope> (<date>)` after a final `validate`, `plan --sync` and `plan --check`.
+Write the groom record: what was sequenced, what drifted and was corrected, what coarse sections or summary checklists were decomposed into micro-steps, what gaps were filed and where they landed, and what `query stats` now says. Commit as `todo: groom <scope> (<date>)` after a final `validate`, `plan --sync` and `plan --check`.
 
 ## Guardrails
 
 - Do not tick a box or write a stamp. Grooming never ships.
 - Do not start a run. Grooming prepares one.
+- Do not leave coarse umbrella sections, summary checkboxes, or unowned SPEC controls in the plan.
 - Do not redesign sections. Harden them.
 - Do not rewrite a `[x]` section's checklist. That is the contract its stamp covers.
 - Do not leave the tree unvalidated.

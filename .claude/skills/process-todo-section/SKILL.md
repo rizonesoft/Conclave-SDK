@@ -77,19 +77,19 @@ Anything unclear becomes a question answered from the source. Where the source i
 
 ### 3. Correct the section when validation fails
 
-Fix findings in the TODO file, before implementation, so plan and build never disagree in the record. Stale facts are corrected in place and marked `**Corrected YYYY-MM-DD:**` with what they said before. Contradictions resolve toward the source and the later decision. Unbuildable items are rewritten concrete. Items already true are ticked with the XREF that shipped them. Genuinely wrong work is struck with a stated reason, never silently dropped. An unfalsifiable checkpoint is rewritten so it can fail. A **frozen** behavior that looks wrong is not changed in code or plan: record the question for the operator and continue around it. If the whole section is wrong, stop and report instead of implementing.
+Fix findings in the TODO file, before implementation, so plan and build never disagree in the record. Stale facts are corrected in place and marked `**Corrected YYYY-MM-DD:**` with what they said before. Contradictions resolve toward the source and the later decision. Unbuildable or coarse 1-bullet summary items are decomposed into concrete five-part micro-steps (one action, named path/symbol in backticks, `Done when:` in the same bullet, `Cheaper substitute:` on UI and write items, and source citation). Items already true are ticked with the XREF that shipped them. Genuinely wrong work is struck with a stated reason, never silently dropped. An unfalsifiable checkpoint is rewritten so it can fail. A **frozen** behavior that looks wrong is not changed in code or plan: record the question for the operator and continue around it. If the whole section is wrong, stop and report instead of implementing.
 
 Correct the plan, never the goalpost: narrowing a section so the code you were about to write happens to satisfy it is fitting the contract to the implementation. Report every plan correction alongside the implementation. If step 2 finds nothing, say so in one line and move on.
 
 ### 4. Build the corrected contract
 
-Work the Build order and checklist top to bottom. Tick each item as its Done-when becomes true, in the file, as you go. Write the failing test first where the section names one. Build the cheaper substitute's failure into the checkpoint so the wrong thing cannot pass. UI sections consume the shared controls and slots named in `**Chrome:**` (one `ShellPage`, named slots, stock WinUI controls); a second toolbar, panel or dialog shape is a defect.
+Work the Build order and micro-step checklist top to bottom. Tick each micro-step item as its `Done when:` becomes true, in the file, as you go; never tick a partially finished item (`partial-flip-shipped` is fatal). Write the failing test first where the section names one. Build the cheaper substitute's failure into the checkpoint so the wrong thing cannot pass. UI sections consume the shared controls and slots named in `**Chrome:**` (one `ShellPage`, named slots, stock WinUI controls); a second toolbar, panel or dialog shape is a defect.
 
 Run gates while iterating, bounded to the touched area: the build for the touched projects, the affected test cases, and CLI runs over the named corpus files. Warnings are errors at the configured level.
 
-### 5. Surface completeness (surface sections)
+### 5. Surface and feature completeness
 
-Before the checkpoint, account for every control, menu item, dialog and state on the Fidelity screenshot and SPEC section: each is working (proven on the rendered surface) or deferred to a named, resolving section (`python scripts/todo-graph.py resolve '<ref>'` must not exit 1 or 2). A control disabled with a reason that names no section is missing, not deferred. `review-todo-section` refuses the stamp for an unaccounted control, so decide here.
+Before the checkpoint, account for 100% of every control, menu item, dialog and state on the Fidelity screenshot and SPEC section: each is working (proven on the rendered surface with real data and read-back) or deferred to a named, resolving section (`python scripts/todo-graph.py resolve '<ref>'` must not exit 1 or 2). A control disabled with a reason that names no section is missing, not deferred. Confirm the refusal/error/recovery path and undo/reverse path required by the section hold. `review-todo-section` refuses the stamp for an unaccounted control, so decide here.
 
 ### 6. Run the Test checkpoint, for real
 

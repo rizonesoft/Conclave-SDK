@@ -12,4 +12,5 @@ Shared instructions for agents working in `AgentForge`. Each agent loads this fi
 - **Atomic writes:** Every file write in tooling uses a temporary file in the destination directory followed by `os.replace`.
 - **Strict agent isolation:** Antigravity skills live in `skills/agy/` (`.agents/` in target repos), Claude Code skills live in `skills/claude/` (`.claude/` in target repos), and OpenAI Codex skills live in `skills/codex/` (`.codex/` in target repos). Default provisioning mode is `isolated` so every target repository is 100% self-contained.
 - **Prose formatting:** Write one line per paragraph and list item in Markdown. Never use em dashes or en dashes in authored prose.
+- **TODO contract:** All skills and templates enforce small, single-responsibility sections, granular five-part micro-steps (`Done when:` and backticked path/symbol per item, `Cheaper substitute:` on UI/write items), logical step commits within sections, and a 100% complete development plan with zero silent drops or unowned SPEC controls.
 - **Output discipline:** Bound command output and run `python -m unittest discover -s tests -v` before committing changes.
