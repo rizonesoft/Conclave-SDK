@@ -1,38 +1,46 @@
 # AgentForge
 
-AgentForge is the central repository for agent skills, rules, prompts, plugins, templates, and the canonical TODO graph tooling (`todo-graph.py`).
+AgentForge is the central repository for isolated agent skills, rules, prompts, plugins, templates, and the canonical TODO graph tooling (`todo-graph.py`).
 
-It provisions both new and existing repositories with isolated customizations for Google Antigravity (`.agents/`, `GEMINI.md`) and Claude Code (`.claude/`, `CLAUDE.md`), backed by one shared rule contract (`AGENTS.md`).
+It provisions new and existing repositories with strictly isolated, self-contained customizations for all three agents:
+
+- **Google Antigravity (`agy`):** `.agents/skills/`, `.agents/rules/`, and `GEMINI.md`
+- **Claude Code (`claude`):** `.claude/skills/`, `.claude/rules/`, and `CLAUDE.md`
+- **OpenAI Codex (`codex`):** `.codex/skills/`, `.codex/rules/`, and `CODEX.md`
+
+Each agent reads only its own isolated folder and entrypoint alongside the shared project rules in `AGENTS.md`.
 
 ## Repository Layout
 
 | Path | Purpose |
 | ---- | ------- |
-| `forge.py` / `forge.cmd` | Stdlib-only bootstrapper CLI to initialize, sync, or audit target repositories in `hybrid`, `copy`, or `inherit` mode. |
-| `skills/agy/` | Isolated Antigravity skills installed into `.agents/skills/` or inherited via `.agents/skills.json`. |
-| `skills/claude/` | Isolated Claude Code skills installed into `.claude/skills/`. |
-| `rules/` | Shared and agent-specific rule templates (`AGENTS.template.md`, `GEMINI.template.md`, `CLAUDE.template.md`, `.agents/rules/`). |
+| `forge.py` / `forge.cmd` | Stdlib-only bootstrapper CLI to initialize, sync, or check target repositories (`isolated` default mode). |
+| `skills/agy/` | Isolated Antigravity skills installed into `<target>/.agents/skills/`. |
+| `skills/claude/` | Isolated Claude Code skills installed into `<target>/.claude/skills/`. |
+| `skills/codex/` | Isolated OpenAI Codex skills installed into `<target>/.codex/skills/`. |
+| `rules/` | Shared and per-agent rule templates (`AGENTS.template.md`, `GEMINI.template.md`, `CLAUDE.template.md`, `CODEX.template.md`, and per-agent safety rules). |
 | `prompts/` | Reusable prompt templates for independent review rounds, project bootstrapping, and skill isolation. |
-| `plugins/todo-workflow/` | Antigravity plugin bundle (`plugin.json`) packaging the TODO workflow skills and rules. |
+| `plugins/todo-workflow/` | Optional Antigravity plugin bundle (`plugin.json`) packaging the TODO workflow skills and rules. |
 | `scripts/` | The canonical `todo-graph.py` CLI and `scripts/lib/todo_graph.py` engine (stdlib-only Python). |
-| `templates/agy/` | Ready-to-use `skills.json` and `plugins.json` manifests for Antigravity inheritance. |
 | `templates/todo/` | Starter `todo/` tree (`README.md`, `TODO-00-INDEX.md`, `findings.md`, `templates/TODO-template.md`). |
 | `tests/` | Unit test suites for `todo_graph.py` and `forge.py`. |
 
 ## Quickstart
 
-### 1. Provision a new or existing project (Hybrid mode, recommended)
+### 1. Provision a new or existing project (Isolated mode, default)
 
-Hybrid mode installs tracked `.agents/skills/`, `.claude/skills/`, `.agents/skills.json`, `GEMINI.md`, `CLAUDE.md`, and `scripts/todo-graph.py` into the target repository without overwriting existing `AGENTS.md` or `todo/` files unless `--force` is passed.
+By default, `forge.py` runs in `isolated` mode: it copies self-contained `.agents/`, `.claude/`, and `.codex/` directories plus `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, and `scripts/todo-graph.py` into the target repository without creating external path links and without overwriting an existing `AGENTS.md`.
 
 ```powershell
-python R:\GitHub\AgentForge\forge.py init R:\GitHub\MyProject --mode hybrid
+python R:\GitHub\AgentForge\forge.py init R:\GitHub\MyProject
 ```
 
-### 2. Sync only Antigravity isolated skills into an existing repo
+### 2. Sync isolated skills into an existing repo (all agents or one agent)
 
 ```powershell
+python R:\GitHub\AgentForge\forge.py sync R:\GitHub\MyProject --agent all
 python R:\GitHub\AgentForge\forge.py sync R:\GitHub\MyProject --agent agy
+python R:\GitHub\AgentForge\forge.py sync R:\GitHub\MyProject --agent codex
 ```
 
 ### 3. Check a target repository's agent setup
@@ -49,6 +57,6 @@ python -m unittest discover -s R:\GitHub\AgentForge\tests -v
 
 ## Provisioning Modes
 
-* **`hybrid` (Default):** Copies tracked skills into `.agents/skills/` and `.claude/skills/`, writes `.agents/skills.json` so Antigravity can also inherit shared skills from `R:/GitHub/AgentForge/skills/agy`, installs `scripts/todo-graph.py` and `scripts/lib/todo_graph.py`, and creates `GEMINI.md` and `CLAUDE.md` stubs.
-* **`copy`:** Copies all selected skills, rules, and scripts into the target repository with no external path references in `.agents/skills.json`.
-* **`inherit`:** Writes lightweight `.agents/skills.json` and `.agents/plugins.json` files pointing to `R:/GitHub/AgentForge` so Antigravity loads skills without duplicating skill Markdown files in the target repository.
+* **`isolated` (Default):** Copies tracked skills and rules into `.agents/`, `.claude/`, and `.codex/` inside the target repository with zero external path dependencies. Every repository is 100% self-contained and each agent is isolated in its own directory.
+* **`hybrid`:** Optional mode that copies isolated skills and also writes `.agents/skills.json` pointing to `R:/GitHub/AgentForge/skills/agy`.
+* **`inherit`:** Optional mode that writes `.agents/skills.json` and `.agents/plugins.json` without copying skill Markdown files.
