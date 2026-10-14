@@ -19,11 +19,13 @@ For every dependency edge (section `Depends On` and file `depends_on`), confirm 
 
 Run `python scripts/todo-graph.py validate` after every structural edit.
 
-### 2. Drift sweep
+### 2. Drift sweep and brownfield reconciliation
 
 Walk every open section's concrete claims against today's repository and governing documents: files, classes, paths, counts, versions, engine and SDK details, and `design/SPEC.md` section numbers. Correct drift in place with dated notes, without building anything. Pay special attention to:
 
-- "Nothing exists yet" claims that are no longer true.
+- "Nothing exists yet" claims that are no longer true: update `> **Current state:**` with measured paths and behavior.
+- Micro-steps already 100% implemented in the codebase: verify their `Done when:` and `Cheaper substitute:` against `file:line` and tests, then tick them with the commit SHA or `file:line` that shipped them.
+- Half-implemented items in the codebase (for example, UI exists with hardcoded hex colors, or write path exists without atomic replace or refusal tests): keep `[ ]` and rewrite the micro-steps to target the exact remaining gaps rather than re-planning what already works.
 - Counts and versions quoted confidently (these age fastest).
 - Deferrals whose descriptions drifted while their owners stayed open (`python scripts/todo-graph.py query deferred`).
 - XREFs whose targets shipped or moved.
@@ -31,7 +33,7 @@ Walk every open section's concrete claims against today's repository and governi
 
 ### 3. Gap scan and 100% complete plan audit
 
-Read the plan as the user will use the finished product, domain by domain, against `design/SPEC.md` (every screen, dialog and state) and the foundation plan's milestone "Done when" column. Running `process-plan` to completion must produce a 100% complete, shippable product with zero unowned surfaces, controls, settings, refusal/error paths, undo/reverse paths, or persistence read-backs. Ask what has no owner: surfaces, controls, handoffs, error paths, settings without consumers, writes without readback, conversions without a failure mode. File each gap with `add-todo` (evidence, owner, dependency) and sync the plan. Never cap operator-requested planning and never silently drop scope.
+Read the plan as the user will use the finished product, domain by domain, against `design/SPEC.md` (every screen, dialog and state) and the foundation plan's milestone "Done when" column. Running `process-plan` to completion must produce a 100% complete, shippable product with zero unowned surfaces, controls, settings, refusal/error paths, undo/reverse paths, or persistence read-backs. Compare the union of (`existing working codebase` + `open TODO sections`) against the spec: anything already 100% working in baseline code belongs in `Current state:`, and every remaining gap gets filed via `add-todo` (evidence, owner, dependency) and synced into the plan. Never cap operator-requested planning and never silently drop scope.
 
 Check the Adjacency declarations while here (`python scripts/todo-graph.py query adjacency`): an `applicable` with no owning section, or a `not-applicable` whose reason no longer holds, becomes work or a corrected declaration.
 
@@ -39,9 +41,10 @@ Check the Adjacency declarations while here (`python scripts/todo-graph.py query
 
 For every user-facing surface in the plan, confirm the feature is whole against its SPEC screenshot: every control, menu item, dialog and state is working in a named section or deferred to a named, resolving section. For every engine surface, confirm the reverse and the failure path: cancel, abort, wrong password, damaged file, partial write. File what is missing; do not redesign what exists.
 
-Audit section and checklist granularity across every open file:
+Audit section and checklist granularity across every open file (and upgrade legacy or incomplete TODO files to the current schema):
 - Split coarse umbrella sections (bundling multiple subsystems, dialogs, or workflows into one section) into small, single-responsibility sections with explicit `Depends On` edges.
 - Expand any 1-bullet or 2-bullet summary checklist into concrete buildable micro-steps (typically 4 to 15 micro-steps per section, max 30, ending with `Commit:`). Every non-Commit item must follow the five-part rule: one action, named path/symbol in backticks, `Done when:` observable end state in the same bullet, `Cheaper substitute:` on UI and write items, and source citation.
+- Never rewrite a `[x]` section's checklist; if a shipped `[x]` section was coarse or incomplete, leave it intact and add a new open `## N.` section in numerical order for the missing pieces.
 
 ### 5. Report and commit
 
