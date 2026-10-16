@@ -16,9 +16,10 @@ Each agent reads only its own isolated folder and entrypoint alongside the share
 | ---- | ------- |
 | `forge.py` / `forge.cmd` | CLI (`init`, `sync`, `kit`, `doctor`, `kits`, `check`; `isolated` default mode). |
 | `kits/base/` | Every repo: entry docs, safety skills, subagents, rules, tier check. |
-| `kits/todo/` | TODO skills, `todo-graph.py`, starter `todo/` tree, Antigravity TODO plugin. |
+| `kits/todo/` | TODO skills, `todo-graph.py`, starter `todo/` tree, workflow doc. |
 | `kits/laravel/`, `kits/wordpress/` | Stack kits. |
 | `prompts/` | Copy-pasteable prompts to import Conclave-SDK from Gemini, Claude, or Codex. |
+| `plugins/` | Standalone agent plugins that belong to no kit (never installed by `forge.py`). |
 | `.agents/`, `.claude/`, `.codex/` | The SDK's own installed copy of `base` and `todo`. |
 | `tests/` | Unit test suites for `todo_graph.py`, `forge.py`, and stack overlay kits. |
 

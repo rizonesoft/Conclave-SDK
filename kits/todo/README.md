@@ -28,4 +28,4 @@ Like every kit it only adds missing files: an existing `todo/` plan, skill or sc
 
 ## Keeping it current
 
-This kit is the only source of the TODO system. Change a file in `templates/`, copy skill changes into the SDK's own `.agents/`, `.claude/` or `.codex/` (`tests/test_forge.py` fails until they match), and run `forge.py sync <repo>` in projects that should pick it up. `tests/test_todo_graph.py` tests `templates/scripts/`. `plugins/todo-workflow/` is the Antigravity plugin that `forge.py init --mode inherit --kit todo` points `.agents/plugins.json` at; it is never copied into projects.
+This kit is the only source of the TODO system. Change a file in `templates/`, copy skill changes into the SDK's own `.agents/`, `.claude/` or `.codex/` (`tests/test_forge.py` fails until they match), and run `forge.py sync <repo>` in projects that should pick it up. `tests/test_todo_graph.py` tests `templates/scripts/`.
