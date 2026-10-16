@@ -21,7 +21,7 @@ Each element is one of three kinds. **Native** is drawn by VS Code from the exte
 - State colours map to theme colours: installed and ok `testing.iconPassed`, partly installed and setup required `list.warningForeground`, missing and error `list.errorForeground`, info and ready `notificationsInfoIcon.foreground`, not installed and blocked `disabledForeground`.
 - Hiding a section without its kit: `when` clauses on context keys (`conclave.kit.<kit>`); Switch folder: a view title action with `when` `workspaceFolderCount > 1`.
 - Status bar: `StatusBarItem` text with `$(codicon)` prefixes and a tooltip; only the error and warning background colours exist, and the mockup uses neither.
-- Installer pane: a `WebviewView` in the `conclave` container, shown by a context key while an install is open; its Close is a view title action.
+- Installer and update result panes: each a `WebviewView` in the `conclave` container (INSTALL KIT and UPDATE KITS), shown by a context key while an install is open or an update result is waiting; Close is a view title action, and an update started from the Command Palette reveals the container first.
 
 ## Native elements added for entry points, update and new repository (`D00 T01 §1`)
 

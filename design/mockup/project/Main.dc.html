@@ -980,7 +980,7 @@ button.qchk{padding:0;cursor:pointer}
     </sc-if>
     <sc-if value="{{cm.open}}" hint-placeholder-val="{{false}}">
       <div class="scrim" onClick="{{cm.close}}"></div>
-      <div class="cmenu" role="menu" aria-label="Explorer context menu" style="left: {{cm.x}}px; top: {{cm.y}}px">
+      <div class="cmenu" role="menu" aria-label="Explorer context menu" style="left: {{cm.x}}px; top: {{cm.y}}px" onKeyDown="{{cm.onKey}}">
         <sc-for list="{{cm.items}}" as="it" hint-placeholder-count="6">
           <sc-if value="{{it.sep}}" hint-placeholder-val="{{false}}"><hr></sc-if>
           <sc-if value="{{it.item}}" hint-placeholder-val="{{true}}"><button role="menuitem" class="{{it.cls}}" onClick="{{it.run}}"><span>{{it.label}}</span><span class="kb">{{it.kb}}</span></button></sc-if>
@@ -989,7 +989,7 @@ button.qchk{padding:0;cursor:pointer}
     </sc-if>
     <sc-if value="{{dlg.open}}" hint-placeholder-val="{{false}}">
       <div class="dscrim">
-        <div class="dlg" role="alertdialog" aria-label="{{dlg.message}}">
+        <div class="dlg" role="alertdialog" aria-label="{{dlg.message}}" onKeyDown="{{dlg.onKey}}">
           <svg class="ci dic" width="32" height="32" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.49902 7.49998C8.49902 7.22384 8.27517 6.99998 7.99902 6.99998C7.72288 6.99998 7.49902 7.22384 7.49902 7.49998V10.5C7.49902 10.7761 7.72288 11 7.99902 11C8.27517 11 8.49902 10.7761 8.49902 10.5V7.49998ZM8.74807 5.50001C8.74807 5.91369 8.41271 6.24905 7.99903 6.24905C7.58535 6.24905 7.25 5.91369 7.25 5.50001C7.25 5.08633 7.58535 4.75098 7.99903 4.75098C8.41271 4.75098 8.74807 5.08633 8.74807 5.50001ZM8 1C4.13401 1 1 4.13401 1 8C1 11.866 4.13401 15 8 15C11.866 15 15 11.866 15 8C15 4.13401 11.866 1 8 1ZM2 8C2 4.68629 4.68629 2 8 2C11.3137 2 14 4.68629 14 8C14 11.3137 11.3137 14 8 14C4.68629 14 2 11.3137 2 8Z"></path></svg>
           <div style="flex: 1; min-width: 0">
             <h2>{{dlg.message}}</h2>
@@ -1057,6 +1057,7 @@ function skillFiles(skills, extra) {
   return out;
 }
 const KIT_FILES = {
+  base: ['.agents/rules/agy-output-and-safety.md', '.agents/skills/authoring-skills/references/skill-layout-checklist.md', '.agents/skills/authoring-skills/SKILL.md', '.agents/skills/local-tool-safety/references/local-tool-capability-safety.md', '.agents/skills/local-tool-safety/SKILL.md', '.claude/agents/code-explorer.md', '.claude/agents/debug-evidence.md', '.claude/agents/git-runner.md', '.claude/agents/mutation-tester.md', '.claude/agents/section-implementer.md', '.claude/agents/test-runner.md', '.claude/rules/claude-output-and-safety.md', '.claude/skills/authoring-skills/references/skill-layout-checklist.md', '.claude/skills/authoring-skills/SKILL.md', '.claude/skills/local-tool-safety/references/local-tool-capability-safety.md', '.claude/skills/local-tool-safety/SKILL.md', '.codex/rules/codex-output-and-safety.md', '.codex/skills/authoring-skills/agents/openai.yaml', '.codex/skills/authoring-skills/references/skill-layout-checklist.md', '.codex/skills/authoring-skills/SKILL.md', '.codex/skills/local-tool-safety/agents/openai.yaml', '.codex/skills/local-tool-safety/references/local-tool-capability-safety.md', '.codex/skills/local-tool-safety/SKILL.md', 'AGENTS.md', 'CLAUDE.md', 'CODEX.md', 'docs/agent-skills-and-rules-structure.md', 'GEMINI.md', 'scripts/verify-agent-tiers.mjs'],
   todo: skillFiles(TODO_SKILLS, { 'create-todo': ['todo-template.md'] }).concat(['docs/todo-workflow.md', 'scripts/lib/todo_graph.py', 'scripts/todo-graph.py', 'todo/findings.md', 'todo/plan.json', 'todo/README.md', 'todo/templates/TODO-template.md', 'todo/TODO-00-INDEX.md']),
   reviewer: skillFiles(['independent-review'], {}).concat(['.conclave/reviewers.toml', 'docs/review-round-prompt.md', 'scripts/review-dispatch.py', 'scripts/tests/test_review_dispatch.py']),
   wordpress: skillFiles(['wordpress-connect', 'wordpress-site-safety'], {}).concat(['bin/wp-remote', 'docs/wordpress-agent-tooling.md', 'phpcs.xml.dist', 'scripts/hooks/wordpress-phpcs-pre-push.sh', 'scripts/lib/site_ssh.py', 'scripts/lib/wp_site.py', 'scripts/site-access.py', 'scripts/tests/test_site_access.py', 'tools/phpcs/composer.json']),
@@ -1112,7 +1113,7 @@ const SYNC_SCOPE = 'It never changes an existing AGENTS.md, GEMINI.md, CLAUDE.md
 // R31: the new repository wizard's choices, as forge.py init takes them (copy is an alias of isolated).
 const REPO_KITS = [['todo', 'TODO plan and process skills, scripts/todo-graph.py'], ['reviewer', 'Independent review: the reviewer pin and scripts/review-dispatch.py'], ['laravel', 'Laravel Boost and LSP checks; needs an existing Laravel app'], ['wordpress', 'WordPress site tooling for Pressable or WordPress.com']];
 const REPO_AGENTS = [['all', 'Every agent: .agents, .claude and .codex'], ['agy', 'Antigravity'], ['gemini', 'Gemini, the same files as agy'], ['claude', 'Claude Code'], ['codex', 'OpenAI Codex']];
-const REPO_MODES = [['isolated', 'Default: the kits are copied in, the repository is self-contained'], ['hybrid', 'Copied in, plus .agents/skills.json pointing at the kits'], ['inherit', 'Antigravity manifests only, no copied skills']];
+const REPO_MODES = [['isolated', 'Default: the kits are copied in, the repository is self-contained'], ['hybrid', 'Copied in, plus .agents/skills.json pointing at the kits'], ['inherit', 'Copied in except the Antigravity skills: .agents/skills.json and plugins.json point at the kits']];
 const REPO_DEFAULT = { folder: 'R:\\GitHub\\orchard-docs', kits: { todo: true, reviewer: true, laravel: false, wordpress: false }, agent: 'all', mode: 'isolated', host: 'pressable' };
 const CLI_PATH = { codex: 'C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.CMD', agy: 'C:\\Users\\dev\\AppData\\Local\\Programs\\Antigravity\\bin\\agy.CMD', claude: 'C:\\Users\\dev\\.local\\bin\\claude.EXE' };
 
@@ -1134,7 +1135,7 @@ function allowedFor(rel, agent) {
 }
 function startFiles(folderId, screen) {
   if (folderId === 'api') return ENTRY_DOCS.concat(['artisan', '.mcp.json']);
-  let files = ENTRY_DOCS.concat(KIT_FILES.reviewer, KIT_FILES.todo.filter(function (f) { return f !== 'todo/plan.json'; }));
+  let files = KIT_FILES.base.concat(KIT_FILES.reviewer, KIT_FILES.todo.filter(function (f) { return f !== 'todo/plan.json'; }));
   if (screen === 'no-pin') files = files.filter(function (f) { return f !== '.conclave/reviewers.toml'; });
   if (screen === 'no-dispatcher') files = files.filter(function (f) { return f !== 'scripts/review-dispatch.py'; });
   return files;
@@ -1469,12 +1470,13 @@ class Component extends DCLogic {
     const has = this.hasMap(k, folderId);
     const host = k.hosts[folderId] || 'pressable';
     const fresh = !!(k.synced && k.synced[folderId]);
+    const freshScripts = !!(k.syncedScripts && k.syncedScripts[folderId]);
     const stale = fresh ? {} : (UPDATE_STALE[folderId] || {});
-    const staleScripts = fresh ? {} : clone(UPDATE_STALE_SCRIPTS[folderId] || {});
-    if (!fresh && folderId === 'web' && this.base().env.screen === 'old-dispatcher') staleScripts.reviewer = (staleScripts.reviewer || []).concat(['scripts/review-dispatch.py']);
+    const staleScripts = freshScripts ? {} : clone(UPDATE_STALE_SCRIPTS[folderId] || {});
+    if (!freshScripts && folderId === 'web' && this.base().env.screen === 'old-dispatcher') staleScripts.reviewer = (staleScripts.reviewer || []).concat(['scripts/review-dispatch.py']);
     const kits = KITS.filter(function (kit) { return self.kitInfo(k, f, kit).state !== 'none'; }).map(function (kit) {
-      const r = kit === 'base' ? null : dryRun(f, has, kit, 'all', host);
-      const installed = r && !r.error ? r.add.filter(function (p) { return p !== '.mcp.json'; }) : [];
+      const r = dryRun(f, has, kit, 'all', host);
+      const installed = !r.error ? r.add.filter(function (p) { return p !== '.mcp.json'; }) : [];
       const updated = (stale[kit] || []).concat(scripts ? (staleScripts[kit] || []) : []);
       return { kit: kit, installed: sortPaths(installed), updated: sortPaths(updated) };
     });
@@ -1485,7 +1487,9 @@ class Component extends DCLogic {
     added[res.folder] = (added[res.folder] || []).concat([].concat.apply([], res.kits.map(function (x) { return x.installed; })));
     const synced = Object.assign({}, k.synced || {});
     synced[res.folder] = true;
-    return { added: added, synced: synced };
+    const syncedScripts = Object.assign({}, k.syncedScripts || {});
+    if (res.scripts) syncedScripts[res.folder] = true;
+    return { added: added, synced: synced, syncedScripts: syncedScripts };
   }
   syncText(res) {
     const n = function (a, w) { return a + (a === 1 ? ' file ' : ' files ') + w; };
@@ -1518,7 +1522,7 @@ class Component extends DCLogic {
     const pre = this.props.sidebar || 'explorer';
     const multi = this.wsKey() === 'multi';
     const shut = pre.indexOf('install') === 0 || pre === 'update-done';
-    const k = { for: this.kitsFor(), cur: multi && pre === 'install-laravel' ? 'api' : 'web', added: { web: [], api: [] }, hosts: {}, open: {}, sel: null, ins: null, upd: null, synced: {}, kitsOpen: true, panes: { reviewers: !shut, plan: !shut, rounds: !shut, site: !shut } };
+    const k = { for: this.kitsFor(), cur: multi && pre === 'install-laravel' ? 'api' : 'web', added: { web: [], api: [] }, hosts: {}, open: {}, sel: null, ins: null, upd: null, synced: {}, syncedScripts: {}, kitsOpen: true, panes: { reviewers: !shut, plan: !shut, rounds: !shut, site: !shut } };
     const insFor = function (folder, kit, step) { return { folder: folder, kit: kit, step: step, agent: 'all', host: 'pressable', result: null }; };
     if (pre === 'kits-health') { k.open['web/reviewer'] = true; k.sel = 'web/reviewer'; }
     if (pre === 'install-todo') { k.ins = insFor('web', 'todo', 'preview'); k.sel = 'web/todo'; }
@@ -1548,19 +1552,16 @@ class Component extends DCLogic {
     startFiles(folderId, this.base().env.screen).concat(k.added[folderId] || []).forEach(function (f) { m[f] = true; });
     return m;
   }
-  // State from forge's own dry run (agent all), health from doctor. base is always installed here.
+  // State from forge's own dry run (agent all), health from doctor.
   kitInfo(k, f, kit) {
     const has = this.hasMap(k, f.id);
     const host = k.hosts[f.id] || 'pressable';
     let state = 'none';
     let missing = 0;
-    if (kit === 'base') state = has['AGENTS.md'] ? 'installed' : 'none';
-    else {
-      const r = dryRun(f, has, kit, 'all', host);
-      if (!r.error) {
-        missing = r.add.filter(function (x) { return x !== '.mcp.json'; }).length;
-        state = missing === 0 ? 'installed' : (missing === r.owned ? 'none' : 'partly');
-      }
+    const r = dryRun(f, has, kit, 'all', host);
+    if (!r.error) {
+      missing = r.add.filter(function (x) { return x !== '.mcp.json'; }).length;
+      state = missing === 0 ? 'installed' : (missing === r.owned ? 'none' : 'partly');
     }
     const checks = state === 'none' ? [] : doctor(f, has, kit, host, this.base().env.clis);
     return { state: state, missing: missing, checks: checks, bad: checks.filter(function (c) { return c.status !== 'ok'; }).length };
@@ -1704,8 +1705,8 @@ class Component extends DCLogic {
     const o = this.ov();
     const close = function () { self.setOv(null); };
     const qi = { open: false, label: '', hasTitle: false, title: '', hasBack: false, back: close, hasBrowse: false, browse: function () {}, placeholder: '', value: '', onInput: function () {}, onKey: function () {}, isMulti: false, allCls: '', toggleAll: function () {}, countText: '', hasOk: false, ok: close, hasMsg: false, msg: '', items: [], close: close };
-    const cm = { open: false, x: 0, y: 0, items: [], close: close };
-    const dlg = { open: false, message: '', detail: [], buttons: [] };
+    const cm = { open: false, x: 0, y: 0, items: [], close: close, onKey: function () {} };
+    const dlg = { open: false, message: '', detail: [], buttons: [], onKey: function () {} };
     if (!o) return { qi: qi, cm: cm, dlg: dlg };
     const item = function (label, desc, run, act, chk) { return { label: label, desc: desc, run: run, cls: act ? 'act' : '', sel: !!act, chk: chk || '' }; };
     const srcLabel = this.srcLabel();
@@ -1731,7 +1732,7 @@ class Component extends DCLogic {
       const argv = 'python forge.py sync ' + cur.path + (o.scripts ? ' --include-scripts' : '');
       Object.assign(dlg, { open: true, message: 'Update the kits in ' + cur.name + ' from ' + srcLabel + '?',
         detail: [{ t: 'forge.py sync refreshes ' + joinList(kitsHere) + ': skills, rules and subagents' + (o.scripts ? ', and existing scripts/ and bin/ files,' : '') + ' and adds any kit file that is missing.' }, { t: SYNC_SCOPE }, { t: 'Runs: ' + argv }],
-        buttons: [{ label: 'Update', cls: 'btn', run: function () { self.setOv(null); self.runSync(o.scripts, function (res) { return { upd: res, ins: null }; }); } }, { label: 'Cancel', cls: 'btn2', run: close }] });
+        buttons: [{ label: 'Update', cls: 'btn', run: function () { self.setState({ ov: null, side: 'conclave' }); self.runSync(o.scripts, function (res) { return { upd: res, ins: null, kitsOpen: true }; }); } }, { label: 'Cancel', cls: 'btn2', run: close }] });
     } else if (o.kind === 'repo') {
       const wp = !!o.kits.wordpress;
       const total = wp ? 5 : 4;
@@ -1740,7 +1741,7 @@ class Component extends DCLogic {
       const next = function (patch) { const n = Object.assign({}, o, patch); self.setOv(n.step + 1 > (n.kits.wordpress ? 5 : 4) ? Object.assign(n, { kind: 'repo-confirm' }) : Object.assign(n, { step: n.step + 1 })); };
       if (o.step === 1) {
         Object.assign(qi, base, { value: o.folder, placeholder: 'Folder for the new repository', onInput: function (ev) { go({ folder: ev.target.value }); }, ok: function () { next({}); },
-          onKey: function (ev) { if (ev.key === 'Enter') next({}); }, hasBrowse: true, browse: function () { self.flash('Opens the folder picker.'); }, hasMsg: true,
+          hasBrowse: true, browse: function () { go({ folder: 'R:\\GitHub\\orchard-mobile' }); self.flash('Chose R:\\GitHub\\orchard-mobile in the folder picker.'); }, hasMsg: true,
           msg: "forge.py init creates the folder if it does not exist and never overwrites an AGENTS.md, GEMINI.md, CLAUDE.md or CODEX.md already in it. Press 'Enter' to confirm your input or 'Escape' to cancel." });
       } else if (o.step === 2) {
         const n = REPO_KITS.filter(function (x) { return o.kits[x[0]]; }).length;
@@ -1762,6 +1763,8 @@ class Component extends DCLogic {
       const argv = 'python forge.py init ' + o.folder + kits.map(function (x) { return ' --kit ' + x; }).join('') + ' --agent ' + o.agent + ' --mode ' + o.mode + (wp ? ' --wp-host ' + o.host : '');
       const run = function () {
         self.setOv(null);
+        const fail = self.srcFailNow();
+        if (fail) { self.notify(fail.title + ' ' + fail.body, self.srcActions(fail).map(function (a) { return { label: a.label, run: function () { self.upd({ toast: '' }); a.run(); } }; })); return; }
         if (kits.indexOf('laravel') >= 0) { self.notify('forge.py: error: No artisan found under ' + o.folder + ' (looked at root, platform/, and first-level children).', [{ label: 'Show log', run: function () { self.flash('Opens the Conclave output channel at this run.'); } }]); return; }
         const done = function (msg) { return function () { self.flash(msg); }; };
         self.notify('Set up ' + o.folder + ' with base' + (kits.length ? ', ' + kits.join(', ') : '') + '. The files forge wrote are listed in the Conclave output channel.', [{ label: 'Open', run: done('Opens ' + name + ' in this window.') }, { label: 'Open in New Window', run: done('Opens ' + name + ' in a new window.') }, { label: 'Add to Workspace', run: done('Adds ' + name + ' to this workspace.') }]);
@@ -1769,6 +1772,14 @@ class Component extends DCLogic {
       Object.assign(dlg, { open: true, message: 'Set up ' + name + ' with Conclave-SDK?',
         detail: [{ t: 'Kits: ' + joinList(['base'].concat(kits)) + '. Agent: ' + o.agent + '. Mode: ' + o.mode + '.' + (wp ? ' WordPress host: ' + o.host + '.' : '') }, { t: 'From ' + srcLabel + '. Entry docs already in the folder are kept: Conclave never passes --force.' }, { t: 'Runs: ' + argv }],
         buttons: [{ label: 'Set Up', cls: 'btn', run: run }, { label: 'Back', cls: 'btn2', run: function () { self.setOv(Object.assign({}, o, { kind: 'repo', step: wp ? 5 : 4 })); } }, { label: 'Cancel', cls: 'btn2', run: close }] });
+    }
+    if (qi.open) {
+      const accept = qi.isMulti || o.kind === 'repo' && o.step === 1 ? qi.ok : (qi.items.find(function (x) { return x.sel; }) || qi.items[0] || { run: close }).run;
+      qi.onKey = function (ev) { if (ev.key === 'Escape') close(); else if (ev.key === 'Enter') accept(); };
+    }
+    if (cm.open || dlg.open) {
+      // Escape closes a menu or a dialog, as in VS Code.
+      cm.onKey = dlg.onKey = function (ev) { if (ev.key === 'Escape') close(); };
     }
     return { qi: qi, cm: cm, dlg: dlg };
   }
@@ -2044,7 +2055,7 @@ class Component extends DCLogic {
           toggle: function () { self.kupd({ open: setOpen(key, !open), sel: key }); },
           iInstalled: info.state === 'installed', iPartly: info.state === 'partly', iNone: info.state === 'none',
           label: kit, desc: stateText, title: kit + ': ' + stateText, folder: f.name,
-          canInstall: kit !== 'base' && info.state !== 'installed', canHealth: info.state !== 'none',
+          canInstall: info.state !== 'installed', canHealth: info.state !== 'none',
           install: function () { self.openInstall(f.id, kit); },
           health: function () { self.kupd({ open: setOpen(key, true), sel: key }); },
           hasBadge: info.bad > 0, badge: info.bad > 99 ? '99' : String(info.bad), badgeCls: 'att', lblCls: info.bad > 0 ? 'att' : '',
