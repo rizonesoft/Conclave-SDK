@@ -26,6 +26,8 @@ settings_before=$(sha256sum "$target/.codex/settings.toml")
 [ -f "$target/.agents/skills/authoring-skills/SKILL.md" ]
 [ -f "$target/.claude/skills/authoring-skills/SKILL.md" ]
 [ -f "$target/.codex/skills/authoring-skills/SKILL.md" ]
+# Nothing is world-writable, whatever modes the kit checkout reports.
+[ "$(stat -c %a "$target/.claude/skills/authoring-skills/SKILL.md")" = 644 ]
 
 tree_after_first=$(cd "$target" && find . -type f -print0 | sort -z | xargs -0 -r sha256sum)
 "$installer" "$target" >/dev/null

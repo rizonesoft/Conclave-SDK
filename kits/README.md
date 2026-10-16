@@ -8,7 +8,7 @@ Install **base** on every project (or run `python forge.py init <target>`). Then
 # Cross-platform via forge.py (supports --agent all|gemini|agy|claude|codex)
 python forge.py kit /path/to/project base
 python forge.py kit /path/to/laravel-project laravel
-python forge.py kit /path/to/wordpress-project wordpress
+python forge.py kit /path/to/wordpress-project wordpress --host pressable   # or --host wpcom
 python forge.py doctor /path/to/project
 ```
 
@@ -16,7 +16,7 @@ python forge.py doctor /path/to/project
 # Or directly via bash installers in Linux / WSL / Git Bash
 kits/base/scripts/install.sh /path/to/project
 kits/laravel/scripts/install.sh /path/to/laravel-project
-kits/wordpress/scripts/install.sh /path/to/wordpress-project
+kits/wordpress/scripts/install.sh /path/to/wordpress-project --host wpcom
 ```
 
 Dry-run any of them with `--dry-run`. There is no `--force`.
@@ -27,7 +27,7 @@ Dry-run any of them with `--dry-run`. There is no `--force`.
 | --- | ---------- | ------------ |
 | `base/` | Agent overlay (`AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, safety skills) | Every new repository (not a stack) |
 | `laravel/` | Boost MCP, `boost.json`, stdio LSP client, `laravel-boost` skill, pre-push hook | Tree has `artisan` (root or child) |
-| `wordpress/` | WP-CLI/PHPCS doctor, WordPress-Extra config, site-safety skill, MCP example | Tree has `wp-load.php` or `wp-config.php` |
+| `wordpress/` | Site pin, pinned SSH/SFTP, WordPress MCP, DDEV, PHPCS | WordPress site project |
 
 `base` is the generic agent layer. Laravel and WordPress kits do not copy it. Install `base` (or `forge.py init`) first when the target should speak the 3-agent contract.
 
@@ -40,6 +40,7 @@ kits/<name>/
   scripts/test-install.sh
   scripts/doctor.sh     # stack kits; read-only
   templates/            # files copied into the target
+  hosts/<host>/templates/  # wordpress only: per-host files (pressable, wpcom)
 ```
 
 `doctor` (`python forge.py doctor <target>` or `scripts/doctor.sh`) is read-only. Missing globals print `setup_required` and still exit 0 unless you pass `--strict`.

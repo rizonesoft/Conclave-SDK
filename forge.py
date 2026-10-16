@@ -3,7 +3,7 @@
 
     python forge.py init <target> [--mode isolated|hybrid|inherit] [--agent all|agy|gemini|claude|codex] [--kit <kit>] [--with-todo] [--force]
     python forge.py sync <target> [--mode isolated|hybrid|inherit] [--agent all|agy|gemini|claude|codex] [--kit <kit>] [--include-scripts]
-    python forge.py kit <target> <kit> [--agent all|agy|gemini|claude|codex] [--dry-run]
+    python forge.py kit <target> <kit> [--agent all|agy|gemini|claude|codex] [--host pressable|wpcom] [--dry-run]
     python forge.py doctor <target> [laravel|wordpress] [--strict]
     python forge.py kits
     python forge.py check <target>
@@ -20,6 +20,7 @@ from pathlib import Path
 import shutil
 import sys
 import tempfile
+import types
 
 FORGE_ROOT = Path(__file__).resolve().parent
 AGENT_CHOICES = ["all", "agy", "gemini", "claude", "codex"]
@@ -37,6 +38,8 @@ def atomic_write(path: Path, data: bytes | str) -> None:
     try:
         with os.fdopen(fd, "wb") as out:
             out.write(raw)
+            # mkstemp creates 0600; a provisioned file is ordinary repository content, and a script is executable.
+            os.fchmod(out.fileno(), 0o755 if raw.startswith(b"#!") else 0o644)
             out.flush()
             os.fsync(out.fileno())
         os.replace(temporary, path)
@@ -118,7 +121,14 @@ def _find_wordpress_root(target_root: Path) -> Path | None:
     return None
 
 
+WORDPRESS_HOSTS = ("pressable", "wpcom")
+WORDPRESS_PIN = ".conclave/wordpress-site.json"
+
+
 def _rel_allowed_for_agent(rel: str, agent: str) -> bool:
+    if "__pycache__" in rel.split("/"):
+        # Bytecode left by running a kit's own tests in the SDK checkout is not kit content.
+        return False
     agent = normalize_agent(agent)
     if agent == "all":
         return True
@@ -137,8 +147,14 @@ def apply_kit(
     *,
     agent: str = "all",
     dry_run: bool = False,
+    host: str | None = None,
 ) -> dict:
-    """Apply an additive overlay kit ('base', 'laravel', 'wordpress') for all or one agent without overwriting existing files."""
+    """Apply an additive overlay kit ('base', 'laravel', 'wordpress') for all or one agent without overwriting existing files.
+
+    `host` picks the WordPress kit's host overlay (kits/wordpress/hosts/<host>/templates); other kits ignore it. An
+    existing site pin decides the host, so re-running the kit can never add another host's files; without a pin the
+    default is `pressable`.
+    """
     agent = normalize_agent(agent)
     target_root = Path(target_root)
     if not target_root.exists() or not target_root.is_dir() or target_root.is_symlink():
@@ -180,17 +196,28 @@ def apply_kit(
                 plan.append((template_root / rel, target_root / rel, rel))
         plan.append((template_root / "boost.json", app_root / "boost.json", boost_rel))
     elif kit_name == "wordpress":
+        if host is not None and host not in WORDPRESS_HOSTS:
+            raise ValueError(f"Unknown WordPress host '{host}'. Available hosts: {', '.join(WORDPRESS_HOSTS)}")
+        if (target_root / WORDPRESS_PIN).exists():
+            pin, state = _load_wordpress_pin(target_root)
+            if pin is None:
+                raise ValueError(f"{WORDPRESS_PIN} is {state}; fix it before re-applying the kit")
+            if host is not None and host != pin["host"]:
+                raise ValueError(f"{WORDPRESS_PIN} pins host '{pin['host']}', not '{host}'")
+            host = pin["host"]
+        host = host or "pressable"
+        # A local WordPress tree is optional: on Pressable the wordpress-connect skill creates it with DDEV,
+        # and a WordPress.com site has none.
         wp_root = _find_wordpress_root(target_root)
-        if wp_root is None:
-            raise ValueError(
-                f"No wp-load.php or wp-config.php under {target_root} (looked at root, website/, wordpress/, wp/, and first-level children)."
-            )
-        extra["wordpress"] = wp_root.relative_to(target_root).as_posix() if wp_root != target_root else "."
-        for src in sorted(template_root.rglob("*")):
-            if src.is_file():
-                rel = src.relative_to(template_root).as_posix()
-                if _rel_allowed_for_agent(rel, agent):
-                    plan.append((src, target_root / rel, rel))
+        extra["host"] = host
+        extra["wordpress"] = None if wp_root is None else (wp_root.relative_to(target_root).as_posix() if wp_root != target_root else ".")
+        host_root = FORGE_ROOT / "kits" / kit_name / "hosts" / host / "templates"
+        for root in (template_root, host_root):
+            for src in sorted(root.rglob("*")):
+                if src.is_file():
+                    rel = src.relative_to(root).as_posix()
+                    if _rel_allowed_for_agent(rel, agent):
+                        plan.append((src, target_root / rel, rel))
     else:
         for src in sorted(template_root.rglob("*")):
             if src.is_file():
@@ -246,6 +273,100 @@ def apply_kit(
     }
 
 
+def _wordpress_pin_module() -> types.ModuleType:
+    """The kit's own wp_site.py (what the helpers ship with), compiled from source so no bytecode lands in the kit."""
+    validator = FORGE_ROOT / "kits/wordpress/templates/scripts/lib/wp_site.py"
+    module = types.ModuleType("_forge_wp_site")
+    module.__file__ = str(validator)
+    exec(compile(validator.read_text(encoding="utf-8"), str(validator), "exec"), module.__dict__)
+    return module
+
+
+def _load_wordpress_pin(target_root: Path) -> tuple[dict | None, str]:
+    """Read and validate the target's site pin without running any of the target's code."""
+    pin_path = target_root / WORDPRESS_PIN
+    if not pin_path.is_file():
+        return None, "missing"
+    try:
+        return _wordpress_pin_module().load(pin_path), "ok"
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return None, f"invalid: {exc}"
+
+
+def _doctor_wordpress(target_root: Path, add_check) -> None:
+    """Read-only WordPress checks: the site pin decides the host, then each host's own setup is checked."""
+    pin, pin_state = _load_wordpress_pin(target_root)
+    add_check("site-pin", "ok" if pin else "missing", f"{WORDPRESS_PIN}: {pin_state}")
+    host = pin["host"] if pin else None
+    wp_site = _wordpress_pin_module()
+    ssh_enabled = pin is None or wp_site.ssh_enabled(pin)
+
+    if pin:
+        identity = ["site_id", "url"] + (["pressable.account_id"] if host == "pressable" else [])
+        missing = wp_site.unset(pin, *identity)
+        add_check("site-identity", "setup_required" if missing else "ok",
+                  f"wordpress-connect step 1: {', '.join(missing)}" if missing else f"{host} {pin['site_id']} {pin['url']}")
+        if ssh_enabled:
+            missing = wp_site.unset(pin, "ssh.item", "ssh.ssh_host", "ssh.sftp_host", "ssh.port", "ssh.username", "ssh.wp_path")
+            add_check("site-ssh", "setup_required" if missing else "ok",
+                      f"wordpress-connect step 2: {', '.join(missing)}" if missing else f"{pin['ssh']['username']}@{pin['ssh']['ssh_host']}")
+        else:
+            add_check("site-ssh", "ok", "WordPress.com Simple site: no SSH (ssh.ssh_host is null)")
+
+    helpers = ["scripts/lib/wp_site.py", "scripts/lib/site_ssh.py", "scripts/site-access.py", "bin/wp-remote"]
+    if host == "pressable":
+        helpers += ["scripts/lib/mcp_http.py", "scripts/mcp-headers.py", "scripts/check-mcp.py", "scripts/sftp-item.py",
+                    "scripts/create-application-password.py", "bin/ddev", "bin/wp", ".ddev/providers/production.yaml"]
+    for rel in helpers:
+        path = target_root / rel
+        add_check(f"helper:{rel}", "ok" if path.is_file() else "missing", path.as_posix())
+    for agent_dir in (".agents", ".claude", ".codex"):
+        for skill in ("wordpress-site-safety", "wordpress-connect"):
+            sk = target_root / agent_dir / "skills" / skill / "SKILL.md"
+            add_check(f"skill:{skill}:{agent_dir}", "ok" if sk.is_file() else "missing", sk.as_posix())
+    phpcs_xml = target_root / "phpcs.xml.dist"
+    add_check("phpcs.xml.dist", "ok" if phpcs_xml.is_file() else "missing", phpcs_xml.as_posix())
+    phpcs_comp = target_root / "tools/phpcs/composer.json"
+    add_check("phpcs-toolchain", "ok" if phpcs_comp.is_file() else "missing", phpcs_comp.as_posix())
+    if ssh_enabled:
+        sshpass = shutil.which("sshpass")
+        add_check("sshpass", "ok" if sshpass else "setup_required", sshpass or "operator global: apt install sshpass")
+
+    if host == "pressable":
+        wp_root = _find_wordpress_root(target_root)
+        add_check("wordpress-root", "ok" if wp_root else "setup_required",
+                  wp_root.as_posix() if wp_root else "wordpress-connect step 4: bin/ddev pull production -y")
+        ddev = shutil.which("ddev")
+        add_check("ddev", "ok" if ddev else "setup_required", ddev or "operator global: DDEV")
+        ddev_config = target_root / ".ddev/config.yaml"
+        add_check("ddev-config", "ok" if ddev_config.is_file() else "setup_required",
+                  ddev_config.as_posix() if ddev_config.is_file() else "wordpress-connect step 4: bin/ddev config")
+        sync = target_root / "scripts/production-sync.py"
+        add_check("production-sync", "ok" if sync.is_file() else "setup_required",
+                  sync.as_posix() if sync.is_file() else "wordpress-connect step 4: port from jmrgroup-coza")
+        servers = pin.get("mcp", {})
+        add_check("mcp-pinned", "ok" if servers else "setup_required",
+                  ", ".join(sorted(servers)) if servers else "wordpress-connect step 3: pin the WordPress and Pressable connections")
+        try:
+            registered = json.loads((target_root / ".mcp.json").read_text(encoding="utf-8")).get("mcpServers", {})
+        except (OSError, ValueError, AttributeError):
+            registered = {}
+        for name, entry in sorted(servers.items()):
+            missing = wp_site.unset(pin, *(f"mcp.{name}.{key}" for key in wp_site.REQUIRED_MCP_KEYS[entry["scheme"]]))
+            server = registered.get(name)
+            if not isinstance(server, dict):
+                missing.append(".mcp.json")
+            elif server.get("url") != entry.get("url"):
+                missing.append(".mcp.json url differs from the pin")
+            add_check(f"mcp:{name}", "setup_required" if missing else "ok",
+                      f"wordpress-connect step 3: {', '.join(missing)}" if missing else entry["url"])
+    elif host == "wpcom":
+        ddev_dir = target_root / ".ddev"
+        add_check("no-ddev", "unexpected" if ddev_dir.exists() else "ok",
+                  "a WordPress.com site has no local DDEV mirror" if ddev_dir.exists() else "WordPress.com: no local mirror")
+        add_check("wordpress-mcp", "ok", "the user-scope WordPress.com connector; nothing in .mcp.json")
+
+
 def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
     """Read-only stack health check for Laravel and/or WordPress overlays across all three agents."""
     target_root = Path(target_root).resolve()
@@ -257,7 +378,7 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
     if kit_name is None:
         if _find_laravel_app_root(target_root) is not None:
             kit_name = "laravel"
-        elif _find_wordpress_root(target_root) is not None:
+        elif (target_root / WORDPRESS_PIN).is_file() or _find_wordpress_root(target_root) is not None:
             kit_name = "wordpress"
         else:
             kit_name = "base"
@@ -283,26 +404,13 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
             found = shutil.which(binary)
             add_check(binary, "ok" if found else "setup_required", found or hint)
     elif kit_name == "wordpress":
-        wp_root = _find_wordpress_root(target_root)
-        if wp_root is not None:
-            add_check("wordpress-root", "ok", wp_root.as_posix())
-        else:
-            add_check("wordpress-root", "missing", "no wp-load.php or wp-config.php")
-        phpcs_xml = target_root / "phpcs.xml.dist"
-        add_check("phpcs.xml.dist", "ok" if phpcs_xml.is_file() else "missing", phpcs_xml.as_posix())
-        phpcs_comp = target_root / "tools/phpcs/composer.json"
-        add_check("phpcs-toolchain", "ok" if phpcs_comp.is_file() else "missing", phpcs_comp.as_posix())
-        for agent_dir in (".agents", ".claude", ".codex"):
-            sk = target_root / agent_dir / "skills/wordpress-site-safety/SKILL.md"
-            add_check(f"wordpress-rule:{agent_dir}", "ok" if sk.is_file() else "missing", sk.as_posix())
-        wp_bin = shutil.which("wp")
-        add_check("wp-cli", "ok" if wp_bin else "setup_required", wp_bin or "user-scoped WP-CLI")
+        _doctor_wordpress(target_root, add_check)
     else:
         for entry in ("AGENTS.md", "GEMINI.md", "CLAUDE.md", "CODEX.md"):
             p = target_root / entry
             add_check(entry, "ok" if p.is_file() else "missing", p.as_posix())
 
-    missing_count = sum(1 for c in checks if c["status"] in ("missing", "setup_required"))
+    missing_count = sum(1 for c in checks if c["status"] in ("missing", "setup_required", "unexpected"))
     return {
         "target": target_root.as_posix(),
         "kit": kit_name,
@@ -319,6 +427,7 @@ def provision(
     include_scripts: bool = True,
     with_todo: bool = False,
     kits: list[str] | None = None,
+    wordpress_host: str | None = None,
     overwrite_existing_docs: bool = False,
     overwrite_skills: bool = True,
 ) -> dict:
@@ -507,7 +616,7 @@ def provision(
     kit_results: list[dict] = []
     if kits:
         for kit_name in kits:
-            kit_res = apply_kit(target_root, kit_name, agent=agent, dry_run=False)
+            kit_res = apply_kit(target_root, kit_name, agent=agent, dry_run=False, host=wordpress_host)
             kit_results.append(kit_res)
             written.extend(kit_res["installed"])
             skipped.extend(kit_res["preserved"])
@@ -559,6 +668,7 @@ def main(argv: list[str] | None = None) -> int:
     p_init.add_argument("--mode", choices=["isolated", "copy", "hybrid", "inherit"], default="isolated")
     p_init.add_argument("--agent", choices=AGENT_CHOICES, default="all")
     p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, laravel, wordpress)")
+    p_init.add_argument("--wp-host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
     p_init.add_argument("--no-scripts", action="store_true", help="Do not copy scripts/todo-graph.py or verify-agent-tiers.mjs")
     p_init.add_argument("--with-todo", action="store_true", help="Seed starter todo/ directory")
     p_init.add_argument("--force", action="store_true", help="Overwrite existing AGENTS.md, GEMINI.md, CLAUDE.md, CODEX.md")
@@ -568,12 +678,14 @@ def main(argv: list[str] | None = None) -> int:
     p_sync.add_argument("--mode", choices=["isolated", "copy", "hybrid", "inherit"], default="isolated")
     p_sync.add_argument("--agent", choices=AGENT_CHOICES, default="all")
     p_sync.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, laravel, wordpress)")
+    p_sync.add_argument("--wp-host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
     p_sync.add_argument("--include-scripts", action="store_true", help="Also update scripts/todo-graph.py and verify-agent-tiers.mjs")
 
     p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, laravel, wordpress) to a target repo")
     p_kit.add_argument("target", help="Target repository path")
     p_kit.add_argument("kit_name", choices=list_kits(), help="Kit name to apply")
     p_kit.add_argument("--agent", choices=AGENT_CHOICES, default="all", help="Install kit files for all agents or one agent")
+    p_kit.add_argument("--host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
     p_kit.add_argument("--dry-run", action="store_true", help="Preview files that would be installed without writing")
 
     p_doc = sub.add_parser("doctor", help="Run read-only stack and agent overlay health checks on a target repo")
@@ -595,7 +707,7 @@ def main(argv: list[str] | None = None) -> int:
     target = Path(args.target)
 
     if args.command == "kit":
-        res = apply_kit(target, args.kit_name, agent=args.agent, dry_run=args.dry_run)
+        res = apply_kit(target, args.kit_name, agent=args.agent, dry_run=args.dry_run, host=args.host)
         print(json.dumps(res, indent=2))
         return 0
 
@@ -614,6 +726,7 @@ def main(argv: list[str] | None = None) -> int:
             include_scripts=not args.no_scripts,
             with_todo=args.with_todo,
             kits=args.kit,
+            wordpress_host=args.wp_host,
             overwrite_existing_docs=args.force,
             overwrite_skills=True,
         )
@@ -628,6 +741,7 @@ def main(argv: list[str] | None = None) -> int:
             include_scripts=args.include_scripts,
             with_todo=False,
             kits=args.kit,
+            wordpress_host=args.wp_host,
             overwrite_existing_docs=False,
             overwrite_skills=True,
         )

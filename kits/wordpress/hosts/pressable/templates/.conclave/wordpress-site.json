@@ -1,0 +1,19 @@
+{
+  "_about": "The one place that names this project's live WordPress site (Pressable). Every helper reads it through scripts/lib/wp_site.py. null means the setup (the wordpress-connect skill) has not filled it in yet. Vault items are Conclave immutable ids, never titles.",
+  "host": "pressable",
+  "site_id": null,
+  "url": null,
+  "environment": "production",
+  "ssh": {
+    "item": null,
+    "ssh_host": "ssh.pressable.com",
+    "sftp_host": "sftp.pressable.com",
+    "port": "22",
+    "username": null,
+    "wp_path": "~/htdocs"
+  },
+  "pressable": {
+    "account_id": null
+  },
+  "mcp": {}
+}

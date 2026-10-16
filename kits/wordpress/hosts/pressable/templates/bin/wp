@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""Run WordPress CLI in the primary local DDEV runtime."""
+import os
+from pathlib import Path
+import sys
+
+runner = Path(__file__).resolve().with_name("ddev")
+os.execv(str(runner), [str(runner), "wp", *sys.argv[1:]])

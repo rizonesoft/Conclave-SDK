@@ -1,6 +1,8 @@
 """Tests for forge.py provisioning modes, 3-agent isolation, stack kits, and prose hygiene."""
 import json
 import pathlib
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -148,28 +150,129 @@ class ForgeProvisionTests(unittest.TestCase):
 
     def test_wordpress_kit_discovery_additive_install_and_doctor(self):
         with self.assertRaises(ValueError):
-            forge.apply_kit(self.target, "wordpress")
+            forge.apply_kit(self.target, "wordpress", host="kinsta")
 
         wp_site = self.target / "wpsite"
         (wp_site / "website").mkdir(parents=True)
         (wp_site / "website/wp-load.php").write_text("<?php\n", encoding="utf-8")
         res = forge.apply_kit(wp_site, "wordpress")
         self.assertEqual(res["wordpress"], "website")
+        self.assertEqual(res["host"], "pressable")
         self.assertTrue((wp_site / "phpcs.xml.dist").is_file())
         self.assertTrue((wp_site / "tools/phpcs/composer.json").is_file())
-        self.assertTrue((wp_site / ".agents/skills/wordpress-site-safety/SKILL.md").is_file())
-        self.assertTrue((wp_site / ".claude/skills/wordpress-site-safety/SKILL.md").is_file())
-        self.assertTrue((wp_site / ".codex/skills/wordpress-site-safety/SKILL.md").is_file())
+        for agent_dir in (".agents", ".claude", ".codex"):
+            for skill in ("wordpress-site-safety", "wordpress-connect"):
+                self.assertTrue((wp_site / agent_dir / "skills" / skill / "SKILL.md").is_file())
         self.assertTrue((wp_site / "mcp.wordpress.example.json").is_file())
+        self.assertTrue((wp_site / ".ddev/providers/production.yaml").is_file())
+        self.assertEqual(json.loads((wp_site / ".conclave/wordpress-site.json").read_text())["host"], "pressable")
+        # Scripts are executable and nothing is world-writable, whatever the kit checkout's own modes are.
+        self.assertEqual((wp_site / "bin/wp-remote").stat().st_mode & 0o777, 0o755)
+        self.assertEqual((wp_site / "phpcs.xml.dist").stat().st_mode & 0o777, 0o644)
 
         doc = forge.doctor_repo(wp_site)
         self.assertEqual(doc["kit"], "wordpress")
         by_name = {c["name"]: c["status"] for c in doc["checks"]}
+        self.assertEqual(by_name["site-pin"], "ok")
+        self.assertEqual(by_name["site-identity"], "setup_required")
         self.assertEqual(by_name["wordpress-root"], "ok")
         self.assertEqual(by_name["phpcs.xml.dist"], "ok")
-        self.assertEqual(by_name["wordpress-rule:.agents"], "ok")
-        self.assertEqual(by_name["wordpress-rule:.claude"], "ok")
-        self.assertEqual(by_name["wordpress-rule:.codex"], "ok")
+        self.assertEqual(by_name["helper:scripts/mcp-headers.py"], "ok")
+        self.assertEqual(by_name["production-sync"], "setup_required")
+        self.assertEqual(by_name["skill:wordpress-connect:.codex"], "ok")
+
+    def test_wordpress_kit_for_a_wordpress_com_site(self):
+        site = self.target / "wpcom"
+        site.mkdir()
+        res = forge.apply_kit(site, "wordpress", host="wpcom")
+        self.assertIsNone(res["wordpress"])
+        self.assertEqual(json.loads((site / ".conclave/wordpress-site.json").read_text())["host"], "wpcom")
+        self.assertTrue((site / "bin/wp-remote").is_file())
+        self.assertFalse((site / ".ddev").exists())
+        self.assertFalse((site / "mcp.wordpress.example.json").exists())
+        self.assertFalse((site / "scripts/mcp-headers.py").exists())
+
+        doc = forge.doctor_repo(site)
+        self.assertEqual(doc["kit"], "wordpress")
+        by_name = {c["name"]: c["status"] for c in doc["checks"]}
+        self.assertEqual(by_name["no-ddev"], "ok")
+        self.assertNotIn("wordpress-root", by_name)
+        self.assertNotIn("helper:scripts/mcp-headers.py", by_name)
+
+        pin_path = site / ".conclave/wordpress-site.json"
+        pin = json.loads(pin_path.read_text())
+        pin.update(site_id=257780254, url="https://example.wpcomstaging.com")
+        pin_path.write_text(json.dumps(pin))
+        (site / ".ddev").mkdir()
+        by_name = {c["name"]: c["status"] for c in forge.doctor_repo(site)["checks"]}
+        self.assertEqual(by_name["site-identity"], "ok")
+        self.assertEqual(by_name["site-ssh"], "setup_required")
+        self.assertEqual(by_name["no-ddev"], "unexpected")
+
+        # A Simple site has no SSH: with ssh.ssh_host null the doctor asks for nothing SSH-related.
+        (site / ".ddev").rmdir()
+        pin_path.write_text(json.dumps({**pin, "ssh": {**pin["ssh"], "ssh_host": None}}))
+        by_name = {c["name"]: c["status"] for c in forge.doctor_repo(site)["checks"]}
+        self.assertEqual(by_name["site-ssh"], "ok")
+        self.assertNotIn("sshpass", by_name)
+
+        # Re-applying the kit follows the pin, never adding Pressable files; a conflicting host is refused.
+        pin_path.write_text(json.dumps(pin))
+        res = forge.apply_kit(site, "wordpress")
+        self.assertEqual(res["host"], "wpcom")
+        self.assertFalse((site / ".ddev").exists())
+        self.assertFalse((site / "scripts/mcp-headers.py").exists())
+        with self.assertRaises(ValueError):
+            forge.apply_kit(site, "wordpress", host="pressable")
+
+        pin_path.write_text(json.dumps({**pin, "url": "http://example.com"}))
+        by_name = {c["name"]: c["status"] for c in forge.doctor_repo(site, "wordpress")["checks"]}
+        self.assertEqual(by_name["site-pin"], "missing")
+        with self.assertRaises(ValueError):
+            forge.apply_kit(site, "wordpress")
+
+    def test_wordpress_doctor_checks_pressable_identity_and_mcp_registration(self):
+        site = self.target / "pressable"
+        site.mkdir()
+        forge.apply_kit(site, "wordpress", host="pressable")
+        pin_path = site / ".conclave/wordpress-site.json"
+        pin = json.loads(pin_path.read_text())
+        pin.update(site_id=1813618, url="https://example.com")
+        pin["mcp"] = {
+            "example-pressable": {"item": "abcdefghijklmnopqrstuvwxyz", "scheme": "bearer", "url": "https://mcp.pressable.com"},
+            "example-wordpress": {"item": "zyxwvutsrqponmlkjihgfedcba", "scheme": "basic",
+                                  "url": "https://example.com/wp-json/mcp/mcp-adapter-default-server",
+                                  "username": "example", "wordpress_user_id": 1},
+        }
+        pin_path.write_text(json.dumps(pin))
+        (site / ".mcp.json").write_text(json.dumps({"mcpServers": {
+            "example-pressable": {"type": "http", "url": "https://elsewhere.example.com"},
+        }}))
+        checks = {c["name"]: c for c in forge.doctor_repo(site)["checks"]}
+        self.assertEqual(checks["site-identity"]["status"], "setup_required")
+        self.assertIn("pressable.account_id", checks["site-identity"]["detail"])
+        self.assertIn("url differs", checks["mcp:example-pressable"]["detail"])
+        self.assertIn("application_password_uuid", checks["mcp:example-wordpress"]["detail"])
+        self.assertIn(".mcp.json", checks["mcp:example-wordpress"]["detail"])
+
+        pin["pressable"]["account_id"] = 1432766
+        pin_path.write_text(json.dumps(pin))
+        (site / ".mcp.json").write_text(json.dumps({"mcpServers": {
+            "example-pressable": {"type": "http", "url": "https://mcp.pressable.com"},
+        }}))
+        checks = {c["name"]: c["status"] for c in forge.doctor_repo(site)["checks"]}
+        self.assertEqual(checks["site-identity"], "ok")
+        self.assertEqual(checks["mcp:example-pressable"], "ok")
+
+    def test_wordpress_kit_helper_tests_pass(self):
+        kit = FORGE_ROOT / "kits/wordpress"
+        with tempfile.TemporaryDirectory() as tmp:
+            scripts = pathlib.Path(tmp) / "scripts"
+            shutil.copytree(kit / "templates/scripts", scripts)
+            shutil.copytree(kit / "hosts/pressable/templates/scripts", scripts, dirs_exist_ok=True)
+            result = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", str(scripts / "tests")],
+                                    capture_output=True, text=True, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
 
     def test_no_em_or_en_dashes_in_authored_markdown(self):
         for md in FORGE_ROOT.rglob("*.md"):

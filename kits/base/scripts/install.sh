@@ -80,7 +80,12 @@ for source in "${sources[@]}"; do
     printf 'would install %s\n' "$relative"
   else
     mkdir -p -- "$(dirname -- "$destination")"
-    cp -p -- "$source" "$destination"
+    # Modes come from the content, not the source: a kit checked out on a Windows drive reports 0777.
+    if [ "$(head -c 2 -- "$source")" = '#!' ]; then
+        install -m 0755 -- "$source" "$destination"
+    else
+        install -m 0644 -- "$source" "$destination"
+    fi
     printf 'installed %s\n' "$relative"
   fi
   installed=$((installed + 1))

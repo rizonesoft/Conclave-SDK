@@ -23,6 +23,9 @@ agents_before=$(sha256sum "$target/AGENTS.md")
 [ "$agents_before" = "$(sha256sum "$target/AGENTS.md")" ]
 [ -f "$target/scripts/lsp-diagnostics.py" ]
 [ -f "$target/scripts/hooks/laravel-lsp-pre-push.sh" ]
+# Scripts are executable and nothing is world-writable, whatever modes the kit checkout reports.
+[ "$(stat -c %a "$target/scripts/hooks/laravel-lsp-pre-push.sh")" = 755 ]
+[ "$(stat -c %a "$target/docs/laravel-agent-tooling.md")" = 644 ]
 [ -f "$target/boost.json" ]
 [ -f "$target/docs/laravel-agent-tooling.md" ]
 [ -f "$target/.agents/skills/laravel-boost/SKILL.md" ]

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Read-only. Never installs.
+# Read-only. Never installs. The checks live in forge.py's doctor so this script and
+# `python forge.py doctor <target> wordpress` can never disagree.
 set -euo pipefail
 
 strict=0
@@ -17,75 +18,25 @@ if [ ! -d "$target" ]; then
 	exit 2
 fi
 
-target=$(cd -- "$target" && pwd -P)
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+forge="$script_dir/../../../forge.py"
 
-is_wp_root() {
-	[ -f "$1/wp-load.php" ] || [ -f "$1/wp-config.php" ] || [ -f "$1/wp-includes/version.php" ]
-}
+report=$(python3 "$forge" doctor "$target" wordpress)
+printf '%s\n' "$report" | python3 -c '
+import json
+import sys
 
-find_wp_root() {
-	local root=$1 child
-	if is_wp_root "$root"; then
-		printf '%s\n' "$root"
-		return 0
-	fi
-	for child in website wordpress wp; do
-		if is_wp_root "$root/$child"; then
-			printf '%s\n' "$root/$child"
-			return 0
-		fi
-	done
-	return 1
-}
+report = json.load(sys.stdin)
+for check in report["checks"]:
+    print("%-40s %-15s %s" % (check["name"], check["status"], check["detail"]))
+print("missing_or_setup_required=%d" % report["missing_or_setup_required"])
+sys.exit(3 if report["missing_or_setup_required"] else 0)
+' && missing=0 || missing=$?
 
-missing=0
-report() {
-	local name=$1 status=$2 detail=$3
-	printf '%-28s %s  %s\n' "$name" "$status" "$detail"
-	if [ "$status" = "setup_required" ] || [ "$status" = "missing" ]; then
-		missing=$((missing + 1))
-	fi
-}
-
-if wp_root=$(find_wp_root "$target"); then
-	report "wordpress-root" "ok" "$wp_root"
-else
-	report "wordpress-root" "missing" "no wp-load.php or wp-config.php"
+if [ "$missing" -ne 0 ] && [ "$missing" -ne 3 ]; then
+	exit "$missing"
 fi
-
-if [ -f "$target/phpcs.xml.dist" ]; then
-	report "phpcs.xml.dist" "ok" "$target/phpcs.xml.dist"
-else
-	report "phpcs.xml.dist" "missing" "run the kit installer"
-fi
-
-if [ -f "$target/tools/phpcs/composer.json" ]; then
-	report "phpcs-toolchain" "ok" "$target/tools/phpcs/composer.json"
-else
-	report "phpcs-toolchain" "missing" "run the kit installer"
-fi
-
-if [ -x "$target/tools/phpcs/vendor/bin/phpcs" ]; then
-	report "phpcs" "ok" "$target/tools/phpcs/vendor/bin/phpcs"
-else
-	report "phpcs" "setup_required" "composer install in tools/phpcs (dependency approval)"
-fi
-
-if command -v wp >/dev/null 2>&1; then
-	report "wp-cli" "ok" "$(command -v wp)"
-else
-	report "wp-cli" "setup_required" "user-scoped WP-CLI; do not drop a PHAR into the repo"
-fi
-
-for agent_dir in .agents .claude .codex; do
-	if [ -f "$target/$agent_dir/skills/wordpress-site-safety/SKILL.md" ]; then
-		report "wordpress-rule:$agent_dir" "ok" "$target/$agent_dir/skills/wordpress-site-safety/SKILL.md"
-	else
-		report "wordpress-rule:$agent_dir" "missing" "run the kit installer"
-	fi
-done
-
-if [ "$strict" = 1 ] && [ "$missing" -gt 0 ]; then
+if [ "$strict" = 1 ] && [ "$missing" = 3 ]; then
 	exit 3
 fi
 exit 0

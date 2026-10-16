@@ -5,7 +5,15 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 installer="$script_dir/install.sh"
 doctor="$script_dir/doctor.sh"
 work=$(mktemp -d)
-trap 'rm -rf -- "$work"' EXIT
+kit_cache="$script_dir/../templates/scripts/lib/__pycache__"
+cache_existed=0
+[ -d "$kit_cache" ] && cache_existed=1
+cleanup() {
+	rm -rf -- "$work"
+	rm -f -- "$kit_cache/stray.pyc"
+	[ "$cache_existed" = 1 ] || rmdir -- "$kit_cache" 2>/dev/null || true
+}
+trap cleanup EXIT
 
 target="$work/target"
 outside="$work/outside"
@@ -16,7 +24,12 @@ printf 'outside sentinel\n' > "$outside/sentinel"
 
 agents_before=$(sha256sum "$target/AGENTS.md")
 
+# Bytecode from running the kit's own tests in the SDK checkout is never installed.
+mkdir -p "$kit_cache"
+touch "$kit_cache/stray.pyc"
 "$installer" "$target" >/dev/null
+rm -f "$kit_cache/stray.pyc"
+[ ! -e "$target/scripts/lib/__pycache__" ]
 
 [ "$agents_before" = "$(sha256sum "$target/AGENTS.md")" ]
 [ -f "$target/docs/wordpress-agent-tooling.md" ]
@@ -27,10 +40,21 @@ agents_before=$(sha256sum "$target/AGENTS.md")
 [ -f "$target/.codex/skills/wordpress-site-safety/SKILL.md" ]
 [ -f "$target/mcp.wordpress.example.json" ]
 [ -f "$target/scripts/hooks/wordpress-phpcs-pre-push.sh" ]
+[ -f "$target/.agents/skills/wordpress-connect/SKILL.md" ]
+[ -f "$target/.ddev/providers/production.yaml" ]
 python3 -c 'import json; json.load(open("'"$target"'/mcp.wordpress.example.json"))'
+python3 -c 'import json, sys; sys.exit(json.load(open("'"$target"'/.conclave/wordpress-site.json"))["host"] != "pressable")'
+# Modes come from the content: scripts executable, nothing world-writable, whatever the checkout reports.
+[ "$(stat -c %a "$target/bin/wp-remote")" = 755 ]
+[ "$(stat -c %a "$target/phpcs.xml.dist")" = 644 ]
 
-"$doctor" "$target" >/tmp/wordpress-kit-doctor.out
-grep -q 'wordpress-root' /tmp/wordpress-kit-doctor.out
+"$doctor" "$target" >"$work/doctor.out"
+grep -q '^wordpress-root ' "$work/doctor.out"
+grep -q '^site-identity  *setup_required' "$work/doctor.out"
+if "$doctor" "$target" --strict >/dev/null; then
+	printf 'strict doctor passed with setup still required\n' >&2
+	exit 1
+fi
 
 tree_after_first=$(cd "$target" && find . -type f -print0 | sort -z | xargs -0 -r sha256sum)
 "$installer" "$target" >/dev/null
@@ -47,10 +71,28 @@ if "$installer" "$target" --force >/dev/null 2>&1; then
 	exit 1
 fi
 
-empty="$work/empty"
-mkdir -p "$empty"
-if "$installer" "$empty" >/dev/null 2>&1; then
-	printf 'install without WordPress unexpectedly succeeded\n' >&2
+if "$installer" "$target" --host kinsta >/dev/null 2>&1; then
+	printf 'unknown host unexpectedly accepted\n' >&2
+	exit 1
+fi
+
+# A WordPress.com site has no local tree, no DDEV and no project MCP servers.
+wpcom="$work/wpcom"
+mkdir -p "$wpcom"
+"$installer" "$wpcom" --host wpcom >/dev/null
+[ -f "$wpcom/bin/wp-remote" ]
+[ -f "$wpcom/.claude/skills/wordpress-connect/SKILL.md" ]
+[ ! -e "$wpcom/.ddev" ]
+[ ! -e "$wpcom/mcp.wordpress.example.json" ]
+[ ! -e "$wpcom/scripts/mcp-headers.py" ]
+python3 -c 'import json, sys; sys.exit(json.load(open("'"$wpcom"'/.conclave/wordpress-site.json"))["host"] != "wpcom")'
+wpcom_report=$("$doctor" "$wpcom")
+printf '%s\n' "$wpcom_report" | grep -Eq '^no-ddev +ok'
+# Re-running without --host follows the pin; a conflicting --host is refused.
+"$installer" "$wpcom" >/dev/null
+[ ! -e "$wpcom/.ddev" ]
+if "$installer" "$wpcom" --host pressable >/dev/null 2>&1; then
+	printf 'conflicting host unexpectedly accepted\n' >&2
 	exit 1
 fi
 
@@ -59,6 +101,14 @@ mkdir -p "$nested/website"
 printf '<?php\n' > "$nested/website/wp-load.php"
 "$installer" "$nested" >/dev/null
 [ -f "$nested/phpcs.xml.dist" ]
+
+# The doctor finds the same first-level child the installer accepts.
+child="$work/child"
+mkdir -p "$child/site"
+printf '<?php\n' > "$child/site/wp-load.php"
+"$installer" "$child" >/dev/null
+child_report=$("$doctor" "$child")
+printf '%s\n' "$child_report" | grep -Eq '^wordpress-root +ok +.*/site$'
 
 symlink_target="$work/symlink-target"
 mkdir -p "$symlink_target"
@@ -70,4 +120,4 @@ if "$installer" "$symlink_target" >/dev/null 2>&1; then
 fi
 [ "$(cat "$outside/sentinel")" = "outside sentinel" ]
 
-printf 'wordpress kit installer: wp-load discovery, nested website/, additive preservation, idempotency, dry-run, force rejection, and symlink containment passed\n'
+printf 'wordpress kit installer: wp-load discovery, nested website/, both hosts, file modes, doctor, additive preservation, idempotency, dry-run, force rejection, and symlink containment passed\n'

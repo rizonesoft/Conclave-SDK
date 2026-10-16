@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+"""Run WP-CLI on this project's live WordPress site over its pinned SSH identity (.conclave/wordpress-site.json).
+
+Usage matches `wp`: `bin/wp-remote plugin list`. Arguments are shell-quoted for the remote side. Stdin is forwarded
+only when an argument is `-` (WP-CLI's name for stdin), so `bin/wp-remote eval-file - < script.php` works and nothing
+else waits on, or swallows, a caller's open stdin.
+
+This is the live site. Reads are free; ask the owner before any write, and back up first with
+`bin/wp-remote db export ~/backups/<name>-<UTC>.sql`. An argument starting with `~/` (quoted locally), or one the local
+shell already expanded to this machine's home directory, is mapped to the server's home.
+"""
+import os
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "lib"))
+import site_ssh  # noqa: E402
+
+
+def main():
+    timeout = int(os.environ.get("WP_REMOTE_TIMEOUT", "600"))
+    data = sys.stdin.read() if "-" in sys.argv[1:] else None
+    result = site_ssh.wp(sys.argv[1:], input=data, timeout=timeout)
+    sys.stdout.write(result.stdout)
+    sys.stderr.write(result.stderr)
+    return result.returncode
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except ValueError as exc:
+        # The helpers raise fixed messages only; never echo vault or transport output here.
+        print("wp-remote: " + str(exc), file=sys.stderr)
+        sys.exit(2)
+    except Exception as exc:
+        print("wp-remote failed: " + type(exc).__name__ + "; check the Conclave SSH item and the site pin.", file=sys.stderr)
+        sys.exit(1)

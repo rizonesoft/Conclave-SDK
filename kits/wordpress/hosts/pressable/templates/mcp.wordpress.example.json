@@ -1,0 +1,15 @@
+{
+  "_comment": "Merge these servers into .mcp.json. Replace <repo> with this checkout's absolute path, <site> with the connection prefix and <domain> with the live host. Each server name must match an entry under mcp in .conclave/wordpress-site.json, where scripts/mcp-headers.py pins its Conclave item. Never put a password or token in this file.",
+  "mcpServers": {
+    "<site>-wordpress": {
+      "type": "http",
+      "url": "https://<domain>/wp-json/mcp/mcp-adapter-default-server",
+      "headersHelper": "python3 <repo>/scripts/mcp-headers.py <site>-wordpress"
+    },
+    "<site>-pressable": {
+      "type": "http",
+      "url": "https://mcp.pressable.com",
+      "headersHelper": "python3 <repo>/scripts/mcp-headers.py <site>-pressable"
+    }
+  }
+}
