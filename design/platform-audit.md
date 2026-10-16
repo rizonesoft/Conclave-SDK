@@ -1,0 +1,39 @@
+# Platform audit of the mockup
+
+Date: 2026-10-16. Mockup: <https://claude.ai/artifact/RRxxX5W6pYFQ3b2Z4Fq2mv>, source `design/mockup/project/`. Purpose: make every element the extension draws buildable 1:1 before the owner approves the mockup, so nothing is approximated during the build.
+
+Each element is one of three kinds. **Native** is drawn by VS Code from the extension API, so the mockup may only show what that API can render. **Webview** is the extension's own HTML (the Reviewers editor and the kit installer), so it can match the mockup exactly. **Chrome** is VS Code itself or the mockup's own controls, drawn for context and never built.
+
+## Changed in the mockup by this audit
+
+- Icons (native and webview): every hand-drawn icon is now the real codicon, drawn inline from the SVG sources of `@vscode/codicons` 0.0.45 (the icon set VS Code uses), so the build names the same icon (`ThemeIcon` ids in trees and title actions, the bundled codicon font in the webviews). Two names are aliases with no source of their own: `circle-large-outline` is drawn from `circle-large`, and `repo-create` is only a plus, so Set up a new repository uses `new-folder`. Only the Conclave mark stays an SVG.
+- Kit health badge (native, Kits tree): a `TreeItem` has no badge. The pill ("ok" or a count on a tinted background) became a `FileDecoration` on the item's `resourceUri`: at most two characters, coloured text without a background, and the label tinted the same colour. A healthy kit now has no decoration; its state icon already says installed.
+- Group rows (native, Reviewers and Plan sections): a `TreeItem` label cannot be bold or a different size, so "Routes" and "Ready now" are plain labels.
+- View title actions (native, every section header): VS Code shows them only while the pane is hovered or focused (unless the user sets `workbench.view.alwaysShowHeaderActions`). The mockup now hides them otherwise; a pane with a selected row or the open installer counts as focused.
+- Reviewers tab (native): a `WebviewPanel` has no dirty dot (only custom editors have one, open question 4), so unsaved edits now show as "(unsaved)" in the panel title. Its icon is an image (`WebviewPanel.iconPath` takes light and dark files, not a codicon), so the tab shows the Conclave mark.
+- Notifications (native): the save and refresh messages are `showInformationMessage` notifications, so the mockup's toast gained the close button VS Code draws.
+
+## Native elements that already fit
+
+- Activity Bar: `viewsContainers.activitybar` with `media/conclave.svg`; the count badge is `TreeView.badge` (`ViewBadge`, a number and a tooltip).
+- Section headers: one view per section in the `conclave` container; `TreeView.description` gives the folder name or the "N of M verified" text beside the title; `TreeView.title` can change at run time.
+- Tree rows: `label`, `description` (always the muted colour), `iconPath` as a `ThemeIcon` with a `ThemeColor`, `tooltip`, `collapsibleState`, and inline actions from `menus.view/item/context` group `inline`, shown on hover and on the selected row.
+- State colours map to theme colours: installed and ok `testing.iconPassed`, partly installed and setup required `list.warningForeground`, missing and error `list.errorForeground`, info and ready `notificationsInfoIcon.foreground`, not installed and blocked `disabledForeground`.
+- Hiding a section without its kit: `when` clauses on context keys (`conclave.kit.<kit>`); Switch folder: a view title action with `when` `workspaceFolderCount > 1`.
+- Status bar: `StatusBarItem` text with `$(codicon)` prefixes and a tooltip; only the error and warning background colours exist, and the mockup uses neither.
+- Installer pane: a `WebviewView` in the `conclave` container, shown by a context key while an install is open; its Close is a view title action.
+
+## Webview elements
+
+- The Reviewers editor and the installer body are HTML. They match the mockup if they use the same tokens mapped to `--vscode-*` variables (`D00 T01 §1`), the bundled codicon font (allowed by the webview CSP through `webview.cspSource`), and the same markup and text.
+
+## Chrome, never built
+
+- The mockup control bar (theme, scenario, SDK source, workspace), the title bar and window controls, the menus, the other Activity Bar icons, the Explorer and its files, the status bar's branch, problems, encoding and line ending items, and the second editor tab.
+- The example data (the orchard workspace, its plan, round records and site) is test input for the parity fixtures, not product content.
+
+## Limits that stay
+
+- Pane sizes: VS Code splits the side bar between open panes and the user drags the sashes; the mockup's heights are one possible layout.
+- Tree indentation, row height and the twisty are VS Code's own (8 px per level plus the twisty, 22 px rows); the mockup imitates them.
+- A `FileDecoration` badge cannot exceed two characters, so a kit with more than 99 failing checks shows 99.

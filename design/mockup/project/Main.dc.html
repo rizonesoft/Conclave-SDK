@@ -17,23 +17,78 @@ a{color:#005fb8}a:hover{color:#0258a8}
 .mock-bar label{display:flex;align-items:center;gap:8px;font-size:13px;color:#2b2b2f}
 .mock-bar select{height:30px;border:1px solid #9a9aa0;border-radius:4px;background:#ffffff;color:#1f1f1f;padding:0 8px;font:inherit}
 .mock-bar .hint{margin-left:auto;color:#55555a;font-size:12px}
-.t-dark{--bg-editor:#1f1f1f;--bg-side:#181818;--bg-title:#181818;--bg-status:#181818;--border:#2b2b2b;--fg:#cccccc;--fg-muted:#9d9d9d;--fg-strong:#ffffff;--input-bg:#313131;--input-border:#3c3c3c;--focus:#0078d4;--btn-bg:#0078d4;--btn-fg:#ffffff;--btn-hover:#026ec1;--btn2-bg:#313131;--btn2-fg:#cccccc;--btn2-hover:#3c3c3c;--card-bg:#181818;--card-border:#2b2b2b;--err:#f85149;--err-bg:#5a1d1d;--err-border:#be1100;--warn:#cca700;--warn-bg:#352a05;--warn-border:#b89500;--info-bg:#1b2a3a;--info-border:#0078d4;--ok:#73c991;--badge-ok-bg:#1e3a29;--badge-off-bg:#3a1e1e;--code-bg:#181818;--diff-add:rgba(155,185,85,.22);--diff-del:rgba(255,0,0,.22);--tab-active:#1f1f1f;--tab-inactive:#181818;--tab-top:#0078d4;--list-active:#37373d;--chip-bg:#2b2b2b;--act-on:#d7d7d7;--act-off:#868686;--line-no:#6e7681;--drop:#0078d4;--shadow:rgba(0,0,0,.36)}
-.t-light{--bg-editor:#ffffff;--bg-side:#f8f8f8;--bg-title:#f8f8f8;--bg-status:#f8f8f8;--border:#e5e5e5;--fg:#3b3b3b;--fg-muted:#616161;--fg-strong:#1f1f1f;--input-bg:#ffffff;--input-border:#cecece;--focus:#005fb8;--btn-bg:#005fb8;--btn-fg:#ffffff;--btn-hover:#0258a8;--btn2-bg:#e5e5e5;--btn2-fg:#3b3b3b;--btn2-hover:#cccccc;--card-bg:#f8f8f8;--card-border:#e5e5e5;--err:#a1260d;--err-bg:#fbeceb;--err-border:#be1100;--warn:#7a5600;--warn-bg:#fdf4dd;--warn-border:#bf8803;--info-bg:#eaf2fb;--info-border:#005fb8;--ok:#2d7a2a;--badge-ok-bg:#e3f1e2;--badge-off-bg:#fbeceb;--code-bg:#f8f8f8;--diff-add:rgba(155,185,85,.28);--diff-del:rgba(255,0,0,.14);--tab-active:#ffffff;--tab-inactive:#f8f8f8;--tab-top:#005fb8;--list-active:#e4e6f1;--chip-bg:#ffffff;--act-on:#1f1f1f;--act-off:#616161;--line-no:#6e7681;--drop:#005fb8;--shadow:rgba(0,0,0,.16)}
+.t-dark{--bg-editor:#1f1f1f;--bg-side:#181818;--bg-title:#181818;--bg-status:#181818;--border:#2b2b2b;--fg:#cccccc;--fg-muted:#9d9d9d;--fg-strong:#ffffff;--input-bg:#313131;--input-border:#3c3c3c;--focus:#0078d4;--btn-bg:#0078d4;--btn-fg:#ffffff;--btn-hover:#026ec1;--btn2-bg:#313131;--btn2-fg:#cccccc;--btn2-hover:#3c3c3c;--card-bg:#181818;--card-border:#2b2b2b;--err:#f85149;--err-bg:#5a1d1d;--err-border:#be1100;--warn:#cca700;--warn-bg:#352a05;--warn-border:#b89500;--info-bg:#1b2a3a;--info-border:#0078d4;--ok:#73c991;--badge-ok-bg:#1e3a29;--badge-off-bg:#3a1e1e;--code-bg:#181818;--diff-add:rgba(155,185,85,.22);--diff-del:rgba(255,0,0,.22);--tab-active:#1f1f1f;--tab-inactive:#181818;--tab-top:#0078d4;--list-active:#37373d;--chip-bg:#2b2b2b;--act-on:#d7d7d7;--act-off:#868686;--line-no:#6e7681;--drop:#0078d4;--shadow:rgba(0,0,0,.36);--badge-bg:#0078d4;--badge-fg:#ffffff;--hover:#2a2d2e}
+.t-light{--bg-editor:#ffffff;--bg-side:#f8f8f8;--bg-title:#f8f8f8;--bg-status:#f8f8f8;--border:#e5e5e5;--fg:#3b3b3b;--fg-muted:#616161;--fg-strong:#1f1f1f;--input-bg:#ffffff;--input-border:#cecece;--focus:#005fb8;--btn-bg:#005fb8;--btn-fg:#ffffff;--btn-hover:#0258a8;--btn2-bg:#e5e5e5;--btn2-fg:#3b3b3b;--btn2-hover:#cccccc;--card-bg:#f8f8f8;--card-border:#e5e5e5;--err:#a1260d;--err-bg:#fbeceb;--err-border:#be1100;--warn:#7a5600;--warn-bg:#fdf4dd;--warn-border:#bf8803;--info-bg:#eaf2fb;--info-border:#005fb8;--ok:#2d7a2a;--badge-ok-bg:#e3f1e2;--badge-off-bg:#fbeceb;--code-bg:#f8f8f8;--diff-add:rgba(155,185,85,.28);--diff-del:rgba(255,0,0,.14);--tab-active:#ffffff;--tab-inactive:#f8f8f8;--tab-top:#005fb8;--list-active:#e4e6f1;--chip-bg:#ffffff;--act-on:#1f1f1f;--act-off:#616161;--line-no:#6e7681;--drop:#005fb8;--shadow:rgba(0,0,0,.16);--badge-bg:#005fb8;--badge-fg:#ffffff;--hover:#f2f2f2}
 .vsw{height:1000px;display:flex;flex-direction:column;background:var(--bg-editor);color:var(--fg);overflow:hidden}
 .ic{fill:none;stroke:currentColor;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+/* Codicons: the SVG sources of @vscode/codicons 0.0.45 (CC BY 4.0), the icons VS Code itself uses, drawn inline. */
+.ci{display:inline-block;flex:none;vertical-align:middle}
 .titlebar{height:35px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 10px;background:var(--bg-title);border-bottom:1px solid var(--border);color:var(--fg-muted);font-size:12px}
 .titlebar .cmd{width:420px;height:22px;border:1px solid var(--input-border);border-radius:6px;display:flex;align-items:center;justify-content:center;gap:6px;background:var(--input-bg);color:var(--fg)}
 .titlebar .menus{display:flex;gap:14px;align-items:center}
 .titlebar .win{display:flex;gap:18px}
 .main{flex:1;display:flex;min-height:0}
 .activity{width:48px;flex:none;background:var(--bg-side);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding-top:6px;gap:4px;color:var(--act-off)}
-.activity .a{width:48px;height:44px;display:flex;align-items:center;justify-content:center}
+.activity .a{width:48px;height:44px;display:flex;align-items:center;justify-content:center;position:relative;border:none;background:none;padding:0;color:inherit}
+.activity .ic{stroke-width:1.5}
+.activity button.a:hover{color:var(--act-on)}
+.activity button.a:focus-visible{outline:1px solid var(--focus);outline-offset:-1px}
 .activity .on{color:var(--act-on);box-shadow:inset 2px 0 0 var(--tab-top)}
-.sidebar{width:240px;flex:none;background:var(--bg-side);border-right:1px solid var(--border);display:flex;flex-direction:column}
-.sidebar .sh{height:35px;display:flex;align-items:center;padding:0 20px;font-size:11px;letter-spacing:.04em;color:var(--fg-muted)}
+.act-badge{position:absolute;right:7px;bottom:7px;min-width:16px;height:16px;box-sizing:border-box;padding:0 4px;border-radius:8px;background:var(--badge-bg);color:var(--badge-fg);font-size:9px;font-weight:600;line-height:16px;text-align:center}
+.sidebar{width:300px;flex:none;background:var(--bg-side);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
+.sidebar .sh{height:35px;flex:none;display:flex;align-items:center;padding:0 20px;font-size:11px;letter-spacing:.04em;color:var(--fg-muted)}
 .sidebar .sec{padding:2px 0 2px 8px;font-size:11px;font-weight:700;color:var(--fg)}
 .tree-item{height:22px;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--fg)}
 .tree-item.active{background:var(--list-active)}
+.pane-h{height:22px;flex:none;display:flex;align-items:center;gap:2px;padding:0 4px 0 2px;font-size:11px;font-weight:700;color:var(--fg);border-top:1px solid var(--border)}
+.pane-h .grow{flex:1}
+.pane-h .icon-btn{visibility:hidden}
+.vpane{display:contents}
+.vpane:hover .pane-h .icon-btn,.vpane:focus-within .pane-h .icon-btn,.vpane.focus .pane-h .icon-btn,.fpane:hover .pane-h .icon-btn,.fpane:focus-within .pane-h .icon-btn{visibility:visible}
+.pane-h .pdesc{margin-left:6px;font-weight:400;color:var(--fg-muted)}
+.tw{width:20px;height:20px;flex:none;border:none;background:none;padding:0;color:var(--fg);display:inline-flex;align-items:center;justify-content:center;border-radius:3px}
+.tw:hover{background:var(--hover)}
+.tw:focus-visible{outline:1px solid var(--focus)}
+.tw-sp{width:20px;flex:none}
+.icon-btn.sm{width:22px;height:22px}
+.ktree{flex:0 1 auto;overflow:auto;min-height:0;padding-bottom:4px}
+.ktree.half{max-height:330px;flex:none}
+.fpane{display:flex;flex-direction:column;min-height:0;flex:0 1 auto}
+.fbody{overflow:auto;min-height:0;padding-bottom:4px}
+.krow{height:22px;display:flex;align-items:center;gap:4px;padding-right:6px;font-size:13px;color:var(--fg)}
+.krow:hover{background:var(--hover)}
+.krow.sel{background:var(--list-active)}
+.krow .lbl{white-space:nowrap}
+.krow .lbl.fold{font-weight:700;font-size:11px;letter-spacing:.02em}
+.krow .desc{flex:1;min-width:0;color:var(--fg-muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-left:4px}
+.krow .inl{display:flex;visibility:hidden}
+.krow:hover .inl,.krow.sel .inl,.krow:focus-within .inl{visibility:visible}
+.hb{flex:none;font-size:12px;line-height:22px;padding:0 4px 0 6px;color:var(--fg-muted)}
+.hb.att{color:var(--warn)}
+.krow .lbl.att{color:var(--warn)}
+.st-ok{color:var(--ok)}
+.st-part{color:var(--warn)}
+.st-none{color:var(--fg-muted)}
+.st-bad{color:var(--err)}
+.st-warn{color:var(--warn)}
+.st-info{color:var(--focus)}
+.ip{flex:1;min-height:0;overflow:auto;padding:10px 14px 18px 22px;display:flex;flex-direction:column;gap:10px;font-size:12px;line-height:17px}
+.ip h3{margin:0;font-size:14px;font-weight:600;color:var(--fg-strong)}
+.ip .src{color:var(--fg-muted)}
+.ip fieldset{border:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.ip legend{padding:0;margin-bottom:2px;font-size:12px;color:var(--fg-muted)}
+.ip .opt{display:flex;align-items:center;gap:6px;color:var(--fg)}
+.ip .row{display:flex;gap:6px;flex-wrap:wrap}
+.ip pre{margin:0;white-space:pre-wrap;word-break:break-all;font-family:"Cascadia Code",Consolas,"Courier New",monospace;font-size:11px;line-height:16px;background:var(--code-bg);border:1px solid var(--card-border);border-radius:3px;padding:6px 8px}
+.ip .lh{display:flex;align-items:baseline;gap:6px;font-weight:600;color:var(--fg-strong)}
+.ip .lh .muted{font-weight:400}
+.ip details summary{cursor:pointer;font-weight:600;color:var(--fg-strong)}
+.flist{list-style:none;margin:4px 0 0;padding:4px 0;max-height:230px;overflow:auto;border:1px solid var(--card-border);border-radius:3px;background:var(--code-bg);font-family:"Cascadia Code",Consolas,"Courier New",monospace;font-size:11px;line-height:17px}
+.flist li{padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.flist li.add{color:var(--ok)}
+.steps{display:flex;gap:4px;align-items:center;color:var(--fg-muted);font-size:11px}
+.steps .now{color:var(--fg-strong);font-weight:600}
+.donel{display:flex;gap:6px;align-items:center;color:var(--ok);font-weight:600}
 .editor{flex:1;display:flex;flex-direction:column;min-width:0}
 .tabs{height:35px;flex:none;display:flex;background:var(--tab-inactive);border-bottom:1px solid var(--border)}
 .tab{display:flex;align-items:center;gap:8px;padding:0 12px;border-right:1px solid var(--border);color:var(--fg-muted);font-size:13px}
@@ -151,6 +206,7 @@ select.input{padding:0 4px}
 .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
 .toast{position:absolute;right:20px;bottom:16px;max-width:460px;background:var(--card-bg);border:1px solid var(--card-border);box-shadow:0 2px 8px var(--shadow);border-radius:4px;padding:10px 12px;display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:17px}
 .toast .ok{color:var(--ok)}
+.toast .grow{flex:1}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 </style>
 </helmet>
@@ -170,55 +226,257 @@ select.input{padding:0 4px}
         </sc-for>
       </select>
     </label>
+    <label for="mk-src">SDK source
+      <select id="mk-src" value="{{sourceKey}}" onChange="{{setSource}}">
+        <option value="bundled">Bundled (default)</option>
+        <option value="path">conclave.sdkPath</option>
+        <option value="ref">conclave.sdkRef</option>
+      </select>
+    </label>
+    <label for="mk-ws">Workspace
+      <select id="mk-ws" value="{{wsKey}}" onChange="{{setWorkspace}}">
+        <option value="single">One folder (default)</option>
+        <option value="multi">Multi-root, two folders</option>
+      </select>
+    </label>
     <span class="hint">Not part of the extension. Everything below the bar is the VS Code window.</span>
   </div>
   <div class="vsw {{themeClass}}">
     <div class="titlebar">
       <div class="menus">
-        <svg class="ic" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"></path></svg>
+        <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2 3.5C2 3.22386 2.22386 3 2.5 3H13.5C13.7761 3 14 3.22386 14 3.5C14 3.77614 13.7761 4 13.5 4H2.5C2.22386 4 2 3.77614 2 3.5ZM2 7.5C2 7.22386 2.22386 7 2.5 7H13.5C13.7761 7 14 7.22386 14 7.5C14 7.77614 13.7761 8 13.5 8H2.5C2.22386 8 2 7.77614 2 7.5ZM2 11.5C2 11.2239 2.22386 11 2.5 11H13.5C13.7761 11 14 11.2239 14 11.5C14 11.7761 13.7761 12 13.5 12H2.5C2.22386 12 2 11.7761 2 11.5Z"></path></svg>
         <span>File</span><span>Edit</span><span>Selection</span><span>View</span><span>Go</span><span>Run</span><span>Terminal</span><span>Help</span>
       </div>
       <div class="cmd">
-        <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"></circle><path d="M10.5 10.5L14 14"></path></svg>
-        <span>Conclave-VSC</span>
+        <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M10.0195 10.7266C9.06578 11.5217 7.83875 12 6.5 12C3.46243 12 1 9.53757 1 6.5C1 3.46243 3.46243 1 6.5 1C9.53757 1 12 3.46243 12 6.5C12 7.83875 11.5217 9.06578 10.7266 10.0195L13.8535 13.1464C14.0488 13.3417 14.0488 13.6583 13.8535 13.8536C13.6583 14.0488 13.3417 14.0488 13.1464 13.8536L10.0195 10.7266ZM11 6.5C11 4.01472 8.98528 2 6.5 2C4.01472 2 2 4.01472 2 6.5C2 8.98528 4.01472 11 6.5 11C8.98528 11 11 8.98528 11 6.5Z"></path></svg>
+        <span>{{wsTitle}}</span>
       </div>
       <div class="win">
-        <svg class="ic" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M1 6h10"></path></svg>
-        <svg class="ic" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect x="1.5" y="1.5" width="9" height="9"></rect></svg>
-        <svg class="ic" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 1.5l9 9M10.5 1.5l-9 9"></path></svg>
+        <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 7.5C3 7.22386 3.22386 7 3.5 7H12.5C12.7761 7 13 7.22386 13 7.5C13 7.77614 12.7761 8 12.5 8H3.5C3.22386 8 3 7.77614 3 7.5Z"></path></svg>
+        <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2 4.5C2 3.11929 3.11929 2 4.5 2H11.5C12.8807 2 14 3.11929 14 4.5V11.5C14 12.8807 12.8807 14 11.5 14H4.5C3.11929 14 2 12.8807 2 11.5V4.5ZM4.5 3C3.67157 3 3 3.67157 3 4.5V11.5C3 12.3284 3.67157 13 4.5 13H11.5C12.3284 13 13 12.3284 13 11.5V4.5C13 3.67157 12.3284 3 11.5 3H4.5Z"></path></svg>
+        <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2.58859 2.71569L2.64645 2.64645C2.82001 2.47288 3.08944 2.4536 3.28431 2.58859L3.35355 2.64645L8 7.293L12.6464 2.64645C12.8417 2.45118 13.1583 2.45118 13.3536 2.64645C13.5488 2.84171 13.5488 3.15829 13.3536 3.35355L8.707 8L13.3536 12.6464C13.5271 12.82 13.5464 13.0894 13.4114 13.2843L13.3536 13.3536C13.18 13.5271 12.9106 13.5464 12.7157 13.4114L12.6464 13.3536L8 8.707L3.35355 13.3536C3.15829 13.5488 2.84171 13.5488 2.64645 13.3536C2.45118 13.1583 2.45118 12.8417 2.64645 12.6464L7.293 8L2.64645 3.35355C2.47288 3.17999 2.4536 2.91056 2.58859 2.71569L2.64645 2.64645L2.58859 2.71569Z"></path></svg>
       </div>
     </div>
     <div class="main">
       <nav class="activity" aria-label="Activity bar">
-        <div class="a on"><svg class="ic" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"></path><path d="M14 3v4h4"></path></svg></div>
-        <div class="a"><svg class="ic" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"></circle><path d="M15 15l6 6"></path></svg></div>
-        <div class="a"><svg class="ic" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="6" r="2"></circle><circle cx="7" cy="18" r="2"></circle><circle cx="17" cy="9" r="2"></circle><path d="M7 8v8M17 11c0 4-10 3-10 5"></path></svg></div>
-        <div class="a"><svg class="ic" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7"></rect><rect x="13" y="4" width="7" height="7"></rect><rect x="4" y="13" width="7" height="7"></rect><rect x="13" y="13" width="7" height="7"></rect></svg></div>
+        <button class="a {{explorerOn}}" aria-label="Explorer" title="Explorer" aria-pressed="{{sideExplorer}}" onClick="{{showExplorer}}"><svg class="ci" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7.5 22.5H17.595C17.07 23.4 16.11 24 15 24H7.5C4.185 24 1.5 21.315 1.5 18V6C1.5 4.89 2.1 3.93 3 3.405V18C3 20.475 5.025 22.5 7.5 22.5ZM21 8.121V18C21 19.6545 19.6545 21 18 21H7.5C5.8455 21 4.5 19.6545 4.5 18V3C4.5 1.3455 5.8455 0 7.5 0H12.879C13.4715 0 14.0505 0.24 14.4705 0.6585L20.3415 6.5295C20.766 6.954 21 7.5195 21 8.121ZM13.5 6.75C13.5 7.164 13.8375 7.5 14.25 7.5H19.1895L13.5 1.8105V6.75ZM19.5 18V9H14.25C13.0095 9 12 7.9905 12 6.75V1.5H7.5C6.672 1.5 6 2.1735 6 3V18C6 18.8265 6.672 19.5 7.5 19.5H18C18.828 19.5 19.5 18.8265 19.5 18Z"></path></svg></button>
+        <div class="a"><svg class="ci" width="24" height="24" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M10.0195 10.7266C9.06578 11.5217 7.83875 12 6.5 12C3.46243 12 1 9.53757 1 6.5C1 3.46243 3.46243 1 6.5 1C9.53757 1 12 3.46243 12 6.5C12 7.83875 11.5217 9.06578 10.7266 10.0195L13.8535 13.1464C14.0488 13.3417 14.0488 13.6583 13.8535 13.8536C13.6583 14.0488 13.3417 14.0488 13.1464 13.8536L10.0195 10.7266ZM11 6.5C11 4.01472 8.98528 2 6.5 2C4.01472 2 2 4.01472 2 6.5C2 8.98528 4.01472 11 6.5 11C8.98528 11 11 8.98528 11 6.5Z"></path></svg></div>
+        <div class="a"><svg class="ci" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 8.25C21 6.1815 19.3185 4.5 17.25 4.5C15.1815 4.5 13.5 6.1815 13.5 8.25C13.5 10.023 14.739 11.5035 16.395 11.892C16.116 12.819 15.2655 13.5 14.25 13.5H9.75C8.9025 13.5 8.1285 13.7925 7.5 14.268V7.4235C9.21 7.0755 10.5 5.5605 10.5 3.75C10.5 1.6815 8.8185 0 6.75 0C4.6815 0 3 1.6815 3 3.75C3 5.562 4.29 7.0755 6 7.4235V16.575C4.29 16.923 3 18.438 3 20.2485C3 22.317 4.6815 23.9985 6.75 23.9985C8.8185 23.9985 10.5 22.317 10.5 20.2485C10.5 18.4755 9.261 16.995 7.605 16.6065C7.884 15.6795 8.7345 14.9985 9.75 14.9985H14.25C16.0845 14.9985 17.61 13.6725 17.931 11.9295C19.674 11.607 21 10.0845 21 8.25ZM4.5 3.75C4.5 2.5095 5.5095 1.5 6.75 1.5C7.9905 1.5 9 2.5095 9 3.75C9 4.9905 7.9905 6 6.75 6C5.5095 6 4.5 4.9905 4.5 3.75ZM9 20.25C9 21.4905 7.9905 22.5 6.75 22.5C5.5095 22.5 4.5 21.4905 4.5 20.25C4.5 19.0095 5.5095 18 6.75 18C7.9905 18 9 19.0095 9 20.25ZM17.25 10.5C16.0095 10.5 15 9.4905 15 8.25C15 7.0095 16.0095 6 17.25 6C18.4905 6 19.5 7.0095 19.5 8.25C19.5 9.4905 18.4905 10.5 17.25 10.5Z"></path></svg></div>
+        <div class="a"><svg class="ci" width="24" height="24" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M15 4.95703C15 4.58711 14.8563 4.24054 14.5949 3.97992L12.0096 1.39234C11.4879 0.86922 10.5788 0.86922 10.0571 1.39234L8 3.45119V3.32321C8 2.55068 7.37187 1.922 6.6 1.922H2.4C1.62813 1.922 1 2.55068 1 3.32321V13.5988C1 14.3713 1.62813 15 2.4 15H12.6667C13.4385 15 14.0667 14.3713 14.0667 13.5988V9.39514C14.0667 8.62261 13.4385 7.99393 12.6667 7.99393H12.5379L14.5949 5.93508C14.8553 5.67445 15 5.32602 15 4.95703ZM2.4 2.85521H6.6C6.85667 2.85521 7.06667 3.06446 7.06667 3.32228V7.99299H1.93333V3.32228C1.93333 3.06446 2.14333 2.85521 2.4 2.85521ZM1.93333 13.5979V8.92714H7.06667V14.0649H2.4C2.14333 14.0649 1.93333 13.8547 1.93333 13.5979ZM13.1333 9.39421V13.5979C13.1333 13.8547 12.9233 14.0649 12.6667 14.0649H8V8.92714H12.6667C12.9233 8.92714 13.1333 9.13638 13.1333 9.39421ZM8 7.99299V6.46287L9.5288 7.99299H8ZM13.9351 5.2737L11.3488 7.86221C11.1789 8.03223 10.8859 8.03223 10.716 7.86221L8.12973 5.2737C8.0448 5.18963 7.99813 5.07753 7.99813 4.95796C7.99813 4.83839 8.0448 4.7263 8.12973 4.64129L10.716 2.05278C10.8009 1.96777 10.9129 1.92106 11.0324 1.92106C11.1519 1.92106 11.2639 1.96777 11.3488 2.05278L13.9351 4.64129C14.02 4.72536 14.0667 4.83746 14.0667 4.95703C14.0667 5.0766 14.02 5.1887 13.9351 5.2737Z"></path></svg></div>
+        <button class="a {{conclaveOn}}" aria-label="{{conclaveLabel}}" title="{{conclaveLabel}}" aria-pressed="{{sideConclave}}" onClick="{{showConclave}}">
+          <svg class="ic" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"></circle><circle cx="12" cy="4" r="1.75"></circle><circle cx="18.25" cy="7.01" r="1.75"></circle><circle cx="19.8" cy="13.78" r="1.75"></circle><circle cx="15.47" cy="19.21" r="1.75"></circle><circle cx="8.53" cy="19.21" r="1.75"></circle><circle cx="4.2" cy="13.78" r="1.75"></circle><circle cx="5.75" cy="7.01" r="1.75"></circle></svg>
+          <sc-if value="{{hasActBadge}}" hint-placeholder-val="{{false}}"><span class="act-badge" aria-hidden="true">{{actBadge}}</span></sc-if>
+        </button>
       </nav>
-      <aside class="sidebar" aria-label="Explorer">
+      <aside class="sidebar" aria-label="{{sideLabel}}">
+        <sc-if value="{{sideExplorer}}" hint-placeholder-val="{{true}}">
         <div class="sh">EXPLORER</div>
-        <div class="sec">CONCLAVE-VSC</div>
+        <div class="sec">{{wsSection}}</div>
         <sc-for list="{{tree}}" as="t" hint-placeholder-count="10">
           <div class="tree-item {{t.cls}}" style="padding-left: {{t.pad}}px">
             <sc-if value="{{t.folder}}" hint-placeholder-val="{{true}}">
-              <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 4l4 4-4 4"></path></svg>
+              <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.14601 3.14579C5.95101 3.34079 5.95101 3.65779 6.14601 3.85279L10.292 7.99879L6.14601 12.1448C5.95101 12.3398 5.95101 12.6568 6.14601 12.8518C6.34101 13.0468 6.65801 13.0468 6.85301 12.8518L11.353 8.35179C11.548 8.15679 11.548 7.83979 11.353 7.64478L6.85301 3.14479C6.65801 2.94979 6.34101 2.95079 6.14601 3.14579Z"></path></svg>
             </sc-if>
             <sc-if value="{{t.file}}" hint-placeholder-val="{{false}}">
-              <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2h5l3 3v9H4z"></path></svg>
+              <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5 1C3.89543 1 3 1.89543 3 3V13C3 14.1046 3.89543 15 5 15H11C12.1046 15 13 14.1046 13 13V5.41421C13 5.01639 12.842 4.63486 12.5607 4.35355L9.64645 1.43934C9.36514 1.15804 8.98361 1 8.58579 1H5ZM4 3C4 2.44772 4.44772 2 5 2H8V4.5C8 5.32843 8.67157 6 9.5 6H12V13C12 13.5523 11.5523 14 11 14H5C4.44772 14 4 13.5523 4 13V3ZM11.7929 5H9.5C9.22386 5 9 4.77614 9 4.5V2.20711L11.7929 5Z"></path></svg>
             </sc-if>
             <span>{{t.label}}</span>
           </div>
         </sc-for>
+        </sc-if>
+        <sc-if value="{{sideConclave}}" hint-placeholder-val="{{false}}">
+          <div class="sh">CONCLAVE</div>
+          <div class="vpane {{kitsFocus}}">
+          <div class="pane-h">
+            <button class="tw" aria-label="Kits" aria-expanded="{{kitsOpen}}" onClick="{{toggleKitsPane}}">
+              <sc-if value="{{kitsOpen}}" hint-placeholder-val="{{true}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.14598 5.85423L7.64598 10.3542C7.84098 10.5492 8.15798 10.5492 8.35298 10.3542L12.853 5.85423C13.048 5.65923 13.048 5.34223 12.853 5.14723C12.658 4.95223 12.341 4.95223 12.146 5.14723L7.99998 9.29323L3.85398 5.14723C3.65898 4.95223 3.34198 4.95223 3.14698 5.14723C2.95198 5.34223 2.95098 5.65923 3.14598 5.85423Z"></path></svg></sc-if>
+              <sc-if value="{{kitsClosed}}" hint-placeholder-val="{{false}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.14601 3.14579C5.95101 3.34079 5.95101 3.65779 6.14601 3.85279L10.292 7.99879L6.14601 12.1448C5.95101 12.3398 5.95101 12.6568 6.14601 12.8518C6.34101 13.0468 6.65801 13.0468 6.85301 12.8518L11.353 8.35179C11.548 8.15679 11.548 7.83979 11.353 7.64478L6.85301 3.14479C6.65801 2.94979 6.34101 2.95079 6.14601 3.14579Z"></path></svg></sc-if>
+            </button>
+            <span>KITS</span>
+            <sc-if value="{{multiRoot}}" hint-placeholder-val="{{false}}"><span class="pdesc" title="{{curFolderPath}}">{{curFolderName}}</span></sc-if>
+            <span class="grow"></span>
+            <sc-if value="{{multiRoot}}" hint-placeholder-val="{{false}}"><button class="icon-btn sm" aria-label="Switch folder" title="Switch folder (the view follows the active editor's folder)" onClick="{{switchFolder}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M11.3536 1.64645C11.1583 1.45118 10.8417 1.45118 10.6464 1.64645C10.4512 1.84171 10.4512 2.15829 10.6464 2.35355L12.2929 4H2.5C2.22386 4 2 4.22386 2 4.5C2 4.77614 2.22386 5 2.5 5H12.2929L10.6464 6.64645C10.4512 6.84171 10.4512 7.15829 10.6464 7.35355C10.8417 7.54882 11.1583 7.54882 11.3536 7.35355L13.8536 4.85355C14.0488 4.65829 14.0488 4.34171 13.8536 4.14645L11.3536 1.64645ZM5.35355 9.35355C5.54882 9.15829 5.54882 8.84171 5.35355 8.64645C5.15829 8.45118 4.84171 8.45118 4.64645 8.64645L2.14645 11.1464C1.95118 11.3417 1.95118 11.6583 2.14645 11.8536L4.64645 14.3536C4.84171 14.5488 5.15829 14.5488 5.35355 14.3536C5.54882 14.1583 5.54882 13.8417 5.35355 13.6464L3.70711 12H13.5C13.7761 12 14 11.7761 14 11.5C14 11.2239 13.7761 11 13.5 11H3.70711L5.35355 9.35355Z"></path></svg></button></sc-if>
+            <button class="icon-btn sm" aria-label="Refresh" title="Refresh" onClick="{{refreshKits}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 8C3 5.23858 5.23858 3 8 3C9.63527 3 11.0878 3.78495 12.0005 5H10C9.72386 5 9.5 5.22386 9.5 5.5C9.5 5.77614 9.72386 6 10 6H12.8904C12.8973 6.00014 12.9041 6.00014 12.911 6H13C13.2761 6 13.5 5.77614 13.5 5.5V2.5C13.5 2.22386 13.2761 2 13 2C12.7239 2 12.5 2.22386 12.5 2.5V4.03138C11.4009 2.78613 9.79253 2 8 2C4.68629 2 2 4.68629 2 8C2 11.3137 4.68629 14 8 14C11.1301 14 13.6999 11.6035 13.9756 8.54488C14.0003 8.26985 13.7975 8.0268 13.5225 8.00202C13.2474 7.97723 13.0044 8.1801 12.9796 8.45512C12.75 11.003 10.6079 13 8 13C5.23858 13 3 10.7614 3 8Z"></path></svg></button>
+            <button class="icon-btn sm" aria-label="Update kits" title="Update kits" onClick="{{updateKits}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path shape-rendering="optimizeQuality" d="M7.14645 0.646447C7.34171 0.451184 7.65829 0.451184 7.85355 0.646447L9.35355 2.14645C9.54882 2.34171 9.54882 2.65829 9.35355 2.85355L7.85355 4.35355C7.65829 4.54882 7.34171 4.54882 7.14645 4.35355C6.95118 4.15829 6.95118 3.84171 7.14645 3.64645L7.7885 3.00439C5.12517 3.11522 3 5.30943 3 8C3 9.56799 3.72118 10.9672 4.85185 11.8847C5.06627 12.0587 5.09904 12.3736 4.92503 12.588C4.75103 12.8024 4.43615 12.8352 4.22172 12.6612C2.86712 11.5619 2 9.88205 2 8C2 4.75447 4.57689 2.1108 7.79629 2.00339L7.14645 1.35355C6.95118 1.15829 6.95118 0.841709 7.14645 0.646447ZM11.075 3.41199C11.249 3.19756 11.5639 3.1648 11.7783 3.3388C13.1329 4.43806 14 6.11795 14 8C14 11.2455 11.4231 13.8892 8.20371 13.9966L8.85355 14.6464C9.04882 14.8417 9.04882 15.1583 8.85355 15.3536C8.65829 15.5488 8.34171 15.5488 8.14645 15.3536L6.64645 13.8536C6.55268 13.7598 6.5 13.6326 6.5 13.5C6.5 13.3674 6.55268 13.2402 6.64645 13.1464L8.14645 11.6464C8.34171 11.4512 8.65829 11.4512 8.85355 11.6464C9.04882 11.8417 9.04882 12.1583 8.85355 12.3536L8.2115 12.9956C10.8748 12.8848 13 10.6906 13 8C13 6.43201 12.2788 5.03283 11.1482 4.1153C10.9337 3.94129 10.901 3.62641 11.075 3.41199Z"></path></svg></button>
+            <button class="icon-btn sm" aria-label="Set up a new repository" title="Set up a new repository" onClick="{{newRepo}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2 4.5V6H5.58579C5.71839 6 5.84557 5.94732 5.93934 5.85355L7.29289 4.5L5.93934 3.14645C5.84557 3.05268 5.71839 3 5.58579 3H3.5C2.67157 3 2 3.67157 2 4.5ZM1 4.5C1 3.11929 2.11929 2 3.5 2H5.58579C5.98361 2 6.36514 2.15804 6.64645 2.43934L8.20711 4H12.5C13.8807 4 15 5.11929 15 6.5V7.25716C14.6929 7.00353 14.3578 6.78261 14 6.59971V6.5C14 5.67157 13.3284 5 12.5 5H8.20711L6.64645 6.56066C6.36514 6.84197 5.98361 7 5.58579 7H2V11.5C2 12.3284 2.67157 13 3.5 13H6.20703C6.30564 13.3486 6.43777 13.6832 6.59971 14H3.5C2.11929 14 1 12.8807 1 11.5V4.5ZM16 11.5C16 13.9853 13.9853 16 11.5 16C9.01472 16 7 13.9853 7 11.5C7 9.01472 9.01472 7 11.5 7C13.9853 7 16 9.01472 16 11.5ZM12 9C12 8.72386 11.7761 8.5 11.5 8.5C11.2239 8.5 11 8.72386 11 9V11H9C8.72386 11 8.5 11.2239 8.5 11.5C8.5 11.7761 8.72386 12 9 12H11V14C11 14.2761 11.2239 14.5 11.5 14.5C11.7761 14.5 12 14.2761 12 14V12H14C14.2761 12 14.5 11.7761 14.5 11.5C14.5 11.2239 14.2761 11 14 11H12V9Z"></path></svg></button>
+          </div>
+          <sc-if value="{{kitsOpen}}" hint-placeholder-val="{{true}}">
+            <div class="ktree {{ktreeCls}}" aria-label="Kits">
+              <sc-for list="{{kitRows}}" as="k" hint-placeholder-count="8">
+                <div class="krow {{k.cls}}" style="padding-left: {{k.pad}}px">
+                  <sc-if value="{{k.expandable}}" hint-placeholder-val="{{true}}">
+                    <button class="tw" aria-label="{{k.twLabel}}" aria-expanded="{{k.open}}" onClick="{{k.toggle}}">
+                      <sc-if value="{{k.open}}" hint-placeholder-val="{{false}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.14598 5.85423L7.64598 10.3542C7.84098 10.5492 8.15798 10.5492 8.35298 10.3542L12.853 5.85423C13.048 5.65923 13.048 5.34223 12.853 5.14723C12.658 4.95223 12.341 4.95223 12.146 5.14723L7.99998 9.29323L3.85398 5.14723C3.65898 4.95223 3.34198 4.95223 3.14698 5.14723C2.95198 5.34223 2.95098 5.65923 3.14598 5.85423Z"></path></svg></sc-if>
+                      <sc-if value="{{k.shut}}" hint-placeholder-val="{{true}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.14601 3.14579C5.95101 3.34079 5.95101 3.65779 6.14601 3.85279L10.292 7.99879L6.14601 12.1448C5.95101 12.3398 5.95101 12.6568 6.14601 12.8518C6.34101 13.0468 6.65801 13.0468 6.85301 12.8518L11.353 8.35179C11.548 8.15679 11.548 7.83979 11.353 7.64478L6.85301 3.14479C6.65801 2.94979 6.34101 2.95079 6.14601 3.14579Z"></path></svg></sc-if>
+                    </button>
+                  </sc-if>
+                  <sc-if value="{{k.leaf}}" hint-placeholder-val="{{false}}"><span class="tw-sp"></span></sc-if>
+                  <sc-if value="{{k.iFolder}}" hint-placeholder-val="{{false}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2 4.5V9.10022L2.92389 7.5C3.45979 6.5718 4.45017 6 5.52196 6L11.9146 6C11.7087 5.4174 11.1531 5 10.5 5H7C6.86739 5 6.74021 4.94732 6.64645 4.85355L4.93934 3.14645C4.84557 3.05268 4.71839 3 4.58579 3H3.5C2.67157 3 2 3.67157 2 4.5ZM7.06895 13.9953C7.04641 13.9984 7.02339 14 7 14H3.5C2.11929 14 1 12.8807 1 11.5V4.5C1 3.11929 2.11929 2 3.5 2H4.58579C4.98361 2 5.36514 2.15804 5.64645 2.43934L7.20711 4H10.5C11.724 4 12.7426 4.87965 12.958 6.04127C14.605 6.34148 15.5443 8.22106 14.6616 9.75L13.0766 12.4953C12.5407 13.4235 11.5503 13.9953 10.4785 13.9953H7.06895ZM5.52196 7C4.80743 7 4.14718 7.3812 3.78991 8L2.20492 10.7453C1.62757 11.7453 2.34926 12.9953 3.50396 12.9953L10.4785 12.9953C11.193 12.9953 11.8533 12.6141 12.2105 11.9953L13.7955 9.25C14.3729 8.25 13.6512 7 12.4965 7L5.52196 7Z"></path></svg></sc-if>
+                  <sc-if value="{{k.iInstalled}}" hint-placeholder-val="{{true}}"><svg class="ci st-ok" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="Installed"><path d="M10.6484 5.64648C10.8434 5.45148 11.1605 5.45148 11.3555 5.64648C11.5498 5.84137 11.5499 6.15766 11.3555 6.35254L7.35547 10.3525C7.25747 10.4495 7.12898 10.499 7.00098 10.499C6.87299 10.499 6.74545 10.4505 6.64746 10.3525L4.64746 8.35254C4.45247 8.15754 4.45248 7.84148 4.64746 7.64648C4.84246 7.45148 5.15949 7.45148 5.35449 7.64648L7 9.29199L10.6465 5.64648H10.6484Z"></path><path fill-rule="evenodd" clip-rule="evenodd" d="M8 1C11.86 1 15 4.14 15 8C15 11.86 11.86 15 8 15C4.14 15 1 11.86 1 8C1 4.14 4.14 1 8 1ZM8 2C4.691 2 2 4.691 2 8C2 11.309 4.691 14 8 14C11.309 14 14 11.309 14 8C14 4.691 11.309 2 8 2Z"></path></svg></sc-if>
+                  <sc-if value="{{k.iPartly}}" hint-placeholder-val="{{false}}"><svg class="ci st-part" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="Partly installed"><path d="M8.5 1C8.22386 1 8 1.22386 8 1.5V7.5C8 7.77614 8.22386 8 8.5 8H14.5C14.7761 8 15 7.77614 15 7.5C15 3.91015 12.0899 1 8.5 1ZM9 7V2.02242C11.6386 2.2602 13.7398 4.36143 13.9776 7H9ZM7 3.52246C7 3.38205 6.94096 3.24811 6.83731 3.15338C6.73367 3.05866 6.59497 3.01188 6.45512 3.02448C3.3965 3.30011 1 5.86992 1 9.00004C1 12.3137 3.68629 15 7 15C10.1301 15 12.6999 12.6035 12.9756 9.54492C12.9882 9.40507 12.9414 9.26637 12.8467 9.16273C12.7519 9.05908 12.618 9.00004 12.4776 9.00004H7V3.52246ZM2 9.00004C2 6.58117 3.71795 4.56306 6 4.09998V9.50004C6 9.77618 6.22386 10 6.5 10H11.9001C11.437 12.2821 9.41887 14 7 14C4.23858 14 2 11.7615 2 9.00004Z"></path></svg></sc-if>
+                  <sc-if value="{{k.iNone}}" hint-placeholder-val="{{false}}"><svg class="ci st-none" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="Not installed"><path fill-rule="evenodd" clip-rule="evenodd" d="M9.58854 2.2153L9.58854 2.21528C9.08311 2.07252 8.55496 2 8.00098 2C7.44699 2 6.91884 2.07252 6.41341 2.21528L6.40659 2.21721L6.40659 2.21718C5.89259 2.35843 5.41641 2.55904 4.97513 2.81819C4.5335 3.08023 4.12844 3.39515 3.75886 3.76472C3.39532 4.12826 3.08274 4.53252 2.82014 4.97935L2.81818 4.98267L2.81818 4.98267C2.55924 5.41938 2.35622 5.89379 2.21039 6.409C2.07155 6.91543 2.00098 7.44479 2.00098 8C2.00098 8.5552 2.07155 9.08455 2.21038 9.59097C2.35622 10.1062 2.55946 10.5836 2.81921 11.0259C3.08148 11.4679 3.39423 11.8729 3.75887 12.2421C4.12806 12.6068 4.53308 12.9195 4.97513 13.1818C5.41737 13.4415 5.89472 13.6447 6.40994 13.7906C6.91638 13.9294 7.44575 14 8.00098 14C8.55619 14 9.08555 13.9294 9.59198 13.7906C10.1072 13.6448 10.5816 13.4417 11.0183 13.1828L11.0216 13.1808L11.0216 13.1808C11.4685 12.9182 11.8727 12.6057 12.2363 12.2421C12.6058 11.8726 12.9207 11.4675 13.1827 11.0259C13.4419 10.5846 13.6425 10.1084 13.7838 9.59439L13.7857 9.58756L13.7857 9.58757C13.9285 9.08213 14.001 8.55398 14.001 8C14.001 7.44602 13.9285 6.91787 13.7857 6.41243L13.7838 6.40562L13.7838 6.40561C13.6425 5.8916 13.4421 5.41838 13.1838 4.98267L13.1818 4.97935L13.1818 4.97935C12.9204 4.53447 12.6069 4.13142 12.24 3.7685L12.2324 3.76097L12.2325 3.76093C11.8696 3.3941 11.4665 3.08062 11.0216 2.81916L11.0183 2.81721L11.0183 2.8172C10.5826 2.55885 10.1094 2.35844 9.59537 2.21718L9.58854 2.2153ZM14.0439 11.5342C13.7386 12.0492 13.3717 12.5208 12.9434 12.9492C12.5195 13.373 12.0479 13.7376 11.5283 14.043C11.0133 14.3483 10.4574 14.5853 9.86035 14.7539C9.26335 14.918 8.64355 15 8.00098 15C7.3584 15 6.73861 14.918 6.1416 14.7539C5.5446 14.5853 4.98633 14.3483 4.4668 14.043C3.95182 13.7376 3.48014 13.373 3.05176 12.9492C2.62793 12.5208 2.26335 12.0492 1.95801 11.5342C1.65267 11.0146 1.41569 10.4564 1.24707 9.85938C1.08301 9.26237 1.00098 8.64258 1.00098 8C1.00098 7.35742 1.08301 6.73763 1.24707 6.14062C1.41569 5.54362 1.65267 4.98763 1.95801 4.47266C2.26335 3.95312 2.62793 3.48145 3.05176 3.05762C3.48014 2.62923 3.95182 2.26237 4.4668 1.95703C4.98633 1.65169 5.5446 1.41699 6.1416 1.25293C6.73861 1.08431 7.3584 1 8.00098 1C8.64355 1 9.26335 1.08431 9.86035 1.25293C10.4574 1.41699 11.0133 1.65169 11.5283 1.95703C12.0479 2.26237 12.5195 2.62923 12.9434 3.05762C13.3717 3.48145 13.7386 3.95312 14.0439 4.47266C14.3493 4.98763 14.584 5.54362 14.748 6.14062C14.9167 6.73763 15.001 7.35742 15.001 8C15.001 8.64258 14.9167 9.26237 14.748 9.85938C14.584 10.4564 14.3493 11.0146 14.0439 11.5342Z"></path></svg></sc-if>
+                  <sc-if value="{{k.iOk}}" hint-placeholder-val="{{false}}"><svg class="ci st-ok" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="ok"><path d="M13.6572 3.13573C13.8583 2.9465 14.175 2.95614 14.3643 3.15722C14.5535 3.35831 14.5438 3.675 14.3428 3.86425L5.84277 11.8642C5.64597 12.0494 5.33756 12.0446 5.14648 11.8535L1.64648 8.35351C1.45121 8.15824 1.45121 7.84174 1.64648 7.64647C1.84174 7.45121 2.15825 7.45121 2.35351 7.64647L5.50976 10.8027L13.6572 3.13573Z"></path></svg></sc-if>
+                  <sc-if value="{{k.iMissing}}" hint-placeholder-val="{{false}}"><svg class="ci st-bad" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="missing"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg></sc-if>
+                  <sc-if value="{{k.iSetup}}" hint-placeholder-val="{{false}}"><svg class="ci st-warn" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="setup required"><path d="M14.831 11.965L9.206 1.714C8.965 1.274 8.503 1 8 1C7.497 1 7.035 1.274 6.794 1.714L1.169 11.965C1.059 12.167 1 12.395 1 12.625C1 13.383 1.617 14 2.375 14H13.625C14.383 14 15 13.383 15 12.625C15 12.395 14.941 12.167 14.831 11.965ZM13.625 13H2.375C2.168 13 2 12.832 2 12.625C2 12.561 2.016 12.5 2.046 12.445L7.671 2.195C7.736 2.075 7.863 2 8 2C8.137 2 8.264 2.075 8.329 2.195L13.954 12.445C13.984 12.501 14 12.561 14 12.625C14 12.832 13.832 13 13.625 13ZM8.75 11.25C8.75 11.664 8.414 12 8 12C7.586 12 7.25 11.664 7.25 11.25C7.25 10.836 7.586 10.5 8 10.5C8.414 10.5 8.75 10.836 8.75 11.25ZM7.5 9V5.5C7.5 5.224 7.724 5 8 5C8.276 5 8.5 5.224 8.5 5.5V9C8.5 9.276 8.276 9.5 8 9.5C7.724 9.5 7.5 9.276 7.5 9Z"></path></svg></sc-if>
+                  <sc-if value="{{k.iUnexpected}}" hint-placeholder-val="{{false}}"><svg class="ci st-bad" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="unexpected"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg></sc-if>
+                  <span class="lbl {{k.lblCls}}">{{k.label}}</span>
+                  <span class="desc" title="{{k.title}}">{{k.desc}}</span>
+                  <div class="inl">
+                    <sc-if value="{{k.canInstall}}" hint-placeholder-val="{{false}}"><button class="icon-btn sm" aria-label="Install {{k.label}} in {{k.folder}}" title="Install" onClick="{{k.install}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M16 13.5C16 13.565 15.987 13.63 15.961 13.69C15.935 13.751 15.897 13.805 15.85 13.85L13.85 15.85C13.804 15.897 13.75 15.935 13.69 15.961C13.63 15.987 13.565 16 13.5 16C13.435 16 13.371 15.987 13.31 15.961C13.249 15.935 13.195 15.897 13.15 15.85L11.15 13.85C11.103 13.804 11.065 13.75 11.039 13.69C11.013 13.63 11 13.565 11 13.5C11 13.435 11.013 13.37 11.039 13.31C11.065 13.249 11.103 13.195 11.15 13.15C11.196 13.103 11.25 13.065 11.31 13.039C11.37 13.013 11.435 13 11.5 13C11.565 13 11.629 13.013 11.69 13.039C11.751 13.065 11.805 13.103 11.85 13.15L13 14.29V9.5C13 9.367 13.052 9.24 13.146 9.146C13.24 9.053 13.367 9 13.5 9C13.633 9 13.76 9.052 13.854 9.146C13.947 9.24 14 9.367 14 9.5V14.29L15.15 13.15C15.196 13.103 15.25 13.065 15.31 13.039C15.37 13.013 15.435 13 15.5 13C15.565 13 15.629 13.013 15.69 13.039C15.751 13.065 15.805 13.103 15.85 13.15C15.897 13.196 15.935 13.25 15.961 13.31C15.987 13.37 16 13.435 16 13.5ZM11 12H12V11H3C2.448 11 2 10.552 2 10V3C2 2.448 2.448 2 3 2H13C13.552 2 14 2.448 14 3V8H15V3C15 1.895 14.105 1 13 1H3C1.895 1 1 1.895 1 3V10C1 11.105 1.895 12 3 12H5V14H3.5C3.224 14 3 14.224 3 14.5C3 14.776 3.224 15 3.5 15H10V14H6V12H10V13.5C10 13.295 10.041 13.097 10.122 12.91C10.203 12.723 10.319 12.559 10.466 12.421C10.565 12.317 10.725 12.204 10.905 12.125C10.936 12.111 10.968 12.106 11 12.095V12Z"></path></svg></button></sc-if>
+                    <sc-if value="{{k.canHealth}}" hint-placeholder-val="{{false}}"><button class="icon-btn sm" aria-label="Health of {{k.label}} in {{k.folder}}" title="Health" onClick="{{k.health}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5.76002 2.49999C5.98102 2.50399 6.17302 2.65399 6.23202 2.86699L8.52102 11.19L10.271 5.35599C10.332 5.15399 10.513 5.01099 10.724 4.99999C10.935 4.98899 11.13 5.11199 11.211 5.30699L12.333 7.99899H14C14.276 7.99899 14.5 8.22299 14.5 8.49899C14.5 8.77499 14.276 8.99899 14 8.99899H12C11.798 8.99899 11.616 8.87799 11.538 8.69099L10.826 6.98299L8.97802 13.142C8.91402 13.356 8.71602 13.501 8.49302 13.498C8.27002 13.495 8.07602 13.346 8.01702 13.131L5.71402 4.75699L4.47502 8.64999C4.40902 8.85799 4.21602 8.99799 3.99902 8.99799H1.99902C1.72302 8.99799 1.49902 8.77399 1.49902 8.49799C1.49902 8.22199 1.72302 7.99799 1.99902 7.99799H3.63302L5.27202 2.84599C5.33902 2.63499 5.53702 2.49299 5.75802 2.49799L5.76002 2.49999Z"></path></svg></button></sc-if>
+                  </div>
+                  <sc-if value="{{k.hasBadge}}" hint-placeholder-val="{{false}}"><span class="hb {{k.badgeCls}}" title="{{k.badgeTitle}}">{{k.badge}}</span></sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+          </div>
+          <sc-if value="{{insOpen}}" hint-placeholder-val="{{false}}">
+            <div class="vpane focus">
+            <div class="pane-h">
+              <span class="tw" aria-hidden="true"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.14598 5.85423L7.64598 10.3542C7.84098 10.5492 8.15798 10.5492 8.35298 10.3542L12.853 5.85423C13.048 5.65923 13.048 5.34223 12.853 5.14723C12.658 4.95223 12.341 4.95223 12.146 5.14723L7.99998 9.29323L3.85398 5.14723C3.65898 4.95223 3.34198 4.95223 3.14698 5.14723C2.95198 5.34223 2.95098 5.65923 3.14598 5.85423Z"></path></svg></span>
+              <span class="grow">INSTALL KIT</span>
+              <button class="icon-btn sm" aria-label="Close the installer" title="Close" onClick="{{ins.cancel}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.70701 8.00001L12.353 4.35401C12.548 4.15901 12.548 3.84201 12.353 3.64701C12.158 3.45201 11.841 3.45201 11.646 3.64701L8.00001 7.29301L4.35401 3.64701C4.15901 3.45201 3.84201 3.45201 3.64701 3.64701C3.45201 3.84201 3.45201 4.15901 3.64701 4.35401L7.29301 8.00001L3.64701 11.646C3.45201 11.841 3.45201 12.158 3.64701 12.353C3.74501 12.451 3.87301 12.499 4.00101 12.499C4.12901 12.499 4.25701 12.45 4.35501 12.353L8.00101 8.70701L11.647 12.353C11.745 12.451 11.873 12.499 12.001 12.499C12.129 12.499 12.257 12.45 12.355 12.353C12.55 12.158 12.55 11.841 12.355 11.646L8.70901 8.00001H8.70701Z"></path></svg></button>
+            </div>
+            <div class="ip" aria-live="polite">
+              <div class="steps"><span class="{{ins.s1}}">1 Choose</span><span>›</span><span class="{{ins.s2}}">2 Preview</span><span>›</span><span class="{{ins.s3}}">3 Installed</span></div>
+              <h3>Install <span class="mono">{{ins.kit}}</span></h3>
+              <div class="src">Into <span class="mono">{{ins.folderPath}}</span> from <span class="mono">{{sourceLabel}}</span></div>
+
+              <sc-if value="{{ins.choosing}}" hint-placeholder-val="{{true}}">
+                <div class="field">
+                  <label for="ins-agent">Agent</label>
+                  <select id="ins-agent" class="input" value="{{ins.agent}}" onChange="{{ins.onAgent}}">
+                    <option value="all">All agents (all)</option>
+                    <option value="agy">Antigravity (agy)</option>
+                    <option value="gemini">Gemini (gemini, the same files as agy)</option>
+                    <option value="claude">Claude Code (claude)</option>
+                    <option value="codex">OpenAI Codex (codex)</option>
+                  </select>
+                </div>
+                <sc-if value="{{ins.isWp}}" hint-placeholder-val="{{false}}">
+                  <fieldset>
+                    <legend>WordPress host</legend>
+                    <label class="opt"><input type="radio" name="ins-host" value="pressable" checked="{{ins.hostPressable}}" disabled="{{ins.hostLocked}}" onChange="{{ins.onHost}}">Pressable (pressable)</label>
+                    <label class="opt"><input type="radio" name="ins-host" value="wpcom" checked="{{ins.hostWpcom}}" disabled="{{ins.hostLocked}}" onChange="{{ins.onHost}}">WordPress.com (wpcom)</label>
+                  </fieldset>
+                  <p class="note">Once <code>.conclave/wordpress-site.json</code> exists, it decides the host and this choice is locked.</p>
+                </sc-if>
+                <p class="note">Preview runs forge with <code>--dry-run</code> and writes nothing.</p>
+                <div class="row"><button class="btn small" onClick="{{ins.preview}}">Preview</button><button class="btn2 small" onClick="{{ins.cancel}}">Cancel</button></div>
+              </sc-if>
+
+              <sc-if value="{{ins.busy}}" hint-placeholder-val="{{false}}">
+                <pre>{{ins.cmd}}</pre>
+                <div style="display: flex; gap: 8px; align-items: center"><span class="spin" aria-hidden="true"></span><span>{{ins.busyText}}</span></div>
+              </sc-if>
+
+              <sc-if value="{{ins.previewing}}" hint-placeholder-val="{{false}}">
+                <span class="muted">forge ran, writing nothing:</span>
+                <pre>{{ins.cmd}}</pre>
+                <sc-if value="{{ins.hasError}}" hint-placeholder-val="{{false}}">
+                  <div class="errbox"><svg class="ci ei" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg><span><strong>forge refused (exit 2).</strong> <span class="mono">{{ins.error}}</span></span></div>
+                  <p class="note">Nothing was written. This folder cannot take the <code>{{ins.kit}}</code> kit as it is.</p>
+                </sc-if>
+                <sc-if value="{{ins.hasLists}}" hint-placeholder-val="{{true}}">
+                  <div>
+                    <div class="lh">Will add <span class="muted">{{ins.addCount}}</span></div>
+                    <sc-if value="{{ins.hasAdd}}" hint-placeholder-val="{{true}}">
+                      <ul class="flist"><sc-for list="{{ins.add}}" as="f" hint-placeholder-count="6"><li class="add" title="{{f.p}}">+ {{f.p}}</li></sc-for></ul>
+                    </sc-if>
+                    <sc-if value="{{ins.noAdd}}" hint-placeholder-val="{{false}}"><p class="note">Nothing to add: every file of this kit is already here.</p></sc-if>
+                  </div>
+                  <sc-if value="{{ins.hasKeep}}" hint-placeholder-val="{{false}}">
+                    <details>
+                      <summary>Already present, kept <span class="muted">{{ins.keepCount}}</span></summary>
+                      <ul class="flist"><sc-for list="{{ins.keep}}" as="f" hint-placeholder-count="4"><li title="{{f.p}}">{{f.p}}</li></sc-for></ul>
+                    </details>
+                  </sc-if>
+                </sc-if>
+                <sc-if value="{{ins.hasMerge}}" hint-placeholder-val="{{false}}">
+                  <div class="errbox"><svg class="ci ei" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg><span><strong>Install is off: forge reports a file it cannot merge.</strong> <span class="mono">merge_needed: {{ins.merge}}</span></span></div>
+                  <p class="note"><code>.mcp.json</code> already exists without a <code>laravel-boost</code> server. Add that server to it by hand, then preview again.</p>
+                </sc-if>
+                <sc-if value="{{ins.isRemote}}" hint-placeholder-val="{{false}}">
+                  <div class="confirm"><span>Install runs <code>forge.py</code> from <span class="mono">{{sourceLabel}}</span>, downloaded from GitHub. Install confirms that source.</span></div>
+                </sc-if>
+                <sc-if value="{{ins.canInstall}}" hint-placeholder-val="{{true}}"><p class="note">Install adds only the files under Will add and changes no existing file.</p></sc-if>
+                <div class="row">
+                  <sc-if value="{{ins.canInstall}}" hint-placeholder-val="{{true}}"><button class="btn small" onClick="{{ins.install}}">Install</button></sc-if>
+                  <button class="btn2 small" onClick="{{ins.back}}">Back</button>
+                  <button class="btn2 small" onClick="{{ins.cancel}}">Cancel</button>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ins.done}}" hint-placeholder-val="{{false}}">
+                <span class="donel"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.6572 3.13573C13.8583 2.9465 14.175 2.95614 14.3643 3.15722C14.5535 3.35831 14.5438 3.675 14.3428 3.86425L5.84277 11.8642C5.64597 12.0494 5.33756 12.0446 5.14648 11.8535L1.64648 8.35351C1.45121 8.15824 1.45121 7.84174 1.64648 7.64647C1.84174 7.45121 2.15825 7.45121 2.35351 7.64647L5.50976 10.8027L13.6572 3.13573Z"></path></svg>{{ins.doneText}}</span>
+                <ul class="flist"><sc-for list="{{ins.add}}" as="f" hint-placeholder-count="4"><li class="add" title="{{f.p}}">+ {{f.p}}</li></sc-for></ul>
+                <p class="note">{{ins.hashText}}</p>
+                <p class="note">The run (argv, source, exit code and forge's lists) is in the Conclave output channel. Your git is the undo: forge has no uninstall.</p>
+                <div class="row"><button class="btn small" onClick="{{ins.finish}}">Done</button><button class="btn2 small" onClick="{{ins.showLog}}">Show log</button></div>
+              </sc-if>
+            </div>
+            </div>
+          </sc-if>
+          <sc-for list="{{fpanes}}" as="p" hint-placeholder-count="3">
+            <div class="fpane">
+              <div class="pane-h">
+                <button class="tw" aria-label="{{p.title}}" aria-expanded="{{p.open}}" onClick="{{p.toggle}}">
+                  <sc-if value="{{p.open}}" hint-placeholder-val="{{true}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.14598 5.85423L7.64598 10.3542C7.84098 10.5492 8.15798 10.5492 8.35298 10.3542L12.853 5.85423C13.048 5.65923 13.048 5.34223 12.853 5.14723C12.658 4.95223 12.341 4.95223 12.146 5.14723L7.99998 9.29323L3.85398 5.14723C3.65898 4.95223 3.34198 4.95223 3.14698 5.14723C2.95198 5.34223 2.95098 5.65923 3.14598 5.85423Z"></path></svg></sc-if>
+                  <sc-if value="{{p.shut}}" hint-placeholder-val="{{false}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.14601 3.14579C5.95101 3.34079 5.95101 3.65779 6.14601 3.85279L10.292 7.99879L6.14601 12.1448C5.95101 12.3398 5.95101 12.6568 6.14601 12.8518C6.34101 13.0468 6.65801 13.0468 6.85301 12.8518L11.353 8.35179C11.548 8.15679 11.548 7.83979 11.353 7.64478L6.85301 3.14479C6.65801 2.94979 6.34101 2.95079 6.14601 3.14579Z"></path></svg></sc-if>
+                </button>
+                <span>{{p.title}}</span>
+                <sc-if value="{{p.hasDesc}}" hint-placeholder-val="{{true}}"><span class="pdesc" title="{{p.descTitle}}">{{p.desc}}</span></sc-if>
+                <span class="grow"></span>
+                <sc-for list="{{p.actions}}" as="a" hint-placeholder-count="2">
+                  <button class="icon-btn sm" aria-label="{{a.label}}" title="{{a.label}}" onClick="{{a.run}}">
+                  <sc-if value="{{a.aRefresh}}" hint-placeholder-val="{{true}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 8C3 5.23858 5.23858 3 8 3C9.63527 3 11.0878 3.78495 12.0005 5H10C9.72386 5 9.5 5.22386 9.5 5.5C9.5 5.77614 9.72386 6 10 6H12.8904C12.8973 6.00014 12.9041 6.00014 12.911 6H13C13.2761 6 13.5 5.77614 13.5 5.5V2.5C13.5 2.22386 13.2761 2 13 2C12.7239 2 12.5 2.22386 12.5 2.5V4.03138C11.4009 2.78613 9.79253 2 8 2C4.68629 2 2 4.68629 2 8C2 11.3137 4.68629 14 8 14C11.1301 14 13.6999 11.6035 13.9756 8.54488C14.0003 8.26985 13.7975 8.0268 13.5225 8.00202C13.2474 7.97723 13.0044 8.1801 12.9796 8.45512C12.75 11.003 10.6079 13 8 13C5.23858 13 3 10.7614 3 8Z"></path></svg></sc-if>
+                  <sc-if value="{{a.aOpen}}" hint-placeholder-val="{{false}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M8.58594 1.00098C8.98394 1.00098 9.36646 1.15943 9.64746 1.44043L12.5605 4.35352C12.8415 4.63552 13.001 5.01704 13.001 5.41504V13.001C13.001 14.106 12.106 15.001 11.001 15.001H5.00098C3.89599 15.001 3.00098 14.106 3.00098 13.001V6.00098H4.00098V13.001C4.00098 13.553 4.44899 14.001 5.00098 14.001H11.001C11.553 14.001 12.001 13.553 12.001 13.001V6.00098H9.50098C8.67299 6.00096 8.00098 5.32897 8.00098 4.50098V2.00098C7.99198 1.97699 7.98265 1.9527 7.97266 1.92871C7.89674 1.74704 7.78717 1.5812 7.64746 1.44238L7.20605 1.00098H8.58594ZM9 4.5C9 4.776 9.224 5 9.5 5H11.793L9 2.20703V4.5Z"></path><path d="M4.5 0C4.63299 0 4.75952 0.0534683 4.85352 0.147461L6.85352 2.14746C6.90042 2.19336 6.93789 2.24775 6.96289 2.30859C6.98789 2.36959 7.00097 2.43498 7.00098 2.50098C7.00098 2.56698 6.98789 2.63236 6.96289 2.69336C6.93789 2.75323 6.90043 2.80956 6.85352 2.85547L4.85352 4.85547C4.75956 4.94917 4.63278 5.00195 4.5 5.00195C4.36722 5.00195 4.24044 4.94917 4.14648 4.85547C4.05248 4.76147 3.99902 4.63398 3.99902 4.50098C3.99903 4.36799 4.05249 4.24146 4.14648 4.14746L5.29297 3.00098H2.5C2.10201 3.00098 1.72045 3.15944 1.43945 3.44043C1.15846 3.72242 1.00001 4.10298 1 4.50098V5.50098C1 5.63398 0.947516 5.76147 0.853516 5.85547C0.759563 5.94817 0.632774 6.00098 0.5 6.00098C0.367225 6.00098 0.240437 5.94917 0.146484 5.85547C0.0534844 5.76147 0 5.63398 0 5.50098V4.50098C6.17892e-06 3.83799 0.263427 3.20239 0.732422 2.7334C1.20142 2.26441 1.83701 2.00098 2.5 2.00098H5.29297L4.14648 0.855469C4.05248 0.761469 3.99902 0.633977 3.99902 0.500977C3.99903 0.367985 4.05249 0.241455 4.14648 0.147461C4.24048 0.0534683 4.36701 0 4.5 0Z"></path></svg></sc-if>
+                  <sc-if value="{{a.aValidate}}" hint-placeholder-val="{{false}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4.85401 2.146C5.04901 2.341 5.04901 2.658 4.85401 2.853L2.85401 4.853C2.65901 5.048 2.34201 5.048 2.14701 4.853L1.14701 3.853C0.952013 3.658 0.952013 3.341 1.14701 3.146C1.34201 2.951 1.65901 2.951 1.85401 3.146L2.50001 3.792L4.14601 2.146C4.34101 1.951 4.65901 1.951 4.85401 2.146ZM14.5 4H6.50001C6.22401 4 6.00001 3.776 6.00001 3.5C6.00001 3.224 6.22401 3 6.50001 3H14.5C14.776 3 15 3.224 15 3.5C15 3.776 14.776 4 14.5 4ZM4.85401 11.146C5.04901 11.341 5.04901 11.658 4.85401 11.853L2.85401 13.853C2.65901 14.048 2.34201 14.048 2.14701 13.853L1.14701 12.853C0.952013 12.658 0.952013 12.341 1.14701 12.146C1.34201 11.951 1.65901 11.951 1.85401 12.146L2.50001 12.792L4.14601 11.146C4.34101 10.951 4.65901 10.951 4.85401 11.146ZM14.5 13H6.50001C6.22401 13 6.00001 12.776 6.00001 12.5C6.00001 12.224 6.22401 12 6.50001 12H14.5C14.776 12 15 12.224 15 12.5C15 12.776 14.776 13 14.5 13ZM4.85401 6.646C5.04901 6.841 5.04901 7.158 4.85401 7.353L2.85401 9.353C2.65901 9.548 2.34201 9.548 2.14701 9.353L1.14701 8.353C0.952013 8.158 0.952013 7.841 1.14701 7.646C1.34201 7.451 1.65901 7.451 1.85401 7.646L2.50001 8.292L4.14601 6.646C4.34101 6.451 4.65901 6.451 4.85401 6.646ZM14.5 8.5H6.50001C6.22401 8.5 6.00001 8.276 6.00001 8C6.00001 7.724 6.22401 7.5 6.50001 7.5H14.5C14.776 7.5 15 7.724 15 8C15 8.276 14.776 8.5 14.5 8.5Z"></path></svg></sc-if>
+                  <sc-if value="{{a.aPeople}}" hint-placeholder-val="{{false}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.00195 4.00002C6.00195 2.89655 6.89649 2.00201 7.99995 2.00201C9.10342 2.00201 9.99796 2.89655 9.99796 4.00002C9.99796 5.10348 9.10342 5.99802 7.99995 5.99802C6.89649 5.99802 6.00195 5.10348 6.00195 4.00002ZM7.99995 3.00201C7.44877 3.00201 7.00195 3.44883 7.00195 4.00002C7.00195 4.5512 7.44877 4.99802 7.99995 4.99802C8.55114 4.99802 8.99796 4.5512 8.99796 4.00002C8.99796 3.44883 8.55114 3.00201 7.99995 3.00201ZM11 4.5C11 3.67157 11.6716 3 12.5 3C13.3284 3 14 3.67157 14 4.5C14 5.32843 13.3284 6 12.5 6C11.6716 6 11 5.32843 11 4.5ZM12.5 4C12.2239 4 12 4.22386 12 4.5C12 4.77614 12.2239 5 12.5 5C12.7761 5 13 4.77614 13 4.5C13 4.22386 12.7761 4 12.5 4ZM3.5 3C2.67157 3 2 3.67157 2 4.5C2 5.32843 2.67157 6 3.5 6C4.32843 6 5 5.32843 5 4.5C5 3.67157 4.32843 3 3.5 3ZM3 4.5C3 4.22386 3.22386 4 3.5 4C3.77614 4 4 4.22386 4 4.5C4 4.77614 3.77614 5 3.5 5C3.22386 5 3 4.77614 3 4.5ZM4.26756 6.99969C4.09739 7.29387 4 7.63541 4 7.99969L2 7.99969V10.5C2 11.3285 2.67157 12 3.5 12C3.71194 12 3.91361 11.9561 4.09639 11.8768C4.1705 12.2082 4.28572 12.524 4.43643 12.8187C4.14721 12.9356 3.83112 13 3.5 13C2.11929 13 1 11.8807 1 10.5V7.99969C1 7.44741 1.44772 6.99969 2 6.99969H4.26756ZM11.5636 12.8187C11.8528 12.9356 12.1689 13 12.5 13C13.8807 13 15 11.8807 15 10.5V7.99969C15 7.44741 14.5523 6.99969 14 6.99969H11.7324C11.9026 7.29387 12 7.63541 12 7.9997L14 7.99969V10.5C14 11.3285 13.3284 12 12.5 12C12.2881 12 12.0864 11.9561 11.9036 11.8768C11.8295 12.2082 11.7143 12.524 11.5636 12.8187ZM6 6.99969C5.44772 6.99969 5 7.44741 5 7.99969V11C5 12.6569 6.34315 14 8 14C9.65685 14 11 12.6569 11 11V7.99969C11 7.44741 10.5523 6.99969 10 6.99969H6ZM6 7.99969L10 7.99969V11C10 12.1046 9.10457 13 8 13C6.89543 13 6 12.1046 6 11V7.99969Z"></path></svg></sc-if>
+                  <sc-if value="{{a.aFolder}}" hint-placeholder-val="{{false}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2 4.5V9.10022L2.92389 7.5C3.45979 6.5718 4.45017 6 5.52196 6L11.9146 6C11.7087 5.4174 11.1531 5 10.5 5H7C6.86739 5 6.74021 4.94732 6.64645 4.85355L4.93934 3.14645C4.84557 3.05268 4.71839 3 4.58579 3H3.5C2.67157 3 2 3.67157 2 4.5ZM7.06895 13.9953C7.04641 13.9984 7.02339 14 7 14H3.5C2.11929 14 1 12.8807 1 11.5V4.5C1 3.11929 2.11929 2 3.5 2H4.58579C4.98361 2 5.36514 2.15804 5.64645 2.43934L7.20711 4H10.5C11.724 4 12.7426 4.87965 12.958 6.04127C14.605 6.34148 15.5443 8.22106 14.6616 9.75L13.0766 12.4953C12.5407 13.4235 11.5503 13.9953 10.4785 13.9953H7.06895ZM5.52196 7C4.80743 7 4.14718 7.3812 3.78991 8L2.20492 10.7453C1.62757 11.7453 2.34926 12.9953 3.50396 12.9953L10.4785 12.9953C11.193 12.9953 11.8533 12.6141 12.2105 11.9953L13.7955 9.25C14.3729 8.25 13.6512 7 12.4965 7L5.52196 7Z"></path></svg></sc-if>
+                  </button>
+                </sc-for>
+              </div>
+              <sc-if value="{{p.open}}" hint-placeholder-val="{{true}}">
+                <div class="fbody" aria-label="{{p.title}}">
+                  <sc-for list="{{p.rows}}" as="r" hint-placeholder-count="4">
+                    <div class="krow {{r.cls}}" style="padding-left: {{r.pad}}px">
+                      <sc-if value="{{r.expandable}}" hint-placeholder-val="{{false}}">
+                        <button class="tw" aria-label="{{r.label}}" aria-expanded="{{r.open}}" onClick="{{r.toggle}}">
+                          <sc-if value="{{r.open}}" hint-placeholder-val="{{true}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.14598 5.85423L7.64598 10.3542C7.84098 10.5492 8.15798 10.5492 8.35298 10.3542L12.853 5.85423C13.048 5.65923 13.048 5.34223 12.853 5.14723C12.658 4.95223 12.341 4.95223 12.146 5.14723L7.99998 9.29323L3.85398 5.14723C3.65898 4.95223 3.34198 4.95223 3.14698 5.14723C2.95198 5.34223 2.95098 5.65923 3.14598 5.85423Z"></path></svg></sc-if>
+                          <sc-if value="{{r.shut}}" hint-placeholder-val="{{false}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.14601 3.14579C5.95101 3.34079 5.95101 3.65779 6.14601 3.85279L10.292 7.99879L6.14601 12.1448C5.95101 12.3398 5.95101 12.6568 6.14601 12.8518C6.34101 13.0468 6.65801 13.0468 6.85301 12.8518L11.353 8.35179C11.548 8.15679 11.548 7.83979 11.353 7.64478L6.85301 3.14479C6.65801 2.94979 6.34101 2.95079 6.14601 3.14579Z"></path></svg></sc-if>
+                        </button>
+                      </sc-if>
+                      <sc-if value="{{r.leaf}}" hint-placeholder-val="{{true}}"><span class="tw-sp"></span></sc-if>
+                      <sc-if value="{{r.iOk}}" hint-placeholder-val="{{false}}"><svg class="ci st-ok" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="ok"><path d="M13.6572 3.13573C13.8583 2.9465 14.175 2.95614 14.3643 3.15722C14.5535 3.35831 14.5438 3.675 14.3428 3.86425L5.84277 11.8642C5.64597 12.0494 5.33756 12.0446 5.14648 11.8535L1.64648 8.35351C1.45121 8.15824 1.45121 7.84174 1.64648 7.64647C1.84174 7.45121 2.15825 7.45121 2.35351 7.64647L5.50976 10.8027L13.6572 3.13573Z"></path></svg></sc-if>
+                      <sc-if value="{{r.iWarn}}" hint-placeholder-val="{{false}}"><svg class="ci st-warn" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="needs attention"><path d="M14.831 11.965L9.206 1.714C8.965 1.274 8.503 1 8 1C7.497 1 7.035 1.274 6.794 1.714L1.169 11.965C1.059 12.167 1 12.395 1 12.625C1 13.383 1.617 14 2.375 14H13.625C14.383 14 15 13.383 15 12.625C15 12.395 14.941 12.167 14.831 11.965ZM13.625 13H2.375C2.168 13 2 12.832 2 12.625C2 12.561 2.016 12.5 2.046 12.445L7.671 2.195C7.736 2.075 7.863 2 8 2C8.137 2 8.264 2.075 8.329 2.195L13.954 12.445C13.984 12.501 14 12.561 14 12.625C14 12.832 13.832 13 13.625 13ZM8.75 11.25C8.75 11.664 8.414 12 8 12C7.586 12 7.25 11.664 7.25 11.25C7.25 10.836 7.586 10.5 8 10.5C8.414 10.5 8.75 10.836 8.75 11.25ZM7.5 9V5.5C7.5 5.224 7.724 5 8 5C8.276 5 8.5 5.224 8.5 5.5V9C8.5 9.276 8.276 9.5 8 9.5C7.724 9.5 7.5 9.276 7.5 9Z"></path></svg></sc-if>
+                      <sc-if value="{{r.iBad}}" hint-placeholder-val="{{false}}"><svg class="ci st-bad" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="error"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg></sc-if>
+                      <sc-if value="{{r.iInfo}}" hint-placeholder-val="{{false}}"><svg class="ci st-info" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="info"><path d="M8.49902 7.49998C8.49902 7.22384 8.27517 6.99998 7.99902 6.99998C7.72288 6.99998 7.49902 7.22384 7.49902 7.49998V10.5C7.49902 10.7761 7.72288 11 7.99902 11C8.27517 11 8.49902 10.7761 8.49902 10.5V7.49998ZM8.74807 5.50001C8.74807 5.91369 8.41271 6.24905 7.99903 6.24905C7.58535 6.24905 7.25 5.91369 7.25 5.50001C7.25 5.08633 7.58535 4.75098 7.99903 4.75098C8.41271 4.75098 8.74807 5.08633 8.74807 5.50001ZM8 1C4.13401 1 1 4.13401 1 8C1 11.866 4.13401 15 8 15C11.866 15 15 11.866 15 8C15 4.13401 11.866 1 8 1ZM2 8C2 4.68629 4.68629 2 8 2C11.3137 2 14 4.68629 14 8C14 11.3137 11.3137 14 8 14C4.68629 14 2 11.3137 2 8Z"></path></svg></sc-if>
+                      <sc-if value="{{r.iReady}}" hint-placeholder-val="{{false}}"><svg class="ci st-info" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="ready"><path d="M8 4C8.36719 4 8.72135 4.04818 9.0625 4.14453C9.40365 4.23828 9.72135 4.3724 10.0156 4.54688C10.3125 4.72135 10.582 4.93099 10.8242 5.17578C11.069 5.41797 11.2786 5.6875 11.4531 5.98438C11.6276 6.27865 11.7617 6.59635 11.8555 6.9375C11.9518 7.27865 12 7.63281 12 8C12 8.36719 11.9518 8.72135 11.8555 9.0625C11.7617 9.40365 11.6276 9.72266 11.4531 10.0195C11.2786 10.3138 11.069 10.5833 10.8242 10.8281C10.582 11.0703 10.3125 11.2786 10.0156 11.4531C9.72135 11.6276 9.40365 11.763 9.0625 11.8594C8.72135 11.9531 8.36719 12 8 12C7.63281 12 7.27865 11.9531 6.9375 11.8594C6.59635 11.763 6.27734 11.6276 5.98047 11.4531C5.6862 11.2786 5.41667 11.0703 5.17188 10.8281C4.92969 10.5833 4.72135 10.3138 4.54688 10.0195C4.3724 9.72266 4.23698 9.40365 4.14062 9.0625C4.04688 8.72135 4 8.36719 4 8C4 7.63281 4.04688 7.27865 4.14062 6.9375C4.23698 6.59635 4.3724 6.27865 4.54688 5.98438C4.72135 5.6875 4.92969 5.41797 5.17188 5.17578C5.41667 4.93099 5.6862 4.72135 5.98047 4.54688C6.27734 4.3724 6.59635 4.23828 6.9375 4.14453C7.27865 4.04818 7.63281 4 8 4Z"></path></svg></sc-if>
+                      <sc-if value="{{r.iBlocked}}" hint-placeholder-val="{{false}}"><svg class="ci st-none" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="blocked"><path d="M8 9C8.55228 9 9 9.44771 9 10C9 10.5523 8.55228 11 8 11C7.44772 11 7 10.5523 7 10C7 9.44771 7.44772 9 8 9Z"></path><path fill-rule="evenodd" clip-rule="evenodd" d="M8 1C9.654 1 11 2.346 11 4V6H12C13.103 6 14 6.897 14 8V13C14 14.103 13.103 15 12 15H4C2.897 15 2 14.103 2 13V8C2 6.897 2.897 6 4 6H5V4C5 2.346 6.346 1 8 1ZM4 7C3.449 7 3 7.449 3 8V13C3 13.551 3.449 14 4 14H12C12.551 14 13 13.551 13 13V8C13 7.449 12.551 7 12 7H4ZM8 2C6.897 2 6 2.897 6 4V6H10V4C10 2.897 9.103 2 8 2Z"></path></svg></sc-if>
+                      <sc-if value="{{r.iFile}}" hint-placeholder-val="{{false}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5 1C3.89543 1 3 1.89543 3 3V13C3 14.1046 3.89543 15 5 15H11C12.1046 15 13 14.1046 13 13V5.41421C13 5.01639 12.842 4.63486 12.5607 4.35355L9.64645 1.43934C9.36514 1.15804 8.98361 1 8.58579 1H5ZM4 3C4 2.44772 4.44772 2 5 2H8V4.5C8 5.32843 8.67157 6 9.5 6H12V13C12 13.5523 11.5523 14 11 14H5C4.44772 14 4 13.5523 4 13V3ZM11.7929 5H9.5C9.22386 5 9 4.77614 9 4.5V2.20711L11.7929 5Z"></path></svg></sc-if>
+                      <sc-if value="{{r.iRoute}}" hint-placeholder-val="{{false}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.854 8.14576L8.854 3.14576C8.659 2.95076 8.342 2.95076 8.147 3.14576C7.952 3.34076 7.952 3.65776 8.147 3.85276L12.293 7.99876H2.5C2.224 7.99876 2 8.22276 2 8.49876C2 8.77476 2.224 8.99876 2.5 8.99876H12.293L8.147 13.1448C7.952 13.3398 7.952 13.6568 8.147 13.8518C8.245 13.9498 8.373 13.9978 8.501 13.9978C8.629 13.9978 8.757 13.9488 8.855 13.8518L13.855 8.85176C14.05 8.65676 14.05 8.33976 13.855 8.14476L13.854 8.14576Z"></path></svg></sc-if>
+                      <span class="lbl {{r.lblCls}}">{{r.label}}</span>
+                      <span class="desc" title="{{r.title}}">{{r.desc}}</span>
+                      <div class="inl"><sc-if value="{{r.hasAct}}" hint-placeholder-val="{{false}}"><button class="icon-btn sm" aria-label="{{r.actLabel}}" title="{{r.actLabel}}" onClick="{{r.act}}"><sc-if value="{{r.actInstall}}" hint-placeholder-val="{{false}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M16 13.5C16 13.565 15.987 13.63 15.961 13.69C15.935 13.751 15.897 13.805 15.85 13.85L13.85 15.85C13.804 15.897 13.75 15.935 13.69 15.961C13.63 15.987 13.565 16 13.5 16C13.435 16 13.371 15.987 13.31 15.961C13.249 15.935 13.195 15.897 13.15 15.85L11.15 13.85C11.103 13.804 11.065 13.75 11.039 13.69C11.013 13.63 11 13.565 11 13.5C11 13.435 11.013 13.37 11.039 13.31C11.065 13.249 11.103 13.195 11.15 13.15C11.196 13.103 11.25 13.065 11.31 13.039C11.37 13.013 11.435 13 11.5 13C11.565 13 11.629 13.013 11.69 13.039C11.751 13.065 11.805 13.103 11.85 13.15L13 14.29V9.5C13 9.367 13.052 9.24 13.146 9.146C13.24 9.053 13.367 9 13.5 9C13.633 9 13.76 9.052 13.854 9.146C13.947 9.24 14 9.367 14 9.5V14.29L15.15 13.15C15.196 13.103 15.25 13.065 15.31 13.039C15.37 13.013 15.435 13 15.5 13C15.565 13 15.629 13.013 15.69 13.039C15.751 13.065 15.805 13.103 15.85 13.15C15.897 13.196 15.935 13.25 15.961 13.31C15.987 13.37 16 13.435 16 13.5ZM11 12H12V11H3C2.448 11 2 10.552 2 10V3C2 2.448 2.448 2 3 2H13C13.552 2 14 2.448 14 3V8H15V3C15 1.895 14.105 1 13 1H3C1.895 1 1 1.895 1 3V10C1 11.105 1.895 12 3 12H5V14H3.5C3.224 14 3 14.224 3 14.5C3 14.776 3.224 15 3.5 15H10V14H6V12H10V13.5C10 13.295 10.041 13.097 10.122 12.91C10.203 12.723 10.319 12.559 10.466 12.421C10.565 12.317 10.725 12.204 10.905 12.125C10.936 12.111 10.968 12.106 11 12.095V12Z"></path></svg></sc-if><sc-if value="{{r.actGo}}" hint-placeholder-val="{{true}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M8.58594 1.00098C8.98394 1.00098 9.36646 1.15943 9.64746 1.44043L12.5605 4.35352C12.8415 4.63552 13.001 5.01704 13.001 5.41504V13.001C13.001 14.106 12.106 15.001 11.001 15.001H5.00098C3.89599 15.001 3.00098 14.106 3.00098 13.001V6.00098H4.00098V13.001C4.00098 13.553 4.44899 14.001 5.00098 14.001H11.001C11.553 14.001 12.001 13.553 12.001 13.001V6.00098H9.50098C8.67299 6.00096 8.00098 5.32897 8.00098 4.50098V2.00098C7.99198 1.97699 7.98265 1.9527 7.97266 1.92871C7.89674 1.74704 7.78717 1.5812 7.64746 1.44238L7.20605 1.00098H8.58594ZM9 4.5C9 4.776 9.224 5 9.5 5H11.793L9 2.20703V4.5Z"></path><path d="M4.5 0C4.63299 0 4.75952 0.0534683 4.85352 0.147461L6.85352 2.14746C6.90042 2.19336 6.93789 2.24775 6.96289 2.30859C6.98789 2.36959 7.00097 2.43498 7.00098 2.50098C7.00098 2.56698 6.98789 2.63236 6.96289 2.69336C6.93789 2.75323 6.90043 2.80956 6.85352 2.85547L4.85352 4.85547C4.75956 4.94917 4.63278 5.00195 4.5 5.00195C4.36722 5.00195 4.24044 4.94917 4.14648 4.85547C4.05248 4.76147 3.99902 4.63398 3.99902 4.50098C3.99903 4.36799 4.05249 4.24146 4.14648 4.14746L5.29297 3.00098H2.5C2.10201 3.00098 1.72045 3.15944 1.43945 3.44043C1.15846 3.72242 1.00001 4.10298 1 4.50098V5.50098C1 5.63398 0.947516 5.76147 0.853516 5.85547C0.759563 5.94817 0.632774 6.00098 0.5 6.00098C0.367225 6.00098 0.240437 5.94917 0.146484 5.85547C0.0534844 5.76147 0 5.63398 0 5.50098V4.50098C6.17892e-06 3.83799 0.263427 3.20239 0.732422 2.7334C1.20142 2.26441 1.83701 2.00098 2.5 2.00098H5.29297L4.14648 0.855469C4.05248 0.761469 3.99902 0.633977 3.99902 0.500977C3.99903 0.367985 4.05249 0.241455 4.14648 0.147461C4.24048 0.0534683 4.36701 0 4.5 0Z"></path></svg></sc-if></button></sc-if></div>
+                      <sc-if value="{{r.hasBadge}}" hint-placeholder-val="{{false}}"><span class="hb {{r.badgeCls}}">{{r.badge}}</span></sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </sc-if>
       </aside>
       <section class="editor">
         <div class="tabs" role="tablist">
           <div class="tab active" role="tab" aria-selected="true">
-            <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="5" r="2"></circle><circle cx="11" cy="5" r="2"></circle><path d="M2 13c0-2 1.5-3.5 3-3.5s3 1.5 3 3.5M8 13c0-2 1.5-3.5 3-3.5s3 1.5 3 3.5"></path></svg>
+            <svg class="ic" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"></circle><circle cx="12" cy="4" r="1.75"></circle><circle cx="18.25" cy="7.01" r="1.75"></circle><circle cx="19.8" cy="13.78" r="1.75"></circle><circle cx="15.47" cy="19.21" r="1.75"></circle><circle cx="8.53" cy="19.21" r="1.75"></circle><circle cx="4.2" cy="13.78" r="1.75"></circle><circle cx="5.75" cy="7.01" r="1.75"></circle></svg>
             <span>{{tabTitle}}</span>
-            <sc-if value="{{dirty}}" hint-placeholder-val="{{false}}"><span class="dot" aria-label="Unsaved changes"></span></sc-if>
           </div>
           <div class="tab" role="tab" aria-selected="false">
-            <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2h5l3 3v9H4z"></path></svg>
+            <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5 1C3.89543 1 3 1.89543 3 3V13C3 14.1046 3.89543 15 5 15H11C12.1046 15 13 14.1046 13 13V5.41421C13 5.01639 12.842 4.63486 12.5607 4.35355L9.64645 1.43934C9.36514 1.15804 8.98361 1 8.58579 1H5ZM4 3C4 2.44772 4.44772 2 5 2H8V4.5C8 5.32843 8.67157 6 9.5 6H12V13C12 13.5523 11.5523 14 11 14H5C4.44772 14 4 13.5523 4 13V3ZM11.7929 5H9.5C9.22386 5 9 4.77614 9 4.5V2.20711L11.7929 5Z"></path></svg>
             <span>reviewers.toml</span>
           </div>
         </div>
@@ -231,10 +489,10 @@ select.input{padding:0 4px}
               </div>
               <div class="pill {{pillClass}}">
                 <sc-if value="{{hasErr}}" hint-placeholder-val="{{false}}">
-                  <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg>
+                  <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg>
                 </sc-if>
                 <sc-if value="{{noErr}}" hint-placeholder-val="{{true}}">
-                  <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7"></path></svg>
+                  <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.6572 3.13573C13.8583 2.9465 14.175 2.95614 14.3643 3.15722C14.5535 3.35831 14.5438 3.675 14.3428 3.86425L5.84277 11.8642C5.64597 12.0494 5.33756 12.0446 5.14648 11.8535L1.64648 8.35351C1.45121 8.15824 1.45121 7.84174 1.64648 7.64647C1.84174 7.45121 2.15825 7.45121 2.35351 7.64647L5.50976 10.8027L13.6572 3.13573Z"></path></svg>
                 </sc-if>
                 <span>{{pillText}}</span>
               </div>
@@ -248,7 +506,7 @@ select.input{padding:0 4px}
 
             <sc-if value="{{confirmDiscard}}" hint-placeholder-val="{{false}}">
               <div class="banner warn" role="alert">
-                <svg class="ic wi" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l6.5 11.5h-13z"></path><path d="M8 6.5v3.5M8 12v.3"></path></svg>
+                <svg class="ci wi" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M14.831 11.965L9.206 1.714C8.965 1.274 8.503 1 8 1C7.497 1 7.035 1.274 6.794 1.714L1.169 11.965C1.059 12.167 1 12.395 1 12.625C1 13.383 1.617 14 2.375 14H13.625C14.383 14 15 13.383 15 12.625C15 12.395 14.941 12.167 14.831 11.965ZM13.625 13H2.375C2.168 13 2 12.832 2 12.625C2 12.561 2.016 12.5 2.046 12.445L7.671 2.195C7.736 2.075 7.863 2 8 2C8.137 2 8.264 2.075 8.329 2.195L13.954 12.445C13.984 12.501 14 12.561 14 12.625C14 12.832 13.832 13 13.625 13ZM8.75 11.25C8.75 11.664 8.414 12 8 12C7.586 12 7.25 11.664 7.25 11.25C7.25 10.836 7.586 10.5 8 10.5C8.414 10.5 8.75 10.836 8.75 11.25ZM7.5 9V5.5C7.5 5.224 7.724 5 8 5C8.276 5 8.5 5.224 8.5 5.5V9C8.5 9.276 8.276 9.5 8 9.5C7.724 9.5 7.5 9.276 7.5 9Z"></path></svg>
                 <span class="grow">Discard your unsaved edits and go back to the file on disk?</span>
                 <button class="btn small" onClick="{{doDiscard}}">Discard edits</button>
                 <button class="btn2 small" onClick="{{cancelDiscard}}">Keep editing</button>
@@ -256,7 +514,7 @@ select.input{padding:0 4px}
             </sc-if>
             <sc-if value="{{showStale}}" hint-placeholder-val="{{false}}">
               <div class="banner warn" role="alert">
-                <svg class="ic wi" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l6.5 11.5h-13z"></path><path d="M8 6.5v3.5M8 12v.3"></path></svg>
+                <svg class="ci wi" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M14.831 11.965L9.206 1.714C8.965 1.274 8.503 1 8 1C7.497 1 7.035 1.274 6.794 1.714L1.169 11.965C1.059 12.167 1 12.395 1 12.625C1 13.383 1.617 14 2.375 14H13.625C14.383 14 15 13.383 15 12.625C15 12.395 14.941 12.167 14.831 11.965ZM13.625 13H2.375C2.168 13 2 12.832 2 12.625C2 12.561 2.016 12.5 2.046 12.445L7.671 2.195C7.736 2.075 7.863 2 8 2C8.137 2 8.264 2.075 8.329 2.195L13.954 12.445C13.984 12.501 14 12.561 14 12.625C14 12.832 13.832 13 13.625 13ZM8.75 11.25C8.75 11.664 8.414 12 8 12C7.586 12 7.25 11.664 7.25 11.25C7.25 10.836 7.586 10.5 8 10.5C8.414 10.5 8.75 10.836 8.75 11.25ZM7.5 9V5.5C7.5 5.224 7.724 5 8 5C8.276 5 8.5 5.224 8.5 5.5V9C8.5 9.276 8.276 9.5 8 9.5C7.724 9.5 7.5 9.276 7.5 9Z"></path></svg>
                 <span class="grow"><span class="mono">.conclave/reviewers.toml</span> changed on disk after this editor loaded it.</span>
                 <button class="btn small" onClick="{{reload}}">Reload from disk</button>
                 <button class="btn2 small" onClick="{{keepEdits}}">Keep my edits</button>
@@ -264,14 +522,14 @@ select.input{padding:0 4px}
             </sc-if>
             <sc-if value="{{staleKept}}" hint-placeholder-val="{{false}}">
               <div class="banner info">
-                <svg class="ic" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 7.5v4M8 5v.3"></path></svg>
+                <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.49902 7.49998C8.49902 7.22384 8.27517 6.99998 7.99902 6.99998C7.72288 6.99998 7.49902 7.22384 7.49902 7.49998V10.5C7.49902 10.7761 7.72288 11 7.99902 11C8.27517 11 8.49902 10.7761 8.49902 10.5V7.49998ZM8.74807 5.50001C8.74807 5.91369 8.41271 6.24905 7.99903 6.24905C7.58535 6.24905 7.25 5.91369 7.25 5.50001C7.25 5.08633 7.58535 4.75098 7.99903 4.75098C8.41271 4.75098 8.74807 5.08633 8.74807 5.50001ZM8 1C4.13401 1 1 4.13401 1 8C1 11.866 4.13401 15 8 15C11.866 15 15 11.866 15 8C15 4.13401 11.866 1 8 1ZM2 8C2 4.68629 4.68629 2 8 2C11.3137 2 14 4.68629 14 8C14 11.3137 11.3137 14 8 14C4.68629 14 2 11.3137 2 8Z"></path></svg>
                 <span class="grow">Keeping your edits. Save stays off until you reload, so the change on disk is never overwritten.</span>
                 <button class="btn2 small" onClick="{{reload}}">Reload from disk</button>
               </div>
             </sc-if>
             <sc-if value="{{fileErr}}" hint-placeholder-val="{{false}}">
               <div class="banner err" role="alert">
-                <svg class="ic ei" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg>
+                <svg class="ci ei" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg>
                 <span class="grow mono">{{errText}}</span>
               </div>
             </sc-if>
@@ -282,7 +540,7 @@ select.input{padding:0 4px}
             <div class="sec-head"><h2>Reviewers</h2><span class="muted">{{reviewerCount}}</span></div>
             <sc-if value="{{reviewersErr}}" hint-placeholder-val="{{false}}">
               <div class="field-err" style="margin-bottom: 8px">
-                <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg>
+                <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg>
                 <span class="mono">{{errText}}</span>
               </div>
             </sc-if>
@@ -293,10 +551,10 @@ select.input{padding:0 4px}
                     <sc-if value="{{c.notRenaming}}" hint-placeholder-val="{{true}}">
                       <h3 class="mono">{{c.name}}</h3>
                       <button class="icon-btn" aria-label="Rename {{c.name}}" title="Rename" onClick="{{c.startRename}}">
-                        <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 2.5l3 3L6 13H3v-3z"></path></svg>
+                        <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M14.236 1.76386C13.2123 0.740172 11.5525 0.740171 10.5289 1.76386L2.65722 9.63549C2.28304 10.0097 2.01623 10.4775 1.88467 10.99L1.01571 14.3755C0.971767 14.5467 1.02148 14.7284 1.14646 14.8534C1.27144 14.9783 1.45312 15.028 1.62432 14.9841L5.00978 14.1151C5.52234 13.9836 5.99015 13.7168 6.36433 13.3426L14.236 5.47097C15.2596 4.44728 15.2596 2.78755 14.236 1.76386ZM11.236 2.47097C11.8691 1.8378 12.8957 1.8378 13.5288 2.47097C14.162 3.10413 14.162 4.1307 13.5288 4.76386L12.75 5.54269L10.4571 3.24979L11.236 2.47097ZM9.75002 3.9569L12.0429 6.24979L5.65722 12.6355C5.40969 12.883 5.10023 13.0595 4.76117 13.1465L2.19447 13.8053L2.85327 11.2386C2.9403 10.8996 3.1168 10.5901 3.36433 10.3426L9.75002 3.9569Z"></path></svg>
                       </button>
                       <button class="icon-btn" aria-label="Delete {{c.name}}" title="Delete" onClick="{{c.askDelete}}">
-                        <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.7 9h5.6l.7-9"></path></svg>
+                        <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M14 2H10C10 0.897 9.103 0 8 0C6.897 0 6 0.897 6 2H2C1.724 2 1.5 2.224 1.5 2.5C1.5 2.776 1.724 3 2 3H2.54L3.349 12.708C3.456 13.994 4.55 15 5.84 15H10.159C11.449 15 12.543 13.993 12.65 12.708L13.459 3H13.999C14.275 3 14.499 2.776 14.499 2.5C14.499 2.224 14.275 2 13.999 2H14ZM8 1C8.551 1 9 1.449 9 2H7C7 1.449 7.449 1 8 1ZM11.655 12.625C11.591 13.396 10.934 14 10.16 14H5.841C5.067 14 4.41 13.396 4.346 12.625L3.544 3H12.458L11.656 12.625H11.655ZM7 5.5V11.5C7 11.776 6.776 12 6.5 12C6.224 12 6 11.776 6 11.5V5.5C6 5.224 6.224 5 6.5 5C6.776 5 7 5.224 7 5.5ZM10 5.5V11.5C10 11.776 9.776 12 9.5 12C9.224 12 9 11.776 9 11.5V5.5C9 5.224 9.224 5 9.5 5C9.776 5 10 5.224 10 5.5Z"></path></svg>
                       </button>
                     </sc-if>
                     <sc-if value="{{c.renaming}}" hint-placeholder-val="{{false}}">
@@ -314,7 +572,7 @@ select.input{padding:0 4px}
                   </sc-if>
                   <sc-if value="{{c.eName}}" hint-placeholder-val="{{false}}">
                     <div class="field-err">
-                      <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg>
+                      <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg>
                       <span class="mono">{{c.errText}}</span>
                     </div>
                   </sc-if>
@@ -326,7 +584,7 @@ select.input{padding:0 4px}
                       <sc-for list="{{c.cliOptions}}" as="o" hint-placeholder-count="3"><option value="{{o.value}}">{{o.label}}</option></sc-for>
                     </select>
                     <sc-if value="{{c.eCli}}" hint-placeholder-val="{{false}}">
-                      <div class="field-err"><svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg><span class="mono">{{c.errText}}</span></div>
+                      <div class="field-err"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg><span class="mono">{{c.errText}}</span></div>
                     </sc-if>
                   </div>
 
@@ -334,7 +592,7 @@ select.input{padding:0 4px}
                     <label for="model-{{c.id}}">Model</label>
                     <input id="model-{{c.id}}" class="input mono {{c.modelCls}}" value="{{c.model}}" onChange="{{c.onModel}}">
                     <sc-if value="{{c.eModel}}" hint-placeholder-val="{{false}}">
-                      <div class="field-err"><svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg><span class="mono">{{c.errText}}</span></div>
+                      <div class="field-err"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg><span class="mono">{{c.errText}}</span></div>
                     </sc-if>
                   </div>
 
@@ -345,7 +603,7 @@ select.input{padding:0 4px}
                         <sc-for list="{{c.effortOptions}}" as="o" hint-placeholder-count="4"><option value="{{o.value}}">{{o.label}}</option></sc-for>
                       </select>
                       <sc-if value="{{c.eEffortSelect}}" hint-placeholder-val="{{false}}">
-                        <div class="field-err"><svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg><span class="mono">{{c.errText}}</span></div>
+                        <div class="field-err"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg><span class="mono">{{c.errText}}</span></div>
                       </sc-if>
                     </div>
                   </sc-if>
@@ -353,7 +611,7 @@ select.input{padding:0 4px}
                     <div class="field">
                       <span class="flabel">Effort</span>
                       <p class="note">
-                        <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 7.5v4M8 5v.3"></path></svg>
+                        <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.49902 7.49998C8.49902 7.22384 8.27517 6.99998 7.99902 6.99998C7.72288 6.99998 7.49902 7.22384 7.49902 7.49998V10.5C7.49902 10.7761 7.72288 11 7.99902 11C8.27517 11 8.49902 10.7761 8.49902 10.5V7.49998ZM8.74807 5.50001C8.74807 5.91369 8.41271 6.24905 7.99903 6.24905C7.58535 6.24905 7.25 5.91369 7.25 5.50001C7.25 5.08633 7.58535 4.75098 7.99903 4.75098C8.41271 4.75098 8.74807 5.08633 8.74807 5.50001ZM8 1C4.13401 1 1 4.13401 1 8C1 11.866 4.13401 15 8 15C11.866 15 15 11.866 15 8C15 4.13401 11.866 1 8 1ZM2 8C2 4.68629 4.68629 2 8 2C11.3137 2 14 4.68629 14 8C14 11.3137 11.3137 14 8 14C4.68629 14 2 11.3137 2 8Z"></path></svg>
                         <span>Gemini carries the effort in the model name, for example <code>gemini-4-argon-high</code>, so an agy reviewer sets no effort.</span>
                       </p>
                     </div>
@@ -361,7 +619,7 @@ select.input{padding:0 4px}
                   <sc-if value="{{c.hasStrayEffort}}" hint-placeholder-val="{{false}}">
                     <div class="kv mono"><span class="grow">effort = "{{c.strayEffort}}"</span><button class="btn2 small" onClick="{{c.removeEffort}}">Remove</button></div>
                     <sc-if value="{{c.eEffortStray}}" hint-placeholder-val="{{false}}">
-                      <div class="field-err"><svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg><span class="mono">{{c.errText}}</span></div>
+                      <div class="field-err"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg><span class="mono">{{c.errText}}</span></div>
                     </sc-if>
                   </sc-if>
                   <sc-if value="{{c.hasExtra}}" hint-placeholder-val="{{false}}">
@@ -370,7 +628,7 @@ select.input{padding:0 4px}
                       <div class="kv mono"><span class="grow">{{x.key}} = {{x.value}}</span><button class="btn2 small" onClick="{{x.remove}}">Remove</button></div>
                     </sc-for>
                     <sc-if value="{{c.eExtra}}" hint-placeholder-val="{{false}}">
-                      <div class="field-err"><svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg><span class="mono">{{c.errText}}</span></div>
+                      <div class="field-err"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg><span class="mono">{{c.errText}}</span></div>
                     </sc-if>
                   </sc-if>
 
@@ -383,7 +641,7 @@ select.input{padding:0 4px}
 
                   <div>
                     <button class="btn2 small" disabled="{{c.testDisabled}}" title="{{c.testTitle}}" onClick="{{c.askTest}}">
-                      <svg class="ic" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3l9 5-9 5z"></path></svg>
+                      <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M4.74514 3.06414C4.41183 2.87665 4 3.11751 4 3.49993V12.5002C4 12.8826 4.41182 13.1235 4.74512 12.936L12.7454 8.43601C13.0852 8.24486 13.0852 7.75559 12.7454 7.56443L4.74514 3.06414ZM3 3.49993C3 2.35268 4.2355 1.63011 5.23541 2.19257L13.2357 6.69286C14.2551 7.26633 14.2551 8.73415 13.2356 9.30759L5.23537 13.8076C4.23546 14.37 3 13.6474 3 12.5002V3.49993Z"></path></svg>
                       Test reviewer
                     </button>
                   </div>
@@ -403,12 +661,12 @@ select.input{padding:0 4px}
                   <sc-if value="{{c.testDone}}" hint-placeholder-val="{{false}}">
                     <div class="test" aria-live="polite">
                       <sc-if value="{{c.testOk}}" hint-placeholder-val="{{true}}">
-                        <span class="okt"><svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7"></path></svg>Review returned</span>
+                        <span class="okt"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.6572 3.13573C13.8583 2.9465 14.175 2.95614 14.3643 3.15722C14.5535 3.35831 14.5438 3.675 14.3428 3.86425L5.84277 11.8642C5.64597 12.0494 5.33756 12.0446 5.14648 11.8535L1.64648 8.35351C1.45121 8.15824 1.45121 7.84174 1.64648 7.64647C1.84174 7.45121 2.15825 7.45121 2.35351 7.64647L5.50976 10.8027L13.6572 3.13573Z"></path></svg>Review returned</span>
                         <pre>{{c.testText}}</pre>
                         <span class="sample">Sample outcome. The real panel shows the reviewer's own text.</span>
                       </sc-if>
                       <sc-if value="{{c.testFailed}}" hint-placeholder-val="{{false}}">
-                        <span class="badt"><svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M5.5 5.5l5 5M10.5 5.5l-5 5"></path></svg>No review</span>
+                        <span class="badt"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg>No review</span>
                         <pre>{{c.testText}}</pre>
                       </sc-if>
                       <div><button class="btn2 small" onClick="{{c.closeTest}}">Close</button></div>
@@ -419,7 +677,7 @@ select.input{padding:0 4px}
 
               <sc-if value="{{notAdding}}" hint-placeholder-val="{{true}}">
                 <button class="add-card" onClick="{{openAdd}}">
-                  <svg class="ic" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"></path></svg>
+                  <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1.5C8 1.22386 7.77614 1 7.5 1C7.22386 1 7 1.22386 7 1.5V7H1.5C1.22386 7 1 7.22386 1 7.5C1 7.77614 1.22386 8 1.5 8H7V13.5C7 13.7761 7.22386 14 7.5 14C7.77614 14 8 13.7761 8 13.5V8H13.5C13.7761 8 14 7.77614 14 7.5C14 7.22386 13.7761 7 13.5 7H8V1.5Z"></path></svg>
                   Add reviewer
                 </button>
               </sc-if>
@@ -465,30 +723,30 @@ select.input{padding:0 4px}
                       <ol class="chips" aria-label="Failover order for {{row.writer}}">
                         <sc-for list="{{row.chips}}" as="ch" hint-placeholder-count="3">
                           <li class="chip {{ch.cls}}" draggable="true" onDragStart="{{ch.onDragStart}}" onDragOver="{{ch.onDragOver}}" onDrop="{{ch.onDrop}}">
-                            <svg class="ic grip" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2.5v.1M4 6v.1M4 9.5v.1M8 2.5v.1M8 6v.1M8 9.5v.1"></path></svg>
+                            <svg class="ci grip" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M7 4C7 4.552 6.552 5 6 5C5.448 5 5 4.552 5 4C5 3.448 5.448 3 6 3C6.552 3 7 3.448 7 4ZM10 3C9.448 3 9 3.448 9 4C9 4.552 9.448 5 10 5C10.552 5 11 4.552 11 4C11 3.448 10.552 3 10 3ZM6 7C5.448 7 5 7.448 5 8C5 8.552 5.448 9 6 9C6.552 9 7 8.552 7 8C7 7.448 6.552 7 6 7ZM10 7C9.448 7 9 7.448 9 8C9 8.552 9.448 9 10 9C10.552 9 11 8.552 11 8C11 7.448 10.552 7 10 7ZM6 11C5.448 11 5 11.448 5 12C5 12.552 5.448 13 6 13C6.552 13 7 12.552 7 12C7 11.448 6.552 11 6 11ZM10 11C9.448 11 9 11.448 9 12C9 12.552 9.448 13 10 13C10.552 13 11 12.552 11 12C11 11.448 10.552 11 10 11Z"></path></svg>
                             <span class="num">{{ch.num}}</span>
                             <span class="nm mono">{{ch.name}}</span>
                             <sc-if value="{{ch.warn}}" hint-placeholder-val="{{false}}">
-                              <svg class="ic wi" width="14" height="14" viewBox="0 0 16 16" role="img" aria-label="Same CLI as the writer"><path d="M8 2l6.5 11.5h-13z"></path><path d="M8 6.5v3.5M8 12v.3"></path></svg>
+                              <svg class="ci wi" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="Same CLI as the writer"><path d="M14.831 11.965L9.206 1.714C8.965 1.274 8.503 1 8 1C7.497 1 7.035 1.274 6.794 1.714L1.169 11.965C1.059 12.167 1 12.395 1 12.625C1 13.383 1.617 14 2.375 14H13.625C14.383 14 15 13.383 15 12.625C15 12.395 14.941 12.167 14.831 11.965ZM13.625 13H2.375C2.168 13 2 12.832 2 12.625C2 12.561 2.016 12.5 2.046 12.445L7.671 2.195C7.736 2.075 7.863 2 8 2C8.137 2 8.264 2.075 8.329 2.195L13.954 12.445C13.984 12.501 14 12.561 14 12.625C14 12.832 13.832 13 13.625 13ZM8.75 11.25C8.75 11.664 8.414 12 8 12C7.586 12 7.25 11.664 7.25 11.25C7.25 10.836 7.586 10.5 8 10.5C8.414 10.5 8.75 10.836 8.75 11.25ZM7.5 9V5.5C7.5 5.224 7.724 5 8 5C8.276 5 8.5 5.224 8.5 5.5V9C8.5 9.276 8.276 9.5 8 9.5C7.724 9.5 7.5 9.276 7.5 9Z"></path></svg>
                             </sc-if>
                             <sc-if value="{{ch.unknown}}" hint-placeholder-val="{{false}}"><span class="tag">not defined</span></sc-if>
                             <sc-if value="{{ch.dup}}" hint-placeholder-val="{{false}}"><span class="tag">listed twice</span></sc-if>
-                            <button class="icon-btn" aria-label="Move {{ch.name}} up" disabled="{{ch.upDis}}" onClick="{{ch.up}}"><svg class="ic" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 7.5l3-3 3 3"></path></svg></button>
-                            <button class="icon-btn" aria-label="Move {{ch.name}} down" disabled="{{ch.downDis}}" onClick="{{ch.down}}"><svg class="ic" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5l3 3 3-3"></path></svg></button>
-                            <button class="icon-btn" aria-label="Remove {{ch.name}} from the {{row.writer}} route" onClick="{{ch.remove}}"><svg class="ic" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"></path></svg></button>
+                            <button class="icon-btn" aria-label="Move {{ch.name}} up" disabled="{{ch.upDis}}" onClick="{{ch.up}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.14603 9.85423C3.34103 10.0492 3.65803 10.0492 3.85303 9.85423L7.99903 5.70823L12.145 9.85423C12.34 10.0492 12.657 10.0492 12.852 9.85423C13.047 9.65923 13.047 9.34223 12.852 9.14723L8.35203 4.64723C8.15703 4.45223 7.84003 4.45223 7.64503 4.64723L3.14503 9.14723C2.95003 9.34223 2.95103 9.65923 3.14603 9.85423Z"></path></svg></button>
+                            <button class="icon-btn" aria-label="Move {{ch.name}} down" disabled="{{ch.downDis}}" onClick="{{ch.down}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.14598 5.85423L7.64598 10.3542C7.84098 10.5492 8.15798 10.5492 8.35298 10.3542L12.853 5.85423C13.048 5.65923 13.048 5.34223 12.853 5.14723C12.658 4.95223 12.341 4.95223 12.146 5.14723L7.99998 9.29323L3.85398 5.14723C3.65898 4.95223 3.34198 4.95223 3.14698 5.14723C2.95198 5.34223 2.95098 5.65923 3.14598 5.85423Z"></path></svg></button>
+                            <button class="icon-btn" aria-label="Remove {{ch.name}} from the {{row.writer}} route" onClick="{{ch.remove}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.70701 8.00001L12.353 4.35401C12.548 4.15901 12.548 3.84201 12.353 3.64701C12.158 3.45201 11.841 3.45201 11.646 3.64701L8.00001 7.29301L4.35401 3.64701C4.15901 3.45201 3.84201 3.45201 3.64701 3.64701C3.45201 3.84201 3.45201 4.15901 3.64701 4.35401L7.29301 8.00001L3.64701 11.646C3.45201 11.841 3.45201 12.158 3.64701 12.353C3.74501 12.451 3.87301 12.499 4.00101 12.499C4.12901 12.499 4.25701 12.45 4.35501 12.353L8.00101 8.70701L11.647 12.353C11.745 12.451 11.873 12.499 12.001 12.499C12.129 12.499 12.257 12.45 12.355 12.353C12.55 12.158 12.55 11.841 12.355 11.646L8.70901 8.00001H8.70701Z"></path></svg></button>
                           </li>
                         </sc-for>
                       </ol>
                       <sc-for list="{{row.warnings}}" as="w" hint-placeholder-count="1">
                         <div class="warnline">
-                          <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l6.5 11.5h-13z"></path><path d="M8 6.5v3.5M8 12v.3"></path></svg>
+                          <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M14.831 11.965L9.206 1.714C8.965 1.274 8.503 1 8 1C7.497 1 7.035 1.274 6.794 1.714L1.169 11.965C1.059 12.167 1 12.395 1 12.625C1 13.383 1.617 14 2.375 14H13.625C14.383 14 15 13.383 15 12.625C15 12.395 14.941 12.167 14.831 11.965ZM13.625 13H2.375C2.168 13 2 12.832 2 12.625C2 12.561 2.016 12.5 2.046 12.445L7.671 2.195C7.736 2.075 7.863 2 8 2C8.137 2 8.264 2.075 8.329 2.195L13.954 12.445C13.984 12.501 14 12.561 14 12.625C14 12.832 13.832 13 13.625 13ZM8.75 11.25C8.75 11.664 8.414 12 8 12C7.586 12 7.25 11.664 7.25 11.25C7.25 10.836 7.586 10.5 8 10.5C8.414 10.5 8.75 10.836 8.75 11.25ZM7.5 9V5.5C7.5 5.224 7.724 5 8 5C8.276 5 8.5 5.224 8.5 5.5V9C8.5 9.276 8.276 9.5 8 9.5C7.724 9.5 7.5 9.276 7.5 9Z"></path></svg>
                           <span><span class="mono">{{w.name}}</span> runs through <span class="mono">{{w.cli}}</span>, the CLI that wrote {{row.writer}} work, so its review is not independent.</span>
                         </div>
                       </sc-for>
                     </sc-if>
                     <sc-if value="{{row.absent}}" hint-placeholder-val="{{false}}">
                       <div class="notice">
-                        <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 7.5v4M8 5v.3"></path></svg>
+                        <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.49902 7.49998C8.49902 7.22384 8.27517 6.99998 7.99902 6.99998C7.72288 6.99998 7.49902 7.22384 7.49902 7.49998V10.5C7.49902 10.7761 7.72288 11 7.99902 11C8.27517 11 8.49902 10.7761 8.49902 10.5V7.49998ZM8.74807 5.50001C8.74807 5.91369 8.41271 6.24905 7.99903 6.24905C7.58535 6.24905 7.25 5.91369 7.25 5.50001C7.25 5.08633 7.58535 4.75098 7.99903 4.75098C8.41271 4.75098 8.74807 5.08633 8.74807 5.50001ZM8 1C4.13401 1 1 4.13401 1 8C1 11.866 4.13401 15 8 15C11.866 15 15 11.866 15 8C15 4.13401 11.866 1 8 1ZM2 8C2 4.68629 4.68629 2 8 2C11.3137 2 14 4.68629 14 8C14 11.3137 11.3137 14 8 14C4.68629 14 2 11.3137 2 8Z"></path></svg>
                         <span><strong>No route.</strong> Work written by {{row.writer}} gets no review: <span class="mono">review-dispatch.py</span> refuses <code>--writer {{row.writer}}</code>. Add a reviewer to create the route.</span>
                       </div>
                     </sc-if>
@@ -497,7 +755,7 @@ select.input{padding:0 4px}
                       <div><button class="btn2 small" onClick="{{row.removeKey}}">Remove route</button></div>
                     </sc-if>
                     <sc-if value="{{row.hasErr}}" hint-placeholder-val="{{false}}">
-                      <div class="field-err"><svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg><span class="mono">{{errText}}</span></div>
+                      <div class="field-err"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg><span class="mono">{{errText}}</span></div>
                     </sc-if>
                     <sc-if value="{{row.canAdd}}" hint-placeholder-val="{{true}}">
                       <label class="sr" for="add-{{row.writer}}">Add a reviewer to the {{row.writer}} route</label>
@@ -530,18 +788,18 @@ select.input{padding:0 4px}
           <sc-if value="{{isEmpty}}" hint-placeholder-val="{{false}}">
             <div class="empty">
               <sc-if value="{{empty.isInfo}}" hint-placeholder-val="{{true}}">
-                <svg class="ic big bi" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 7.5v4M8 5v.3"></path></svg>
+                <svg class="ci big bi" width="40" height="40" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.49902 7.49998C8.49902 7.22384 8.27517 6.99998 7.99902 6.99998C7.72288 6.99998 7.49902 7.22384 7.49902 7.49998V10.5C7.49902 10.7761 7.72288 11 7.99902 11C8.27517 11 8.49902 10.7761 8.49902 10.5V7.49998ZM8.74807 5.50001C8.74807 5.91369 8.41271 6.24905 7.99903 6.24905C7.58535 6.24905 7.25 5.91369 7.25 5.50001C7.25 5.08633 7.58535 4.75098 7.99903 4.75098C8.41271 4.75098 8.74807 5.08633 8.74807 5.50001ZM8 1C4.13401 1 1 4.13401 1 8C1 11.866 4.13401 15 8 15C11.866 15 15 11.866 15 8C15 4.13401 11.866 1 8 1ZM2 8C2 4.68629 4.68629 2 8 2C11.3137 2 14 4.68629 14 8C14 11.3137 11.3137 14 8 14C4.68629 14 2 11.3137 2 8Z"></path></svg>
               </sc-if>
               <sc-if value="{{empty.isErr}}" hint-placeholder-val="{{false}}">
-                <svg class="ic big be" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg>
+                <svg class="ci big be" width="40" height="40" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg>
               </sc-if>
               <sc-if value="{{empty.isWarn}}" hint-placeholder-val="{{false}}">
-                <svg class="ic big bw" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l6.5 11.5h-13z"></path><path d="M8 6.5v3.5M8 12v.3"></path></svg>
+                <svg class="ci big bw" width="40" height="40" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M14.831 11.965L9.206 1.714C8.965 1.274 8.503 1 8 1C7.497 1 7.035 1.274 6.794 1.714L1.169 11.965C1.059 12.167 1 12.395 1 12.625C1 13.383 1.617 14 2.375 14H13.625C14.383 14 15 13.383 15 12.625C15 12.395 14.941 12.167 14.831 11.965ZM13.625 13H2.375C2.168 13 2 12.832 2 12.625C2 12.561 2.016 12.5 2.046 12.445L7.671 2.195C7.736 2.075 7.863 2 8 2C8.137 2 8.264 2.075 8.329 2.195L13.954 12.445C13.984 12.501 14 12.561 14 12.625C14 12.832 13.832 13 13.625 13ZM8.75 11.25C8.75 11.664 8.414 12 8 12C7.586 12 7.25 11.664 7.25 11.25C7.25 10.836 7.586 10.5 8 10.5C8.414 10.5 8.75 10.836 8.75 11.25ZM7.5 9V5.5C7.5 5.224 7.724 5 8 5C8.276 5 8.5 5.224 8.5 5.5V9C8.5 9.276 8.276 9.5 8 9.5C7.724 9.5 7.5 9.276 7.5 9Z"></path></svg>
               </sc-if>
               <h1>{{empty.heading}}</h1>
               <sc-if value="{{empty.hasError}}" hint-placeholder-val="{{false}}">
                 <span class="muted">{{empty.errorLabel}}</span>
-                <div class="errbox"><svg class="ic ei" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg><span class="mono">{{empty.errorText}}</span></div>
+                <div class="errbox"><svg class="ci ei" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg><span class="mono">{{empty.errorText}}</span></div>
               </sc-if>
               <sc-for list="{{empty.paras}}" as="p" hint-placeholder-count="2">
                 <div class="p"><sc-for list="{{p.segs}}" as="s" hint-placeholder-count="1"><sc-if value="{{s.code}}" hint-placeholder-val="{{false}}"><code>{{s.text}}</code></sc-if><sc-if value="{{s.plain}}" hint-placeholder-val="{{true}}"><span>{{s.text}}</span></sc-if></sc-for></div>
@@ -569,12 +827,6 @@ select.input{padding:0 4px}
                 <span class="muted">{{empty.codeLabel}}</span>
                 <pre>{{empty.code}}</pre>
               </sc-if>
-              <sc-if value="{{empty.confirming}}" hint-placeholder-val="{{false}}">
-                <div class="confirm" role="alert"><span><strong>Run this command?</strong> It adds the reviewer kit's missing files and changes no existing file.</span></div>
-              </sc-if>
-              <sc-if value="{{empty.running}}" hint-placeholder-val="{{false}}">
-                <div style="display: flex; gap: 8px; align-items: center"><span class="spin" aria-hidden="true"></span><span>Installing the reviewer kit</span></div>
-              </sc-if>
               <div class="acts">
                 <sc-for list="{{empty.actions}}" as="a" hint-placeholder-count="2"><button class="{{a.cls}}" onClick="{{a.onClick}}">{{a.label}}</button></sc-for>
               </div>
@@ -583,8 +835,9 @@ select.input{padding:0 4px}
 
           <sc-if value="{{hasToast}}" hint-placeholder-val="{{false}}">
             <div class="toast" role="status">
-              <svg class="ic ok" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 7.5v4M8 5v.3"></path></svg>
-              <span>{{toast}}</span>
+              <svg class="ci ok" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.49902 7.49998C8.49902 7.22384 8.27517 6.99998 7.99902 6.99998C7.72288 6.99998 7.49902 7.22384 7.49902 7.49998V10.5C7.49902 10.7761 7.72288 11 7.99902 11C8.27517 11 8.49902 10.7761 8.49902 10.5V7.49998ZM8.74807 5.50001C8.74807 5.91369 8.41271 6.24905 7.99903 6.24905C7.58535 6.24905 7.25 5.91369 7.25 5.50001C7.25 5.08633 7.58535 4.75098 7.99903 4.75098C8.41271 4.75098 8.74807 5.08633 8.74807 5.50001ZM8 1C4.13401 1 1 4.13401 1 8C1 11.866 4.13401 15 8 15C11.866 15 15 11.866 15 8C15 4.13401 11.866 1 8 1ZM2 8C2 4.68629 4.68629 2 8 2C11.3137 2 14 4.68629 14 8C14 11.3137 11.3137 14 8 14C4.68629 14 2 11.3137 2 8Z"></path></svg>
+              <span class="grow">{{toast}}</span>
+              <button class="icon-btn sm" aria-label="Clear notification" title="Clear Notification" onClick="{{clearToast}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.70701 8.00001L12.353 4.35401C12.548 4.15901 12.548 3.84201 12.353 3.64701C12.158 3.45201 11.841 3.45201 11.646 3.64701L8.00001 7.29301L4.35401 3.64701C4.15901 3.45201 3.84201 3.45201 3.64701 3.64701C3.45201 3.84201 3.45201 4.15901 3.64701 4.35401L7.29301 8.00001L3.64701 11.646C3.45201 11.841 3.45201 12.158 3.64701 12.353C3.74501 12.451 3.87301 12.499 4.00101 12.499C4.12901 12.499 4.25701 12.45 4.35501 12.353L8.00101 8.70701L11.647 12.353C11.745 12.451 11.873 12.499 12.001 12.499C12.129 12.499 12.257 12.45 12.355 12.353C12.55 12.158 12.55 11.841 12.355 11.646L8.70901 8.00001H8.70701Z"></path></svg></button>
             </div>
           </sc-if>
         </div>
@@ -592,7 +845,7 @@ select.input{padding:0 4px}
     </div>
     <footer class="statusbar">
       <div class="grp">
-        <span class="it"><svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="4" r="1.5"></circle><circle cx="5" cy="12" r="1.5"></circle><circle cx="11" cy="6" r="1.5"></circle><path d="M5 5.5v5M11 7.5c0 3-6 2-6 3"></path></svg>main</span>
+        <span class="it"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M14 5.5C14 4.121 12.879 3 11.5 3C10.121 3 9 4.121 9 5.5C9 6.682 9.826 7.669 10.93 7.928C10.744 8.546 10.177 9 9.5 9H6.5C5.935 9 5.419 9.195 5 9.512V4.949C6.14 4.717 7 3.707 7 2.5C7 1.121 5.879 0 4.5 0C3.121 0 2 1.121 2 2.5C2 3.708 2.86 4.717 4 4.949V11.05C2.86 11.282 2 12.292 2 13.499C2 14.878 3.121 15.999 4.5 15.999C5.879 15.999 7 14.878 7 13.499C7 12.317 6.174 11.33 5.07 11.071C5.256 10.453 5.823 9.999 6.5 9.999H9.5C10.723 9.999 11.74 9.115 11.954 7.953C13.116 7.738 14 6.723 14 5.5ZM3 2.5C3 1.673 3.673 1 4.5 1C5.327 1 6 1.673 6 2.5C6 3.327 5.327 4 4.5 4C3.673 4 3 3.327 3 2.5ZM6 13.5C6 14.327 5.327 15 4.5 15C3.673 15 3 14.327 3 13.5C3 12.673 3.673 12 4.5 12C5.327 12 6 12.673 6 13.5ZM11.5 7C10.673 7 10 6.327 10 5.5C10 4.673 10.673 4 11.5 4C12.327 4 13 4.673 13 5.5C13 6.327 12.327 7 11.5 7Z"></path></svg>main</span>
         <span class="it">{{statusProblems}}</span>
       </div>
       <div class="grp">
@@ -605,7 +858,7 @@ select.input{padding:0 4px}
   </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"scenario":{"editor":"enum","options":["ready","agy-missing","stale","err-bad-name","err-unknown-key","err-bad-cli","err-bad-model","err-agy-effort","err-bad-effort","err-no-reviewers","err-route-writer","err-empty-route","err-undefined-reviewer","err-duplicate-reviewer","refused-schema","refused-unparsable","unsupported-schema","no-pin","no-dispatcher","old-dispatcher","no-python","untrusted"],"default":"ready"},"$preview":{"width":1440,"height":1060}}'>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"scenario":{"editor":"enum","options":["ready","agy-missing","stale","err-bad-name","err-unknown-key","err-bad-cli","err-bad-model","err-agy-effort","err-bad-effort","err-no-reviewers","err-route-writer","err-empty-route","err-undefined-reviewer","err-duplicate-reviewer","refused-schema","refused-unparsable","unsupported-schema","no-pin","no-dispatcher","old-dispatcher","no-python","untrusted"],"default":"ready"},"sidebar":{"editor":"enum","options":["explorer","kits","kits-health","sections","install-todo","install-todo-done","install-wordpress","install-laravel"],"default":"explorer"},"workspace":{"editor":"enum","options":["single","multi"],"default":"single"},"$preview":{"width":1440,"height":1060}}'>
 // Mockup only. The extension never validates the pin itself: it runs the workspace's own
 // scripts/review-dispatch.py --check-pin --json. The validate() below imitates load_pin so the
 // mockup can show the dispatcher's exact messages; it is not a design for the product.
@@ -630,10 +883,161 @@ const NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
 const SELF_CLI = { claude: 'claude', codex: 'codex', gemini: 'agy' };
 const CLI_LABEL = { codex: 'codex (OpenAI Codex)', agy: 'agy (Antigravity)', claude: 'claude (Claude Code)' };
 const CAPTION = { claude: 'Work written by Claude Code', codex: 'Work written by OpenAI Codex', gemini: 'Work written by Gemini through Antigravity' };
-const WS = 'R:\\GitHub\\Conclave-VSC';
-const SDK = 'R:\\GitHub\\Conclave-SDK';
-const SYNC_CMD = 'python ' + SDK + '\\forge.py sync ' + WS + ' --include-scripts';
-const KIT_CMD = 'python ' + SDK + '\\forge.py kit ' + WS + ' reviewer';
+const WS = 'R:\\GitHub\\orchard-web';
+const SYNC_CMD = 'python forge.py sync ' + WS + ' --include-scripts';
+const KIT_CMD = 'python forge.py kit ' + WS + ' reviewer --agent all';
+const SHA = '97cca1d';
+const SOURCES = { bundled: 'bundled Conclave-SDK@' + SHA, path: 'R:\\GitHub\\Conclave-SDK', ref: 'rizonetech/Conclave-SDK@' + SHA };
+
+// The Kits view. Every list below mirrors forge.py at 97cca1d: the kit templates, apply_kit's
+// --dry-run lists and doctor_repo's checks. The extension reads these from forge; it never keeps them.
+const FOLDERS = [
+  { id: 'web', name: 'orchard-web', path: 'R:\\GitHub\\orchard-web', posix: 'R:/GitHub/orchard-web' },
+  { id: 'api', name: 'orchard-api', path: 'R:\\GitHub\\orchard-api', posix: 'R:/GitHub/orchard-api' }
+];
+const KITS = ['base', 'laravel', 'reviewer', 'todo', 'wordpress'];
+const AGENT_DIRS = ['.agents', '.claude', '.codex'];
+const ENTRY_DOCS = ['AGENTS.md', 'GEMINI.md', 'CLAUDE.md', 'CODEX.md'];
+const PROTECTED = ['AGENTS.md', 'GEMINI.md', 'CLAUDE.md', 'CODEX.md', '.conclave/reviewers.toml', 'todo/', 'docs/'];
+const TODO_SKILLS = ['add-todo', 'create-todo', 'groom-plan', 'process-phase', 'process-plan', 'process-todo-file', 'process-todo-section', 'review-todo-section'];
+const WP_PIN = '.conclave/wordpress-site.json';
+function skillFiles(skills, extra) {
+  const out = [];
+  AGENT_DIRS.forEach(function (d) {
+    skills.forEach(function (s) {
+      out.push(d + '/skills/' + s + '/SKILL.md');
+      (extra[s] || []).forEach(function (f) { out.push(d + '/skills/' + s + '/' + f); });
+      if (d === '.codex') out.push(d + '/skills/' + s + '/agents/openai.yaml');
+    });
+  });
+  return out;
+}
+const KIT_FILES = {
+  todo: skillFiles(TODO_SKILLS, { 'create-todo': ['todo-template.md'] }).concat(['docs/todo-workflow.md', 'scripts/lib/todo_graph.py', 'scripts/todo-graph.py', 'todo/findings.md', 'todo/plan.json', 'todo/README.md', 'todo/templates/TODO-template.md', 'todo/TODO-00-INDEX.md']),
+  reviewer: skillFiles(['independent-review'], {}).concat(['.conclave/reviewers.toml', 'docs/review-round-prompt.md', 'scripts/review-dispatch.py', 'scripts/tests/test_review_dispatch.py']),
+  wordpress: skillFiles(['wordpress-connect', 'wordpress-site-safety'], {}).concat(['bin/wp-remote', 'docs/wordpress-agent-tooling.md', 'phpcs.xml.dist', 'scripts/hooks/wordpress-phpcs-pre-push.sh', 'scripts/lib/site_ssh.py', 'scripts/lib/wp_site.py', 'scripts/site-access.py', 'scripts/tests/test_site_access.py', 'tools/phpcs/composer.json']),
+  laravel: ['scripts/lsp-diagnostics.py', 'scripts/hooks/laravel-lsp-pre-push.sh', 'docs/laravel-agent-tooling.md', '.agents/skills/laravel-boost/SKILL.md', '.claude/skills/laravel-boost/SKILL.md', '.codex/skills/laravel-boost/SKILL.md', '.codex/skills/laravel-boost/agents/openai.yaml', 'boost.json']
+};
+const WP_HOST_FILES = {
+  pressable: ['.conclave/wordpress-site.json', '.ddev/providers/production.yaml', 'bin/ddev', 'bin/wp', 'mcp.wordpress.example.json', 'scripts/check-mcp.py', 'scripts/create-application-password.py', 'scripts/lib/mcp_http.py', 'scripts/mcp-headers.py', 'scripts/sftp-item.py', 'scripts/tests/test_pressable_access.py'],
+  wpcom: ['.conclave/wordpress-site.json']
+};
+// The feature sections. Each one shows only while its kit is in the current folder and reads its
+// data from that kit's own script, never by parsing files in the extension:
+// Plan from scripts/todo-graph.py query (ready, blocked, stats) and todo/plan.json's phase names,
+// Review rounds from the dispatcher's round records (docs/reviews/*.md, open question 13),
+// WordPress site from forge.py doctor --kit wordpress.
+const PLAN_SECTIONS = [
+  { ref: 'D00 T01 \u00a71', title: 'CI and lint baseline', phase: 0, status: 'verified', path: 'todo/00-tooling/TODO-01-tooling.md' },
+  { ref: 'D00 T01 \u00a72', title: 'Local DDEV environment', phase: 0, status: 'verified', path: 'todo/00-tooling/TODO-01-tooling.md' },
+  { ref: 'D01 T01 \u00a71', title: 'Product catalogue pages', phase: 1, status: 'verified', path: 'todo/01-shop/TODO-01-catalogue-and-cart.md' },
+  { ref: 'D01 T01 \u00a72', title: 'Cart and checkout form', phase: 1, status: 'ready', path: 'todo/01-shop/TODO-01-catalogue-and-cart.md' },
+  { ref: 'D01 T01 \u00a73', title: 'Order confirmation email', phase: 1, status: 'blocked', why: 'needs D01 T01 \u00a72', path: 'todo/01-shop/TODO-01-catalogue-and-cart.md' },
+  { ref: 'D01 T02 \u00a71', title: 'Product search', phase: 1, status: 'ready', path: 'todo/01-shop/TODO-02-search.md' },
+  { ref: 'D02 T01 \u00a71', title: 'Accessibility pass', phase: 2, status: 'blocked', why: 'needs D01 T01 \u00a73', path: 'todo/02-quality/TODO-01-quality.md' },
+  { ref: 'D02 T01 \u00a72', title: 'Performance budget', phase: 2, status: 'blocked', why: 'needs D01 T02 \u00a71', path: 'todo/02-quality/TODO-01-quality.md' },
+  { ref: 'D99 T01 \u00a71', title: 'Production DNS cutover', phase: 99, status: 'blocked', why: 'needs owner-decision', path: 'todo/99-launch/TODO-01-launch.md' }
+];
+// todo-graph's PLAN_DEFAULTS, then the todo kit's shipped todo/plan.json over it.
+const PHASE_DEFAULTS = { 99: 'Manual, operator only' };
+const PHASE_KIT = { 0: 'Repository and tooling', 99: 'Manual, operator only' };
+// Round records as review-dispatch.py record() writes them: "## Round N: <who>", Writer, Run, Skipped.
+const ROUND_RECORDS = [
+  { file: 'docs/reviews/checkout-form.md', rounds: [
+    { n: 2, who: 'astra (gpt-6-astra via codex)', writer: 'claude', run: '2026-10-15T09:12:40Z', skipped: [] },
+    { n: 1, who: null, writer: 'claude', run: '2026-10-14T16:40:05Z', skipped: ['astra (timed out)', 'gemini (returned no review)', 'sonnet (claude is not installed)'] }
+  ] },
+  { file: 'docs/reviews/catalogue-pages.md', rounds: [
+    { n: 1, who: 'gemini (gemini-4-argon-high via agy)', writer: 'codex', run: '2026-10-09T11:05:18Z', skipped: [] }
+  ] }
+];
+const CLI_PATH = { codex: 'C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.CMD', agy: 'C:\\Users\\dev\\AppData\\Local\\Programs\\Antigravity\\bin\\agy.CMD', claude: 'C:\\Users\\dev\\.local\\bin\\claude.EXE' };
+
+// Paths sort the way pathlib sorts them on Windows: part by part, ignoring case.
+function sortPaths(xs) {
+  return xs.slice().sort(function (a, b) {
+    const pa = a.toLowerCase().split('/'), pb = b.toLowerCase().split('/');
+    for (let i = 0; i < Math.min(pa.length, pb.length); i++) if (pa[i] !== pb[i]) return pa[i] < pb[i] ? -1 : 1;
+    return pa.length - pb.length;
+  });
+}
+function allowedFor(rel, agent) {
+  const a = agent === 'gemini' ? 'agy' : agent;
+  if (a === 'all') return true;
+  if (rel === 'GEMINI.md' || rel.indexOf('.agents/') === 0) return a === 'agy';
+  if (rel === 'CLAUDE.md' || rel.indexOf('.claude/') === 0) return a === 'claude';
+  if (rel === 'CODEX.md' || rel.indexOf('.codex/') === 0) return a === 'codex';
+  return true;
+}
+function startFiles(folderId, screen) {
+  if (folderId === 'api') return ENTRY_DOCS.concat(['artisan', '.mcp.json']);
+  let files = ENTRY_DOCS.concat(KIT_FILES.reviewer, KIT_FILES.todo.filter(function (f) { return f !== 'todo/plan.json'; }));
+  if (screen === 'no-pin') files = files.filter(function (f) { return f !== '.conclave/reviewers.toml'; });
+  if (screen === 'no-dispatcher') files = files.filter(function (f) { return f !== 'scripts/review-dispatch.py'; });
+  return files;
+}
+// apply_kit(..., dry_run=True): what forge would add, keep and refuse, or the error it stops with.
+function dryRun(folder, has, kit, agent, host) {
+  const argv = 'python forge.py kit ' + folder.path + ' ' + kit + ' --agent ' + agent + (kit === 'wordpress' ? ' --host ' + host : '') + ' --dry-run';
+  if (kit === 'laravel' && !has['artisan']) return { argv: argv, error: 'No artisan found under ' + folder.path + ' (looked at root, platform/, and first-level children).' };
+  let files;
+  if (kit === 'wordpress') files = sortPaths(KIT_FILES.wordpress).concat(sortPaths(WP_HOST_FILES[host]));
+  else if (kit === 'laravel') files = KIT_FILES.laravel;
+  else files = sortPaths(KIT_FILES[kit]);
+  files = files.filter(function (f) { return f === 'boost.json' || allowedFor(f, agent); });
+  const add = files.filter(function (f) { return !has[f]; });
+  const keep = files.filter(function (f) { return !!has[f]; });
+  const merge = [];
+  if (kit === 'laravel') { if (has['.mcp.json']) { keep.push('.mcp.json'); merge.push('.mcp.json'); } else add.push('.mcp.json'); }
+  return { argv: argv, add: add, keep: keep, merge: merge, owned: files.length };
+}
+// doctor_repo(target, kit): one row per check, verbatim names, statuses and details.
+function doctor(folder, has, kit, host, clis) {
+  const rows = [];
+  const p = function (rel) { return folder.posix + '/' + rel; };
+  const file = function (name, rel) { rows.push({ name: name, status: has[rel] ? 'ok' : 'missing', detail: p(rel) }); };
+  if (kit === 'base') ENTRY_DOCS.forEach(function (d) { file(d, d); });
+  if (kit === 'todo') {
+    AGENT_DIRS.forEach(function (d) { TODO_SKILLS.forEach(function (s) { file('skill:' + s + ':' + d, d + '/skills/' + s + '/SKILL.md'); }); });
+    ['scripts/todo-graph.py', 'scripts/lib/todo_graph.py', 'todo/README.md', 'docs/todo-workflow.md'].forEach(function (r) { file(r, r); });
+  }
+  if (kit === 'reviewer') {
+    const pin = !!has['.conclave/reviewers.toml'];
+    rows.push(pin ? { name: 'reviewer-pin', status: 'ok', detail: '.conclave/reviewers.toml' } : { name: 'reviewer-pin', status: 'missing', detail: 'no reviewer pin at ' + folder.path + '\\.conclave\\reviewers.toml' });
+    file('scripts/review-dispatch.py', 'scripts/review-dispatch.py');
+    file('docs/review-round-prompt.md', 'docs/review-round-prompt.md');
+    AGENT_DIRS.forEach(function (d) { file('skill:independent-review:' + d, d + '/skills/independent-review/SKILL.md'); });
+    if (pin) shipped().reviewers.forEach(function (r) {
+      rows.push(clis[r.cli] ? { name: 'reviewer:' + r.name, status: 'ok', detail: r.model + ' via ' + CLI_PATH[r.cli] } : { name: 'reviewer:' + r.name, status: 'setup_required', detail: r.cli + ' CLI not installed; this reviewer is skipped' });
+    });
+  }
+  if (kit === 'wordpress') {
+    const pin = !!has[WP_PIN];
+    rows.push({ name: 'site-pin', status: pin ? 'ok' : 'missing', detail: WP_PIN + ': ' + (pin ? 'ok' : 'missing') });
+    if (pin) {
+      rows.push({ name: 'site-identity', status: 'setup_required', detail: 'wordpress-connect step 1: site_id, url' + (host === 'pressable' ? ', pressable.account_id' : '') });
+      rows.push({ name: 'site-ssh', status: 'setup_required', detail: 'wordpress-connect step 2: ' + (host === 'pressable' ? 'ssh.item, ssh.username' : 'ssh.item, ssh.sftp_host, ssh.username, ssh.wp_path') });
+    }
+    let helpers = ['scripts/lib/wp_site.py', 'scripts/lib/site_ssh.py', 'scripts/site-access.py', 'bin/wp-remote'];
+    if (host === 'pressable') helpers = helpers.concat(['scripts/lib/mcp_http.py', 'scripts/mcp-headers.py', 'scripts/check-mcp.py', 'scripts/sftp-item.py', 'scripts/create-application-password.py', 'bin/ddev', 'bin/wp', '.ddev/providers/production.yaml']);
+    helpers.forEach(function (r) { file('helper:' + r, r); });
+    AGENT_DIRS.forEach(function (d) { ['wordpress-site-safety', 'wordpress-connect'].forEach(function (s) { file('skill:' + s + ':' + d, d + '/skills/' + s + '/SKILL.md'); }); });
+    file('phpcs.xml.dist', 'phpcs.xml.dist');
+    file('phpcs-toolchain', 'tools/phpcs/composer.json');
+    rows.push({ name: 'sshpass', status: 'setup_required', detail: 'operator global: apt install sshpass' });
+    if (host === 'pressable') {
+      rows.push({ name: 'wordpress-root', status: 'setup_required', detail: 'wordpress-connect step 4: bin/ddev pull production -y' });
+      rows.push({ name: 'ddev', status: 'setup_required', detail: 'operator global: DDEV' });
+      rows.push({ name: 'ddev-config', status: 'setup_required', detail: 'wordpress-connect step 4: bin/ddev config' });
+      rows.push({ name: 'production-sync', status: 'setup_required', detail: 'wordpress-connect step 4: port from jmrgroup-coza' });
+      rows.push({ name: 'mcp-pinned', status: 'setup_required', detail: 'wordpress-connect step 3: pin the WordPress and Pressable connections' });
+    } else if (host === 'wpcom') {
+      rows.push({ name: 'no-ddev', status: 'ok', detail: 'WordPress.com: no local mirror' });
+      rows.push({ name: 'wordpress-mcp', status: 'ok', detail: 'the user-scope WordPress.com connector; nothing in .mcp.json' });
+    }
+  }
+  return rows;
+}
 const OLD_OUTPUT = 'usage: review-dispatch.py [-h] --writer {claude,codex,gemini} --prompt PROMPT\n                          [--record RECORD] [--timeout TIMEOUT]\nreview-dispatch.py: error: the following arguments are required: --writer, --prompt';
 const SCENARIOS = [
   ['ready', 'Ready: the shipped pin'],
@@ -778,7 +1182,7 @@ class Component extends DCLogic {
     const b = this.base();
     return {
       for: this.scen(), model: clone(b.model), loadedModel: clone(b.model), loaded: toml(b.model),
-      stale: b.env.stale, staleKept: false, screen: b.env.screen, install: null,
+      stale: b.env.stale, staleKept: false, screen: b.env.screen,
       renaming: null, renameDraft: '', renameErr: '', confirmDelete: null,
       adding: false, draft: { name: '', cli: 'claude', model: '', effort: 'high' }, addErr: '',
       test: null, view: 'preview', confirmDiscard: false, toast: ''
@@ -858,25 +1262,204 @@ class Component extends DCLogic {
     }, 2400);
   }
 
+  side() { return (this.state && this.state.side) || ((this.props.sidebar || 'explorer') === 'explorer' ? 'explorer' : 'conclave'); }
+  srcKey() { return (this.state && this.state.src) || 'bundled'; }
+  wsKey() { return (this.state && this.state.ws) || this.props.workspace || 'single'; }
+  kitsFor() { return this.scen() + '|' + this.wsKey(); }
+  // The Kits view's state: the current folder (the only one in a one-folder window; in a multi-root
+  // workspace the active editor's folder, or the one Switch folder picked), files each folder gained
+  // from installs here, expanded rows, and the installer.
+  freshKits() {
+    const pre = this.props.sidebar || 'explorer';
+    const multi = this.wsKey() === 'multi';
+    const shut = pre.indexOf('install') === 0;
+    const k = { for: this.kitsFor(), cur: multi && pre === 'install-laravel' ? 'api' : 'web', added: { web: [], api: [] }, hosts: {}, open: {}, sel: null, ins: null, kitsOpen: true, panes: { reviewers: !shut, plan: !shut, rounds: !shut, site: !shut } };
+    const insFor = function (folder, kit, step) { return { folder: folder, kit: kit, step: step, agent: 'all', host: 'pressable', result: null }; };
+    if (pre === 'kits-health') { k.open['web/reviewer'] = true; k.sel = 'web/reviewer'; }
+    if (pre === 'install-todo') { k.ins = insFor('web', 'todo', 'preview'); k.sel = 'web/todo'; }
+    if (pre === 'install-wordpress') { k.ins = insFor('web', 'wordpress', 'preview'); k.sel = 'web/wordpress'; }
+    if (pre === 'install-laravel') { k.ins = insFor(k.cur, 'laravel', 'preview'); k.sel = k.cur + '/laravel'; }
+    if (pre === 'sections') {
+      k.added.web = dryRun(FOLDERS[0], this.hasMap(k, 'web'), 'wordpress', 'all', 'pressable').add;
+      k.hosts.web = 'pressable';
+    }
+    if (pre === 'install-todo-done') {
+      k.ins = insFor('web', 'todo', 'done'); k.sel = 'web/todo';
+      k.ins.result = dryRun(FOLDERS[0], this.hasMap(k, 'web'), 'todo', 'all', 'pressable');
+      k.added.web = k.ins.result.add.slice();
+    }
+    return k;
+  }
+  ks() { const s = this.state && this.state.k; return s && s.for === this.kitsFor() ? s : this.freshKits(); }
+  kupd(patch) { this.setState({ k: Object.assign({}, this.ks(), patch) }); }
+  insUpd(patch) { const k = this.ks(); this.kupd({ ins: Object.assign({}, k.ins, patch) }); }
+  hasMap(k, folderId) {
+    const m = {};
+    startFiles(folderId, this.base().env.screen).concat(k.added[folderId] || []).forEach(function (f) { m[f] = true; });
+    return m;
+  }
+  // State from forge's own dry run (agent all), health from doctor. base is always installed here.
+  kitInfo(k, f, kit) {
+    const has = this.hasMap(k, f.id);
+    const host = k.hosts[f.id] || 'pressable';
+    let state = 'none';
+    let missing = 0;
+    if (kit === 'base') state = has['AGENTS.md'] ? 'installed' : 'none';
+    else {
+      const r = dryRun(f, has, kit, 'all', host);
+      if (!r.error) {
+        missing = r.add.filter(function (x) { return x !== '.mcp.json'; }).length;
+        state = missing === 0 ? 'installed' : (missing === r.owned ? 'none' : 'partly');
+      }
+    }
+    const checks = state === 'none' ? [] : doctor(f, has, kit, host, this.base().env.clis);
+    return { state: state, missing: missing, checks: checks, bad: checks.filter(function (c) { return c.status !== 'ok'; }).length };
+  }
+  openInstall(folderId, kit) {
+    clearTimeout(this._installT);
+    const k = this.ks();
+    this.setState({ side: 'conclave', k: Object.assign({}, k, { kitsOpen: true, sel: folderId + '/' + kit, ins: { folder: folderId, kit: kit, step: 'choose', agent: 'all', host: k.hosts[folderId] || 'pressable', result: null } }) });
+  }
+  runInstall(result, host) {
+    const self = this;
+    this.insUpd({ step: 'running', result: result });
+    clearTimeout(this._installT);
+    this._installT = setTimeout(function () {
+      const k = self.ks();
+      if (!k.ins || k.ins.step !== 'running') return;
+      const added = Object.assign({}, k.added);
+      added[k.ins.folder] = (added[k.ins.folder] || []).concat(result.add);
+      const hosts = Object.assign({}, k.hosts);
+      if (k.ins.kit === 'wordpress') hosts[k.ins.folder] = host;
+      self.kupd({ added: added, hosts: hosts, ins: Object.assign({}, k.ins, { step: 'done' }) });
+      if (k.ins.kit === 'reviewer' && k.ins.folder === 'web' && self.e().screen === 'no-pin') self.upd(Object.assign({ screen: 'editor' }, self.toastPatch('Reviewer pin added. Re-checked with --check-pin: ok.')));
+    }, 1400);
+  }
+
+  // One section per feature under the Kits tree, each shown only while its kit is in the folder.
+  featurePanes(k, f, e) {
+    const self = this;
+    const env = this.base().env;
+    const has = this.hasMap(k, f.id);
+    const flash = function (msg) { return function () { self.flash(msg); }; };
+    const row = function (o) {
+      return Object.assign({ cls: '', pad: 2, expandable: false, leaf: true, open: false, shut: true, toggle: function () {}, iOk: false, iWarn: false, iBad: false, iInfo: false, iReady: false, iBlocked: false, iFile: false, iRoute: false, label: '', lblCls: '', desc: '', title: '', hasAct: false, actLabel: '', act: function () {}, actInstall: false, actGo: false, hasBadge: false, badge: '', badgeCls: '' }, o);
+    };
+    const fold = function (key, def) { return k.open[key] === undefined ? def : k.open[key]; };
+    const setFold = function (key, val) { const open = Object.assign({}, self.ks().open); open[key] = val; self.kupd({ open: open }); };
+    const group = function (key, def, o) {
+      const isOpen = fold(key, def);
+      return row(Object.assign({ expandable: true, leaf: false, open: isOpen, shut: !isOpen, toggle: function () { setFold(key, !isOpen); } }, o));
+    };
+    const act = function (label, flag, run) { const a = { label: label, run: run, aRefresh: false, aOpen: false, aValidate: false, aPeople: false, aFolder: false }; a[flag] = true; return a; };
+    const panes = [];
+    const pane = function (id, title, desc, descTitle, actions, rows) {
+      const isOpen = !!k.panes[id];
+      panes.push({ id: id, title: title, desc: desc, descTitle: descTitle || desc, hasDesc: !!desc, open: isOpen, shut: !isOpen, actions: actions, rows: rows, toggle: function () { const p = Object.assign({}, self.ks().panes); p[id] = !isOpen; self.kupd({ panes: p }); } });
+    };
+    const kitIn = function (kit) { return self.kitInfo(k, f, kit).state !== 'none'; };
+
+    if (kitIn('reviewer')) {
+      const rows = [];
+      const install = function () { self.openInstall(f.id, 'reviewer'); };
+      const s = e.screen;
+      let ok = false;
+      if (s === 'editor') {
+        const err = validate(e.loadedModel);
+        ok = !err;
+        rows.push(err ? row({ iBad: true, label: 'reviewers.toml', desc: 'refused: ' + err.msg, title: err.msg })
+                      : row({ iOk: true, label: 'reviewers.toml', desc: e.stale ? 'valid, changed on disk' : 'valid (--check-pin)' }));
+      } else if (s === 'refused') rows.push(row({ iBad: true, label: 'reviewers.toml', desc: 'refused: ' + env.refused.msg, title: env.refused.msg }));
+      else if (s === 'unsupported-schema') rows.push(row({ iWarn: true, label: 'reviewers.toml', desc: 'newer schema than this extension reads' }));
+      else if (s === 'no-pin') rows.push(row({ iInfo: true, label: 'No reviewer pin', desc: '.conclave/reviewers.toml is missing', hasAct: true, actLabel: 'Install reviewer kit', act: install, actInstall: true }));
+      else if (s === 'no-dispatcher') rows.push(row({ iBad: true, label: 'No dispatcher', desc: 'scripts/review-dispatch.py is missing', hasAct: true, actLabel: 'Install reviewer kit', act: install, actInstall: true }));
+      else if (s === 'old-dispatcher') rows.push(row({ iWarn: true, label: 'Dispatcher too old', desc: 'no --check-pin; update from Conclave-SDK' }));
+      else if (s === 'no-python') rows.push(row({ iBad: true, label: 'No Python 3.11 or later', desc: 'nothing runs until one is found' }));
+      else if (s === 'untrusted') rows.push(row({ iWarn: true, label: 'Restricted Mode', desc: 'trust the workspace to run the dispatcher' }));
+      let missing = 0;
+      // A refused pin refuses every dispatch, so no reviewer is listed as if it would run.
+      if (ok) {
+        const m = e.loadedModel;
+        m.reviewers.forEach(function (r) {
+          const found = env.clis[r.cli];
+          if (!found) missing += 1;
+          rows.push(row({ iOk: found, iWarn: !found, label: r.name, desc: r.model + ' via ' + r.cli + (found ? '' : ': not on PATH, skipped'), title: found ? r.model + ' via ' + CLI_PATH[r.cli] : r.cli + ' is not on PATH; this reviewer is skipped', hasAct: true, actLabel: 'Open ' + r.name + ' in Reviewer Settings', act: flash('Opens the Reviewers editor at the ' + r.name + ' card.'), actGo: true }));
+        });
+        const routes = group('reviewers/routes', true, { label: 'Routes', desc: m.routes.length + (m.routes.length === 1 ? ' writer' : ' writers') });
+        rows.push(routes);
+        if (routes.open) m.routes.forEach(function (rt) { rows.push(row({ pad: 22, iRoute: true, label: rt.writer, desc: rt.names.join(', then ') })); });
+      }
+      const desc = s === 'editor' && ok ? (missing ? missing + ' reviewer skipped' : 'ready') : '';
+      pane('reviewers', 'REVIEWERS', desc, desc, [act('Open Reviewer Settings', 'aPeople', flash('Opens the Reviewers editor (conclave.openReviewers).')), act('Refresh', 'aRefresh', flash('Re-checked with --check-pin.'))], rows);
+    }
+
+    if (kitIn('todo')) {
+      const rows = [];
+      const named = !!has['todo/plan.json'];
+      const names = named ? PHASE_KIT : PHASE_DEFAULTS;
+      const phaseName = function (n) { return names[n] || 'Phase ' + n; };
+      if (!named) rows.push(row({ iWarn: true, label: 'No todo/plan.json', desc: 'phases show as numbers', title: 'todo-graph.py falls back to bare phase numbers without todo/plan.json', hasAct: true, actLabel: 'Install the missing todo kit file', act: function () { self.openInstall(f.id, 'todo'); }, actInstall: true }));
+      const open = function (sec) { return flash('Opens ' + sec.path + ' at ' + sec.ref.split(' ').pop() + '.'); };
+      const secRow = function (sec, pad) {
+        return row({ pad: pad, iOk: sec.status === 'verified', iReady: sec.status === 'ready', iBlocked: sec.status === 'blocked', label: sec.ref, desc: sec.title + (sec.why ? ' (' + sec.why + ')' : ''), title: sec.status + ': ' + sec.title, hasAct: true, actLabel: 'Open ' + sec.ref, act: open(sec), actGo: true });
+      };
+      const ready = PLAN_SECTIONS.filter(function (x) { return x.status === 'ready'; });
+      const next = group('plan/next', true, { label: 'Ready now', desc: ready.length + ' sections' });
+      rows.push(next);
+      if (next.open) ready.forEach(function (sec) { rows.push(secRow(sec, 22)); });
+      [0, 1, 2, 99].forEach(function (n) {
+        const secs = PLAN_SECTIONS.filter(function (x) { return x.phase === n; });
+        const done = secs.filter(function (x) { return x.status === 'verified'; }).length;
+        const g = group('plan/phase-' + n, false, { label: phaseName(n), desc: done + ' of ' + secs.length + ' verified' });
+        rows.push(g);
+        if (g.open) secs.forEach(function (sec) { rows.push(secRow(sec, 22)); });
+      });
+      const verified = PLAN_SECTIONS.filter(function (x) { return x.status === 'verified'; }).length;
+      pane('plan', 'PLAN', verified + ' of ' + PLAN_SECTIONS.length + ' verified', 'scripts/todo-graph.py query stats', [act('Validate the plan', 'aValidate', flash('Ran scripts/todo-graph.py validate: valid: ' + PLAN_SECTIONS.length + ' sections.')), act('Open the plan', 'aOpen', flash('Opens todo/implementation-plan.md.')), act('Refresh', 'aRefresh', flash('Re-read scripts/todo-graph.py query ready, blocked and stats.'))], rows);
+    }
+
+    if (kitIn('reviewer')) {
+      const rows = [];
+      const records = f.id === 'web' ? ROUND_RECORDS : [];
+      if (!records.length) rows.push(row({ iInfo: true, label: 'No rounds recorded yet', desc: 'docs/reviews/ is empty' }));
+      let total = 0;
+      records.forEach(function (rec) {
+        total += rec.rounds.length;
+        const g = group('rounds/' + rec.file, true, { iFile: true, label: rec.file.split('/').pop(), desc: rec.rounds.length + (rec.rounds.length === 1 ? ' round' : ' rounds'), title: rec.file });
+        rows.push(g);
+        if (g.open) rec.rounds.forEach(function (r) {
+          const when = r.run.slice(0, 10) + ' ' + r.run.slice(11, 16);
+          rows.push(row({ pad: 22, iOk: !!r.who, iBad: !r.who, label: 'Round ' + r.n, desc: r.who ? r.who + ', writer ' + r.writer + ', ' + when : 'no review, not an approval: ' + r.skipped.length + ' skipped', title: r.who ? 'Run ' + r.run : 'Skipped: ' + r.skipped.join('; '), hasAct: true, actLabel: 'Open round ' + r.n, act: flash('Opens ' + rec.file + ' at "## Round ' + r.n + '".'), actGo: true }));
+        });
+      });
+      pane('rounds', 'REVIEW ROUNDS', total ? total + ' rounds' : '', 'Read from the round records the dispatcher writes', [act('Open docs/reviews', 'aFolder', flash('Reveals docs/reviews/ in the Explorer.')), act('Refresh', 'aRefresh', flash('Re-read the round records.'))], rows);
+    }
+
+    if (kitIn('wordpress')) {
+      const host = k.hosts[f.id] || 'pressable';
+      const checks = doctor(f, has, 'wordpress', host, env.clis).filter(function (c) { return c.name.indexOf('site-') === 0; });
+      const rows = checks.map(function (c) {
+        const setup = c.status === 'setup_required';
+        return row({ iOk: c.status === 'ok', iWarn: setup, iBad: c.status === 'missing', label: c.name, desc: c.status === 'ok' ? c.detail : c.status + ': ' + c.detail, title: c.detail, hasAct: setup, actLabel: 'How to finish this step', act: flash('The wordpress-connect skill fills this in: ask your agent to run it. The extension only reads the site pin.'), actGo: setup });
+      });
+      const bad = checks.filter(function (c) { return c.status !== 'ok'; }).length;
+      pane('site', 'WORDPRESS SITE', host + (bad ? ', not connected yet' : ''), 'forge.py doctor --kit wordpress', [act('Open the site pin', 'aOpen', flash('Opens .conclave/wordpress-site.json.')), act('Refresh', 'aRefresh', flash('Re-ran forge.py doctor --kit wordpress.'))], rows);
+    }
+    return panes;
+  }
+
   emptyFor(e) {
     const self = this;
     const retry = function () { self.flash('Re-checked with --check-pin: the state has not changed.'); };
     const copy = function () { self.flash('Copied the command to the clipboard.'); };
     const s = e.screen;
-    const d = { isInfo: false, isErr: false, isWarn: false, heading: '', paras: [], paras2: [], hasError: false, errorLabel: '', errorText: '', hasExcerpt: false, excerpt: [], hasOutput: false, outputLabel: '', output: '', hasList: false, list: [], hasCode: false, codeLabel: '', code: '', confirming: false, running: false, actions: [] };
+    const d = { isInfo: false, isErr: false, isWarn: false, heading: '', paras: [], paras2: [], hasError: false, errorLabel: '', errorText: '', hasExcerpt: false, excerpt: [], hasOutput: false, outputLabel: '', output: '', hasList: false, list: [], hasCode: false, codeLabel: '', code: '', actions: [] };
     if (s === 'no-pin') {
       d.isInfo = true;
       d.heading = 'No reviewer pin in this workspace';
-      d.paras = paras(['This workspace has no `.conclave/reviewers.toml`, so `scripts/review-dispatch.py` has no reviewers to run.', 'Install the Conclave-SDK reviewer kit to add the shipped pin (GPT-6 Astra, then Gemini 4, then Sonnet 5.5), the dispatcher and the independent-review skill. The installer only adds missing files.']);
-      d.hasCode = true; d.codeLabel = 'Runs, after you confirm (the SDK path comes from conclaveReviewers.sdkPath):'; d.code = KIT_CMD;
-      if (e.install === 'confirm') {
-        d.confirming = true;
-        d.actions = [{ label: 'Run', cls: 'btn', onClick: function () { self.upd({ install: 'running' }); clearTimeout(self._installT); self._installT = setTimeout(function () { self.upd(Object.assign({ install: null, screen: 'editor' }, self.toastPatch('Reviewer kit installed: 8 files added, none changed. Re-checked with --check-pin: ok.'))); }, 1600); } }, { label: 'Cancel', cls: 'btn2', onClick: function () { self.upd({ install: null }); } }];
-      } else if (e.install === 'running') {
-        d.running = true;
-      } else {
-        d.actions = [{ label: 'Install reviewer kit', cls: 'btn', onClick: function () { self.upd({ install: 'confirm' }); } }, { label: 'Copy command', cls: 'btn2', onClick: copy }, { label: 'Retry', cls: 'btn2', onClick: retry }];
-      }
+      d.paras = paras(['This workspace has no `.conclave/reviewers.toml`, so `scripts/review-dispatch.py` has no reviewers to run.', 'Install the Conclave-SDK reviewer kit to add the shipped pin (GPT-6 Astra, then Gemini 4, then Sonnet 5.5). The installer opens in the Conclave side bar, preset to the reviewer kit, and lists every file it would add before it writes anything. It only adds missing files.']);
+      d.hasCode = true; d.codeLabel = 'The installer runs forge.py from the SDK source after its preview:'; d.code = KIT_CMD;
+      d.actions = [{ label: 'Install reviewer kit', cls: 'btn', onClick: function () { self.openInstall('web', 'reviewer'); } }, { label: 'Copy command', cls: 'btn2', onClick: copy }, { label: 'Retry', cls: 'btn2', onClick: retry }];
     } else if (s === 'refused') {
       const ref = this.base().env.refused;
       d.isErr = true;
@@ -912,9 +1495,9 @@ class Component extends DCLogic {
       d.isErr = true;
       d.heading = 'No Python 3.11 or later';
       d.paras = paras(['The dispatcher needs Python 3.11 or later: it reads the pin with `tomllib`. Nothing was run. Tried, in order:']);
-      d.hasList = true; d.list = [{ k: 'conclaveReviewers.pythonPath', v: 'not set' }, { k: 'py -3', v: 'not found' }, { k: 'python', v: 'Python 3.10.11, too old' }];
+      d.hasList = true; d.list = [{ k: 'conclave.pythonPath', v: 'not set' }, { k: 'py -3', v: 'not found' }, { k: 'python', v: 'Python 3.10.11, too old' }];
       d.paras2 = paras(['Install Python 3.11 or later, or point the setting at one. In a Remote WSL window the editor runs on the Linux side and tries `python3`, then `python`.']);
-      d.actions = [{ label: 'Open Settings', cls: 'btn', onClick: function () { self.flash('Opens Settings at conclaveReviewers.pythonPath.'); } }, { label: 'Retry', cls: 'btn2', onClick: retry }];
+      d.actions = [{ label: 'Open Settings', cls: 'btn', onClick: function () { self.flash('Opens Settings at conclave.pythonPath.'); } }, { label: 'Retry', cls: 'btn2', onClick: retry }];
     } else if (s === 'untrusted') {
       d.isWarn = true;
       d.heading = 'Restricted Mode';
@@ -1071,22 +1654,136 @@ class Component extends DCLogic {
     const draftIsAgy = draft.cli === 'agy';
     const isEditor = e.screen === 'editor';
     const stateNames = { refused: 'pin refused', 'unsupported-schema': 'newer schema', 'no-pin': 'no pin', 'no-dispatcher': 'no dispatcher', 'old-dispatcher': 'dispatcher too old', 'no-python': 'no Python', untrusted: 'Restricted Mode' };
+    const multi = this.wsKey() === 'multi';
     const treeAll = [
-      { label: '.agents', pad: 14, folder: true }, { label: '.claude', pad: 14, folder: true }, { label: '.codex', pad: 14, folder: true },
-      { label: '.conclave', pad: 14, folder: true, hide: e.screen === 'no-pin' }, { label: 'reviewers.toml', pad: 34, file: true, active: true, hide: e.screen === 'no-pin' },
-      { label: 'docs', pad: 14, folder: true }, { label: 'scripts', pad: 14, folder: true },
-      { label: 'review-dispatch.py', pad: 34, file: true, hide: e.screen === 'no-dispatcher' }, { label: 'todo-graph.py', pad: 34, file: true },
-      { label: 'todo', pad: 14, folder: true }, { label: 'AGENTS.md', pad: 14, file: true }, { label: 'CLAUDE.md', pad: 14, file: true }
+      { label: 'orchard-web', pad: 4, folder: true, hide: !multi },
+      { label: '.agents', pad: 18, folder: true }, { label: '.claude', pad: 18, folder: true }, { label: '.codex', pad: 18, folder: true },
+      { label: '.conclave', pad: 18, folder: true, hide: e.screen === 'no-pin' }, { label: 'reviewers.toml', pad: 38, file: true, active: true, hide: e.screen === 'no-pin' },
+      { label: 'docs', pad: 18, folder: true }, { label: 'scripts', pad: 18, folder: true },
+      { label: 'review-dispatch.py', pad: 38, file: true, hide: e.screen === 'no-dispatcher' }, { label: 'todo-graph.py', pad: 38, file: true },
+      { label: 'todo', pad: 18, folder: true }, { label: 'AGENTS.md', pad: 18, file: true }, { label: 'CLAUDE.md', pad: 18, file: true },
+      { label: 'CODEX.md', pad: 18, file: true }, { label: 'GEMINI.md', pad: 18, file: true },
+      { label: 'orchard-api', pad: 4, folder: true, hide: !multi }
     ];
+
+    // Conclave side bar: the Kits tree and the installer.
+    const k = this.ks();
+    const side = this.side();
+    const noop = function () {};
+    const flashFn = function (msg) { return function () { self.flash(msg); }; };
+    const krow = function (o) {
+      return Object.assign({ cls: '', pad: 0, expandable: false, leaf: false, open: false, shut: true, twLabel: '', toggle: noop, iFolder: false, iInstalled: false, iPartly: false, iNone: false, iOk: false, iMissing: false, iSetup: false, iUnexpected: false, label: '', lblCls: '', desc: '', title: '', folder: '', canInstall: false, canHealth: false, install: noop, health: noop, hasBadge: false, badge: '', badgeCls: '', badgeTitle: '' }, o);
+    };
+    const setOpen = function (key, val) { const open = Object.assign({}, self.ks().open); open[key] = val; return open; };
+    const kitRows = [];
+    let attention = 0;
+    const cur = FOLDERS.find(function (x) { return x.id === k.cur; });
+    [cur].forEach(function (f) {
+      KITS.forEach(function (kit) {
+        const info = self.kitInfo(k, f, kit);
+        if (info.bad > 0) attention += 1;
+        const key = f.id + '/' + kit;
+        const hasChecks = info.checks.length > 0;
+        const open = hasChecks && !!k.open[key];
+        const stateText = info.state === 'installed' ? 'installed' : (info.state === 'partly' ? 'partly installed: ' + info.missing + ' missing' : 'not installed');
+        kitRows.push(krow({
+          cls: k.sel === key ? 'sel' : '', pad: 2, expandable: hasChecks, leaf: !hasChecks, open: open, shut: !open, twLabel: kit + ' health checks',
+          toggle: function () { self.kupd({ open: setOpen(key, !open), sel: key }); },
+          iInstalled: info.state === 'installed', iPartly: info.state === 'partly', iNone: info.state === 'none',
+          label: kit, desc: stateText, title: kit + ': ' + stateText, folder: f.name,
+          canInstall: kit !== 'base' && info.state !== 'installed', canHealth: info.state !== 'none',
+          install: function () { self.openInstall(f.id, kit); },
+          health: function () { self.kupd({ open: setOpen(key, true), sel: key }); },
+          hasBadge: info.bad > 0, badge: info.bad > 99 ? '99' : String(info.bad), badgeCls: 'att', lblCls: info.bad > 0 ? 'att' : '',
+          badgeTitle: info.bad + (info.bad === 1 ? ' doctor check needs' : ' doctor checks need') + ' attention'
+        }));
+        if (open) info.checks.forEach(function (c) {
+          const known = ['ok', 'missing', 'setup_required', 'unexpected'].indexOf(c.status) >= 0;
+          kitRows.push(krow({
+            pad: 22, leaf: true, label: c.name, desc: c.status === 'ok' ? c.detail : c.status + ': ' + c.detail, title: c.status + ': ' + c.detail,
+            iOk: c.status === 'ok', iMissing: c.status === 'missing', iSetup: c.status === 'setup_required', iUnexpected: c.status === 'unexpected' || !known
+          }));
+        });
+      });
+    });
+
+    const ins = k.ins;
+    let insVals = { s1: '', s2: '', s3: '', kit: '', folderPath: '', choosing: false, busy: false, busyText: '', cmd: '', previewing: false, hasError: false, error: '', hasLists: false, add: [], addCount: '', hasAdd: false, noAdd: false, keep: [], keepCount: '', hasKeep: false, hasMerge: false, merge: '', canInstall: false, isRemote: false, agent: 'all', isWp: false, hostPressable: true, hostWpcom: false, hostLocked: false, onAgent: noop, onHost: noop, preview: noop, install: noop, back: noop, cancel: noop, finish: noop, showLog: noop, done: false, doneText: '', hashText: '' };
+    if (ins) {
+      const f = FOLDERS.find(function (x) { return x.id === ins.folder; });
+      const has = this.hasMap(k, f.id);
+      const pinHost = has[WP_PIN] ? (k.hosts[f.id] || 'pressable') : null;
+      const host = pinHost || ins.host;
+      const step = ins.step;
+      const res = (step === 'running' || step === 'done') && ins.result ? ins.result : dryRun(f, has, ins.kit, ins.agent, host);
+      const add = res.add || [];
+      const keep = res.keep || [];
+      const merge = res.merge || [];
+      const files = function (n) { return n + (n === 1 ? ' file' : ' files'); };
+      const touched = add.filter(function (p) { return PROTECTED.some(function (x) { return x.charAt(x.length - 1) === '/' ? p.indexOf(x) === 0 : p === x; }); });
+      insVals = {
+        s1: step === 'choose' ? 'now' : '', s2: step === 'previewing' || step === 'preview' ? 'now' : '', s3: step === 'running' || step === 'done' ? 'now' : '',
+        kit: ins.kit, folderPath: f.path,
+        choosing: step === 'choose', busy: step === 'previewing' || step === 'running',
+        busyText: step === 'running' ? 'Installing ' + ins.kit : 'Previewing with --dry-run',
+        cmd: step === 'running' || step === 'done' ? res.argv.replace(' --dry-run', '') : res.argv,
+        previewing: step === 'preview', hasError: !!res.error, error: res.error || '',
+        hasLists: !res.error, add: add.map(function (p) { return { p: p }; }), addCount: files(add.length), hasAdd: add.length > 0, noAdd: !res.error && add.length === 0,
+        keep: keep.map(function (p) { return { p: p }; }), keepCount: files(keep.length), hasKeep: keep.length > 0,
+        hasMerge: merge.length > 0, merge: merge.join(', '),
+        canInstall: !res.error && merge.length === 0 && add.length > 0,
+        isRemote: this.srcKey() === 'ref',
+        agent: ins.agent, isWp: ins.kit === 'wordpress', hostPressable: host === 'pressable', hostWpcom: host === 'wpcom', hostLocked: !!pinHost,
+        onAgent: function (ev) { self.insUpd({ agent: ev.target.value }); },
+        onHost: function (ev) { if (!pinHost) self.insUpd({ host: ev.target.value }); },
+        preview: function () {
+          self.insUpd({ step: 'previewing' });
+          clearTimeout(self._installT);
+          self._installT = setTimeout(function () { const cur = self.ks(); if (cur.ins && cur.ins.step === 'previewing') self.insUpd({ step: 'preview' }); }, 900);
+        },
+        install: function () { self.runInstall(res, host); },
+        back: function () { clearTimeout(self._installT); self.insUpd({ step: 'choose' }); },
+        cancel: function () { clearTimeout(self._installT); self.kupd({ ins: null }); },
+        finish: function () { self.kupd({ ins: null }); },
+        showLog: flashFn('Opens the Conclave output channel at this run.'),
+        done: step === 'done',
+        doneText: 'Installed ' + ins.kit + ': ' + files(add.length) + ' added, none changed.',
+        hashText: 'Checked by hash: ' + PROTECTED.join(', ') + ' are unchanged' + (touched.length ? ', apart from ' + joinList(touched) + ', which forge reported adding.' : '.')
+      };
+    }
 
     return {
       themeName: this.themeKey(), themeClass: this.themeKey() === 'light' ? 't-light' : 't-dark',
       scenario: this.scen(),
       scenarios: SCENARIOS.map(function (s) { return { id: s[0], label: s[1] }; }),
       setTheme: function (ev) { self.setState({ theme: ev.target.value }); },
-      setScenario: function (ev) { clearTimeout(self._testT); clearTimeout(self._installT); self.setState({ scenario: ev.target.value, e: null }); },
-      tree: treeAll.filter(function (t) { return !t.hide; }).map(function (t) { return { label: t.label, pad: t.pad, folder: !!t.folder, file: !!t.file, cls: t.active ? 'active' : '' }; }),
-      tabTitle: 'Reviewers: Conclave-VSC', dirty: isEditor && changed,
+      setScenario: function (ev) { clearTimeout(self._testT); clearTimeout(self._installT); self.setState({ scenario: ev.target.value, e: null, k: null }); },
+      tree: treeAll.filter(function (t) { return !t.hide; }).map(function (t) { return { label: t.label, pad: multi ? t.pad : t.pad - 14, folder: !!t.folder, file: !!t.file, cls: t.active ? 'active' : '' }; }),
+      sourceKey: this.srcKey(), sourceLabel: SOURCES[this.srcKey()],
+      setSource: function (ev) { self.setState({ src: ev.target.value }); },
+      wsKey: this.wsKey(), multiRoot: multi,
+      setWorkspace: function (ev) { clearTimeout(self._installT); self.setState({ ws: ev.target.value, k: null }); },
+      wsTitle: multi ? 'orchard (Workspace)' : 'orchard-web', wsSection: multi ? 'ORCHARD (WORKSPACE)' : 'ORCHARD-WEB',
+      curFolderName: cur.name, curFolderPath: cur.path,
+      switchFolder: function () { clearTimeout(self._installT); const c = self.ks(); self.kupd({ cur: c.cur === 'web' ? 'api' : 'web', ins: null, sel: null }); },
+      sideExplorer: side === 'explorer', sideConclave: side === 'conclave',
+      explorerOn: side === 'explorer' ? 'on' : '', conclaveOn: side === 'conclave' ? 'on' : '',
+      sideLabel: side === 'explorer' ? 'Explorer' : 'Conclave',
+      showExplorer: function () { self.setState({ side: 'explorer' }); },
+      showConclave: function () { self.setState({ side: 'conclave' }); },
+      hasActBadge: attention > 0, actBadge: String(attention),
+      conclaveLabel: attention ? 'Conclave (' + attention + (attention === 1 ? ' kit needs' : ' kits need') + ' attention)' : 'Conclave',
+      kitsOpen: k.kitsOpen, kitsClosed: !k.kitsOpen,
+      toggleKitsPane: function () { self.kupd({ kitsOpen: !self.ks().kitsOpen }); },
+      refreshKits: flashFn('Refreshed: forge.py kits, then kit --dry-run and doctor for ' + cur.name + '.'),
+      updateKits: flashFn('Update kits runs forge.py sync after a confirmation that states its scope. Not drawn yet.'),
+      newRepo: flashFn('Set up a new repository runs forge.py init through a wizard. Not drawn yet.'),
+      kitRows: kitRows, ktreeCls: ins ? 'half' : '', kitsFocus: k.sel && !ins ? 'focus' : '',
+      fpanes: this.featurePanes(k, cur, e),
+      insOpen: !!ins, ins: insVals,
+      // WebviewPanel has no dirty dot (only custom editors do), so unsaved edits show in the title.
+      clearToast: function () { self.upd({ toast: '' }); },
+      tabTitle: 'Reviewers: orchard-web' + (isEditor && changed ? ' (unsaved)' : ''),
       isEditor: isEditor, isEmpty: !isEditor, empty: this.emptyFor(e),
       hasErr: !!err, noErr: !err, errText: err ? err.msg : '',
       pillClass: err ? 'bad' : 'ok',

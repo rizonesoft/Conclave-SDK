@@ -90,6 +90,8 @@ Recommendation: A. The status bar item is the one that matters most: it shows wh
 
 Recommendation: A. Native views follow the theme, keyboard and accessibility of VS Code for free, and the Kits view is useful in folders that have no reviewer pin.
 
+Answered in part by the owner on 2026-10-16: the Conclave view container sits in the Activity Bar with its own icon, and Install opens the kit installer in that side bar rather than in quick picks. The mockup draws it as a second view under the Kits tree (a `WebviewView`), shown while an install is open. Update and new repository keep quick picks until the owner says otherwise. The owner also asked on 2026-10-16 for the view to show the current repository only, not every workspace folder: in a multi-root workspace it follows the active editor's folder, with a Switch folder action.
+
 ## 12. What is the undo of a kit install?
 
 `forge.py` has no uninstall. Every file an install adds is a file in the workspace, so the operator's git is the undo, and every install, update and init proves by hash that the protected project files did not change.
@@ -98,3 +100,16 @@ Recommendation: A. Native views follow the theme, keyboard and accessibility of 
 - B. Add `forge.py kit --remove` to the SDK first, then an Uninstall action.
 
 Recommendation: A for the first release.
+
+## 13. Where does the Review rounds section get its rounds?
+
+The dispatcher appends rounds to Markdown records (`docs/reviews/<topic>.md`) and cannot list them. The owner asked on 2026-10-16 for a Review rounds section.
+
+- A. Add `review-dispatch.py --list-rounds --json` to the reviewer kit, beside `record`, so the code that writes the format also reads it back (`D06 T01 §3`).
+- B. Parse the `## Round N` headings in the extension.
+
+Recommendation: A. It follows `--check-pin`: the extension never reimplements a kit's format, and a test in the kit fails when the writer and the reader drift. The Plan section takes the same route with `todo-graph.py query plan` (`D06 T01 §2`).
+
+## 14. How is the side bar organised as features grow?
+
+Answered by the owner on 2026-10-16: one section per feature under the Kits tree, which stays its own section. Each section shows only while its kit is in the current folder. The first sections are Reviewers, Plan, Review rounds and WordPress site (plan R33 to R37, `D06 T01`).
