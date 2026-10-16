@@ -77,7 +77,7 @@ Any kit can be installed into a workspace folder (plan R28). This section runs `
 
 ## 2. Kit update through forge sync
 
-Installed kits are updated with `forge.py sync <folder>` (plan R29), which refreshes the skills, rules and subagents of every kit the folder has and, with `--include-scripts`, their scripts and `bin/` files; it never touches entry docs, `docs/`, `todo/`, the pin or other project files. The reviewer editor's no-dispatcher and old-dispatcher states call this with `--include-scripts`. It owns the reverse rule: the operator's git is the undo, and the protected-file hash proves nothing else moved.
+Installed kits are updated with `forge.py sync <folder>` (plan R29), which refreshes the skills, rules and subagents of every kit the folder has and, with `--include-scripts`, their existing scripts and `bin/` files, and adds any kit file that is missing; it never changes an existing entry doc, `docs/` or `todo/` file, the pin or other project files. **Corrected 2026-10-16:** it said sync never touches entry docs, `docs/`, `todo/` or the pin; measured, sync adds a missing kit file in those places too (`todo/plan.json`, `.conclave/reviewers.toml`) and writes only files that are missing or differ. The reviewer editor's no-dispatcher and old-dispatcher states call this with `--include-scripts`. It owns the reverse rule: the operator's git is the undo, and the protected-file hash proves nothing else moved.
 
 **Phase:** 1
 **Needs:** none
@@ -89,7 +89,7 @@ Installed kits are updated with `forge.py sync <folder>` (plan R29), which refre
 2. Run, guard, report and refresh. Done when: an integration test on an old-dispatcher workspace lists `scripts/review-dispatch.py` as updated and the protected hashes are unchanged.
 
 - [ ] Build the argv `sync <folder>` with optional `--include-scripts` and `--agent` in `extensions/vscode/src/host/kitSync.ts`. Done when: unit tests assert both forms. Cheaper substitute: `forge.py kit`, which leaves an old file in place.
-- [ ] Show a modal confirmation naming the source label, the argv, the kits the folder has (from D02 T01 §10) and that sync never touches entry docs, `docs/`, `todo/` or `.conclave/reviewers.toml`. Done when: cancelling starts no process. Cheaper substitute: "Update kits?" with no scope.
+- [ ] Show a modal confirmation naming the source label, the argv, the kits the folder has (from D02 T01 §10) and that sync adds missing kit files but never changes an existing entry doc, `docs/`, `todo/` or `.conclave/reviewers.toml` (drawn in the mockup's `update-confirm` overlay). Done when: cancelling starts no process. Cheaper substitute: "Update kits?" with no scope.
 - [ ] Reuse §1's protected-file hash check around the run. Done when: the integration test asserts the pin and `AGENTS.md` hashes are unchanged. Cheaper substitute: no check.
 - [ ] Parse forge's `kits` list and return `updated` and `installed` per kit. Done when: the test sees `scripts/review-dispatch.py` under the reviewer kit's updated list. Cheaper substitute: "Done" with no list.
 - [ ] Report a non-zero exit with forge's stderr tail and leave the state unchanged. Done when: a failing fake `forge.py` shows its error. Cheaper substitute: ignoring the exit code.

@@ -23,6 +23,17 @@ Each element is one of three kinds. **Native** is drawn by VS Code from the exte
 - Status bar: `StatusBarItem` text with `$(codicon)` prefixes and a tooltip; only the error and warning background colours exist, and the mockup uses neither.
 - Installer pane: a `WebviewView` in the `conclave` container, shown by a context key while an install is open; its Close is a view title action.
 
+## Native elements added for entry points, update and new repository (`D00 T01 §1`)
+
+- Command Palette: `contributes.commands` with `category` `Conclave`; the palette lists them as "Conclave: <title>".
+- Explorer context menu: `menus.explorer/context` in the `navigation` group, shown for `.conclave/reviewers.toml` only (`when` on `resourcePath`); the rest of the menu is VS Code's.
+- Editor title button: `menus.editor/title` with the Conclave mark, shown for the pin open as text; the ellipsis next to it is VS Code's.
+- Status bar item: a `StatusBarItem` with a `$(pass)`, `$(error)` or `$(warning)` codicon, the state text, a tooltip and a command.
+- Quick picks: `createQuickPick` with `title`, `step` and `totalSteps`, `QuickInputButtons.Back` on later steps, and for kits `canSelectMany` (VS Code draws the toggle-all checkbox, the count and OK). A QuickPick has no message line, so the update scope sits in the confirmation dialog.
+- The folder step: `createInputBox` with its `prompt` under the input, Browse as a title `QuickInputButton` with the `folder` codicon, and Enter to accept; an input box has no list and no OK button.
+- Confirmation dialogs: `showInformationMessage` with `modal: true`, `detail` and button labels. The mockup draws VS Code's custom dialog style; with `window.dialogStyle` set to `native` (the default on Windows) the system draws the same message, detail and buttons in its own box.
+- Notifications with actions: `showInformationMessage` and `showErrorMessage` with item labels (Open, Open in New Window, Add to Workspace, Show log); they stay until answered.
+
 ## Webview elements
 
 - The Reviewers editor and the installer body are HTML. They match the mockup if they use the same tokens mapped to `--vscode-*` variables (`D00 T01 §1`), the bundled codicon font (allowed by the webview CSP through `webview.cspSource`), and the same markup and text.

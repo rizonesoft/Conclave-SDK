@@ -41,11 +41,12 @@ Where each requirement in `docs/plans/2026-10-16-vscode-extension.md` shows in t
 | R18 dispatcher missing or old | No scripts/review-dispatch.py; Dispatcher without --check-pin |
 | R19 no Python, untrusted | No Python 3.11 or later; Workspace not trusted |
 | R21 schema range | Pin newer than the extension |
-| R24 SDK source | SDK source control and the installer's source line; refusals not drawn yet |
-| R26 entry points | Not drawn yet (open item in `D00 T01 §1`) |
+| R24 SDK source | SDK source control; the five `SDK source:` refusal scenarios in the installer |
+| R26 entry points | Entry points artboards: palette, Explorer menu, title button, status bar |
 | R27, R30 Kits view and health | Kits artboards: states, badges, doctor rows, Activity Bar badge |
 | R28 kit install | Install artboards: WordPress preview, todo installed, Laravel refused |
-| R29 update, R31 new repository | Not drawn yet (open items in `D00 T01 §1`) |
+| R29 update | Update kits artboards; Update from Conclave-SDK on the dispatcher states |
+| R31 new repository | New repository artboards: four or five quick pick steps, summary |
 | R32 protected files | The installed step's hash check and output channel line |
 | R33 feature sections | Sections artboard: Kits tree, then one section per installed kit |
 | R34 Plan | PLAN section: ready now, phases named from `todo/plan.json` |

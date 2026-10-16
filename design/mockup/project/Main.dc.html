@@ -207,6 +207,53 @@ select.input{padding:0 4px}
 .toast{position:absolute;right:20px;bottom:16px;max-width:460px;background:var(--card-bg);border:1px solid var(--card-border);box-shadow:0 2px 8px var(--shadow);border-radius:4px;padding:10px 12px;display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:17px}
 .toast .ok{color:var(--ok)}
 .toast .grow{flex:1}
+.toast .tacts{display:flex;gap:6px;margin-top:8px}
+.toast .tbody{display:flex;flex-direction:column;flex:1}
+.vsw{position:relative}
+.toast{bottom:32px;z-index:12}
+.t-dark{--qi-bg:#222222;--qi-border:#313131;--qi-active:#04395e;--qi-active-fg:#ffffff;--menu-bg:#1f1f1f;--menu-border:#454545;--menu-sel:#0078d4;--menu-sel-fg:#ffffff;--dlg-bg:#202020;--scrim:rgba(0,0,0,.3)}
+.t-light{--qi-bg:#f8f8f8;--qi-border:#e5e5e5;--qi-active:#e8e8e8;--qi-active-fg:#1f1f1f;--menu-bg:#ffffff;--menu-border:#cecece;--menu-sel:#005fb8;--menu-sel-fg:#ffffff;--dlg-bg:#f8f8f8;--scrim:rgba(0,0,0,.15)}
+button.cmd{font:inherit;cursor:pointer;padding:0}
+button.tab{border:0;border-right:1px solid var(--border);background:transparent;font:inherit;cursor:pointer}
+button.tab.active{background:var(--tab-active)}
+.tact{margin-left:auto;display:flex;align-items:center;gap:2px;padding-right:8px}
+.texted{flex:1;overflow:auto;padding:6px 0;font-family:"Cascadia Code",Consolas,"Courier New",monospace;font-size:13px;line-height:19px;background:var(--bg-editor)}
+.texted .ln{display:flex;gap:0;white-space:pre}
+.texted .gut{width:52px;flex:none;text-align:right;padding-right:22px;color:var(--line-no)}
+.texted .cm{color:var(--fg-muted)}
+.sbtn{border:0;background:transparent;color:inherit;font:inherit;height:22px;padding:0 5px;display:flex;align-items:center;gap:4px;cursor:pointer}
+.sbtn:hover{background:var(--hover)}
+.scrim{position:absolute;inset:0;z-index:15}
+.qi{position:absolute;top:40px;left:50%;transform:translateX(-50%);width:600px;box-sizing:border-box;background:var(--qi-bg);border:1px solid var(--qi-border);border-radius:6px;box-shadow:0 0 8px 2px var(--shadow);padding:6px;z-index:20;font-size:13px;color:var(--fg)}
+.qi .qt{display:flex;align-items:center;gap:6px;height:24px;padding:0 2px;font-size:12px}
+.qi .qt .grow{flex:1;text-align:center}
+.qi .qin{display:flex;gap:6px;align-items:center;margin:4px 0}
+.qi .qmsg{padding:2px 6px 6px;color:var(--fg-muted);font-size:12px;line-height:17px}
+.qi ul{list-style:none;margin:0;padding:0;max-height:330px;overflow:auto}
+.qi li button{width:100%;display:flex;align-items:center;gap:8px;min-height:22px;padding:2px 8px;border:0;border-radius:3px;background:transparent;color:var(--fg);font:inherit;text-align:left;cursor:pointer;box-sizing:border-box}
+.qi li button:hover{background:var(--hover)}
+.qi li button.act{background:var(--qi-active);color:var(--qi-active-fg)}
+.qi .ql{white-space:nowrap}
+.qi .qd{flex:1;min-width:0;color:var(--fg-muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qi li button.act .qd{color:inherit}
+.qchk{width:16px;height:16px;flex:none;box-sizing:border-box;border:1px solid var(--input-border);border-radius:3px;background:var(--input-bg);display:inline-flex;align-items:center;justify-content:center}
+.qchk svg{visibility:hidden}
+.qchk.on{background:var(--btn-bg);border-color:var(--btn-bg);color:var(--btn-fg)}
+.qchk.on svg{visibility:visible}
+.qchk.lock{opacity:.6}
+button.qchk{padding:0;cursor:pointer}
+.dscrim{position:absolute;inset:0;background:var(--scrim);z-index:25;display:flex;align-items:center;justify-content:center}
+.dlg{width:470px;box-sizing:border-box;background:var(--dlg-bg);border:1px solid var(--qi-border);border-radius:6px;box-shadow:0 0 12px var(--shadow);padding:20px;display:flex;gap:14px;color:var(--fg)}
+.dlg .dic{color:var(--focus)}
+.dlg h2{margin:0 0 8px;font-size:13px;font-weight:600;color:var(--fg-strong)}
+.dlg p{margin:0 0 6px;font-size:13px;line-height:19px}
+.dlg .row{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+.cmenu{position:absolute;z-index:20;min-width:300px;background:var(--menu-bg);border:1px solid var(--menu-border);border-radius:5px;box-shadow:0 2px 8px var(--shadow);padding:4px 0;font-size:13px;color:var(--fg)}
+.cmenu button{display:flex;width:100%;justify-content:space-between;gap:24px;height:24px;align-items:center;padding:0 22px 0 26px;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;box-sizing:border-box}
+.cmenu button:hover,.cmenu button.act{background:var(--menu-sel);color:var(--menu-sel-fg)}
+.cmenu hr{border:0;border-top:1px solid var(--menu-border);margin:4px 0}
+.cmenu .kb{opacity:.75;font-size:12px}
+.flist li.upd{color:var(--warn)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 </style>
 </helmet>
@@ -247,10 +294,10 @@ select.input{padding:0 4px}
         <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2 3.5C2 3.22386 2.22386 3 2.5 3H13.5C13.7761 3 14 3.22386 14 3.5C14 3.77614 13.7761 4 13.5 4H2.5C2.22386 4 2 3.77614 2 3.5ZM2 7.5C2 7.22386 2.22386 7 2.5 7H13.5C13.7761 7 14 7.22386 14 7.5C14 7.77614 13.7761 8 13.5 8H2.5C2.22386 8 2 7.77614 2 7.5ZM2 11.5C2 11.2239 2.22386 11 2.5 11H13.5C13.7761 11 14 11.2239 14 11.5C14 11.7761 13.7761 12 13.5 12H2.5C2.22386 12 2 11.7761 2 11.5Z"></path></svg>
         <span>File</span><span>Edit</span><span>Selection</span><span>View</span><span>Go</span><span>Run</span><span>Terminal</span><span>Help</span>
       </div>
-      <div class="cmd">
+      <button class="cmd" aria-label="Search, or open the Command Palette" title="Search (Ctrl+P)" onClick="{{openPalette}}">
         <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M10.0195 10.7266C9.06578 11.5217 7.83875 12 6.5 12C3.46243 12 1 9.53757 1 6.5C1 3.46243 3.46243 1 6.5 1C9.53757 1 12 3.46243 12 6.5C12 7.83875 11.5217 9.06578 10.7266 10.0195L13.8535 13.1464C14.0488 13.3417 14.0488 13.6583 13.8535 13.8536C13.6583 14.0488 13.3417 14.0488 13.1464 13.8536L10.0195 10.7266ZM11 6.5C11 4.01472 8.98528 2 6.5 2C4.01472 2 2 4.01472 2 6.5C2 8.98528 4.01472 11 6.5 11C8.98528 11 11 8.98528 11 6.5Z"></path></svg>
         <span>{{wsTitle}}</span>
-      </div>
+      </button>
       <div class="win">
         <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 7.5C3 7.22386 3.22386 7 3.5 7H12.5C12.7761 7 13 7.22386 13 7.5C13 7.77614 12.7761 8 12.5 8H3.5C3.22386 8 3 7.77614 3 7.5Z"></path></svg>
         <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2 4.5C2 3.11929 3.11929 2 4.5 2H11.5C12.8807 2 14 3.11929 14 4.5V11.5C14 12.8807 12.8807 14 11.5 14H4.5C3.11929 14 2 12.8807 2 11.5V4.5ZM4.5 3C3.67157 3 3 3.67157 3 4.5V11.5C3 12.3284 3.67157 13 4.5 13H11.5C12.3284 13 13 12.3284 13 11.5V4.5C13 3.67157 12.3284 3 11.5 3H4.5Z"></path></svg>
@@ -273,7 +320,7 @@ select.input{padding:0 4px}
         <div class="sh">EXPLORER</div>
         <div class="sec">{{wsSection}}</div>
         <sc-for list="{{tree}}" as="t" hint-placeholder-count="10">
-          <div class="tree-item {{t.cls}}" style="padding-left: {{t.pad}}px">
+          <div class="tree-item {{t.cls}}" style="padding-left: {{t.pad}}px" onContextMenu="{{t.menu}}">
             <sc-if value="{{t.folder}}" hint-placeholder-val="{{true}}">
               <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.14601 3.14579C5.95101 3.34079 5.95101 3.65779 6.14601 3.85279L10.292 7.99879L6.14601 12.1448C5.95101 12.3398 5.95101 12.6568 6.14601 12.8518C6.34101 13.0468 6.65801 13.0468 6.85301 12.8518L11.353 8.35179C11.548 8.15679 11.548 7.83979 11.353 7.64478L6.85301 3.14479C6.65801 2.94979 6.34101 2.95079 6.14601 3.14579Z"></path></svg>
             </sc-if>
@@ -342,6 +389,11 @@ select.input{padding:0 4px}
               <div class="steps"><span class="{{ins.s1}}">1 Choose</span><span>›</span><span class="{{ins.s2}}">2 Preview</span><span>›</span><span class="{{ins.s3}}">3 Installed</span></div>
               <h3>Install <span class="mono">{{ins.kit}}</span></h3>
               <div class="src">Into <span class="mono">{{ins.folderPath}}</span> from <span class="mono">{{sourceLabel}}</span></div>
+              <sc-if value="{{ins.hasSrcFail}}" hint-placeholder-val="{{false}}">
+                <div class="errbox"><svg class="ci ei" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg><span><strong>{{ins.srcTitle}}</strong> {{ins.srcBody}}</span></div>
+                <p class="note">Nothing was downloaded or run.</p>
+                <div class="row"><sc-for list="{{ins.srcActions}}" as="a" hint-placeholder-count="2"><button class="{{a.cls}} small" onClick="{{a.run}}">{{a.label}}</button></sc-for></div>
+              </sc-if>
 
               <sc-if value="{{ins.choosing}}" hint-placeholder-val="{{true}}">
                 <div class="field">
@@ -418,6 +470,27 @@ select.input{padding:0 4px}
             </div>
             </div>
           </sc-if>
+          <sc-if value="{{updOpen}}" hint-placeholder-val="{{false}}">
+            <div class="vpane focus">
+            <div class="pane-h">
+              <span class="tw" aria-hidden="true"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.14598 5.85423L7.64598 10.3542C7.84098 10.5492 8.15798 10.5492 8.35298 10.3542L12.853 5.85423C13.048 5.65923 13.048 5.34223 12.853 5.14723C12.658 4.95223 12.341 4.95223 12.146 5.14723L7.99998 9.29323L3.85398 5.14723C3.65898 4.95223 3.34198 4.95223 3.14698 5.14723C2.95198 5.34223 2.95098 5.65923 3.14598 5.85423Z"></path></svg></span>
+              <span class="grow">UPDATE KITS</span>
+              <button class="icon-btn sm" aria-label="Close the update result" title="Close" onClick="{{upd.finish}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.70701 8.00001L12.353 4.35401C12.548 4.15901 12.548 3.84201 12.353 3.64701C12.158 3.45201 11.841 3.45201 11.646 3.64701L8.00001 7.29301L4.35401 3.64701C4.15901 3.45201 3.84201 3.45201 3.64701 3.64701C3.45201 3.84201 3.45201 4.15901 3.64701 4.35401L7.29301 8.00001L3.64701 11.646C3.45201 11.841 3.45201 12.158 3.64701 12.353C3.74501 12.451 3.87301 12.499 4.00101 12.499C4.12901 12.499 4.25701 12.45 4.35501 12.353L8.00101 8.70701L11.647 12.353C11.745 12.451 11.873 12.499 12.001 12.499C12.129 12.499 12.257 12.45 12.355 12.353C12.55 12.158 12.55 11.841 12.355 11.646L8.70901 8.00001H8.70701Z"></path></svg></button>
+            </div>
+            <div class="ip" aria-live="polite">
+              <h3>Updated kits in <span class="mono">{{upd.folder}}</span></h3>
+              <div class="src">From <span class="mono">{{sourceLabel}}</span></div>
+              <pre>{{upd.cmd}}</pre>
+              <span class="donel"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.6572 3.13573C13.8583 2.9465 14.175 2.95614 14.3643 3.15722C14.5535 3.35831 14.5438 3.675 14.3428 3.86425L5.84277 11.8642C5.64597 12.0494 5.33756 12.0446 5.14648 11.8535L1.64648 8.35351C1.45121 8.15824 1.45121 7.84174 1.64648 7.64647C1.84174 7.45121 2.15825 7.45121 2.35351 7.64647L5.50976 10.8027L13.6572 3.13573Z"></path></svg>{{upd.doneText}}</span>
+              <sc-for list="{{upd.kits}}" as="kt" hint-placeholder-count="3">
+                <div class="lh"><span class="mono">{{kt.kit}}</span><span class="muted">{{kt.summary}}</span></div>
+                <sc-if value="{{kt.hasFiles}}" hint-placeholder-val="{{false}}"><ul class="flist"><sc-for list="{{kt.files}}" as="f" hint-placeholder-count="2"><li class="{{f.cls}}" title="{{f.p}}">{{f.mk}} {{f.p}}</li></sc-for></ul></sc-if>
+              </sc-for>
+              <p class="note">{{upd.hashText}}</p>
+              <div class="row"><button class="btn small" onClick="{{upd.finish}}">Done</button><button class="btn2 small" onClick="{{upd.showLog}}">Show log</button></div>
+            </div>
+            </div>
+          </sc-if>
           <sc-for list="{{fpanes}}" as="p" hint-placeholder-count="3">
             <div class="fpane">
               <div class="pane-h">
@@ -471,15 +544,27 @@ select.input{padding:0 4px}
       </aside>
       <section class="editor">
         <div class="tabs" role="tablist">
-          <div class="tab active" role="tab" aria-selected="true">
+          <button class="tab {{editorTabCls}}" role="tab" aria-selected="{{editorTab}}" onClick="{{showEditorTab}}">
             <svg class="ic" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"></circle><circle cx="12" cy="4" r="1.75"></circle><circle cx="18.25" cy="7.01" r="1.75"></circle><circle cx="19.8" cy="13.78" r="1.75"></circle><circle cx="15.47" cy="19.21" r="1.75"></circle><circle cx="8.53" cy="19.21" r="1.75"></circle><circle cx="4.2" cy="13.78" r="1.75"></circle><circle cx="5.75" cy="7.01" r="1.75"></circle></svg>
             <span>{{tabTitle}}</span>
-          </div>
-          <div class="tab" role="tab" aria-selected="false">
+          </button>
+          <button class="tab {{tomlTabCls}}" role="tab" aria-selected="{{tomlTab}}" onClick="{{showTomlTab}}">
             <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5 1C3.89543 1 3 1.89543 3 3V13C3 14.1046 3.89543 15 5 15H11C12.1046 15 13 14.1046 13 13V5.41421C13 5.01639 12.842 4.63486 12.5607 4.35355L9.64645 1.43934C9.36514 1.15804 8.98361 1 8.58579 1H5ZM4 3C4 2.44772 4.44772 2 5 2H8V4.5C8 5.32843 8.67157 6 9.5 6H12V13C12 13.5523 11.5523 14 11 14H5C4.44772 14 4 13.5523 4 13V3ZM11.7929 5H9.5C9.22386 5 9 4.77614 9 4.5V2.20711L11.7929 5Z"></path></svg>
             <span>reviewers.toml</span>
-          </div>
+          </button>
+          <sc-if value="{{tomlTab}}" hint-placeholder-val="{{false}}">
+            <div class="tact">
+              <button class="icon-btn sm" aria-label="Open in Conclave Reviewers" title="Open in Conclave Reviewers" onClick="{{showEditorTab}}"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"></circle><circle cx="12" cy="4" r="1.75"></circle><circle cx="18.25" cy="7.01" r="1.75"></circle><circle cx="19.8" cy="13.78" r="1.75"></circle><circle cx="15.47" cy="19.21" r="1.75"></circle><circle cx="8.53" cy="19.21" r="1.75"></circle><circle cx="4.2" cy="13.78" r="1.75"></circle><circle cx="5.75" cy="7.01" r="1.75"></circle></svg></button>
+              <button class="icon-btn sm" aria-label="More Actions..." title="More Actions..."><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5 8C5 8.55229 4.55228 9 4 9C3.44772 9 3 8.55229 3 8C3 7.44772 3.44772 7 4 7C4.55228 7 5 7.44772 5 8ZM9 8C9 8.55229 8.55229 9 8 9C7.44772 9 7 8.55229 7 8C7 7.44772 7.44772 7 8 7C8.55229 7 9 7.44772 9 8ZM12 9C12.5523 9 13 8.55229 13 8C13 7.44772 12.5523 7 12 7C11.4477 7 11 7.44772 11 8C11 8.55229 11.4477 9 12 9Z"></path></svg></button>
+            </div>
+          </sc-if>
         </div>
+        <sc-if value="{{tomlTab}}" hint-placeholder-val="{{false}}">
+          <div class="texted" aria-label=".conclave/reviewers.toml">
+            <sc-for list="{{tomlLines}}" as="l" hint-placeholder-count="20"><div class="ln {{l.cls}}"><span class="gut">{{l.no}}</span><span>{{l.text}}</span></div></sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{editorTab}}" hint-placeholder-val="{{true}}">
         <div class="webview">
           <sc-if value="{{isEditor}}" hint-placeholder-val="{{true}}">
             <div class="wv-head">
@@ -833,14 +918,8 @@ select.input{padding:0 4px}
             </div>
           </sc-if>
 
-          <sc-if value="{{hasToast}}" hint-placeholder-val="{{false}}">
-            <div class="toast" role="status">
-              <svg class="ci ok" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.49902 7.49998C8.49902 7.22384 8.27517 6.99998 7.99902 6.99998C7.72288 6.99998 7.49902 7.22384 7.49902 7.49998V10.5C7.49902 10.7761 7.72288 11 7.99902 11C8.27517 11 8.49902 10.7761 8.49902 10.5V7.49998ZM8.74807 5.50001C8.74807 5.91369 8.41271 6.24905 7.99903 6.24905C7.58535 6.24905 7.25 5.91369 7.25 5.50001C7.25 5.08633 7.58535 4.75098 7.99903 4.75098C8.41271 4.75098 8.74807 5.08633 8.74807 5.50001ZM8 1C4.13401 1 1 4.13401 1 8C1 11.866 4.13401 15 8 15C11.866 15 15 11.866 15 8C15 4.13401 11.866 1 8 1ZM2 8C2 4.68629 4.68629 2 8 2C11.3137 2 14 4.68629 14 8C14 11.3137 11.3137 14 8 14C4.68629 14 2 11.3137 2 8Z"></path></svg>
-              <span class="grow">{{toast}}</span>
-              <button class="icon-btn sm" aria-label="Clear notification" title="Clear Notification" onClick="{{clearToast}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.70701 8.00001L12.353 4.35401C12.548 4.15901 12.548 3.84201 12.353 3.64701C12.158 3.45201 11.841 3.45201 11.646 3.64701L8.00001 7.29301L4.35401 3.64701C4.15901 3.45201 3.84201 3.45201 3.64701 3.64701C3.45201 3.84201 3.45201 4.15901 3.64701 4.35401L7.29301 8.00001L3.64701 11.646C3.45201 11.841 3.45201 12.158 3.64701 12.353C3.74501 12.451 3.87301 12.499 4.00101 12.499C4.12901 12.499 4.25701 12.45 4.35501 12.353L8.00101 8.70701L11.647 12.353C11.745 12.451 11.873 12.499 12.001 12.499C12.129 12.499 12.257 12.45 12.355 12.353C12.55 12.158 12.55 11.841 12.355 11.646L8.70901 8.00001H8.70701Z"></path></svg></button>
-            </div>
-          </sc-if>
         </div>
+        </sc-if>
       </section>
     </div>
     <footer class="statusbar">
@@ -849,16 +928,81 @@ select.input{padding:0 4px}
         <span class="it">{{statusProblems}}</span>
       </div>
       <div class="grp">
-        <span class="it">{{statusState}}</span>
+        <button class="sbtn" title="{{statusTitle}}" onClick="{{statusOpen}}">
+          <sc-if value="{{statusOk}}" hint-placeholder-val="{{true}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M10.6484 5.64648C10.8434 5.45148 11.1605 5.45148 11.3555 5.64648C11.5498 5.84137 11.5499 6.15766 11.3555 6.35254L7.35547 10.3525C7.25747 10.4495 7.12898 10.499 7.00098 10.499C6.87299 10.499 6.74545 10.4505 6.64746 10.3525L4.64746 8.35254C4.45247 8.15754 4.45248 7.84148 4.64746 7.64648C4.84246 7.45148 5.15949 7.45148 5.35449 7.64648L7 9.29199L10.6465 5.64648H10.6484Z"></path><path fill-rule="evenodd" clip-rule="evenodd" d="M8 1C11.86 1 15 4.14 15 8C15 11.86 11.86 15 8 15C4.14 15 1 11.86 1 8C1 4.14 4.14 1 8 1ZM8 2C4.691 2 2 4.691 2 8C2 11.309 4.691 14 8 14C11.309 14 14 11.309 14 8C14 4.691 11.309 2 8 2Z"></path></svg></sc-if>
+          <sc-if value="{{statusBad}}" hint-placeholder-val="{{false}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg></sc-if>
+          <sc-if value="{{statusWarn}}" hint-placeholder-val="{{false}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M14.831 11.965L9.206 1.714C8.965 1.274 8.503 1 8 1C7.497 1 7.035 1.274 6.794 1.714L1.169 11.965C1.059 12.167 1 12.395 1 12.625C1 13.383 1.617 14 2.375 14H13.625C14.383 14 15 13.383 15 12.625C15 12.395 14.941 12.167 14.831 11.965ZM13.625 13H2.375C2.168 13 2 12.832 2 12.625C2 12.561 2.016 12.5 2.046 12.445L7.671 2.195C7.736 2.075 7.863 2 8 2C8.137 2 8.264 2.075 8.329 2.195L13.954 12.445C13.984 12.501 14 12.561 14 12.625C14 12.832 13.832 13 13.625 13ZM8.75 11.25C8.75 11.664 8.414 12 8 12C7.586 12 7.25 11.664 7.25 11.25C7.25 10.836 7.586 10.5 8 10.5C8.414 10.5 8.75 10.836 8.75 11.25ZM7.5 9V5.5C7.5 5.224 7.724 5 8 5C8.276 5 8.5 5.224 8.5 5.5V9C8.5 9.276 8.276 9.5 8 9.5C7.724 9.5 7.5 9.276 7.5 9Z"></path></svg></sc-if>
+          <span>{{statusState}}</span>
+        </button>
         <span class="it">{{statusPython}}</span>
         <span class="it">UTF-8</span>
         <span class="it">LF</span>
       </div>
     </footer>
+    <sc-if value="{{hasToast}}" hint-placeholder-val="{{false}}">
+      <div class="toast" role="status">
+        <svg class="ci ok" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.49902 7.49998C8.49902 7.22384 8.27517 6.99998 7.99902 6.99998C7.72288 6.99998 7.49902 7.22384 7.49902 7.49998V10.5C7.49902 10.7761 7.72288 11 7.99902 11C8.27517 11 8.49902 10.7761 8.49902 10.5V7.49998ZM8.74807 5.50001C8.74807 5.91369 8.41271 6.24905 7.99903 6.24905C7.58535 6.24905 7.25 5.91369 7.25 5.50001C7.25 5.08633 7.58535 4.75098 7.99903 4.75098C8.41271 4.75098 8.74807 5.08633 8.74807 5.50001ZM8 1C4.13401 1 1 4.13401 1 8C1 11.866 4.13401 15 8 15C11.866 15 15 11.866 15 8C15 4.13401 11.866 1 8 1ZM2 8C2 4.68629 4.68629 2 8 2C11.3137 2 14 4.68629 14 8C14 11.3137 11.3137 14 8 14C4.68629 14 2 11.3137 2 8Z"></path></svg>
+        <div class="tbody">
+          <span>{{toast}}</span>
+          <sc-if value="{{hasToastActs}}" hint-placeholder-val="{{false}}">
+            <div class="tacts"><sc-for list="{{toastActs}}" as="a" hint-placeholder-count="2"><button class="btn small" onClick="{{a.run}}">{{a.label}}</button></sc-for></div>
+          </sc-if>
+        </div>
+        <button class="icon-btn sm" aria-label="Clear notification" title="Clear Notification" onClick="{{clearToast}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.70701 8.00001L12.353 4.35401C12.548 4.15901 12.548 3.84201 12.353 3.64701C12.158 3.45201 11.841 3.45201 11.646 3.64701L8.00001 7.29301L4.35401 3.64701C4.15901 3.45201 3.84201 3.45201 3.64701 3.64701C3.45201 3.84201 3.45201 4.15901 3.64701 4.35401L7.29301 8.00001L3.64701 11.646C3.45201 11.841 3.45201 12.158 3.64701 12.353C3.74501 12.451 3.87301 12.499 4.00101 12.499C4.12901 12.499 4.25701 12.45 4.35501 12.353L8.00101 8.70701L11.647 12.353C11.745 12.451 11.873 12.499 12.001 12.499C12.129 12.499 12.257 12.45 12.355 12.353C12.55 12.158 12.55 11.841 12.355 11.646L8.70901 8.00001H8.70701Z"></path></svg></button>
+      </div>
+    </sc-if>
+    <sc-if value="{{qi.open}}" hint-placeholder-val="{{false}}">
+      <div class="scrim" onClick="{{qi.close}}"></div>
+      <div class="qi" role="dialog" aria-label="{{qi.label}}">
+        <sc-if value="{{qi.hasTitle}}" hint-placeholder-val="{{true}}">
+          <div class="qt">
+            <sc-if value="{{qi.hasBack}}" hint-placeholder-val="{{false}}"><button class="icon-btn sm" aria-label="Back" title="Back" onClick="{{qi.back}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 8.00023H3.70701L7.85301 3.85423C8.04801 3.65923 8.04801 3.34223 7.85301 3.14723C7.65801 2.95223 7.34101 2.95223 7.14601 3.14723L2.14601 8.14723C1.95101 8.34223 1.95101 8.65923 2.14601 8.85423L7.14601 13.8542C7.24401 13.9522 7.37201 14.0002 7.50001 14.0002C7.62801 14.0002 7.75601 13.9512 7.85401 13.8542C8.04901 13.6592 8.04901 13.3422 7.85401 13.1472L3.70801 9.00123H13.501C13.777 9.00123 14.001 8.77723 14.001 8.50123C14.001 8.22523 13.777 8.00123 13.501 8.00123L13.5 8.00023Z"></path></svg></button></sc-if>
+            <span class="grow">{{qi.title}}</span>
+            <sc-if value="{{qi.hasBrowse}}" hint-placeholder-val="{{false}}"><button class="icon-btn sm" aria-label="Browse..." title="Browse..." onClick="{{qi.browse}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2 4.5V6H5.58579C5.71839 6 5.84557 5.94732 5.93934 5.85355L7.29289 4.5L5.93934 3.14645C5.84557 3.05268 5.71839 3 5.58579 3H3.5C2.67157 3 2 3.67157 2 4.5ZM1 4.5C1 3.11929 2.11929 2 3.5 2H5.58579C5.98361 2 6.36514 2.15804 6.64645 2.43934L8.20711 4H12.5C13.8807 4 15 5.11929 15 6.5V11.5C15 12.8807 13.8807 14 12.5 14H3.5C2.11929 14 1 12.8807 1 11.5V4.5ZM2 7V11.5C2 12.3284 2.67157 13 3.5 13H12.5C13.3284 13 14 12.3284 14 11.5V6.5C14 5.67157 13.3284 5 12.5 5H8.20711L6.64645 6.56066C6.36514 6.84197 5.98361 7 5.58579 7H2Z"></path></svg></button></sc-if>
+          </div>
+        </sc-if>
+        <div class="qin">
+          <sc-if value="{{qi.isMulti}}" hint-placeholder-val="{{false}}"><button class="qchk {{qi.allCls}}" aria-label="Toggle all checkboxes" title="Toggle all checkboxes" onClick="{{qi.toggleAll}}"><svg class="ci" width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.6572 3.13573C13.8583 2.9465 14.175 2.95614 14.3643 3.15722C14.5535 3.35831 14.5438 3.675 14.3428 3.86425L5.84277 11.8642C5.64597 12.0494 5.33756 12.0446 5.14648 11.8535L1.64648 8.35351C1.45121 8.15824 1.45121 7.84174 1.64648 7.64647C1.84174 7.45121 2.15825 7.45121 2.35351 7.64647L5.50976 10.8027L13.6572 3.13573Z"></path></svg></button></sc-if>
+          <input class="input" aria-label="{{qi.label}}" placeholder="{{qi.placeholder}}" value="{{qi.value}}" onChange="{{qi.onInput}}" onKeyDown="{{qi.onKey}}">
+          <sc-if value="{{qi.isMulti}}" hint-placeholder-val="{{false}}"><span class="muted" style="white-space: nowrap">{{qi.countText}}</span></sc-if>
+          <sc-if value="{{qi.hasOk}}" hint-placeholder-val="{{false}}"><button class="btn small" onClick="{{qi.ok}}">OK</button></sc-if>
+        </div>
+        <sc-if value="{{qi.hasMsg}}" hint-placeholder-val="{{false}}"><div class="qmsg">{{qi.msg}}</div></sc-if>
+        <ul role="listbox" aria-label="{{qi.label}}">
+          <sc-for list="{{qi.items}}" as="it" hint-placeholder-count="4">
+            <li><button class="{{it.cls}}" role="option" aria-selected="{{it.sel}}" onClick="{{it.run}}">
+              <sc-if value="{{qi.isMulti}}" hint-placeholder-val="{{false}}"><span class="qchk {{it.chk}}" aria-hidden="true"><svg class="ci" width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.6572 3.13573C13.8583 2.9465 14.175 2.95614 14.3643 3.15722C14.5535 3.35831 14.5438 3.675 14.3428 3.86425L5.84277 11.8642C5.64597 12.0494 5.33756 12.0446 5.14648 11.8535L1.64648 8.35351C1.45121 8.15824 1.45121 7.84174 1.64648 7.64647C1.84174 7.45121 2.15825 7.45121 2.35351 7.64647L5.50976 10.8027L13.6572 3.13573Z"></path></svg></span></sc-if>
+              <span class="ql">{{it.label}}</span><span class="qd">{{it.desc}}</span>
+            </button></li>
+          </sc-for>
+        </ul>
+      </div>
+    </sc-if>
+    <sc-if value="{{cm.open}}" hint-placeholder-val="{{false}}">
+      <div class="scrim" onClick="{{cm.close}}"></div>
+      <div class="cmenu" role="menu" aria-label="Explorer context menu" style="left: {{cm.x}}px; top: {{cm.y}}px">
+        <sc-for list="{{cm.items}}" as="it" hint-placeholder-count="6">
+          <sc-if value="{{it.sep}}" hint-placeholder-val="{{false}}"><hr></sc-if>
+          <sc-if value="{{it.item}}" hint-placeholder-val="{{true}}"><button role="menuitem" class="{{it.cls}}" onClick="{{it.run}}"><span>{{it.label}}</span><span class="kb">{{it.kb}}</span></button></sc-if>
+        </sc-for>
+      </div>
+    </sc-if>
+    <sc-if value="{{dlg.open}}" hint-placeholder-val="{{false}}">
+      <div class="dscrim">
+        <div class="dlg" role="alertdialog" aria-label="{{dlg.message}}">
+          <svg class="ci dic" width="32" height="32" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.49902 7.49998C8.49902 7.22384 8.27517 6.99998 7.99902 6.99998C7.72288 6.99998 7.49902 7.22384 7.49902 7.49998V10.5C7.49902 10.7761 7.72288 11 7.99902 11C8.27517 11 8.49902 10.7761 8.49902 10.5V7.49998ZM8.74807 5.50001C8.74807 5.91369 8.41271 6.24905 7.99903 6.24905C7.58535 6.24905 7.25 5.91369 7.25 5.50001C7.25 5.08633 7.58535 4.75098 7.99903 4.75098C8.41271 4.75098 8.74807 5.08633 8.74807 5.50001ZM8 1C4.13401 1 1 4.13401 1 8C1 11.866 4.13401 15 8 15C11.866 15 15 11.866 15 8C15 4.13401 11.866 1 8 1ZM2 8C2 4.68629 4.68629 2 8 2C11.3137 2 14 4.68629 14 8C14 11.3137 11.3137 14 8 14C4.68629 14 2 11.3137 2 8Z"></path></svg>
+          <div style="flex: 1; min-width: 0">
+            <h2>{{dlg.message}}</h2>
+            <sc-for list="{{dlg.detail}}" as="p" hint-placeholder-count="3"><p>{{p.t}}</p></sc-for>
+            <div class="row"><sc-for list="{{dlg.buttons}}" as="b" hint-placeholder-count="2"><button class="{{b.cls}}" onClick="{{b.run}}">{{b.label}}</button></sc-for></div>
+          </div>
+        </div>
+      </div>
+    </sc-if>
   </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"scenario":{"editor":"enum","options":["ready","agy-missing","stale","err-bad-name","err-unknown-key","err-bad-cli","err-bad-model","err-agy-effort","err-bad-effort","err-no-reviewers","err-route-writer","err-empty-route","err-undefined-reviewer","err-duplicate-reviewer","refused-schema","refused-unparsable","unsupported-schema","no-pin","no-dispatcher","old-dispatcher","no-python","untrusted"],"default":"ready"},"sidebar":{"editor":"enum","options":["explorer","kits","kits-health","sections","install-todo","install-todo-done","install-wordpress","install-laravel"],"default":"explorer"},"workspace":{"editor":"enum","options":["single","multi"],"default":"single"},"$preview":{"width":1440,"height":1060}}'>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"scenario":{"editor":"enum","options":["ready","agy-missing","stale","err-bad-name","err-unknown-key","err-bad-cli","err-bad-model","err-agy-effort","err-bad-effort","err-no-reviewers","err-route-writer","err-empty-route","err-undefined-reviewer","err-duplicate-reviewer","refused-schema","refused-unparsable","unsupported-schema","no-pin","no-dispatcher","old-dispatcher","no-python","untrusted"],"default":"ready"},"sidebar":{"editor":"enum","options":["explorer","kits","kits-health","sections","update-done","install-todo","install-todo-done","install-wordpress","install-laravel"],"default":"explorer"},"workspace":{"editor":"enum","options":["single","multi"],"default":"single"},"overlay":{"editor":"enum","options":["none","palette","context-menu","update-pick","update-confirm","repo-kits","repo-confirm","sync-confirm"],"default":"none"},"$preview":{"width":1440,"height":1060}}'>
 // Mockup only. The extension never validates the pin itself: it runs the workspace's own
 // scripts/review-dispatch.py --check-pin --json. The validate() below imitates load_pin so the
 // mockup can show the dispatcher's exact messages; it is not a design for the product.
@@ -951,6 +1095,25 @@ const ROUND_RECORDS = [
     { n: 1, who: 'gemini (gemini-4-argon-high via agy)', writer: 'codex', run: '2026-10-09T11:05:18Z', skipped: [] }
   ] }
 ];
+// R24: what the SDK source refuses, and the way out. Nothing is downloaded or run in any of them.
+const BAD_SDK_PATH = 'R:\\GitHub\\conclave-sdk-old';
+const SRC_FAIL = {
+  'src-signin': { src: 'ref', title: 'GitHub sign-in was cancelled.', body: 'conclave.sdkRef is set, so forge.py comes from rizonetech/Conclave-SDK, which needs a GitHub account in the rizonetech organization (repo scope).', actions: [['Sign in to GitHub', 'btn', 'signin'], ['Use the bundled SDK', 'btn2', 'bundled']] },
+  'src-no-access': { src: 'ref', title: 'GitHub returned 404 for rizonetech/Conclave-SDK.', body: 'The signed-in GitHub account cannot read it. The repository is internal to the rizonetech organization: ask an organization owner for access, or sign in with a member account.', actions: [['Sign in with another account', 'btn', 'other'], ['Use the bundled SDK', 'btn2', 'bundled']] },
+  'src-rate-limit': { src: 'ref', title: 'The GitHub API rate limit is used up until 18:42.', body: 'Resolving conclave.sdkRef (main) to a commit calls the GitHub API.', actions: [['Retry', 'btn', 'retry'], ['Use the bundled SDK', 'btn2', 'bundled']] },
+  'src-offline': { src: 'ref', title: 'Could not reach api.github.com.', body: 'Resolving conclave.sdkRef (main) to a commit needs the network. Commits downloaded earlier stay cached, but a branch name is resolved online every time.', actions: [['Retry', 'btn', 'retry'], ['Use the bundled SDK', 'btn2', 'bundled']] },
+  'src-bad-path': { src: 'path', title: 'conclave.sdkPath is not a Conclave-SDK checkout.', body: BAD_SDK_PATH + ' has no forge.py. The setting must point at a folder that holds forge.py and kits/.', actions: [['Open Settings', 'btn', 'settings'], ['Use the bundled SDK', 'btn2', 'bundled']] }
+};
+// Example data for R29: the files of orchard-web that differ from the SDK's copy, by kit. Missing kit files
+// come from forge's own dry run; forge sync writes only what is missing or different.
+const UPDATE_STALE = { web: { todo: ['.agents/skills/process-todo-section/SKILL.md', '.claude/skills/process-todo-section/SKILL.md', '.codex/skills/process-todo-section/SKILL.md'] } };
+const UPDATE_STALE_SCRIPTS = { web: { todo: ['scripts/todo-graph.py'] } };
+const SYNC_SCOPE = 'It never changes an existing AGENTS.md, GEMINI.md, CLAUDE.md, CODEX.md, docs/, todo/ or .conclave/reviewers.toml, and Conclave checks that by hash afterwards.';
+// R31: the new repository wizard's choices, as forge.py init takes them (copy is an alias of isolated).
+const REPO_KITS = [['todo', 'TODO plan and process skills, scripts/todo-graph.py'], ['reviewer', 'Independent review: the reviewer pin and scripts/review-dispatch.py'], ['laravel', 'Laravel Boost and LSP checks; needs an existing Laravel app'], ['wordpress', 'WordPress site tooling for Pressable or WordPress.com']];
+const REPO_AGENTS = [['all', 'Every agent: .agents, .claude and .codex'], ['agy', 'Antigravity'], ['gemini', 'Gemini, the same files as agy'], ['claude', 'Claude Code'], ['codex', 'OpenAI Codex']];
+const REPO_MODES = [['isolated', 'Default: the kits are copied in, the repository is self-contained'], ['hybrid', 'Copied in, plus .agents/skills.json pointing at the kits'], ['inherit', 'Antigravity manifests only, no copied skills']];
+const REPO_DEFAULT = { folder: 'R:\\GitHub\\orchard-docs', kits: { todo: true, reviewer: true, laravel: false, wordpress: false }, agent: 'all', mode: 'isolated', host: 'pressable' };
 const CLI_PATH = { codex: 'C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.CMD', agy: 'C:\\Users\\dev\\AppData\\Local\\Programs\\Antigravity\\bin\\agy.CMD', claude: 'C:\\Users\\dev\\.local\\bin\\claude.EXE' };
 
 // Paths sort the way pathlib sorts them on Windows: part by part, ignoring case.
@@ -1061,7 +1224,12 @@ const SCENARIOS = [
   ['no-dispatcher', 'No scripts/review-dispatch.py'],
   ['old-dispatcher', 'Dispatcher without --check-pin'],
   ['no-python', 'No Python 3.11 or later'],
-  ['untrusted', 'Workspace not trusted']
+  ['untrusted', 'Workspace not trusted'],
+  ['src-signin', 'SDK source: GitHub sign-in cancelled'],
+  ['src-no-access', 'SDK source: no access to the repository'],
+  ['src-rate-limit', 'SDK source: GitHub rate limit'],
+  ['src-offline', 'SDK source: offline'],
+  ['src-bad-path', 'SDK source: conclave.sdkPath unusable']
 ];
 
 function clone(x) { return JSON.parse(JSON.stringify(x)); }
@@ -1167,6 +1335,7 @@ function scenarioBase(id) {
   if (id === 'refused-schema') { m.schema = 2; env.screen = 'refused'; env.refused = { msg: 'the reviewer pin needs exactly schema_version = 1, [reviewers.*] and [routes]', line: 11, text: null }; }
   if (id === 'refused-unparsable') { env.screen = 'refused'; env.refused = { msg: "unreadable reviewer pin: Expected '=' after a key in a key/value pair (at line 17, column 8)", line: 17, text: 'effort "medium"' }; }
   if (['unsupported-schema', 'no-pin', 'no-dispatcher', 'old-dispatcher', 'no-python', 'untrusted'].indexOf(id) >= 0) env.screen = id;
+  if (SRC_FAIL[id]) env.srcFail = id;
   return { model: m, env: env };
 }
 
@@ -1185,7 +1354,8 @@ class Component extends DCLogic {
       stale: b.env.stale, staleKept: false, screen: b.env.screen,
       renaming: null, renameDraft: '', renameErr: '', confirmDelete: null,
       adding: false, draft: { name: '', cli: 'claude', model: '', effort: 'high' }, addErr: '',
-      test: null, view: 'preview', confirmDiscard: false, toast: ''
+      test: null, view: 'preview', confirmDiscard: false, toast: '', toastActs: [],
+      sync: this.props.overlay === 'sync-confirm' ? 'confirm' : null, syncRes: null
     };
   }
   e() { const s = this.state && this.state.e; return s && s.for === this.scen() ? s : this.fresh(); }
@@ -1194,9 +1364,11 @@ class Component extends DCLogic {
   toastPatch(msg) {
     clearTimeout(this._toastT);
     this._toastT = setTimeout(() => { if (this.e().toast === msg) this.upd({ toast: '' }); }, 3200);
-    return { toast: msg };
+    return { toast: msg, toastActs: [] };
   }
   flash(msg) { this.upd(this.toastPatch(msg)); }
+  // A notification with buttons stays until it is answered or cleared, as VS Code's do.
+  notify(msg, acts) { clearTimeout(this._toastT); this.upd({ toast: msg, toastActs: acts }); }
   componentWillUnmount() { clearTimeout(this._toastT); clearTimeout(this._testT); clearTimeout(this._installT); }
 
   setCli(id, v) {
@@ -1262,8 +1434,81 @@ class Component extends DCLogic {
     }, 2400);
   }
 
-  side() { return (this.state && this.state.side) || ((this.props.sidebar || 'explorer') === 'explorer' ? 'explorer' : 'conclave'); }
-  srcKey() { return (this.state && this.state.src) || 'bundled'; }
+  side() { return (this.state && this.state.side) || (this.base().env.srcFail || (this.props.sidebar || 'explorer') !== 'explorer' ? 'conclave' : 'explorer'); }
+  srcKey() { const f = this.base().env.srcFail; return (this.state && this.state.src) || (f ? SRC_FAIL[f].src : 'bundled'); }
+  srcLabel() { const key = this.srcKey(); return key === 'path' && this.base().env.srcFail === 'src-bad-path' ? BAD_SDK_PATH : SOURCES[key]; }
+  srcFailNow() { const f = this.base().env.srcFail; return f && this.srcKey() === SRC_FAIL[f].src ? SRC_FAIL[f] : null; }
+  srcActions(fail) {
+    const self = this;
+    const run = {
+      signin: function () { self.flash('Opens the GitHub sign-in with the repo scope, then resolves conclave.sdkRef again.'); },
+      other: function () { self.flash('Asks GitHub for another account, then resolves conclave.sdkRef again.'); },
+      retry: function () { self.flash('Tried again: GitHub gives the same answer.'); },
+      settings: function () { self.flash('Opens Settings at conclave.sdkPath.'); },
+      bundled: function () { self.setState({ src: 'bundled' }); self.flash('Removed conclave.' + (fail.src === 'path' ? 'sdkPath' : 'sdkRef') + ' from this workspace: forge.py now comes from the bundled SDK.'); }
+    };
+    return fail.actions.map(function (a) { return { label: a[0], cls: a[1], run: run[a[2]] }; });
+  }
+  ov() {
+    if (this.state && this.state.ov !== undefined) return this.state.ov;
+    const o = this.props.overlay || 'none';
+    if (o === 'palette') return { kind: 'palette' };
+    if (o === 'context-menu') return { kind: 'menu' };
+    if (o === 'update-pick') return { kind: 'update-pick' };
+    if (o === 'update-confirm') return { kind: 'update-confirm', scripts: true };
+    if (o === 'repo-kits') return Object.assign(clone(REPO_DEFAULT), { kind: 'repo', step: 2 });
+    if (o === 'repo-confirm') return Object.assign(clone(REPO_DEFAULT), { kind: 'repo-confirm' });
+    return null;
+  }
+  setOv(v) { this.setState({ ov: v }); }
+  tab() { return (this.state && this.state.tab) || (this.props.overlay === 'context-menu' ? 'toml' : 'editor'); }
+  // forge.py sync for one folder: kit files that are missing are added, files that differ are updated.
+  syncResult(k, folderId, scripts) {
+    const self = this;
+    const f = FOLDERS.find(function (x) { return x.id === folderId; });
+    const has = this.hasMap(k, folderId);
+    const host = k.hosts[folderId] || 'pressable';
+    const fresh = !!(k.synced && k.synced[folderId]);
+    const stale = fresh ? {} : (UPDATE_STALE[folderId] || {});
+    const staleScripts = fresh ? {} : clone(UPDATE_STALE_SCRIPTS[folderId] || {});
+    if (!fresh && folderId === 'web' && this.base().env.screen === 'old-dispatcher') staleScripts.reviewer = (staleScripts.reviewer || []).concat(['scripts/review-dispatch.py']);
+    const kits = KITS.filter(function (kit) { return self.kitInfo(k, f, kit).state !== 'none'; }).map(function (kit) {
+      const r = kit === 'base' ? null : dryRun(f, has, kit, 'all', host);
+      const installed = r && !r.error ? r.add.filter(function (p) { return p !== '.mcp.json'; }) : [];
+      const updated = (stale[kit] || []).concat(scripts ? (staleScripts[kit] || []) : []);
+      return { kit: kit, installed: sortPaths(installed), updated: sortPaths(updated) };
+    });
+    return { folder: folderId, scripts: scripts, kits: kits, argv: 'python forge.py sync ' + f.path + (scripts ? ' --include-scripts' : '') };
+  }
+  applySync(k, res) {
+    const added = Object.assign({}, k.added);
+    added[res.folder] = (added[res.folder] || []).concat([].concat.apply([], res.kits.map(function (x) { return x.installed; })));
+    const synced = Object.assign({}, k.synced || {});
+    synced[res.folder] = true;
+    return { added: added, synced: synced };
+  }
+  syncText(res) {
+    const n = function (a, w) { return a + (a === 1 ? ' file ' : ' files ') + w; };
+    const added = res.kits.reduce(function (t, x) { return t + x.installed.length; }, 0);
+    const updated = res.kits.reduce(function (t, x) { return t + x.updated.length; }, 0);
+    const touched = [].concat.apply([], res.kits.map(function (x) { return x.installed; })).filter(function (p) { return PROTECTED.some(function (x) { return x.charAt(x.length - 1) === '/' ? p.indexOf(x) === 0 : p === x; }); });
+    return {
+      done: added + updated === 0 ? 'Nothing to do: every kit file matches the SDK.' : n(added, 'added') + ', ' + n(updated, 'updated') + '.',
+      hash: 'Checked by hash: ' + PROTECTED.join(', ') + ' are unchanged' + (touched.length ? ', apart from ' + joinList(touched) + ', which forge reported adding.' : '.')
+    };
+  }
+  runSync(scripts, then) {
+    const fail = this.srcFailNow();
+    const self = this;
+    if (fail) {
+      this.notify(fail.title + ' ' + fail.body, this.srcActions(fail).map(function (a) { return { label: a.label, run: function () { self.upd({ toast: '' }); a.run(); } }; }));
+      return null;
+    }
+    const k = this.ks();
+    const res = this.syncResult(k, k.cur, scripts);
+    this.kupd(Object.assign(this.applySync(k, res), then ? then(res) : {}));
+    return res;
+  }
   wsKey() { return (this.state && this.state.ws) || this.props.workspace || 'single'; }
   kitsFor() { return this.scen() + '|' + this.wsKey(); }
   // The Kits view's state: the current folder (the only one in a one-folder window; in a multi-root
@@ -1272,13 +1517,18 @@ class Component extends DCLogic {
   freshKits() {
     const pre = this.props.sidebar || 'explorer';
     const multi = this.wsKey() === 'multi';
-    const shut = pre.indexOf('install') === 0;
-    const k = { for: this.kitsFor(), cur: multi && pre === 'install-laravel' ? 'api' : 'web', added: { web: [], api: [] }, hosts: {}, open: {}, sel: null, ins: null, kitsOpen: true, panes: { reviewers: !shut, plan: !shut, rounds: !shut, site: !shut } };
+    const shut = pre.indexOf('install') === 0 || pre === 'update-done';
+    const k = { for: this.kitsFor(), cur: multi && pre === 'install-laravel' ? 'api' : 'web', added: { web: [], api: [] }, hosts: {}, open: {}, sel: null, ins: null, upd: null, synced: {}, kitsOpen: true, panes: { reviewers: !shut, plan: !shut, rounds: !shut, site: !shut } };
     const insFor = function (folder, kit, step) { return { folder: folder, kit: kit, step: step, agent: 'all', host: 'pressable', result: null }; };
     if (pre === 'kits-health') { k.open['web/reviewer'] = true; k.sel = 'web/reviewer'; }
     if (pre === 'install-todo') { k.ins = insFor('web', 'todo', 'preview'); k.sel = 'web/todo'; }
     if (pre === 'install-wordpress') { k.ins = insFor('web', 'wordpress', 'preview'); k.sel = 'web/wordpress'; }
     if (pre === 'install-laravel') { k.ins = insFor(k.cur, 'laravel', 'preview'); k.sel = k.cur + '/laravel'; }
+    if (this.base().env.srcFail) { k.ins = insFor(k.cur, 'todo', 'preview'); k.sel = k.cur + '/todo'; }
+    if (pre === 'update-done') {
+      const res = this.syncResult(k, k.cur, true);
+      Object.assign(k, this.applySync(k, res), { upd: res });
+    }
     if (pre === 'sections') {
       k.added.web = dryRun(FOLDERS[0], this.hasMap(k, 'web'), 'wordpress', 'all', 'pressable').add;
       k.hosts.web = 'pressable';
@@ -1448,6 +1698,81 @@ class Component extends DCLogic {
     return panes;
   }
 
+  // The native overlays: Command Palette and quick picks, the Explorer context menu, and modal dialogs.
+  overlays(k, cur, e) {
+    const self = this;
+    const o = this.ov();
+    const close = function () { self.setOv(null); };
+    const qi = { open: false, label: '', hasTitle: false, title: '', hasBack: false, back: close, hasBrowse: false, browse: function () {}, placeholder: '', value: '', onInput: function () {}, onKey: function () {}, isMulti: false, allCls: '', toggleAll: function () {}, countText: '', hasOk: false, ok: close, hasMsg: false, msg: '', items: [], close: close };
+    const cm = { open: false, x: 0, y: 0, items: [], close: close };
+    const dlg = { open: false, message: '', detail: [], buttons: [] };
+    if (!o) return { qi: qi, cm: cm, dlg: dlg };
+    const item = function (label, desc, run, act, chk) { return { label: label, desc: desc, run: run, cls: act ? 'act' : '', sel: !!act, chk: chk || '' }; };
+    const srcLabel = this.srcLabel();
+    if (o.kind === 'palette') {
+      const cmds = [['Conclave: Open Reviewer Settings', function () { self.setState({ ov: null, tab: 'editor' }); }],
+        ['Conclave: Update Kits', function () { self.setOv({ kind: 'update-pick' }); }],
+        ['Conclave: Set Up a New Repository', function () { self.setOv(Object.assign(clone(REPO_DEFAULT), { kind: 'repo', step: 1 })); }],
+        ['Conclave: Refresh Kits', function () { close(); self.flash('Refreshed: forge.py kits, then kit --dry-run and doctor for ' + cur.name + '.'); }]];
+      if (this.wsKey() === 'multi') cmds.push(['Conclave: Switch Folder', function () { close(); const c = self.ks(); self.kupd({ cur: c.cur === 'web' ? 'api' : 'web', ins: null, sel: null, upd: null }); }]);
+      Object.assign(qi, { open: true, label: 'Command Palette', value: '>conclave', placeholder: 'Type the name of a command to run.', items: cmds.map(function (c, i) { return item(c[0], '', c[1], i === 0); }) });
+    } else if (o.kind === 'menu') {
+      const chrome = function () { close(); };
+      const rows = [['Open to the Side', 'Ctrl+Enter'], ['Open With...', ''], null, ['Open in Conclave Reviewers', '', function () { self.setState({ ov: null, tab: 'editor' }); }, true], null,
+        ['Reveal in File Explorer', 'Shift+Alt+R'], ['Open in Integrated Terminal', ''], null, ['Select for Compare', ''], null, ['Cut', 'Ctrl+X'], ['Copy', 'Ctrl+C'], null,
+        ['Copy Path', 'Shift+Alt+C'], ['Copy Relative Path', 'Ctrl+K Ctrl+Shift+C'], null, ['Rename...', 'F2'], ['Delete', 'Delete']];
+      Object.assign(cm, { open: true, x: 170, y: this.wsKey() === 'multi' ? 224 : 202, items: rows.map(function (r) { return r ? { sep: false, item: true, label: r[0], kb: r[1], run: r[2] || chrome, cls: r[3] ? 'act' : '' } : { sep: true, item: false, label: '', kb: '', run: chrome, cls: '' }; }) });
+    } else if (o.kind === 'update-pick') {
+      const pick = function (scripts) { return function () { self.setOv({ kind: 'update-confirm', scripts: scripts }); }; };
+      Object.assign(qi, { open: true, label: 'Update Kits', hasTitle: true, title: 'Update Kits in ' + cur.name, placeholder: 'Choose what forge.py sync refreshes',
+        items: [item('Skills, rules and subagents', 'python forge.py sync', pick(false), true), item('Also existing scripts/ and bin/ files', 'python forge.py sync --include-scripts', pick(true))] });
+    } else if (o.kind === 'update-confirm') {
+      const kitsHere = KITS.filter(function (kit) { return self.kitInfo(k, cur, kit).state !== 'none'; });
+      const argv = 'python forge.py sync ' + cur.path + (o.scripts ? ' --include-scripts' : '');
+      Object.assign(dlg, { open: true, message: 'Update the kits in ' + cur.name + ' from ' + srcLabel + '?',
+        detail: [{ t: 'forge.py sync refreshes ' + joinList(kitsHere) + ': skills, rules and subagents' + (o.scripts ? ', and existing scripts/ and bin/ files,' : '') + ' and adds any kit file that is missing.' }, { t: SYNC_SCOPE }, { t: 'Runs: ' + argv }],
+        buttons: [{ label: 'Update', cls: 'btn', run: function () { self.setOv(null); self.runSync(o.scripts, function (res) { return { upd: res, ins: null }; }); } }, { label: 'Cancel', cls: 'btn2', run: close }] });
+    } else if (o.kind === 'repo') {
+      const wp = !!o.kits.wordpress;
+      const total = wp ? 5 : 4;
+      const go = function (patch) { self.setOv(Object.assign({}, o, patch)); };
+      const base = { open: true, label: 'Set Up a New Repository', hasTitle: true, title: 'Set Up a New Repository (' + o.step + '/' + total + ')', hasBack: o.step > 1, back: function () { go({ step: o.step - 1 }); } };
+      const next = function (patch) { const n = Object.assign({}, o, patch); self.setOv(n.step + 1 > (n.kits.wordpress ? 5 : 4) ? Object.assign(n, { kind: 'repo-confirm' }) : Object.assign(n, { step: n.step + 1 })); };
+      if (o.step === 1) {
+        Object.assign(qi, base, { value: o.folder, placeholder: 'Folder for the new repository', onInput: function (ev) { go({ folder: ev.target.value }); }, ok: function () { next({}); },
+          onKey: function (ev) { if (ev.key === 'Enter') next({}); }, hasBrowse: true, browse: function () { self.flash('Opens the folder picker.'); }, hasMsg: true,
+          msg: "forge.py init creates the folder if it does not exist and never overwrites an AGENTS.md, GEMINI.md, CLAUDE.md or CODEX.md already in it. Press 'Enter' to confirm your input or 'Escape' to cancel." });
+      } else if (o.step === 2) {
+        const n = REPO_KITS.filter(function (x) { return o.kits[x[0]]; }).length;
+        const all = n === REPO_KITS.length;
+        Object.assign(qi, base, { placeholder: 'Kits to install; base is always installed', isMulti: true, countText: n + ' Selected', hasOk: true, ok: function () { next({}); },
+          allCls: all ? 'on' : '', toggleAll: function () { const kits = {}; REPO_KITS.forEach(function (x) { kits[x[0]] = !all; }); go({ kits: kits }); },
+          items: REPO_KITS.map(function (x, i) { const on = !!o.kits[x[0]]; return item(x[0], x[1], function () { const kits = Object.assign({}, o.kits); kits[x[0]] = !on; go({ kits: kits }); }, i === 0, on ? 'on' : ''); }) });
+      } else if (o.step === 3) {
+        Object.assign(qi, base, { placeholder: 'Agent folders to install', items: REPO_AGENTS.map(function (x) { return item(x[0], x[1], function () { next({ agent: x[0] }); }, x[0] === o.agent); }) });
+      } else if (o.step === 4) {
+        Object.assign(qi, base, { placeholder: 'Provisioning mode', items: REPO_MODES.map(function (x) { return item(x[0], x[1], function () { next({ mode: x[0] }); }, x[0] === o.mode); }) });
+      } else {
+        Object.assign(qi, base, { placeholder: 'WordPress host', items: [['pressable', 'Pressable'], ['wpcom', 'WordPress.com']].map(function (x) { return item(x[0], x[1], function () { next({ host: x[0] }); }, x[0] === o.host); }) });
+      }
+    } else if (o.kind === 'repo-confirm') {
+      const kits = REPO_KITS.filter(function (x) { return o.kits[x[0]]; }).map(function (x) { return x[0]; });
+      const wp = kits.indexOf('wordpress') >= 0;
+      const name = o.folder.split('\\').pop();
+      const argv = 'python forge.py init ' + o.folder + kits.map(function (x) { return ' --kit ' + x; }).join('') + ' --agent ' + o.agent + ' --mode ' + o.mode + (wp ? ' --wp-host ' + o.host : '');
+      const run = function () {
+        self.setOv(null);
+        if (kits.indexOf('laravel') >= 0) { self.notify('forge.py: error: No artisan found under ' + o.folder + ' (looked at root, platform/, and first-level children).', [{ label: 'Show log', run: function () { self.flash('Opens the Conclave output channel at this run.'); } }]); return; }
+        const done = function (msg) { return function () { self.flash(msg); }; };
+        self.notify('Set up ' + o.folder + ' with base' + (kits.length ? ', ' + kits.join(', ') : '') + '. The files forge wrote are listed in the Conclave output channel.', [{ label: 'Open', run: done('Opens ' + name + ' in this window.') }, { label: 'Open in New Window', run: done('Opens ' + name + ' in a new window.') }, { label: 'Add to Workspace', run: done('Adds ' + name + ' to this workspace.') }]);
+      };
+      Object.assign(dlg, { open: true, message: 'Set up ' + name + ' with Conclave-SDK?',
+        detail: [{ t: 'Kits: ' + joinList(['base'].concat(kits)) + '. Agent: ' + o.agent + '. Mode: ' + o.mode + '.' + (wp ? ' WordPress host: ' + o.host + '.' : '') }, { t: 'From ' + srcLabel + '. Entry docs already in the folder are kept: Conclave never passes --force.' }, { t: 'Runs: ' + argv }],
+        buttons: [{ label: 'Set Up', cls: 'btn', run: run }, { label: 'Back', cls: 'btn2', run: function () { self.setOv(Object.assign({}, o, { kind: 'repo', step: wp ? 5 : 4 })); } }, { label: 'Cancel', cls: 'btn2', run: close }] });
+    }
+    return { qi: qi, cm: cm, dlg: dlg };
+  }
+
   emptyFor(e) {
     const self = this;
     const retry = function () { self.flash('Re-checked with --check-pin: the state has not changed.'); };
@@ -1476,13 +1801,41 @@ class Component extends DCLogic {
       d.heading = 'This pin is newer than the editor';
       d.paras = paras(['The workspace dispatcher accepts `schema_version = 2`, but this version of Conclave Reviewers edits `schema_version = 1` only. Reviews still run.', 'Update the extension, or edit the file by hand.']);
       d.actions = [{ label: 'Open file', cls: 'btn', onClick: function () { self.flash('Opens .conclave/reviewers.toml in the text editor.'); } }, { label: 'Retry', cls: 'btn2', onClick: retry }];
+    } else if ((s === 'no-dispatcher' || s === 'old-dispatcher') && e.sync) {
+      const fail = this.srcFailNow();
+      if (e.sync === 'confirm') {
+        d.isInfo = true;
+        d.heading = 'Update from Conclave-SDK?';
+        d.paras = paras(['`forge.py sync` refreshes every kit this folder has from `' + this.srcLabel() + '`: skills, rules, subagents, `scripts/` and `bin/`, and adds any kit file that is missing, `scripts/review-dispatch.py` among them.', SYNC_SCOPE]);
+        d.hasCode = true; d.codeLabel = 'Runs:'; d.code = SYNC_CMD;
+        d.actions = [{ label: 'Update', cls: 'btn', onClick: function () {
+          if (fail) { self.upd({ sync: 'fail' }); return; }
+          const res = self.runSync(true);
+          self.upd({ sync: 'done', syncRes: res });
+        } }, { label: 'Cancel', cls: 'btn2', onClick: function () { self.upd({ sync: null }); } }];
+      } else if (e.sync === 'fail') {
+        d.isErr = true;
+        d.heading = 'Nothing was updated';
+        d.hasError = true; d.errorLabel = 'The SDK source refused:'; d.errorText = fail.title + ' ' + fail.body;
+        d.actions = this.srcActions(fail).map(function (a) { return { label: a.label, cls: a.cls, onClick: function () { self.upd({ sync: 'confirm' }); a.run(); } }; });
+      } else {
+        const res = e.syncRes;
+        const t = this.syncText(res);
+        d.isInfo = true;
+        d.heading = 'Updated from Conclave-SDK';
+        d.paras = paras(['`' + res.argv + '`: ' + t.done]);
+        d.hasList = true;
+        d.list = [].concat.apply([], res.kits.map(function (x) { return x.installed.map(function (p) { return { k: p, v: x.kit + ': added' }; }).concat(x.updated.map(function (p) { return { k: p, v: x.kit + ': updated' }; })); }));
+        d.paras2 = paras([t.hash, 'Re-checked with `--check-pin`: ok.']);
+        d.actions = [{ label: 'Open the editor', cls: 'btn', onClick: function () { self.upd({ screen: 'editor', sync: null }); } }];
+      }
     } else if (s === 'no-dispatcher') {
       d.isWarn = true;
       d.heading = 'No dispatcher in this workspace';
       d.paras = paras(['`scripts/review-dispatch.py` is missing. Conclave Reviewers never checks the pin itself: every rule comes from the workspace dispatcher, so without it there is nothing to check the pin against.']);
       d.paras2 = paras(['Sync the reviewer kit scripts from Conclave-SDK. Your pin is not touched.']);
       d.hasCode = true; d.codeLabel = 'Command:'; d.code = SYNC_CMD;
-      d.actions = [{ label: 'Copy command', cls: 'btn', onClick: copy }, { label: 'Open the pin as text', cls: 'btn2', onClick: function () { self.flash('Opens .conclave/reviewers.toml in the text editor.'); } }, { label: 'Retry', cls: 'btn2', onClick: retry }];
+      d.actions = [{ label: 'Update from Conclave-SDK', cls: 'btn', onClick: function () { self.upd({ sync: 'confirm' }); } }, { label: 'Copy command', cls: 'btn2', onClick: copy }, { label: 'Open the pin as text', cls: 'btn2', onClick: function () { self.setState({ tab: 'toml' }); } }, { label: 'Retry', cls: 'btn2', onClick: retry }];
     } else if (s === 'old-dispatcher') {
       d.isWarn = true;
       d.heading = 'This dispatcher is too old for the editor';
@@ -1490,7 +1843,7 @@ class Component extends DCLogic {
       d.hasOutput = true; d.outputLabel = 'python scripts/review-dispatch.py --check-pin --json (exit 2)'; d.output = OLD_OUTPUT;
       d.paras2 = paras(['Update it from Conclave-SDK. Your pin is not touched.']);
       d.hasCode = true; d.codeLabel = 'Command:'; d.code = SYNC_CMD;
-      d.actions = [{ label: 'Copy command', cls: 'btn', onClick: copy }, { label: 'Retry', cls: 'btn2', onClick: retry }];
+      d.actions = [{ label: 'Update from Conclave-SDK', cls: 'btn', onClick: function () { self.upd({ sync: 'confirm' }); } }, { label: 'Copy command', cls: 'btn2', onClick: copy }, { label: 'Retry', cls: 'btn2', onClick: retry }];
     } else if (s === 'no-python') {
       d.isErr = true;
       d.heading = 'No Python 3.11 or later';
@@ -1707,8 +2060,20 @@ class Component extends DCLogic {
       });
     });
 
+    const tab = this.tab();
+    const ov = this.overlays(k, cur, e);
+    let updVals = { folder: '', cmd: '', doneText: '', kits: [], hashText: '', finish: noop, showLog: noop };
+    if (k.upd) {
+      const t = this.syncText(k.upd);
+      updVals = { folder: FOLDERS.find(function (x) { return x.id === k.upd.folder; }).name, cmd: k.upd.argv, doneText: t.done, hashText: t.hash,
+        kits: k.upd.kits.map(function (x) {
+          const files = x.installed.map(function (p) { return { p: p, mk: '+', cls: 'add' }; }).concat(x.updated.map(function (p) { return { p: p, mk: '~', cls: 'upd' }; }));
+          return { kit: x.kit, summary: files.length ? x.installed.length + ' added, ' + x.updated.length + ' updated' : 'up to date', hasFiles: files.length > 0, files: files };
+        }),
+        finish: function () { self.kupd({ upd: null }); }, showLog: flashFn('Opens the Conclave output channel at this run.') };
+    }
     const ins = k.ins;
-    let insVals = { s1: '', s2: '', s3: '', kit: '', folderPath: '', choosing: false, busy: false, busyText: '', cmd: '', previewing: false, hasError: false, error: '', hasLists: false, add: [], addCount: '', hasAdd: false, noAdd: false, keep: [], keepCount: '', hasKeep: false, hasMerge: false, merge: '', canInstall: false, isRemote: false, agent: 'all', isWp: false, hostPressable: true, hostWpcom: false, hostLocked: false, onAgent: noop, onHost: noop, preview: noop, install: noop, back: noop, cancel: noop, finish: noop, showLog: noop, done: false, doneText: '', hashText: '' };
+    let insVals = { hasSrcFail: false, srcTitle: '', srcBody: '', srcActions: [], s1: '', s2: '', s3: '', kit: '', folderPath: '', choosing: false, busy: false, busyText: '', cmd: '', previewing: false, hasError: false, error: '', hasLists: false, add: [], addCount: '', hasAdd: false, noAdd: false, keep: [], keepCount: '', hasKeep: false, hasMerge: false, merge: '', canInstall: false, isRemote: false, agent: 'all', isWp: false, hostPressable: true, hostWpcom: false, hostLocked: false, onAgent: noop, onHost: noop, preview: noop, install: noop, back: noop, cancel: noop, finish: noop, showLog: noop, done: false, doneText: '', hashText: '' };
     if (ins) {
       const f = FOLDERS.find(function (x) { return x.id === ins.folder; });
       const has = this.hasMap(k, f.id);
@@ -1750,6 +2115,8 @@ class Component extends DCLogic {
         doneText: 'Installed ' + ins.kit + ': ' + files(add.length) + ' added, none changed.',
         hashText: 'Checked by hash: ' + PROTECTED.join(', ') + ' are unchanged' + (touched.length ? ', apart from ' + joinList(touched) + ', which forge reported adding.' : '.')
       };
+      const fail = this.srcFailNow();
+      if (fail && (step === 'previewing' || step === 'preview')) Object.assign(insVals, { hasSrcFail: true, srcTitle: fail.title, srcBody: fail.body, srcActions: this.srcActions(fail), previewing: false, busy: false });
     }
 
     return {
@@ -1758,8 +2125,8 @@ class Component extends DCLogic {
       scenarios: SCENARIOS.map(function (s) { return { id: s[0], label: s[1] }; }),
       setTheme: function (ev) { self.setState({ theme: ev.target.value }); },
       setScenario: function (ev) { clearTimeout(self._testT); clearTimeout(self._installT); self.setState({ scenario: ev.target.value, e: null, k: null }); },
-      tree: treeAll.filter(function (t) { return !t.hide; }).map(function (t) { return { label: t.label, pad: multi ? t.pad : t.pad - 14, folder: !!t.folder, file: !!t.file, cls: t.active ? 'active' : '' }; }),
-      sourceKey: this.srcKey(), sourceLabel: SOURCES[this.srcKey()],
+      tree: treeAll.filter(function (t) { return !t.hide; }).map(function (t) { return { label: t.label, pad: multi ? t.pad : t.pad - 14, folder: !!t.folder, file: !!t.file, cls: t.active ? 'active' : '', menu: t.active ? function (ev) { ev.preventDefault(); self.setOv({ kind: 'menu' }); } : noop }; }),
+      sourceKey: this.srcKey(), sourceLabel: this.srcLabel(),
       setSource: function (ev) { self.setState({ src: ev.target.value }); },
       wsKey: this.wsKey(), multiRoot: multi,
       setWorkspace: function (ev) { clearTimeout(self._installT); self.setState({ ws: ev.target.value, k: null }); },
@@ -1776,13 +2143,23 @@ class Component extends DCLogic {
       kitsOpen: k.kitsOpen, kitsClosed: !k.kitsOpen,
       toggleKitsPane: function () { self.kupd({ kitsOpen: !self.ks().kitsOpen }); },
       refreshKits: flashFn('Refreshed: forge.py kits, then kit --dry-run and doctor for ' + cur.name + '.'),
-      updateKits: flashFn('Update kits runs forge.py sync after a confirmation that states its scope. Not drawn yet.'),
-      newRepo: flashFn('Set up a new repository runs forge.py init through a wizard. Not drawn yet.'),
-      kitRows: kitRows, ktreeCls: ins ? 'half' : '', kitsFocus: k.sel && !ins ? 'focus' : '',
+      updateKits: function () { self.setOv({ kind: 'update-pick' }); },
+      newRepo: function () { self.setOv(Object.assign(clone(REPO_DEFAULT), { kind: 'repo', step: 1 })); },
+      kitRows: kitRows, ktreeCls: ins || k.upd ? 'half' : '',
+      updOpen: !!k.upd && !ins, upd: updVals,
+      openPalette: function () { self.setOv({ kind: 'palette' }); },
+      qi: ov.qi, cm: ov.cm, dlg: ov.dlg,
+      hasToastActs: !!(e.toastActs && e.toastActs.length), toastActs: e.toastActs || [],
+      editorTab: tab === 'editor', tomlTab: tab === 'toml', editorTabCls: tab === 'editor' ? 'active' : '', tomlTabCls: tab === 'toml' ? 'active' : '',
+      showEditorTab: function () { self.setState({ tab: 'editor', ov: null }); }, showTomlTab: function () { self.setState({ tab: 'toml' }); },
+      tomlLines: e.loaded.map(function (t, i) { return { no: i + 1, text: t, cls: t.charAt(0) === '#' ? 'cm' : '' }; }),
+      statusOk: isEditor && !err, statusBad: (isEditor && !!err) || ['refused', 'no-python', 'no-dispatcher'].indexOf(e.screen) >= 0, statusWarn: !isEditor && ['refused', 'no-python', 'no-dispatcher'].indexOf(e.screen) < 0,
+      statusTitle: 'Conclave Reviewers: ' + (isEditor ? (err ? 'the dispatcher refuses this pin' : 'the pin is valid') : stateNames[e.screen]) + '. Open Reviewer Settings',
+      statusOpen: function () { self.setState({ tab: 'editor', ov: null }); }, kitsFocus: k.sel && !ins ? 'focus' : '',
       fpanes: this.featurePanes(k, cur, e),
       insOpen: !!ins, ins: insVals,
       // WebviewPanel has no dirty dot (only custom editors do), so unsaved edits show in the title.
-      clearToast: function () { self.upd({ toast: '' }); },
+      clearToast: function () { self.upd({ toast: '', toastActs: [] }); },
       tabTitle: 'Reviewers: orchard-web' + (isEditor && changed ? ' (unsaved)' : ''),
       isEditor: isEditor, isEmpty: !isEditor, empty: this.emptyFor(e),
       hasErr: !!err, noErr: !err, errText: err ? err.msg : '',
