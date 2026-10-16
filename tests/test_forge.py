@@ -1,5 +1,6 @@
 """Tests for forge.py provisioning modes, 3-agent isolation, stack kits, and prose hygiene."""
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -10,6 +11,13 @@ import unittest
 FORGE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(FORGE_ROOT))
 import forge  # noqa: E402
+
+
+def provisioned_mode(posix_mode):
+    """The mode atomic_write leaves on a file: exact on POSIX. Windows has no execute or group bits and keeps only
+    the read-only flag, so a file forge wrote (always owner-writable) reads back as 0o666 there."""
+    return posix_mode if os.name != "nt" else 0o666
+
 
 BASE_SKILLS = ["authoring-skills", "local-tool-safety"]
 EXPECTED_SKILLS = [
@@ -224,8 +232,8 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertTrue((wp_site / ".ddev/providers/production.yaml").is_file())
         self.assertEqual(json.loads((wp_site / ".conclave/wordpress-site.json").read_text())["host"], "pressable")
         # Scripts are executable and nothing is world-writable, whatever the kit checkout's own modes are.
-        self.assertEqual((wp_site / "bin/wp-remote").stat().st_mode & 0o777, 0o755)
-        self.assertEqual((wp_site / "phpcs.xml.dist").stat().st_mode & 0o777, 0o644)
+        self.assertEqual((wp_site / "bin/wp-remote").stat().st_mode & 0o777, provisioned_mode(0o755))
+        self.assertEqual((wp_site / "phpcs.xml.dist").stat().st_mode & 0o777, provisioned_mode(0o644))
 
         doc = forge.doctor_repo(wp_site)
         self.assertEqual(doc["kit"], "wordpress")
@@ -337,7 +345,7 @@ class ForgeProvisionTests(unittest.TestCase):
         res = forge.apply_kit(project, "todo")
         self.assertIn("scripts/todo-graph.py", res["installed"])
         self.assertIn("todo/README.md", res["installed"])
-        self.assertEqual((project / "scripts/todo-graph.py").stat().st_mode & 0o777, 0o755)
+        self.assertEqual((project / "scripts/todo-graph.py").stat().st_mode & 0o777, provisioned_mode(0o755))
         doc = forge.doctor_repo(project, "todo")
         self.assertEqual(doc["missing_or_setup_required"], 0, [c for c in doc["checks"] if c["status"] != "ok"])
         res = forge.apply_kit(project, "todo", agent="claude")
@@ -367,7 +375,7 @@ class ForgeProvisionTests(unittest.TestCase):
         project.mkdir()
         res = forge.apply_kit(project, "reviewer")
         self.assertIn(".conclave/reviewers.toml", res["installed"])
-        self.assertEqual((project / "scripts/review-dispatch.py").stat().st_mode & 0o777, 0o755)
+        self.assertEqual((project / "scripts/review-dispatch.py").stat().st_mode & 0o777, provisioned_mode(0o755))
         checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "reviewer")["checks"]}
         self.assertEqual(checks["reviewer-pin"], "ok")
         self.assertEqual(checks["skill:independent-review:.claude"], "ok")
