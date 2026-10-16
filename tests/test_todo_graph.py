@@ -1,6 +1,8 @@
 """Tests for the todo kit's scripts/lib/todo_graph.py and scripts/todo-graph.py: the graph refuses malformed work and stamps only real evidence."""
 import json
+import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -342,6 +344,20 @@ class Stamp(Tree):
         self.assertEqual(json.loads((self.root / receipt).read_text(encoding="utf-8"))
                          ["implementation_sha"], self.sha)
 
+
+class CliOutput(Tree):
+    """The CLI's output is a contract other programs parse (the editor extension, process-plan): always UTF-8."""
+
+    def test_query_output_is_utf8_whatever_the_console_code_page(self):
+        self.write(todo_file([(1, "Only", 0, "none", "--")]))
+        shutil.copytree(REPO / "kits/todo/templates/scripts", self.root / "scripts",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        # A Windows console's default: stdout in the ANSI code page, where the section sign is byte 0xa7.
+        env = {**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"}
+        result = subprocess.run([sys.executable, str(self.root / "scripts/todo-graph.py"), "query", "ready"],
+                                capture_output=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([r["ref"] for r in json.loads(result.stdout.decode("utf-8"))], ["D00 T01 §1"])
 
 if __name__ == "__main__":
     unittest.main()
