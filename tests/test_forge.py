@@ -441,5 +441,21 @@ class ForgeProvisionTests(unittest.TestCase):
                     )
 
 
+class ForgeCliErrorTests(unittest.TestCase):
+    """A refusal from forge's own checks is a one-line error and exit 2, never a traceback a caller must parse."""
+
+    def test_kit_refusal_is_one_line_error_with_exit_2(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run(
+                [sys.executable, str(FORGE_ROOT / "forge.py"), "kit", tmp, "laravel", "--dry-run"],
+                capture_output=True, text=True,
+            )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertTrue(result.stderr.startswith("forge.py: error: No artisan found under "), result.stderr)
+        self.assertEqual(len(result.stderr.strip().splitlines()), 1, result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

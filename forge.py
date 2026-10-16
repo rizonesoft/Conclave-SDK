@@ -665,7 +665,15 @@ def main(argv: list[str] | None = None) -> int:
     p_check.add_argument("target", help="Target repository path")
 
     args = parser.parse_args(argv)
+    try:
+        return _run(args)
+    except ValueError as exc:
+        # forge's own refusals (bad target, no app root, a pinned host) end like argparse's: one line, exit 2.
+        print(f"forge.py: error: {exc}", file=sys.stderr)
+        return 2
 
+
+def _run(args: argparse.Namespace) -> int:
     if args.command == "kits":
         print(json.dumps({"kits": list_kits()}, indent=2))
         return 0
