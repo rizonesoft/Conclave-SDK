@@ -96,7 +96,7 @@ class ForgeProvisionTests(unittest.TestCase):
         res = forge.provision(self.target, refresh=True)
         self.assertEqual([k["kit"] for k in res["kits"]], ["base", "todo"])
         self.assertIn(".claude/skills/create-todo/SKILL.md", res["written"])
-        self.assertEqual(skill.read_bytes(), (FORGE_ROOT / "skills/claude/create-todo/SKILL.md").read_bytes().replace(b"\r\n", b"\n"))
+        self.assertEqual(skill.read_bytes(), (FORGE_ROOT / "kits/todo/templates/.claude/skills/create-todo/SKILL.md").read_bytes().replace(b"\r\n", b"\n"))
         self.assertEqual((self.target / "AGENTS.md").read_text(encoding="utf-8"), "project rules\n")
         self.assertEqual((self.target / "todo/TODO-00-INDEX.md").read_text(encoding="utf-8"), "our plan\n")
         self.assertEqual(graph.read_text(encoding="utf-8"), "old script\n")
@@ -343,36 +343,22 @@ class ForgeProvisionTests(unittest.TestCase):
         res = forge.apply_kit(project, "todo", agent="claude")
         self.assertEqual(res["installed"], [])
 
-    def test_kit_copies_match_their_canonical_sources(self):
-        # Kits copy canonical files so `forge.py kit` works on its own; the copies must never drift.
+    def test_the_sdk_uses_the_agent_setup_its_kits_ship(self):
+        # The kits are the only source. The SDK's own .agents/.claude/.codex are an installed copy of base and todo,
+        # refreshed from the kits, so they must match them.
         def text(path):
             return path.read_bytes().replace(b"\r\n", b"\n")
 
-        pairs = []
-        for agent, agent_dir in (("agy", ".agents"), ("claude", ".claude"), ("codex", ".codex")):
-            for kit, skills in (("todo", forge.TODO_SKILLS), ("base", ("authoring-skills", "local-tool-safety"))):
-                for skill in skills:
-                    source = FORGE_ROOT / "skills" / agent / skill
-                    copy = FORGE_ROOT / "kits" / kit / "templates" / agent_dir / "skills" / skill
-                    source_files = sorted(f.relative_to(source) for f in source.rglob("*") if f.is_file() and "__pycache__" not in f.parts)
-                    copy_files = sorted(f.relative_to(copy) for f in copy.rglob("*") if f.is_file())
-                    self.assertEqual(source_files, copy_files, f"{kit} kit {agent_dir}/skills/{skill} file list")
-                    pairs += [(source / rel, copy / rel) for rel in source_files]
-            rule = f"{agent}-output-and-safety.md"
-            pairs.append((FORGE_ROOT / "rules" / rule, FORGE_ROOT / "kits/base/templates" / agent_dir / "rules" / rule))
-        for agent_def in sorted((FORGE_ROOT / "agents/claude").glob("*.md")):
-            pairs.append((agent_def, FORGE_ROOT / "kits/base/templates/.claude/agents" / agent_def.name))
-        pairs += [
-            (FORGE_ROOT / "scripts/todo-graph.py", FORGE_ROOT / "kits/todo/templates/scripts/todo-graph.py"),
-            (FORGE_ROOT / "scripts/lib/todo_graph.py", FORGE_ROOT / "kits/todo/templates/scripts/lib/todo_graph.py"),
-            (FORGE_ROOT / "scripts/verify-agent-tiers.mjs", FORGE_ROOT / "kits/base/templates/scripts/verify-agent-tiers.mjs"),
-        ]
-        todo_source = FORGE_ROOT / "templates/todo"
-        pairs += [(f, FORGE_ROOT / "kits/todo/templates/todo" / f.relative_to(todo_source)) for f in todo_source.rglob("*") if f.is_file()]
-        for source, copy in pairs:
-            with self.subTest(copy=copy.relative_to(FORGE_ROOT).as_posix()):
-                self.assertTrue(copy.is_file(), "missing kit copy")
-                self.assertEqual(text(source), text(copy), "kit copy drifted from its canonical source")
+        for kit in ("base", "todo"):
+            templates = FORGE_ROOT / "kits" / kit / "templates"
+            for source in sorted(templates.rglob("*")):
+                rel = source.relative_to(templates).as_posix()
+                if not source.is_file() or not rel.startswith(forge.SDK_MANAGED_PREFIXES):
+                    continue
+                with self.subTest(path=rel):
+                    installed = FORGE_ROOT / rel
+                    self.assertTrue(installed.is_file(), "missing from the SDK's own agent setup")
+                    self.assertEqual(text(installed), text(source), "the SDK's own copy drifted from its kit")
 
     def test_no_em_or_en_dashes_anywhere(self):
         # Every text file the SDK ships or provisions: prose, code, comments, templates and config alike.

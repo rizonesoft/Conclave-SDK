@@ -547,12 +547,15 @@ def provision(
         for stale_json in (target_root / ".agents/skills.json", target_root / ".agents/plugins.json"):
             if mode == "isolated" and stale_json.is_file():
                 stale_json.unlink()
+        # The manifests reference the chosen kits' own folders, so they never expose more than was asked for.
         if mode in ("hybrid", "inherit"):
-            manifest = {"entries": [{"path": (FORGE_ROOT / "skills/agy").as_posix()}]}
-            write_if_allowed(target_root / ".agents/skills.json", json.dumps(manifest, indent=2) + "\n", True)
+            skill_dirs = [FORGE_ROOT / "kits" / k / "templates/.agents/skills" for k in selected]
+            entries = [{"path": d.as_posix()} for d in skill_dirs if d.is_dir()]
+            write_if_allowed(target_root / ".agents/skills.json", json.dumps({"entries": entries}, indent=2) + "\n", True)
         if mode == "inherit":
-            manifest = {"entries": [{"path": (FORGE_ROOT / "plugins").as_posix()}]}
-            write_if_allowed(target_root / ".agents/plugins.json", json.dumps(manifest, indent=2) + "\n", True)
+            plugin_dirs = [FORGE_ROOT / "kits" / k / "plugins" for k in selected]
+            entries = [{"path": d.as_posix()} for d in plugin_dirs if d.is_dir()]
+            write_if_allowed(target_root / ".agents/plugins.json", json.dumps({"entries": entries}, indent=2) + "\n", True)
 
     written = [rel for r in kit_results for rel in (*r["installed"], *r["updated"])] + forced
     skipped = [rel for r in kit_results for rel in r["preserved"] if rel not in forced]

@@ -46,10 +46,10 @@ The template `docs/` folder holds the skill/rule structure document, and `script
 
 ## Maintenance
 
-When improving shared operating behavior, update:
+This kit is the only source of these files. When improving shared operating behavior:
 
-1. The active project file under `.agents/skills/`, `.claude/skills/`, or `.codex/skills/`.
-2. The other tool-specific copies if the same behavior should apply there.
-3. This kit template if new projects should inherit the behavior.
+1. Change the file in this kit's `templates/` for each agent it applies to (`.agents/`, `.claude/`, `.codex/`).
+2. Copy the change into the SDK's own `.agents/`, `.claude/` or `.codex/`; `tests/test_forge.py` fails until they match.
+3. Run `forge.py sync <repo>` in each project that should pick it up.
 
 Do not use symlinks between `.agents`, `.claude`, and `.codex`.

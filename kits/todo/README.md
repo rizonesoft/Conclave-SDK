@@ -28,4 +28,4 @@ Like every kit it only adds missing files: an existing `todo/` plan, skill or sc
 
 ## Keeping it current
 
-The files here are copies of the canonical sources: `skills/<agent>/<skill>/`, `scripts/todo-graph.py`, `scripts/lib/todo_graph.py` and `templates/todo/`. Change the canonical file, then copy it here; `tests/test_forge.py` fails while any copy differs. `forge.py init --with-todo` installs the same system from the canonical sources.
+This kit is the only source of the TODO system. Change a file in `templates/`, copy skill changes into the SDK's own `.agents/`, `.claude/` or `.codex/` (`tests/test_forge.py` fails until they match), and run `forge.py sync <repo>` in projects that should pick it up. `tests/test_todo_graph.py` tests `templates/scripts/`. `plugins/todo-workflow/` is the Antigravity plugin that `forge.py init --mode inherit --kit todo` points `.agents/plugins.json` at; it is never copied into projects.

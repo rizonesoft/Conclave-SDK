@@ -1,6 +1,6 @@
 # Conclave-SDK
 
-Conclave-SDK is the central repository for isolated agent skills, rules, subagent definitions, stack overlay kits (`base`, `todo`, `laravel`, `wordpress`), prompts, plugins, templates, and the canonical TODO graph tooling (`todo-graph.py`).
+Conclave-SDK is the central repository of overlay kits that carry agent skills, rules and subagent definitions (`base`, `todo`, `laravel`, `wordpress`), prompts, plugins, templates, and the canonical TODO graph tooling (`todo-graph.py`).
 
 It is designed to be imported into any **new** or **existing** repository by **Google Antigravity / Gemini (`gemini` / `agy`)**, **Claude Code (`claude`)**, and **OpenAI Codex (`codex`)**:
 
@@ -15,16 +15,11 @@ Each agent reads only its own isolated folder and entrypoint alongside the share
 | Path | Purpose |
 | ---- | ------- |
 | `forge.py` / `forge.cmd` | CLI (`init`, `sync`, `kit`, `doctor`, `kits`, `check`; `isolated` default mode). |
-| `skills/agy/` | Isolated Gemini / Antigravity skills (`<target>/.agents/skills/`). |
-| `skills/claude/` | Isolated Claude Code skills (`<target>/.claude/skills/`). |
-| `skills/codex/` | Isolated OpenAI Codex skills (`<target>/.codex/skills/` with `openai.yaml`). |
-| `agents/claude/` | Claude Sonnet subagent definitions (`<target>/.claude/agents/`). |
-| `kits/` | Additive overlays (`base/`, `todo/`, `laravel/`, `wordpress/`). |
-| `rules/` | Canonical per-agent output-and-safety rules (copied into `kits/base`). |
+| `kits/base/` | Every repo: entry docs, safety skills, subagents, rules, tier check. |
+| `kits/todo/` | TODO skills, `todo-graph.py`, starter `todo/` tree, Antigravity TODO plugin. |
+| `kits/laravel/`, `kits/wordpress/` | Stack kits. |
 | `prompts/` | Copy-pasteable prompts to import Conclave-SDK from Gemini, Claude, or Codex. |
-| `plugins/todo-workflow/` | Antigravity plugin bundle (`plugin.json`) for TODO workflow skills. |
-| `scripts/` | Canonical `todo-graph.py`, `lib/todo_graph.py`, and `verify-agent-tiers.mjs`. |
-| `templates/todo/` | Starter `todo/` tree (`README.md`, root index, findings, section template). |
+| `.agents/`, `.claude/`, `.codex/` | The SDK's own installed copy of `base` and `todo`. |
 | `tests/` | Unit test suites for `todo_graph.py`, `forge.py`, and stack overlay kits. |
 
 ## Importing into a New or Existing Project (Gemini, Claude, or Codex)
@@ -73,12 +68,12 @@ Paste the prompt from [`prompts/bootstrap-project-prompt.md`](file:///R:/GitHub/
 ## Provisioning Modes
 
 * **`isolated` (Default):** Copies tracked skills and rules into `.agents/`, `.claude/`, and `.codex/` inside the target repository with zero external path dependencies. Every repository is 100% self-contained and each agent is isolated in its own directory.
-* **`hybrid`:** Optional mode that copies isolated skills and also writes `.agents/skills.json` pointing to `R:/GitHub/Conclave-SDK/skills/agy`. That manifest points at every Antigravity skill in the SDK, not only the installed kits.
+* **`hybrid`:** Optional mode that copies isolated skills and also writes `.agents/skills.json` pointing at the Antigravity skill folders of the chosen kits.
 * **`inherit`:** Optional mode that writes `.agents/skills.json` and `.agents/plugins.json` without copying skill Markdown files.
 
 ## TODO Workflow Discipline
 
-The `todo` kit's eight skills (`add-todo`, `create-todo`, `groom-plan`, `process-phase`, `process-plan`, `process-todo-file`, `process-todo-section`, `review-todo-section`), `templates/todo/` and `docs/todo-workflow.md` enforce the canonical Conclave-SDK execution contract:
+The `todo` kit's eight skills (`add-todo`, `create-todo`, `groom-plan`, `process-phase`, `process-plan`, `process-todo-file`, `process-todo-section`, `review-todo-section`), its starter `todo/` tree and `docs/todo-workflow.md` enforce the canonical Conclave-SDK execution contract:
 
 * **Small, single-responsibility sections:** Multi-subsystem, multi-dialog, or multi-workflow work is split into small, single-responsibility sections rather than coarse umbrella sections.
 * **Readable table descriptions (`<= 88` chars):** Every section heading (`## N. <Title>`), `Deliverable` cell in `Implementation Order`, and `Scope` cell in index tables is a clear noun phrase of at most 88 characters (enforced by `todo-graph.py validate`) so raw Markdown table rows stay under 140 characters and do not wrap in raw `.md` editors.

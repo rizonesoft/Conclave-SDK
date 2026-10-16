@@ -1,11 +1,11 @@
-"""Tests for scripts/verify-agent-tiers.mjs: the Claude subagent tier rule, including the narrow Haiku allowance."""
+"""Tests for the base kit's scripts/verify-agent-tiers.mjs: the Claude subagent tier rule, including the narrow Haiku allowance."""
 import pathlib
 import subprocess
 import tempfile
 import unittest
 
 FORGE_ROOT = pathlib.Path(__file__).resolve().parents[1]
-VERIFIER = FORGE_ROOT / "scripts/verify-agent-tiers.mjs"
+VERIFIER = FORGE_ROOT / "kits/base/templates/scripts/verify-agent-tiers.mjs"
 
 HAIKU_OK = {
     "name": "dependency-mapper",
@@ -85,10 +85,6 @@ class VerifyAgentTiers(unittest.TestCase):
             with self.subTest(word=word):
                 self.assert_refused("judgment", **{**HAIKU_OK, "description": f"Mostly lookups, then {word} the result."})
         self.assert_refused("judgment", **{**HAIKU_OK, "name": "security-scanner"})
-
-    def test_the_kit_copy_matches_the_canonical_script(self):
-        kit_copy = FORGE_ROOT / "kits/base/templates/scripts/verify-agent-tiers.mjs"
-        self.assertEqual(kit_copy.read_bytes(), VERIFIER.read_bytes())
 
 
 if __name__ == "__main__":

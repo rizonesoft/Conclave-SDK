@@ -1,4 +1,4 @@
-"""Tests for scripts/lib/todo_graph.py and scripts/todo-graph.py: the graph refuses malformed work and stamps only real evidence."""
+"""Tests for the todo kit's scripts/lib/todo_graph.py and scripts/todo-graph.py: the graph refuses malformed work and stamps only real evidence."""
 import json
 import pathlib
 import subprocess
@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts" / "lib"))
+sys.path.insert(0, str(REPO / "kits/todo/templates/scripts/lib"))
 import todo_graph as tg  # noqa: E402
 
 ADJACENCY = ("**Adjacency:** list=not-applicable (fixture); document=not-applicable (fixture); "
