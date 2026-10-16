@@ -39,7 +39,7 @@ title: "TODO-01 -- Reviewer Editor Design"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Clickable reviewer editor mockup | -- | [ ] |
+| 1 | §1 | Clickable reviewer editor mockup | -- | [x] |
 | 2 | §2 | Owner approval and open design answers | §1 | [ ] |
 | 3 | §3 | Interface SPEC and screenshots | §2 | [ ] |
 | 4 | §4 | Reviewer config design spec | §2 | [ ] |
@@ -94,6 +94,9 @@ The owner asked for a mockup before any code. This section builds one static, cl
 **Test checkpoint:** `python -c "import pathlib,sys; t=pathlib.Path('design/mockup/project/Main.dc.html').read_text(encoding='utf-8'); m=[s for s in ('gpt-6-astra','gemini-4-argon-high','claude-sonnet-5-5','Light Modern','Dark Modern','check-pin','No route','old-dispatcher','no-python','untrusted','rizonetech/Conclave-SDK','Update from Conclave-SDK','Open Reviewer Settings','bundled Conclave-SDK','Kits','Set up a new repository','Open in Conclave Reviewers','Set Up a New Repository (','GitHub returned 404','Update the kits in') if s not in t]; sys.exit(m or None)"` exits 0, and fails with the missing strings when a required region is absent.
 
 **Corrected 2026-10-16:** the checkpoint gained `Open in Conclave Reviewers`, `Set Up a New Repository (`, `GitHub returned 404` and `Update the kits in`, so it also fails when the entry points, the wizard, the SDK source refusals or the update confirmation are missing.
+
+> **Verified:** 2026-10-16 | §1 | 5a72d3268e8fbaca64126cecf39b5fde365a189c
+> **Review:** `docs/reviews/d00-t01-s1.json`
 
 ## 2. Owner approval and open design answers
 

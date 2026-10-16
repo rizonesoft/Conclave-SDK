@@ -12,7 +12,7 @@ Sections: 10 | Checklist items: 101
 
 | Status | Reference  | Deliverable                                | Needs          | Items |
 | ------ | ---------- | ------------------------------------------ | -------------- | ----- |
-| [ ]    | D00 T01 §1 | Clickable reviewer editor mockup           | none           | 26    |
+| [x]    | D00 T01 §1 | Clickable reviewer editor mockup           | none           | 26    |
 | [ ]    | D00 T01 §2 | Owner approval and open design answers     | owner-decision | 6     |
 | [ ]    | D00 T01 §3 | Interface SPEC and screenshots             | none           | 14    |
 | [ ]    | D00 T01 §4 | Reviewer config design spec                | none           | 10    |
@@ -85,6 +85,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | owner-decision         | 5     |
 
-Progress: 0/51 verified sections, 1 ready to run now.
+Progress: 1/51 verified sections, 0 ready to run now.
 
 Checklist: 26/429 items completed (includes Commit items).
