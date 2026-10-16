@@ -2,6 +2,15 @@
 # Additive overlay. Never overwrites. Never installs global tools.
 set -euo pipefail
 
+# Copy to a temporary file beside the destination, then rename it into place, so an interrupted install never leaves a
+# partial file that a later run would preserve as if it were the project's own.
+place() {
+  local mode=$1 source=$2 destination=$3 temporary
+  temporary=$(mktemp -- "$(dirname -- "$destination")/.kit-install.XXXXXX")
+  install -m "$mode" -- "$source" "$temporary"
+  mv -f -- "$temporary" "$destination"
+}
+
 usage() {
 	printf 'Usage: %s <target-project-dir> [--dry-run]\n' "$0" >&2
 }
@@ -99,9 +108,9 @@ copy_one() {
 		mkdir -p -- "$(dirname -- "$destination")"
 		# Modes come from the content, not the source: a kit checked out on a Windows drive reports 0777.
 		if [ "$(head -c 2 -- "$source")" = '#!' ]; then
-			install -m 0755 -- "$source" "$destination"
+			place 0755 "$source" "$destination"
 		else
-			install -m 0644 -- "$source" "$destination"
+			place 0644 "$source" "$destination"
 		fi
 		printf 'installed %s\n' "$relative"
 	fi
@@ -161,7 +170,12 @@ payload = {"mcpServers": {"laravel-boost": server}}
 if dry:
     print("would install .mcp.json")
 else:
-    path.write_text(json.dumps(payload, indent=4) + "\n", encoding="utf-8")
+    import os, tempfile
+    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".kit-install.")
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, indent=4) + "\n")
+    os.chmod(temporary, 0o644)
+    os.replace(temporary, path)
     print("installed .mcp.json")
 PY
 }

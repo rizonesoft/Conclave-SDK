@@ -127,9 +127,10 @@ TODO_SKILLS = (
     "process-todo-file", "process-todo-section", "review-todo-section",
 )
 WORDPRESS_PIN = ".conclave/wordpress-site.json"
+REVIEWER_PIN = ".conclave/reviewers.toml"
 
 
-KIT_ORDER = ("base", "todo", "laravel", "wordpress")
+KIT_ORDER = ("base", "todo", "reviewer", "laravel", "wordpress")
 BASE_SKILLS = ("authoring-skills", "local-tool-safety")
 AGENT_DIRS = (".agents", ".claude", ".codex")
 SDK_MANAGED_PREFIXES = tuple(f"{d}/{kind}/" for d in AGENT_DIRS for kind in ("skills", "rules")) + (".claude/agents/",)
@@ -155,6 +156,8 @@ def installed_kits(target_root: Path) -> list[str]:
         found.append("base")
     if any_skill(TODO_SKILLS) or (target_root / "scripts/todo-graph.py").is_file():
         found.append("todo")
+    if any_skill(("independent-review",)) or (target_root / REVIEWER_PIN).is_file():
+        found.append("reviewer")
     if any_skill(("laravel-boost",)) or (target_root / "scripts/lsp-diagnostics.py").is_file():
         found.append("laravel")
     if (target_root / WORDPRESS_PIN).is_file() or any_skill(("wordpress-site-safety", "wordpress-connect")):
@@ -423,6 +426,31 @@ def _doctor_wordpress(target_root: Path, add_check) -> None:
         add_check("wordpress-mcp", "ok", "the user-scope WordPress.com connector; nothing in .mcp.json")
 
 
+def _doctor_reviewer(target_root: Path, add_check) -> None:
+    """Read-only reviewer checks: the pin loads under the dispatcher's own rules and each routed CLI is installed."""
+    dispatcher = FORGE_ROOT / "kits/reviewer/templates/scripts/review-dispatch.py"
+    module = types.ModuleType("_forge_review_dispatch")
+    module.__file__ = str(dispatcher)
+    exec(compile(dispatcher.read_text(encoding="utf-8"), str(dispatcher), "exec"), module.__dict__)
+    pin = None
+    try:
+        pin = module.load_pin(target_root / REVIEWER_PIN)
+        add_check("reviewer-pin", "ok", REVIEWER_PIN)
+    except module.Refused as exc:
+        add_check("reviewer-pin", "missing", str(exc))
+    for rel in ("scripts/review-dispatch.py", "docs/review-round-prompt.md"):
+        path = target_root / rel
+        add_check(rel, "ok" if path.is_file() else "missing", path.as_posix())
+    for agent_dir in AGENT_DIRS:
+        sk = target_root / agent_dir / "skills/independent-review/SKILL.md"
+        add_check(f"skill:independent-review:{agent_dir}", "ok" if sk.is_file() else "missing", sk.as_posix())
+    if pin:
+        for name, reviewer in pin["reviewers"].items():
+            found = shutil.which(reviewer["cli"])
+            add_check(f"reviewer:{name}", "ok" if found else "setup_required",
+                      f"{reviewer['model']} via {found}" if found else f"{reviewer['cli']} CLI not installed; this reviewer is skipped")
+
+
 def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
     """Read-only stack health check for Laravel and/or WordPress overlays across all three agents."""
     target_root = Path(target_root).resolve()
@@ -461,6 +489,8 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
             add_check(binary, "ok" if found else "setup_required", found or hint)
     elif kit_name == "wordpress":
         _doctor_wordpress(target_root, add_check)
+    elif kit_name == "reviewer":
+        _doctor_reviewer(target_root, add_check)
     elif kit_name == "todo":
         for agent_dir in (".agents", ".claude", ".codex"):
             for skill in TODO_SKILLS:

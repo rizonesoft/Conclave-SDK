@@ -7,7 +7,7 @@ description: Quality-gate a just-implemented TODO section in Antigravity with se
 
 The gate between "code exists" and "the row says `[x]`". Nothing else may flip that row, and the flip happens only through `python scripts/todo-graph.py stamp`, which refuses a section with unticked items, an open prerequisite, a waiting Need, or no review evidence.
 
-Review is mandatory and independent: the implementing session self-reviews, and at least one review round comes from an independent reviewer. In Antigravity, run the independent reviewer either via the Codex CLI (`Get-Content "<scratch-review-prompt.md>" -Raw | codex exec -m gpt-6-astra --ephemeral -`) or via an isolated Antigravity subagent (`invoke_subagent` with `TypeName: "self"` or `"research"` in a separate context, evaluating only the committed candidate SHA diff and governing documents). Every round is recorded in a findings file; the stamp's receipt names the rounds. A verdict with no record is an opinion.
+Review is mandatory and independent: the implementing session self-reviews, and at least one review round comes from a reviewer of a different model, the one pinned in `.conclave/reviewers.toml` (the `reviewer` kit: GPT-6 Astra by default, failing over to Gemini 4 then Sonnet 5.5; Codex-written work goes to Gemini 4 first), run through `scripts/review-dispatch.py`. Every round is recorded in a findings file; the stamp's receipt names the rounds. A verdict with no record is an opinion.
 
 ## Use this skill when
 
@@ -37,39 +37,36 @@ Name the candidate: the implementation commit, or the commit range (`<BASE_SHA>.
 
 Work the three questions across the diff and its blast radius. Fix what you find, then re-ask them. Look specifically for the failure modes this codebase invites:
 
-- An engine or document call on the wrong thread, a document instance shared across threads instead of owned by a single `DocumentActor`, or unbounded recursion/allocation on hostile inputs (foundation plan sections 3 and 4).
-- An engine or parser function that throws or aborts instead of returning typed result/error values (`PdfResult<T>` / `PdfError`).
-- A tile cached after abort, a bitmap stride assumed to be `width * 4`, or a `CancelToken` polled without cooperative abort semantics.
-- A file write that is not temp-then-replace, or originals modified in place by Organize operations.
-- Office automation without `AutomationSecurity` forced off, or a document link opened without asking.
-- A hex colour, font size or glyph set directly on a control instead of SPEC tokens and Segoe Fluent Icons.
-- A setting nothing reads, a command unreachable from the command box, a control with no `AutomationProperties.Name`.
+- The failure modes the project's `AGENTS.md`, foundation plan and SPEC call out for the area you touched: list them in the findings file and check each one.
+- An error path that throws, aborts or swallows instead of returning the project's typed error, or a failure reported as success.
+- Work on the wrong thread, mutable state shared across threads, or unbounded recursion or allocation on hostile input.
+- A file write that is not temp-then-replace, or an original modified in place.
+- A hard-coded colour, size or string where design tokens or settings own it, or a control without an accessible name.
+- A setting nothing reads, a command nothing reaches, or a link or automation that acts without asking.
 - A test that passes without exercising the behavior.
 
-### 3. Independent review rounds
+### 3. Independent review rounds (the pinned reviewer)
 
-Run the lenses as separate passes over the candidate, at least one round by an independent reviewer invoked via:
+Run the lenses as separate passes over the candidate, at least one round by the pinned independent reviewer. Write the prompt to a scratch file from `docs/review-round-prompt.md` (candidate SHA, section contract, governing documents, lenses), then run it, naming your own agent as the writer (`claude`, `codex` or `gemini`):
 
-```powershell
-Get-Content "<scratch-review-prompt.md>" -Raw | codex exec -m gpt-6-astra --ephemeral -
+```bash
+python3 scripts/review-dispatch.py --writer <claude|codex|gemini> --prompt <scratch-review-prompt.md> --record docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md
 ```
 
-Or, when running inside Antigravity without the Codex CLI, invoke an isolated reviewer subagent via `invoke_subagent` with the candidate commit SHA, the section contract, and the six lenses below.
-
-Record every round in the findings file: round number, reviewer identifier, candidate SHA, per-lens verdicts (`approve`, `needs-attention` with numbered findings naming `file:line`, or `advisory`), and the quoted gate outputs (the Live proof).
+The dispatcher fails over by itself and appends a `## Round N` section naming the reviewer, its model and any reviewer it skipped. Complete that round with the candidate SHA, per-lens verdicts (`approve`, `needs-attention` with numbered findings naming `file:line`, or `advisory`), and the quoted gate outputs (the Live proof). On Windows run `python` instead of `python3`. A repository without `scripts/review-dispatch.py` gets it with `forge.py kit . reviewer`.
 
 | Lens | Asks |
 | ---- | ---- |
-| `adversarial` | How does this fail on hostile input, races, aborts, macros, or links? |
-| `consistency` | Does it match module rules, naming, shared controls, and settings? |
-| `integration` | Do callers hold: actor contract, tile hand-off, jobs, shell slots? |
+| `adversarial` | How does this fail on hostile input, races, aborts, automation or links? |
+| `consistency` | Does it match the module rules, naming, shared components and settings? |
+| `integration` | Do callers and consumers still hold, with every contract kept? |
 | `source-defect` | Is the upstream spec or SPEC read accurately with deviations noted? |
-| `design` | Does the rendered UI match the SPEC screenshot and colour tokens? |
+| `design` | Does the rendered UI match the design source and its tokens? |
 | `record` | Does evidence match what ran, with owned deferrals and earned flip? |
 
-The loop is bounded: at most 3 rounds. Findings are fixed in new commits appended to the candidate, gates re-run, and the affected lenses re-run against the new tip. A unit patched three rounds running is stopped and re-thought instead of patched again. Round verdicts for the receipt: `clean` (no findings), `fixed` (findings found and fixed in a later round), `stopped-at-3` (cap reached; every leftover is filed through `add-todo` with an owner, or the run stops with no stamp when a leftover is safety, data-integrity or stamp-invalidating). When no independent reviewer can run, record the outage in the findings file with an owner and a due date and stop without a stamp: a single-context self-review pass is not a substitute.
+The loop is bounded: at most 3 rounds. Findings are fixed in new commits appended to the candidate, gates re-run, and the affected lenses re-run against the new tip. A unit patched three rounds running is stopped and re-thought instead of patched again. Round verdicts for the receipt: `clean` (no findings), `fixed` (findings found and fixed in a later round), `stopped-at-3` (cap reached; every leftover is filed through `add-todo` with an owner, or the run stops with no stamp when a leftover is safety, data-integrity or stamp-invalidating). When the dispatcher exits 1 (no pinned reviewer could run), record the outage in the findings file with an owner and a due date and stop without a stamp: a session-only pass is not a substitute.
 
-Architecture check: on sections touching the bridge boundary, the threading contract, document lifetime, the tile hand-off, conversion isolation or the shell slot model, one findings-file paragraph answers whether the change keeps the foundation plan architecture intact, naming any decision it effectively revises. A revision is recorded as a plan correction, never smuggled in as code.
+Architecture check: on sections touching an architectural boundary the foundation plan names (process or thread contracts, data ownership, module seams), one findings-file paragraph answers whether the change keeps the foundation plan architecture intact, naming any decision it effectively revises. A revision is recorded as a plan correction, never smuggled in as code.
 
 ### 4. Re-run the gates
 

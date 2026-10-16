@@ -17,6 +17,7 @@ Each agent reads only its own isolated folder and entrypoint alongside the share
 | `forge.py` / `forge.cmd` | CLI (`init`, `sync`, `kit`, `doctor`, `kits`, `check`; `isolated` default mode). |
 | `kits/base/` | Every repo: entry docs, safety skills, subagents, rules, tier check. |
 | `kits/todo/` | TODO skills, `todo-graph.py`, starter `todo/` tree, workflow doc. |
+| `kits/reviewer/` | Reviewer pin (GPT-6 Astra, failover Gemini 4, Sonnet 5.5) and dispatcher. |
 | `kits/laravel/`, `kits/wordpress/` | Stack kits. |
 | `prompts/` | Copy-pasteable prompts to import Conclave-SDK from Gemini, Claude, or Codex. |
 | `plugins/` | Standalone agent plugins that belong to no kit (never installed by `forge.py`). |
@@ -63,6 +64,7 @@ Paste the prompt from [`prompts/bootstrap-project-prompt.md`](file:///R:/GitHub/
 | --- | --- | --- |
 | `base` | Entry docs, safety and authoring skills, subagents, rules | Every repository |
 | `todo` | 8 TODO skills, `todo-graph.py`, starter `todo/` tree | Work planned in TODO files |
+| `reviewer` | Reviewer pin, `review-dispatch.py`, review skill | Independent review |
 | `laravel` | `boost.json`, `.mcp.json`, LSP diagnostics, `laravel-boost` | `artisan` exists |
 | `wordpress` | Site pin, SSH/SFTP, WordPress MCP, DDEV, PHPCS | A WordPress site |
 

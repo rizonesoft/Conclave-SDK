@@ -158,7 +158,7 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertEqual(status["codex_skills"], [])
 
     def test_list_kits_and_base_kit_additive_preservation_and_per_agent_import(self):
-        self.assertEqual(forge.list_kits(), ["base", "laravel", "todo", "wordpress"])
+        self.assertEqual(forge.list_kits(), ["base", "laravel", "reviewer", "todo", "wordpress"])
         (self.target / "AGENTS.md").write_text("locally tuned\n", encoding="utf-8")
         dry = forge.apply_kit(self.target, "base", dry_run=True)
         self.assertTrue(dry["dry_run"])
@@ -359,6 +359,28 @@ class ForgeProvisionTests(unittest.TestCase):
                     installed = FORGE_ROOT / rel
                     self.assertTrue(installed.is_file(), "missing from the SDK's own agent setup")
                     self.assertEqual(text(installed), text(source), "the SDK's own copy drifted from its kit")
+
+    def test_reviewer_kit_install_doctor_and_sync_detection(self):
+        project = self.target / "reviewed"
+        project.mkdir()
+        res = forge.apply_kit(project, "reviewer")
+        self.assertIn(".conclave/reviewers.toml", res["installed"])
+        self.assertEqual((project / "scripts/review-dispatch.py").stat().st_mode & 0o777, 0o755)
+        checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "reviewer")["checks"]}
+        self.assertEqual(checks["reviewer-pin"], "ok")
+        self.assertEqual(checks["skill:independent-review:.claude"], "ok")
+        self.assertEqual({k for k in checks if k.startswith("reviewer:")}, {"reviewer:astra", "reviewer:gemini", "reviewer:sonnet"})
+        self.assertIn("reviewer", forge.installed_kits(project))
+
+        (project / ".conclave/reviewers.toml").write_text("schema_version = 1\n", encoding="utf-8")
+        checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "reviewer")["checks"]}
+        self.assertEqual(checks["reviewer-pin"], "missing")
+
+    def test_reviewer_kit_dispatcher_tests_pass(self):
+        tests = FORGE_ROOT / "kits/reviewer/templates/scripts/tests"
+        result = subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "-s", str(tests)],
+                                capture_output=True, text=True, timeout=300)
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
 
     def test_no_em_or_en_dashes_anywhere(self):
         # Every text file the SDK ships or provisions: prose, code, comments, templates and config alike.

@@ -2,6 +2,15 @@
 # Additive overlay. Never overwrites. Never installs global tools.
 set -euo pipefail
 
+# Copy to a temporary file beside the destination, then rename it into place, so an interrupted install never leaves a
+# partial file that a later run would preserve as if it were the project's own.
+place() {
+  local mode=$1 source=$2 destination=$3 temporary
+  temporary=$(mktemp -- "$(dirname -- "$destination")/.kit-install.XXXXXX")
+  install -m "$mode" -- "$source" "$temporary"
+  mv -f -- "$temporary" "$destination"
+}
+
 usage() {
 	printf 'Usage: %s <target-project-dir> [--host pressable|wpcom] [--dry-run]\n' "$0" >&2
 }
@@ -156,9 +165,9 @@ for index in "${!sources[@]}"; do
 		mkdir -p -- "$(dirname -- "$destination")"
 		# Modes come from the content, not the source: a kit checked out on a Windows drive reports 0777.
 		if [ "$(head -c 2 -- "$source")" = '#!' ]; then
-			install -m 0755 -- "$source" "$destination"
+			place 0755 "$source" "$destination"
 		else
-			install -m 0644 -- "$source" "$destination"
+			place 0644 "$source" "$destination"
 		fi
 		printf 'installed %s\n' "$relative"
 	fi
