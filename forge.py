@@ -4,7 +4,7 @@
     python forge.py init <target> [--mode isolated|hybrid|inherit] [--agent all|agy|gemini|claude|codex] [--kit <kit>] [--with-todo] [--force]
     python forge.py sync <target> [--mode isolated|hybrid|inherit] [--agent all|agy|gemini|claude|codex] [--kit <kit>] [--include-scripts]
     python forge.py kit <target> <kit> [--agent all|agy|gemini|claude|codex] [--host pressable|wpcom] [--dry-run]
-    python forge.py doctor <target> [laravel|wordpress] [--strict]
+    python forge.py doctor <target> [laravel|wordpress|reviewer] [--strict]
     python forge.py kits
     python forge.py check <target>
 
@@ -192,7 +192,7 @@ def apply_kit(
     refresh_scripts: bool = False,
     include=None,
 ) -> dict:
-    """Apply an additive overlay kit ('base', 'todo', 'laravel', 'wordpress') for all or one agent without overwriting existing files.
+    """Apply an additive overlay kit ('base', 'todo', 'reviewer', 'laravel', 'wordpress') for all or one agent without overwriting existing files.
 
     `refresh` (used by `sync`) also brings SDK-managed files that already exist up to date: skills, rules and
     subagents, plus scripts and bin/ helpers when `refresh_scripts` is set. Project files (entry docs, docs/, todo/,
@@ -633,7 +633,7 @@ def main(argv: list[str] | None = None) -> int:
     p_init.add_argument("target", help="Target repository path")
     p_init.add_argument("--mode", choices=["isolated", "copy", "hybrid", "inherit"], default="isolated")
     p_init.add_argument("--agent", choices=AGENT_CHOICES, default="all")
-    p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, laravel, wordpress)")
+    p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, reviewer, laravel, wordpress)")
     p_init.add_argument("--wp-host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
     p_init.add_argument("--no-scripts", action="store_true", help="Leave out the kits' scripts/ files")
     p_init.add_argument("--with-todo", action="store_true", help="Shorthand for --kit todo")
@@ -643,11 +643,11 @@ def main(argv: list[str] | None = None) -> int:
     p_sync.add_argument("target", help="Target repository path")
     p_sync.add_argument("--mode", choices=["isolated", "copy", "hybrid", "inherit"], default="isolated")
     p_sync.add_argument("--agent", choices=AGENT_CHOICES, default="all")
-    p_sync.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, laravel, wordpress)")
+    p_sync.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, reviewer, laravel, wordpress)")
     p_sync.add_argument("--wp-host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
     p_sync.add_argument("--include-scripts", action="store_true", help="Also update existing scripts/ and bin/ files from the kits")
 
-    p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, todo, laravel, wordpress) to a target repo")
+    p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, todo, reviewer, laravel, wordpress) to a target repo")
     p_kit.add_argument("target", help="Target repository path")
     p_kit.add_argument("kit_name", choices=list_kits(), help="Kit name to apply")
     p_kit.add_argument("--agent", choices=AGENT_CHOICES, default="all", help="Install kit files for all agents or one agent")

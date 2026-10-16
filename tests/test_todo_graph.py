@@ -272,6 +272,33 @@ class Graph(Tree):
         with self.assertRaises(tg.Refused):
             tg.projections(self.root)
 
+    def test_plan_names_come_from_plan_json(self):
+        self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 99, "none", "--")]))
+        plan = tg.projection(self.root)
+        self.assertIn("# Implementation plan\n", plan)
+        self.assertIn("### Phase 0\n", plan)
+        self.assertIn("### Phase 99: Manual, operator only\n", plan)
+        self.assertNotIn("Recto", plan)
+        self.assertNotIn("acceptance bar", plan)
+        (self.root / "todo/plan.json").write_text(json.dumps({
+            "title": "Site plan", "acceptance": "`design/SPEC.md`.", "phases": {"0": "Tooling"}}),
+            encoding="utf-8")
+        plan = tg.projection(self.root)
+        self.assertIn("# Site plan\n", plan)
+        self.assertIn("The acceptance bar is `design/SPEC.md`.", plan)
+        self.assertIn("### Phase 0: Tooling\n", plan)
+
+    def test_malformed_plan_json_refuses(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        config = self.root / "todo/plan.json"
+        for bad, fragment in (({"phases": {"8": "x"}}, "unknown phase"),
+                              ({"title": "t", "owner": "x"}, "may only hold"),
+                              ({"phases": {"0": ""}}, "needs a name"),
+                              ({"acceptance": ""}, "acceptance must be"),
+                              ("{", "unreadable")):
+            config.write_text(bad if isinstance(bad, str) else json.dumps(bad), encoding="utf-8")
+            self.refuses(fragment)
+
     def test_resolve_accepts_windows_and_posix_paths_and_plan_rows(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
         rows = tg.graph(self.root)
