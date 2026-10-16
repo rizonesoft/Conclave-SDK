@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 // Enforce the delegation tier invariant on this project's agent definitions.
 //
-// The rule is in AGENTS.md: mechanical subtasks delegate to subagents, those
-// subagents are Sonnet-tier only — never Haiku — and an elevated tier is
-// reserved for work whose verdict quality demands it.
+// The rule is in AGENTS.md: mechanical subtasks delegate to subagents on the
+// Sonnet tier; an elevated tier is reserved for work whose verdict quality
+// demands it; and Haiku is allowed only for near-mechanical work (at least 90%
+// mechanical) whose output a script or the main loop verifies.
 //
 // A rule stated in prose is protected by discipline. This makes it protected by
-// a check: an agent added with `model: haiku`, or with no `model:` line at all,
-// fails here instead of passing every gate and being noticed later, or never.
+// a check: an agent with no `model:` line, or a Haiku agent that does not meet
+// every Haiku condition below, fails here instead of passing every gate and
+// being noticed later, or never.
 //
 // An absent `model:` is an error rather than a default, because an unpinned
-// agent silently inherits the caller's model — mechanical work then runs on the
+// agent silently inherits the caller's model: mechanical work then runs on the
 // expensive tier with no signal at all, which is the exact regression this
 // exists to catch.
 //
@@ -20,20 +22,43 @@
 //
 //   node scripts/verify-agent-tiers.mjs
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { isAbsolute, join, normalize, sep } from "node:path";
 
 /**
  * Tier vocabulary.
  *
- * Kept as substrings rather than exact model IDs so a version bump — sonnet-5
- * to a later sonnet — does not silently fail a project that is still obeying
+ * Kept as substrings rather than exact model IDs so a version bump (sonnet-5
+ * to a later sonnet) does not silently fail a project that is still obeying
  * the rule. The tier is the invariant; the exact pin is a routing decision that
- * belongs elsewhere.
+ * belongs elsewhere. Haiku is the exception: it must be an exact, versioned pin.
  */
-export const FORBIDDEN_AGENT_MODEL_TOKENS = ["haiku"];
 export const BASE_AGENT_MODEL_TOKENS = ["sonnet"];
 export const ELEVATED_AGENT_MODEL_TOKENS = ["opus", "fable"];
+export const RESTRICTED_AGENT_MODEL_TOKENS = ["haiku"];
+
+/**
+ * The Haiku allowance, every condition required.
+ *
+ * - An exact pin of Haiku 5.5 or later (`claude-haiku-5-5`, optionally with a
+ *   date suffix). The bare `haiku` alias is refused because it is not a version.
+ * - `mechanical_share:` of 90 or more: the share of the agent's work that is
+ *   mechanical (lookups, inventories, structural checks), declared so a reviewer
+ *   can challenge it.
+ * - `haiku_replay:` naming a file in this repository that records a replay on
+ *   known-answer inputs showing no loss against the base tier.
+ * - An explicit `tools:` list with no edit tools: a Haiku agent reads and runs,
+ *   and its caller checks what it returns.
+ * - No judgment work in its name or description: never review, audit,
+ *   research, security, debugging, diagnosis, planning or design.
+ */
+export const HAIKU_MINIMUM_VERSION = [5, 5];
+export const HAIKU_PIN = /^claude-haiku-(\d+)-(\d+)(?:-\d{8})?$/;
+export const HAIKU_MECHANICAL_FIELD = "mechanical_share";
+export const HAIKU_MINIMUM_MECHANICAL_SHARE = 90;
+export const HAIKU_REPLAY_FIELD = "haiku_replay";
+export const HAIKU_FORBIDDEN_TOOLS = ["edit", "write", "multiedit", "notebookedit"];
+export const HAIKU_JUDGMENT_TERMS = /\b(review|audit|research|secur|debug|diagnos|plan|design|architect|judg|verdict)/i;
 
 /** Where an elevated pin must record why it is elevated. */
 export const ELEVATION_RATIONALE_FIELD = "model_rationale";
@@ -167,6 +192,7 @@ export function verifyAgentTiers(repoRoot = process.cwd(), relativeRoot = join("
     .sort();
 
   let elevated = 0;
+  let haiku = 0;
   for (const name of files) {
     const relative = join(relativeRoot, name);
     const text = readFileSync(join(absoluteRoot, name), "utf8");
@@ -186,9 +212,13 @@ export function verifyAgentTiers(repoRoot = process.cwd(), relativeRoot = join("
       continue;
     }
 
-    const forbidden = FORBIDDEN_AGENT_MODEL_TOKENS.find((token) => model.includes(token));
-    if (forbidden) {
-      errors.push(`${relative} pins "${model}": ${forbidden} is forbidden for every agent and subagent, for any task`);
+    if (RESTRICTED_AGENT_MODEL_TOKENS.some((token) => model.includes(token))) {
+      const problems = haikuProblems(repoRoot, fields, model);
+      if (problems.length > 0) {
+        errors.push(...problems.map((problem) => `${relative} pins "${model}": ${problem}`));
+      } else {
+        haiku += 1;
+      }
       continue;
     }
 
@@ -212,7 +242,55 @@ export function verifyAgentTiers(repoRoot = process.cwd(), relativeRoot = join("
     }
   }
 
-  return { checked: files.length, elevated, errors };
+  return { checked: files.length, elevated, haiku, errors };
+}
+
+/** Every unmet Haiku condition, so one run names them all. */
+export function haikuProblems(repoRoot, fields, model) {
+  const problems = [];
+  const pin = HAIKU_PIN.exec(model);
+  const [minMajor, minMinor] = HAIKU_MINIMUM_VERSION;
+  if (!pin || Number(pin[1]) < minMajor || (Number(pin[1]) === minMajor && Number(pin[2]) < minMinor)) {
+    problems.push("Haiku must be an exact pin of claude-haiku-5-5 or later, never the bare alias or an older version");
+  }
+
+  const share = recordedProse(fields, HAIKU_MECHANICAL_FIELD);
+  if (!share || !/^\d{1,3}$/.test(share) || Number(share) < HAIKU_MINIMUM_MECHANICAL_SHARE || Number(share) > 100) {
+    problems.push(
+      `Haiku needs "${HAIKU_MECHANICAL_FIELD}:" as a whole percentage from ${HAIKU_MINIMUM_MECHANICAL_SHARE} to 100; `
+      + "Haiku is only for near-mechanical work",
+    );
+  }
+
+  const replay = recordedProse(fields, HAIKU_REPLAY_FIELD);
+  const replayPath = replay ? normalize(replay) : null;
+  const inside = replayPath && !isAbsolute(replayPath) && replayPath !== ".." && !replayPath.startsWith(`..${sep}`);
+  if (!inside || !existsSync(join(repoRoot, replayPath)) || !statSync(join(repoRoot, replayPath)).isFile()) {
+    problems.push(
+      `Haiku needs "${HAIKU_REPLAY_FIELD}:" naming a file in this repository that records a known-answer replay `
+      + "showing no loss against the base tier",
+    );
+  }
+
+  const tools = recordedProse(fields, "tools");
+  if (!tools) {
+    problems.push('Haiku needs an explicit "tools:" list; without one the agent inherits every tool, edit tools included');
+  } else {
+    const names = tools.split(",").map((tool) => tool.trim().toLowerCase());
+    if (names.some((tool) => HAIKU_FORBIDDEN_TOOLS.includes(tool))) {
+      problems.push("Haiku agents never get edit tools (Edit, Write, MultiEdit, NotebookEdit); they read and run, and the caller checks");
+    }
+  }
+
+  const purpose = `${recordedProse(fields, "name") ?? ""} ${recordedProse(fields, "description") ?? ""}`;
+  const judgment = HAIKU_JUDGMENT_TERMS.exec(purpose);
+  if (judgment) {
+    problems.push(
+      `Haiku never does judgment work, and this agent's name or description says "${judgment[0]}"; `
+      + "review, audit, research, security, debugging, diagnosis, planning and design stay on Sonnet or above",
+    );
+  }
+  return problems;
 }
 
 if (process.argv[1]?.endsWith("verify-agent-tiers.mjs")) {
@@ -222,6 +300,7 @@ if (process.argv[1]?.endsWith("verify-agent-tiers.mjs")) {
     process.exit(1);
   }
   process.stdout.write(
-    `Agent tiers valid: ${result.checked} definition(s) checked, ${result.elevated} elevated with a recorded rationale.\n`,
+    `Agent tiers valid: ${result.checked} definition(s) checked, ${result.elevated} elevated with a recorded rationale, `
+    + `${result.haiku} on Haiku under the mechanical-work allowance.\n`,
   );
 }

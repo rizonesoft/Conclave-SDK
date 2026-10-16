@@ -33,11 +33,11 @@ For TODO work, use the skill in your agent's isolated skill directory (`.agents/
 ## Working rules
 
 - **Agent isolation:** Only read and execute skills from your own agent's directory (`.agents/` for Antigravity, `.claude/` for Claude Code, `.codex/` for Codex). Never read or modify another agent's skill directory unless explicitly asked.
-- **Output discipline:** bound every command (filtered tests, `Select-Object -First`, field extraction). Keep full logs in ignored scratch (`R:\scratch` or `build/`).
+- **Output discipline:** bound every command (filtered tests, `Select-Object -First`, field extraction). Keep full logs in scratch, never the repository: `R:\scratch` on Windows, `/mnt/r/scratch` on WSL (the same folder), or the session scratchpad when one is given; `build/` holds derived project output.
 - **Writes are serial:** one session owns the working tree. Check `git status` before building over unfamiliar work.
 - **Fix at the owning layer:** a setting in its setting, behaviour in the code that produces it, a token in the token file. No output filters that hide a problem. Code changes end the report with a `Layer:` line.
 - **Tests prove claims:** a section's Test checkpoint must be able to fail, and is quoted, not paraphrased, in its stamp.
-- **No em dashes and no wrapping tables:** no em dashes or en dashes in authored prose; one line per paragraph and list item in Markdown; keep raw Markdown table description cells at or under 88 characters so they do not wrap in raw `.md` view.
+- **No em dashes and no wrapping tables:** no em dashes or en dashes anywhere (prose, code, comments, commit messages, generated files); one line per paragraph and list item in Markdown; keep raw Markdown table description cells at or under 88 characters so they do not wrap in raw `.md` view.
 - **Commits:** trunk-based `main`, concise imperative messages, the section ref in the body. Commits follow logical steps within a section; review fix-loop commits append to the candidate range. Never amend a candidate under review, never bypass hooks, never force-push.
 - **Credentials** never enter tracked files, arguments or logs.
 - **File writes:** every file write is temp-file-then-replace in the destination folder.

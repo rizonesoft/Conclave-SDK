@@ -11,6 +11,8 @@ This repository follows the Conclave-SDK 3-agent conventions. Adapt this file to
 - Real data only. Demo or seed data stays behind an explicit demo mode and is labeled as such.
 - Run the relevant typecheck, lint, and tests after a change.
 - Markdown prose is never hard-wrapped: one line per paragraph and per list item. Every Markdown table row stays `<= 100` characters so raw `.md` files never wrap.
+- Never use em dashes or en dashes anywhere: prose, code, comments, commit messages and generated files.
+- Temporary files and full logs go to scratch, never the repository: `R:\scratch` on Windows, `/mnt/r/scratch` on WSL (the same folder), or the session scratchpad when one is given.
 
 ## Safety
 
@@ -27,4 +29,6 @@ This repository follows the Conclave-SDK 3-agent conventions. Adapt this file to
 
 ## Subagents
 
-- Delegate mechanical subtasks to subagents. Claude subagents pin an explicit `model:`, Sonnet by default and never Haiku. Run `node scripts/verify-agent-tiers.mjs` after adding or changing an agent definition.
+- Delegate mechanical subtasks to subagents. Claude subagents pin an explicit `model:`: Sonnet by default, and Opus (with a `model_rationale:`) only where judgment quality needs it.
+- Haiku is only for near-mechanical work, at least 90% mechanical (read-only lookups, inventories, structural checks), whose output a script or the main loop verifies. Pin `claude-haiku-5-5` or later, declare `mechanical_share:` (90 to 100), point `haiku_replay:` at a record of a known-answer replay that showed no loss against Sonnet, and give it no edit tools. Never use Haiku for review, audit, research, security, debugging, diagnosis, planning or design.
+- Run `node scripts/verify-agent-tiers.mjs` after adding or changing an agent definition; it enforces both rules.

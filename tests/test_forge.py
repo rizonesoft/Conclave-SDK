@@ -274,13 +274,17 @@ class ForgeProvisionTests(unittest.TestCase):
                                     capture_output=True, text=True, timeout=120)
         self.assertEqual(result.returncode, 0, result.stderr[-2000:])
 
-    def test_no_em_or_en_dashes_in_authored_markdown(self):
-        for md in FORGE_ROOT.rglob("*.md"):
-            if ".git" in md.parts:
+    def test_no_em_or_en_dashes_anywhere(self):
+        # Every text file the SDK ships or provisions: prose, code, comments, templates and config alike.
+        for path in FORGE_ROOT.rglob("*"):
+            if not path.is_file() or ".git" in path.parts or "__pycache__" in path.parts:
                 continue
-            text = md.read_text(encoding="utf-8")
-            self.assertNotIn("\u2014", text, f"em dash found in {md}")
-            self.assertNotIn("\u2013", text, f"en dash found in {md}")
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            self.assertNotIn("\u2014", text, f"em dash found in {path}")
+            self.assertNotIn("\u2013", text, f"en dash found in {path}")
 
     def test_micro_todo_and_complete_plan_rules_present_across_all_agents(self):
         forge.provision(self.target, mode="isolated", agent="all", with_todo=True, overwrite_existing_docs=True)
