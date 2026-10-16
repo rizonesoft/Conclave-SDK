@@ -14,11 +14,20 @@ Granularity and 100% plan completeness:
 
 For TODO work, use the skill in your agent's isolated skill directory (`.agents/skills/`, `.claude/skills/`, or `.codex/skills/`) that owns the step: capture through `add-todo`, author a file through `create-todo`, build through `process-todo-section`, stamp through `review-todo-section`, close a file through `process-todo-file`, run a phase or the plan through `process-phase` or `process-plan`, harden the tree through `groom-plan`. The lifecycle is: capture, author, validate, record `Started:`, implement, run the section's gates, commit, review and stamp, sync the plan.
 
-## Commands
+## Rules for TODO work
+
+- **Tests prove claims:** a section's Test checkpoint must be able to fail, and is quoted, not paraphrased, in its stamp.
+- **Commits:** trunk-based `main`, concise imperative messages, the section ref in the body. Commits follow logical steps within a section; review fix-loop commits append to the candidate range. Never amend a candidate under review, never bypass hooks, never force-push.
+
+## Validation
 
 ```bash
-python3 scripts/todo-graph.py validate          # check every TODO file against todo/README.md
-python3 scripts/todo-graph.py query ready       # sections whose dependencies are done
-python3 scripts/todo-graph.py plan --sync       # regenerate todo/implementation-plan.md
-python3 scripts/todo-graph.py --help            # stamp, resolve, classify, render and the rest
+python3 scripts/todo-graph.py validate        # graph integrity; any fault exits 2 with the reason
+python3 scripts/todo-graph.py plan --check    # generated plan is current (CI runs this)
+python3 scripts/todo-graph.py query ready     # dependency-safe work right now
+python3 scripts/todo-graph.py query blocked   # sections waiting, and on what
+python3 scripts/todo-graph.py query stats     # tree health
+python3 scripts/todo-graph.py query deferred  # open and resolved deferrals
 ```
+
+Report only commands actually run, and distinguish static evidence, test output and review proof.

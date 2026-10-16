@@ -129,6 +129,39 @@ TODO_SKILLS = (
 WORDPRESS_PIN = ".conclave/wordpress-site.json"
 
 
+KIT_ORDER = ("base", "todo", "laravel", "wordpress")
+BASE_SKILLS = ("authoring-skills", "local-tool-safety")
+AGENT_DIRS = (".agents", ".claude", ".codex")
+SDK_MANAGED_PREFIXES = tuple(f"{d}/{kind}/" for d in AGENT_DIRS for kind in ("skills", "rules")) + (".claude/agents/",)
+SDK_MANAGED_SCRIPT_PREFIXES = ("scripts/", "bin/")
+
+
+def _is_sdk_managed(rel: str, include_scripts: bool) -> bool:
+    """Files `sync` may bring up to date: what the SDK owns, never what the project writes."""
+    if rel.startswith(SDK_MANAGED_PREFIXES):
+        return True
+    return include_scripts and rel.startswith(SDK_MANAGED_SCRIPT_PREFIXES)
+
+
+def installed_kits(target_root: Path) -> list[str]:
+    """The kits a repository already has, judged by files only that kit installs."""
+    target_root = Path(target_root)
+
+    def any_skill(names) -> bool:
+        return any((target_root / d / "skills" / n / "SKILL.md").is_file() for d in AGENT_DIRS for n in names)
+
+    found = []
+    if any_skill(BASE_SKILLS) or (target_root / "scripts/verify-agent-tiers.mjs").is_file():
+        found.append("base")
+    if any_skill(TODO_SKILLS) or (target_root / "scripts/todo-graph.py").is_file():
+        found.append("todo")
+    if any_skill(("laravel-boost",)) or (target_root / "scripts/lsp-diagnostics.py").is_file():
+        found.append("laravel")
+    if (target_root / WORDPRESS_PIN).is_file() or any_skill(("wordpress-site-safety", "wordpress-connect")):
+        found.append("wordpress")
+    return found
+
+
 def _rel_allowed_for_agent(rel: str, agent: str) -> bool:
     if "__pycache__" in rel.split("/"):
         # Bytecode left by running a kit's own tests in the SDK checkout is not kit content.
@@ -152,8 +185,15 @@ def apply_kit(
     agent: str = "all",
     dry_run: bool = False,
     host: str | None = None,
+    refresh: bool = False,
+    refresh_scripts: bool = False,
+    include=None,
 ) -> dict:
     """Apply an additive overlay kit ('base', 'todo', 'laravel', 'wordpress') for all or one agent without overwriting existing files.
+
+    `refresh` (used by `sync`) also brings SDK-managed files that already exist up to date: skills, rules and
+    subagents, plus scripts and bin/ helpers when `refresh_scripts` is set. Project files (entry docs, docs/, todo/,
+    site pins, config) are never overwritten. `include(rel)` can leave paths out entirely.
 
     `host` picks the WordPress kit's host overlay (kits/wordpress/hosts/<host>/templates); other kits ignore it. An
     existing site pin decides the host, so re-running the kit can never add another host's files; without a pin the
@@ -229,6 +269,9 @@ def apply_kit(
                 if _rel_allowed_for_agent(rel, agent):
                     plan.append((src, target_root / rel, rel))
 
+    if include is not None:
+        plan = [(src, dst, rel) for src, dst, rel in plan if include(rel)]
+
     # Preflight all planned destinations for symlink-parent traversal before writing any file
     for _src, dst, rel in plan:
         if dst.exists() or dst.is_symlink():
@@ -236,9 +279,17 @@ def apply_kit(
         if _has_unsafe_parent(target_root, rel):
             raise ValueError(f"Refusing destination with unsafe parent: {rel}")
 
+    updated: list[str] = []
     for src, dst, rel in plan:
         if dst.exists() or dst.is_symlink():
-            preserved.append(rel)
+            refreshable = refresh and _is_sdk_managed(rel, refresh_scripts) and dst.is_file() and not dst.is_symlink()
+            # An existing file under a symlinked directory belongs to wherever the link points; never write through it.
+            if refreshable and not _has_unsafe_parent(target_root, rel) and dst.read_bytes() != src.read_bytes():
+                if not dry_run:
+                    atomic_write(dst, src.read_bytes())
+                updated.append(rel)
+            else:
+                preserved.append(rel)
             continue
         if not dry_run:
             atomic_write(dst, src.read_bytes())
@@ -271,6 +322,7 @@ def apply_kit(
         "agent": agent,
         "dry_run": dry_run,
         "installed": installed,
+        "updated": updated,
         "preserved": preserved,
         "merge_needed": merge_needed,
         **extra,
@@ -431,6 +483,13 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
     }
 
 
+TODO_POINTER = (
+    "\n## TODO workflow\n\n"
+    "Plan and build through the TODO system: [docs/todo-workflow.md](./docs/todo-workflow.md).\n"
+)
+ENTRY_DOCS = ("AGENTS.md", "GEMINI.md", "CLAUDE.md", "CODEX.md")
+
+
 def provision(
     target_root: Path,
     *,
@@ -441,208 +500,70 @@ def provision(
     kits: list[str] | None = None,
     wordpress_host: str | None = None,
     overwrite_existing_docs: bool = False,
-    overwrite_skills: bool = True,
+    refresh: bool = False,
+    refresh_scripts: bool = False,
 ) -> dict:
+    """`init` and `sync`: install the base kit plus only the kits asked for, never the whole SDK.
+
+    `with_todo` is shorthand for the `todo` kit. With `refresh` (`sync`), every kit the repository already has is
+    included too, and its SDK-managed files are brought up to date (scripts only with `refresh_scripts`). Project
+    files are never overwritten; `overwrite_existing_docs` (`init --force`) rewrites only the four entry docs.
+    `hybrid` also writes `.agents/skills.json`; `inherit` writes the Antigravity manifests instead of copying its skills.
+    """
     if mode == "copy":
         mode = "isolated"
     agent = normalize_agent(agent)
     target_root = Path(target_root).resolve()
     target_root.mkdir(parents=True, exist_ok=True)
-    written: list[str] = []
-    skipped: list[str] = []
 
-    def record(path: Path, did_write: bool) -> None:
-        rel = path.relative_to(target_root).as_posix()
-        (written if did_write else skipped).append(rel)
+    chosen = ["base", *(["todo"] if with_todo else []), *(kits or []), *(installed_kits(target_root) if refresh else [])]
+    selected = [k for k in KIT_ORDER if k in chosen] + [k for k in dict.fromkeys(chosen) if k not in KIT_ORDER]
 
-    do_agy = agent in ("all", "agy")
-    do_claude = agent in ("all", "claude")
-    do_codex = agent in ("all", "codex")
+    def include(rel: str) -> bool:
+        if not include_scripts and rel.startswith("scripts/"):
+            return False
+        return not (mode == "inherit" and rel.startswith(".agents/skills/"))
 
-    # 1. Shared AGENTS.md (never overwrite unless overwrite_existing_docs is True)
+    kit_results = [
+        apply_kit(target_root, kit_name, agent=agent, host=wordpress_host, refresh=refresh,
+                  refresh_scripts=refresh_scripts, include=include)
+        for kit_name in selected
+    ]
+
+    forced: list[str] = []
+    if overwrite_existing_docs:
+        base_templates = FORGE_ROOT / "kits/base/templates"
+        for doc in ENTRY_DOCS:
+            if _rel_allowed_for_agent(doc, agent) and not (target_root / doc).is_symlink():
+                atomic_write(target_root / doc, (base_templates / doc).read_bytes())
+                forced.append(doc)
+
     agents_md = target_root / "AGENTS.md"
-    record(
-        agents_md,
-        write_if_allowed(
-            agents_md,
-            (FORGE_ROOT / "rules/AGENTS.template.md").read_bytes(),
-            overwrite_existing_docs,
-        ),
-    )
+    fresh_agents = "AGENTS.md" in kit_results[0]["installed"] or "AGENTS.md" in forced
+    if "todo" in selected and fresh_agents and agents_md.is_file():
+        atomic_write(agents_md, agents_md.read_bytes() + TODO_POINTER.encode("utf-8"))
 
-    # 2. Antigravity / Gemini isolated customizations (.agents/ and GEMINI.md)
-    if do_agy:
-        gemini_md = target_root / "GEMINI.md"
-        record(
-            gemini_md,
-            write_if_allowed(
-                gemini_md,
-                (FORGE_ROOT / "rules/GEMINI.template.md").read_bytes(),
-                overwrite_existing_docs,
-            ),
-        )
-        agy_rule = target_root / ".agents/rules/agy-output-and-safety.md"
-        record(
-            agy_rule,
-            write_if_allowed(
-                agy_rule,
-                (FORGE_ROOT / "rules/agy-output-and-safety.md").read_bytes(),
-                overwrite_skills,
-            ),
-        )
-        if mode in ("isolated", "hybrid"):
-            for p in copy_tree_atomic(
-                FORGE_ROOT / "skills/agy",
-                target_root / ".agents/skills",
-                overwrite=overwrite_skills,
-            ):
-                written.append(Path(p).relative_to(target_root).as_posix())
-        if mode == "isolated":
-            for stale_json in (target_root / ".agents/skills.json", target_root / ".agents/plugins.json"):
-                if stale_json.is_file():
-                    stale_json.unlink()
+    if agent in ("all", "agy"):
+        for stale_json in (target_root / ".agents/skills.json", target_root / ".agents/plugins.json"):
+            if mode == "isolated" and stale_json.is_file():
+                stale_json.unlink()
         if mode in ("hybrid", "inherit"):
-            skills_json = target_root / ".agents/skills.json"
-            skills_manifest = {
-                "entries": [
-                    {"path": (FORGE_ROOT / "skills/agy").as_posix()}
-                ]
-            }
-            record(
-                skills_json,
-                write_if_allowed(
-                    skills_json,
-                    json.dumps(skills_manifest, indent=2) + "\n",
-                    overwrite_skills,
-                ),
-            )
+            manifest = {"entries": [{"path": (FORGE_ROOT / "skills/agy").as_posix()}]}
+            write_if_allowed(target_root / ".agents/skills.json", json.dumps(manifest, indent=2) + "\n", True)
         if mode == "inherit":
-            plugins_json = target_root / ".agents/plugins.json"
-            plugins_manifest = {
-                "entries": [
-                    {"path": (FORGE_ROOT / "plugins").as_posix()}
-                ]
-            }
-            record(
-                plugins_json,
-                write_if_allowed(
-                    plugins_json,
-                    json.dumps(plugins_manifest, indent=2) + "\n",
-                    overwrite_skills,
-                ),
-            )
+            manifest = {"entries": [{"path": (FORGE_ROOT / "plugins").as_posix()}]}
+            write_if_allowed(target_root / ".agents/plugins.json", json.dumps(manifest, indent=2) + "\n", True)
 
-    # 3. Claude Code isolated customizations (.claude/ and CLAUDE.md)
-    if do_claude:
-        claude_md = target_root / "CLAUDE.md"
-        record(
-            claude_md,
-            write_if_allowed(
-                claude_md,
-                (FORGE_ROOT / "rules/CLAUDE.template.md").read_bytes(),
-                overwrite_existing_docs,
-            ),
-        )
-        claude_rule = target_root / ".claude/rules/claude-output-and-safety.md"
-        record(
-            claude_rule,
-            write_if_allowed(
-                claude_rule,
-                (FORGE_ROOT / "rules/claude-output-and-safety.md").read_bytes(),
-                overwrite_skills,
-            ),
-        )
-        if mode in ("isolated", "hybrid"):
-            for p in copy_tree_atomic(
-                FORGE_ROOT / "skills/claude",
-                target_root / ".claude/skills",
-                overwrite=overwrite_skills,
-            ):
-                written.append(Path(p).relative_to(target_root).as_posix())
-            if (FORGE_ROOT / "agents/claude").is_dir():
-                for p in copy_tree_atomic(
-                    FORGE_ROOT / "agents/claude",
-                    target_root / ".claude/agents",
-                    overwrite=overwrite_skills,
-                ):
-                    written.append(Path(p).relative_to(target_root).as_posix())
-
-    # 4. OpenAI Codex isolated customizations (.codex/ and CODEX.md)
-    if do_codex:
-        codex_md = target_root / "CODEX.md"
-        record(
-            codex_md,
-            write_if_allowed(
-                codex_md,
-                (FORGE_ROOT / "rules/CODEX.template.md").read_bytes(),
-                overwrite_existing_docs,
-            ),
-        )
-        codex_rule = target_root / ".codex/rules/codex-output-and-safety.md"
-        record(
-            codex_rule,
-            write_if_allowed(
-                codex_rule,
-                (FORGE_ROOT / "rules/codex-output-and-safety.md").read_bytes(),
-                overwrite_skills,
-            ),
-        )
-        if mode in ("isolated", "hybrid"):
-            for p in copy_tree_atomic(
-                FORGE_ROOT / "skills/codex",
-                target_root / ".codex/skills",
-                overwrite=overwrite_skills,
-            ):
-                written.append(Path(p).relative_to(target_root).as_posix())
-
-    # 5. Canonical TODO graph and agent-tier verification scripts
-    if include_scripts:
-        for rel_script in (
-            "scripts/todo-graph.py",
-            "scripts/lib/todo_graph.py",
-            "scripts/verify-agent-tiers.mjs",
-        ):
-            src_script = FORGE_ROOT / rel_script
-            if not src_script.is_file():
-                continue
-            dst = target_root / rel_script
-            record(
-                dst,
-                write_if_allowed(
-                    dst,
-                    src_script.read_bytes(),
-                    overwrite_skills,
-                ),
-            )
-
-    # 6. Optional starter todo/ tree
-    if with_todo:
-        for p in copy_tree_atomic(
-            FORGE_ROOT / "templates/todo",
-            target_root / "todo",
-            overwrite=overwrite_existing_docs,
-        ):
-            written.append(Path(p).relative_to(target_root).as_posix())
-
-    # 7. Optional additive stack kits
-    kit_results: list[dict] = []
-    if kits:
-        for kit_name in kits:
-            kit_res = apply_kit(target_root, kit_name, agent=agent, dry_run=False, host=wordpress_host)
-            kit_results.append(kit_res)
-            written.extend(kit_res["installed"])
-            skipped.extend(kit_res["preserved"])
-
-    res = {
+    written = [rel for r in kit_results for rel in (*r["installed"], *r["updated"])] + forced
+    skipped = [rel for r in kit_results for rel in r["preserved"] if rel not in forced]
+    return {
         "target": target_root.as_posix(),
         "mode": mode,
         "agent": agent,
         "written": written,
         "skipped": skipped,
+        "kits": kit_results,
     }
-    if kit_results:
-        res["kits"] = kit_results
-    return res
 
 
 def check_repo(target_root: Path) -> dict:
@@ -675,23 +596,23 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_init = sub.add_parser("init", help="Initialize isolated agent skills, rules, scripts, and optional stack kits")
+    p_init = sub.add_parser("init", help="Install the base kit plus only the kits named with --kit")
     p_init.add_argument("target", help="Target repository path")
     p_init.add_argument("--mode", choices=["isolated", "copy", "hybrid", "inherit"], default="isolated")
     p_init.add_argument("--agent", choices=AGENT_CHOICES, default="all")
     p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, laravel, wordpress)")
     p_init.add_argument("--wp-host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
-    p_init.add_argument("--no-scripts", action="store_true", help="Do not copy scripts/todo-graph.py or verify-agent-tiers.mjs")
-    p_init.add_argument("--with-todo", action="store_true", help="Seed starter todo/ directory")
+    p_init.add_argument("--no-scripts", action="store_true", help="Leave out the kits' scripts/ files")
+    p_init.add_argument("--with-todo", action="store_true", help="Shorthand for --kit todo")
     p_init.add_argument("--force", action="store_true", help="Overwrite existing AGENTS.md, GEMINI.md, CLAUDE.md, CODEX.md")
 
-    p_sync = sub.add_parser("sync", help="Synchronize isolated skills and rules into an existing repo")
+    p_sync = sub.add_parser("sync", help="Update the kits a repo already has (plus any --kit); project files are never overwritten")
     p_sync.add_argument("target", help="Target repository path")
     p_sync.add_argument("--mode", choices=["isolated", "copy", "hybrid", "inherit"], default="isolated")
     p_sync.add_argument("--agent", choices=AGENT_CHOICES, default="all")
     p_sync.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, laravel, wordpress)")
     p_sync.add_argument("--wp-host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
-    p_sync.add_argument("--include-scripts", action="store_true", help="Also update scripts/todo-graph.py and verify-agent-tiers.mjs")
+    p_sync.add_argument("--include-scripts", action="store_true", help="Also update existing scripts/ and bin/ files from the kits")
 
     p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, todo, laravel, wordpress) to a target repo")
     p_kit.add_argument("target", help="Target repository path")
@@ -740,7 +661,6 @@ def main(argv: list[str] | None = None) -> int:
             kits=args.kit,
             wordpress_host=args.wp_host,
             overwrite_existing_docs=args.force,
-            overwrite_skills=True,
         )
         print(json.dumps(res, indent=2))
         return 0
@@ -750,12 +670,10 @@ def main(argv: list[str] | None = None) -> int:
             target,
             mode=args.mode,
             agent=args.agent,
-            include_scripts=args.include_scripts,
-            with_todo=False,
             kits=args.kit,
             wordpress_host=args.wp_host,
-            overwrite_existing_docs=False,
-            overwrite_skills=True,
+            refresh=True,
+            refresh_scripts=args.include_scripts,
         )
         print(json.dumps(res, indent=2))
         return 0

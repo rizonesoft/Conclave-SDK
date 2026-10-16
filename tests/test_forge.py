@@ -11,6 +11,7 @@ FORGE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(FORGE_ROOT))
 import forge  # noqa: E402
 
+BASE_SKILLS = ["authoring-skills", "local-tool-safety"]
 EXPECTED_SKILLS = [
     "add-todo",
     "authoring-skills",
@@ -64,13 +65,69 @@ class ForgeProvisionTests(unittest.TestCase):
             self.assertFalse((self.target / ".claude/skills" / skill / "agents/openai.yaml").exists())
             self.assertFalse((self.target / ".agents/skills" / skill / "agents/openai.yaml").exists())
 
+    def test_init_installs_only_the_base_kit_unless_more_are_chosen(self):
+        res = forge.provision(self.target)
+        self.assertEqual([k["kit"] for k in res["kits"]], ["base"])
+        status = forge.check_repo(self.target)
+        self.assertEqual(status["claude_skills"], BASE_SKILLS)
+        self.assertEqual(status["agy_skills"], BASE_SKILLS)
+        self.assertEqual(status["codex_skills"], BASE_SKILLS)
+        self.assertEqual(status["claude_agents"], EXPECTED_CLAUDE_AGENTS)
+        self.assertTrue(status["has_verify_agent_tiers"])
+        self.assertFalse(status["has_todo_graph"])
+        self.assertFalse((self.target / "todo").exists())
+        self.assertNotIn("todo-workflow", (self.target / "AGENTS.md").read_text(encoding="utf-8"))
+
+    def test_init_with_todo_links_the_workflow_from_agents_md(self):
+        res = forge.provision(self.target, kits=["todo"])
+        self.assertEqual([k["kit"] for k in res["kits"]], ["base", "todo"])
+        self.assertIn("docs/todo-workflow.md", (self.target / "AGENTS.md").read_text(encoding="utf-8"))
+        self.assertEqual(forge.check_repo(self.target)["claude_skills"], EXPECTED_SKILLS)
+
+    def test_sync_refreshes_only_the_kits_a_repo_has_and_never_project_files(self):
+        forge.provision(self.target, with_todo=True)
+        skill = self.target / ".claude/skills/create-todo/SKILL.md"
+        skill.write_text("stale\n", encoding="utf-8")
+        (self.target / "AGENTS.md").write_text("project rules\n", encoding="utf-8")
+        (self.target / "todo/TODO-00-INDEX.md").write_text("our plan\n", encoding="utf-8")
+        graph = self.target / "scripts/todo-graph.py"
+        graph.write_text("old script\n", encoding="utf-8")
+
+        res = forge.provision(self.target, refresh=True)
+        self.assertEqual([k["kit"] for k in res["kits"]], ["base", "todo"])
+        self.assertIn(".claude/skills/create-todo/SKILL.md", res["written"])
+        self.assertEqual(skill.read_bytes(), (FORGE_ROOT / "skills/claude/create-todo/SKILL.md").read_bytes().replace(b"\r\n", b"\n"))
+        self.assertEqual((self.target / "AGENTS.md").read_text(encoding="utf-8"), "project rules\n")
+        self.assertEqual((self.target / "todo/TODO-00-INDEX.md").read_text(encoding="utf-8"), "our plan\n")
+        self.assertEqual(graph.read_text(encoding="utf-8"), "old script\n")
+        self.assertFalse((self.target / ".conclave").exists())
+
+        forge.provision(self.target, refresh=True, refresh_scripts=True)
+        self.assertNotEqual(graph.read_text(encoding="utf-8"), "old script\n")
+
+    def test_sync_never_writes_through_a_symlinked_skill_directory(self):
+        forge.provision(self.target)
+        outside = self.target.parent / (self.target.name + "-outside")
+        outside.mkdir()
+        try:
+            (outside / "SKILL.md").write_text("theirs\n", encoding="utf-8")
+            skill_dir = self.target / ".claude/skills/local-tool-safety"
+            shutil.rmtree(skill_dir)
+            skill_dir.symlink_to(outside, target_is_directory=True)
+            with self.assertRaises(ValueError):
+                forge.provision(self.target, refresh=True)
+            self.assertEqual((outside / "SKILL.md").read_text(encoding="utf-8"), "theirs\n")
+            self.assertEqual(sorted(f.name for f in outside.iterdir()), ["SKILL.md"])
+        finally:
+            shutil.rmtree(outside)
+
     def test_hybrid_mode_includes_skills_json_and_all_three_agents(self):
         forge.provision(self.target, mode="hybrid", agent="all")
         status = forge.check_repo(self.target)
         self.assertTrue(status["has_agy_skills_json"])
-        self.assertEqual(status["agy_skills"], EXPECTED_SKILLS)
-        self.assertEqual(status["claude_skills"], EXPECTED_SKILLS)
-        self.assertEqual(status["codex_skills"], EXPECTED_SKILLS)
+        self.assertEqual(status["agy_skills"], BASE_SKILLS)
+        self.assertEqual(status["claude_skills"], BASE_SKILLS)
+        self.assertEqual(status["codex_skills"], BASE_SKILLS)
 
     def test_inherit_mode_writes_manifests_without_copying_skill_dirs(self):
         forge.provision(self.target, mode="inherit", agent="agy", include_scripts=False)
@@ -96,7 +153,7 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertTrue(status["has_gemini_md"])
         self.assertFalse(status["has_claude_md"])
         self.assertFalse(status["has_codex_md"])
-        self.assertEqual(status["agy_skills"], EXPECTED_SKILLS)
+        self.assertEqual(status["agy_skills"], BASE_SKILLS)
         self.assertEqual(status["claude_skills"], [])
         self.assertEqual(status["codex_skills"], [])
 
@@ -331,7 +388,8 @@ class ForgeProvisionTests(unittest.TestCase):
 
     def test_micro_todo_and_complete_plan_rules_present_across_all_agents(self):
         forge.provision(self.target, mode="isolated", agent="all", with_todo=True, overwrite_existing_docs=True)
-        agents_text = (self.target / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertIn("docs/todo-workflow.md", (self.target / "AGENTS.md").read_text(encoding="utf-8"))
+        agents_text = (self.target / "docs/todo-workflow.md").read_text(encoding="utf-8")
         self.assertIn("Small, single-responsibility sections", agents_text)
         self.assertIn("Granular micro-step checklist items", agents_text)
         self.assertIn("100% complete development plan", agents_text)
