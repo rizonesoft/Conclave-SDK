@@ -2,11 +2,12 @@
 
 Reusable stack and agent overlays that Conclave-SDK copies into a new or existing repository for **Gemini / Antigravity (`.agents/`)**, **Claude Code (`.claude/`)**, and **OpenAI Codex (`.codex/`)**. They do not scaffold an application. They do not install global binaries. Each kit is additive: existing files stay byte-for-byte.
 
-Install **base** on every project (or run `python forge.py init <target>`). Then install the stack kit that matches the app.
+Install **base** on every project (or run `python forge.py init <target>`). Add **todo** where work is planned in TODO files. Then install the stack kit that matches the app.
 
 ```powershell
 # Cross-platform via forge.py (supports --agent all|gemini|agy|claude|codex)
 python forge.py kit /path/to/project base
+python forge.py kit /path/to/project todo
 python forge.py kit /path/to/laravel-project laravel
 python forge.py kit /path/to/wordpress-project wordpress --host pressable   # or --host wpcom
 python forge.py doctor /path/to/project
@@ -15,6 +16,7 @@ python forge.py doctor /path/to/project
 ```bash
 # Or directly via bash installers in Linux / WSL / Git Bash
 kits/base/scripts/install.sh /path/to/project
+kits/todo/scripts/install.sh /path/to/project
 kits/laravel/scripts/install.sh /path/to/laravel-project
 kits/wordpress/scripts/install.sh /path/to/wordpress-project --host wpcom
 ```
@@ -26,6 +28,7 @@ Dry-run any of them with `--dry-run`. There is no `--force`.
 | Kit | What it is | Install when |
 | --- | ---------- | ------------ |
 | `base/` | Agent overlay (`AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, safety skills) | Every new repository (not a stack) |
+| `todo/` | TODO skills, `todo-graph.py`, starter `todo/` tree | Work is planned in TODO files |
 | `laravel/` | Boost MCP, `boost.json`, stdio LSP client, `laravel-boost` skill, pre-push hook | Tree has `artisan` (root or child) |
 | `wordpress/` | Site pin, pinned SSH/SFTP, WordPress MCP, DDEV, PHPCS | WordPress site project |
 
@@ -53,6 +56,7 @@ python -m unittest discover -s tests -v
 
 ```bash
 bash kits/base/scripts/test-install.sh
+bash kits/todo/scripts/test-install.sh
 bash kits/laravel/scripts/test-install.sh
 bash kits/wordpress/scripts/test-install.sh
 ```

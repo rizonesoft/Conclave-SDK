@@ -101,7 +101,7 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertEqual(status["codex_skills"], [])
 
     def test_list_kits_and_base_kit_additive_preservation_and_per_agent_import(self):
-        self.assertEqual(forge.list_kits(), ["base", "laravel", "wordpress"])
+        self.assertEqual(forge.list_kits(), ["base", "laravel", "todo", "wordpress"])
         (self.target / "AGENTS.md").write_text("locally tuned\n", encoding="utf-8")
         dry = forge.apply_kit(self.target, "base", dry_run=True)
         self.assertTrue(dry["dry_run"])
@@ -273,6 +273,49 @@ class ForgeProvisionTests(unittest.TestCase):
             result = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", str(scripts / "tests")],
                                     capture_output=True, text=True, timeout=120)
         self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+
+    def test_todo_kit_install_and_doctor(self):
+        project = self.target / "planned"
+        project.mkdir()
+        res = forge.apply_kit(project, "todo")
+        self.assertIn("scripts/todo-graph.py", res["installed"])
+        self.assertIn("todo/README.md", res["installed"])
+        self.assertEqual((project / "scripts/todo-graph.py").stat().st_mode & 0o777, 0o755)
+        doc = forge.doctor_repo(project, "todo")
+        self.assertEqual(doc["missing_or_setup_required"], 0, [c for c in doc["checks"] if c["status"] != "ok"])
+        res = forge.apply_kit(project, "todo", agent="claude")
+        self.assertEqual(res["installed"], [])
+
+    def test_kit_copies_match_their_canonical_sources(self):
+        # Kits copy canonical files so `forge.py kit` works on its own; the copies must never drift.
+        def text(path):
+            return path.read_bytes().replace(b"\r\n", b"\n")
+
+        pairs = []
+        for agent, agent_dir in (("agy", ".agents"), ("claude", ".claude"), ("codex", ".codex")):
+            for kit, skills in (("todo", forge.TODO_SKILLS), ("base", ("authoring-skills", "local-tool-safety"))):
+                for skill in skills:
+                    source = FORGE_ROOT / "skills" / agent / skill
+                    copy = FORGE_ROOT / "kits" / kit / "templates" / agent_dir / "skills" / skill
+                    source_files = sorted(f.relative_to(source) for f in source.rglob("*") if f.is_file() and "__pycache__" not in f.parts)
+                    copy_files = sorted(f.relative_to(copy) for f in copy.rglob("*") if f.is_file())
+                    self.assertEqual(source_files, copy_files, f"{kit} kit {agent_dir}/skills/{skill} file list")
+                    pairs += [(source / rel, copy / rel) for rel in source_files]
+            rule = f"{agent}-output-and-safety.md"
+            pairs.append((FORGE_ROOT / "rules" / rule, FORGE_ROOT / "kits/base/templates" / agent_dir / "rules" / rule))
+        for agent_def in sorted((FORGE_ROOT / "agents/claude").glob("*.md")):
+            pairs.append((agent_def, FORGE_ROOT / "kits/base/templates/.claude/agents" / agent_def.name))
+        pairs += [
+            (FORGE_ROOT / "scripts/todo-graph.py", FORGE_ROOT / "kits/todo/templates/scripts/todo-graph.py"),
+            (FORGE_ROOT / "scripts/lib/todo_graph.py", FORGE_ROOT / "kits/todo/templates/scripts/lib/todo_graph.py"),
+            (FORGE_ROOT / "scripts/verify-agent-tiers.mjs", FORGE_ROOT / "kits/base/templates/scripts/verify-agent-tiers.mjs"),
+        ]
+        todo_source = FORGE_ROOT / "templates/todo"
+        pairs += [(f, FORGE_ROOT / "kits/todo/templates/todo" / f.relative_to(todo_source)) for f in todo_source.rglob("*") if f.is_file()]
+        for source, copy in pairs:
+            with self.subTest(copy=copy.relative_to(FORGE_ROOT).as_posix()):
+                self.assertTrue(copy.is_file(), "missing kit copy")
+                self.assertEqual(text(source), text(copy), "kit copy drifted from its canonical source")
 
     def test_no_em_or_en_dashes_anywhere(self):
         # Every text file the SDK ships or provisions: prose, code, comments, templates and config alike.

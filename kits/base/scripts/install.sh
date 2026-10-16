@@ -56,7 +56,7 @@ sources=()
 
 while IFS= read -r -d '' source; do
   sources+=("$source")
-done < <(LC_ALL=C find "$template_root" -type f -print0 | LC_ALL=C sort -z)
+done < <(LC_ALL=C find "$template_root" -name __pycache__ -prune -o -type f -print0 | LC_ALL=C sort -z)
 
 for source in "${sources[@]}"; do
   relative=${source#"$template_root"/}

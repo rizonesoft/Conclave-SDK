@@ -1,6 +1,6 @@
 # Conclave-SDK
 
-Conclave-SDK is the central repository for isolated agent skills, rules, subagent definitions, stack overlay kits (`base`, `laravel`, `wordpress`), prompts, plugins, templates, and the canonical TODO graph tooling (`todo-graph.py`).
+Conclave-SDK is the central repository for isolated agent skills, rules, subagent definitions, stack overlay kits (`base`, `todo`, `laravel`, `wordpress`), prompts, plugins, templates, and the canonical TODO graph tooling (`todo-graph.py`).
 
 It is designed to be imported into any **new** or **existing** repository by **Google Antigravity / Gemini (`gemini` / `agy`)**, **Claude Code (`claude`)**, and **OpenAI Codex (`codex`)**:
 
@@ -19,7 +19,7 @@ Each agent reads only its own isolated folder and entrypoint alongside the share
 | `skills/claude/` | Isolated Claude Code skills (`<target>/.claude/skills/`). |
 | `skills/codex/` | Isolated OpenAI Codex skills (`<target>/.codex/skills/` with `openai.yaml`). |
 | `agents/claude/` | Claude Sonnet subagent definitions (`<target>/.claude/agents/`). |
-| `kits/` | Additive project and stack overlays (`base/`, `laravel/`, `wordpress/`). |
+| `kits/` | Additive overlays (`base/`, `todo/`, `laravel/`, `wordpress/`). |
 | `rules/` | Shared and per-agent rule templates (`AGENTS`, `GEMINI`, `CLAUDE`, `CODEX`). |
 | `prompts/` | Copy-pasteable prompts to import Conclave-SDK from Gemini, Claude, or Codex. |
 | `plugins/todo-workflow/` | Antigravity plugin bundle (`plugin.json`) for TODO workflow skills. |

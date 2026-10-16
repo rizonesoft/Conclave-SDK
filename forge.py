@@ -122,6 +122,10 @@ def _find_wordpress_root(target_root: Path) -> Path | None:
 
 
 WORDPRESS_HOSTS = ("pressable", "wpcom")
+TODO_SKILLS = (
+    "add-todo", "create-todo", "groom-plan", "process-phase", "process-plan",
+    "process-todo-file", "process-todo-section", "review-todo-section",
+)
 WORDPRESS_PIN = ".conclave/wordpress-site.json"
 
 
@@ -149,7 +153,7 @@ def apply_kit(
     dry_run: bool = False,
     host: str | None = None,
 ) -> dict:
-    """Apply an additive overlay kit ('base', 'laravel', 'wordpress') for all or one agent without overwriting existing files.
+    """Apply an additive overlay kit ('base', 'todo', 'laravel', 'wordpress') for all or one agent without overwriting existing files.
 
     `host` picks the WordPress kit's host overlay (kits/wordpress/hosts/<host>/templates); other kits ignore it. An
     existing site pin decides the host, so re-running the kit can never add another host's files; without a pin the
@@ -405,6 +409,14 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
             add_check(binary, "ok" if found else "setup_required", found or hint)
     elif kit_name == "wordpress":
         _doctor_wordpress(target_root, add_check)
+    elif kit_name == "todo":
+        for agent_dir in (".agents", ".claude", ".codex"):
+            for skill in TODO_SKILLS:
+                sk = target_root / agent_dir / "skills" / skill / "SKILL.md"
+                add_check(f"skill:{skill}:{agent_dir}", "ok" if sk.is_file() else "missing", sk.as_posix())
+        for rel in ("scripts/todo-graph.py", "scripts/lib/todo_graph.py", "todo/README.md", "docs/todo-workflow.md"):
+            path = target_root / rel
+            add_check(rel, "ok" if path.is_file() else "missing", path.as_posix())
     else:
         for entry in ("AGENTS.md", "GEMINI.md", "CLAUDE.md", "CODEX.md"):
             p = target_root / entry
@@ -667,7 +679,7 @@ def main(argv: list[str] | None = None) -> int:
     p_init.add_argument("target", help="Target repository path")
     p_init.add_argument("--mode", choices=["isolated", "copy", "hybrid", "inherit"], default="isolated")
     p_init.add_argument("--agent", choices=AGENT_CHOICES, default="all")
-    p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, laravel, wordpress)")
+    p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, laravel, wordpress)")
     p_init.add_argument("--wp-host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
     p_init.add_argument("--no-scripts", action="store_true", help="Do not copy scripts/todo-graph.py or verify-agent-tiers.mjs")
     p_init.add_argument("--with-todo", action="store_true", help="Seed starter todo/ directory")
@@ -677,11 +689,11 @@ def main(argv: list[str] | None = None) -> int:
     p_sync.add_argument("target", help="Target repository path")
     p_sync.add_argument("--mode", choices=["isolated", "copy", "hybrid", "inherit"], default="isolated")
     p_sync.add_argument("--agent", choices=AGENT_CHOICES, default="all")
-    p_sync.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, laravel, wordpress)")
+    p_sync.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, laravel, wordpress)")
     p_sync.add_argument("--wp-host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
     p_sync.add_argument("--include-scripts", action="store_true", help="Also update scripts/todo-graph.py and verify-agent-tiers.mjs")
 
-    p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, laravel, wordpress) to a target repo")
+    p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, todo, laravel, wordpress) to a target repo")
     p_kit.add_argument("target", help="Target repository path")
     p_kit.add_argument("kit_name", choices=list_kits(), help="Kit name to apply")
     p_kit.add_argument("--agent", choices=AGENT_CHOICES, default="all", help="Install kit files for all agents or one agent")
