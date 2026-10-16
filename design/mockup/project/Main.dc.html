@@ -1113,7 +1113,9 @@ const SYNC_SCOPE = 'It never changes an existing AGENTS.md, GEMINI.md, CLAUDE.md
 // R31: the new repository wizard's choices, as forge.py init takes them (copy is an alias of isolated).
 const REPO_KITS = [['todo', 'TODO plan and process skills, scripts/todo-graph.py'], ['reviewer', 'Independent review: the reviewer pin and scripts/review-dispatch.py'], ['laravel', 'Laravel Boost and LSP checks; needs an existing Laravel app'], ['wordpress', 'WordPress site tooling for Pressable or WordPress.com']];
 const REPO_AGENTS = [['all', 'Every agent: .agents, .claude and .codex'], ['agy', 'Antigravity'], ['gemini', 'Gemini, the same files as agy'], ['claude', 'Claude Code'], ['codex', 'OpenAI Codex']];
-const REPO_MODES = [['isolated', 'Default: the kits are copied in, the repository is self-contained'], ['hybrid', 'Copied in, plus .agents/skills.json pointing at the kits'], ['inherit', 'Copied in except the Antigravity skills: .agents/skills.json and plugins.json point at the kits']];
+const REPO_MODES = [['isolated', 'Default: the kits are copied in, the repository is self-contained', 'Default: the kits are copied in, the repository is self-contained'],
+  ['hybrid', 'Copied in, plus .agents/skills.json pointing at the kits', 'The same as isolated for this agent: forge writes the Antigravity manifest only for all or agy'],
+  ['inherit', 'Copied in except the Antigravity skills: .agents/skills.json and plugins.json point at the kits', 'The same as isolated for this agent: forge writes the Antigravity manifests only for all or agy']];
 const REPO_DEFAULT = { folder: 'R:\\GitHub\\orchard-docs', kits: { todo: true, reviewer: true, laravel: false, wordpress: false }, agent: 'all', mode: 'isolated', host: 'pressable' };
 const CLI_PATH = { codex: 'C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.CMD', agy: 'C:\\Users\\dev\\AppData\\Local\\Programs\\Antigravity\\bin\\agy.CMD', claude: 'C:\\Users\\dev\\.local\\bin\\claude.EXE' };
 
@@ -1474,7 +1476,7 @@ class Component extends DCLogic {
     const stale = fresh ? {} : (UPDATE_STALE[folderId] || {});
     const staleScripts = freshScripts ? {} : clone(UPDATE_STALE_SCRIPTS[folderId] || {});
     if (!freshScripts && folderId === 'web' && this.base().env.screen === 'old-dispatcher') staleScripts.reviewer = (staleScripts.reviewer || []).concat(['scripts/review-dispatch.py']);
-    const kits = KITS.filter(function (kit) { return self.kitInfo(k, f, kit).state !== 'none'; }).map(function (kit) {
+    const kits = KITS.filter(function (kit) { return kit === 'base' || self.kitInfo(k, f, kit).state !== 'none'; }).map(function (kit) {
       const r = dryRun(f, has, kit, 'all', host);
       const installed = !r.error ? r.add.filter(function (p) { return p !== '.mcp.json'; }) : [];
       const updated = (stale[kit] || []).concat(scripts ? (staleScripts[kit] || []) : []);
@@ -1728,7 +1730,7 @@ class Component extends DCLogic {
       Object.assign(qi, { open: true, label: 'Update Kits', hasTitle: true, title: 'Update Kits in ' + cur.name, placeholder: 'Choose what forge.py sync refreshes',
         items: [item('Skills, rules and subagents', 'python forge.py sync', pick(false), true), item('Also existing scripts/ and bin/ files', 'python forge.py sync --include-scripts', pick(true))] });
     } else if (o.kind === 'update-confirm') {
-      const kitsHere = KITS.filter(function (kit) { return self.kitInfo(k, cur, kit).state !== 'none'; });
+      const kitsHere = KITS.filter(function (kit) { return kit === 'base' || self.kitInfo(k, cur, kit).state !== 'none'; });
       const argv = 'python forge.py sync ' + cur.path + (o.scripts ? ' --include-scripts' : '');
       Object.assign(dlg, { open: true, message: 'Update the kits in ' + cur.name + ' from ' + srcLabel + '?',
         detail: [{ t: 'forge.py sync refreshes ' + joinList(kitsHere) + ': skills, rules and subagents' + (o.scripts ? ', and existing scripts/ and bin/ files,' : '') + ' and adds any kit file that is missing.' }, { t: SYNC_SCOPE }, { t: 'Runs: ' + argv }],
@@ -1752,7 +1754,8 @@ class Component extends DCLogic {
       } else if (o.step === 3) {
         Object.assign(qi, base, { placeholder: 'Agent folders to install', items: REPO_AGENTS.map(function (x) { return item(x[0], x[1], function () { next({ agent: x[0] }); }, x[0] === o.agent); }) });
       } else if (o.step === 4) {
-        Object.assign(qi, base, { placeholder: 'Provisioning mode', items: REPO_MODES.map(function (x) { return item(x[0], x[1], function () { next({ mode: x[0] }); }, x[0] === o.mode); }) });
+        const agy = o.agent === 'all' || o.agent === 'agy' || o.agent === 'gemini';
+        Object.assign(qi, base, { placeholder: 'Provisioning mode', items: REPO_MODES.map(function (x) { return item(x[0], agy ? x[1] : x[2], function () { next({ mode: x[0] }); }, x[0] === o.mode); }) });
       } else {
         Object.assign(qi, base, { placeholder: 'WordPress host', items: [['pressable', 'Pressable'], ['wpcom', 'WordPress.com']].map(function (x) { return item(x[0], x[1], function () { next({ host: x[0] }); }, x[0] === o.host); }) });
       }
