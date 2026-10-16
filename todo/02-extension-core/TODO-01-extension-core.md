@@ -27,6 +27,11 @@ title: "TODO-01 -- Extension Core"
 - -> XREF: D01 T01 §3 -- the contract and fixtures the dispatcher client depends on
 - -> XREF: D03 T01 §6 -- the webview shows the candidate validation from §5
 - -> XREF: D04 T01 §1 -- integration tests exercise every host module here
+- -> XREF: D06 T01 §4 -- the Reviewers section shows the dispatcher state from §3
+- -> XREF: D06 T01 §1 -- the kit state from §10 decides which feature sections show
+- -> XREF: D03 T01 §1 -- every editor surface asserts parity with §11's fixtures
+- -> XREF: D05 T01 §5 -- every Kits surface asserts parity with §11's fixtures
+- -> XREF: D06 T01 §4 -- every feature section asserts parity with §11's fixtures
 
 ## Outcome
 
@@ -53,6 +58,7 @@ title: "TODO-01 -- Extension Core"
 | 8 | §8 | Test reviewer runner | §3, §4 | [ ] |
 | 9 | §9 | Forge runner and summary parsing | §2, §7 | [ ] |
 | 10 | §10 | Workspace kit state from forge | §9 | [ ] |
+| 11 | §11 | Mockup parity fixtures and harness | §1, D00 T01 §2 | [ ] |
 
 ## 1. Extension scaffold, build and test harness
 
@@ -296,6 +302,29 @@ The Kits view, the dialogs and the reviewer editor need each folder's kit state 
 - [ ] Commit: `extension: workspace kit state from forge's dry run`
 
 **Test checkpoint:** `cd extensions/vscode && npm test -- --test-name-pattern=kitState` passes, and fails when an empty `preserved` list is read as partly installed.
+
+## 11. Mockup parity fixtures and harness
+
+The build must match the approved mockup 1:1 (`design/platform-audit.md`), and a careful look is not proof. The mockup's own script already computes, for every scenario, each row's label, description, icon, badge, order and actions and every message text. This section exports that view model from the frozen mockup into fixtures, and gives every surface section one helper that fails on any difference. The example data (the orchard workspace, its plan and rounds) is test input fed to the extension, never product content.
+
+**Phase:** 1
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write `extensions/vscode/scripts/export-parity.mjs` and commit its output under `extensions/vscode/test/parity/fixtures/`. Done when: one JSON file exists per scenario, side bar state, workspace and theme the mockup offers.
+2. Write `extensions/vscode/test/parity/expectParity.ts` and the webview screenshot comparison. Done when: a deliberately changed label fails both.
+
+- [ ] Write `extensions/vscode/scripts/export-parity.mjs`: read the `data-dc-script` block of `design/mockup/project/Main.dc.html` at the commit `design/decisions.md` freezes, run `Component.renderVals()` with each `scenario`, `sidebar`, `workspace` and `theme`, and write the result without functions to `extensions/vscode/test/parity/fixtures/<sidebar>.<scenario>.<workspace>.<theme>.json`. Done when: `cd extensions/vscode && node scripts/export-parity.mjs` writes every combination and a second run changes nothing. Cheaper substitute: fixtures typed by hand.
+- [ ] Record the example inputs the mockup uses (the forge dry runs and doctor checks per scenario, the `--check-pin` results, `todo-graph.py query plan` and `--list-rounds` output) as fake runner outputs in `extensions/vscode/test/parity/inputs/`, so the extension renders the same example data the mockup drew. Done when: each fixture names the input set it was drawn from. Cheaper substitute: stripping the example rows from the fixtures.
+- [ ] Add a check in `extensions/vscode/test/parity/fixtures.test.ts` that re-runs the export and compares it with the committed fixtures. Done when: editing a label in the mockup without re-exporting fails the test. Cheaper substitute: exporting once and never again.
+- [ ] Write `expectParity(surface, fixtureId, actual)` in `extensions/vscode/test/parity/expectParity.ts`, comparing tree rows (label, description, `ThemeIcon` id and colour, decoration badge, tooltip, inline actions, order), view titles, descriptions and title actions, and webview texts and control states, and reporting every difference at once. Done when: a unit test shows one changed description, icon or row order each failing with the exact field. Cheaper substitute: comparing row counts.
+- [ ] Map each mockup icon to its `ThemeIcon` id and each mockup colour class to its theme colour id from `design/platform-audit.md` in `extensions/vscode/test/parity/mapping.ts`. Done when: every icon and colour in the fixtures has a mapping. Cheaper substitute: skipping icons in the comparison.
+- [ ] Compare each webview (the Reviewers editor and the installer) against the mockup by screenshot in `extensions/vscode/test/parity/webview.screens.test.ts`: render the webview HTML with the fixture's state in both themes and compare it with the same region of `design/screens/` within a small pixel tolerance. Done when: moving one button by four pixels fails the comparison. Cheaper substitute: no visual check.
+- [ ] Commit: `extension: mockup parity fixtures and harness`
+
+**Test checkpoint:** `cd extensions/vscode && npm test -- --test-name-pattern=parity` passes, and fails when one label in a fixture is edited by hand.
 
 ## Verification
 

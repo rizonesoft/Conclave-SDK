@@ -12,5 +12,6 @@ Governing plan: [docs/plans/2026-10-16-vscode-extension.md](../docs/plans/2026-1
 | 03 | 03-editor-ui/TODO-01-reviewer-editor-ui.md | Reviewers webview surface |
 | 04 | 04-ship/TODO-01-ship-extension.md | Acceptance, vsix, review, marketplace |
 | 05 | 05-kit-manager/TODO-01-kit-manager.md | Kit install, update, health, new repositories |
+| 06 | 06-feature-sections/TODO-01-feature-sections.md | Reviewers, Plan, Review rounds, WordPress site sections |
 
 ## Completed TODOs

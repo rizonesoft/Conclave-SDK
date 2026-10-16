@@ -22,11 +22,13 @@ title: "TODO-01 -- Kit Manager"
 - -> XREF: D02 T01 §10 -- the per-kit workspace state the view and dialogs read
 - -> XREF: D03 T01 §10 -- the reviewer editor's no-pin and old-dispatcher states call §1 and §2
 - -> XREF: D04 T01 §1 -- acceptance walks every kit operation
+- -> XREF: D06 T01 §1 -- the feature sections share this container, its current folder and its badge
 - -> XREF: D00 T01 §3 -- `design/SPEC.md` is the Fidelity source of §5 to §9
+- -> XREF: D02 T01 §11 -- the parity fixtures and `expectParity` every surface section here asserts
 
 ## Outcome
 
-- The Conclave view in the Activity Bar lists the five kits for each workspace folder as installed, partly installed or not installed, with a health badge, read from forge.
+- The Conclave view in the Activity Bar lists the five kits for the current folder (the only folder in a one-folder window; in a multi-root workspace the active editor's folder, which a Switch folder action changes) as installed, partly installed or not installed, with a health badge, read from forge.
 - Installing a kit shows forge's `--dry-run` file list first, takes the agent choice and (WordPress) the host, writes only after confirmation, and lists what forge installed; updating runs `forge.py sync` and lists what it updated; health shows every `doctor` check; a new repository is set up with `forge.py init` and opened.
 - Protected project files (`AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, `.conclave/reviewers.toml`, `todo/`, `docs/`) are byte-identical before and after every install and update, proved by hash.
 
@@ -43,7 +45,7 @@ title: "TODO-01 -- Kit Manager"
 | 3 | §3 | Kit health from forge check and doctor | D02 T01 §9 | [ ] |
 | 4 | §4 | New repository setup through forge init | D02 T01 §9 | [ ] |
 | 5 | §5 | Conclave Activity Bar view with the Kits tree | D02 T01 §10, D03 T01 §1 | [ ] |
-| 6 | §6 | Kit install dialog | §1, §5 | [ ] |
+| 6 | §6 | Kit installer in the side bar | §1, §5 | [ ] |
 | 7 | §7 | Kit update flow | §2, §5 | [ ] |
 | 8 | §8 | Kit health detail | §3, §5 | [ ] |
 | 9 | §9 | New repository wizard | §4, §5 | [ ] |
@@ -144,60 +146,64 @@ A new repository is set up from VS Code (plan R31) with `forge.py init <folder>`
 
 ## 5. Conclave Activity Bar view with the Kits tree
 
-The kits need a home in VS Code (plan R27). This section contributes a "Conclave" view container in the Activity Bar with a Kits tree view: one node per workspace folder, under it one node per kit from `forge.py kits` with its state (installed, partly installed, not installed) and health badge, and inline and context actions that open §6 to §8. It also holds "Open Reviewer Settings" and "Set up a new repository" as view title actions.
+The kits need a home in VS Code (plan R27). This section contributes a "Conclave" view container in the Activity Bar with a Kits tree view for the current folder (the only folder in a one-folder window; in a multi-root workspace the active editor's folder, which a Switch folder action changes): one top-level node per kit from `forge.py kits` with its state (installed, partly installed, not installed) and health badge, and inline and context actions that open §6 to §8. It also holds "Set up a new repository" as a view title action; "Open Reviewer Settings" sits in the Reviewers section (D06 T01 §4), one of the feature sections that share this container.
 
 **Phase:** 2
 **Needs:** none
 **Surface:** yes
 **Fidelity:** `design/SPEC.md` §9 Kits view and health; `design/screens/9-dark.png` and `design/screens/9-light.png`.
-**Job:** Show the operator, at a glance, which Conclave-SDK kits each folder has and which need attention, and start every kit action from one place.
+**Job:** Show the operator, at a glance, which Conclave-SDK kits the current repository has and which need attention, and start every kit action from one place.
 **Treatment:** A native `TreeView` with codicons per state, a description column for the state and a badge count of kits needing attention on the view container.
-**Chrome:** View title actions: Refresh, Update kits, Set up a new repository, Open Reviewer Settings; kit node inline actions: Install, Health.
+**Chrome:** View title actions: Refresh, Update kits, Set up a new repository, and Switch folder in a multi-root workspace; the view description names the folder there; kit node inline actions: Install, Health.
 
 **Build order:**
 
 1. Contribute the view container and view in `extensions/vscode/package.json` and write `extensions/vscode/src/host/kitsView.ts`. Done when: the view lists the five kits for the shipped workspace with their states.
 2. Wire the actions and the badge. Done when: each action opens its flow and the badge counts kits needing attention.
 
-- [ ] Contribute `viewsContainers.activitybar` `conclave` with the SPEC's icon and `views.conclave` `conclave.kits` named "Kits" in `extensions/vscode/package.json`. Done when: the Activity Bar shows the Conclave icon and the Kits view. Cheaper substitute: a view inside the Explorer.
-- [ ] Implement the `TreeDataProvider` in `extensions/vscode/src/host/kitsView.ts`: folder nodes, then one kit node per entry of `forge.py kits` with the state from D02 T01 §10 and the health from §3. Done when: the integration test reads five kit nodes with the shipped workspace's states. Cheaper substitute: a hard-coded kit list.
-- [ ] Show the state as description text and codicon (installed, partly installed, not installed) and the health as a badge text (`ok` or the count). Done when: the test reads both for an installed and an uninstalled kit. Cheaper substitute: colour alone.
+- [ ] Contribute `viewsContainers.activitybar` `conclave` with the icon `media/conclave.svg` and `views.conclave` `conclave.kits` named "Kits" in `extensions/vscode/package.json`. Done when: the Activity Bar shows the Conclave icon and the Kits view. Cheaper substitute: a view inside the Explorer.
+- [ ] Implement the `TreeDataProvider` in `extensions/vscode/src/host/kitsView.ts`: one top-level kit node per entry of `forge.py kits` for the current folder, no folder nodes, with the state from D02 T01 §10 and the health from §3. Done when: the integration test reads five kit nodes with the shipped workspace's states. Cheaper substitute: a hard-coded kit list.
+- [ ] Resolve the current folder in `extensions/vscode/src/host/kitsView.ts`: the only folder, else the active editor's folder, else the last one picked, else the first; in a multi-root workspace set `TreeView.description` to its name and contribute `conclave.kits.switchFolder` (a quick pick of the workspace folders) as a view title action shown only when `workspaceFolderCount > 1`. Done when: an integration test on a two-folder workspace lists only the active editor's folder and switches on the pick. Cheaper substitute: every folder listed at once.
+- [ ] Show the state as description text and a `ThemeIcon` (`pass`, `pie-chart`, `circle-large-outline`) and the health as a `FileDecoration` on the kit item's `resourceUri` (`conclave-kit:` scheme): the count of checks needing attention, at most two characters, coloured `list.warningForeground`, and none when every check is ok (`design/platform-audit.md`). Done when: the test reads the state, the icon and the decoration for a healthy, an unhealthy and an uninstalled kit. Cheaper substitute: the count appended to the description.
 - [ ] Add inline Install on kit nodes that are not fully installed, inline Health on installed ones, and a context menu with both. Done when: each opens §6 or §8 with that kit. Cheaper substitute: actions only in the Command Palette.
-- [ ] Add view title actions Refresh, Update kits (§7), Set up a new repository (§9) and Open Reviewer Settings (D03 T01 §11's command). Done when: each runs its command from the view title. Cheaper substitute: a single refresh button.
-- [ ] Set the view container's badge to the number of kits needing attention across folders, with a tooltip. Done when: a folder with a `setup_required` reviewer CLI shows badge 1. Cheaper substitute: no badge.
+- [ ] Add view title actions Refresh, Update kits (§7) and Set up a new repository (§9); Open Reviewer Settings belongs to the Reviewers section (D06 T01 §4). Done when: each runs its command from the view title. Cheaper substitute: a single refresh button.
+- [ ] Set the view container's badge to the number of the current folder's kits needing attention, with a tooltip. Done when: a folder with a `setup_required` reviewer CLI shows badge 1. Cheaper substitute: no badge.
 - [ ] Show an empty-folder message with "Set up a new repository" when a folder has no kit at all. Done when: an empty folder shows the message. Cheaper substitute: an empty tree.
 - [ ] Write `extensions/vscode/test/integration/kitsView.test.ts`. Done when: it passes and fails when the kit list is hard-coded instead of read from forge. Cheaper substitute: a snapshot of labels only.
+- [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/conclave-activity-bar-view-with-the-kits.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
 - [ ] Commit: `ui: Conclave view with the Kits tree`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep kitsView` passes, and fails when the view lists a kit that `forge.py kits` did not return.
 
-## 6. Kit install dialog
+## 6. Kit installer in the side bar
 
-Installing a kit needs choices and a preview (plan R28). This section shows a native multi-step input for the agent (all, agy, gemini, claude, codex) and, for WordPress, the host (pressable, wpcom), then forge's `--dry-run` list from §1 grouped as "will add" and "already present", with Install and Cancel. After the run it shows forge's installed list.
+Installing a kit needs choices and a preview (plan R28). The owner asked on 2026-10-16 for Install to open in the Conclave side bar. This section adds an "Install Kit" view under the Kits tree in the Conclave view container, shown while an install is open: the agent (all, agy, gemini, claude, codex) and, for WordPress, the host (pressable, wpcom), then forge's `--dry-run` list from §1 grouped as "will add" and "already present", with Install, Back and Cancel. After the run it shows forge's installed list and the protected-file hash check.
 
 **Phase:** 2
 **Needs:** none
 **Surface:** yes
 **Fidelity:** `design/SPEC.md` §10 Kit install and update; `design/screens/10-dark.png` and `design/screens/10-light.png`.
 **Job:** Let the operator see exactly which files a kit will add to their folder before saying yes.
-**Treatment:** `QuickPick` steps for agent and host, then a modal or webview preview as the SPEC chooses, with forge's lists verbatim and the source label (bundled, local or `owner/repo@sha`).
-**Chrome:** Step counter in the quick pick title; Install is the default button; Escape cancels at any step.
+**Treatment:** A `WebviewView` (`conclave.install`) in the Conclave view container, revealed by a context key: a dropdown for the agent, radios for the WordPress host (locked once the site pin exists), forge's lists verbatim and the source label (bundled, local or `owner/repo@sha`), as drawn in the mockup's Install artboards.
+**Chrome:** Step line (Choose, Preview, Installed) at the top; Install is the primary button; Back and Cancel at every step; a Close action on the view title.
 
 **Build order:**
 
-1. Write the choice steps in `extensions/vscode/src/host/kitInstallDialog.ts`. Done when: WordPress asks for the host and other kits do not.
+1. Contribute the view and write `extensions/vscode/src/host/kitInstallView.ts` with the choice step. Done when: WordPress asks for the host and other kits do not.
 2. Show the preview and the result. Done when: the integration test sees the dry-run list before Install and the installed list after.
 
-- [ ] Ask for the agent with a `QuickPick` defaulting to `all`. Done when: the test picks `claude` and the argv carries `--agent claude`. Cheaper substitute: always `all`.
+- [ ] Contribute `conclave.install` as a webview view in the `conclave` container, shown by the context key `conclave.installing`, and reveal it from the Kits Install action. Done when: Install on a kit node shows the view under the Kits tree. Cheaper substitute: a webview panel in the editor area.
+- [ ] Ask for the agent with a dropdown defaulting to `all`. Done when: the test picks `claude` and the argv carries `--agent claude`. Cheaper substitute: always `all`.
 - [ ] Ask for the WordPress host (pressable, wpcom) only when the kit is `wordpress`. Done when: installing `todo` asks no host question. Cheaper substitute: asking every kit.
 - [ ] Show forge's `installed` list as "will add" and `preserved` as "already present", with the source label from D02 T01 §7, before Install. Done when: the preview for `todo` on an empty folder lists `scripts/todo-graph.py` under will add. Cheaper substitute: a count of files only.
 - [ ] Show the `merge_needed` refusal from §1 with its paths. Done when: a fake summary with `merge_needed` shows the paths and no Install button. Cheaper substitute: a generic error.
-- [ ] Cancel cleanly at every step with Escape, running nothing. Done when: the test cancels at each step and no process starts. Cheaper substitute: cancel only at the end.
+- [ ] Cancel cleanly at every step with Cancel or the view's Close action, running nothing, and hide the view. Done when: the test cancels at each step and no process starts. Cheaper substitute: cancel only at the end.
 - [ ] Show the installed list after the run and refresh the Kits view. Done when: the kit node flips to installed. Cheaper substitute: a toast with no list.
-- [ ] Write `extensions/vscode/test/integration/kitInstallDialog.test.ts`. Done when: it passes and fails when the host step appears for `todo`. Cheaper substitute: no dialog test.
-- [ ] Commit: `ui: kit install dialog with forge's dry-run preview`
+- [ ] Write `extensions/vscode/test/integration/kitInstallView.test.ts`. Done when: it passes and fails when the host step appears for `todo`. Cheaper substitute: no installer test.
+- [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/kit-installer-in-the-side-bar.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
+- [ ] Commit: `ui: kit installer in the side bar with forge's dry-run preview`
 
-**Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep kitInstallDialog` passes, and fails when Install runs without showing the preview.
+**Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep kitInstallView` passes, and fails when Install runs without showing the preview.
 
 ## 7. Kit update flow
 
@@ -221,6 +227,7 @@ Updating kits (plan R29) starts from the view title or a no-dispatcher or old-di
 - [ ] Show forge's updated and installed lists per kit after the run, with "Nothing to update" when both are empty. Done when: an up-to-date folder shows that text. Cheaper substitute: an empty dialog.
 - [ ] Show the defect message from §2 when a protected file changed. Done when: a fake forge that edits `AGENTS.md` shows it. Cheaper substitute: no message.
 - [ ] Write `extensions/vscode/test/integration/kitUpdateFlow.test.ts`. Done when: it passes and fails when the scripts choice is ignored. Cheaper substitute: render test only.
+- [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/kit-update-flow.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
 - [ ] Commit: `ui: kit update flow`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep kitUpdateFlow` passes, and fails when starting from the old-dispatcher state leaves `--include-scripts` off.
@@ -247,6 +254,7 @@ Health needs detail, not just a badge (plan R30). This section shows a kit's `do
 - [ ] Copy a check's detail to the clipboard from its context menu. Done when: the test reads the clipboard. Cheaper substitute: no copy.
 - [ ] Refresh the kit's health from its node. Done when: fixing a fake cause and refreshing shows ok. Cheaper substitute: reload the window.
 - [ ] Write `extensions/vscode/test/integration/kitHealthView.test.ts`. Done when: it passes and fails when `unexpected` renders as ok. Cheaper substitute: no test.
+- [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/kit-health-detail.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
 - [ ] Commit: `ui: kit health detail in the Kits tree`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep kitHealthView` passes, and fails when ok checks are listed before a `setup_required` one.
@@ -276,6 +284,7 @@ Setting up a new repository (plan R31) needs a few choices. This section is a na
 - [ ] Offer "Open in new window" and "Add to workspace" after success. Done when: both work in the test. Cheaper substitute: no open step.
 - [ ] Support Back on every step without losing earlier choices. Done when: going back from mode keeps the kit selection. Cheaper substitute: restart on Back.
 - [ ] Write `extensions/vscode/test/integration/repoInitWizard.test.ts`. Done when: it passes and fails when base can be deselected. Cheaper substitute: no wizard test.
+- [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/new-repository-wizard.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
 - [ ] Commit: `ui: new repository wizard`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep repoInitWizard` passes, and fails when the summary step is skipped.

@@ -8,22 +8,24 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Design, pin contract and scaffold
 
-Sections: 8 | Checklist items: 86
+Sections: 10 | Checklist items: 101
 
 | Status | Reference  | Deliverable                                | Needs          | Items |
 | ------ | ---------- | ------------------------------------------ | -------------- | ----- |
-| [ ]    | D00 T01 §1 | Clickable reviewer editor mockup           | none           | 23    |
-| [ ]    | D00 T01 §2 | Owner approval and open design answers     | owner-decision | 5     |
-| [ ]    | D00 T01 §3 | Interface SPEC and screenshots             | none           | 13    |
+| [ ]    | D00 T01 §1 | Clickable reviewer editor mockup           | none           | 26    |
+| [ ]    | D00 T01 §2 | Owner approval and open design answers     | owner-decision | 6     |
+| [ ]    | D00 T01 §3 | Interface SPEC and screenshots             | none           | 14    |
 | [ ]    | D00 T01 §4 | Reviewer config design spec                | none           | 10    |
 | [ ]    | D01 T01 §1 | Strict schema_version type in load_pin     | none           | 7     |
 | [ ]    | D01 T01 §2 | Dispatcher check-pin flag                  | none           | 12    |
 | [ ]    | D01 T01 §3 | Check-pin contract fixtures and test       | none           | 7     |
 | [ ]    | D02 T01 §1 | Extension scaffold, build and test harness | none           | 9     |
+| [ ]    | D06 T01 §2 | Plan query in todo-graph                   | none           | 5     |
+| [ ]    | D06 T01 §3 | Round listing in the dispatcher            | none           | 5     |
 
 ### Phase 1: Extension host and kit operations
 
-Sections: 13 | Checklist items: 104
+Sections: 14 | Checklist items: 111
 
 | Status | Reference   | Deliverable                                 | Needs | Items |
 | ------ | ----------- | ------------------------------------------- | ----- | ----- |
@@ -36,6 +38,7 @@ Sections: 13 | Checklist items: 104
 | [ ]    | D02 T01 §8  | Test reviewer runner                        | none  | 8     |
 | [ ]    | D02 T01 §9  | Forge runner and summary parsing            | none  | 8     |
 | [ ]    | D02 T01 §10 | Workspace kit state from forge              | none  | 6     |
+| [ ]    | D02 T01 §11 | Mockup parity fixtures and harness          | none  | 7     |
 | [ ]    | D05 T01 §1  | Kit install with dry-run preview            | none  | 9     |
 | [ ]    | D05 T01 §2  | Kit update through forge sync               | none  | 8     |
 | [ ]    | D05 T01 §3  | Kit health from forge check and doctor      | none  | 6     |
@@ -43,26 +46,31 @@ Sections: 13 | Checklist items: 104
 
 ### Phase 2: Editor surface and Kits view
 
-Sections: 16 | Checklist items: 126
+Sections: 21 | Checklist items: 174
 
 | Status | Reference   | Deliverable                                   | Needs | Items |
 | ------ | ----------- | --------------------------------------------- | ----- | ----- |
-| [ ]    | D03 T01 §1  | Webview shell, theming and message bridge     | none  | 8     |
-| [ ]    | D03 T01 §2  | Reviewer cards with per-CLI effort            | none  | 9     |
-| [ ]    | D03 T01 §3  | Reviewer add, rename and delete               | none  | 7     |
-| [ ]    | D03 T01 §4  | Route rows with ordered failover editing      | none  | 9     |
-| [ ]    | D03 T01 §5  | Self-review warning and no-route notice       | none  | 6     |
-| [ ]    | D03 T01 §6  | Inline validation and Save gating             | none  | 7     |
-| [ ]    | D03 T01 §7  | TOML preview with diff against disk           | none  | 7     |
-| [ ]    | D03 T01 §8  | Save, discard and reload flow                 | none  | 8     |
-| [ ]    | D03 T01 §9  | Reviewer status and Test reviewer panel       | none  | 7     |
-| [ ]    | D03 T01 §11 | Entry points: command, menus and status bar   | none  | 9     |
-| [ ]    | D05 T01 §5  | Conclave Activity Bar view with the Kits tree | none  | 9     |
-| [ ]    | D05 T01 §6  | Kit install dialog                            | none  | 8     |
-| [ ]    | D05 T01 §7  | Kit update flow                               | none  | 6     |
-| [ ]    | D03 T01 §10 | Empty and failure states                      | none  | 11    |
-| [ ]    | D05 T01 §8  | Kit health detail                             | none  | 6     |
-| [ ]    | D05 T01 §9  | New repository wizard                         | none  | 9     |
+| [ ]    | D03 T01 §1  | Webview shell, theming and message bridge     | none  | 9     |
+| [ ]    | D03 T01 §2  | Reviewer cards with per-CLI effort            | none  | 10    |
+| [ ]    | D03 T01 §3  | Reviewer add, rename and delete               | none  | 8     |
+| [ ]    | D03 T01 §4  | Route rows with ordered failover editing      | none  | 10    |
+| [ ]    | D03 T01 §5  | Self-review warning and no-route notice       | none  | 7     |
+| [ ]    | D03 T01 §6  | Inline validation and Save gating             | none  | 8     |
+| [ ]    | D03 T01 §7  | TOML preview with diff against disk           | none  | 8     |
+| [ ]    | D03 T01 §8  | Save, discard and reload flow                 | none  | 9     |
+| [ ]    | D03 T01 §9  | Reviewer status and Test reviewer panel       | none  | 8     |
+| [ ]    | D03 T01 §11 | Entry points: command, menus and status bar   | none  | 10    |
+| [ ]    | D05 T01 §5  | Conclave Activity Bar view with the Kits tree | none  | 11    |
+| [ ]    | D05 T01 §6  | Kit installer in the side bar                 | none  | 10    |
+| [ ]    | D05 T01 §7  | Kit update flow                               | none  | 7     |
+| [ ]    | D03 T01 §10 | Empty and failure states                      | none  | 12    |
+| [ ]    | D05 T01 §8  | Kit health detail                             | none  | 7     |
+| [ ]    | D05 T01 §9  | New repository wizard                         | none  | 10    |
+| [ ]    | D06 T01 §1  | Feature section registry                      | none  | 7     |
+| [ ]    | D06 T01 §4  | Reviewers section                             | none  | 6     |
+| [ ]    | D06 T01 §5  | Plan section                                  | none  | 6     |
+| [ ]    | D06 T01 §6  | Review rounds section                         | none  | 6     |
+| [ ]    | D06 T01 §7  | WordPress site section                        | none  | 5     |
 
 ### Phase 6: Acceptance and ship
 
@@ -77,6 +85,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | owner-decision         | 5     |
 
-Progress: 0/43 verified sections, 1 ready to run now.
+Progress: 0/51 verified sections, 1 ready to run now.
 
-Checklist: 12/359 items completed (includes Commit items).
+Checklist: 19/429 items completed (includes Commit items).

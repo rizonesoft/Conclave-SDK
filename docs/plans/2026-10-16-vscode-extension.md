@@ -75,12 +75,20 @@ Re-checked 2026-10-16 at `97cca1d`, GitHub `main`: the reviewer kit is unchanged
 
 ### Kit manager
 
-- R27: a Conclave view in the Activity Bar lists, per workspace folder, every kit `forge.py kits` returns, each as installed, partly installed or not installed (forge's own `kit --dry-run` decides) with a health badge.
+- R27: a Conclave view in the Activity Bar lists, for the current folder (the only one, or in a multi-root workspace the active editor's folder, switchable), every kit `forge.py kits` returns, each as installed, partly installed or not installed (forge's own `kit --dry-run` decides) with a health badge.
 - R28: install any kit with `forge.py kit <folder> <kit>`: choose the agent (all, agy, gemini, claude, codex) and, for WordPress, the host (pressable, wpcom); see forge's `--dry-run` list of files it would add and keep; confirm; then see what it installed. A preview with `merge_needed` paths is refused.
 - R29: update installed kits with `forge.py sync <folder>`, optionally with `--include-scripts`, after a confirmation that states sync's scope (skills, rules, subagents, and with the option scripts and `bin/`; never entry docs, `docs/`, `todo/` or the pin), then see what it updated.
 - R30: health per installed kit from `forge.py check` and `forge.py doctor <folder> <kit>`: every check's status (`ok`, `missing`, `setup_required`, `unexpected`) and detail, verbatim.
 - R31: set up a new repository with `forge.py init <folder>`: choose the kits (base always), agent, provisioning mode (isolated by default) and WordPress host; the extension never passes `--force`, so existing entry docs are kept; then open the folder.
 - R32: every install, update and init proves by hash that `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, `.conclave/reviewers.toml`, `todo/` and `docs/` did not change unless forge reported writing them, and logs the run (argv, source and SHA, exit code, forge's lists) to the Conclave output channel. Forge has no uninstall, so the operator's git is the undo.
+
+### Feature sections
+
+- R33: the Conclave side bar holds the Kits tree and, under it, one section per feature, each shown only while its kit is in the current folder (R27's folder); each feature is its own module with commands under `conclave.<feature>.*`, and its data comes from its kit's own script, never from the extension parsing kit files.
+- R34: a Plan section (todo kit) shows the sections ready now and each phase with its verified count, from `scripts/todo-graph.py query plan`, with the phase names `todo/plan.json` gives.
+- R35: a Review rounds section (reviewer kit) lists each round record and its rounds from `scripts/review-dispatch.py --list-rounds --json`, and marks a round with no reviewer as not an approval.
+- R36: a WordPress site section (wordpress kit) shows the site checks of `forge.py doctor <folder> wordpress` verbatim; the extension never writes the site pin.
+- R37: a Reviewers section (reviewer kit) shows the pin state from `--check-pin`, each reviewer with its CLI status and each route, and holds Open Reviewer Settings.
 
 ### Platform and ship
 
@@ -97,9 +105,9 @@ Re-checked 2026-10-16 at `97cca1d`, GitHub `main`: the reviewer kit is unchanged
 
 | Phase | Work | TODO files |
 | --- | --- | --- |
-| 0 | Mockup, approval, SPEC, design spec, `--check-pin`, scaffold | D00 T01, D01 T01, D02 T01 §1 |
+| 0 | Mockup, approval, SPEC, design spec, SDK queries, scaffold | D00 T01, D01 T01, D02 T01 §1, D06 T01 |
 | 1 | Python, dispatcher, pin text, save, SDK source, forge runner, kit ops | D02 T01, D05 T01 |
-| 2 | Webview, entry points, Kits view and dialogs | D03 T01, D05 T01 |
+| 2 | Webview, entry points, Kits view, dialogs, feature sections | D03 T01, D05 T01, D06 T01 |
 | 6 | Integration tests, WSL check, `.vsix`, review rounds, docs, marketplace | D04 T01 |
 
 The phase names above are set in `todo/plan.json`, which the generated plan reads.

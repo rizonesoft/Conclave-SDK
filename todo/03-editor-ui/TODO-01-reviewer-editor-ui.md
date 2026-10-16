@@ -21,6 +21,7 @@ title: "TODO-01 -- Reviewer Editor UI"
 - -> XREF: D02 T01 §5 -- candidate validation and `canSave`
 - -> XREF: D04 T01 §2 -- the WSL check walks this surface
 - -> XREF: D05 T01 §6 -- the no-pin and dispatcher states open the kit install and update flows
+- -> XREF: D02 T01 §11 -- the parity fixtures and `expectParity` every surface section here asserts
 - Every `npm`, `npx` and `node` command in this file runs in `extensions/vscode/`.
 
 ## Outcome
@@ -37,7 +38,7 @@ title: "TODO-01 -- Reviewer Editor UI"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Webview shell, theming and message bridge | D00 T01 §3, D02 T01 §1 | [ ] |
+| 1 | §1 | Webview shell, theming and message bridge | D00 T01 §3, D02 T01 §1, D02 T01 §11 | [ ] |
 | 2 | §2 | Reviewer cards with per-CLI effort | §1, D02 T01 §4 | [ ] |
 | 3 | §3 | Reviewer add, rename and delete | §2 | [ ] |
 | 4 | §4 | Route rows with ordered failover editing | §1, D02 T01 §4 | [ ] |
@@ -73,6 +74,7 @@ Every later section renders inside this panel. This section replaces the placeho
 - [ ] Reveal the existing panel for a folder instead of opening a second one. Done when: running `conclave.openReviewers` twice leaves one panel. Cheaper substitute: a new panel per run.
 - [ ] Keep state across hide and show with `getState`/`setState` in the webview. Done when: switching editor tabs and back keeps unsaved edits. Cheaper substitute: `retainContextWhenHidden` on every panel.
 - [ ] Capture Dark Modern and Light Modern screenshots of the shell into `extensions/vscode/test/screens/1-*.png` and compare them by eye against `design/screens/1-*.png`, noting any difference in the section's commit body. Done when: both screenshots exist. Cheaper substitute: checking one theme.
+- [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/webview-shell-theming-and-message-bridge.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
 - [ ] Commit: `ui: webview shell, theming and message bridge`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep panel` passes, asserting the CSP, the nonce, one panel per folder and a `ping` round trip; it fails when the CSP meta tag is removed.
@@ -102,6 +104,7 @@ The operator edits each reviewer in a card (plan R1, R2). This section renders o
 - [ ] Commit `model` input on blur and Enter, not on every keystroke, so each edit is one check. Done when: typing a model name triggers one check. Cheaper substitute: a check per keystroke.
 - [ ] Make every control reachable by keyboard with labels from the SPEC. Done when: tabbing through a card reaches each control and a screen reader name is set on each. Cheaper substitute: mouse only.
 - [ ] Write `extensions/vscode/test/integration/cards.test.ts` covering render, each field edit, and both CLI switches. Done when: the tests pass and fail when the agy note is removed. Cheaper substitute: snapshot only.
+- [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/reviewer-cards-with-per-cli-effort.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
 - [ ] Commit: `ui: reviewer cards with per-CLI effort`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep cards` passes and fails when the effort list for claude omits `max`.
@@ -129,6 +132,7 @@ Reviewers are added, renamed and deleted from the panel (plan R3). This section 
 - [ ] Show delete's inline confirmation listing every route that names the reviewer, sent as `deleteReviewer` on confirm. Done when: deleting `gemini` lists the claude, gemini and codex rows. Cheaper substitute: deleting without saying which routes lose it.
 - [ ] Cancel delete and rename with Escape, leaving the model unchanged. Done when: no `edit` message is sent on cancel. Cheaper substitute: no cancel path.
 - [ ] Write `extensions/vscode/test/integration/reviewerCrud.test.ts` covering add, rename, duplicate-name refusal, delete with route impact and cancel. Done when: all pass and the rename test fails if route entries are left stale. Cheaper substitute: testing add only.
+- [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/reviewer-add-rename-and-delete.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
 - [ ] Commit: `ui: reviewer add, rename and delete`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep reviewerCrud` passes and fails when `renameReviewer` is replaced by a header-only rename.
@@ -158,6 +162,7 @@ Each writer's route is an ordered failover list (plan R4). This section renders 
 - [ ] Add a route to a writer that has none, from the no-route notice's action. Done when: adding astra to an absent codex route writes `codex = ["astra"]`. Cheaper substitute: requiring a hand edit.
 - [ ] Show an undefined reviewer named on disk as a chip marked unknown. Done when: the `refused-undefined-reviewer.toml` workspace shows the chip. Cheaper substitute: hiding the unknown name.
 - [ ] Write `extensions/vscode/test/integration/routes.test.ts` covering render, drag, keyboard reorder, add, disabled duplicates, remove to empty and add to absent. Done when: all pass and fail when the last remove writes an empty array. Cheaper substitute: render test only.
+- [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/route-rows-with-ordered-failover-editing.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
 - [ ] Commit: `ui: route rows with ordered failover editing`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep routes` passes and fails when removing the last chip writes `[]` instead of removing the key.
@@ -184,6 +189,7 @@ Two route conditions the dispatcher allows still need the operator's attention (
 - [ ] Write `extensions/vscode/test/unit/routeNotices.test.ts` over the valid fixtures plus astra added to the codex row. Done when: the tests pass and fail when the gemini-to-agy pairing is removed. Cheaper substitute: one case.
 - [ ] Render the warning on the chip in `extensions/vscode/src/webview/routes.ts` with the SPEC's text. Done when: adding astra to the codex row shows the warning on that chip only. Cheaper substitute: a banner that names no row.
 - [ ] Render the no-route notice in place of the chips, saying the writer gets no review and the dispatcher will refuse it, with the add action from §4. Done when: the `valid-no-codex-route.toml` workspace shows it on the codex row. Cheaper substitute: an empty row with no text.
+- [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/self-review-warning-and-no-route-notice.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
 - [ ] Commit: `ui: self-review warning and no-route notice`
 
 **Test checkpoint:** `cd extensions/vscode && npm test -- --test-name-pattern=routeNotices` passes and fails when `selfReview` stops pairing gemini with agy.
@@ -211,6 +217,7 @@ Errors come only from the dispatcher (plan R7 to R9). This section shows the lat
 - [ ] Show a checking indicator while a check is in flight. Done when: a slow fake dispatcher shows it. Cheaper substitute: no indicator, so a stale result looks current.
 - [ ] Disable Save from `canSave`, with a tooltip naming the reason (refused, checking, unchanged). Done when: the integration test reads the disabled state and tooltip for each. Cheaper substitute: an enabled Save that fails on click.
 - [ ] Write `extensions/vscode/test/integration/validation.test.ts` walking every refused fixture through the panel. Done when: each shows its message at its target and Save is disabled, and the test fails if one message is paraphrased. Cheaper substitute: three fixtures.
+- [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/inline-validation-and-save-gating.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
 - [ ] Commit: `ui: inline dispatcher errors and Save gating`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep validation` passes and fails when Save is left enabled for `refused-bad-effort.toml`.
@@ -238,6 +245,7 @@ The operator sees exactly what Save will write (plan R12). This section renders 
 - [ ] Show "No changes" when the candidate equals disk. Done when: after Discard the diff says so. Cheaper substitute: an empty pane.
 - [ ] Wire "Open file" to `vscode.window.showTextDocument` on the pin, sent as `openRaw`. Done when: the integration test sees the pin editor open. Cheaper substitute: no way to the raw file.
 - [ ] Write `extensions/vscode/test/unit/lineDiff.test.ts` and `extensions/vscode/test/integration/preview.test.ts`. Done when: both pass and the integration test fails when a comment is dropped from the preview. Cheaper substitute: unit tests only.
+- [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/toml-preview-with-diff-against-disk.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
 - [ ] Commit: `ui: TOML preview with diff against disk`
 
 **Test checkpoint:** `cd extensions/vscode && npm test -- --test-name-pattern=lineDiff && npm run test:integration -- --grep preview` passes and fails when `lineDiff` marks unchanged comment lines as changed.
@@ -266,6 +274,7 @@ This section wires the toolbar to `D02 T01 §6`: Save writes atomically and show
 - [ ] Show the read-only refusal with the path, keeping edits. Done when: a read-only pin shows the message and the cards keep their edits. Cheaper substitute: a raw error.
 - [ ] Set the panel title's dirty marker from candidate versus disk. Done when: the title gains the marker after an edit and loses it after Save or Discard. Cheaper substitute: no dirty indication.
 - [ ] Write `extensions/vscode/test/integration/saveFlow.test.ts` covering save and re-check, discard, stale with both choices, read-only and the dirty marker. Done when: all pass and fail when Keep my edits leaves Save enabled. Cheaper substitute: testing Save only.
+- [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/save-discard-and-reload-flow.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
 - [ ] Commit: `ui: save, discard and reload flow`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep saveFlow` passes and fails when the stale banner's Reload is wired to Save.
@@ -293,13 +302,14 @@ The operator sees whether each reviewer can run and can test one on a planted bu
 - [ ] Show the running state with Cancel wired to the host's cancellation token. Done when: Cancel on a hanging fake CLI ends the run and shows "Cancelled". Cheaper substitute: no cancel.
 - [ ] Show the review outcome text verbatim, the failover reason, or the refusal message, per `design/SPEC.md` §5. Done when: each fake-CLI case shows its outcome. Cheaper substitute: success only.
 - [ ] Write `extensions/vscode/test/integration/status.test.ts` covering badges, refresh, each outcome and cancel. Done when: all pass and fail when the badge ignores `clis`. Cheaper substitute: a badge render test only.
+- [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/reviewer-status-and-test-reviewer-panel.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
 - [ ] Commit: `ui: reviewer status and Test reviewer`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep status` passes and fails when Test reviewer stays enabled on a refused candidate.
 
 ## 10. Empty and failure states
 
-When the workspace is not `ready`, the panel replaces the editor with the state's explanation and action (plan R16 to R19, R21). This section renders `no-pin` (the kit install dialog from `D05 T01 §6`, preset to `reviewer`), `refused` (message and Open file), `no-dispatcher` and `old-dispatcher` (the kit update flow from `D05 T01 §7`, with scripts included), the SDK source refusals from `D02 T01 §7`, `no-python` (the candidates tried and the setting), `untrusted` (Manage Workspace Trust) and `unsupported-schema`.
+When the workspace is not `ready`, the panel replaces the editor with the state's explanation and action (plan R16 to R19, R21). This section renders `no-pin` (the side bar kit installer from `D05 T01 §6`, preset to `reviewer`), `refused` (message and Open file), `no-dispatcher` and `old-dispatcher` (the kit update flow from `D05 T01 §7`, with scripts included), the SDK source refusals from `D02 T01 §7`, `no-python` (the candidates tried and the setting), `untrusted` (Manage Workspace Trust) and `unsupported-schema`.
 
 **Phase:** 2
 **Needs:** none
@@ -314,7 +324,7 @@ When the workspace is not `ready`, the panel replaces the editor with the state'
 1. Render each state in `extensions/vscode/src/webview/states.ts`. Done when: each workspace under `extensions/vscode/test/fixtures/workspaces/` shows its state.
 2. Wire each action. Done when: each action calls its host command and Retry re-classifies.
 
-- [ ] Render `no-pin` with "Install reviewer kit" opening the kit install dialog from `D05 T01 §6` preset to `reviewer`, showing the source label (bundled, local path, or `rizonetech/Conclave-SDK@<sha>`) and the command. Done when: the `no-pin` workspace shows both and the action opens the confirmation. Cheaper substitute: writing a default pin from the extension.
+- [ ] Render `no-pin` with "Install reviewer kit" opening the side bar kit installer from `D05 T01 §6` preset to `reviewer`, which shows the source label (bundled, local path, or `rizonetech/Conclave-SDK@<sha>`), and the command. Done when: the `no-pin` workspace shows the command and the action reveals the installer with `reviewer` chosen. Cheaper substitute: writing a default pin from the extension.
 - [ ] Render `refused` with the `Refused` text verbatim and Open file. Done when: the `refused` workspace shows the dispatcher's message. Cheaper substitute: a generic "invalid pin".
 - [ ] Render `no-dispatcher` and `old-dispatcher`, each with "Update from Conclave-SDK" opening the kit update flow from `D05 T01 §7` with scripts included as the primary action and Copy command as the secondary one, naming `forge.py sync <workspace> --include-scripts`. Done when: both workspaces show their own heading, the command and both actions. Cheaper substitute: copy only.
 - [ ] Render the SDK source refusals from `D02 T01 §7` (`sdk-path-invalid`, `github-signin`, `github-no-access`, `github-rate-limited`, `github-offline`) inside the state that asked for the SDK, each with its SPEC text and action (Sign in to GitHub, Open Settings at `conclave.sdkPath`, Retry). Done when: each refusal from a fake GitHub server shows its text and action. Cheaper substitute: one "download failed" message.
@@ -324,6 +334,7 @@ When the workspace is not `ready`, the panel replaces the editor with the state'
 - [ ] Render `unsupported-schema` naming the found and supported versions. Done when: a stubbed version 2 shows it. Cheaper substitute: rendering it as refused.
 - [ ] Add Retry to every state, re-running the `D02 T01 §3` classification. Done when: fixing the cause and pressing Retry opens the editor. Cheaper substitute: reopening the panel.
 - [ ] Write `extensions/vscode/test/integration/emptyStates.test.ts` walking every workspace and state. Done when: all pass and fail when `old-dispatcher` renders as `refused`. Cheaper substitute: two states.
+- [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/empty-and-failure-states.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
 - [ ] Commit: `ui: empty and failure states`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep emptyStates` passes and fails when the `old-dispatcher` state shows the `refused` layout.
@@ -353,6 +364,7 @@ The operator needs a way in (plan R26). This section contributes the Command Pal
 - [ ] Show the status item only for a folder with `.conclave/` or `scripts/review-dispatch.py`, following the active editor's folder in a multi-root window. Done when: a folder with neither shows no item. Cheaper substitute: the item in every window.
 - [ ] Set `statusBarItem.errorBackground` only while the saved pin or the candidate is refused. Done when: the test reads the background for refused and for ready. Cheaper substitute: a hard-coded red.
 - [ ] Write `extensions/vscode/test/integration/entryPoints.test.ts` covering the command, both menus' `when` clauses, folder routing and the status item. Done when: all pass and fail when the `explorer/context` `when` clause is removed. Cheaper substitute: testing the command only.
+- [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/entry-points-command-menus-and-status-ba.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
 - [ ] Commit: `ui: entry points from the palette, menus and status bar`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep entryPoints` passes, and fails when the status item text ignores the §3 state.
