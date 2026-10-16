@@ -21,7 +21,10 @@ Each agent reads only its own isolated folder and entrypoint alongside the share
 | `kits/laravel/`, `kits/wordpress/` | Stack kits. |
 | `prompts/` | Copy-pasteable prompts to import Conclave-SDK from Gemini, Claude, or Codex. |
 | `plugins/` | Standalone agent plugins that belong to no kit (never installed by `forge.py`). |
-| `.agents/`, `.claude/`, `.codex/` | The SDK's own installed copy of `base` and `todo`. |
+| `extensions/` | Editor extensions (`vscode/`), never installed by `forge.py`. |
+| `todo/`, `design/` | The SDK's own TODO plan and interface design (the VS Code extension). |
+| `.agents/`, `.claude/`, `.codex/` | The SDK's own copy of `base`, `todo` and `reviewer`. |
+| `scripts/`, `.conclave/` | The SDK's own copy of the todo and reviewer scripts and pin. |
 | `tests/` | Unit test suites for `todo_graph.py`, `forge.py`, and stack overlay kits. |
 
 ## Importing into a New or Existing Project (Gemini, Claude, or Codex)

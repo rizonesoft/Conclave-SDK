@@ -1,0 +1,1141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Conclave Reviewers editor</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#005fb8}a:hover{color:#0258a8}
+.art{width:1440px;height:1060px;display:flex;flex-direction:column;background:#e8e8ea;font-family:"Segoe WPC","Segoe UI",system-ui,-apple-system,sans-serif;font-size:13px;color:#1f1f1f}
+.mock-bar{height:60px;box-sizing:border-box;padding:0 20px;display:flex;align-items:center;gap:16px;border-bottom:1px solid #c8c8cc}
+.mock-bar strong{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#4a4a4f}
+.mock-bar label{display:flex;align-items:center;gap:8px;font-size:13px;color:#2b2b2f}
+.mock-bar select{height:30px;border:1px solid #9a9aa0;border-radius:4px;background:#ffffff;color:#1f1f1f;padding:0 8px;font:inherit}
+.mock-bar .hint{margin-left:auto;color:#55555a;font-size:12px}
+.t-dark{--bg-editor:#1f1f1f;--bg-side:#181818;--bg-title:#181818;--bg-status:#181818;--border:#2b2b2b;--fg:#cccccc;--fg-muted:#9d9d9d;--fg-strong:#ffffff;--input-bg:#313131;--input-border:#3c3c3c;--focus:#0078d4;--btn-bg:#0078d4;--btn-fg:#ffffff;--btn-hover:#026ec1;--btn2-bg:#313131;--btn2-fg:#cccccc;--btn2-hover:#3c3c3c;--card-bg:#181818;--card-border:#2b2b2b;--err:#f85149;--err-bg:#5a1d1d;--err-border:#be1100;--warn:#cca700;--warn-bg:#352a05;--warn-border:#b89500;--info-bg:#1b2a3a;--info-border:#0078d4;--ok:#73c991;--badge-ok-bg:#1e3a29;--badge-off-bg:#3a1e1e;--code-bg:#181818;--diff-add:rgba(155,185,85,.22);--diff-del:rgba(255,0,0,.22);--tab-active:#1f1f1f;--tab-inactive:#181818;--tab-top:#0078d4;--list-active:#37373d;--chip-bg:#2b2b2b;--act-on:#d7d7d7;--act-off:#868686;--line-no:#6e7681;--drop:#0078d4;--shadow:rgba(0,0,0,.36)}
+.t-light{--bg-editor:#ffffff;--bg-side:#f8f8f8;--bg-title:#f8f8f8;--bg-status:#f8f8f8;--border:#e5e5e5;--fg:#3b3b3b;--fg-muted:#616161;--fg-strong:#1f1f1f;--input-bg:#ffffff;--input-border:#cecece;--focus:#005fb8;--btn-bg:#005fb8;--btn-fg:#ffffff;--btn-hover:#0258a8;--btn2-bg:#e5e5e5;--btn2-fg:#3b3b3b;--btn2-hover:#cccccc;--card-bg:#f8f8f8;--card-border:#e5e5e5;--err:#a1260d;--err-bg:#fbeceb;--err-border:#be1100;--warn:#7a5600;--warn-bg:#fdf4dd;--warn-border:#bf8803;--info-bg:#eaf2fb;--info-border:#005fb8;--ok:#2d7a2a;--badge-ok-bg:#e3f1e2;--badge-off-bg:#fbeceb;--code-bg:#f8f8f8;--diff-add:rgba(155,185,85,.28);--diff-del:rgba(255,0,0,.14);--tab-active:#ffffff;--tab-inactive:#f8f8f8;--tab-top:#005fb8;--list-active:#e4e6f1;--chip-bg:#ffffff;--act-on:#1f1f1f;--act-off:#616161;--line-no:#6e7681;--drop:#005fb8;--shadow:rgba(0,0,0,.16)}
+.vsw{height:1000px;display:flex;flex-direction:column;background:var(--bg-editor);color:var(--fg);overflow:hidden}
+.ic{fill:none;stroke:currentColor;stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.titlebar{height:35px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 10px;background:var(--bg-title);border-bottom:1px solid var(--border);color:var(--fg-muted);font-size:12px}
+.titlebar .cmd{width:420px;height:22px;border:1px solid var(--input-border);border-radius:6px;display:flex;align-items:center;justify-content:center;gap:6px;background:var(--input-bg);color:var(--fg)}
+.titlebar .menus{display:flex;gap:14px;align-items:center}
+.titlebar .win{display:flex;gap:18px}
+.main{flex:1;display:flex;min-height:0}
+.activity{width:48px;flex:none;background:var(--bg-side);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding-top:6px;gap:4px;color:var(--act-off)}
+.activity .a{width:48px;height:44px;display:flex;align-items:center;justify-content:center}
+.activity .on{color:var(--act-on);box-shadow:inset 2px 0 0 var(--tab-top)}
+.sidebar{width:240px;flex:none;background:var(--bg-side);border-right:1px solid var(--border);display:flex;flex-direction:column}
+.sidebar .sh{height:35px;display:flex;align-items:center;padding:0 20px;font-size:11px;letter-spacing:.04em;color:var(--fg-muted)}
+.sidebar .sec{padding:2px 0 2px 8px;font-size:11px;font-weight:700;color:var(--fg)}
+.tree-item{height:22px;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--fg)}
+.tree-item.active{background:var(--list-active)}
+.editor{flex:1;display:flex;flex-direction:column;min-width:0}
+.tabs{height:35px;flex:none;display:flex;background:var(--tab-inactive);border-bottom:1px solid var(--border)}
+.tab{display:flex;align-items:center;gap:8px;padding:0 12px;border-right:1px solid var(--border);color:var(--fg-muted);font-size:13px}
+.tab.active{background:var(--tab-active);color:var(--fg-strong);box-shadow:inset 0 1px 0 var(--tab-top)}
+.webview{flex:1;overflow:auto;position:relative;padding:18px 24px 28px;box-sizing:border-box}
+.statusbar{height:22px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 10px;background:var(--bg-status);border-top:1px solid var(--border);color:var(--fg-muted);font-size:12px}
+.statusbar .grp{display:flex;gap:16px;align-items:center}
+.statusbar .it{display:flex;gap:4px;align-items:center}
+.mono{font-family:"Cascadia Code",Consolas,"Courier New",monospace}
+code{font-family:"Cascadia Code",Consolas,"Courier New",monospace;font-size:12px;background:var(--chip-bg);border:1px solid var(--card-border);border-radius:3px;padding:0 4px}
+.wv-head{display:flex;align-items:center;gap:16px;margin-bottom:14px}
+.wv-head h1{margin:0;font-size:20px;font-weight:600;color:var(--fg-strong)}
+.wv-head .path{color:var(--fg-muted);font-size:12px;margin-top:2px}
+.wv-head .actions{margin-left:auto;display:flex;gap:8px;align-items:center}
+.reason{color:var(--fg-muted);font-size:12px;max-width:260px;text-align:right}
+.pill{display:flex;align-items:center;gap:6px;padding:3px 10px;border-radius:11px;font-size:12px;border:1px solid var(--card-border)}
+.pill.ok{color:var(--ok)}
+.pill.bad{color:var(--err);border-color:var(--err-border);background:var(--err-bg)}
+button{font:inherit;cursor:pointer}
+.btn,.btn2{height:28px;padding:0 12px;border-radius:2px;border:1px solid transparent;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn{background:var(--btn-bg);color:var(--btn-fg)}
+.btn:hover{background:var(--btn-hover)}
+.btn2{background:var(--btn2-bg);color:var(--btn2-fg)}
+.btn2:hover{background:var(--btn2-hover)}
+.btn:disabled,.btn2:disabled{opacity:.45;cursor:default}
+.btn:focus-visible,.btn2:focus-visible,.icon-btn:focus-visible,.input:focus,select:focus{outline:1px solid var(--focus);outline-offset:1px}
+.small{height:24px;padding:0 8px;font-size:12px}
+.icon-btn{width:26px;height:26px;border:none;border-radius:4px;background:transparent;color:var(--fg);display:inline-flex;align-items:center;justify-content:center;padding:0}
+.icon-btn:hover{background:var(--btn2-bg)}
+.icon-btn:disabled{opacity:.35;cursor:default}
+.input{height:26px;box-sizing:border-box;width:100%;background:var(--input-bg);color:var(--fg);border:1px solid var(--input-border);border-radius:2px;padding:0 6px;font:inherit}
+select.input{padding:0 4px}
+.input.bad{border-color:var(--err-border)}
+.banner{display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid;border-radius:3px;margin-bottom:12px}
+.banner .grow{flex:1}
+.banner.warn{background:var(--warn-bg);border-color:var(--warn-border)}
+.banner.err{background:var(--err-bg);border-color:var(--err-border)}
+.banner.info{background:var(--info-bg);border-color:var(--info-border)}
+.banner .wi{color:var(--warn)}
+.banner .ei{color:var(--err)}
+.sec-head{display:flex;align-items:baseline;gap:10px;margin:4px 0 8px}
+.sec-head h2{margin:0;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--fg-strong)}
+.muted{color:var(--fg-muted);font-size:12px}
+.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px;align-items:start}
+.card{background:var(--card-bg);border:1px solid var(--card-border);border-radius:4px;padding:10px 12px 12px;display:flex;flex-direction:column;gap:8px}
+.card.has-err{border-color:var(--err-border)}
+.card-h{display:flex;align-items:center;gap:4px;min-height:28px}
+.card-h h3{margin:0;font-size:14px;font-weight:600;color:var(--fg-strong);flex:1;overflow:hidden;text-overflow:ellipsis}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 8px;border-radius:10px;align-self:flex-start}
+.badge.found{background:var(--badge-ok-bg);color:var(--ok)}
+.badge.missing{background:var(--badge-off-bg);color:var(--err)}
+.dot{width:7px;height:7px;border-radius:4px;background:currentColor}
+.field{display:flex;flex-direction:column;gap:3px}
+.field label,.flabel{font-size:12px;color:var(--fg-muted)}
+.field-err{display:flex;gap:6px;align-items:flex-start;color:var(--err);font-size:12px;line-height:16px}
+.field-err .mono{word-break:break-word}
+.note{margin:0;display:flex;gap:6px;align-items:flex-start;font-size:12px;line-height:17px;color:var(--fg-muted)}
+.kv{display:flex;align-items:center;gap:6px;padding:4px 6px;border:1px dashed var(--err-border);border-radius:3px;font-size:12px}
+.kv .grow{flex:1}
+.confirm{border:1px solid var(--warn-border);background:var(--warn-bg);border-radius:3px;padding:8px;display:flex;flex-direction:column;gap:6px;font-size:12px;line-height:17px}
+.confirm .row{display:flex;gap:6px}
+.test{border-top:1px solid var(--card-border);padding-top:8px;display:flex;flex-direction:column;gap:6px;font-size:12px;line-height:17px}
+.test pre{margin:0;white-space:pre-wrap;font-family:"Cascadia Code",Consolas,"Courier New",monospace;font-size:12px;background:var(--code-bg);border:1px solid var(--card-border);border-radius:3px;padding:6px;max-height:120px;overflow:auto;color:var(--fg)}
+.test .okt{color:var(--ok);display:flex;gap:6px;align-items:center;font-weight:600}
+.test .badt{color:var(--err);display:flex;gap:6px;align-items:center;font-weight:600}
+.sample{font-size:11px;color:var(--fg-muted)}
+.spin{width:12px;height:12px;border:2px solid var(--card-border);border-top-color:var(--focus);border-radius:7px;animation:sp 0.8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.add-card{border:1px dashed var(--input-border);border-radius:4px;min-height:120px;display:flex;align-items:center;justify-content:center;background:transparent;color:var(--fg);gap:8px}
+.add-card:hover{background:var(--card-bg)}
+.lower{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+.route{border:1px solid var(--card-border);background:var(--card-bg);border-radius:4px;padding:10px 12px;margin-bottom:10px;display:flex;flex-direction:column;gap:8px}
+.route.has-err{border-color:var(--err-border)}
+.route-h{display:flex;align-items:baseline;gap:10px}
+.writer{font-size:13px;font-weight:600;color:var(--fg-strong)}
+.chips{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.chip{display:flex;align-items:center;gap:6px;height:30px;padding:0 4px 0 6px;background:var(--chip-bg);border:1px solid var(--card-border);border-radius:3px;cursor:grab}
+.chip.warn{border-color:var(--warn-border)}
+.chip.unknown{border-color:var(--err-border);border-style:dashed}
+.chip .num{width:18px;height:18px;border-radius:9px;background:var(--btn2-bg);display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:var(--fg)}
+.chip .nm{flex:1;font-size:13px}
+.chip .tag{font-size:11px;color:var(--fg-muted)}
+.chip .wi{color:var(--warn)}
+.chip .ei{color:var(--err)}
+.grip{color:var(--fg-muted)}
+.warnline{display:flex;gap:6px;align-items:flex-start;font-size:12px;line-height:17px;color:var(--warn)}
+.notice{display:flex;gap:8px;align-items:flex-start;padding:8px;border:1px solid var(--info-border);background:var(--info-bg);border-radius:3px;font-size:12px;line-height:17px}
+.addsel{width:auto;min-width:200px;align-self:flex-start}
+.toml{border:1px solid var(--card-border);background:var(--card-bg);border-radius:4px;display:flex;flex-direction:column;min-width:0}
+.toml-h{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--card-border)}
+.seg{display:inline-flex;border:1px solid var(--input-border);border-radius:3px;overflow:hidden}
+.seg button{height:24px;padding:0 10px;border:none;background:transparent;color:var(--fg);font-size:12px}
+.seg button.on{background:var(--btn-bg);color:var(--btn-fg)}
+.code{max-height:440px;overflow:auto;padding:6px 0;font-family:"Cascadia Code",Consolas,"Courier New",monospace;font-size:12px;line-height:18px}
+.ln{display:flex;min-height:18px;white-space:pre}
+.ln .gut{width:34px;flex:none;text-align:right;padding-right:8px;color:var(--line-no);user-select:none}
+.ln .mk{width:14px;flex:none;color:var(--fg-muted)}
+.ln.cm .tx{color:var(--fg-muted)}
+.ln.add{background:var(--diff-add)}
+.ln.del{background:var(--diff-del)}
+.ln.hi{background:var(--err-bg)}
+.empty{max-width:640px;margin:56px auto 0;display:flex;flex-direction:column;gap:12px;line-height:20px}
+.empty h1{margin:0;font-size:20px;font-weight:600;color:var(--fg-strong)}
+.empty p,.empty .p{margin:0}
+.empty .big{width:40px;height:40px}
+.empty .bi{color:var(--focus)}
+.empty .be{color:var(--err)}
+.empty .bw{color:var(--warn)}
+.empty pre{margin:0;white-space:pre-wrap;font-family:"Cascadia Code",Consolas,"Courier New",monospace;font-size:12px;line-height:18px;background:var(--code-bg);border:1px solid var(--card-border);border-radius:3px;padding:8px 10px}
+.errbox{border:1px solid var(--err-border);background:var(--err-bg);border-radius:3px;padding:8px 10px;display:flex;gap:8px;align-items:flex-start}
+.errbox .ei{color:var(--err)}
+.kvlist{margin:0;padding:0;list-style:none;border:1px solid var(--card-border);border-radius:3px}
+.kvlist li{display:flex;justify-content:space-between;padding:6px 10px;border-top:1px solid var(--card-border)}
+.kvlist li:first-child{border-top:none}
+.acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.toast{position:absolute;right:20px;bottom:16px;max-width:460px;background:var(--card-bg);border:1px solid var(--card-border);box-shadow:0 2px 8px var(--shadow);border-radius:4px;padding:10px 12px;display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:17px}
+.toast .ok{color:var(--ok)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</helmet>
+<div class="art">
+  <div class="mock-bar">
+    <strong>Mockup controls</strong>
+    <label for="mk-theme">Theme
+      <select id="mk-theme" value="{{themeName}}" onChange="{{setTheme}}">
+        <option value="dark">Dark Modern</option>
+        <option value="light">Light Modern</option>
+      </select>
+    </label>
+    <label for="mk-scen">Scenario
+      <select id="mk-scen" value="{{scenario}}" onChange="{{setScenario}}">
+        <sc-for list="{{scenarios}}" as="s" hint-placeholder-count="6">
+          <option value="{{s.id}}">{{s.label}}</option>
+        </sc-for>
+      </select>
+    </label>
+    <span class="hint">Not part of the extension. Everything below the bar is the VS Code window.</span>
+  </div>
+  <div class="vsw {{themeClass}}">
+    <div class="titlebar">
+      <div class="menus">
+        <svg class="ic" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"></path></svg>
+        <span>File</span><span>Edit</span><span>Selection</span><span>View</span><span>Go</span><span>Run</span><span>Terminal</span><span>Help</span>
+      </div>
+      <div class="cmd">
+        <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"></circle><path d="M10.5 10.5L14 14"></path></svg>
+        <span>Conclave-VSC</span>
+      </div>
+      <div class="win">
+        <svg class="ic" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M1 6h10"></path></svg>
+        <svg class="ic" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect x="1.5" y="1.5" width="9" height="9"></rect></svg>
+        <svg class="ic" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 1.5l9 9M10.5 1.5l-9 9"></path></svg>
+      </div>
+    </div>
+    <div class="main">
+      <nav class="activity" aria-label="Activity bar">
+        <div class="a on"><svg class="ic" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"></path><path d="M14 3v4h4"></path></svg></div>
+        <div class="a"><svg class="ic" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6"></circle><path d="M15 15l6 6"></path></svg></div>
+        <div class="a"><svg class="ic" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="6" r="2"></circle><circle cx="7" cy="18" r="2"></circle><circle cx="17" cy="9" r="2"></circle><path d="M7 8v8M17 11c0 4-10 3-10 5"></path></svg></div>
+        <div class="a"><svg class="ic" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7"></rect><rect x="13" y="4" width="7" height="7"></rect><rect x="4" y="13" width="7" height="7"></rect><rect x="13" y="13" width="7" height="7"></rect></svg></div>
+      </nav>
+      <aside class="sidebar" aria-label="Explorer">
+        <div class="sh">EXPLORER</div>
+        <div class="sec">CONCLAVE-VSC</div>
+        <sc-for list="{{tree}}" as="t" hint-placeholder-count="10">
+          <div class="tree-item {{t.cls}}" style="padding-left: {{t.pad}}px">
+            <sc-if value="{{t.folder}}" hint-placeholder-val="{{true}}">
+              <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 4l4 4-4 4"></path></svg>
+            </sc-if>
+            <sc-if value="{{t.file}}" hint-placeholder-val="{{false}}">
+              <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2h5l3 3v9H4z"></path></svg>
+            </sc-if>
+            <span>{{t.label}}</span>
+          </div>
+        </sc-for>
+      </aside>
+      <section class="editor">
+        <div class="tabs" role="tablist">
+          <div class="tab active" role="tab" aria-selected="true">
+            <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="5" r="2"></circle><circle cx="11" cy="5" r="2"></circle><path d="M2 13c0-2 1.5-3.5 3-3.5s3 1.5 3 3.5M8 13c0-2 1.5-3.5 3-3.5s3 1.5 3 3.5"></path></svg>
+            <span>{{tabTitle}}</span>
+            <sc-if value="{{dirty}}" hint-placeholder-val="{{false}}"><span class="dot" aria-label="Unsaved changes"></span></sc-if>
+          </div>
+          <div class="tab" role="tab" aria-selected="false">
+            <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2h5l3 3v9H4z"></path></svg>
+            <span>reviewers.toml</span>
+          </div>
+        </div>
+        <div class="webview">
+          <sc-if value="{{isEditor}}" hint-placeholder-val="{{true}}">
+            <div class="wv-head">
+              <div>
+                <h1>Reviewers</h1>
+                <div class="path"><span class="mono">.conclave/reviewers.toml</span>, checked by <span class="mono">scripts/review-dispatch.py --check-pin</span></div>
+              </div>
+              <div class="pill {{pillClass}}">
+                <sc-if value="{{hasErr}}" hint-placeholder-val="{{false}}">
+                  <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg>
+                </sc-if>
+                <sc-if value="{{noErr}}" hint-placeholder-val="{{true}}">
+                  <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7"></path></svg>
+                </sc-if>
+                <span>{{pillText}}</span>
+              </div>
+              <div class="actions">
+                <span class="reason">{{saveReason}}</span>
+                <button class="btn2" onClick="{{openFile}}">Open file</button>
+                <button class="btn2" disabled="{{discardDisabled}}" onClick="{{askDiscard}}">Discard</button>
+                <button class="btn" disabled="{{saveDisabled}}" title="{{saveReason}}" onClick="{{save}}">Save</button>
+              </div>
+            </div>
+
+            <sc-if value="{{confirmDiscard}}" hint-placeholder-val="{{false}}">
+              <div class="banner warn" role="alert">
+                <svg class="ic wi" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l6.5 11.5h-13z"></path><path d="M8 6.5v3.5M8 12v.3"></path></svg>
+                <span class="grow">Discard your unsaved edits and go back to the file on disk?</span>
+                <button class="btn small" onClick="{{doDiscard}}">Discard edits</button>
+                <button class="btn2 small" onClick="{{cancelDiscard}}">Keep editing</button>
+              </div>
+            </sc-if>
+            <sc-if value="{{showStale}}" hint-placeholder-val="{{false}}">
+              <div class="banner warn" role="alert">
+                <svg class="ic wi" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l6.5 11.5h-13z"></path><path d="M8 6.5v3.5M8 12v.3"></path></svg>
+                <span class="grow"><span class="mono">.conclave/reviewers.toml</span> changed on disk after this editor loaded it.</span>
+                <button class="btn small" onClick="{{reload}}">Reload from disk</button>
+                <button class="btn2 small" onClick="{{keepEdits}}">Keep my edits</button>
+              </div>
+            </sc-if>
+            <sc-if value="{{staleKept}}" hint-placeholder-val="{{false}}">
+              <div class="banner info">
+                <svg class="ic" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 7.5v4M8 5v.3"></path></svg>
+                <span class="grow">Keeping your edits. Save stays off until you reload, so the change on disk is never overwritten.</span>
+                <button class="btn2 small" onClick="{{reload}}">Reload from disk</button>
+              </div>
+            </sc-if>
+            <sc-if value="{{fileErr}}" hint-placeholder-val="{{false}}">
+              <div class="banner err" role="alert">
+                <svg class="ic ei" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg>
+                <span class="grow mono">{{errText}}</span>
+              </div>
+            </sc-if>
+            <sc-if value="{{hasErr}}" hint-placeholder-val="{{false}}">
+              <p class="muted" style="margin: -4px 0 12px">The dispatcher stops at the first problem it finds. Fix this one and the next, if any, shows.</p>
+            </sc-if>
+
+            <div class="sec-head"><h2>Reviewers</h2><span class="muted">{{reviewerCount}}</span></div>
+            <sc-if value="{{reviewersErr}}" hint-placeholder-val="{{false}}">
+              <div class="field-err" style="margin-bottom: 8px">
+                <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg>
+                <span class="mono">{{errText}}</span>
+              </div>
+            </sc-if>
+            <div class="cards">
+              <sc-for list="{{cards}}" as="c" hint-placeholder-count="3">
+                <article class="card {{c.cls}}" aria-label="Reviewer {{c.name}}">
+                  <div class="card-h">
+                    <sc-if value="{{c.notRenaming}}" hint-placeholder-val="{{true}}">
+                      <h3 class="mono">{{c.name}}</h3>
+                      <button class="icon-btn" aria-label="Rename {{c.name}}" title="Rename" onClick="{{c.startRename}}">
+                        <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M10.5 2.5l3 3L6 13H3v-3z"></path></svg>
+                      </button>
+                      <button class="icon-btn" aria-label="Delete {{c.name}}" title="Delete" onClick="{{c.askDelete}}">
+                        <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.7 9h5.6l.7-9"></path></svg>
+                      </button>
+                    </sc-if>
+                    <sc-if value="{{c.renaming}}" hint-placeholder-val="{{false}}">
+                      <label class="sr" for="rn-{{c.id}}">New name for {{c.name}}</label>
+                      <input id="rn-{{c.id}}" class="input mono" value="{{c.renameDraft}}" onChange="{{c.onRenameDraft}}" onKeyDown="{{c.onRenameKey}}">
+                      <button class="btn small" onClick="{{c.commitRename}}">Rename</button>
+                      <button class="btn2 small" onClick="{{c.cancelRename}}">Cancel</button>
+                    </sc-if>
+                  </div>
+                  <sc-if value="{{c.hasRenameErr}}" hint-placeholder-val="{{false}}">
+                    <div class="field-err"><span>{{c.renameErr}}</span></div>
+                  </sc-if>
+                  <sc-if value="{{c.renaming}}" hint-placeholder-val="{{false}}">
+                    <p class="note">Renaming also rewrites every route entry that names it. Enter to rename, Escape to cancel.</p>
+                  </sc-if>
+                  <sc-if value="{{c.eName}}" hint-placeholder-val="{{false}}">
+                    <div class="field-err">
+                      <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg>
+                      <span class="mono">{{c.errText}}</span>
+                    </div>
+                  </sc-if>
+                  <span class="badge {{c.statusCls}}"><span class="dot"></span>{{c.statusText}}</span>
+
+                  <div class="field">
+                    <label for="cli-{{c.id}}">CLI</label>
+                    <select id="cli-{{c.id}}" class="input {{c.cliCls}}" value="{{c.cli}}" onChange="{{c.onCli}}">
+                      <sc-for list="{{c.cliOptions}}" as="o" hint-placeholder-count="3"><option value="{{o.value}}">{{o.label}}</option></sc-for>
+                    </select>
+                    <sc-if value="{{c.eCli}}" hint-placeholder-val="{{false}}">
+                      <div class="field-err"><svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg><span class="mono">{{c.errText}}</span></div>
+                    </sc-if>
+                  </div>
+
+                  <div class="field">
+                    <label for="model-{{c.id}}">Model</label>
+                    <input id="model-{{c.id}}" class="input mono {{c.modelCls}}" value="{{c.model}}" onChange="{{c.onModel}}">
+                    <sc-if value="{{c.eModel}}" hint-placeholder-val="{{false}}">
+                      <div class="field-err"><svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg><span class="mono">{{c.errText}}</span></div>
+                    </sc-if>
+                  </div>
+
+                  <sc-if value="{{c.showEffort}}" hint-placeholder-val="{{true}}">
+                    <div class="field">
+                      <label for="effort-{{c.id}}">Effort</label>
+                      <select id="effort-{{c.id}}" class="input {{c.effortCls}}" value="{{c.effortValue}}" onChange="{{c.onEffort}}">
+                        <sc-for list="{{c.effortOptions}}" as="o" hint-placeholder-count="4"><option value="{{o.value}}">{{o.label}}</option></sc-for>
+                      </select>
+                      <sc-if value="{{c.eEffortSelect}}" hint-placeholder-val="{{false}}">
+                        <div class="field-err"><svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg><span class="mono">{{c.errText}}</span></div>
+                      </sc-if>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{c.isAgy}}" hint-placeholder-val="{{false}}">
+                    <div class="field">
+                      <span class="flabel">Effort</span>
+                      <p class="note">
+                        <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 7.5v4M8 5v.3"></path></svg>
+                        <span>Gemini carries the effort in the model name, for example <code>gemini-4-argon-high</code>, so an agy reviewer sets no effort.</span>
+                      </p>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{c.hasStrayEffort}}" hint-placeholder-val="{{false}}">
+                    <div class="kv mono"><span class="grow">effort = "{{c.strayEffort}}"</span><button class="btn2 small" onClick="{{c.removeEffort}}">Remove</button></div>
+                    <sc-if value="{{c.eEffortStray}}" hint-placeholder-val="{{false}}">
+                      <div class="field-err"><svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg><span class="mono">{{c.errText}}</span></div>
+                    </sc-if>
+                  </sc-if>
+                  <sc-if value="{{c.hasExtra}}" hint-placeholder-val="{{false}}">
+                    <span class="flabel">Keys the dispatcher does not know</span>
+                    <sc-for list="{{c.extra}}" as="x" hint-placeholder-count="1">
+                      <div class="kv mono"><span class="grow">{{x.key}} = {{x.value}}</span><button class="btn2 small" onClick="{{x.remove}}">Remove</button></div>
+                    </sc-for>
+                    <sc-if value="{{c.eExtra}}" hint-placeholder-val="{{false}}">
+                      <div class="field-err"><svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg><span class="mono">{{c.errText}}</span></div>
+                    </sc-if>
+                  </sc-if>
+
+                  <sc-if value="{{c.confirmDelete}}" hint-placeholder-val="{{false}}">
+                    <div class="confirm" role="alert">
+                      <span><strong>Delete {{c.name}}?</strong> {{c.deleteImpact}}</span>
+                      <div class="row"><button class="btn small" onClick="{{c.doDelete}}">Delete</button><button class="btn2 small" onClick="{{c.cancelDelete}}">Cancel</button></div>
+                    </div>
+                  </sc-if>
+
+                  <div>
+                    <button class="btn2 small" disabled="{{c.testDisabled}}" title="{{c.testTitle}}" onClick="{{c.askTest}}">
+                      <svg class="ic" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3l9 5-9 5z"></path></svg>
+                      Test reviewer
+                    </button>
+                  </div>
+                  <sc-if value="{{c.testConfirm}}" hint-placeholder-val="{{false}}">
+                    <div class="test">
+                      <strong>Test {{c.name}} on a planted bug?</strong>
+                      <span>Runs <code>review-dispatch.py</code> with a one-reviewer temporary pin: <code>{{c.model}}</code> through <code>{{c.cli}}</code>, as writer <code>{{c.testWriter}}</code>. This makes a real model call.</span>
+                      <div class="confirm row" style="border: none; background: none; padding: 0"><button class="btn small" onClick="{{c.runTest}}">Run test</button><button class="btn2 small" onClick="{{c.closeTest}}">Cancel</button></div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{c.testRunning}}" hint-placeholder-val="{{false}}">
+                    <div class="test">
+                      <div style="display: flex; gap: 8px; align-items: center"><span class="spin" aria-hidden="true"></span><span>Waiting for {{c.name}} ({{c.model}})</span></div>
+                      <div><button class="btn2 small" onClick="{{c.closeTest}}">Cancel</button></div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{c.testDone}}" hint-placeholder-val="{{false}}">
+                    <div class="test" aria-live="polite">
+                      <sc-if value="{{c.testOk}}" hint-placeholder-val="{{true}}">
+                        <span class="okt"><svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.5l3 3 7-7"></path></svg>Review returned</span>
+                        <pre>{{c.testText}}</pre>
+                        <span class="sample">Sample outcome. The real panel shows the reviewer's own text.</span>
+                      </sc-if>
+                      <sc-if value="{{c.testFailed}}" hint-placeholder-val="{{false}}">
+                        <span class="badt"><svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M5.5 5.5l5 5M10.5 5.5l-5 5"></path></svg>No review</span>
+                        <pre>{{c.testText}}</pre>
+                      </sc-if>
+                      <div><button class="btn2 small" onClick="{{c.closeTest}}">Close</button></div>
+                    </div>
+                  </sc-if>
+                </article>
+              </sc-for>
+
+              <sc-if value="{{notAdding}}" hint-placeholder-val="{{true}}">
+                <button class="add-card" onClick="{{openAdd}}">
+                  <svg class="ic" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"></path></svg>
+                  Add reviewer
+                </button>
+              </sc-if>
+              <sc-if value="{{adding}}" hint-placeholder-val="{{false}}">
+                <div class="card">
+                  <div class="card-h"><h3>New reviewer</h3></div>
+                  <div class="field"><label for="new-name">Name</label><input id="new-name" class="input mono" value="{{draft.name}}" onChange="{{onDraftName}}"></div>
+                  <div class="field"><label for="new-cli">CLI</label>
+                    <select id="new-cli" class="input" value="{{draft.cli}}" onChange="{{onDraftCli}}">
+                      <option value="codex">codex (OpenAI Codex)</option>
+                      <option value="agy">agy (Antigravity)</option>
+                      <option value="claude">claude (Claude Code)</option>
+                    </select>
+                  </div>
+                  <div class="field"><label for="new-model">Model</label><input id="new-model" class="input mono" value="{{draft.model}}" onChange="{{onDraftModel}}"></div>
+                  <sc-if value="{{draftShowEffort}}" hint-placeholder-val="{{true}}">
+                    <div class="field"><label for="new-effort">Effort</label>
+                      <select id="new-effort" class="input" value="{{draft.effort}}" onChange="{{onDraftEffort}}">
+                        <sc-for list="{{draftEfforts}}" as="o" hint-placeholder-count="4"><option value="{{o.value}}">{{o.label}}</option></sc-for>
+                      </select>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{draftIsAgy}}" hint-placeholder-val="{{false}}">
+                    <p class="note">No effort: Gemini carries it in the model name.</p>
+                  </sc-if>
+                  <sc-if value="{{hasAddErr}}" hint-placeholder-val="{{false}}"><div class="field-err"><span>{{addErr}}</span></div></sc-if>
+                  <div class="confirm row" style="border: none; background: none; padding: 0"><button class="btn small" onClick="{{commitAdd}}">Add</button><button class="btn2 small" onClick="{{cancelAdd}}">Cancel</button></div>
+                </div>
+              </sc-if>
+            </div>
+
+            <div class="lower">
+              <section aria-label="Routes">
+                <div class="sec-head"><h2>Routes</h2><span class="muted">Failover order: the first reviewer that returns a review is the round.</span></div>
+                <sc-for list="{{rows}}" as="row" hint-placeholder-count="3">
+                  <div class="route {{row.cls}}">
+                    <div class="route-h">
+                      <span class="writer mono">{{row.writer}}</span>
+                      <span class="muted" style="flex: 1">{{row.caption}}</span>
+                      <sc-if value="{{row.notWriter}}" hint-placeholder-val="{{false}}"><button class="btn2 small" onClick="{{row.removeKey}}">Remove route</button></sc-if>
+                    </div>
+                    <sc-if value="{{row.hasChips}}" hint-placeholder-val="{{true}}">
+                      <ol class="chips" aria-label="Failover order for {{row.writer}}">
+                        <sc-for list="{{row.chips}}" as="ch" hint-placeholder-count="3">
+                          <li class="chip {{ch.cls}}" draggable="true" onDragStart="{{ch.onDragStart}}" onDragOver="{{ch.onDragOver}}" onDrop="{{ch.onDrop}}">
+                            <svg class="ic grip" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4 2.5v.1M4 6v.1M4 9.5v.1M8 2.5v.1M8 6v.1M8 9.5v.1"></path></svg>
+                            <span class="num">{{ch.num}}</span>
+                            <span class="nm mono">{{ch.name}}</span>
+                            <sc-if value="{{ch.warn}}" hint-placeholder-val="{{false}}">
+                              <svg class="ic wi" width="14" height="14" viewBox="0 0 16 16" role="img" aria-label="Same CLI as the writer"><path d="M8 2l6.5 11.5h-13z"></path><path d="M8 6.5v3.5M8 12v.3"></path></svg>
+                            </sc-if>
+                            <sc-if value="{{ch.unknown}}" hint-placeholder-val="{{false}}"><span class="tag">not defined</span></sc-if>
+                            <sc-if value="{{ch.dup}}" hint-placeholder-val="{{false}}"><span class="tag">listed twice</span></sc-if>
+                            <button class="icon-btn" aria-label="Move {{ch.name}} up" disabled="{{ch.upDis}}" onClick="{{ch.up}}"><svg class="ic" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 7.5l3-3 3 3"></path></svg></button>
+                            <button class="icon-btn" aria-label="Move {{ch.name}} down" disabled="{{ch.downDis}}" onClick="{{ch.down}}"><svg class="ic" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5l3 3 3-3"></path></svg></button>
+                            <button class="icon-btn" aria-label="Remove {{ch.name}} from the {{row.writer}} route" onClick="{{ch.remove}}"><svg class="ic" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"></path></svg></button>
+                          </li>
+                        </sc-for>
+                      </ol>
+                      <sc-for list="{{row.warnings}}" as="w" hint-placeholder-count="1">
+                        <div class="warnline">
+                          <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l6.5 11.5h-13z"></path><path d="M8 6.5v3.5M8 12v.3"></path></svg>
+                          <span><span class="mono">{{w.name}}</span> runs through <span class="mono">{{w.cli}}</span>, the CLI that wrote {{row.writer}} work, so its review is not independent.</span>
+                        </div>
+                      </sc-for>
+                    </sc-if>
+                    <sc-if value="{{row.absent}}" hint-placeholder-val="{{false}}">
+                      <div class="notice">
+                        <svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 7.5v4M8 5v.3"></path></svg>
+                        <span><strong>No route.</strong> Work written by {{row.writer}} gets no review: <span class="mono">review-dispatch.py</span> refuses <code>--writer {{row.writer}}</code>. Add a reviewer to create the route.</span>
+                      </div>
+                    </sc-if>
+                    <sc-if value="{{row.emptyList}}" hint-placeholder-val="{{false}}">
+                      <div class="notice"><span>The file sets <code>{{row.writer}} = []</code>. Add a reviewer, or remove the route so this writer gets no review on purpose.</span></div>
+                      <div><button class="btn2 small" onClick="{{row.removeKey}}">Remove route</button></div>
+                    </sc-if>
+                    <sc-if value="{{row.hasErr}}" hint-placeholder-val="{{false}}">
+                      <div class="field-err"><svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg><span class="mono">{{errText}}</span></div>
+                    </sc-if>
+                    <sc-if value="{{row.canAdd}}" hint-placeholder-val="{{true}}">
+                      <label class="sr" for="add-{{row.writer}}">Add a reviewer to the {{row.writer}} route</label>
+                      <select id="add-{{row.writer}}" class="input addsel" value="" onChange="{{row.onAdd}}">
+                        <sc-for list="{{row.addOptions}}" as="o" hint-placeholder-count="4"><option value="{{o.value}}" disabled="{{o.disabled}}">{{o.label}}</option></sc-for>
+                      </select>
+                    </sc-if>
+                  </div>
+                </sc-for>
+              </section>
+
+              <section class="toml" aria-label="TOML preview">
+                <div class="toml-h">
+                  <span class="sec-head" style="margin: 0"><h2>reviewers.toml</h2></span>
+                  <span class="muted" style="flex: 1">{{previewCaption}}</span>
+                  <div class="seg" role="group" aria-label="Preview or diff">
+                    <button class="{{previewOn}}" aria-pressed="{{isPreview}}" onClick="{{showPreview}}">Preview</button>
+                    <button class="{{diffOn}}" aria-pressed="{{isDiff}}" onClick="{{showDiff}}">Diff against disk</button>
+                  </div>
+                </div>
+                <div class="code" role="region" aria-label="File text">
+                  <sc-for list="{{codeLines}}" as="l" hint-placeholder-count="20">
+                    <div class="ln {{l.cls}}"><span class="gut">{{l.no}}</span><span class="mk">{{l.mk}}</span><span class="tx">{{l.text}}</span></div>
+                  </sc-for>
+                </div>
+              </section>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{isEmpty}}" hint-placeholder-val="{{false}}">
+            <div class="empty">
+              <sc-if value="{{empty.isInfo}}" hint-placeholder-val="{{true}}">
+                <svg class="ic big bi" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 7.5v4M8 5v.3"></path></svg>
+              </sc-if>
+              <sc-if value="{{empty.isErr}}" hint-placeholder-val="{{false}}">
+                <svg class="ic big be" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg>
+              </sc-if>
+              <sc-if value="{{empty.isWarn}}" hint-placeholder-val="{{false}}">
+                <svg class="ic big bw" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2l6.5 11.5h-13z"></path><path d="M8 6.5v3.5M8 12v.3"></path></svg>
+              </sc-if>
+              <h1>{{empty.heading}}</h1>
+              <sc-if value="{{empty.hasError}}" hint-placeholder-val="{{false}}">
+                <span class="muted">{{empty.errorLabel}}</span>
+                <div class="errbox"><svg class="ic ei" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 4.5v4M8 11v.5"></path></svg><span class="mono">{{empty.errorText}}</span></div>
+              </sc-if>
+              <sc-for list="{{empty.paras}}" as="p" hint-placeholder-count="2">
+                <div class="p"><sc-for list="{{p.segs}}" as="s" hint-placeholder-count="1"><sc-if value="{{s.code}}" hint-placeholder-val="{{false}}"><code>{{s.text}}</code></sc-if><sc-if value="{{s.plain}}" hint-placeholder-val="{{true}}"><span>{{s.text}}</span></sc-if></sc-for></div>
+              </sc-for>
+              <sc-if value="{{empty.hasExcerpt}}" hint-placeholder-val="{{false}}">
+                <div class="code" style="border: 1px solid var(--card-border); border-radius: 3px; background: var(--code-bg)">
+                  <sc-for list="{{empty.excerpt}}" as="l" hint-placeholder-count="5">
+                    <div class="ln {{l.cls}}"><span class="gut">{{l.no}}</span><span class="mk">{{l.mk}}</span><span class="tx">{{l.text}}</span></div>
+                  </sc-for>
+                </div>
+              </sc-if>
+              <sc-if value="{{empty.hasOutput}}" hint-placeholder-val="{{false}}">
+                <span class="muted">{{empty.outputLabel}}</span>
+                <pre>{{empty.output}}</pre>
+              </sc-if>
+              <sc-if value="{{empty.hasList}}" hint-placeholder-val="{{false}}">
+                <ul class="kvlist">
+                  <sc-for list="{{empty.list}}" as="k" hint-placeholder-count="3"><li><span class="mono">{{k.k}}</span><span>{{k.v}}</span></li></sc-for>
+                </ul>
+              </sc-if>
+              <sc-for list="{{empty.paras2}}" as="p" hint-placeholder-count="1">
+                <div class="p"><sc-for list="{{p.segs}}" as="s" hint-placeholder-count="1"><sc-if value="{{s.code}}" hint-placeholder-val="{{false}}"><code>{{s.text}}</code></sc-if><sc-if value="{{s.plain}}" hint-placeholder-val="{{true}}"><span>{{s.text}}</span></sc-if></sc-for></div>
+              </sc-for>
+              <sc-if value="{{empty.hasCode}}" hint-placeholder-val="{{false}}">
+                <span class="muted">{{empty.codeLabel}}</span>
+                <pre>{{empty.code}}</pre>
+              </sc-if>
+              <sc-if value="{{empty.confirming}}" hint-placeholder-val="{{false}}">
+                <div class="confirm" role="alert"><span><strong>Run this command?</strong> It adds the reviewer kit's missing files and changes no existing file.</span></div>
+              </sc-if>
+              <sc-if value="{{empty.running}}" hint-placeholder-val="{{false}}">
+                <div style="display: flex; gap: 8px; align-items: center"><span class="spin" aria-hidden="true"></span><span>Installing the reviewer kit</span></div>
+              </sc-if>
+              <div class="acts">
+                <sc-for list="{{empty.actions}}" as="a" hint-placeholder-count="2"><button class="{{a.cls}}" onClick="{{a.onClick}}">{{a.label}}</button></sc-for>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{hasToast}}" hint-placeholder-val="{{false}}">
+            <div class="toast" role="status">
+              <svg class="ic ok" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"></circle><path d="M8 7.5v4M8 5v.3"></path></svg>
+              <span>{{toast}}</span>
+            </div>
+          </sc-if>
+        </div>
+      </section>
+    </div>
+    <footer class="statusbar">
+      <div class="grp">
+        <span class="it"><svg class="ic" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="4" r="1.5"></circle><circle cx="5" cy="12" r="1.5"></circle><circle cx="11" cy="6" r="1.5"></circle><path d="M5 5.5v5M11 7.5c0 3-6 2-6 3"></path></svg>main</span>
+        <span class="it">{{statusProblems}}</span>
+      </div>
+      <div class="grp">
+        <span class="it">{{statusState}}</span>
+        <span class="it">{{statusPython}}</span>
+        <span class="it">UTF-8</span>
+        <span class="it">LF</span>
+      </div>
+    </footer>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"scenario":{"editor":"enum","options":["ready","agy-missing","stale","err-bad-name","err-unknown-key","err-bad-cli","err-bad-model","err-agy-effort","err-bad-effort","err-no-reviewers","err-route-writer","err-empty-route","err-undefined-reviewer","err-duplicate-reviewer","refused-schema","refused-unparsable","unsupported-schema","no-pin","no-dispatcher","old-dispatcher","no-python","untrusted"],"default":"ready"},"$preview":{"width":1440,"height":1060}}'>
+// Mockup only. The extension never validates the pin itself: it runs the workspace's own
+// scripts/review-dispatch.py --check-pin --json. The validate() below imitates load_pin so the
+// mockup can show the dispatcher's exact messages; it is not a design for the product.
+const HEAD = [
+  '# Independent reviewers for this repository, read by scripts/review-dispatch.py.',
+  '#',
+  '# A route lists reviewers in failover order for work written by one agent. The',
+  '# first reviewer that runs and returns a review is the round; one that is not',
+  '# installed, fails, times out or returns nothing is skipped and the reason is',
+  '# recorded. If every reviewer fails there is no review, never an approval.',
+  '#',
+  '# Loaded strictly: an unknown key, an unknown CLI, a malformed model or a route',
+  '# naming an undefined reviewer refuses every dispatch.'
+];
+const ROUTES_COMMENT = ["# Astra reviews everything except Astra's own work; Gemini 4 is Astra's", "# failover and Sonnet 5.5 is Gemini 4's."];
+const WRITERS = ['claude', 'codex', 'gemini'];
+const CLIS = ['codex', 'agy', 'claude'];
+const EFFORTS = { codex: ['low', 'medium', 'high', 'xhigh'], claude: ['low', 'medium', 'high', 'xhigh', 'max'] };
+const DEFAULT_EFFORT = { codex: 'medium', claude: 'high' };
+const MODEL_RE = /^[a-z0-9][a-z0-9.-]*$/;
+const NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
+const SELF_CLI = { claude: 'claude', codex: 'codex', gemini: 'agy' };
+const CLI_LABEL = { codex: 'codex (OpenAI Codex)', agy: 'agy (Antigravity)', claude: 'claude (Claude Code)' };
+const CAPTION = { claude: 'Work written by Claude Code', codex: 'Work written by OpenAI Codex', gemini: 'Work written by Gemini through Antigravity' };
+const WS = 'R:\\GitHub\\Conclave-VSC';
+const SDK = 'R:\\GitHub\\Conclave-SDK';
+const SYNC_CMD = 'python ' + SDK + '\\forge.py sync ' + WS + ' --include-scripts';
+const KIT_CMD = 'python ' + SDK + '\\forge.py kit ' + WS + ' reviewer';
+const OLD_OUTPUT = 'usage: review-dispatch.py [-h] --writer {claude,codex,gemini} --prompt PROMPT\n                          [--record RECORD] [--timeout TIMEOUT]\nreview-dispatch.py: error: the following arguments are required: --writer, --prompt';
+const SCENARIOS = [
+  ['ready', 'Ready: the shipped pin'],
+  ['agy-missing', 'Status: agy is not on PATH'],
+  ['stale', 'File changed on disk while open'],
+  ['err-bad-name', 'Error: invalid reviewer name'],
+  ['err-unknown-key', 'Error: unknown key on a reviewer'],
+  ['err-bad-cli', 'Error: unknown CLI'],
+  ['err-bad-model', 'Error: malformed model'],
+  ['err-agy-effort', 'Error: effort on an agy reviewer'],
+  ['err-bad-effort', 'Error: effort the CLI does not allow'],
+  ['err-no-reviewers', 'Error: no reviewers'],
+  ['err-route-writer', 'Error: route for an unknown writer'],
+  ['err-empty-route', 'Error: empty route'],
+  ['err-undefined-reviewer', 'Error: route names an undefined reviewer'],
+  ['err-duplicate-reviewer', 'Error: reviewer twice in one route'],
+  ['refused-schema', 'Refused: schema_version = 2'],
+  ['refused-unparsable', 'Refused: TOML does not parse'],
+  ['unsupported-schema', 'Pin newer than the extension'],
+  ['no-pin', 'No pin yet'],
+  ['no-dispatcher', 'No scripts/review-dispatch.py'],
+  ['old-dispatcher', 'Dispatcher without --check-pin'],
+  ['no-python', 'No Python 3.11 or later'],
+  ['untrusted', 'Workspace not trusted']
+];
+
+function clone(x) { return JSON.parse(JSON.stringify(x)); }
+function pyq(s) { return "'" + s + "'"; }
+function joinList(xs) { return xs.length < 2 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]; }
+function segs(str) { return str.split('`').map(function (t, i) { return { text: t, code: i % 2 === 1, plain: i % 2 === 0 }; }).filter(function (s) { return s.text !== ''; }); }
+function paras(list) { return list.map(function (t) { return { segs: segs(t) }; }); }
+
+function shipped() {
+  return {
+    schema: 1, emptyReviewersTable: false, nextId: 4,
+    reviewers: [
+      { id: 'r1', name: 'astra', cli: 'codex', model: 'gpt-6-astra', effort: 'medium', extra: [], comment: ['# GPT-6 Astra through the Codex CLI, read-only sandbox.'] },
+      { id: 'r2', name: 'gemini', cli: 'agy', model: 'gemini-4-argon-high', effort: null, extra: [], comment: ['# Gemini 4 through the Antigravity CLI in plan mode and its sandbox. The', '# effort is part of the model name (gemini-4-argon-low, -medium or -high).'] },
+      { id: 'r3', name: 'sonnet', cli: 'claude', model: 'claude-sonnet-5-5', effort: 'high', extra: [], comment: ['# Sonnet 5.5 through Claude Code in plan mode.'] }
+    ],
+    routesComment: ROUTES_COMMENT.slice(),
+    routes: [
+      { writer: 'claude', names: ['astra', 'gemini', 'sonnet'] },
+      { writer: 'gemini', names: ['astra', 'gemini', 'sonnet'] },
+      { writer: 'codex', names: ['gemini', 'sonnet'] }
+    ]
+  };
+}
+
+function toml(m) {
+  const L = HEAD.slice();
+  L.push('', 'schema_version = ' + m.schema, '');
+  if (m.reviewers.length === 0 && m.emptyReviewersTable) L.push('[reviewers]', '');
+  m.reviewers.forEach(function (r) {
+    r.comment.forEach(function (c) { L.push(c); });
+    L.push('[reviewers.' + r.name + ']', 'cli = "' + r.cli + '"', 'model = "' + r.model + '"');
+    if (r.effort != null) L.push('effort = "' + r.effort + '"');
+    r.extra.forEach(function (x) { L.push(x.key + ' = ' + x.value); });
+    L.push('');
+  });
+  m.routesComment.forEach(function (c) { L.push(c); });
+  L.push('[routes]');
+  m.routes.forEach(function (rt) { L.push(rt.writer + ' = [' + rt.names.map(function (n) { return '"' + n + '"'; }).join(', ') + ']'); });
+  return L;
+}
+
+function validate(m) {
+  if (m.schema !== 1 || (m.reviewers.length === 0 && !m.emptyReviewersTable)) return { msg: 'the reviewer pin needs exactly schema_version = 1, [reviewers.*] and [routes]', target: { kind: 'file' } };
+  if (m.reviewers.length === 0) return { msg: 'the reviewer pin defines no reviewers', target: { kind: 'reviewers' } };
+  for (let i = 0; i < m.reviewers.length; i++) {
+    const r = m.reviewers[i];
+    const t = function (field) { return { kind: 'reviewer', id: r.id, field: field }; };
+    if (!NAME_RE.test(r.name)) return { msg: 'invalid reviewer ' + pyq(r.name), target: t('name') };
+    if (r.extra.length) return { msg: 'reviewer ' + pyq(r.name) + ' has unknown keys: ' + r.extra.map(function (x) { return x.key; }).sort().join(', '), target: t('extra') };
+    if (CLIS.indexOf(r.cli) < 0) return { msg: 'reviewer ' + pyq(r.name) + ' needs cli = one of ' + CLIS.join(', '), target: t('cli') };
+    if (!MODEL_RE.test(r.model)) return { msg: 'reviewer ' + pyq(r.name) + ' has a malformed model', target: t('model') };
+    if (r.cli === 'agy') {
+      if (r.effort != null) return { msg: 'reviewer ' + pyq(r.name) + ': Antigravity carries the effort in the model name, so set no effort', target: t('effort') };
+    } else if (EFFORTS[r.cli].indexOf(r.effort) < 0) {
+      return { msg: 'reviewer ' + pyq(r.name) + ' needs effort = one of ' + EFFORTS[r.cli].join(', '), target: t('effort') };
+    }
+  }
+  const bad = m.routes.find(function (rt) { return WRITERS.indexOf(rt.writer) < 0; });
+  if (bad) return { msg: '[routes] may only name the writers ' + WRITERS.join(', '), target: { kind: 'route', writer: bad.writer } };
+  const names = m.reviewers.map(function (r) { return r.name; });
+  for (let i = 0; i < m.routes.length; i++) {
+    const rt = m.routes[i];
+    if (!rt.names.length) return { msg: 'route ' + pyq(rt.writer) + ' must be a non-empty list of reviewer names', target: { kind: 'route', writer: rt.writer } };
+    if (rt.names.some(function (n) { return names.indexOf(n) < 0; }) || new Set(rt.names).size !== rt.names.length) return { msg: 'route ' + pyq(rt.writer) + ' must list defined reviewers, each once', target: { kind: 'route', writer: rt.writer } };
+  }
+  return null;
+}
+
+function lineDiff(a, b) {
+  const n = a.length, m = b.length, dp = [];
+  for (let i = 0; i <= n; i++) dp.push(new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const out = []; let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { out.push({ t: 'same', text: b[j], no: j + 1 }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ t: 'del', text: a[i], no: '' }); i++; }
+    else { out.push({ t: 'add', text: b[j], no: j + 1 }); j++; }
+  }
+  while (i < n) { out.push({ t: 'del', text: a[i], no: '' }); i++; }
+  while (j < m) { out.push({ t: 'add', text: b[j], no: j + 1 }); j++; }
+  return out;
+}
+
+function scenarioBase(id) {
+  const m = shipped();
+  const env = { screen: 'editor', clis: { codex: true, agy: true, claude: true }, stale: false, staleModel: null, refused: null };
+  const rev = function (n) { return m.reviewers.find(function (x) { return x.name === n; }); };
+  const route = function (w) { return m.routes.find(function (x) { return x.writer === w; }); };
+  if (id === 'agy-missing') env.clis.agy = false;
+  if (id === 'stale') { env.stale = true; env.staleModel = shipped(); env.staleModel.routes[2].names = ['sonnet', 'gemini']; }
+  if (id === 'err-bad-name') { rev('sonnet').name = 'Sonnet'; m.routes.forEach(function (rt) { rt.names = rt.names.map(function (n) { return n === 'sonnet' ? 'Sonnet' : n; }); }); }
+  if (id === 'err-unknown-key') rev('astra').extra = [{ key: 'temperature', value: '0.2' }];
+  if (id === 'err-bad-cli') rev('astra').cli = 'bash';
+  if (id === 'err-bad-model') rev('sonnet').model = 'Claude Sonnet 5.5';
+  if (id === 'err-agy-effort') rev('gemini').effort = 'high';
+  if (id === 'err-bad-effort') rev('astra').effort = 'extreme';
+  if (id === 'err-no-reviewers') { m.reviewers = []; m.emptyReviewersTable = true; }
+  if (id === 'err-route-writer') m.routes.push({ writer: 'copilot', names: ['astra'] });
+  if (id === 'err-empty-route') route('codex').names = [];
+  if (id === 'err-undefined-reviewer') route('codex').names = ['gemini', 'opus'];
+  if (id === 'err-duplicate-reviewer') route('codex').names = ['gemini', 'gemini'];
+  if (id === 'refused-schema') { m.schema = 2; env.screen = 'refused'; env.refused = { msg: 'the reviewer pin needs exactly schema_version = 1, [reviewers.*] and [routes]', line: 11, text: null }; }
+  if (id === 'refused-unparsable') { env.screen = 'refused'; env.refused = { msg: "unreadable reviewer pin: Expected '=' after a key in a key/value pair (at line 17, column 8)", line: 17, text: 'effort "medium"' }; }
+  if (['unsupported-schema', 'no-pin', 'no-dispatcher', 'old-dispatcher', 'no-python', 'untrusted'].indexOf(id) >= 0) env.screen = id;
+  return { model: m, env: env };
+}
+
+class Component extends DCLogic {
+  scen() { return (this.state && this.state.scenario) || this.props.scenario || 'ready'; }
+  themeKey() { return (this.state && this.state.theme) || this.props.theme || 'dark'; }
+  base() {
+    const s = this.scen();
+    if (!this._base || this._baseFor !== s) { this._base = scenarioBase(s); this._baseFor = s; }
+    return this._base;
+  }
+  fresh() {
+    const b = this.base();
+    return {
+      for: this.scen(), model: clone(b.model), loadedModel: clone(b.model), loaded: toml(b.model),
+      stale: b.env.stale, staleKept: false, screen: b.env.screen, install: null,
+      renaming: null, renameDraft: '', renameErr: '', confirmDelete: null,
+      adding: false, draft: { name: '', cli: 'claude', model: '', effort: 'high' }, addErr: '',
+      test: null, view: 'preview', confirmDiscard: false, toast: ''
+    };
+  }
+  e() { const s = this.state && this.state.e; return s && s.for === this.scen() ? s : this.fresh(); }
+  upd(patch) { this.setState({ e: Object.assign({}, this.e(), patch) }); }
+  mut(fn) { const m = clone(this.e().model); fn(m); this.upd({ model: m, confirmDiscard: false }); }
+  toastPatch(msg) {
+    clearTimeout(this._toastT);
+    this._toastT = setTimeout(() => { if (this.e().toast === msg) this.upd({ toast: '' }); }, 3200);
+    return { toast: msg };
+  }
+  flash(msg) { this.upd(this.toastPatch(msg)); }
+  componentWillUnmount() { clearTimeout(this._toastT); clearTimeout(this._testT); clearTimeout(this._installT); }
+
+  setCli(id, v) {
+    if (CLIS.indexOf(v) < 0) return;
+    this.mut(function (m) {
+      const r = m.reviewers.find(function (x) { return x.id === id; });
+      r.cli = v;
+      if (v === 'agy') r.effort = null;
+      else if (EFFORTS[v].indexOf(r.effort) < 0) r.effort = DEFAULT_EFFORT[v];
+    });
+  }
+  setField(id, key, v) { this.mut(function (m) { m.reviewers.find(function (x) { return x.id === id; })[key] = v; }); }
+  commitRename(id) {
+    const e = this.e();
+    const draft = e.renameDraft.trim();
+    const r = e.model.reviewers.find(function (x) { return x.id === id; });
+    if (!draft || draft === r.name) { this.upd({ renaming: null, renameErr: '' }); return; }
+    if (e.model.reviewers.some(function (x) { return x.id !== id && x.name === draft; })) {
+      this.upd({ renameErr: 'A reviewer named ' + pyq(draft) + ' already exists. Names are table keys, so each must be unique.' });
+      return;
+    }
+    const m = clone(e.model);
+    const rr = m.reviewers.find(function (x) { return x.id === id; });
+    const old = rr.name;
+    rr.name = draft;
+    m.routes.forEach(function (rt) { rt.names = rt.names.map(function (n) { return n === old ? draft : n; }); });
+    this.upd({ model: m, renaming: null, renameErr: '', confirmDiscard: false });
+  }
+  doDelete(id) {
+    const m = clone(this.e().model);
+    const r = m.reviewers.find(function (x) { return x.id === id; });
+    m.reviewers = m.reviewers.filter(function (x) { return x.id !== id; });
+    m.routes = m.routes.filter(function (rt) {
+      const had = rt.names.length;
+      rt.names = rt.names.filter(function (n) { return n !== r.name; });
+      return !(had > 0 && rt.names.length === 0);
+    });
+    this.upd({ model: m, confirmDelete: null, confirmDiscard: false });
+  }
+  routeMut(writer, fn) {
+    this.mut(function (m) {
+      const rt = m.routes.find(function (x) { return x.writer === writer; });
+      fn(rt, m);
+      if (rt && rt.names.length === 0 && rt._drop) m.routes = m.routes.filter(function (x) { return x !== rt; });
+      if (rt) delete rt._drop;
+    });
+  }
+  addTo(writer, name) {
+    if (!name) return;
+    this.mut(function (m) {
+      const rt = m.routes.find(function (x) { return x.writer === writer; });
+      if (rt) { if (rt.names.indexOf(name) < 0) rt.names.push(name); } else m.routes.push({ writer: writer, names: [name] });
+    });
+  }
+  runTest(id) {
+    const r = this.e().model.reviewers.find(function (x) { return x.id === id; });
+    const writer = r.cli === 'claude' ? 'codex' : 'claude';
+    this.upd({ test: { id: id, phase: 'running', writer: writer } });
+    clearTimeout(this._testT);
+    this._testT = setTimeout(() => {
+      const cur = this.e();
+      if (cur.test && cur.test.id === id && cur.test.phase === 'running') this.upd({ test: Object.assign({}, cur.test, { phase: 'done' }) });
+    }, 2400);
+  }
+
+  emptyFor(e) {
+    const self = this;
+    const retry = function () { self.flash('Re-checked with --check-pin: the state has not changed.'); };
+    const copy = function () { self.flash('Copied the command to the clipboard.'); };
+    const s = e.screen;
+    const d = { isInfo: false, isErr: false, isWarn: false, heading: '', paras: [], paras2: [], hasError: false, errorLabel: '', errorText: '', hasExcerpt: false, excerpt: [], hasOutput: false, outputLabel: '', output: '', hasList: false, list: [], hasCode: false, codeLabel: '', code: '', confirming: false, running: false, actions: [] };
+    if (s === 'no-pin') {
+      d.isInfo = true;
+      d.heading = 'No reviewer pin in this workspace';
+      d.paras = paras(['This workspace has no `.conclave/reviewers.toml`, so `scripts/review-dispatch.py` has no reviewers to run.', 'Install the Conclave-SDK reviewer kit to add the shipped pin (GPT-6 Astra, then Gemini 4, then Sonnet 5.5), the dispatcher and the independent-review skill. The installer only adds missing files.']);
+      d.hasCode = true; d.codeLabel = 'Runs, after you confirm (the SDK path comes from conclaveReviewers.sdkPath):'; d.code = KIT_CMD;
+      if (e.install === 'confirm') {
+        d.confirming = true;
+        d.actions = [{ label: 'Run', cls: 'btn', onClick: function () { self.upd({ install: 'running' }); clearTimeout(self._installT); self._installT = setTimeout(function () { self.upd(Object.assign({ install: null, screen: 'editor' }, self.toastPatch('Reviewer kit installed: 8 files added, none changed. Re-checked with --check-pin: ok.'))); }, 1600); } }, { label: 'Cancel', cls: 'btn2', onClick: function () { self.upd({ install: null }); } }];
+      } else if (e.install === 'running') {
+        d.running = true;
+      } else {
+        d.actions = [{ label: 'Install reviewer kit', cls: 'btn', onClick: function () { self.upd({ install: 'confirm' }); } }, { label: 'Copy command', cls: 'btn2', onClick: copy }, { label: 'Retry', cls: 'btn2', onClick: retry }];
+      }
+    } else if (s === 'refused') {
+      const ref = this.base().env.refused;
+      d.isErr = true;
+      d.heading = 'The reviewer pin was refused';
+      d.hasError = true; d.errorLabel = 'scripts/review-dispatch.py --check-pin says:'; d.errorText = ref.msg;
+      d.paras = paras(['Every review round is refused until this is fixed. The editor opens a pin only when its TOML parses and it has exactly `schema_version`, `[reviewers.*]` and `[routes]`, so fix this one in the file.']);
+      const lines = toml(this.base().model);
+      if (ref.text) lines[ref.line - 1] = ref.text;
+      d.hasExcerpt = true;
+      d.excerpt = lines.slice(ref.line - 4, ref.line + 2).map(function (t, i) { const no = ref.line - 3 + i; return { no: no, mk: no === ref.line ? '>' : '', text: t, cls: (no === ref.line ? 'hi' : '') + (t.charAt(0) === '#' ? ' cm' : '') }; });
+      d.actions = [{ label: 'Open file at line ' + ref.line, cls: 'btn', onClick: function () { self.flash('Opens .conclave/reviewers.toml in the text editor at line ' + ref.line + '.'); } }, { label: 'Retry', cls: 'btn2', onClick: retry }];
+    } else if (s === 'unsupported-schema') {
+      d.isWarn = true;
+      d.heading = 'This pin is newer than the editor';
+      d.paras = paras(['The workspace dispatcher accepts `schema_version = 2`, but this version of Conclave Reviewers edits `schema_version = 1` only. Reviews still run.', 'Update the extension, or edit the file by hand.']);
+      d.actions = [{ label: 'Open file', cls: 'btn', onClick: function () { self.flash('Opens .conclave/reviewers.toml in the text editor.'); } }, { label: 'Retry', cls: 'btn2', onClick: retry }];
+    } else if (s === 'no-dispatcher') {
+      d.isWarn = true;
+      d.heading = 'No dispatcher in this workspace';
+      d.paras = paras(['`scripts/review-dispatch.py` is missing. Conclave Reviewers never checks the pin itself: every rule comes from the workspace dispatcher, so without it there is nothing to check the pin against.']);
+      d.paras2 = paras(['Sync the reviewer kit scripts from Conclave-SDK. Your pin is not touched.']);
+      d.hasCode = true; d.codeLabel = 'Command:'; d.code = SYNC_CMD;
+      d.actions = [{ label: 'Copy command', cls: 'btn', onClick: copy }, { label: 'Open the pin as text', cls: 'btn2', onClick: function () { self.flash('Opens .conclave/reviewers.toml in the text editor.'); } }, { label: 'Retry', cls: 'btn2', onClick: retry }];
+    } else if (s === 'old-dispatcher') {
+      d.isWarn = true;
+      d.heading = 'This dispatcher is too old for the editor';
+      d.paras = paras(['`scripts/review-dispatch.py` does not support `--check-pin`. Asked to check the pin, it printed no JSON:']);
+      d.hasOutput = true; d.outputLabel = 'python scripts/review-dispatch.py --check-pin --json (exit 2)'; d.output = OLD_OUTPUT;
+      d.paras2 = paras(['Update it from Conclave-SDK. Your pin is not touched.']);
+      d.hasCode = true; d.codeLabel = 'Command:'; d.code = SYNC_CMD;
+      d.actions = [{ label: 'Copy command', cls: 'btn', onClick: copy }, { label: 'Retry', cls: 'btn2', onClick: retry }];
+    } else if (s === 'no-python') {
+      d.isErr = true;
+      d.heading = 'No Python 3.11 or later';
+      d.paras = paras(['The dispatcher needs Python 3.11 or later: it reads the pin with `tomllib`. Nothing was run. Tried, in order:']);
+      d.hasList = true; d.list = [{ k: 'conclaveReviewers.pythonPath', v: 'not set' }, { k: 'py -3', v: 'not found' }, { k: 'python', v: 'Python 3.10.11, too old' }];
+      d.paras2 = paras(['Install Python 3.11 or later, or point the setting at one. In a Remote WSL window the editor runs on the Linux side and tries `python3`, then `python`.']);
+      d.actions = [{ label: 'Open Settings', cls: 'btn', onClick: function () { self.flash('Opens Settings at conclaveReviewers.pythonPath.'); } }, { label: 'Retry', cls: 'btn2', onClick: retry }];
+    } else if (s === 'untrusted') {
+      d.isWarn = true;
+      d.heading = 'Restricted Mode';
+      d.paras = paras(['This editor runs `scripts/review-dispatch.py` from the workspace, so it works only in a trusted workspace. Nothing has been run.']);
+      d.actions = [{ label: 'Manage Workspace Trust', cls: 'btn', onClick: function () { self.flash('Opens Manage Workspace Trust.'); } }];
+    }
+    return d;
+  }
+
+  renderVals() {
+    const self = this;
+    const e = this.e();
+    const env = this.base().env;
+    const m = e.model;
+    const err = e.screen === 'editor' ? validate(m) : null;
+    const cand = toml(m);
+    const changed = cand.join('\n') !== e.loaded.join('\n');
+    const errOn = function (kind, id, field) { return !!err && err.target.kind === kind && (id == null || err.target.id === id || err.target.writer === id) && (field == null || err.target.field === field); };
+    const testBusy = !!e.test && e.test.phase === 'running';
+
+    const cards = m.reviewers.map(function (r) {
+      const known = CLIS.indexOf(r.cli) >= 0;
+      const isAgy = r.cli === 'agy';
+      const found = known && env.clis[r.cli];
+      const cliOptions = CLIS.map(function (c) { return { value: c, label: CLI_LABEL[c] }; });
+      if (!known) cliOptions.unshift({ value: r.cli, label: '(unknown: ' + r.cli + ')' });
+      let effortOptions = [];
+      if (known && !isAgy) {
+        effortOptions = EFFORTS[r.cli].map(function (x) { return { value: x, label: x }; });
+        if (r.effort == null) effortOptions.unshift({ value: '', label: '(not set)' });
+        else if (EFFORTS[r.cli].indexOf(r.effort) < 0) effortOptions.unshift({ value: r.effort, label: '(not allowed: ' + r.effort + ')' });
+      }
+      const inRoutes = m.routes.filter(function (rt) { return rt.names.indexOf(r.name) >= 0; });
+      const emptied = inRoutes.filter(function (rt) { return rt.names.length === 1; }).map(function (rt) { return rt.writer; });
+      let impact = inRoutes.length ? 'It is removed from the ' + joinList(inRoutes.map(function (rt) { return rt.writer; })) + (inRoutes.length > 1 ? ' routes.' : ' route.') : 'No route names it.';
+      if (emptied.length) impact += ' ' + joinList(emptied) + (emptied.length > 1 ? ' are' : ' is') + ' then left with no reviewer, so that work gets no review.';
+      const t = e.test && e.test.id === r.id ? e.test : null;
+      const writer = r.cli === 'claude' ? 'codex' : 'claude';
+      const eCard = errOn('reviewer', r.id);
+      let testTitle = 'Run one review of a planted bug through this reviewer alone';
+      if (err) testTitle = 'Fix the problem first: the dispatcher refuses this pin';
+      else if (testBusy) testTitle = 'Another test is running';
+      else if (!known) testTitle = 'Unknown CLI';
+      return {
+        id: r.id, name: r.name, cli: r.cli, model: r.model,
+        cls: eCard ? 'has-err' : '',
+        notRenaming: e.renaming !== r.id, renaming: e.renaming === r.id, renameDraft: e.renameDraft,
+        hasRenameErr: e.renaming === r.id && !!e.renameErr, renameErr: e.renameErr,
+        startRename: function () { self.upd({ renaming: r.id, renameDraft: r.name, renameErr: '', confirmDelete: null }); },
+        onRenameDraft: function (ev) { self.upd({ renameDraft: ev.target.value, renameErr: '' }); },
+        onRenameKey: function (ev) { if (ev.key === 'Enter') self.commitRename(r.id); if (ev.key === 'Escape') self.upd({ renaming: null, renameErr: '' }); },
+        commitRename: function () { self.commitRename(r.id); },
+        cancelRename: function () { self.upd({ renaming: null, renameErr: '' }); },
+        askDelete: function () { self.upd({ confirmDelete: r.id, renaming: null }); },
+        confirmDelete: e.confirmDelete === r.id, deleteImpact: impact,
+        doDelete: function () { self.doDelete(r.id); },
+        cancelDelete: function () { self.upd({ confirmDelete: null }); },
+        errText: err ? err.msg : '',
+        eName: errOn('reviewer', r.id, 'name'),
+        eCli: errOn('reviewer', r.id, 'cli'), cliCls: errOn('reviewer', r.id, 'cli') ? 'bad' : '',
+        eModel: errOn('reviewer', r.id, 'model'), modelCls: errOn('reviewer', r.id, 'model') ? 'bad' : '',
+        statusCls: found ? 'found' : 'missing',
+        statusText: !known ? 'unknown CLI' : (found ? r.cli + ' found on PATH' : r.cli + ' not on PATH: skipped at run time'),
+        cliOptions: cliOptions,
+        onCli: function (ev) { self.setCli(r.id, ev.target.value); },
+        onModel: function (ev) { self.setField(r.id, 'model', ev.target.value); },
+        showEffort: known && !isAgy, isAgy: isAgy,
+        effortOptions: effortOptions, effortValue: r.effort == null ? '' : r.effort,
+        effortCls: errOn('reviewer', r.id, 'effort') ? 'bad' : '',
+        eEffortSelect: !isAgy && errOn('reviewer', r.id, 'effort'),
+        onEffort: function (ev) { if (ev.target.value && EFFORTS[r.cli] && EFFORTS[r.cli].indexOf(ev.target.value) >= 0) self.setField(r.id, 'effort', ev.target.value); },
+        hasStrayEffort: isAgy && r.effort != null, strayEffort: r.effort,
+        eEffortStray: isAgy && errOn('reviewer', r.id, 'effort'),
+        removeEffort: function () { self.setField(r.id, 'effort', null); },
+        hasExtra: r.extra.length > 0, eExtra: errOn('reviewer', r.id, 'extra'),
+        extra: r.extra.map(function (x) { return { key: x.key, value: x.value, remove: function () { self.mut(function (mm) { const rr = mm.reviewers.find(function (y) { return y.id === r.id; }); rr.extra = rr.extra.filter(function (y) { return y.key !== x.key; }); }); } }; }),
+        testDisabled: !!err || testBusy || !known, testTitle: testTitle, testWriter: writer,
+        askTest: function () { self.upd({ test: { id: r.id, phase: 'confirm', writer: writer } }); },
+        runTest: function () { self.runTest(r.id); },
+        closeTest: function () { clearTimeout(self._testT); self.upd({ test: null }); },
+        testConfirm: !!t && t.phase === 'confirm', testRunning: !!t && t.phase === 'running', testDone: !!t && t.phase === 'done',
+        testOk: !!t && found, testFailed: !!t && !found,
+        testText: found
+          ? 'Round 1: ' + r.name + ' (' + r.model + ' via ' + r.cli + '), writer ' + writer + ', 41 s\n\n1. High: pick_last() in planted.py reads items[len(items)], one past the end, and raises IndexError on every non-empty list. Use items[-1].\n\nNo other findings.'
+          : 'Skipped: ' + r.name + ' (' + r.cli + ' is not installed)\nNo reviewer returned a review. A round with no reviewer is never an approval.'
+      };
+    });
+
+    const names = m.reviewers.map(function (r) { return r.name; });
+    const byWriter = {};
+    m.routes.forEach(function (rt) { byWriter[rt.writer] = rt; });
+    const rowWriters = WRITERS.concat(m.routes.map(function (rt) { return rt.writer; }).filter(function (w) { return WRITERS.indexOf(w) < 0; }));
+    const rows = rowWriters.map(function (w) {
+      const rt = byWriter[w];
+      const isWriter = WRITERS.indexOf(w) >= 0;
+      const list = rt ? rt.names : [];
+      const seen = {};
+      const chips = list.map(function (n, i) {
+        const rv = m.reviewers.find(function (x) { return x.name === n; });
+        const dup = !!seen[n]; seen[n] = true;
+        const warn = isWriter && !!rv && rv.cli === SELF_CLI[w];
+        return {
+          name: n, num: i + 1, warn: warn, unknown: !rv, dup: dup,
+          cls: !rv || dup ? 'unknown' : (warn ? 'warn' : ''),
+          upDis: i === 0, downDis: i === list.length - 1,
+          up: function () { self.routeMut(w, function (x) { const a = x.names; const tmp = a[i - 1]; a[i - 1] = a[i]; a[i] = tmp; }); },
+          down: function () { self.routeMut(w, function (x) { const a = x.names; const tmp = a[i + 1]; a[i + 1] = a[i]; a[i] = tmp; }); },
+          remove: function () { self.routeMut(w, function (x) { x.names.splice(i, 1); x._drop = true; }); },
+          onDragStart: function (ev) { self._drag = { w: w, i: i }; if (ev.dataTransfer) { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', n); } },
+          onDragOver: function (ev) { if (self._drag && self._drag.w === w) ev.preventDefault(); },
+          onDrop: function (ev) {
+            ev.preventDefault();
+            const dr = self._drag; self._drag = null;
+            if (!dr || dr.w !== w || dr.i === i) return;
+            self.routeMut(w, function (x) { const item = x.names.splice(dr.i, 1)[0]; x.names.splice(i, 0, item); });
+          }
+        };
+      });
+      const warnings = chips.filter(function (c) { return c.warn; }).map(function (c) { return { name: c.name, cli: SELF_CLI[w] }; });
+      const addOptions = [{ value: '', label: rt ? 'Add a reviewer to this route' : 'Add a reviewer to create the route', disabled: false }].concat(names.map(function (n) { const present = list.indexOf(n) >= 0; return { value: n, label: present ? n + ' (already in this route)' : n, disabled: present }; }));
+      const hasErr = errOn('route', w);
+      return {
+        writer: w, caption: isWriter ? CAPTION[w] : 'Not a writer: [routes] may only name claude, codex and gemini',
+        notWriter: !isWriter, cls: hasErr ? 'has-err' : '',
+        hasChips: !!rt && list.length > 0, chips: chips, warnings: warnings,
+        absent: isWriter && !rt, emptyList: !!rt && list.length === 0,
+        hasErr: hasErr, canAdd: isWriter && names.length > 0, addOptions: addOptions,
+        onAdd: function (ev) { self.addTo(w, ev.target.value); },
+        removeKey: function () { self.mut(function (mm) { mm.routes = mm.routes.filter(function (x) { return x.writer !== w; }); }); }
+      };
+    });
+
+    let codeLines;
+    let previewCaption;
+    if (e.view === 'diff') {
+      const ops = lineDiff(e.loaded, cand);
+      const adds = ops.filter(function (o) { return o.t === 'add'; }).length;
+      const dels = ops.filter(function (o) { return o.t === 'del'; }).length;
+      previewCaption = changed ? adds + ' added, ' + dels + ' removed, comments kept' : 'No changes';
+      codeLines = ops.map(function (o) { return { no: o.no, mk: o.t === 'add' ? '+' : (o.t === 'del' ? '-' : ''), text: o.text, cls: (o.t === 'same' ? '' : o.t) + (o.text.charAt(0) === '#' ? ' cm' : '') }; });
+    } else {
+      previewCaption = changed ? 'What Save writes (unsaved)' : 'Matches the file on disk';
+      codeLines = cand.map(function (t, i) { return { no: i + 1, mk: '', text: t, cls: t.charAt(0) === '#' ? 'cm' : '' }; });
+    }
+
+    let saveReason = '';
+    if (err) saveReason = 'Save is off: the dispatcher refuses this pin.';
+    else if (e.stale) saveReason = 'Save is off: the file changed on disk.';
+    else if (e.staleKept) saveReason = 'Save is off until you reload.';
+    else if (!changed) saveReason = 'No unsaved changes.';
+    const saveDisabled = !!err || e.stale || e.staleKept || !changed;
+
+    const draft = e.draft;
+    const draftIsAgy = draft.cli === 'agy';
+    const isEditor = e.screen === 'editor';
+    const stateNames = { refused: 'pin refused', 'unsupported-schema': 'newer schema', 'no-pin': 'no pin', 'no-dispatcher': 'no dispatcher', 'old-dispatcher': 'dispatcher too old', 'no-python': 'no Python', untrusted: 'Restricted Mode' };
+    const treeAll = [
+      { label: '.agents', pad: 14, folder: true }, { label: '.claude', pad: 14, folder: true }, { label: '.codex', pad: 14, folder: true },
+      { label: '.conclave', pad: 14, folder: true, hide: e.screen === 'no-pin' }, { label: 'reviewers.toml', pad: 34, file: true, active: true, hide: e.screen === 'no-pin' },
+      { label: 'docs', pad: 14, folder: true }, { label: 'scripts', pad: 14, folder: true },
+      { label: 'review-dispatch.py', pad: 34, file: true, hide: e.screen === 'no-dispatcher' }, { label: 'todo-graph.py', pad: 34, file: true },
+      { label: 'todo', pad: 14, folder: true }, { label: 'AGENTS.md', pad: 14, file: true }, { label: 'CLAUDE.md', pad: 14, file: true }
+    ];
+
+    return {
+      themeName: this.themeKey(), themeClass: this.themeKey() === 'light' ? 't-light' : 't-dark',
+      scenario: this.scen(),
+      scenarios: SCENARIOS.map(function (s) { return { id: s[0], label: s[1] }; }),
+      setTheme: function (ev) { self.setState({ theme: ev.target.value }); },
+      setScenario: function (ev) { clearTimeout(self._testT); clearTimeout(self._installT); self.setState({ scenario: ev.target.value, e: null }); },
+      tree: treeAll.filter(function (t) { return !t.hide; }).map(function (t) { return { label: t.label, pad: t.pad, folder: !!t.folder, file: !!t.file, cls: t.active ? 'active' : '' }; }),
+      tabTitle: 'Reviewers: Conclave-VSC', dirty: isEditor && changed,
+      isEditor: isEditor, isEmpty: !isEditor, empty: this.emptyFor(e),
+      hasErr: !!err, noErr: !err, errText: err ? err.msg : '',
+      pillClass: err ? 'bad' : 'ok',
+      pillText: err ? '1 problem' : (changed ? 'Valid, not saved' : 'Valid'),
+      fileErr: errOn('file'), reviewersErr: errOn('reviewers'),
+      saveReason: saveReason, saveDisabled: saveDisabled, discardDisabled: !changed,
+      save: function () { if (saveDisabled) return; self.upd(Object.assign({ loaded: cand, loadedModel: clone(m), confirmDiscard: false }, self.toastPatch('Saved .conclave/reviewers.toml through a temporary file and a rename. Re-checked with --check-pin: ok.'))); },
+      askDiscard: function () { self.upd({ confirmDiscard: true }); },
+      doDiscard: function () { self.upd({ model: clone(e.loadedModel), confirmDiscard: false, renaming: null, confirmDelete: null, test: null }); },
+      cancelDiscard: function () { self.upd({ confirmDiscard: false }); },
+      confirmDiscard: e.confirmDiscard,
+      openFile: function () { self.flash('Opens .conclave/reviewers.toml in the text editor.'); },
+      showStale: e.stale, staleKept: e.staleKept,
+      reload: function () { const sm = env.staleModel || e.loadedModel; self.upd(Object.assign({ model: clone(sm), loadedModel: clone(sm), loaded: toml(sm), stale: false, staleKept: false }, self.toastPatch('Reloaded from disk. Re-checked with --check-pin: ok.'))); },
+      keepEdits: function () { self.upd({ stale: false, staleKept: true }); },
+      reviewerCount: m.reviewers.length === 1 ? '1 reviewer' : m.reviewers.length + ' reviewers',
+      cards: cards,
+      notAdding: !e.adding, adding: e.adding, draft: draft,
+      openAdd: function () { self.upd({ adding: true, addErr: '', draft: { name: '', cli: 'claude', model: '', effort: 'high' } }); },
+      onDraftName: function (ev) { self.upd({ draft: Object.assign({}, self.e().draft, { name: ev.target.value }), addErr: '' }); },
+      onDraftCli: function (ev) { const c = ev.target.value; const d0 = self.e().draft; self.upd({ draft: Object.assign({}, d0, { cli: c, effort: c === 'agy' ? null : (EFFORTS[c].indexOf(d0.effort) >= 0 ? d0.effort : DEFAULT_EFFORT[c]) }) }); },
+      onDraftModel: function (ev) { self.upd({ draft: Object.assign({}, self.e().draft, { model: ev.target.value }) }); },
+      onDraftEffort: function (ev) { self.upd({ draft: Object.assign({}, self.e().draft, { effort: ev.target.value }) }); },
+      draftShowEffort: !draftIsAgy, draftIsAgy: draftIsAgy,
+      draftEfforts: draftIsAgy ? [] : EFFORTS[draft.cli].map(function (x) { return { value: x, label: x }; }),
+      hasAddErr: !!e.addErr, addErr: e.addErr,
+      commitAdd: function () {
+        const cur = self.e(); const d0 = cur.draft; const nm = d0.name.trim();
+        if (!nm) { self.upd({ addErr: 'Give the reviewer a name.' }); return; }
+        if (cur.model.reviewers.some(function (x) { return x.name === nm; })) { self.upd({ addErr: 'A reviewer named ' + pyq(nm) + ' already exists.' }); return; }
+        const mm = clone(cur.model);
+        mm.reviewers.push({ id: 'r' + mm.nextId, name: nm, cli: d0.cli, model: d0.model.trim(), effort: d0.cli === 'agy' ? null : d0.effort, extra: [], comment: [] });
+        mm.nextId += 1;
+        self.upd({ model: mm, adding: false, addErr: '' });
+      },
+      cancelAdd: function () { self.upd({ adding: false, addErr: '' }); },
+      rows: rows,
+      previewCaption: previewCaption, codeLines: codeLines,
+      isPreview: e.view !== 'diff', isDiff: e.view === 'diff',
+      previewOn: e.view !== 'diff' ? 'on' : '', diffOn: e.view === 'diff' ? 'on' : '',
+      showPreview: function () { self.upd({ view: 'preview' }); },
+      showDiff: function () { self.upd({ view: 'diff' }); },
+      hasToast: !!e.toast, toast: e.toast,
+      statusProblems: err ? '1 problem in reviewers.toml' : 'No problems',
+      statusState: 'Conclave Reviewers: ' + (isEditor ? (err ? 'refused' : 'valid') : stateNames[e.screen]),
+      statusPython: e.screen === 'no-python' ? 'Python: none usable' : 'Python 3.14.4'
+    };
+  }
+}
+</script>
+</body>
+</html>

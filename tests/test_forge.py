@@ -344,16 +344,18 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertEqual(res["installed"], [])
 
     def test_the_sdk_uses_the_agent_setup_its_kits_ship(self):
-        # The kits are the only source. The SDK's own .agents/.claude/.codex are an installed copy of base and todo,
-        # refreshed from the kits, so they must match them.
+        # The kits are the only source. The SDK's own .agents/.claude/.codex are an installed copy of base, todo and
+        # reviewer, and its scripts/ an installed copy of the todo and reviewer kits' scripts (the SDK plans and
+        # reviews its own work with them), refreshed from the kits, so they must match them.
         def text(path):
             return path.read_bytes().replace(b"\r\n", b"\n")
 
-        for kit in ("base", "todo"):
+        for kit in ("base", "todo", "reviewer"):
             templates = FORGE_ROOT / "kits" / kit / "templates"
+            prefixes = forge.SDK_MANAGED_PREFIXES + (() if kit == "base" else forge.SDK_MANAGED_SCRIPT_PREFIXES)
             for source in sorted(templates.rglob("*")):
                 rel = source.relative_to(templates).as_posix()
-                if not source.is_file() or not rel.startswith(forge.SDK_MANAGED_PREFIXES):
+                if not source.is_file() or not rel.startswith(prefixes) or not forge._rel_allowed_for_agent(rel, "all"):
                     continue
                 with self.subTest(path=rel):
                     installed = FORGE_ROOT / rel
