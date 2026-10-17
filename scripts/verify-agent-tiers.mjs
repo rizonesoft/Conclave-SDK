@@ -61,6 +61,9 @@ export const HAIKU_JUDGMENT_TERMS = /\b(review|audit|research|secur|debug|diagno
 /** Where an elevated pin must record why it is elevated. */
 export const ELEVATION_RATIONALE_FIELD = "model_rationale";
 
+/** The one key whose value may be a nested block: Claude Code's per-agent hooks. */
+export const HOOKS_FIELD = "hooks";
+
 /**
  * Tools no subagent on any tier is given. A `*` grant includes them, and so
  * does a missing `tools:` list, because the agent then inherits every tool.
@@ -84,6 +87,20 @@ export const EDIT_TOOLS = ["edit", "write", "multiedit", "notebookedit"];
  * as unreadable rather than guessed at. Failing closed on an exotic definition
  * costs whoever wrote it one plain rewrite. Failing open costs a run on the
  * wrong tier, silently, for as long as nobody looks.
+ *
+ * One nested key is accepted: `hooks:`, Claude Code's per-agent hooks, written
+ * alone on its line and followed by an indented block. The block's content is
+ * skipped, not read, and `hooks` is recorded as present. This is safe because
+ * the only thing the skip has to get right is where the block ends: at the
+ * first non-blank line at column 0, which is read as a top-level key again, so
+ * a `model:` or `tools:` inside the block is not a pin and a second `model:`
+ * after it is still a duplicate. The two ways YAML can carry a column-0 line as
+ * the block's content, a quoted scalar or a flow collection spanning lines, are
+ * refused line by line, as are tabs in the indentation (where YAML and this
+ * reader would disagree on the column), anchors, aliases and tags, and any line
+ * that is not a key, a sequence entry, a scalar or a comment. A block scalar's
+ * own content is opaque text and is skipped. Every other nested block stays
+ * refused.
  *
  * Returns `{ fields, error }`: `error` is set when the block cannot be read
  * under these rules, and `fields` maps key to `{ value, isQuoted }`.
@@ -115,6 +132,17 @@ export function readAgentFrontmatter(text) {
       // ambiguity rather than pick a winner: `model: sonnet` above
       // `model: claude-haiku-4-5` read as Sonnet and ran as Haiku.
       return { fields: null, error: `declares "${key}:" more than once; a duplicate key is read from opposite ends by this check and by YAML` };
+    }
+
+    if (key === HOOKS_FIELD) {
+      if (!/^(?:#.*)?$/.test(rest)) {
+        return { fields: null, error: `"${key}:" takes no inline value (${JSON.stringify(rest)}); write "${key}:" alone followed by an indented block, the one nested form this check reads` };
+      }
+      const block = skipHooksBlock(lines, index);
+      if (block.error) return { fields: null, error: block.error };
+      index = block.index;
+      fields.set(key, { value: "", isQuoted: false, isBlock: true });
+      continue;
     }
 
     // A comment after the value is ordinary YAML, and rejecting it would fail
@@ -161,6 +189,96 @@ export function readAgentFrontmatter(text) {
   }
 
   return { fields, error: null };
+}
+
+/**
+ * Skip the indented block under `hooks:`, starting at `start`, and return the
+ * index of the first line after it. The block ends at the first non-blank line
+ * at column 0. Each line inside is checked by `hooksLineProblem` so none of
+ * them can make YAML read a later column-0 line as part of the block.
+ */
+function skipHooksBlock(lines, start) {
+  let index = start;
+  let content = 0;
+  let scalarIndent = null;
+  while (index < lines.length) {
+    const line = lines[index];
+    if (line.trim() === "") {
+      index += 1;
+      continue;
+    }
+    if (!/^[ \t]/.test(line)) break;
+
+    const indentation = /^[ \t]*/.exec(line)[0];
+    if (indentation.includes("\t")) {
+      return { index, error: `"${HOOKS_FIELD}:" block line ${JSON.stringify(line)} is indented with a tab; YAML refuses tab indentation and this check would read a different column, so indent with spaces` };
+    }
+    index += 1;
+    content += 1;
+
+    // A block scalar's content is text, not structure, and ends at the first
+    // line indented no deeper than the line that opened it.
+    if (scalarIndent !== null && indentation.length > scalarIndent) continue;
+    scalarIndent = null;
+
+    const shape = hooksLineProblem(line.slice(indentation.length));
+    if (shape === BLOCK_SCALAR) {
+      scalarIndent = indentation.length;
+    } else if (shape) {
+      return { index, error: `"${HOOKS_FIELD}:" block line ${JSON.stringify(line)} ${shape}` };
+    }
+  }
+  if (content === 0) {
+    return { index, error: `"${HOOKS_FIELD}:" has no indented block under it; write "${HOOKS_FIELD}:" alone followed by an indented block, or leave the key out` };
+  }
+  return { index, error: null };
+}
+
+const BLOCK_SCALAR = Symbol("block scalar");
+
+/**
+ * Check one line of the `hooks:` block, indentation removed: sequence entries,
+ * then any number of `key:` prefixes, then an empty value, a comment, a quoted
+ * scalar that closes on this line, a block scalar header or a plain scalar.
+ * Returns null when the line is one of those, `BLOCK_SCALAR` for a block
+ * scalar header, or the reason it is refused.
+ */
+function hooksLineProblem(text) {
+  let rest = text.replace(/^(?:-(?: +|$))*/, "");
+  for (;;) {
+    if (rest === "" || rest.startsWith("#")) return null;
+
+    let node;
+    if (rest.startsWith('"') || rest.startsWith("'")) {
+      const closed = rest.startsWith('"') ? /^"(?:[^"\\]|\\.)*"/.exec(rest) : /^'(?:[^']|'')*'/.exec(rest);
+      if (!closed) {
+        return "opens a quote that does not close on the same line; a multi-line quoted scalar can carry a column-0 line that YAML reads as content and this check reads as a key";
+      }
+      node = closed[0];
+    } else if (/^[|>]/.test(rest)) {
+      if (/^[|>][-+1-9]{0,2}(?:[ \t]+#.*)?[ \t]*$/.test(rest)) return BLOCK_SCALAR;
+      return "has a block scalar header this check does not read";
+    } else if (/^[[{]/.test(rest)) {
+      return "uses YAML flow collection syntax; one that spans lines can carry a column-0 line, so write the block in block style";
+    } else if (/^[&*!]/.test(rest)) {
+      return "uses a YAML anchor, alias or tag; write the value plainly";
+    } else if (/^[\]},%@`?:]/.test(rest)) {
+      return "starts with a YAML indicator this check does not read";
+    } else {
+      // A plain scalar runs to a mapping colon or a comment; quotes inside it are content.
+      const stop = /:(?=[ \t]|$)|[ \t]#/.exec(rest);
+      node = stop ? rest.slice(0, stop.index) : rest;
+    }
+
+    rest = rest.slice(node.length);
+    const key = /^[ \t]*:(?:[ \t]+|$)/.exec(rest);
+    if (key) {
+      rest = rest.slice(key[0].length);
+      continue;
+    }
+    if (/^[ \t]*$|^[ \t]+#/.test(rest)) return null;
+    return "is not a key, a sequence entry, a scalar or a comment; the hooks block is read as a closed subset of YAML";
+  }
 }
 
 /** A tier pin: one bare token, optionally quoted, and nothing else. */

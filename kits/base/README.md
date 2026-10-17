@@ -42,7 +42,7 @@ There is no force/overwrite mode on kits. Before copying any file, the installer
 
 After installing, adapt `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, and skill descriptions to the target project.
 
-The template `docs/` folder holds the skill/rule structure document, and `scripts/` holds `verify-agent-tiers.mjs`, which checks that every Claude agent definition pins an explicit model, that no agent can edit files (an explicit `tools:` list with no edit tools), that an elevated tier records why, and that a Haiku agent meets every condition of the near-mechanical allowance in `AGENTS.md`.
+The template `docs/` folder holds the skill/rule structure document, and `scripts/` holds `verify-agent-tiers.mjs`, which checks that every Claude agent definition pins an explicit model, that no agent can edit files (an explicit `tools:` list with no edit tools), that an elevated tier records why, and that a Haiku agent meets every condition of the near-mechanical allowance in `AGENTS.md`. It reads frontmatter as a closed subset of YAML: flat `key: value` pairs, plus one nested `hooks:` block for Claude Code's per-agent hooks, which it skips without reading, so nothing inside it can set `model:` or `tools:`; any other nested block is refused.
 
 ## Maintenance
 
