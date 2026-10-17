@@ -40,7 +40,7 @@ title: "TODO-01 -- Reviewer Editor Design"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Clickable reviewer editor mockup | -- | [x] |
-| 2 | §2 | Owner approval and open design answers | §1 | [ ] |
+| 2 | §2 | Owner approval and open design answers | §1 | [x] |
 | 3 | §3 | Interface SPEC and screenshots | §2 | [ ] |
 | 4 | §4 | Reviewer config design spec | §2 | [ ] |
 
@@ -118,9 +118,12 @@ The owner said no code is written until they approve the mockup. This section is
 - [x] Write `design/decisions.md` with the approval date and one dated answer per question in `design/mockup/open-questions.md`. Done when: every question has an answer and none says "TBD". Cheaper substitute: answers kept only in the conversation. Shipped: `design/decisions.md`, approved 2026-10-17, answers 1 to 14 dated, none TBD.
 - [x] Update `docs/plans/2026-10-16-vscode-extension.md` where an answer changes a requirement (for example R5 or R8). Done when: no requirement contradicts `design/decisions.md`. Cheaper substitute: a decisions file that silently overrides the plan. Shipped: R5 (answer 1) and R8 (answer 2) no longer call their questions open, R11 (answer 6), R17 (answer 3, dated correction) and R19 (answer 7); R24, R26, R32 and R35 already matched answers 9, 10, 12 and 13.
 - [x] Remove `owner-decision` from this section's `**Needs:**` line. Done when: `python scripts/todo-graph.py query ready` lists `D00 T01 §3` and `D00 T01 §4`. Cheaper substitute: removing the Need before the answers are written. Shipped: the Needs line reads none.
-- [ ] Commit: `design: record mockup approval and design answers`
+- [x] Commit: `design: record mockup approval and design answers`
 
 **Test checkpoint:** `python -c "import pathlib,re,sys; t=pathlib.Path('design/decisions.md').read_text(encoding='utf-8'); sys.exit(0 if re.search(r'Approved: \d{4}-\d{2}-\d{2}', t) and 'TBD' not in t else 1)"` exits 0, and exits 1 while the approval line is missing or an answer is TBD.
+
+> **Verified:** 2026-10-17 | §2 | 50654274e5ed759c2e559eacc2de40b76fe1ee46
+> **Review:** `docs/reviews/d00-t01-s2.json`
 
 ## 3. Interface SPEC and screenshots
 

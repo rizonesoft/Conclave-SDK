@@ -13,7 +13,7 @@ Sections: 10 | Checklist items: 101
 | Status | Reference  | Deliverable                                | Needs | Items |
 | ------ | ---------- | ------------------------------------------ | ----- | ----- |
 | [x]    | D00 T01 §1 | Clickable reviewer editor mockup           | none  | 26    |
-| [ ]    | D00 T01 §2 | Owner approval and open design answers     | none  | 6     |
+| [x]    | D00 T01 §2 | Owner approval and open design answers     | none  | 6     |
 | [ ]    | D00 T01 §3 | Interface SPEC and screenshots             | none  | 14    |
 | [ ]    | D00 T01 §4 | Reviewer config design spec                | none  | 10    |
 | [ ]    | D01 T01 §1 | Strict schema_version type in load_pin     | none  | 7     |
@@ -85,6 +85,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | owner-decision         | 5     |
 
-Progress: 1/51 verified sections, 1 ready to run now.
+Progress: 2/51 verified sections, 5 ready to run now.
 
-Checklist: 31/429 items completed (includes Commit items).
+Checklist: 32/429 items completed (includes Commit items).
