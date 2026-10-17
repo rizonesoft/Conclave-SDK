@@ -169,7 +169,7 @@ The owner requires independent review of the change through the reviewer kit (pl
 Publishing to the Visual Studio Marketplace is outward-facing and the owner asked to be asked first (plan R22). This section puts the decision to the owner with what publishing needs (a publisher ID, a personal access token from the 1Password Conclave vault, the repository's visibility) and records the answer. If the answer is yes, it publishes the reviewed `.vsix`; if no, it records that the `.vsix` is the distribution.
 
 **Phase:** 6
-**Needs:** owner-decision
+**Needs:** none
 **Surface:** no
 
 **Build order:**
@@ -177,8 +177,8 @@ Publishing to the Visual Studio Marketplace is outward-facing and the owner aske
 1. Ask the owner and record the answer in `design/decisions.md`. Done when: the decision and date are recorded and the Need above reads `none`.
 2. Act on it. Done when: the extension's marketplace page is live, or `README.md` states the `.vsix` is the distribution.
 
-- [ ] Ask the owner with the facts: publisher ID needed, token source (1Password Conclave vault), repository visibility `internal`, and that the `.vsix` bundles every kit, so a public listing makes the kits public. Done when: the answer is in `design/decisions.md` with the date. Cheaper substitute: publishing without asking.
-- [ ] Remove `owner-decision` from this section's `**Needs:**` line once the answer is recorded. Done when: `python scripts/todo-graph.py query ready` lists this section. Cheaper substitute: removing it before the answer.
+- [x] Ask the owner with the facts: publisher ID needed, token source (1Password Conclave vault), repository visibility `internal`, and that the `.vsix` bundles every kit, so a public listing makes the kits public. Done when: the answer is in `design/decisions.md` with the date. Cheaper substitute: publishing without asking. Shipped: asked 2026-10-17 with these facts; the owner chose no Marketplace listing, recorded as `Marketplace: no (2026-10-17)` in `design/decisions.md`.
+- [x] Remove `owner-decision` from this section's `**Needs:**` line once the answer is recorded. Done when: `python scripts/todo-graph.py query ready` lists this section. Cheaper substitute: removing it before the answer. Shipped: the Needs line reads none; the section still waits on its dependencies.
 - [ ] If yes, run `npx vsce publish --packagePath conclave-<version>.vsix` with the token from the vault, never printing it. Done when: the marketplace page shows the version. Cheaper substitute: a token pasted in chat.
 - [ ] If no, state in `README.md` that the extension installs from the `.vsix` attached to a GitHub release, and attach it with `gh release create`. Done when: the release lists the `.vsix`. Cheaper substitute: a `.vsix` committed to the repository.
 - [ ] Commit: `docs: record the marketplace decision`

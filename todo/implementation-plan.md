@@ -83,8 +83,8 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §3 | Extension README and SDK docs    | none                   | 6     |
 | [ ]    | D04 T01 §4 | VSIX packaging and install check | none                   | 7     |
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
-| [ ]    | D04 T01 §6 | Marketplace publishing decision  | owner-decision         | 5     |
+| [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
 Progress: 2/51 verified sections, 5 ready to run now.
 
-Checklist: 32/429 items completed (includes Commit items).
+Checklist: 34/429 items completed (includes Commit items).
