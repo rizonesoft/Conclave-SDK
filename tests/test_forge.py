@@ -38,7 +38,6 @@ EXPECTED_CLAUDE_AGENTS = [
     "debug-evidence",
     "git-runner",
     "mutation-tester",
-    "section-implementer",
     "test-runner",
 ]
 

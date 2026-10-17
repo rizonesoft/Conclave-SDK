@@ -48,7 +48,22 @@ class VerifyAgentTiers(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_opus_needs_a_rationale(self):
-        self.assert_refused("model_rationale", name="reviewer", description="review", model="opus")
+        self.assert_refused("model_rationale", name="reviewer", description="review", model="opus", tools="Read")
+
+    def test_no_agent_on_any_tier_edits(self):
+        tiers = {
+            "sonnet": {"name": "implementer", "description": "build it", "model": "sonnet"},
+            "opus": {"name": "implementer", "description": "build it", "model": "opus", "model_rationale": "hard code"},
+            "haiku": HAIKU_OK,
+        }
+        for tier, fields in tiers.items():
+            for tools in ("Read, Edit", "Write", "Read, MultiEdit", "NotebookEdit, Read", "Read, Edit(src/**)", '"*"'):
+                with self.subTest(tier=tier, tools=tools):
+                    self.assert_refused("edit tools", **{**fields, "tools": tools})
+
+    def test_every_agent_declares_its_tools(self):
+        self.assert_refused('explicit "tools:"', name="git-runner", description="git status", model="sonnet")
+        self.assert_refused('explicit "tools:"', name="git-runner", description="git status", model="sonnet", tools='""')
 
     def test_a_qualifying_haiku_agent_passes(self):
         result = self.run_verifier(**HAIKU_OK)
@@ -73,12 +88,6 @@ class VerifyAgentTiers(unittest.TestCase):
         self.assert_refused("haiku_replay", **{k: v for k, v in HAIKU_OK.items() if k != "haiku_replay"})
         self.assert_refused("haiku_replay", **{**HAIKU_OK, "haiku_replay": "docs/agents/missing.md"})
         self.assert_refused("haiku_replay", **{**HAIKU_OK, "haiku_replay": "../outside.md"})
-
-    def test_haiku_never_edits(self):
-        for tools in ("Read, Edit", "Write", "Read, MultiEdit", "NotebookEdit, Read"):
-            with self.subTest(tools=tools):
-                self.assert_refused("edit tools", **{**HAIKU_OK, "tools": tools})
-        self.assert_refused("explicit \"tools:\"", **{k: v for k, v in HAIKU_OK.items() if k != "tools"})
 
     def test_haiku_never_does_judgment_work(self):
         for word in ("Review", "audit", "security", "research", "design", "debug", "diagnose", "architecture", "plan", "verdict"):

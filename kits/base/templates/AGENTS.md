@@ -32,5 +32,6 @@ This repository follows the Conclave-SDK 3-agent conventions. Adapt this file to
 ## Subagents
 
 - Delegate mechanical subtasks to subagents. Claude subagents pin an explicit `model:`: Sonnet by default, and Opus (with a `model_rationale:`) only where judgment quality needs it.
+- Subagents read and run; they never write. Every Claude subagent declares an explicit `tools:` list without Edit, Write, MultiEdit, NotebookEdit or `*`. The main loop makes every change and verifies what subagents return.
 - Haiku is only for near-mechanical work, at least 90% mechanical (read-only lookups, inventories, structural checks), whose output a script or the main loop verifies. Pin `claude-haiku-5-5` or later, declare `mechanical_share:` (90 to 100), point `haiku_replay:` at a record of a known-answer replay that showed no loss against Sonnet, and give it no edit tools. Never use Haiku for review, audit, research, security, debugging, diagnosis, planning or design.
-- Run `node scripts/verify-agent-tiers.mjs` after adding or changing an agent definition; it enforces both rules.
+- Run `node scripts/verify-agent-tiers.mjs` after adding or changing an agent definition; it enforces these rules.

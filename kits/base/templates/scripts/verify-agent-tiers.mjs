@@ -3,13 +3,14 @@
 //
 // The rule is in AGENTS.md: mechanical subtasks delegate to subagents on the
 // Sonnet tier; an elevated tier is reserved for work whose verdict quality
-// demands it; and Haiku is allowed only for near-mechanical work (at least 90%
-// mechanical) whose output a script or the main loop verifies.
+// demands it; Haiku is allowed only for near-mechanical work (at least 90%
+// mechanical) whose output a script or the main loop verifies; and no subagent
+// writes: subagents read and run, and the main loop makes every change.
 //
 // A rule stated in prose is protected by discipline. This makes it protected by
-// a check: an agent with no `model:` line, or a Haiku agent that does not meet
-// every Haiku condition below, fails here instead of passing every gate and
-// being noticed later, or never.
+// a check: an agent with no `model:` line, an agent that could edit files, or a
+// Haiku agent that does not meet every Haiku condition below, fails here instead
+// of passing every gate and being noticed later, or never.
 //
 // An absent `model:` is an error rather than a default, because an unpinned
 // agent silently inherits the caller's model: mechanical work then runs on the
@@ -47,8 +48,6 @@ export const RESTRICTED_AGENT_MODEL_TOKENS = ["haiku"];
  *   can challenge it.
  * - `haiku_replay:` naming a file in this repository that records a replay on
  *   known-answer inputs showing no loss against the base tier.
- * - An explicit `tools:` list with no edit tools: a Haiku agent reads and runs,
- *   and its caller checks what it returns.
  * - No judgment work in its name or description: never review, audit,
  *   research, security, debugging, diagnosis, planning or design.
  */
@@ -57,11 +56,16 @@ export const HAIKU_PIN = /^claude-haiku-(\d+)-(\d+)(?:-\d{8})?$/;
 export const HAIKU_MECHANICAL_FIELD = "mechanical_share";
 export const HAIKU_MINIMUM_MECHANICAL_SHARE = 90;
 export const HAIKU_REPLAY_FIELD = "haiku_replay";
-export const HAIKU_FORBIDDEN_TOOLS = ["edit", "write", "multiedit", "notebookedit"];
 export const HAIKU_JUDGMENT_TERMS = /\b(review|audit|research|secur|debug|diagnos|plan|design|architect|judg|verdict)/i;
 
 /** Where an elevated pin must record why it is elevated. */
 export const ELEVATION_RATIONALE_FIELD = "model_rationale";
+
+/**
+ * Tools no subagent on any tier is given. A `*` grant includes them, and so
+ * does a missing `tools:` list, because the agent then inherits every tool.
+ */
+export const EDIT_TOOLS = ["edit", "write", "multiedit", "notebookedit"];
 
 /**
  * Read the opening frontmatter as a strict, closed subset of YAML.
@@ -203,6 +207,8 @@ export function verifyAgentTiers(repoRoot = process.cwd(), relativeRoot = join("
       continue;
     }
 
+    errors.push(...toolProblems(fields).map((problem) => `${relative} ${problem}`));
+
     const model = tierPin(fields, "model")?.toLowerCase() ?? null;
 
     if (!model) {
@@ -245,6 +251,22 @@ export function verifyAgentTiers(repoRoot = process.cwd(), relativeRoot = join("
   return { checked: files.length, elevated, haiku, errors };
 }
 
+/**
+ * A subagent reads and runs; the main loop writes. A grant such as
+ * `Edit(src/**)` is still Edit, so the rule spec after the name is ignored.
+ */
+export function toolProblems(fields) {
+  const tools = recordedProse(fields, "tools");
+  if (!tools) {
+    return ['needs an explicit "tools:" list; without one the agent inherits every tool, edit tools included'];
+  }
+  const names = tools.split(",").map((tool) => tool.replace(/\(.*$/, "").trim().toLowerCase());
+  if (names.some((tool) => tool === "*" || EDIT_TOOLS.includes(tool))) {
+    return ["grants edit tools (Edit, Write, MultiEdit, NotebookEdit or *); subagents read and run, and the main loop writes"];
+  }
+  return [];
+}
+
 /** Every unmet Haiku condition, so one run names them all. */
 export function haikuProblems(repoRoot, fields, model) {
   const problems = [];
@@ -270,16 +292,6 @@ export function haikuProblems(repoRoot, fields, model) {
       `Haiku needs "${HAIKU_REPLAY_FIELD}:" naming a file in this repository that records a known-answer replay `
       + "showing no loss against the base tier",
     );
-  }
-
-  const tools = recordedProse(fields, "tools");
-  if (!tools) {
-    problems.push('Haiku needs an explicit "tools:" list; without one the agent inherits every tool, edit tools included');
-  } else {
-    const names = tools.split(",").map((tool) => tool.trim().toLowerCase());
-    if (names.some((tool) => HAIKU_FORBIDDEN_TOOLS.includes(tool))) {
-      problems.push("Haiku agents never get edit tools (Edit, Write, MultiEdit, NotebookEdit); they read and run, and the caller checks");
-    }
   }
 
   const purpose = `${recordedProse(fields, "name") ?? ""} ${recordedProse(fields, "description") ?? ""}`;
