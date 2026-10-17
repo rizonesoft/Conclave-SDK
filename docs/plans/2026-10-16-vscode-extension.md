@@ -51,7 +51,7 @@ Re-checked 2026-10-16 at `97cca1d`, GitHub `main`: the reviewer kit is unchanged
 ### Status and test
 
 - R10: whether each reviewer's CLI is on PATH, as `forge.py doctor <repo> reviewer` reports it, taken from the `clis` map in the `--check-pin` output (the dispatcher's own `shutil.which`, in the environment the dispatcher runs in).
-- R11: a "Test reviewer" action that runs one dispatch on a planted-bug prompt against that reviewer alone and shows the outcome: the reviewer's text, or the failover reason, or the refusal.
+- R11: a "Test reviewer" action that runs one dispatch on a planted-bug prompt against that reviewer alone and shows the outcome: the reviewer's text, or the failover reason, or the refusal. It asks before every run, naming the reviewer's model, its CLI and the writer (owner, 2026-10-17, `design/decisions.md` answer 6).
 
 ### Preview and save
 
@@ -63,9 +63,9 @@ Re-checked 2026-10-16 at `97cca1d`, GitHub `main`: the reviewer kit is unchanged
 ### Empty and failure states
 
 - R16: no pin yet: offer to install the reviewer kit through the kit install flow in R28, preset to `reviewer`.
-- R17: a pin that fails to load: show the `Refused` message (with `tomllib`'s line and column when it is a parse error), and open the raw file for repair.
+- R17: a pin whose TOML does not parse, or whose top level is wrong (`schema_version`, missing or extra tables): show the `Refused` message (with `tomllib`'s line and column when it is a parse error), and open the raw file for repair. A fault inside a parsable pin opens the editor with the inline error of R8 instead. **Corrected 2026-10-17:** every refused pin went to this screen; the owner chose the split in `design/decisions.md` answer 3.
 - R18: no `scripts/review-dispatch.py` in the workspace, or one too old to support `--check-pin`: say which, and offer the update flow in R29 with scripts included (`forge.py sync <repo> --include-scripts`). An old dispatcher is detected by its output: `--check-pin` prints no JSON object with an `ok` key.
-- R19: no usable Python (3.11 or later, for `tomllib`), or a workspace that is not trusted: say which, and run nothing.
+- R19: no usable Python (3.11 or later, for `tomllib`), or a workspace that is not trusted: say which, and run nothing. Python is found from `conclave.pythonPath`, then `py -3` and `python` on Windows, `python3` and `python` in WSL; a set but unusable setting is an error, never a silent fallback (owner, 2026-10-17, `design/decisions.md` answer 7).
 
 ### SDK source and entry points
 

@@ -1,6 +1,6 @@
 # Open design questions from the mockup
 
-Date: 2026-10-16. Mockup: <https://claude.ai/artifact/RRxxX5W6pYFQ3b2Z4Fq2mv>. Answers are recorded in `design/decisions.md` by `D00 T01 §2`. Each question lists the options and a recommendation.
+Date: 2026-10-16. Mockup: <https://claude.ai/artifact/RRxxX5W6pYFQ3b2Z4Fq2mv>. Answers are recorded in `design/decisions.md` by `D00 T01 §2`; the owner answered every question and approved the mockup on 2026-10-17. Each question lists the options and a recommendation.
 
 ## 1. Does the same CLI with a different model count as self-review?
 

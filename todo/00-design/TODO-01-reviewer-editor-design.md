@@ -100,10 +100,12 @@ The owner asked for a mockup before any code. This section builds one static, cl
 
 ## 2. Owner approval and open design answers
 
+> **Started:** 2026-10-17T00:13:45Z
+
 The owner said no code is written until they approve the mockup. This section is that gate: it records the approval, any changes asked for, and the answer to every question in `design/mockup/open-questions.md`. Every code section in the tree depends on it. When the owner asks for changes, they are made in §1's files and republished to the same Artifact link before approval is recorded.
 
 **Phase:** 0
-**Needs:** owner-decision
+**Needs:** none
 **Surface:** no
 
 **Build order:**
@@ -111,11 +113,11 @@ The owner said no code is written until they approve the mockup. This section is
 1. Present the Artifact link and `design/mockup/open-questions.md` to the owner. Done when: the owner has answered in the session or in an Artifact comment.
 2. Record the outcome in `design/decisions.md`. Done when: the file names the approval date and one answer per question, and `**Needs:**` above reads `none`.
 
-- [ ] Apply every change the owner asks for to `design/mockup/project/Main.dc.html` and republish to the link in `design/README.md`. Done when: the owner confirms the republished page. Cheaper substitute: a new Artifact link that leaves the old one stale.
-- [ ] Freeze the approved mockup: record in `design/decisions.md` the commit of `design/mockup/project/` and the canvas version the owner approved, and change the design afterwards only by a dated decision applied to the mockup first. Done when: `design/decisions.md` names both. Cheaper substitute: approving the live canvas, which keeps changing.
-- [ ] Write `design/decisions.md` with the approval date and one dated answer per question in `design/mockup/open-questions.md`. Done when: every question has an answer and none says "TBD". Cheaper substitute: answers kept only in the conversation.
-- [ ] Update `docs/plans/2026-10-16-vscode-extension.md` where an answer changes a requirement (for example R5 or R8). Done when: no requirement contradicts `design/decisions.md`. Cheaper substitute: a decisions file that silently overrides the plan.
-- [ ] Remove `owner-decision` from this section's `**Needs:**` line. Done when: `python scripts/todo-graph.py query ready` lists `D00 T01 §3` and `D00 T01 §4`. Cheaper substitute: removing the Need before the answers are written.
+- [x] Apply every change the owner asks for to `design/mockup/project/Main.dc.html` and republish to the link in `design/README.md`. Done when: the owner confirms the republished page. Cheaper substitute: a new Artifact link that leaves the old one stale. Shipped: none asked for; the owner approved canvas version 22 as it is on 2026-10-17 (`design/decisions.md`).
+- [x] Freeze the approved mockup: record in `design/decisions.md` the commit of `design/mockup/project/` and the canvas version the owner approved, and change the design afterwards only by a dated decision applied to the mockup first. Done when: `design/decisions.md` names both. Cheaper substitute: approving the live canvas, which keeps changing. Shipped: `design/decisions.md` names commit `22cdeed` and canvas version 22, plus the content-identical later in-page save.
+- [x] Write `design/decisions.md` with the approval date and one dated answer per question in `design/mockup/open-questions.md`. Done when: every question has an answer and none says "TBD". Cheaper substitute: answers kept only in the conversation. Shipped: `design/decisions.md`, approved 2026-10-17, answers 1 to 14 dated, none TBD.
+- [x] Update `docs/plans/2026-10-16-vscode-extension.md` where an answer changes a requirement (for example R5 or R8). Done when: no requirement contradicts `design/decisions.md`. Cheaper substitute: a decisions file that silently overrides the plan. Shipped: R11 (answer 6), R17 (answer 3, dated correction) and R19 (answer 7); R5, R8, R24, R26, R32 and R35 already matched answers 1, 2, 9, 10, 12 and 13.
+- [x] Remove `owner-decision` from this section's `**Needs:**` line. Done when: `python scripts/todo-graph.py query ready` lists `D00 T01 §3` and `D00 T01 §4`. Cheaper substitute: removing the Need before the answers are written. Shipped: the Needs line reads none.
 - [ ] Commit: `design: record mockup approval and design answers`
 
 **Test checkpoint:** `python -c "import pathlib,re,sys; t=pathlib.Path('design/decisions.md').read_text(encoding='utf-8'); sys.exit(0 if re.search(r'Approved: \d{4}-\d{2}-\d{2}', t) and 'TBD' not in t else 1)"` exits 0, and exits 1 while the approval line is missing or an answer is TBD.
