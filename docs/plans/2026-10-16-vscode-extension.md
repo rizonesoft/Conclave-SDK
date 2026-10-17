@@ -39,13 +39,13 @@ Re-checked 2026-10-16 at `97cca1d`, GitHub `main`: the reviewer kit is unchanged
 ### Routes
 
 - R4: one row per writer (claude, codex, gemini), each an ordered failover list that can be reordered by drag (and by keyboard), added to and removed from. A reviewer appears in a row at most once.
-- R5: a warning when a route lets a writer review itself: writer `claude` with a reviewer whose CLI is `claude`, writer `codex` with CLI `codex`, writer `gemini` with CLI `agy`. On the shipped pin it shows twice, on last-resort failovers: `sonnet` (CLI `claude`) on the claude row and `gemini` (CLI `agy`) on the gemini row. Whether a different model through the same CLI counts as self-review is an open design question for the mockup.
+- R5: a warning when a route lets a writer review itself: writer `claude` with a reviewer whose CLI is `claude`, writer `codex` with CLI `codex`, writer `gemini` with CLI `agy`. On the shipped pin it shows twice, on last-resort failovers: `sonnet` (CLI `claude`) on the claude row and `gemini` (CLI `agy`) on the gemini row. A different model through the same CLI counts as self-review, last-resort failovers included (owner, 2026-10-17, `design/decisions.md` answer 1).
 - R6: a writer with no route gets no review: the dispatcher refuses that writer. The row says so in place of an empty list, because `load_pin` refuses an empty list but accepts a missing writer.
 
 ### Validation
 
 - R7: the extension never reimplements validation. Every check comes from the workspace's own `scripts/review-dispatch.py --check-pin --json`, run on the candidate text written to a temporary file and passed with `--pin`.
-- R8: errors show inline at the field they name and match the `Refused` message text exactly. Saving is disabled while any error remains. `load_pin` stops at the first fault, so one error shows at a time; whether `--check-pin` should collect every fault is an open design question for the mockup.
+- R8: errors show inline at the field they name and match the `Refused` message text exactly. Saving is disabled while any error remains. `load_pin` stops at the first fault, so one error shows at a time, and `--check-pin` keeps reporting one error (owner, 2026-10-17, `design/decisions.md` answer 2).
 - R9: the rules, as `load_pin` words them: exactly `schema_version = 1`, `[reviewers.*]` and `[routes]`; at least one reviewer; reviewer names match `NAME`; no keys beyond `cli`, `model`, `effort`; `cli` is one of the three; `model` matches `MODEL`; `agy` carries no effort; codex and claude carry an allowed effort; `[routes]` names only the three writers; each route is a non-empty list of defined reviewers, each once.
 
 ### Status and test
