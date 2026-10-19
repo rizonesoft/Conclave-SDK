@@ -53,6 +53,14 @@ FAKE_CLI = textwrap.dedent('''\
         open(args[args.index("-o") + 1], "w").write(text)
     else:
         print(text)
+    if mode == "linger":
+        # A process the reviewer started outlives it and holds the message file open for a moment, as a CLI's helper
+        # process can; the reviewer exits first, so no tree kill reaches the helper.
+        ready = os.environ["FAKE_CHILD_PID"] + ".ready"
+        holder = "import sys, time; f = open(sys.argv[1], 'a'); open(sys.argv[2], 'w').close(); time.sleep(3)"
+        subprocess.Popen([sys.executable, "-c", holder, args[args.index("-o") + 1], ready], cwd=os.path.dirname(sys.executable))
+        while not os.path.exists(ready):
+            time.sleep(0.05)
 ''')
 
 
@@ -81,6 +89,8 @@ class Dispatch(unittest.TestCase):
         fake.write_text(FAKE_CLI, encoding="utf-8")
         self.launchers = {cli: write_launcher(self.bin, cli, fake) for cli in ("codex", "agy", "claude")}
         self.log = Path(self._tmp.name) / "calls.jsonl"
+        self.scratch = Path(self._tmp.name) / "scratch"
+        self.scratch.mkdir()
         self.prompt = self.repo / "prompt.md"
         self.prompt.write_text("Review calc.py. Do not modify any file.\n", encoding="utf-8")
 
@@ -91,6 +101,7 @@ class Dispatch(unittest.TestCase):
         system_root = {"SYSTEMROOT": os.environ["SYSTEMROOT"]} if os.name == "nt" else {}
         env = {"PATH": f"{self.bin}{os.pathsep}{Path(sys.executable).parent}", "FAKE_LOG": str(self.log),
                "FAKE_CHILD_PID": str(Path(self._tmp.name) / "child.pid"), **system_root,
+               **{var: str(self.scratch) for var in ("TMP", "TEMP", "TMPDIR")},
                **{f"FAKE_{k.upper()}": v for k, v in modes.items()}}
         result = subprocess.run([sys.executable, "-B", str(self.repo / "scripts/review-dispatch.py"), *args],
                                 capture_output=True, text=True, env=env, timeout=60)
@@ -193,6 +204,14 @@ class Dispatch(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 30, "the cap was only applied at the timeout")
         self.assertEqual(summary["reviewer"], "gemini")
         self.assertEqual(summary["failover"][0]["reason"], "returned more than 2000000 bytes")
+
+    def test_a_file_still_held_after_the_reviewer_exits_does_not_cost_the_round(self):
+        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), codex="linger")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(summary["reviewer"], "astra")
+        self.assertIn("(codex)", summary["review"])
+        self.assertNotIn("left", result.stderr)
+        self.assertEqual(list(self.scratch.iterdir()), [], "the reviewer's scratch directory was not removed")
 
     def test_a_reviewer_that_never_reads_a_large_prompt_still_times_out(self):
         # Larger than any pipe buffer: a blocking write here would hang past the timeout.

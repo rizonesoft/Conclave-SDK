@@ -40,6 +40,7 @@ ARGV_PROMPT_LIMIT = 24_000 if os.name == "nt" else 100_000
 # A review is prose. Output past this size is a runaway reviewer, not a review.
 MAX_OUTPUT_BYTES = 2_000_000
 POLL_SECONDS = 0.2
+CLEANUP_SECONDS = 10
 
 
 class Refused(Exception):
@@ -117,6 +118,25 @@ def kill_tree(process):
             pass  # nothing in the group is left to kill
 
 
+def remove_scratch(path):
+    """Remove a reviewer's scratch directory. On Windows a file stays locked until every process holding it has
+    exited, and a reviewer's helper can outlive the reviewer (see kill_tree) and keep writing into it, so a failed
+    removal is retried for a bounded time. A directory that still cannot be removed is left behind with a note: the
+    round's outcome is already decided."""
+    deadline = time.monotonic() + CLEANUP_SECONDS
+    while True:
+        try:
+            shutil.rmtree(path)
+            return
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            if time.monotonic() > deadline:
+                print(f"review-dispatch: left {path} behind ({exc.strerror or type(exc).__name__})", file=sys.stderr)
+                return
+            time.sleep(POLL_SECONDS)
+
+
 def feed(pipe, text):
     try:
         pipe.write(text.encode("utf-8"))
@@ -176,13 +196,16 @@ def review(pin, writer, prompt_path, timeout):
             failover.append({"reviewer": name, "reason": f"{reviewer['cli']} is not installed"})
             continue
         stdout = None
-        with tempfile.TemporaryDirectory() as tmp:
-            stdout_path, message_path = Path(tmp) / "stdout.txt", Path(tmp) / "last-message.md"
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            stdout_path, message_path = tmp / "stdout.txt", tmp / "last-message.md"
             argv, stdin_text = command(reviewer, executable, prompt, Path(prompt_path).resolve(), message_path, timeout)
             _, problem = run(argv, stdin_text, timeout, [stdout_path, message_path])
             if problem is None:
                 source = message_path if reviewer["cli"] == "codex" else stdout_path
                 stdout = source.read_text(encoding="utf-8", errors="replace") if source.is_file() else ""
+        finally:
+            remove_scratch(tmp)
         if problem is None and not (stdout or "").strip():
             problem = "returned no review"
         if problem:
