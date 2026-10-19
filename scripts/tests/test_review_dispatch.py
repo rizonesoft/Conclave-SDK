@@ -12,7 +12,31 @@ import time
 import unittest
 
 SCRIPTS = Path(__file__).resolve().parents[1]
-KIT_PIN = SCRIPTS.parent / ".conclave" / "reviewers.toml"
+REPO_PIN = SCRIPTS.parent / ".conclave" / "reviewers.toml"
+
+# The kit's shipped reviewers and routes. The suite exercises the dispatcher against this fixture, never against the
+# repository's own pin, which a project may narrow (one reviewer, no failover) without changing what is tested here.
+FIXTURE_PIN = textwrap.dedent('''    schema_version = 1
+
+    [reviewers.astra]
+    cli = "codex"
+    model = "gpt-6-astra"
+    effort = "medium"
+
+    [reviewers.gemini]
+    cli = "agy"
+    model = "gemini-4-argon-high"
+
+    [reviewers.sonnet]
+    cli = "claude"
+    model = "claude-sonnet-5-5"
+    effort = "high"
+
+    [routes]
+    claude = ["astra", "gemini", "sonnet"]
+    gemini = ["astra", "gemini", "sonnet"]
+    codex = ["gemini", "sonnet"]
+''')
 
 # One fake reviewer for every CLI; a per-CLI launcher passes its name first. Launchers are a shell script on Linux and
 # a .cmd file on Windows, so the suite runs natively on both.
@@ -82,7 +106,7 @@ class Dispatch(unittest.TestCase):
         (self.repo / "scripts").mkdir(parents=True)
         (self.repo / ".conclave").mkdir()
         shutil.copy(SCRIPTS / "review-dispatch.py", self.repo / "scripts/review-dispatch.py")
-        shutil.copy(KIT_PIN, self.repo / ".conclave/reviewers.toml")
+        (self.repo / ".conclave/reviewers.toml").write_text(FIXTURE_PIN, encoding="utf-8")
         self.bin = Path(self._tmp.name) / "bin"
         self.bin.mkdir()
         fake = Path(self._tmp.name) / "fake_cli.py"
@@ -275,6 +299,7 @@ class Dispatch(unittest.TestCase):
                     good.replace('codex = ["gemini", "sonnet"]', 'codex = [["gemini"], "sonnet"]'),
                     good.replace('model = "gemini-4-argon-high"', 'model = "gemini-4-argon-high"\neffort = "high"')):
             with self.subTest(bad=bad[-60:]):
+                self.assertNotEqual(bad, good, "the replacement must match the fixture, or the case tests nothing")
                 pin.write_text(bad, encoding="utf-8")
                 result, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt))
                 self.assertEqual(result.returncode, 2)
@@ -283,6 +308,15 @@ class Dispatch(unittest.TestCase):
         result, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt))
         self.assertEqual(result.returncode, 2)
         self.assertIn("no reviewer pin", result.stderr)
+
+
+class RepositoryPin(unittest.TestCase):
+    def test_the_repository_pin_loads_under_the_dispatchers_rules(self):
+        spec = importlib.util.spec_from_file_location("dispatch_pin_check", SCRIPTS / "review-dispatch.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        pin = module.load_pin(REPO_PIN)
+        self.assertTrue(pin["routes"], "the repository pin routes no writer")
 
 
 if __name__ == "__main__":
