@@ -44,6 +44,9 @@ export class CandidateFlow {
   // A new edit: the pending check is replaced, and any result for an older edit is discarded when it arrives.
   edit(text: string): void {
     const generation = ++this.generation;
+    // A check still waiting for its turn is for an older edit now: drop it at once, so the end of a running check
+    // never starts it while this edit's debounce runs.
+    this.waiting = undefined;
     if (this.timer !== undefined) {
       this.timers.clear(this.timer);
     }

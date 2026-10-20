@@ -41,9 +41,10 @@ function folder(dir: string): string {
   return fallback;
 }
 
-// Writes text to a new candidate file, gives its path to use, and deletes it whatever happens after it was created:
-// a failed write, a failed close or a failed check.
-export async function withCandidate<T>(text: string, use: (path: string) => Promise<T>, dir = CANDIDATES): Promise<T> {
+// Writes all of text to a new candidate file, gives its path to use, and deletes it whatever happens after it was
+// created: a failed or short write, a failed close or a failed check. write is writeSync; tests pass a short one.
+export async function withCandidate<T>(text: string, use: (path: string) => Promise<T>, dir = CANDIDATES,
+  write: typeof writeSync = writeSync): Promise<T> {
   counter += 1;
   const path = join(folder(dir), `pin-${process.pid}-${counter}.toml`);
   let created = false;
@@ -51,7 +52,16 @@ export async function withCandidate<T>(text: string, use: (path: string) => Prom
     const fd = openSync(path, "wx", 0o600);
     created = true;
     try {
-      writeSync(fd, text);
+      // writeSync may write fewer bytes than asked; the dispatcher must judge the whole candidate, never a prefix.
+      const bytes = Buffer.from(text, "utf8");
+      let offset = 0;
+      while (offset < bytes.length) {
+        const written = write(fd, bytes, offset, bytes.length - offset);
+        if (written <= 0) {
+          throw new Error(`the candidate file took ${offset} of ${bytes.length} bytes`);
+        }
+        offset += written;
+      }
     } finally {
       closeSync(fd);
     }
@@ -87,7 +97,8 @@ function sweepFolder(dir: string, now: number): number {
 // At activation: candidate files older than a day were left by a crash between write and delete; remove them from the
 // shared folder and from this account's fallback folders, and remove a fallback folder left empty.
 export function sweepCandidates(dir = CANDIDATES, now = Date.now(), temp = tmpdir()): number {
-  let removed = sweepFolder(dir, now);
+  // The shared folder is swept only when it is this account's own real folder: never through a symlink planted there.
+  let removed = ownPrivateFolder(dir) ? sweepFolder(dir, now) : 0;
   let names: string[];
   try {
     names = readdirSync(temp).filter((n) => FALLBACK.test(n));

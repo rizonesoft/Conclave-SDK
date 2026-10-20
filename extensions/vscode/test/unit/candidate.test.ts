@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mock, test } from "node:test";
@@ -84,6 +84,28 @@ test("candidate: editing back to an earlier text keeps Save off until that edit'
   }
 });
 
+test("candidate: an edit drops the waiting check at once, before its own debounce ends", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const started: string[] = [];
+    const answers: Array<(state: WorkspaceState) => void> = [];
+    const flow = new CandidateFlow((text) => (started.push(text), new Promise((resolve) => answers.push(resolve))),
+      () => undefined, { set: (fn, ms) => setTimeout(fn, ms), clear: (h) => clearTimeout(h as NodeJS.Timeout) });
+    flow.edit("A");
+    mock.timers.tick(300);
+    flow.edit("B");
+    mock.timers.tick(300);
+    flow.edit("C");
+    answers[0](READY);
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(started, ["A"], "the obsolete B started when A finished");
+    mock.timers.tick(300);
+    assert.deepEqual(started, ["A", "C"]);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
 test("candidate: a slow dispatcher runs one check at a time and only the newest waits", async () => {
   mock.timers.enable({ apis: ["setTimeout"] });
   try {
@@ -115,8 +137,47 @@ test("candidate: a failed write leaves no candidate file, and an existing name i
     // writeSync throws after the file was created (here on a value that is not text, as a broken caller would pass).
     await assert.rejects(withCandidate(undefined as unknown as string, async () => "unreachable", dir));
     assert.deepEqual(readdirSync(dir), [], "the candidate created before the failed write was left");
+    // Every name the next calls could use already exists (another process's files): creation fails and none is deleted.
+    for (let n = 1; n <= 500; n += 1) {
+      writeFileSync(join(dir, `pin-${process.pid}-${n}.toml`), "theirs");
+    }
+    await assert.rejects(withCandidate("x", async () => "unreachable", dir), /EEXIST/);
+    assert.equal(readdirSync(dir).length, 500, "an existing candidate name was deleted");
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("candidate: a short write is completed, so the dispatcher sees the whole candidate", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "conclave-candidates-"));
+  try {
+    const short: typeof writeSync = ((fd: number, buffer: Buffer, offset: number, length: number) =>
+      writeSync(fd, buffer, offset, Math.min(3, length))) as typeof writeSync;
+    const text = 'schema_version = 1\n# a long trailing line that a short write would cut off\n';
+    const seen = await withCandidate(text, async (path) => readFileSync(path, "utf8"), dir, short);
+    assert.equal(seen, text);
+    const stuck: typeof writeSync = (() => 0) as typeof writeSync;
+    await assert.rejects(withCandidate(text, async () => "unreachable", dir, stuck), /took 0 of/);
+    assert.deepEqual(readdirSync(dir), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("candidate: a planted symlink in place of the shared folder is neither written through nor swept", { skip: process.platform === "win32" && "symlinked folders are a POSIX attack" }, async () => {
+  const temp = mkdtempSync(join(tmpdir(), "conclave-planted-"));
+  try {
+    const victim = join(temp, "victim");
+    mkdirSync(victim, { mode: 0o700 });
+    writeFileSync(join(victim, "pin-7-1.toml"), "victim");
+    const old = Date.now() / 1000 - 2 * 24 * 60 * 60;
+    utimesSync(join(victim, "pin-7-1.toml"), old, old);
+    const shared = join(temp, "conclave");
+    symlinkSync(victim, shared);
+    assert.equal(sweepCandidates(shared, Date.now(), temp), 0);
+    assert.ok(existsSync(join(victim, "pin-7-1.toml")), "the sweep deleted a file through the symlink");
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
   }
 });
 
