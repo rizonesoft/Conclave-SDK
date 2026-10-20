@@ -30,7 +30,7 @@ Sections: 15 | Checklist items: 132
 
 ### Phase 1: Extension host and kit operations
 
-Sections: 23 | Checklist items: 162
+Sections: 24 | Checklist items: 165
 
 | Status | Reference   | Deliverable                                             | Needs | Items |
 | ------ | ----------- | ------------------------------------------------------- | ----- | ----- |
@@ -56,7 +56,8 @@ Sections: 23 | Checklist items: 162
 | [ ]    | D05 T01 §2  | Kit update through forge sync                           | none  | 8     |
 | [x]    | D05 T01 §3  | Kit health from forge check and doctor                  | none  | 6     |
 | [ ]    | D02 T01 §19 | Folder work bound to the lifetime it was asked in       | none  | 4     |
-| [ ]    | D05 T01 §4  | New repository setup through forge init                 | none  | 7     |
+| [x]    | D05 T01 §4  | New repository setup through forge init                 | none  | 7     |
+| [ ]    | D05 T01 §10 | Protected-file proof refuses special files              | none  | 3     |
 
 ### Phase 2: Editor surface and Kits view
 
@@ -99,6 +100,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 32/65 verified sections, 6 ready to run now.
+Progress: 33/66 verified sections, 6 ready to run now.
 
-Checklist: 269/513 items completed (includes Commit items).
+Checklist: 270/516 items completed (includes Commit items).

@@ -45,12 +45,13 @@ title: "TODO-01 -- Kit Manager"
 | 1 | §1 | Kit install with dry-run preview | D02 T01 §9, D02 T01 §10 | [ ] |
 | 2 | §2 | Kit update through forge sync | D02 T01 §9, D02 T01 §10 | [ ] |
 | 3 | §3 | Kit health from forge check and doctor | D02 T01 §9 | [x] |
-| 4 | §4 | New repository setup through forge init | D02 T01 §9 | [ ] |
+| 4 | §4 | New repository setup through forge init | D02 T01 §9 | [x] |
 | 5 | §5 | Conclave Activity Bar view with the Kits tree | D02 T01 §10, D03 T01 §1 | [ ] |
 | 6 | §6 | Kit installer in the side bar | §1, §5 | [ ] |
 | 7 | §7 | Kit update flow | §2, §5 | [ ] |
 | 8 | §8 | Kit health detail | §3, §5 | [ ] |
 | 9 | §9 | New repository wizard | §4, §5 | [ ] |
+| 10 | §10 | Protected-file proof refuses special files | §4 | [ ] |
 
 ## 1. Kit install with dry-run preview
 
@@ -155,9 +156,12 @@ A new repository is set up from VS Code (plan R31) with `forge.py init <folder>`
 - [x] Open the folder in a new window or add it to the workspace with `vscode.openFolder` or `updateWorkspaceFolders`, as chosen. Done when: both choices work in the integration test. Cheaper substitute: leaving the operator to find the folder.
 - [x] Write `extensions/vscode/test/integration/repoInit.test.ts` with a fake SDK and a temp folder. Done when: it passes and fails if `--force` ever appears in an argv. Cheaper substitute: argv tests only.
   **Corrected 2026-10-20:** the test uses this SDK's own `forge.py` rather than a fake, so the files are really written; every argv is recorded and the suite fails if `--force` appears in one. Opening in a new window is checked through an injected opener (a real new window cannot be observed from the test); adding to the workspace is real.
-- [ ] Commit: `extension: set up a new repository through forge init`
+- [x] Commit: `extension: set up a new repository through forge init`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep repoInit` passes, and fails when an existing `AGENTS.md` changes after init.
+
+> **Verified:** 2026-10-20 | §4 | 25bcdc017b43a87fb922e57e7370c6552c4c511a
+> **Review:** `docs/reviews/d05-t01-s4.json`
 
 ## 5. Conclave Activity Bar view with the Kits tree
 
@@ -303,6 +307,25 @@ Setting up a new repository (plan R31) needs a few choices. This section is a na
 - [ ] Commit: `ui: new repository wizard`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep repoInitWizard` passes, and fails when the summary step is skipped.
+
+## 10. Protected-file proof refuses special files
+
+Review round 3 of `§4` (`docs/reviews/05-kit-manager/D05-T01-s4.md`, the last round its loop allowed) found that the protected-file snapshot (`extensions/vscode/src/host/protectedFiles.ts`) treats every entry that is neither a link nor a folder as a file and reads it with `readFileSync`: a named pipe under `docs/` or `todo/` with no writer blocks the extension host before forge starts, with no way to cancel. Only regular files are hashed; a pipe, socket or device is recorded by its kind and never opened, so the proof neither hangs nor misses that the entry changed. Its advisory is taken here too: the forge test of the SDK-folder refusal syncs an unrelated folder, so dropping the `sync` exemption would still pass it; the test syncs the SDK stand-in itself.
+
+**Phase:** 1
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write the failing tests: a named pipe under a protected folder is recorded without being opened (POSIX), and `sync` of the SDK stand-in is not refused. Done when: the pipe test hangs or fails on `§4`'s snapshot, and the sync test fails when the `refresh` exemption is removed.
+2. Record a special file by its kind in `protectedSnapshot`, and change the forge test. Done when: both tests pass.
+
+- [ ] In `extensions/vscode/src/host/protectedFiles.ts`, hash only `isFile()` entries and record any other non-folder, non-link entry as `special:<kind>`, never opening it. Done when: a unit test with a FIFO under `docs/` (POSIX, run in WSL) returns a snapshot holding `docs/pipe` without blocking. Cheaper substitute: a read timeout.
+- [ ] In `tests/test_forge.py`, run `provision(stand_in, refresh=True)` against the patched `FORGE_ROOT` stand-in with kit templates the stand-in carries, and assert it is not refused. Done when: the test fails with the `not refresh` exemption removed from `provision`. Cheaper substitute: syncing an unrelated folder.
+- [ ] Commit: `extension: protected-file proof records special files without opening them`
+
+**Test checkpoint:** `cd extensions/vscode && npm test` passes on Windows and the protectedFiles unit tests pass in WSL, and `python -m unittest tests.test_forge -k refuses` passes and fails without the `sync` exemption.
 
 ## Verification
 
