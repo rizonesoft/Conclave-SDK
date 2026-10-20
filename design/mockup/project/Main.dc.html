@@ -1809,7 +1809,7 @@ class Component extends DCLogic {
     if (s === 'no-pin') {
       d.isInfo = true;
       d.heading = 'No reviewer pin in this workspace';
-      d.paras = paras(['This workspace has no `.conclave/reviewers.toml`, so `scripts/review-dispatch.py` has no reviewers to run.', 'Install the Conclave-SDK reviewer kit to add the shipped pin (GPT-6 Astra, then Gemini 4, then Sonnet 5.5). The installer opens in the Conclave side bar, preset to the reviewer kit, and lists every file it would add before it writes anything. It only adds missing files.']);
+      d.paras = paras(['This workspace has no `.conclave/reviewers.toml`, so `scripts/review-dispatch.py` has no reviewers to run.', 'Install the Conclave-SDK reviewer kit to add the shipped pin (for each writer, a reviewer of another model family and one fallback of the third). The installer opens in the Conclave side bar, preset to the reviewer kit, and lists every file it would add before it writes anything. It only adds missing files.']);
       d.hasCode = true; d.codeLabel = 'The installer runs forge.py from the SDK source after its preview:'; d.code = KIT_CMD;
       d.actions = [{ label: 'Install reviewer kit', cls: 'btn', onClick: function () { self.openInstall('web', 'reviewer'); } }, { label: 'Copy command', cls: 'btn2', onClick: copy }, { label: 'Retry', cls: 'btn2', onClick: retry }];
     } else if (s === 'refused') {
