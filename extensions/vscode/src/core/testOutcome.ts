@@ -6,7 +6,8 @@ export type TestOutcome =
   | { kind: "review"; reviewer: string; model: string; cli: string; review: string }
   | { kind: "failover"; lines: string[] }
   | { kind: "refused"; message: string }
-  | { kind: "cancelled" };
+  // note says which processes a cancel could not end, when any.
+  | { kind: "cancelled"; note?: string };
 
 interface Summary {
   reviewer?: unknown;
@@ -28,8 +29,8 @@ function failoverLines(summary: Summary): string[] {
 // The dispatcher prints its summary as JSON and exits 0 with a review, 1 with none (every reviewer failed over), or 2
 // with "review-dispatch refused: ..." on stderr. Anything else (no JSON, a run that never finished) is no review.
 export function parseTestRun(result: RunResult): TestOutcome {
-  if (result.error === "cancelled") {
-    return { kind: "cancelled" };
+  if (result.error?.startsWith("cancelled")) {
+    return result.survivors?.length ? { kind: "cancelled", note: result.error } : { kind: "cancelled" };
   }
   if (result.code === undefined) {
     return { kind: "failover", lines: [`The dispatcher did not finish: ${result.error ?? "it could not start"}`] };

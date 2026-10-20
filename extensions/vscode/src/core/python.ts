@@ -14,6 +14,8 @@ export interface RunResult {
   // What the process wrote to stderr: the dispatcher's refusals are there.
   stderr?: string;
   error?: string;
+  // Processes a cancel or timeout could not end: a caller keeps what they may still use until they have.
+  survivors?: number[];
 }
 
 export interface PythonDeps {

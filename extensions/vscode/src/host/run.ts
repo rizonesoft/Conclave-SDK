@@ -24,8 +24,9 @@ export interface RunOptions {
   // Kill the whole process tree on timeout or cancel: a dispatcher starts each reviewer CLI in its own session, which
   // killing the dispatcher alone would leave running.
   tree?: boolean;
-  // How a tree is killed: killTree; tests pass one that reports done later, to prove the run waits for it.
-  killer?: (pid: number) => Promise<void>;
+  // How a tree is killed: killTree, which returns the processes still running at its deadline; tests pass one that
+  // reports done later, to prove the run waits for it.
+  killer?: (pid: number) => Promise<number[] | void>;
 }
 
 // Runs an absolute path with an argument array: no shell, no console window on Windows, and a timeout that always
@@ -75,9 +76,12 @@ export function run(file: string, args: string[], timeoutMs: number, cwd?: strin
         return;
       }
       stopping = error;
-      const done = () => settle({ code: undefined, stdout: "", stderr: "", error });
+      // Processes the kill could not end are part of the result: a caller keeps what they may still use.
+      const done = (survivors?: number[] | void) => settle(survivors && survivors.length
+        ? { code: undefined, stdout: "", stderr: "", error: `${error}, but ${survivors.length} process${survivors.length === 1 ? "" : "es"} did not end (${survivors.join(", ")})`, survivors }
+        : { code: undefined, stdout: "", stderr: "", error });
       if (options.tree && child.pid !== undefined) {
-        void (options.killer ?? killTree)(child.pid).then(done, done);
+        void (options.killer ?? killTree)(child.pid).then(done, () => done());
       } else {
         child.kill("SIGKILL");
         done();
@@ -90,10 +94,13 @@ export function run(file: string, args: string[], timeoutMs: number, cwd?: strin
   });
 }
 
-function quiet(file: string, args: string[]): Promise<string> {
+// A helper's stdout, or "" when it fails, cannot start or runs past timeoutMs (it is then killed): the kill must go on
+// whatever a helper does.
+function quiet(file: string, args: string[], timeoutMs = HELPER_MS): Promise<string> {
   return new Promise((resolve) => {
     try {
-      execFile(file, args, { windowsHide: true, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 }, (_error, stdout) => resolve(stdout ?? ""));
+      execFile(file, args, { windowsHide: true, encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: timeoutMs, killSignal: "SIGKILL" },
+        (_error, stdout) => resolve(stdout ?? ""));
     } catch {
       resolve("");
     }
@@ -128,9 +135,58 @@ export function running(pid: number): boolean {
   }
 }
 
-// Every process under pid in one snapshot of the process table, however deep. POSIX: ps; Windows: the parent ids from
-// CIM (taskkill's own report is localized, so it cannot be read back). An unreadable table gives pid alone.
-async function descendants(pid: number): Promise<Set<number>> {
+// What endTree needs from the system, so its loop can be tested with a made-up process table.
+export interface TreeOps {
+  // The process table as parent id to child ids; an empty map when it cannot be read.
+  table(): Promise<Map<number, number[]>>;
+  kill(pids: number[]): Promise<void>;
+  running(pid: number): boolean;
+  now(): number;
+  sleep(ms: number): Promise<void>;
+}
+
+const HELPER_MS = 3000;
+const KILL_WAIT_MS = 5000;
+
+// work, or fallback once ms pass; the timer is cleared either way, so it never holds the process open.
+function bounded<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<T>((r) => (timer = setTimeout(() => r(fallback), ms)));
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
+
+// Ends root and every process under it, and returns the ones still running at the deadline (none, normally). Each
+// round reads the process table, walks it from every process known so far (a dead parent keeps its id on its children
+// on Windows, and on POSIX a child is found before its parent dies), kills whatever is still running, and looks again:
+// a process started between a look and a kill is found by the next look. A table read that stalls counts as empty, so
+// the kill still happens.
+export async function endTree(root: number, ops: TreeOps, deadlineMs = KILL_WAIT_MS, helperMs = HELPER_MS): Promise<number[]> {
+  const known = new Set([root]);
+  const deadline = ops.now() + deadlineMs;
+  for (;;) {
+    const table = await bounded(ops.table(), helperMs, new Map<number, number[]>());
+    const queue = [...known];
+    while (queue.length) {
+      for (const child of table.get(queue.pop() as number) ?? []) {
+        if (!known.has(child)) {
+          known.add(child);
+          queue.push(child);
+        }
+      }
+    }
+    const alive = [...known].filter((pid) => ops.running(pid));
+    if (alive.length === 0) {
+      return [];
+    }
+    if (ops.now() >= deadline) {
+      return alive;
+    }
+    await bounded(ops.kill(alive), helperMs, undefined);
+    await ops.sleep(20);
+  }
+}
+
+async function processTable(): Promise<Map<number, number[]>> {
   const table = process.platform === "win32"
     ? await quiet(join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
       ["-NoProfile", "-NonInteractive", "-Command", "Get-CimInstance Win32_Process | ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId)\" }"])
@@ -142,54 +198,31 @@ async function descendants(pid: number): Promise<Set<number>> {
       children.set(parent, [...(children.get(parent) ?? []), child]);
     }
   }
-  const tree = new Set([pid]);
-  const queue = [pid];
-  while (queue.length) {
-    for (const child of children.get(queue.pop() as number) ?? []) {
-      if (!tree.has(child)) {
-        tree.add(child);
-        queue.push(child);
-      }
-    }
-  }
-  return tree;
+  return children;
 }
 
-// Kills pid and every process it started, and returns once they have all ended (at most KILL_WAIT_MS): a signal or
-// TerminateProcess only starts the end, and a caller that cleans up after a cancel must not race the tree.
-// Windows: the tree is read first, then taskkill /T /F, which walks it while its root is alive. POSIX: the descendants
-// are found by parent id, not by process group, since a child that started its own session (as the dispatcher does
-// for each reviewer) leaves the group. Each round stops every process found, so none can start another, and rounds
-// repeat until one finds nothing new; then all of them are killed.
-export async function killTree(pid: number): Promise<void> {
-  let tree: Set<number>;
+async function killAll(pids: number[]): Promise<void> {
   if (process.platform === "win32") {
-    tree = await descendants(pid);
-    await quiet(join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe"), ["/T", "/F", "/PID", String(pid)]);
-  } else {
-    tree = new Set([pid]);
-    signal(pid, "SIGSTOP");
-    for (let round = 0; round < 20; round += 1) {
-      const before = tree.size;
-      for (const member of await descendants(pid)) {
-        if (!tree.has(member)) {
-          tree.add(member);
-          signal(member, "SIGSTOP");
-        }
-      }
-      // A stopped process cannot start another, but one may have started just before its stop: look again.
-      if (tree.size === before) {
-        break;
-      }
+    const taskkill = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe");
+    for (let i = 0; i < pids.length; i += 50) {
+      await quiet(taskkill, ["/F", ...pids.slice(i, i + 50).flatMap((pid) => ["/PID", String(pid)])]);
     }
-    for (const member of tree) {
-      signal(member, "SIGKILL");
-    }
+    return;
   }
-  const deadline = Date.now() + KILL_WAIT_MS;
-  while ([...tree].some(running) && Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 10));
-  }
+  // Stopped first, all of them, so none can start another process between two kills.
+  pids.forEach((pid) => signal(pid, "SIGSTOP"));
+  pids.forEach((pid) => signal(pid, "SIGKILL"));
 }
 
-const KILL_WAIT_MS = 5000;
+// Kills pid and every process it started, returning once they have all ended, or with the ones still running after
+// KILL_WAIT_MS. Descendants are found by parent id (CIM on Windows, ps on POSIX), not by process group: a child that
+// started its own session (as the dispatcher does for each reviewer) leaves the group.
+export function killTree(pid: number): Promise<number[]> {
+  return endTree(pid, {
+    table: processTable,
+    kill: killAll,
+    running,
+    now: Date.now,
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  });
+}

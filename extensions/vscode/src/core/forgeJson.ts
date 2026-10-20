@@ -192,7 +192,7 @@ export function parseDoctor(raw: string): Parsed<DoctorResult> {
 export type ForgeOutcome<T> =
   | { kind: "ok"; value: T }
   | { kind: "failed"; message: string; stderrTail: string[]; raw?: string }
-  | { kind: "cancelled" };
+  | { kind: "cancelled"; note?: string };
 
 const TAIL = 20;
 
@@ -203,8 +203,8 @@ function tail(stderr: string | undefined): string[] {
 // Exit 0 with forge's JSON is success; a non-zero exit is a failure with stderr's tail; exit 0 without JSON (or with a
 // shape the parser refuses) is a failure naming the command; a cancel is its own outcome.
 export function forgeOutcome<T>(command: string, result: RunResult, parse: (raw: string) => Parsed<T>): ForgeOutcome<T> {
-  if (result.error === "cancelled") {
-    return { kind: "cancelled" };
+  if (result.error?.startsWith("cancelled")) {
+    return result.survivors?.length ? { kind: "cancelled", note: result.error } : { kind: "cancelled" };
   }
   if (result.code === undefined) {
     return { kind: "failed", message: `forge ${command} did not finish: ${result.error ?? "it could not start"}`, stderrTail: tail(result.stderr) };

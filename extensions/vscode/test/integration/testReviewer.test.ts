@@ -120,6 +120,27 @@ suite("testReviewer", () => {
     assert.match(outcome.kind === "refused" ? outcome.message : "", /model/);
   });
 
+  test("testReviewer: a process a cancel could not end keeps the guard and the temporary pin until it ends", async () => {
+    const before = pins();
+    let survivorRuns = true;
+    const outcome = await api.testReviewer(folder, "sonnet", {
+      confirm: yes,
+      run: async () => ({ code: undefined, stdout: "", stderr: "", error: "cancelled, but 1 process did not end (4242)", survivors: [4242] }),
+      alive: () => survivorRuns,
+    });
+    assert.deepEqual(outcome, { kind: "cancelled", note: "cancelled, but 1 process did not end (4242)" });
+    assert.equal(pins().length, before.length + 1, "the temporary pin was deleted while a reviewer may still read it");
+    assert.deepEqual(await api.testReviewer(folder, "sonnet", { confirm: yes }), { kind: "refused", message: "Another test is running" });
+    survivorRuns = false;
+    const started = Date.now();
+    while (pins().length !== before.length && Date.now() - started < 5000) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    assert.deepEqual(pins(), before);
+    await new Promise((r) => setTimeout(r, 50));
+    assert.deepEqual(await api.testReviewer(folder, "sonnet", { confirm: async () => false }), { kind: "cancelled" }, "the guard was not released");
+  });
+
   test("testReviewer: cancelling a hung reviewer leaves no process and no temporary pin; one test runs at a time", async () => {
     const pidsFile = join(base, "pids.json");
     process.env.CONCLAVE_FAKE_PIDS = pidsFile;
