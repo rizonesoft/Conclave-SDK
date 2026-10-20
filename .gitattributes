@@ -1,0 +1,8 @@
+# Text files are stored and checked out with LF on every platform. forge.py installs kit files byte for byte, so a
+# Windows checkout with CRLF would install CRLF shell and Python scripts that then fail under WSL and Linux.
+* text=auto eol=lf
+
+# Windows batch files need CRLF to run.
+*.cmd text eol=crlf
+
+*.png binary
