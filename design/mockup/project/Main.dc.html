@@ -52,7 +52,6 @@ a{color:#005fb8}a:hover{color:#0258a8}
 .tw-sp{width:20px;flex:none}
 .icon-btn.sm{width:22px;height:22px}
 .ktree{flex:0 1 auto;overflow:auto;min-height:0;padding-bottom:4px}
-.ktree.half{max-height:330px;flex:none}
 .fpane{display:flex;flex-direction:column;min-height:0;flex:0 1 auto}
 .fbody{overflow:auto;min-height:0;padding-bottom:4px}
 .krow{height:22px;display:flex;align-items:center;gap:4px;padding-right:6px;font-size:13px;color:var(--fg)}
@@ -72,23 +71,10 @@ a{color:#005fb8}a:hover{color:#0258a8}
 .st-bad{color:var(--err)}
 .st-warn{color:var(--warn)}
 .st-info{color:var(--focus)}
-.ip{flex:1;min-height:0;overflow:auto;padding:10px 14px 18px 22px;display:flex;flex-direction:column;gap:10px;font-size:12px;line-height:17px}
-.ip h3{margin:0;font-size:14px;font-weight:600;color:var(--fg-strong)}
-.ip .src{color:var(--fg-muted)}
-.ip fieldset{border:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
-.ip legend{padding:0;margin-bottom:2px;font-size:12px;color:var(--fg-muted)}
-.ip .opt{display:flex;align-items:center;gap:6px;color:var(--fg)}
-.ip .row{display:flex;gap:6px;flex-wrap:wrap}
-.ip pre{margin:0;white-space:pre-wrap;word-break:break-all;font-family:"Cascadia Code",Consolas,"Courier New",monospace;font-size:11px;line-height:16px;background:var(--code-bg);border:1px solid var(--card-border);border-radius:3px;padding:6px 8px}
-.ip .lh{display:flex;align-items:baseline;gap:6px;font-weight:600;color:var(--fg-strong)}
-.ip .lh .muted{font-weight:400}
-.ip details summary{cursor:pointer;font-weight:600;color:var(--fg-strong)}
-.flist{list-style:none;margin:4px 0 0;padding:4px 0;max-height:230px;overflow:auto;border:1px solid var(--card-border);border-radius:3px;background:var(--code-bg);font-family:"Cascadia Code",Consolas,"Courier New",monospace;font-size:11px;line-height:17px}
-.flist li{padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.flist li.add{color:var(--ok)}
-.steps{display:flex;gap:4px;align-items:center;color:var(--fg-muted);font-size:11px}
-.steps .now{color:var(--fg-strong);font-weight:600}
-.donel{display:flex;gap:6px;align-items:center;color:var(--ok);font-weight:600}
+/* A view's welcome content (contributes.viewsWelcome): plain text, and each command link on its own line as a button. */
+.kwel{padding:4px 20px 12px;display:flex;flex-direction:column;gap:10px;font-size:13px;line-height:18px;color:var(--fg)}
+.kwel p{margin:0;word-break:break-word}
+.kwel .btn{justify-content:center;width:100%;max-width:260px}
 .editor{flex:1;display:flex;flex-direction:column;min-width:0}
 .tabs{height:35px;flex:none;display:flex;background:var(--tab-inactive);border-bottom:1px solid var(--border)}
 .tab{display:flex;align-items:center;gap:8px;padding:0 12px;border-right:1px solid var(--border);color:var(--fg-muted);font-size:13px}
@@ -198,6 +184,8 @@ select.input{padding:0 4px}
 .empty .be{color:var(--err)}
 .empty .bw{color:var(--warn)}
 .empty pre{margin:0;white-space:pre-wrap;font-family:"Cascadia Code",Consolas,"Courier New",monospace;font-size:12px;line-height:18px;background:var(--code-bg);border:1px solid var(--card-border);border-radius:3px;padding:8px 10px}
+.copyline{display:flex;gap:8px;align-items:flex-start}
+.copyline pre{flex:1;min-width:0}
 .errbox{border:1px solid var(--err-border);background:var(--err-bg);border-radius:3px;padding:8px 10px;display:flex;gap:8px;align-items:flex-start}
 .errbox .ei{color:var(--err)}
 .kvlist{margin:0;padding:0;list-style:none;border:1px solid var(--card-border);border-radius:3px}
@@ -207,12 +195,11 @@ select.input{padding:0 4px}
 .toast{position:absolute;right:20px;bottom:16px;max-width:460px;background:var(--card-bg);border:1px solid var(--card-border);box-shadow:0 2px 8px var(--shadow);border-radius:4px;padding:10px 12px;display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:17px}
 .toast .ok{color:var(--ok)}
 .toast .grow{flex:1}
-.toast .tacts{display:flex;gap:6px;margin-top:8px}
 .toast .tbody{display:flex;flex-direction:column;flex:1}
 .vsw{position:relative}
 .toast{bottom:32px;z-index:12}
-.t-dark{--qi-bg:#222222;--qi-border:#313131;--qi-active:#04395e;--qi-active-fg:#ffffff;--menu-bg:#1f1f1f;--menu-border:#454545;--menu-sel:#0078d4;--menu-sel-fg:#ffffff;--dlg-bg:#202020;--scrim:rgba(0,0,0,.3)}
-.t-light{--qi-bg:#f8f8f8;--qi-border:#e5e5e5;--qi-active:#e8e8e8;--qi-active-fg:#1f1f1f;--menu-bg:#ffffff;--menu-border:#cecece;--menu-sel:#005fb8;--menu-sel-fg:#ffffff;--dlg-bg:#f8f8f8;--scrim:rgba(0,0,0,.15)}
+.t-dark{--qi-bg:#222222;--qi-border:#313131;--qi-active:#04395e;--qi-active-fg:#ffffff;--menu-bg:#1f1f1f;--menu-border:#454545;--menu-sel:#0078d4;--menu-sel-fg:#ffffff}
+.t-light{--qi-bg:#f8f8f8;--qi-border:#e5e5e5;--qi-active:#e8e8e8;--qi-active-fg:#1f1f1f;--menu-bg:#ffffff;--menu-border:#cecece;--menu-sel:#005fb8;--menu-sel-fg:#ffffff}
 button.cmd{font:inherit;cursor:pointer;padding:0}
 button.tab{border:0;border-right:1px solid var(--border);background:transparent;font:inherit;cursor:pointer}
 button.tab.active{background:var(--tab-active)}
@@ -225,10 +212,7 @@ button.tab.active{background:var(--tab-active)}
 .sbtn:hover{background:var(--hover)}
 .scrim{position:absolute;inset:0;z-index:15}
 .qi{position:absolute;top:40px;left:50%;transform:translateX(-50%);width:600px;box-sizing:border-box;background:var(--qi-bg);border:1px solid var(--qi-border);border-radius:6px;box-shadow:0 0 8px 2px var(--shadow);padding:6px;z-index:20;font-size:13px;color:var(--fg)}
-.qi .qt{display:flex;align-items:center;gap:6px;height:24px;padding:0 2px;font-size:12px}
-.qi .qt .grow{flex:1;text-align:center}
 .qi .qin{display:flex;gap:6px;align-items:center;margin:4px 0}
-.qi .qmsg{padding:2px 6px 6px;color:var(--fg-muted);font-size:12px;line-height:17px}
 .qi ul{list-style:none;margin:0;padding:0;max-height:330px;overflow:auto}
 .qi li button{width:100%;display:flex;align-items:center;gap:8px;min-height:22px;padding:2px 8px;border:0;border-radius:3px;background:transparent;color:var(--fg);font:inherit;text-align:left;cursor:pointer;box-sizing:border-box}
 .qi li button:hover{background:var(--hover)}
@@ -236,24 +220,11 @@ button.tab.active{background:var(--tab-active)}
 .qi .ql{white-space:nowrap}
 .qi .qd{flex:1;min-width:0;color:var(--fg-muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .qi li button.act .qd{color:inherit}
-.qchk{width:16px;height:16px;flex:none;box-sizing:border-box;border:1px solid var(--input-border);border-radius:3px;background:var(--input-bg);display:inline-flex;align-items:center;justify-content:center}
-.qchk svg{visibility:hidden}
-.qchk.on{background:var(--btn-bg);border-color:var(--btn-bg);color:var(--btn-fg)}
-.qchk.on svg{visibility:visible}
-.qchk.lock{opacity:.6}
-button.qchk{padding:0;cursor:pointer}
-.dscrim{position:absolute;inset:0;background:var(--scrim);z-index:25;display:flex;align-items:center;justify-content:center}
-.dlg{width:470px;box-sizing:border-box;background:var(--dlg-bg);border:1px solid var(--qi-border);border-radius:6px;box-shadow:0 0 12px var(--shadow);padding:20px;display:flex;gap:14px;color:var(--fg)}
-.dlg .dic{color:var(--focus)}
-.dlg h2{margin:0 0 8px;font-size:13px;font-weight:600;color:var(--fg-strong)}
-.dlg p{margin:0 0 6px;font-size:13px;line-height:19px}
-.dlg .row{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
 .cmenu{position:absolute;z-index:20;min-width:300px;background:var(--menu-bg);border:1px solid var(--menu-border);border-radius:5px;box-shadow:0 2px 8px var(--shadow);padding:4px 0;font-size:13px;color:var(--fg)}
 .cmenu button{display:flex;width:100%;justify-content:space-between;gap:24px;height:24px;align-items:center;padding:0 22px 0 26px;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;box-sizing:border-box}
 .cmenu button:hover,.cmenu button.act{background:var(--menu-sel);color:var(--menu-sel-fg)}
 .cmenu hr{border:0;border-top:1px solid var(--menu-border);margin:4px 0}
 .cmenu .kb{opacity:.75;font-size:12px}
-.flist li.upd{color:var(--warn)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 </style>
 </helmet>
@@ -277,7 +248,6 @@ button.qchk{padding:0;cursor:pointer}
       <select id="mk-src" value="{{sourceKey}}" onChange="{{setSource}}">
         <option value="bundled">Bundled (default)</option>
         <option value="path">conclave.sdkPath</option>
-        <option value="ref">conclave.sdkRef</option>
       </select>
     </label>
     <label for="mk-ws">Workspace
@@ -344,13 +314,18 @@ button.qchk{padding:0;cursor:pointer}
             <span class="grow"></span>
             <sc-if value="{{multiRoot}}" hint-placeholder-val="{{false}}"><button class="icon-btn sm" aria-label="Switch folder" title="Switch folder (the view follows the active editor's folder)" onClick="{{switchFolder}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M11.3536 1.64645C11.1583 1.45118 10.8417 1.45118 10.6464 1.64645C10.4512 1.84171 10.4512 2.15829 10.6464 2.35355L12.2929 4H2.5C2.22386 4 2 4.22386 2 4.5C2 4.77614 2.22386 5 2.5 5H12.2929L10.6464 6.64645C10.4512 6.84171 10.4512 7.15829 10.6464 7.35355C10.8417 7.54882 11.1583 7.54882 11.3536 7.35355L13.8536 4.85355C14.0488 4.65829 14.0488 4.34171 13.8536 4.14645L11.3536 1.64645ZM5.35355 9.35355C5.54882 9.15829 5.54882 8.84171 5.35355 8.64645C5.15829 8.45118 4.84171 8.45118 4.64645 8.64645L2.14645 11.1464C1.95118 11.3417 1.95118 11.6583 2.14645 11.8536L4.64645 14.3536C4.84171 14.5488 5.15829 14.5488 5.35355 14.3536C5.54882 14.1583 5.54882 13.8417 5.35355 13.6464L3.70711 12H13.5C13.7761 12 14 11.7761 14 11.5C14 11.2239 13.7761 11 13.5 11H3.70711L5.35355 9.35355Z"></path></svg></button></sc-if>
             <button class="icon-btn sm" aria-label="Refresh" title="Refresh" onClick="{{refreshKits}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 8C3 5.23858 5.23858 3 8 3C9.63527 3 11.0878 3.78495 12.0005 5H10C9.72386 5 9.5 5.22386 9.5 5.5C9.5 5.77614 9.72386 6 10 6H12.8904C12.8973 6.00014 12.9041 6.00014 12.911 6H13C13.2761 6 13.5 5.77614 13.5 5.5V2.5C13.5 2.22386 13.2761 2 13 2C12.7239 2 12.5 2.22386 12.5 2.5V4.03138C11.4009 2.78613 9.79253 2 8 2C4.68629 2 2 4.68629 2 8C2 11.3137 4.68629 14 8 14C11.1301 14 13.6999 11.6035 13.9756 8.54488C14.0003 8.26985 13.7975 8.0268 13.5225 8.00202C13.2474 7.97723 13.0044 8.1801 12.9796 8.45512C12.75 11.003 10.6079 13 8 13C5.23858 13 3 10.7614 3 8Z"></path></svg></button>
-            <button class="icon-btn sm" aria-label="Update kits" title="Update kits" onClick="{{updateKits}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path shape-rendering="optimizeQuality" d="M7.14645 0.646447C7.34171 0.451184 7.65829 0.451184 7.85355 0.646447L9.35355 2.14645C9.54882 2.34171 9.54882 2.65829 9.35355 2.85355L7.85355 4.35355C7.65829 4.54882 7.34171 4.54882 7.14645 4.35355C6.95118 4.15829 6.95118 3.84171 7.14645 3.64645L7.7885 3.00439C5.12517 3.11522 3 5.30943 3 8C3 9.56799 3.72118 10.9672 4.85185 11.8847C5.06627 12.0587 5.09904 12.3736 4.92503 12.588C4.75103 12.8024 4.43615 12.8352 4.22172 12.6612C2.86712 11.5619 2 9.88205 2 8C2 4.75447 4.57689 2.1108 7.79629 2.00339L7.14645 1.35355C6.95118 1.15829 6.95118 0.841709 7.14645 0.646447ZM11.075 3.41199C11.249 3.19756 11.5639 3.1648 11.7783 3.3388C13.1329 4.43806 14 6.11795 14 8C14 11.2455 11.4231 13.8892 8.20371 13.9966L8.85355 14.6464C9.04882 14.8417 9.04882 15.1583 8.85355 15.3536C8.65829 15.5488 8.34171 15.5488 8.14645 15.3536L6.64645 13.8536C6.55268 13.7598 6.5 13.6326 6.5 13.5C6.5 13.3674 6.55268 13.2402 6.64645 13.1464L8.14645 11.6464C8.34171 11.4512 8.65829 11.4512 8.85355 11.6464C9.04882 11.8417 9.04882 12.1583 8.85355 12.3536L8.2115 12.9956C10.8748 12.8848 13 10.6906 13 8C13 6.43201 12.2788 5.03283 11.1482 4.1153C10.9337 3.94129 10.901 3.62641 11.075 3.41199Z"></path></svg></button>
-            <button class="icon-btn sm" aria-label="Set up a new repository" title="Set up a new repository" onClick="{{newRepo}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2 4.5V6H5.58579C5.71839 6 5.84557 5.94732 5.93934 5.85355L7.29289 4.5L5.93934 3.14645C5.84557 3.05268 5.71839 3 5.58579 3H3.5C2.67157 3 2 3.67157 2 4.5ZM1 4.5C1 3.11929 2.11929 2 3.5 2H5.58579C5.98361 2 6.36514 2.15804 6.64645 2.43934L8.20711 4H12.5C13.8807 4 15 5.11929 15 6.5V7.25716C14.6929 7.00353 14.3578 6.78261 14 6.59971V6.5C14 5.67157 13.3284 5 12.5 5H8.20711L6.64645 6.56066C6.36514 6.84197 5.98361 7 5.58579 7H2V11.5C2 12.3284 2.67157 13 3.5 13H6.20703C6.30564 13.3486 6.43777 13.6832 6.59971 14H3.5C2.11929 14 1 12.8807 1 11.5V4.5ZM16 11.5C16 13.9853 13.9853 16 11.5 16C9.01472 16 7 13.9853 7 11.5C7 9.01472 9.01472 7 11.5 7C13.9853 7 16 9.01472 16 11.5ZM12 9C12 8.72386 11.7761 8.5 11.5 8.5C11.2239 8.5 11 8.72386 11 9V11H9C8.72386 11 8.5 11.2239 8.5 11.5C8.5 11.7761 8.72386 12 9 12H11V14C11 14.2761 11.2239 14.5 11.5 14.5C11.7761 14.5 12 14.2761 12 14V12H14C14.2761 12 14.5 11.7761 14.5 11.5C14.5 11.2239 14.2761 11 14 11H12V9Z"></path></svg></button>
           </div>
           <sc-if value="{{kitsOpen}}" hint-placeholder-val="{{true}}">
-            <div class="ktree {{ktreeCls}}" aria-label="Kits">
+            <sc-if value="{{kwel.open}}" hint-placeholder-val="{{false}}">
+              <div class="kwel" role="region" aria-label="Kits">
+                <sc-for list="{{kwel.lines}}" as="l" hint-placeholder-count="2"><p>{{l.t}}</p></sc-for>
+                <sc-for list="{{kwel.buttons}}" as="b" hint-placeholder-count="1"><button class="btn" onClick="{{b.run}}">{{b.label}}</button></sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{kwel.shut}}" hint-placeholder-val="{{true}}">
+            <div class="ktree" aria-label="Kits">
               <sc-for list="{{kitRows}}" as="k" hint-placeholder-count="8">
-                <div class="krow {{k.cls}}" style="padding-left: {{k.pad}}px">
+                <div class="krow {{k.cls}}" style="padding-left: {{k.pad}}px" onContextMenu="{{k.menu}}">
                   <sc-if value="{{k.expandable}}" hint-placeholder-val="{{true}}">
                     <button class="tw" aria-label="{{k.twLabel}}" aria-expanded="{{k.open}}" onClick="{{k.toggle}}">
                       <sc-if value="{{k.open}}" hint-placeholder-val="{{false}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.14598 5.85423L7.64598 10.3542C7.84098 10.5492 8.15798 10.5492 8.35298 10.3542L12.853 5.85423C13.048 5.65923 13.048 5.34223 12.853 5.14723C12.658 4.95223 12.341 4.95223 12.146 5.14723L7.99998 9.29323L3.85398 5.14723C3.65898 4.95223 3.34198 4.95223 3.14698 5.14723C2.95198 5.34223 2.95098 5.65923 3.14598 5.85423Z"></path></svg></sc-if>
@@ -362,6 +337,8 @@ button.qchk{padding:0;cursor:pointer}
                   <sc-if value="{{k.iInstalled}}" hint-placeholder-val="{{true}}"><svg class="ci st-ok" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="Installed"><path d="M10.6484 5.64648C10.8434 5.45148 11.1605 5.45148 11.3555 5.64648C11.5498 5.84137 11.5499 6.15766 11.3555 6.35254L7.35547 10.3525C7.25747 10.4495 7.12898 10.499 7.00098 10.499C6.87299 10.499 6.74545 10.4505 6.64746 10.3525L4.64746 8.35254C4.45247 8.15754 4.45248 7.84148 4.64746 7.64648C4.84246 7.45148 5.15949 7.45148 5.35449 7.64648L7 9.29199L10.6465 5.64648H10.6484Z"></path><path fill-rule="evenodd" clip-rule="evenodd" d="M8 1C11.86 1 15 4.14 15 8C15 11.86 11.86 15 8 15C4.14 15 1 11.86 1 8C1 4.14 4.14 1 8 1ZM8 2C4.691 2 2 4.691 2 8C2 11.309 4.691 14 8 14C11.309 14 14 11.309 14 8C14 4.691 11.309 2 8 2Z"></path></svg></sc-if>
                   <sc-if value="{{k.iPartly}}" hint-placeholder-val="{{false}}"><svg class="ci st-part" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="Partly installed"><path d="M8.5 1C8.22386 1 8 1.22386 8 1.5V7.5C8 7.77614 8.22386 8 8.5 8H14.5C14.7761 8 15 7.77614 15 7.5C15 3.91015 12.0899 1 8.5 1ZM9 7V2.02242C11.6386 2.2602 13.7398 4.36143 13.9776 7H9ZM7 3.52246C7 3.38205 6.94096 3.24811 6.83731 3.15338C6.73367 3.05866 6.59497 3.01188 6.45512 3.02448C3.3965 3.30011 1 5.86992 1 9.00004C1 12.3137 3.68629 15 7 15C10.1301 15 12.6999 12.6035 12.9756 9.54492C12.9882 9.40507 12.9414 9.26637 12.8467 9.16273C12.7519 9.05908 12.618 9.00004 12.4776 9.00004H7V3.52246ZM2 9.00004C2 6.58117 3.71795 4.56306 6 4.09998V9.50004C6 9.77618 6.22386 10 6.5 10H11.9001C11.437 12.2821 9.41887 14 7 14C4.23858 14 2 11.7615 2 9.00004Z"></path></svg></sc-if>
                   <sc-if value="{{k.iNone}}" hint-placeholder-val="{{false}}"><svg class="ci st-none" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="Not installed"><path fill-rule="evenodd" clip-rule="evenodd" d="M9.58854 2.2153L9.58854 2.21528C9.08311 2.07252 8.55496 2 8.00098 2C7.44699 2 6.91884 2.07252 6.41341 2.21528L6.40659 2.21721L6.40659 2.21718C5.89259 2.35843 5.41641 2.55904 4.97513 2.81819C4.5335 3.08023 4.12844 3.39515 3.75886 3.76472C3.39532 4.12826 3.08274 4.53252 2.82014 4.97935L2.81818 4.98267L2.81818 4.98267C2.55924 5.41938 2.35622 5.89379 2.21039 6.409C2.07155 6.91543 2.00098 7.44479 2.00098 8C2.00098 8.5552 2.07155 9.08455 2.21038 9.59097C2.35622 10.1062 2.55946 10.5836 2.81921 11.0259C3.08148 11.4679 3.39423 11.8729 3.75887 12.2421C4.12806 12.6068 4.53308 12.9195 4.97513 13.1818C5.41737 13.4415 5.89472 13.6447 6.40994 13.7906C6.91638 13.9294 7.44575 14 8.00098 14C8.55619 14 9.08555 13.9294 9.59198 13.7906C10.1072 13.6448 10.5816 13.4417 11.0183 13.1828L11.0216 13.1808L11.0216 13.1808C11.4685 12.9182 11.8727 12.6057 12.2363 12.2421C12.6058 11.8726 12.9207 11.4675 13.1827 11.0259C13.4419 10.5846 13.6425 10.1084 13.7838 9.59439L13.7857 9.58756L13.7857 9.58757C13.9285 9.08213 14.001 8.55398 14.001 8C14.001 7.44602 13.9285 6.91787 13.7857 6.41243L13.7838 6.40562L13.7838 6.40561C13.6425 5.8916 13.4421 5.41838 13.1838 4.98267L13.1818 4.97935L13.1818 4.97935C12.9204 4.53447 12.6069 4.13142 12.24 3.7685L12.2324 3.76097L12.2325 3.76093C11.8696 3.3941 11.4665 3.08062 11.0216 2.81916L11.0183 2.81721L11.0183 2.8172C10.5826 2.55885 10.1094 2.35844 9.59537 2.21718L9.58854 2.2153ZM14.0439 11.5342C13.7386 12.0492 13.3717 12.5208 12.9434 12.9492C12.5195 13.373 12.0479 13.7376 11.5283 14.043C11.0133 14.3483 10.4574 14.5853 9.86035 14.7539C9.26335 14.918 8.64355 15 8.00098 15C7.3584 15 6.73861 14.918 6.1416 14.7539C5.5446 14.5853 4.98633 14.3483 4.4668 14.043C3.95182 13.7376 3.48014 13.373 3.05176 12.9492C2.62793 12.5208 2.26335 12.0492 1.95801 11.5342C1.65267 11.0146 1.41569 10.4564 1.24707 9.85938C1.08301 9.26237 1.00098 8.64258 1.00098 8C1.00098 7.35742 1.08301 6.73763 1.24707 6.14062C1.41569 5.54362 1.65267 4.98763 1.95801 4.47266C2.26335 3.95312 2.62793 3.48145 3.05176 3.05762C3.48014 2.62923 3.95182 2.26237 4.4668 1.95703C4.98633 1.65169 5.5446 1.41699 6.1416 1.25293C6.73861 1.08431 7.3584 1 8.00098 1C8.64355 1 9.26335 1.08431 9.86035 1.25293C10.4574 1.41699 11.0133 1.65169 11.5283 1.95703C12.0479 2.26237 12.5195 2.62923 12.9434 3.05762C13.3717 3.48145 13.7386 3.95312 14.0439 4.47266C14.3493 4.98763 14.584 5.54362 14.748 6.14062C14.9167 6.73763 15.001 7.35742 15.001 8C15.001 8.64258 14.9167 9.26237 14.748 9.85938C14.584 10.4564 14.3493 11.0146 14.0439 11.5342Z"></path></svg></sc-if>
+                  <sc-if value="{{k.iNewer}}" hint-placeholder-val="{{false}}"><svg class="ci st-info" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="Newer kits than this extension"><path d="M5.14645 7.14645L7.64645 4.64645C7.84171 4.45118 8.15829 4.45118 8.35355 4.64645L10.8536 7.14645C11.0488 7.34171 11.0488 7.65829 10.8536 7.85355C10.6583 8.04882 10.3417 8.04882 10.1464 7.85355L8.5 6.20711V11C8.5 11.2761 8.27614 11.5 8 11.5C7.72386 11.5 7.5 11.2761 7.5 11V6.20711L5.85355 7.85355C5.65829 8.04882 5.34171 8.04882 5.14645 7.85355C4.95118 7.65829 4.95118 7.34171 5.14645 7.14645ZM8 1C4.13401 1 1 4.13401 1 8C1 11.866 4.13401 15 8 15C11.866 15 15 11.866 15 8C15 4.13401 11.866 1 8 1ZM2 8C2 4.68629 4.68629 2 8 2C11.3137 2 14 4.68629 14 8C14 11.3137 11.3137 14 8 14C4.68629 14 2 11.3137 2 8Z"></path></svg></sc-if>
+                  <sc-if value="{{k.iOlder}}" hint-placeholder-val="{{false}}"><svg class="ci st-warn" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="Older kits than this extension"><path d="M5.14645 8.85355L7.64645 11.3536C7.84171 11.5488 8.15829 11.5488 8.35355 11.3536L10.8536 8.85355C11.0488 8.65829 11.0488 8.34171 10.8536 8.14645C10.6583 7.95118 10.3417 7.95118 10.1464 8.14645L8.5 9.79289V5C8.5 4.72386 8.27614 4.5 8 4.5C7.72386 4.5 7.5 4.72386 7.5 5V9.79289L5.85355 8.14645C5.65829 7.95118 5.34171 7.95118 5.14645 8.14645C4.95118 8.34171 4.95118 8.65829 5.14645 8.85355ZM8 15C4.13401 15 1 11.866 1 8C1 4.13401 4.13401 1 8 1C11.866 1 15 4.13401 15 8C15 11.866 11.866 15 8 15ZM2 8C2 11.3137 4.68629 14 8 14C11.3137 14 14 11.3137 14 8C14 4.68629 11.3137 2 8 2C4.68629 2 2 4.68629 2 8Z"></path></svg></sc-if>
                   <sc-if value="{{k.iOk}}" hint-placeholder-val="{{false}}"><svg class="ci st-ok" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="ok"><path d="M13.6572 3.13573C13.8583 2.9465 14.175 2.95614 14.3643 3.15722C14.5535 3.35831 14.5438 3.675 14.3428 3.86425L5.84277 11.8642C5.64597 12.0494 5.33756 12.0446 5.14648 11.8535L1.64648 8.35351C1.45121 8.15824 1.45121 7.84174 1.64648 7.64647C1.84174 7.45121 2.15825 7.45121 2.35351 7.64647L5.50976 10.8027L13.6572 3.13573Z"></path></svg></sc-if>
                   <sc-if value="{{k.iMissing}}" hint-placeholder-val="{{false}}"><svg class="ci st-bad" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="missing"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg></sc-if>
                   <sc-if value="{{k.iSetup}}" hint-placeholder-val="{{false}}"><svg class="ci st-warn" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" role="img" aria-label="setup required"><path d="M14.831 11.965L9.206 1.714C8.965 1.274 8.503 1 8 1C7.497 1 7.035 1.274 6.794 1.714L1.169 11.965C1.059 12.167 1 12.395 1 12.625C1 13.383 1.617 14 2.375 14H13.625C14.383 14 15 13.383 15 12.625C15 12.395 14.941 12.167 14.831 11.965ZM13.625 13H2.375C2.168 13 2 12.832 2 12.625C2 12.561 2.016 12.5 2.046 12.445L7.671 2.195C7.736 2.075 7.863 2 8 2C8.137 2 8.264 2.075 8.329 2.195L13.954 12.445C13.984 12.501 14 12.561 14 12.625C14 12.832 13.832 13 13.625 13ZM8.75 11.25C8.75 11.664 8.414 12 8 12C7.586 12 7.25 11.664 7.25 11.25C7.25 10.836 7.586 10.5 8 10.5C8.414 10.5 8.75 10.836 8.75 11.25ZM7.5 9V5.5C7.5 5.224 7.724 5 8 5C8.276 5 8.5 5.224 8.5 5.5V9C8.5 9.276 8.276 9.5 8 9.5C7.724 9.5 7.5 9.276 7.5 9Z"></path></svg></sc-if>
@@ -369,128 +346,15 @@ button.qchk{padding:0;cursor:pointer}
                   <span class="lbl {{k.lblCls}}">{{k.label}}</span>
                   <span class="desc" title="{{k.title}}">{{k.desc}}</span>
                   <div class="inl">
-                    <sc-if value="{{k.canInstall}}" hint-placeholder-val="{{false}}"><button class="icon-btn sm" aria-label="Install {{k.label}} in {{k.folder}}" title="Install" onClick="{{k.install}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M16 13.5C16 13.565 15.987 13.63 15.961 13.69C15.935 13.751 15.897 13.805 15.85 13.85L13.85 15.85C13.804 15.897 13.75 15.935 13.69 15.961C13.63 15.987 13.565 16 13.5 16C13.435 16 13.371 15.987 13.31 15.961C13.249 15.935 13.195 15.897 13.15 15.85L11.15 13.85C11.103 13.804 11.065 13.75 11.039 13.69C11.013 13.63 11 13.565 11 13.5C11 13.435 11.013 13.37 11.039 13.31C11.065 13.249 11.103 13.195 11.15 13.15C11.196 13.103 11.25 13.065 11.31 13.039C11.37 13.013 11.435 13 11.5 13C11.565 13 11.629 13.013 11.69 13.039C11.751 13.065 11.805 13.103 11.85 13.15L13 14.29V9.5C13 9.367 13.052 9.24 13.146 9.146C13.24 9.053 13.367 9 13.5 9C13.633 9 13.76 9.052 13.854 9.146C13.947 9.24 14 9.367 14 9.5V14.29L15.15 13.15C15.196 13.103 15.25 13.065 15.31 13.039C15.37 13.013 15.435 13 15.5 13C15.565 13 15.629 13.013 15.69 13.039C15.751 13.065 15.805 13.103 15.85 13.15C15.897 13.196 15.935 13.25 15.961 13.31C15.987 13.37 16 13.435 16 13.5ZM11 12H12V11H3C2.448 11 2 10.552 2 10V3C2 2.448 2.448 2 3 2H13C13.552 2 14 2.448 14 3V8H15V3C15 1.895 14.105 1 13 1H3C1.895 1 1 1.895 1 3V10C1 11.105 1.895 12 3 12H5V14H3.5C3.224 14 3 14.224 3 14.5C3 14.776 3.224 15 3.5 15H10V14H6V12H10V13.5C10 13.295 10.041 13.097 10.122 12.91C10.203 12.723 10.319 12.559 10.466 12.421C10.565 12.317 10.725 12.204 10.905 12.125C10.936 12.111 10.968 12.106 11 12.095V12Z"></path></svg></button></sc-if>
                     <sc-if value="{{k.canHealth}}" hint-placeholder-val="{{false}}"><button class="icon-btn sm" aria-label="Health of {{k.label}} in {{k.folder}}" title="Health" onClick="{{k.health}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5.76002 2.49999C5.98102 2.50399 6.17302 2.65399 6.23202 2.86699L8.52102 11.19L10.271 5.35599C10.332 5.15399 10.513 5.01099 10.724 4.99999C10.935 4.98899 11.13 5.11199 11.211 5.30699L12.333 7.99899H14C14.276 7.99899 14.5 8.22299 14.5 8.49899C14.5 8.77499 14.276 8.99899 14 8.99899H12C11.798 8.99899 11.616 8.87799 11.538 8.69099L10.826 6.98299L8.97802 13.142C8.91402 13.356 8.71602 13.501 8.49302 13.498C8.27002 13.495 8.07602 13.346 8.01702 13.131L5.71402 4.75699L4.47502 8.64999C4.40902 8.85799 4.21602 8.99799 3.99902 8.99799H1.99902C1.72302 8.99799 1.49902 8.77399 1.49902 8.49799C1.49902 8.22199 1.72302 7.99799 1.99902 7.99799H3.63302L5.27202 2.84599C5.33902 2.63499 5.53702 2.49299 5.75802 2.49799L5.76002 2.49999Z"></path></svg></button></sc-if>
                   </div>
                   <sc-if value="{{k.hasBadge}}" hint-placeholder-val="{{false}}"><span class="hb {{k.badgeCls}}" title="{{k.badgeTitle}}">{{k.badge}}</span></sc-if>
                 </div>
               </sc-for>
             </div>
+            </sc-if>
           </sc-if>
           </div>
-          <sc-if value="{{insOpen}}" hint-placeholder-val="{{false}}">
-            <div class="vpane focus">
-            <div class="pane-h">
-              <span class="tw" aria-hidden="true"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.14598 5.85423L7.64598 10.3542C7.84098 10.5492 8.15798 10.5492 8.35298 10.3542L12.853 5.85423C13.048 5.65923 13.048 5.34223 12.853 5.14723C12.658 4.95223 12.341 4.95223 12.146 5.14723L7.99998 9.29323L3.85398 5.14723C3.65898 4.95223 3.34198 4.95223 3.14698 5.14723C2.95198 5.34223 2.95098 5.65923 3.14598 5.85423Z"></path></svg></span>
-              <span class="grow">INSTALL KIT</span>
-              <button class="icon-btn sm" aria-label="Close the installer" title="Close" onClick="{{ins.cancel}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.70701 8.00001L12.353 4.35401C12.548 4.15901 12.548 3.84201 12.353 3.64701C12.158 3.45201 11.841 3.45201 11.646 3.64701L8.00001 7.29301L4.35401 3.64701C4.15901 3.45201 3.84201 3.45201 3.64701 3.64701C3.45201 3.84201 3.45201 4.15901 3.64701 4.35401L7.29301 8.00001L3.64701 11.646C3.45201 11.841 3.45201 12.158 3.64701 12.353C3.74501 12.451 3.87301 12.499 4.00101 12.499C4.12901 12.499 4.25701 12.45 4.35501 12.353L8.00101 8.70701L11.647 12.353C11.745 12.451 11.873 12.499 12.001 12.499C12.129 12.499 12.257 12.45 12.355 12.353C12.55 12.158 12.55 11.841 12.355 11.646L8.70901 8.00001H8.70701Z"></path></svg></button>
-            </div>
-            <div class="ip" aria-live="polite">
-              <div class="steps"><span class="{{ins.s1}}">1 Choose</span><span>›</span><span class="{{ins.s2}}">2 Preview</span><span>›</span><span class="{{ins.s3}}">3 Installed</span></div>
-              <h3>Install <span class="mono">{{ins.kit}}</span></h3>
-              <div class="src">Into <span class="mono">{{ins.folderPath}}</span> from <span class="mono">{{sourceLabel}}</span></div>
-              <sc-if value="{{ins.hasSrcFail}}" hint-placeholder-val="{{false}}">
-                <div class="errbox"><svg class="ci ei" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg><span><strong>{{ins.srcTitle}}</strong> {{ins.srcBody}}</span></div>
-                <p class="note">Nothing was downloaded or run.</p>
-                <div class="row"><sc-for list="{{ins.srcActions}}" as="a" hint-placeholder-count="2"><button class="{{a.cls}} small" onClick="{{a.run}}">{{a.label}}</button></sc-for></div>
-              </sc-if>
-
-              <sc-if value="{{ins.choosing}}" hint-placeholder-val="{{true}}">
-                <div class="field">
-                  <label for="ins-agent">Agent</label>
-                  <select id="ins-agent" class="input" value="{{ins.agent}}" onChange="{{ins.onAgent}}">
-                    <option value="all">All agents (all)</option>
-                    <option value="agy">Antigravity (agy)</option>
-                    <option value="gemini">Gemini (gemini, the same files as agy)</option>
-                    <option value="claude">Claude Code (claude)</option>
-                    <option value="codex">OpenAI Codex (codex)</option>
-                  </select>
-                </div>
-                <sc-if value="{{ins.isWp}}" hint-placeholder-val="{{false}}">
-                  <fieldset>
-                    <legend>WordPress host</legend>
-                    <label class="opt"><input type="radio" name="ins-host" value="pressable" checked="{{ins.hostPressable}}" disabled="{{ins.hostLocked}}" onChange="{{ins.onHost}}">Pressable (pressable)</label>
-                    <label class="opt"><input type="radio" name="ins-host" value="wpcom" checked="{{ins.hostWpcom}}" disabled="{{ins.hostLocked}}" onChange="{{ins.onHost}}">WordPress.com (wpcom)</label>
-                  </fieldset>
-                  <p class="note">Once <code>.conclave/wordpress-site.json</code> exists, it decides the host and this choice is locked.</p>
-                </sc-if>
-                <p class="note">Preview runs forge with <code>--dry-run</code> and writes nothing.</p>
-                <div class="row"><button class="btn small" onClick="{{ins.preview}}">Preview</button><button class="btn2 small" onClick="{{ins.cancel}}">Cancel</button></div>
-              </sc-if>
-
-              <sc-if value="{{ins.busy}}" hint-placeholder-val="{{false}}">
-                <pre>{{ins.cmd}}</pre>
-                <div style="display: flex; gap: 8px; align-items: center"><span class="spin" aria-hidden="true"></span><span>{{ins.busyText}}</span></div>
-              </sc-if>
-
-              <sc-if value="{{ins.previewing}}" hint-placeholder-val="{{false}}">
-                <span class="muted">forge ran, writing nothing:</span>
-                <pre>{{ins.cmd}}</pre>
-                <sc-if value="{{ins.hasError}}" hint-placeholder-val="{{false}}">
-                  <div class="errbox"><svg class="ci ei" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg><span><strong>forge refused (exit 2).</strong> <span class="mono">{{ins.error}}</span></span></div>
-                  <p class="note">Nothing was written. This folder cannot take the <code>{{ins.kit}}</code> kit as it is.</p>
-                </sc-if>
-                <sc-if value="{{ins.hasLists}}" hint-placeholder-val="{{true}}">
-                  <div>
-                    <div class="lh">Will add <span class="muted">{{ins.addCount}}</span></div>
-                    <sc-if value="{{ins.hasAdd}}" hint-placeholder-val="{{true}}">
-                      <ul class="flist"><sc-for list="{{ins.add}}" as="f" hint-placeholder-count="6"><li class="add" title="{{f.p}}">+ {{f.p}}</li></sc-for></ul>
-                    </sc-if>
-                    <sc-if value="{{ins.noAdd}}" hint-placeholder-val="{{false}}"><p class="note">Nothing to add: every file of this kit is already here.</p></sc-if>
-                  </div>
-                  <sc-if value="{{ins.hasKeep}}" hint-placeholder-val="{{false}}">
-                    <details>
-                      <summary>Already present, kept <span class="muted">{{ins.keepCount}}</span></summary>
-                      <ul class="flist"><sc-for list="{{ins.keep}}" as="f" hint-placeholder-count="4"><li title="{{f.p}}">{{f.p}}</li></sc-for></ul>
-                    </details>
-                  </sc-if>
-                </sc-if>
-                <sc-if value="{{ins.hasMerge}}" hint-placeholder-val="{{false}}">
-                  <div class="errbox"><svg class="ci ei" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 1C4.14 1 1 4.14 1 8C1 11.86 4.14 15 8 15C11.86 15 15 11.86 15 8C15 4.14 11.86 1 8 1ZM8 14C4.691 14 2 11.309 2 8C2 4.691 4.691 2 8 2C11.309 2 14 4.691 14 8C14 11.309 11.309 14 8 14ZM10.854 5.854L8.708 8L10.854 10.146C11.049 10.341 11.049 10.658 10.854 10.853C10.756 10.951 10.628 10.999 10.5 10.999C10.372 10.999 10.244 10.95 10.146 10.853L8 8.707L5.854 10.853C5.756 10.951 5.628 10.999 5.5 10.999C5.372 10.999 5.244 10.95 5.146 10.853C4.951 10.658 4.951 10.341 5.146 10.146L7.292 8L5.146 5.854C4.951 5.659 4.951 5.342 5.146 5.147C5.341 4.952 5.658 4.952 5.853 5.147L7.999 7.293L10.145 5.147C10.34 4.952 10.657 4.952 10.852 5.147C11.047 5.342 11.047 5.659 10.852 5.854H10.854Z"></path></svg><span><strong>Install is off: forge reports a file it cannot merge.</strong> <span class="mono">merge_needed: {{ins.merge}}</span></span></div>
-                  <p class="note"><code>.mcp.json</code> already exists without a <code>laravel-boost</code> server. Add that server to it by hand, then preview again.</p>
-                </sc-if>
-                <sc-if value="{{ins.isRemote}}" hint-placeholder-val="{{false}}">
-                  <div class="confirm"><span>Install runs <code>forge.py</code> from <span class="mono">{{sourceLabel}}</span>, downloaded from GitHub. Install confirms that source.</span></div>
-                </sc-if>
-                <sc-if value="{{ins.canInstall}}" hint-placeholder-val="{{true}}"><p class="note">Install adds only the files under Will add and changes no existing file.</p></sc-if>
-                <div class="row">
-                  <sc-if value="{{ins.canInstall}}" hint-placeholder-val="{{true}}"><button class="btn small" onClick="{{ins.install}}">Install</button></sc-if>
-                  <button class="btn2 small" onClick="{{ins.back}}">Back</button>
-                  <button class="btn2 small" onClick="{{ins.cancel}}">Cancel</button>
-                </div>
-              </sc-if>
-
-              <sc-if value="{{ins.done}}" hint-placeholder-val="{{false}}">
-                <span class="donel"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.6572 3.13573C13.8583 2.9465 14.175 2.95614 14.3643 3.15722C14.5535 3.35831 14.5438 3.675 14.3428 3.86425L5.84277 11.8642C5.64597 12.0494 5.33756 12.0446 5.14648 11.8535L1.64648 8.35351C1.45121 8.15824 1.45121 7.84174 1.64648 7.64647C1.84174 7.45121 2.15825 7.45121 2.35351 7.64647L5.50976 10.8027L13.6572 3.13573Z"></path></svg>{{ins.doneText}}</span>
-                <ul class="flist"><sc-for list="{{ins.add}}" as="f" hint-placeholder-count="4"><li class="add" title="{{f.p}}">+ {{f.p}}</li></sc-for></ul>
-                <p class="note">{{ins.hashText}}</p>
-                <p class="note">The run (argv, source, exit code and forge's lists) is in the Conclave output channel. Your git is the undo: forge has no uninstall.</p>
-                <div class="row"><button class="btn small" onClick="{{ins.finish}}">Done</button><button class="btn2 small" onClick="{{ins.showLog}}">Show log</button></div>
-              </sc-if>
-            </div>
-            </div>
-          </sc-if>
-          <sc-if value="{{updOpen}}" hint-placeholder-val="{{false}}">
-            <div class="vpane focus">
-            <div class="pane-h">
-              <span class="tw" aria-hidden="true"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.14598 5.85423L7.64598 10.3542C7.84098 10.5492 8.15798 10.5492 8.35298 10.3542L12.853 5.85423C13.048 5.65923 13.048 5.34223 12.853 5.14723C12.658 4.95223 12.341 4.95223 12.146 5.14723L7.99998 9.29323L3.85398 5.14723C3.65898 4.95223 3.34198 4.95223 3.14698 5.14723C2.95198 5.34223 2.95098 5.65923 3.14598 5.85423Z"></path></svg></span>
-              <span class="grow">UPDATE KITS</span>
-              <button class="icon-btn sm" aria-label="Close the update result" title="Close" onClick="{{upd.finish}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.70701 8.00001L12.353 4.35401C12.548 4.15901 12.548 3.84201 12.353 3.64701C12.158 3.45201 11.841 3.45201 11.646 3.64701L8.00001 7.29301L4.35401 3.64701C4.15901 3.45201 3.84201 3.45201 3.64701 3.64701C3.45201 3.84201 3.45201 4.15901 3.64701 4.35401L7.29301 8.00001L3.64701 11.646C3.45201 11.841 3.45201 12.158 3.64701 12.353C3.74501 12.451 3.87301 12.499 4.00101 12.499C4.12901 12.499 4.25701 12.45 4.35501 12.353L8.00101 8.70701L11.647 12.353C11.745 12.451 11.873 12.499 12.001 12.499C12.129 12.499 12.257 12.45 12.355 12.353C12.55 12.158 12.55 11.841 12.355 11.646L8.70901 8.00001H8.70701Z"></path></svg></button>
-            </div>
-            <div class="ip" aria-live="polite">
-              <h3>Updated kits in <span class="mono">{{upd.folder}}</span></h3>
-              <div class="src">From <span class="mono">{{sourceLabel}}</span></div>
-              <pre>{{upd.cmd}}</pre>
-              <span class="donel"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.6572 3.13573C13.8583 2.9465 14.175 2.95614 14.3643 3.15722C14.5535 3.35831 14.5438 3.675 14.3428 3.86425L5.84277 11.8642C5.64597 12.0494 5.33756 12.0446 5.14648 11.8535L1.64648 8.35351C1.45121 8.15824 1.45121 7.84174 1.64648 7.64647C1.84174 7.45121 2.15825 7.45121 2.35351 7.64647L5.50976 10.8027L13.6572 3.13573Z"></path></svg>{{upd.doneText}}</span>
-              <sc-for list="{{upd.kits}}" as="kt" hint-placeholder-count="3">
-                <div class="lh"><span class="mono">{{kt.kit}}</span><span class="muted">{{kt.summary}}</span></div>
-                <sc-if value="{{kt.hasFiles}}" hint-placeholder-val="{{false}}"><ul class="flist"><sc-for list="{{kt.files}}" as="f" hint-placeholder-count="2"><li class="{{f.cls}}" title="{{f.p}}">{{f.mk}} {{f.p}}</li></sc-for></ul></sc-if>
-              </sc-for>
-              <p class="note">{{upd.hashText}}</p>
-              <div class="row"><button class="btn small" onClick="{{upd.finish}}">Done</button><button class="btn2 small" onClick="{{upd.showLog}}">Show log</button></div>
-            </div>
-            </div>
-          </sc-if>
           <sc-for list="{{fpanes}}" as="p" hint-placeholder-count="3">
             <div class="fpane">
               <div class="pane-h">
@@ -532,7 +396,7 @@ button.qchk{padding:0;cursor:pointer}
                       <sc-if value="{{r.iRoute}}" hint-placeholder-val="{{false}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.854 8.14576L8.854 3.14576C8.659 2.95076 8.342 2.95076 8.147 3.14576C7.952 3.34076 7.952 3.65776 8.147 3.85276L12.293 7.99876H2.5C2.224 7.99876 2 8.22276 2 8.49876C2 8.77476 2.224 8.99876 2.5 8.99876H12.293L8.147 13.1448C7.952 13.3398 7.952 13.6568 8.147 13.8518C8.245 13.9498 8.373 13.9978 8.501 13.9978C8.629 13.9978 8.757 13.9488 8.855 13.8518L13.855 8.85176C14.05 8.65676 14.05 8.33976 13.855 8.14476L13.854 8.14576Z"></path></svg></sc-if>
                       <span class="lbl {{r.lblCls}}">{{r.label}}</span>
                       <span class="desc" title="{{r.title}}">{{r.desc}}</span>
-                      <div class="inl"><sc-if value="{{r.hasAct}}" hint-placeholder-val="{{false}}"><button class="icon-btn sm" aria-label="{{r.actLabel}}" title="{{r.actLabel}}" onClick="{{r.act}}"><sc-if value="{{r.actInstall}}" hint-placeholder-val="{{false}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M16 13.5C16 13.565 15.987 13.63 15.961 13.69C15.935 13.751 15.897 13.805 15.85 13.85L13.85 15.85C13.804 15.897 13.75 15.935 13.69 15.961C13.63 15.987 13.565 16 13.5 16C13.435 16 13.371 15.987 13.31 15.961C13.249 15.935 13.195 15.897 13.15 15.85L11.15 13.85C11.103 13.804 11.065 13.75 11.039 13.69C11.013 13.63 11 13.565 11 13.5C11 13.435 11.013 13.37 11.039 13.31C11.065 13.249 11.103 13.195 11.15 13.15C11.196 13.103 11.25 13.065 11.31 13.039C11.37 13.013 11.435 13 11.5 13C11.565 13 11.629 13.013 11.69 13.039C11.751 13.065 11.805 13.103 11.85 13.15L13 14.29V9.5C13 9.367 13.052 9.24 13.146 9.146C13.24 9.053 13.367 9 13.5 9C13.633 9 13.76 9.052 13.854 9.146C13.947 9.24 14 9.367 14 9.5V14.29L15.15 13.15C15.196 13.103 15.25 13.065 15.31 13.039C15.37 13.013 15.435 13 15.5 13C15.565 13 15.629 13.013 15.69 13.039C15.751 13.065 15.805 13.103 15.85 13.15C15.897 13.196 15.935 13.25 15.961 13.31C15.987 13.37 16 13.435 16 13.5ZM11 12H12V11H3C2.448 11 2 10.552 2 10V3C2 2.448 2.448 2 3 2H13C13.552 2 14 2.448 14 3V8H15V3C15 1.895 14.105 1 13 1H3C1.895 1 1 1.895 1 3V10C1 11.105 1.895 12 3 12H5V14H3.5C3.224 14 3 14.224 3 14.5C3 14.776 3.224 15 3.5 15H10V14H6V12H10V13.5C10 13.295 10.041 13.097 10.122 12.91C10.203 12.723 10.319 12.559 10.466 12.421C10.565 12.317 10.725 12.204 10.905 12.125C10.936 12.111 10.968 12.106 11 12.095V12Z"></path></svg></sc-if><sc-if value="{{r.actGo}}" hint-placeholder-val="{{true}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M8.58594 1.00098C8.98394 1.00098 9.36646 1.15943 9.64746 1.44043L12.5605 4.35352C12.8415 4.63552 13.001 5.01704 13.001 5.41504V13.001C13.001 14.106 12.106 15.001 11.001 15.001H5.00098C3.89599 15.001 3.00098 14.106 3.00098 13.001V6.00098H4.00098V13.001C4.00098 13.553 4.44899 14.001 5.00098 14.001H11.001C11.553 14.001 12.001 13.553 12.001 13.001V6.00098H9.50098C8.67299 6.00096 8.00098 5.32897 8.00098 4.50098V2.00098C7.99198 1.97699 7.98265 1.9527 7.97266 1.92871C7.89674 1.74704 7.78717 1.5812 7.64746 1.44238L7.20605 1.00098H8.58594ZM9 4.5C9 4.776 9.224 5 9.5 5H11.793L9 2.20703V4.5Z"></path><path d="M4.5 0C4.63299 0 4.75952 0.0534683 4.85352 0.147461L6.85352 2.14746C6.90042 2.19336 6.93789 2.24775 6.96289 2.30859C6.98789 2.36959 7.00097 2.43498 7.00098 2.50098C7.00098 2.56698 6.98789 2.63236 6.96289 2.69336C6.93789 2.75323 6.90043 2.80956 6.85352 2.85547L4.85352 4.85547C4.75956 4.94917 4.63278 5.00195 4.5 5.00195C4.36722 5.00195 4.24044 4.94917 4.14648 4.85547C4.05248 4.76147 3.99902 4.63398 3.99902 4.50098C3.99903 4.36799 4.05249 4.24146 4.14648 4.14746L5.29297 3.00098H2.5C2.10201 3.00098 1.72045 3.15944 1.43945 3.44043C1.15846 3.72242 1.00001 4.10298 1 4.50098V5.50098C1 5.63398 0.947516 5.76147 0.853516 5.85547C0.759563 5.94817 0.632774 6.00098 0.5 6.00098C0.367225 6.00098 0.240437 5.94917 0.146484 5.85547C0.0534844 5.76147 0 5.63398 0 5.50098V4.50098C6.17892e-06 3.83799 0.263427 3.20239 0.732422 2.7334C1.20142 2.26441 1.83701 2.00098 2.5 2.00098H5.29297L4.14648 0.855469C4.05248 0.761469 3.99902 0.633977 3.99902 0.500977C3.99903 0.367985 4.05249 0.241455 4.14648 0.147461C4.24048 0.0534683 4.36701 0 4.5 0Z"></path></svg></sc-if></button></sc-if></div>
+                      <div class="inl"><sc-if value="{{r.hasAct}}" hint-placeholder-val="{{false}}"><button class="icon-btn sm" aria-label="{{r.actLabel}}" title="{{r.actLabel}}" onClick="{{r.act}}"><sc-if value="{{r.actCopy}}" hint-placeholder-val="{{false}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 5V12.73C2.4 12.38 2 11.74 2 11V5C2 2.79 3.79 1 6 1H9C9.74 1 10.38 1.4 10.73 2H6C4.35 2 3 3.35 3 5ZM11 15H6C4.897 15 4 14.103 4 13V5C4 3.897 4.897 3 6 3H11C12.103 3 13 3.897 13 5V13C13 14.103 12.103 15 11 15ZM12 5C12 4.448 11.552 4 11 4H6C5.448 4 5 4.448 5 5V13C5 13.552 5.448 14 6 14H11C11.552 14 12 13.552 12 13V5Z"></path></svg></sc-if><sc-if value="{{r.actGo}}" hint-placeholder-val="{{true}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M8.58594 1.00098C8.98394 1.00098 9.36646 1.15943 9.64746 1.44043L12.5605 4.35352C12.8415 4.63552 13.001 5.01704 13.001 5.41504V13.001C13.001 14.106 12.106 15.001 11.001 15.001H5.00098C3.89599 15.001 3.00098 14.106 3.00098 13.001V6.00098H4.00098V13.001C4.00098 13.553 4.44899 14.001 5.00098 14.001H11.001C11.553 14.001 12.001 13.553 12.001 13.001V6.00098H9.50098C8.67299 6.00096 8.00098 5.32897 8.00098 4.50098V2.00098C7.99198 1.97699 7.98265 1.9527 7.97266 1.92871C7.89674 1.74704 7.78717 1.5812 7.64746 1.44238L7.20605 1.00098H8.58594ZM9 4.5C9 4.776 9.224 5 9.5 5H11.793L9 2.20703V4.5Z"></path><path d="M4.5 0C4.63299 0 4.75952 0.0534683 4.85352 0.147461L6.85352 2.14746C6.90042 2.19336 6.93789 2.24775 6.96289 2.30859C6.98789 2.36959 7.00097 2.43498 7.00098 2.50098C7.00098 2.56698 6.98789 2.63236 6.96289 2.69336C6.93789 2.75323 6.90043 2.80956 6.85352 2.85547L4.85352 4.85547C4.75956 4.94917 4.63278 5.00195 4.5 5.00195C4.36722 5.00195 4.24044 4.94917 4.14648 4.85547C4.05248 4.76147 3.99902 4.63398 3.99902 4.50098C3.99903 4.36799 4.05249 4.24146 4.14648 4.14746L5.29297 3.00098H2.5C2.10201 3.00098 1.72045 3.15944 1.43945 3.44043C1.15846 3.72242 1.00001 4.10298 1 4.50098V5.50098C1 5.63398 0.947516 5.76147 0.853516 5.85547C0.759563 5.94817 0.632774 6.00098 0.5 6.00098C0.367225 6.00098 0.240437 5.94917 0.146484 5.85547C0.0534844 5.76147 0 5.63398 0 5.50098V4.50098C6.17892e-06 3.83799 0.263427 3.20239 0.732422 2.7334C1.20142 2.26441 1.83701 2.00098 2.5 2.00098H5.29297L4.14648 0.855469C4.05248 0.761469 3.99902 0.633977 3.99902 0.500977C3.99903 0.367985 4.05249 0.241455 4.14648 0.147461C4.24048 0.0534683 4.36701 0 4.5 0Z"></path></svg></sc-if></button></sc-if></div>
                       <sc-if value="{{r.hasBadge}}" hint-placeholder-val="{{false}}"><span class="hb {{r.badgeCls}}">{{r.badge}}</span></sc-if>
                     </div>
                   </sc-for>
@@ -900,10 +764,10 @@ button.qchk{padding:0;cursor:pointer}
               <sc-for list="{{empty.paras2}}" as="p" hint-placeholder-count="1">
                 <div class="p"><sc-for list="{{p.segs}}" as="s" hint-placeholder-count="1"><sc-if value="{{s.code}}" hint-placeholder-val="{{false}}"><code>{{s.text}}</code></sc-if><sc-if value="{{s.plain}}" hint-placeholder-val="{{true}}"><span>{{s.text}}</span></sc-if></sc-for></div>
               </sc-for>
-              <sc-if value="{{empty.hasCode}}" hint-placeholder-val="{{false}}">
-                <span class="muted">{{empty.codeLabel}}</span>
-                <pre>{{empty.code}}</pre>
-              </sc-if>
+              <sc-for list="{{empty.copies}}" as="c" hint-placeholder-count="2">
+                <span class="muted">{{c.label}}</span>
+                <div class="copyline"><pre>{{c.text}}</pre><button class="btn2 small" aria-label="Copy {{c.what}}" title="Copy {{c.what}}" onClick="{{c.copy}}">Copy</button></div>
+              </sc-for>
               <div class="acts">
                 <sc-for list="{{empty.actions}}" as="a" hint-placeholder-count="2"><button class="{{a.cls}}" onClick="{{a.onClick}}">{{a.label}}</button></sc-for>
               </div>
@@ -936,9 +800,6 @@ button.qchk{padding:0;cursor:pointer}
         <svg class="ci ok" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.49902 7.49998C8.49902 7.22384 8.27517 6.99998 7.99902 6.99998C7.72288 6.99998 7.49902 7.22384 7.49902 7.49998V10.5C7.49902 10.7761 7.72288 11 7.99902 11C8.27517 11 8.49902 10.7761 8.49902 10.5V7.49998ZM8.74807 5.50001C8.74807 5.91369 8.41271 6.24905 7.99903 6.24905C7.58535 6.24905 7.25 5.91369 7.25 5.50001C7.25 5.08633 7.58535 4.75098 7.99903 4.75098C8.41271 4.75098 8.74807 5.08633 8.74807 5.50001ZM8 1C4.13401 1 1 4.13401 1 8C1 11.866 4.13401 15 8 15C11.866 15 15 11.866 15 8C15 4.13401 11.866 1 8 1ZM2 8C2 4.68629 4.68629 2 8 2C11.3137 2 14 4.68629 14 8C14 11.3137 11.3137 14 8 14C4.68629 14 2 11.3137 2 8Z"></path></svg>
         <div class="tbody">
           <span>{{toast}}</span>
-          <sc-if value="{{hasToastActs}}" hint-placeholder-val="{{false}}">
-            <div class="tacts"><sc-for list="{{toastActs}}" as="a" hint-placeholder-count="2"><button class="btn small" onClick="{{a.run}}">{{a.label}}</button></sc-for></div>
-          </sc-if>
         </div>
         <button class="icon-btn sm" aria-label="Clear notification" title="Clear Notification" onClick="{{clearToast}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.70701 8.00001L12.353 4.35401C12.548 4.15901 12.548 3.84201 12.353 3.64701C12.158 3.45201 11.841 3.45201 11.646 3.64701L8.00001 7.29301L4.35401 3.64701C4.15901 3.45201 3.84201 3.45201 3.64701 3.64701C3.45201 3.84201 3.45201 4.15901 3.64701 4.35401L7.29301 8.00001L3.64701 11.646C3.45201 11.841 3.45201 12.158 3.64701 12.353C3.74501 12.451 3.87301 12.499 4.00101 12.499C4.12901 12.499 4.25701 12.45 4.35501 12.353L8.00101 8.70701L11.647 12.353C11.745 12.451 11.873 12.499 12.001 12.499C12.129 12.499 12.257 12.45 12.355 12.353C12.55 12.158 12.55 11.841 12.355 11.646L8.70901 8.00001H8.70701Z"></path></svg></button>
       </div>
@@ -946,24 +807,12 @@ button.qchk{padding:0;cursor:pointer}
     <sc-if value="{{qi.open}}" hint-placeholder-val="{{false}}">
       <div class="scrim" onClick="{{qi.close}}"></div>
       <div class="qi" role="dialog" aria-label="{{qi.label}}">
-        <sc-if value="{{qi.hasTitle}}" hint-placeholder-val="{{true}}">
-          <div class="qt">
-            <sc-if value="{{qi.hasBack}}" hint-placeholder-val="{{false}}"><button class="icon-btn sm" aria-label="Back" title="Back" onClick="{{qi.back}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.5 8.00023H3.70701L7.85301 3.85423C8.04801 3.65923 8.04801 3.34223 7.85301 3.14723C7.65801 2.95223 7.34101 2.95223 7.14601 3.14723L2.14601 8.14723C1.95101 8.34223 1.95101 8.65923 2.14601 8.85423L7.14601 13.8542C7.24401 13.9522 7.37201 14.0002 7.50001 14.0002C7.62801 14.0002 7.75601 13.9512 7.85401 13.8542C8.04901 13.6592 8.04901 13.3422 7.85401 13.1472L3.70801 9.00123H13.501C13.777 9.00123 14.001 8.77723 14.001 8.50123C14.001 8.22523 13.777 8.00123 13.501 8.00123L13.5 8.00023Z"></path></svg></button></sc-if>
-            <span class="grow">{{qi.title}}</span>
-            <sc-if value="{{qi.hasBrowse}}" hint-placeholder-val="{{false}}"><button class="icon-btn sm" aria-label="Browse..." title="Browse..." onClick="{{qi.browse}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2 4.5V6H5.58579C5.71839 6 5.84557 5.94732 5.93934 5.85355L7.29289 4.5L5.93934 3.14645C5.84557 3.05268 5.71839 3 5.58579 3H3.5C2.67157 3 2 3.67157 2 4.5ZM1 4.5C1 3.11929 2.11929 2 3.5 2H5.58579C5.98361 2 6.36514 2.15804 6.64645 2.43934L8.20711 4H12.5C13.8807 4 15 5.11929 15 6.5V11.5C15 12.8807 13.8807 14 12.5 14H3.5C2.11929 14 1 12.8807 1 11.5V4.5ZM2 7V11.5C2 12.3284 2.67157 13 3.5 13H12.5C13.3284 13 14 12.3284 14 11.5V6.5C14 5.67157 13.3284 5 12.5 5H8.20711L6.64645 6.56066C6.36514 6.84197 5.98361 7 5.58579 7H2Z"></path></svg></button></sc-if>
-          </div>
-        </sc-if>
         <div class="qin">
-          <sc-if value="{{qi.isMulti}}" hint-placeholder-val="{{false}}"><button class="qchk {{qi.allCls}}" aria-label="Toggle all checkboxes" title="Toggle all checkboxes" onClick="{{qi.toggleAll}}"><svg class="ci" width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.6572 3.13573C13.8583 2.9465 14.175 2.95614 14.3643 3.15722C14.5535 3.35831 14.5438 3.675 14.3428 3.86425L5.84277 11.8642C5.64597 12.0494 5.33756 12.0446 5.14648 11.8535L1.64648 8.35351C1.45121 8.15824 1.45121 7.84174 1.64648 7.64647C1.84174 7.45121 2.15825 7.45121 2.35351 7.64647L5.50976 10.8027L13.6572 3.13573Z"></path></svg></button></sc-if>
           <input class="input" aria-label="{{qi.label}}" placeholder="{{qi.placeholder}}" value="{{qi.value}}" onChange="{{qi.onInput}}" onKeyDown="{{qi.onKey}}">
-          <sc-if value="{{qi.isMulti}}" hint-placeholder-val="{{false}}"><span class="muted" style="white-space: nowrap">{{qi.countText}}</span></sc-if>
-          <sc-if value="{{qi.hasOk}}" hint-placeholder-val="{{false}}"><button class="btn small" onClick="{{qi.ok}}">OK</button></sc-if>
         </div>
-        <sc-if value="{{qi.hasMsg}}" hint-placeholder-val="{{false}}"><div class="qmsg">{{qi.msg}}</div></sc-if>
         <ul role="listbox" aria-label="{{qi.label}}">
           <sc-for list="{{qi.items}}" as="it" hint-placeholder-count="4">
             <li><button class="{{it.cls}}" role="option" aria-selected="{{it.sel}}" onClick="{{it.run}}">
-              <sc-if value="{{qi.isMulti}}" hint-placeholder-val="{{false}}"><span class="qchk {{it.chk}}" aria-hidden="true"><svg class="ci" width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M13.6572 3.13573C13.8583 2.9465 14.175 2.95614 14.3643 3.15722C14.5535 3.35831 14.5438 3.675 14.3428 3.86425L5.84277 11.8642C5.64597 12.0494 5.33756 12.0446 5.14648 11.8535L1.64648 8.35351C1.45121 8.15824 1.45121 7.84174 1.64648 7.64647C1.84174 7.45121 2.15825 7.45121 2.35351 7.64647L5.50976 10.8027L13.6572 3.13573Z"></path></svg></span></sc-if>
               <span class="ql">{{it.label}}</span><span class="qd">{{it.desc}}</span>
             </button></li>
           </sc-for>
@@ -972,29 +821,17 @@ button.qchk{padding:0;cursor:pointer}
     </sc-if>
     <sc-if value="{{cm.open}}" hint-placeholder-val="{{false}}">
       <div class="scrim" onClick="{{cm.close}}"></div>
-      <div class="cmenu" role="menu" aria-label="Explorer context menu" style="left: {{cm.x}}px; top: {{cm.y}}px" onKeyDown="{{cm.onKey}}">
+      <div class="cmenu" role="menu" aria-label="{{cm.label}}" style="left: {{cm.x}}px; top: {{cm.y}}px" onKeyDown="{{cm.onKey}}">
         <sc-for list="{{cm.items}}" as="it" hint-placeholder-count="6">
           <sc-if value="{{it.sep}}" hint-placeholder-val="{{false}}"><hr></sc-if>
           <sc-if value="{{it.item}}" hint-placeholder-val="{{true}}"><button role="menuitem" class="{{it.cls}}" onClick="{{it.run}}"><span>{{it.label}}</span><span class="kb">{{it.kb}}</span></button></sc-if>
         </sc-for>
       </div>
     </sc-if>
-    <sc-if value="{{dlg.open}}" hint-placeholder-val="{{false}}">
-      <div class="dscrim">
-        <div class="dlg" role="alertdialog" aria-label="{{dlg.message}}" onKeyDown="{{dlg.onKey}}">
-          <svg class="ci dic" width="32" height="32" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.49902 7.49998C8.49902 7.22384 8.27517 6.99998 7.99902 6.99998C7.72288 6.99998 7.49902 7.22384 7.49902 7.49998V10.5C7.49902 10.7761 7.72288 11 7.99902 11C8.27517 11 8.49902 10.7761 8.49902 10.5V7.49998ZM8.74807 5.50001C8.74807 5.91369 8.41271 6.24905 7.99903 6.24905C7.58535 6.24905 7.25 5.91369 7.25 5.50001C7.25 5.08633 7.58535 4.75098 7.99903 4.75098C8.41271 4.75098 8.74807 5.08633 8.74807 5.50001ZM8 1C4.13401 1 1 4.13401 1 8C1 11.866 4.13401 15 8 15C11.866 15 15 11.866 15 8C15 4.13401 11.866 1 8 1ZM2 8C2 4.68629 4.68629 2 8 2C11.3137 2 14 4.68629 14 8C14 11.3137 11.3137 14 8 14C4.68629 14 2 11.3137 2 8Z"></path></svg>
-          <div style="flex: 1; min-width: 0">
-            <h2>{{dlg.message}}</h2>
-            <sc-for list="{{dlg.detail}}" as="p" hint-placeholder-count="3"><p>{{p.t}}</p></sc-for>
-            <div class="row"><sc-for list="{{dlg.buttons}}" as="b" hint-placeholder-count="2"><button class="{{b.cls}}" onClick="{{b.run}}">{{b.label}}</button></sc-for></div>
-          </div>
-        </div>
-      </div>
-    </sc-if>
   </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"scenario":{"editor":"enum","options":["ready","agy-missing","stale","err-bad-name","err-unknown-key","err-bad-cli","err-bad-model","err-agy-effort","err-bad-effort","err-no-reviewers","err-route-writer","err-empty-route","err-undefined-reviewer","err-duplicate-reviewer","err-route-too-long","err-same-family","err-fallback-family","refused-schema","refused-unparsable","unsupported-schema","pin-layout","no-pin","no-dispatcher","old-dispatcher","no-python","untrusted"],"default":"ready"},"sidebar":{"editor":"enum","options":["explorer","kits","kits-health","sections","update-done","install-todo","install-todo-done","install-wordpress","install-laravel"],"default":"explorer"},"workspace":{"editor":"enum","options":["single","multi"],"default":"single"},"overlay":{"editor":"enum","options":["none","palette","context-menu","update-pick","update-confirm","repo-kits","repo-confirm","sync-confirm"],"default":"none"},"$preview":{"width":1440,"height":1060}}'>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"scenario":{"editor":"enum","options":["ready","agy-missing","stale","err-bad-name","err-unknown-key","err-bad-cli","err-bad-model","err-agy-effort","err-bad-effort","err-no-reviewers","err-route-writer","err-empty-route","err-undefined-reviewer","err-duplicate-reviewer","err-route-too-long","err-same-family","err-fallback-family","refused-schema","refused-unparsable","unsupported-schema","pin-layout","no-pin","no-dispatcher","old-dispatcher","no-python","untrusted"],"default":"ready"},"sidebar":{"editor":"enum","options":["explorer","kits","kits-health","kits-stamps","kits-empty","sections"],"default":"explorer"},"workspace":{"editor":"enum","options":["single","multi"],"default":"single"},"overlay":{"editor":"enum","options":["none","palette","context-menu","kit-menu"],"default":"none"},"$preview":{"width":1440,"height":1060}}'>
 // Mockup only. The extension never validates the pin itself: it runs the workspace's own
 // scripts/review-dispatch.py --check-pin --json. The validate() below imitates load_pin so the
 // mockup can show the dispatcher's exact messages; it is not a design for the product.
@@ -1025,11 +862,12 @@ const FAMILY = { codex: 'openai', agy: 'google', claude: 'anthropic' };
 const WRITER_FAMILY = { claude: 'anthropic', codex: 'openai', gemini: 'google' };
 const CLI_LABEL = { codex: 'codex (OpenAI Codex)', agy: 'agy (Antigravity)', claude: 'claude (Claude Code)' };
 const CAPTION = { claude: 'Work written by Claude Code', codex: 'Work written by OpenAI Codex', gemini: 'Work written by Gemini through Antigravity' };
-const WS = 'R:\\GitHub\\orchard-web';
-const SYNC_CMD = 'python forge.py sync ' + WS + ' --include-scripts';
-const KIT_CMD = 'python forge.py kit ' + WS + ' reviewer --agent all';
 const SHA = '97cca1d';
-const SOURCES = { bundled: 'bundled Conclave-SDK@' + SHA, path: 'R:\\GitHub\\Conclave-SDK', ref: 'rizonetech/Conclave-SDK@' + SHA };
+const SOURCES = { bundled: 'bundled Conclave-SDK@' + SHA, path: 'R:\\GitHub\\Conclave-SDK' };
+// R41: the extension never installs or updates kits. It shows the request for the operator's agent (the
+// adopt-conclave skill, which previews every write with forge first) and the forge command it stands for, to copy.
+function importReq(folder, kit) { return { ask: 'Ask your agent: adopt-conclave, add the ' + kit + ' kit to ' + folder.path, cmd: 'python forge.py kit ' + folder.path + ' ' + kit }; }
+function updateReq(folder, scripts) { return { ask: 'Ask your agent: adopt-conclave, update the kits in ' + folder.path, cmd: 'python forge.py sync ' + folder.path + (scripts ? ' --include-scripts' : '') }; }
 
 // The Kits view. Every list below mirrors forge.py at 97cca1d: the kit templates, apply_kit's
 // --dry-run lists and doctor_repo's checks. The extension reads these from forge; it never keeps them.
@@ -1040,7 +878,6 @@ const FOLDERS = [
 const KITS = ['base', 'laravel', 'reviewer', 'todo', 'wordpress'];
 const AGENT_DIRS = ['.agents', '.claude', '.codex'];
 const ENTRY_DOCS = ['AGENTS.md', 'GEMINI.md', 'CLAUDE.md', 'CODEX.md'];
-const PROTECTED = ['AGENTS.md', 'GEMINI.md', 'CLAUDE.md', 'CODEX.md', '.conclave/reviewers.toml', 'todo/', 'docs/'];
 const TODO_SKILLS = ['add-todo', 'create-todo', 'groom-plan', 'process-phase', 'process-plan', 'process-todo-file', 'process-todo-section', 'review-todo-section'];
 const WP_PIN = '.conclave/wordpress-site.json';
 function skillFiles(skills, extra) {
@@ -1096,27 +933,18 @@ const ROUND_RECORDS = [
   // --list-rounds names a file it cannot read back in `unreadable`; it is shown, never dropped.
   { file: 'docs/reviews/hand-edited.md', unreadable: true, rounds: [] }
 ];
-// R24: what the SDK source refuses, and the way out. Nothing is downloaded or run in any of them.
+// R24: the SDK source is the SDK bundled in the extension; conclave.sdkPath overrides it for work on the SDK
+// itself. A path that is not an SDK checkout is refused, and nothing is run.
 const BAD_SDK_PATH = 'R:\\GitHub\\conclave-sdk-old';
 const SRC_FAIL = {
-  'src-signin': { src: 'ref', title: 'GitHub sign-in was cancelled.', body: 'conclave.sdkRef is set, so forge.py comes from rizonetech/Conclave-SDK, which needs a GitHub account in the rizonetech organization (repo scope).', actions: [['Sign in to GitHub', 'btn', 'signin'], ['Use the bundled SDK', 'btn2', 'bundled']] },
-  'src-no-access': { src: 'ref', title: 'GitHub returned 404 for rizonetech/Conclave-SDK.', body: 'The signed-in GitHub account cannot read it. The repository is internal to the rizonetech organization: ask an organization owner for access, or sign in with a member account.', actions: [['Sign in with another account', 'btn', 'other'], ['Use the bundled SDK', 'btn2', 'bundled']] },
-  'src-rate-limit': { src: 'ref', title: 'The GitHub API rate limit is used up until 18:42.', body: 'Resolving conclave.sdkRef (main) to a commit calls the GitHub API.', actions: [['Retry', 'btn', 'retry'], ['Use the bundled SDK', 'btn2', 'bundled']] },
-  'src-offline': { src: 'ref', title: 'Could not reach api.github.com.', body: 'Resolving conclave.sdkRef (main) to a commit needs the network. Commits downloaded earlier stay cached, but a branch name is resolved online every time.', actions: [['Retry', 'btn', 'retry'], ['Use the bundled SDK', 'btn2', 'bundled']] },
-  'src-bad-path': { src: 'path', title: 'conclave.sdkPath is not a Conclave-SDK checkout.', body: BAD_SDK_PATH + ' has no forge.py. The setting must point at a folder that holds forge.py and kits/.', actions: [['Open Settings', 'btn', 'settings'], ['Use the bundled SDK', 'btn2', 'bundled']] }
+  'src-bad-path': { src: 'path', title: 'conclave.sdkPath is not a Conclave-SDK checkout.', body: BAD_SDK_PATH + ' has no forge.py. The setting must point at a folder that holds forge.py and kits/.', actions: [['Open Settings', 'settings'], ['Use the bundled SDK', 'bundled']] }
 };
-// Example data for R29: the files of orchard-web that differ from the SDK's copy, by kit. Missing kit files
-// come from forge's own dry run; forge sync writes only what is missing or different.
-const UPDATE_STALE = { web: { todo: ['.agents/skills/process-todo-section/SKILL.md', '.claude/skills/process-todo-section/SKILL.md', '.codex/skills/process-todo-section/SKILL.md'] } };
-const UPDATE_STALE_SCRIPTS = { web: { todo: ['scripts/todo-graph.py'] } };
-const SYNC_SCOPE = 'It never changes an existing AGENTS.md, GEMINI.md, CLAUDE.md, CODEX.md, docs/, todo/ or .conclave/reviewers.toml, and Conclave checks that by hash afterwards.';
-// R31: the new repository wizard's choices, as forge.py init takes them (copy is an alias of isolated).
-const REPO_KITS = [['todo', 'TODO plan and process skills, scripts/todo-graph.py'], ['reviewer', 'Independent review: the reviewer pin and scripts/review-dispatch.py'], ['laravel', 'Laravel Boost and LSP checks; needs an existing Laravel app'], ['wordpress', 'WordPress site tooling for Pressable or WordPress.com']];
-const REPO_AGENTS = [['all', 'Every agent: .agents, .claude and .codex'], ['agy', 'Antigravity'], ['gemini', 'Gemini, the same files as agy'], ['claude', 'Claude Code'], ['codex', 'OpenAI Codex']];
-const REPO_MODES = [['isolated', 'Default: the kits are copied in, the repository is self-contained', 'Default: the kits are copied in, the repository is self-contained'],
-  ['hybrid', 'Copied in, plus .agents/skills.json pointing at the kits', 'The same as isolated for this agent: forge writes the Antigravity manifest only for all or agy'],
-  ['inherit', 'Copied in except the Antigravity skills: .agents/skills.json and plugins.json point at the kits', 'The same as isolated for this agent: forge writes the Antigravity manifests only for all or agy']];
-const REPO_DEFAULT = { folder: 'R:\\GitHub\\orchard-docs', kits: { todo: true, reviewer: true, laravel: false, wordpress: false }, agent: 'all', mode: 'isolated', host: 'pressable' };
+// R38 to R40: the stamp forge writes into a folder on every install (.conclave/kits.json: each kit's digest, and
+// the SDK commit and date it came from), compared with the source's own digest. Example stamps for kits-stamps:
+// orchard-web's reviewer kit came from a later SDK than the bundled 97cca1d, its todo kit from an earlier one,
+// from before todo/plan.json was added to the kit.
+const SDK_DATE = '2026-10-16 16:25';
+const STAMPS = { newer: { commit: '9bd9cb1', date: '2026-10-20 09:08' }, older: { commit: '13def33', date: '2026-10-16 09:00' } };
 const CLI_PATH = { codex: 'C:\\Users\\dev\\AppData\\Roaming\\npm\\codex.CMD', agy: 'C:\\Users\\dev\\AppData\\Local\\Programs\\Antigravity\\bin\\agy.CMD', claude: 'C:\\Users\\dev\\.local\\bin\\claude.EXE' };
 
 // Paths sort the way pathlib sorts them on Windows: part by part, ignoring case.
@@ -1232,10 +1060,6 @@ const SCENARIOS = [
   ['old-dispatcher', 'Dispatcher without --check-pin'],
   ['no-python', 'No Python 3.11 or later'],
   ['untrusted', 'Workspace not trusted'],
-  ['src-signin', 'SDK source: GitHub sign-in cancelled'],
-  ['src-no-access', 'SDK source: no access to the repository'],
-  ['src-rate-limit', 'SDK source: GitHub rate limit'],
-  ['src-offline', 'SDK source: offline'],
   ['src-bad-path', 'SDK source: conclave.sdkPath unusable']
 ];
 
@@ -1373,8 +1197,7 @@ class Component extends DCLogic {
       stale: b.env.stale, staleKept: false, screen: b.env.screen,
       renaming: null, renameDraft: '', renameErr: '', confirmDelete: null,
       adding: false, draft: { name: '', cli: 'claude', model: '', effort: 'high' }, addErr: '',
-      test: null, view: 'preview', confirmDiscard: false, toast: '', toastActs: [],
-      sync: this.props.overlay === 'sync-confirm' ? 'confirm' : null, syncRes: null
+      test: null, view: 'preview', confirmDiscard: false, toast: ''
     };
   }
   e() { const s = this.state && this.state.e; return s && s.for === this.scen() ? s : this.fresh(); }
@@ -1383,12 +1206,13 @@ class Component extends DCLogic {
   toastPatch(msg) {
     clearTimeout(this._toastT);
     this._toastT = setTimeout(() => { if (this.e().toast === msg) this.upd({ toast: '' }); }, 3200);
-    return { toast: msg, toastActs: [] };
+    return { toast: msg };
   }
   flash(msg) { this.upd(this.toastPatch(msg)); }
-  // A notification with buttons stays until it is answered or cleared, as VS Code's do.
-  notify(msg, acts) { clearTimeout(this._toastT); this.upd({ toast: msg, toastActs: acts }); }
-  componentWillUnmount() { clearTimeout(this._toastT); clearTimeout(this._testT); clearTimeout(this._installT); }
+  // Copying shows what went to the clipboard; the agent request and the forge command are copied as two lines.
+  copyReq(req) { this.flash('Copied to the clipboard: "' + req.ask + '", then "' + req.cmd + '".'); }
+  copyLine(text) { this.flash('Copied to the clipboard: "' + text + '".'); }
+  componentWillUnmount() { clearTimeout(this._toastT); clearTimeout(this._testT); }
 
   setCli(id, v) {
     if (CLIS.indexOf(v) < 0) return;
@@ -1453,124 +1277,55 @@ class Component extends DCLogic {
     }, 2400);
   }
 
-  side() { return (this.state && this.state.side) || (this.base().env.srcFail || (this.props.sidebar || 'explorer') !== 'explorer' ? 'conclave' : 'explorer'); }
+  side() { return (this.state && this.state.side) || (this.base().env.srcFail || (this.props.sidebar || 'explorer') !== 'explorer' || this.props.overlay === 'kit-menu' ? 'conclave' : 'explorer'); }
   srcKey() { const f = this.base().env.srcFail; return (this.state && this.state.src) || (f ? SRC_FAIL[f].src : 'bundled'); }
   srcLabel() { const key = this.srcKey(); return key === 'path' && this.base().env.srcFail === 'src-bad-path' ? BAD_SDK_PATH : SOURCES[key]; }
   srcFailNow() { const f = this.base().env.srcFail; return f && this.srcKey() === SRC_FAIL[f].src ? SRC_FAIL[f] : null; }
   srcActions(fail) {
     const self = this;
     const run = {
-      signin: function () { self.flash('Opens the GitHub sign-in with the repo scope, then resolves conclave.sdkRef again.'); },
-      other: function () { self.flash('Asks GitHub for another account, then resolves conclave.sdkRef again.'); },
-      retry: function () { self.flash('Tried again: GitHub gives the same answer.'); },
       settings: function () { self.flash('Opens Settings at conclave.sdkPath.'); },
-      bundled: function () { self.setState({ src: 'bundled' }); self.flash('Removed conclave.' + (fail.src === 'path' ? 'sdkPath' : 'sdkRef') + ' from this workspace: forge.py now comes from the bundled SDK.'); }
+      bundled: function () { self.setState({ src: 'bundled' }); self.flash('Removed conclave.sdkPath from this workspace: forge.py now comes from the bundled SDK.'); }
     };
-    return fail.actions.map(function (a) { return { label: a[0], cls: a[1], run: run[a[2]] }; });
+    return fail.actions.map(function (a) { return { label: a[0], run: run[a[1]] }; });
   }
   ov() {
     if (this.state && this.state.ov !== undefined) return this.state.ov;
     const o = this.props.overlay || 'none';
     if (o === 'palette') return { kind: 'palette' };
     if (o === 'context-menu') return { kind: 'menu' };
-    if (o === 'update-pick') return { kind: 'update-pick' };
-    if (o === 'update-confirm') return { kind: 'update-confirm', scripts: true };
-    if (o === 'repo-kits') return Object.assign(clone(REPO_DEFAULT), { kind: 'repo', step: 2 });
-    if (o === 'repo-confirm') return Object.assign(clone(REPO_DEFAULT), { kind: 'repo-confirm' });
+    if (o === 'kit-menu') return { kind: 'kit-menu', kit: 'todo' };
     return null;
   }
   setOv(v) { this.setState({ ov: v }); }
   tab() { return (this.state && this.state.tab) || (this.props.overlay === 'context-menu' ? 'toml' : 'editor'); }
-  // forge.py sync for one folder: kit files that are missing are added, files that differ are updated.
-  syncResult(k, folderId, scripts) {
-    const self = this;
-    const f = FOLDERS.find(function (x) { return x.id === folderId; });
-    const has = this.hasMap(k, folderId);
-    const host = k.hosts[folderId] || 'pressable';
-    const fresh = !!(k.synced && k.synced[folderId]);
-    const freshScripts = !!(k.syncedScripts && k.syncedScripts[folderId]);
-    const stale = fresh ? {} : (UPDATE_STALE[folderId] || {});
-    const staleScripts = freshScripts ? {} : clone(UPDATE_STALE_SCRIPTS[folderId] || {});
-    if (!freshScripts && folderId === 'web' && this.base().env.screen === 'old-dispatcher') staleScripts.reviewer = (staleScripts.reviewer || []).concat(['scripts/review-dispatch.py']);
-    const kits = KITS.filter(function (kit) { return kit === 'base' || self.kitInfo(k, f, kit).state !== 'none'; }).map(function (kit) {
-      const r = dryRun(f, has, kit, 'all', host);
-      const installed = !r.error ? r.add.filter(function (p) { return p !== '.mcp.json'; }) : [];
-      const updated = (stale[kit] || []).concat(scripts ? (staleScripts[kit] || []) : []);
-      return { kit: kit, installed: sortPaths(installed), updated: sortPaths(updated) };
-    });
-    return { folder: folderId, scripts: scripts, kits: kits, argv: 'python forge.py sync ' + f.path + (scripts ? ' --include-scripts' : '') };
-  }
-  applySync(k, res) {
-    const added = Object.assign({}, k.added);
-    added[res.folder] = (added[res.folder] || []).concat([].concat.apply([], res.kits.map(function (x) { return x.installed; })));
-    const synced = Object.assign({}, k.synced || {});
-    synced[res.folder] = true;
-    const syncedScripts = Object.assign({}, k.syncedScripts || {});
-    if (res.scripts) syncedScripts[res.folder] = true;
-    return { added: added, synced: synced, syncedScripts: syncedScripts };
-  }
-  syncText(res) {
-    const n = function (a, w) { return a + (a === 1 ? ' file ' : ' files ') + w; };
-    const added = res.kits.reduce(function (t, x) { return t + x.installed.length; }, 0);
-    const updated = res.kits.reduce(function (t, x) { return t + x.updated.length; }, 0);
-    const touched = [].concat.apply([], res.kits.map(function (x) { return x.installed; })).filter(function (p) { return PROTECTED.some(function (x) { return x.charAt(x.length - 1) === '/' ? p.indexOf(x) === 0 : p === x; }); });
-    return {
-      done: added + updated === 0 ? 'Nothing to do: every kit file matches the SDK.' : n(added, 'added') + ', ' + n(updated, 'updated') + '.',
-      hash: 'Checked by hash: ' + PROTECTED.join(', ') + ' are unchanged' + (touched.length ? ', apart from ' + joinList(touched) + ', which forge reported adding.' : '.')
-    };
-  }
-  runSync(scripts, then) {
-    const fail = this.srcFailNow();
-    const self = this;
-    if (fail) {
-      this.notify(fail.title + ' ' + fail.body, this.srcActions(fail).map(function (a) { return { label: a.label, run: function () { self.upd({ toast: '' }); a.run(); } }; }));
-      return null;
-    }
-    const k = this.ks();
-    const res = this.syncResult(k, k.cur, scripts);
-    this.kupd(Object.assign(this.applySync(k, res), then ? then(res) : {}));
-    return res;
-  }
   wsKey() { return (this.state && this.state.ws) || this.props.workspace || 'single'; }
   kitsFor() { return this.scen() + '|' + this.wsKey(); }
   // The Kits view's state: the current folder (the only one in a one-folder window; in a multi-root
-  // workspace the active editor's folder, or the one Switch folder picked), files each folder gained
-  // from installs here, expanded rows, and the installer.
+  // workspace the active editor's folder, or the one Switch folder picked), example files and kit stamps
+  // per folder, a folder with no kit at all (bare), and expanded and selected rows.
   freshKits() {
     const pre = this.props.sidebar || 'explorer';
-    const multi = this.wsKey() === 'multi';
-    const shut = pre.indexOf('install') === 0 || pre === 'update-done';
-    const k = { for: this.kitsFor(), cur: multi && pre === 'install-laravel' ? 'api' : 'web', added: { web: [], api: [] }, hosts: {}, open: {}, sel: null, ins: null, upd: null, synced: {}, syncedScripts: {}, kitsOpen: true, panes: { reviewers: !shut, plan: !shut, rounds: !shut, site: !shut } };
-    const insFor = function (folder, kit, step) { return { folder: folder, kit: kit, step: step, agent: 'all', host: 'pressable', result: null }; };
+    const k = { for: this.kitsFor(), cur: 'web', added: { web: [], api: [] }, hosts: {}, stamps: {}, bare: {}, open: {}, sel: null, kitsOpen: true, panes: { reviewers: true, plan: true, rounds: true, site: true } };
     if (pre === 'kits-health') { k.open['web/reviewer'] = true; k.sel = 'web/reviewer'; }
-    if (pre === 'install-todo') { k.ins = insFor('web', 'todo', 'preview'); k.sel = 'web/todo'; }
-    if (pre === 'install-wordpress') { k.ins = insFor('web', 'wordpress', 'preview'); k.sel = 'web/wordpress'; }
-    if (pre === 'install-laravel') { k.ins = insFor(k.cur, 'laravel', 'preview'); k.sel = k.cur + '/laravel'; }
-    if (this.base().env.srcFail) { k.ins = insFor(k.cur, 'todo', 'preview'); k.sel = k.cur + '/todo'; }
-    if (pre === 'update-done') {
-      const res = this.syncResult(k, k.cur, true);
-      Object.assign(k, this.applySync(k, res), { upd: res });
-    }
+    if (pre === 'kits-stamps') k.stamps.web = { reviewer: STAMPS.newer, todo: STAMPS.older };
+    if (pre === 'kits-empty') k.bare.web = true;
     if (pre === 'sections') {
       k.added.web = dryRun(FOLDERS[0], this.hasMap(k, 'web'), 'wordpress', 'all', 'pressable').add;
       k.hosts.web = 'pressable';
     }
-    if (pre === 'install-todo-done') {
-      k.ins = insFor('web', 'todo', 'done'); k.sel = 'web/todo';
-      k.ins.result = dryRun(FOLDERS[0], this.hasMap(k, 'web'), 'todo', 'all', 'pressable');
-      k.added.web = k.ins.result.add.slice();
-    }
+    if (this.props.overlay === 'kit-menu') k.sel = 'web/todo';
     return k;
   }
   ks() { const s = this.state && this.state.k; return s && s.for === this.kitsFor() ? s : this.freshKits(); }
   kupd(patch) { this.setState({ k: Object.assign({}, this.ks(), patch) }); }
-  insUpd(patch) { const k = this.ks(); this.kupd({ ins: Object.assign({}, k.ins, patch) }); }
   hasMap(k, folderId) {
     const m = {};
-    startFiles(folderId, this.base().env.screen).concat(k.added[folderId] || []).forEach(function (f) { m[f] = true; });
+    (k.bare[folderId] ? [] : startFiles(folderId, this.base().env.screen)).concat(k.added[folderId] || []).forEach(function (f) { m[f] = true; });
     return m;
   }
-  // State from forge's own dry run (agent all), health from doctor.
+  // State from forge's own dry run (agent all), health from doctor, and the folder's kit stamp: a kit
+  // stamped by a newer or an older SDK than the source reads as that, never as partly installed.
   kitInfo(k, f, kit) {
     const has = this.hasMap(k, f.id);
     const host = k.hosts[f.id] || 'pressable';
@@ -1581,28 +1336,10 @@ class Component extends DCLogic {
       missing = r.add.filter(function (x) { return x !== '.mcp.json'; }).length;
       state = missing === 0 ? 'installed' : (missing === r.owned ? 'none' : 'partly');
     }
+    const st = state !== 'none' && k.stamps[f.id] ? k.stamps[f.id][kit] || null : null;
+    const stamp = !st ? null : (st.date > SDK_DATE ? 'newer' : 'older');
     const checks = state === 'none' ? [] : doctor(f, has, kit, host, this.base().env.clis);
-    return { state: state, missing: missing, checks: checks, bad: checks.filter(function (c) { return c.status !== 'ok'; }).length };
-  }
-  openInstall(folderId, kit) {
-    clearTimeout(this._installT);
-    const k = this.ks();
-    this.setState({ side: 'conclave', k: Object.assign({}, k, { kitsOpen: true, sel: folderId + '/' + kit, ins: { folder: folderId, kit: kit, step: 'choose', agent: 'all', host: k.hosts[folderId] || 'pressable', result: null } }) });
-  }
-  runInstall(result, host) {
-    const self = this;
-    this.insUpd({ step: 'running', result: result });
-    clearTimeout(this._installT);
-    this._installT = setTimeout(function () {
-      const k = self.ks();
-      if (!k.ins || k.ins.step !== 'running') return;
-      const added = Object.assign({}, k.added);
-      added[k.ins.folder] = (added[k.ins.folder] || []).concat(result.add);
-      const hosts = Object.assign({}, k.hosts);
-      if (k.ins.kit === 'wordpress') hosts[k.ins.folder] = host;
-      self.kupd({ added: added, hosts: hosts, ins: Object.assign({}, k.ins, { step: 'done' }) });
-      if (k.ins.kit === 'reviewer' && k.ins.folder === 'web' && self.e().screen === 'no-pin') self.upd(Object.assign({ screen: 'editor' }, self.toastPatch('Reviewer pin added. Re-checked with --check-pin: ok.')));
-    }, 1400);
+    return { state: state, missing: missing, stamp: stamp, stampFrom: st, checks: checks, bad: checks.filter(function (c) { return c.status !== 'ok'; }).length };
   }
 
   // One section per feature under the Kits tree, each shown only while its kit is in the folder.
@@ -1612,7 +1349,7 @@ class Component extends DCLogic {
     const has = this.hasMap(k, f.id);
     const flash = function (msg) { return function () { self.flash(msg); }; };
     const row = function (o) {
-      return Object.assign({ cls: '', pad: 2, expandable: false, leaf: true, open: false, shut: true, toggle: function () {}, iOk: false, iWarn: false, iBad: false, iInfo: false, iReady: false, iBlocked: false, iFile: false, iRoute: false, label: '', lblCls: '', desc: '', title: '', hasAct: false, actLabel: '', act: function () {}, actInstall: false, actGo: false, hasBadge: false, badge: '', badgeCls: '' }, o);
+      return Object.assign({ cls: '', pad: 2, expandable: false, leaf: true, open: false, shut: true, toggle: function () {}, iOk: false, iWarn: false, iBad: false, iInfo: false, iReady: false, iBlocked: false, iFile: false, iRoute: false, label: '', lblCls: '', desc: '', title: '', hasAct: false, actLabel: '', act: function () {}, actCopy: false, actGo: false, hasBadge: false, badge: '', badgeCls: '' }, o);
     };
     const fold = function (key, def) { return k.open[key] === undefined ? def : k.open[key]; };
     const setFold = function (key, val) { const open = Object.assign({}, self.ks().open); open[key] = val; self.kupd({ open: open }); };
@@ -1630,7 +1367,9 @@ class Component extends DCLogic {
 
     if (kitIn('reviewer')) {
       const rows = [];
-      const install = function () { self.openInstall(f.id, 'reviewer'); };
+      // The pin and dispatcher states copy the same agent request as their editor screens.
+      const copyImport = function () { self.copyReq(importReq(f, 'reviewer')); };
+      const copyUpdate = function () { self.copyReq(updateReq(f, true)); };
       const s = e.screen;
       let ok = false;
       if (s === 'editor') {
@@ -1641,9 +1380,9 @@ class Component extends DCLogic {
       } else if (s === 'refused') rows.push(row({ iBad: true, label: 'reviewers.toml', desc: 'refused: ' + env.refused.msg, title: env.refused.msg }));
       else if (s === 'unsupported-schema') rows.push(row({ iWarn: true, label: 'reviewers.toml', desc: 'newer schema than this extension reads' }));
       else if (s === 'pin-layout') { rows.push(row({ iWarn: true, label: 'reviewers.toml', desc: 'valid; a layout the editor does not edit' })); ok = true; }
-      else if (s === 'no-pin') rows.push(row({ iInfo: true, label: 'No reviewer pin', desc: '.conclave/reviewers.toml is missing', hasAct: true, actLabel: 'Install reviewer kit', act: install, actInstall: true }));
-      else if (s === 'no-dispatcher') rows.push(row({ iBad: true, label: 'No dispatcher', desc: 'scripts/review-dispatch.py is missing', hasAct: true, actLabel: 'Install reviewer kit', act: install, actInstall: true }));
-      else if (s === 'old-dispatcher') rows.push(row({ iWarn: true, label: 'Dispatcher too old', desc: 'no --check-pin; update from Conclave-SDK' }));
+      else if (s === 'no-pin') rows.push(row({ iInfo: true, label: 'No reviewer pin', desc: '.conclave/reviewers.toml is missing', hasAct: true, actLabel: 'Copy import request', act: copyImport, actCopy: true }));
+      else if (s === 'no-dispatcher') rows.push(row({ iBad: true, label: 'No dispatcher', desc: 'scripts/review-dispatch.py is missing', hasAct: true, actLabel: 'Copy update request', act: copyUpdate, actCopy: true }));
+      else if (s === 'old-dispatcher') rows.push(row({ iWarn: true, label: 'Dispatcher too old', desc: 'no --check-pin; ask your agent to update the kits', hasAct: true, actLabel: 'Copy update request', act: copyUpdate, actCopy: true }));
       else if (s === 'no-python') rows.push(row({ iBad: true, label: 'No Python 3.11 or later', desc: 'nothing runs until one is found' }));
       else if (s === 'untrusted') rows.push(row({ iWarn: true, label: 'Restricted Mode', desc: 'trust the workspace to run the dispatcher' }));
       let missing = 0;
@@ -1669,7 +1408,7 @@ class Component extends DCLogic {
       const named = !!has['todo/plan.json'];
       const names = named ? PHASE_KIT : PHASE_DEFAULTS;
       const phaseName = function (n) { return names[n] || 'Phase ' + n; };
-      if (!named) rows.push(row({ iWarn: true, label: 'No todo/plan.json', desc: 'phases show as numbers', title: 'todo-graph.py falls back to bare phase numbers without todo/plan.json', hasAct: true, actLabel: 'Install the missing todo kit file', act: function () { self.openInstall(f.id, 'todo'); }, actInstall: true }));
+      if (!named) rows.push(row({ iWarn: true, label: 'No todo/plan.json', desc: 'phases show as numbers', title: 'todo-graph.py falls back to bare phase numbers without todo/plan.json', hasAct: true, actLabel: 'Copy import request', act: function () { self.copyReq(importReq(f, 'todo')); }, actCopy: true }));
       const open = function (sec) { return flash('Opens ' + sec.path + ' at ' + sec.ref.split(' ').pop() + '.'); };
       const secRow = function (sec, pad) {
         return row({ pad: pad, iOk: sec.status === 'verified', iReady: sec.status === 'ready', iBlocked: sec.status === 'blocked', label: sec.ref, desc: sec.title + (sec.why ? ' (' + sec.why + ')' : ''), title: sec.status + ': ' + sec.title, hasAct: true, actLabel: 'Open ' + sec.ref, act: open(sec), actGo: true });
@@ -1726,104 +1465,63 @@ class Component extends DCLogic {
     return panes;
   }
 
-  // The native overlays: Command Palette and quick picks, the Explorer context menu, and modal dialogs.
-  overlays(k, cur, e) {
+  // The native overlays: the Command Palette, the Explorer context menu and a kit row's context menu.
+  overlays(k, cur, e, kitRows) {
     const self = this;
     const o = this.ov();
     const close = function () { self.setOv(null); };
-    const qi = { open: false, label: '', hasTitle: false, title: '', hasBack: false, back: close, hasBrowse: false, browse: function () {}, placeholder: '', value: '', onInput: function () {}, onKey: function () {}, isMulti: false, allCls: '', toggleAll: function () {}, countText: '', hasOk: false, ok: close, hasMsg: false, msg: '', items: [], close: close };
-    const cm = { open: false, x: 0, y: 0, items: [], close: close, onKey: function () {} };
-    const dlg = { open: false, message: '', detail: [], buttons: [], onKey: function () {} };
-    if (!o) return { qi: qi, cm: cm, dlg: dlg };
-    const item = function (label, desc, run, act, chk) { return { label: label, desc: desc, run: run, cls: act ? 'act' : '', sel: !!act, chk: chk || '' }; };
-    const srcLabel = this.srcLabel();
+    const qi = { open: false, label: '', placeholder: '', value: '', onInput: function () {}, onKey: function () {}, items: [], close: close };
+    const cm = { open: false, label: '', x: 0, y: 0, items: [], close: close, onKey: function () {} };
+    if (!o) return { qi: qi, cm: cm };
+    const item = function (label, desc, run, act) { return { label: label, desc: desc, run: run, cls: act ? 'act' : '', sel: !!act }; };
     if (o.kind === 'palette') {
       const cmds = [['Conclave: Open Reviewer Settings', function () { self.setState({ ov: null, tab: 'editor' }); }],
-        ['Conclave: Update Kits', function () { self.setOv({ kind: 'update-pick' }); }],
-        ['Conclave: Set Up a New Repository', function () { self.setOv(Object.assign(clone(REPO_DEFAULT), { kind: 'repo', step: 1 })); }],
         ['Conclave: Refresh Kits', function () { close(); self.flash('Refreshed: forge.py kits, then kit --dry-run and doctor for ' + cur.name + '.'); }]];
-      if (this.wsKey() === 'multi') cmds.push(['Conclave: Switch Folder', function () { close(); const c = self.ks(); self.kupd({ cur: c.cur === 'web' ? 'api' : 'web', ins: null, sel: null, upd: null }); }]);
+      if (this.wsKey() === 'multi') cmds.push(['Conclave: Switch Folder', function () { close(); const c = self.ks(); self.kupd({ cur: c.cur === 'web' ? 'api' : 'web', sel: null }); }]);
       Object.assign(qi, { open: true, label: 'Command Palette', value: '>conclave', placeholder: 'Type the name of a command to run.', items: cmds.map(function (c, i) { return item(c[0], '', c[1], i === 0); }) });
     } else if (o.kind === 'menu') {
       const chrome = function () { close(); };
       const rows = [['Open to the Side', 'Ctrl+Enter'], ['Open With...', ''], null, ['Open in Conclave Reviewers', '', function () { self.setState({ ov: null, tab: 'editor' }); }, true], null,
         ['Reveal in File Explorer', 'Shift+Alt+R'], ['Open in Integrated Terminal', ''], null, ['Select for Compare', ''], null, ['Cut', 'Ctrl+X'], ['Copy', 'Ctrl+C'], null,
         ['Copy Path', 'Shift+Alt+C'], ['Copy Relative Path', 'Ctrl+K Ctrl+Shift+C'], null, ['Rename...', 'F2'], ['Delete', 'Delete']];
-      Object.assign(cm, { open: true, x: 170, y: this.wsKey() === 'multi' ? 224 : 202, items: rows.map(function (r) { return r ? { sep: false, item: true, label: r[0], kb: r[1], run: r[2] || chrome, cls: r[3] ? 'act' : '' } : { sep: true, item: false, label: '', kb: '', run: chrome, cls: '' }; }) });
-    } else if (o.kind === 'update-pick') {
-      const pick = function (scripts) { return function () { self.setOv({ kind: 'update-confirm', scripts: scripts }); }; };
-      Object.assign(qi, { open: true, label: 'Update Kits', hasTitle: true, title: 'Update Kits in ' + cur.name, placeholder: 'Choose what forge.py sync refreshes',
-        items: [item('Skills, rules and subagents', 'python forge.py sync', pick(false), true), item('Also existing scripts/ and bin/ files', 'python forge.py sync --include-scripts', pick(true))] });
-    } else if (o.kind === 'update-confirm') {
-      const kitsHere = KITS.filter(function (kit) { return kit === 'base' || self.kitInfo(k, cur, kit).state !== 'none'; });
-      const argv = 'python forge.py sync ' + cur.path + (o.scripts ? ' --include-scripts' : '');
-      Object.assign(dlg, { open: true, message: 'Update the kits in ' + cur.name + ' from ' + srcLabel + '?',
-        detail: [{ t: 'forge.py sync refreshes ' + joinList(kitsHere) + ': skills, rules and subagents' + (o.scripts ? ', and existing scripts/ and bin/ files,' : '') + ' and adds any kit file that is missing.' }, { t: SYNC_SCOPE }, { t: 'Runs: ' + argv }],
-        buttons: [{ label: 'Update', cls: 'btn', run: function () { self.setState({ ov: null, side: 'conclave' }); self.runSync(o.scripts, function (res) { return { upd: res, ins: null, kitsOpen: true }; }); } }, { label: 'Cancel', cls: 'btn2', run: close }] });
-    } else if (o.kind === 'repo') {
-      const wp = !!o.kits.wordpress;
-      const total = wp ? 5 : 4;
-      const go = function (patch) { self.setOv(Object.assign({}, o, patch)); };
-      const base = { open: true, label: 'Set Up a New Repository', hasTitle: true, title: 'Set Up a New Repository (' + o.step + '/' + total + ')', hasBack: o.step > 1, back: function () { go({ step: o.step - 1 }); } };
-      const next = function (patch) { const n = Object.assign({}, o, patch); self.setOv(n.step + 1 > (n.kits.wordpress ? 5 : 4) ? Object.assign(n, { kind: 'repo-confirm' }) : Object.assign(n, { step: n.step + 1 })); };
-      if (o.step === 1) {
-        Object.assign(qi, base, { value: o.folder, placeholder: 'Folder for the new repository', onInput: function (ev) { go({ folder: ev.target.value }); }, ok: function () { next({}); },
-          hasBrowse: true, browse: function () { go({ folder: 'R:\\GitHub\\orchard-mobile' }); self.flash('Chose R:\\GitHub\\orchard-mobile in the folder picker.'); }, hasMsg: true,
-          msg: "forge.py init creates the folder if it does not exist and never overwrites an AGENTS.md, GEMINI.md, CLAUDE.md or CODEX.md already in it. Press 'Enter' to confirm your input or 'Escape' to cancel." });
-      } else if (o.step === 2) {
-        const n = REPO_KITS.filter(function (x) { return o.kits[x[0]]; }).length;
-        const all = n === REPO_KITS.length;
-        Object.assign(qi, base, { placeholder: 'Kits to install; base is always installed', isMulti: true, countText: n + ' Selected', hasOk: true, ok: function () { next({}); },
-          allCls: all ? 'on' : '', toggleAll: function () { const kits = {}; REPO_KITS.forEach(function (x) { kits[x[0]] = !all; }); go({ kits: kits }); },
-          items: REPO_KITS.map(function (x, i) { const on = !!o.kits[x[0]]; return item(x[0], x[1], function () { const kits = Object.assign({}, o.kits); kits[x[0]] = !on; go({ kits: kits }); }, i === 0, on ? 'on' : ''); }) });
-      } else if (o.step === 3) {
-        Object.assign(qi, base, { placeholder: 'Agent folders to install', items: REPO_AGENTS.map(function (x) { return item(x[0], x[1], function () { next({ agent: x[0] }); }, x[0] === o.agent); }) });
-      } else if (o.step === 4) {
-        const agy = o.agent === 'all' || o.agent === 'agy' || o.agent === 'gemini';
-        Object.assign(qi, base, { placeholder: 'Provisioning mode', items: REPO_MODES.map(function (x) { return item(x[0], agy ? x[1] : x[2], function () { next({ mode: x[0] }); }, x[0] === o.mode); }) });
-      } else {
-        Object.assign(qi, base, { placeholder: 'WordPress host', items: [['pressable', 'Pressable'], ['wpcom', 'WordPress.com']].map(function (x) { return item(x[0], x[1], function () { next({ host: x[0] }); }, x[0] === o.host); }) });
-      }
-    } else if (o.kind === 'repo-confirm') {
-      const kits = REPO_KITS.filter(function (x) { return o.kits[x[0]]; }).map(function (x) { return x[0]; });
-      const wp = kits.indexOf('wordpress') >= 0;
-      const name = o.folder.split('\\').pop();
-      const argv = 'python forge.py init ' + o.folder + kits.map(function (x) { return ' --kit ' + x; }).join('') + ' --agent ' + o.agent + ' --mode ' + o.mode + (wp ? ' --wp-host ' + o.host : '');
-      const run = function () {
-        self.setOv(null);
-        const fail = self.srcFailNow();
-        if (fail) { self.notify(fail.title + ' ' + fail.body, self.srcActions(fail).map(function (a) { return { label: a.label, run: function () { self.upd({ toast: '' }); a.run(); } }; })); return; }
-        if (kits.indexOf('laravel') >= 0) { self.notify('forge.py: error: No artisan found under ' + o.folder + ' (looked at root, platform/, and first-level children).', [{ label: 'Show log', run: function () { self.flash('Opens the Conclave output channel at this run.'); } }]); return; }
-        const done = function (msg) { return function () { self.flash(msg); }; };
-        self.notify('Set up ' + o.folder + ' with base' + (kits.length ? ', ' + kits.join(', ') : '') + '. The files forge wrote are listed in the Conclave output channel.', [{ label: 'Open', run: done('Opens ' + name + ' in this window.') }, { label: 'Open in New Window', run: done('Opens ' + name + ' in a new window.') }, { label: 'Add to Workspace', run: done('Adds ' + name + ' to this workspace.') }]);
-      };
-      Object.assign(dlg, { open: true, message: 'Set up ' + name + ' with Conclave-SDK?',
-        detail: [{ t: 'Kits: ' + joinList(['base'].concat(kits)) + '. Agent: ' + o.agent + '. Mode: ' + o.mode + '.' + (wp ? ' WordPress host: ' + o.host + '.' : '') }, { t: 'From ' + srcLabel + '. Entry docs already in the folder are kept: Conclave never passes --force.' }, { t: 'Runs: ' + argv }],
-        buttons: [{ label: 'Set Up', cls: 'btn', run: run }, { label: 'Back', cls: 'btn2', run: function () { self.setOv(Object.assign({}, o, { kind: 'repo', step: wp ? 5 : 4 })); } }, { label: 'Cancel', cls: 'btn2', run: close }] });
+      Object.assign(cm, { open: true, label: 'Explorer context menu', x: 170, y: this.wsKey() === 'multi' ? 224 : 202, items: rows.map(function (r) { return r ? { sep: false, item: true, label: r[0], kb: r[1], run: r[2] || chrome, cls: r[3] ? 'act' : '' } : { sep: true, item: false, label: '', kb: '', run: chrome, cls: '' }; }) });
+    } else if (o.kind === 'kit-menu' && kitRows.some(function (r) { return r.kit === o.kit; })) {
+      // view/item/context on a kit row: Health while the kit is in the folder, the agent request to import the
+      // kit, and on a kit stamped by an older SDK the request to update the kits. The menu opens at the row.
+      const info = this.kitInfo(k, cur, o.kit);
+      const key = cur.id + '/' + o.kit;
+      const at = kitRows.findIndex(function (r) { return r.kit === o.kit; });
+      const then = function (fn) { return function () { close(); fn(); }; };
+      const rows = [];
+      if (info.state !== 'none') rows.push(['Health', then(function () { const open = Object.assign({}, self.ks().open); open[key] = true; self.kupd({ open: open, sel: key }); })]);
+      rows.push(['Copy import request', then(function () { self.copyReq(importReq(cur, o.kit)); }), true]);
+      if (info.stamp === 'older') rows.push(['Copy update request', then(function () { self.copyReq(updateReq(cur, false)); })]);
+      Object.assign(cm, { open: true, label: o.kit + ' kit context menu', x: 150, y: 94 + 22 * at + 18, items: rows.map(function (r) { return { sep: false, item: true, label: r[0], kb: '', run: r[1], cls: r[2] ? 'act' : '' }; }) });
     }
     if (qi.open) {
-      const accept = qi.isMulti || o.kind === 'repo' && o.step === 1 ? qi.ok : (qi.items.find(function (x) { return x.sel; }) || qi.items[0] || { run: close }).run;
+      const accept = (qi.items.find(function (x) { return x.sel; }) || qi.items[0] || { run: close }).run;
       qi.onKey = function (ev) { if (ev.key === 'Escape') close(); else if (ev.key === 'Enter') accept(); };
     }
-    if (cm.open || dlg.open) {
-      // Escape closes a menu or a dialog, as in VS Code.
-      cm.onKey = dlg.onKey = function (ev) { if (ev.key === 'Escape') close(); };
-    }
-    return { qi: qi, cm: cm, dlg: dlg };
+    // Escape closes a menu, as in VS Code.
+    if (cm.open) cm.onKey = function (ev) { if (ev.key === 'Escape') close(); };
+    return { qi: qi, cm: cm };
   }
 
   emptyFor(e) {
     const self = this;
     const retry = function () { self.flash('Re-checked with --check-pin: the state has not changed.'); };
-    const copy = function () { self.flash('Copied the command to the clipboard.'); };
+    // The extension imports and updates nothing: the agent request and the forge command it stands for, each copied on its own.
+    const copies = function (req) {
+      return [{ label: 'Ask your agent (the adopt-conclave skill previews every file with forge before it writes):', text: req.ask, what: 'the agent request', copy: function () { self.copyLine(req.ask); } },
+        { label: 'Or run the forge command it stands for:', text: req.cmd, what: 'the command', copy: function () { self.copyLine(req.cmd); } }];
+    };
     const s = e.screen;
-    const d = { isInfo: false, isErr: false, isWarn: false, heading: '', paras: [], paras2: [], hasError: false, errorLabel: '', errorText: '', hasExcerpt: false, excerpt: [], hasOutput: false, outputLabel: '', output: '', hasList: false, list: [], hasCode: false, codeLabel: '', code: '', actions: [] };
+    const d = { isInfo: false, isErr: false, isWarn: false, heading: '', paras: [], paras2: [], hasError: false, errorLabel: '', errorText: '', hasExcerpt: false, excerpt: [], hasOutput: false, outputLabel: '', output: '', hasList: false, list: [], copies: [], actions: [] };
     if (s === 'no-pin') {
       d.isInfo = true;
-      d.heading = 'No reviewer pin in this workspace';
-      d.paras = paras(['This workspace has no `.conclave/reviewers.toml`, so `scripts/review-dispatch.py` has no reviewers to run.', 'Install the Conclave-SDK reviewer kit to add the shipped pin (for each writer, a reviewer of another model family and one fallback of the third). The installer opens in the Conclave side bar, preset to the reviewer kit, and lists every file it would add before it writes anything. It only adds missing files.']);
-      d.hasCode = true; d.codeLabel = 'The installer runs forge.py from the SDK source after its preview:'; d.code = KIT_CMD;
-      d.actions = [{ label: 'Install reviewer kit', cls: 'btn', onClick: function () { self.openInstall('web', 'reviewer'); } }, { label: 'Copy command', cls: 'btn2', onClick: copy }, { label: 'Retry', cls: 'btn2', onClick: retry }];
+      d.heading = 'The reviewer kit is not installed';
+      d.paras = paras(['This workspace has no `.conclave/reviewers.toml`, so `scripts/review-dispatch.py` has no reviewers to run.', 'Importing the Conclave-SDK reviewer kit adds the shipped pin (for each writer, a reviewer of another model family and one fallback of the third) and only adds missing files. This editor opens on its own once the pin exists.']);
+      d.copies = copies(importReq(FOLDERS[0], 'reviewer'));
     } else if (s === 'refused') {
       const ref = this.base().env.refused;
       d.isErr = true;
@@ -1845,49 +1543,21 @@ class Component extends DCLogic {
       d.heading = 'This pin is newer than the editor';
       d.paras = paras(['The workspace dispatcher accepts `schema_version = 2`, but this version of Conclave Reviewers edits `schema_version = 1` only. Reviews still run.', 'Update the extension, or edit the file by hand.']);
       d.actions = [{ label: 'Open file', cls: 'btn', onClick: function () { self.flash('Opens .conclave/reviewers.toml in the text editor.'); } }, { label: 'Retry', cls: 'btn2', onClick: retry }];
-    } else if ((s === 'no-dispatcher' || s === 'old-dispatcher') && e.sync) {
-      const fail = this.srcFailNow();
-      if (e.sync === 'confirm') {
-        d.isInfo = true;
-        d.heading = 'Update from Conclave-SDK?';
-        d.paras = paras(['`forge.py sync` refreshes every kit this folder has from `' + this.srcLabel() + '`: skills, rules, subagents, `scripts/` and `bin/`, and adds any kit file that is missing, `scripts/review-dispatch.py` among them.', SYNC_SCOPE]);
-        d.hasCode = true; d.codeLabel = 'Runs:'; d.code = SYNC_CMD;
-        d.actions = [{ label: 'Update', cls: 'btn', onClick: function () {
-          if (fail) { self.upd({ sync: 'fail' }); return; }
-          const res = self.runSync(true);
-          self.upd({ sync: 'done', syncRes: res });
-        } }, { label: 'Cancel', cls: 'btn2', onClick: function () { self.upd({ sync: null }); } }];
-      } else if (e.sync === 'fail') {
-        d.isErr = true;
-        d.heading = 'Nothing was updated';
-        d.hasError = true; d.errorLabel = 'The SDK source refused:'; d.errorText = fail.title + ' ' + fail.body;
-        d.actions = this.srcActions(fail).map(function (a) { return { label: a.label, cls: a.cls, onClick: function () { self.upd({ sync: 'confirm' }); a.run(); } }; });
-      } else {
-        const res = e.syncRes;
-        const t = this.syncText(res);
-        d.isInfo = true;
-        d.heading = 'Updated from Conclave-SDK';
-        d.paras = paras(['`' + res.argv + '`: ' + t.done]);
-        d.hasList = true;
-        d.list = [].concat.apply([], res.kits.map(function (x) { return x.installed.map(function (p) { return { k: p, v: x.kit + ': added' }; }).concat(x.updated.map(function (p) { return { k: p, v: x.kit + ': updated' }; })); }));
-        d.paras2 = paras([t.hash, 'Re-checked with `--check-pin`: ok.']);
-        d.actions = [{ label: 'Open the editor', cls: 'btn', onClick: function () { self.upd({ screen: 'editor', sync: null }); } }];
-      }
     } else if (s === 'no-dispatcher') {
       d.isWarn = true;
       d.heading = 'No dispatcher in this workspace';
       d.paras = paras(['`scripts/review-dispatch.py` is missing. Conclave Reviewers never checks the pin itself: every rule comes from the workspace dispatcher, so without it there is nothing to check the pin against.']);
-      d.paras2 = paras(['Sync the reviewer kit scripts from Conclave-SDK. Your pin is not touched.']);
-      d.hasCode = true; d.codeLabel = 'Command:'; d.code = SYNC_CMD;
-      d.actions = [{ label: 'Update from Conclave-SDK', cls: 'btn', onClick: function () { self.upd({ sync: 'confirm' }); } }, { label: 'Copy command', cls: 'btn2', onClick: copy }, { label: 'Open the pin as text', cls: 'btn2', onClick: function () { self.setState({ tab: 'toml' }); } }, { label: 'Retry', cls: 'btn2', onClick: retry }];
+      d.paras2 = paras(['Ask your agent to update the kits: `forge.py sync` adds every kit file that is missing, `scripts/review-dispatch.py` among them, and never changes your pin.']);
+      d.copies = copies(updateReq(FOLDERS[0], true));
+      d.actions = [{ label: 'Open the pin as text', cls: 'btn2', onClick: function () { self.setState({ tab: 'toml' }); } }, { label: 'Retry', cls: 'btn2', onClick: retry }];
     } else if (s === 'old-dispatcher') {
       d.isWarn = true;
       d.heading = 'This dispatcher is too old for the editor';
       d.paras = paras(['`scripts/review-dispatch.py` does not support `--check-pin`. Asked to check the pin, it printed no JSON:']);
       d.hasOutput = true; d.outputLabel = 'python scripts/review-dispatch.py --check-pin --json (exit 2)'; d.output = OLD_OUTPUT;
-      d.paras2 = paras(['Update it from Conclave-SDK. Your pin is not touched.']);
-      d.hasCode = true; d.codeLabel = 'Command:'; d.code = SYNC_CMD;
-      d.actions = [{ label: 'Update from Conclave-SDK', cls: 'btn', onClick: function () { self.upd({ sync: 'confirm' }); } }, { label: 'Copy command', cls: 'btn2', onClick: copy }, { label: 'Retry', cls: 'btn2', onClick: retry }];
+      d.paras2 = paras(['Ask your agent to update the kits, scripts included: `--include-scripts` refreshes the existing `scripts/review-dispatch.py`. Your pin is not touched.']);
+      d.copies = copies(updateReq(FOLDERS[0], true));
+      d.actions = [{ label: 'Retry', cls: 'btn2', onClick: retry }];
     } else if (s === 'no-python') {
       d.isErr = true;
       d.heading = 'No Python 3.11 or later';
@@ -2069,120 +1739,82 @@ class Component extends DCLogic {
       { label: 'orchard-api', pad: 4, folder: true, hide: !multi }
     ];
 
-    // Conclave side bar: the Kits tree and the installer.
+    // Conclave side bar: the Kits tree, or the view's welcome content when the SDK source is refused or the
+    // current folder has no kit at all.
     const k = this.ks();
     const side = this.side();
     const noop = function () {};
     const flashFn = function (msg) { return function () { self.flash(msg); }; };
     const krow = function (o) {
-      return Object.assign({ cls: '', pad: 0, expandable: false, leaf: false, open: false, shut: true, twLabel: '', toggle: noop, iFolder: false, iInstalled: false, iPartly: false, iNone: false, iOk: false, iMissing: false, iSetup: false, iUnexpected: false, label: '', lblCls: '', desc: '', title: '', folder: '', canInstall: false, canHealth: false, install: noop, health: noop, hasBadge: false, badge: '', badgeCls: '', badgeTitle: '' }, o);
+      return Object.assign({ cls: '', pad: 0, expandable: false, leaf: false, open: false, shut: true, twLabel: '', toggle: noop, iFolder: false, iInstalled: false, iPartly: false, iNone: false, iNewer: false, iOlder: false, iOk: false, iMissing: false, iSetup: false, iUnexpected: false, label: '', lblCls: '', desc: '', title: '', folder: '', kit: '', canHealth: false, health: noop, menu: noop, hasBadge: false, badge: '', badgeCls: '', badgeTitle: '' }, o);
     };
     const setOpen = function (key, val) { const open = Object.assign({}, self.ks().open); open[key] = val; return open; };
     const kitRows = [];
     let attention = 0;
     const cur = FOLDERS.find(function (x) { return x.id === k.cur; });
-    [cur].forEach(function (f) {
-      KITS.forEach(function (kit) {
-        const info = self.kitInfo(k, f, kit);
-        if (info.bad > 0) attention += 1;
-        const key = f.id + '/' + kit;
-        const hasChecks = info.checks.length > 0;
-        const open = hasChecks && !!k.open[key];
-        const stateText = info.state === 'installed' ? 'installed' : (info.state === 'partly' ? 'partly installed: ' + info.missing + ' missing' : 'not installed');
+    const srcFail = this.srcFailNow();
+    const srcLabel = this.srcLabel() + (this.srcKey() === 'bundled' ? ' (' + SDK_DATE + ')' : '');
+    const infos = srcFail ? [] : KITS.map(function (kit) { return { kit: kit, info: self.kitInfo(k, cur, kit) }; });
+    let kwel = { open: false, shut: true, lines: [], buttons: [] };
+    if (srcFail) kwel = { open: true, shut: false, lines: [{ t: srcFail.title }, { t: srcFail.body + ' Nothing was run.' }], buttons: this.srcActions(srcFail) };
+    else if (infos.every(function (x) { return x.info.state === 'none'; })) {
+      const req = importReq(cur, 'base');
+      kwel = { open: true, shut: false, lines: [{ t: 'No Conclave kit is installed in ' + cur.name + '.' }, { t: 'Kits are imported by your agent with the adopt-conclave skill, which previews every file with forge before it writes. ' + req.ask }], buttons: [{ label: 'Copy import request', run: function () { self.copyReq(req); } }] };
+    }
+    if (kwel.shut) infos.forEach(function (x) {
+      const kit = x.kit, info = x.info;
+      if (info.bad > 0) attention += 1;
+      const key = cur.id + '/' + kit;
+      const hasChecks = info.checks.length > 0;
+      const open = hasChecks && !!k.open[key];
+      const st = info.stampFrom;
+      let stateText = info.state === 'installed' ? 'installed' : (info.state === 'partly' ? 'partly installed: ' + info.missing + ' missing' : 'not installed');
+      let title = kit + ': ' + stateText + ', compared with ' + srcLabel;
+      if (info.stamp === 'newer') {
+        stateText = 'newer kits than this extension';
+        title = 'Update the Conclave extension: ' + kit + ' was set up from Conclave-SDK@' + st.commit + ' (' + st.date + '), newer than ' + srcLabel + '.';
+      } else if (info.stamp === 'older') {
+        stateText = 'older kits than this extension';
+        title = 'Ask your agent to update them (Copy update request on the context menu): ' + kit + ' was set up from Conclave-SDK@' + st.commit + ' (' + st.date + '), older than ' + srcLabel + '.';
+      }
+      kitRows.push(krow({
+        cls: k.sel === key ? 'sel' : '', pad: 2, expandable: hasChecks, leaf: !hasChecks, open: open, shut: !open, twLabel: kit + ' health checks',
+        toggle: function () { self.kupd({ open: setOpen(key, !open), sel: key }); },
+        iInstalled: info.state === 'installed' && !info.stamp, iPartly: info.state === 'partly' && !info.stamp, iNone: info.state === 'none',
+        iNewer: info.stamp === 'newer', iOlder: info.stamp === 'older',
+        label: kit, desc: stateText, title: title, folder: cur.name, kit: kit,
+        canHealth: info.state !== 'none',
+        health: function () { self.kupd({ open: setOpen(key, true), sel: key }); },
+        menu: function (ev) { if (ev && ev.preventDefault) ev.preventDefault(); self.setState({ ov: { kind: 'kit-menu', kit: kit }, k: Object.assign({}, self.ks(), { sel: key }) }); },
+        hasBadge: info.bad > 0, badge: info.bad > 99 ? '99' : String(info.bad), badgeCls: 'att', lblCls: info.bad > 0 ? 'att' : '',
+        badgeTitle: info.bad + (info.bad === 1 ? ' doctor check needs' : ' doctor checks need') + ' attention'
+      }));
+      if (open) info.checks.forEach(function (c) {
+        const known = ['ok', 'missing', 'setup_required', 'unexpected'].indexOf(c.status) >= 0;
         kitRows.push(krow({
-          cls: k.sel === key ? 'sel' : '', pad: 2, expandable: hasChecks, leaf: !hasChecks, open: open, shut: !open, twLabel: kit + ' health checks',
-          toggle: function () { self.kupd({ open: setOpen(key, !open), sel: key }); },
-          iInstalled: info.state === 'installed', iPartly: info.state === 'partly', iNone: info.state === 'none',
-          label: kit, desc: stateText, title: kit + ': ' + stateText, folder: f.name,
-          canInstall: info.state !== 'installed', canHealth: info.state !== 'none',
-          install: function () { self.openInstall(f.id, kit); },
-          health: function () { self.kupd({ open: setOpen(key, true), sel: key }); },
-          hasBadge: info.bad > 0, badge: info.bad > 99 ? '99' : String(info.bad), badgeCls: 'att', lblCls: info.bad > 0 ? 'att' : '',
-          badgeTitle: info.bad + (info.bad === 1 ? ' doctor check needs' : ' doctor checks need') + ' attention'
+          pad: 22, leaf: true, label: c.name, desc: c.status === 'ok' ? c.detail : c.status + ': ' + c.detail, title: c.status + ': ' + c.detail,
+          iOk: c.status === 'ok', iMissing: c.status === 'missing', iSetup: c.status === 'setup_required', iUnexpected: c.status === 'unexpected' || !known
         }));
-        if (open) info.checks.forEach(function (c) {
-          const known = ['ok', 'missing', 'setup_required', 'unexpected'].indexOf(c.status) >= 0;
-          kitRows.push(krow({
-            pad: 22, leaf: true, label: c.name, desc: c.status === 'ok' ? c.detail : c.status + ': ' + c.detail, title: c.status + ': ' + c.detail,
-            iOk: c.status === 'ok', iMissing: c.status === 'missing', iSetup: c.status === 'setup_required', iUnexpected: c.status === 'unexpected' || !known
-          }));
-        });
       });
     });
 
     const tab = this.tab();
-    const ov = this.overlays(k, cur, e);
-    let updVals = { folder: '', cmd: '', doneText: '', kits: [], hashText: '', finish: noop, showLog: noop };
-    if (k.upd) {
-      const t = this.syncText(k.upd);
-      updVals = { folder: FOLDERS.find(function (x) { return x.id === k.upd.folder; }).name, cmd: k.upd.argv, doneText: t.done, hashText: t.hash,
-        kits: k.upd.kits.map(function (x) {
-          const files = x.installed.map(function (p) { return { p: p, mk: '+', cls: 'add' }; }).concat(x.updated.map(function (p) { return { p: p, mk: '~', cls: 'upd' }; }));
-          return { kit: x.kit, summary: files.length ? x.installed.length + ' added, ' + x.updated.length + ' updated' : 'up to date', hasFiles: files.length > 0, files: files };
-        }),
-        finish: function () { self.kupd({ upd: null }); }, showLog: flashFn('Opens the Conclave output channel at this run.') };
-    }
-    const ins = k.ins;
-    let insVals = { hasSrcFail: false, srcTitle: '', srcBody: '', srcActions: [], s1: '', s2: '', s3: '', kit: '', folderPath: '', choosing: false, busy: false, busyText: '', cmd: '', previewing: false, hasError: false, error: '', hasLists: false, add: [], addCount: '', hasAdd: false, noAdd: false, keep: [], keepCount: '', hasKeep: false, hasMerge: false, merge: '', canInstall: false, isRemote: false, agent: 'all', isWp: false, hostPressable: true, hostWpcom: false, hostLocked: false, onAgent: noop, onHost: noop, preview: noop, install: noop, back: noop, cancel: noop, finish: noop, showLog: noop, done: false, doneText: '', hashText: '' };
-    if (ins) {
-      const f = FOLDERS.find(function (x) { return x.id === ins.folder; });
-      const has = this.hasMap(k, f.id);
-      const pinHost = has[WP_PIN] ? (k.hosts[f.id] || 'pressable') : null;
-      const host = pinHost || ins.host;
-      const step = ins.step;
-      const res = (step === 'running' || step === 'done') && ins.result ? ins.result : dryRun(f, has, ins.kit, ins.agent, host);
-      const add = res.add || [];
-      const keep = res.keep || [];
-      const merge = res.merge || [];
-      const files = function (n) { return n + (n === 1 ? ' file' : ' files'); };
-      const touched = add.filter(function (p) { return PROTECTED.some(function (x) { return x.charAt(x.length - 1) === '/' ? p.indexOf(x) === 0 : p === x; }); });
-      insVals = {
-        s1: step === 'choose' ? 'now' : '', s2: step === 'previewing' || step === 'preview' ? 'now' : '', s3: step === 'running' || step === 'done' ? 'now' : '',
-        kit: ins.kit, folderPath: f.path,
-        choosing: step === 'choose', busy: step === 'previewing' || step === 'running',
-        busyText: step === 'running' ? 'Installing ' + ins.kit : 'Previewing with --dry-run',
-        cmd: step === 'running' || step === 'done' ? res.argv.replace(' --dry-run', '') : res.argv,
-        previewing: step === 'preview', hasError: !!res.error, error: res.error || '',
-        hasLists: !res.error, add: add.map(function (p) { return { p: p }; }), addCount: files(add.length), hasAdd: add.length > 0, noAdd: !res.error && add.length === 0,
-        keep: keep.map(function (p) { return { p: p }; }), keepCount: files(keep.length), hasKeep: keep.length > 0,
-        hasMerge: merge.length > 0, merge: merge.join(', '),
-        canInstall: !res.error && merge.length === 0 && add.length > 0,
-        isRemote: this.srcKey() === 'ref',
-        agent: ins.agent, isWp: ins.kit === 'wordpress', hostPressable: host === 'pressable', hostWpcom: host === 'wpcom', hostLocked: !!pinHost,
-        onAgent: function (ev) { self.insUpd({ agent: ev.target.value }); },
-        onHost: function (ev) { if (!pinHost) self.insUpd({ host: ev.target.value }); },
-        preview: function () {
-          self.insUpd({ step: 'previewing' });
-          clearTimeout(self._installT);
-          self._installT = setTimeout(function () { const cur = self.ks(); if (cur.ins && cur.ins.step === 'previewing') self.insUpd({ step: 'preview' }); }, 900);
-        },
-        install: function () { self.runInstall(res, host); },
-        back: function () { clearTimeout(self._installT); self.insUpd({ step: 'choose' }); },
-        cancel: function () { clearTimeout(self._installT); self.kupd({ ins: null }); },
-        finish: function () { self.kupd({ ins: null }); },
-        showLog: flashFn('Opens the Conclave output channel at this run.'),
-        done: step === 'done',
-        doneText: 'Installed ' + ins.kit + ': ' + files(add.length) + ' added, none changed.',
-        hashText: 'Checked by hash: ' + PROTECTED.join(', ') + ' are unchanged' + (touched.length ? ', apart from ' + joinList(touched) + ', which forge reported adding.' : '.')
-      };
-      const fail = this.srcFailNow();
-      if (fail && (step === 'previewing' || step === 'preview')) Object.assign(insVals, { hasSrcFail: true, srcTitle: fail.title, srcBody: fail.body, srcActions: this.srcActions(fail), previewing: false, busy: false });
-    }
+    const ov = this.overlays(k, cur, e, kitRows);
 
     return {
       themeName: this.themeKey(), themeClass: this.themeKey() === 'light' ? 't-light' : 't-dark',
       scenario: this.scen(),
       scenarios: SCENARIOS.map(function (s) { return { id: s[0], label: s[1] }; }),
       setTheme: function (ev) { self.setState({ theme: ev.target.value }); },
-      setScenario: function (ev) { clearTimeout(self._testT); clearTimeout(self._installT); self.setState({ scenario: ev.target.value, e: null, k: null }); },
+      setScenario: function (ev) { clearTimeout(self._testT); self.setState({ scenario: ev.target.value, e: null, k: null }); },
       tree: treeAll.filter(function (t) { return !t.hide; }).map(function (t) { return { label: t.label, pad: multi ? t.pad : t.pad - 14, folder: !!t.folder, file: !!t.file, cls: t.active ? 'active' : '', menu: t.active ? function (ev) { ev.preventDefault(); self.setOv({ kind: 'menu' }); } : noop }; }),
-      sourceKey: this.srcKey(), sourceLabel: this.srcLabel(),
+      sourceKey: this.srcKey(),
       setSource: function (ev) { self.setState({ src: ev.target.value }); },
       wsKey: this.wsKey(), multiRoot: multi,
-      setWorkspace: function (ev) { clearTimeout(self._installT); self.setState({ ws: ev.target.value, k: null }); },
+      setWorkspace: function (ev) { self.setState({ ws: ev.target.value, k: null }); },
       wsTitle: multi ? 'orchard (Workspace)' : 'orchard-web', wsSection: multi ? 'ORCHARD (WORKSPACE)' : 'ORCHARD-WEB',
       curFolderName: cur.name, curFolderPath: cur.path,
-      switchFolder: function () { clearTimeout(self._installT); const c = self.ks(); self.kupd({ cur: c.cur === 'web' ? 'api' : 'web', ins: null, sel: null }); },
+      switchFolder: function () { const c = self.ks(); self.kupd({ cur: c.cur === 'web' ? 'api' : 'web', sel: null }); },
       sideExplorer: side === 'explorer', sideConclave: side === 'conclave',
       explorerOn: side === 'explorer' ? 'on' : '', conclaveOn: side === 'conclave' ? 'on' : '',
       sideLabel: side === 'explorer' ? 'Explorer' : 'Conclave',
@@ -2193,23 +1825,18 @@ class Component extends DCLogic {
       kitsOpen: k.kitsOpen, kitsClosed: !k.kitsOpen,
       toggleKitsPane: function () { self.kupd({ kitsOpen: !self.ks().kitsOpen }); },
       refreshKits: flashFn('Refreshed: forge.py kits, then kit --dry-run and doctor for ' + cur.name + '.'),
-      updateKits: function () { self.setOv({ kind: 'update-pick' }); },
-      newRepo: function () { self.setOv(Object.assign(clone(REPO_DEFAULT), { kind: 'repo', step: 1 })); },
-      kitRows: kitRows, ktreeCls: ins || k.upd ? 'half' : '',
-      updOpen: !!k.upd && !ins, upd: updVals,
+      kitRows: kitRows, kwel: kwel,
       openPalette: function () { self.setOv({ kind: 'palette' }); },
-      qi: ov.qi, cm: ov.cm, dlg: ov.dlg,
-      hasToastActs: !!(e.toastActs && e.toastActs.length), toastActs: e.toastActs || [],
+      qi: ov.qi, cm: ov.cm,
       editorTab: tab === 'editor', tomlTab: tab === 'toml', editorTabCls: tab === 'editor' ? 'active' : '', tomlTabCls: tab === 'toml' ? 'active' : '',
       showEditorTab: function () { self.setState({ tab: 'editor', ov: null }); }, showTomlTab: function () { self.setState({ tab: 'toml' }); },
       tomlLines: e.loaded.map(function (t, i) { return { no: i + 1, text: t, cls: t.charAt(0) === '#' ? 'cm' : '' }; }),
       statusOk: isEditor && !err, statusBad: (isEditor && !!err) || ['refused', 'no-python', 'no-dispatcher'].indexOf(e.screen) >= 0, statusWarn: !isEditor && ['refused', 'no-python', 'no-dispatcher'].indexOf(e.screen) < 0,
       statusTitle: 'Conclave Reviewers: ' + (isEditor ? (err ? 'the dispatcher refuses this pin' : 'the pin is valid') : stateNames[e.screen]) + '. Open Reviewer Settings',
-      statusOpen: function () { self.setState({ tab: 'editor', ov: null }); }, kitsFocus: k.sel && !ins ? 'focus' : '',
-      fpanes: this.featurePanes(k, cur, e),
-      insOpen: !!ins, ins: insVals,
+      statusOpen: function () { self.setState({ tab: 'editor', ov: null }); }, kitsFocus: k.sel ? 'focus' : '',
+      fpanes: srcFail ? [] : this.featurePanes(k, cur, e),
       // WebviewPanel has no dirty dot (only custom editors do), so unsaved edits show in the title.
-      clearToast: function () { self.upd({ toast: '', toastActs: [] }); },
+      clearToast: function () { self.upd({ toast: '' }); },
       tabTitle: 'Reviewers: orchard-web' + (isEditor && changed ? ' (unsaved)' : ''),
       isEditor: isEditor, isEmpty: !isEditor, empty: this.emptyFor(e),
       hasErr: !!err, noErr: !err, errText: err ? err.msg : '',
