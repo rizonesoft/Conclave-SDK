@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { removeTree } from "../../src/host/removeTree";
@@ -22,6 +22,9 @@ suite("removeTree", () => {
     mkdirSync(join(tree, "real", "deeper"), { recursive: true });
     writeFileSync(join(tree, "real", "deeper", "file.txt"), "x");
     writeFileSync(join(tree, "top.txt"), "x");
+    // The read-only attribute on Windows, which unlink in this runtime clears by itself.
+    writeFileSync(join(tree, "real", "locked.txt"), "x");
+    chmodSync(join(tree, "real", "locked.txt"), 0o444);
     // A junction on Windows (no rights needed), a directory symlink on POSIX.
     symlinkSync(outside, join(tree, "real", "link"), "junction");
     removeTree(tree);
