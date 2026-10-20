@@ -37,6 +37,7 @@ MAX_METADATA = 1024 * 1024
 MAX_CHAIN = 8
 MAX_PAX_KEYS = 16
 MAX_NAME = 4096
+MAX_DEPTH = 64
 MAX_MTIME = 2 ** 33
 PAX_KEYS = {"path", "linkpath", "comment"}
 EXTENDED = {tarfile.XHDTYPE, tarfile.XGLTYPE, tarfile.SOLARIS_XHDTYPE, tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK}
@@ -120,11 +121,22 @@ class Capped:
 
 
 class Seen:
-    """What check_member has seen so far, by case-folded name: every name, the files, the folders a name implies, and
-    the top folders."""
+    """What check_member has seen so far: every case-folded name (with the name as written), the case-folded names of
+    the files, and the top folders. Nothing is kept per ancestor, so storage grows with the names, never with the
+    square of a path's depth."""
 
     def __init__(self):
-        self.names, self.files, self.parents, self.tops = {}, set(), set(), set()
+        self.names, self.files, self.tops = {}, set(), set()
+
+    def clashes(self):
+        """Refuses a file where a folder is needed, in either order (a/b and the file a): once every member is read,
+        each name's ancestors are looked up among the files, one prefix at a time and none kept."""
+        for folded, name in self.names.items():
+            cut = folded.find("/")
+            while cut != -1:
+                if folded[:cut] in self.files:
+                    raise Unsafe(f"{shown(name)} needs {shown(self.names[folded[:cut]])} to be a folder, but it is a file")
+                cut = folded.find("/", cut + 1)
 
 
 def check_member(member, seen):
@@ -147,6 +159,8 @@ def check_member(member, seen):
     parts = [p for p in re.split(r"[/\\]", name) if p not in ("", ".")]
     if not parts or ".." in parts:
         raise Unsafe(f"{shown(name)} leaves the archive's folder")
+    if len(parts) > MAX_DEPTH:
+        raise Unsafe(f"{shown(name)} is {len(parts)} folders deep, more than {MAX_DEPTH}")
     # Names Windows would change or read as something else (trailing dots or spaces are dropped, ':' opens an
     # alternate stream, CON or NUL is a device): one could replace another file, so the archive is refused.
     for part in parts:
@@ -157,18 +171,10 @@ def check_member(member, seen):
         raise Unsafe(f"the archive has {len(seen.tops)} top folders, not one")
     if member.isfile() and len(parts) < 2:
         raise Unsafe(f"{shown(name)} is a file outside the archive's top folder")
-    # A file where a folder is needed, in either order (a/b after the file a, or the file a after a/b): extraction
-    # would write one and then fail on the other, leaving a partial folder.
-    folded_parts = folded.split("/")
-    ancestors = ["/".join(folded_parts[:i]) for i in range(1, len(folded_parts))]
-    clash = next((a for a in ancestors if a in seen.files), None)
-    if clash is not None:
-        raise Unsafe(f"{shown(name)} needs {shown(seen.names[clash])} to be a folder, but it is a file")
+    # A file where a folder is needed (a/b and the file a, in either order) is refused by Seen.clashes once every member
+    # is read and before anything is written: extraction would write one and fail on the other.
     if member.isfile():
-        if folded in seen.parents:
-            raise Unsafe(f"{shown(name)} is a file, but an earlier name needs it to be a folder")
         seen.files.add(folded)
-    seen.parents.update(ancestors)
     # tarfile writes the header's time with os.utime, which raises OverflowError past the platform's range: a git
     # archive carries the commit time, so anything outside 1970 to 2242 is refused before anything is written.
     if not 0 <= member.mtime < MAX_MTIME:
@@ -191,6 +197,7 @@ def members_of(tar):
             raise Unsafe(f"the archive expands to more than {MAX_BYTES // (1024 * 1024)} MB")
     if not members:
         raise Unsafe("the archive is empty")
+    seen.clashes()
     return members, seen.tops.pop()
 
 
