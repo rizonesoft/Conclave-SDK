@@ -122,6 +122,9 @@ def load_pin(path=PIN):
     return pin
 
 
+EXTENSION = re.compile(r"\.[A-Za-z0-9]+")
+
+
 def find_cli(name):
     """A reviewer CLI's path, from the absolute directories on PATH only, or None.
 
@@ -135,7 +138,9 @@ def find_cli(name):
         return shutil.which(name, path=os.pathsep.join(directories))
     # An empty PATHEXT gets the defaults too, as shutil.which does. The bare name is the last candidate in each
     # directory: npm puts an extensionless shell script beside codex.cmd, and Windows can run only the .cmd.
-    extensions = [e for e in os.environ.get("PATHEXT", "").split(os.pathsep) if e] or [".COM", ".EXE", ".BAT", ".CMD"]
+    # Only entries shaped like an extension: one that holds a separator or ".." would lead out of the PATH directory.
+    extensions = [e for e in os.environ.get("PATHEXT", "").split(os.pathsep) if EXTENSION.fullmatch(e)] \
+        or [".COM", ".EXE", ".BAT", ".CMD"]
     for directory in directories:
         for candidate in [os.path.join(directory, name + e) for e in extensions] + [os.path.join(directory, name)]:
             if os.path.isfile(candidate):

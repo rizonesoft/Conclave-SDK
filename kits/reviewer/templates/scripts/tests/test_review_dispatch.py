@@ -495,6 +495,15 @@ class Dispatch(unittest.TestCase):
             self.assertIsNone(module.find_cli("codex"), "a drive-relative PATH entry was searched")
         with unittest.mock.patch.dict(os.environ, {"PATH": str(folder), "PATHEXT": ""}):
             self.assertEqual(module.find_cli("codex"), str(folder / "codex.CMD"), "an empty PATHEXT found nothing")
+        # Round 2: a PATHEXT entry is an extension, never a path that climbs out of the PATH directory.
+        outside = Path(self._tmp.name) / "reviewed"
+        outside.mkdir()
+        (outside / "codex.cmd").write_text("@exit /b 0\r\n", encoding="utf-8")
+        (folder / "codex").mkdir()
+        with unittest.mock.patch.dict(os.environ, {"PATH": str(folder), "PATHEXT": "\\..\\..\\reviewed\\codex.cmd"}):
+            # The malformed entry is dropped and the defaults find the codex.cmd inside the PATH directory.
+            self.assertEqual(module.find_cli("codex"), str(folder / "codex.CMD"), "a PATHEXT entry led outside PATH")
+        (folder / "codex").rmdir()
         # npm puts an extensionless shell script beside codex.cmd; Windows cannot run the script, so .cmd comes first,
         # and the bare name is found only when no PATHEXT candidate is there.
         (folder / "codex").write_text("#!/bin/sh\n", encoding="utf-8")
