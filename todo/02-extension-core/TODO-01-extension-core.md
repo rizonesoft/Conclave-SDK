@@ -66,7 +66,7 @@ title: "TODO-01 -- Extension Core"
 | 16 | §16 | Process tree kill that ends everything or says so | §8 | [x] |
 | 17 | §17 | Tree kill: cut-short discovery and combined uncertainty | §16 | [x] |
 | 18 | §18 | Kit state SDK watchers released with their last folder | §10 | [x] |
-| 19 | §19 | Folder work bound to the lifetime it was asked in | §10, D05 T01 §3 | [ ] |
+| 19 | §19 | Folder work bound to the lifetime it was asked in | §10, D05 T01 §3 | [x] |
 | 20 | §20 | Recursive deletes that never follow a link | §7 | [ ] |
 
 ## 1. Extension scaffold, build and test harness
@@ -618,7 +618,7 @@ Review round 3 of `§10` (`docs/reviews/02-extension-core/D02-T01-s10.md`, the l
 
 > **Corrected 2026-10-20:** title shortened from "Folder computations bound to the lifetime they were asked in", whose 60 characters made every row of the generated plan's Phase 1 table 103 characters wide.
 
-Review round 3 of `D05 T01 §3` (`docs/reviews/05-kit-manager/D05-T01-s3.md`, the last round its loop allowed) found two gaps in how `KitHealthService` (`extensions/vscode/src/host/kitHealth.ts`) runs a folder's computation, and `KitStateService` (`extensions/vscode/src/host/kitState.ts`, `§10`) follows the same pattern. A computation checks its folder's lifetime only between attempts, so after a forget it still starts every remaining forge process (each doctor, each dry run). And a queued request captures the lifetime when it starts running, not when it was asked, so a request asked before a forget runs as part of the folder's next lifetime and answers for it. Both services move to one helper that serializes a folder's computations, captures the lifetime and generation when a request is asked, checks the lifetime before every forge process, and reruns a superseded computation, so the two services cannot drift apart again.
+Review round 3 of `D05 T01 §3` (`docs/reviews/05-kit-manager/D05-T01-s3.md`, the last round its loop allowed) found two gaps in how `KitHealthService` (`extensions/vscode/src/host/kitHealth.ts`) runs a folder's computation, and `KitStateService` (`extensions/vscode/src/host/kitState.ts`, `§10`) follows the same pattern. A computation checks its folder's lifetime only between attempts, so after a forget it still starts every remaining forge process (each doctor, each dry run). And a queued request captures the lifetime when it starts running, not when it was asked, so a request asked before a forget runs as part of the folder's next lifetime and answers for it. Both services move to one helper that serializes a folder's computations, captures the lifetime when a request is asked and reads the generation when each attempt starts (**Corrected 2026-10-20:** said both were captured when asked; round 2 advisory), checks the lifetime before every forge process, and reruns a superseded computation, so the two services cannot drift apart again.
 
 **Phase:** 1
 **Needs:** none
@@ -632,9 +632,12 @@ Review round 3 of `D05 T01 §3` (`docs/reviews/05-kit-manager/D05-T01-s3.md`, th
 - [x] Write `extensions/vscode/src/host/folderWork.ts` with `FolderWork<T>`: per-folder serialization, a lifetime captured when `read(folder)` is asked and a generation read when each attempt starts, so an invalidate before a queued read starts is honoured (**Corrected 2026-10-20:** said the generation was also captured when asked; round 1 advisory), `invalidate(folder)` (rerun), `forget(folder)` (stop), the retry cap, and an `alive()` check the computation calls before each process. Done when: unit-style integration tests of the helper cover asking before and after a forget. Cheaper substitute: patching each service separately.
 - [x] Move `KitStateService` and `KitHealthService` onto `FolderWork`, calling `alive()` before every `runForge`. Done when: a forget while the first dry run (or `check`) is held starts no further forge process. Cheaper substitute: checking only after the computation.
 - [x] Add the two regressions to `extensions/vscode/test/integration/kitState.test.ts` and `extensions/vscode/test/integration/kitHealth.test.ts`. Done when: each fails at the end of `D05 T01 §3`. Cheaper substitute: one service only.
-- [ ] Commit: `extension: folder computations bound to the lifetime they were asked in`
+- [x] Commit: `extension: folder computations bound to the lifetime they were asked in`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep "kitState|kitHealth"` passes, and the forget-while-held case fails when the lifetime is checked only between attempts.
+
+> **Verified:** 2026-10-20 | §19 | af78b5c79ec2c19f0a8579a91534e65280838e6e
+> **Review:** `docs/reviews/d02-t01-s19.json`
 
 ## 20. Recursive deletes that never follow a link
 
