@@ -333,6 +333,8 @@ The owner asked for a "Test reviewer" action (plan R11). This section builds a t
 
 ## 9. Forge runner and summary parsing
 
+> **Started:** 2026-10-20T15:10:00Z
+
 Every kit operation in `D05 T01` runs `forge.py` the same way, so this section is the one runner. It takes the SDK folder and label from §7 and the Python prefix from §2, runs `forge.py <command> ...` with `execFile` (never a shell), a timeout and cancellation, and parses forge's JSON for `kits`, `kit`, `sync`, `init`, `check` and `doctor` into typed results that keep every list verbatim. A non-zero exit, or output that is not forge's JSON, is a typed failure carrying forge's stderr tail.
 
 **Phase:** 1
@@ -344,16 +346,18 @@ Every kit operation in `D05 T01` runs `forge.py` the same way, so this section i
 1. Write `extensions/vscode/src/core/forgeJson.ts` parsing each command's output. Done when: unit tests over recorded outputs pass.
 2. Write `extensions/vscode/src/host/forge.ts` running forge. Done when: an integration test with a fake SDK runs, times out and cancels a command.
 
-- [ ] Write `extensions/vscode/scripts/record-forge-fixtures.py` (stdlib) that runs the SDK's own `forge.py` (`kits`, `kit --dry-run`, `kit`, `sync`, `init`, `check`, `doctor`) on temp folders and saves each output under `extensions/vscode/test/fixtures/forge/`. Done when: running it twice produces identical fixtures apart from the temp paths it normalises. Cheaper substitute: hand-typed fixtures.
-- [ ] Implement the parsers in `extensions/vscode/src/core/forgeJson.ts`: `kits` to names; `kit` to `installed`, `updated`, `preserved`, `merge_needed`, `dry_run`; `sync` and `init` to `written`, `skipped` and per-kit summaries; `check` to its flags and per-agent skill lists; `doctor` to checks. Done when: unit tests over every fixture pass. Cheaper substitute: untyped JSON passed through.
-- [ ] Refuse a shape a parser does not know (missing key, wrong type) with the raw text. Done when: a unit test with `installed` missing gets the refusal. Cheaper substitute: treating missing lists as empty.
-- [ ] Implement `runForge(source, python, args, token)` in `extensions/vscode/src/host/forge.ts` with `execFile`, `cwd` the SDK folder, a 120 second default timeout and a cancellation token that kills the process tree. Done when: an integration test cancels a sleeping fake forge and leaves no process. Cheaper substitute: `exec` with a command string.
-- [ ] Map outcomes: exit 0 with forge's JSON is success; a non-zero exit is a failure with the last 20 lines of stderr; exit 0 without JSON is a failure naming the command. Done when: unit tests cover each. Cheaper substitute: success whenever the exit code is 0.
-- [ ] Log each run's argv, cwd, source label, exit code and duration to the "Conclave" output channel. Done when: the integration test reads one line per run. Cheaper substitute: no log.
-- [ ] Write `extensions/vscode/test/unit/forgeJson.test.ts` and `extensions/vscode/test/integration/forgeRunner.test.ts`. Done when: both pass and the unit run fails when exit 0 without JSON counts as success. Cheaper substitute: happy-path tests only.
+- [x] Write `extensions/vscode/scripts/record-forge-fixtures.py` (stdlib) that runs the SDK's own `forge.py` (`kits`, `kit --dry-run`, `kit`, `sync`, `init`, `check`, `doctor`) on temp folders and saves each output under `extensions/vscode/test/fixtures/forge/`. Done when: running it twice produces identical fixtures apart from the temp paths it normalises. Cheaper substitute: hand-typed fixtures.
+  Two runs give identical fixtures (`diff -r` clean); a refusal is recorded as `kit-refused.stderr` with its exit code.
+- [x] Implement the parsers in `extensions/vscode/src/core/forgeJson.ts`: `kits` to names; `kit` to `installed`, `updated`, `preserved`, `merge_needed`, `dry_run`; `sync` and `init` to `written`, `skipped` and per-kit summaries; `check` to its flags and per-agent skill lists; `doctor` to checks. Done when: unit tests over every fixture pass. Cheaper substitute: untyped JSON passed through.
+- [x] Refuse a shape a parser does not know (missing key, wrong type) with the raw text. Done when: a unit test with `installed` missing gets the refusal. Cheaper substitute: treating missing lists as empty.
+- [x] Implement `runForge(source, python, args, token)` in `extensions/vscode/src/host/forge.ts` with `execFile`, `cwd` the SDK folder, a 120 second default timeout and a cancellation token that kills the process tree. Done when: an integration test cancels a sleeping fake forge and leaves no process. Cheaper substitute: `exec` with a command string.
+  Built as `runForge(source, python, args, parse, { signal, timeoutMs })` in `extensions/vscode/src/host/forge.ts`: an `AbortSignal` is the cancellation token (as in `§8`), forge runs with `-I` (it imports only the standard library), and the kill is `run`'s tree kill from `§8`. The API's `runForge(source, args, options)` picks the parser by command and refuses a command it has no parser for.
+- [x] Map outcomes: exit 0 with forge's JSON is success; a non-zero exit is a failure with the last 20 lines of stderr; exit 0 without JSON is a failure naming the command. Done when: unit tests cover each. Cheaper substitute: success whenever the exit code is 0.
+- [x] Log each run's argv, cwd, source label, exit code and duration to the "Conclave" output channel. Done when: the integration test reads one line per run. Cheaper substitute: no log.
+- [x] Write `extensions/vscode/test/unit/forgeJson.test.ts` and `extensions/vscode/test/integration/forgeRunner.test.ts`. Done when: both pass and the unit run fails when exit 0 without JSON counts as success. Cheaper substitute: happy-path tests only.
 - [ ] Commit: `extension: one forge runner with typed summaries`
 
-**Test checkpoint:** `cd extensions/vscode && npm test -- --test-name-pattern=forgeJson && npm run test:integration -- --grep forgeRunner` passes, and fails when a summary missing `installed` is accepted.
+**Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/forgeJson.test.js && npm run test:integration -- --grep forgeRunner` passes, and fails when a summary missing `installed` is accepted. **Corrected 2026-10-20:** was `npm test -- --test-name-pattern=forgeJson`, which does not filter on Node 24.14.1 (see `§2`).
 
 ## 10. Workspace kit state from forge
 

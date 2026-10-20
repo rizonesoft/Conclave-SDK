@@ -9,6 +9,8 @@ import { PythonService, type PythonResolution, type PythonResolved } from "./hos
 import { PinSession, type SaveHooks } from "./host/save";
 import { SdkSourceService } from "./host/sdkSource";
 import { ReviewerTester, type TestOptions } from "./host/testReviewer";
+import { FORGE_PARSERS, runForge, type ForgeOptions, type ForgeSource } from "./host/forge";
+import type { ForgeOutcome } from "./core/forgeJson";
 import type { TestOutcome } from "./core/testOutcome";
 
 // The reviewer editor panel. This is the scaffold's placeholder (D02 T01 §1); D03 T01 builds the editor in it.
@@ -29,6 +31,8 @@ export interface ConclaveApi {
   openPin: (folder: vscode.Uri, hooks?: SaveHooks) => PinSession;
   // Test reviewer (plan R11): one dispatch of the planted-bug prompt through the named reviewer alone.
   testReviewer: (folder: vscode.Uri, name: string, options?: TestOptions) => Promise<TestOutcome>;
+  // One forge.py run from an SDK source, with the Python resolved for folder, parsed by its command (D02 T01 §9).
+  runForge: (source: ForgeSource, args: string[], options?: ForgeOptions & { folder?: vscode.Uri }) => Promise<ForgeOutcome<unknown>>;
 }
 
 export function activate(context: vscode.ExtensionContext): ConclaveApi {
@@ -74,6 +78,17 @@ export function activate(context: vscode.ExtensionContext): ConclaveApi {
       return session;
     },
     testReviewer: (folder, name, options) => tester.test(folder, name, options),
+    runForge: async (source, args, options) => {
+      const parse = FORGE_PARSERS[args[0] ?? ""];
+      if (!parse) {
+        return { kind: "failed", message: `forge ${args[0] ?? ""} is not a command the extension runs`, stderrTail: [] };
+      }
+      const resolved = await python.python(options?.folder);
+      if (!resolved.ok) {
+        return { kind: "failed", message: `No usable Python to run forge.py: ${resolved.message}`, stderrTail: [] };
+      }
+      return runForge(source, resolved, args, parse, options);
+    },
   };
 }
 

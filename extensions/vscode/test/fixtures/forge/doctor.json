@@ -1,0 +1,27 @@
+{
+  "target": "<TARGET>",
+  "kit": "base",
+  "missing_or_setup_required": 0,
+  "checks": [
+    {
+      "name": "AGENTS.md",
+      "status": "ok",
+      "detail": "<TARGET>/AGENTS.md"
+    },
+    {
+      "name": "GEMINI.md",
+      "status": "ok",
+      "detail": "<TARGET>/GEMINI.md"
+    },
+    {
+      "name": "CLAUDE.md",
+      "status": "ok",
+      "detail": "<TARGET>/CLAUDE.md"
+    },
+    {
+      "name": "CODEX.md",
+      "status": "ok",
+      "detail": "<TARGET>/CODEX.md"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+{
+  "exit": 2,
+  "stderr": "forge.py: error: Target must be an existing non-symlink directory: <TARGET>\n"
+}
