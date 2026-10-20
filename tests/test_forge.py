@@ -363,6 +363,12 @@ class ForgeProvisionTests(unittest.TestCase):
         checks = {c["name"]: c for c in forge.doctor_repo(project, "todo")["checks"]}
         self.assertEqual(checks["stop-hook"]["status"], "setup_required")
         self.assertIn("kits/todo/templates/.claude/settings.json", checks["stop-hook"]["detail"])
+        for malformed in ('{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": null}]}]}}',
+                          '{"hooks": {"Stop": "nope"}}', "[]", "{not json"):
+            with self.subTest(malformed=malformed):
+                (project / ".claude/settings.json").write_text(malformed, encoding="utf-8")
+                checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "todo")["checks"]}
+                self.assertEqual(checks["stop-hook"], "setup_required")
         (project / ".claude/settings.json").unlink()
         forge.apply_kit(project, "todo")
         checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "todo")["checks"]}

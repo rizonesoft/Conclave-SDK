@@ -28,6 +28,9 @@ if mode == "json":
     print(json.dumps(rows, indent=2))
 elif mode == "crash":
     sys.exit(1)
+elif mode == "sleep":
+    import time
+    time.sleep(int(n))
 else:
     if rows:
         print("00-design/TODO-01.md \\u00a73  Interface SPEC and screenshots")
@@ -64,7 +67,8 @@ class Workspace(unittest.TestCase):
         self.write("scripts/ready.txt", f"{mode} {n}")
 
     def acquire(self, session=SESSION, **kw):
-        return guard.acquire(self.root, session, 0, RUN_FILE, kw.pop("cron_id", "job-1"), **kw)
+        cron_id = kw.pop("cron_id", "job-1")
+        return guard.acquire(self.root, session, 0, RUN_FILE, cron_id, **kw)
 
     def run_id(self):
         return guard.read_guard(self.root)["run_id"]
@@ -169,6 +173,38 @@ class StopHook(Workspace):
         guard.hook_error(self.root, ack=line)
         self.assertEqual(os.listdir(os.path.join(self.root, "build", "claude-campaign-hook-errors")), [])
 
+    def test_the_breaker_trips_where_build_is_not_ignored(self):
+        # The guard's own state writes must never pass for progress, whatever the project ignores.
+        self.write(".gitignore", "scripts/ready.txt\n")
+        subprocess.run(["git", "commit", "-qam", "stop ignoring build"], cwd=self.root, capture_output=True, check=True)
+        self.acquire()
+        for push in (1, 2, 3):
+            self.assertEqual(self.hook()["decision"], "block", push)
+        self.assertIsNone(self.hook(), "the hook's own state file reset the breaker")
+
+    def test_an_unacknowledged_hook_error_survives_a_later_stop(self):
+        self.acquire()
+        guard._record_hook_error(self.root, guard.read_guard(self.root), "OSError: transient")
+        self.assertEqual(self.hook()["decision"], "block")
+        line = guard.hook_error(self.root, SESSION)
+        self.assertIn("OSError: transient", line)
+        guard.hook_error(self.root, SESSION, ack=line)
+        self.assertEqual(self.hook()["decision"], "block")
+        self.assertEqual(guard.hook_error(self.root, SESSION), "")
+
+    def test_the_hook_decides_inside_its_own_time_budget(self):
+        self.acquire()
+        self.ready(30, "sleep")
+        os.environ["CAMPAIGN_HOOK_BUDGET_SECONDS"] = "4"
+        try:
+            started = __import__("time").monotonic()
+            decision = self.hook()
+            elapsed = __import__("time").monotonic() - started
+        finally:
+            del os.environ["CAMPAIGN_HOOK_BUDGET_SECONDS"]
+        self.assertLess(elapsed, 12, "the hook waited on the graph past its budget")
+        self.assertEqual(decision["decision"], "block", "an unreadable graph still blocks an open run")
+
     def test_the_configured_command_runs_the_hook_from_any_shell(self):
         settings = json.loads((TEMPLATES / ".claude" / "settings.json").read_text(encoding="utf-8"))
         command = settings["hooks"]["Stop"][0]["hooks"][0]["command"]
@@ -206,6 +242,38 @@ class Lifecycle(Workspace):
         self.assertIn("re-pointed", self.acquire(session=OTHER, cron_id="job-3"))
         self.assertEqual(self.run_id(), rid, "a re-point of the same run keeps its id")
 
+    def test_a_torn_guard_needs_a_handover_and_the_scope_is_kept(self):
+        self.write("build/claude-campaign-guard.json", "")
+        with self.assertRaises(guard.GuardError):
+            self.acquire()
+        self.assertIn("handed over", self.acquire(handover="torn guard after a crash", scope="phase"))
+        self.assertEqual(guard.read_guard(self.root)["handover_from"], "<unreadable guard>")
+        self.acquire(cron_id="job-2")
+        self.assertEqual(guard.read_guard(self.root)["scope"], "phase", "a re-point dropped the scope")
+        self.assertTrue(guard.whoami(self.root, SESSION).endswith("scope=phase"))
+        with self.assertRaises(guard.GuardError):
+            self.acquire(scope="everything")
+
+    def test_the_lock_is_exclusive_and_a_dead_holder_releases_it(self):
+        with guard._Lock(self.root):
+            with self.assertRaises(guard.GuardError):
+                guard._Lock(self.root, wait=0.2).__enter__()
+        holder = subprocess.Popen([sys.executable, "-c", (
+            "import importlib.util, sys, time\n"
+            f"s = importlib.util.spec_from_file_location('g', {str(GUARD_PY)!r})\n"
+            "g = importlib.util.module_from_spec(s); s.loader.exec_module(g)\n"
+            f"l = g._Lock({self.root!r}); l.__enter__(); print('held', flush=True); time.sleep(60)\n")],
+            stdout=subprocess.PIPE, text=True)
+        try:
+            self.assertEqual(holder.stdout.readline().strip(), "held")
+            with self.assertRaises(guard.GuardError):
+                guard._Lock(self.root, wait=0.2).__enter__()
+        finally:
+            holder.kill()
+            holder.wait(timeout=30)
+            holder.stdout.close()
+        self.assertIn("guard created", self.acquire(), "a dead holder's lock was not released")
+
     def test_acquire_refuses_a_run_file_outside_the_workspace(self):
         for bad in ("../outside.md", os.path.abspath("x.md")):
             with self.subTest(bad=bad), self.assertRaises(guard.GuardError):
@@ -235,7 +303,7 @@ class Lifecycle(Workspace):
     def test_whoami_names_what_a_heartbeat_is_to_the_run(self):
         self.assertEqual(guard.whoami(self.root, SESSION), "NO GUARD")
         self.acquire(generation="gen000000001")
-        self.assertEqual(guard.whoami(self.root, SESSION, "gen000000001"), f"OWNER run={self.run_id()}")
+        self.assertEqual(guard.whoami(self.root, SESSION, "gen000000001"), f"OWNER run={self.run_id()} scope=plan")
         self.assertEqual(guard.whoami(self.root, SESSION, "gen000000000"), "NOT THE CURRENT JOB")
         self.assertEqual(guard.whoami(self.root, OTHER), "NOT THE OWNER")
         self.write("build/claude-campaign-guard.json", "{not json")

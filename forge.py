@@ -503,8 +503,9 @@ def _stop_hook_wiring(target_root: Path) -> tuple[str, str]:
     hint = f"add the Stop hook from {seed.as_posix()} to {settings.as_posix()}"
     try:
         doc = json.loads(settings.read_text(encoding="utf-8"))
-        commands = [h.get("command", "") for entry in doc.get("hooks", {}).get("Stop", [])
+        commands = [h.get("command") for entry in doc.get("hooks", {}).get("Stop", [])
                     for h in entry.get("hooks", [])]
+        commands = [c for c in commands if isinstance(c, str)]
     except FileNotFoundError:
         return "setup_required", hint
     except (OSError, ValueError, AttributeError, TypeError) as exc:
