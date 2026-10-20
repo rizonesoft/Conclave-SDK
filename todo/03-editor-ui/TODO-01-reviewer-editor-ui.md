@@ -15,7 +15,7 @@ title: "TODO-01 -- Reviewer Editor UI"
 ## Inputs
 
 - `design/SPEC.md` §1 to §7 and `design/screens/`: the approved surface, its controls, states and exact texts.
-- `design/decisions.md`: the owner's answers (for example whether same-CLI review warns, and one error versus all).
+- `design/decisions.md`: the owner's answers (for example one error versus all) and the changes after approval (the reviewer route rule of 2026-10-20). **Corrected 2026-10-20:** named the same-CLI warning, which that rule superseded.
 - `extensions/vscode/src/core/pinText.ts`, `extensions/vscode/src/host/candidate.ts`, `extensions/vscode/src/host/save.ts`, `extensions/vscode/src/host/dispatcher.ts`, `extensions/vscode/src/host/testReviewer.ts` from `D02 T01`, and the kit install and update flows from `D05 T01 §6` and `D05 T01 §7`.
 - -> XREF: D00 T01 §3 -- `design/SPEC.md` is the Fidelity source of every section here
 - -> XREF: D02 T01 §5 -- candidate validation and `canSave`
