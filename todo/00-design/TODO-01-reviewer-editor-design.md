@@ -298,6 +298,8 @@ The owner decided on 2026-10-20 that the extension never installs, updates or se
 
 The SPEC and the design spec describe what the extension builds, and every surface section cites them (`design/SPEC.md`, `docs/specs/2026-10-20-vscode-extension-design.md`). This section carries `§7`'s mockup into both and into `design/platform-audit.md`, so the D03, D05 and D06 sections build the read-only kit view and the agent requests instead of the dropped flows.
 
+> **Started:** 2026-10-20T22:15:00Z
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
@@ -307,12 +309,12 @@ The SPEC and the design spec describe what the extension builds, and every surfa
 1. Correct the SPEC. Done when: §7 to §12 say the same as `§7`'s mockup.
 2. Correct the design spec and the platform audit. Done when: neither names the installer, the update flow, the wizard or the GitHub source except as dropped.
 
-- [ ] Rewrite `design/SPEC.md` §9 for the read-only Kits view (states, stamps, health, Copy import request, the empty-folder message), mark §10 Kit install and update and §11 New repository setup as dropped with the date and the decision, correct §7's no-pin and dispatcher screens and §8's SDK source (bundled, `conclave.sdkPath` as a developer override), and §12's inline Install actions. Done when: every control in `§7`'s mockup has its SPEC line and the SPEC names no dropped control as live. Cheaper substitute: a note at the top of the SPEC.
-- [ ] Correct `docs/specs/2026-10-20-vscode-extension-design.md` (the SDK source, the kit operations, the GitHub sign-in and archive extraction, the protected-file proof) with dated notes, adding the kit stamp, the bundled digest and the newer and older states. Done when: the design spec and `docs/plans/2026-10-16-vscode-extension.md` R24 and R27 to R41 agree. Cheaper substitute: leaving the design spec stale.
-- [ ] Correct `design/platform-audit.md`: drop the installer and wizard rows and add the new rows (the stamp descriptions, the copy actions). Done when: every element of `§7`'s mockup has a row. Cheaper substitute: none.
+- [x] Rewrite `design/SPEC.md` §9 for the read-only Kits view (states, stamps, health, Copy import request, the empty-folder message), mark §10 Kit install and update and §11 New repository setup as dropped with the date and the decision, correct §7's no-pin and dispatcher screens and §8's SDK source (bundled, `conclave.sdkPath` as a developer override), and §12's inline Install actions. Done when: every control in `§7`'s mockup has its SPEC line and the SPEC names no dropped control as live. Cheaper substitute: a note at the top of the SPEC.
+- [x] Correct `docs/specs/2026-10-20-vscode-extension-design.md` (the SDK source, the kit operations, the GitHub sign-in and archive extraction, the protected-file proof) with dated notes, adding the kit stamp, the bundled digest and the newer and older states. Done when: the design spec and `docs/plans/2026-10-16-vscode-extension.md` R24 and R27 to R41 agree. Cheaper substitute: leaving the design spec stale.
+- [x] Correct `design/platform-audit.md`: drop the installer and wizard rows and add the new rows (the stamp descriptions, the copy actions). Done when: every element of `§7`'s mockup has a row. Cheaper substitute: none.
 - [ ] Commit: `design: SPEC and design spec for the read-only kit view`
 
-**Test checkpoint:** `python -c "import sys; t=open('design/SPEC.md', encoding='utf-8').read(); s9=t.split('## 9.')[1].split('## 10.')[0]; sys.exit(1 if ('Install' in s9 or 'newer kits' not in s9) else 0)"` exits 0, and exits 1 on `fb5e468`'s SPEC.
+**Test checkpoint:** `python -c "import re,sys; t=open('design/SPEC.md', encoding='utf-8').read(); s9=t.split('## 9.')[1].split('## 10.')[0]; sys.exit(1 if (re.search(r'\bInstall\b', s9) or 'newer kits' not in s9) else 0)"` exits 0, and exits 1 on `fb5e468`'s SPEC (**Corrected 2026-10-20:** searched for the substring `Install`, which the state name `Installed` matches).
 
 ## 9. Mockup overlays closed when their target leaves
 

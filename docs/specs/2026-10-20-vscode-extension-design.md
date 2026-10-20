@@ -162,7 +162,7 @@ Reversal cost: low.
 
 The extension is a workspace extension (`"extensionKind": ["workspace"]`), so in a Remote WSL window it runs in the WSL extension host and calls that side's Python and forge (plan R20). It declares limited support for untrusted workspaces (`capabilities.untrustedWorkspaces`: `supported` `"limited"`, with `conclave.pythonPath`, `conclave.sdkPath`, `conclave.sdkRef` and `conclave.sdkRepository` as `restrictedConfigurations`), because `supported: false` would keep it from activating at all and the Restricted Mode state could never show. In Restricted Mode it activates, starts no process, and every command and view shows `design/SPEC.md` §7's state with `Manage Workspace Trust` (plan R19); one check, `vscode.workspace.isTrusted`, guards the single function that spawns processes, and `onDidGrantWorkspaceTrust` re-runs the workspace detection.
 
-Python is resolved once per session, and again when `conclave.pythonPath` changes (`design/decisions.md` answer 7). A candidate must print a version of 3.11 or later (`tomllib`); 3.11.4 or later is needed only to extract a GitHub source (section 8). A set but unusable `conclave.pythonPath` is an error, never a silent fallback.
+Python is resolved once per session, and again when `conclave.pythonPath` changes (`design/decisions.md` answer 7). A candidate must print a version of 3.11 or later (`tomllib`) (**Corrected 2026-10-20:** 3.11.4 was needed only to extract the GitHub source, dropped in section 8). A set but unusable `conclave.pythonPath` is an error, never a silent fallback.
 
 | Host | Python tried, in order | Paths the extension passes |
 | --- | --- | --- |
@@ -182,22 +182,23 @@ Reversal cost: low. Supporting a version 2 is a new text-model branch and its go
 
 ## 7. Packaging
 
-Choice: `npx @vscode/vsce package` in `extensions/vscode/` builds `conclave-<version>.vsix`, with `publisher` `rizonetech`, the name `conclave`, and the bundled SDK under `sdk/` (section 8). The owner decided on 2026-10-17 that it is not listed on the Visual Studio Marketplace: each version's `.vsix` is attached to a GitHub release of `rizonetech/Conclave-SDK` and installed from there (`design/decisions.md`, plan R22). `D04 T01 §6` recorded that decision point; a later change to it is a new dated decision.
+Choice: `npx @vscode/vsce package` in `extensions/vscode/` builds `conclave-<version>.vsix`, with `publisher` `rizonetech`, the name `conclave`, and the bundled SDK under `sdk/` (section 8), whose digest must match `extensions/vscode/sdk-digest.json` (`D05 T02 §2`). The owner decided on 2026-10-17 that it is not listed on the Visual Studio Marketplace: each version's `.vsix` is attached to a GitHub release of `rizonetech/Conclave-SDK` and installed from there (`design/decisions.md`, plan R22). `D04 T01 §6` recorded that decision point; a later change to it is a new dated decision.
 
 Reversal cost: low. Publishing is a release step, not a code change.
 
 ## 8. Where the SDK comes from
 
-The extension runs `forge.py` for every kit operation (plan R24) from one source per run:
+**Corrected 2026-10-20** (owner, `design/decisions.md`, Read-only kit view and agent import): the extension never installs, updates or sets up a repository, and no kit source is configured. It runs `forge.py` only to read (`kits`, `kit --dry-run`, `check`, `doctor`, `digest`), from one source per run (plan R24):
 
-- Bundled (the default): `forge.py` and `kits/` copied into the `.vsix` under `sdk/` at build time, with `sdk/SDK_COMMIT` naming the commit. Labelled `bundled Conclave-SDK@<short sha>`.
-- `conclave.sdkPath`: a local checkout; it must hold `forge.py` and `kits/`, else the refusal `conclave.sdkPath is not a Conclave-SDK checkout.` Labelled with the path.
-- `conclave.sdkRef`: a ref of `conclave.sdkRepository` (default `rizonetech/Conclave-SDK`, internal) on GitHub.
+- Bundled (the default): `forge.py` and `kits/` copied into the `.vsix` under `sdk/` at build time, with `sdk/SDK_COMMIT` naming the commit and `sdk/SDK_DATE` its date. Labelled `bundled Conclave-SDK@<short sha>`.
+- `conclave.sdkPath`, a developer override for working on Conclave-SDK itself: a local checkout; it must hold `forge.py` and `kits/`, else the refusal `conclave.sdkPath is not a Conclave-SDK checkout.` Labelled with the path.
 
-For the GitHub source: the session comes from VS Code's GitHub authentication provider (`vscode.authentication.getSession("github", ["repo"], { createIfNone: true })`), so no token is stored. The ref is resolved to one commit SHA first (`GET /repos/{owner}/{repo}/commits/{ref}` with `Accept: application/vnd.github.sha`); everything after uses that SHA. The source is the REST tarball (`GET /repos/{owner}/{repo}/tarball/{sha}`), not `git clone`, so no Git is needed and nothing but the tree at that SHA arrives. It is cached at `globalStorageUri/sdk/<sha>/`, written to `<sha>.partial/` and renamed into place when complete. Extraction runs a script that ships inside the `.vsix` (never one from the archive) with the resolved Python in isolated mode (`-I`). Before anything is written it reads every member and refuses the whole archive when any member is not a regular file or directory (a symlink, hard link, device or FIFO), has an absolute name (a leading `/` or `\`, or a drive letter), has a `..` segment after splitting on both `/` and `\`, or lies outside the archive's single top folder (`<owner>-<repo>-<short sha>/`). It then extracts with `tarfile`'s `filter="data"` as a second layer (Python 3.11.4 or later): that filter alone strips a leading `/` and allows links that stay inside the target, so it is not the check, the member list is. An older Python refuses the GitHub source with that reason. Nothing downloaded runs until the operator confirms a dialog naming the repository and the SHA. Refusals, each with its actions (`design/SPEC.md` §8): sign-in cancelled, no access (HTTP 404), rate limit used up (HTTP 403 with no requests remaining, naming the reset time), offline, an unusable `sdkPath`, and an archive the extractor refuses. `Use the bundled SDK` is always offered.
+The GitHub source this section chose earlier (`conclave.sdkRef`, `conclave.sdkRepository`, the sign-in, tarball download, cache and extraction script) is dropped and its code removed (`D02 T01 §21`); its earlier text is `git show fb5e468:docs/specs/2026-10-20-vscode-extension-design.md`.
 
-Reversal cost: medium. The bundled source alone works offline; the GitHub source is additive, and dropping it removes the sign-in, cache and extraction code without touching the kit operations.
+The two stay in step through two checks (plan R38 to R40). `forge.py digest` prints the SDK's commit and date and each kit's digest (every template and host overlay file, CRLF read as LF); `extensions/vscode/sdk-digest.json` records it with the extension's version, and a test in Conclave-SDK fails when the kits change without a new version (`D05 T02 §2`). Each project carries a kit stamp, `.conclave/kits.json`, written by forge when every SDK-managed file of a kit in the folder matches the SDK that ran (`D05 T02 §1`); the extension compares each kit's stamp with its own digest and date and shows `newer kits than this extension` or `older kits than this extension` instead of calling the kit partly installed (`D05 T02 §3`).
+
+Reversal cost: high. Restoring the GitHub source means restoring `D02 T01 §7` and `§12` to `§15` from git and their settings; restoring installs means the dropped `D05 T01` flows.
 
 ## Not decided here
 
-The feature sections' data contracts are owned by their kits: `todo-graph.py query plan` (`D06 T01 §2`) and `review-dispatch.py --list-rounds --json` (`D06 T01 §3`, hardened by `§8`). Protected files for the hash check are the project-owned files in `design/SPEC.md` §10.
+The feature sections' data contracts are owned by their kits: `todo-graph.py query plan` (`D06 T01 §2`) and `review-dispatch.py --list-rounds --json` (`D06 T01 §3`, hardened by `§8`). The protected-file hash check of the dropped install flows is gone with them (`design/SPEC.md` §10); the `adopt-conclave` skill checks the protected files with git (plan R41).
