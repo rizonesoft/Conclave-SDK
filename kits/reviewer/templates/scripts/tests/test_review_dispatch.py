@@ -259,17 +259,35 @@ class Dispatch(unittest.TestCase):
         spec.loader.exec_module(module)
         pin = self.repo / ".conclave/reviewers.toml"
         good = pin.read_text()
-        for bad in (good.replace('effort = "medium"', 'effort = "extreme"'),
-                    good.replace('claude = ["astra", "gemini"]', 'claude = ["astra", "sonnet"]'),
-                    good.replace("schema_version = 1", "schema_version = true"),
-                    good + '\n[extra]\nkey = 1\n', "not toml ["):
+        for bad in bad_pins(good) + (good.replace("schema_version = 1", "schema_version = true"), "not toml ["):
             with self.subTest(bad=bad[-40:]):
+                self.assertNotEqual(bad, good, "the replacement must match the fixture, or the case tests nothing")
                 pin.write_text(bad, encoding="utf-8")
                 with self.assertRaises(module.Refused) as refused:
                     module.load_pin(pin)
                 result = self.check_pin("--json")
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertEqual(json.loads(result.stdout), {"ok": False, "error": str(refused.exception)})
+        self.assertEqual(self.calls(), [])
+
+    def test_a_pin_that_cannot_be_read_is_refused_not_a_crash(self):
+        pin = self.repo / ".conclave/reviewers.toml"
+        cases = {"directory": lambda: (pin.unlink(), pin.mkdir()),
+                 "not UTF-8": lambda: pin.write_bytes(b"schema_version = 1\n# \xff\n"),
+                 "nested too deep": lambda: pin.write_text("x = " + "[" * 5000 + "0" + "]" * 5000 + "\n")}
+        for name, make in cases.items():
+            with self.subTest(name):
+                if pin.is_dir():
+                    pin.rmdir()
+                make()
+                result = self.check_pin("--json")
+                self.assertEqual(result.returncode, 2, result.stderr)
+                report = json.loads(result.stdout)
+                self.assertFalse(report["ok"])
+                self.assertTrue(report["error"].startswith("unreadable reviewer pin"), report["error"])
+                review, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt))
+                self.assertEqual(review.returncode, 2, review.stderr)
+                self.assertIn("review-dispatch refused: unreadable reviewer pin", review.stderr)
         self.assertEqual(self.calls(), [])
 
     def test_check_pin_reports_a_missing_pin(self):
@@ -490,21 +508,7 @@ class Dispatch(unittest.TestCase):
     def test_a_bad_pin_refuses_before_any_reviewer_runs(self):
         pin = self.repo / ".conclave/reviewers.toml"
         good = pin.read_text()
-        for bad in (good.replace('effort = "medium"', 'effort = "extreme"'),
-                    good.replace('cli = "codex"', 'cli = "bash"'),
-                    good.replace('codex = ["gemini", "sonnet"]', 'codex = ["gemini", "opus"]'),
-                    good.replace('model = "gpt-6-astra"', 'model = "gpt-6-astra; rm -rf ~"'),
-                    good + '\n[extra]\nkey = 1\n',
-                    good.replace('codex = ["gemini", "sonnet"]', 'codex = [["gemini"], "sonnet"]'),
-                    good.replace('model = "gemini-4-argon-high"', 'model = "gemini-4-argon-high"\neffort = "high"'),
-                    # A reviewer of the writer's own family, and a second fallback.
-                    good.replace('claude = ["astra", "gemini"]', 'claude = ["astra", "sonnet"]'),
-                    good.replace('gemini = ["astra", "sonnet"]', 'gemini = ["gemini", "sonnet"]'),
-                    good.replace('claude = ["astra", "gemini"]', 'claude = ["astra", "gemini", "mini"]')
-                    + '\n[reviewers.mini]\ncli = "codex"\nmodel = "gpt-6-mini"\neffort = "low"\n',
-                    # A fallback of the reviewer's own family is not the third family the route promises.
-                    good.replace('claude = ["astra", "gemini"]', 'claude = ["astra", "mini"]')
-                    + '\n[reviewers.mini]\ncli = "codex"\nmodel = "gpt-6-mini"\neffort = "low"\n'):
+        for bad in bad_pins(good):
             with self.subTest(bad=bad[-60:]):
                 self.assertNotEqual(bad, good, "the replacement must match the fixture, or the case tests nothing")
                 pin.write_text(bad, encoding="utf-8")
@@ -515,6 +519,24 @@ class Dispatch(unittest.TestCase):
         result, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt))
         self.assertEqual(result.returncode, 2)
         self.assertIn("no reviewer pin", result.stderr)
+
+
+def bad_pins(good):
+    """Every rule a parsable pin can break, each as one edit of the shipped pin, shared by the review and check tests."""
+    mini = '\n[reviewers.mini]\ncli = "codex"\nmodel = "gpt-6-mini"\neffort = "low"\n'
+    return (good.replace('effort = "medium"', 'effort = "extreme"'),
+            good.replace('cli = "codex"', 'cli = "bash"'),
+            good.replace('codex = ["gemini", "sonnet"]', 'codex = ["gemini", "opus"]'),
+            good.replace('model = "gpt-6-astra"', 'model = "gpt-6-astra; rm -rf ~"'),
+            good + '\n[extra]\nkey = 1\n',
+            good.replace('codex = ["gemini", "sonnet"]', 'codex = [["gemini"], "sonnet"]'),
+            good.replace('model = "gemini-4-argon-high"', 'model = "gemini-4-argon-high"\neffort = "high"'),
+            # A reviewer of the writer's own family, and a second fallback.
+            good.replace('claude = ["astra", "gemini"]', 'claude = ["astra", "sonnet"]'),
+            good.replace('gemini = ["astra", "sonnet"]', 'gemini = ["gemini", "sonnet"]'),
+            good.replace('claude = ["astra", "gemini"]', 'claude = ["astra", "gemini", "mini"]') + mini,
+            # A fallback of the reviewer's own family is not the third family the route promises.
+            good.replace('claude = ["astra", "gemini"]', 'claude = ["astra", "mini"]') + mini)
 
 
 class RepositoryPin(unittest.TestCase):
