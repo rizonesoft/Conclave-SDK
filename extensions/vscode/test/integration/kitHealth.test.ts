@@ -6,7 +6,7 @@ import * as vscode from "vscode";
 import type { ConclaveApi } from "../../src/extension";
 import { KitHealthService } from "../../src/host/kitHealth";
 import { KitStateService } from "../../src/host/kitState";
-import { running } from "../../src/host/run";
+import { run, running } from "../../src/host/run";
 
 // Kit health from this SDK's own forge.py (conclave.sdkPath set to the repository root), with stub reviewer CLIs first
 // on PATH so the reviewer doctor's answer does not depend on what this machine has installed.
@@ -138,5 +138,42 @@ suite("kitHealth", () => {
     assert.equal((await api.runForge(source, ["kit", work, "todo"])).kind, "ok");
     const after = await api.kitHealth(folder);
     assert.ok(after.ok && after.kits.some((k) => k.kit === "todo"), `the health from before the folder left came back: ${JSON.stringify(after)}`);
+  });
+  test("kitHealth: a computation for a folder that left stops, and never reads the folder again", async () => {
+    const work = join(base, "away");
+    const folder = vscode.Uri.file(work);
+    const python = await api.python();
+    assert.ok(python.ok);
+    let reads = 0;
+    let release: (() => void) | undefined;
+    const forgetting = new vscode.EventEmitter<vscode.Uri>();
+    const health = new KitHealthService({
+      kitStates: async () => (reads += 1, { ok: true, kits: [] }),
+      onDidChangeKitState: new vscode.EventEmitter<vscode.Uri>().event,
+      onDidForget: forgetting.event,
+      source: async () => ({ folder: sdk, label: "local Conclave-SDK (test)" }),
+      python: async () => python,
+      // forge check is held until the folder has left.
+      run: async (file, args, timeoutMs, cwd, options) => {
+        const result = await run(file, args, timeoutMs, cwd, options);
+        if (args.includes("check")) {
+          await new Promise<void>((r) => (release = r));
+        }
+        return result;
+      },
+    });
+    try {
+      const reading = health.health(folder);
+      while (!release) {
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      forgetting.fire(folder);
+      release();
+      assert.deepEqual(await reading, { ok: false, message: "the folder is no longer watched" });
+      assert.equal(reads, 1, "the computation read the folder again after it left");
+    } finally {
+      health.dispose();
+      forgetting.dispose();
+    }
   });
 });

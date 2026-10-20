@@ -34,6 +34,9 @@ export class KitHealthService implements vscode.Disposable {
   private readonly cache = new Map<string, Promise<KitHealthResult>>();
   private readonly generations = new Map<string, number>();
   private readonly queues = new Map<string, Promise<unknown>>();
+  // Each folder's lifetime, as in the kit state: a computation that started before a forget stops instead of reading
+  // the folder again, which would bring it back (its kit state and watchers) after it left.
+  private readonly lifetimes = new Map<string, object>();
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
   private readonly subscriptions: vscode.Disposable[] = [];
   readonly onDidChangeKitHealth = this.changed.event;
@@ -45,15 +48,18 @@ export class KitHealthService implements vscode.Disposable {
     }
   }
 
-  // A folder that left: its cached health is dropped, and a computation in flight for it runs again if read.
+  // A folder that left: its cached health is dropped, and a computation in flight for it stops.
   forget(folder: vscode.Uri): void {
     const key = folder.toString();
-    this.generations.set(key, (this.generations.get(key) ?? 0) + 1);
+    this.lifetimes.delete(key);
     this.cache.delete(key);
   }
 
   health(folder: vscode.Uri): Promise<KitHealthResult> {
     const key = folder.toString();
+    if (!this.lifetimes.has(key)) {
+      this.lifetimes.set(key, {});
+    }
     let health = this.cache.get(key);
     if (!health) {
       health = this.serial(key, () => this.fresh(folder));
@@ -78,9 +84,17 @@ export class KitHealthService implements vscode.Disposable {
 
   private async fresh(folder: vscode.Uri): Promise<KitHealthResult> {
     const key = folder.toString();
+    const lifetime = this.lifetimes.get(key);
+    const left: KitHealthResult = { ok: false, message: "the folder is no longer watched" };
     for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
+      if (lifetime === undefined || this.lifetimes.get(key) !== lifetime) {
+        return left;
+      }
       const generation = this.generations.get(key) ?? 0;
       const health = await this.compute(folder);
+      if (this.lifetimes.get(key) !== lifetime) {
+        return left;
+      }
       if ((this.generations.get(key) ?? 0) === generation) {
         return health;
       }

@@ -117,7 +117,7 @@ The operator sees what is missing or needs setup for each installed kit (plan R3
 2. Write `extensions/vscode/src/host/kitHealth.ts` running them. Done when: an integration test on the shipped workspace reports the reviewer kit healthy.
 
 - [x] Implement `healthFrom(check, doctors)` in `extensions/vscode/src/core/kitHealth.ts`, keeping every check's `name`, `status` and `detail` verbatim and counting non-`ok` statuses per kit. Done when: unit tests over recorded `doctor` outputs for `reviewer` (all ok, and one `setup_required` CLI) and `wordpress` (setup required) pass. Cheaper substitute: a single red or green flag per kit.
-  The recorded outputs come from `extensions/vscode/scripts/record-forge-fixtures.py`, which runs the reviewer and other doctors with PATH set to a folder of stub CLIs (every CLI, or every CLI but `agy`), so the fixtures are the same on any host. `healthFrom` also lists the agent-setup flags `forge check` reports as false.
+  The recorded outputs come from `extensions/vscode/scripts/record-forge-fixtures.py`, which runs the reviewer and other doctors with PATH set to a folder of stub CLIs (every CLI, or every CLI but `agy`), so the fixtures are the same on any host of one platform (recorded on Windows: the automations doctor checks `pythonw` there and `systemctl` elsewhere, and the stubs are `.cmd` files there). `healthFrom` also keeps `forge check`'s flags verbatim as presence, without judging them. **Corrected 2026-10-20:** this said the fixtures were the same on any host and that false flags were listed as missing setup (review round 1).
 - [x] Treat an unknown status value as not ok and show it verbatim. Done when: a unit test with `status: "stale"` counts it. Cheaper substitute: dropping unknown statuses.
 - [x] Run `doctor` only for installed kits, one process at a time per folder, with a 30 second timeout each. Done when: an integration test with a slow fake doctor times out one kit and still reports the others. Cheaper substitute: running doctor for every kit, including ones not installed.
   Installed means installed or partly installed in `D02 T01 §10`'s kit state. A doctor that times out or is refused makes that kit `unavailable` with forge's reason; its process tree is ended (`§9`'s runner).
@@ -130,6 +130,8 @@ The operator sees what is missing or needs setup for each installed kit (plan R3
 
 ## 4. New repository setup through forge init
 
+> **Started:** 2026-10-20T17:00:00Z
+
 A new repository is set up from VS Code (plan R31) with `forge.py init <folder>`, the kits chosen (base always comes with init), the agent and the provisioning mode, and opened afterwards. Init on a folder that already has entry docs skips them; the extension never passes `--force`, so an existing `AGENTS.md`, `GEMINI.md`, `CLAUDE.md` or `CODEX.md` is never overwritten.
 
 **Phase:** 1
@@ -141,7 +143,7 @@ A new repository is set up from VS Code (plan R31) with `forge.py init <folder>`
 1. Write `extensions/vscode/src/host/repoInit.ts`. Done when: an integration test sets up an empty folder with the todo kit and finds `AGENTS.md` and `todo/TODO-00-INDEX.md`.
 2. Open the result. Done when: the test sees the new folder opened or added to the workspace as the operator chose.
 
-- [ ] Build the argv `init <folder> --agent <agent> --mode <mode>` plus one `--kit <kit>` per chosen kit and `--host` for WordPress, never `--force`, in `extensions/vscode/src/host/repoInit.ts`. Done when: unit tests assert the argv and that no input produces `--force`. Cheaper substitute: an "overwrite" checkbox mapped to `--force`.
+- [ ] Build the argv `init <folder> --agent <agent> --mode <mode>` plus one `--kit <kit>` per chosen kit and `--wp-host` for WordPress (**Corrected 2026-10-20:** was `--host`, which is `kit`'s option; `init` takes `--wp-host`), never `--force`, in `extensions/vscode/src/host/repoInit.ts`. Done when: unit tests assert the argv and that no input produces `--force`. Cheaper substitute: an "overwrite" checkbox mapped to `--force`.
 - [ ] Refuse a target that is inside another workspace folder's `.git` or is the SDK source folder itself. Done when: unit tests refuse both. Cheaper substitute: no target check.
 - [ ] Show which entry docs already exist in a non-empty target and say they will be kept. Done when: an integration test on a folder with `AGENTS.md` lists it as kept and its hash is unchanged after init. Cheaper substitute: no warning.
 - [ ] Parse forge's `written`, `skipped` and per-kit lists and return them. Done when: the test sees `AGENTS.md` under written for an empty folder. Cheaper substitute: "Done" with no list.
