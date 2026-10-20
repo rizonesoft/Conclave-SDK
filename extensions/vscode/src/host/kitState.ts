@@ -1,15 +1,16 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import * as vscode from "vscode";
-import { parseKit, parseKits } from "../core/forgeJson";
-import { kitState, type KitState, refusalReason } from "../core/kitState";
+import { parseCheck, parseDigest, parseKit, parseKits, type SdkDigest } from "../core/forgeJson";
+import { kitState, type KitState, refusalReason, type Stamp, stampOf } from "../core/kitState";
 import type { Python } from "../core/python";
 import type { ForgeSource } from "./forge";
 import { runForge } from "./forge";
 import { FolderWork } from "./folderWork";
 import type { run } from "./run";
 
-export type KitStates = { ok: true; kits: KitState[] } | { ok: false; message: string };
+// Each kit with its dry-run state and how the folder's kit stamp compares with the SDK (D05 T02 §3).
+export type KitStates = { ok: true; kits: (KitState & { stamp: Stamp })[] } | { ok: false; message: string };
 
 export interface KitStateDeps {
   // Where forge.py comes from for this folder (D02 T01 §7), or why there is none.
@@ -35,7 +36,8 @@ function identity(python: Python | { message: string }): string {
 // app root (the folder itself, platform/, or a first-level child), the same one level down. Read from the SDK source
 // itself, so a kit that adds a path is watched without a change here.
 export function watchedGlobs(sdkFolder: string): string[] {
-  const names = new Set(["artisan", ".mcp.json"]);
+  // .conclave holds the kit stamp, which the state reads whatever the kits' templates hold.
+  const names = new Set(["artisan", ".mcp.json", ".conclave"]);
   const add = (dir: string) => {
     try {
       readdirSync(dir).forEach((n) => names.add(n));
@@ -80,6 +82,8 @@ export class KitStateService implements vscode.Disposable {
   // depends on there (its kits and forge.py itself): a local checkout can change under a cached state.
   private readonly sources = new Map<string, string>();
   private readonly sdkWatchers = new Map<string, vscode.Disposable[]>();
+  // Each SDK folder's forge.py digest, read once and dropped when its kits or forge.py change.
+  private readonly digests = new Map<string, SdkDigest>();
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
   private readonly forgotten = new vscode.EventEmitter<vscode.Uri>();
   private readonly subscriptions: vscode.Disposable[] = [];
@@ -172,6 +176,7 @@ export class KitStateService implements vscode.Disposable {
     const base = vscode.Uri.file(sdkFolder);
     const watchers = ["kits/**", "forge.py"].map((glob) => vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(base, glob)));
     const seen = () => {
+      this.digests.delete(sdkFolder);
       for (const [key, sdk] of this.sources) {
         const folder = this.folders.get(key);
         if (sdk === sdkFolder && folder) {
@@ -221,15 +226,34 @@ export class KitStateService implements vscode.Disposable {
     if (kits.kind !== "ok") {
       return { ok: false, message: kits.kind === "failed" ? kits.message : "cancelled" };
     }
-    const states: KitState[] = [];
+    // The SDK's digest (once per SDK folder) and the folder's stamp from forge check; without either every kit's
+    // stamp is none, and the dry run's state stands.
+    let digest = this.digests.get(source.folder);
+    if (!digest) {
+      if (!alive()) {
+        return left;
+      }
+      const read = await runForge(source, python, ["digest"], parseDigest, options);
+      if (read.kind === "ok") {
+        digest = read.value;
+        this.digests.set(source.folder, digest);
+      }
+    }
+    if (!alive()) {
+      return left;
+    }
+    const check = await runForge(source, python, ["check", folder.fsPath], parseCheck, options);
+    const stamp = check.kind === "ok" ? check.value.kitStamp : null;
+    const states: (KitState & { stamp: Stamp })[] = [];
     for (const kit of kits.value) {
       if (!alive()) {
         return left;
       }
       const dry = await runForge(source, python, ["kit", folder.fsPath, kit, "--dry-run", "--agent", "all"], parseKit, options);
-      states.push(dry.kind === "ok"
+      const state: KitState = dry.kind === "ok"
         ? kitState(dry.value)
-        : { kit, state: "unavailable", reason: dry.kind === "failed" ? refusalReason(dry.stderrTail, dry.message) : "cancelled" });
+        : { kit, state: "unavailable", reason: dry.kind === "failed" ? refusalReason(dry.stderrTail, dry.message) : "cancelled" };
+      states.push({ ...state, stamp: digest ? stampOf(stamp?.kits[kit], digest, kit) : "none" });
     }
     return { ok: true, kits: states };
   }

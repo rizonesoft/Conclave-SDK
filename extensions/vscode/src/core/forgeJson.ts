@@ -22,6 +22,25 @@ export interface CheckResult {
   claudeSkills: string[];
   codexSkills: string[];
   claudeAgents: string[];
+  // The folder's kit stamp (plan R38), or null when it has none (or forge predates the stamp).
+  kitStamp: KitStamp | null;
+}
+
+// Which SDK set each kit in a folder up: .conclave/kits.json, as forge check reports it.
+export interface StampEntry {
+  digest: string;
+  commit: string | null;
+  date: string | null;
+}
+export interface KitStamp {
+  kits: Record<string, StampEntry>;
+}
+
+// forge.py digest: the SDK forge runs from, forge.py's own digest and each kit's.
+export interface SdkDigest {
+  sdk: { commit: string | null; date: string | null };
+  forge: string;
+  kits: Record<string, string>;
 }
 
 export interface DoctorCheck {
@@ -69,6 +88,23 @@ function count(o: Json, key: string, where: string): number {
     throw new Shape(`${where}: "${key}" is missing or not a whole number`);
   }
   return o[key] as number;
+}
+
+function textOrNull(o: Json, key: string, where: string): string | null {
+  if (o[key] !== null && typeof o[key] !== "string") {
+    throw new Shape(`${where}: "${key}" is missing or not text or null`);
+  }
+  return o[key] as string | null;
+}
+
+// A map of names to values, each read by read; a Map-free object with no inherited names.
+function record<T>(o: Json, key: string, where: string, read: (value: unknown, at: string) => T): Record<string, T> {
+  const value = object(o[key], `${where}: "${key}"`);
+  const out: Record<string, T> = Object.create(null);
+  for (const [name, item] of Object.entries(value)) {
+    out[name] = read(item, `${where}: ${key}.${name}`);
+  }
+  return out;
 }
 
 function texts(o: Json, key: string, where: string): string[] {
@@ -136,6 +172,34 @@ export function parseCheck(raw: string): Parsed<CheckResult> {
       claudeSkills: texts(o, "claude_skills", where),
       codexSkills: texts(o, "codex_skills", where),
       claudeAgents: texts(o, "claude_agents", where),
+      // An older forge writes no kit_stamp at all; a folder without one has null.
+      kitStamp: o.kit_stamp === undefined || o.kit_stamp === null ? null : kitStamp(object(o.kit_stamp, `${where}: "kit_stamp"`), `${where}: kit_stamp`),
+    };
+  });
+}
+
+function kitStamp(o: Json, where: string): KitStamp {
+  return {
+    kits: record(o, "kits", where, (value, at) => {
+      const entry = object(value, at);
+      return { digest: text(entry, "digest", at), commit: textOrNull(entry, "commit", at), date: textOrNull(entry, "date", at) };
+    }),
+  };
+}
+
+export function parseDigest(raw: string): Parsed<SdkDigest> {
+  return parse("digest", raw, (o) => {
+    const where = "forge digest";
+    const sdk = object(o.sdk, `${where}: "sdk"`);
+    return {
+      sdk: { commit: textOrNull(sdk, "commit", `${where}: sdk`), date: textOrNull(sdk, "date", `${where}: sdk`) },
+      forge: text(o, "forge", where),
+      kits: record(o, "kits", where, (value, at) => {
+        if (typeof value !== "string") {
+          throw new Shape(`${at} is not text`);
+        }
+        return value;
+      }),
     };
   });
 }

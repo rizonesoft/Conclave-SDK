@@ -1,4 +1,4 @@
-import type { KitResult } from "./forgeJson";
+import type { KitResult, SdkDigest, StampEntry } from "./forgeJson";
 
 // A kit's state in one folder (plan R27), read from forge's own dry run (`forge.py kit <folder> <kit> --dry-run --agent
 // all`): a file forge would add is missing, a file it would keep (or update on a refresh) is there. The state is
@@ -9,6 +9,24 @@ export type KitState =
   | { kit: string; state: "not-installed"; add: number }
   // forge refused the dry run (the laravel kit outside a Laravel app): its own reason.
   | { kit: string; state: "unavailable"; reason: string };
+
+// How a kit's stamp (plan R38, R40) compares with the SDK the extension reads: the same digest is current; another
+// digest with a later date is newer (update the extension), an earlier or unknown date older (ask the agent to update
+// the kits; forge itself refuses to replace a kit an unknown date might make newer). No stamp entry is none. Current and
+// none keep the dry run's state; newer and older are never shown as partly installed.
+export type Stamp = "current" | "newer" | "older" | "none";
+
+export function stampOf(entry: StampEntry | undefined, source: SdkDigest, kit: string): Stamp {
+  if (!entry) {
+    return "none";
+  }
+  if (entry.digest === source.kits[kit]) {
+    return "current";
+  }
+  const theirs = entry.date ? Date.parse(entry.date) : NaN;
+  const ours = source.sdk.date ? Date.parse(source.sdk.date) : NaN;
+  return !Number.isNaN(theirs) && !Number.isNaN(ours) && theirs > ours ? "newer" : "older";
+}
 
 const SHOWN = 5;
 

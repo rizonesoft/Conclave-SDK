@@ -105,9 +105,20 @@ def kit_digest(kit_name: str) -> str:
     return digest.hexdigest()
 
 
+# sdk_info's answer per SDK folder: it cannot change while forge runs, and reading it costs a git process.
+_SDK_INFO: dict[str, dict] = {}
+
+
 def sdk_info() -> dict:
     """The commit and commit date of the SDK forge runs from: git's in a checkout, else SDK_COMMIT and SDK_DATE beside
-    forge.py (the copy bundled in the VS Code extension), else null."""
+    forge.py (the copy bundled in the VS Code extension), else null. Read once per SDK folder."""
+    key = str(FORGE_ROOT)
+    if key not in _SDK_INFO:
+        _SDK_INFO[key] = _read_sdk_info()
+    return dict(_SDK_INFO[key])
+
+
+def _read_sdk_info() -> dict:
     if (FORGE_ROOT / ".git").exists():
         try:
             run = subprocess.run(["git", "-C", str(FORGE_ROOT), "show", "-s", "--format=%H %cI", "HEAD"],
@@ -351,8 +362,11 @@ def apply_kit(
     available = list_kits()
     if kit_name not in available:
         raise ValueError(f"Unknown kit '{kit_name}'. Available kits: {', '.join(available)}")
-    # A kit a later SDK set up is never replaced by this one (a dry run only reads, so it still answers).
+    # A kit a later SDK set up is never replaced by this one (a dry run only reads, so it still answers). The SDK's
+    # commit is read before any file is written, so the stamp follows the kit's files at once and a watcher sees one
+    # burst of writes, not two.
     if not dry_run:
+        sdk_info()
         newer = stamped_newer(target_root, kit_name)
         if newer:
             raise ValueError(f"Refusing to replace a newer kit: {newer}")

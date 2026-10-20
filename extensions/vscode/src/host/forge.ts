@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { forgeOutcome, type ForgeOutcome, parseCheck, parseDoctor, parseKit, parseKits, type Parsed } from "../core/forgeJson";
+import { forgeOutcome, type ForgeOutcome, parseCheck, parseDigest, parseDoctor, parseKit, parseKits, type Parsed } from "../core/forgeJson";
 import type { Python } from "../core/python";
 import { log } from "./output";
 import { run } from "./run";
@@ -27,6 +27,7 @@ export const FORGE_PARSERS = new Map<string, (raw: string) => Parsed<unknown>>([
   ["kit", parseKit],
   ["check", parseCheck],
   ["doctor", parseDoctor],
+  ["digest", parseDigest],
 ]);
 
 // Why args are not a read-only forge run, or undefined: a command outside FORGE_PARSERS, `kit` without --dry-run,

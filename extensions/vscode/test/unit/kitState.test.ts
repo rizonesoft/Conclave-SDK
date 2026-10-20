@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { parseKit } from "../../src/core/forgeJson";
-import { kitState, refusalReason } from "../../src/core/kitState";
+import { kitState, refusalReason, stampOf } from "../../src/core/kitState";
 
 // forge's own dry runs, recorded by scripts/record-forge-fixtures.py on four folders: empty, base only, every kit that
 // applies outside a Laravel app, and provisioned for Claude alone.
@@ -60,4 +60,20 @@ test("kitState: forge's refusal reason loses its prefix", () => {
   assert.equal(refusalReason(refused.stderr.split("\n"), "no reason"),
     "No artisan found under <TARGET> (looked at root, platform/, and first-level children).");
   assert.equal(refusalReason([], "no reason"), "no reason");
+});
+
+test("kitState: a kit's stamp is current, newer, older or none against the SDK's digest", () => {
+  const source = { sdk: { commit: "a".repeat(40), date: "2026-10-21T01:00:00+02:00" }, forge: "f", kits: { todo: "same" } };
+  const entry = (digest: string, date: string | null) => ({ digest, commit: "b".repeat(40), date });
+  assert.equal(stampOf(undefined, source, "todo"), "none");
+  assert.equal(stampOf(entry("same", "2020-01-01T00:00:00Z"), source, "todo"), "current", "the same digest is current whatever the date");
+  assert.equal(stampOf(entry("other", "2026-10-22T00:00:00+02:00"), source, "todo"), "newer");
+  assert.equal(stampOf(entry("other", "2026-10-20T00:00:00+02:00"), source, "todo"), "older");
+  // A later instant written in another time zone is still later.
+  assert.equal(stampOf(entry("other", "2026-10-20T23:30:00Z"), source, "todo"), "newer");
+  // An unknown date on either side is older: ask the agent, whose forge refuses to replace a possibly newer kit.
+  assert.equal(stampOf(entry("other", null), source, "todo"), "older");
+  assert.equal(stampOf(entry("other", "2099-01-01T00:00:00Z"), { ...source, sdk: { commit: null, date: null } }, "todo"), "older");
+  // A kit this SDK does not have is never current.
+  assert.equal(stampOf(entry("same", "2020-01-01T00:00:00Z"), source, "gone"), "older");
 });

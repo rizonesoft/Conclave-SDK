@@ -83,6 +83,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix="conclave-forge-") as work:
         work = Path(work)
         record("kits", ["kits"], work)
+        # forge.py digest (D05 T02 §3): the SDK's commit and date, forge.py's digest and every kit's.
+        record("digest", ["digest"], work)
         kit_target = work / "kit"
         kit_target.mkdir()
         record("kit-dry-run", ["kit", str(kit_target), "reviewer", "--dry-run"], kit_target)

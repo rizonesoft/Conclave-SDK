@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as vscode from "vscode";
@@ -28,7 +28,7 @@ suite("kitState", () => {
   suiteTeardown(async () => {
     await vscode.workspace.getConfiguration("conclave").update("sdkPath", undefined, vscode.ConfigurationTarget.Global);
     // The folders leave: their watchers let go of them, so they can be removed.
-    for (const name of ["repo", "explicit", "race", "config", "wordpress", "settle", "left", "local"]) {
+    for (const name of ["repo", "explicit", "race", "config", "wordpress", "settle", "left", "local", "stamped"]) {
       api.forgetKitState(vscode.Uri.file(join(base, name)));
     }
     await new Promise((r) => setTimeout(r, 500));
@@ -81,6 +81,42 @@ suite("kitState", () => {
     const after = await api.kitStates(folder);
     assert.ok(after.ok && after.kits.find((k) => k.kit === "todo")?.state === "installed", JSON.stringify(after));
     assert.ok(forgeRuns() > before, "the state after the install came from the cache");
+  });
+
+  test("kitState: a folder's kit stamp reads current, newer or older, and a rewritten stamp is read again", async () => {
+    const work = join(base, "stamped");
+    mkdirSync(work);
+    const folder = vscode.Uri.file(work);
+    await forgeFixture(api, sdk, ["init", work, "--kit", "todo"]);
+    const stampOf = (states: Awaited<ReturnType<ConclaveApi["kitStates"]>>, kit: string) =>
+      (states.ok ? states.kits.find((k) => k.kit === kit) : undefined);
+    const first = await api.kitStates(folder);
+    assert.equal(stampOf(first, "todo")?.stamp, "current", JSON.stringify(first));
+    assert.equal(stampOf(first, "reviewer")?.stamp, "none");
+    const path = join(work, ".conclave", "kits.json");
+    const write = async (date: string) => {
+      const stamp = JSON.parse(readFileSync(path, "utf8"));
+      stamp.kits.todo = { digest: "from another SDK", commit: "c".repeat(40), date };
+      await new Promise((r) => setTimeout(r, 1000));
+      let changed = false;
+      const listener = api.onDidChangeKitState((f) => void (f.fsPath === folder.fsPath && (changed = true)));
+      try {
+        writeFileSync(path, JSON.stringify(stamp));
+        const started = Date.now();
+        while (!changed && Date.now() - started < 10_000) {
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        assert.ok(changed, "rewriting the stamp did not read the state again");
+      } finally {
+        listener.dispose();
+      }
+      return api.kitStates(folder);
+    };
+    const newer = await write("2099-01-01T00:00:00+00:00");
+    const todo = stampOf(newer, "todo");
+    // Newer kits keep the dry run's state; only the stamp says they are another SDK's.
+    assert.ok(todo?.stamp === "newer" && todo.state === "installed", JSON.stringify(todo));
+    assert.equal(stampOf(await write("2000-01-01T00:00:00+00:00"), "todo")?.stamp, "older");
   });
 
   test("kitState: a kit operation's invalidate reads the state again", async () => {

@@ -1,0 +1,15 @@
+{
+  "sdk": {
+    "commit": "a3fc6c1e24619fe9a00f67f191fa32746357dafe",
+    "date": "2026-10-21T01:19:46+02:00"
+  },
+  "forge": "1d1fb36a1c17f6fac744366028d0681e3b35e59e37f6a99effb63911483d9183",
+  "kits": {
+    "automations": "b8a55332267207471eab2f69347b1ab2038f46ebc645e8df6de7726347b053fb",
+    "base": "8dde0d815635c88a1ef56dcb363e3f71b208d84ce7c7be41c8c9df3b08cb0964",
+    "laravel": "ce1f8491263332e28b7e726e34028cf57b94d34d979e60ee1d7d3c0ae283fe15",
+    "reviewer": "1d92271e30d7c5743ceba5a13f484d69ddd69d8257957bcd90af6842d27b999c",
+    "todo": "e5fdf3604bcc6e9a8a38cfb5373d1b0f65ff21f8a5ae094709c397e209af2dc2",
+    "wordpress": "524c7ec46e290767ddb55e698ae3a95da24a66a53f31d227dca2db657735e430"
+  }
+}

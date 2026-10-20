@@ -50,5 +50,20 @@
     "git-runner",
     "mutation-tester",
     "test-runner"
-  ]
+  ],
+  "kit_stamp": {
+    "schema_version": 1,
+    "kits": {
+      "base": {
+        "digest": "8dde0d815635c88a1ef56dcb363e3f71b208d84ce7c7be41c8c9df3b08cb0964",
+        "commit": "a3fc6c1e24619fe9a00f67f191fa32746357dafe",
+        "date": "2026-10-21T01:19:46+02:00"
+      },
+      "todo": {
+        "digest": "e5fdf3604bcc6e9a8a38cfb5373d1b0f65ff21f8a5ae094709c397e209af2dc2",
+        "commit": "a3fc6c1e24619fe9a00f67f191fa32746357dafe",
+        "date": "2026-10-21T01:19:46+02:00"
+      }
+    }
+  }
 }

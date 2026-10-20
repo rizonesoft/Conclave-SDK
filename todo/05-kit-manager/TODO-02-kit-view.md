@@ -107,6 +107,10 @@ The extension must change when the kits change (plan R39). `extensions/vscode/sd
 
 A folder set up with kits the extension does not know must not read as partly installed (plan R40). The kit state gains the folder's stamp from `forge.py check` and compares each kit's digest and the SDK date with the source's own `forge.py digest`: equal digests are the current kits; a newer SDK date with a different digest is `newer` (update the extension); an older one is `older` (ask the agent to update the kits). A folder with no stamp keeps today's dry-run state.
 
+> **Started:** 2026-10-20T23:30:00Z
+
+**Corrected 2026-10-20 (while building):** an unknown date on either side reads `older` (the copy then asks the agent, whose forge refuses to replace a kit a date might make newer, `§8`); and two causes the tests found were fixed where they live: the service checks the folder's lifetime before the digest run too, and `forge.py` reads the SDK's commit before writing any file, so its stamp follows the kit's files within the watcher's settle time and an install is one event, not two.
+
 **Phase:** 1
 **Needs:** none
 **Surface:** no
@@ -116,9 +120,9 @@ A folder set up with kits the extension does not know must not read as partly in
 1. Write the failing tests in `extensions/vscode/test/unit/kitState.test.ts` and `test/integration/kitState.test.ts`. Done when: they fail at the end of §1.
 2. Extend `kitState` and `KitStateService`. Done when: the tests pass.
 
-- [ ] Parse `kit_stamp` from `check` and `forge.py digest` in `extensions/vscode/src/core/forgeJson.ts`, refusing malformed shapes with the field named. Done when: unit tests over recorded fixtures pass, and a stamp with a missing date is refused. Cheaper substitute: reading `.conclave/kits.json` directly.
-- [ ] Add `stamp: "current" | "newer" | "older" | "none"` per kit to `kitState` in `extensions/vscode/src/core/kitState.ts`, from the rule above, keeping the dry-run state for `none` and `current`. Done when: unit tests cover all four, including a newer stamp on a kit whose dry run lists files to add. Cheaper substitute: comparing commits for equality only.
-- [ ] Read the digest once per SDK source and the stamp per folder in `KitStateService`, invalidated with the folder's state when `.conclave/kits.json` changes. Done when: an integration test that rewrites a folder's stamp sees the state change. Cheaper substitute: reading the digest on every request.
+- [x] Parse `kit_stamp` from `check` and `forge.py digest` in `extensions/vscode/src/core/forgeJson.ts`, refusing malformed shapes with the field named. Done when: unit tests over recorded fixtures pass, and a stamp with a missing date is refused. Cheaper substitute: reading `.conclave/kits.json` directly.
+- [x] Add `stamp: "current" | "newer" | "older" | "none"` per kit to `kitState` in `extensions/vscode/src/core/kitState.ts`, from the rule above, keeping the dry-run state for `none` and `current`. Done when: unit tests cover all four, including a newer stamp on a kit whose dry run lists files to add. Cheaper substitute: comparing commits for equality only.
+- [x] Read the digest once per SDK source and the stamp per folder in `KitStateService`, invalidated with the folder's state when `.conclave/kits.json` changes. Done when: an integration test that rewrites a folder's stamp sees the state change. Cheaper substitute: reading the digest on every request.
 - [ ] Commit: `extension: kit state for newer and older kit stamps`
 
 **Test checkpoint:** `cd extensions/vscode && npm test && npm run test:integration -- --grep kitState` passes, and a folder with a newer stamp reads `newer`, never partly installed.

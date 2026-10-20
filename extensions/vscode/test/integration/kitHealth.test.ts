@@ -150,7 +150,7 @@ suite("kitHealth", () => {
     const forgetting = new vscode.EventEmitter<vscode.Uri>();
     const health = new KitHealthService({
       // Two installed kits, so a computation that went on after the forget would start their doctors.
-      kitStates: async () => (reads += 1, { ok: true, kits: [{ kit: "base", state: "installed", kept: 1 }, { kit: "todo", state: "installed", kept: 1 }] }),
+      kitStates: async () => (reads += 1, { ok: true, kits: [{ kit: "base", state: "installed", kept: 1, stamp: "none" }, { kit: "todo", state: "installed", kept: 1, stamp: "none" }] }),
       onDidChangeKitState: new vscode.EventEmitter<vscode.Uri>().event,
       onDidForget: forgetting.event,
       source: async () => ({ folder: sdk, label: "local Conclave-SDK (test)" }),
@@ -192,7 +192,7 @@ suite("kitHealth", () => {
     let release: (() => void) | undefined;
     const forgetting = new vscode.EventEmitter<vscode.Uri>();
     const health = new KitHealthService({
-      kitStates: async () => ({ ok: true, kits: [{ kit: "base", state: "installed", kept: 1 }] }),
+      kitStates: async () => ({ ok: true, kits: [{ kit: "base", state: "installed", kept: 1, stamp: "none" }] }),
       onDidChangeKitState: new vscode.EventEmitter<vscode.Uri>().event,
       onDidForget: forgetting.event,
       source: async () => ({ folder: sdk, label: "local Conclave-SDK (test)" }),

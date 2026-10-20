@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { forgeOutcome, parseCheck, parseDoctor, parseKit, parseKits } from "../../src/core/forgeJson";
+import { forgeOutcome, parseCheck, parseDigest, parseDoctor, parseKit, parseKits } from "../../src/core/forgeJson";
 
 // forge.py's own answers, recorded by scripts/record-forge-fixtures.py with the temporary folder written as <TARGET>.
 const fixtures = join(__dirname, "..", "..", "..", "test", "fixtures", "forge");
@@ -76,4 +76,25 @@ test("forgeJson: exit 0 with JSON succeeds; any other run is a failure or a canc
   assert.deepEqual(forgeOutcome("kits", { code: undefined, stdout: "", stderr: "", error: "cancelled" }, parseKits), { kind: "cancelled" });
   assert.deepEqual(forgeOutcome("kits", { code: undefined, stdout: "", stderr: "", error: "timed out after 120 s" }, parseKits),
     { kind: "failed", message: "forge kits did not finish: timed out after 120 s", stderrTail: [] });
+});
+
+test("forgeJson: check's kit stamp and forge digest are read, and a malformed one is refused with its field", () => {
+  const check = parseCheck(read("check.json"));
+  assert.ok(check.ok && check.value.kitStamp !== null);
+  const raw = JSON.parse(read("check.json"));
+  assert.deepEqual(Object.keys(check.value.kitStamp.kits).sort(), Object.keys(raw.kit_stamp.kits).sort());
+  // An older forge writes no kit_stamp, and a folder without one reports null: both are no stamp.
+  const { kit_stamp: _gone, ...older } = raw;
+  assert.ok(_gone);
+  const none = parseCheck(JSON.stringify(older));
+  assert.ok(none.ok && none.value.kitStamp === null);
+  const bad = { ...raw, kit_stamp: { kits: { todo: { digest: 1, commit: null, date: null } } } };
+  assert.match((parseCheck(JSON.stringify(bad)) as { message: string }).message, /kit_stamp: kits\.todo: "digest" is missing or not text/);
+  const digest = parseDigest(read("digest.json"));
+  assert.ok(digest.ok);
+  assert.deepEqual(Object.keys(digest.value.kits).sort(), Object.keys(JSON.parse(read("digest.json")).kits).sort());
+  assert.match((parseDigest(JSON.stringify({ sdk: { commit: null, date: null }, kits: {} })) as { message: string }).message, /"forge"/);
+  // A kit named like an inherited member is a plain entry, not a lookup.
+  const odd = parseDigest(JSON.stringify({ sdk: { commit: null, date: null }, forge: "f", kits: { toString: "x" } }));
+  assert.ok(odd.ok && odd.value.kits["toString"] === ("x" as unknown) && Object.getPrototypeOf(odd.value.kits) === null);
 });
