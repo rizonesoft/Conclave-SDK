@@ -47,8 +47,10 @@ title: "TODO-01 -- Reviewer Editor Design"
 | 5 | §5 | Mockup and plan follow the family route rule | §2 | [x] |
 | 6 | §6 | Reviewer rows in the pin layout state | §3, §4 | [x] |
 | 7 | §7 | Read-only kit view in the mockup | §6 | [x] |
-| 8 | §8 | SPEC and design spec for the read-only kit view | §7 | [ ] |
-| 9 | §9 | Mockup overlays closed when their target leaves | §7 | [ ] |
+| 8 | §8 | SPEC and design spec for the read-only kit view | §7 | [x] |
+| 9 | §9 | Mockup overlays closed when their target leaves | §7 | [x] |
+| 10 | §10 | Feature-pane strings missing from the SPEC | §8 | [ ] |
+| 11 | §11 | Kit menu closed when the Kits section collapses | §9 | [ ] |
 
 ## 1. Clickable reviewer editor mockup
 
@@ -312,9 +314,12 @@ The SPEC and the design spec describe what the extension builds, and every surfa
 - [x] Rewrite `design/SPEC.md` §9 for the read-only Kits view (states, stamps, health, Copy import request, the empty-folder message), mark §10 Kit install and update and §11 New repository setup as dropped with the date and the decision, correct §7's no-pin and dispatcher screens and §8's SDK source (bundled, `conclave.sdkPath` as a developer override), and §12's inline Install actions. Done when: every control in `§7`'s mockup has its SPEC line and the SPEC names no dropped control as live. Cheaper substitute: a note at the top of the SPEC.
 - [x] Correct `docs/specs/2026-10-20-vscode-extension-design.md` (the SDK source, the kit operations, the GitHub sign-in and archive extraction, the protected-file proof) with dated notes, adding the kit stamp, the bundled digest and the newer and older states. Done when: the design spec and `docs/plans/2026-10-16-vscode-extension.md` R24 and R27 to R41 agree. Cheaper substitute: leaving the design spec stale.
 - [x] Correct `design/platform-audit.md`: drop the installer and wizard rows and add the new rows (the stamp descriptions, the copy actions). Done when: every element of `§7`'s mockup has a row. Cheaper substitute: none.
-- [ ] Commit: `design: SPEC and design spec for the read-only kit view`
+- [x] Commit: `design: SPEC and design spec for the read-only kit view`
 
 **Test checkpoint:** `python -c "import re,sys; t=open('design/SPEC.md', encoding='utf-8').read(); s9=t.split('## 9.')[1].split('## 10.')[0]; sys.exit(1 if (re.search(r'\bInstall\b', s9) or 'newer kits' not in s9) else 0)"` exits 0, and exits 1 on `fb5e468`'s SPEC (**Corrected 2026-10-20:** searched for the substring `Install`, which the state name `Installed` matches).
+
+> **Verified:** 2026-10-21 | §8 | a3fc6c1e24619fe9a00f67f191fa32746357dafe
+> **Review:** `docs/reviews/d00-t01-s8.json`
 
 ## 9. Mockup overlays closed when their target leaves
 
@@ -334,9 +339,51 @@ Review round 3 of `§7` (`docs/reviews/00-design/D00-T01-s7.md`, the last round 
 - [x] Commit the mockup check (every option combination through `renderVals()`, every binding resolved, every handler called) as `design/spikes/mockup-check.js`, with an assertion that no context menu is open on a missing target. Done when: `node design/spikes/mockup-check.js design/mockup/project/Main.dc.html --handlers` runs from the repository and fails on `e9e1cce`'s mockup. Cheaper substitute: the check kept in a scratch folder.
 - [x] Close the Explorer context menu and the kit context menu in `design/mockup/project/Main.dc.html` when the scenario or side bar change removes their target (the pin file, the kit row). Done when: the in-memory check of every combination and handler finds no open menu whose target is missing. Cheaper substitute: closing every overlay on any scenario change.
 - [x] Republish `design/mockup/project/` to the link in `design/README.md` and name the commit and canvas version as the current mockup source in `design/decisions.md`. Done when: the link shows the change. Cheaper substitute: an unpublished mockup change.
-- [ ] Commit: `design: mockup overlays closed when their target leaves`
+- [x] Commit: `design: mockup overlays closed when their target leaves`
 
 **Test checkpoint:** `node design/spikes/mockup-check.js design/mockup/project/Main.dc.html --handlers` reports no menu open on a missing target, and does on `e9e1cce`'s mockup.
+
+> **Verified:** 2026-10-21 | §9 | 97a68d794e437a36f8f83b44b92c8e9f060aaa8b
+> **Review:** `docs/reviews/d00-t01-s9.json`
+
+## 10. Feature-pane strings missing from the SPEC
+
+Review round 3 of `§8` (`docs/reviews/00-design/D00-T01-s8.md`, the last round its loop allowed) found strings the mockup draws that `design/SPEC.md` §12 still lacks: WORDPRESS SITE's `Open the site pin` (opens `.conclave/wordpress-site.json`) and `Refresh` (`Re-ran forge.py doctor --kit wordpress.`); the tooltips of PLAN's description (`scripts/todo-graph.py query stats`), REVIEW ROUNDS' description (`Read from the round records the dispatcher writes`) and a findings-file group (its full path); and a phase group named in `todo/plan.json` showing the name alone, not `Phase {n}: {name}`. The SPEC takes them from the mockup at its current source, and every string of §12 is checked against the mockup's feature panes by a script, so the inventory is complete rather than found one review at a time.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Inventory the strings. Done when: a script lists every label, description, tooltip, action and message the feature panes draw.
+2. Correct the SPEC. Done when: every listed string is in §12, verbatim or as its template.
+
+- [ ] Write `design/spikes/spec-strings.js`: from `design/mockup/project/Main.dc.html`, render the `sections` side bar for every scenario, workspace and theme, call each pane's actions, and list every distinct label, description, tooltip, action label and flash message with `{value}` templates where the example data varies. Done when: it prints the list for the current mockup source. Cheaper substitute: reading the source by hand.
+- [ ] Add the strings the list shows and §12 lacks to `design/SPEC.md` §12, including the three groups above, and correct the phase label to the mockup's. Done when: each listed string appears in §12 verbatim or as its template, checked by the script's `--spec design/SPEC.md` mode, which exits 1 on a missing one. Cheaper substitute: the three named strings only.
+- [ ] Commit: `design: SPEC holds every feature-pane string`
+
+**Test checkpoint:** `node design/spikes/spec-strings.js design/mockup/project/Main.dc.html --spec design/SPEC.md` exits 0, and exits 1 on `a3fc6c1`'s SPEC.
+
+## 11. Kit menu closed when the Kits section collapses
+
+Review round 3 of `§9` (`docs/reviews/00-design/D00-T01-s9.md`, the last round its loop allowed) found that collapsing the KITS section hides its rows but leaves a kit's context menu open, and `mockup-check.js` passes because it reads the rows, not whether the section is expanded. A kit row is a menu's target only while the section is expanded.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Make the check fail on it. Done when: `mockup-check.js` counts a kit menu open over a collapsed KITS section, on `97a68d7`.
+2. Close the menu. Done when: the check passes and the link shows the change.
+
+- [ ] In `design/spikes/mockup-check.js`, require `kitsOpen` for a kit menu's target, and add collapsing and expanding the section to the round trips. Done when: it exits 1 on `97a68d7`'s mockup. Cheaper substitute: none.
+- [ ] In `design/mockup/project/Main.dc.html`, treat a collapsed KITS section as no target in `dropOrphanOverlay` and in the kit menu's render guard. Done when: the check exits 0. Cheaper substitute: closing every menu on any toggle.
+- [ ] Republish `design/mockup/project/` to the link in `design/README.md` and name the commit and canvas version as the current mockup source in `design/decisions.md`. Done when: the link shows the change. Cheaper substitute: an unpublished change.
+- [ ] Commit: `design: kit menu closed when the Kits section collapses`
+
+**Test checkpoint:** `node design/spikes/mockup-check.js design/mockup/project/Main.dc.html --handlers` exits 0, and exits 1 on `97a68d7`'s mockup.
 
 ## Verification
 

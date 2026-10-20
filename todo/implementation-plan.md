@@ -8,28 +8,30 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Design, pin contract and scaffold
 
-Sections: 18 | Checklist items: 145
+Sections: 20 | Checklist items: 152
 
-| Status | Reference  | Deliverable                                     | Needs | Items |
-| ------ | ---------- | ----------------------------------------------- | ----- | ----- |
-| [x]    | D00 T01 §1 | Clickable reviewer editor mockup                | none  | 26    |
-| [x]    | D00 T01 §2 | Owner approval and open design answers          | none  | 6     |
-| [x]    | D00 T01 §5 | Mockup and plan follow the family route rule    | none  | 10    |
-| [x]    | D00 T01 §3 | Interface SPEC and screenshots                  | none  | 14    |
-| [x]    | D00 T01 §4 | Reviewer config design spec                     | none  | 10    |
-| [x]    | D00 T01 §6 | Reviewer rows in the pin layout state           | none  | 6     |
-| [x]    | D00 T01 §7 | Read-only kit view in the mockup                | none  | 5     |
-| [ ]    | D00 T01 §8 | SPEC and design spec for the read-only kit view | none  | 4     |
-| [ ]    | D00 T01 §9 | Mockup overlays closed when their target leaves | none  | 4     |
-| [x]    | D01 T01 §1 | Strict schema_version type in load_pin          | none  | 7     |
-| [x]    | D01 T01 §2 | Dispatcher check-pin flag                       | none  | 12    |
-| [x]    | D01 T01 §3 | Check-pin contract fixtures and test            | none  | 7     |
-| [x]    | D01 T01 §4 | Check-pin CLI presence for each CLI             | none  | 3     |
-| [x]    | D01 T01 §5 | Reviewer CLIs found on PATH only                | none  | 5     |
-| [x]    | D02 T01 §1 | Extension scaffold, build and test harness      | none  | 9     |
-| [x]    | D06 T01 §2 | Plan query in todo-graph                        | none  | 5     |
-| [x]    | D06 T01 §3 | Round listing in the dispatcher                 | none  | 5     |
-| [x]    | D06 T01 §8 | Round record hardening                          | none  | 7     |
+| Status | Reference   | Deliverable                                     | Needs | Items |
+| ------ | ----------- | ----------------------------------------------- | ----- | ----- |
+| [x]    | D00 T01 §1  | Clickable reviewer editor mockup                | none  | 26    |
+| [x]    | D00 T01 §2  | Owner approval and open design answers          | none  | 6     |
+| [x]    | D00 T01 §5  | Mockup and plan follow the family route rule    | none  | 10    |
+| [x]    | D00 T01 §3  | Interface SPEC and screenshots                  | none  | 14    |
+| [x]    | D00 T01 §4  | Reviewer config design spec                     | none  | 10    |
+| [x]    | D00 T01 §6  | Reviewer rows in the pin layout state           | none  | 6     |
+| [x]    | D00 T01 §7  | Read-only kit view in the mockup                | none  | 5     |
+| [x]    | D00 T01 §8  | SPEC and design spec for the read-only kit view | none  | 4     |
+| [x]    | D00 T01 §9  | Mockup overlays closed when their target leaves | none  | 4     |
+| [ ]    | D00 T01 §10 | Feature-pane strings missing from the SPEC      | none  | 3     |
+| [ ]    | D00 T01 §11 | Kit menu closed when the Kits section collapses | none  | 4     |
+| [x]    | D01 T01 §1  | Strict schema_version type in load_pin          | none  | 7     |
+| [x]    | D01 T01 §2  | Dispatcher check-pin flag                       | none  | 12    |
+| [x]    | D01 T01 §3  | Check-pin contract fixtures and test            | none  | 7     |
+| [x]    | D01 T01 §4  | Check-pin CLI presence for each CLI             | none  | 3     |
+| [x]    | D01 T01 §5  | Reviewer CLIs found on PATH only                | none  | 5     |
+| [x]    | D02 T01 §1  | Extension scaffold, build and test harness      | none  | 9     |
+| [x]    | D06 T01 §2  | Plan query in todo-graph                        | none  | 5     |
+| [x]    | D06 T01 §3  | Round listing in the dispatcher                 | none  | 5     |
+| [x]    | D06 T01 §8  | Round record hardening                          | none  | 7     |
 
 ### Phase 1: Extension host and kit operations
 
@@ -114,6 +116,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 39/80 verified sections, 7 ready to run now.
+Progress: 41/82 verified sections, 7 ready to run now.
 
-Checklist: 309/584 items completed (includes Commit items).
+Checklist: 311/591 items completed (includes Commit items).

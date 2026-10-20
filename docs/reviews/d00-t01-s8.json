@@ -1,0 +1,26 @@
+{
+  "ref": "D00 T01 \u00a78",
+  "title": "SPEC and design spec for the read-only kit view",
+  "implementation_sha": "a3fc6c1e24619fe9a00f67f191fa32746357dafe",
+  "date": "2026-10-21",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-design/D00-T01-s8.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-design/D00-T01-s8.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-design/D00-T01-s8.md",
+      "verdict": "stopped-at-3"
+    }
+  ],
+  "checks": [
+    "SPEC \u00a79 checkpoint (no Install action, newer kits named) -> exit 0, exit 1 on fb5e468"
+  ]
+}
