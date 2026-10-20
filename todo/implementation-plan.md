@@ -41,7 +41,7 @@ Sections: 19 | Checklist items: 145
 | [x]    | D02 T01 §6  | Atomic save, stale check and re-check                  | none  | 8     |
 | [x]    | D02 T01 §7  | SDK source: local checkout or GitHub commit            | none  | 12    |
 | [x]    | D02 T01 §8  | Test reviewer runner                                   | none  | 8     |
-| [ ]    | D02 T01 §9  | Forge runner and summary parsing                       | none  | 8     |
+| [x]    | D02 T01 §9  | Forge runner and summary parsing                       | none  | 8     |
 | [ ]    | D02 T01 §10 | Workspace kit state from forge                         | none  | 6     |
 | [ ]    | D02 T01 §11 | Mockup parity fixtures and harness                     | none  | 7     |
 | [x]    | D02 T01 §12 | Extractor limits at tarfile's own parse                | none  | 5     |
@@ -95,6 +95,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 26/61 verified sections, 3 ready to run now.
+Progress: 27/61 verified sections, 5 ready to run now.
 
-Checklist: 222/496 items completed (includes Commit items).
+Checklist: 230/496 items completed (includes Commit items).

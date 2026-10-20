@@ -56,7 +56,7 @@ title: "TODO-01 -- Extension Core"
 | 6 | §6 | Atomic save, stale check and re-check | §5 | [x] |
 | 7 | §7 | SDK source: local checkout or GitHub commit | §1 | [x] |
 | 8 | §8 | Test reviewer runner | §3, §4 | [x] |
-| 9 | §9 | Forge runner and summary parsing | §2, §7 | [ ] |
+| 9 | §9 | Forge runner and summary parsing | §2, §7 | [x] |
 | 10 | §10 | Workspace kit state from forge | §9 | [ ] |
 | 11 | §11 | Mockup parity fixtures and harness | §1, D00 T01 §2 | [ ] |
 | 12 | §12 | Extractor limits at tarfile's own parse | §7 | [x] |
@@ -355,9 +355,12 @@ Every kit operation in `D05 T01` runs `forge.py` the same way, so this section i
 - [x] Map outcomes: exit 0 with forge's JSON is success; a non-zero exit is a failure with the last 20 lines of stderr; exit 0 without JSON is a failure naming the command. Done when: unit tests cover each. Cheaper substitute: success whenever the exit code is 0.
 - [x] Log each run's argv, cwd, source label, exit code and duration to the "Conclave" output channel. Done when: the integration test reads one line per run. Cheaper substitute: no log.
 - [x] Write `extensions/vscode/test/unit/forgeJson.test.ts` and `extensions/vscode/test/integration/forgeRunner.test.ts`. Done when: both pass and the unit run fails when exit 0 without JSON counts as success. Cheaper substitute: happy-path tests only.
-- [ ] Commit: `extension: one forge runner with typed summaries`
+- [x] Commit: `extension: one forge runner with typed summaries`
 
 **Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/forgeJson.test.js && npm run test:integration -- --grep forgeRunner` passes, and fails when a summary missing `installed` is accepted. **Corrected 2026-10-20:** was `npm test -- --test-name-pattern=forgeJson`, which does not filter on Node 24.14.1 (see `§2`).
+
+> **Verified:** 2026-10-20 | §9 | 1746c345ee38681335d59c874a104527bc3c12b0
+> **Review:** `docs/reviews/d02-t01-s9.json`
 
 ## 10. Workspace kit state from forge
 
@@ -518,6 +521,8 @@ Review round 3 of `§14` (`docs/reviews/02-extension-core/D02-T01-s14.md`, the l
 > **Review:** `docs/reviews/d02-t01-s15.json`
 
 ## 16. Process tree kill that ends everything or says so
+
+> **Started:** 2026-10-20T15:30:00Z
 
 Review round 3 of `§8` (`docs/reviews/02-extension-core/D02-T01-s8.md`, the last round its loop allowed) found three gaps in `killTree` in `extensions/vscode/src/host/run.ts`. On Windows the tree is read once before `taskkill`, so a process started between the snapshot and the kill is never waited for. The five-second wait ends silently, so processes still running are reported as a clean cancel and the caller deletes its temporary pin and starts another test. And the helpers (`ps`, the CIM query, `taskkill`) run with no timeout, so a stalled one means the kill is never attempted. The kill becomes a loop: snapshot, kill what is found, and look again, until a snapshot finds nothing running under the root (Windows keeps a dead parent's id on its children, so the walk still reaches them). Every helper gets a timeout, and processes still running at the deadline are an explicit result that the run and its callers report.
 
