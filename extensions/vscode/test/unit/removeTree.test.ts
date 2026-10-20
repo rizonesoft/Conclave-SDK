@@ -48,6 +48,23 @@ test("removeTree: a folder swapped for a link while it is removed stops the dele
   }
 });
 
+test("removeTree: an empty folder swapped for another empty folder is not removed", () => {
+  const base = mkdtempSync(join(tmpdir(), "conclave-swap-"));
+  try {
+    const empty = join(base, "empty");
+    mkdirSync(empty);
+    // After removeTree has read empty as a folder, another empty folder takes its place: it has no entries, so only the
+    // check before the folder itself is removed can see the swap.
+    assert.throws(() => during(empty, () => {
+      renameSync(empty, join(base, "moved"));
+      mkdirSync(empty);
+    }, () => removeTree(empty)), /changed while it was being removed/);
+    assert.ok(existsSync(empty), "the swapped-in folder was removed");
+  } finally {
+    removeTree(base);
+  }
+});
+
 test("removeTree: a folder another window removes first is not an error", () => {
   const base = mkdtempSync(join(tmpdir(), "conclave-gone-"));
   try {

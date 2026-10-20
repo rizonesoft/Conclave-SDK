@@ -88,14 +88,25 @@ export function removeTree(path: string): void {
     }
     throw error;
   }
+  // Before each entry is removed, and before the folder itself (an empty folder swapped in has no entries to check).
+  const still = (): boolean => {
+    if (unchanged(path, first)) {
+      return true;
+    }
+    if (stat(path) === undefined) {
+      return false;
+    }
+    throw new Error(`${path} changed while it was being removed (it is no longer the same folder), so the delete stopped`);
+  };
   for (const name of names) {
-    if (!unchanged(path, first)) {
-      if (stat(path) === undefined) {
-        return;
-      }
-      throw new Error(`${path} changed while it was being removed (it is no longer the same folder), so the delete stopped`);
+    if (!still()) {
+      return;
     }
     removeTree(join(path, name));
   }
-  retried(() => rmdirSync(path));
+  retried(() => {
+    if (still()) {
+      rmdirSync(path);
+    }
+  });
 }
