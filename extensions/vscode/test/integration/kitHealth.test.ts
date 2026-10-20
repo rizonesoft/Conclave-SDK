@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import * as vscode from "vscode";
@@ -7,6 +7,7 @@ import type { ConclaveApi } from "../../src/extension";
 import { KitHealthService } from "../../src/host/kitHealth";
 import { KitStateService } from "../../src/host/kitState";
 import { run, running } from "../../src/host/run";
+import { removeTree } from "../../src/host/removeTree";
 
 // Kit health from this SDK's own forge.py (conclave.sdkPath set to the repository root), with stub reviewer CLIs first
 // on PATH so the reviewer doctor's answer does not depend on what this machine has installed.
@@ -60,7 +61,7 @@ suite("kitHealth", () => {
       api.forgetKitState(vscode.Uri.file(join(base, name)));
     }
     await new Promise((r) => setTimeout(r, 500));
-    rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    removeTree(base);
   });
 
   test("kitHealth: an installed reviewer kit with its CLIs is healthy, and health is read again after an install", async () => {

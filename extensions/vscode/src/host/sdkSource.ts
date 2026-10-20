@@ -17,6 +17,7 @@ import {
 } from "../core/sdkSource";
 import { log } from "./output";
 import type { PythonService } from "./python";
+import { removeTree } from "./removeTree";
 import { run } from "./run";
 
 const EXTRACT_TIMEOUT_MS = 120_000;
@@ -164,7 +165,7 @@ export class SdkSourceService {
     mkdirSync(cache, { recursive: true });
     // An entry that is not complete (left by an older build, or tampered with) is rebuilt, never trusted.
     if (existsSync(target) && !isComplete(target, sha)) {
-      rmSync(target, { recursive: true, force: true });
+      removeTree(target);
     }
     const unique = `${sha}.${process.pid}-${randomBytes(4).toString("hex")}`;
     const archive = join(cache, `${unique}.tar.gz.partial`);
@@ -228,7 +229,7 @@ export class SdkSourceService {
       return { ok: true, folder: target, sha, label };
     } finally {
       rmSync(archive, { force: true });
-      rmSync(partial, { recursive: true, force: true });
+      removeTree(partial);
     }
   }
 
@@ -238,7 +239,7 @@ export class SdkSourceService {
       .filter((name) => SHA.test(name) && isComplete(join(cache, name), name))
       .map((sha) => ({ sha, at: Number(readCommit(join(cache, sha, ".used"))) || 0 }));
     for (const sha of evictions(used)) {
-      rmSync(join(cache, sha), { recursive: true, force: true });
+      removeTree(join(cache, sha));
       log(`SDK source: removed ${sha.slice(0, 7)} from the cache`);
     }
   }

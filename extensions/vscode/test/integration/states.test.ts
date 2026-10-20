@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as vscode from "vscode";
@@ -9,6 +9,7 @@ import { errorTarget } from "../../src/core/errorTarget";
 import { DispatcherClient } from "../../src/host/dispatcher";
 import { PythonService } from "../../src/host/python";
 import { run } from "../../src/host/run";
+import { removeTree } from "../../src/host/removeTree";
 
 // Workspaces are built for each run from the reviewer kit's own dispatcher and the contract's fixture pins, so no copy
 // of the dispatcher is committed to drift from the kit. Compiled to out/test/integration/: the package root is three up.
@@ -41,7 +42,7 @@ suite("Workspace states", () => {
     api = await extension.activate();
   });
 
-  suiteTeardown(() => rmSync(base, { recursive: true, force: true }));
+  suiteTeardown(() => removeTree(base));
 
   test("each workspace gets its state from its own dispatcher", async () => {
     const cases: [string, string | undefined, string | undefined, string][] = [

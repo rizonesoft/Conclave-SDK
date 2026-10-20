@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as vscode from "vscode";
 import type { ConclaveApi } from "../../src/extension";
 import { running } from "../../src/host/run";
+import { removeTree } from "../../src/host/removeTree";
 
 // A fake SDK whose forge.py does what CONCLAVE_FAKE_FORGE says: answer, answer with its working directory, print no
 // JSON, fail with 30 lines of stderr, or hang with a child of its own.
@@ -45,7 +46,7 @@ suite("forgeRunner", () => {
   suiteTeardown(() => {
     delete process.env.CONCLAVE_FAKE_FORGE;
     delete process.env.CONCLAVE_FORGE_PIDS;
-    rmSync(base, { recursive: true, force: true });
+    removeTree(base);
   });
 
   async function hung(): Promise<{ pids: () => Promise<[number, number]> }> {

@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as vscode from "vscode";
 import type { ConclaveApi } from "../../src/extension";
+import { removeTree } from "../../src/host/removeTree";
 import { existingEntryDocs, setUpRepository } from "../../src/host/repoInit";
 import { run } from "../../src/host/run";
 
@@ -30,20 +31,10 @@ suite("repoInit", () => {
     await vscode.workspace.getConfiguration("conclave").update("sdkPath", sdk, vscode.ConfigurationTarget.Global);
   });
 
-  // Every link this suite makes, removed on its own (rmdir removes a junction, never its target) before the recursive
-  // delete of base, which must find no link to follow.
-  const links: string[] = [];
-  const link = (target: string, path: string) => {
-    symlinkSync(target, path, "junction");
-    links.push(path);
-  };
-
+  // removeTree removes the links this suite makes as entries, never going through them (D02 T01 §20).
   suiteTeardown(async () => {
     await vscode.workspace.getConfiguration("conclave").update("sdkPath", undefined, vscode.ConfigurationTarget.Global);
-    for (const path of links.splice(0)) {
-      rmdirSync(path);
-    }
-    rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    removeTree(base);
   });
 
   teardown(() => assert.ok(!argvs.some((a) => a.includes("--force")), `--force was passed: ${JSON.stringify(argvs)}`));
@@ -105,8 +96,8 @@ suite("repoInit", () => {
     mkdirSync(join(base, "repo", ".git"), { recursive: true });
     const standIn = join(base, "sdk-stand-in");
     mkdirSync(join(standIn, "kits"), { recursive: true });
-    link(join(base, "repo", ".git"), join(base, "git-alias"));
-    link(standIn, join(base, "sdk-alias"));
+    symlinkSync(join(base, "repo", ".git"), join(base, "git-alias"), "junction");
+    symlinkSync(standIn, join(base, "sdk-alias"), "junction");
     const throughGit = await api.setUpRepository({ folder: join(base, "git-alias", "new"), agent: "all", mode: "isolated", kits: [] }, "none", { run: recording });
     assert.ok(!throughGit.ok && /inside a \.git folder/.test(throughGit.message), JSON.stringify(throughGit));
     const throughSdk = await setUpRepository({ folder: join(base, "sdk-alias"), agent: "all", mode: "isolated", kits: [] }, "none", {

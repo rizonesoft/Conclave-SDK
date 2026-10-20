@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import * as vscode from "vscode";
 import type { ConclaveApi } from "../../src/extension";
 import { CANDIDATES } from "../../src/host/candidate";
+import { removeTree } from "../../src/host/removeTree";
 
 // Fake codex, agy and claude CLIs on PATH, run by the reviewer kit's own dispatcher: each answers with a review, fails
 // or hangs (starting a child of its own, as a real CLI starts helpers), as CONCLAVE_FAKE_<CLI> says. No model is called.
@@ -83,7 +84,7 @@ suite("testReviewer", () => {
     for (const name of ["CONCLAVE_FAKE_CLAUDE", "CONCLAVE_FAKE_AGY", "CONCLAVE_FAKE_CODEX", "CONCLAVE_FAKE_PIDS"]) {
       delete process.env[name];
     }
-    rmSync(base, { recursive: true, force: true });
+    removeTree(base);
   });
 
   function pins(): string[] {

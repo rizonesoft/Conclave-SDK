@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -9,6 +9,7 @@ import * as vscode from "vscode";
 import type { ConclaveApi } from "../../src/extension";
 import { recentLog } from "../../src/host/output";
 import { PythonService } from "../../src/host/python";
+import { removeTree } from "../../src/host/removeTree";
 import { SdkSourceService } from "../../src/host/sdkSource";
 
 // Compiled to out/test/integration/: the package root is three folders up.
@@ -89,7 +90,7 @@ suite("SDK source", () => {
   suiteTeardown(() => {
     server.close();
     python.dispose();
-    rmSync(work, { recursive: true, force: true });
+    removeTree(work);
   });
 
   function service(storage: string, getSession: () => Promise<{ accessToken: string } | undefined> = async () => ({ accessToken: TOKEN }),
@@ -113,6 +114,40 @@ suite("SDK source", () => {
     const result = await service(storage).resolveWith(ref("main"));
     assert.ok("ok" in result, JSON.stringify(result));
     assert.ok(existsSync(join(result.folder, "forge.py")));
+  });
+
+  // A junction needs no rights on Windows, so anything running as this user can plant one in the cache.
+  function planted(): string {
+    const target = mkdtempSync(join(work, "victim-"));
+    writeFileSync(join(target, "keep.txt"), "keep");
+    return target;
+  }
+
+  test("an incomplete cache entry holding a junction is rebuilt without deleting through it", async () => {
+    const storage = join(work, "r8");
+    const entry = join(storage, "sdk", shas.main);
+    mkdirSync(entry, { recursive: true });
+    const target = planted();
+    symlinkSync(target, join(entry, "link"), "junction");
+    const result = await service(storage).resolveWith(ref("main"));
+    assert.ok("ok" in result && existsSync(join(result.folder, "forge.py")), JSON.stringify(result));
+    assert.deepEqual(readdirSync(target), ["keep.txt"], "the rebuild deleted through the junction");
+  });
+
+  test("an evicted cache entry holding a junction is removed without deleting through it", async () => {
+    const storage = join(work, "s5");
+    const sdk = service(storage);
+    const target = planted();
+    for (const name of ["main", "v2", "v3", "v4"]) {
+      const result = await sdk.resolveWith(ref(name));
+      assert.ok("ok" in result, name);
+      if (name === "main") {
+        symlinkSync(target, join(result.folder, "link"), "junction");
+      }
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    assert.ok(!existsSync(join(storage, "sdk", shas.main)), "main was not evicted");
+    assert.deepEqual(readdirSync(target), ["keep.txt"], "the eviction deleted through the junction");
   });
 
   test("two windows and two refs naming one commit all get the same complete entry", async () => {

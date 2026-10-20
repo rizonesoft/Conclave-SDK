@@ -6,6 +6,7 @@ import * as vscode from "vscode";
 import type { ConclaveApi } from "../../src/extension";
 import { KitStateService, watchedGlobs } from "../../src/host/kitState";
 import { run } from "../../src/host/run";
+import { removeTree } from "../../src/host/removeTree";
 
 // Kit state from the real forge.py of this SDK (conclave.sdkPath set to the repository root for the suite).
 const root = join(__dirname, "..", "..", "..");
@@ -30,7 +31,7 @@ suite("kitState", () => {
       api.forgetKitState(vscode.Uri.file(join(base, name)));
     }
     await new Promise((r) => setTimeout(r, 500));
-    rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    removeTree(base);
   });
 
   const forgeRuns = () => api.recentLog().filter((l) => l.startsWith("forge: ")).length;

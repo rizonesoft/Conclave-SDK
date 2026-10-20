@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as vscode from "vscode";
 import type { ConclaveApi } from "../../src/extension";
+import { removeTree } from "../../src/host/removeTree";
 
 // Each test saves into its own copy of the shipped fixture workspace, with the reviewer kit's own dispatcher so the
 // re-check is the real --check-pin. Compiled to out/test/integration/: the package root is three up.
@@ -27,7 +28,7 @@ suite("save", () => {
 
   // Each session's watcher holds its folder open on Windows: disposed before the folders are removed.
   teardown(() => sessions.splice(0).forEach((s) => s.dispose()));
-  suiteTeardown(() => rmSync(base, { recursive: true, force: true }));
+  suiteTeardown(() => removeTree(base));
 
   function open(folder: vscode.Uri, hooks?: Parameters<ConclaveApi["openPin"]>[1]): ReturnType<ConclaveApi["openPin"]> {
     const session = api.openPin(folder, hooks);
