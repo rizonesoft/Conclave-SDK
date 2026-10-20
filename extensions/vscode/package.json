@@ -27,9 +27,7 @@
       "description": "In Restricted Mode Conclave runs no process: no dispatcher, no Python and no forge.py until the workspace is trusted.",
       "restrictedConfigurations": [
         "conclave.pythonPath",
-        "conclave.sdkPath",
-        "conclave.sdkRef",
-        "conclave.sdkRepository"
+        "conclave.sdkPath"
       ]
     }
   },
@@ -57,19 +55,7 @@
           "type": "string",
           "default": "",
           "scope": "machine-overridable",
-          "markdownDescription": "A local Conclave-SDK checkout (holding `forge.py` and `kits/`) to run `forge.py` from. When set it wins over `conclave.sdkRef` and the bundled SDK; a set path that is not a checkout is an error, not a fall-back."
-        },
-        "conclave.sdkRepository": {
-          "type": "string",
-          "default": "rizonetech/Conclave-SDK",
-          "scope": "machine-overridable",
-          "markdownDescription": "The GitHub repository (`owner/name`) that `conclave.sdkRef` names a ref of."
-        },
-        "conclave.sdkRef": {
-          "type": "string",
-          "default": "",
-          "scope": "machine-overridable",
-          "markdownDescription": "A branch, tag or commit of `conclave.sdkRepository` to run `forge.py` from, resolved to one commit, fetched through your GitHub sign-in and cached per commit. Used when `conclave.sdkPath` is empty; when both are empty, the SDK bundled in the extension is used."
+          "markdownDescription": "For working on Conclave-SDK itself: a local checkout (holding `forge.py` and `kits/`) to read kits from instead of the SDK bundled in the extension. Leave it empty otherwise. A set path that is not a checkout is an error, not a fall-back."
         }
       }
     }

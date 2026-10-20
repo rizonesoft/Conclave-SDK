@@ -673,6 +673,8 @@ Measured 2026-10-20 after the data loss recorded in `docs/phase-runs/2026-10-20-
 
 The owner decided on 2026-10-20 that no kit source is configured (`design/decisions.md`, Read-only kit view and agent import): the extension reads every folder against the SDK bundled in it, and `conclave.sdkPath` stays as a developer override. This section removes the GitHub source `§7` built and the archive extractor `§12` to `§15` hardened, keeping the bundled and local sources and `removeTree` (`§20`).
 
+> **Started:** 2026-10-20T21:30:00Z
+
 **Phase:** 1
 **Needs:** none
 **Surface:** no
@@ -682,9 +684,9 @@ The owner decided on 2026-10-20 that no kit source is configured (`design/decisi
 1. Remove the GitHub source, the extractor and their settings and tests. Done when: nothing in `extensions/vscode/` reaches GitHub or `extract_sdk.py`.
 2. Run every gate. Done when: build, lint, unit and integration pass.
 
-- [ ] Remove the GitHub choice from `chooseSource` and `bundledSource`'s message in `extensions/vscode/src/core/sdkSource.ts` (`sdkPath`, else the bundled SDK, else in development the checkout), and the sign-in, ref resolution, download, cache and eviction from `extensions/vscode/src/host/sdkSource.ts`. Done when: `rg "github|sdkRef|sdkRepository|tarball|getSession" extensions/vscode/src` finds nothing. Cheaper substitute: leaving the GitHub path unreachable.
-- [ ] Delete `extensions/vscode/resources/extract_sdk.py`, `extensions/vscode/test/unit/extractSdk.test.ts` and the GitHub tests of `test/unit/sdkSource.test.ts` and `test/integration/sdkSource.test.ts`, keeping the bundled and local tests. Done when: `npm test` and `npm run test:integration -- --grep "SDK source"` pass. Cheaper substitute: skipping the tests.
-- [ ] Remove `conclave.sdkRepository` and `conclave.sdkRef` from `contributes.configuration` in `extensions/vscode/package.json` and say in `conclave.sdkPath`'s description that it is a developer override of the bundled SDK. Done when: the settings UI lists `conclave.pythonPath` and `conclave.sdkPath` only. Cheaper substitute: deprecating the settings.
+- [x] Remove the GitHub choice from `chooseSource` and `bundledSource`'s message in `extensions/vscode/src/core/sdkSource.ts` (`sdkPath`, else the bundled SDK, else in development the checkout), and the sign-in, ref resolution, download, cache and eviction from `extensions/vscode/src/host/sdkSource.ts`. Done when: `rg "github|sdkRef|sdkRepository|tarball|getSession" extensions/vscode/src` finds nothing. Cheaper substitute: leaving the GitHub path unreachable.
+- [x] Delete `extensions/vscode/resources/extract_sdk.py`, `extensions/vscode/test/unit/extractSdk.test.ts` and the GitHub tests of `test/unit/sdkSource.test.ts` and `test/integration/sdkSource.test.ts`, keeping the bundled and local tests. Done when: `npm test` and `npm run test:integration -- --grep "SDK source"` pass. Cheaper substitute: skipping the tests.
+- [x] Remove `conclave.sdkRepository` and `conclave.sdkRef` from `contributes.configuration` in `extensions/vscode/package.json` and say in `conclave.sdkPath`'s description that it is a developer override of the bundled SDK. Done when: the settings UI lists `conclave.pythonPath` and `conclave.sdkPath` only. Cheaper substitute: deprecating the settings.
 - [ ] Commit: `extension: remove the GitHub SDK source`
 
 **Test checkpoint:** `cd extensions/vscode && npm run build && npm run lint && npm test && npm run test:integration` passes, and `rg "extract_sdk|sdkRef" extensions/vscode/src extensions/vscode/package.json` finds nothing.

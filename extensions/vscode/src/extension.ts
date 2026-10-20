@@ -59,9 +59,8 @@ export function activate(context: vscode.ExtensionContext): ConclaveApi {
   const dispatcher = new DispatcherClient(python);
   context.subscriptions.push(dispatcher);
   const tester = new ReviewerTester(python, join(context.extensionPath, "resources", "planted-bug-prompt.md"));
-  const sdk = new SdkSourceService(python, {
+  const sdk = new SdkSourceService({
     extensionPath: context.extensionPath,
-    storage: context.globalStorageUri.fsPath,
     development: context.extensionMode !== vscode.ExtensionMode.Production,
   });
   const kitStates = new KitStateService({
