@@ -41,8 +41,8 @@ class Bounded(tarfile.TarInfo):
     tarfile reads an extended header's whole payload (PAX x, g or Solaris X; GNU long name or link) into memory before
     it yields the member the header describes, and it follows a chain of them recursively. TarInfo has no public hook
     for that, so this overrides the private dispatch every header passes through (_proc_member, stable since Python
-    3.2), refusing on the header's own size before the payload is read. Sparse members are refused outright: a git
-    archive never holds one, and their maps are read from the stream with no bound.
+    3.2), refusing on the header's own size before the payload is read. Sparse members are refused outright, before
+    any map is read: a git archive never holds one, and a GNU sparse 1.0 map is read from the stream with no bound.
     """
 
     def _proc_member(self, tarfile_):
@@ -59,10 +59,16 @@ class Bounded(tarfile.TarInfo):
             raise Unsafe(f"{self.name!r} is a sparse file")
         return super()._proc_member(tarfile_)
 
-    def _apply_pax_info(self, pax_headers, encoding, errors):
-        if any(key.startswith("GNU.sparse.") for key in pax_headers):
-            raise Unsafe(f"{self.name!r} is a sparse file")
-        return super()._apply_pax_info(pax_headers, encoding, errors)
+    # _proc_pax hands a PAX header that names a GNU sparse map to one of these before anything else reads it (3.11.4
+    # to 3.14); refusing here, without delegating, means no map is parsed.
+    def _proc_gnusparse_00(self, next_, *args):
+        raise Unsafe(f"{next_.name!r} is a sparse file (a GNU sparse map, refused before it is read)")
+
+    def _proc_gnusparse_01(self, next_, *args):
+        raise Unsafe(f"{next_.name!r} is a sparse file (a GNU sparse map, refused before it is read)")
+
+    def _proc_gnusparse_10(self, next_, *args):
+        raise Unsafe(f"{next_.name!r} is a sparse file (a GNU sparse map, refused before it is read)")
 
 
 class Capped:
