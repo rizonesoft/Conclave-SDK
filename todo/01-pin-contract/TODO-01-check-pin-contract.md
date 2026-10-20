@@ -36,7 +36,7 @@ title: "TODO-01 -- Check Pin Contract"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Strict schema_version type in load_pin | D00 T01 §2 | [ ] |
+| 1 | §1 | Strict schema_version type in load_pin | D00 T01 §2 | [x] |
 | 2 | §2 | Dispatcher check-pin flag | §1 | [ ] |
 | 3 | §3 | Check-pin contract fixtures and test | §2 | [ ] |
 
@@ -63,9 +63,12 @@ title: "TODO-01 -- Check Pin Contract"
 - [x] Refresh the SDK's installed copy with `python forge.py sync . --include-scripts`. Done when: `cmp scripts/review-dispatch.py kits/reviewer/templates/scripts/review-dispatch.py` reports no difference. Cheaper substitute: hand-editing `scripts/review-dispatch.py`.
 - [x] Run `python -m unittest discover -s tests -v` and `bash kits/reviewer/scripts/test-install.sh`. Done when: both pass, with the one Windows skip unchanged. Cheaper substitute: running only the new test.
 - [x] Stage only the kit's dispatcher and test, their two root copies and this TODO file. Done when: `git diff --cached --stat` lists exactly those five files. Cheaper substitute: staging the owner's CRLF changes.
-- [ ] Commit: `reviewer: refuse a non-integer schema_version`, then push `main`
+- [x] Commit: `reviewer: refuse a non-integer schema_version`, then push `main`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_review_dispatch.py -v` passes including `test_a_non_integer_schema_version_is_refused`, and that test fails when the `type(...) is int` check is reverted.
+
+> **Verified:** 2026-10-20 | §1 | dabab8332703e4f55b38577838cfb97beadb2ccc
+> **Review:** `docs/reviews/d01-t01-s1.json`
 
 ## 2. Dispatcher check-pin flag
 
