@@ -67,10 +67,10 @@ function checkMenus(out, where) {
   const cm = out && out.cm;
   if (!cm || !cm.open) return;
   let shown = true;
-  if (cm.label === 'Explorer context menu') shown = (out.tree || []).some(function (t) { return t.label === 'reviewers.toml'; });
+  if (cm.label === 'Explorer context menu') shown = !!out.sideExplorer && (out.tree || []).some(function (t) { return t.label === 'reviewers.toml'; });
   else if (/ kit context menu$/.test(cm.label)) {
     const kit = cm.label.replace(/ kit context menu$/, '');
-    shown = (out.kitRows || []).some(function (r) { return r.kit === kit; });
+    shown = !!out.sideConclave && (out.kitRows || []).some(function (r) { return r.kit === kit; });
   }
   if (!shown && orphans.length < 10) orphans.push(where + ': ' + cm.label);
   else if (!shown) orphans.push(where);
@@ -89,7 +89,23 @@ for (const workspace of dims.workspace) for (const overlay of dims.overlay) for 
       const c = make(p, src);
       const v = c.renderVals();
       if (typeof v.setScenario !== 'function') break;
-      try { v.setScenario({ target: { value: s } }); checkMenus(c.renderVals(), JSON.stringify(p) + ' then scenario ' + s); }
+      try {
+        v.setScenario({ target: { value: s } });
+        const away = c.renderVals();
+        checkMenus(away, JSON.stringify(p) + ' then scenario ' + s);
+        // A menu closed by the switch stays closed when the scenario switches back: no menu comes back unasked.
+        away.setScenario({ target: { value: scenario } });
+        const back = c.renderVals();
+        if (!(away.cm && away.cm.open) && back.cm && back.cm.open) orphans.push(JSON.stringify(p) + ' scenario ' + s + ' and back: ' + back.cm.label + ' came back');
+        checkMenus(back, JSON.stringify(p) + ' then scenario ' + s + ' and back');
+      } catch (err) { handlerErr++; }
+    }
+    // The side bar switched away from the menu's pane, and the SDK source switched.
+    for (const step of [['showExplorer', null], ['showConclave', null], ['setSource', { target: { value: 'path' } }]]) {
+      const c = make(p, src);
+      const v = c.renderVals();
+      if (typeof v[step[0]] !== 'function') continue;
+      try { v[step[0]](step[1]); checkMenus(c.renderVals(), JSON.stringify(p) + ' then ' + step[0]); }
       catch (err) { handlerErr++; }
     }
   }

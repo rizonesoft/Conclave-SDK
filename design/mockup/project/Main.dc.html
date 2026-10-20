@@ -1297,6 +1297,15 @@ class Component extends DCLogic {
     };
     return fail.actions.map(function (a) { return { label: a[0], run: run[a[1]] }; });
   }
+  // A context menu belongs to its target: the pin file in a visible Explorer, or a kit row in a visible Kits tree.
+  // A change that removes the target closes the menu, so switching back does not bring it back.
+  dropOrphanOverlay() {
+    const o = this.ov();
+    if (!o) return;
+    const pinShown = this.e().screen !== 'no-pin' && this.props.sidebar !== 'kits-empty' && this.side() === 'explorer';
+    const kitsShown = this.side() === 'conclave' && !this.srcFailNow() && this.props.sidebar !== 'kits-empty';
+    if ((o.kind === 'menu' && !pinShown) || (o.kind === 'kit-menu' && !kitsShown)) this.setState({ ov: null });
+  }
   ov() {
     if (this.state && this.state.ov !== undefined) return this.state.ov;
     const o = this.props.overlay || 'none';
@@ -1491,14 +1500,14 @@ class Component extends DCLogic {
         ['Conclave: Refresh Kits', function () { close(); self.flash('Refreshed: forge.py kits, then kit --dry-run and doctor for ' + cur.name + '.'); }]];
       if (this.wsKey() === 'multi') cmds.push(['Conclave: Switch Folder', function () { close(); const c = self.ks(); self.kupd({ cur: c.cur === 'web' ? 'api' : 'web', sel: null }); }]);
       Object.assign(qi, { open: true, label: 'Command Palette', value: '>conclave', placeholder: 'Type the name of a command to run.', items: cmds.map(function (c, i) { return item(c[0], '', c[1], i === 0); }) });
-    } else if (o.kind === 'menu' && this.e().screen !== 'no-pin' && this.props.sidebar !== 'kits-empty') {
+    } else if (o.kind === 'menu' && this.e().screen !== 'no-pin' && this.props.sidebar !== 'kits-empty' && this.side() === 'explorer') {
       // The Explorer menu belongs to reviewers.toml: once the scenario or a folder with no kit removes the file, it is closed.
       const chrome = function () { close(); };
       const rows = [['Open to the Side', 'Ctrl+Enter'], ['Open With...', ''], null, ['Open in Conclave Reviewers', '', function () { self.setState({ ov: null, tab: 'editor' }); }, true], null,
         ['Reveal in File Explorer', 'Shift+Alt+R'], ['Open in Integrated Terminal', ''], null, ['Select for Compare', ''], null, ['Cut', 'Ctrl+X'], ['Copy', 'Ctrl+C'], null,
         ['Copy Path', 'Shift+Alt+C'], ['Copy Relative Path', 'Ctrl+K Ctrl+Shift+C'], null, ['Rename...', 'F2'], ['Delete', 'Delete']];
       Object.assign(cm, { open: true, label: 'Explorer context menu', x: 170, y: this.wsKey() === 'multi' ? 224 : 202, items: rows.map(function (r) { return r ? { sep: false, item: true, label: r[0], kb: r[1], run: r[2] || chrome, cls: r[3] ? 'act' : '' } : { sep: true, item: false, label: '', kb: '', run: chrome, cls: '' }; }) });
-    } else if (o.kind === 'kit-menu' && kitRows.some(function (r) { return r.kit === o.kit; })) {
+    } else if (o.kind === 'kit-menu' && this.side() === 'conclave' && kitRows.some(function (r) { return r.kit === o.kit; })) {
       // view/item/context on a kit row: Health while the kit is in the folder, the agent request to import the
       // kit, and on a kit stamped by an older SDK the request to update the kits. The menu opens at the row.
       const info = this.kitInfo(k, cur, o.kit);
@@ -1822,10 +1831,10 @@ class Component extends DCLogic {
       scenario: this.scen(),
       scenarios: SCENARIOS.map(function (s) { return { id: s[0], label: s[1] }; }),
       setTheme: function (ev) { self.setState({ theme: ev.target.value }); },
-      setScenario: function (ev) { clearTimeout(self._testT); self.setState({ scenario: ev.target.value, e: null, k: null }); },
+      setScenario: function (ev) { clearTimeout(self._testT); self.setState({ scenario: ev.target.value, e: null, k: null }); self.dropOrphanOverlay(); },
       tree: treeAll.filter(function (t) { return !t.hide; }).map(function (t) { return { label: t.label, pad: multi ? t.pad : t.pad - 14, folder: !!t.folder, file: !!t.file, cls: t.active ? 'active' : '', menu: t.active ? function (ev) { ev.preventDefault(); self.setOv({ kind: 'menu' }); } : noop }; }),
       sourceKey: this.srcKey(),
-      setSource: function (ev) { self.setState({ src: ev.target.value }); },
+      setSource: function (ev) { self.setState({ src: ev.target.value }); self.dropOrphanOverlay(); },
       wsKey: this.wsKey(), multiRoot: multi,
       setWorkspace: function (ev) { self.setState({ ws: ev.target.value, k: null }); },
       wsTitle: multi ? 'orchard (Workspace)' : 'orchard-web', wsSection: multi ? 'ORCHARD (WORKSPACE)' : 'ORCHARD-WEB',
@@ -1834,8 +1843,8 @@ class Component extends DCLogic {
       sideExplorer: side === 'explorer', sideConclave: side === 'conclave',
       explorerOn: side === 'explorer' ? 'on' : '', conclaveOn: side === 'conclave' ? 'on' : '',
       sideLabel: side === 'explorer' ? 'Explorer' : 'Conclave',
-      showExplorer: function () { self.setState({ side: 'explorer' }); },
-      showConclave: function () { self.setState({ side: 'conclave' }); },
+      showExplorer: function () { self.setState({ side: 'explorer' }); self.dropOrphanOverlay(); },
+      showConclave: function () { self.setState({ side: 'conclave' }); self.dropOrphanOverlay(); },
       hasActBadge: attention > 0, actBadge: String(attention),
       conclaveLabel: attention ? 'Conclave (' + attention + (attention === 1 ? ' kit needs' : ' kits need') + ' attention)' : 'Conclave',
       kitsOpen: k.kitsOpen, kitsClosed: !k.kitsOpen,
