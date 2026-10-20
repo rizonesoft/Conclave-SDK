@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, utimesSync, writeFileSync, writeSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { mock, test } from "node:test";
 import { CandidateFlow, canSave, type Checked } from "../../src/core/candidate";
 import type { WorkspaceState } from "../../src/core/checkPin";
@@ -164,7 +164,8 @@ test("candidate: a short write is completed, so the dispatcher sees the whole ca
   }
 });
 
-test("candidate: a planted symlink in place of the shared folder is neither written through nor swept", { skip: process.platform === "win32" && "symlinked folders are a POSIX attack" }, async () => {
+// A symlink on POSIX, a junction on Windows (which needs no administrator rights, so anyone can plant one).
+test("candidate: a planted link in place of the shared folder is neither written through nor swept", async () => {
   const temp = mkdtempSync(join(tmpdir(), "conclave-planted-"));
   try {
     const victim = join(temp, "victim");
@@ -173,9 +174,32 @@ test("candidate: a planted symlink in place of the shared folder is neither writ
     const old = Date.now() / 1000 - 2 * 24 * 60 * 60;
     utimesSync(join(victim, "pin-7-1.toml"), old, old);
     const shared = join(temp, "conclave");
-    symlinkSync(victim, shared);
+    symlinkSync(victim, shared, "junction");
     assert.equal(sweepCandidates(shared, Date.now(), temp), 0);
-    assert.ok(existsSync(join(victim, "pin-7-1.toml")), "the sweep deleted a file through the symlink");
+    assert.ok(existsSync(join(victim, "pin-7-1.toml")), "the sweep deleted a file through the link");
+    const used = await withCandidate("x", async (path) => dirname(path), shared);
+    try {
+      assert.notEqual(realpathSync(used), realpathSync(victim), "the candidate was written through the link");
+      assert.deepEqual(readdirSync(victim), ["pin-7-1.toml"]);
+    } finally {
+      rmSync(used, { recursive: true, force: true });
+    }
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test("candidate: a fallback folder another window's sweep removed is made again", async () => {
+  const temp = mkdtempSync(join(tmpdir(), "conclave-swept-"));
+  try {
+    const shared = join(temp, "conclave");
+    writeFileSync(shared, "not a folder");
+    const first = await withCandidate("x", async (path) => dirname(path), shared);
+    assert.notEqual(first, shared);
+    rmSync(first, { recursive: true, force: true });
+    const second = await withCandidate("x", async (path) => (existsSync(path) ? dirname(path) : "missing"), shared);
+    assert.ok(existsSync(second), "the second check had no folder to write to");
+    rmSync(second, { recursive: true, force: true });
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }

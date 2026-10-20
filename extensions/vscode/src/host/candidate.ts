@@ -12,32 +12,36 @@ const FALLBACK = /^conclave-[A-Za-z0-9]{6}$/;
 let counter = 0;
 let fallback: string | undefined;
 
-// A folder that is this account's alone: a real directory (lstat, so a symlink planted in its place is not followed),
-// owned by this account, closed to others. Windows' temporary folder is per account already.
+// A folder that is this account's alone: a real directory (lstat, so a symlink or Windows junction planted in its place
+// is not followed; Node reports a junction as a symbolic link), owned by this account and closed to others on POSIX.
+// Windows' temporary folder is per account already, so ownership and mode are POSIX-only.
 function ownPrivateFolder(dir: string): boolean {
-  if (process.platform === "win32") {
-    return true;
-  }
   try {
     const info = lstatSync(dir);
-    return info.isDirectory() && !info.isSymbolicLink() && info.uid === process.getuid?.() && (info.mode & 0o077) === 0;
+    if (!info.isDirectory() || info.isSymbolicLink()) {
+      return false;
+    }
+    return process.platform === "win32" || (info.uid === process.getuid?.() && (info.mode & 0o077) === 0);
   } catch {
     return false;
   }
 }
 
-// The shared folder when it is safely ours; otherwise a fresh private folder for this process, so no other account can
-// read or swap a candidate between its write and the dispatcher's read. The swept folders are named conclave-XXXXXX.
+// The folder asked for when it is safely ours; otherwise a private folder for this process, so no other account can
+// read or swap a candidate between its write and the dispatcher's read. The fallback is checked on every use, since
+// another window's activation sweep removes an old empty one; it is then made again. Fallbacks are named conclave-XXXXXX.
 function folder(dir: string): string {
   try {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   } catch {
     // Something other than a folder holds the name: fall back below.
   }
-  if (dir !== CANDIDATES || ownPrivateFolder(dir)) {
+  if (ownPrivateFolder(dir)) {
     return dir;
   }
-  fallback ??= mkdtempSync(join(tmpdir(), "conclave-"));
+  if (fallback === undefined || !ownPrivateFolder(fallback)) {
+    fallback = mkdtempSync(join(tmpdir(), "conclave-"));
+  }
   return fallback;
 }
 

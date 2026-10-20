@@ -405,6 +405,8 @@ Review round 3 of `§7` (`docs/reviews/02-extension-core/D02-T01-s7.md`, the las
 
 ## 13. Candidate folder links on Windows and shared fallbacks
 
+> **Started:** 2026-10-20T14:10:00Z
+
 Review round 3 of `§5` (`docs/reviews/02-extension-core/D02-T01-s5.md`, the last round its loop allowed) found two leftovers in `extensions/vscode/src/host/candidate.ts`. `ownPrivateFolder` returns true on Windows without looking, so a junction or directory symlink at `%TEMP%\conclave` is swept through. And a host caches its fallback folder for its whole life, so when another window's activation sweep removes that folder after a day of idleness, every later check in the first window fails with `ENOENT` until it restarts.
 
 **Phase:** 1
@@ -416,10 +418,11 @@ Review round 3 of `§5` (`docs/reviews/02-extension-core/D02-T01-s5.md`, the las
 1. Write the failing tests: a Windows junction in place of the shared folder is not swept, and a fallback removed by another sweep is recreated on the next check. Done when: both fail on the code at the end of `§5`.
 2. Fix both in `extensions/vscode/src/host/candidate.ts`. Done when: both tests and every earlier candidate test pass on Windows and in WSL.
 
-- [ ] Add a test to `extensions/vscode/test/unit/candidate.test.ts` that makes the shared folder a junction (Windows) or symlink (POSIX) to a folder holding an old candidate and asserts `sweepCandidates` leaves it. Done when: it fails on Windows at the end of `§5`. Cheaper substitute: the POSIX-only symlink test.
-- [ ] Check the folder with `lstat` on Windows too in `ownPrivateFolder`: a real directory, not a symbolic link or junction (Node reports a junction as a symbolic link); ownership and mode stay POSIX-only. Done when: the junction test passes. Cheaper substitute: trusting the per-account temporary folder.
-- [ ] Recreate the fallback in `folder()` when the cached one is gone or no longer this account's private folder. Done when: a test that removes the fallback between two `withCandidate` calls sees the second succeed. Cheaper substitute: restarting the window.
-- [ ] Run the candidate tests on Windows and in WSL. Done when: all pass on both. Cheaper substitute: Windows only.
+- [x] Add a test to `extensions/vscode/test/unit/candidate.test.ts` that makes the shared folder a junction (Windows) or symlink (POSIX) to a folder holding an old candidate and asserts `sweepCandidates` leaves it. Done when: it fails on Windows at the end of `§5`. Cheaper substitute: the POSIX-only symlink test.
+- [x] Check the folder with `lstat` on Windows too in `ownPrivateFolder`: a real directory, not a symbolic link or junction (Node reports a junction as a symbolic link); ownership and mode stay POSIX-only. Done when: the junction test passes. Cheaper substitute: trusting the per-account temporary folder.
+- [x] Recreate the fallback in `folder()` when the cached one is gone or no longer this account's private folder. Done when: a test that removes the fallback between two `withCandidate` calls sees the second succeed. Cheaper substitute: restarting the window.
+- [x] Run the candidate tests on Windows and in WSL. Done when: all pass on both. Cheaper substitute: Windows only.
+  WSL has Node 18.19.1, below the extension's engine (`^22.13.0 || >=24`), where `mock.timers` does not exist: the filesystem tests (links, fallbacks, sweeps, writes) pass there, the five debounce tests run on Windows.
 - [ ] Commit: `extension: candidate folders refuse junctions and recover a swept fallback`
 
 **Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/candidate.test.js` passes on Windows and in WSL, and fails on Windows when `ownPrivateFolder` returns true without `lstat`.
