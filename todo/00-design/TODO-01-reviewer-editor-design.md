@@ -41,8 +41,9 @@ title: "TODO-01 -- Reviewer Editor Design"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Clickable reviewer editor mockup | -- | [x] |
 | 2 | §2 | Owner approval and open design answers | §1 | [x] |
-| 3 | §3 | Interface SPEC and screenshots | §2 | [ ] |
-| 4 | §4 | Reviewer config design spec | §2 | [ ] |
+| 3 | §3 | Interface SPEC and screenshots | §2, §5 | [ ] |
+| 4 | §4 | Reviewer config design spec | §2, §5 | [ ] |
+| 5 | §5 | Mockup and plan follow the family route rule | §2 | [ ] |
 
 ## 1. Clickable reviewer editor mockup
 
@@ -180,6 +181,32 @@ The brief requires a spec that settles seven decisions before the extension is b
 - [ ] Commit: `docs: reviewer config design spec`
 
 **Test checkpoint:** `python -c "import glob,sys; f=glob.glob('docs/specs/*-vscode-extension-design.md'); t=open(f[0],encoding='utf-8').read() if f else ''; m=[s for s in ('--check-pin','comment','atomic','re-check','WSL','schema_version','vsix','GitHub','Reversal cost') if s not in t]; sys.exit(m or not f)"` exits 0, and fails when the spec is missing or a decision is absent.
+
+## 5. Mockup and plan follow the family route rule
+
+The owner decided on 2026-10-20: "the reviewers fallback, it should only be a different family reviewer + 1 fallback". The reviewer kit ships it (`9bd9cb1`, `1bcd0b7`): `load_pin` in `kits/reviewer/templates/scripts/review-dispatch.py` refuses a route longer than two, a reviewer of the writer's family (`FAMILY` and `WRITER_FAMILY`: codex is OpenAI, agy Google, claude Anthropic), and a fallback of the reviewer's own family, and the shipped routes became claude `["astra", "gemini"]`, codex `["gemini", "sonnet"]`, gemini `["astra", "sonnet"]`. The approved design predates it: plan R4 allows a failover list of any length, R5 and `design/decisions.md` answer 1 warn on a same-CLI reviewer that the pin now refuses, R23 names a three-reviewer chain, and the mockup draws all three. `design/decisions.md` says a later design change is a new dated entry applied to the mockup first, so this section makes that change before `§3` writes the SPEC and `§4` the design spec from them.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Record the decision in `design/decisions.md` as a dated entry, with the editor behaviour it implies taken as a default. Done when: the entry quotes the owner, states the default and its reversal cost, and marks answer 1 superseded.
+2. Apply it to `design/mockup/project/Main.dc.html` and republish to the link in `design/README.md`. Done when: the route rows hold at most two chips, offer only reviewers the pin accepts, and the shipped routes and pin comments equal the kit pin.
+3. Correct the plan and the later sections that cite the old rule. Done when: no requirement or open section describes a route longer than two or a same-family reviewer.
+
+- [ ] Add a dated entry to `design/decisions.md` quoting the owner's 2026-10-20 decision, taking as the default that the editor never builds a route the pin refuses (a route row holds the reviewer and one fallback, the add menu greys out a reviewer of the writer's family and a fallback of the reviewer's family with the reason, and an on-disk route that breaks the rule shows `load_pin`'s refusal inline per answer 3), naming the reversal cost, and marking answer 1 superseded. Done when: the entry is dated 2026-10-20 and answer 1 points to it. Cheaper substitute: a plan change with no decision entry.
+- [ ] Replace `HEAD` and `ROUTES_COMMENT` in `design/mockup/project/Main.dc.html` with the header and routes comment of `kits/reviewer/templates/.conclave/reviewers.toml`, and the mockup's routes with the shipped ones. Done when: the mockup's preview of the unchanged pin equals the kit pin text line for line. Cheaper substitute: new routes with the old comments.
+- [ ] Limit each route row in `design/mockup/project/Main.dc.html` to two chips, labelled reviewer and fallback, and hide the add button on a full row. Done when: the claude row reads `1 astra, 2 gemini` with no add button, and removing one chip brings the add button back. Cheaper substitute: allowing a third chip that Save then refuses.
+- [ ] Grey out in each row's add menu a reviewer of the writer's family and, for the fallback, a reviewer of the first chip's family, each with its reason, in place of the self-review warning (`SELF_CLI` and the chip warnings). Done when: on the codex row the menu greys out `astra` as "same family as the writer", and on a claude row holding `astra` it greys out any other `codex` reviewer as "same family as the reviewer". Cheaper substitute: keeping the warning and letting Save refuse.
+- [ ] Make the mockup's `validate()` imitate the new `load_pin` refusals with their exact text (`must list one reviewer and at most one fallback`, `of the writer's own family`, `the fallback must be of a third family`), and add a scenario per refusal for a pin edited outside the editor. Done when: each scenario shows its refusal inline at the route row and disables Save. Cheaper substitute: one generic route error.
+- [ ] Republish `design/mockup/project/` with the Artifact tool to the link in `design/README.md`, and record the new canvas version and commit in `design/decisions.md`. Done when: the link shows the two-chip rows in both themes. Cheaper substitute: a new link that leaves the approved one stale.
+- [ ] Correct plan R4, R5 and R23 and the shipped-pin fact in `docs/plans/2026-10-16-vscode-extension.md` with dated `**Corrected 2026-10-20:**` notes. Done when: R4 says a route is a reviewer and one fallback of other families, R5 describes the greyed-out choices in place of the warning, and R23 names Astra then Gemini 4. Cheaper substitute: a decisions entry the plan contradicts.
+- [ ] Add a dated `**Corrected 2026-10-20:**` note to `D03 T01 §4` and `D04 T01 §5` where they cite the old rule. Done when: neither section describes a route longer than two or a Sonnet fallback for Claude work. Cheaper substitute: leaving the correction to whoever builds them.
+- [ ] Commit: `design: reviewer routes follow the family rule`
+
+**Test checkpoint:** `python -c "import pathlib,sys; t=pathlib.Path('design/mockup/project/Main.dc.html').read_text(encoding='utf-8'); d=pathlib.Path('design/decisions.md').read_text(encoding='utf-8'); p=pathlib.Path('docs/plans/2026-10-16-vscode-extension.md').read_text(encoding='utf-8'); bad=[s for s in ('must list one reviewer and at most one fallback','the fallback must be of a third family','claude = [\"astra\", \"gemini\"]') if s not in t]+[s for s in ('SELF_CLI',) if s in t]+([] if 'different family reviewer + 1 fallback' in d else ['decision'])+([] if 'Corrected 2026-10-20' in p else ['plan']); sys.exit(bad or None)"` exits 0, and fails naming what is missing while the mockup, the decision or the plan still carries the old rule.
 
 ## Verification
 

@@ -8,20 +8,21 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Design, pin contract and scaffold
 
-Sections: 10 | Checklist items: 101
+Sections: 11 | Checklist items: 110
 
-| Status | Reference  | Deliverable                                | Needs | Items |
-| ------ | ---------- | ------------------------------------------ | ----- | ----- |
-| [x]    | D00 T01 §1 | Clickable reviewer editor mockup           | none  | 26    |
-| [x]    | D00 T01 §2 | Owner approval and open design answers     | none  | 6     |
-| [ ]    | D00 T01 §3 | Interface SPEC and screenshots             | none  | 14    |
-| [ ]    | D00 T01 §4 | Reviewer config design spec                | none  | 10    |
-| [ ]    | D01 T01 §1 | Strict schema_version type in load_pin     | none  | 7     |
-| [ ]    | D01 T01 §2 | Dispatcher check-pin flag                  | none  | 12    |
-| [ ]    | D01 T01 §3 | Check-pin contract fixtures and test       | none  | 7     |
-| [ ]    | D02 T01 §1 | Extension scaffold, build and test harness | none  | 9     |
-| [ ]    | D06 T01 §2 | Plan query in todo-graph                   | none  | 5     |
-| [ ]    | D06 T01 §3 | Round listing in the dispatcher            | none  | 5     |
+| Status | Reference  | Deliverable                                  | Needs | Items |
+| ------ | ---------- | -------------------------------------------- | ----- | ----- |
+| [x]    | D00 T01 §1 | Clickable reviewer editor mockup             | none  | 26    |
+| [x]    | D00 T01 §2 | Owner approval and open design answers       | none  | 6     |
+| [ ]    | D00 T01 §5 | Mockup and plan follow the family route rule | none  | 9     |
+| [ ]    | D00 T01 §3 | Interface SPEC and screenshots               | none  | 14    |
+| [ ]    | D00 T01 §4 | Reviewer config design spec                  | none  | 10    |
+| [ ]    | D01 T01 §1 | Strict schema_version type in load_pin       | none  | 7     |
+| [ ]    | D01 T01 §2 | Dispatcher check-pin flag                    | none  | 12    |
+| [ ]    | D01 T01 §3 | Check-pin contract fixtures and test         | none  | 7     |
+| [ ]    | D02 T01 §1 | Extension scaffold, build and test harness   | none  | 9     |
+| [ ]    | D06 T01 §2 | Plan query in todo-graph                     | none  | 5     |
+| [ ]    | D06 T01 §3 | Round listing in the dispatcher              | none  | 5     |
 
 ### Phase 1: Extension host and kit operations
 
@@ -85,6 +86,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 2/51 verified sections, 5 ready to run now.
+Progress: 2/52 verified sections, 4 ready to run now.
 
-Checklist: 34/429 items completed (includes Commit items).
+Checklist: 34/438 items completed (includes Commit items).
