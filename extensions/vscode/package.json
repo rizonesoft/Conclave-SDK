@@ -1,0 +1,66 @@
+{
+  "name": "conclave",
+  "displayName": "Conclave",
+  "description": "Manage Conclave-SDK kits and edit the reviewer pin of the current repository.",
+  "version": "0.0.1",
+  "publisher": "rizonetech",
+  "private": true,
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rizonetech/Conclave-SDK"
+  },
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "In Restricted Mode Conclave runs no process: no dispatcher, no Python and no forge.py until the workspace is trusted.",
+      "restrictedConfigurations": [
+        "conclave.pythonPath",
+        "conclave.sdkPath",
+        "conclave.sdkRef",
+        "conclave.sdkRepository"
+      ]
+    }
+  },
+  "activationEvents": [
+    "workspaceContains:.conclave/reviewers.toml"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "conclave.openReviewers",
+        "title": "Open Reviewer Settings",
+        "category": "Conclave"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "compile": "tsc -p .",
+    "lint": "eslint src test",
+    "test": "npm run compile && node --test \"out/test/unit/**/*.test.js\"",
+    "test:integration": "npm run compile && npm run build && vscode-test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.19.43",
+    "@types/vscode": "1.100.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.1.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.13.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.0"
+  }
+}
