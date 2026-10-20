@@ -994,7 +994,7 @@ button.qchk{padding:0;cursor:pointer}
   </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"scenario":{"editor":"enum","options":["ready","agy-missing","stale","err-bad-name","err-unknown-key","err-bad-cli","err-bad-model","err-agy-effort","err-bad-effort","err-no-reviewers","err-route-writer","err-empty-route","err-undefined-reviewer","err-duplicate-reviewer","err-route-too-long","err-same-family","err-fallback-family","refused-schema","refused-unparsable","unsupported-schema","no-pin","no-dispatcher","old-dispatcher","no-python","untrusted"],"default":"ready"},"sidebar":{"editor":"enum","options":["explorer","kits","kits-health","sections","update-done","install-todo","install-todo-done","install-wordpress","install-laravel"],"default":"explorer"},"workspace":{"editor":"enum","options":["single","multi"],"default":"single"},"overlay":{"editor":"enum","options":["none","palette","context-menu","update-pick","update-confirm","repo-kits","repo-confirm","sync-confirm"],"default":"none"},"$preview":{"width":1440,"height":1060}}'>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"scenario":{"editor":"enum","options":["ready","agy-missing","stale","err-bad-name","err-unknown-key","err-bad-cli","err-bad-model","err-agy-effort","err-bad-effort","err-no-reviewers","err-route-writer","err-empty-route","err-undefined-reviewer","err-duplicate-reviewer","err-route-too-long","err-same-family","err-fallback-family","refused-schema","refused-unparsable","unsupported-schema","pin-layout","no-pin","no-dispatcher","old-dispatcher","no-python","untrusted"],"default":"ready"},"sidebar":{"editor":"enum","options":["explorer","kits","kits-health","sections","update-done","install-todo","install-todo-done","install-wordpress","install-laravel"],"default":"explorer"},"workspace":{"editor":"enum","options":["single","multi"],"default":"single"},"overlay":{"editor":"enum","options":["none","palette","context-menu","update-pick","update-confirm","repo-kits","repo-confirm","sync-confirm"],"default":"none"},"$preview":{"width":1440,"height":1060}}'>
 // Mockup only. The extension never validates the pin itself: it runs the workspace's own
 // scripts/review-dispatch.py --check-pin --json. The validate() below imitates load_pin so the
 // mockup can show the dispatcher's exact messages; it is not a design for the product.
@@ -1088,11 +1088,13 @@ const PHASE_KIT = { 0: 'Repository and tooling', 99: 'Manual, operator only' };
 const ROUND_RECORDS = [
   { file: 'docs/reviews/checkout-form.md', rounds: [
     { n: 2, who: 'astra (gpt-6-astra via codex)', writer: 'claude', run: '2026-10-15T09:12:40Z', skipped: [] },
-    { n: 1, who: null, writer: 'claude', run: '2026-10-14T16:40:05Z', skipped: ['astra (timed out)', 'gemini (returned no review)', 'sonnet (claude is not installed)'] }
+    { n: 1, who: null, writer: 'claude', run: '2026-10-14T16:40:05Z', skipped: ['astra (timed out)', 'gemini (returned no review)'] }
   ] },
   { file: 'docs/reviews/catalogue-pages.md', rounds: [
     { n: 1, who: 'gemini (gemini-4-argon-high via agy)', writer: 'codex', run: '2026-10-09T11:05:18Z', skipped: [] }
-  ] }
+  ] },
+  // --list-rounds names a file it cannot read back in `unreadable`; it is shown, never dropped.
+  { file: 'docs/reviews/hand-edited.md', unreadable: true, rounds: [] }
 ];
 // R24: what the SDK source refuses, and the way out. Nothing is downloaded or run in any of them.
 const BAD_SDK_PATH = 'R:\\GitHub\\conclave-sdk-old';
@@ -1224,6 +1226,7 @@ const SCENARIOS = [
   ['refused-schema', 'Refused: schema_version = 2'],
   ['refused-unparsable', 'Refused: TOML does not parse'],
   ['unsupported-schema', 'Pin newer than the extension'],
+  ['pin-layout', 'Pin in a layout the editor does not edit'],
   ['no-pin', 'No pin yet'],
   ['no-dispatcher', 'No scripts/review-dispatch.py'],
   ['old-dispatcher', 'Dispatcher without --check-pin'],
@@ -1350,7 +1353,7 @@ function scenarioBase(id) {
   }
   if (id === 'refused-schema') { m.schema = 2; env.screen = 'refused'; env.refused = { msg: 'the reviewer pin needs exactly schema_version = 1, [reviewers.*] and [routes]', line: 11, text: null }; }
   if (id === 'refused-unparsable') { env.screen = 'refused'; env.refused = { msg: "unreadable reviewer pin: Expected '=' after a key in a key/value pair (at line 17, column 8)", line: 17, text: 'effort "medium"' }; }
-  if (['unsupported-schema', 'no-pin', 'no-dispatcher', 'old-dispatcher', 'no-python', 'untrusted'].indexOf(id) >= 0) env.screen = id;
+  if (['unsupported-schema', 'pin-layout', 'no-pin', 'no-dispatcher', 'old-dispatcher', 'no-python', 'untrusted'].indexOf(id) >= 0) env.screen = id;
   if (SRC_FAIL[id]) env.srcFail = id;
   return { model: m, env: env };
 }
@@ -1637,6 +1640,7 @@ class Component extends DCLogic {
                       : row({ iOk: true, label: 'reviewers.toml', desc: e.stale ? 'valid, changed on disk' : 'valid (--check-pin)' }));
       } else if (s === 'refused') rows.push(row({ iBad: true, label: 'reviewers.toml', desc: 'refused: ' + env.refused.msg, title: env.refused.msg }));
       else if (s === 'unsupported-schema') rows.push(row({ iWarn: true, label: 'reviewers.toml', desc: 'newer schema than this extension reads' }));
+      else if (s === 'pin-layout') rows.push(row({ iWarn: true, label: 'reviewers.toml', desc: 'valid; a layout the editor does not edit' }));
       else if (s === 'no-pin') rows.push(row({ iInfo: true, label: 'No reviewer pin', desc: '.conclave/reviewers.toml is missing', hasAct: true, actLabel: 'Install reviewer kit', act: install, actInstall: true }));
       else if (s === 'no-dispatcher') rows.push(row({ iBad: true, label: 'No dispatcher', desc: 'scripts/review-dispatch.py is missing', hasAct: true, actLabel: 'Install reviewer kit', act: install, actInstall: true }));
       else if (s === 'old-dispatcher') rows.push(row({ iWarn: true, label: 'Dispatcher too old', desc: 'no --check-pin; update from Conclave-SDK' }));
@@ -1690,6 +1694,13 @@ class Component extends DCLogic {
       if (!records.length) rows.push(row({ iInfo: true, label: 'No rounds recorded yet', desc: 'docs/reviews/ is empty' }));
       let total = 0;
       records.forEach(function (rec) {
+        if (rec.unreadable) {
+          const name = rec.file.split('/').pop();
+          rows.push(row({ iWarn: true, label: name, desc: 'unreadable: not in the record format',
+            title: rec.file + ': a round heading or line is not in the format --record writes, or the file cannot be read',
+            hasAct: true, actLabel: 'Open ' + name, act: flash('Opens ' + rec.file + '.') }));
+          return;
+        }
         total += rec.rounds.length;
         const g = group('rounds/' + rec.file, true, { iFile: true, label: rec.file.split('/').pop(), desc: rec.rounds.length + (rec.rounds.length === 1 ? ' round' : ' rounds'), title: rec.file });
         rows.push(g);
@@ -1823,6 +1834,11 @@ class Component extends DCLogic {
       d.hasExcerpt = true;
       d.excerpt = lines.slice(ref.line - 4, ref.line + 2).map(function (t, i) { const no = ref.line - 3 + i; return { no: no, mk: no === ref.line ? '>' : '', text: t, cls: (no === ref.line ? 'hi' : '') + (t.charAt(0) === '#' ? ' cm' : '') }; });
       d.actions = [{ label: 'Open file at line ' + ref.line, cls: 'btn', onClick: function () { self.flash('Opens .conclave/reviewers.toml in the text editor at line ' + ref.line + '.'); } }, { label: 'Retry', cls: 'btn2', onClick: retry }];
+    } else if (s === 'pin-layout') {
+      d.isWarn = true;
+      d.heading = 'This pin uses a layout the editor does not edit';
+      d.paras = paras(['The pin is valid, and reviews run. It is written with inline tables, quoted keys or arrays over several lines, and the editor edits only `[reviewers.<name>]` tables with one key per line and a one-line array per route, so it changes nothing here: every comment and line stays as you wrote it.', 'Edit the file by hand, or rewrite it in that layout to edit it here.']);
+      d.actions = [{ label: 'Open file', cls: 'btn', onClick: function () { self.flash('Opens .conclave/reviewers.toml in the text editor.'); } }, { label: 'Retry', cls: 'btn2', onClick: retry }];
     } else if (s === 'unsupported-schema') {
       d.isWarn = true;
       d.heading = 'This pin is newer than the editor';
@@ -2039,7 +2055,7 @@ class Component extends DCLogic {
     const draft = e.draft;
     const draftIsAgy = draft.cli === 'agy';
     const isEditor = e.screen === 'editor';
-    const stateNames = { refused: 'pin refused', 'unsupported-schema': 'newer schema', 'no-pin': 'no pin', 'no-dispatcher': 'no dispatcher', 'old-dispatcher': 'dispatcher too old', 'no-python': 'no Python', untrusted: 'Restricted Mode' };
+    const stateNames = { refused: 'pin refused', 'unsupported-schema': 'newer schema', 'pin-layout': 'layout not editable', 'no-pin': 'no pin', 'no-dispatcher': 'no dispatcher', 'old-dispatcher': 'dispatcher too old', 'no-python': 'no Python', untrusted: 'Restricted Mode' };
     const multi = this.wsKey() === 'multi';
     const treeAll = [
       { label: 'orchard-web', pad: 4, folder: true, hide: !multi },
