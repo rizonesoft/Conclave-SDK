@@ -2,12 +2,19 @@
 """Run one independent review round with the reviewers pinned in .conclave/reviewers.toml, failing over in order.
 
     python3 scripts/review-dispatch.py --writer claude --prompt review-prompt.md --record docs/reviews/x.md
+    python3 scripts/review-dispatch.py --check-pin [--json] [--pin <path>]     the pin's verdict; runs no reviewer
+    python3 scripts/review-dispatch.py --list-rounds [--json] [--records <dir>]  recorded rounds; runs no reviewer
 
 `--writer` is the agent whose work is under review (claude, codex or gemini); its route in the pin lists one reviewer
-of a different model family and at most one fallback, also of a different family. The first reviewer that runs and returns a review is the round. One that is not installed, exits
-non-zero, times out, returns nothing, or ends its reply `OVERALL: blocked` (it could not reach the candidate, for
-example a sandbox that cannot read the repository) is skipped and the reason recorded. When every reviewer fails there
-is no review: exit 1, which never counts as approval. A review that finds problems is still a review (exit 0).
+of a different model family and at most one fallback, also of a different family. The first reviewer that runs and
+returns a review is the round. One that is not installed, exits non-zero, times out, returns nothing, or ends its
+reply `OVERALL: blocked` (it could not reach the candidate, for example a sandbox that cannot read the repository) is
+skipped and the reason recorded. When every reviewer fails there is no review: exit 1, which never counts as approval.
+A review that finds problems is still a review (exit 0).
+
+`--check-pin` loads the pin with `load_pin`, the only place the rules live, and reports without running anything:
+with `--json`, `{"ok": true, "schema_version", "reviewers", "routes", "clis": {cli: on PATH}}` and exit 0, or
+`{"ok": false, "error": "<the Refused message>"}` and exit 2; without `--json`, `ok` or `refused: <message>`.
 
 Reviewers run read-only in the repository root: Codex in its read-only sandbox, Antigravity in plan mode inside its
 sandbox, Claude Code in plan mode. The script prints a JSON summary; `--record` also appends a `## Round N` section to
@@ -373,12 +380,26 @@ def main(argv=None):
     parser.add_argument("--record", help="Findings file to append this round to")
     parser.add_argument("--timeout", type=int, default=1800, help="Seconds per reviewer before failing over")
     parser.add_argument("--pin", default=str(PIN), help=argparse.SUPPRESS)
+    parser.add_argument("--check-pin", action="store_true",
+                        help="Report whether the pin loads, and each CLI's presence, instead of running a review; "
+                             "no reviewer runs (exit 0 loads, 2 refused)")
     parser.add_argument("--list-rounds", action="store_true",
                         help="List the recorded review rounds instead of running one; no reviewer runs")
     parser.add_argument("--json", action="store_true", help="With --list-rounds, print the listing as JSON")
     parser.add_argument("--records", default=str(ROOT / "docs" / "reviews"),
                         help="With --list-rounds, the folder of findings files (default docs/reviews)")
     args = parser.parse_args(argv)
+    if args.check_pin:
+        # load_pin stays the only place the rules live: this reports its verdict and runs nothing.
+        try:
+            pin = load_pin(args.pin)
+        except Refused as exc:
+            print(json.dumps({"ok": False, "error": str(exc)}) if args.json else f"refused: {exc}")
+            return 2
+        clis = {cli: shutil.which(cli) is not None for cli in CLIS}
+        print(json.dumps({"ok": True, "schema_version": pin["schema_version"], "reviewers": pin["reviewers"],
+                          "routes": pin["routes"], "clis": clis}) if args.json else "ok")
+        return 0
     if args.list_rounds:
         listing = list_rounds(args.records)
         if args.json:
@@ -392,7 +413,7 @@ def main(argv=None):
                 print(f"{path}  unreadable: a round heading or line is not in the record format")
         return 0
     if not args.writer or not args.prompt:
-        parser.error("--writer and --prompt are required unless --list-rounds is given")
+        parser.error("--writer and --prompt are required unless --check-pin or --list-rounds is given")
     try:
         result = review(load_pin(args.pin), args.writer, args.prompt, args.timeout)
     except (Refused, OSError) as exc:

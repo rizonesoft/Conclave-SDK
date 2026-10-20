@@ -72,6 +72,10 @@ title: "TODO-01 -- Check Pin Contract"
 
 ## 2. Dispatcher check-pin flag
 
+> **Started:** 2026-10-20T09:00:04Z
+
+**Corrected 2026-10-20:** `--json` and the suppressed `--pin` already exist (from `D06 T01 §3`'s `--list-rounds`), and `--writer` and `--prompt` are already checked by `main()` rather than argparse, so `--check-pin` reuses them; the staging step also stages this TODO file, which ticking changes.
+
 The extension must never reimplement validation (plan R7), so the dispatcher grows a read-only mode that reports what `load_pin` decides. This section adds `--check-pin [--json]` to the reviewer kit with tests, documents it in the kit README, refreshes the SDK's installed copy and runs the SDK gates. It must not start any reviewer CLI and must not change the meaning of the existing exit codes for a review run.
 
 **Phase:** 0
@@ -84,17 +88,17 @@ The extension must never reimplement validation (plan R7), so the dispatcher gro
 2. Implement `--check-pin` and `--json` in `kits/reviewer/templates/scripts/review-dispatch.py` `main()`. Done when: the new tests and every existing test pass.
 3. Document the flag, refresh the root copy, run the gates and push. Done when: `scripts/review-dispatch.py --check-pin --json` prints `"ok": true` for `.conclave/reviewers.toml` and `main` is pushed.
 
-- [ ] Add `test_check_pin_reports_a_valid_pin` running `--check-pin --json` on the shipped pin and asserting exit 0, `ok` true, `schema_version` 1, the three reviewers and routes exactly as loaded, a `clis` key per entry of `CLIS` with a boolean value, and no reviewer call. Done when: it fails before the flag exists. Cheaper substitute: asserting only `ok`.
-- [ ] Add `test_check_pin_reports_a_refused_pin` over the bad pins already listed in `test_a_bad_pin_refuses_before_any_reviewer_runs`, asserting exit 2, `ok` false and `error` equal to the `Refused` message `load_pin` raises for that pin. Done when: it fails before the flag exists. Cheaper substitute: asserting a non-empty error string.
-- [ ] Add `test_check_pin_reports_a_missing_pin` asserting exit 2 and an `error` starting `no reviewer pin at`. Done when: it fails before the flag exists. Cheaper substitute: none, a missing pin is a separate path.
-- [ ] Add `test_check_pin_without_json_prints_one_line` asserting `ok` or `refused: <message>` on stdout with the same exit codes. Done when: it fails before the flag exists. Cheaper substitute: making `--json` the only mode without a test for the plain mode.
-- [ ] Add `test_check_pin_needs_no_writer_or_prompt` asserting `--check-pin` runs without `--writer` and `--prompt`, and that `--writer` without `--prompt` still fails as before. Done when: it fails before the flag exists. Cheaper substitute: dropping `required=True` on `--writer` with no replacement check.
-- [ ] Implement `--check-pin` and `--json` in `main()` of `kits/reviewer/templates/scripts/review-dispatch.py`: load with `load_pin(args.pin)`, compute `clis` with `shutil.which` per entry of `CLIS`, print one JSON object or one line, exit 0 or 2, and keep `--writer` and `--prompt` required for a review run. Done when: every dispatcher test passes. Cheaper substitute: a second copy of the rules in a `check_pin()` function.
-- [ ] Document `--check-pin [--json]` in `kits/reviewer/README.md` under "Running a round" with both JSON shapes and exit codes. Done when: the README shows the command and both outputs, with table rows at or under 100 characters. Cheaper substitute: a docstring change only.
-- [ ] Add the flag to the module docstring of `kits/reviewer/templates/scripts/review-dispatch.py`. Done when: `--help` shows `--check-pin` and `--json`. Cheaper substitute: an undocumented flag.
-- [ ] Refresh the SDK's installed copy with `python forge.py sync . --include-scripts`. Done when: `cmp scripts/review-dispatch.py kits/reviewer/templates/scripts/review-dispatch.py` reports no difference. Cheaper substitute: copying the file by hand.
-- [ ] Run `python -m unittest discover -s tests -v` and `bash kits/reviewer/scripts/test-install.sh`. Done when: both pass. Cheaper substitute: running only the dispatcher tests.
-- [ ] Stage only the kit's dispatcher, test and README and the root copies. Done when: `git diff --cached --stat` lists only those files. Cheaper substitute: staging the owner's CRLF changes.
+- [x] Add `test_check_pin_reports_a_valid_pin` running `--check-pin --json` on the shipped pin and asserting exit 0, `ok` true, `schema_version` 1, the three reviewers and routes exactly as loaded, a `clis` key per entry of `CLIS` with a boolean value, and no reviewer call. Done when: it fails before the flag exists. Cheaper substitute: asserting only `ok`.
+- [x] Add `test_check_pin_reports_a_refused_pin` over the bad pins already listed in `test_a_bad_pin_refuses_before_any_reviewer_runs`, asserting exit 2, `ok` false and `error` equal to the `Refused` message `load_pin` raises for that pin. Done when: it fails before the flag exists. Cheaper substitute: asserting a non-empty error string.
+- [x] Add `test_check_pin_reports_a_missing_pin` asserting exit 2 and an `error` starting `no reviewer pin at`. Done when: it fails before the flag exists. Cheaper substitute: none, a missing pin is a separate path.
+- [x] Add `test_check_pin_without_json_prints_one_line` asserting `ok` or `refused: <message>` on stdout with the same exit codes. Done when: it fails before the flag exists. Cheaper substitute: making `--json` the only mode without a test for the plain mode.
+- [x] Add `test_check_pin_needs_no_writer_or_prompt` asserting `--check-pin` runs without `--writer` and `--prompt`, and that `--writer` without `--prompt` still fails as before. Done when: it fails before the flag exists. Cheaper substitute: dropping `required=True` on `--writer` with no replacement check.
+- [x] Implement `--check-pin` and `--json` in `main()` of `kits/reviewer/templates/scripts/review-dispatch.py`: load with `load_pin(args.pin)`, compute `clis` with `shutil.which` per entry of `CLIS`, print one JSON object or one line, exit 0 or 2, and keep `--writer` and `--prompt` required for a review run. Done when: every dispatcher test passes. Cheaper substitute: a second copy of the rules in a `check_pin()` function.
+- [x] Document `--check-pin [--json]` in `kits/reviewer/README.md` under "Running a round" with both JSON shapes and exit codes. Done when: the README shows the command and both outputs, with table rows at or under 100 characters. Cheaper substitute: a docstring change only.
+- [x] Add the flag to the module docstring of `kits/reviewer/templates/scripts/review-dispatch.py`. Done when: `--help` shows `--check-pin` and `--json`. Cheaper substitute: an undocumented flag.
+- [x] Refresh the SDK's installed copy with `python forge.py sync . --include-scripts`. Done when: `cmp scripts/review-dispatch.py kits/reviewer/templates/scripts/review-dispatch.py` reports no difference. Cheaper substitute: copying the file by hand.
+- [x] Run `python -m unittest discover -s tests -v` and `bash kits/reviewer/scripts/test-install.sh`. Done when: both pass. Cheaper substitute: running only the dispatcher tests.
+- [x] Stage only the kit's dispatcher, test and README, the root copies and this TODO file. Done when: `git diff --cached --stat` lists only those files. Cheaper substitute: staging the owner's CRLF changes.
 - [ ] Commit: `reviewer: add review-dispatch.py --check-pin`, then push `main`
 
 **Test checkpoint:** `python scripts/review-dispatch.py --check-pin --json` exits 0 with `"ok": true`, and `python scripts/review-dispatch.py --check-pin --json --pin docs/plans/2026-10-16-vscode-extension.md` exits 2 with `"ok": false`.

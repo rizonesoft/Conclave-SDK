@@ -57,4 +57,12 @@ python3 scripts/review-dispatch.py --list-rounds --json [--records docs/reviews]
 
 It prints `{"records": [{"path", "rounds": [{"number", "reviewer", "model", "cli", "writer", "run", "effort", "skipped": [{"reviewer", "reason"}]}]}]}`, with `reviewer`, `model` and `cli` null for a round no reviewer returned, and adds `"unreadable": [path]` for a findings file whose round headings or lines are not in the format `--record` writes, never dropping it, or a file that cannot be read or is not UTF-8. Without `--json` it prints one line per round. Each round `--record` writes states how many lines its review has (`- Lines: N`), and the reader skips exactly that many without reading them, so a review quoting `## Round ...` lines can never pass for a round and is stored byte for byte; a count that no longer matches (a hand edit) makes the file unreadable. Rounds recorded before the count run to the next round heading.
 
+To ask whether the pin loads, the same way a review run would load it, without running a reviewer (the editor extension validates every edit this way):
+
+```bash
+python3 scripts/review-dispatch.py --check-pin --json [--pin .conclave/reviewers.toml]
+```
+
+A pin that loads prints `{"ok": true, "schema_version": 1, "reviewers": {...}, "routes": {...}, "clis": {"codex": true, "agy": false, "claude": true}}` and exits 0: `reviewers` and `routes` are exactly what `load_pin` returns, and `clis` says which reviewer CLIs are on `PATH`. A refused or missing pin prints `{"ok": false, "error": "<message>"}`, the message a review run would refuse with, and exits 2. Without `--json` it prints `ok` or `refused: <message>`. `--writer` and `--prompt` are not needed.
+
 Exit 0 is a review (which may still find problems). Exit 1 means neither the reviewer nor its fallback returned a review (a reply ending `OVERALL: blocked` is not one), which is never an approval. Exit 2 means the pin or the arguments were refused and nothing ran.

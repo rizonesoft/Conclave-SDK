@@ -234,6 +234,65 @@ class Dispatch(unittest.TestCase):
         self.assertIn("## Round 2: gemini (`gemini-4-argon-high` via `agy`)", text)
         self.assertIn("- Skipped: astra (exited 3)", text)
 
+    def check_pin(self, *args):
+        result, _ = self.dispatch("--check-pin", *args)
+        return result
+
+    def test_check_pin_reports_a_valid_pin(self):
+        result = self.check_pin("--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        spec = importlib.util.spec_from_file_location("dispatch_pin", self.repo / "scripts/review-dispatch.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        pin = module.load_pin(self.repo / ".conclave/reviewers.toml")
+        self.assertEqual((report["ok"], report["schema_version"]), (True, 1))
+        self.assertEqual((report["reviewers"], report["routes"]), (pin["reviewers"], pin["routes"]))
+        self.assertEqual(sorted(report["clis"]), sorted(module.CLIS))
+        self.assertTrue(all(isinstance(v, bool) for v in report["clis"].values()))
+        self.assertTrue(report["clis"]["codex"], "the fake codex launcher is on PATH")
+        self.assertEqual(self.calls(), [], "--check-pin ran a reviewer")
+
+    def test_check_pin_reports_a_refused_pin(self):
+        spec = importlib.util.spec_from_file_location("dispatch_refusal", self.repo / "scripts/review-dispatch.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        pin = self.repo / ".conclave/reviewers.toml"
+        good = pin.read_text()
+        for bad in (good.replace('effort = "medium"', 'effort = "extreme"'),
+                    good.replace('claude = ["astra", "gemini"]', 'claude = ["astra", "sonnet"]'),
+                    good.replace("schema_version = 1", "schema_version = true"),
+                    good + '\n[extra]\nkey = 1\n', "not toml ["):
+            with self.subTest(bad=bad[-40:]):
+                pin.write_text(bad, encoding="utf-8")
+                with self.assertRaises(module.Refused) as refused:
+                    module.load_pin(pin)
+                result = self.check_pin("--json")
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {"ok": False, "error": str(refused.exception)})
+        self.assertEqual(self.calls(), [])
+
+    def test_check_pin_reports_a_missing_pin(self):
+        (self.repo / ".conclave/reviewers.toml").unlink()
+        result = self.check_pin("--json")
+        self.assertEqual(result.returncode, 2)
+        self.assertTrue(json.loads(result.stdout)["error"].startswith("no reviewer pin at"), result.stdout)
+
+    def test_check_pin_without_json_prints_one_line(self):
+        result = self.check_pin()
+        self.assertEqual((result.returncode, result.stdout), (0, "ok\n"))
+        pin = self.repo / ".conclave/reviewers.toml"
+        pin.write_text(pin.read_text().replace('effort = "medium"', 'effort = "extreme"'), encoding="utf-8")
+        result = self.check_pin()
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "refused: reviewer 'astra' needs effort = one of low, medium, high, xhigh\n")
+
+    def test_check_pin_needs_no_writer_or_prompt(self):
+        self.assertEqual(self.check_pin("--json").returncode, 0)
+        result, _ = self.dispatch("--writer", "claude")
+        self.assertEqual(result.returncode, 2, "a review without --prompt must still be refused")
+        self.assertIn("--writer and --prompt are required", result.stderr)
+
     def test_list_rounds_reads_back_what_record_wrote(self):
         # Two rounds written by record itself: one reviewed, one where every reviewer was skipped.
         record = self.repo / "docs/reviews/00-design/D00-T01-s1.md"
