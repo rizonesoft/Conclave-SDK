@@ -45,7 +45,7 @@ Sections: 16 | Checklist items: 127
 | [ ]    | D02 T01 §10 | Workspace kit state from forge                         | none  | 6     |
 | [ ]    | D02 T01 §11 | Mockup parity fixtures and harness                     | none  | 7     |
 | [ ]    | D02 T01 §12 | Extractor limits at tarfile's own parse                | none  | 5     |
-| [ ]    | D02 T01 §13 | Candidate folder links on Windows and shared fallbacks | none  | 5     |
+| [x]    | D02 T01 §13 | Candidate folder links on Windows and shared fallbacks | none  | 5     |
 | [ ]    | D05 T01 §1  | Kit install with dry-run preview                       | none  | 9     |
 | [ ]    | D05 T01 §2  | Kit update through forge sync                          | none  | 8     |
 | [ ]    | D05 T01 §3  | Kit health from forge check and doctor                 | none  | 6     |
@@ -92,6 +92,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 20/58 verified sections, 6 ready to run now.
+Progress: 21/58 verified sections, 5 ready to run now.
 
-Checklist: 184/478 items completed (includes Commit items).
+Checklist: 189/478 items completed (includes Commit items).

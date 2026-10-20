@@ -60,7 +60,7 @@ title: "TODO-01 -- Extension Core"
 | 10 | §10 | Workspace kit state from forge | §9 | [ ] |
 | 11 | §11 | Mockup parity fixtures and harness | §1, D00 T01 §2 | [ ] |
 | 12 | §12 | Extractor limits at tarfile's own parse | §7 | [ ] |
-| 13 | §13 | Candidate folder links on Windows and shared fallbacks | §5 | [ ] |
+| 13 | §13 | Candidate folder links on Windows and shared fallbacks | §5 | [x] |
 
 ## 1. Extension scaffold, build and test harness
 
@@ -384,6 +384,8 @@ The build must match the approved mockup 1:1 (`design/platform-audit.md`), and a
 
 ## 12. Extractor limits at tarfile's own parse
 
+> **Started:** 2026-10-20T14:16:00Z
+
 Review round 3 of `§7` (`docs/reviews/02-extension-core/D02-T01-s7.md`, the last round its loop allowed) found that the extractor's pre-pass, a separate walker over the raw tar headers, can disagree with `tarfile`: a PAX `size` override makes `tarfile` skip a block the pre-pass reads as the end of the archive, and Solaris `X` extended headers were not in its metadata set. Either lets a metadata payload far over 1 MB reach `tarfile`'s memory. The limits belong where `tarfile` parses: a `TarInfo` subclass that refuses an oversized extended or long-name header before reading it, and a size-counting file object under `tarfile` for the decompressed total, so both see the same boundaries.
 
 **Phase:** 1
@@ -423,9 +425,12 @@ Review round 3 of `§5` (`docs/reviews/02-extension-core/D02-T01-s5.md`, the las
 - [x] Recreate the fallback in `folder()` when the cached one is gone or no longer this account's private folder. Done when: a test that removes the fallback between two `withCandidate` calls sees the second succeed. Cheaper substitute: restarting the window.
 - [x] Run the candidate tests on Windows and in WSL. Done when: all pass on both. Cheaper substitute: Windows only.
   WSL has Node 18.19.1, below the extension's engine (`^22.13.0 || >=24`), where `mock.timers` does not exist: the filesystem tests (links, fallbacks, sweeps, writes) pass there, the five debounce tests run on Windows.
-- [ ] Commit: `extension: candidate folders refuse junctions and recover a swept fallback`
+- [x] Commit: `extension: candidate folders refuse junctions and recover a swept fallback`
 
 **Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/candidate.test.js` passes on Windows and in WSL, and fails on Windows when `ownPrivateFolder` returns true without `lstat`.
+
+> **Verified:** 2026-10-20 | §13 | c79c94d16f9f4f8d7789019bc17b709f87b7f996
+> **Review:** `docs/reviews/d02-t01-s13.json`
 
 ## Verification
 
