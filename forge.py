@@ -18,6 +18,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import types
@@ -486,10 +487,28 @@ def _doctor_automations(target_root: Path, add_check) -> None:
     for agent_dir in AGENT_DIRS:
         sk = target_root / agent_dir / "skills/scheduled-automations/SKILL.md"
         add_check(f"skill:scheduled-automations:{agent_dir}", "ok" if sk.is_file() else "missing", sk.as_posix())
-    scheduler = "pythonw" if os.name == "nt" else "systemctl"
-    found = shutil.which(scheduler)
-    add_check(f"scheduler:{scheduler}", "ok" if found else "setup_required",
-              found or ("install Python 3 for Windows (pythonw.exe on PATH)" if os.name == "nt" else "systemd user manager not available"))
+    if os.name == "nt":
+        found = shutil.which("pythonw")
+        add_check("scheduler:pythonw", "ok" if found else "setup_required",
+                  found or "install Python 3 for Windows (pythonw.exe on PATH)")
+    else:
+        add_check("scheduler:systemctl", *_systemd_user_manager())
+
+
+def _systemd_user_manager(run=subprocess.run) -> tuple[str, str]:
+    """Whether this user's systemd manager answers (read-only): `systemctl` on PATH is not enough, because WSL
+    without systemd, or a session with no user bus, has the binary and no manager."""
+    found = shutil.which("systemctl")
+    if not found:
+        return "setup_required", "systemctl not on PATH: install.sh needs systemd user timers"
+    try:
+        proc = run([found, "--user", "show-environment"], capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return "setup_required", f"systemd user manager did not answer: {exc}"
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout).strip().splitlines()
+        return "setup_required", f"systemd user manager not reachable: {detail[0] if detail else proc.returncode}"
+    return "ok", f"{found} --user answers"
 
 
 def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:

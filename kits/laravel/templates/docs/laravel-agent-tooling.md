@@ -25,9 +25,9 @@ One client: `scripts/lsp-diagnostics.py`. Three servers:
 
 | Server | Binary | Install | Gate? |
 | ------ | ------ | ------- | ----- |
-| laravel | `laravel-lsp` | `composer global require laravel/lsp` | yes (routes, config, views, env) |
-| tailwind | `tailwindcss-language-server` | `npm install -g @tailwindcss/language-server` | yes (class conflicts) |
-| php | `intelephense` | `npm install -g intelephense` | no (on demand; PHPStan + Pint cover gates) |
+| laravel | `laravel-lsp` | `composer global require laravel/lsp` | yes (routes, config, views) |
+| tailwind | `tailwindcss-language-server` | `npm i -g @tailwindcss/language-server` | yes |
+| php | `intelephense` | `npm install -g intelephense` | no (on demand; PHPStan, Pint gate) |
 
 ```bash
 python3 scripts/lsp-diagnostics.py --server laravel --server tailwind --staged

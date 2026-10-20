@@ -12,11 +12,11 @@ Install `kits/base` (or `python forge.py init`) first when the repo should speak
 | ---- | ---- |
 | `boost.json` | Boost skill list placed at the Laravel app root |
 | `scripts/lsp-diagnostics.py` | One stdio LSP client for Laravel, Tailwind, and Intelephense |
-| `scripts/hooks/laravel-lsp-pre-push.sh` | Pre-push check (missing servers skip, never pass silently) |
+| `scripts/hooks/laravel-lsp-pre-push.sh` | Pre-push check (missing servers skip, never pass) |
 | `docs/laravel-agent-tooling.md` | How to wire Boost MCP and the three language servers |
 | `.agents/skills/laravel-boost/SKILL.md` | Gemini / Antigravity (`agy`) skill copy |
 | `.claude/skills/laravel-boost/SKILL.md` | Claude Code (`claude`) skill copy |
-| `.codex/skills/laravel-boost/SKILL.md` | OpenAI Codex (`codex`) skill copy plus `agents/openai.yaml` |
+| `.codex/skills/laravel-boost/SKILL.md` | Codex skill copy plus `agents/openai.yaml` |
 | `.mcp.json` | Created when missing; prints `laravel-boost` fragment if present |
 
 ## Install

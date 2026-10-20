@@ -13,12 +13,12 @@ Every project that wants scheduled checks gets one place that lists them (`.conc
 | Source | Isotone's `.conclave/automations/` | Newest, data-driven, already tested |
 | Schema | Isotone's `tasks.json` schema 1, unchanged | Isotone's file loads as is |
 | Project name | Read from `folder`; names must start `<folder>-` | No templating in `forge.py` |
-| Fresh kit | `folder: null`, no tasks; installers refuse until set | Same as the WordPress pin's nulls |
+| Fresh kit | `folder: null`, no tasks; installers refuse until set | As the WordPress pin's nulls |
 | Linux and WSL | `install.sh` renders units from `tasks.json` | One list for both schedulers |
 | Failure report | `run.py` on both platforms, no `OnFailure=` | One code path, one email format |
-| Stale units | Removed only when marked with this repo's `tasks.json` | Never touches another unit |
+| Unit ownership | Only units marked with this repo's `tasks.json` | Never touches another unit |
 | Ownership | Runner, alert, installers are kit scripts | `sync --include-scripts` refreshes them |
-| Email | Rizonetech SMTP2GO sender and vault item, as Isotone | The operator's one verified sender |
+| Email | Rizonetech SMTP2GO sender and vault item, as Isotone | The one verified sender |
 
 ## The SDK's own copy
 

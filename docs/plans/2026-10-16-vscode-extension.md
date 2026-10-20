@@ -105,7 +105,7 @@ Re-checked 2026-10-16 at `97cca1d`, GitHub `main`: the reviewer kit is unchanged
 
 | Phase | Work | TODO files |
 | --- | --- | --- |
-| 0 | Mockup, approval, SPEC, design spec, SDK queries, scaffold | D00 T01, D01 T01, D02 T01 §1, D06 T01 |
+| 0 | Mockup, approval, SPEC, design, queries, scaffold | D00 T01, D01 T01, D02 T01 §1, D06 T01 |
 | 1 | Python, dispatcher, pin text, save, SDK source, forge runner, kit ops | D02 T01, D05 T01 |
 | 2 | Webview, entry points, Kits view, dialogs, feature sections | D03 T01, D05 T01, D06 T01 |
 | 6 | Integration tests, WSL check, `.vsix`, review rounds, docs, marketplace | D04 T01 |

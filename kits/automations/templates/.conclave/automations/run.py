@@ -21,6 +21,7 @@ import importlib.util
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 
@@ -37,6 +38,11 @@ class TaskError(ValueError):
     pass
 
 
+def _whole(value) -> bool:
+    """A positive whole number; JSON `true` is a Python int, and is refused."""
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
 def load_manifest(path: str) -> dict:
     """tasks.json as {"folder", "prefix", "tasks" by name}, refused unless every entry is well formed.
 
@@ -46,22 +52,24 @@ def load_manifest(path: str) -> dict:
     """
     with open(path, encoding="utf-8") as fh:
         doc = json.load(fh)
-    if doc.get("schema_version") != 1 or not isinstance(doc.get("tasks"), list):
+    if not isinstance(doc, dict) or doc.get("schema_version") != 1 or not isinstance(doc.get("tasks"), list):
         raise TaskError("tasks.json needs schema_version 1 and a tasks list")
     folder = doc.get("folder")
     if folder is None:
         if doc["tasks"]:
             raise TaskError("tasks.json lists tasks but no folder: set folder to \\<Project>\\ first")
         return {"folder": None, "prefix": None, "tasks": {}}
-    match = FOLDER.match(folder) if isinstance(folder, str) else None
+    match = FOLDER.fullmatch(folder) if isinstance(folder, str) else None
     if not match:
         raise TaskError("tasks.json folder must be one Task Scheduler folder, like \\Isotone\\")
     prefix = match.group(1).lower() + "-"
-    name_rule = re.compile("^" + re.escape(prefix) + r"[a-z0-9][a-z0-9-]*$")
+    name_rule = re.compile(re.escape(prefix) + r"[a-z0-9][a-z0-9-]*")
     out: dict[str, dict] = {}
     for task in doc["tasks"]:
+        if not isinstance(task, dict):
+            raise TaskError(f"every task must be an object, not {task!r}")
         name = task.get("name", "")
-        if not isinstance(name, str) or not name_rule.match(name) or name in out:
+        if not isinstance(name, str) or not name_rule.fullmatch(name) or name in out:
             raise TaskError(f"task name {name!r} must be a unique {prefix}* name")
         if set(task) != {"name", "description", "command", "trigger", "timeout_minutes"}:
             raise TaskError(f"{name}: needs exactly name, description, command, trigger, timeout_minutes")
@@ -71,13 +79,13 @@ def load_manifest(path: str) -> dict:
         command = task["command"]
         if not isinstance(command, list) or not command or not all(isinstance(c, str) and c for c in command):
             raise TaskError(f"{name}: command must be a non-empty list of strings")
-        if not isinstance(task["timeout_minutes"], int) or task["timeout_minutes"] <= 0:
+        if not _whole(task["timeout_minutes"]):
             raise TaskError(f"{name}: timeout_minutes must be a positive whole number")
         trigger = task["trigger"]
         if not isinstance(trigger, dict):
             raise TaskError(f"{name}: trigger must be at-logon-and-every or weekly-at")
         if set(trigger) == {"at_logon_delay_minutes", "every_minutes"}:
-            if not all(isinstance(trigger[k], int) and trigger[k] > 0 for k in trigger):
+            if not all(_whole(trigger[k]) for k in trigger):
                 raise TaskError(f"{name}: a logon trigger needs positive whole minutes")
         elif set(trigger) == {"weekly", "at"}:
             if trigger["weekly"] not in DAYS or not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(trigger["at"])):
@@ -107,12 +115,22 @@ def _utc(stamp: bool = False) -> str:
     return now.strftime("%Y%m%dT%H%M%SZ" if stamp else "%Y-%m-%dT%H:%M:%SZ")
 
 
+def _spawn_options() -> dict:
+    """How every task starts: with no console on Windows, and in a process group of its own elsewhere, so a timeout
+    stops what the task started too."""
+    return {"creationflags": NO_WINDOW} if os.name == "nt" else {"start_new_session": True}
+
+
 def _kill_tree(proc) -> None:
+    """Stop the task and everything it started: taskkill's tree on Windows, the task's process group elsewhere."""
     if os.name == "nt":
         subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True, timeout=60,
                        creationflags=NO_WINDOW)
     else:
-        proc.kill()
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:  # the group already exited between the timeout and this kill
+            pass
     proc.wait(timeout=60)
 
 
@@ -127,7 +145,7 @@ def execute(name: str, task: dict, root: str, popen=subprocess.Popen, killer=_ki
     with open(log, "wb") as out:
         try:
             proc = popen(resolve(task["command"]), cwd=root, stdout=out, stderr=subprocess.STDOUT,
-                         stdin=subprocess.DEVNULL, env=env, creationflags=NO_WINDOW if os.name == "nt" else 0)
+                         stdin=subprocess.DEVNULL, env=env, **_spawn_options())
         except OSError as error:  # the command never started: a failed run like any other, so it is alerted
             out.write(f"run.py: could not start {task['command'][0]}: {error}\n".encode("utf-8"))
             proc = None
@@ -168,7 +186,7 @@ def systemd_units(manifest: dict, root: str, python: str) -> dict[str, str]:
         units[f"{name}.service"] = "\n".join([
             marker,
             "[Unit]",
-            f"Description={task['description']}",
+            f"Description={task['description'].replace('%', '%%')}",
             "",
             "[Service]",
             "Type=oneshot",
@@ -186,7 +204,7 @@ def systemd_units(manifest: dict, root: str, python: str) -> dict[str, str]:
             when = [f"OnStartupSec={trigger['at_logon_delay_minutes']}min",
                     f"OnUnitActiveSec={trigger['every_minutes']}min"]
         units[f"{name}.timer"] = "\n".join([
-            marker, "[Unit]", f"Description={task['description']}", "", "[Timer]", *when, "",
+            marker, "[Unit]", f"Description={task['description'].replace('%', '%%')}", "", "[Timer]", *when, "",
             "[Install]", "WantedBy=timers.target", "",
         ])
     return units

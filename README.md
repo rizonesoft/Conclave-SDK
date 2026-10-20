@@ -14,7 +14,7 @@ Each agent reads only its own isolated folder and entrypoint alongside the share
 
 | Path | Purpose |
 | ---- | ------- |
-| `forge.py` / `forge.cmd` | CLI (`init`, `sync`, `kit`, `doctor`, `kits`, `check`; `isolated` default mode). |
+| `forge.py` / `forge.cmd` | CLI: `init`, `sync`, `kit`, `doctor`, `kits`, `check`. |
 | `kits/base/` | Every repo: entry docs, safety skills, subagents, rules, tier check. |
 | `kits/todo/` | TODO skills, `todo-graph.py`, starter `todo/` tree, workflow doc. |
 | `kits/reviewer/` | Reviewer pin (GPT-6 Astra, failover Gemini 4, Sonnet 5.5) and dispatcher. |
@@ -24,7 +24,7 @@ Each agent reads only its own isolated folder and entrypoint alongside the share
 | `plugins/` | Standalone agent plugins that belong to no kit (never installed by `forge.py`). |
 | `extensions/` | Editor extensions (`vscode/`), never installed by `forge.py`. |
 | `todo/`, `design/` | The SDK's own TODO plan and interface design (the VS Code extension). |
-| `.agents/`, `.claude/`, `.codex/` | The SDK's own copy of `base`, `todo`, `reviewer`, `automations`. |
+| `.agents/`, `.claude/`, `.codex/` | The SDK's own `base`, `todo`, `reviewer`, `automations`. |
 | `scripts/`, `.conclave/` | The SDK's own todo, reviewer and automations scripts and pins. |
 | `tests/` | Unit test suites for `todo_graph.py`, `forge.py`, and stack overlay kits. |
 

@@ -31,6 +31,21 @@ trap 'rm -rf -- "$work"' EXIT
 marker=$(python3 "$here/run.py" --units "$work")
 mkdir -p -- "$unit_dir"
 
+# Ownership first, before anything changes: a unit of the same name that this repository did not write (a
+# hand-written one, or another checkout's) is never replaced.
+if [ "$uninstall" -eq 0 ]; then
+  for unit in "$work"/*.service "$work"/*.timer; do
+    [ -f "$unit" ] || continue
+    destination="$unit_dir/$(basename -- "$unit")"
+    if [ -e "$destination" ] || [ -L "$destination" ]; then
+      if [ -L "$destination" ] || ! head -n 1 -- "$destination" | grep -qxF -- "$marker"; then
+        printf 'Refusing to replace %s: it is not marked as this repository'"'"'s unit\n' "$destination" >&2
+        exit 1
+      fi
+    fi
+  done
+fi
+
 removed=0
 for unit in "$unit_dir"/*.service "$unit_dir"/*.timer; do
   [ -f "$unit" ] && [ ! -L "$unit" ] || continue

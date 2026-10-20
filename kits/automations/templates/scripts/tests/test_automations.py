@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 REPO = Path(__file__).resolve().parents[2]
@@ -31,6 +32,19 @@ def readme_rows(text):
     section = text.split("## What runs", 1)[1].split("\n## ", 1)[0]
     rows = [line.split("|")[1].strip() for line in section.splitlines() if line.startswith("| `")]
     return [row.strip("`") for row in rows]
+
+
+def alive(pid):
+    """Whether a process still runs (a zombie awaiting its reaper counts as gone)."""
+    if os.name == "nt":
+        out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True,
+                             creationflags=0x08000000).stdout
+        return str(pid) in out
+    try:
+        with open(f"/proc/{pid}/stat", encoding="utf-8") as fh:
+            return fh.read().split(")")[-1].split()[0] != "Z"
+    except FileNotFoundError:
+        return False
 
 
 def fixture_task(name, code="print('ok')", trigger=None):
@@ -86,6 +100,9 @@ class Manifest(unittest.TestCase):
             "extra key": {**first, "enabled": True},
             "empty command": {**first, "command": []},
             "zero timeout": {**first, "timeout_minutes": 0},
+            "boolean timeout": {**first, "timeout_minutes": True},
+            "boolean logon minutes": {**first, "trigger": {"at_logon_delay_minutes": True, "every_minutes": 5}},
+            "name with a trailing newline": {**first, "name": "demo-check\n"},
             "two-line description": {**first, "description": "one\ntwo"},
             "bad day": {**first, "trigger": {"weekly": "Funday", "at": "07:00"}},
             "bad time": {**first, "trigger": {"weekly": "Monday", "at": "7am"}},
@@ -97,6 +114,9 @@ class Manifest(unittest.TestCase):
         for label, doc in {"duplicate": {**good, "tasks": [first, first]},
                            "nested folder": {**good, "folder": "\\Demo\\Sub\\"},
                            "no slashes": {**good, "folder": "Demo"},
+                           "folder with a trailing newline": {**good, "folder": "\\Demo\\\n"},
+                           "a task that is not an object": {**good, "tasks": [None]},
+                           "a list, not an object": [],
                            "schema 2": {**good, "schema_version": 2}}.items():
             with self.subTest(label), self.assertRaises(run.TaskError):
                 self.check(doc)
@@ -195,6 +215,31 @@ class Runner(unittest.TestCase):
             calls = text.count("subprocess.run([") + text.count("subprocess.Popen(") + text.count("run(command")
             with self.subTest(path=path.name):
                 self.assertGreaterEqual(text.count("creationflags="), calls, path.name)
+        self.assertIn("**_spawn_options()", (AUTO / "run.py").read_text(encoding="utf-8"))
+        self.assertEqual(run._spawn_options(), {"creationflags": run.NO_WINDOW} if os.name == "nt"
+                         else {"start_new_session": True})
+
+    def test_a_timeout_kill_stops_what_the_task_started(self):
+        # The parent starts a child that writes its pid, then both hang; the kill must end the child too.
+        pid_file = self.root / "child.pid"
+        child = f"import os, time; open({str(pid_file)!r}, 'w').write(str(os.getpid())); time.sleep(120)"
+        parent = f"import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', {child!r}]); time.sleep(120)"
+        proc = subprocess.Popen([sys.executable, "-c", parent], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                **run._spawn_options())
+        try:
+            for _ in range(200):
+                if pid_file.exists() and pid_file.read_text(encoding="utf-8"):
+                    break
+                time.sleep(0.05)
+            child_pid = int(pid_file.read_text(encoding="utf-8"))
+        finally:
+            run._kill_tree(proc)
+        self.assertIsNotNone(proc.returncode)
+        for _ in range(100):
+            if not alive(child_pid):
+                break
+            time.sleep(0.05)
+        self.assertFalse(alive(child_pid), "the task's child survived the timeout kill")
 
     def test_an_unknown_task_or_bad_arguments_are_refused(self):
         self.assertEqual(self.main("demo-missing"), 2)
@@ -397,6 +442,22 @@ class InstallSh(unittest.TestCase):
         result = self.install("--uninstall", tasks=[fixture_task("demo-one")])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([p.name for p in units.iterdir()], ["demo-handmade.service"])
+
+    def test_a_unit_this_repository_did_not_write_is_never_replaced(self):
+        units = self.config / "systemd" / "user"
+        units.mkdir(parents=True)
+        for label, text in (("unmarked", "[Unit]\nDescription=hand-written\n"),
+                            ("another checkout", run.MARKER + "/elsewhere/.conclave/automations/tasks.json\n[Unit]\n")):
+            with self.subTest(label):
+                (units / "demo-one.service").write_text(text, encoding="utf-8")
+                result = self.install(tasks=[fixture_task("demo-one"), fixture_task("demo-two")])
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Refusing to replace", result.stderr)
+                self.assertEqual((units / "demo-one.service").read_text(encoding="utf-8"), text)
+                self.assertEqual(sorted(p.name for p in units.iterdir()), ["demo-one.service"])
+                result = self.install("--uninstall", tasks=[])
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((units / "demo-one.service").read_text(encoding="utf-8"), text)
 
     def test_a_refused_manifest_installs_nothing(self):
         result = self.install(tasks=[fixture_task("other-name")])

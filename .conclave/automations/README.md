@@ -6,7 +6,7 @@ Every scheduled job for this project lives here: the task list in `tasks.json`, 
 
 | Task | When (local time) | Runs | Fails when |
 | --- | --- | --- | --- |
-| `conclave-sdk-reviewers` | Monday 07:00 | `forge.py doctor . reviewer --strict` | the pin stops loading or a pinned reviewer CLI is gone |
+| `conclave-sdk-reviewers` | Monday 07:00 | `forge.py doctor . reviewer --strict` | Reviewer gone |
 
 The folder is `\Conclave-SDK\`: every task name starts with `conclave-sdk-`, so no other project shares the folder or a unit name.
 

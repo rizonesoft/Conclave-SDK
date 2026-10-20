@@ -4,16 +4,18 @@ Additive overlay that gives a project scheduled jobs that report their own failu
 
 ## What lands
 
+All paths under `.conclave/automations/` unless they start with a dot folder or `scripts/`.
+
 | Path | Role | `sync` |
 | ---- | ---- | ---- |
-| `.conclave/automations/tasks.json` | The project's task list (`folder: null` until set) | Never |
-| `.conclave/automations/README.md` | What runs, when, and when it fails | Never |
-| `.conclave/automations/run.py` | Runs a task, keeps its log, calls the alert on a failure | Scripts |
-| `.conclave/automations/alert.py` | The failure email through SMTP2GO, key from the vault | Scripts |
-| `.conclave/automations/install.ps1` | Registers every task in Task Scheduler, under the folder | Scripts |
-| `.conclave/automations/install.sh` | The same as systemd user timers on Linux and WSL | Scripts |
-| `scripts/tests/test_automations.py` | Manifest, runner, alert, units and installer tests | Scripts |
-| `.{agents,claude,codex}/skills/scheduled-automations/` | When and how to add or fix a task | Always |
+| `tasks.json` | The project's task list (`folder: null` until set) | Never |
+| `README.md` | What runs, when, and when it fails | Never |
+| `run.py` | Runs a task, keeps its log, calls the alert on a failure | Scripts |
+| `alert.py` | The failure email through SMTP2GO, key from the vault | Scripts |
+| `install.ps1` | Registers every task in Task Scheduler, under the folder | Scripts |
+| `install.sh` | The same as systemd user timers on Linux and WSL | Scripts |
+| `scripts/tests/test_automations.py` | Runner, alert, unit and installer tests | Scripts |
+| `.{agents,claude,codex}/skills/scheduled-automations/` | How to add or fix a task | Always |
 
 "Scripts" means `python forge.py sync <target> --include-scripts` refreshes the file; the task list and its README stay the project's.
 
@@ -23,8 +25,10 @@ Additive overlay that gives a project scheduled jobs that report their own failu
 
 | Trigger | Task Scheduler | systemd |
 | --- | --- | --- |
-| `{"weekly": "Monday", "at": "07:00"}` | Weekly, start when available, 5 min random delay | `OnCalendar`, `Persistent=true` |
-| `{"at_logon_delay_minutes": 3, "every_minutes": 60}` | At logon plus the delay, then repeated | `OnStartupSec`, `OnUnitActiveSec` |
+| `weekly`, `at` | Weekly, start when available, 5 min delay | `OnCalendar`, `Persistent=true` |
+| `every_minutes` and a logon delay | At logon, repeated | `OnStartupSec`, `OnUnitActiveSec` |
+
+For example `{"weekly": "Monday", "at": "07:00"}` or `{"at_logon_delay_minutes": 3, "every_minutes": 60}`.
 
 ## Install
 

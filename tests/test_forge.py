@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 FORGE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(FORGE_ROOT))
@@ -413,6 +414,11 @@ class ForgeProvisionTests(unittest.TestCase):
              "timeout_minutes": 5}]}), encoding="utf-8")
         checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "automations")["checks"]}
         self.assertEqual((checks["automations-folder"], checks["task:demo-gone"]), ("ok", "missing"))
+        for malformed in ("[]", '{"schema_version": 1, "folder": "\\\\Demo\\\\", "tasks": [null]}', "{not json"):
+            with self.subTest(malformed=malformed):
+                tasks.write_text(malformed, encoding="utf-8")
+                checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "automations")["checks"]}
+                self.assertEqual(checks["automations-tasks"], "missing")
         tasks.write_text('{"schema_version": 1, "folder": "Demo", "tasks": []}', encoding="utf-8")
         checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "automations")["checks"]}
         self.assertEqual(checks["automations-tasks"], "missing")
@@ -426,6 +432,18 @@ class ForgeProvisionTests(unittest.TestCase):
         forge.provision(project, refresh=True, refresh_scripts=True)
         self.assertNotEqual(runner.read_text(encoding="utf-8"), "old runner\n")
         self.assertEqual(tasks.read_text(encoding="utf-8"), '{"schema_version": 1, "folder": "Demo", "tasks": []}')
+
+    def test_the_doctor_needs_a_systemd_user_manager_that_answers_not_just_systemctl(self):
+        def answers(code, err=""):
+            return lambda *a, **kw: subprocess.CompletedProcess(a, code, stdout="", stderr=err)
+
+        with unittest.mock.patch.object(forge.shutil, "which", return_value="/usr/bin/systemctl"):
+            self.assertEqual(forge._systemd_user_manager(answers(0))[0], "ok")
+            status, detail = forge._systemd_user_manager(answers(1, "Failed to connect to bus: No medium found\n"))
+            self.assertEqual(status, "setup_required")
+            self.assertIn("No medium found", detail)
+        with unittest.mock.patch.object(forge.shutil, "which", return_value=None):
+            self.assertEqual(forge._systemd_user_manager(answers(0))[0], "setup_required")
 
     def test_automations_kit_tests_pass_in_the_kit_and_in_the_sdks_own_copy(self):
         for root in (FORGE_ROOT / "kits/automations/templates", FORGE_ROOT):
@@ -484,10 +502,11 @@ class ForgeProvisionTests(unittest.TestCase):
                             88,
                             f"Table cell exceeds 88 chars ({len(cell)} > 88) at {md}:{lineno}: {cell!r}",
                         )
+                    # AGENTS.md: every table row at or under 100 characters, so rows never wrap in raw view.
                     self.assertLessEqual(
                         len(line),
-                        140,
-                        f"Table row wraps raw md ({len(line)} > 140 chars) at {md}:{lineno}",
+                        100,
+                        f"Table row wraps raw md ({len(line)} > 100 chars) at {md}:{lineno}",
                     )
 
 
