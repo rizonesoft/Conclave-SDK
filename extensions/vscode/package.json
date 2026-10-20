@@ -11,7 +11,8 @@
     "url": "https://github.com/rizonetech/Conclave-SDK"
   },
   "engines": {
-    "vscode": "^1.100.0"
+    "vscode": "^1.100.0",
+    "node": ">=22"
   },
   "categories": [
     "Other"

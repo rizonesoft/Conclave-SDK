@@ -4,7 +4,7 @@ The Conclave VS Code extension: the kit manager and the reviewer pin editor for 
 
 ## Develop
 
-Every command runs from this folder (`extensions/vscode/`); the Node toolchain stays here and `forge.py` never copies anything from it.
+Every command runs from this folder (`extensions/vscode/`); the Node toolchain stays here and `forge.py` never copies anything from it. It needs Node 22 or later (`engines.node` in `package.json`; `.npmrc` sets `engine-strict`, so `npm ci` refuses an older Node instead of failing later): the VS Code test tools require it, and `npm test`'s glob needs Node 21's `node --test` patterns.
 
 ```bash
 npm ci                    # install the pinned dev dependencies
