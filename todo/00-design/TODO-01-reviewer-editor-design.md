@@ -46,8 +46,9 @@ title: "TODO-01 -- Reviewer Editor Design"
 | 4 | §4 | Reviewer config design spec | §2, §5 | [x] |
 | 5 | §5 | Mockup and plan follow the family route rule | §2 | [x] |
 | 6 | §6 | Reviewer rows in the pin layout state | §3, §4 | [x] |
-| 7 | §7 | Read-only kit view in the mockup | §6 | [ ] |
+| 7 | §7 | Read-only kit view in the mockup | §6 | [x] |
 | 8 | §8 | SPEC and design spec for the read-only kit view | §7 | [ ] |
+| 9 | §9 | Mockup overlays closed when their target leaves | §7 | [ ] |
 
 ## 1. Clickable reviewer editor mockup
 
@@ -286,9 +287,12 @@ The owner decided on 2026-10-20 that the extension never installs, updates or se
 - [x] Draw the new states in `Main.dc.html`: a kit row with "newer kits than this extension" (tooltip "Update the Conclave extension") and one with "older kits" (copy the agent request to update them); the context menu's Copy import request; the empty-folder message naming the `adopt-conclave` request; the no-pin, no-dispatcher and old-dispatcher screens showing the agent request and the equivalent `python forge.py kit <folder> reviewer` or `python forge.py sync <folder> --include-scripts` command with Copy buttons in place of Install and Update; and the Reviewers and Plan sections' inline Install replaced by the same copy action. Done when: each is reachable from the control bar (a sidebar state or scenario per new state). Cheaper substitute: describing them in the SPEC only.
 - [x] Recapture the screenshots in `design/screens/` whose artboards changed (at least the Kits view, the no-pin and dispatcher screens and the feature sections), in both themes. Done when: each changed artboard's PNG matches the republished canvas. Cheaper substitute: the old screenshots.
 - [x] Republish `design/mockup/project/` to the link in `design/README.md`, update the README's requirement map (R16, R18, R24, R27 and R40 rows; R28, R29, R31 and R32 rows marked dropped) and fill the commit and canvas version into the 2026-10-20 "Read-only kit view and agent import" entry of `design/decisions.md` as the current mockup source. Done when: the link shows the change and the entry names the commit. Cheaper substitute: an unpublished mockup change.
-- [ ] Commit: `design: read-only kit view and agent import`
+- [x] Commit: `design: read-only kit view and agent import`
 
 **Test checkpoint:** `python -c "import pathlib,sys; t=''.join(p.read_text(encoding='utf-8') for p in pathlib.Path('design/mockup/project').glob('*.dc.html')); sys.exit(1 if any(k in t for k in ('install-todo','update-pick','repo-kits','Set up a new repository')) else 0)"` exits 0, and exits 1 on `fb5e468`'s mockup.
+
+> **Verified:** 2026-10-21 | §7 | e9e1ccec2bc5a9a0f6c2310ca023d1a228e56fdf
+> **Review:** `docs/reviews/d00-t01-s7.json`
 
 ## 8. SPEC and design spec for the read-only kit view
 
@@ -309,6 +313,26 @@ The SPEC and the design spec describe what the extension builds, and every surfa
 - [ ] Commit: `design: SPEC and design spec for the read-only kit view`
 
 **Test checkpoint:** `python -c "import sys; t=open('design/SPEC.md', encoding='utf-8').read(); s9=t.split('## 9.')[1].split('## 10.')[0]; sys.exit(1 if ('Install' in s9 or 'newer kits' not in s9) else 0)"` exits 0, and exits 1 on `fb5e468`'s SPEC.
+
+## 9. Mockup overlays closed when their target leaves
+
+Review round 3 of `§7` (`docs/reviews/00-design/D00-T01-s7.md`, the last round its loop allowed) found that the Explorer context menu on `reviewers.toml` (the `EntryMenu` artboard) stays open with Open in Conclave Reviewers, Rename and Delete after the scenario control switches to No pin yet, though the file and its tab are gone. An overlay whose target no longer exists closes, so the mockup never draws an action on a file that is not there; the kit context menu follows the same rule when its kit row leaves.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Close the overlays in `design/mockup/project/Main.dc.html`. Done when: switching `EntryMenu` to No pin yet closes the menu, and so does any scenario that removes the kit row a kit menu is open on.
+2. Check and republish. Done when: every option combination renders and the link shows the change.
+
+- [ ] Commit the mockup check (every option combination through `renderVals()`, every binding resolved, every handler called) as `design/spikes/mockup-check.js`, with an assertion that no context menu is open on a missing target. Done when: `node design/spikes/mockup-check.js design/mockup/project/Main.dc.html --handlers` runs from the repository and fails on `e9e1cce`'s mockup. Cheaper substitute: the check kept in a scratch folder.
+- [ ] Close the Explorer context menu and the kit context menu in `design/mockup/project/Main.dc.html` when the scenario or side bar change removes their target (the pin file, the kit row). Done when: the in-memory check of every combination and handler finds no open menu whose target is missing. Cheaper substitute: closing every overlay on any scenario change.
+- [ ] Republish `design/mockup/project/` to the link in `design/README.md` and name the commit and canvas version as the current mockup source in `design/decisions.md`. Done when: the link shows the change. Cheaper substitute: an unpublished mockup change.
+- [ ] Commit: `design: mockup overlays closed when their target leaves`
+
+**Test checkpoint:** `node design/spikes/mockup-check.js design/mockup/project/Main.dc.html --handlers` reports no menu open on a missing target, and does on `e9e1cce`'s mockup.
 
 ## Verification
 

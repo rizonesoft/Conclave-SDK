@@ -48,6 +48,7 @@ title: "TODO-02 -- Read-only Kit View and Agent Import"
 | 5 | §5 | Conclave view with the read-only Kits tree | §3, D03 T01 §1, D00 T01 §8 | [ ] |
 | 6 | §6 | Kit health detail in the Kits tree | §5 | [ ] |
 | 7 | §7 | The adopt-conclave skill in the base kit | §1 | [ ] |
+| 8 | §8 | Sync refuses to replace a kit stamped newer than its SDK | §1 | [ ] |
 
 ## 1. Kit stamp written by forge on every install
 
@@ -220,6 +221,26 @@ Importing and updating kits is the agent's job (plan R41). This section adds an 
 - [ ] Commit: `kits: adopt-conclave skill imports kits through forge`
 
 **Test checkpoint:** `python -m unittest tests.test_forge` passes, and fails when `kits/base/templates/.codex/skills/adopt-conclave/SKILL.md` is removed.
+
+## 8. Sync refuses to replace a kit stamped newer than its SDK
+
+Review round 3 of `D00 T01 §7` (`docs/reviews/00-design/D00-T01-s7.md`, the last round its loop allowed) found that the mockup's update request for a kit with older kits (`python forge.py sync <folder> --include-scripts`) would, run from an older SDK, replace the SDK-managed files of another kit in the same folder that a newer SDK set up: `sync` refreshes every kit the folder has and overwrites differing managed files. forge owns the guard: `sync` and `kit` never replace a kit whose stamp (§1) names a later SDK commit date than the SDK running, and say which kit and which SDK it needs; `kit` and `sync` of a kit with an older or no stamp go on as before.
+
+**Phase:** 1
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write the failing tests in `tests/test_forge.py`. Done when: a `sync` from an older stand-in SDK over a folder whose `reviewer` stamp is newer leaves every `reviewer` file and its stamp entry as they were, at the end of §1.
+2. Add the guard to `provision` and `apply_kit`. Done when: the tests pass and the refusal names the kit, its stamp's commit and date, and this SDK's.
+
+- [ ] In `forge.py`, before writing, compare each kit's stamp entry date with `sdk_info()["date"]`; for a newer entry, skip that kit in `sync` (reported in the result as `refused_newer`, with the reason) and refuse `kit` for it with exit 2. Done when: a test shows `sync` refreshes the older kit, leaves the newer kit's files and entry unchanged, and lists it in `refused_newer`. Cheaper substitute: a warning only.
+- [ ] Treat an unknown date (no git, no `SDK_DATE`) on either side as unknown, never as older: `sync` then refuses to replace a stamped kit and says why. Done when: a test with `sdk_info()` patched to null dates refuses. Cheaper substitute: comparing commits only.
+- [ ] Document the guard in `README.md` "Importing into a New or Existing Project" and in the `adopt-conclave` skill (§7): a newer kit means the agent must run that SDK, not this one. Done when: both name the refusal. Cheaper substitute: no documentation.
+- [ ] Commit: `forge: sync never downgrades a kit stamped newer than its SDK`
+
+**Test checkpoint:** `python -m unittest tests.test_forge -k newer` passes, and fails when the guard is removed.
 
 ## Verification
 
