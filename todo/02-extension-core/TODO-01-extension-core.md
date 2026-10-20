@@ -57,7 +57,7 @@ title: "TODO-01 -- Extension Core"
 | 7 | §7 | SDK source: local checkout or GitHub commit | §1 | [x] |
 | 8 | §8 | Test reviewer runner | §3, §4 | [x] |
 | 9 | §9 | Forge runner and summary parsing | §2, §7 | [x] |
-| 10 | §10 | Workspace kit state from forge | §9 | [ ] |
+| 10 | §10 | Workspace kit state from forge | §9 | [x] |
 | 11 | §11 | Mockup parity fixtures and harness | §1, D00 T01 §2 | [ ] |
 | 12 | §12 | Extractor limits at tarfile's own parse | §7 | [x] |
 | 13 | §13 | Candidate folder links on Windows and shared fallbacks | §5 | [x] |
@@ -65,6 +65,7 @@ title: "TODO-01 -- Extension Core"
 | 15 | §15 | Extractor folder tracking linear in path length | §14 | [x] |
 | 16 | §16 | Process tree kill that ends everything or says so | §8 | [x] |
 | 17 | §17 | Tree kill: cut-short discovery and combined uncertainty | §16 | [x] |
+| 18 | §18 | Kit state SDK watchers released with their last folder | §10 | [ ] |
 
 ## 1. Extension scaffold, build and test harness
 
@@ -386,9 +387,12 @@ The Kits view, the dialogs and the reviewer editor need each folder's kit state 
   **Corrected 2026-10-20:** the root agent documents (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `CODEX.md`) are watched too, since the base kit writes them. A burst of changes (an install writes dozens of files) gives one event after 300 ms of quiet; without that, one install gave 85. A folder leaving the workspace drops its watchers and cache (`forget`), as the watchers hold a folder open on Windows.
 - [x] Expose `onDidChangeKitState(folder)` for the Kits view and the reviewer editor. Done when: the test sees one event after an install. Cheaper substitute: polling.
 - [x] Write `extensions/vscode/test/unit/kitState.test.ts` and `extensions/vscode/test/integration/kitState.test.ts`. Done when: both pass and the unit run fails when an empty `preserved` list is read as partly installed. Cheaper substitute: unit tests only.
-- [ ] Commit: `extension: workspace kit state from forge's dry run`
+- [x] Commit: `extension: workspace kit state from forge's dry run`
 
 **Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/kitState.test.js && npm run test:integration -- --grep kitState` passes, and fails when an empty `preserved` list is read as partly installed. **Corrected 2026-10-20:** was `npm test -- --test-name-pattern=kitState`, which does not filter on Node 24.14.1 (see `§2`).
+
+> **Verified:** 2026-10-20 | §10 | 5ceefb0f848dc41944127b9a49be1b57eaf25d77
+> **Review:** `docs/reviews/d02-t01-s10.json`
 
 ## 11. Mockup parity fixtures and harness
 
@@ -581,6 +585,25 @@ Review round 3 of `§16` (`docs/reviews/02-extension-core/D02-T01-s16.md`, the l
 
 > **Verified:** 2026-10-20 | §17 | 8038026552bdcb740961e17efff841a819c8d3a8
 > **Review:** `docs/reviews/d02-t01-s17.json`
+
+## 18. Kit state SDK watchers released with their last folder
+
+Review round 3 of `§10` (`docs/reviews/02-extension-core/D02-T01-s10.md`, the last round its loop allowed) found that `KitStateService` in `extensions/vscode/src/host/kitState.ts` makes one watcher per SDK folder (on its `kits/**` and `forge.py`) and never releases it: a folder that leaves the workspace, or switches to another SDK source, leaves the watchers on the old SDK folder until the service is disposed, so switching sources accumulates them. Each SDK folder's watchers are released when the last folder using it leaves or moves to another source.
+
+**Phase:** 1
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write the failing tests: forgetting the last folder that uses an SDK folder, and switching a folder to another SDK folder, each release the old SDK folder's watchers. Done when: both fail at the end of `§10`.
+2. Count the folders using each SDK folder in `kitState.ts` and release its watchers at zero. Done when: both tests pass.
+
+- [ ] Expose the number of SDK folders watched (for tests) and add the two tests to `extensions/vscode/test/integration/kitState.test.ts`: after the last folder using a local SDK is forgotten, no SDK folder is watched; after a folder's source changes to another SDK folder, only the new one is. Done when: both fail at the end of `§10`. Cheaper substitute: checking that events stop.
+- [ ] Release an SDK folder's watchers in `KitStateService` when the last folder using it is forgotten or computed from another source, and keep them while any folder uses it. Done when: both tests pass and the local SDK test from `§10` still does. Cheaper substitute: disposing every SDK watcher on any forget.
+- [ ] Commit: `extension: SDK watchers released with their last folder`
+
+**Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep kitState` passes, and the forgotten-folder case fails when watchers are never released.
 
 ## Verification
 

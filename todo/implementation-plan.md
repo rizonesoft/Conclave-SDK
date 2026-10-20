@@ -30,7 +30,7 @@ Sections: 15 | Checklist items: 132
 
 ### Phase 1: Extension host and kit operations
 
-Sections: 20 | Checklist items: 150
+Sections: 21 | Checklist items: 153
 
 | Status | Reference   | Deliverable                                             | Needs | Items |
 | ------ | ----------- | ------------------------------------------------------- | ----- | ----- |
@@ -42,7 +42,7 @@ Sections: 20 | Checklist items: 150
 | [x]    | D02 T01 §7  | SDK source: local checkout or GitHub commit             | none  | 12    |
 | [x]    | D02 T01 §8  | Test reviewer runner                                    | none  | 8     |
 | [x]    | D02 T01 §9  | Forge runner and summary parsing                        | none  | 8     |
-| [ ]    | D02 T01 §10 | Workspace kit state from forge                          | none  | 6     |
+| [x]    | D02 T01 §10 | Workspace kit state from forge                          | none  | 6     |
 | [ ]    | D02 T01 §11 | Mockup parity fixtures and harness                      | none  | 7     |
 | [x]    | D02 T01 §12 | Extractor limits at tarfile's own parse                 | none  | 5     |
 | [x]    | D02 T01 §13 | Candidate folder links on Windows and shared fallbacks  | none  | 5     |
@@ -50,6 +50,7 @@ Sections: 20 | Checklist items: 150
 | [x]    | D02 T01 §15 | Extractor folder tracking linear in path length         | none  | 6     |
 | [x]    | D02 T01 §16 | Process tree kill that ends everything or says so       | none  | 6     |
 | [x]    | D02 T01 §17 | Tree kill: cut-short discovery and combined uncertainty | none  | 5     |
+| [ ]    | D02 T01 §18 | Kit state SDK watchers released with their last folder  | none  | 3     |
 | [ ]    | D05 T01 §1  | Kit install with dry-run preview                        | none  | 9     |
 | [ ]    | D05 T01 §2  | Kit update through forge sync                           | none  | 8     |
 | [ ]    | D05 T01 §3  | Kit health from forge check and doctor                  | none  | 6     |
@@ -96,6 +97,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 29/62 verified sections, 4 ready to run now.
+Progress: 30/63 verified sections, 6 ready to run now.
 
-Checklist: 246/501 items completed (includes Commit items).
+Checklist: 247/504 items completed (includes Commit items).
