@@ -80,7 +80,7 @@ Re-checked 2026-10-16 at `97cca1d`, GitHub `main`: the reviewer kit is unchanged
 - R29: update installed kits with `forge.py sync <folder>`, optionally with `--include-scripts`, after a confirmation that states sync's scope (skills, rules, subagents, and with the option existing scripts and `bin/` files; it adds any kit file that is missing and never changes an existing entry doc, `docs/`, `todo/` or pin file), then see what it installed and updated. **Corrected 2026-10-16:** it said sync never touches entry docs, `docs/`, `todo/` or the pin; a sync run measured that day adds a missing kit file there too (`todo/plan.json`, `.conclave/reviewers.toml`, a missing script even without `--include-scripts`) and writes only files that are missing or differ.
 - R30: health per installed kit from `forge.py check` and `forge.py doctor <folder> <kit>`: every check's status (`ok`, `missing`, `setup_required`, `unexpected`) and detail, verbatim.
 - R31: set up a new repository with `forge.py init <folder>`: choose the kits (base always), agent, provisioning mode (isolated by default) and WordPress host; the extension never passes `--force`, so existing entry docs are kept; then open the folder.
-- R32: every install, update and init proves by hash that `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, `.conclave/reviewers.toml`, `todo/` and `docs/` did not change unless forge reported writing them, and logs the run (argv, source and SHA, exit code, forge's lists) to the Conclave output channel. Forge has no uninstall, so the operator's git is the undo.
+- R32: every install, update and init proves by hash that `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, `.conclave/reviewers.toml`, `.conclave/automations/tasks.json`, `.conclave/automations/README.md`, `.claude/settings.json`, `todo/` and `docs/` did not change (**Corrected 2026-10-20:** the three files after `reviewers.toml` are project-owned files the `automations` and `todo` kits added that day) unless forge reported writing them, and logs the run (argv, source and SHA, exit code, forge's lists) to the Conclave output channel. Forge has no uninstall, so the operator's git is the undo.
 
 ### Feature sections
 
@@ -96,6 +96,10 @@ Re-checked 2026-10-16 at `97cca1d`, GitHub `main`: the reviewer kit is unchanged
 - R21: supports pin `schema_version` 1 only, and says so for any other version.
 - R22: packaged as a `.vsix`. Publishing to the marketplace waits for the owner's decision.
 - R23: every fix carries a regression test that fails before it and passes after; the extension's tests run; the change gets up to three independent review rounds through `scripts/review-dispatch.py --writer claude` (Astra, failing over to Gemini 4). **Corrected 2026-10-20:** was Astra, then Gemini 4, then Sonnet 5.5; a route now has one fallback (`design/decisions.md`, Reviewer routes, 2026-10-20).
+
+## Design spec
+
+How the extension validates, edits, saves and re-checks the pin, runs on Windows and WSL, which `schema_version` it supports, how it is packaged and where the SDK comes from: `docs/specs/2026-10-20-vscode-extension-design.md` (`D00 T01 §4`). The interface is `design/SPEC.md` (`D00 T01 §3`).
 
 ## The `--check-pin` contract (Conclave-SDK)
 
