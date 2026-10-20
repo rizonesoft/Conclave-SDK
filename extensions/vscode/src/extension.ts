@@ -1,8 +1,10 @@
 import * as vscode from "vscode";
 import type { WorkspaceState } from "./core/checkPin";
+import type { SdkRefusal, SdkSource } from "./core/sdkSource";
 import { DispatcherClient } from "./host/dispatcher";
 import { log, output, recentLog } from "./host/output";
 import { PythonService, type PythonResolution, type PythonResolved } from "./host/python";
+import { SdkSourceService } from "./host/sdkSource";
 
 // The reviewer editor panel. This is the scaffold's placeholder (D02 T01 §1); D03 T01 builds the editor in it.
 let panel: vscode.WebviewPanel | undefined;
@@ -15,6 +17,7 @@ export interface ConclaveApi {
   onDidResolvePython: vscode.Event<PythonResolved>;
   checkWorkspace: (folder: vscode.Uri, pin?: string) => Promise<WorkspaceState>;
   recentLog: () => string[];
+  sdkSource: (folder?: vscode.Uri) => Promise<SdkSource | SdkRefusal>;
 }
 
 export function activate(context: vscode.ExtensionContext): ConclaveApi {
@@ -23,6 +26,11 @@ export function activate(context: vscode.ExtensionContext): ConclaveApi {
   context.subscriptions.push(python);
   const dispatcher = new DispatcherClient(python);
   context.subscriptions.push(dispatcher);
+  const sdk = new SdkSourceService(python, {
+    extensionPath: context.extensionPath,
+    storage: context.globalStorageUri.fsPath,
+    development: context.extensionMode !== vscode.ExtensionMode.Production,
+  });
   context.subscriptions.push(
     vscode.commands.registerCommand("conclave.openReviewers", () => {
       if (panel) {
@@ -42,6 +50,7 @@ export function activate(context: vscode.ExtensionContext): ConclaveApi {
     onDidResolvePython: python.onDidResolve,
     checkWorkspace: (folder, pin) => dispatcher.check(folder, pin),
     recentLog,
+    sdkSource: (folder) => sdk.resolve(folder),
   };
 }
 
