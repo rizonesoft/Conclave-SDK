@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as vscode from "vscode";
 import type { ConclaveApi } from "../../src/extension";
+import { CandidateFlow, canSave, type Checked } from "../../src/core/candidate";
+import { errorTarget } from "../../src/core/errorTarget";
 import { DispatcherClient } from "../../src/host/dispatcher";
 import { PythonService } from "../../src/host/python";
 import { run } from "../../src/host/run";
@@ -62,56 +64,68 @@ suite("Workspace states", () => {
     const folder = workspace(base, "saved-during-check", dispatcher, "valid-shipped.toml");
     const pinFile = join(folder.fsPath, ".conclave", "reviewers.toml");
     const python = new PythonService();
-    // A runner the test holds open: each call waits until the test releases it, so the order is exact.
-    const held: Array<{ args: string[]; release: () => void }> = [];
-    const runner: typeof run = (file, args, timeoutMs, cwd) =>
-      new Promise((resolve) => held.push({ args, release: () => void run(file, args, timeoutMs, cwd).then(resolve) }));
+    // A runner that runs the real dispatcher at once but holds its answer until the test releases it, so the first
+    // check has finished reading the valid pin (its "ready" reply is in hand) before the pin is saved refused.
+    const held: Array<{ done: Promise<unknown>; release: () => void }> = [];
+    const runner: typeof run = (file, args, timeoutMs, cwd) => {
+      const actual = run(file, args, timeoutMs, cwd);
+      let release = () => undefined as void;
+      const gate = new Promise<void>((r) => (release = r));
+      held.push({ done: actual, release });
+      return gate.then(() => actual);
+    };
     const client = new DispatcherClient(python, runner);
     const published: string[] = [];
     const listener = client.onDidCheck(({ state }) => published.push(state.state));
+    const until = async (count: number) => {
+      while (held.length < count) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+    };
     try {
       const before = client.check(folder);
-      while (held.length < 1) {
-        await new Promise((r) => setTimeout(r, 10));
-      }
-      // The first check has started (its dispatcher would read the pin now); then the pin is saved and checked again.
+      await until(1);
+      await held[0].done;
+      copyFileSync(join(fixtures, "pins", "refused-same-family.toml"), pinFile);
+      const after = client.check(folder);
+      assert.notEqual(before, after, "a check asked after the run started shared the older run");
       held[0].release();
-      const first = await before;
-      assert.equal(first.state, "ready");
-      copyFileSync(join(fixtures, "pins", "refused-same-family.toml"), pinFile);
-      const running = client.check(folder);
-      const joined = client.check(folder);
-      assert.equal(running, joined, "an identical waiting request did not share the run");
-      while (held.length < 2) {
-        await new Promise((r) => setTimeout(r, 10));
-      }
+      assert.equal((await before).state, "ready", "the first run did not read the valid pin");
+      await until(2);
       held[1].release();
-      assert.equal((await running).state, "refused");
-      assert.deepEqual(published, ["ready", "refused"]);
-
-      // The overlap itself: a check asked while another is running gets its own run, not the running one's answer.
-      copyFileSync(join(fixtures, "pins", "valid-shipped.toml"), pinFile);
-      const old = client.check(folder);
-      while (held.length < 3) {
-        await new Promise((r) => setTimeout(r, 10));
-      }
-      copyFileSync(join(fixtures, "pins", "refused-same-family.toml"), pinFile);
-      const fresh = client.check(folder);
-      assert.notEqual(old, fresh, "a check asked after the run started shared the older run");
-      held[2].release();
-      while (held.length < 4) {
-        await new Promise((r) => setTimeout(r, 10));
-      }
-      held[3].release();
-      assert.equal((await fresh).state, "refused");
-      await old;
-      assert.equal(published[published.length - 1], "refused", "an older answer was published last");
-      assert.ok(!published.slice(2).includes("ready"), `the superseded run was published: ${published.join(", ")}`);
+      assert.equal((await after).state, "refused");
+      await new Promise((r) => setTimeout(r, 50));
+      // Exactly the newer answer: the older run finished first, but a newer run was queued, so it is not published.
+      assert.deepEqual(published, ["refused"]);
     } finally {
       listener.dispose();
       client.dispose();
       python.dispose();
     }
+  });
+
+  test("a bad candidate is refused within a second, and the fix is valid", async () => {
+    const extension = vscode.extensions.getExtension<ConclaveApi>("rizonetech.conclave");
+    assert.ok(extension);
+    const folder = workspace(base, "candidate", dispatcher, "valid-shipped.toml");
+    const shipped = readFileSync(join(fixtures, "pins", "valid-shipped.toml"), "utf8");
+    const results: Checked[] = [];
+    const flow = new CandidateFlow((text) => api.checkCandidate(folder, text), (c) => results.push(c),
+      { set: (fn, ms) => setTimeout(fn, ms), clear: (h) => clearTimeout(h as NodeJS.Timeout) });
+    const started = Date.now();
+    flow.edit(shipped.replace('model = "gpt-6-astra"', 'model = "GPT 6"'));
+    while (results.length < 1 && Date.now() - started < 5000) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    assert.ok(Date.now() - started < 1000, `the refusal took ${Date.now() - started} ms, not under a second`);
+    assert.equal(results[0]?.state.state, "refused");
+    assert.ok(results[0].state.state === "refused" && errorTarget(results[0].state.error).kind === "model");
+    flow.edit(shipped);
+    while (results.length < 2) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    assert.equal(results[1].state.state, "ready");
+    assert.equal(canSave(flow.result(), shipped, shipped), false, "valid but unchanged from disk");
   });
 
   test("two rapid checks of one folder start one dispatcher, and each call is logged", async () => {

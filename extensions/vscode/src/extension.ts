@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import type { WorkspaceState } from "./core/checkPin";
 import type { SdkRefusal, SdkSource } from "./core/sdkSource";
+import { sweepCandidates, withCandidate } from "./host/candidate";
 import { DispatcherClient } from "./host/dispatcher";
 import { log, output, recentLog } from "./host/output";
 import { PythonService, type PythonResolution, type PythonResolved } from "./host/python";
@@ -18,10 +19,16 @@ export interface ConclaveApi {
   checkWorkspace: (folder: vscode.Uri, pin?: string) => Promise<WorkspaceState>;
   recentLog: () => string[];
   sdkSource: (folder?: vscode.Uri) => Promise<SdkSource | SdkRefusal>;
+  // The dispatcher's verdict on candidate text, written to a candidate file that is deleted after the check.
+  checkCandidate: (folder: vscode.Uri, text: string) => Promise<WorkspaceState>;
 }
 
 export function activate(context: vscode.ExtensionContext): ConclaveApi {
   context.subscriptions.push(output());
+  const swept = sweepCandidates();
+  if (swept) {
+    log(`Removed ${swept} candidate file(s) left by an earlier session.`);
+  }
   const python = new PythonService();
   context.subscriptions.push(python);
   const dispatcher = new DispatcherClient(python);
@@ -51,6 +58,7 @@ export function activate(context: vscode.ExtensionContext): ConclaveApi {
     checkWorkspace: (folder, pin) => dispatcher.check(folder, pin),
     recentLog,
     sdkSource: (folder) => sdk.resolve(folder),
+    checkCandidate: (folder, text) => withCandidate(text, (path) => dispatcher.check(folder, path)),
   };
 }
 
