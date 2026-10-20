@@ -36,3 +36,10 @@ test("Linux searches the absolute PATH directories in order", () => {
   assert.equal(findOnPath("python3", { platform: "linux", path: "/usr/local/bin:/usr/bin", runnable }), "/usr/local/bin/python3");
   assert.equal(findOnPath("python3", { platform: "linux", path: "bin:./x", runnable: () => true }), undefined);
 });
+
+test("Linux joins with / only: a directory whose name ends in a backslash is still a directory", () => {
+  const runnable = files("/opt/python\\/python3");
+  assert.equal(findOnPath("python3", { platform: "linux", path: "/opt/python\\", runnable }), "/opt/python\\/python3");
+  // The same entry joined Windows-style would be /opt/python\python3, a different file.
+  assert.equal(findOnPath("python3", { platform: "linux", path: "/opt/python\\", runnable: files("/opt/python\\python3") }), undefined);
+});

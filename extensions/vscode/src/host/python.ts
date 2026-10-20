@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { resolvePython, type NoPython, type Python } from "../core/python";
 import { findOnPath } from "../core/which";
-import { output } from "./output";
+import { log } from "./output";
 import { run, runnable } from "./run";
 
 export type PythonResolution = Python | NoPython;
@@ -73,7 +73,7 @@ export class PythonService implements vscode.Disposable {
       run: (file, args) => run(file, args, TIMEOUT_MS),
     });
     if (mine === this.generations.get(key)) {
-      output().appendLine(describe(folder, result));
+      log(describe(folder, result));
       this.changed.fire({ folder, result });
     }
     return result;

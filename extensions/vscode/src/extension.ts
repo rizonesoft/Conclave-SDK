@@ -1,22 +1,28 @@
 import * as vscode from "vscode";
-import { output } from "./host/output";
+import type { WorkspaceState } from "./core/checkPin";
+import { DispatcherClient } from "./host/dispatcher";
+import { log, output, recentLog } from "./host/output";
 import { PythonService, type PythonResolution, type PythonResolved } from "./host/python";
 
 // The reviewer editor panel. This is the scaffold's placeholder (D02 T01 §1); D03 T01 builds the editor in it.
 let panel: vscode.WebviewPanel | undefined;
 
-// What activate returns: the integration tests read the output channel and the Python resolution through it, since
-// VS Code lists no output channels.
+// What activate returns: the integration tests read the output channel, the Python resolution and the workspace state
+// through it, since VS Code cannot read a channel back.
 export interface ConclaveApi {
   output: vscode.OutputChannel;
   python: (folder?: vscode.Uri) => Promise<PythonResolution>;
   onDidResolvePython: vscode.Event<PythonResolved>;
+  checkWorkspace: (folder: vscode.Uri, pin?: string) => Promise<WorkspaceState>;
+  recentLog: () => string[];
 }
 
 export function activate(context: vscode.ExtensionContext): ConclaveApi {
   context.subscriptions.push(output());
   const python = new PythonService();
   context.subscriptions.push(python);
+  const dispatcher = new DispatcherClient(python);
+  context.subscriptions.push(dispatcher);
   context.subscriptions.push(
     vscode.commands.registerCommand("conclave.openReviewers", () => {
       if (panel) {
@@ -26,11 +32,17 @@ export function activate(context: vscode.ExtensionContext): ConclaveApi {
       panel = vscode.window.createWebviewPanel("conclave.reviewers", "Reviewers", vscode.ViewColumn.Active, {});
       panel.webview.html = "<!doctype html><html><body><p>Reviewers</p></body></html>";
       panel.onDidDispose(() => (panel = undefined), undefined, context.subscriptions);
-      output().appendLine("Opened the Reviewers panel.");
+      log("Opened the Reviewers panel.");
       return panel;
     }),
   );
-  return { output: output(), python: (folder) => python.python(folder), onDidResolvePython: python.onDidResolve };
+  return {
+    output: output(),
+    python: (folder) => python.python(folder),
+    onDidResolvePython: python.onDidResolve,
+    checkWorkspace: (folder, pin) => dispatcher.check(folder, pin),
+    recentLog,
+  };
 }
 
 export function deactivate(): void {}

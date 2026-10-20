@@ -30,8 +30,11 @@ export function fullyQualified(directory: string, platform: NodeJS.Platform): bo
 export function findOnPath(name: string, env: PathEnvironment): string | undefined {
   const windows = env.platform === "win32";
   const separator = windows ? ";" : ":";
+  // Each platform's own separator: on Linux a backslash is a character of a directory name, not a separator.
   const join = (directory: string, file: string) =>
-    directory.endsWith("/") || directory.endsWith("\\") ? directory + file : directory + (windows ? "\\" : "/") + file;
+    windows
+      ? directory.endsWith("\\") || directory.endsWith("/") ? directory + file : `${directory}\\${file}`
+      : directory.endsWith("/") ? directory + file : `${directory}/${file}`;
   const directories = env.path.split(separator).filter((d) => d !== "" && fullyQualified(d, env.platform));
   const extensions = (env.pathext ?? "").split(";").filter((e) => EXTENSION.test(e));
   for (const directory of directories) {
