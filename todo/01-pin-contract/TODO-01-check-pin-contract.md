@@ -139,6 +139,8 @@ The extension relies on the exact JSON shape of `--check-pin`. This section free
 
 ## 4. Check-pin CLI presence for each CLI
 
+> **Started:** 2026-10-20T12:12:24Z
+
 Review round 3 of `§3` (`docs/reviews/01-pin-contract/D01-T01-s3.md`, the last round the review loop allows) found that `test_clis_says_which_reviewer_cli_is_on_path` puts only a `codex` on `PATH`, so a dispatcher that swapped the `agy` and `claude` lookups in its `clis` map would still pass, and the extension's PATH badges (plan R10) would be wrong. This section tests each CLI on its own and none at all.
 
 **Phase:** 0
@@ -149,8 +151,8 @@ Review round 3 of `§3` (`docs/reviews/01-pin-contract/D01-T01-s3.md`, the last 
 
 1. Extend the test in `tests/test_check_pin_contract.py`. Done when: it fails on a dispatcher whose `clis` lookups are swapped and passes on the kit's dispatcher.
 
-- [ ] Run `--check-pin --json` in `tests/test_check_pin_contract.py` with a `PATH` holding only `codex`, only `agy`, only `claude`, and nothing, each as a subtest, asserting `clis` is exactly the one present CLI as true (or all false). Done when: the four cases pass on Windows and WSL. Cheaper substitute: the single codex-only case.
-- [ ] Prove the test fails on a copy of the kit's dispatcher with the `agy` and `claude` lookups swapped. Done when: the run names the `agy`-only and `claude`-only cases. Cheaper substitute: asserting only that each value is a boolean.
+- [x] Run `--check-pin --json` in `tests/test_check_pin_contract.py` with a `PATH` holding only `codex`, only `agy`, only `claude`, and nothing, each as a subtest, asserting `clis` is exactly the one present CLI as true (or all false). Done when: the four cases pass on Windows and WSL. Cheaper substitute: the single codex-only case.
+- [x] Prove the test fails on a copy of the kit's dispatcher with the `agy` and `claude` lookups swapped. Done when: the run names the `agy`-only and `claude`-only cases. Cheaper substitute: asserting only that each value is a boolean.
 - [ ] Commit: `test: check-pin CLI presence for each CLI`
 
 **Test checkpoint:** `python -m unittest tests.test_check_pin_contract -v` passes, and fails naming the `agy` and `claude` cases when the dispatcher's lookups for those two CLIs are swapped.

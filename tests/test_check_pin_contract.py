@@ -69,15 +69,18 @@ class CheckPinContract(unittest.TestCase):
                     self.assertEqual(report["error"], want["error"], f"{name}: error text")
 
     def test_clis_says_which_reviewer_cli_is_on_path(self):
-        # plan R10: the extension's PATH badges come from `clis`, so it must follow PATH: only a codex on it here.
-        with tempfile.TemporaryDirectory() as tmp:
-            launcher = pathlib.Path(tmp) / ("codex.cmd" if os.name == "nt" else "codex")
-            launcher.write_text("@exit /b 0\r\n" if os.name == "nt" else "#!/bin/sh\nexit 0\n", encoding="utf-8")
-            launcher.chmod(0o755)
-            env = {"PATH": tmp, **{k: os.environ[k] for k in ("SYSTEMROOT", "PATHEXT") if k in os.environ}}
-            run = check_pin(DISPATCHER, PINS / "valid-shipped.toml", env=env)
-        self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertEqual(json.loads(run.stdout)["clis"], {"codex": True, "agy": False, "claude": False})
+        # plan R10: the extension's PATH badges come from `clis`, so it must follow PATH. Each CLI alone and none at
+        # all, so a dispatcher that looked one CLI up under another's name fails here (D01 T01 §4).
+        for present in ("codex", "agy", "claude", None):
+            with self.subTest(on_path=present), tempfile.TemporaryDirectory() as tmp:
+                if present:
+                    launcher = pathlib.Path(tmp) / (present + ".cmd" if os.name == "nt" else present)
+                    launcher.write_text("@exit /b 0\r\n" if os.name == "nt" else "#!/bin/sh\nexit 0\n", encoding="utf-8")
+                    launcher.chmod(0o755)
+                env = {"PATH": tmp, **{k: os.environ[k] for k in ("SYSTEMROOT", "PATHEXT") if k in os.environ}}
+                run = check_pin(DISPATCHER, PINS / "valid-shipped.toml", env=env)
+                self.assertEqual(run.returncode, 0, run.stderr)
+                self.assertEqual(json.loads(run.stdout)["clis"], {cli: cli == present for cli in ("codex", "agy", "claude")})
 
     def test_a_dispatcher_without_check_pin_prints_no_contract_object(self):
         # plan R18: a dispatcher from before --check-pin (b7c649b) exits 2 like a refusal, so the extension tells them
