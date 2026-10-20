@@ -16,7 +16,7 @@ Sections: 13 | Checklist items: 124
 | [x]    | D00 T01 §2 | Owner approval and open design answers       | none  | 6     |
 | [x]    | D00 T01 §5 | Mockup and plan follow the family route rule | none  | 10    |
 | [x]    | D00 T01 §3 | Interface SPEC and screenshots               | none  | 14    |
-| [ ]    | D00 T01 §4 | Reviewer config design spec                  | none  | 10    |
+| [x]    | D00 T01 §4 | Reviewer config design spec                  | none  | 10    |
 | [ ]    | D00 T01 §6 | Reviewer rows in the pin layout state        | none  | 6     |
 | [x]    | D01 T01 §1 | Strict schema_version type in load_pin       | none  | 7     |
 | [x]    | D01 T01 §2 | Dispatcher check-pin flag                    | none  | 12    |
@@ -88,6 +88,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 8/54 verified sections, 3 ready to run now.
+Progress: 9/54 verified sections, 4 ready to run now.
 
-Checklist: 96/457 items completed (includes Commit items).
+Checklist: 97/457 items completed (includes Commit items).

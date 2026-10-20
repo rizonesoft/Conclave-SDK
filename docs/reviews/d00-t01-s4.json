@@ -1,0 +1,28 @@
+{
+  "ref": "D00 T01 \u00a74",
+  "title": "Reviewer config design spec",
+  "implementation_sha": "a237f8b83df969654755de11d06feb9defcb872d",
+  "date": "2026-10-20",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-design/D00-T01-s4.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-design/D00-T01-s4.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-design/D00-T01-s4.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "design spec checkpoint (eight decisions, reversal costs) -> exit 0; exit 1 with the spec moved away",
+    "python design/spikes/pin_edits.py -> 9 edits, 0 refused by load_pin",
+    "python -m unittest tests.test_forge -k markdown_table -k dashes -> OK"
+  ]
+}

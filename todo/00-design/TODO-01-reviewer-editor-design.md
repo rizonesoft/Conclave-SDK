@@ -42,7 +42,7 @@ title: "TODO-01 -- Reviewer Editor Design"
 | 1 | §1 | Clickable reviewer editor mockup | -- | [x] |
 | 2 | §2 | Owner approval and open design answers | §1 | [x] |
 | 3 | §3 | Interface SPEC and screenshots | §2, §5 | [x] |
-| 4 | §4 | Reviewer config design spec | §2, §5 | [ ] |
+| 4 | §4 | Reviewer config design spec | §2, §5 | [x] |
 | 5 | §5 | Mockup and plan follow the family route rule | §2 | [x] |
 | 6 | §6 | Reviewer rows in the pin layout state | §3, §4 | [ ] |
 
@@ -192,9 +192,12 @@ The brief requires a spec that settles seven decisions before the extension is b
 - [x] Settle packaging in the spec: `@vscode/vsce package`, the publisher field, the `.vsix` name, and that marketplace publishing waits for the owner (plan R22). Done when: the spec names `D04 T01 §6` as the decision point. Cheaper substitute: publishing assumed.
 - [x] Settle the SDK source in the spec: the bundle in the `.vsix` (`forge.py` and `kits/` from the build commit, named by `sdk/SDK_COMMIT`) as the default, the local `sdkPath` override, and for the optional GitHub source the REST tarball versus `git clone`, the `repo` scope through VS Code's GitHub sign-in, pinning a ref to a SHA, the cache under `globalStorageUri/sdk/`, the extractor (the `tar` npm package, or the resolved Python's `tarfile` with `filter='data'`, which needs Python 3.11.4 or later), and that downloaded code runs only after a confirmation naming the SHA (plan R24, R25). Done when: the spec names the extractor, the cache layout and every refusal state. Cheaper substitute: "downloads the SDK" with no pinning or extraction rules.
 - [x] Link the spec from `docs/plans/2026-10-16-vscode-extension.md`. Done when: the plan names the spec path. Cheaper substitute: an unlinked spec.
-- [ ] Commit: `docs: reviewer config design spec`
+- [x] Commit: `docs: reviewer config design spec`
 
 **Test checkpoint:** `python -c "import glob,sys; f=glob.glob('docs/specs/*-vscode-extension-design.md'); t=open(f[0],encoding='utf-8').read() if f else ''; m=[s for s in ('--check-pin','comment','atomic','re-check','WSL','schema_version','vsix','GitHub','Reversal cost') if s not in t]; sys.exit(m or not f)"` exits 0, and fails when the spec is missing or a decision is absent.
+
+> **Verified:** 2026-10-20 | §4 | a237f8b83df969654755de11d06feb9defcb872d
+> **Review:** `docs/reviews/d00-t01-s4.json`
 
 ## 5. Mockup and plan follow the family route rule
 
