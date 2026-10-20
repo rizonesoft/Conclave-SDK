@@ -39,7 +39,8 @@ title: "TODO-01 -- Check Pin Contract"
 | 1 | §1 | Strict schema_version type in load_pin | D00 T01 §2 | [x] |
 | 2 | §2 | Dispatcher check-pin flag | §1 | [x] |
 | 3 | §3 | Check-pin contract fixtures and test | §2 | [x] |
-| 4 | §4 | Check-pin CLI presence for each CLI | §3 | [ ] |
+| 4 | §4 | Check-pin CLI presence for each CLI | §3 | [x] |
+| 5 | §5 | Reviewer CLIs found on PATH only | §4 | [ ] |
 
 ## 1. Strict schema_version type in load_pin
 
@@ -153,9 +154,33 @@ Review round 3 of `§3` (`docs/reviews/01-pin-contract/D01-T01-s3.md`, the last 
 
 - [x] Run `--check-pin --json` in `tests/test_check_pin_contract.py` with a `PATH` holding only `codex`, only `agy`, only `claude`, and nothing, each as a subtest, asserting `clis` is exactly the one present CLI as true (or all false). Done when: the four cases pass on Windows and WSL. Cheaper substitute: the single codex-only case.
 - [x] Prove the test fails on a copy of the kit's dispatcher with the `agy` and `claude` lookups swapped. Done when: the run names the `agy`-only and `claude`-only cases. Cheaper substitute: asserting only that each value is a boolean.
-- [ ] Commit: `test: check-pin CLI presence for each CLI`
+- [x] Commit: `test: check-pin CLI presence for each CLI`
 
 **Test checkpoint:** `python -m unittest tests.test_check_pin_contract -v` passes, and fails naming the `agy` and `claude` cases when the dispatcher's lookups for those two CLIs are swapped.
+
+> **Verified:** 2026-10-20 | §4 | 717d83c70fc54f61d026d229c51aaea8ecc04377
+> **Review:** `docs/reviews/d01-t01-s4.json`
+
+## 5. Reviewer CLIs found on PATH only
+
+Review round 3 of `§4` (`docs/reviews/01-pin-contract/D01-T01-s4.md`, the last round the review loop allows) found that the CLI presence test inherits the caller's working directory, where Windows `shutil.which` looks first. Measured on 2026-10-20 with Python 3.14.4: unless `NoDefaultCurrentDirectoryInExePath` is set, `shutil.which("zzplanted")` returns `.\zzplanted.CMD` from the current directory, even with an explicit `path`. The dispatcher resolves reviewer CLIs this way from the repository root, so a `codex.cmd` committed to a reviewed repository would be reported as installed by `--check-pin` and run as the reviewer. This section makes the dispatcher look only in the absolute directories on `PATH`, and isolates the test.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write the failing tests. Done when: with a `codex.cmd` (or `codex` script) in the working directory and no codex on `PATH`, `--check-pin` reports `codex: false` and a review run starts no planted file, failing on the dispatcher at the end of `§4`.
+2. Resolve CLIs from `PATH` only in `kits/reviewer/templates/scripts/review-dispatch.py`, refresh the SDK copy, and run the gates. Done when: the tests pass on Windows and WSL.
+
+- [ ] Add `test_a_cli_in_the_working_directory_is_not_on_path` to `kits/reviewer/templates/scripts/tests/test_review_dispatch.py`: a launcher named `codex` in the dispatcher's working directory and none on `PATH`, `NoDefaultCurrentDirectoryInExePath` removed from the environment; `--check-pin --json` reports `codex` false and a review for writer `gemini` skips astra as not installed without running the planted file. Done when: it fails on the dispatcher at the end of `§4`. Cheaper substitute: a test that leaves the variable set, which hides the defect.
+- [ ] Add a `find_cli(name)` helper in `kits/reviewer/templates/scripts/review-dispatch.py` that searches only the absolute directories on `PATH`, with `NoDefaultCurrentDirectoryInExePath` set for the lookup on Windows, and use it in `review()` and `--check-pin`. Done when: the new test and every existing dispatcher test pass. Cheaper substitute: `shutil.which` with an explicit `path`, which still searches the working directory on Windows.
+- [ ] Run `test_clis_says_which_reviewer_cli_is_on_path` in `tests/test_check_pin_contract.py` with `cwd` set to its temporary folder, so the caller's directory never takes part. Done when: it passes when run from a folder holding a `codex.cmd`. Cheaper substitute: none.
+- [ ] Refresh the SDK copy with `python forge.py sync . --include-scripts` and run `python -m unittest discover -s tests` and the dispatcher tests on Windows and WSL. Done when: all pass and the copies match. Cheaper substitute: running the dispatcher tests only.
+- [ ] Commit: `reviewer: find reviewer CLIs on PATH only`, then push `main`
+
+**Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_review_dispatch.py -k working_directory -v` passes on Windows and WSL, and fails on the dispatcher at the end of `§4`, where the planted `codex` is reported as installed.
 
 ## Verification
 

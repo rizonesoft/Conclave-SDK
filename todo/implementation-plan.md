@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Design, pin contract and scaffold
 
-Sections: 14 | Checklist items: 127
+Sections: 15 | Checklist items: 132
 
 | Status | Reference  | Deliverable                                  | Needs | Items |
 | ------ | ---------- | -------------------------------------------- | ----- | ----- |
@@ -21,19 +21,20 @@ Sections: 14 | Checklist items: 127
 | [x]    | D01 T01 §1 | Strict schema_version type in load_pin       | none  | 7     |
 | [x]    | D01 T01 §2 | Dispatcher check-pin flag                    | none  | 12    |
 | [x]    | D01 T01 §3 | Check-pin contract fixtures and test         | none  | 7     |
-| [ ]    | D01 T01 §4 | Check-pin CLI presence for each CLI          | none  | 3     |
+| [x]    | D01 T01 §4 | Check-pin CLI presence for each CLI          | none  | 3     |
+| [ ]    | D01 T01 §5 | Reviewer CLIs found on PATH only             | none  | 5     |
 | [ ]    | D02 T01 §1 | Extension scaffold, build and test harness   | none  | 9     |
 | [x]    | D06 T01 §2 | Plan query in todo-graph                     | none  | 5     |
 | [x]    | D06 T01 §3 | Round listing in the dispatcher              | none  | 5     |
-| [ ]    | D06 T01 §8 | Round record hardening                       | none  | 7     |
+| [x]    | D06 T01 §8 | Round record hardening                       | none  | 7     |
 
 ### Phase 1: Extension host and kit operations
 
-Sections: 14 | Checklist items: 114
+Sections: 14 | Checklist items: 115
 
 | Status | Reference   | Deliverable                                 | Needs | Items |
 | ------ | ----------- | ------------------------------------------- | ----- | ----- |
-| [ ]    | D02 T01 §2  | Python resolution on Windows and WSL        | none  | 7     |
+| [ ]    | D02 T01 §2  | Python resolution on Windows and WSL        | none  | 8     |
 | [ ]    | D02 T01 §3  | Dispatcher client and workspace states      | none  | 10    |
 | [ ]    | D02 T01 §4  | Comment-preserving pin text model           | none  | 11    |
 | [ ]    | D02 T01 §5  | Candidate validation through check-pin      | none  | 7     |
@@ -89,6 +90,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 11/55 verified sections, 3 ready to run now.
+Progress: 13/56 verified sections, 2 ready to run now.
 
-Checklist: 118/460 items completed (includes Commit items).
+Checklist: 120/466 items completed (includes Commit items).

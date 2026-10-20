@@ -62,6 +62,8 @@ title: "TODO-01 -- Extension Core"
 
 ## 1. Extension scaffold, build and test harness
 
+> **Started:** 2026-10-20T12:20:23Z
+
 Every later section needs a project that builds, lints and tests. This section creates the extension manifest, TypeScript configuration, bundler and both test layers, with one command that opens an empty placeholder panel so the harness has something real to load. Pure logic lives in `extensions/vscode/src/core/` with no `vscode` import so it runs under `node --test`; VS Code glue lives in `extensions/vscode/src/host/`. It must follow the packaging and layout the spec in `D00 T01 §4` settles; where the spec differs from a path below, the spec wins and this section is corrected first.
 
 **Phase:** 0
@@ -100,6 +102,7 @@ The dispatcher is Python 3.11 or later (it imports `tomllib`). The extension run
 
 - [ ] Declare `conclave.pythonPath` (string, default empty, scope `machine-overridable`) in `extensions/vscode/package.json` `contributes.configuration` with a description naming the 3.11 minimum. Done when: the setting shows in the Settings UI. Cheaper substitute: an environment variable read silently.
 - [ ] Implement `resolvePython(platform, setting, run)` in `extensions/vscode/src/core/python.ts`: the setting when non-empty, else `py -3` then `python` on `win32`, else `python3` then `python`; each candidate is probed with `-c "import sys; print(sys.version_info[:2])"` (spec order wins if it differs). Done when: it returns the first candidate at 3.11 or later with its argv prefix. Cheaper substitute: always running `python`.
+- [ ] Resolve every candidate (`py`, `python`, `python3`) to an absolute path by searching only the absolute directories on `PATH` in `extensions/vscode/src/core/python.ts`, and spawn that path, never the bare name: on Windows `child_process` and `CreateProcess` search the working directory first, which is the workspace folder, so a `python.exe` committed to a repository would otherwise run (**Corrected 2026-10-20:** added from the measurement in `D01 T01 §5`). Done when: a unit test with a `python.exe` stub in the workspace folder and none on `PATH` resolves nothing from the workspace. Cheaper substitute: spawning the bare name.
 - [ ] Return a typed refusal from `resolvePython` naming each candidate tried and why it failed (not found, exit code, version too old). Done when: the refusal text lists every candidate. Cheaper substitute: `undefined` with no reason.
 - [ ] Refuse a `conclave.pythonPath` that is set but unusable without falling back to discovery, so the operator's choice is never silently ignored. Done when: a unit test with a bad setting gets the refusal, not the discovered Python. Cheaper substitute: falling through to `python`.
 - [ ] Write `extensions/vscode/test/unit/python.test.ts` covering setting, `py -3`, `python`, `python3`, too old (3.10), not found, and bad setting on both platforms. Done when: the tests pass and one fails when the version check is removed. Cheaper substitute: testing only the happy path.
