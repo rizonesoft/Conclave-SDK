@@ -254,56 +254,45 @@ def atomic_write(path, text):
             os.unlink(temporary)
 
 
-# A review's own lines that begin like a round heading are written with a Markdown escape (`\## Round ...`, which
-# renders as the same text, not a heading), so every `## Round` line in a findings file is one `record` wrote and
-# neither the round numbering below nor `read_rounds` mistakes review text for a round.
-REVIEW_HEADING_LIKE = re.compile(r"^## Round", flags=re.M)
-
-
-def record(path, result, when):
-    existing = path.read_text(encoding="utf-8") if path.is_file() else ""
-    number = len(re.findall(r"^## Round \d+", existing, flags=re.M)) + 1
-    who = f"{result['reviewer']} (`{result['model']}` via `{result['cli']}`)" if result["reviewer"] else "none"
-    lines = [f"## Round {number}: {who}", "", f"- Writer: {result['writer']}", f"- Run: {when}"]
-    if result.get("effort"):
-        lines.append(f"- Effort: {result['effort']}")
-    lines += [f"- Skipped: {f['reviewer']} ({f['reason']})" for f in result["failover"]]
-    review = REVIEW_HEADING_LIKE.sub(r"\\## Round", result["review"]) if result["review"] else None
-    lines += ["", review or "No reviewer returned a review. This round is not an approval.", ""]
-    separator = "" if not existing or existing.endswith("\n\n") else ("\n" if existing.endswith("\n") else "\n\n")
-    atomic_write(path, existing + separator + "\n".join(lines))
-    return number
-
-
-# What `record` writes, read back by `list_rounds`: the round heading, a blank line, and a metadata block that runs
-# to the next blank line.
+# A findings file is read back by `list_rounds`, so the envelope `record` writes around each review is unambiguous:
+# the metadata states how many lines the review has (`- Lines: N`, lines split on "\n" only), the reader skips exactly
+# that many without reading them, and the review is stored byte for byte, whatever headings or fences it holds.
+# Rounds recorded before the count existed have no Lines field and run to the next round heading.
 ROUND_HEADING = re.compile(r"^## Round (\d+): (none|([a-z0-9][a-z0-9-]*) \(`([^`]+)` via `([a-z]+)`\))$")
-ROUND_LINE = re.compile(r"^- (Writer|Run|Effort|Skipped): (\S.*)$")
+ROUND_LINE = re.compile(r"^- (Writer|Run|Effort|Lines|Skipped): (\S.*)$")
 SKIPPED = re.compile(r"^([a-z0-9][a-z0-9-]*) \((.*)\)$")
+
+
+def text_lines(text):
+    """Lines split on "\n" alone, the one boundary both `record` and the reader use, with a CRLF checkout's "\r"
+    dropped. `str.splitlines` also splits on U+2028, U+0085 and others, which a review may contain."""
+    return [line[:-1] if line.endswith("\r") else line for line in text.split("\n")]
 
 
 def read_rounds(text):
     """The rounds `record` wrote in one findings file, or None when anything `record` writes is not as it writes it.
 
-    Every `## Round` line is a round heading (`record` escapes review lines that begin that way), and a round runs
-    to the next one, because a review's text has `##` headings of its own. Under the heading, after one blank line,
-    the metadata block runs to the next blank line, and every line in it must be one of `record`'s fields:
-    Writer and Run exactly once, Effort at most once, any number of Skipped. A malformed line in the block makes
-    the file unreadable rather than ending the block early and losing what follows it."""
+    A round is a `## Round` heading, a blank line, and a metadata block to the next blank line in which every line is
+    one of `record`'s fields (Writer and Run exactly once, Effort and Lines at most once, any number of Skipped). With
+    Lines, the next N lines are the review, skipped unread, and a blank line or the end of the file must follow them,
+    so a hand edit that changes the count shows as unreadable. Without Lines (a round recorded before the count), the
+    round runs to the next `## Round` line. Anything else makes the file unreadable rather than losing a field."""
     rounds = []
-    lines = text.splitlines()
-    for i, line in enumerate(lines):
-        if not line.startswith("## Round"):
+    lines = text_lines(text)
+    i = 0
+    while i < len(lines):
+        if not lines[i].startswith("## Round"):
+            i += 1
             continue
-        heading = ROUND_HEADING.match(line)
+        heading = ROUND_HEADING.match(lines[i])
         if not heading or i + 1 >= len(lines) or lines[i + 1] != "":
             return None
         entry = {"number": int(heading.group(1)), "reviewer": heading.group(3), "model": heading.group(4),
                  "cli": heading.group(5), "writer": None, "run": None, "effort": None, "skipped": []}
-        for meta in lines[i + 2:]:
-            if meta == "":
-                break
-            field = ROUND_LINE.match(meta)
+        count = None
+        i += 2
+        while i < len(lines) and lines[i] != "":
+            field = ROUND_LINE.match(lines[i])
             if not field:
                 return None
             key, value = field.group(1).lower(), field.group(2)
@@ -312,14 +301,41 @@ def read_rounds(text):
                 if not skipped:
                     return None
                 entry["skipped"].append({"reviewer": skipped.group(1), "reason": skipped.group(2)})
+            elif key == "lines":
+                if count is not None or not value.isdigit():
+                    return None
+                count = int(value)
             elif entry[key] is not None:
                 return None
             else:
                 entry[key] = value
+            i += 1
         if entry["writer"] is None or entry["run"] is None:
             return None
+        if count is not None:
+            i += 1 + count  # the blank line after the metadata, then the review, unread
+            if i > len(lines) or (i < len(lines) and lines[i] != ""):
+                return None
         rounds.append(entry)
     return rounds
+
+
+def record(path, result, when):
+    existing = path.read_text(encoding="utf-8") if path.is_file() else ""
+    # Numbered from the rounds actually recorded; a file the reader refuses falls back to counting headings, so a
+    # round is still recorded (and the listing names the file as unreadable).
+    known = read_rounds(existing)
+    number = (len(known) if known is not None else len(re.findall(r"^## Round \d+", existing, flags=re.M))) + 1
+    who = f"{result['reviewer']} (`{result['model']}` via `{result['cli']}`)" if result["reviewer"] else "none"
+    review = text_lines(result["review"] or "No reviewer returned a review. This round is not an approval.")
+    lines = [f"## Round {number}: {who}", "", f"- Writer: {result['writer']}", f"- Run: {when}"]
+    if result.get("effort"):
+        lines.append(f"- Effort: {result['effort']}")
+    lines += [f"- Skipped: {f['reviewer']} ({f['reason']})" for f in result["failover"]]
+    lines += [f"- Lines: {len(review)}", "", *review, ""]
+    separator = "" if not existing or existing.endswith("\n\n") else ("\n" if existing.endswith("\n") else "\n\n")
+    atomic_write(path, existing + separator + "\n".join(lines))
+    return number
 
 
 def list_rounds(records_dir):
@@ -329,7 +345,8 @@ def list_rounds(records_dir):
     records, unreadable = [], []
 
     def shown(path):
-        path = path.resolve()
+        # Never resolve: a path being reported as unreadable may be a symlink loop, which resolve() raises on.
+        path = Path(os.path.abspath(path))
         return path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else path.as_posix()
 
     try:
@@ -340,7 +357,7 @@ def list_rounds(records_dir):
         # One file that cannot be read, or is not UTF-8, is named in `unreadable`; the others are still listed.
         try:
             rounds = read_rounds(path.read_bytes().decode("utf-8"))
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError, RuntimeError):  # RuntimeError: a symlink loop on older Pythons
             rounds = None
         if rounds is None:
             unreadable.append(shown(path))

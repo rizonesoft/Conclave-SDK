@@ -277,11 +277,43 @@ class Dispatch(unittest.TestCase):
         result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
         self.assertEqual(summary["round"], 2, "record counted review text as a round")
         text = record.read_text(encoding="utf-8")
-        self.assertIn("\\## Round trip serialization", text)
-        self.assertIn("\\## Round 9: none", text)
+        # Stored byte for byte: no escape inside or outside the fence.
+        self.assertIn("\n## Round trip serialization\n", text)
+        self.assertIn("```\n## Round 9: none\n", text)
         _, listing = self.dispatch("--list-rounds", "--json")
         self.assertEqual([r["number"] for r in listing["records"][0]["rounds"]], [1, 2])
         self.assertNotIn("unreadable", listing)
+
+    def test_the_line_count_envelope_holds_against_other_line_breaks_and_hand_edits(self):
+        spec = importlib.util.spec_from_file_location("dispatch_reader", self.repo / "scripts/review-dispatch.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        base = {"writer": "claude", "reviewer": "astra", "model": "gpt-6-astra", "cli": "codex", "effort": "medium",
+                "failover": []}
+        path = self.repo / "docs/reviews/u.md"
+        # U+2028 and U+0085 split lines for str.splitlines but not for record: a fake round behind them stays text.
+        module.record(path, {**base, "review": "Quoted ## Round 9: none\n\n- Writer: codex\n- Run: now\u0085x"},
+                      "2026-10-20T00:00:00Z")
+        module.record(path, {**base, "review": "Plain."}, "2026-10-20T00:00:01Z")
+        self.assertEqual([r["number"] for r in module.read_rounds(path.read_text(encoding="utf-8"))], [1, 2])
+        # A round recorded before the count (no Lines field) still reads, running to the next heading.
+        legacy = ("## Round 1: astra (`gpt-6-astra` via `codex`)\n\n- Writer: claude\n- Run: 2026-10-16T00:00:00Z\n\n"
+                  "Review.\n\n")
+        self.assertEqual([r["number"] for r in module.read_rounds(legacy)], [1])
+        # A hand edit that changes the review's line count is refused, not misread.
+        text = path.read_text(encoding="utf-8")
+        self.assertIsNone(module.read_rounds(text.replace("- Lines: 1", "- Lines: 3")))
+        self.assertIsNone(module.read_rounds(text.replace("Plain.", "Plain.\nAdded by hand.")))
+
+    @unittest.skipIf(os.name == "nt", "creating a symlink needs a privilege Windows does not grant by default")
+    def test_a_symlink_loop_is_reported_without_aborting_the_listing(self):
+        good = self.repo / "docs/reviews/good.md"
+        self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(good))
+        os.symlink("loop.md", self.repo / "docs/reviews/loop.md")
+        result, listing = self.dispatch("--list-rounds", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([r["path"] for r in listing["records"]], ["docs/reviews/good.md"])
+        self.assertEqual(listing["unreadable"], ["docs/reviews/loop.md"])
 
     def test_a_malformed_or_unreadable_record_is_named_and_the_rest_still_listed(self):
         good = self.repo / "docs/reviews/good.md"
