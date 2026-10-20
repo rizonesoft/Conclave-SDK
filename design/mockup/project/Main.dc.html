@@ -1491,7 +1491,8 @@ class Component extends DCLogic {
         ['Conclave: Refresh Kits', function () { close(); self.flash('Refreshed: forge.py kits, then kit --dry-run and doctor for ' + cur.name + '.'); }]];
       if (this.wsKey() === 'multi') cmds.push(['Conclave: Switch Folder', function () { close(); const c = self.ks(); self.kupd({ cur: c.cur === 'web' ? 'api' : 'web', sel: null }); }]);
       Object.assign(qi, { open: true, label: 'Command Palette', value: '>conclave', placeholder: 'Type the name of a command to run.', items: cmds.map(function (c, i) { return item(c[0], '', c[1], i === 0); }) });
-    } else if (o.kind === 'menu') {
+    } else if (o.kind === 'menu' && this.e().screen !== 'no-pin' && this.props.sidebar !== 'kits-empty') {
+      // The Explorer menu belongs to reviewers.toml: once the scenario or a folder with no kit removes the file, it is closed.
       const chrome = function () { close(); };
       const rows = [['Open to the Side', 'Ctrl+Enter'], ['Open With...', ''], null, ['Open in Conclave Reviewers', '', function () { self.setState({ ov: null, tab: 'editor' }); }, true], null,
         ['Reveal in File Explorer', 'Shift+Alt+R'], ['Open in Integrated Terminal', ''], null, ['Select for Compare', ''], null, ['Cut', 'Ctrl+X'], ['Copy', 'Ctrl+C'], null,
