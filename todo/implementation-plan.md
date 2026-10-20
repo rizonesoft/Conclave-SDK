@@ -65,7 +65,7 @@ Sections: 31 | Checklist items: 194
 | [ ]    | D05 T02 §1  | Kit stamp written by forge on every install             | none  | 6     |
 | [ ]    | D05 T02 §2  | Bundled SDK digest and drift test                       | none  | 4     |
 | [ ]    | D05 T02 §3  | Kit state for newer and older kit stamps                | none  | 4     |
-| [ ]    | D05 T02 §4  | New repository setup removed from the extension         | none  | 5     |
+| [x]    | D05 T02 §4  | New repository setup removed from the extension         | none  | 5     |
 | [ ]    | D05 T02 §7  | The adopt-conclave skill in the base kit                | none  | 5     |
 
 ### Phase 2: Editor surface and Kits view
@@ -112,6 +112,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 35/78 verified sections, 4 ready to run now.
+Progress: 36/78 verified sections, 3 ready to run now.
 
-Checklist: 285/575 items completed (includes Commit items).
+Checklist: 286/575 items completed (includes Commit items).

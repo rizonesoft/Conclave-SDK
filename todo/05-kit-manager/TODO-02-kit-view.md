@@ -44,7 +44,7 @@ title: "TODO-02 -- Read-only Kit View and Agent Import"
 | 1 | §1 | Kit stamp written by forge on every install | -- | [ ] |
 | 2 | §2 | Bundled SDK digest and drift test | §1 | [ ] |
 | 3 | §3 | Kit state for newer and older kit stamps | §1, D02 T01 §10 | [ ] |
-| 4 | §4 | New repository setup removed from the extension | -- | [ ] |
+| 4 | §4 | New repository setup removed from the extension | -- | [x] |
 | 5 | §5 | Conclave view with the read-only Kits tree | §3, D03 T01 §1, D00 T01 §8 | [ ] |
 | 6 | §6 | Kit health detail in the Kits tree | §5 | [ ] |
 | 7 | §7 | The adopt-conclave skill in the base kit | §1 | [ ] |
@@ -130,9 +130,12 @@ The extension no longer sets up repositories (owner, 2026-10-20). This section r
 - [x] Keep `forge.py`'s `.git` and SDK-folder refusals and `tests/test_forge.py`'s tests of them, and note in `docs/reviews/05-kit-manager/D05-T01-s4.md` that the extension half was removed by this section. Done when: `python -m unittest tests.test_forge -k refuses` passes. Cheaper substitute: removing the forge refusals too.
 - [x] Limit the forge runner to commands that only read, in `extensions/vscode/src/host/forge.ts` (`kits`, `kit` with `--dry-run`, `check`, `doctor`; `init` and `sync` and their `parseProvision` parser removed), so no caller of `runForge` or the `ConclaveApi` can install through the extension, and set the integration tests' folders up with forge directly (`test/integration/forgeFixture.ts`). Done when: `forgeRunner.test.ts` shows `init`, `sync` and `kit` without `--dry-run` refused with nothing started, and fails when they are let through. Cheaper substitute: leaving `init` in the API for tests. (**Corrected 2026-10-20:** added while building: `init` through `runForge` was new repository setup left in the API.)
 - [x] Empty `extensions/vscode/out/` before `tsc` compiles (`clean-out.mjs`, run by `npm run compile`), since `tsc` never deletes the output of a removed file and the deleted tests went on running from it. Done when: after the removal `npm test` runs 107 tests, not the stale 112. Cheaper substitute: deleting `out/` by hand. (**Corrected 2026-10-20:** added while building.)
-- [ ] Commit: `extension: remove new repository setup`
+- [x] Commit: `extension: remove new repository setup`
 
 **Test checkpoint:** `cd extensions/vscode && npm run build && npm run lint && npm test && npm run test:integration` passes with no reference to the removed modules.
+
+> **Verified:** 2026-10-20 | §4 | 54b2e77c9f1f344e8ae764e6c8cbdfaa3558f72f
+> **Review:** `docs/reviews/d05-t02-s4.json`
 
 ## 5. Conclave view with the read-only Kits tree
 
