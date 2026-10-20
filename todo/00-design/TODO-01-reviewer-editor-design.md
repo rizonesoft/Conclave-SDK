@@ -2,7 +2,7 @@
 schema_version: 1
 id: reviewer-editor-design
 domain: 00-design
-status: active
+status: done
 title: "TODO-01 -- Reviewer Editor Design"
 ---
 
@@ -44,7 +44,7 @@ title: "TODO-01 -- Reviewer Editor Design"
 | 3 | §3 | Interface SPEC and screenshots | §2, §5 | [x] |
 | 4 | §4 | Reviewer config design spec | §2, §5 | [x] |
 | 5 | §5 | Mockup and plan follow the family route rule | §2 | [x] |
-| 6 | §6 | Reviewer rows in the pin layout state | §3, §4 | [ ] |
+| 6 | §6 | Reviewer rows in the pin layout state | §3, §4 | [x] |
 
 ## 1. Clickable reviewer editor mockup
 
@@ -257,9 +257,12 @@ Review round 3 of `§3` (`docs/reviews/00-design/D00-T01-s3.md`, the last round 
 - [x] Update the REVIEWERS paragraph of `design/SPEC.md` §12 to name the states that list reviewers (the editor's valid pin and `pin-layout`) and the action in each. Done when: the paragraph and the mockup agree. Cheaper substitute: leaving "with a valid pin" ambiguous.
 - [x] Correct `D06 T01 §4`'s `pin-layout` item to show the reviewer rows from `--check-pin` with the open-file action, with a dated note. Done when: the item and the SPEC agree. Cheaper substitute: none.
 - [x] Republish `design/mockup/project/` to the link in `design/README.md` and name the new canvas version and commit as the current mockup source in `design/decisions.md`. Done when: the link shows the rows. Cheaper substitute: an unpublished mockup change.
-- [ ] Commit: `design: reviewer rows in the pin layout state`
+- [x] Commit: `design: reviewer rows in the pin layout state`
 
 **Test checkpoint:** `python -c "import sys; t=open('design/mockup/project/Main.dc.html', encoding='utf-8').read(); sys.exit(0 if any('pin-layout' in l and 'ok = true' in l for l in t.splitlines()) else 1)"` exits 0, and exits 1 on the `§3` candidate `d8ced23`'s mockup, where the state leaves `ok` false.
+
+> **Verified:** 2026-10-20 | §6 | 4cf5550e471ef5e8e922e59d2f85541d5727c3c1
+> **Review:** `docs/reviews/d00-t01-s6.json`
 
 ## Verification
 

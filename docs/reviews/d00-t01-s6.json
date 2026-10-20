@@ -1,0 +1,18 @@
+{
+  "ref": "D00 T01 \u00a76",
+  "title": "Reviewer rows in the pin layout state",
+  "implementation_sha": "4cf5550e471ef5e8e922e59d2f85541d5727c3c1",
+  "date": "2026-10-20",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-design/D00-T01-s6.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "pin-layout ok = true in the mockup -> exit 0; exit 1 on d8ced23",
+    "live canvas version 28 -> pin-layout lists three reviewers and three routes; newer schema lists none",
+    "python -m unittest tests.test_forge -k markdown_table -k dashes -> OK"
+  ]
+}
