@@ -127,10 +127,15 @@ def sdk_info() -> dict:
     return {"commit": read("SDK_COMMIT"), "date": read("SDK_DATE")}
 
 
+def forge_digest() -> str:
+    """SHA-256 of forge.py itself, CRLF read as LF: the bundled SDK is forge.py and the kits, so both are recorded."""
+    return hashlib.sha256((FORGE_ROOT / "forge.py").read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
 def sdk_digest() -> dict:
-    """`forge.py digest`: the SDK's commit and date and every kit's digest, the one definition the stamp, the VS Code
-    extension's recorded digest and its drift test share."""
-    return {"sdk": sdk_info(), "kits": {kit: kit_digest(kit) for kit in list_kits()}}
+    """`forge.py digest`: the SDK's commit and date, forge.py's digest and every kit's digest, the one definition the
+    stamp, the VS Code extension's recorded digest and its drift test share."""
+    return {"sdk": sdk_info(), "forge": forge_digest(), "kits": {kit: kit_digest(kit) for kit in list_kits()}}
 
 
 def read_kit_stamp(target_root: Path) -> dict | None:
