@@ -50,7 +50,7 @@ title: "TODO-01 -- Extension Core"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Extension scaffold, build and test harness | D00 T01 §4 | [x] |
 | 2 | §2 | Python resolution on Windows and WSL | §1 | [x] |
-| 3 | §3 | Dispatcher client and workspace states | §2, D01 T01 §3 | [ ] |
+| 3 | §3 | Dispatcher client and workspace states | §2, D01 T01 §3 | [x] |
 | 4 | §4 | Comment-preserving pin text model | §1, D01 T01 §3 | [x] |
 | 5 | §5 | Candidate validation through check-pin | §3, §4 | [ ] |
 | 6 | §6 | Atomic save, stale check and re-check | §5 | [ ] |
@@ -152,9 +152,12 @@ All validation comes from the workspace's own dispatcher (plan R7). This section
 - [x] Log every dispatcher call to the "Conclave" output channel in `extensions/vscode/src/host/output.ts`: argv, cwd, exit code, duration and the state. Done when: the channel shows one line per call in the integration test. Cheaper substitute: `console.log`.
 - [x] Write `extensions/vscode/test/integration/states.test.ts` over `extensions/vscode/test/fixtures/workspaces/` (`shipped`, `refused`, `no-pin`, `no-dispatcher`, `old-dispatcher`) asserting each state. Done when: every workspace gets its state and the test fails if the old-dispatcher rule is removed. Cheaper substitute: unit tests only.
 - [x] Join a `PATH` directory and a file name in `findOnPath` (`extensions/vscode/src/core/which.ts`) with the platform's own separator only: on Linux a directory named `/opt/python\` is a directory whose name ends in a backslash, so `python3` in it is `/opt/python\/python3`, not `/opt/python\python3` (review round 3 of `§2`, the last round its loop allowed, filed here; **Corrected 2026-10-20**). Done when: a unit test with that directory on a Linux `PATH` finds the file and fails on the join at the end of `§2`. Cheaper substitute: treating `\` as a separator everywhere.
-- [ ] Commit: `extension: dispatcher client and workspace states`
+- [x] Commit: `extension: dispatcher client and workspace states`
 
 **Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/checkPin.test.js out/test/unit/workspaceState.test.js && npm run test:integration` passes, and the unit run fails when one `error` in `extensions/vscode/test/fixtures/pins/expected.json` is changed. **Corrected 2026-10-20:** names the test files, as `--test-name-pattern` does not filter on Node 24.14.1 (see `§2`).
+
+> **Verified:** 2026-10-20 | §3 | 292f3d5a54a8f199e109738106deb143c5e5feac
+> **Review:** `docs/reviews/d02-t01-s3.json`
 
 ## 4. Comment-preserving pin text model
 
@@ -211,6 +214,7 @@ Every edit produces candidate text that must be checked by the dispatcher, not b
 - [ ] Debounce checks by 300 ms and discard a result that is older than the latest edit. Done when: a unit test of the sequencing with fake timers shows only the newest result applied. Cheaper substitute: applying results in completion order.
 - [ ] Expose `canSave` as true only when the latest candidate is `ok` true and differs from disk. Done when: a unit test covers refused, valid-unchanged and valid-changed. Cheaper substitute: enabling Save while a check is in flight.
 - [ ] Write `extensions/vscode/test/unit/errorTarget.test.ts` over `extensions/vscode/test/fixtures/pins/expected.json`. Done when: the tests pass and fail when one message form is removed. Cheaper substitute: testing two messages.
+- [ ] Strengthen the save-during-check regression in `extensions/vscode/test/integration/states.test.ts`: let the first run finish reading the valid pin and hold its completion with the `ready` reply in hand, save the refused pin, queue the fresh check, then release the first run and assert the exact publication sequence, so removing `DispatcherClient`'s generation guard fails the test (review round 3 of `§3`, the last round its loop allowed, filed here; **Corrected 2026-10-20**). Done when: the test fails with the guard removed and passes with it. Cheaper substitute: releasing the older run after the save, where both runs read the same pin.
 - [ ] Commit: `extension: validate every candidate through check-pin`
 
 **Test checkpoint:** `cd extensions/vscode && npm test -- --test-name-pattern="errorTarget|candidate"` passes, and fails when `canSave` ignores a refused candidate.

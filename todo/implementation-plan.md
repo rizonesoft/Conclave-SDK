@@ -30,14 +30,14 @@ Sections: 15 | Checklist items: 132
 
 ### Phase 1: Extension host and kit operations
 
-Sections: 14 | Checklist items: 116
+Sections: 14 | Checklist items: 117
 
 | Status | Reference   | Deliverable                                 | Needs | Items |
 | ------ | ----------- | ------------------------------------------- | ----- | ----- |
 | [x]    | D02 T01 §2  | Python resolution on Windows and WSL        | none  | 8     |
-| [ ]    | D02 T01 §3  | Dispatcher client and workspace states      | none  | 11    |
+| [x]    | D02 T01 §3  | Dispatcher client and workspace states      | none  | 11    |
 | [x]    | D02 T01 §4  | Comment-preserving pin text model           | none  | 11    |
-| [ ]    | D02 T01 §5  | Candidate validation through check-pin      | none  | 7     |
+| [ ]    | D02 T01 §5  | Candidate validation through check-pin      | none  | 8     |
 | [ ]    | D02 T01 §6  | Atomic save, stale check and re-check       | none  | 8     |
 | [ ]    | D02 T01 §7  | SDK source: local checkout or GitHub commit | none  | 12    |
 | [ ]    | D02 T01 §8  | Test reviewer runner                        | none  | 8     |
@@ -90,6 +90,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 17/56 verified sections, 3 ready to run now.
+Progress: 18/56 verified sections, 4 ready to run now.
 
-Checklist: 174/467 items completed (includes Commit items).
+Checklist: 175/468 items completed (includes Commit items).
