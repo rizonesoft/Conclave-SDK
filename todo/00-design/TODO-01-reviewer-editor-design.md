@@ -44,6 +44,7 @@ title: "TODO-01 -- Reviewer Editor Design"
 | 3 | §3 | Interface SPEC and screenshots | §2, §5 | [ ] |
 | 4 | §4 | Reviewer config design spec | §2, §5 | [ ] |
 | 5 | §5 | Mockup and plan follow the family route rule | §2 | [x] |
+| 6 | §6 | Reviewer rows in the pin layout state | §3, §4 | [ ] |
 
 ## 1. Clickable reviewer editor mockup
 
@@ -229,6 +230,28 @@ The owner decided on 2026-10-20: "the reviewers fallback, it should only be a di
 
 > **Verified:** 2026-10-20 | §5 | 1f0963f337e42f758fd065cea88791d6e897963c
 > **Review:** `docs/reviews/d00-t01-s5.json`
+
+## 6. Reviewer rows in the pin layout state
+
+Review round 3 of `§3` (`docs/reviews/00-design/D00-T01-s3.md`, the last round the review loop allows) found that the mockup's REVIEWERS view hides every reviewer and route in the `pin-layout` state (`design/mockup/project/Main.dc.html:1643` leaves `ok` false), while that state is a valid schema-1 pin whose reviewers and routes `--check-pin` returns, and `design/SPEC.md` §12 lists reviewers "with a valid pin". Reviews run in that state, so the side bar should say who reviews. This section changes the design: a dated decision, the mockup first, then the SPEC, the screenshots if they show the state, and `D06 T01 §4`'s item.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Record the change in `design/decisions.md` and apply it to the mockup. Done when: the `pin-layout` scenario's REVIEWERS view shows the state row, one row per reviewer and the Routes group.
+2. Carry it into the SPEC and the owning section, and republish. Done when: `design/SPEC.md` §12 and `D06 T01 §4` say the same as the mockup.
+
+- [ ] Add a dated bullet to the 2026-10-20 "Review findings" entry in `design/decisions.md`: in the `pin-layout` state REVIEWERS lists the reviewers and routes from `--check-pin`, under the state row, with each reviewer's action opening the file instead of the editor. Done when: the entry says so with the reversal cost. Cheaper substitute: changing the mockup with no decision.
+- [ ] Set the reviewer and route rows in `featurePanes()` of `design/mockup/project/Main.dc.html` to show for `pin-layout` as for a valid pin in the editor, with the reviewer row's action `Open reviewers.toml` (no editor exists for the layout). Done when: the `pin-layout` scenario with sidebar `sections` lists astra, gemini and sonnet and three routes, and `newer schema` still lists none. Cheaper substitute: listing reviewers whose action opens an editor that refuses to open.
+- [ ] Update the REVIEWERS paragraph of `design/SPEC.md` §12 to name the states that list reviewers (the editor's valid pin and `pin-layout`) and the action in each. Done when: the paragraph and the mockup agree. Cheaper substitute: leaving "with a valid pin" ambiguous.
+- [ ] Correct `D06 T01 §4`'s `pin-layout` item to show the reviewer rows from `--check-pin` with the open-file action, with a dated note. Done when: the item and the SPEC agree. Cheaper substitute: none.
+- [ ] Republish `design/mockup/project/` to the link in `design/README.md` and name the new canvas version and commit as the current mockup source in `design/decisions.md`. Done when: the link shows the rows. Cheaper substitute: an unpublished mockup change.
+- [ ] Commit: `design: reviewer rows in the pin layout state`
+
+**Test checkpoint:** `python -c "import sys; t=open('design/mockup/project/Main.dc.html', encoding='utf-8').read(); sys.exit(0 if any('pin-layout' in l and 'ok = true' in l for l in t.splitlines()) else 1)"` exits 0, and exits 1 on the `§3` candidate `d8ced23`'s mockup, where the state leaves `ok` false.
 
 ## Verification
 

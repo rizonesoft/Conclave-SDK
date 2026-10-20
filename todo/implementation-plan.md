@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Design, pin contract and scaffold
 
-Sections: 12 | Checklist items: 118
+Sections: 13 | Checklist items: 124
 
 | Status | Reference  | Deliverable                                  | Needs | Items |
 | ------ | ---------- | -------------------------------------------- | ----- | ----- |
@@ -17,6 +17,7 @@ Sections: 12 | Checklist items: 118
 | [x]    | D00 T01 §5 | Mockup and plan follow the family route rule | none  | 10    |
 | [ ]    | D00 T01 §3 | Interface SPEC and screenshots               | none  | 14    |
 | [ ]    | D00 T01 §4 | Reviewer config design spec                  | none  | 10    |
+| [ ]    | D00 T01 §6 | Reviewer rows in the pin layout state        | none  | 6     |
 | [x]    | D01 T01 §1 | Strict schema_version type in load_pin       | none  | 7     |
 | [x]    | D01 T01 §2 | Dispatcher check-pin flag                    | none  | 12    |
 | [ ]    | D01 T01 §3 | Check-pin contract fixtures and test         | none  | 7     |
@@ -87,6 +88,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 7/53 verified sections, 4 ready to run now.
+Progress: 7/54 verified sections, 4 ready to run now.
 
-Checklist: 95/451 items completed (includes Commit items).
+Checklist: 95/457 items completed (includes Commit items).
