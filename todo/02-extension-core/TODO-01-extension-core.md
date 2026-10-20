@@ -52,13 +52,15 @@ title: "TODO-01 -- Extension Core"
 | 2 | §2 | Python resolution on Windows and WSL | §1 | [x] |
 | 3 | §3 | Dispatcher client and workspace states | §2, D01 T01 §3 | [x] |
 | 4 | §4 | Comment-preserving pin text model | §1, D01 T01 §3 | [x] |
-| 5 | §5 | Candidate validation through check-pin | §3, §4 | [ ] |
+| 5 | §5 | Candidate validation through check-pin | §3, §4 | [x] |
 | 6 | §6 | Atomic save, stale check and re-check | §5 | [ ] |
-| 7 | §7 | SDK source: local checkout or GitHub commit | §1 | [ ] |
+| 7 | §7 | SDK source: local checkout or GitHub commit | §1 | [x] |
 | 8 | §8 | Test reviewer runner | §3, §4 | [ ] |
 | 9 | §9 | Forge runner and summary parsing | §2, §7 | [ ] |
 | 10 | §10 | Workspace kit state from forge | §9 | [ ] |
 | 11 | §11 | Mockup parity fixtures and harness | §1, D00 T01 §2 | [ ] |
+| 12 | §12 | Extractor limits at tarfile's own parse | §7 | [ ] |
+| 13 | §13 | Candidate folder links on Windows and shared fallbacks | §5 | [ ] |
 
 ## 1. Extension scaffold, build and test harness
 
@@ -219,9 +221,12 @@ Every edit produces candidate text that must be checked by the dispatcher, not b
 - [x] Expose `canSave` as true only when the latest candidate is `ok` true and differs from disk. Done when: a unit test covers refused, valid-unchanged and valid-changed. Cheaper substitute: enabling Save while a check is in flight.
 - [x] Write `extensions/vscode/test/unit/errorTarget.test.ts` over `extensions/vscode/test/fixtures/pins/expected.json`. Done when: the tests pass and fail when one message form is removed. Cheaper substitute: testing two messages.
 - [x] Strengthen the save-during-check regression in `extensions/vscode/test/integration/states.test.ts`: let the first run finish reading the valid pin and hold its completion with the `ready` reply in hand, save the refused pin, queue the fresh check, then release the first run and assert the exact publication sequence, so removing `DispatcherClient`'s generation guard fails the test (review round 3 of `§3`, the last round its loop allowed, filed here; **Corrected 2026-10-20**). Done when: the test fails with the guard removed and passes with it. Cheaper substitute: releasing the older run after the save, where both runs read the same pin.
-- [ ] Commit: `extension: validate every candidate through check-pin`
+- [x] Commit: `extension: validate every candidate through check-pin`
 
 **Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/errorTarget.test.js out/test/unit/candidate.test.js` passes, and fails when `canSave` ignores a refused candidate. **Corrected 2026-10-20:** names the test files, as `--test-name-pattern` does not filter on Node 24.14.1 (see `§2`).
+
+> **Verified:** 2026-10-20 | §5 | 4de1002c523ae5121b2772a83d5177c45e43eb20
+> **Review:** `docs/reviews/d02-t01-s5.json`
 
 ## 6. Atomic save, stale check and re-check
 
@@ -277,9 +282,12 @@ Every `forge.py` run goes through §9 from one SDK source (plan R24). This secti
 - [x] Keep the three most recently used SHAs in the cache and delete older folders after a successful extraction. Done when: a fourth SHA removes the oldest folder. Cheaper substitute: an unbounded cache.
 - [x] Log the source (local path, or repository and SHA), each request's status and the cache hit or miss to the "Conclave" channel, never the token. Done when: a test asserts the session token string never reaches the channel. Cheaper substitute: logging request headers.
 - [x] Write `extensions/vscode/test/unit/sdkSource.test.ts` and `extensions/vscode/test/integration/sdkSource.test.ts`, the latter against a local HTTP server standing in for the GitHub API through an injected base URL. Done when: both pass and the traversal test fails when the entry check is removed. Cheaper substitute: tests that call the real GitHub.
-- [ ] Commit: `extension: resolve the SDK from a local checkout or a GitHub commit`
+- [x] Commit: `extension: resolve the SDK from a local checkout or a GitHub commit`
 
 **Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/sdkSource.test.js out/test/unit/extractSdk.test.js && npm run test:integration` passes, and fails when the member check in `extensions/vscode/resources/extract_sdk.py` accepts `../evil`. **Corrected 2026-10-20:** was `--test-name-pattern` (it does not filter on Node 24.14.1) and the entry check in `src/core/sdkSource.ts` (see above).
+
+> **Verified:** 2026-10-20 | §7 | f8e4144e963557e2d32ed91c2841fe20b4b219c6
+> **Review:** `docs/reviews/d02-t01-s7.json`
 
 ## 8. Test reviewer runner
 
@@ -373,6 +381,48 @@ The build must match the approved mockup 1:1 (`design/platform-audit.md`), and a
 - [ ] Commit: `extension: mockup parity fixtures and harness`
 
 **Test checkpoint:** `cd extensions/vscode && npm test -- --test-name-pattern=parity` passes, and fails when one label in a fixture is edited by hand.
+
+## 12. Extractor limits at tarfile's own parse
+
+Review round 3 of `§7` (`docs/reviews/02-extension-core/D02-T01-s7.md`, the last round its loop allowed) found that the extractor's pre-pass, a separate walker over the raw tar headers, can disagree with `tarfile`: a PAX `size` override makes `tarfile` skip a block the pre-pass reads as the end of the archive, and Solaris `X` extended headers were not in its metadata set. Either lets a metadata payload far over 1 MB reach `tarfile`'s memory. The limits belong where `tarfile` parses: a `TarInfo` subclass that refuses an oversized extended or long-name header before reading it, and a size-counting file object under `tarfile` for the decompressed total, so both see the same boundaries.
+
+**Phase:** 1
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write the failing tests: a PAX `size` override hiding a 2 MB comment, and a Solaris `X` header carrying one. Done when: both are accepted by the extractor at the end of `§7`.
+2. Move the limits into `tarfile`'s parse in `extensions/vscode/resources/extract_sdk.py` and remove the separate walker. Done when: both tests and every earlier extractor test pass on Windows and in WSL.
+
+- [ ] Add the two archives to `extensions/vscode/test/unit/extractSdk.test.ts`, built with Python's `tarfile` (a PAX header setting `size`, a zero-size file header, zeros, then a 2 MB PAX comment; and a `b"X"` header with a 2 MB comment). Done when: each fails on the extractor at the end of `§7`. Cheaper substitute: only the plain `x` header already tested.
+- [ ] Refuse an extended or long-name header (`x`, `g`, `X`, `L`, `K`) larger than 1 MB in a `TarInfo` subclass passed to `tarfile.open(tarinfo=...)`, checked on the header's own size before its payload is read. Done when: both new tests and the existing metadata test pass. Cheaper substitute: a second walker beside `tarfile`.
+- [ ] Count decompressed bytes in a file object `tarfile` reads through, refusing past the stream limit, and remove the separate pre-pass. Done when: the stream limit holds and every extractor test passes. Cheaper substitute: checking the compressed size only.
+- [ ] Run the extractor tests on Windows and in WSL, and extract the SDK's own `git archive`. Done when: all pass and the SDK's archive still extracts. Cheaper substitute: Windows only.
+- [ ] Commit: `extension: extractor limits at tarfile's own parse`
+
+**Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/extractSdk.test.js` passes on Windows and in WSL, and the PAX `size` override case fails on the extractor at the end of `§7`.
+
+## 13. Candidate folder links on Windows and shared fallbacks
+
+Review round 3 of `§5` (`docs/reviews/02-extension-core/D02-T01-s5.md`, the last round its loop allowed) found two leftovers in `extensions/vscode/src/host/candidate.ts`. `ownPrivateFolder` returns true on Windows without looking, so a junction or directory symlink at `%TEMP%\conclave` is swept through. And a host caches its fallback folder for its whole life, so when another window's activation sweep removes that folder after a day of idleness, every later check in the first window fails with `ENOENT` until it restarts.
+
+**Phase:** 1
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write the failing tests: a Windows junction in place of the shared folder is not swept, and a fallback removed by another sweep is recreated on the next check. Done when: both fail on the code at the end of `§5`.
+2. Fix both in `extensions/vscode/src/host/candidate.ts`. Done when: both tests and every earlier candidate test pass on Windows and in WSL.
+
+- [ ] Add a test to `extensions/vscode/test/unit/candidate.test.ts` that makes the shared folder a junction (Windows) or symlink (POSIX) to a folder holding an old candidate and asserts `sweepCandidates` leaves it. Done when: it fails on Windows at the end of `§5`. Cheaper substitute: the POSIX-only symlink test.
+- [ ] Check the folder with `lstat` on Windows too in `ownPrivateFolder`: a real directory, not a symbolic link or junction (Node reports a junction as a symbolic link); ownership and mode stay POSIX-only. Done when: the junction test passes. Cheaper substitute: trusting the per-account temporary folder.
+- [ ] Recreate the fallback in `folder()` when the cached one is gone or no longer this account's private folder. Done when: a test that removes the fallback between two `withCandidate` calls sees the second succeed. Cheaper substitute: restarting the window.
+- [ ] Run the candidate tests on Windows and in WSL. Done when: all pass on both. Cheaper substitute: Windows only.
+- [ ] Commit: `extension: candidate folders refuse junctions and recover a swept fallback`
+
+**Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/candidate.test.js` passes on Windows and in WSL, and fails on Windows when `ownPrivateFolder` returns true without `lstat`.
 
 ## Verification
 
