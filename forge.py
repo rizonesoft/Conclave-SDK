@@ -14,6 +14,7 @@ its own self-contained, tracked directory (.agents/, .claude/, .codex/) with zer
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import hashlib
 import json
 import os
@@ -138,6 +139,30 @@ def read_kit_stamp(target_root: Path) -> dict | None:
     except (OSError, ValueError):
         return None
     return stamp if isinstance(stamp, dict) and isinstance(stamp.get("kits"), dict) else None
+
+
+def stamped_newer(target_root: Path, kit_name: str) -> str | None:
+    """Why this SDK must not replace the kit's files, or None: the folder's stamp says a later SDK set the kit up, or
+    a date on either side is unknown, which is never taken as older. A kit with no stamp entry is never refused."""
+    entry = ((read_kit_stamp(target_root) or {}).get("kits") or {}).get(kit_name)
+    if not isinstance(entry, dict):
+        return None
+    sdk = sdk_info()
+
+    def when(text):
+        try:
+            return datetime.fromisoformat(text) if isinstance(text, str) else None
+        except ValueError:
+            return None
+
+    theirs, ours = when(entry.get("date")), when(sdk["date"])
+    if theirs is None or ours is None:
+        return (f"{kit_name} was set up from Conclave-SDK@{entry.get('commit')} ({entry.get('date')}) and this SDK is "
+                f"@{sdk['commit']} ({sdk['date']}): a date is unknown, so this SDK might be older; run the SDK that set it up")
+    if theirs > ours:
+        return (f"{kit_name} was set up from Conclave-SDK@{entry.get('commit')} ({entry.get('date')}), newer than this "
+                f"SDK @{sdk['commit']} ({sdk['date']}); run that SDK or a later one")
+    return None
 
 
 def write_kit_stamp(target_root: Path, kits: list[str]) -> bool:
@@ -321,6 +346,11 @@ def apply_kit(
     available = list_kits()
     if kit_name not in available:
         raise ValueError(f"Unknown kit '{kit_name}'. Available kits: {', '.join(available)}")
+    # A kit a later SDK set up is never replaced by this one (a dry run only reads, so it still answers).
+    if not dry_run:
+        newer = stamped_newer(target_root, kit_name)
+        if newer:
+            raise ValueError(f"Refusing to replace a newer kit: {newer}")
 
     template_root = FORGE_ROOT / "kits" / kit_name / "templates"
     installed: list[str] = []
@@ -753,6 +783,15 @@ def provision(
             return False
         return not (mode == "inherit" and rel.startswith(".agents/skills/"))
 
+    # sync goes on with the other kits and reports a kit a later SDK set up; init and kit refuse it in apply_kit.
+    refused_newer = []
+    if refresh:
+        for kit_name in list(selected):
+            newer = stamped_newer(target_root, kit_name)
+            if newer:
+                refused_newer.append({"kit": kit_name, "reason": newer})
+                selected.remove(kit_name)
+
     kit_results = [
         apply_kit(target_root, kit_name, agent=agent, host=wordpress_host, refresh=refresh,
                   refresh_scripts=refresh_scripts, include=include)
@@ -768,7 +807,9 @@ def provision(
                 forced.append(doc)
 
     agents_md = target_root / "AGENTS.md"
-    fresh_agents = "AGENTS.md" in kit_results[0]["installed"] or "AGENTS.md" in forced
+    # The base kit's result, if it ran: sync may have refused it as stamped newer.
+    base_result = next((r for r in kit_results if r["kit"] == "base"), None)
+    fresh_agents = (base_result is not None and "AGENTS.md" in base_result["installed"]) or "AGENTS.md" in forced
     if "todo" in selected and fresh_agents and agents_md.is_file():
         atomic_write(agents_md, agents_md.read_bytes() + TODO_POINTER.encode("utf-8"))
 
@@ -795,6 +836,7 @@ def provision(
         "written": written,
         "skipped": skipped,
         "kits": kit_results,
+        "refused_newer": refused_newer,
     }
 
 

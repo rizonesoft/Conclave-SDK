@@ -222,6 +222,7 @@ Importing and updating kits is the agent's job (plan R41). This section adds an 
 2. Refresh the SDK's own copy. Done when: `python -m unittest discover -s tests` passes.
 
 - [ ] Write `kits/base/templates/.claude/skills/adopt-conclave/SKILL.md`, `kits/base/templates/.agents/skills/adopt-conclave/SKILL.md` and `kits/base/templates/.codex/skills/adopt-conclave/SKILL.md` (with `agents/openai.yaml` for Codex, as the other base skills have), following `authoring-skills`' layout checklist: when to use, the steps above as a numbered workflow with each forge command, the stop conditions (a dirty protected file, `merge_needed`, an untrusted target) and the report format. Done when: the three files agree in substance and pass the layout checklist. Cheaper substitute: one agent only.
+- [ ] Say in the skill that a kit `forge.py` lists under `refused_newer` (or refuses with `kit`) was set up by a later SDK, so the agent runs that SDK for it and never forces it (from §8). Done when: the three skill files name the refusal. Cheaper substitute: none.
 - [ ] Add `adopt-conclave` to `BASE_SKILLS` in `forge.py` and the expected lists in `tests/test_forge.py`. Done when: `python -m unittest tests.test_forge` passes, and fails with the skill folder removed from one agent. Cheaper substitute: not listing it.
 - [ ] Refresh the SDK's own copy with `python forge.py sync . --include-scripts` and update `README.md` "Importing into a New or Existing Project" to lead with the skill and keep the forge commands. Done when: the test that the SDK's copy matches its kits passes and the README names the skill. Cheaper substitute: README unchanged.
 - [ ] Run the skill on a scratch folder (init with the todo kit, then the reviewer kit on the same folder) and record the report in `docs/reviews/05-kit-manager/D05-T02-s7.md`. Done when: the record shows the dry runs, forge's lists, a clean protected-file diff and the stamp from §1. Cheaper substitute: no live run.
@@ -233,18 +234,20 @@ Importing and updating kits is the agent's job (plan R41). This section adds an 
 
 Review round 3 of `D00 T01 §7` (`docs/reviews/00-design/D00-T01-s7.md`, the last round its loop allowed) found that the mockup's update request for a kit with older kits (`python forge.py sync <folder> --include-scripts`) would, run from an older SDK, replace the SDK-managed files of another kit in the same folder that a newer SDK set up: `sync` refreshes every kit the folder has and overwrites differing managed files. forge owns the guard: `sync` and `kit` never replace a kit whose stamp (§1) names a later SDK commit date than the SDK running, and say which kit and which SDK it needs; `kit` and `sync` of a kit with an older or no stamp go on as before.
 
+> **Started:** 2026-10-20T23:00:00Z
+
 **Phase:** 1
 **Needs:** none
 **Surface:** no
 
 **Build order:**
 
-1. Write the failing tests in `tests/test_forge.py`. Done when: a `sync` from an older stand-in SDK over a folder whose `reviewer` stamp is newer leaves every `reviewer` file and its stamp entry as they were, at the end of §1.
+1. Write the failing tests in `tests/test_forge.py`. Done when: a `sync` from an SDK older than a folder's `reviewer` stamp leaves every `reviewer` file and its stamp entry as they were, at the end of §1.
 2. Add the guard to `provision` and `apply_kit`. Done when: the tests pass and the refusal names the kit, its stamp's commit and date, and this SDK's.
 
-- [ ] In `forge.py`, before writing, compare each kit's stamp entry date with `sdk_info()["date"]`; for a newer entry, skip that kit in `sync` (reported in the result as `refused_newer`, with the reason) and refuse `kit` for it with exit 2. Done when: a test shows `sync` refreshes the older kit, leaves the newer kit's files and entry unchanged, and lists it in `refused_newer`. Cheaper substitute: a warning only.
-- [ ] Treat an unknown date (no git, no `SDK_DATE`) on either side as unknown, never as older: `sync` then refuses to replace a stamped kit and says why. Done when: a test with `sdk_info()` patched to null dates refuses. Cheaper substitute: comparing commits only.
-- [ ] Document the guard in `README.md` "Importing into a New or Existing Project" and in the `adopt-conclave` skill (§7): a newer kit means the agent must run that SDK, not this one. Done when: both name the refusal. Cheaper substitute: no documentation.
+- [x] In `forge.py`, before writing, compare each kit's stamp entry date with `sdk_info()["date"]`; for a newer entry, skip that kit in `sync` (reported in the result as `refused_newer`, with the reason) and refuse `kit` for it with exit 2. Done when: a test shows `sync` refreshes the older kit, leaves the newer kit's files and entry unchanged, and lists it in `refused_newer`. Cheaper substitute: a warning only.
+- [x] Treat an unknown date (no git, no `SDK_DATE`) on either side as unknown, never as older: `sync` then refuses to replace a stamped kit and says why. Done when: a test with `sdk_info()` patched to null dates refuses. Cheaper substitute: comparing commits only.
+- [x] Document the guard in `README.md` "Importing into a New or Existing Project": a newer kit means running that SDK, not this one. Done when: the README names the refusal and `refused_newer`. Cheaper substitute: no documentation. (**Corrected 2026-10-20:** also named the `adopt-conclave` skill, which does not exist until §7; §7 carries that part.)
 - [ ] Commit: `forge: sync never downgrades a kit stamped newer than its SDK`
 
 **Test checkpoint:** `python -m unittest tests.test_forge -k newer` passes, and fails when the guard is removed.

@@ -33,7 +33,7 @@ Sections: 18 | Checklist items: 145
 
 ### Phase 1: Extension host and kit operations
 
-Sections: 32 | Checklist items: 198
+Sections: 32 | Checklist items: 199
 
 | Status | Reference   | Deliverable                                              | Needs | Items |
 | ------ | ----------- | -------------------------------------------------------- | ----- | ----- |
@@ -67,7 +67,7 @@ Sections: 32 | Checklist items: 198
 | [ ]    | D05 T02 §2  | Bundled SDK digest and drift test                        | none  | 4     |
 | [ ]    | D05 T02 §3  | Kit state for newer and older kit stamps                 | none  | 4     |
 | [x]    | D05 T02 §4  | New repository setup removed from the extension          | none  | 5     |
-| [ ]    | D05 T02 §7  | The adopt-conclave skill in the base kit                 | none  | 5     |
+| [ ]    | D05 T02 §7  | The adopt-conclave skill in the base kit                 | none  | 6     |
 | [ ]    | D05 T02 §8  | Sync refuses to replace a kit stamped newer than its SDK | none  | 4     |
 
 ### Phase 2: Editor surface and Kits view
@@ -116,4 +116,4 @@ Sections: 6 | Checklist items: 43
 
 Progress: 39/80 verified sections, 7 ready to run now.
 
-Checklist: 303/583 items completed (includes Commit items).
+Checklist: 306/584 items completed (includes Commit items).

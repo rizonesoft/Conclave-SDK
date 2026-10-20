@@ -728,6 +728,48 @@ class ForgeKitStampTests(unittest.TestCase):
             forge.provision(sdk, refresh=True)
         self.assertFalse((sdk / ".conclave" / "kits.json").exists(), "the SDK stamped itself")
 
+    def _newer_reviewer(self):
+        """A folder whose reviewer kit a later SDK set up: its stamp entry is dated after this SDK, and one of its
+        skills holds that SDK's newer text."""
+        forge.provision(self.target, kits=["todo", "reviewer"])
+        stamp = forge.read_kit_stamp(self.target)
+        stamp["kits"]["reviewer"] = {"digest": "later", "commit": "c" * 40, "date": "2099-01-01T00:00:00+00:00"}
+        (self.target / ".conclave" / "kits.json").write_text(json.dumps(stamp), encoding="utf-8")
+        skill = self.target / ".claude/skills/independent-review/SKILL.md"
+        skill.write_text("from a newer SDK\n", encoding="utf-8")
+        return stamp["kits"]["reviewer"], skill
+
+    def test_sync_from_an_older_sdk_leaves_a_kit_stamped_newer_and_refreshes_the_rest(self):
+        entry, skill = self._newer_reviewer()
+        todo_skill = self.target / ".claude/skills/create-todo/SKILL.md"
+        todo_skill.write_text("stale\n", encoding="utf-8")
+        res = forge.provision(self.target, refresh=True)
+        self.assertEqual(skill.read_text(encoding="utf-8"), "from a newer SDK\n", "sync replaced a kit stamped newer")
+        self.assertEqual(forge.read_kit_stamp(self.target)["kits"]["reviewer"], entry)
+        self.assertEqual([r["kit"] for r in res["refused_newer"]], ["reviewer"])
+        self.assertIn("2099-01-01", res["refused_newer"][0]["reason"])
+        self.assertNotIn("reviewer", [k["kit"] for k in res["kits"]])
+        self.assertNotEqual(todo_skill.read_text(encoding="utf-8"), "stale\n", "the older kit was not refreshed")
+
+    def test_kit_refuses_a_kit_stamped_newer_but_a_dry_run_still_reads_it(self):
+        _entry, skill = self._newer_reviewer()
+        with self.assertRaisesRegex(ValueError, "newer"):
+            forge.apply_kit(self.target, "reviewer")
+        self.assertEqual(skill.read_text(encoding="utf-8"), "from a newer SDK\n")
+        forge.apply_kit(self.target, "reviewer", dry_run=True)
+        res = subprocess.run([sys.executable, str(FORGE_ROOT / "forge.py"), "kit", str(self.target), "reviewer"], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 2, res.stderr)
+        self.assertIn("newer", res.stderr)
+
+    def test_an_unknown_date_on_either_side_is_never_taken_as_older(self):
+        forge.provision(self.target, kits=["reviewer"])
+        with unittest.mock.patch.object(forge, "sdk_info", return_value={"commit": None, "date": None}):
+            res = forge.provision(self.target, refresh=True)
+        # Every stamped kit: base and reviewer, so no kit result at all, and sync still answers.
+        self.assertEqual([r["kit"] for r in res["refused_newer"]], ["base", "reviewer"])
+        self.assertEqual(res["kits"], [])
+        self.assertIn("unknown", res["refused_newer"][0]["reason"])
+
     def test_check_reports_the_stamp(self):
         self.assertIsNone(forge.check_repo(self.target)["kit_stamp"])
         forge.provision(self.target)

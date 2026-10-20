@@ -47,7 +47,7 @@ python R:\GitHub\Conclave-SDK\forge.py init R:\GitHub\MyLaravelApp --kit todo --
 
 ### 2. Existing Project
 
-`kit` adds one kit and only copies missing files. `sync` updates the kits the repository already has (plus any `--kit` you add): it refreshes their skills, rules and subagents, and with `--include-scripts` their `scripts/` and `bin/` files. Neither ever overwrites `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, `docs/`, a `todo/` plan, a site pin or other project files. Both take `--agent all|gemini|claude|codex`.
+`kit` adds one kit and only copies missing files. `sync` updates the kits the repository already has (plus any `--kit` you add): it refreshes their skills, rules and subagents, and with `--include-scripts` their `scripts/` and `bin/` files. Neither ever overwrites `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, `docs/`, a `todo/` plan, a site pin or other project files. Both take `--agent all|gemini|claude|codex`. Every install records which SDK set each kit up in `.conclave/kits.json` (the kit stamp), and neither command replaces a kit a later SDK set up: `kit` refuses it, `sync` leaves it and lists it under `refused_newer`, and an unknown date on either side counts as possibly newer. Run that SDK, or a later one, for those kits.
 
 ```powershell
 python R:\GitHub\Conclave-SDK\forge.py kit R:\GitHub\ExistingRepo base
