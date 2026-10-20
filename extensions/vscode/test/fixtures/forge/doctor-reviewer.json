@@ -1,0 +1,52 @@
+{
+  "target": "<TARGET>",
+  "kit": "reviewer",
+  "missing_or_setup_required": 0,
+  "checks": [
+    {
+      "name": "reviewer-pin",
+      "status": "ok",
+      "detail": ".conclave/reviewers.toml"
+    },
+    {
+      "name": "scripts/review-dispatch.py",
+      "status": "ok",
+      "detail": "<TARGET>/scripts/review-dispatch.py"
+    },
+    {
+      "name": "docs/review-round-prompt.md",
+      "status": "ok",
+      "detail": "<TARGET>/docs/review-round-prompt.md"
+    },
+    {
+      "name": "skill:independent-review:.agents",
+      "status": "ok",
+      "detail": "<TARGET>/.agents/skills/independent-review/SKILL.md"
+    },
+    {
+      "name": "skill:independent-review:.claude",
+      "status": "ok",
+      "detail": "<TARGET>/.claude/skills/independent-review/SKILL.md"
+    },
+    {
+      "name": "skill:independent-review:.codex",
+      "status": "ok",
+      "detail": "<TARGET>/.codex/skills/independent-review/SKILL.md"
+    },
+    {
+      "name": "reviewer:astra",
+      "status": "ok",
+      "detail": "gpt-6-astra via <BIN>\\codex.CMD"
+    },
+    {
+      "name": "reviewer:gemini",
+      "status": "ok",
+      "detail": "gemini-4-argon-high via <BIN>\\agy.CMD"
+    },
+    {
+      "name": "reviewer:sonnet",
+      "status": "ok",
+      "detail": "claude-sonnet-5-5 via <BIN>\\claude.CMD"
+    }
+  ]
+}

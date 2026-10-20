@@ -1,0 +1,157 @@
+{
+  "target": "<TARGET>",
+  "kit": "todo",
+  "missing_or_setup_required": 0,
+  "checks": [
+    {
+      "name": "skill:add-todo:.agents",
+      "status": "ok",
+      "detail": "<TARGET>/.agents/skills/add-todo/SKILL.md"
+    },
+    {
+      "name": "skill:create-todo:.agents",
+      "status": "ok",
+      "detail": "<TARGET>/.agents/skills/create-todo/SKILL.md"
+    },
+    {
+      "name": "skill:groom-plan:.agents",
+      "status": "ok",
+      "detail": "<TARGET>/.agents/skills/groom-plan/SKILL.md"
+    },
+    {
+      "name": "skill:process-phase:.agents",
+      "status": "ok",
+      "detail": "<TARGET>/.agents/skills/process-phase/SKILL.md"
+    },
+    {
+      "name": "skill:process-plan:.agents",
+      "status": "ok",
+      "detail": "<TARGET>/.agents/skills/process-plan/SKILL.md"
+    },
+    {
+      "name": "skill:process-todo-file:.agents",
+      "status": "ok",
+      "detail": "<TARGET>/.agents/skills/process-todo-file/SKILL.md"
+    },
+    {
+      "name": "skill:process-todo-section:.agents",
+      "status": "ok",
+      "detail": "<TARGET>/.agents/skills/process-todo-section/SKILL.md"
+    },
+    {
+      "name": "skill:review-todo-section:.agents",
+      "status": "ok",
+      "detail": "<TARGET>/.agents/skills/review-todo-section/SKILL.md"
+    },
+    {
+      "name": "skill:add-todo:.claude",
+      "status": "ok",
+      "detail": "<TARGET>/.claude/skills/add-todo/SKILL.md"
+    },
+    {
+      "name": "skill:create-todo:.claude",
+      "status": "ok",
+      "detail": "<TARGET>/.claude/skills/create-todo/SKILL.md"
+    },
+    {
+      "name": "skill:groom-plan:.claude",
+      "status": "ok",
+      "detail": "<TARGET>/.claude/skills/groom-plan/SKILL.md"
+    },
+    {
+      "name": "skill:process-phase:.claude",
+      "status": "ok",
+      "detail": "<TARGET>/.claude/skills/process-phase/SKILL.md"
+    },
+    {
+      "name": "skill:process-plan:.claude",
+      "status": "ok",
+      "detail": "<TARGET>/.claude/skills/process-plan/SKILL.md"
+    },
+    {
+      "name": "skill:process-todo-file:.claude",
+      "status": "ok",
+      "detail": "<TARGET>/.claude/skills/process-todo-file/SKILL.md"
+    },
+    {
+      "name": "skill:process-todo-section:.claude",
+      "status": "ok",
+      "detail": "<TARGET>/.claude/skills/process-todo-section/SKILL.md"
+    },
+    {
+      "name": "skill:review-todo-section:.claude",
+      "status": "ok",
+      "detail": "<TARGET>/.claude/skills/review-todo-section/SKILL.md"
+    },
+    {
+      "name": "skill:add-todo:.codex",
+      "status": "ok",
+      "detail": "<TARGET>/.codex/skills/add-todo/SKILL.md"
+    },
+    {
+      "name": "skill:create-todo:.codex",
+      "status": "ok",
+      "detail": "<TARGET>/.codex/skills/create-todo/SKILL.md"
+    },
+    {
+      "name": "skill:groom-plan:.codex",
+      "status": "ok",
+      "detail": "<TARGET>/.codex/skills/groom-plan/SKILL.md"
+    },
+    {
+      "name": "skill:process-phase:.codex",
+      "status": "ok",
+      "detail": "<TARGET>/.codex/skills/process-phase/SKILL.md"
+    },
+    {
+      "name": "skill:process-plan:.codex",
+      "status": "ok",
+      "detail": "<TARGET>/.codex/skills/process-plan/SKILL.md"
+    },
+    {
+      "name": "skill:process-todo-file:.codex",
+      "status": "ok",
+      "detail": "<TARGET>/.codex/skills/process-todo-file/SKILL.md"
+    },
+    {
+      "name": "skill:process-todo-section:.codex",
+      "status": "ok",
+      "detail": "<TARGET>/.codex/skills/process-todo-section/SKILL.md"
+    },
+    {
+      "name": "skill:review-todo-section:.codex",
+      "status": "ok",
+      "detail": "<TARGET>/.codex/skills/review-todo-section/SKILL.md"
+    },
+    {
+      "name": "scripts/todo-graph.py",
+      "status": "ok",
+      "detail": "<TARGET>/scripts/todo-graph.py"
+    },
+    {
+      "name": "scripts/lib/todo_graph.py",
+      "status": "ok",
+      "detail": "<TARGET>/scripts/lib/todo_graph.py"
+    },
+    {
+      "name": "scripts/campaign_guard.py",
+      "status": "ok",
+      "detail": "<TARGET>/scripts/campaign_guard.py"
+    },
+    {
+      "name": "todo/README.md",
+      "status": "ok",
+      "detail": "<TARGET>/todo/README.md"
+    },
+    {
+      "name": "docs/todo-workflow.md",
+      "status": "ok",
+      "detail": "<TARGET>/docs/todo-workflow.md"
+    },
+    {
+      "name": "stop-hook",
+      "status": "ok",
+      "detail": "<TARGET>/.claude/settings.json"
+    }
+  ]
+}

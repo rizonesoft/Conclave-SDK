@@ -1,0 +1,30 @@
+import type { CheckResult, DoctorCheck, DoctorResult } from "./forgeJson";
+
+// A kit's health (plan R30), from forge's own doctor: every check kept as forge wrote it, and the number that are not
+// ok. Any status other than "ok" counts, so a status forge adds later (or "unexpected") is never read as healthy.
+export type KitHealth =
+  | { kit: string; state: "checked"; problems: number; checks: DoctorCheck[] }
+  // forge's doctor did not answer for this kit (refused, timed out): its own reason.
+  | { kit: string; state: "unavailable"; reason: string };
+
+export interface FolderHealth {
+  // The agent-setup flags forge check reports as false, by forge's own names (has_agents_md and so on).
+  missingSetup: string[];
+  kits: KitHealth[];
+}
+
+export function problems(checks: DoctorCheck[]): number {
+  return checks.filter((c) => c.status !== "ok").length;
+}
+
+export function kitHealth(doctor: DoctorResult): KitHealth {
+  return { kit: doctor.kit, state: "checked", problems: problems(doctor.checks), checks: doctor.checks };
+}
+
+// One folder's health: forge check's false flags, and each kit's doctor (or why it has none), in the order given.
+export function healthFrom(check: CheckResult, doctors: (DoctorResult | { kit: string; reason: string })[]): FolderHealth {
+  return {
+    missingSetup: Object.entries(check.flags).filter(([, value]) => !value).map(([flag]) => flag),
+    kits: doctors.map((d) => ("checks" in d ? kitHealth(d) : { kit: d.kit, state: "unavailable", reason: d.reason })),
+  };
+}

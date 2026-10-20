@@ -33,22 +33,40 @@ def atomic_write(path, text):
         raise
 
 
-def normalise(text, target):
-    """The temporary folder and the SDK folder as placeholders, in every spelling forge may print them."""
-    for path, mark in ((target, "<TARGET>"), (SDK, "<SDK>")):
+def normalise(text, target, bin_dir=None):
+    """The temporary folder, the SDK folder and the stub CLI folder as placeholders, in every spelling forge may print
+    them."""
+    marks = [(target, "<TARGET>"), (SDK, "<SDK>")] + ([(bin_dir, "<BIN>")] if bin_dir else [])
+    for path, mark in marks:
         for spelling in {str(path), str(path).replace("\\", "/"), json.dumps(str(path))[1:-1], path.as_posix()}:
             text = text.replace(spelling, mark)
     return text
 
 
-def forge(args, target):
+def forge(args, target, bin_dir=None):
+    """forge.py's answer. With bin_dir, PATH is that folder alone, so the CLIs a doctor looks for are the stubs there:
+    the same answer on every host."""
+    env = None
+    if bin_dir is not None:
+        env = {k: v for k, v in os.environ.items() if k.upper() != "PATH"}
+        env["PATH"] = str(bin_dir)
     run = subprocess.run([sys.executable, "-I", str(FORGE), *args], capture_output=True, text=True, encoding="utf-8",
-                         cwd=SDK, timeout=300)
-    return run.returncode, normalise(run.stdout, target), normalise(run.stderr, target)
+                         cwd=SDK, timeout=300, env=env)
+    return run.returncode, normalise(run.stdout, target, bin_dir), normalise(run.stderr, target, bin_dir)
 
 
-def record(name, args, target, expect=0):
-    code, stdout, stderr = forge(args, target)
+def stub_bin(folder, clis):
+    """A folder of stub CLIs (empty, never run), found by shutil.which on this platform."""
+    folder.mkdir()
+    for cli in clis:
+        stub = folder / (f"{cli}.cmd" if os.name == "nt" else cli)
+        stub.write_text("@exit /b 0\r\n" if os.name == "nt" else "#!/bin/sh\nexit 0\n", encoding="utf-8")
+        stub.chmod(0o755)
+    return folder
+
+
+def record(name, args, target, expect=0, bin_dir=None):
+    code, stdout, stderr = forge(args, target, bin_dir)
     if code != expect:
         sys.exit(f"{name}: forge exited {code}, expected {expect}\n{stderr[-2000:]}")
     if expect == 0:
@@ -89,6 +107,15 @@ def main():
                 record(f"dry-{case}-{kit}", ["kit", str(folder), kit, "--dry-run", "--agent", "all"], folder)
         record("dry-empty-laravel", ["kit", str(work / "state-empty"), "laravel", "--dry-run", "--agent", "all"],
                work / "state-empty", expect=2)
+        # Kit health (D05 T01 §3): check once, and every kit's doctor on the folder with every kit, with every reviewer
+        # CLI present; the reviewer doctor again with the Gemini CLI missing; the WordPress doctor needs its site set up.
+        every = stub_bin(work / "bin-every", ["codex", "agy", "claude"])
+        no_agy = stub_bin(work / "bin-no-agy", ["codex", "claude"])
+        folder = work / "state-all"
+        record("health-check", ["check", str(folder)], folder, bin_dir=every)
+        for kit in ("base", "todo", "reviewer", "automations", "wordpress"):
+            record(f"doctor-{kit}", ["doctor", str(folder), kit], folder, bin_dir=every)
+        record("doctor-reviewer-no-agy", ["doctor", str(folder), "reviewer"], folder, bin_dir=no_agy)
     return 0
 
 

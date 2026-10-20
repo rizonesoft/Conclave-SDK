@@ -1,0 +1,67 @@
+{
+  "target": "<TARGET>",
+  "kit": "automations",
+  "missing_or_setup_required": 2,
+  "checks": [
+    {
+      "name": "automations-tasks",
+      "status": "ok",
+      "detail": ".conclave/automations/tasks.json"
+    },
+    {
+      "name": "automations-folder",
+      "status": "setup_required",
+      "detail": "set folder in .conclave/automations/tasks.json to \\<Project>\\ before adding a task"
+    },
+    {
+      "name": ".conclave/automations/run.py",
+      "status": "ok",
+      "detail": "<TARGET>/.conclave/automations/run.py"
+    },
+    {
+      "name": ".conclave/automations/alert.py",
+      "status": "ok",
+      "detail": "<TARGET>/.conclave/automations/alert.py"
+    },
+    {
+      "name": ".conclave/automations/install.ps1",
+      "status": "ok",
+      "detail": "<TARGET>/.conclave/automations/install.ps1"
+    },
+    {
+      "name": ".conclave/automations/install.sh",
+      "status": "ok",
+      "detail": "<TARGET>/.conclave/automations/install.sh"
+    },
+    {
+      "name": ".conclave/automations/README.md",
+      "status": "ok",
+      "detail": "<TARGET>/.conclave/automations/README.md"
+    },
+    {
+      "name": "scripts/tests/test_automations.py",
+      "status": "ok",
+      "detail": "<TARGET>/scripts/tests/test_automations.py"
+    },
+    {
+      "name": "skill:scheduled-automations:.agents",
+      "status": "ok",
+      "detail": "<TARGET>/.agents/skills/scheduled-automations/SKILL.md"
+    },
+    {
+      "name": "skill:scheduled-automations:.claude",
+      "status": "ok",
+      "detail": "<TARGET>/.claude/skills/scheduled-automations/SKILL.md"
+    },
+    {
+      "name": "skill:scheduled-automations:.codex",
+      "status": "ok",
+      "detail": "<TARGET>/.codex/skills/scheduled-automations/SKILL.md"
+    },
+    {
+      "name": "scheduler:pythonw",
+      "status": "setup_required",
+      "detail": "install Python 3 for Windows (pythonw.exe on PATH)"
+    }
+  ]
+}

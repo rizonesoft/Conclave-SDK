@@ -1,0 +1,152 @@
+{
+  "target": "<TARGET>",
+  "kit": "wordpress",
+  "missing_or_setup_required": 8,
+  "checks": [
+    {
+      "name": "site-pin",
+      "status": "ok",
+      "detail": ".conclave/wordpress-site.json: ok"
+    },
+    {
+      "name": "site-identity",
+      "status": "setup_required",
+      "detail": "wordpress-connect step 1: site_id, url, pressable.account_id"
+    },
+    {
+      "name": "site-ssh",
+      "status": "setup_required",
+      "detail": "wordpress-connect step 2: ssh.item, ssh.username"
+    },
+    {
+      "name": "helper:scripts/lib/wp_site.py",
+      "status": "ok",
+      "detail": "<TARGET>/scripts/lib/wp_site.py"
+    },
+    {
+      "name": "helper:scripts/lib/site_ssh.py",
+      "status": "ok",
+      "detail": "<TARGET>/scripts/lib/site_ssh.py"
+    },
+    {
+      "name": "helper:scripts/site-access.py",
+      "status": "ok",
+      "detail": "<TARGET>/scripts/site-access.py"
+    },
+    {
+      "name": "helper:bin/wp-remote",
+      "status": "ok",
+      "detail": "<TARGET>/bin/wp-remote"
+    },
+    {
+      "name": "helper:scripts/lib/mcp_http.py",
+      "status": "ok",
+      "detail": "<TARGET>/scripts/lib/mcp_http.py"
+    },
+    {
+      "name": "helper:scripts/mcp-headers.py",
+      "status": "ok",
+      "detail": "<TARGET>/scripts/mcp-headers.py"
+    },
+    {
+      "name": "helper:scripts/check-mcp.py",
+      "status": "ok",
+      "detail": "<TARGET>/scripts/check-mcp.py"
+    },
+    {
+      "name": "helper:scripts/sftp-item.py",
+      "status": "ok",
+      "detail": "<TARGET>/scripts/sftp-item.py"
+    },
+    {
+      "name": "helper:scripts/create-application-password.py",
+      "status": "ok",
+      "detail": "<TARGET>/scripts/create-application-password.py"
+    },
+    {
+      "name": "helper:bin/ddev",
+      "status": "ok",
+      "detail": "<TARGET>/bin/ddev"
+    },
+    {
+      "name": "helper:bin/wp",
+      "status": "ok",
+      "detail": "<TARGET>/bin/wp"
+    },
+    {
+      "name": "helper:.ddev/providers/production.yaml",
+      "status": "ok",
+      "detail": "<TARGET>/.ddev/providers/production.yaml"
+    },
+    {
+      "name": "skill:wordpress-site-safety:.agents",
+      "status": "ok",
+      "detail": "<TARGET>/.agents/skills/wordpress-site-safety/SKILL.md"
+    },
+    {
+      "name": "skill:wordpress-connect:.agents",
+      "status": "ok",
+      "detail": "<TARGET>/.agents/skills/wordpress-connect/SKILL.md"
+    },
+    {
+      "name": "skill:wordpress-site-safety:.claude",
+      "status": "ok",
+      "detail": "<TARGET>/.claude/skills/wordpress-site-safety/SKILL.md"
+    },
+    {
+      "name": "skill:wordpress-connect:.claude",
+      "status": "ok",
+      "detail": "<TARGET>/.claude/skills/wordpress-connect/SKILL.md"
+    },
+    {
+      "name": "skill:wordpress-site-safety:.codex",
+      "status": "ok",
+      "detail": "<TARGET>/.codex/skills/wordpress-site-safety/SKILL.md"
+    },
+    {
+      "name": "skill:wordpress-connect:.codex",
+      "status": "ok",
+      "detail": "<TARGET>/.codex/skills/wordpress-connect/SKILL.md"
+    },
+    {
+      "name": "phpcs.xml.dist",
+      "status": "ok",
+      "detail": "<TARGET>/phpcs.xml.dist"
+    },
+    {
+      "name": "phpcs-toolchain",
+      "status": "ok",
+      "detail": "<TARGET>/tools/phpcs/composer.json"
+    },
+    {
+      "name": "sshpass",
+      "status": "setup_required",
+      "detail": "operator global: apt install sshpass"
+    },
+    {
+      "name": "wordpress-root",
+      "status": "setup_required",
+      "detail": "wordpress-connect step 4: bin/ddev pull production -y"
+    },
+    {
+      "name": "ddev",
+      "status": "setup_required",
+      "detail": "operator global: DDEV"
+    },
+    {
+      "name": "ddev-config",
+      "status": "setup_required",
+      "detail": "wordpress-connect step 4: bin/ddev config"
+    },
+    {
+      "name": "production-sync",
+      "status": "setup_required",
+      "detail": "wordpress-connect step 4: port from jmrgroup-coza"
+    },
+    {
+      "name": "mcp-pinned",
+      "status": "setup_required",
+      "detail": "wordpress-connect step 3: pin the WordPress and Pressable connections"
+    }
+  ]
+}

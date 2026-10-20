@@ -12,6 +12,7 @@ import { ReviewerTester, type TestOptions } from "./host/testReviewer";
 import { FORGE_PARSERS, runForge, type ForgeOptions, type ForgeSource } from "./host/forge";
 import type { ForgeOutcome } from "./core/forgeJson";
 import { KitStateService, type KitStates } from "./host/kitState";
+import { KitHealthService, type KitHealthResult } from "./host/kitHealth";
 import type { TestOutcome } from "./core/testOutcome";
 
 // The reviewer editor panel. This is the scaffold's placeholder (D02 T01 §1); D03 T01 builds the editor in it.
@@ -41,6 +42,10 @@ export interface ConclaveApi {
   invalidateKitState: (folder: vscode.Uri) => void;
   // A folder leaving the workspace: its kit state's watchers and cache are dropped.
   forgetKitState: (folder: vscode.Uri) => void;
+  // Each installed kit's health from forge check and doctor (D05 T01 §3), refreshed when the kit state changes.
+  kitHealth: (folder: vscode.Uri) => Promise<KitHealthResult>;
+  onDidChangeKitHealth: vscode.Event<vscode.Uri>;
+  refreshKitHealth: (folder: vscode.Uri) => void;
 }
 
 export function activate(context: vscode.ExtensionContext): ConclaveApi {
@@ -73,6 +78,19 @@ export function activate(context: vscode.ExtensionContext): ConclaveApi {
       { folder: e.folder, python: e.result.ok ? e.result : { message: e.result.message } }), undefined, disposables),
   });
   context.subscriptions.push(kitStates);
+  const kitHealth = new KitHealthService({
+    kitStates: (folder) => kitStates.states(folder),
+    onDidChangeKitState: kitStates.onDidChangeKitState,
+    source: async (folder) => {
+      const source = await sdk.resolve(folder);
+      return "ok" in source ? source : { message: source.message };
+    },
+    python: async (folder) => {
+      const resolved = await python.python(folder);
+      return resolved.ok ? resolved : { message: resolved.message };
+    },
+  });
+  context.subscriptions.push(kitHealth);
   context.subscriptions.push(
     vscode.commands.registerCommand("conclave.openReviewers", () => {
       if (panel) {
@@ -104,6 +122,9 @@ export function activate(context: vscode.ExtensionContext): ConclaveApi {
     onDidChangeKitState: kitStates.onDidChangeKitState,
     invalidateKitState: (folder) => kitStates.invalidate(folder),
     forgetKitState: (folder) => kitStates.forget(folder),
+    kitHealth: (folder) => kitHealth.health(folder),
+    onDidChangeKitHealth: kitHealth.onDidChangeKitHealth,
+    refreshKitHealth: (folder) => kitHealth.refresh(folder),
     runForge: async (source, args, options) => {
       const parse = FORGE_PARSERS.get(args[0] ?? "");
       if (!parse) {

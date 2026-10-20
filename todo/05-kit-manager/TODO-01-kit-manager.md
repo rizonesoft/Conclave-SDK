@@ -103,7 +103,9 @@ Installed kits are updated with `forge.py sync <folder>` (plan R29), which refre
 
 ## 3. Kit health from forge check and doctor
 
-The operator sees what is missing or needs setup for each installed kit (plan R30). This section runs `forge.py check <folder>` once and `forge.py doctor <folder> <kit>` for each installed kit that forge has a doctor for (`todo`, `reviewer`, `laravel`, `wordpress`), and turns the results into per-kit health: `ok`, or the count of checks that are `missing`, `setup_required` or `unexpected`, with each check's name and detail verbatim. It never runs a check of its own.
+> **Started:** 2026-10-20T16:40:00Z
+
+The operator sees what is missing or needs setup for each installed kit (plan R30). This section runs `forge.py check <folder>` once and `forge.py doctor <folder> <kit>` for each installed kit (**Corrected 2026-10-20:** forge doctors every kit now: `automations` has its own checks and `base` the default ones; this said `todo`, `reviewer`, `laravel`, `wordpress`), and turns the results into per-kit health: `ok`, or the count of checks that are `missing`, `setup_required` or `unexpected`, with each check's name and detail verbatim. It never runs a check of its own.
 
 **Phase:** 1
 **Needs:** none
@@ -114,14 +116,17 @@ The operator sees what is missing or needs setup for each installed kit (plan R3
 1. Write `extensions/vscode/src/core/kitHealth.ts` turning `check` and `doctor` JSON into per-kit health. Done when: unit tests over recorded outputs give the expected counts.
 2. Write `extensions/vscode/src/host/kitHealth.ts` running them. Done when: an integration test on the shipped workspace reports the reviewer kit healthy.
 
-- [ ] Implement `healthFrom(check, doctors)` in `extensions/vscode/src/core/kitHealth.ts`, keeping every check's `name`, `status` and `detail` verbatim and counting non-`ok` statuses per kit. Done when: unit tests over recorded `doctor` outputs for `reviewer` (all ok, and one `setup_required` CLI) and `wordpress` (setup required) pass. Cheaper substitute: a single red or green flag per kit.
-- [ ] Treat an unknown status value as not ok and show it verbatim. Done when: a unit test with `status: "stale"` counts it. Cheaper substitute: dropping unknown statuses.
-- [ ] Run `doctor` only for installed kits, one process at a time per folder, with a 30 second timeout each. Done when: an integration test with a slow fake doctor times out one kit and still reports the others. Cheaper substitute: running doctor for every kit, including ones not installed.
-- [ ] Refresh health after every install and update from §1 and §2, and on demand. Done when: the test sees health refreshed after an install. Cheaper substitute: health computed once at activation.
-- [ ] Write `extensions/vscode/test/unit/kitHealth.test.ts` over recorded outputs saved in `extensions/vscode/test/fixtures/forge/`. Done when: the tests pass and fail when `unexpected` is counted as ok. Cheaper substitute: one recorded output.
+- [x] Implement `healthFrom(check, doctors)` in `extensions/vscode/src/core/kitHealth.ts`, keeping every check's `name`, `status` and `detail` verbatim and counting non-`ok` statuses per kit. Done when: unit tests over recorded `doctor` outputs for `reviewer` (all ok, and one `setup_required` CLI) and `wordpress` (setup required) pass. Cheaper substitute: a single red or green flag per kit.
+  The recorded outputs come from `extensions/vscode/scripts/record-forge-fixtures.py`, which runs the reviewer and other doctors with PATH set to a folder of stub CLIs (every CLI, or every CLI but `agy`), so the fixtures are the same on any host. `healthFrom` also lists the agent-setup flags `forge check` reports as false.
+- [x] Treat an unknown status value as not ok and show it verbatim. Done when: a unit test with `status: "stale"` counts it. Cheaper substitute: dropping unknown statuses.
+- [x] Run `doctor` only for installed kits, one process at a time per folder, with a 30 second timeout each. Done when: an integration test with a slow fake doctor times out one kit and still reports the others. Cheaper substitute: running doctor for every kit, including ones not installed.
+  Installed means installed or partly installed in `D02 T01 §10`'s kit state. A doctor that times out or is refused makes that kit `unavailable` with forge's reason; its process tree is ended (`§9`'s runner).
+- [x] Refresh health after every install and update from §1 and §2, and on demand. Done when: the test sees health refreshed after an install. Cheaper substitute: health computed once at activation.
+  Health is refreshed whenever the folder's kit state changes, which every install and update does (the kit state watches what forge writes), and by `refreshKitHealth` on demand; a computation that a refresh superseded runs again.
+- [x] Write `extensions/vscode/test/unit/kitHealth.test.ts` over recorded outputs saved in `extensions/vscode/test/fixtures/forge/`. Done when: the tests pass and fail when `unexpected` is counted as ok. Cheaper substitute: one recorded output.
 - [ ] Commit: `extension: kit health from forge check and doctor`
 
-**Test checkpoint:** `cd extensions/vscode && npm test -- --test-name-pattern=kitHealth` passes, and fails when `healthFrom` ignores `setup_required`.
+**Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/kitHealth.test.js && npm run test:integration -- --grep kitHealth` passes, and fails when `healthFrom` ignores `setup_required`. **Corrected 2026-10-20:** was `npm test -- --test-name-pattern=kitHealth`, which does not filter on Node 24.14.1 (see `D02 T01 §2`).
 
 ## 4. New repository setup through forge init
 
