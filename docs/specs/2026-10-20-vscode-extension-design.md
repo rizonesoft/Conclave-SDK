@@ -12,63 +12,143 @@ Reversal cost: high. A TypeScript port would duplicate every rule, including the
 
 ## 2. Comment-preserving edits with a narrow hand-written editor
 
-Options: a TOML library that parses and re-serialises (`@iarna/toml`, `smol-toml`); a library with a concrete syntax tree; a narrow hand-written editor over the text (`design/decisions.md` answer 5 prefers it unless a maintained library round-trips the shipped pin byte for byte).
+Options: a TOML library that parses and re-serialises; a library that patches the text in place; a narrow hand-written editor over the text (`design/decisions.md` answer 5 prefers it unless a maintained library round-trips the shipped pin byte for byte).
 
-Choice: a narrow hand-written editor in `extensions/vscode/src/core/pinText.ts` (`D02 T01 §4`). The libraries above parse into plain values and write them back without the comments, which plan R12 forbids; none of the maintained ones offers an edit-in-place writer. The pin's grammar is small and fixed (`load_pin` refuses anything else), so the editor only needs: read the tables and their spans; set one key's value; add, rename and delete a `[reviewers.<name>]` table with the comment block above it; set or remove one route array. Every edit replaces the smallest span it touches and keeps everything else, including comments, blank lines, key order and line endings, byte for byte. This is a default: the library survey here is from the libraries' documented behaviour, and `D02 T01 §4`'s golden tests over the fixture pins are the proof; if a library later round-trips them byte for byte, it can replace the editor behind the same five functions.
+The spike answer 5 asked for, run on 2026-10-20 with Node 24.14.1 over the shipped pin, a copy with inline and trailing comments, and the inline-table layout `load_pin` also accepts (`design/spikes/toml_libraries.mjs`):
 
-Each edit on the shipped pin (`kits/reviewer/templates/.conclave/reviewers.toml`), with the comments kept:
+| Library | Round trip | One-line edits | Other edits |
+| --- | --- | --- | --- |
+| `smol-toml` 1.9.1 | comments lost | comments lost | not tried |
+| `@iarna/toml` 2.2.5 | comments lost | comments lost | not tried |
+| `@ltd/j-toml` 1.38.0 | comments lost | comments lost | not tried |
+| `toml-patch` 0.2.3 (last release 2022) | exact | exact | fails on inline tables |
+| `@decimalturn/toml-patch` 3.3.1 | exact | exact | add and delete damage |
+| `toml-eslint-parser` 1.0.3 | parser only | no writer | no writer |
 
-Set a field: astra's effort from `medium` to `high` changes one line.
+`@decimalturn/toml-patch`, the maintained fork, comes closest: setting a field, renaming a reviewer and setting or removing a route change only the lines they should. But adding a reviewer writes `reviewers.mini = {cli = "codex", ...}` as a dotted inline key between astra's comment and astra's table, deleting `sonnet` also deletes the `[routes]` comment block, and renaming a reviewer in an inline table fails. So no library meets R12 for every edit.
 
-```toml
-# GPT-6 Astra through the Codex CLI, read-only sandbox.
-[reviewers.astra]
-cli = "codex"
-model = "gpt-6-astra"
-effort = "high"
+Choice: a narrow hand-written editor in `extensions/vscode/src/core/pinText.ts` (`D02 T01 §4`). It edits a pin written in one layout, the one the kit ships: blank lines; comment lines; `schema_version = <integer>`; `[reviewers.<name>]` and `[routes]` headers; inside a reviewer table one `key = "value"` (or `'value'`) per line with no escapes; inside `[routes]` one `writer = ["a", "b"]` array per line; any line may end in a comment. `load_pin` accepts other layouts too (inline tables, quoted keys, dotted keys, arrays over several lines, escapes), and the editor never rewrites one: a valid pin in another layout opens the read-only `This pin uses a layout the editor does not edit` state (`design/decisions.md`, 2026-10-20), with `Open file` and `Retry`, and reviews still run. Every edit replaces the smallest span it touches and keeps everything else (comments, blank lines, key order, quote style, line endings) byte for byte. A deleted reviewer takes the comment block directly above its header with it; any other comment stays.
+
+Each edit on the shipped pin (`kits/reviewer/templates/.conclave/reviewers.toml`), as a unified diff of the whole file, so the lines shown are the only ones that change. `remove-field` and `add-field` start from `add-reviewer`'s result, and `add-route` from `remove-route`'s. `design/spikes/pin_edits.py` is the reference: it makes every edit, checks the file before and after with `load_pin`, and checks that a CRLF copy gives the same edit with CRLF kept; `D02 T01 §4`'s golden tests reproduce these outputs in TypeScript.
+
+`set-field`: astra's effort from medium to high.
+
+```diff
+@@ -19,3 +19,3 @@
+ model = "gpt-6-astra"
+-effort = "medium"
++effort = "high"
 ```
 
-Add a reviewer: a new table goes after the last reviewer table and before the routes comment, with one blank line on each side.
+`add-reviewer`: add mini (codex, gpt-6-mini, low).
 
-```toml
-# Sonnet 5.5 through Claude Code in plan mode.
-[reviewers.sonnet]
-cli = "claude"
-model = "claude-sonnet-5-5"
-effort = "high"
-
-[reviewers.mini]
-cli = "codex"
-model = "gpt-6-mini"
-effort = "low"
-
-# Each writer is reviewed by the other two families: Astra first wherever it
-# may review, and the third family as the one fallback.
-[routes]
+```diff
+@@ -33,2 +33,7 @@
+ 
++[reviewers.mini]
++cli = "codex"
++model = "gpt-6-mini"
++effort = "low"
++
+ # Each writer is reviewed by the other two families: Astra first wherever it
 ```
 
-Rename a reviewer: the header and every route entry that names it change, nothing else; `astra` to `gpt6`:
+`remove-field`: mini moved to Antigravity: cli, model, and its effort line removed.
 
-```toml
-# GPT-6 Astra through the Codex CLI, read-only sandbox.
-[reviewers.gpt6]
-...
-claude = ["gpt6", "gemini"]
-codex = ["gemini", "sonnet"]
-gemini = ["gpt6", "sonnet"]
+```diff
+@@ -34,5 +34,4 @@
+ [reviewers.mini]
+-cli = "codex"
+-model = "gpt-6-mini"
+-effort = "low"
++cli = "agy"
++model = "gemini-4-argon-low"
 ```
 
-Delete a reviewer: its table and the comment block directly above it go, and its name leaves every route (a route left empty is removed, never written as `[]`); deleting `sonnet` from the shipped pin leaves `codex = ["gemini"]` and `gemini = ["astra"]`.
+`add-field`: the reverse: mini back to Codex, its effort line added.
 
-Set a route: one array on one line in the file's own style; reordering codex writes `codex = ["sonnet", "gemini"]`. Remove a route: its line goes.
+```diff
+@@ -34,4 +34,5 @@
+ [reviewers.mini]
+-cli = "agy"
+-model = "gemini-4-argon-low"
++cli = "codex"
++model = "gpt-6-mini"
++effort = "low"
+```
 
-Reversal cost: medium. The editor is one module behind five functions with golden tests; swapping it for a library changes that module only, but only a library that keeps comments can satisfy R12.
+`rename-reviewer`: astra renamed gpt6.
+
+```diff
+@@ -16,3 +16,3 @@
+ # GPT-6 Astra through the Codex CLI, read-only sandbox.
+-[reviewers.astra]
++[reviewers.gpt6]
+ cli = "codex"
+@@ -36,4 +36,4 @@
+ [routes]
+-claude = ["astra", "gemini"]
++claude = ["gpt6", "gemini"]
+ codex = ["gemini", "sonnet"]
+-gemini = ["astra", "sonnet"]
++gemini = ["gpt6", "sonnet"]
+```
+
+`delete-reviewer`: sonnet deleted.
+
+```diff
+@@ -27,8 +27,2 @@
+ 
+-# Sonnet 5.5 through Claude Code in plan mode.
+-[reviewers.sonnet]
+-cli = "claude"
+-model = "claude-sonnet-5-5"
+-effort = "high"
+-
+ # Each writer is reviewed by the other two families: Astra first wherever it
+@@ -37,3 +31,3 @@
+ claude = ["astra", "gemini"]
+-codex = ["gemini", "sonnet"]
+-gemini = ["astra", "sonnet"]
++codex = ["gemini"]
++gemini = ["astra"]
+```
+
+`set-route`: codex reviewed by sonnet, then gemini.
+
+```diff
+@@ -37,3 +37,3 @@
+ claude = ["astra", "gemini"]
+-codex = ["gemini", "sonnet"]
++codex = ["sonnet", "gemini"]
+ gemini = ["astra", "sonnet"]
+```
+
+`remove-route`: gemini's route removed.
+
+```diff
+@@ -38,2 +38 @@
+ codex = ["gemini", "sonnet"]
+-gemini = ["astra", "sonnet"]
+```
+
+`add-route`: a route for a writer with none, appended.
+
+```diff
+@@ -38 +38,2 @@
+ codex = ["gemini", "sonnet"]
++gemini = ["sonnet", "astra"]
+```
+
+Reversal cost: medium. The editor is one module behind its edit functions with golden tests; swapping it for a library changes that module only, but only a library that passes every edit above can satisfy R12. Widening the layout it edits is additive: a new line form, its golden tests, and fewer pins in the read-only state.
 
 ## 3. Atomic writes with a stale-disk check
 
 Options: `vscode.workspace.fs.writeFile` over the pin; Node `fs` with a temporary file and a rename; a `WorkspaceEdit` on a text document.
 
-Choice: saves are atomic, on the extension host, with Node's `fs.promises`, which work the same locally on Windows and in the Remote WSL host (the pin is on the host's file system in both cases). Save: (1) read the pin and compare its SHA-256 with the hash recorded at load; if it differs, refuse and offer `Reload from disk` (plan R13, `design/SPEC.md` §4); (2) open `.conclave/.reviewers.toml.<random>.tmp` with the `wx` flag in the pin's own folder, write the text, `sync`, close; (3) `fs.promises.rename` it over `.conclave/reviewers.toml` (on Windows Node uses `MoveFileExW` with replace; in WSL `rename(2)`); (4) on any failure, delete the temporary file and say what failed. On Windows a rename onto a file another program holds open can fail with `EPERM` or `EBUSY`: retry three times at 100 ms, then report it and keep the edits. The new text's hash becomes the loaded hash.
+Choice: saves are atomic, on the extension host, with Node's `fs.promises`, which work the same locally on Windows and in the Remote WSL host (the pin is on the host's file system in both cases). Save: (1) open `.conclave/.reviewers.toml.<random>.tmp` with the `wx` flag in the pin's own folder, write the text, `sync`, close; (2) read the pin and compare its SHA-256 with the hash recorded at load, as the last step before the rename, and again before every retry; if it differs, delete the temporary file, refuse, and offer `Reload from disk` (plan R13, `design/SPEC.md` §4); (3) `fs.promises.rename` the temporary file over `.conclave/reviewers.toml` (on Windows Node uses `MoveFileExW` with replace; in WSL `rename(2)`); (4) on any failure, delete the temporary file and say what failed. On Windows a rename onto a file another program holds open can fail with `EPERM` or `EBUSY`: wait 100 ms, re-check the hash, and retry, three times, then report it and keep the edits. The new text's hash becomes the loaded hash. A file watcher on the pin marks the editor stale as soon as another program writes it, so most conflicts are caught before Save is pressed.
+
+What remains: another program that writes the pin in the moment between the last hash check and the rename is overwritten. Neither Windows nor Linux gives a lock that other editors honour, and VS Code's own save has the same window; it is microseconds wide, it needs a second writer at that instant, and closing it would mean a lock no other tool takes. The check at the replacement boundary keeps it to that instant.
 
 Reversal cost: low. One function, with the integration test that proves the stale refusal and the temporary-file cleanup.
 
@@ -80,7 +160,7 @@ Reversal cost: low.
 
 ## 5. Windows and WSL
 
-The extension is a workspace extension (`"extensionKind": ["workspace"]`), so in a Remote WSL window it runs in the WSL extension host and calls that side's Python and forge (plan R20). It needs a trusted workspace (`capabilities.untrustedWorkspaces.supported: false`); in Restricted Mode it runs nothing and shows `design/SPEC.md` §7's state (plan R19).
+The extension is a workspace extension (`"extensionKind": ["workspace"]`), so in a Remote WSL window it runs in the WSL extension host and calls that side's Python and forge (plan R20). It declares limited support for untrusted workspaces (`capabilities.untrustedWorkspaces`: `supported` `"limited"`, with `conclave.pythonPath`, `conclave.sdkPath`, `conclave.sdkRef` and `conclave.sdkRepository` as `restrictedConfigurations`), because `supported: false` would keep it from activating at all and the Restricted Mode state could never show. In Restricted Mode it activates, starts no process, and every command and view shows `design/SPEC.md` §7's state with `Manage Workspace Trust` (plan R19); one check, `vscode.workspace.isTrusted`, guards the single function that spawns processes, and `onDidGrantWorkspaceTrust` re-runs the workspace detection.
 
 Python is resolved once per session, and again when `conclave.pythonPath` changes (`design/decisions.md` answer 7). A candidate must print a version of 3.11 or later (`tomllib`); 3.11.4 or later is needed only to extract a GitHub source (section 8). A set but unusable `conclave.pythonPath` is an error, never a silent fallback.
 
@@ -114,7 +194,7 @@ The extension runs `forge.py` for every kit operation (plan R24) from one source
 - `conclave.sdkPath`: a local checkout; it must hold `forge.py` and `kits/`, else the refusal `conclave.sdkPath is not a Conclave-SDK checkout.` Labelled with the path.
 - `conclave.sdkRef`: a ref of `conclave.sdkRepository` (default `rizonetech/Conclave-SDK`, internal) on GitHub.
 
-For the GitHub source: the session comes from VS Code's GitHub authentication provider (`vscode.authentication.getSession("github", ["repo"], { createIfNone: true })`), so no token is stored. The ref is resolved to one commit SHA first (`GET /repos/{owner}/{repo}/commits/{ref}` with `Accept: application/vnd.github.sha`); everything after uses that SHA. The source is the REST tarball (`GET /repos/{owner}/{repo}/tarball/{sha}`), not `git clone`, so no Git is needed and nothing but the tree at that SHA arrives. It is cached at `globalStorageUri/sdk/<sha>/`, written to `<sha>.partial/` and renamed into place when complete. Extraction uses the resolved Python's `tarfile` with `filter="data"` (Python 3.11.4 or later), which refuses absolute paths, `..` segments, links and device files; an older Python refuses the GitHub source with that reason instead of extracting without the filter. Nothing downloaded runs until the operator confirms a dialog naming the repository and the SHA. Refusals, each with its actions (`design/SPEC.md` §8): sign-in cancelled, no access (HTTP 404), rate limit used up (HTTP 403 with no requests remaining, naming the reset time), offline, an unusable `sdkPath`, and an archive the extractor refuses. `Use the bundled SDK` is always offered.
+For the GitHub source: the session comes from VS Code's GitHub authentication provider (`vscode.authentication.getSession("github", ["repo"], { createIfNone: true })`), so no token is stored. The ref is resolved to one commit SHA first (`GET /repos/{owner}/{repo}/commits/{ref}` with `Accept: application/vnd.github.sha`); everything after uses that SHA. The source is the REST tarball (`GET /repos/{owner}/{repo}/tarball/{sha}`), not `git clone`, so no Git is needed and nothing but the tree at that SHA arrives. It is cached at `globalStorageUri/sdk/<sha>/`, written to `<sha>.partial/` and renamed into place when complete. Extraction runs a script that ships inside the `.vsix` (never one from the archive) with the resolved Python in isolated mode (`-I`). Before anything is written it reads every member and refuses the whole archive when any member is not a regular file or directory (a symlink, hard link, device or FIFO), has an absolute name (a leading `/` or `\`, or a drive letter), has a `..` segment after splitting on both `/` and `\`, or lies outside the archive's single top folder (`<owner>-<repo>-<short sha>/`). It then extracts with `tarfile`'s `filter="data"` as a second layer (Python 3.11.4 or later): that filter alone strips a leading `/` and allows links that stay inside the target, so it is not the check, the member list is. An older Python refuses the GitHub source with that reason. Nothing downloaded runs until the operator confirms a dialog naming the repository and the SHA. Refusals, each with its actions (`design/SPEC.md` §8): sign-in cancelled, no access (HTTP 404), rate limit used up (HTTP 403 with no requests remaining, naming the reset time), offline, an unusable `sdkPath`, and an archive the extractor refuses. `Use the bundled SDK` is always offered.
 
 Reversal cost: medium. The bundled source alone works offline; the GitHub source is additive, and dropping it removes the sign-in, cache and extraction code without touching the kit operations.
 

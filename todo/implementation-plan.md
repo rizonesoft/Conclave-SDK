@@ -27,13 +27,13 @@ Sections: 12 | Checklist items: 118
 
 ### Phase 1: Extension host and kit operations
 
-Sections: 14 | Checklist items: 111
+Sections: 14 | Checklist items: 114
 
 | Status | Reference   | Deliverable                                 | Needs | Items |
 | ------ | ----------- | ------------------------------------------- | ----- | ----- |
 | [ ]    | D02 T01 §2  | Python resolution on Windows and WSL        | none  | 7     |
-| [ ]    | D02 T01 §3  | Dispatcher client and workspace states      | none  | 9     |
-| [ ]    | D02 T01 §4  | Comment-preserving pin text model           | none  | 9     |
+| [ ]    | D02 T01 §3  | Dispatcher client and workspace states      | none  | 10    |
+| [ ]    | D02 T01 §4  | Comment-preserving pin text model           | none  | 11    |
 | [ ]    | D02 T01 §5  | Candidate validation through check-pin      | none  | 7     |
 | [ ]    | D02 T01 §6  | Atomic save, stale check and re-check       | none  | 8     |
 | [ ]    | D02 T01 §7  | SDK source: local checkout or GitHub commit | none  | 12    |
@@ -48,7 +48,7 @@ Sections: 14 | Checklist items: 111
 
 ### Phase 2: Editor surface and Kits view
 
-Sections: 21 | Checklist items: 173
+Sections: 21 | Checklist items: 176
 
 | Status | Reference   | Deliverable                                   | Needs | Items |
 | ------ | ----------- | --------------------------------------------- | ----- | ----- |
@@ -61,15 +61,15 @@ Sections: 21 | Checklist items: 173
 | [ ]    | D03 T01 §7  | TOML preview with diff against disk           | none  | 8     |
 | [ ]    | D03 T01 §8  | Save, discard and reload flow                 | none  | 9     |
 | [ ]    | D03 T01 §9  | Reviewer status and Test reviewer panel       | none  | 8     |
-| [ ]    | D03 T01 §11 | Entry points: command, menus and status bar   | none  | 10    |
+| [ ]    | D03 T01 §11 | Entry points: command, menus and status bar   | none  | 11    |
 | [ ]    | D05 T01 §5  | Conclave Activity Bar view with the Kits tree | none  | 11    |
 | [ ]    | D05 T01 §6  | Kit installer in the side bar                 | none  | 10    |
 | [ ]    | D05 T01 §7  | Kit update flow                               | none  | 7     |
-| [ ]    | D03 T01 §10 | Empty and failure states                      | none  | 12    |
+| [ ]    | D03 T01 §10 | Empty and failure states                      | none  | 13    |
 | [ ]    | D05 T01 §8  | Kit health detail                             | none  | 7     |
 | [ ]    | D05 T01 §9  | New repository wizard                         | none  | 10    |
 | [ ]    | D06 T01 §1  | Feature section registry                      | none  | 7     |
-| [ ]    | D06 T01 §4  | Reviewers section                             | none  | 6     |
+| [ ]    | D06 T01 §4  | Reviewers section                             | none  | 7     |
 | [ ]    | D06 T01 §5  | Plan section                                  | none  | 6     |
 | [ ]    | D06 T01 §6  | Review rounds section                         | none  | 6     |
 | [ ]    | D06 T01 §7  | WordPress site section                        | none  | 5     |
@@ -89,4 +89,4 @@ Sections: 6 | Checklist items: 43
 
 Progress: 7/53 verified sections, 4 ready to run now.
 
-Checklist: 95/445 items completed (includes Commit items).
+Checklist: 95/451 items completed (includes Commit items).

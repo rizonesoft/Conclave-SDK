@@ -166,7 +166,7 @@ Surface sections in `D03 T01` cite `design/SPEC.md` for their Fidelity. This sec
 
 > **Started:** 2026-10-20T08:56:03Z
 
-**Corrected 2026-10-20:** the comment-preserving choice was to follow a spike over the fixture pins (`design/decisions.md` answer 5); no extension toolchain exists before `D02 T01 §1`, so the spec records the hand-written editor as a default from the libraries' documented behaviour, and `D02 T01 §4`'s golden tests over the fixture pins are the proof. Writing the spec also found plan R32's protected files predating the automations and todo kits' project-owned files; corrected in the plan.
+**Corrected 2026-10-20:** the comment-preserving choice follows the spike answer 5 asks for, run outside the repository over the shipped pin, a commented copy and an inline-table pin (`design/spikes/toml_libraries.mjs`): no library edits every case in place, so the spec chooses the narrow hand-written editor, with every edit's expected before and after from `design/spikes/pin_edits.py` (review round 1 found the first draft deferred the spike and gave partial examples). Writing the spec also found plan R32's protected files predating the automations and todo kits' project-owned files; corrected in the plan.
 
 The brief requires a spec that settles seven decisions before the extension is built, and the owner added an eighth on 2026-10-16: where the SDK comes from (bundled by default). This section writes `docs/specs/<date>-vscode-extension-design.md`, dated the day it is written, from the plan, the approved mockup and `design/decisions.md`. Each decision records the options weighed, the choice, and the cost of reversing it.
 

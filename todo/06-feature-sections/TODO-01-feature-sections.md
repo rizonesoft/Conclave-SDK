@@ -128,6 +128,8 @@ The Review rounds section must not parse the dispatcher's Markdown (plan R35, op
 
 ## 4. Reviewers section
 
+**Corrected 2026-10-20:** review of `D00 T01 §4` found that `load_pin` accepts TOML layouts the editor cannot edit in place (inline tables, quoted keys, arrays over several lines); a valid pin in one is the read-only `pin-layout` state (`design/decisions.md`, 2026-10-20; design spec section 2), added below.
+
 The pin's state belongs in the side bar, not only in the editor tab (plan R37). This section shows the pin state from D02 T01 §3, each reviewer with its CLI status and each route, and moves Open Reviewer Settings from the Kits title bar to this section's.
 
 **Phase:** 2
@@ -145,6 +147,7 @@ The pin's state belongs in the side bar, not only in the editor tab (plan R37). 
 
 - [ ] Implement `reviewersSection` in `extensions/vscode/src/host/sections/reviewersSection.ts` from the `--check-pin --json` result: `reviewers`, `routes` and `clis`. Done when: a unit test over the shipped fixture lists the rows in pin order. Cheaper substitute: reading `.conclave/reviewers.toml` directly.
 - [ ] Show one state row for `refused`, `unsupported-schema`, `no-pin`, `no-dispatcher`, `old-dispatcher`, `no-python` and `untrusted`, and no reviewer rows while the pin is refused. Done when: a unit test per state checks the row and that a refused pin lists no reviewer. Cheaper substitute: one generic error row.
+- [ ] Show the `pin-layout` state row `reviewers.toml` `valid; a layout the editor does not edit` (warning icon) and no reviewer rows, as for `unsupported-schema` (`design/SPEC.md` §12, the mockup's REVIEWERS pane). Done when: a unit test with the inline-table pin shows that one row. Cheaper substitute: showing `valid (--check-pin)`.
 - [ ] Move "Open Reviewer Settings" from D05 T01 §5's view title to `conclave.reviewers` and add inline Install (opening D05 T01 §6 preset to `reviewer`) on the no-pin and no-dispatcher rows. Done when: each action runs from the section. Cheaper substitute: keeping the command only in the Kits title.
 - [ ] Write `extensions/vscode/test/integration/reviewersSection.test.ts`. Done when: it passes and fails when a missing CLI is shown as ready. Cheaper substitute: a label snapshot.
 - [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/reviewers-section.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.

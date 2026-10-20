@@ -312,6 +312,8 @@ The operator sees whether each reviewer can run and can test one on a planted bu
 
 ## 10. Empty and failure states
 
+**Corrected 2026-10-20:** review of `D00 T01 §4` found that `load_pin` accepts TOML layouts the editor cannot edit in place (inline tables, quoted keys, arrays over several lines); a valid pin in one is the read-only `pin-layout` state (`design/decisions.md`, 2026-10-20; design spec section 2), added below.
+
 When the workspace is not `ready`, the panel replaces the editor with the state's explanation and action (plan R16 to R19, R21). This section renders `no-pin` (the side bar kit installer from `D05 T01 §6`, preset to `reviewer`), `refused` (message and Open file), `no-dispatcher` and `old-dispatcher` (the kit update flow from `D05 T01 §7`, with scripts included), the SDK source refusals from `D02 T01 §7`, `no-python` (the candidates tried and the setting), `untrusted` (Manage Workspace Trust) and `unsupported-schema`.
 
 **Phase:** 2
@@ -335,6 +337,7 @@ When the workspace is not `ready`, the panel replaces the editor with the state'
 - [ ] Render `no-python` listing each candidate tried and its reason from `D02 T01 §2`, with Open Settings on `conclave.pythonPath`. Done when: a run with a bad setting shows it. Cheaper substitute: "Python not found".
 - [ ] Render `untrusted` with Manage Workspace Trust (`workbench.trust.manage`). Done when: an untrusted run shows it and starts no process. Cheaper substitute: an empty panel.
 - [ ] Render `unsupported-schema` naming the found and supported versions. Done when: a stubbed version 2 shows it. Cheaper substitute: rendering it as refused.
+- [ ] Render `pin-layout` with `design/SPEC.md` §7's wording, `Open file` and `Retry`, and no editable control. Done when: a webview test with the inline-table pin shows the state, and Retry after the file is rewritten in the editable layout opens the editor. Cheaper substitute: rendering it as refused.
 - [ ] Add Retry to every state, re-running the `D02 T01 §3` classification. Done when: fixing the cause and pressing Retry opens the editor. Cheaper substitute: reopening the panel.
 - [ ] Write `extensions/vscode/test/integration/emptyStates.test.ts` walking every workspace and state. Done when: all pass and fail when `old-dispatcher` renders as `refused`. Cheaper substitute: two states.
 - [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/empty-and-failure-states.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
@@ -343,6 +346,8 @@ When the workspace is not `ready`, the panel replaces the editor with the state'
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep emptyStates` passes and fails when the `old-dispatcher` state shows the `refused` layout.
 
 ## 11. Entry points: command, menus and status bar
+
+**Corrected 2026-10-20:** review of `D00 T01 §4` found that `load_pin` accepts TOML layouts the editor cannot edit in place (inline tables, quoted keys, arrays over several lines); a valid pin in one is the read-only `pin-layout` state (`design/decisions.md`, 2026-10-20; design spec section 2), added below.
 
 The operator needs a way in (plan R26). This section contributes the Command Palette command "Conclave: Open Reviewer Settings", an Explorer context menu item and an editor title button on `.conclave/reviewers.toml`, and a status bar item that shows the workspace state from `D02 T01 §3` and opens the panel. Each one opens the panel for the workspace folder that holds the pin, revealing the panel when it is already open.
 
@@ -364,6 +369,7 @@ The operator needs a way in (plan R26). This section contributes the Command Pal
 - [ ] Contribute an `editor/title` entry in the `navigation` group with the same `when` clause. Done when: opening the pin as text shows the button, and it is absent on other files. Cheaper substitute: a button on every editor.
 - [ ] Route the command's `Uri` argument in `extensions/vscode/src/host/entryPoints.ts` to the workspace folder that contains it, falling back to the active editor's folder, then the only folder, then a folder picker. Done when: an integration test on a two-folder workspace opens the second folder's panel from its pin. Cheaper substitute: always the first folder.
 - [ ] Create the status bar item in `extensions/vscode/src/host/statusItem.ts` with text from the §3 state and the SPEC's wording (for example `Reviewers: valid`, `Reviewers: 1 problem`, `Reviewers: no pin`, `Reviewers: dispatcher too old`), the folder in the tooltip, and the command `conclave.openReviewers`. Done when: an integration test reads the text for `ready`, `refused` and `no-pin` workspaces. Cheaper substitute: a static "Reviewers" label.
+- [ ] Show `layout not editable` with the warning icon in the status bar item for a `pin-layout` workspace (`design/SPEC.md` §7). Done when: the integration test reads it for the inline-table pin. Cheaper substitute: showing `valid`.
 - [ ] Show the status item only for a folder with `.conclave/` or `scripts/review-dispatch.py`, following the active editor's folder in a multi-root window. Done when: a folder with neither shows no item. Cheaper substitute: the item in every window.
 - [ ] Set `statusBarItem.errorBackground` only while the saved pin or the candidate is refused. Done when: the test reads the background for refused and for ready. Cheaper substitute: a hard-coded red.
 - [ ] Write `extensions/vscode/test/integration/entryPoints.test.ts` covering the command, both menus' `when` clauses, folder routing and the status item. Done when: all pass and fail when the `explorer/context` `when` clause is removed. Cheaper substitute: testing the command only.
