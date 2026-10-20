@@ -48,7 +48,7 @@ title: "TODO-01 -- Extension Core"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Extension scaffold, build and test harness | D00 T01 §4 | [ ] |
+| 1 | §1 | Extension scaffold, build and test harness | D00 T01 §4 | [x] |
 | 2 | §2 | Python resolution on Windows and WSL | §1 | [ ] |
 | 3 | §3 | Dispatcher client and workspace states | §2, D01 T01 §3 | [ ] |
 | 4 | §4 | Comment-preserving pin text model | §1, D01 T01 §3 | [ ] |
@@ -85,9 +85,12 @@ Every later section needs a project that builds, lints and tests. This section c
 - [x] Write `extensions/vscode/src/extension.ts` registering `conclave.openReviewers` that opens a placeholder webview panel titled "Reviewers", and `extensions/vscode/src/host/output.ts` creating the "Conclave" output channel. Done when: the integration test sees the panel and the channel. Cheaper substitute: a command that only shows an information message.
 - [x] Add `extensions/vscode/.vscodeignore`, extend the SDK's `.gitignore` with `extensions/vscode/node_modules/`, `out/`, `dist/`, `sdk/`, `.vscode-test/` and `*.vsix`, and add `extensions/vscode/.vscode/launch.json` for the Extension Development Host. Done when: `git status --short` after a build shows no generated files. Cheaper substitute: committing `extensions/vscode/dist/`.
 - [x] Document `npm ci`, `npm run build`, `npm run lint`, `npm test` and `npm run test:integration` in `extensions/vscode/README.md` and the SDK's `AGENTS.md`. Done when: each command named runs as written from `extensions/vscode/`. Cheaper substitute: commands left only in `extensions/vscode/package.json`.
-- [ ] Commit: `extension: scaffold, build and test harness`
+- [x] Commit: `extension: scaffold, build and test harness`
 
 **Test checkpoint:** `cd extensions/vscode && npm ci && npm run build && npm run lint && npm test && npm run test:integration` exits 0, and `npm run test:integration` fails when `conclave.openReviewers` is removed from `extensions/vscode/src/extension.ts`.
+
+> **Verified:** 2026-10-20 | §1 | 476e64d36dba4c65e9846c57311ddcc4d411bcb6
+> **Review:** `docs/reviews/d02-t01-s1.json`
 
 ## 2. Python resolution on Windows and WSL
 
