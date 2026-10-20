@@ -73,3 +73,48 @@ try {
   results.push({ name: "toml-eslint-parser", fixture: "shipped", note: `parses with ${ast.comments.length} comments and token ranges; no writer` });
 } catch (e) { results.push({ name: "toml-eslint-parser", error: e.message }); }
 console.log(JSON.stringify(results, null, 1));
+
+// Part 2: every edit the editor makes, through the two libraries that patch text in place, as a line diff of the
+// shipped pin (and the inline-table pin where the edit applies). design/spikes/pin_edits.py has the expected diffs.
+function lineDiff(a, b) {
+  const x = a.split("\n"), y = b.split("\n");
+  const lcs = Array.from({ length: x.length + 1 }, () => new Array(y.length + 1).fill(0));
+  for (let i = x.length - 1; i >= 0; i--)
+    for (let j = y.length - 1; j >= 0; j--)
+      lcs[i][j] = x[i] === y[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+  const out = [];
+  let i = 0, j = 0;
+  while (i < x.length || j < y.length) {
+    if (i < x.length && j < y.length && x[i] === y[j]) { i++; j++; }
+    else if (j < y.length && (i === x.length || lcs[i][j + 1] >= lcs[i + 1][j])) { out.push(`+ new ${j + 1}: ${y[j]}`); j++; }
+    else { out.push(`- old ${i + 1}: ${x[i]}`); i++; }
+  }
+  return out.length ? out.join("\n") : "(no change)";
+}
+const renameKey = (obj, from, to) => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k === from ? to : k, v]));
+const structural = {
+  "set a field": (o) => { o.reviewers.astra.effort = "high"; },
+  "add a reviewer": (o) => { o.reviewers.mini = { cli: "codex", model: "gpt-6-mini", effort: "low" }; },
+  "rename a reviewer": (o) => {
+    o.reviewers = renameKey(o.reviewers, "astra", "gpt6");
+    for (const w of Object.keys(o.routes)) o.routes[w] = o.routes[w].map((n) => (n === "astra" ? "gpt6" : n));
+  },
+  "delete a reviewer": (o) => {
+    delete o.reviewers.sonnet;
+    for (const w of Object.keys(o.routes)) o.routes[w] = o.routes[w].filter((n) => n !== "sonnet");
+  },
+  "set a route": (o) => { o.routes.codex = ["sonnet", "gemini"]; },
+  "remove a route": (o) => { delete o.routes.gemini; },
+};
+for (const name of ["toml-patch", "@decimalturn/toml-patch"]) {
+  const lib = libs[name]();
+  for (const [label, text] of Object.entries({ shipped, inline })) {
+    for (const [edit, apply] of Object.entries(structural)) {
+      const o = clone(lib.parse(text));
+      try { apply(o); } catch { continue; }  // the inline pin has no sonnet or codex route to edit
+      let out;
+      try { out = lineDiff(text, lib.write(o, text)); } catch (e) { out = "ERROR " + e.message.split("\n")[0]; }
+      console.log(`### ${name}, ${label}: ${edit}\n${out}`);
+    }
+  }
+}

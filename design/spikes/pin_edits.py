@@ -59,6 +59,20 @@ def table_span(lines, name):
     return start, end
 
 
+def ending(line, nl):
+    """A line given its line ending if it has none (the last line of a file without a final newline)."""
+    return line if line.endswith(("\n", "\r")) else line + nl
+
+
+def remove_line(lines, i, comment):
+    """Remove a key or route line; a trailing comment on it stays behind as a comment line in its place."""
+    if comment:
+        body = lines[i].rstrip("\r\n")
+        lines[i] = body[:len(body) - len(body.lstrip())] + comment.strip() + lines[i][len(body):]
+    else:
+        del lines[i]
+
+
 def comment_block_above(lines, start):
     """The comment lines directly above a header, with no blank line between them and it."""
     i = start
@@ -75,12 +89,13 @@ def set_field(text, reviewer, key, value):
         m = KEY.fullmatch(lines[i].strip())
         if m and m.group(1) == key:
             if value is None:
-                del lines[i]
+                remove_line(lines, i, m.group(3))
             else:
                 quote = m.group(2)[0]
                 lines[i] = re.sub(re.escape(m.group(2)), f"{quote}{value}{quote}", lines[i], count=1)
             return "".join(lines)
     if value is not None:
+        lines[end - 1] = ending(lines[end - 1], nl)
         lines.insert(end, f'{key} = "{value}"{nl}')
     return "".join(lines)
 
@@ -90,6 +105,7 @@ def add_reviewer(text, name, entry):
     lines, nl = lines_of(text), eol(text)
     last = max(i for i, l in enumerate(lines) if (m := HEADER.fullmatch(l.strip())) and m.group(1).startswith("reviewers."))
     _, end = table_span(lines, HEADER.fullmatch(lines[last].strip()).group(1))
+    lines[end - 1] = ending(lines[end - 1], nl)
     block = [nl, f"[reviewers.{name}]{nl}"] + [f'{k} = "{v}"{nl}' for k, v in entry.items()]
     lines[end:end] = block
     return "".join(lines)
@@ -127,7 +143,7 @@ def set_routes(text, change):
         if new == names:
             continue
         if not new:
-            del lines[i]
+            remove_line(lines, i, m.group(3))
         else:
             lines[i] = lines[i].replace(f"[{m.group(2)}]", "[" + ", ".join(f'"{n}"' for n in new) + "]", 1)
     return "".join(lines)
@@ -143,8 +159,7 @@ def set_route(text, writer, names):
         if m and m.group(1) == writer:
             lines[i] = lines[i].replace(f"[{m.group(2)}]", array, 1)
             return "".join(lines)
-    if end > 0 and not lines[end - 1].endswith(("\n", "\r")):
-        lines[end - 1] += nl
+    lines[end - 1] = ending(lines[end - 1], nl)
     lines.insert(end, f"{writer} = {array}{nl}")
     return "".join(lines)
 
@@ -155,7 +170,7 @@ def remove_route(text, writer):
     for i in range(start + 1, end):
         m = ROUTE.fullmatch(lines[i].strip())
         if m and m.group(1) == writer:
-            del lines[i]
+            remove_line(lines, i, m.group(3))
             break
     return "".join(lines)
 
@@ -193,6 +208,16 @@ def main():
     assert editable(shipped), "the shipped pin must be in the editable layout"
     assert not editable("reviewers = { astra = { cli = 'codex' } }\n"), "an inline table is not editable"
     check, Refused = load_pin()
+    # Review round 2 of D00 T01 §4: a removed line's trailing comment stays, and an insert after a last line with no
+    # final newline still starts its own line.
+    noted = cases(shipped)[1][3].replace('effort = "low"', 'effort = "low" # retained operator note')
+    assert "\n# retained operator note\n" in set_field(noted, "mini", "effort", None), "field comment dropped"
+    routed = shipped.replace('gemini = ["astra", "sonnet"]', 'gemini = ["astra", "sonnet"] # kept')
+    assert routed.endswith("# kept\n") and remove_route(routed, "gemini").endswith("# kept\n"), "route comment dropped"
+    bare = 'schema_version = 1\n[routes]\n[reviewers.mini]\ncli = "agy"\nmodel = "gemini-4-argon-low"'
+    assert editable(bare)
+    moved = set_field(set_field(bare, "mini", "cli", "codex"), "mini", "model", "gpt-6-mini")
+    assert set_field(moved, "mini", "effort", "low").endswith('model = "gpt-6-mini"\neffort = "low"\n'), "joined lines"
     failed = 0
     with tempfile.TemporaryDirectory() as tmp:
         for name, what, before, after in cases(shipped):
