@@ -12,6 +12,7 @@ function deps(over: Partial<CheckDeps> = {}, files: string[] = ["/w/scripts/revi
   const base: CheckDeps = {
     trusted: true,
     join: (a, b) => `${a}/${b}`,
+    resolve: (folder, path) => (path.startsWith("/") ? path : `${folder}/${path}`),
     isFile: (p) => files.includes(p),
     readText: () => undefined,
     python: async () => PY,
@@ -69,4 +70,12 @@ test("a dispatcher that cannot run is logged with why, and shown by the output r
   const { deps: d, logs } = deps({ run: async () => ({ code: undefined, stdout: "", error: "timed out after 30 s" }) });
   assert.equal((await checkWorkspace("/w", d)).state, "old-dispatcher");
   assert.match(logs[0], /exit none \(timed out after 30 s\)/);
+});
+
+test("a relative candidate pin is resolved against the folder once, for the dispatcher and the layout alike", async () => {
+  const read: string[] = [];
+  const { deps: d, runs } = deps({ readText: (p) => (read.push(p), undefined) });
+  await checkWorkspace("/w", d, "drafts/candidate.toml");
+  assert.deepEqual(runs[0].slice(-2), ["--pin", "/w/drafts/candidate.toml"]);
+  assert.deepEqual(read, ["/w/drafts/candidate.toml"]);
 });

@@ -82,3 +82,17 @@ test("checkPin: the real dispatcher is the one under test", () => {
   const [command, ...prefix] = python();
   assert.match(execFileSync(command, [...prefix, dispatcher, "--help"], { encoding: "utf8" }), /--check-pin/);
 });
+
+test("checkPin: a success reply without the contract's shape is not a usable report", () => {
+  for (const reply of [
+    '{"ok": true, "schema_version": 1}',
+    '{"ok": true}',
+    '{"ok": true, "schema_version": "1", "reviewers": {}, "routes": {}, "clis": {}}',
+    '{"ok": true, "schema_version": 1, "reviewers": {"a": {"cli": 1, "model": "m"}}, "routes": {}, "clis": {}}',
+    '{"ok": true, "schema_version": 1, "reviewers": {}, "routes": {"claude": "astra"}, "clis": {}}',
+    '{"ok": true, "schema_version": 1, "reviewers": {}, "routes": {}, "clis": {"codex": "yes"}}',
+  ]) {
+    assert.equal(parseCheckPin(reply, 0).state, "old-dispatcher", reply);
+  }
+  assert.equal(parseCheckPin('{"ok": true, "schema_version": 1, "reviewers": {}, "routes": {}, "clis": {}}', 0).state, "ready");
+});

@@ -1,7 +1,8 @@
 import { readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import * as vscode from "vscode";
 import type { WorkspaceState } from "../core/checkPin";
+import { FolderQueue } from "../core/folderQueue";
 import { checkWorkspace } from "../core/workspaceState";
 import { log } from "./output";
 import type { PythonService } from "./python";
@@ -28,11 +29,16 @@ function readText(path: string): string | undefined {
   }
 }
 
-// Runs the workspace's own dispatcher (plan R7). One call per folder and pin is in flight at a time: a request while
-// one runs gets that call's answer, so rapid requests start one process. Nothing runs in Restricted Mode, and every
-// folder already checked is checked again when the workspace is trusted.
+// Runs the workspace's own dispatcher (plan R7). One dispatcher process runs per folder at a time; an identical request
+// already waiting or running shares its answer. Nothing runs in Restricted Mode, and every folder already checked is
+// checked again when the workspace is trusted.
+//
+// onDidCheck carries the folder's own pin only, and only its newest check: a candidate (§5) gets its verdict from the
+// promise it asked for, so a candidate result is never mistaken for the saved pin's state, and an older check that
+// finishes late is not published over a newer one.
 export class DispatcherClient implements vscode.Disposable {
-  private readonly inFlight = new Map<string, Promise<WorkspaceState>>();
+  private readonly queue = new FolderQueue<WorkspaceState>();
+  private readonly generations = new Map<string, number>();
   private readonly checked = new Set<string>();
   private readonly changed = new vscode.EventEmitter<WorkspaceChecked>();
   private readonly trust: vscode.Disposable;
@@ -47,28 +53,30 @@ export class DispatcherClient implements vscode.Disposable {
   }
 
   check(folder: vscode.Uri, pin?: string): Promise<WorkspaceState> {
-    const key = `${folder.toString()}\n${pin ?? ""}`;
-    const running = this.inFlight.get(key);
-    if (running) {
-      return running;
+    const key = folder.toString();
+    const generation = pin ? 0 : (this.generations.get(key) ?? 0) + 1;
+    if (!pin) {
+      this.generations.set(key, generation);
     }
-    const call = checkWorkspace(folder.fsPath, {
+    const call = this.queue.run(key, pin ?? "", () => checkWorkspace(folder.fsPath, {
       trusted: vscode.workspace.isTrusted,
       join,
+      resolve,
       isFile,
       readText,
       python: () => this.python.python(folder),
       run,
       log,
       now: Date.now,
-    }, pin).then((state) => {
-      if (!pin) {
-        this.checked.add(folder.toString());
-      }
-      this.changed.fire({ folder, state });
-      return state;
-    }).finally(() => this.inFlight.delete(key));
-    this.inFlight.set(key, call);
+    }, pin));
+    if (!pin) {
+      void call.then((state) => {
+        this.checked.add(key);
+        if (this.generations.get(key) === generation) {
+          this.changed.fire({ folder, state });
+        }
+      }, () => undefined);
+    }
     return call;
   }
 

@@ -12,6 +12,9 @@ export interface CheckDeps {
   trusted: boolean;
   // Joins the folder and a relative path with the platform's separator.
   join: (folder: string, relative: string) => string;
+  // A candidate pin path made absolute against the folder (an absolute one is kept), so the dispatcher and the layout
+  // read see the same file whatever the extension host's working directory is.
+  resolve: (folder: string, path: string) => string;
   isFile: (path: string) => boolean;
   readText: (path: string) => string | undefined;
   python: () => Promise<Python | NoPython>;
@@ -34,8 +37,8 @@ export async function checkWorkspace(folder: string, deps: CheckDeps, pin?: stri
   if (!python.ok) {
     return python.untrusted ? { state: "untrusted" } : { state: "no-python", message: python.message };
   }
-  const pinPath = pin ?? deps.join(folder, PIN);
-  const args = [...python.prefix, dispatcher, "--check-pin", "--json", ...(pin ? ["--pin", pin] : [])];
+  const pinPath = pin ? deps.resolve(folder, pin) : deps.join(folder, PIN);
+  const args = [...python.prefix, dispatcher, "--check-pin", "--json", ...(pin ? ["--pin", pinPath] : [])];
   const started = deps.now();
   const result = await deps.run(python.command, args, TIMEOUT_MS, folder);
   const state = parseCheckPin(result.stdout, result.code, deps.readText(pinPath));

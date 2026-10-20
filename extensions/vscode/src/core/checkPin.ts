@@ -47,6 +47,20 @@ function contractObject(stdout: string): Record<string, unknown> | undefined {
   }
 }
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+// The success reply's transport shape, so a malformed reply never becomes a typed report. This checks types only; the
+// pin's rules stay the dispatcher's.
+function isReport(reply: Record<string, unknown>): reply is Record<string, unknown> & CheckPinReport {
+  const { schema_version: version, reviewers, routes, clis } = reply;
+  return Number.isInteger(version)
+    && isRecord(reviewers) && Object.values(reviewers).every((r) => isRecord(r) && typeof r.cli === "string"
+      && typeof r.model === "string" && (r.effort === undefined || typeof r.effort === "string"))
+    && isRecord(routes) && Object.values(routes).every((names) => Array.isArray(names) && names.every((n) => typeof n === "string"))
+    && isRecord(clis) && Object.values(clis).every((found) => typeof found === "boolean");
+}
+
 // One state from the dispatcher's stdout and exit code, and the pin's text when it could be read (for the layout).
 export function parseCheckPin(stdout: string, exitCode: number | undefined, pinText?: string): WorkspaceState {
   const reply = contractObject(stdout.trim());
@@ -55,7 +69,10 @@ export function parseCheckPin(stdout: string, exitCode: number | undefined, pinT
     return { state: "old-dispatcher", detail: `exit ${exitCode ?? "none"}, ${shown ? `printed ${JSON.stringify(shown)}` : "printed nothing"}` };
   }
   if (reply.ok === true && exitCode === 0) {
-    const report = reply as unknown as CheckPinReport;
+    if (!isReport(reply)) {
+      return { state: "old-dispatcher", detail: "exit 0 with a reply that is not the --check-pin contract's shape" };
+    }
+    const report = reply;
     if (report.schema_version !== SUPPORTED_SCHEMA) {
       return { state: "unsupported-schema", version: report.schema_version, report };
     }

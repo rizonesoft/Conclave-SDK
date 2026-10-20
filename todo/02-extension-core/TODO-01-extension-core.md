@@ -241,6 +241,10 @@ Saves must never leave a half-written pin and must never overwrite a change made
 
 ## 7. SDK source: local checkout or GitHub commit
 
+> **Started:** 2026-10-20T13:33:14Z
+
+**Corrected 2026-10-20:** the design spec (section 8, approved through `D00 T01 §4`) puts the archive member checks in the extraction script that ships inside the `.vsix` (`extensions/vscode/resources/extract_sdk.py`, run with the resolved Python in isolated mode), with `tarfile`'s `filter="data"` as a second layer; this section said `src/core/sdkSource.ts`. The checks live in the script, so one place holds them, and the checkpoint's traversal case is run against it. The GitHub source also needs Python 3.11.4 or later for the data filter (spec section 5), checked before any request.
+
 Every `forge.py` run goes through §9 from one SDK source (plan R24). This section decides which and produces a local folder holding it: the checkout in `conclave.sdkPath` when set; otherwise, when `conclave.sdkRef` is set, a download of `conclave.sdkRepository` at that ref, resolved to one commit SHA, through VS Code's GitHub sign-in, cached per SHA in the extension's global storage; otherwise the SDK bundled in the extension at `<extensionPath>/sdk/`, built by `D04 T01 §4` with its commit in `sdk/SDK_COMMIT`. It runs no SDK code itself: it returns the folder, the SHA (or `local`) and the label the confirmations show. The default repository is internal, so a cancelled sign-in or no access are expected refusals with their own states, never crashes.
 
 **Phase:** 1
@@ -265,7 +269,7 @@ Every `forge.py` run goes through §9 from one SDK source (plan R24). This secti
 - [ ] Write `extensions/vscode/test/unit/sdkSource.test.ts` and `extensions/vscode/test/integration/sdkSource.test.ts`, the latter against a local HTTP server standing in for the GitHub API through an injected base URL. Done when: both pass and the traversal test fails when the entry check is removed. Cheaper substitute: tests that call the real GitHub.
 - [ ] Commit: `extension: resolve the SDK from a local checkout or a GitHub commit`
 
-**Test checkpoint:** `cd extensions/vscode && npm test -- --test-name-pattern=sdkSource && npm run test:integration -- --grep sdkSource` passes, and fails when the entry check in `extensions/vscode/src/core/sdkSource.ts` accepts `../evil`.
+**Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/sdkSource.test.js out/test/unit/extractSdk.test.js && npm run test:integration` passes, and fails when the member check in `extensions/vscode/resources/extract_sdk.py` accepts `../evil`. **Corrected 2026-10-20:** was `--test-name-pattern` (it does not filter on Node 24.14.1) and the entry check in `src/core/sdkSource.ts` (see above).
 
 ## 8. Test reviewer runner
 
