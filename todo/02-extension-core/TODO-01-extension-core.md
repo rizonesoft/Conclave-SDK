@@ -67,6 +67,7 @@ title: "TODO-01 -- Extension Core"
 | 17 | §17 | Tree kill: cut-short discovery and combined uncertainty | §16 | [x] |
 | 18 | §18 | Kit state SDK watchers released with their last folder | §10 | [x] |
 | 19 | §19 | Folder computations bound to the lifetime they were asked in | §10, D05 T01 §3 | [ ] |
+| 20 | §20 | Recursive deletes that never follow a link | §7 | [ ] |
 
 ## 1. Extension scaffold, build and test harness
 
@@ -632,6 +633,29 @@ Review round 3 of `D05 T01 §3` (`docs/reviews/05-kit-manager/D05-T01-s3.md`, th
 - [ ] Commit: `extension: folder computations bound to the lifetime they were asked in`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep "kitState|kitHealth"` passes, and the forget-while-held case fails when the lifetime is checked only between attempts.
+
+## 20. Recursive deletes that never follow a link
+
+> **Started:** 2026-10-20T19:40:00Z
+
+Measured 2026-10-20 after the data loss recorded in `docs/phase-runs/2026-10-20-phase-1.md`: in VS Code 1.142's own runtime (Electron 43.7.7, Node 24.21.0), `fs.rmSync(dir, {recursive: true})` follows a Windows junction inside `dir` and deletes the contents of its target; standalone Node 24.14.1 removes only the junction. Junctions need no administrator rights, so any process of the same user can plant one. The extension deletes folders recursively in its SDK cache (`extensions/vscode/src/host/sdkSource.ts`: an incomplete entry, the partial extraction, and evicted entries), and its integration tests delete their temp folders the same way. Every recursive delete moves to one remover that walks the tree with `lstat` and removes a link or junction as an entry, never descending into it.
+
+**Phase:** 1
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write the failing tests in the extension host: the remover leaves a junction's target intact, and the SDK cache's rebuild of an incomplete entry and its eviction each leave a junction's target planted inside the entry intact. Done when: each fails with `fs.rmSync(..., {recursive: true})` in VS Code's runtime.
+2. Write the remover and move every recursive delete in `src/` and the integration tests onto it. Done when: the tests pass and no `recursive: true` delete remains in `extensions/vscode/src/` or `extensions/vscode/test/integration/`.
+
+- [ ] Write `extensions/vscode/src/host/removeTree.ts` with `removeTree(path)`: `lstat` each entry, remove a link or junction as an entry (`unlinkSync`, or `rmdirSync` for a directory link on Windows), recurse only into real folders, ignore a path that does not exist, and retry a busy entry a bounded number of times. Done when: a junction to a folder outside the tree is removed and its target's files remain. Cheaper substitute: removing known links first and then calling `rmSync`.
+- [ ] Add `extensions/vscode/test/integration/removeTree.test.ts`: a tree holding a junction (a directory symlink on POSIX) to a folder outside it, a nested real folder and a file is removed completely while the outside folder keeps its files; a missing path is not an error. Done when: it fails when `removeTree` calls `rmSync(path, {recursive: true})`. Cheaper substitute: a unit test under standalone Node, which does not follow junctions and so cannot fail.
+- [ ] Move the three recursive deletes in `extensions/vscode/src/host/sdkSource.ts` (the incomplete entry, the partial extraction, evicted entries) onto `removeTree`. Done when: two new tests in `extensions/vscode/test/integration/sdkSource.test.ts` pass, an incomplete entry holding a junction is rebuilt and an evicted entry holding one is removed, each leaving the junction's target intact. Cheaper substitute: refusing to rebuild an entry that holds a link.
+- [ ] Move every `rmSync(..., {recursive: true})` in `extensions/vscode/test/integration/` onto `removeTree`, and drop `repoInit.test.ts`'s own link bookkeeping, which the remover makes unnecessary. Done when: `rg "recursive: true" extensions/vscode/src extensions/vscode/test/integration` finds only `mkdirSync` calls. Cheaper substitute: changing only `repoInit.test.ts`.
+- [ ] Commit: `extension: recursive deletes that never follow a link`
+
+**Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep "removeTree|SDK source|repoInit"` passes, and the removeTree case fails when `removeTree` is `rmSync(path, {recursive: true})`.
 
 ## Verification
 
