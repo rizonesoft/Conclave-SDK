@@ -205,8 +205,16 @@ export class SdkSourceService {
       if (!isSdkFolder(extracted)) {
         return this.refuse({ state: "sdk-archive-refused", message: `The archive for ${label} holds no forge.py and kits/, so it is not a Conclave-SDK.` });
       }
-      writeFileSync(join(extracted, ".used"), String(Date.now()));
-      writeFileSync(join(extracted, ".complete"), sha);
+      // .complete and .used are the cache's own markers: an archive that carries either name could pass for complete.
+      if (existsSync(join(extracted, ".complete")) || existsSync(join(extracted, ".used"))) {
+        return this.refuse({ state: "sdk-archive-refused", message: `The archive for ${label} holds .complete or .used, names the cache reserves.` });
+      }
+      try {
+        writeFileSync(join(extracted, ".used"), String(Date.now()));
+        writeFileSync(join(extracted, ".complete"), sha);
+      } catch (error) {
+        return this.refuse({ state: "sdk-archive-refused", message: `${label} could not be marked complete: ${String(error)}.` });
+      }
       try {
         renameSync(extracted, target);
       } catch (error) {

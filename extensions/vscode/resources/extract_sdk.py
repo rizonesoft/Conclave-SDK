@@ -10,6 +10,7 @@ separator, and it must lie inside the archive's single top folder. Only then is 
 it is not the check). Prints one JSON object: {"ok": true, "top": <top folder>, "files": <count>} and exit 0, or
 {"ok": false, "error": <reason>} and exit 2. Stdlib only.
 """
+import gzip
 import json
 import os
 import re
@@ -24,6 +25,50 @@ DRIVE = re.compile(r"^[A-Za-z]:")
 
 class Unsafe(Exception):
     pass
+
+
+MAX_STREAM = MAX_BYTES + 64 * 1024 * 1024
+MAX_METADATA = 1024 * 1024
+METADATA = {b"x", b"g", b"L", b"K"}
+WINDOWS_RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$", re.IGNORECASE)
+WINDOWS_FORBIDDEN = re.compile(r'[<>:"|?*\x00-\x1f]')
+
+
+def header_size(block):
+    """The size field of a tar header: octal, or base-256 when its first byte has the high bit set."""
+    field = block[124:136]
+    if field[0] & 0x80:
+        return int.from_bytes(field[1:], "big")
+    text = field.split(b"\0", 1)[0].strip()
+    return int(text, 8) if text else 0
+
+
+def prepass(archive):
+    """Walks the raw tar headers through the gzip stream before tarfile reads anything, so a hostile archive is
+    stopped on its decompressed size or one oversized metadata header (a PAX or GNU long-name payload, which tarfile
+    reads whole into memory before it yields a member), never after the allocation."""
+    total = 0
+    with gzip.open(archive, "rb") as stream:
+        def read(n):
+            nonlocal total
+            data = stream.read(n)
+            total += len(data)
+            if total > MAX_STREAM:
+                raise Unsafe(f"the archive decompresses to more than {MAX_STREAM // (1024 * 1024)} MB")
+            return data
+        while True:
+            block = read(512)
+            if len(block) < 512 or block == bytes(512):
+                return
+            size = header_size(block)
+            if block[156:157] in METADATA and size > MAX_METADATA:
+                raise Unsafe(f"a metadata header of {size} bytes is larger than {MAX_METADATA} bytes")
+            remaining = (size + 511) // 512 * 512
+            while remaining:
+                chunk = read(min(remaining, 1024 * 1024))
+                if not chunk:
+                    return
+                remaining -= len(chunk)
 
 
 def members_of(tar):
@@ -59,6 +104,11 @@ def check(members):
         parts = [p for p in re.split(r"[/\\]", name) if p not in ("", ".")]
         if not parts or ".." in parts:
             raise Unsafe(f"{name!r} leaves the archive's folder")
+        # Names Windows would change or read as something else (trailing dots or spaces are dropped, ':' opens an
+        # alternate stream, CON or NUL is a device): one could replace another file, so the archive is refused.
+        for part in parts:
+            if part.endswith((".", " ")) or WINDOWS_FORBIDDEN.search(part) or WINDOWS_RESERVED.match(part):
+                raise Unsafe(f"{name!r} has a part Windows cannot hold as written")
         tops.add(parts[0])
         if member.isfile() and len(parts) < 2:
             raise Unsafe(f"{name!r} is a file outside the archive's top folder")
@@ -78,6 +128,7 @@ def main(argv):
     try:
         if os.path.getsize(archive) > MAX_ARCHIVE:
             raise Unsafe(f"the archive is larger than {MAX_ARCHIVE // (1024 * 1024)} MB")
+        prepass(archive)
         with tarfile.open(archive, "r:gz") as tar:
             members = members_of(tar)
             top = check(members)
@@ -88,7 +139,7 @@ def main(argv):
     except Unsafe as exc:
         print(json.dumps({"ok": False, "error": str(exc)}))
         return 2
-    except (OSError, tarfile.TarError, EOFError, ValueError) as exc:
+    except (OSError, tarfile.TarError, EOFError, ValueError, gzip.BadGzipFile) as exc:
         print(json.dumps({"ok": False, "error": f"the archive cannot be read: {exc}"}))
         return 2
     print(json.dumps({"ok": True, "top": top, "files": sum(1 for m in members if m.isfile())}))

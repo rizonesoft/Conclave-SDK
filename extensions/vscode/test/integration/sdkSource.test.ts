@@ -18,24 +18,26 @@ const shas: Record<string, string> = {
   main: "1".repeat(40), v2: "2".repeat(40), v3: "3".repeat(40), v4: "4".repeat(40),
   // alias names main's commit; readme's archive holds no forge.py; cut's body is cut off after the headers.
   alias: "1".repeat(40), readme: "5".repeat(40), cut: "6".repeat(40),
+  // marker's archive carries a .complete folder of its own, a name the cache reserves.
+  marker: "7".repeat(40),
 };
 
 // A tarball like GitHub's: one top folder holding forge.py and kits/.
-function tarball(work: string, python: string[], sha: string, sdk = true): Buffer {
+function tarball(work: string, python: string[], sha: string, variant: "sdk" | "readme" | "marker" = "sdk"): Buffer {
   const builder = join(work, "build.py");
   writeFileSync(builder, [
     "import io, sys, tarfile",
     "top = 'o-r-' + sys.argv[2][:7]",
     "with tarfile.open(sys.argv[1], 'w:gz') as tar:",
-    "    for name in (top, top + '/kits'):",
+    "    for name in (top, top + '/kits') + ((top + '/.complete',) if sys.argv[3] == 'marker' else ()):",
     "        info = tarfile.TarInfo(name); info.type = tarfile.DIRTYPE; tar.addfile(info)",
-    "    data = b'print(1)\\n'; info = tarfile.TarInfo(top + ('/forge.py' if sys.argv[3] == 'sdk' else '/README.md'))",
+    "    data = b'print(1)\\n'; info = tarfile.TarInfo(top + ('/README.md' if sys.argv[3] == 'readme' else '/forge.py'))",
     "    info.size = len(data)",
     "    tar.addfile(info, io.BytesIO(data))",
   ].join("\n"));
   const out = join(work, `${sha}.tar.gz`);
   const [command, ...prefix] = python;
-  const built = spawnSync(command, [...prefix, builder, out, sha, sdk ? "sdk" : "readme"], { encoding: "utf8" });
+  const built = spawnSync(command, [...prefix, builder, out, sha, variant], { encoding: "utf8" });
   assert.equal(built.status, 0, built.stderr);
   return readFileSync(out);
 }
@@ -57,7 +59,8 @@ suite("SDK source", () => {
     assert.ok(resolved.ok, "no Python on this host");
     work = mkdtempSync(join(tmpdir(), "conclave-sdk-"));
     for (const sha of new Set(Object.values(shas))) {
-      archives.set(sha, tarball(work, [resolved.command, ...resolved.prefix], sha, sha !== shas.readme));
+      const variant = sha === shas.readme ? "readme" : sha === shas.marker ? "marker" : "sdk";
+      archives.set(sha, tarball(work, [resolved.command, ...resolved.prefix], sha, variant));
     }
     server = createServer((request, response) => {
       requests.push(`${request.method} ${request.url}`);
@@ -125,6 +128,19 @@ suite("SDK source", () => {
     }
     assert.deepEqual(readdirSync(join(storage, "sdk")), [shas.main], "a temporary file or folder was left");
     assert.ok(existsSync(join(storage, "sdk", shas.main, "forge.py")));
+  });
+
+  test("an archive carrying the cache's own marker names is refused, not a rejection", async () => {
+    const result = await service(join(work, "r6")).resolveWith(ref("marker"));
+    assert.ok("state" in result && result.state === "sdk-archive-refused" && /reserves/.test(result.message), JSON.stringify(result));
+  });
+
+  test("one window resolving two refs that name one commit downloads it once", async () => {
+    const sdk = service(join(work, "r7"));
+    const before = requests.filter((r) => r.includes(`/tarball/${shas.main}`)).length;
+    const [a, b] = await Promise.all([sdk.resolveWith(ref("main")), sdk.resolveWith(ref("alias"))]);
+    assert.ok("ok" in a && "ok" in b && a.folder === b.folder);
+    assert.equal(requests.filter((r) => r.includes(`/tarball/${shas.main}`)).length - before, 1);
   });
 
   test("a connection that drops after the headers is offline, not an error", async () => {

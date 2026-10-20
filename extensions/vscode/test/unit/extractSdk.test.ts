@@ -36,13 +36,17 @@ with tarfile.open(sys.argv[1], "w:gz") as tar:
             info.type = tarfile.SYMTYPE
             info.linkname = extra
             tar.addfile(info)
+        elif kind == "pax":
+            info.pax_headers = {"comment": "x" * int(extra)}
+            info.size = 1
+            tar.addfile(info, io.BytesIO(b"x"))
         elif kind == "hardlink":
             info.type = tarfile.LNKTYPE
             info.linkname = extra
             tar.addfile(info)
 `;
 
-type Member = ["dir" | "file" | "symlink" | "hardlink", string, string];
+type Member = ["dir" | "file" | "symlink" | "hardlink" | "pax", string, string];
 const TOP: Member[] = [["dir", "o-r-1234567", ""], ["file", "o-r-1234567/forge.py", "print('forge')\n"], ["dir", "o-r-1234567/kits", ""]];
 
 function extract(members: Member[]): { code: number | null; reply: { ok: boolean; top?: string; error?: string }; dest: string } {
@@ -76,8 +80,13 @@ test("extractSdk: every unsafe member refuses the whole archive and writes nothi
     ["hard link", [...TOP, ["hardlink", "o-r-1234567/hard", "o-r-1234567/forge.py"]]],
     ["second top folder", [...TOP, ["file", "other/forge.py", "x"]]],
     ["file at the top", [["file", "loose.py", "x"]]],
+    ["a metadata header over 1 MB", [...TOP, ["pax", "o-r-1234567/big.txt", String(2 * 1024 * 1024)]]],
     ["names differing in case", [...TOP, ["file", "o-r-1234567/FORGE.PY", "print('other')"]]],
     ["a name twice", [...TOP, ["file", "o-r-1234567/forge.py", "print('other')"]]],
+    ["a trailing period Windows drops", [...TOP, ["file", "o-r-1234567/forge.py.", "print('other')"]]],
+    ["a trailing space", [...TOP, ["file", "o-r-1234567/forge.py ", "print('other')"]]],
+    ["an alternate data stream", [...TOP, ["file", "o-r-1234567/forge.py:evil", "x"]]],
+    ["a device name", [...TOP, ["file", "o-r-1234567/kits/NUL.txt", "x"]]],
   ];
   for (const [label, members] of cases) {
     const { code, reply, dest } = extract(members);
