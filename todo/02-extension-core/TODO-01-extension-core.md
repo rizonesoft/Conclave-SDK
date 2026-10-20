@@ -64,7 +64,7 @@ title: "TODO-01 -- Extension Core"
 | 14 | §14 | Extractor checks each member as tarfile reads it | §12 | [x] |
 | 15 | §15 | Extractor folder tracking linear in path length | §14 | [x] |
 | 16 | §16 | Process tree kill that ends everything or says so | §8 | [x] |
-| 17 | §17 | Tree kill: cut-short discovery and combined uncertainty | §16 | [ ] |
+| 17 | §17 | Tree kill: cut-short discovery and combined uncertainty | §16 | [x] |
 
 ## 1. Extension scaffold, build and test harness
 
@@ -575,9 +575,12 @@ Review round 3 of `§16` (`docs/reviews/02-extension-core/D02-T01-s16.md`, the l
 - [x] Keep `unverified: true` in `run`'s result alongside known survivors, with an error naming both. Done when: a killer returning `{ survivors: [7], verified: false }` gives a result with both. Cheaper substitute: survivors only.
 - [x] Hold the test guard and the temporary pin in `ReviewerTester` whenever the end is unconfirmed, after any known survivors end. Done when: an integration test with a survivor and an unconfirmed end is still refused after the survivor ends. Cheaper substitute: releasing the guard once the survivors end.
 - [x] Run the run and testReviewer tests on Windows and in WSL. Done when: all pass on both. Cheaper substitute: Windows only.
-- [ ] Commit: `extension: a tree kill cut short is never reported confirmed`
+- [x] Commit: `extension: a tree kill cut short is never reported confirmed`
 
 **Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/run.test.js` passes on Windows and in WSL, and the cut-short discovery case fails with blind set only on a failed read.
+
+> **Verified:** 2026-10-20 | §17 | 8038026552bdcb740961e17efff841a819c8d3a8
+> **Review:** `docs/reviews/d02-t01-s17.json`
 
 ## Verification
 

@@ -1,0 +1,18 @@
+{
+  "ref": "D02 T01 \u00a717",
+  "title": "Tree kill: cut-short discovery and combined uncertainty",
+  "implementation_sha": "8038026552bdcb740961e17efff841a819c8d3a8",
+  "date": "2026-10-20",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-extension-core/D02-T01-s17.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "cd extensions/vscode && npm run compile && node --test out/test/unit/run.test.js -> Windows 17 pass, 1 skipped; WSL 18 of 18; with blind set only on a failed read the cut-short case fails",
+    "npm run test:integration -> 43 passing",
+    "npm test -> tests 101, pass 99, skipped 2"
+  ]
+}
