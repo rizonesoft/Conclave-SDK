@@ -1,0 +1,6 @@
+schema_version = 1
+[routes]
+[reviewers.mini]
+cli = "codex"
+model = "gpt-6-mini"
+effort = "low"

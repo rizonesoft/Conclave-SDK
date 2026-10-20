@@ -1,0 +1,20 @@
+[
+  [
+    "set_field",
+    "mini",
+    "cli",
+    "codex"
+  ],
+  [
+    "set_field",
+    "mini",
+    "model",
+    "gpt-6-mini"
+  ],
+  [
+    "set_field",
+    "mini",
+    "effort",
+    "low"
+  ]
+]

@@ -1,0 +1,20 @@
+[
+  [
+    "set_field",
+    "mini",
+    "cli",
+    "agy"
+  ],
+  [
+    "set_field",
+    "mini",
+    "model",
+    "gemini-4-argon-low"
+  ],
+  [
+    "set_field",
+    "mini",
+    "effort",
+    null
+  ]
+]

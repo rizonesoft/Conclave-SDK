@@ -1,0 +1,10 @@
+[
+  [
+    "set_route",
+    "gemini",
+    [
+      "sonnet",
+      "astra"
+    ]
+  ]
+]

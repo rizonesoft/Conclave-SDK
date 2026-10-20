@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Reference for the reviewer editor's in-place pin edits (D00 T01 §4, design spec section 2).
 
-    python design/spikes/pin_edits.py [--diff]
+    python design/spikes/pin_edits.py [--diff] [--write extensions/vscode/test/fixtures/edits]
 
 Applies each edit the editor makes to the shipped pin, line by line under the narrow layout the spec allows, checks
 every result with the dispatcher's own load_pin, and prints each edit as a unified diff of the shipped pin. These
@@ -9,6 +9,7 @@ diffs are the expected outputs D02 T01 §4's golden tests reproduce in TypeScrip
 """
 import difflib
 import importlib.util
+import json
 import re
 import sys
 import tempfile
@@ -203,8 +204,64 @@ def cases(shipped):
     ]
 
 
+EDITS = {"set_field": set_field, "add_reviewer": add_reviewer, "rename_reviewer": rename_reviewer,
+         "delete_reviewer": delete_reviewer, "set_route": set_route, "remove_route": remove_route}
+
+
+def golden(shipped):
+    """Every golden case as (name, input, edits): the edits are [function, *args] applied in order. The TypeScript
+    editor (extensions/vscode/src/core/pinText.ts) replays the same edits and must give the same bytes."""
+    mini = {"cli": "codex", "model": "gpt-6-mini", "effort": "low"}
+    added = add_reviewer(shipped, "mini", mini)
+    to_agy = [["set_field", "mini", "cli", "agy"], ["set_field", "mini", "model", "gemini-4-argon-low"]]
+    no_effort = apply(added, to_agy + [["set_field", "mini", "effort", None]])
+    back = [["set_field", "mini", "cli", "codex"], ["set_field", "mini", "model", "gpt-6-mini"],
+            ["set_field", "mini", "effort", "low"]]
+    bare = 'schema_version = 1\n[routes]\n[reviewers.mini]\ncli = "agy"\nmodel = "gemini-4-argon-low"'
+    return [
+        ("set-field", shipped, [["set_field", "astra", "effort", "high"]]),
+        ("add-reviewer", shipped, [["add_reviewer", "mini", mini]]),
+        ("remove-field", added, to_agy + [["set_field", "mini", "effort", None]]),
+        ("add-field", no_effort, back),
+        ("rename-reviewer", shipped, [["rename_reviewer", "astra", "gpt6"]]),
+        ("delete-reviewer", shipped, [["delete_reviewer", "sonnet"]]),
+        ("set-route", shipped, [["set_route", "codex", ["sonnet", "gemini"]]]),
+        ("remove-route", shipped, [["remove_route", "gemini"]]),
+        ("add-route", remove_route(shipped, "gemini"), [["set_route", "gemini", ["sonnet", "astra"]]]),
+        # The same move to Antigravity as remove-field, with a note on the effort line that must stay behind.
+        ("remove-field-comment", added.replace('effort = "low"', 'effort = "low" # retained operator note'),
+         to_agy + [["set_field", "mini", "effort", None]]),
+        ("remove-route-comment", shipped.replace('gemini = ["astra", "sonnet"]', 'gemini = ["astra", "sonnet"] # kept'),
+         [["remove_route", "gemini"]]),
+        ("add-field-no-final-newline", apply(bare, back[:2]), [["set_field", "mini", "effort", "low"]]),
+    ]
+
+
+def apply(text, edits):
+    for name, *args in edits:
+        text = EDITS[name](text, *args)
+    return text
+
+
+def write_golden(directory, shipped):
+    """Write each golden case as <name>/input.toml, edits.json and expected.toml, byte for byte."""
+    by_name = {name: after for name, _, _, after in cases(shipped)}
+    for name, before, edits in golden(shipped):
+        after = apply(before, edits)
+        if name in by_name:
+            assert after == by_name[name], f"{name}: the golden edits disagree with the published case"
+        case = Path(directory) / name
+        case.mkdir(parents=True, exist_ok=True)
+        (case / "input.toml").write_bytes(before.encode("utf-8"))
+        (case / "expected.toml").write_bytes(after.encode("utf-8"))
+        (case / "edits.json").write_bytes((json.dumps(edits, indent=2) + "\n").encode("utf-8"))
+    print(f"wrote {len(golden(shipped))} golden cases to {directory}", file=sys.stderr)
+
+
 def main():
     shipped = PIN.read_text(encoding="utf-8")
+    if "--write" in sys.argv:
+        write_golden(sys.argv[sys.argv.index("--write") + 1], shipped)
     assert editable(shipped), "the shipped pin must be in the editable layout"
     assert not editable("reviewers = { astra = { cli = 'codex' } }\n"), "an inline table is not editable"
     check, Refused = load_pin()
