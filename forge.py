@@ -90,11 +90,12 @@ def kit_digest(kit_name: str) -> str:
     separators, in that order, and each file's SHA-256 with CRLF read as LF, so a Windows and a Linux checkout of one
     commit give one digest."""
     kit_root = FORGE_ROOT / "kits" / kit_name
+    # Bytecode left by running a kit's own tests is not kit content: the installer never copies it either.
     files = sorted(
         (path.relative_to(kit_root).as_posix(), path)
         for top in ("templates", "hosts")
         for path in (kit_root / top).rglob("*")
-        if path.is_file()
+        if path.is_file() and "__pycache__" not in path.parts
     )
     digest = hashlib.sha256()
     for rel, path in files:
@@ -224,6 +225,29 @@ def _is_sdk_managed(rel: str, include_scripts: bool) -> bool:
     if rel.startswith(SDK_MANAGED_PREFIXES):
         return True
     return include_scripts and rel.startswith(SDK_MANAGED_SCRIPT_PREFIXES)
+
+
+def _kit_files_current(target_root: Path, kit_name: str, host: str | None) -> bool:
+    """Whether every SDK-managed file of the kit (all agents, scripts included) present in the folder is this SDK's
+    file byte for byte: a link, an unsafe parent or a different file means it came from elsewhere."""
+    roots = [FORGE_ROOT / "kits" / kit_name / "templates"]
+    if host:
+        roots.append(FORGE_ROOT / "kits" / kit_name / "hosts" / host / "templates")
+    for root in roots:
+        for src in root.rglob("*"):
+            if not src.is_file():
+                continue
+            rel = src.relative_to(root).as_posix()
+            if not _rel_allowed_for_agent(rel, "all") or not _is_sdk_managed(rel, True):
+                continue
+            dst = target_root / rel
+            if not (dst.exists() or dst.is_symlink()):
+                continue
+            if dst.is_symlink() or not dst.is_file() or _has_unsafe_parent(target_root, rel):
+                return False
+            if dst.read_bytes() != src.read_bytes():
+                return False
+    return True
 
 
 def installed_kits(target_root: Path) -> list[str]:
@@ -403,9 +427,10 @@ def apply_kit(
                 atomic_write(mcp_path, json.dumps(payload, indent=4) + "\n")
             installed.append(".mcp.json")
 
-    # The stamp says which SDK this kit's files came from, so it is written only when they all did: a fresh install,
-    # or sync's refresh of the SDK-managed files. Files kept from an earlier install leave that install's entry.
-    if not dry_run and (refresh or not preserved):
+    # The stamp says which SDK this kit's files came from, so it is written only when every SDK-managed file of the
+    # kit in the folder matches this SDK, for every agent and with scripts. Files kept from an earlier install (sync
+    # without --include-scripts, sync for one agent, kit over an install) leave that install's entry.
+    if not dry_run and _kit_files_current(target_root, kit_name, extra.get("host")):
         write_kit_stamp(target_root, [kit_name])
 
     return {

@@ -668,14 +668,49 @@ class ForgeKitStampTests(unittest.TestCase):
         for kit in ("base", "reviewer"):
             self.assertEqual(self.stamp()["kits"][kit], {"digest": forge.kit_digest(kit), "commit": sdk["commit"], "date": sdk["date"]})
 
-    def test_kit_over_an_existing_install_keeps_that_kits_old_stamp(self):
-        forge.apply_kit(self.target, "todo")
+    def _stale_stamp(self, kit):
         old = {"digest": "old", "commit": "b" * 40, "date": "2020-01-01T00:00:00Z"}
-        (self.target / ".conclave" / "kits.json").write_text(json.dumps({"schema_version": 1, "kits": {"todo": old}}), encoding="utf-8")
-        # Without sync's refresh the existing files are kept, so they are not this SDK's: the old entry stands.
+        (self.target / ".conclave" / "kits.json").write_text(json.dumps({"schema_version": 1, "kits": {kit: old}}), encoding="utf-8")
+        return old
+
+    def test_a_kit_whose_files_all_match_this_sdk_is_stamped_and_one_with_a_stale_file_keeps_its_old_entry(self):
+        forge.apply_kit(self.target, "todo")
+        old = self._stale_stamp("todo")
+        # Every SDK-managed file already matches this SDK, so a re-run truthfully stamps it.
+        forge.apply_kit(self.target, "todo")
+        self.assertEqual(self.stamp()["kits"]["todo"]["digest"], forge.kit_digest("todo"))
+        # A skill kept from an earlier install is not this SDK's: kit keeps it, so the old entry stands.
+        self._stale_stamp("todo")
+        (self.target / ".claude/skills/create-todo/SKILL.md").write_text("from an older SDK\n", encoding="utf-8")
         res = forge.apply_kit(self.target, "todo")
-        self.assertTrue(res["preserved"])
+        self.assertIn(".claude/skills/create-todo/SKILL.md", res["preserved"])
         self.assertEqual(self.stamp()["kits"]["todo"], old)
+
+    def test_sync_without_scripts_keeps_the_old_entry_while_a_script_is_stale(self):
+        forge.provision(self.target, with_todo=True)
+        old = self._stale_stamp("todo")
+        (self.target / "scripts/todo-graph.py").write_text("old script\n", encoding="utf-8")
+        forge.provision(self.target, refresh=True)
+        self.assertEqual(self.stamp()["kits"]["todo"], old, "sync stamped a kit whose script it kept")
+        forge.provision(self.target, refresh=True, refresh_scripts=True)
+        self.assertEqual(self.stamp()["kits"]["todo"]["digest"], forge.kit_digest("todo"))
+
+    def test_sync_for_one_agent_keeps_the_old_entry_while_another_agents_files_are_stale(self):
+        forge.provision(self.target, with_todo=True)
+        old = self._stale_stamp("todo")
+        (self.target / ".codex/skills/create-todo/SKILL.md").write_text("from an older SDK\n", encoding="utf-8")
+        forge.provision(self.target, refresh=True, agent="claude")
+        self.assertEqual(self.stamp()["kits"]["todo"], old, "a claude-only sync stamped stale codex files as current")
+
+    def test_kit_digest_ignores_bytecode_the_installer_never_copies(self):
+        sdk = pathlib.Path(self.tmp.name) / "sdk"
+        templates = sdk / "kits" / "demo" / "templates"
+        (templates / "scripts" / "__pycache__").mkdir(parents=True)
+        (templates / "scripts" / "tool.py").write_bytes(b"print(1)\n")
+        with unittest.mock.patch.object(forge, "FORGE_ROOT", sdk):
+            before = forge.kit_digest("demo")
+            (templates / "scripts" / "__pycache__" / "tool.cpython-314.pyc").write_bytes(b"\x00bytecode")
+            self.assertEqual(forge.kit_digest("demo"), before)
 
     def test_the_sdk_folder_itself_gets_no_stamp(self):
         sdk = pathlib.Path(self.tmp.name) / "sdk"

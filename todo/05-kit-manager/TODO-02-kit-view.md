@@ -55,7 +55,7 @@ A project must say which kits set it up, so a reader can tell "older or newer ki
 
 > **Started:** 2026-10-20T21:35:00Z
 
-**Corrected 2026-10-20 (while building):** each kit's entry carries its own `commit` and `date`, not one top-level `sdk` object, since kits in one folder can come from different SDK versions; the stamp is written only when every file of the kit came from this SDK (a fresh install, or `sync`'s refresh), so a `kit` run that keeps files of an earlier install leaves that install's entry; and the SDK folder itself gets no stamp, because a committed stamp would name a commit it can never be part of (the item that committed the SDK's own stamp is struck).
+**Corrected 2026-10-20 (while building):** each kit's entry carries its own `commit` and `date`, not one top-level `sdk` object, since kits in one folder can come from different SDK versions; the stamp is written only when every SDK-managed file of the kit present in the folder matches this SDK byte for byte, for every agent and with scripts (round 1 of review showed `sync` without `--include-scripts`, or for one agent, keeps older files), so a run that keeps files of an earlier install leaves that install's entry; and the SDK folder itself gets no stamp, because a committed stamp would name a commit it can never be part of (the item that committed the SDK's own stamp is struck).
 
 **Phase:** 1
 **Needs:** none
@@ -64,7 +64,7 @@ A project must say which kits set it up, so a reader can tell "older or newer ki
 **Build order:**
 
 1. Write the failing tests in `tests/test_forge.py`. Done when: they fail at `fb5e468`.
-2. Add the digest, the `digest` command and the stamp to `forge.py`. Done when: the tests pass and `python forge.py sync . --include-scripts` writes the SDK's own stamp.
+2. Add the digest, the `digest` command and the stamp to `forge.py`. Done when: the tests pass and `forge.py` writes no stamp into the SDK folder itself (**Corrected 2026-10-20:** said `sync .` writes the SDK's own stamp; see the correction below).
 
 - [x] Add `kit_digest(kit)` to `forge.py`: SHA-256 over the sorted relative paths and SHA-256 of every file under `kits/<kit>/templates/` (and `kits/<kit>/hosts/` for WordPress), with `/` separators and each file's CRLF line endings read as LF, so a Windows checkout and a Linux one of the same commit give the same digest. Done when: a test shows a changed, added or renamed template file changes the digest and the same file with CRLF endings does not. Cheaper substitute: the kit folder's modification time.
 - [x] Add `python forge.py digest` printing `{"sdk": {"commit", "date"}, "kits": {<kit>: <digest>}}`, reading the commit from `git rev-parse HEAD` and its date from `git show -s --format=%cI` in a checkout, else from `SDK_COMMIT` and `SDK_DATE` next to `forge.py` (the bundled copy). Done when: the test reads every kit `forge.py kits` lists, and the bundled form when git is absent. Cheaper substitute: the commit only, with no date to order by.
