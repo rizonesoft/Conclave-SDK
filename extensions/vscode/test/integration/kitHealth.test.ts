@@ -184,4 +184,50 @@ suite("kitHealth", () => {
       forgetting.dispose();
     }
   });
+  test("kitHealth: a read asked before the forget answers for the forgotten lifetime, and one asked after for the new one", async () => {
+    const work = join(base, "away");
+    const folder = vscode.Uri.file(work);
+    const python = await api.python();
+    assert.ok(python.ok);
+    let checks = 0;
+    let release: (() => void) | undefined;
+    const forgetting = new vscode.EventEmitter<vscode.Uri>();
+    const health = new KitHealthService({
+      kitStates: async () => ({ ok: true, kits: [{ kit: "base", state: "installed", kept: 1 }] }),
+      onDidChangeKitState: new vscode.EventEmitter<vscode.Uri>().event,
+      onDidForget: forgetting.event,
+      source: async () => ({ folder: sdk, label: "local Conclave-SDK (test)" }),
+      python: async () => python,
+      // Only the first forge check is held, until the test releases it.
+      run: async (file, args, timeoutMs, cwd, options) => {
+        const result = await run(file, args, timeoutMs, cwd, options);
+        if (args.includes("check") && ++checks === 1) {
+          await new Promise<void>((r) => (release = r));
+        }
+        return result;
+      },
+    });
+    try {
+      const first = health.health(folder);
+      while (!release) {
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      // Queued behind the held computation, then the folder leaves and is asked about again under a new lifetime.
+      health.refresh(folder);
+      const queued = health.health(folder);
+      forgetting.fire(folder);
+      const again = health.health(folder);
+      release();
+      const left = { ok: false, message: "the folder is no longer watched" };
+      assert.deepEqual(await first, left);
+      assert.deepEqual(await queued, left, "a read asked before the forget answered for the new lifetime");
+      const after = await again;
+      assert.ok(after.ok, JSON.stringify(after));
+      // The held computation and the new lifetime's: the queued read started no computation of its own.
+      assert.equal(checks, 2);
+    } finally {
+      health.dispose();
+      forgetting.dispose();
+    }
+  });
 });
