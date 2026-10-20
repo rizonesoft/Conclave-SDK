@@ -10,7 +10,9 @@ export interface PathEnvironment {
   platform: NodeJS.Platform;
   path: string;
   pathext?: string;
-  isFile: (path: string) => boolean;
+  // True for a file this platform would run: on POSIX it must also be executable, as shutil.which requires, so a
+  // non-executable python3 earlier on PATH does not hide a usable one later.
+  runnable: (path: string) => boolean;
 }
 
 const DEFAULT_PATHEXT = [".COM", ".EXE", ".BAT", ".CMD"];
@@ -36,7 +38,7 @@ export function findOnPath(name: string, env: PathEnvironment): string | undefin
     const candidates = windows
       ? [...(extensions.length ? extensions : DEFAULT_PATHEXT).map((e) => join(directory, name + e)), join(directory, name)]
       : [join(directory, name)];
-    const found = candidates.find((candidate) => env.isFile(candidate));
+    const found = candidates.find((candidate) => env.runnable(candidate));
     if (found) {
       return found;
     }

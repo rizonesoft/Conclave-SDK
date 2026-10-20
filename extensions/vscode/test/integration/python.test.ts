@@ -3,10 +3,13 @@ import * as vscode from "vscode";
 import type { ConclaveApi } from "../../src/extension";
 import type { PythonResolution } from "../../src/host/python";
 
-function next(api: ConclaveApi): Promise<PythonResolution> {
+function next(api: ConclaveApi, folder?: vscode.Uri): Promise<PythonResolution> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("no Python resolution within 15 s")), 15_000);
-    const listener = api.onDidResolvePython((result) => {
+    const listener = api.onDidResolvePython(({ folder: resolved, result }) => {
+      if (folder && resolved?.toString() !== folder.toString()) {
+        return;
+      }
       clearTimeout(timer);
       listener.dispose();
       resolve(result);
@@ -37,6 +40,28 @@ suite("Python resolution", () => {
       const restored = next(api);
       await config.update("pythonPath", undefined, vscode.ConfigurationTarget.Global);
       assert.ok((await restored).ok, "clearing the setting did not resolve a Python again");
+    }
+  });
+
+  test("a folder's own conclave.pythonPath is the one that folder uses", async () => {
+    const extension = vscode.extensions.getExtension<ConclaveApi>("rizonetech.conclave");
+    assert.ok(extension);
+    const api = await extension.activate();
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    assert.ok(folder, "the test workspace has no folder");
+    assert.ok((await api.python(folder.uri)).ok);
+    const config = vscode.workspace.getConfiguration("conclave", folder.uri);
+    const bad = process.platform === "win32" ? "C:\\no\\folder\\python.exe" : "/no/folder/python3";
+    try {
+      const refused = next(api, folder.uri);
+      await config.update("pythonPath", bad, vscode.ConfigurationTarget.WorkspaceFolder);
+      const result = await refused;
+      assert.ok(!result.ok && result.fromSetting, "the folder-level setting was ignored");
+      assert.ok(!(await api.python(folder.uri)).ok);
+    } finally {
+      const restored = next(api, folder.uri);
+      await config.update("pythonPath", undefined, vscode.ConfigurationTarget.WorkspaceFolder);
+      assert.ok((await restored).ok);
     }
   });
 });

@@ -16,6 +16,8 @@ export interface RunResult {
 
 export interface PythonDeps {
   platform: NodeJS.Platform;
+  // False in Restricted Mode, where no process may start (design spec section 5): nothing is found or run.
+  trusted: boolean;
   // An absolute path for a bare name, from PATH only, or undefined.
   find: (name: string) => string | undefined;
   // Runs an absolute path with arguments and returns its exit code and output.
@@ -41,6 +43,8 @@ export interface NoPython {
   ok: false;
   // True when conclave.pythonPath is set and unusable; discovery was not tried.
   fromSetting: boolean;
+  // True in Restricted Mode: nothing was tried, and trusting the workspace resolves again.
+  untrusted: boolean;
   tried: Attempt[];
   message: string;
 }
@@ -100,10 +104,16 @@ function refusal(fromSetting: boolean, tried: Attempt[]): NoPython {
   const message = fromSetting
     ? `conclave.pythonPath is set but cannot be used (${detail}). Fix or clear the setting; discovery is not tried.`
     : `No Python ${MINIMUM.join(".")} or later was found (${detail}). Install one or set conclave.pythonPath.`;
-  return { ok: false, fromSetting, tried, message };
+  return { ok: false, fromSetting, untrusted: false, tried, message };
 }
 
 export async function resolvePython(setting: string, deps: PythonDeps): Promise<Python | NoPython> {
+  if (!deps.trusted) {
+    return {
+      ok: false, fromSetting: false, untrusted: true, tried: [],
+      message: "Restricted Mode: no Python is looked for or run until the workspace is trusted.",
+    };
+  }
   const configured = setting.trim();
   if (configured !== "") {
     // An absolute path is used as given; a bare name is found on PATH like any other, never in the workspace.

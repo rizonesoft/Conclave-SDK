@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { output } from "./host/output";
-import { PythonService, type PythonResolution } from "./host/python";
+import { PythonService, type PythonResolution, type PythonResolved } from "./host/python";
 
 // The reviewer editor panel. This is the scaffold's placeholder (D02 T01 §1); D03 T01 builds the editor in it.
 let panel: vscode.WebviewPanel | undefined;
@@ -9,8 +9,8 @@ let panel: vscode.WebviewPanel | undefined;
 // VS Code lists no output channels.
 export interface ConclaveApi {
   output: vscode.OutputChannel;
-  python: () => Promise<PythonResolution>;
-  onDidResolvePython: vscode.Event<PythonResolution>;
+  python: (folder?: vscode.Uri) => Promise<PythonResolution>;
+  onDidResolvePython: vscode.Event<PythonResolved>;
 }
 
 export function activate(context: vscode.ExtensionContext): ConclaveApi {
@@ -30,7 +30,7 @@ export function activate(context: vscode.ExtensionContext): ConclaveApi {
       return panel;
     }),
   );
-  return { output: output(), python: () => python.python(), onDidResolvePython: python.onDidResolve };
+  return { output: output(), python: (folder) => python.python(folder), onDidResolvePython: python.onDidResolve };
 }
 
 export function deactivate(): void {}

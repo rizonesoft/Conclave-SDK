@@ -15,6 +15,7 @@ import {
   setRoute,
 } from "../../src/core/pinText";
 import { findOnPath } from "../../src/core/which";
+import { runnable } from "../../src/host/run";
 
 // Compiled to out/test/unit/, so the package root is three folders up and the SDK root five.
 const root = join(__dirname, "..", "..", "..");
@@ -45,14 +46,7 @@ const read = (name: string, file: string) => readFileSync(join(fixtures, "edits"
 
 // The interpreter for the dispatcher check, found on PATH only, as the extension finds it.
 function python(): string[] {
-  const isFile = (p: string) => {
-    try {
-      return statSync(p).isFile();
-    } catch {
-      return false;
-    }
-  };
-  const env = { platform: process.platform, path: process.env.PATH ?? "", pathext: process.env.PATHEXT, isFile };
+  const env = { platform: process.platform, path: process.env.PATH ?? "", pathext: process.env.PATHEXT, runnable };
   const found = process.platform === "win32"
     ? (findOnPath("py", env) ? [findOnPath("py", env) as string, "-3"] : [findOnPath("python", env) as string])
     : [(findOnPath("python3", env) ?? findOnPath("python", env)) as string];

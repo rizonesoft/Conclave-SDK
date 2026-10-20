@@ -6,9 +6,9 @@ const files = (...paths: string[]) => (p: string) => paths.map((x) => x.toLowerC
 
 test("a python.exe in the workspace folder is never found when it is not on PATH", () => {
   // The workspace is the working directory; only PATH directories are searched, so the stub is invisible.
-  const isFile = files("R:\\repo\\python.exe");
-  assert.equal(findOnPath("python", { platform: "win32", path: "C:\\Windows", pathext: ".EXE", isFile }), undefined);
-  assert.equal(findOnPath("python", { platform: "win32", path: ".;C:\\Windows", pathext: ".EXE", isFile }), undefined);
+  const runnable = files("R:\\repo\\python.exe");
+  assert.equal(findOnPath("python", { platform: "win32", path: "C:\\Windows", pathext: ".EXE", runnable }), undefined);
+  assert.equal(findOnPath("python", { platform: "win32", path: ".;C:\\Windows", pathext: ".EXE", runnable }), undefined);
 });
 
 test("relative, drive-relative and empty PATH entries are not searched", () => {
@@ -23,8 +23,8 @@ test("relative, drive-relative and empty PATH entries are not searched", () => {
 });
 
 test("Windows finds a PATHEXT name before the bare name, and falls back to the defaults", () => {
-  const isFile = files("C:\\npm\\codex", "C:\\npm\\codex.CMD", "C:\\Python314\\python.EXE");
-  const env = { platform: "win32" as const, path: "C:\\npm;C:\\Python314", isFile };
+  const runnable = files("C:\\npm\\codex", "C:\\npm\\codex.CMD", "C:\\Python314\\python.EXE");
+  const env = { platform: "win32" as const, path: "C:\\npm;C:\\Python314", runnable };
   assert.equal(findOnPath("codex", { ...env, pathext: ".EXE;.CMD" }), "C:\\npm\\codex.CMD");
   assert.equal(findOnPath("python", { ...env, pathext: "" }), "C:\\Python314\\python.EXE");
   // A PATHEXT entry that is a path, not an extension, is dropped.
@@ -32,7 +32,7 @@ test("Windows finds a PATHEXT name before the bare name, and falls back to the d
 });
 
 test("Linux searches the absolute PATH directories in order", () => {
-  const isFile = files("/usr/local/bin/python3", "/usr/bin/python3");
-  assert.equal(findOnPath("python3", { platform: "linux", path: "/usr/local/bin:/usr/bin", isFile }), "/usr/local/bin/python3");
-  assert.equal(findOnPath("python3", { platform: "linux", path: "bin:./x", isFile: () => true }), undefined);
+  const runnable = files("/usr/local/bin/python3", "/usr/bin/python3");
+  assert.equal(findOnPath("python3", { platform: "linux", path: "/usr/local/bin:/usr/bin", runnable }), "/usr/local/bin/python3");
+  assert.equal(findOnPath("python3", { platform: "linux", path: "bin:./x", runnable: () => true }), undefined);
 });

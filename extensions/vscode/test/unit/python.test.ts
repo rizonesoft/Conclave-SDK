@@ -7,6 +7,7 @@ function system(platform: NodeJS.Platform, onPath: Record<string, string>, answe
   const runs: string[][] = [];
   const deps: PythonDeps = {
     platform,
+    trusted: true,
     find: (name) => onPath[name],
     run: async (file, args) => {
       runs.push([file, ...args]);
@@ -91,4 +92,31 @@ test("a batch shim is named as the reason, never run", async () => {
   assert.ok(!found.ok);
   assert.match(found.tried[1].reason, /is a batch file/);
   assert.deepEqual(runs, []);
+});
+
+test("Restricted Mode finds and runs nothing, whatever the setting", async () => {
+  for (const setting of ["", "/opt/python/bin/python3"]) {
+    const { deps, runs } = system("linux", { python3: "/usr/bin/python3" }, { "/usr/bin/python3": version("3.12.3") });
+    let looked = false;
+    const found = await resolvePython(setting, { ...deps, trusted: false, find: (n) => ((looked = true), deps.find(n)) });
+    assert.ok(!found.ok && found.untrusted, setting);
+    assert.match(found.message, /Restricted Mode/);
+    assert.deepEqual(runs, [], "a process started in Restricted Mode");
+    assert.equal(looked, false, "PATH was searched in Restricted Mode");
+  }
+});
+
+test("a set conclave.pythonPath on Linux and WSL, usable or not", async () => {
+  const good = system("linux", { python3: "/usr/bin/python3" }, { "/opt/py/bin/python3": version("3.13.1") });
+  assert.deepEqual(await resolvePython("/opt/py/bin/python3", good.deps),
+    { ok: true, command: "/opt/py/bin/python3", prefix: [], version: "3.13.1", source: "conclave.pythonPath" });
+  const named = system("linux", { "python3.12": "/usr/bin/python3.12" }, { "/usr/bin/python3.12": version("3.12.3") });
+  const byName = await resolvePython("python3.12", named.deps);
+  assert.ok(byName.ok && byName.command === "/usr/bin/python3.12");
+  const old = system("linux", { python3: "/usr/bin/python3" },
+    { "/opt/old/python3": version("3.10.12"), "/usr/bin/python3": version("3.12.3") });
+  const refused = await resolvePython("/opt/old/python3", old.deps);
+  assert.ok(!refused.ok && refused.fromSetting);
+  assert.match(refused.tried[0].reason, /older than 3\.11/);
+  assert.ok(!old.runs.some((r) => r[0] === "/usr/bin/python3"), "discovery ran after a bad setting");
 });
