@@ -55,14 +55,15 @@ title: "TODO-01 -- Extension Core"
 | 5 | §5 | Candidate validation through check-pin | §3, §4 | [x] |
 | 6 | §6 | Atomic save, stale check and re-check | §5 | [x] |
 | 7 | §7 | SDK source: local checkout or GitHub commit | §1 | [x] |
-| 8 | §8 | Test reviewer runner | §3, §4 | [ ] |
+| 8 | §8 | Test reviewer runner | §3, §4 | [x] |
 | 9 | §9 | Forge runner and summary parsing | §2, §7 | [ ] |
 | 10 | §10 | Workspace kit state from forge | §9 | [ ] |
 | 11 | §11 | Mockup parity fixtures and harness | §1, D00 T01 §2 | [ ] |
 | 12 | §12 | Extractor limits at tarfile's own parse | §7 | [x] |
 | 13 | §13 | Candidate folder links on Windows and shared fallbacks | §5 | [x] |
 | 14 | §14 | Extractor checks each member as tarfile reads it | §12 | [x] |
-| 15 | §15 | Extractor folder tracking linear in path length | §14 | [ ] |
+| 15 | §15 | Extractor folder tracking linear in path length | §14 | [x] |
+| 16 | §16 | Process tree kill that ends everything or says so | §8 | [ ] |
 
 ## 1. Extension scaffold, build and test harness
 
@@ -323,9 +324,12 @@ The owner asked for a "Test reviewer" action (plan R11). This section builds a t
   `parseTestRun` in `extensions/vscode/src/core/testOutcome.ts`, over the saved answers in `extensions/vscode/test/fixtures/dispatch/` (the failover one captured from the kit's dispatcher); a run that never finished or printed no summary is never a review.
 - [x] Delete the temp pin in a `finally` and log the run to the output channel. Done when: no temp pin remains after success, failure or cancel. Cheaper substitute: leaving temp files.
 - [x] Write `extensions/vscode/test/integration/testReviewer.test.ts` with fake `codex`, `agy` and `claude` scripts on PATH returning a review, failing and hanging. Done when: the three outcomes are asserted and the hang case is cancelled. Cheaper substitute: calling real models in tests.
-- [ ] Commit: `extension: test one reviewer on a planted bug`
+- [x] Commit: `extension: test one reviewer on a planted bug`
 
 **Test checkpoint:** `cd extensions/vscode && npm test -- --test-name-pattern=testPin && npm run test:integration -- --grep testReviewer` passes, and fails when `singleReviewerPin` routes the reviewer to its own writer.
+
+> **Verified:** 2026-10-20 | §8 | b630408b914a20868e24a6369620e248e7299bd5
+> **Review:** `docs/reviews/d02-t01-s8.json`
 
 ## 9. Forge runner and summary parsing
 
@@ -502,9 +506,34 @@ Review round 3 of `§14` (`docs/reviews/02-extension-core/D02-T01-s14.md`, the l
 - [x] Measure peak allocation with `tracemalloc` on the reviewer's 16-name archive and on 20,000 distinct 64-component names, and record both in the findings file. Done when: both peaks are recorded and bounded. Cheaper substitute: asserting refusal only.
   Validation peaks (`members_of`): the reviewer's 16 deep names, 64.3 MB at `89784c7` and 0.4 MB now (refused by depth); 20,000 distinct 64-component names, 180.4 MB at `89784c7`, 204.6 MB with the trie, 18.1 MB now (the same as with the clash pass switched off).
 - [x] Run the extractor tests on Windows and in WSL, and extract the SDK's own `git archive`. Done when: all pass and the SDK's archive still extracts. Cheaper substitute: Windows only.
-- [ ] Commit: `extension: extractor folder tracking linear in path length`
+- [x] Commit: `extension: extractor folder tracking linear in path length`
 
 **Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/extractSdk.test.js` passes on Windows and in WSL, and the 65-component case fails on the extractor at the end of `§14`.
+
+> **Verified:** 2026-10-20 | §15 | 3ef13cf8056203230a821bd22e10fb8d5b80513a
+> **Review:** `docs/reviews/d02-t01-s15.json`
+
+## 16. Process tree kill that ends everything or says so
+
+Review round 3 of `§8` (`docs/reviews/02-extension-core/D02-T01-s8.md`, the last round its loop allowed) found three gaps in `killTree` in `extensions/vscode/src/host/run.ts`. On Windows the tree is read once before `taskkill`, so a process started between the snapshot and the kill is never waited for. The five-second wait ends silently, so processes still running are reported as a clean cancel and the caller deletes its temporary pin and starts another test. And the helpers (`ps`, the CIM query, `taskkill`) run with no timeout, so a stalled one means the kill is never attempted. The kill becomes a loop: snapshot, kill what is found, and look again, until a snapshot finds nothing running under the root (Windows keeps a dead parent's id on its children, so the walk still reaches them). Every helper gets a timeout, and processes still running at the deadline are an explicit result that the run and its callers report.
+
+**Phase:** 1
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write the failing tests: a descendant started after the first snapshot is killed and waited for; a stalled helper still ends in a kill; a tree that outlives the deadline gives a result saying so. Done when: each fails on `run.ts` at the end of `§8`.
+2. Rewrite `killTree` as the loop with bounded helpers and an explicit result, and carry that result through `run` and `ReviewerTester`. Done when: the tests pass on Windows and in WSL.
+
+- [ ] Run every helper in `killTree` (`ps`, the CIM query, `taskkill`) through a timeout of a few seconds in `extensions/vscode/src/host/run.ts`, and kill the process tree when a helper stalls. Done when: a test with a helper that never answers still reaches the kill. Cheaper substitute: no helper timeout.
+- [ ] Loop in `killTree`: snapshot the tree under the root, kill every process found (`taskkill /F /PID` each on Windows; `SIGSTOP` then `SIGKILL` on POSIX), and snapshot again until none is running, within one deadline. Done when: a test that starts a descendant after the first snapshot sees it ended when the run settles. Cheaper substitute: one snapshot.
+- [ ] Return the processes still running at the deadline from `killTree`, and make `run` settle a cancel or timeout with them in its result (for example `error: "cancelled, but 2 processes did not end"`). Done when: a test with a kill that cannot end a process gets that result, not a plain cancel. Cheaper substitute: settling as a plain cancel.
+- [ ] Make `ReviewerTester` keep the one-test guard and the temporary pin until the tree has ended, and report the processes that did not end in its outcome. Done when: an integration test with an unkillable fake sees the outcome say so and a second test refused until it ends. Cheaper substitute: releasing the guard at once.
+- [ ] Run the run and testReviewer tests on Windows and in WSL. Done when: all pass on both. Cheaper substitute: Windows only.
+- [ ] Commit: `extension: a process tree kill that ends everything or says so`
+
+**Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/run.test.js` passes on Windows and in WSL, and the late-descendant case fails with a single snapshot.
 
 ## Verification
 
