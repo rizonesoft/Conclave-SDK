@@ -68,6 +68,9 @@ export function activate(context: vscode.ExtensionContext): ConclaveApi {
       const resolved = await python.python(folder);
       return resolved.ok ? resolved : { message: resolved.message };
     },
+    // The folder's Python resolved again (a setting, or trust): its kit state is read again if the Python differs.
+    onDidResolvePython: (listener, thisArgs, disposables) => python.onDidResolve((e) => listener.call(thisArgs,
+      { folder: e.folder, python: e.result.ok ? e.result : { message: e.result.message } }), undefined, disposables),
   });
   context.subscriptions.push(kitStates);
   context.subscriptions.push(
