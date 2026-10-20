@@ -165,7 +165,7 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertEqual(status["codex_skills"], [])
 
     def test_list_kits_and_base_kit_additive_preservation_and_per_agent_import(self):
-        self.assertEqual(forge.list_kits(), ["base", "laravel", "reviewer", "todo", "wordpress"])
+        self.assertEqual(forge.list_kits(), ["automations", "base", "laravel", "reviewer", "todo", "wordpress"])
         (self.target / "AGENTS.md").write_text("locally tuned\n", encoding="utf-8")
         dry = forge.apply_kit(self.target, "base", dry_run=True)
         self.assertTrue(dry["dry_run"])
@@ -352,12 +352,13 @@ class ForgeProvisionTests(unittest.TestCase):
 
     def test_the_sdk_uses_the_agent_setup_its_kits_ship(self):
         # The kits are the only source. The SDK's own .agents/.claude/.codex and scripts/ are an installed copy of
-        # base, todo and reviewer (the SDK plans and reviews its own work with them; the owner chose on 2026-10-17
-        # to keep base's scripts too, design/decisions.md), refreshed from the kits, so they must match them.
+        # base, todo, reviewer and automations (the SDK plans, reviews and schedules its own work with them; the
+        # owner chose on 2026-10-17 to keep base's scripts too, design/decisions.md), refreshed from the kits, so
+        # they must match them.
         def text(path):
             return path.read_bytes().replace(b"\r\n", b"\n")
 
-        for kit in ("base", "todo", "reviewer"):
+        for kit in ("base", "todo", "reviewer", "automations"):
             templates = FORGE_ROOT / "kits" / kit / "templates"
             prefixes = forge.SDK_MANAGED_PREFIXES + forge.SDK_MANAGED_SCRIPT_PREFIXES
             for source in sorted(templates.rglob("*")):
@@ -390,6 +391,48 @@ class ForgeProvisionTests(unittest.TestCase):
         result = subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "-s", str(tests)],
                                 capture_output=True, text=True, timeout=300)
         self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+
+    def test_automations_kit_install_doctor_and_sync_detection(self):
+        project = self.target / "scheduled"
+        project.mkdir()
+        res = forge.apply_kit(project, "automations")
+        for rel in (".conclave/automations/tasks.json", ".conclave/automations/run.py",
+                    ".claude/skills/scheduled-automations/SKILL.md", "scripts/tests/test_automations.py"):
+            self.assertIn(rel, res["installed"])
+        self.assertEqual((project / ".conclave/automations/install.sh").stat().st_mode & 0o777, provisioned_mode(0o755))
+        self.assertIn("automations", forge.installed_kits(project))
+        checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "automations")["checks"]}
+        self.assertEqual(checks["automations-tasks"], "ok")
+        self.assertEqual(checks["automations-folder"], "setup_required")
+        self.assertEqual(checks["skill:scheduled-automations:.codex"], "ok")
+
+        tasks = project / ".conclave/automations/tasks.json"
+        tasks.write_text(json.dumps({"schema_version": 1, "folder": "\\Demo\\", "tasks": [
+            {"name": "demo-gone", "description": "a check whose script is missing",
+             "command": ["python", "scripts/check-gone.py"], "trigger": {"weekly": "Monday", "at": "07:00"},
+             "timeout_minutes": 5}]}), encoding="utf-8")
+        checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "automations")["checks"]}
+        self.assertEqual((checks["automations-folder"], checks["task:demo-gone"]), ("ok", "missing"))
+        tasks.write_text('{"schema_version": 1, "folder": "Demo", "tasks": []}', encoding="utf-8")
+        checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "automations")["checks"]}
+        self.assertEqual(checks["automations-tasks"], "missing")
+        self.assertNotIn("automations-folder", checks)
+
+        # sync keeps the project's task list and README, and refreshes the runner only with --include-scripts.
+        runner = project / ".conclave/automations/run.py"
+        runner.write_text("old runner\n", encoding="utf-8")
+        forge.provision(project, refresh=True)
+        self.assertEqual(runner.read_text(encoding="utf-8"), "old runner\n")
+        forge.provision(project, refresh=True, refresh_scripts=True)
+        self.assertNotEqual(runner.read_text(encoding="utf-8"), "old runner\n")
+        self.assertEqual(tasks.read_text(encoding="utf-8"), '{"schema_version": 1, "folder": "Demo", "tasks": []}')
+
+    def test_automations_kit_tests_pass_in_the_kit_and_in_the_sdks_own_copy(self):
+        for root in (FORGE_ROOT / "kits/automations/templates", FORGE_ROOT):
+            with self.subTest(root=root):
+                result = subprocess.run([sys.executable, "-B", str(root / "scripts/tests/test_automations.py")],
+                                        capture_output=True, text=True, timeout=300)
+                self.assertEqual(result.returncode, 0, result.stderr[-2000:])
 
     def test_no_em_or_en_dashes_anywhere(self):
         # Every text file the SDK ships or provisions: prose, code, comments, templates and config alike.

@@ -1,6 +1,6 @@
 # Conclave-SDK
 
-Conclave-SDK is the central repository of overlay kits that carry agent skills, rules and subagent definitions (`base`, `todo`, `laravel`, `wordpress`), prompts, plugins, templates, and the canonical TODO graph tooling (`todo-graph.py`).
+Conclave-SDK is the central repository of overlay kits that carry agent skills, rules and subagent definitions (`base`, `todo`, `reviewer`, `automations`, `laravel`, `wordpress`), prompts, plugins, templates, and the canonical TODO graph tooling (`todo-graph.py`).
 
 It is designed to be imported into any **new** or **existing** repository by **Google Antigravity / Gemini (`gemini` / `agy`)**, **Claude Code (`claude`)**, and **OpenAI Codex (`codex`)**:
 
@@ -18,13 +18,14 @@ Each agent reads only its own isolated folder and entrypoint alongside the share
 | `kits/base/` | Every repo: entry docs, safety skills, subagents, rules, tier check. |
 | `kits/todo/` | TODO skills, `todo-graph.py`, starter `todo/` tree, workflow doc. |
 | `kits/reviewer/` | Reviewer pin (GPT-6 Astra, failover Gemini 4, Sonnet 5.5) and dispatcher. |
+| `kits/automations/` | Scheduled tasks for Task Scheduler and systemd, with a failure email. |
 | `kits/laravel/`, `kits/wordpress/` | Stack kits. |
 | `prompts/` | Copy-pasteable prompts to import Conclave-SDK from Gemini, Claude, or Codex. |
 | `plugins/` | Standalone agent plugins that belong to no kit (never installed by `forge.py`). |
 | `extensions/` | Editor extensions (`vscode/`), never installed by `forge.py`. |
 | `todo/`, `design/` | The SDK's own TODO plan and interface design (the VS Code extension). |
-| `.agents/`, `.claude/`, `.codex/` | The SDK's own copy of `base`, `todo` and `reviewer`. |
-| `scripts/`, `.conclave/` | The SDK's own copy of the todo and reviewer scripts and pin. |
+| `.agents/`, `.claude/`, `.codex/` | The SDK's own copy of `base`, `todo`, `reviewer`, `automations`. |
+| `scripts/`, `.conclave/` | The SDK's own todo, reviewer and automations scripts and pins. |
 | `tests/` | Unit test suites for `todo_graph.py`, `forge.py`, and stack overlay kits. |
 
 ## Importing into a New or Existing Project (Gemini, Claude, or Codex)
@@ -68,6 +69,7 @@ Paste the prompt from [`prompts/bootstrap-project-prompt.md`](file:///R:/GitHub/
 | `base` | Entry docs, safety and authoring skills, subagents, rules | Every repository |
 | `todo` | 8 TODO skills, `todo-graph.py`, starter `todo/` tree | Work planned in TODO files |
 | `reviewer` | Reviewer pin, `review-dispatch.py`, review skill | Independent review |
+| `automations` | `tasks.json`, runner, failure email, installers, skill | Scheduled checks |
 | `laravel` | `boost.json`, `.mcp.json`, LSP diagnostics, `laravel-boost` | `artisan` exists |
 | `wordpress` | Site pin, SSH/SFTP, WordPress MCP, DDEV, PHPCS | A WordPress site |
 

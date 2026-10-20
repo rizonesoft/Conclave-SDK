@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "folder": "\\Conclave-SDK\\",
+  "tasks": [
+    {
+      "name": "conclave-sdk-reviewers",
+      "description": "Check the reviewer pin still loads and every pinned reviewer CLI is installed",
+      "command": ["python", "forge.py", "doctor", ".", "reviewer", "--strict"],
+      "trigger": {"weekly": "Monday", "at": "07:00"},
+      "timeout_minutes": 5
+    }
+  ]
+}

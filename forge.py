@@ -4,7 +4,7 @@
     python forge.py init <target> [--mode isolated|hybrid|inherit] [--agent all|agy|gemini|claude|codex] [--kit <kit>] [--with-todo] [--force]
     python forge.py sync <target> [--mode isolated|hybrid|inherit] [--agent all|agy|gemini|claude|codex] [--kit <kit>] [--include-scripts]
     python forge.py kit <target> <kit> [--agent all|agy|gemini|claude|codex] [--host pressable|wpcom] [--dry-run]
-    python forge.py doctor <target> [laravel|wordpress|reviewer] [--strict]
+    python forge.py doctor <target> [laravel|wordpress|reviewer|automations|todo|base] [--strict]
     python forge.py kits
     python forge.py check <target>
 
@@ -128,13 +128,17 @@ TODO_SKILLS = (
 )
 WORDPRESS_PIN = ".conclave/wordpress-site.json"
 REVIEWER_PIN = ".conclave/reviewers.toml"
+AUTOMATIONS_DIR = ".conclave/automations"
+# The automations kit's runner, alert and installers: kit code that `sync --include-scripts` refreshes, beside the
+# project's own tasks.json and README.md in the same folder.
+AUTOMATIONS_SCRIPTS = tuple(f"{AUTOMATIONS_DIR}/{name}" for name in ("run.py", "alert.py", "install.ps1", "install.sh"))
 
 
-KIT_ORDER = ("base", "todo", "reviewer", "laravel", "wordpress")
+KIT_ORDER = ("base", "todo", "reviewer", "automations", "laravel", "wordpress")
 BASE_SKILLS = ("authoring-skills", "local-tool-safety")
 AGENT_DIRS = (".agents", ".claude", ".codex")
 SDK_MANAGED_PREFIXES = tuple(f"{d}/{kind}/" for d in AGENT_DIRS for kind in ("skills", "rules")) + (".claude/agents/",)
-SDK_MANAGED_SCRIPT_PREFIXES = ("scripts/", "bin/")
+SDK_MANAGED_SCRIPT_PREFIXES = ("scripts/", "bin/") + AUTOMATIONS_SCRIPTS
 
 
 def _is_sdk_managed(rel: str, include_scripts: bool) -> bool:
@@ -158,6 +162,8 @@ def installed_kits(target_root: Path) -> list[str]:
         found.append("todo")
     if any_skill(("independent-review",)) or (target_root / REVIEWER_PIN).is_file():
         found.append("reviewer")
+    if any_skill(("scheduled-automations",)) or (target_root / AUTOMATIONS_DIR / "run.py").is_file():
+        found.append("automations")
     if any_skill(("laravel-boost",)) or (target_root / "scripts/lsp-diagnostics.py").is_file():
         found.append("laravel")
     if (target_root / WORDPRESS_PIN).is_file() or any_skill(("wordpress-site-safety", "wordpress-connect")):
@@ -192,7 +198,7 @@ def apply_kit(
     refresh_scripts: bool = False,
     include=None,
 ) -> dict:
-    """Apply an additive overlay kit ('base', 'todo', 'reviewer', 'laravel', 'wordpress') for all or one agent without overwriting existing files.
+    """Apply an additive overlay kit ('base', 'todo', 'reviewer', 'automations', 'laravel', 'wordpress') for all or one agent without overwriting existing files.
 
     `refresh` (used by `sync`) also brings SDK-managed files that already exist up to date: skills, rules and
     subagents, plus scripts and bin/ helpers when `refresh_scripts` is set. Project files (entry docs, docs/, todo/,
@@ -451,6 +457,41 @@ def _doctor_reviewer(target_root: Path, add_check) -> None:
                       f"{reviewer['model']} via {found}" if found else f"{reviewer['cli']} CLI not installed; this reviewer is skipped")
 
 
+def _doctor_automations(target_root: Path, add_check) -> None:
+    """Read-only automations checks: the task list loads under the runner's own rules, names its folder and only
+    scripts that exist, and this machine has the scheduler the installers drive."""
+    runner = FORGE_ROOT / "kits/automations/templates" / AUTOMATIONS_DIR / "run.py"
+    module = types.ModuleType("_forge_automations_run")
+    module.__file__ = str(runner)
+    exec(compile(runner.read_text(encoding="utf-8"), str(runner), "exec"), module.__dict__)
+    manifest = None
+    tasks_json = f"{AUTOMATIONS_DIR}/tasks.json"
+    try:
+        manifest = module.load_manifest(str(target_root / tasks_json))
+        add_check("automations-tasks", "ok", tasks_json)
+    except (OSError, ValueError) as exc:  # TaskError and a JSON decode error are both ValueErrors
+        add_check("automations-tasks", "missing", f"{tasks_json}: {exc}")
+    if manifest is not None:
+        folder = manifest["folder"]
+        add_check("automations-folder", "ok" if folder else "setup_required",
+                  folder or f"set folder in {tasks_json} to \\<Project>\\ before adding a task")
+        for name, task in manifest["tasks"].items():
+            script = task["command"][1] if task["command"][0] == "python" and len(task["command"]) > 1 else None
+            ok = script is not None and (target_root / script).is_file()
+            add_check(f"task:{name}", "ok" if ok else "missing",
+                      " ".join(task["command"]) if ok else f"command must be python and a script that exists: {task['command']}")
+    for rel in (*AUTOMATIONS_SCRIPTS, f"{AUTOMATIONS_DIR}/README.md", "scripts/tests/test_automations.py"):
+        path = target_root / rel
+        add_check(rel, "ok" if path.is_file() else "missing", path.as_posix())
+    for agent_dir in AGENT_DIRS:
+        sk = target_root / agent_dir / "skills/scheduled-automations/SKILL.md"
+        add_check(f"skill:scheduled-automations:{agent_dir}", "ok" if sk.is_file() else "missing", sk.as_posix())
+    scheduler = "pythonw" if os.name == "nt" else "systemctl"
+    found = shutil.which(scheduler)
+    add_check(f"scheduler:{scheduler}", "ok" if found else "setup_required",
+              found or ("install Python 3 for Windows (pythonw.exe on PATH)" if os.name == "nt" else "systemd user manager not available"))
+
+
 def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
     """Read-only stack health check for Laravel and/or WordPress overlays across all three agents."""
     target_root = Path(target_root).resolve()
@@ -491,6 +532,8 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
         _doctor_wordpress(target_root, add_check)
     elif kit_name == "reviewer":
         _doctor_reviewer(target_root, add_check)
+    elif kit_name == "automations":
+        _doctor_automations(target_root, add_check)
     elif kit_name == "todo":
         for agent_dir in (".agents", ".claude", ".codex"):
             for skill in TODO_SKILLS:
@@ -633,7 +676,7 @@ def main(argv: list[str] | None = None) -> int:
     p_init.add_argument("target", help="Target repository path")
     p_init.add_argument("--mode", choices=["isolated", "copy", "hybrid", "inherit"], default="isolated")
     p_init.add_argument("--agent", choices=AGENT_CHOICES, default="all")
-    p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, reviewer, laravel, wordpress)")
+    p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, reviewer, automations, laravel, wordpress)")
     p_init.add_argument("--wp-host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
     p_init.add_argument("--no-scripts", action="store_true", help="Leave out the kits' scripts/ files")
     p_init.add_argument("--with-todo", action="store_true", help="Shorthand for --kit todo")
@@ -643,11 +686,11 @@ def main(argv: list[str] | None = None) -> int:
     p_sync.add_argument("target", help="Target repository path")
     p_sync.add_argument("--mode", choices=["isolated", "copy", "hybrid", "inherit"], default="isolated")
     p_sync.add_argument("--agent", choices=AGENT_CHOICES, default="all")
-    p_sync.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, reviewer, laravel, wordpress)")
+    p_sync.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, reviewer, automations, laravel, wordpress)")
     p_sync.add_argument("--wp-host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
     p_sync.add_argument("--include-scripts", action="store_true", help="Also update existing scripts/ and bin/ files from the kits")
 
-    p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, todo, reviewer, laravel, wordpress) to a target repo")
+    p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, todo, reviewer, automations, laravel, wordpress) to a target repo")
     p_kit.add_argument("target", help="Target repository path")
     p_kit.add_argument("kit_name", choices=list_kits(), help="Kit name to apply")
     p_kit.add_argument("--agent", choices=AGENT_CHOICES, default="all", help="Install kit files for all agents or one agent")
