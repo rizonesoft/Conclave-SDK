@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Design, pin contract and scaffold
 
-Sections: 11 | Checklist items: 111
+Sections: 12 | Checklist items: 118
 
 | Status | Reference  | Deliverable                                  | Needs | Items |
 | ------ | ---------- | -------------------------------------------- | ----- | ----- |
@@ -23,6 +23,7 @@ Sections: 11 | Checklist items: 111
 | [ ]    | D02 T01 §1 | Extension scaffold, build and test harness   | none  | 9     |
 | [x]    | D06 T01 §2 | Plan query in todo-graph                     | none  | 5     |
 | [ ]    | D06 T01 §3 | Round listing in the dispatcher              | none  | 5     |
+| [ ]    | D06 T01 §8 | Round record hardening                       | none  | 7     |
 
 ### Phase 1: Extension host and kit operations
 
@@ -86,6 +87,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 5/52 verified sections, 4 ready to run now.
+Progress: 5/53 verified sections, 4 ready to run now.
 
-Checklist: 60/438 items completed (includes Commit items).
+Checklist: 60/445 items completed (includes Commit items).

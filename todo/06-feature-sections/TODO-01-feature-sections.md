@@ -47,8 +47,9 @@ title: "TODO-01 -- Feature Sections"
 | 3 | §3 | Round listing in the dispatcher | D00 T01 §2 | [ ] |
 | 4 | §4 | Reviewers section | §1, D02 T01 §3 | [ ] |
 | 5 | §5 | Plan section | §1, §2 | [ ] |
-| 6 | §6 | Review rounds section | §1, §3 | [ ] |
+| 6 | §6 | Review rounds section | §1, §3, §8 | [ ] |
 | 7 | §7 | WordPress site section | §1, D05 T01 §8 | [ ] |
+| 8 | §8 | Round record hardening | §3 | [ ] |
 
 ## 1. Feature section registry
 
@@ -224,6 +225,29 @@ A WordPress folder needs its live site's connection state in view (plan R36). Th
 - [ ] Commit: `ui: WordPress site section in the Conclave side bar`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep siteSection` passes, and fails when the section shows a check that doctor did not return.
+
+## 8. Round record hardening
+
+Review round 3 of §3 (`docs/reviews/06-feature-sections/D06-T01-s3.md`, the last round the review loop allows) left five defects in the round record that `record` writes and `--list-rounds` reads. They were filed here rather than patched a fourth time, and the envelope is re-thought, not patched: (1) a `- Lines:` value such as `²` passes `str.isdigit` and `int` raises, aborting the listing; (2) the count alone cannot tell an edit inside a review, and the README overclaims that it can; (3) the review is not stored byte for byte: `text_lines` drops a `\r`, and `record` reads the existing file with universal newlines, so an append turns a lone `\r` into a line break and breaks an earlier round's count; (4) `load_pin`'s `MODEL` and `NAME` patterns end in `$`, which accepts a trailing newline, and such a model breaks the round heading; (5) when the existing file is unreadable, `record` numbers by counting `## Round` lines, which counts quoted headings. §6 renders this listing, so it waits for this section.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write the failing tests in `kits/reviewer/templates/scripts/tests/test_review_dispatch.py`, one per defect. Done when: each fails on the dispatcher at the end of §3.
+2. Re-think the envelope in `kits/reviewer/templates/scripts/review-dispatch.py` and refresh the SDK's copy. Done when: the tests pass on Windows and WSL and `scripts/review-dispatch.py` matches the kit.
+
+- [ ] Accept a `- Lines:` value only as 1 to 6 ASCII digits (`re.fullmatch(r"[0-9]{1,6}", value)`) in `read_rounds`, and catch `ValueError` beside `OSError` in `list_rounds`. Done when: a record with `- Lines: ²` or a 5,000-digit count is named in `unreadable` and the other records are listed. Cheaper substitute: catching the exception and dropping the file.
+- [ ] Add `- Digest:` (the first 16 hex digits of the SHA-256 of the review's canonical lines, joined with `\n`) to what `record` writes, and verify it in `read_rounds`. Done when: an edit inside a review that keeps its line count is refused, and the README says that text after a round's review belongs to no round (as the `## Response to round N` notes do). Cheaper substitute: the count alone, which misses same-length edits.
+- [ ] Store the review byte for byte: split it on `\n` alone without dropping `\r`, and read and write the existing file in `record` with `newline=""`; canonicalise only for parsing and the digest (a line's trailing `\r` dropped, for CRLF checkouts). Done when: a review containing `A\r\nB` and a lone `\r` is stored unchanged, and appending a second round leaves the first one readable. Cheaper substitute: normalising every line ending, which changes the stored review.
+- [ ] Match `MODEL` and `NAME` in `load_pin` with `fullmatch` (or `\Z`) so a trailing newline is refused. Done when: a pin with `model = "gpt-6-astra\n"` is refused with `has a malformed model` and no reviewer runs. Cheaper substitute: stripping the value, which edits the pin's meaning.
+- [ ] Refuse in `record` to append to a findings file `read_rounds` cannot read, printing the round's JSON summary and saying why, with exit 2. Done when: the review text is still on stdout and the file is unchanged. Cheaper substitute: numbering by counting headings, which counts quoted ones.
+- [ ] Refresh the SDK's copy with `python forge.py sync . --include-scripts` and update `kits/reviewer/README.md`. Done when: `cmp scripts/review-dispatch.py kits/reviewer/templates/scripts/review-dispatch.py` reports no difference. Cheaper substitute: hand-editing `scripts/review-dispatch.py`.
+- [ ] Commit: `reviewer: round records with a digest, stored byte for byte`, then push `main`
+
+**Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_review_dispatch.py -v` passes on Windows and in WSL, and each new test fails against the dispatcher at the end of §3 (`a7c7388`).
 
 ## Verification
 
