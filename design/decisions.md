@@ -46,7 +46,7 @@ Independent review of `D00 T01 §3` and `§4` found states the design did not dr
 - The two badge backgrounds the theme has no variable for are colours the extension contributes (`conclave.badgeOkBackground`, `conclave.badgeErrorBackground`) with the mockup's values as their defaults, so the approved look stands and a theme can override it.
 - The example round that no reviewer returned now skips two reviewers, as a route of one reviewer and one fallback can.
 
-Applied to `design/mockup/project/Main.dc.html` in the commit that adds this entry; the current mockup source below names it.
+Applied to `design/mockup/project/Main.dc.html` in `e37bd70` and republished to the same link as canvas version 27 (version id `1792496267-c8bd`); `design/screens/12-dark.png` and `12-light.png` were captured again from that version. Current mockup source, for the parity fixtures: `design/mockup/project/` at commit `e37bd70be836517a74e569fb231e9802352b2b0c` (canvas version 27).
 
 ## Other owner decisions
 
