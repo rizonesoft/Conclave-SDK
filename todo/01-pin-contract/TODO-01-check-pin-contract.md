@@ -37,7 +37,7 @@ title: "TODO-01 -- Check Pin Contract"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Strict schema_version type in load_pin | D00 T01 §2 | [x] |
-| 2 | §2 | Dispatcher check-pin flag | §1 | [ ] |
+| 2 | §2 | Dispatcher check-pin flag | §1 | [x] |
 | 3 | §3 | Check-pin contract fixtures and test | §2 | [ ] |
 
 ## 1. Strict schema_version type in load_pin
@@ -99,9 +99,12 @@ The extension must never reimplement validation (plan R7), so the dispatcher gro
 - [x] Refresh the SDK's installed copy with `python forge.py sync . --include-scripts`. Done when: `cmp scripts/review-dispatch.py kits/reviewer/templates/scripts/review-dispatch.py` reports no difference. Cheaper substitute: copying the file by hand.
 - [x] Run `python -m unittest discover -s tests -v` and `bash kits/reviewer/scripts/test-install.sh`. Done when: both pass. Cheaper substitute: running only the dispatcher tests.
 - [x] Stage only the kit's dispatcher, test and README, the root copies and this TODO file. Done when: `git diff --cached --stat` lists only those files. Cheaper substitute: staging the owner's CRLF changes.
-- [ ] Commit: `reviewer: add review-dispatch.py --check-pin`, then push `main`
+- [x] Commit: `reviewer: add review-dispatch.py --check-pin`, then push `main`
 
 **Test checkpoint:** `python scripts/review-dispatch.py --check-pin --json` exits 0 with `"ok": true`, and `python scripts/review-dispatch.py --check-pin --json --pin docs/plans/2026-10-16-vscode-extension.md` exits 2 with `"ok": false`.
+
+> **Verified:** 2026-10-20 | §2 | 2d23e7eb300dad93f6db0a833c04ceba54bd9a07
+> **Review:** `docs/reviews/d01-t01-s2.json`
 
 ## 3. Check-pin contract fixtures and test
 
