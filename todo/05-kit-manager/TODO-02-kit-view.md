@@ -41,7 +41,7 @@ title: "TODO-02 -- Read-only Kit View and Agent Import"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Kit stamp written by forge on every install | -- | [ ] |
+| 1 | §1 | Kit stamp written by forge on every install | -- | [x] |
 | 2 | §2 | Bundled SDK digest and drift test | §1 | [ ] |
 | 3 | §3 | Kit state for newer and older kit stamps | §1, D02 T01 §10 | [ ] |
 | 4 | §4 | New repository setup removed from the extension | -- | [x] |
@@ -56,7 +56,7 @@ A project must say which kits set it up, so a reader can tell "older or newer ki
 
 > **Started:** 2026-10-20T21:35:00Z
 
-**Corrected 2026-10-20 (while building):** each kit's entry carries its own `commit` and `date`, not one top-level `sdk` object, since kits in one folder can come from different SDK versions; the stamp is written only when every SDK-managed file of the kit present in the folder matches this SDK byte for byte, for every agent and with scripts (round 1 of review showed `sync` without `--include-scripts`, or for one agent, keeps older files), so a run that keeps files of an earlier install leaves that install's entry; and the SDK folder itself gets no stamp, because a committed stamp would name a commit it can never be part of (the item that committed the SDK's own stamp is struck).
+**Corrected 2026-10-20 (while building):** each kit's entry carries its own `commit` and `date`, not one top-level `sdk` object, since kits in one folder can come from different SDK versions; the stamp is written only when every SDK-managed file of the kit present in the folder matches this SDK (CRLF read as LF, as in the digest), for every agent and with scripts; a file an older SDK shipped and this one retired is outside the stamp, since forge never deletes (round 2) (round 1 of review showed `sync` without `--include-scripts`, or for one agent, keeps older files), so a run that keeps files of an earlier install leaves that install's entry; and the SDK folder itself gets no stamp, because a committed stamp would name a commit it can never be part of (the item that committed the SDK's own stamp is struck).
 
 **Phase:** 1
 **Needs:** none
@@ -72,9 +72,12 @@ A project must say which kits set it up, so a reader can tell "older or newer ki
 - [x] Write `.conclave/kits.json` atomically from `provision` and `apply_kit` whenever they write a file (never on `--dry-run`): `schema_version: 1`, the `sdk` object, and each installed kit's digest, keeping the entries of kits this run did not touch. Done when: tests show `init`, `kit` and `sync` each write it, a dry run writes nothing, and a second kit keeps the first kit's entry. Cheaper substitute: writing only on `init`.
 - [x] Report the stamp in `forge.py check` (`kit_stamp`: the parsed file or `null`) without changing any other key. Done when: `tests/test_check_pin_contract.py` and the extension's check fixtures still pass, and a test reads the stamp from `check`. Cheaper substitute: the extension reading the file itself.
 - [x] ~~Refresh the SDK's own installed copy with `python forge.py sync . --include-scripts` and commit its stamp.~~ Struck 2026-10-20: the SDK gets no stamp (see the correction above); `write_kit_stamp` refuses the SDK folder and `test_the_sdk_folder_itself_gets_no_stamp` proves it. Done when: that test passes. Cheaper substitute: none.
-- [ ] Commit: `forge: kit stamp written on every install`
+- [x] Commit: `forge: kit stamp written on every install`
 
 **Test checkpoint:** `python -m unittest tests.test_forge -k stamp` passes, and fails when `apply_kit` stops writing the stamp.
+
+> **Verified:** 2026-10-21 | §1 | f4bf804639e69c13e36e401fce3628b9c445469a
+> **Review:** `docs/reviews/d05-t02-s1.json`
 
 ## 2. Bundled SDK digest and drift test
 

@@ -63,7 +63,7 @@ Sections: 32 | Checklist items: 198
 | [x]    | D02 T01 §19 | Folder work bound to the lifetime it was asked in        | none  | 4     |
 | [x]    | D05 T01 §4  | New repository setup through forge init                  | none  | 7     |
 | [ ]    | D05 T01 §10 | Protected-file proof refuses special files               | none  | 3     |
-| [ ]    | D05 T02 §1  | Kit stamp written by forge on every install              | none  | 6     |
+| [x]    | D05 T02 §1  | Kit stamp written by forge on every install              | none  | 6     |
 | [ ]    | D05 T02 §2  | Bundled SDK digest and drift test                        | none  | 4     |
 | [ ]    | D05 T02 §3  | Kit state for newer and older kit stamps                 | none  | 4     |
 | [x]    | D05 T02 §4  | New repository setup removed from the extension          | none  | 5     |
@@ -114,6 +114,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 38/80 verified sections, 4 ready to run now.
+Progress: 39/80 verified sections, 7 ready to run now.
 
-Checklist: 296/583 items completed (includes Commit items).
+Checklist: 297/583 items completed (includes Commit items).
