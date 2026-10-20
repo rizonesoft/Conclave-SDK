@@ -43,7 +43,18 @@
         "title": "Open Reviewer Settings",
         "category": "Conclave"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Conclave",
+      "properties": {
+        "conclave.pythonPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "markdownDescription": "Python 3.11 or later that runs the workspace's `scripts/review-dispatch.py` and `forge.py`. Empty: `py -3` then `python` on Windows, `python3` then `python` elsewhere, found on `PATH` only. A set but unusable path is an error; discovery is not tried in its place."
+        }
+      }
+    }
   },
   "scripts": {
     "build": "node esbuild.mjs",
