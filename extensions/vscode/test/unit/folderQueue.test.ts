@@ -28,8 +28,8 @@ function harness() {
 test("different requests for one folder run one at a time, in order", async () => {
   const h = harness();
   const q = new FolderQueue<string>();
-  const a = q.run("/w", "a", h.task("/w", "a"));
-  const b = q.run("/w", "b", h.task("/w", "b"));
+  const a = q.run("/w", "a", h.task("/w", "a")).promise;
+  const b = q.run("/w", "b", h.task("/w", "b")).promise;
   await h.tick();
   assert.deepEqual(h.started, ["a"], "b started while a was running");
   h.finishers[0]();
@@ -40,24 +40,42 @@ test("different requests for one folder run one at a time, in order", async () =
   assert.equal(h.most.get("/w"), 1);
 });
 
-test("an identical request waiting or running shares its answer and starts nothing", async () => {
+test("an identical request still waiting shares its answer and starts nothing", async () => {
   const h = harness();
   const q = new FolderQueue<string>();
   const first = q.run("/w", "pin", h.task("/w", "first"));
   const second = q.run("/w", "pin", h.task("/w", "second"));
-  assert.equal(first, second);
+  assert.equal(first.promise, second.promise);
+  assert.deepEqual([first.created, second.created], [true, false]);
   await h.tick();
   h.finishers[0]();
-  assert.equal(await second, "first");
+  assert.equal(await second.promise, "first");
   assert.deepEqual(h.started, ["first"]);
+});
+
+test("an identical request after the run started gets a fresh run behind it, never the older answer", async () => {
+  const h = harness();
+  const q = new FolderQueue<string>();
+  const before = q.run("/w", "pin", h.task("/w", "before-save"));
+  await h.tick();
+  assert.deepEqual(h.started, ["before-save"]);
+  const after = q.run("/w", "pin", h.task("/w", "after-save"));
+  const joined = q.run("/w", "pin", h.task("/w", "unused"));
+  assert.ok(after.created && !joined.created && after.promise === joined.promise);
+  h.finishers[0]();
+  await h.tick();
+  assert.deepEqual(h.started, ["before-save", "after-save"]);
+  h.finishers[1]();
+  assert.deepEqual([await before.promise, await after.promise], ["before-save", "after-save"]);
+  assert.equal(h.most.get("/w"), 1);
 });
 
 test("folders do not wait for each other, and a failed request does not block the next", async () => {
   const h = harness();
   const q = new FolderQueue<string>();
-  const failed = q.run("/a", "x", h.task("/a", "a-fails", true));
-  const other = q.run("/b", "x", h.task("/b", "b"));
-  const after = q.run("/a", "y", h.task("/a", "a-next"));
+  const failed = q.run("/a", "x", h.task("/a", "a-fails", true)).promise;
+  const other = q.run("/b", "x", h.task("/b", "b")).promise;
+  const after = q.run("/a", "y", h.task("/a", "a-next")).promise;
   await h.tick();
   assert.deepEqual(h.started, ["a-fails", "b"]);
   h.finishers[0]();

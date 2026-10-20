@@ -44,7 +44,8 @@ export class DispatcherClient implements vscode.Disposable {
   private readonly trust: vscode.Disposable;
   readonly onDidCheck = this.changed.event;
 
-  constructor(private readonly python: PythonService) {
+  // runner is the process runner; tests pass one they hold open to order a check against a save.
+  constructor(private readonly python: PythonService, private readonly runner: typeof run = run) {
     this.trust = vscode.workspace.onDidGrantWorkspaceTrust(() => {
       for (const key of this.checked) {
         void this.check(vscode.Uri.parse(key));
@@ -54,30 +55,30 @@ export class DispatcherClient implements vscode.Disposable {
 
   check(folder: vscode.Uri, pin?: string): Promise<WorkspaceState> {
     const key = folder.toString();
-    const generation = pin ? 0 : (this.generations.get(key) ?? 0) + 1;
-    if (!pin) {
-      this.generations.set(key, generation);
-    }
-    const call = this.queue.run(key, pin ?? "", () => checkWorkspace(folder.fsPath, {
+    const queued = this.queue.run(key, pin ?? "", () => checkWorkspace(folder.fsPath, {
       trusted: vscode.workspace.isTrusted,
       join,
       resolve,
       isFile,
       readText,
       python: () => this.python.python(folder),
-      run,
+      run: this.runner,
       log,
       now: Date.now,
     }, pin));
-    if (!pin) {
-      void call.then((state) => {
+    // Each new run of the folder's own pin is published once, and only if no newer run was queued after it; a call that
+    // joined a waiting run adds nothing, since that run publishes for both.
+    if (!pin && queued.created) {
+      const generation = (this.generations.get(key) ?? 0) + 1;
+      this.generations.set(key, generation);
+      void queued.promise.then((state) => {
         this.checked.add(key);
         if (this.generations.get(key) === generation) {
           this.changed.fire({ folder, state });
         }
       }, () => undefined);
     }
-    return call;
+    return queued.promise;
   }
 
   dispose(): void {
