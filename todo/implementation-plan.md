@@ -8,13 +8,13 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Design, pin contract and scaffold
 
-Sections: 11 | Checklist items: 110
+Sections: 11 | Checklist items: 111
 
 | Status | Reference  | Deliverable                                  | Needs | Items |
 | ------ | ---------- | -------------------------------------------- | ----- | ----- |
 | [x]    | D00 T01 §1 | Clickable reviewer editor mockup             | none  | 26    |
 | [x]    | D00 T01 §2 | Owner approval and open design answers       | none  | 6     |
-| [ ]    | D00 T01 §5 | Mockup and plan follow the family route rule | none  | 9     |
+| [ ]    | D00 T01 §5 | Mockup and plan follow the family route rule | none  | 10    |
 | [ ]    | D00 T01 §3 | Interface SPEC and screenshots               | none  | 14    |
 | [ ]    | D00 T01 §4 | Reviewer config design spec                  | none  | 10    |
 | [ ]    | D01 T01 §1 | Strict schema_version type in load_pin       | none  | 7     |
@@ -47,15 +47,15 @@ Sections: 14 | Checklist items: 111
 
 ### Phase 2: Editor surface and Kits view
 
-Sections: 21 | Checklist items: 174
+Sections: 21 | Checklist items: 173
 
 | Status | Reference   | Deliverable                                   | Needs | Items |
 | ------ | ----------- | --------------------------------------------- | ----- | ----- |
 | [ ]    | D03 T01 §1  | Webview shell, theming and message bridge     | none  | 9     |
 | [ ]    | D03 T01 §2  | Reviewer cards with per-CLI effort            | none  | 10    |
 | [ ]    | D03 T01 §3  | Reviewer add, rename and delete               | none  | 8     |
-| [ ]    | D03 T01 §4  | Route rows with ordered failover editing      | none  | 10    |
-| [ ]    | D03 T01 §5  | Self-review warning and no-route notice       | none  | 7     |
+| [ ]    | D03 T01 §4  | Route rows with a reviewer and one fallback   | none  | 11    |
+| [ ]    | D03 T01 §5  | No-route notice                               | none  | 5     |
 | [ ]    | D03 T01 §6  | Inline validation and Save gating             | none  | 8     |
 | [ ]    | D03 T01 §7  | TOML preview with diff against disk           | none  | 8     |
 | [ ]    | D03 T01 §8  | Save, discard and reload flow                 | none  | 9     |
@@ -88,4 +88,4 @@ Sections: 6 | Checklist items: 43
 
 Progress: 2/52 verified sections, 4 ready to run now.
 
-Checklist: 34/438 items completed (includes Commit items).
+Checklist: 43/438 items completed (includes Commit items).

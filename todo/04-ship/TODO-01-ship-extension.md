@@ -144,7 +144,7 @@ The extension ships as a `.vsix` (plan R22). This section adds `npm run package`
 
 ## 5. Independent review rounds
 
-The owner requires independent review of the change through the reviewer kit (plan R23): writer `claude`, so Astra reviews, with Gemini 4 and Sonnet 5.5 as failover, for up to three rounds. This section prepares the candidate range and prompt, runs the rounds with `scripts/review-dispatch.py`, verifies every finding against the code, fixes real ones with a regression test each, and records the outcome. A round with no reviewer is not an approval.
+The owner requires independent review of the change through the reviewer kit (plan R23): writer `claude`, so Astra reviews, with Gemini 4 as the one fallback, for up to three rounds. **Corrected 2026-10-20:** was Gemini 4 and Sonnet 5.5 as failover; Sonnet is Claude's own family and a route has one fallback (`design/decisions.md`, Reviewer routes, 2026-10-20). This section prepares the candidate range and prompt, runs the rounds with `scripts/review-dispatch.py`, verifies every finding against the code, fixes real ones with a regression test each, and records the outcome. A round with no reviewer is not an approval.
 
 **Phase:** 6
 **Needs:** none

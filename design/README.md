@@ -28,10 +28,10 @@ Where each requirement in `docs/plans/2026-10-16-vscode-extension.md` shows in t
 | --- | --- |
 | R1, R2 cards and per-CLI effort | Every editor scenario; the gemini card shows the agy note |
 | R3 add, rename, delete | Card header pencil and bin; Add reviewer card |
-| R4 route rows | Routes: drag, move buttons, add menu, remove |
-| R5 self-review warning | Ready: sonnet on claude, gemini on gemini |
+| R4 route rows | Routes: a reviewer and a fallback chip, drag, move, remove |
+| R5 family rule | Add menu greys out the writer's and reviewer's family |
 | R6 no-route notice | Remove both codex reviewers |
-| R7 to R9 inline errors, Save gating | The 11 `Error:` scenarios; `Refused: schema_version = 2` |
+| R7 to R9 inline errors, Save gating | The 14 `Error:` scenarios; `Refused: schema_version = 2` |
 | R10 CLI status | Status: agy is not on PATH |
 | R11 Test reviewer | Test reviewer on any card |
 | R12 preview and diff | reviewers.toml panel, Preview and Diff against disk |

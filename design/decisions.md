@@ -12,7 +12,7 @@ Approved: 2026-10-17, by the owner in the session, as it is, with no changes ask
 
 ## Answers
 
-1. Self-review warning (2026-10-17): warn whenever the reviewer's CLI is the writer's CLI, including a last-resort failover (option A).
+1. Self-review warning (2026-10-17): warn whenever the reviewer's CLI is the writer's CLI, including a last-resort failover (option A). Superseded 2026-10-20 by "Reviewer routes" under Changes after approval: the pin now refuses such a route, so there is nothing left to warn about.
 2. Errors (2026-10-17): one error at a time; `load_pin` and the `{"ok": false, "error": ...}` contract stay as they are (option A).
 3. Refused pins (2026-10-17): faults inside a parsable pin open the editor with an inline error; TOML that does not parse and a wrong top level show the "pin refused" screen (option A).
 4. Editor type (2026-10-17): a webview panel opened by `conclave.openReviewers`, with its own Save, Discard, temp-file-then-rename write and stale-disk check; unsaved edits show as "(unsaved)" in the panel title (option A).
@@ -26,6 +26,16 @@ Approved: 2026-10-17, by the owner in the session, as it is, with no changes ask
 12. Undo of a kit install (2026-10-17): no uninstall in the extension until forge has one; the operator's git is the undo, and the hash check proves the protected files did not change (option A).
 13. Review rounds source (2026-10-17): `review-dispatch.py --list-rounds --json` in the reviewer kit, beside `record` (option A, `D06 T01 §3`).
 14. Side bar layout (2026-10-16): the Kits tree stays its own section, with one section per feature under it, each shown only while its kit is in the folder.
+
+## Changes after approval
+
+Each change is applied to `design/mockup/project/` first and republished to the same link.
+
+### Reviewer routes (2026-10-20)
+
+The owner, in the session: "the reviewers fallback, it should only be a different family reviewer + 1 fallback". The reviewer kit ships it (Conclave-SDK `9bd9cb1`, `1bcd0b7`): `load_pin` refuses a route that is not one reviewer and at most one fallback (`route 'claude' must list one reviewer and at most one fallback`), a reviewer of the writer's family (`... of the writer's own family; a review comes from a different family`), and a fallback of the reviewer's family (`... the fallback must be of a third family, not the reviewer's own`). The family is the CLI's: codex is OpenAI, agy Google, claude Anthropic. The shipped routes are claude `astra` then `gemini`, codex `gemini` then `sonnet`, gemini `astra` then `sonnet`.
+
+Default taken for the editor, since the owner named the rule and not the screen: the editor never builds a route the pin refuses. A route row holds two chips, the reviewer and the fallback, and has no add button when full. Its add menu greys out, with the reason, a reviewer of the writer's family ("same family as the writer") and, for the fallback, a reviewer of the first chip's family ("same family as the reviewer"). A pin edited outside the editor that breaks the rule opens with `load_pin`'s refusal inline at the route row (answer 3), Save disabled. Answer 1's warning is gone. Applied to `design/mockup/project/Main.dc.html` in the commit that adds this entry and republished to the same link as canvas version 25 (version id `1792483021-13bf`); the live files matched the frozen commit byte for byte before the republish. Reversing it (warn instead of prevent) costs the add-menu rule in `D03 T01 §4` and the three refusal scenarios, and would let the editor offer routes the dispatcher refuses.
 
 ## Other owner decisions
 
