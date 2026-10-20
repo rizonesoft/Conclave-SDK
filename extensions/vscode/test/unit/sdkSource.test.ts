@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { posix } from "node:path";
 import { test } from "node:test";
-import { canExtract, chooseSource, evictions, githubRefusal, validRef, validRepository } from "../../src/core/sdkSource";
+import { bundledSource, canExtract, chooseSource, evictions, githubRefusal, validRef, validRepository } from "../../src/core/sdkSource";
 
 const checkout = (path: string) => path === "R:\\GitHub\\Conclave-SDK";
 const settings = (over: Partial<{ sdkPath: string; sdkRepository: string; sdkRef: string }> = {}) =>
@@ -63,4 +64,20 @@ test("sdkSource: the cache keeps the three most recently used SHAs", () => {
 
 test("sdkSource: extraction needs Python 3.11.4 or later", () => {
   assert.deepEqual(["3.11.3", "3.11.4", "3.12.0", "3.10.14", "4.0.0"].map(canExtract), [false, true, true, false, true]);
+});
+
+test("sdkSource: the bundle when packaged, the checkout in development, and a refusal when a packaged build has none", () => {
+  const sha = "a".repeat(40);
+  const probe = (folders: string[], commit?: string) => ({
+    isSdkFolder: (p: string) => folders.includes(p),
+    readCommit: () => commit,
+    join: posix.join,
+  });
+  assert.deepEqual(bundledSource("/ext", false, probe(["/ext/sdk"], sha)),
+    { ok: true, folder: "/ext/sdk", sha, label: `bundled Conclave-SDK@${sha.slice(0, 7)}` });
+  const dev = bundledSource("/r/sdk/extensions/vscode", true, probe(["/r/sdk"]));
+  assert.ok("ok" in dev && dev.label === "local Conclave-SDK (development)" && dev.sha === "local");
+  assert.equal((bundledSource("/r/sdk/extensions/vscode", false, probe(["/r/sdk"])) as { state: string }).state, "sdk-bundle-missing",
+    "a packaged build must not fall back to a checkout");
+  assert.equal((bundledSource("/ext", false, probe(["/ext/sdk"], "not-a-sha")) as { state: string }).state, "sdk-bundle-missing");
 });

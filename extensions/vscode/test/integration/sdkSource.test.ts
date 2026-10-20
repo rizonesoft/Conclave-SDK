@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -14,10 +14,14 @@ import { SdkSourceService } from "../../src/host/sdkSource";
 // Compiled to out/test/integration/: the package root is three folders up.
 const root = join(__dirname, "..", "..", "..");
 const TOKEN = "gho_test_token_never_logged";
-const shas: Record<string, string> = { main: "1".repeat(40), v2: "2".repeat(40), v3: "3".repeat(40), v4: "4".repeat(40) };
+const shas: Record<string, string> = {
+  main: "1".repeat(40), v2: "2".repeat(40), v3: "3".repeat(40), v4: "4".repeat(40),
+  // alias names main's commit; readme's archive holds no forge.py; cut's body is cut off after the headers.
+  alias: "1".repeat(40), readme: "5".repeat(40), cut: "6".repeat(40),
+};
 
 // A tarball like GitHub's: one top folder holding forge.py and kits/.
-function tarball(work: string, python: string[], sha: string): Buffer {
+function tarball(work: string, python: string[], sha: string, sdk = true): Buffer {
   const builder = join(work, "build.py");
   writeFileSync(builder, [
     "import io, sys, tarfile",
@@ -25,12 +29,13 @@ function tarball(work: string, python: string[], sha: string): Buffer {
     "with tarfile.open(sys.argv[1], 'w:gz') as tar:",
     "    for name in (top, top + '/kits'):",
     "        info = tarfile.TarInfo(name); info.type = tarfile.DIRTYPE; tar.addfile(info)",
-    "    data = b'print(1)\\n'; info = tarfile.TarInfo(top + '/forge.py'); info.size = len(data)",
+    "    data = b'print(1)\\n'; info = tarfile.TarInfo(top + ('/forge.py' if sys.argv[3] == 'sdk' else '/README.md'))",
+    "    info.size = len(data)",
     "    tar.addfile(info, io.BytesIO(data))",
   ].join("\n"));
   const out = join(work, `${sha}.tar.gz`);
   const [command, ...prefix] = python;
-  const built = spawnSync(command, [...prefix, builder, out, sha], { encoding: "utf8" });
+  const built = spawnSync(command, [...prefix, builder, out, sha, sdk ? "sdk" : "readme"], { encoding: "utf8" });
   assert.equal(built.status, 0, built.stderr);
   return readFileSync(out);
 }
@@ -51,15 +56,20 @@ suite("SDK source", () => {
     const resolved = await python.python();
     assert.ok(resolved.ok, "no Python on this host");
     work = mkdtempSync(join(tmpdir(), "conclave-sdk-"));
-    for (const sha of Object.values(shas)) {
-      archives.set(sha, tarball(work, [resolved.command, ...resolved.prefix], sha));
+    for (const sha of new Set(Object.values(shas))) {
+      archives.set(sha, tarball(work, [resolved.command, ...resolved.prefix], sha, sha !== shas.readme));
     }
     server = createServer((request, response) => {
       requests.push(`${request.method} ${request.url}`);
       assert.equal(request.headers.authorization, `Bearer ${TOKEN}`);
       const commit = /^\/repos\/o\/r\/commits\/([^/]+)$/.exec(request.url ?? "");
       const tar = /^\/repos\/o\/r\/tarball\/([0-9a-f]{40})$/.exec(request.url ?? "");
-      if (commit && shas[decodeURIComponent(commit[1])]) {
+      if (tar && tar[1] === shas.cut) {
+        // The headers go out, then the connection drops before the body.
+        response.writeHead(200, { "content-length": "100000" });
+        response.write(archives.get(shas.cut)?.subarray(0, 10));
+        setTimeout(() => response.destroy(), 20);
+      } else if (commit && shas[decodeURIComponent(commit[1])]) {
         response.end(shas[decodeURIComponent(commit[1])]);
       } else if (tar && archives.has(tar[1])) {
         response.end(archives.get(tar[1]));
@@ -79,9 +89,53 @@ suite("SDK source", () => {
     rmSync(work, { recursive: true, force: true });
   });
 
-  function service(storage: string, getSession: () => Promise<{ accessToken: string } | undefined> = async () => ({ accessToken: TOKEN })) {
-    return new SdkSourceService(python, { extensionPath: root, storage, development: true, apiBase: base, getSession });
+  function service(storage: string, getSession: () => Promise<{ accessToken: string } | undefined> = async () => ({ accessToken: TOKEN }),
+    maxDownload?: number) {
+    return new SdkSourceService(python, { extensionPath: root, storage, development: true, apiBase: base, getSession, maxDownload });
   }
+  const ref = (name: string, repository = "o/r") => ({ sdkPath: "", sdkRepository: repository, sdkRef: name });
+
+  test("an archive without forge.py and kits/ is refused, and nothing is cached", async () => {
+    const storage = join(work, "r1");
+    const result = await service(storage).resolveWith(ref("readme"));
+    assert.ok("state" in result && result.state === "sdk-archive-refused", JSON.stringify(result));
+    assert.deepEqual(readdirSync(join(storage, "sdk")), []);
+  });
+
+  test("a cache entry that is not complete is rebuilt, never trusted", async () => {
+    const storage = join(work, "r2");
+    const entry = join(storage, "sdk", shas.main);
+    mkdirSync(entry, { recursive: true });
+    writeFileSync(join(entry, ".complete"), shas.main);
+    const result = await service(storage).resolveWith(ref("main"));
+    assert.ok("ok" in result, JSON.stringify(result));
+    assert.ok(existsSync(join(result.folder, "forge.py")));
+  });
+
+  test("two windows and two refs naming one commit all get the same complete entry", async () => {
+    const storage = join(work, "r3");
+    const results = await Promise.all([
+      service(storage).resolveWith(ref("main")),
+      service(storage).resolveWith(ref("alias")),
+      service(storage).resolveWith(ref("main")),
+    ]);
+    for (const result of results) {
+      assert.ok("ok" in result, JSON.stringify(result));
+      assert.equal(result.folder, join(storage, "sdk", shas.main));
+    }
+    assert.deepEqual(readdirSync(join(storage, "sdk")), [shas.main], "a temporary file or folder was left");
+    assert.ok(existsSync(join(storage, "sdk", shas.main, "forge.py")));
+  });
+
+  test("a connection that drops after the headers is offline, not an error", async () => {
+    const result = await service(join(work, "r4")).resolveWith(ref("cut"));
+    assert.ok("state" in result && result.state === "github-offline", JSON.stringify(result));
+  });
+
+  test("an archive larger than the limit is refused while it streams", async () => {
+    const result = await service(join(work, "r5"), undefined, 64).resolveWith(ref("main"));
+    assert.ok("state" in result && result.state === "sdk-archive-refused" && /larger than/.test(result.message), JSON.stringify(result));
+  });
 
   test("a cancelled sign-in is github-signin and makes no request", async () => {
     const before = requests.length;

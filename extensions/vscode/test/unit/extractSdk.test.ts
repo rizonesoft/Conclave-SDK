@@ -76,6 +76,8 @@ test("extractSdk: every unsafe member refuses the whole archive and writes nothi
     ["hard link", [...TOP, ["hardlink", "o-r-1234567/hard", "o-r-1234567/forge.py"]]],
     ["second top folder", [...TOP, ["file", "other/forge.py", "x"]]],
     ["file at the top", [["file", "loose.py", "x"]]],
+    ["names differing in case", [...TOP, ["file", "o-r-1234567/FORGE.PY", "print('other')"]]],
+    ["a name twice", [...TOP, ["file", "o-r-1234567/forge.py", "print('other')"]]],
   ];
   for (const [label, members] of cases) {
     const { code, reply, dest } = extract(members);

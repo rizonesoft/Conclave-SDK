@@ -97,6 +97,30 @@ export function evictions(used: { sha: string; at: number }[]): string[] {
   return [...used].sort((a, b) => b.at - a.at).slice(CACHE_KEEP).map((entry) => entry.sha);
 }
 
+export interface FolderProbe {
+  // True for a folder holding a forge.py file and a kits/ folder (types checked, not just names).
+  isSdkFolder: (path: string) => boolean;
+  // The bundle's SDK_COMMIT, or undefined when there is none.
+  readCommit: (path: string) => string | undefined;
+  join: (...parts: string[]) => string;
+}
+
+// The bundled source: <extensionPath>/sdk with forge.py, kits/ and SDK_COMMIT; in the Extension Development Host or a
+// test, with no bundle, the SDK checkout the extension runs from (two folders up); a packaged build without its
+// bundle is the refusal sdk-bundle-missing.
+export function bundledSource(extensionPath: string, development: boolean, probe: FolderProbe): SdkSource | SdkRefusal {
+  const bundle = probe.join(extensionPath, "sdk");
+  const commit = probe.readCommit(probe.join(bundle, "SDK_COMMIT"));
+  if (probe.isSdkFolder(bundle) && commit && SHA.test(commit)) {
+    return { ok: true, folder: bundle, sha: commit, label: `bundled Conclave-SDK@${commit.slice(0, 7)}` };
+  }
+  const checkout = probe.join(extensionPath, "..", "..");
+  if (development && probe.isSdkFolder(checkout)) {
+    return { ok: true, folder: checkout, sha: "local", label: "local Conclave-SDK (development)" };
+  }
+  return { state: "sdk-bundle-missing", message: "This build of the extension has no bundled SDK; set conclave.sdkPath or conclave.sdkRef." };
+}
+
 // Python 3.11.4 added tarfile's data filter, the extraction's second layer.
 export function canExtract(version: string): boolean {
   const [major, minor, patch] = version.split(".").map(Number);

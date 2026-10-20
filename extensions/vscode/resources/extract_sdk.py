@@ -18,6 +18,7 @@ import tarfile
 
 MAX_MEMBERS = 20_000
 MAX_BYTES = 200 * 1024 * 1024
+MAX_ARCHIVE = 100 * 1024 * 1024
 DRIVE = re.compile(r"^[A-Za-z]:")
 
 
@@ -25,17 +26,32 @@ class Unsafe(Exception):
     pass
 
 
+def members_of(tar):
+    """The archive's members, read one at a time so the limits stop a hostile archive before it is all in memory."""
+    members, total = [], 0
+    for member in tar:
+        members.append(member)
+        total += member.size if member.isfile() else 0
+        if len(members) > MAX_MEMBERS:
+            raise Unsafe(f"the archive holds more than {MAX_MEMBERS} members")
+        if total > MAX_BYTES:
+            raise Unsafe(f"the archive expands to more than {MAX_BYTES // (1024 * 1024)} MB")
+    return members
+
+
 def check(members):
     """The archive's single top folder, or Unsafe naming the first member that breaks a rule."""
     if not members:
         raise Unsafe("the archive is empty")
-    if len(members) > MAX_MEMBERS:
-        raise Unsafe(f"the archive holds more than {MAX_MEMBERS} members")
-    if sum(m.size for m in members if m.isfile()) > MAX_BYTES:
-        raise Unsafe(f"the archive expands to more than {MAX_BYTES // (1024 * 1024)} MB")
-    tops = set()
+    tops, seen = set(), {}
     for member in members:
         name = member.name
+        # A name seen before, exactly or differing only in case (one file on Windows and macOS), would let a later
+        # member replace an earlier one: a git archive never repeats a name, so the archive is refused.
+        folded = "/".join(p for p in re.split(r"[/\\]", name) if p not in ("", ".")).casefold()
+        if folded in seen:
+            raise Unsafe(f"{name!r} repeats {seen[folded]!r}" if seen[folded] != name else f"{name!r} appears twice")
+        seen[folded] = name
         if not (member.isfile() or member.isdir()):
             raise Unsafe(f"{name!r} is not a regular file or a folder")
         if not name or name.startswith(("/", "\\")) or DRIVE.match(name):
@@ -60,8 +76,10 @@ def main(argv):
         print(json.dumps({"ok": False, "error": f"Python {sys.version.split()[0]} has no tarfile data filter (3.11.4 or later)"}))
         return 2
     try:
+        if os.path.getsize(archive) > MAX_ARCHIVE:
+            raise Unsafe(f"the archive is larger than {MAX_ARCHIVE // (1024 * 1024)} MB")
         with tarfile.open(archive, "r:gz") as tar:
-            members = tar.getmembers()
+            members = members_of(tar)
             top = check(members)
             if os.path.exists(destination) and os.listdir(destination):
                 raise Unsafe(f"{destination} is not empty")
