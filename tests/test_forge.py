@@ -14,6 +14,16 @@ sys.path.insert(0, str(FORGE_ROOT))
 import forge  # noqa: E402
 
 
+def repository_files():
+    """The SDK's own files: those git tracks or would track, so ignored output (an extension's node_modules, a build)
+    is never held to the SDK's writing rules. Outside a git checkout, every file under the root but .git."""
+    listed = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=FORGE_ROOT,
+                            capture_output=True)
+    if listed.returncode != 0:
+        return [p for p in FORGE_ROOT.rglob("*") if ".git" not in p.parts and "__pycache__" not in p.parts]
+    return [FORGE_ROOT / name for name in listed.stdout.decode("utf-8").split("\0") if name]
+
+
 def provisioned_mode(posix_mode):
     """The mode atomic_write leaves on a file: exact on POSIX. Windows has no execute or group bits and keeps only
     the read-only flag, so a file forge wrote (always owner-writable) reads back as 0o666 there."""
@@ -481,8 +491,8 @@ class ForgeProvisionTests(unittest.TestCase):
 
     def test_no_em_or_en_dashes_anywhere(self):
         # Every text file the SDK ships or provisions: prose, code, comments, templates and config alike.
-        for path in FORGE_ROOT.rglob("*"):
-            if not path.is_file() or ".git" in path.parts or "__pycache__" in path.parts:
+        for path in repository_files():
+            if not path.is_file():
                 continue
             try:
                 text = path.read_text(encoding="utf-8")
@@ -514,8 +524,8 @@ class ForgeProvisionTests(unittest.TestCase):
             self.assertIn("five-part rule", groom_text)
 
     def test_markdown_table_descriptions_within_88_chars_and_rows_do_not_wrap(self):
-        for md in FORGE_ROOT.rglob("*.md"):
-            if ".git" in md.parts:
+        for md in repository_files():
+            if md.suffix != ".md" or not md.is_file():
                 continue
             for lineno, line in enumerate(md.read_text(encoding="utf-8").splitlines(), 1):
                 stripped = line.strip()
