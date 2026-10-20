@@ -274,7 +274,8 @@ class Dispatch(unittest.TestCase):
         pin = self.repo / ".conclave/reviewers.toml"
         cases = {"directory": lambda: (pin.unlink(), pin.mkdir()),
                  "not UTF-8": lambda: pin.write_bytes(b"schema_version = 1\n# \xff\n"),
-                 "nested too deep": lambda: pin.write_text("x = " + "[" * 5000 + "0" + "]" * 5000 + "\n")}
+                 "nested too deep": lambda: pin.write_text("x = " + "[" * 5000 + "0" + "]" * 5000 + "\n"),
+                 "integer too long": lambda: pin.write_text("schema_version = " + "9" * 5000 + "\n")}
         for name, make in cases.items():
             with self.subTest(name):
                 if pin.is_dir():

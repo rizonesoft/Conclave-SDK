@@ -68,12 +68,15 @@ def load_pin(path=PIN):
         raise Refused(f"no reviewer pin at {path}") from None
     except tomllib.TOMLDecodeError as exc:
         raise Refused(f"unreadable reviewer pin: {exc}") from None
-    # A directory, a file it may not read, bytes that are not UTF-8, or nesting deep enough to exhaust the parser's
-    # recursion: each is a pin that cannot be read, so it is a refusal (exit 2, one JSON object), never a traceback.
+    # A directory, a file it may not read, bytes that are not UTF-8, an integer past Python's digit limit, or nesting
+    # deep enough to exhaust the parser's recursion: each is a pin that cannot be read, so it is a refusal (exit 2,
+    # one JSON object), never a traceback. ValueError comes after its subclasses TOMLDecodeError and UnicodeDecodeError.
     except OSError as exc:
         raise Refused(f"unreadable reviewer pin: {exc.strerror or exc}: {path}") from None
     except UnicodeDecodeError:
         raise Refused("unreadable reviewer pin: not UTF-8 text") from None
+    except ValueError as exc:
+        raise Refused(f"unreadable reviewer pin: {exc}") from None
     except RecursionError:
         raise Refused("unreadable reviewer pin: nested too deeply to read") from None
     # `type(...) is int`: TOML true is Python True (an int subclass) and 1.0 == 1, so `!= 1` alone let both load.
