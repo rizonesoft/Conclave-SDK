@@ -75,7 +75,7 @@ class Bounded(tarfile.TarInfo):
             raise Unsafe(f"a PAX header with {len(pax_headers)} keys, more than {MAX_PAX_KEYS}")
         for key, value in pax_headers.items():
             if key not in PAX_KEYS:
-                raise Unsafe(f"a PAX header holds {key!r}, which git does not write")
+                raise Unsafe(f"a PAX header holds {shown(key)}, which git does not write")
             if key != "comment" and len(value) > MAX_NAME:
                 raise Unsafe(f"a PAX {key} of {len(value)} characters, longer than {MAX_NAME}")
         return super()._apply_pax_info(pax_headers, encoding, errors)
