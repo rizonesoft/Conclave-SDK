@@ -14,15 +14,6 @@ export interface KitResult {
   mergeNeeded: string[];
 }
 
-export interface ProvisionResult {
-  target: string;
-  mode: string;
-  agent: string;
-  written: string[];
-  skipped: string[];
-  kits: KitResult[];
-}
-
 export interface CheckResult {
   target: string;
   // Every has_* flag forge reports, by its own name.
@@ -124,25 +115,6 @@ export function parseKits(raw: string): Parsed<string[]> {
 
 export function parseKit(raw: string): Parsed<KitResult> {
   return parse("kit", raw, (o) => kitResult(o, "forge kit"));
-}
-
-// init and sync answer alike: the files written and skipped, and one kit result per kit applied.
-export function parseProvision(command: "init" | "sync", raw: string): Parsed<ProvisionResult> {
-  return parse(command, raw, (o) => {
-    const where = `forge ${command}`;
-    const kits = o.kits;
-    if (!Array.isArray(kits)) {
-      throw new Shape(`${where}: "kits" is missing or not a list`);
-    }
-    return {
-      target: text(o, "target", where),
-      mode: text(o, "mode", where),
-      agent: text(o, "agent", where),
-      written: texts(o, "written", where),
-      skipped: texts(o, "skipped", where),
-      kits: kits.map((k, i) => kitResult(object(k, `${where}: kits[${i}]`), `${where}: kits[${i}]`)),
-    };
-  });
 }
 
 // forge.py's check_repo writes these every time.

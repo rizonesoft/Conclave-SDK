@@ -7,6 +7,7 @@ import type { ConclaveApi } from "../../src/extension";
 import { KitStateService, watchedGlobs } from "../../src/host/kitState";
 import { run } from "../../src/host/run";
 import { removeTree } from "../../src/host/removeTree";
+import { forgeFixture } from "./forgeFixture";
 
 // Kit state from the real forge.py of this SDK (conclave.sdkPath set to the repository root for the suite).
 const root = join(__dirname, "..", "..", "..");
@@ -40,9 +41,7 @@ suite("kitState", () => {
     const work = join(base, "repo");
     mkdirSync(work);
     const folder = vscode.Uri.file(work);
-    const source = { folder: sdk, label: "local Conclave-SDK (test)" };
-    const init = await api.runForge(source, ["init", work]);
-    assert.equal(init.kind, "ok", JSON.stringify(init));
+    await forgeFixture(api, sdk, ["init", work]);
 
     const first = await api.kitStates(folder);
     assert.ok(first.ok, JSON.stringify(first));
@@ -68,8 +67,7 @@ suite("kitState", () => {
       }
     });
     try {
-      const install = await api.runForge(source, ["kit", work, "todo"]);
-      assert.equal(install.kind, "ok", JSON.stringify(install));
+      await forgeFixture(api, sdk, ["kit", work, "todo"]);
       const started = Date.now();
       while (events === 0 && Date.now() - started < 10_000) {
         await new Promise((r) => setTimeout(r, 100));
@@ -151,7 +149,7 @@ suite("kitState", () => {
         await new Promise((r) => setTimeout(r, 20));
       }
       // The folder changes while the first computation is held, and the change is announced.
-      assert.equal((await api.runForge(source, ["kit", work, "todo"])).kind, "ok");
+      await forgeFixture(api, sdk, ["kit", work, "todo"]);
       service.invalidate(folder);
       const second = service.states(folder);
       release();
@@ -191,8 +189,7 @@ suite("kitState", () => {
     const work = join(base, "wordpress");
     mkdirSync(work);
     const folder = vscode.Uri.file(work);
-    const source = { folder: sdk, label: "local Conclave-SDK (test)" };
-    assert.equal((await api.runForge(source, ["init", work, "--kit", "wordpress"])).kind, "ok");
+    await forgeFixture(api, sdk, ["init", work, "--kit", "wordpress"]);
     const before = await api.kitStates(folder);
     assert.ok(before.ok && before.kits.find((k) => k.kit === "wordpress")?.state === "installed", JSON.stringify(before));
     await new Promise((r) => setTimeout(r, 1000));
@@ -278,7 +275,7 @@ suite("kitState", () => {
     mkdirSync(work);
     const folder = vscode.Uri.file(work);
     const source = { folder: local, label: "local Conclave-SDK (copy)" };
-    assert.equal((await api.runForge(source, ["init", work, "--kit", "reviewer"])).kind, "ok");
+    await forgeFixture(api, sdk, ["init", work, "--kit", "reviewer"]);
     const python = await api.python(folder);
     assert.ok(python.ok);
     const service = new KitStateService({ source: async () => source, python: async () => python });

@@ -13,8 +13,6 @@ import { FORGE_PARSERS, runForge, type ForgeOptions, type ForgeSource } from "./
 import type { ForgeOutcome } from "./core/forgeJson";
 import { KitStateService, type KitStates } from "./host/kitState";
 import { KitHealthService, type KitHealthResult } from "./host/kitHealth";
-import { type OpenChoice, type RepoInitDeps, type RepoInitResult, setUpRepository } from "./host/repoInit";
-import type { InitChoice } from "./core/repoInit";
 import type { TestOutcome } from "./core/testOutcome";
 
 // The reviewer editor panel. This is the scaffold's placeholder (D02 T01 §1); D03 T01 builds the editor in it.
@@ -40,7 +38,7 @@ export interface ConclaveApi {
   // Each kit's state in a folder from forge's dry runs (D02 T01 §10), cached until the folder changes.
   kitStates: (folder: vscode.Uri) => Promise<KitStates>;
   onDidChangeKitState: vscode.Event<vscode.Uri>;
-  // A kit operation (D05 T01) finished: the folder's kit state is read again.
+  // The folder changed in a way its watchers may not see: its kit state is read again.
   invalidateKitState: (folder: vscode.Uri) => void;
   // A folder leaving the workspace: its kit state's watchers and cache are dropped.
   forgetKitState: (folder: vscode.Uri) => void;
@@ -48,8 +46,6 @@ export interface ConclaveApi {
   kitHealth: (folder: vscode.Uri) => Promise<KitHealthResult>;
   onDidChangeKitHealth: vscode.Event<vscode.Uri>;
   refreshKitHealth: (folder: vscode.Uri) => void;
-  // Set up a new repository through forge init (D05 T01 §4); tests pass their own opener and process runner.
-  setUpRepository: (choice: InitChoice, open: OpenChoice, hooks?: Pick<RepoInitDeps, "openFolder" | "addToWorkspace" | "run">) => Promise<RepoInitResult>;
 }
 
 export function activate(context: vscode.ExtensionContext): ConclaveApi {
@@ -130,17 +126,6 @@ export function activate(context: vscode.ExtensionContext): ConclaveApi {
     kitHealth: (folder) => kitHealth.health(folder),
     onDidChangeKitHealth: kitHealth.onDidChangeKitHealth,
     refreshKitHealth: (folder) => kitHealth.refresh(folder),
-    setUpRepository: (choice, open, hooks) => setUpRepository(choice, open, {
-      source: async () => {
-        const source = await sdk.resolve();
-        return "ok" in source ? source : { message: source.message };
-      },
-      python: async () => {
-        const resolved = await python.python();
-        return resolved.ok ? resolved : { message: resolved.message };
-      },
-      ...hooks,
-    }),
     runForge: async (source, args, options) => {
       const parse = FORGE_PARSERS.get(args[0] ?? "");
       if (!parse) {

@@ -8,6 +8,7 @@ import { KitHealthService } from "../../src/host/kitHealth";
 import { KitStateService } from "../../src/host/kitState";
 import { run, running } from "../../src/host/run";
 import { removeTree } from "../../src/host/removeTree";
+import { forgeFixture } from "./forgeFixture";
 
 // Kit health from this SDK's own forge.py (conclave.sdkPath set to the repository root), with stub reviewer CLIs first
 // on PATH so the reviewer doctor's answer does not depend on what this machine has installed.
@@ -68,8 +69,7 @@ suite("kitHealth", () => {
     const work = join(base, "reviewer");
     mkdirSync(work);
     const folder = vscode.Uri.file(work);
-    const source = { folder: sdk, label: "local Conclave-SDK (test)" };
-    assert.equal((await api.runForge(source, ["init", work, "--kit", "reviewer"])).kind, "ok");
+    await forgeFixture(api, sdk, ["init", work, "--kit", "reviewer"]);
     const health = await api.kitHealth(folder);
     assert.ok(health.ok, JSON.stringify(health));
     const reviewer = health.kits.find((k) => k.kit === "reviewer");
@@ -81,7 +81,7 @@ suite("kitHealth", () => {
     let refreshed = false;
     const listener = api.onDidChangeKitHealth((changed) => void (changed.fsPath === folder.fsPath && (refreshed = true)));
     try {
-      assert.equal((await api.runForge(source, ["kit", work, "todo"])).kind, "ok");
+      await forgeFixture(api, sdk, ["kit", work, "todo"]);
       const started = Date.now();
       while (!refreshed && Date.now() - started < 10_000) {
         await new Promise((r) => setTimeout(r, 100));
@@ -130,13 +130,12 @@ suite("kitHealth", () => {
     const work = join(base, "away");
     mkdirSync(work);
     const folder = vscode.Uri.file(work);
-    const source = { folder: sdk, label: "local Conclave-SDK (test)" };
-    assert.equal((await api.runForge(source, ["init", work, "--kit", "reviewer"])).kind, "ok");
+    await forgeFixture(api, sdk, ["init", work, "--kit", "reviewer"]);
     const before = await api.kitHealth(folder);
     assert.ok(before.ok && !before.kits.some((k) => k.kit === "todo"), JSON.stringify(before));
     // The folder leaves (its watchers go with it), changes while it is away, and comes back.
     api.forgetKitState(folder);
-    assert.equal((await api.runForge(source, ["kit", work, "todo"])).kind, "ok");
+    await forgeFixture(api, sdk, ["kit", work, "todo"]);
     const after = await api.kitHealth(folder);
     assert.ok(after.ok && after.kits.some((k) => k.kit === "todo"), `the health from before the folder left came back: ${JSON.stringify(after)}`);
   });

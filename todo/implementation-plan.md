@@ -32,7 +32,7 @@ Sections: 17 | Checklist items: 141
 
 ### Phase 1: Extension host and kit operations
 
-Sections: 31 | Checklist items: 192
+Sections: 31 | Checklist items: 194
 
 | Status | Reference   | Deliverable                                             | Needs | Items |
 | ------ | ----------- | ------------------------------------------------------- | ----- | ----- |
@@ -65,7 +65,7 @@ Sections: 31 | Checklist items: 192
 | [ ]    | D05 T02 §1  | Kit stamp written by forge on every install             | none  | 6     |
 | [ ]    | D05 T02 §2  | Bundled SDK digest and drift test                       | none  | 4     |
 | [ ]    | D05 T02 §3  | Kit state for newer and older kit stamps                | none  | 4     |
-| [ ]    | D05 T02 §4  | New repository setup removed from the extension         | none  | 3     |
+| [ ]    | D05 T02 §4  | New repository setup removed from the extension         | none  | 5     |
 | [ ]    | D05 T02 §7  | The adopt-conclave skill in the base kit                | none  | 5     |
 
 ### Phase 2: Editor surface and Kits view
@@ -114,4 +114,4 @@ Sections: 6 | Checklist items: 43
 
 Progress: 35/78 verified sections, 4 ready to run now.
 
-Checklist: 274/573 items completed (includes Commit items).
+Checklist: 278/575 items completed (includes Commit items).

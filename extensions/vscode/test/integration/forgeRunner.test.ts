@@ -94,6 +94,21 @@ suite("forgeRunner", () => {
     assert.equal(api.recentLog().filter((l) => l.startsWith("forge: ")).length, runs, "a refused command was run");
   });
 
+  test("forgeRunner: a command that writes is refused before anything runs (read-only kit view)", async () => {
+    const target = join(base, "never-written");
+    const started = api.recentLog().filter((l) => / in .* ms$/.test(l)).length;
+    for (const args of [["init", target], ["sync", target], ["kit", target, "todo"], ["kit", target, "todo", "--agent", "all"]]) {
+      const refused = await api.runForge({ folder: sdk, label }, args);
+      assert.ok(refused.kind === "failed" && /not a command the extension runs|only with --dry-run/.test(refused.message), JSON.stringify(refused));
+    }
+    assert.equal(api.recentLog().filter((l) => / in .* ms$/.test(l)).length, started, "a writing command was run");
+    assert.equal(existsSync(target), false);
+    // The read-only form still runs.
+    process.env.CONCLAVE_FAKE_FORGE = "answer";
+    const dry = await api.runForge({ folder: sdk, label }, ["kits"]);
+    assert.equal(dry.kind, "ok");
+  });
+
   test("forgeRunner: a run past its timeout fails, and its process tree is gone", async () => {
     const fake = await hung();
     const outcome = api.runForge({ folder: sdk, label }, ["kits"], { timeoutMs: 4000 });

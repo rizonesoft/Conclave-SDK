@@ -115,6 +115,8 @@ A folder set up with kits the extension does not know must not read as partly in
 
 The extension no longer sets up repositories (owner, 2026-10-20). This section removes `D05 T01 §4`'s code and the uncommitted `D05 T01 §10` change it carried, and keeps what protects every caller of forge: `provision`'s refusals in `forge.py` and their tests stay.
 
+> **Started:** 2026-10-20T21:05:00Z
+
 **Phase:** 1
 **Needs:** none
 **Surface:** no
@@ -124,8 +126,10 @@ The extension no longer sets up repositories (owner, 2026-10-20). This section r
 1. Remove the modules, the API entry and their tests. Done when: nothing in `extensions/vscode/` imports them.
 2. Run every gate. Done when: build, lint, unit and integration pass.
 
-- [ ] Delete `extensions/vscode/src/core/repoInit.ts`, `src/host/repoInit.ts`, `src/core/protectedFiles.ts`, `src/host/protectedFiles.ts`, `test/unit/repoInit.test.ts`, `test/unit/protectedFiles.test.ts` and `test/integration/repoInit.test.ts`, and the `setUpRepository` entry of `ConclaveApi` in `src/extension.ts`. Done when: `rg "repoInit|protectedFiles|setUpRepository" extensions/vscode/src extensions/vscode/test` finds nothing. Cheaper substitute: leaving the code unreached.
-- [ ] Keep `forge.py`'s `.git` and SDK-folder refusals and `tests/test_forge.py`'s tests of them, and note in `docs/reviews/05-kit-manager/D05-T01-s4.md` that the extension half was removed by this section. Done when: `python -m unittest tests.test_forge -k refuses` passes. Cheaper substitute: removing the forge refusals too.
+- [x] Delete `extensions/vscode/src/core/repoInit.ts`, `src/host/repoInit.ts`, `src/core/protectedFiles.ts`, `src/host/protectedFiles.ts`, `test/unit/repoInit.test.ts`, `test/unit/protectedFiles.test.ts` and `test/integration/repoInit.test.ts`, and the `setUpRepository` entry of `ConclaveApi` in `src/extension.ts`. Done when: `rg "repoInit|protectedFiles|setUpRepository" extensions/vscode/src extensions/vscode/test` finds nothing. Cheaper substitute: leaving the code unreached.
+- [x] Keep `forge.py`'s `.git` and SDK-folder refusals and `tests/test_forge.py`'s tests of them, and note in `docs/reviews/05-kit-manager/D05-T01-s4.md` that the extension half was removed by this section. Done when: `python -m unittest tests.test_forge -k refuses` passes. Cheaper substitute: removing the forge refusals too.
+- [x] Limit the forge runner to commands that only read, in `extensions/vscode/src/host/forge.ts` (`kits`, `kit` with `--dry-run`, `check`, `doctor`; `init` and `sync` and their `parseProvision` parser removed), so no caller of `runForge` or the `ConclaveApi` can install through the extension, and set the integration tests' folders up with forge directly (`test/integration/forgeFixture.ts`). Done when: `forgeRunner.test.ts` shows `init`, `sync` and `kit` without `--dry-run` refused with nothing started, and fails when they are let through. Cheaper substitute: leaving `init` in the API for tests. (**Corrected 2026-10-20:** added while building: `init` through `runForge` was new repository setup left in the API.)
+- [x] Empty `extensions/vscode/out/` before `tsc` compiles (`clean-out.mjs`, run by `npm run compile`), since `tsc` never deletes the output of a removed file and the deleted tests went on running from it. Done when: after the removal `npm test` runs 107 tests, not the stale 112. Cheaper substitute: deleting `out/` by hand. (**Corrected 2026-10-20:** added while building.)
 - [ ] Commit: `extension: remove new repository setup`
 
 **Test checkpoint:** `cd extensions/vscode && npm run build && npm run lint && npm test && npm run test:integration` passes with no reference to the removed modules.

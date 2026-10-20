@@ -76,7 +76,7 @@
   },
   "scripts": {
     "build": "node esbuild.mjs",
-    "compile": "tsc -p .",
+    "compile": "node clean-out.mjs && tsc -p .",
     "lint": "eslint src test",
     "test": "npm run compile && node --test \"out/test/unit/**/*.test.js\"",
     "test:integration": "npm run compile && npm run build && vscode-test"

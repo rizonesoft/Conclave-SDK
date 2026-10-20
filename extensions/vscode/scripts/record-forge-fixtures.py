@@ -89,8 +89,10 @@ def main():
         record("kit", ["kit", str(kit_target), "reviewer"], kit_target)
         repo = work / "repo"
         repo.mkdir()
-        record("init", ["init", str(repo), "--kit", "todo"], repo)
-        record("sync", ["sync", str(repo)], repo)
+        # The extension never runs init or sync (read-only kit view): the folder is set up here, not recorded.
+        code, _, stderr = forge(["init", str(repo), "--kit", "todo"], repo)
+        if code != 0:
+            raise SystemExit(f"forge init failed: {stderr}")
         record("check", ["check", str(repo)], repo)
         record("doctor", ["doctor", str(repo)], repo)
         record("kit-refused", ["kit", str(work / "missing"), "reviewer"], work / "missing", expect=2)
