@@ -1,0 +1,125 @@
+{
+  "valid-shipped.toml": {
+    "exit": 0,
+    "ok": true
+  },
+  "valid-no-codex-route.toml": {
+    "exit": 0,
+    "ok": true
+  },
+  "valid-comments.toml": {
+    "exit": 0,
+    "ok": true
+  },
+  "valid-inline-layout.toml": {
+    "exit": 0,
+    "ok": true
+  },
+  "refused-schema-2.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "the reviewer pin needs exactly schema_version = 1, [reviewers.*] and [routes]"
+  },
+  "refused-schema-bool.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "the reviewer pin needs exactly schema_version = 1, [reviewers.*] and [routes]"
+  },
+  "refused-extra-table.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "the reviewer pin needs exactly schema_version = 1, [reviewers.*] and [routes]"
+  },
+  "refused-no-reviewers.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "the reviewer pin defines no reviewers"
+  },
+  "refused-bad-name.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "invalid reviewer 'Astra'"
+  },
+  "refused-unknown-key.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "reviewer 'astra' has unknown keys: temperature"
+  },
+  "refused-bad-cli.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "reviewer 'astra' needs cli = one of codex, agy, claude"
+  },
+  "refused-bad-model.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "reviewer 'astra' has a malformed model"
+  },
+  "refused-agy-effort.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "reviewer 'gemini': Antigravity carries the effort in the model name, so set no effort"
+  },
+  "refused-bad-effort.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "reviewer 'astra' needs effort = one of low, medium, high, xhigh"
+  },
+  "refused-route-writer.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "[routes] may only name the writers claude, codex, gemini"
+  },
+  "refused-empty-route.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "route 'codex' must list one reviewer and at most one fallback"
+  },
+  "refused-route-too-long.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "route 'claude' must list one reviewer and at most one fallback"
+  },
+  "refused-same-family.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "route 'claude' names sonnet, of the writer's own family; a review comes from a different family"
+  },
+  "refused-fallback-family.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "route 'claude': the fallback must be of a third family, not the reviewer's own"
+  },
+  "refused-undefined-reviewer.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "route 'codex' must list defined reviewers, each once"
+  },
+  "refused-duplicate-reviewer.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "route 'codex' must list defined reviewers, each once"
+  },
+  "refused-unparsable.toml": {
+    "exit": 2,
+    "ok": false,
+    "error_prefix": "unreadable reviewer pin: ",
+    "why": "the rest is tomllib's TOMLDecodeError text, worded by the Python version"
+  },
+  "refused-not-utf8.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "unreadable reviewer pin: not UTF-8 text"
+  },
+  "refused-integer-too-long.toml": {
+    "exit": 2,
+    "ok": false,
+    "error_prefix": "unreadable reviewer pin: ",
+    "why": "the rest is Python's integer conversion limit text, worded by the Python version"
+  },
+  "refused-nested-deep.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "unreadable reviewer pin: nested too deeply to read"
+  }
+}
