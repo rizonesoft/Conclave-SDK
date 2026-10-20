@@ -1,6 +1,6 @@
 # Conclave VS Code extension: interface SPEC
 
-The interface the extension builds, written from the approved mockup (`design/mockup/project/Main.dc.html` at the current mockup source `design/decisions.md` names, canvas version 27) and `design/decisions.md`. Every control appears in exactly one section below, with its states, its keyboard path and the exact text it shows. Text in backticks is verbatim; `{name}` marks a value filled in at run time. Screenshots are from the published canvas, in Dark Modern and Light Modern. The mockup's control bar (theme, scenario, SDK source, workspace) is not part of the extension (`design/platform-audit.md`). The plan (`docs/plans/2026-10-16-vscode-extension.md`) owns the requirements; this file owns how they look and read.
+The interface the extension builds, written from the approved mockup (`design/mockup/project/Main.dc.html` at the current mockup source `design/decisions.md` names, canvas version 28) and `design/decisions.md`. Every control appears in exactly one section below, with its states, its keyboard path and the exact text it shows. Text in backticks is verbatim; `{name}` marks a value filled in at run time. Screenshots are from the published canvas, in Dark Modern and Light Modern. The mockup's control bar (theme, scenario, SDK source, workspace) is not part of the extension (`design/platform-audit.md`). The plan (`docs/plans/2026-10-16-vscode-extension.md`) owns the requirements; this file owns how they look and read.
 
 ## 1. Layout and theming
 
