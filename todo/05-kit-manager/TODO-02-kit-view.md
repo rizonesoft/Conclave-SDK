@@ -83,6 +83,10 @@ A project must say which kits set it up, so a reader can tell "older or newer ki
 
 The extension must change when the kits change (plan R39). `extensions/vscode/sdk-digest.json` records `forge.py digest`'s output with the extension's `package.json` version, and a test in this repository fails when the kits no longer match it or when the digest changed without a version change. `D04 T01 §4`'s bundle step refuses to package kits that differ from it.
 
+> **Started:** 2026-10-20T22:40:00Z
+
+**Corrected 2026-10-20 (while building):** the record holds the version and the kits' digests, not `forge.py digest`'s `sdk` commit and date: a commit recorded in the file could never be the commit that contains it. The bundle step (`D04 T01 §4`) writes the commit and date into `sdk/SDK_COMMIT` and `sdk/SDK_DATE`.
+
 **Phase:** 1
 **Needs:** none
 **Surface:** no
@@ -92,9 +96,9 @@ The extension must change when the kits change (plan R39). `extensions/vscode/sd
 1. Write the failing test in `tests/test_sdk_digest.py`. Done when: it fails with no `sdk-digest.json`.
 2. Add the record script and the first record. Done when: the test passes, and fails after a kit edit until the script runs with a new version.
 
-- [ ] Write `extensions/vscode/scripts/record-sdk-digest.py` (standard library): run `python forge.py digest` from the SDK root and write `{"version": <package.json version>, "kits": ..., "sdk": ...}` to `extensions/vscode/sdk-digest.json` atomically, refusing when the kits digest changed and the version in `package.json` is the one already recorded. Done when: running it twice changes nothing, and after a kit edit it refuses until the version is raised. Cheaper substitute: editing the file by hand.
-- [ ] Write `tests/test_sdk_digest.py`: the recorded kit digests equal `forge.py digest`'s, and the recorded version equals `extensions/vscode/package.json`'s. Done when: editing one template file fails it with the kit's name, and so does raising the version without re-recording. Cheaper substitute: checking only that the file exists.
-- [ ] Record the first `sdk-digest.json` and describe the rule in `AGENTS.md` beside the SDK's own copy rule: a kit change ships with a new extension version and a re-recorded digest. Done when: `python -m unittest discover -s tests` passes. Cheaper substitute: no written rule.
+- [x] Write `extensions/vscode/scripts/record-sdk-digest.py` (standard library): run `python forge.py digest` from the SDK root and write `{"version": <package.json version>, "kits": ...}` to `extensions/vscode/sdk-digest.json` atomically, refusing when the kits digest changed and the version in `package.json` is the one already recorded. Done when: running it twice changes nothing, and after a kit edit it refuses until the version is raised. Cheaper substitute: editing the file by hand.
+- [x] Write `tests/test_sdk_digest.py`: the recorded kit digests equal `forge.py digest`'s, and the recorded version equals `extensions/vscode/package.json`'s. Done when: editing one template file fails it with the kit's name, and so does raising the version without re-recording. Cheaper substitute: checking only that the file exists.
+- [x] Record the first `sdk-digest.json` and describe the rule in `AGENTS.md` beside the SDK's own copy rule: a kit change ships with a new extension version and a re-recorded digest. Done when: `python -m unittest discover -s tests` passes. Cheaper substitute: no written rule.
 - [ ] Commit: `extension: bundled SDK digest recorded with each version`
 
 **Test checkpoint:** `python -m unittest tests.test_sdk_digest` passes, and fails after any change under `kits/*/templates/` until `record-sdk-digest.py` runs with a raised version.
