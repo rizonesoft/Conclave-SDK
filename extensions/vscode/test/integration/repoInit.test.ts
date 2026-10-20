@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as vscode from "vscode";
 import type { ConclaveApi } from "../../src/extension";
-import { existingEntryDocs } from "../../src/host/repoInit";
+import { existingEntryDocs, setUpRepository } from "../../src/host/repoInit";
 import { run } from "../../src/host/run";
 
 // New repositories set up with this SDK's own forge.py (conclave.sdkPath set to the repository root). Every forge argv
@@ -30,8 +30,19 @@ suite("repoInit", () => {
     await vscode.workspace.getConfiguration("conclave").update("sdkPath", sdk, vscode.ConfigurationTarget.Global);
   });
 
+  // Every link this suite makes, removed on its own (rmdir removes a junction, never its target) before the recursive
+  // delete of base, which must find no link to follow.
+  const links: string[] = [];
+  const link = (target: string, path: string) => {
+    symlinkSync(target, path, "junction");
+    links.push(path);
+  };
+
   suiteTeardown(async () => {
     await vscode.workspace.getConfiguration("conclave").update("sdkPath", undefined, vscode.ConfigurationTarget.Global);
+    for (const path of links.splice(0)) {
+      rmdirSync(path);
+    }
     rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
@@ -52,36 +63,60 @@ suite("repoInit", () => {
     assert.deepEqual(argvs.at(-1)?.slice(-8), ["init", work, "--agent", "all", "--mode", "isolated", "--kit", "todo"]);
   });
 
-  test("repoInit: an existing AGENTS.md is listed as kept, left byte for byte, and the folder joins the workspace", async () => {
+  // Adding to the workspace goes through an injected function: in this single-folder test window, a real add makes it
+  // a multi-root workspace, which restarts the extension host and with it the whole test run.
+  test("repoInit: an existing AGENTS.md is listed as kept, left byte for byte, and the folder is added to the workspace", async () => {
     const work = join(base, "existing");
     mkdirSync(work);
     const mine = "# My own agent instructions\n\nNot forge's.\n";
     writeFileSync(join(work, "AGENTS.md"), mine);
     const before = createHash("sha256").update(readFileSync(join(work, "AGENTS.md"))).digest("hex");
     assert.deepEqual(existingEntryDocs(work), ["AGENTS.md"]);
-    const count = vscode.workspace.workspaceFolders?.length ?? 0;
-    const result = await api.setUpRepository({ folder: work, agent: "all", mode: "isolated", kits: [] }, "workspace", { run: recording });
-    try {
-      assert.ok(result.ok, JSON.stringify(result).slice(0, 500));
-      assert.deepEqual(result.kept, ["AGENTS.md"]);
-      assert.ok(result.skipped.includes("AGENTS.md") && !result.written.includes("AGENTS.md"));
-      assert.equal(createHash("sha256").update(readFileSync(join(work, "AGENTS.md"))).digest("hex"), before, "AGENTS.md changed");
-      const started = Date.now();
-      while ((vscode.workspace.workspaceFolders?.length ?? 0) === count && Date.now() - started < 5000) {
-        await new Promise((r) => setTimeout(r, 50));
-      }
-      assert.ok(vscode.workspace.workspaceFolders?.some((f) => f.uri.fsPath === vscode.Uri.file(work).fsPath), "the folder was not added");
-    } finally {
-      const index = vscode.workspace.workspaceFolders?.findIndex((f) => f.uri.fsPath === vscode.Uri.file(work).fsPath) ?? -1;
-      if (index > 0) {
-        vscode.workspace.updateWorkspaceFolders(index, 1);
-      }
-      api.forgetKitState(vscode.Uri.file(work));
-    }
+    const added: string[] = [];
+    const result = await api.setUpRepository({ folder: work, agent: "all", mode: "isolated", kits: [] }, "workspace", {
+      run: recording, addToWorkspace: (uri) => (added.push(uri.fsPath), true),
+    });
+    assert.ok(result.ok, JSON.stringify(result).slice(0, 500));
+    assert.deepEqual(result.kept, ["AGENTS.md"]);
+    assert.ok(result.skipped.includes("AGENTS.md") && !result.written.includes("AGENTS.md"));
+    assert.equal(createHash("sha256").update(readFileSync(join(work, "AGENTS.md"))).digest("hex"), before, "AGENTS.md changed");
+    assert.deepEqual(added, [vscode.Uri.file(work).fsPath]);
   });
 
-  test("repoInit: a folder inside .git, or the SDK folder itself, is refused before forge runs", async () => {
+  test("repoInit: a protected file that init changed without reporting it is a failure naming the file", async () => {
+    const work = join(base, "guarded");
+    mkdirSync(work);
+    writeFileSync(join(work, "AGENTS.md"), "mine\n");
+    // A run that changes AGENTS.md and reports a successful init that wrote nothing.
+    const result = await api.setUpRepository({ folder: work, agent: "all", mode: "isolated", kits: [] }, "none", {
+      run: async () => {
+        writeFileSync(join(work, "AGENTS.md"), "changed\n");
+        return { code: 0, stdout: JSON.stringify({ target: work, mode: "isolated", agent: "all", written: [], skipped: ["AGENTS.md"], kits: [] }), stderr: "" };
+      },
+    });
+    assert.ok(!result.ok && /changed protected files it did not report writing: AGENTS\.md/.test(result.message), JSON.stringify(result));
+  });
+
+  test("repoInit: a folder inside .git, or the SDK folder itself, is refused before forge runs, also through a link", async () => {
     const runs = argvs.length;
+    // Links (junctions on Windows, which need no rights) to a repository's .git folder and to an SDK folder. Both
+    // targets are folders this test made under base: a link must never lead to a real repository, since a recursive
+    // delete on Windows can follow a junction and delete what it points to.
+    mkdirSync(join(base, "repo", ".git"), { recursive: true });
+    const standIn = join(base, "sdk-stand-in");
+    mkdirSync(join(standIn, "kits"), { recursive: true });
+    link(join(base, "repo", ".git"), join(base, "git-alias"));
+    link(standIn, join(base, "sdk-alias"));
+    const throughGit = await api.setUpRepository({ folder: join(base, "git-alias", "new"), agent: "all", mode: "isolated", kits: [] }, "none", { run: recording });
+    assert.ok(!throughGit.ok && /inside a \.git folder/.test(throughGit.message), JSON.stringify(throughGit));
+    const throughSdk = await setUpRepository({ folder: join(base, "sdk-alias"), agent: "all", mode: "isolated", kits: [] }, "none", {
+      source: async () => ({ folder: standIn, label: "stand-in" }), python: async () => ({ message: "not reached" }), run: recording,
+    });
+    assert.ok(!throughSdk.ok && /source folder itself/.test(throughSdk.message), JSON.stringify(throughSdk));
+    for (const folder of ["", "relative/new"]) {
+      const relative = await api.setUpRepository({ folder, agent: "all", mode: "isolated", kits: [] }, "none", { run: recording });
+      assert.ok(!relative.ok && /must be an absolute path/.test(relative.message), JSON.stringify(relative));
+    }
     const inGit = await api.setUpRepository({ folder: join(base, "repo", ".git", "new"), agent: "all", mode: "isolated", kits: [] }, "none", { run: recording });
     assert.ok(!inGit.ok && /inside a \.git folder/.test(inGit.message), JSON.stringify(inGit));
     const theSdk = await api.setUpRepository({ folder: sdk, agent: "all", mode: "isolated", kits: [] }, "none", { run: recording });
