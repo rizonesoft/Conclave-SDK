@@ -70,29 +70,30 @@ test("extractSdk: a well-formed archive extracts under its single top folder", (
   rmSync(join(dest, ".."), { recursive: true, force: true });
 });
 
+// Each case names the reason it must be refused for, so a check that is removed cannot hide behind another.
 test("extractSdk: every unsafe member refuses the whole archive and writes nothing", () => {
-  const cases: [string, Member[]][] = [
-    ["../evil", [...TOP, ["file", "o-r-1234567/../evil", "x"]]],
-    ["/abs", [...TOP, ["file", "/abs", "x"]]],
-    ["C:/abs", [...TOP, ["file", "C:/abs", "x"]]],
-    ["a\\..\\b", [...TOP, ["file", "o-r-1234567\\..\\b", "x"]]],
-    ["internal symlink", [...TOP, ["symlink", "o-r-1234567/link", "forge.py"]]],
-    ["hard link", [...TOP, ["hardlink", "o-r-1234567/hard", "o-r-1234567/forge.py"]]],
-    ["second top folder", [...TOP, ["file", "other/forge.py", "x"]]],
-    ["file at the top", [["file", "loose.py", "x"]]],
-    ["a metadata header over 1 MB", [...TOP, ["pax", "o-r-1234567/big.txt", String(2 * 1024 * 1024)]]],
-    ["names differing in case", [...TOP, ["file", "o-r-1234567/FORGE.PY", "print('other')"]]],
-    ["a name twice", [...TOP, ["file", "o-r-1234567/forge.py", "print('other')"]]],
-    ["a trailing period Windows drops", [...TOP, ["file", "o-r-1234567/forge.py.", "print('other')"]]],
-    ["a trailing space", [...TOP, ["file", "o-r-1234567/forge.py ", "print('other')"]]],
-    ["an alternate data stream", [...TOP, ["file", "o-r-1234567/forge.py:evil", "x"]]],
-    ["a device name", [...TOP, ["file", "o-r-1234567/kits/NUL.txt", "x"]]],
+  const cases: [string, RegExp, Member[]][] = [
+    ["../evil", /leaves the archive's folder/, [...TOP, ["file", "o-r-1234567/../evil", "x"]]],
+    ["/abs", /absolute name/, [...TOP, ["file", "/abs", "x"]]],
+    ["C:/abs", /absolute name/, [...TOP, ["file", "C:/abs", "x"]]],
+    ["a\\..\\b", /leaves the archive's folder/, [...TOP, ["file", "o-r-1234567\\..\\b", "x"]]],
+    ["internal symlink", /not a regular file or a folder/, [...TOP, ["symlink", "o-r-1234567/link", "forge.py"]]],
+    ["hard link", /not a regular file or a folder/, [...TOP, ["hardlink", "o-r-1234567/hard", "o-r-1234567/forge.py"]]],
+    ["second top folder", /2 top folders/, [...TOP, ["file", "other/forge.py", "x"]]],
+    ["file at the top", /outside the archive's top folder/, [["file", "loose.py", "x"]]],
+    ["a metadata header over 1 MB", /metadata header of \d+ bytes/, [...TOP, ["pax", "o-r-1234567/big.txt", String(2 * 1024 * 1024)]]],
+    ["names differing in case", /repeats/, [...TOP, ["file", "o-r-1234567/FORGE.PY", "print('other')"]]],
+    ["a name twice", /appears twice/, [...TOP, ["file", "o-r-1234567/forge.py", "print('other')"]]],
+    ["a trailing period Windows drops", /Windows cannot hold/, [...TOP, ["file", "o-r-1234567/forge.py.", "print('other')"]]],
+    ["a trailing space", /Windows cannot hold/, [...TOP, ["file", "o-r-1234567/forge.py ", "print('other')"]]],
+    ["an alternate data stream", /Windows cannot hold/, [...TOP, ["file", "o-r-1234567/forge.py:evil", "x"]]],
+    ["a device name", /Windows cannot hold/, [...TOP, ["file", "o-r-1234567/kits/NUL.txt", "x"]]],
   ];
-  for (const [label, members] of cases) {
+  for (const [label, reason, members] of cases) {
     const { code, reply, dest } = extract(members);
     assert.equal(code, 2, `${label}: ${JSON.stringify(reply)}`);
     assert.equal(reply.ok, false, label);
-    assert.ok(reply.error, label);
+    assert.match(reply.error ?? "", reason, label);
     assert.ok(!existsSync(dest) || readdirSync(dest).length === 0, `${label}: something was written`);
     rmSync(join(dest, ".."), { recursive: true, force: true });
   }
