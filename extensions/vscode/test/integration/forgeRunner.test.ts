@@ -84,7 +84,13 @@ suite("forgeRunner", () => {
     const failed = await api.runForge({ folder: sdk, label }, ["kits"]);
     assert.ok(failed.kind === "failed" && failed.message === "forge kits exited 2", JSON.stringify(failed));
     assert.deepEqual(failed.stderrTail, Array.from({ length: 20 }, (_, i) => `line ${i + 11}`));
-    assert.equal((await api.runForge({ folder: sdk, label }, ["rm"])).kind, "failed");
+    // A name that is not a command the extension runs (inherited object names included) starts nothing.
+    const runs = api.recentLog().filter((l) => l.startsWith("forge: ")).length;
+    for (const command of ["rm", "__proto__", "toString", "constructor"]) {
+      const refused = await api.runForge({ folder: sdk, label }, [command]);
+      assert.deepEqual(refused, { kind: "failed", message: `forge ${command} is not a command the extension runs`, stderrTail: [] }, command);
+    }
+    assert.equal(api.recentLog().filter((l) => l.startsWith("forge: ")).length, runs, "a refused command was run");
   });
 
   test("forgeRunner: a run past its timeout fails, and its process tree is gone", async () => {

@@ -62,6 +62,15 @@ test("forgeJson: a shape the parser does not know is refused with the raw text",
   assert.match((parseProvision("init", JSON.stringify(badKit)) as { message: string }).message, /kits\[1\]: "merge_needed"/);
   assert.equal(parseDoctor(JSON.stringify({ ...JSON.parse(read("doctor.json")), checks: [{ name: "x" }] })).ok, false);
   assert.deepEqual(parseKits("[]"), { ok: false, message: "forge kits is not an object", raw: "[]" });
+  // check: every flag check_repo always writes is required, one or all missing; a further has_* flag is kept.
+  const check = JSON.parse(read("check.json"));
+  delete check.has_agents_md;
+  assert.deepEqual(parseCheck(JSON.stringify(check)), { ok: false, message: 'forge check: "has_agents_md" is missing or not true or false', raw: JSON.stringify(check) });
+  const none = Object.fromEntries(Object.entries(JSON.parse(read("check.json"))).filter(([k]) => !k.startsWith("has_")));
+  assert.equal(parseCheck(JSON.stringify(none)).ok, false);
+  const extra = parseCheck(JSON.stringify({ ...JSON.parse(read("check.json")), has_new_thing: true }));
+  assert.ok(extra.ok && extra.value.flags.has_new_thing === true);
+  assert.equal(parseCheck(JSON.stringify({ ...JSON.parse(read("check.json")), has_todo_graph: "yes" })).ok, false);
 });
 
 test("forgeJson: exit 0 with JSON succeeds; any other run is a failure or a cancel", () => {

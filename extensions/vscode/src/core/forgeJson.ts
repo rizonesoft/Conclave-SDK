@@ -145,11 +145,16 @@ export function parseProvision(command: "init" | "sync", raw: string): Parsed<Pr
   });
 }
 
+// forge.py's check_repo writes these every time.
+export const CHECK_FLAGS = ["has_agents_md", "has_gemini_md", "has_claude_md", "has_codex_md", "has_agy_skills_json",
+  "has_agy_plugins_json", "has_todo_graph", "has_verify_agent_tiers"] as const;
+
 export function parseCheck(raw: string): Parsed<CheckResult> {
   return parse("check", raw, (o) => {
     const where = "forge check";
     const flags: Record<string, boolean> = {};
-    for (const key of Object.keys(o).filter((k) => k.startsWith("has_"))) {
+    // The flags check_repo always writes are required; any further has_* flag a newer forge adds is kept too.
+    for (const key of new Set([...CHECK_FLAGS, ...Object.keys(o).filter((k) => k.startsWith("has_"))])) {
       flags[key] = flag(o, key, where);
     }
     return {

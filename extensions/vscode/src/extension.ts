@@ -79,7 +79,7 @@ export function activate(context: vscode.ExtensionContext): ConclaveApi {
     },
     testReviewer: (folder, name, options) => tester.test(folder, name, options),
     runForge: async (source, args, options) => {
-      const parse = FORGE_PARSERS[args[0] ?? ""];
+      const parse = FORGE_PARSERS.get(args[0] ?? "");
       if (!parse) {
         return { kind: "failed", message: `forge ${args[0] ?? ""} is not a command the extension runs`, stderrTail: [] };
       }

@@ -19,15 +19,16 @@ export interface ForgeOptions {
   run?: typeof run;
 }
 
-// The parser for each command the extension runs; a command not listed here is refused before anything runs.
-export const FORGE_PARSERS: Record<string, (raw: string) => Parsed<unknown>> = {
-  kits: parseKits,
-  kit: parseKit,
-  init: (raw) => parseProvision("init", raw),
-  sync: (raw) => parseProvision("sync", raw),
-  check: parseCheck,
-  doctor: parseDoctor,
-};
+// The parser for each command the extension runs; a command not listed here is refused before anything runs. A Map,
+// so a name like "__proto__" or "toString" is not a command, never a lookup of Object's own members.
+export const FORGE_PARSERS = new Map<string, (raw: string) => Parsed<unknown>>([
+  ["kits", parseKits],
+  ["kit", parseKit],
+  ["init", (raw) => parseProvision("init", raw)],
+  ["sync", (raw) => parseProvision("sync", raw)],
+  ["check", parseCheck],
+  ["doctor", parseDoctor],
+]);
 
 function shown(arg: string): string {
   return /[\s"]/.test(arg) ? JSON.stringify(arg) : arg;
