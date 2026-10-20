@@ -49,7 +49,7 @@ title: "TODO-01 -- Extension Core"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Extension scaffold, build and test harness | D00 T01 §4 | [x] |
-| 2 | §2 | Python resolution on Windows and WSL | §1 | [ ] |
+| 2 | §2 | Python resolution on Windows and WSL | §1 | [x] |
 | 3 | §3 | Dispatcher client and workspace states | §2, D01 T01 §3 | [ ] |
 | 4 | §4 | Comment-preserving pin text model | §1, D01 T01 §3 | [ ] |
 | 5 | §5 | Candidate validation through check-pin | §3, §4 | [ ] |
@@ -116,9 +116,12 @@ The dispatcher is Python 3.11 or later (it imports `tomllib`). The extension run
 - [x] Refuse a `conclave.pythonPath` that is set but unusable without falling back to discovery, so the operator's choice is never silently ignored. Done when: a unit test with a bad setting gets the refusal, not the discovered Python. Cheaper substitute: falling through to `python`.
 - [x] Write `extensions/vscode/test/unit/python.test.ts` covering setting, `py -3`, `python`, `python3`, too old (3.10), not found, and bad setting on both platforms. Done when: the tests pass and one fails when the version check is removed. Cheaper substitute: testing only the happy path.
 - [x] Wire `extensions/vscode/src/host/python.ts` to `vscode.workspace.getConfiguration('conclave')`, `process.platform` and a `child_process.execFile` runner with a 10 second timeout, re-resolving when the setting changes. Done when: changing the setting in the Extension Development Host logs a new resolution in the output channel. Cheaper substitute: resolving once at activation.
-- [ ] Commit: `extension: resolve Python 3.11+ on Windows and WSL`
+- [x] Commit: `extension: resolve Python 3.11+ on Windows and WSL`
 
 **Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/python.test.js out/test/unit/which.test.js` passes, and fails when `resolvePython` accepts Python 3.10. **Corrected 2026-10-20:** was `npm test -- --test-name-pattern=python`; on Node 24.14.1 `node --test` ran a test that did not match the pattern, so the checkpoint names the test files instead.
+
+> **Verified:** 2026-10-20 | §2 | c1fc4ca1b51087906832d3fbe251f7a93b90381d
+> **Review:** `docs/reviews/d02-t01-s2.json`
 
 ## 3. Dispatcher client and workspace states
 
@@ -144,6 +147,7 @@ All validation comes from the workspace's own dispatcher (plan R7). This section
 - [ ] Run the dispatcher in `extensions/vscode/src/host/dispatcher.ts` with `execFile` (no shell), `cwd` the workspace folder, the Python argv from §2, a 30 second timeout, and one call in flight per folder with later requests coalesced. Done when: two rapid requests start one process. Cheaper substitute: `exec` through a shell string.
 - [ ] Log every dispatcher call to the "Conclave" output channel in `extensions/vscode/src/host/output.ts`: argv, cwd, exit code, duration and the state. Done when: the channel shows one line per call in the integration test. Cheaper substitute: `console.log`.
 - [ ] Write `extensions/vscode/test/integration/states.test.ts` over `extensions/vscode/test/fixtures/workspaces/` (`shipped`, `refused`, `no-pin`, `no-dispatcher`, `old-dispatcher`) asserting each state. Done when: every workspace gets its state and the test fails if the old-dispatcher rule is removed. Cheaper substitute: unit tests only.
+- [ ] Join a `PATH` directory and a file name in `findOnPath` (`extensions/vscode/src/core/which.ts`) with the platform's own separator only: on Linux a directory named `/opt/python\` is a directory whose name ends in a backslash, so `python3` in it is `/opt/python\/python3`, not `/opt/python\python3` (review round 3 of `§2`, the last round its loop allowed, filed here; **Corrected 2026-10-20**). Done when: a unit test with that directory on a Linux `PATH` finds the file and fails on the join at the end of `§2`. Cheaper substitute: treating `\` as a separator everywhere.
 - [ ] Commit: `extension: dispatcher client and workspace states`
 
 **Test checkpoint:** `cd extensions/vscode && npm test -- --test-name-pattern=checkPin && npm run test:integration` passes, and the unit run fails when one `error` in `extensions/vscode/test/fixtures/pins/expected.json` is changed.

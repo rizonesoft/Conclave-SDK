@@ -1,0 +1,28 @@
+{
+  "ref": "D02 T01 \u00a72",
+  "title": "Python resolution on Windows and WSL",
+  "implementation_sha": "c1fc4ca1b51087906832d3fbe251f7a93b90381d",
+  "date": "2026-10-20",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-extension-core/D02-T01-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/02-extension-core/D02-T01-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/02-extension-core/D02-T01-s2.md",
+      "verdict": "stopped-at-3"
+    }
+  ],
+  "checks": [
+    "npm run compile && node --test out/test/unit/python.test.js out/test/unit/which.test.js -> 14 OK; fails with the minimum lowered to 3.10",
+    "npm test 23 OK and 1 skipped on Windows; run.test.js 4 of 4 in WSL (Node 18), failing there without the X_OK check",
+    "npm run test:integration -> 3 passing in VS Code 1.142.0; lint clean"
+  ]
+}
