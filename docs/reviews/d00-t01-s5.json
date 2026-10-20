@@ -1,0 +1,30 @@
+{
+  "ref": "D00 T01 \u00a75",
+  "title": "Mockup and plan follow the family route rule",
+  "implementation_sha": "1f0963f337e42f758fd065cea88791d6e897963c",
+  "date": "2026-10-20",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-design/D00-T01-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-design/D00-T01-s5.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-design/D00-T01-s5.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "D00 T01 \u00a75 Test checkpoint (mockup, decision and plan strings) -> exit 0; exit 1 on the pre-section files naming all six missing items",
+    "mockup validate() vs load_pin on every route scenario (Node) -> all 8 agree; preview equals the kit pin byte for byte",
+    "published canvas version 25 driven in Chrome -> two-chip rows, family-disabled add choices, inline fallback refusal with Save off in Light Modern",
+    "python scripts/todo-graph.py validate -> valid: 52 sections",
+    "python -m unittest discover -s tests -> OK"
+  ]
+}

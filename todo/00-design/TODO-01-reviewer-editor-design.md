@@ -43,7 +43,7 @@ title: "TODO-01 -- Reviewer Editor Design"
 | 2 | §2 | Owner approval and open design answers | §1 | [x] |
 | 3 | §3 | Interface SPEC and screenshots | §2, §5 | [ ] |
 | 4 | §4 | Reviewer config design spec | §2, §5 | [ ] |
-| 5 | §5 | Mockup and plan follow the family route rule | §2 | [ ] |
+| 5 | §5 | Mockup and plan follow the family route rule | §2 | [x] |
 
 ## 1. Clickable reviewer editor mockup
 
@@ -211,11 +211,14 @@ The owner decided on 2026-10-20: "the reviewers fallback, it should only be a di
 - [x] Correct plan R4, R5, R9 and R23 and the shipped-pin fact in `docs/plans/2026-10-16-vscode-extension.md` with dated `**Corrected 2026-10-20:**` notes. Done when: R4 says a route is a reviewer and one fallback of other families, R5 describes the greyed-out choices in place of the warning, R9 lists the three new rules, and R23 names Astra then Gemini 4. Cheaper substitute: a decisions entry the plan contradicts.
 - [x] Update the R4 and R5 rows of the requirement map in `design/README.md` to the two-chip rows and the greyed-out add menu, and name the three new refusal scenarios. Done when: no row of the map describes the self-review warning. Cheaper substitute: a map that still points at the removed warning.
 - [x] Correct, with dated `**Corrected 2026-10-20:**` notes, the open sections that cite the old rule: `D01 T01 §3` (three refused fixtures), `D02 T01 §5` (`errorTarget`'s message forms), the `D03 T01` Outcome, `§4` (two chips, `routeChoices`) and `§5` (retitled No-route notice, `selfReview` removed with its reason), and `D04 T01 §5` (the review chain). Done when: no open section describes a route longer than two, a self-review warning or a Sonnet fallback for Claude work. Cheaper substitute: leaving the correction to whoever builds them.
-- [ ] Commit: `design: reviewer routes follow the family rule`
+- [x] Commit: `design: reviewer routes follow the family rule`
 
 **Test checkpoint:** `python -c "import pathlib,sys; t=pathlib.Path('design/mockup/project/Main.dc.html').read_text(encoding='utf-8'); d=pathlib.Path('design/decisions.md').read_text(encoding='utf-8'); p=pathlib.Path('docs/plans/2026-10-16-vscode-extension.md').read_text(encoding='utf-8'); bad=[s for s in ('must list one reviewer and at most one fallback','the fallback must be of a third family',\"writer: 'claude', names: ['astra', 'gemini'] }\") if s not in t]+[s for s in ('SELF_CLI',) if s in t]+([] if 'different family reviewer + 1 fallback' in d else ['decision'])+([] if 'Corrected 2026-10-20' in p else ['plan']); sys.exit(bad or None)"` exits 0, and fails naming what is missing while the mockup, the decision or the plan still carries the old rule.
 
 **Corrected 2026-10-20:** the checkpoint looked for the TOML line `claude = ["astra", "gemini"]`, which the mockup builds at run time from `shipped()` and never holds as text; it now looks for the route as `shipped()` stores it.
+
+> **Verified:** 2026-10-20 | §5 | 1f0963f337e42f758fd065cea88791d6e897963c
+> **Review:** `docs/reviews/d00-t01-s5.json`
 
 ## Verification
 
