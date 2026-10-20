@@ -412,10 +412,12 @@ button.tab.active{background:var(--tab-active)}
             <svg class="ic" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"></circle><circle cx="12" cy="4" r="1.75"></circle><circle cx="18.25" cy="7.01" r="1.75"></circle><circle cx="19.8" cy="13.78" r="1.75"></circle><circle cx="15.47" cy="19.21" r="1.75"></circle><circle cx="8.53" cy="19.21" r="1.75"></circle><circle cx="4.2" cy="13.78" r="1.75"></circle><circle cx="5.75" cy="7.01" r="1.75"></circle></svg>
             <span>{{tabTitle}}</span>
           </button>
+          <sc-if value="{{hasPinTab}}" hint-placeholder-val="{{true}}">
           <button class="tab {{tomlTabCls}}" role="tab" aria-selected="{{tomlTab}}" onClick="{{showTomlTab}}">
             <svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5 1C3.89543 1 3 1.89543 3 3V13C3 14.1046 3.89543 15 5 15H11C12.1046 15 13 14.1046 13 13V5.41421C13 5.01639 12.842 4.63486 12.5607 4.35355L9.64645 1.43934C9.36514 1.15804 8.98361 1 8.58579 1H5ZM4 3C4 2.44772 4.44772 2 5 2H8V4.5C8 5.32843 8.67157 6 9.5 6H12V13C12 13.5523 11.5523 14 11 14H5C4.44772 14 4 13.5523 4 13V3ZM11.7929 5H9.5C9.22386 5 9 4.77614 9 4.5V2.20711L11.7929 5Z"></path></svg>
             <span>reviewers.toml</span>
           </button>
+          </sc-if>
           <sc-if value="{{tomlTab}}" hint-placeholder-val="{{false}}">
             <div class="tact">
               <button class="icon-btn sm" aria-label="Open in Conclave Reviewers" title="Open in Conclave Reviewers" onClick="{{showEditorTab}}"><svg class="ic" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"></circle><circle cx="12" cy="4" r="1.75"></circle><circle cx="18.25" cy="7.01" r="1.75"></circle><circle cx="19.8" cy="13.78" r="1.75"></circle><circle cx="15.47" cy="19.21" r="1.75"></circle><circle cx="8.53" cy="19.21" r="1.75"></circle><circle cx="4.2" cy="13.78" r="1.75"></circle><circle cx="5.75" cy="7.01" r="1.75"></circle></svg></button>
@@ -1304,7 +1306,11 @@ class Component extends DCLogic {
     return null;
   }
   setOv(v) { this.setState({ ov: v }); }
-  tab() { return (this.state && this.state.tab) || (this.props.overlay === 'context-menu' ? 'toml' : 'editor'); }
+  tab() {
+    // With no pin there is no reviewers.toml to show, so only the editor tab exists.
+    if (this.e().screen === 'no-pin') return 'editor';
+    return (this.state && this.state.tab) || (this.props.overlay === 'context-menu' ? 'toml' : 'editor');
+  }
   wsKey() { return (this.state && this.state.ws) || this.props.workspace || 'single'; }
   kitsFor() { return this.scen() + '|' + this.wsKey(); }
   // The Kits view's state: the current folder (the only one in a one-folder window; in a multi-root
@@ -1501,7 +1507,7 @@ class Component extends DCLogic {
       const rows = [];
       if (info.state !== 'none') rows.push(['Health', then(function () { const open = Object.assign({}, self.ks().open); open[key] = true; self.kupd({ open: open, sel: key }); })]);
       rows.push(['Copy import request', then(function () { self.copyReq(importReq(cur, o.kit)); }), true]);
-      if (info.stamp === 'older') rows.push(['Copy update request', then(function () { self.copyReq(updateReq(cur, false)); })]);
+      if (info.stamp === 'older') rows.push(['Copy update request', then(function () { self.copyReq(updateReq(cur, true)); })]);
       Object.assign(cm, { open: true, label: o.kit + ' kit context menu', x: 150, y: 94 + 22 * at + 18, items: rows.map(function (r) { return { sep: false, item: true, label: r[0], kb: '', run: r[1], cls: r[2] ? 'act' : '' }; }) });
     }
     if (qi.open) {
@@ -1734,14 +1740,17 @@ class Component extends DCLogic {
     const isEditor = e.screen === 'editor';
     const stateNames = { refused: 'pin refused', 'unsupported-schema': 'newer schema', 'pin-layout': 'layout not editable', 'no-pin': 'no pin', 'no-dispatcher': 'no dispatcher', 'old-dispatcher': 'dispatcher too old', 'no-python': 'no Python', untrusted: 'Restricted Mode' };
     const multi = this.wsKey() === 'multi';
+    // A folder with no kit (the kits-empty side bar) holds only the project's own files, as the Kits view says.
+    const bare = this.props.sidebar === 'kits-empty';
     const treeAll = [
       { label: 'orchard-web', pad: 4, folder: true, hide: !multi },
-      { label: '.agents', pad: 18, folder: true }, { label: '.claude', pad: 18, folder: true }, { label: '.codex', pad: 18, folder: true },
-      { label: '.conclave', pad: 18, folder: true, hide: e.screen === 'no-pin' }, { label: 'reviewers.toml', pad: 38, file: true, active: true, hide: e.screen === 'no-pin' },
-      { label: 'docs', pad: 18, folder: true }, { label: 'scripts', pad: 18, folder: true },
-      { label: 'review-dispatch.py', pad: 38, file: true, hide: e.screen === 'no-dispatcher' }, { label: 'todo-graph.py', pad: 38, file: true },
-      { label: 'todo', pad: 18, folder: true }, { label: 'AGENTS.md', pad: 18, file: true }, { label: 'CLAUDE.md', pad: 18, file: true },
-      { label: 'CODEX.md', pad: 18, file: true }, { label: 'GEMINI.md', pad: 18, file: true },
+      { label: '.agents', pad: 18, folder: true, hide: bare }, { label: '.claude', pad: 18, folder: true, hide: bare }, { label: '.codex', pad: 18, folder: true, hide: bare },
+      { label: '.conclave', pad: 18, folder: true, hide: bare || e.screen === 'no-pin' }, { label: 'reviewers.toml', pad: 38, file: true, active: true, hide: bare || e.screen === 'no-pin' },
+      { label: 'docs', pad: 18, folder: true, hide: bare }, { label: 'scripts', pad: 18, folder: true, hide: bare },
+      { label: 'review-dispatch.py', pad: 38, file: true, hide: bare || e.screen === 'no-dispatcher' }, { label: 'todo-graph.py', pad: 38, file: true, hide: bare },
+      { label: 'todo', pad: 18, folder: true, hide: bare }, { label: 'AGENTS.md', pad: 18, file: true, hide: bare }, { label: 'CLAUDE.md', pad: 18, file: true, hide: bare },
+      { label: 'CODEX.md', pad: 18, file: true, hide: bare }, { label: 'GEMINI.md', pad: 18, file: true, hide: bare },
+      { label: 'src', pad: 18, folder: true, hide: !bare }, { label: 'README.md', pad: 18, file: true, hide: !bare },
       { label: 'orchard-api', pad: 4, folder: true, hide: !multi }
     ];
 
@@ -1834,7 +1843,7 @@ class Component extends DCLogic {
       kitRows: kitRows, kwel: kwel,
       openPalette: function () { self.setOv({ kind: 'palette' }); },
       qi: ov.qi, cm: ov.cm,
-      editorTab: tab === 'editor', tomlTab: tab === 'toml', editorTabCls: tab === 'editor' ? 'active' : '', tomlTabCls: tab === 'toml' ? 'active' : '',
+      hasPinTab: this.e().screen !== 'no-pin', editorTab: tab === 'editor', tomlTab: tab === 'toml', editorTabCls: tab === 'editor' ? 'active' : '', tomlTabCls: tab === 'toml' ? 'active' : '',
       showEditorTab: function () { self.setState({ tab: 'editor', ov: null }); }, showTomlTab: function () { self.setState({ tab: 'toml' }); },
       tomlLines: e.loaded.map(function (t, i) { return { no: i + 1, text: t, cls: t.charAt(0) === '#' ? 'cm' : '' }; }),
       statusOk: isEditor && !err, statusBad: (isEditor && !!err) || ['refused', 'no-python', 'no-dispatcher'].indexOf(e.screen) >= 0, statusWarn: !isEditor && ['refused', 'no-python', 'no-dispatcher'].indexOf(e.screen) < 0,
