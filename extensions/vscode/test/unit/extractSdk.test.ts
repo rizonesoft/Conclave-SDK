@@ -74,6 +74,10 @@ with tarfile.open(sys.argv[1], "w:gz") as tar:
             # A small PAX header selecting a GNU sparse 1.0 map, and a map of int(extra) regions in the file's data.
             headers = {"GNU.sparse.major": "1", "GNU.sparse.minor": "0", "GNU.sparse.realsize": extra, "GNU.sparse.name": name}
             raw(tar, extended(headers) + plain(name, (extra + "\\n" + "0\\n1\\n" * int(extra)).encode()))
+        elif kind == "globalkeys":
+            # One global PAX header with int(extra) keys, which tarfile copies into every later member, then 300 members.
+            raw(tar, extended({f"k{i}": "v" for i in range(int(extra))}, tarfile.XGLTYPE)
+                + b"".join(plain(f"{name}/f{i}", b"") for i in range(300)))
         elif kind == "sparse":
             info.type = tarfile.GNUTYPE_SPARSE
             tar.addfile(info)
@@ -83,7 +87,7 @@ with tarfile.open(sys.argv[1], "w:gz") as tar:
             tar.addfile(info)
 `;
 
-type Member = ["dir" | "file" | "symlink" | "hardlink" | "pax" | "paxsize" | "solaris" | "chain" | "flood" | "sparse" | "paxsparse", string, string];
+type Member = ["dir" | "file" | "symlink" | "hardlink" | "pax" | "paxsize" | "solaris" | "chain" | "flood" | "sparse" | "paxsparse" | "globalkeys", string, string];
 const TOP: Member[] = [["dir", "o-r-1234567", ""], ["file", "o-r-1234567/forge.py", "print('forge')\n"], ["dir", "o-r-1234567/kits", ""]];
 
 function extract(members: Member[]): { code: number | null; reply: { ok: boolean; top?: string; error?: string }; dest: string } {
@@ -124,6 +128,7 @@ test("extractSdk: every unsafe member refuses the whole archive and writes nothi
     ["a chain of extended headers", /extended headers in a row/, [...TOP, ["chain", "o-r-1234567/chain.txt", "2000"]]],
     ["a sparse member", /sparse/, [...TOP, ["sparse", "o-r-1234567/sparse.bin", ""]]],
     ["a PAX sparse map", /refused before it is read/, [...TOP, ["paxsparse", "o-r-1234567/map.bin", "300000"]]],
+    ["a global PAX header with many keys", /PAX header with 10000 keys/, [...TOP, ["globalkeys", "o-r-1234567/kits", "10000"]]],
     ["a stream past the decompressed limit", /decompresses to more than/, [...TOP, ["flood", "o-r-1234567/kits", "280"]]],
     ["names differing in case", /repeats/, [...TOP, ["file", "o-r-1234567/FORGE.PY", "print('other')"]]],
     ["a name twice", /appears twice/, [...TOP, ["file", "o-r-1234567/forge.py", "print('other')"]]],

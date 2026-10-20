@@ -30,6 +30,7 @@ class Unsafe(Exception):
 MAX_STREAM = MAX_BYTES + 64 * 1024 * 1024
 MAX_METADATA = 1024 * 1024
 MAX_CHAIN = 8
+MAX_PAX_KEYS = 16
 EXTENDED = {tarfile.XHDTYPE, tarfile.XGLTYPE, tarfile.SOLARIS_XHDTYPE, tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK}
 WINDOWS_RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$", re.IGNORECASE)
 WINDOWS_FORBIDDEN = re.compile(r'[<>:"|?*\x00-\x1f]')
@@ -58,6 +59,14 @@ class Bounded(tarfile.TarInfo):
         if self.type == tarfile.GNUTYPE_SPARSE:
             raise Unsafe(f"{self.name!r} is a sparse file")
         return super()._proc_member(tarfile_)
+
+    # Every member gets a copy of the PAX headers that apply to it, the global ones included, and _apply_pax_info is
+    # where that copy is made: a header with many keys would be copied into every later member. git writes one key in
+    # its global header (comment) and one or two in a member's (path, linkpath), so more than MAX_PAX_KEYS is refused.
+    def _apply_pax_info(self, pax_headers, encoding, errors):
+        if len(pax_headers) > MAX_PAX_KEYS:
+            raise Unsafe(f"a PAX header with {len(pax_headers)} keys, more than {MAX_PAX_KEYS}")
+        return super()._apply_pax_info(pax_headers, encoding, errors)
 
     # _proc_pax hands a PAX header that names a GNU sparse map to one of these before anything else reads it (3.11.4
     # to 3.14); refusing here, without delegating, means no map is parsed.
@@ -101,6 +110,8 @@ def members_of(tar):
     """The archive's members, read one at a time so the limits stop a hostile archive before it is all in memory."""
     members, total = [], 0
     for member in tar:
+        # Its PAX headers are applied by now (name, size); kept, they would hold every member's copy until extraction.
+        member.pax_headers = {}
         members.append(member)
         total += member.size if member.isfile() else 0
         if len(members) > MAX_MEMBERS:
