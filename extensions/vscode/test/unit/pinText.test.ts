@@ -147,3 +147,14 @@ test("pinText: a long malformed route array is refused at once", () => {
   assert.equal(isEditableLayout("[routes]\nclaude = [" + '"a" '.repeat(5000) + "!"), false);
   assert.ok(Date.now() - started < 1000, `took ${Date.now() - started} ms`);
 });
+
+test("pinText: a removed line's comment survives byte for byte, whatever ends it", () => {
+  for (const tail of ["\u0085", "\u2028", "   "]) {
+    const text = shipped.replace('claude = ["astra", "gemini"]', 'claude = ["astra", "gemini"] # keep' + tail);
+    assert.ok(isEditableLayout(text), JSON.stringify(tail));
+    assert.ok(removeRoute(text, "claude").includes("\n# keep" + tail + "\n"), JSON.stringify(tail));
+    const field = shipped.replace('effort = "high"', 'effort = "high" # note' + tail);
+    const moved = setField(setField(field, "sonnet", "cli", "agy"), "sonnet", "model", "gemini-4-argon-low");
+    assert.ok(setField(moved, "sonnet", "effort", null).includes("\n# note" + tail + "\n"), JSON.stringify(tail));
+  }
+});

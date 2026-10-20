@@ -32,7 +32,7 @@ def editable(text):
     """True when every line is blank, a comment, a header, a one-line key or a one-line route array."""
     table = None
     for line in text.split("\n"):
-        s = line.strip()
+        s = bare(line)
         if not s or s.startswith("#"):
             continue
         if m := HEADER.fullmatch(s):
@@ -43,6 +43,15 @@ def editable(text):
         elif not KEY.fullmatch(s):
             return False
     return True
+
+
+WS = " \t\r\n"
+
+
+def bare(line):
+    """A line without TOML's whitespace (space, tab) and its ending: str.strip would also remove U+0085, U+2028 and
+    other characters that belong to a comment."""
+    return line.strip(WS)
 
 
 def lines_of(text):
@@ -67,11 +76,11 @@ def eol(text):
 
 def table_span(lines, name):
     """Index of the header line and one past the table's last key line (trailing blank lines excluded)."""
-    start = next(i for i, l in enumerate(lines) if HEADER.fullmatch(l.strip()) and HEADER.fullmatch(l.strip()).group(1) == name)
+    start = next(i for i, l in enumerate(lines) if HEADER.fullmatch(bare(l)) and HEADER.fullmatch(bare(l)).group(1) == name)
     end = start + 1
-    while end < len(lines) and not HEADER.fullmatch(lines[end].strip()):
+    while end < len(lines) and not HEADER.fullmatch(bare(lines[end])):
         end += 1
-    while end > start + 1 and (not lines[end - 1].strip() or lines[end - 1].lstrip().startswith("#")):
+    while end > start + 1 and (not bare(lines[end - 1]) or bare(lines[end - 1]).startswith("#")):
         end -= 1
     return start, end
 
@@ -81,19 +90,22 @@ def ending(line, nl):
     return line if line.endswith(("\n", "\r")) else line + nl
 
 
-def remove_line(lines, i, comment):
-    """Remove a key or route line; a trailing comment on it stays behind as a comment line in its place."""
-    if comment:
-        body = lines[i].rstrip("\r\n")
-        lines[i] = body[:len(body) - len(body.lstrip())] + comment.strip() + lines[i][len(body):]
-    else:
+def remove_line(lines, i, match):
+    """Remove a key or route line; a trailing comment on it stays behind, byte for byte, as a comment line in its
+    place. match is the line's KEY or ROUTE match on bare(line), whose group 3 is the comment."""
+    if match.group(3) is None:
         del lines[i]
+        return
+    body = lines[i].rstrip("\r\n")
+    lead = len(body) - len(body.lstrip(" \t"))
+    comment = body[lead + match.start(3):].lstrip(" \t")
+    lines[i] = body[:lead] + comment + lines[i][len(body):]
 
 
 def comment_block_above(lines, start):
     """The comment lines directly above a header, with no blank line between them and it."""
     i = start
-    while i > 0 and lines[i - 1].lstrip().startswith("#"):
+    while i > 0 and bare(lines[i - 1]).startswith("#"):
         i -= 1
     return i
 
@@ -103,10 +115,10 @@ def set_field(text, reviewer, key, value):
     lines, nl = lines_of(text), eol(text)
     start, end = table_span(lines, f"reviewers.{reviewer}")
     for i in range(start + 1, end):
-        m = KEY.fullmatch(lines[i].strip())
+        m = KEY.fullmatch(bare(lines[i]))
         if m and m.group(1) == key:
             if value is None:
-                remove_line(lines, i, m.group(3))
+                remove_line(lines, i, m)
             else:
                 quote = m.group(2)[0]
                 lines[i] = re.sub(re.escape(m.group(2)), f"{quote}{value}{quote}", lines[i], count=1)
@@ -120,8 +132,8 @@ def set_field(text, reviewer, key, value):
 def add_reviewer(text, name, entry):
     """A new table after the last reviewer table, before the comment block above [routes], blank line each side."""
     lines, nl = lines_of(text), eol(text)
-    last = max(i for i, l in enumerate(lines) if (m := HEADER.fullmatch(l.strip())) and m.group(1).startswith("reviewers."))
-    _, end = table_span(lines, HEADER.fullmatch(lines[last].strip()).group(1))
+    last = max(i for i, l in enumerate(lines) if (m := HEADER.fullmatch(bare(l))) and m.group(1).startswith("reviewers."))
+    _, end = table_span(lines, HEADER.fullmatch(bare(lines[last])).group(1))
     lines[end - 1] = ending(lines[end - 1], nl)
     block = [nl, f"[reviewers.{name}]{nl}"] + [f'{k} = "{v}"{nl}' for k, v in entry.items()]
     lines[end:end] = block
@@ -141,7 +153,7 @@ def delete_reviewer(text, name):
     lines = lines_of(text)
     start, end = table_span(lines, f"reviewers.{name}")
     first = comment_block_above(lines, start)
-    if end < len(lines) and not lines[end].strip():
+    if end < len(lines) and not bare(lines[end]):
         end += 1
     del lines[first:end]
     return set_routes("".join(lines), lambda names: [n for n in names if n != name])
@@ -152,7 +164,7 @@ def set_routes(text, change):
     lines = lines_of(text)
     start, end = table_span(lines, "routes")
     for i in range(end - 1, start, -1):
-        m = ROUTE.fullmatch(lines[i].strip())
+        m = ROUTE.fullmatch(bare(lines[i]))
         if not m:
             continue
         names = TOKEN.findall(m.group(2))
@@ -160,7 +172,7 @@ def set_routes(text, change):
         if new == names:
             continue
         if not new:
-            remove_line(lines, i, m.group(3))
+            remove_line(lines, i, m)
         else:
             lines[i] = lines[i].replace(f"[{m.group(2)}]", "[" + rebuild(m.group(2), new) + "]", 1)
     return "".join(lines)
@@ -172,7 +184,7 @@ def set_route(text, writer, names):
     start, end = table_span(lines, "routes")
     array = "[" + ", ".join(f'"{n}"' for n in names) + "]"
     for i in range(start + 1, end):
-        m = ROUTE.fullmatch(lines[i].strip())
+        m = ROUTE.fullmatch(bare(lines[i]))
         if m and m.group(1) == writer:
             if TOKEN.findall(m.group(2)) != list(names):
                 lines[i] = lines[i].replace(f"[{m.group(2)}]", "[" + rebuild(m.group(2), names) + "]", 1)
@@ -186,9 +198,9 @@ def remove_route(text, writer):
     lines = lines_of(text)
     start, end = table_span(lines, "routes")
     for i in range(start + 1, end):
-        m = ROUTE.fullmatch(lines[i].strip())
+        m = ROUTE.fullmatch(bare(lines[i]))
         if m and m.group(1) == writer:
-            remove_line(lines, i, m.group(3))
+            remove_line(lines, i, m)
             break
     return "".join(lines)
 
@@ -289,6 +301,9 @@ def main():
     # and a long malformed array is refused at once.
     sep = shipped.replace('effort = "medium"', 'effort = "medium" # one\u2028# two')
     assert editable(sep) and set_field(sep, "astra", "effort", "high").count("# one\u2028# two") == 1
+    for tail in ("\u0085", "\u2028", "   "):
+        kept = shipped.replace('claude = ["astra", "gemini"]', 'claude = ["astra", "gemini"] # keep' + tail)
+        assert editable(kept) and "\n# keep" + tail + "\n" in remove_route(kept, "claude"), repr(tail)
     spaced = shipped.replace('claude = ["astra", "gemini"]', 'claude = [ "astra" ,\t"gemini" ] # keep')
     assert set_route(spaced, "claude", ["astra", "gemini"]) == spaced
     started = time.monotonic()

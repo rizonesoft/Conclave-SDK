@@ -10,11 +10,11 @@
 // A comment runs to the end of the line, which TOML ends only at \n: [^\n] rather than ".", which in JavaScript also
 // stops at U+2028 and U+2029 (Python's "." does not), so both editors read the same lines.
 const HEADER = /^\[(reviewers\.[A-Za-z0-9_-]+|routes)\][ \t]*(#[^\n]*)?$/;
-const KEY = /^([A-Za-z0-9_-]+)[ \t]*=[ \t]*("[^"\\\n]*"|'[^'\n]*'|[0-9]+)([ \t]*#[^\n]*)?$/;
+const KEY = /^([A-Za-z0-9_-]+)[ \t]*=[ \t]*("[^"\\\n]*"|'[^'\n]*'|[0-9]+)([ \t]*#[^\n]*)?$/d;
 // Elements need the comma between them that TOML requires, so no two quantifiers compete for the same spaces and a
 // long malformed array cannot backtrack exponentially.
 const ROUTE =
-  /^([A-Za-z0-9_-]+)[ \t]*=[ \t]*\[([ \t]*(?:"[A-Za-z0-9_-]+"(?:[ \t]*,[ \t]*"[A-Za-z0-9_-]+")*(?:[ \t]*,)?[ \t]*)?)\]([ \t]*#[^\n]*)?$/;
+  /^([A-Za-z0-9_-]+)[ \t]*=[ \t]*\[([ \t]*(?:"[A-Za-z0-9_-]+"(?:[ \t]*,[ \t]*"[A-Za-z0-9_-]+")*(?:[ \t]*,)?[ \t]*)?)\]([ \t]*#[^\n]*)?$/d;
 const TOKEN = /"([A-Za-z0-9_-]+)"/g;
 
 export interface Span {
@@ -43,6 +43,12 @@ export interface PinView {
 
 // Lines split on \n alone, each keeping its ending (a CRLF line keeps its \r\n): TOML ends a line with \n or \r\n and
 // nothing else, so a U+2028 inside a comment is a character of that line.
+// A line without TOML's whitespace (space, tab) and its ending. String.prototype.trim would also remove U+2028 and
+// other characters that belong to a comment, and Python's str.strip removes a different set, so neither is used.
+function bare(line: string): string {
+  return line.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "");
+}
+
 function linesOf(text: string): string[] {
   return text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
 }
@@ -67,17 +73,17 @@ function eol(text: string): string {
 }
 
 function header(line: string): string | undefined {
-  return HEADER.exec(line.trim())?.[1];
+  return HEADER.exec(bare(line))?.[1];
 }
 
 function isComment(line: string): boolean {
-  return line.trimStart().startsWith("#");
+  return bare(line).startsWith("#");
 }
 
 export function isEditableLayout(text: string): boolean {
   let table: string | undefined;
   for (const raw of text.split("\n")) {
-    const line = raw.trim();
+    const line = bare(raw);
     if (line === "" || line.startsWith("#")) {
       continue;
     }
@@ -101,7 +107,7 @@ function tableSpan(lines: string[], name: string): [number, number] {
   while (end < lines.length && header(lines[end]) === undefined) {
     end += 1;
   }
-  while (end > start + 1 && (lines[end - 1].trim() === "" || isComment(lines[end - 1]))) {
+  while (end > start + 1 && (bare(lines[end - 1]) === "" || isComment(lines[end - 1]))) {
     end -= 1;
   }
   return [start, end];
@@ -121,15 +127,18 @@ function ending(line: string, nl: string): string {
   return line.endsWith("\n") || line.endsWith("\r") ? line : line + nl;
 }
 
-// Removes a key or route line; a trailing comment on it stays behind as a comment line in its place.
-function removeLine(lines: string[], i: number, comment: string | undefined): void {
-  if (!comment) {
+// Removes a key or route line; a trailing comment on it stays behind, byte for byte, as a comment line in its place.
+// match is the line's KEY or ROUTE match on bare(line), whose group 3 is the comment.
+function removeLine(lines: string[], i: number, match: RegExpExecArray): void {
+  const span = match.indices?.[3];
+  if (!span) {
     lines.splice(i, 1);
     return;
   }
   const body = lines[i].replace(/[\r\n]+$/, "");
-  const indent = body.slice(0, body.length - body.trimStart().length);
-  lines[i] = indent + comment.trim() + lines[i].slice(body.length);
+  const lead = body.length - body.replace(/^[ \t]+/, "").length;
+  const comment = body.slice(lead + span[0]).replace(/^[ \t]+/, "");
+  lines[i] = body.slice(0, lead) + comment + lines[i].slice(body.length);
 }
 
 function replaceFirst(line: string, found: string, replacement: string): string {
@@ -142,10 +151,10 @@ export function setField(text: string, reviewer: string, key: string, value: str
   const nl = eol(text);
   const [start, end] = tableSpan(lines, `reviewers.${reviewer}`);
   for (let i = start + 1; i < end; i += 1) {
-    const m = KEY.exec(lines[i].trim());
+    const m = KEY.exec(bare(lines[i]));
     if (m && m[1] === key) {
       if (value === null) {
-        removeLine(lines, i, m[3]);
+        removeLine(lines, i, m);
       } else {
         const quote = m[2][0];
         lines[i] = replaceFirst(lines[i], m[2], `${quote}${value}${quote}`);
@@ -184,7 +193,7 @@ function setRoutes(text: string, change: (names: string[]) => string[]): string 
   const lines = linesOf(text);
   const [start, end] = tableSpan(lines, "routes");
   for (let i = end - 1; i > start; i -= 1) {
-    const m = ROUTE.exec(lines[i].trim());
+    const m = ROUTE.exec(bare(lines[i]));
     if (!m) {
       continue;
     }
@@ -194,7 +203,7 @@ function setRoutes(text: string, change: (names: string[]) => string[]): string 
       continue;
     }
     if (updated.length === 0) {
-      removeLine(lines, i, m[3]);
+      removeLine(lines, i, m);
     } else {
       lines[i] = replaceFirst(lines[i], `[${m[2]}]`, `[${rebuild(m[2], updated)}]`);
     }
@@ -216,7 +225,7 @@ export function deleteReviewer(text: string, name: string): string {
   const [start, tableEnd] = tableSpan(lines, `reviewers.${name}`);
   const first = commentBlockAbove(lines, start);
   let end = tableEnd;
-  if (end < lines.length && lines[end].trim() === "") {
+  if (end < lines.length && bare(lines[end]) === "") {
     end += 1;
   }
   lines.splice(first, end - first);
@@ -230,7 +239,7 @@ export function setRoute(text: string, writer: string, routeNames: string[]): st
   const [start, end] = tableSpan(lines, "routes");
   const array = `[${routeNames.map((n) => `"${n}"`).join(", ")}]`;
   for (let i = start + 1; i < end; i += 1) {
-    const m = ROUTE.exec(lines[i].trim());
+    const m = ROUTE.exec(bare(lines[i]));
     if (m && m[1] === writer) {
       if (!same(names(m[2]), routeNames)) {
         lines[i] = replaceFirst(lines[i], `[${m[2]}]`, `[${rebuild(m[2], routeNames)}]`);
@@ -247,9 +256,9 @@ export function removeRoute(text: string, writer: string): string {
   const lines = linesOf(text);
   const [start, end] = tableSpan(lines, "routes");
   for (let i = start + 1; i < end; i += 1) {
-    const m = ROUTE.exec(lines[i].trim());
+    const m = ROUTE.exec(bare(lines[i]));
     if (m && m[1] === writer) {
-      removeLine(lines, i, m[3]);
+      removeLine(lines, i, m);
       break;
     }
   }
@@ -273,7 +282,7 @@ export function readPin(text: string): PinView | undefined {
       const [start, end] = tableSpan(lines, name);
       const reviewer: PinReviewer = { name: name.slice("reviewers.".length), span: { start: offsets[start], end: offsets[end] } };
       for (let k = start + 1; k < end; k += 1) {
-        const m = KEY.exec(lines[k].trim());
+        const m = KEY.exec(bare(lines[k]));
         if (m && (m[1] === "cli" || m[1] === "model" || m[1] === "effort")) {
           reviewer[m[1]] = m[2].slice(1, -1);
         }
@@ -282,7 +291,7 @@ export function readPin(text: string): PinView | undefined {
     } else if (name === "routes") {
       const [start, end] = tableSpan(lines, name);
       for (let k = start + 1; k < end; k += 1) {
-        const m = ROUTE.exec(lines[k].trim());
+        const m = ROUTE.exec(bare(lines[k]));
         if (m) {
           const body = lines[k].replace(/[\r\n]+$/, "");
           view.routes.push({
