@@ -150,7 +150,31 @@ export class KitStateService implements vscode.Disposable {
     this.folders.delete(key);
     this.pythons.delete(key);
     this.lifetimes.delete(key);
-    this.sources.delete(key);
+    this.useSdk(key, undefined);
+  }
+
+  // How many SDK folders are watched (for tests): one for each SDK folder some known folder was last computed from.
+  watchedSdkFolders(): number {
+    return this.sdkWatchers.size;
+  }
+
+  // Records that the folder (key) now uses sdkFolder (or none), releasing the watchers of the SDK folder it used before
+  // when no other folder uses that one.
+  private useSdk(key: string, sdkFolder: string | undefined): void {
+    const before = this.sources.get(key);
+    if (before === sdkFolder) {
+      return;
+    }
+    if (sdkFolder === undefined) {
+      this.sources.delete(key);
+    } else {
+      this.sources.set(key, sdkFolder);
+      this.watchSdk(sdkFolder);
+    }
+    if (before !== undefined && ![...this.sources.values()].includes(before)) {
+      this.sdkWatchers.get(before)?.forEach((w) => w.dispose());
+      this.sdkWatchers.delete(before);
+    }
   }
 
   private serial<T>(key: string, fn: () => Promise<T>): Promise<T> {
@@ -224,9 +248,8 @@ export class KitStateService implements vscode.Disposable {
     if (!this.live(folder, lifetime)) {
       return left;
     }
-    this.sources.set(folder.toString(), source.folder);
     this.watch(folder, source.folder);
-    this.watchSdk(source.folder);
+    this.useSdk(folder.toString(), source.folder);
     const python = await this.deps.python(folder);
     this.pythons.set(folder.toString(), identity(python));
     if (!("command" in python)) {

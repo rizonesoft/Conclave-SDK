@@ -301,4 +301,38 @@ suite("kitState", () => {
       service.dispose();
     }
   });
+  test("kitState: an SDK folder's watchers are released when its last folder leaves or moves to another source", async () => {
+    const python = await api.python();
+    assert.ok(python.ok);
+    const first = join(base, "sdk-a");
+    const second = join(base, "sdk-b");
+    for (const copy of [first, second]) {
+      mkdirSync(join(copy, "kits"), { recursive: true });
+      cpSync(join(sdk, "forge.py"), join(copy, "forge.py"));
+    }
+    const one = vscode.Uri.file(join(base, "uses-a"));
+    const two = vscode.Uri.file(join(base, "uses-a-too"));
+    mkdirSync(one.fsPath);
+    mkdirSync(two.fsPath);
+    let current = first;
+    const service = new KitStateService({ source: async () => ({ folder: current, label: "copy" }), python: async () => python });
+    try {
+      await service.states(one);
+      await service.states(two);
+      assert.equal(service.watchedSdkFolders(), 1);
+      // One of two users leaves: still watched.
+      service.forget(one);
+      assert.equal(service.watchedSdkFolders(), 1);
+      // The other moves to another SDK folder: only that one is watched.
+      current = second;
+      service.invalidate(two);
+      await service.states(two);
+      assert.equal(service.watchedSdkFolders(), 1);
+      // The last user leaves: none is.
+      service.forget(two);
+      assert.equal(service.watchedSdkFolders(), 0);
+    } finally {
+      service.dispose();
+    }
+  });
 });

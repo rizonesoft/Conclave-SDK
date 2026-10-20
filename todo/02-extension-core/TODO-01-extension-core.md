@@ -588,6 +588,8 @@ Review round 3 of `§16` (`docs/reviews/02-extension-core/D02-T01-s16.md`, the l
 
 ## 18. Kit state SDK watchers released with their last folder
 
+> **Started:** 2026-10-20T16:50:00Z
+
 Review round 3 of `§10` (`docs/reviews/02-extension-core/D02-T01-s10.md`, the last round its loop allowed) found that `KitStateService` in `extensions/vscode/src/host/kitState.ts` makes one watcher per SDK folder (on its `kits/**` and `forge.py`) and never releases it: a folder that leaves the workspace, or switches to another SDK source, leaves the watchers on the old SDK folder until the service is disposed, so switching sources accumulates them. Each SDK folder's watchers are released when the last folder using it leaves or moves to another source.
 
 **Phase:** 1
@@ -599,8 +601,8 @@ Review round 3 of `§10` (`docs/reviews/02-extension-core/D02-T01-s10.md`, the l
 1. Write the failing tests: forgetting the last folder that uses an SDK folder, and switching a folder to another SDK folder, each release the old SDK folder's watchers. Done when: both fail at the end of `§10`.
 2. Count the folders using each SDK folder in `kitState.ts` and release its watchers at zero. Done when: both tests pass.
 
-- [ ] Expose the number of SDK folders watched (for tests) and add the two tests to `extensions/vscode/test/integration/kitState.test.ts`: after the last folder using a local SDK is forgotten, no SDK folder is watched; after a folder's source changes to another SDK folder, only the new one is. Done when: both fail at the end of `§10`. Cheaper substitute: checking that events stop.
-- [ ] Release an SDK folder's watchers in `KitStateService` when the last folder using it is forgotten or computed from another source, and keep them while any folder uses it. Done when: both tests pass and the local SDK test from `§10` still does. Cheaper substitute: disposing every SDK watcher on any forget.
+- [x] Expose the number of SDK folders watched (for tests) and add the two tests to `extensions/vscode/test/integration/kitState.test.ts`: after the last folder using a local SDK is forgotten, no SDK folder is watched; after a folder's source changes to another SDK folder, only the new one is. Done when: both fail at the end of `§10`. Cheaper substitute: checking that events stop.
+- [x] Release an SDK folder's watchers in `KitStateService` when the last folder using it is forgotten or computed from another source, and keep them while any folder uses it. Done when: both tests pass and the local SDK test from `§10` still does. Cheaper substitute: disposing every SDK watcher on any forget.
 - [ ] Commit: `extension: SDK watchers released with their last folder`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep kitState` passes, and the forgotten-folder case fails when watchers are never released.
