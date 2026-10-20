@@ -369,6 +369,8 @@ Review round 3 of `§8` (`docs/reviews/00-design/D00-T01-s8.md`, the last round 
 
 Review round 3 of `§9` (`docs/reviews/00-design/D00-T01-s9.md`, the last round its loop allowed) found that collapsing the KITS section hides its rows but leaves a kit's context menu open, and `mockup-check.js` passes because it reads the rows, not whether the section is expanded. A kit row is a menu's target only while the section is expanded.
 
+> **Started:** 2026-10-21T00:10:00Z
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
@@ -378,9 +380,9 @@ Review round 3 of `§9` (`docs/reviews/00-design/D00-T01-s9.md`, the last round 
 1. Make the check fail on it. Done when: `mockup-check.js` counts a kit menu open over a collapsed KITS section, on `97a68d7`.
 2. Close the menu. Done when: the check passes and the link shows the change.
 
-- [ ] In `design/spikes/mockup-check.js`, require `kitsOpen` for a kit menu's target, and add collapsing and expanding the section to the round trips. Done when: it exits 1 on `97a68d7`'s mockup. Cheaper substitute: none.
-- [ ] In `design/mockup/project/Main.dc.html`, treat a collapsed KITS section as no target in `dropOrphanOverlay` and in the kit menu's render guard. Done when: the check exits 0. Cheaper substitute: closing every menu on any toggle.
-- [ ] Republish `design/mockup/project/` to the link in `design/README.md` and name the commit and canvas version as the current mockup source in `design/decisions.md`. Done when: the link shows the change. Cheaper substitute: an unpublished change.
+- [x] In `design/spikes/mockup-check.js`, require `kitsOpen` for a kit menu's target, and add collapsing and expanding the section to the round trips. Done when: it exits 1 on `97a68d7`'s mockup. Cheaper substitute: none.
+- [x] In `design/mockup/project/Main.dc.html`, treat a collapsed KITS section as no target in `dropOrphanOverlay` and in the kit menu's render guard. Done when: the check exits 0. Cheaper substitute: closing every menu on any toggle.
+- [x] Republish `design/mockup/project/` to the link in `design/README.md` and name the commit and canvas version as the current mockup source in `design/decisions.md`. Done when: the link shows the change. Cheaper substitute: an unpublished change.
 - [ ] Commit: `design: kit menu closed when the Kits section collapses`
 
 **Test checkpoint:** `node design/spikes/mockup-check.js design/mockup/project/Main.dc.html --handlers` exits 0, and exits 1 on `97a68d7`'s mockup.
