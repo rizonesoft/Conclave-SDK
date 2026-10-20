@@ -6,7 +6,6 @@ Governing plan: [docs/plans/2026-10-16-vscode-extension.md](../docs/plans/2026-1
 
 | Domain | File | Scope |
 | ------ | ---- | ----- |
-| 01 | 01-pin-contract/TODO-01-check-pin-contract.md | SDK check-pin flag and its contract |
 | 02 | 02-extension-core/TODO-01-extension-core.md | Extension host modules |
 | 03 | 03-editor-ui/TODO-01-reviewer-editor-ui.md | Reviewers webview surface |
 | 04 | 04-ship/TODO-01-ship-extension.md | Acceptance, vsix, review, marketplace |
@@ -18,5 +17,6 @@ Governing plan: [docs/plans/2026-10-16-vscode-extension.md](../docs/plans/2026-1
 | Domain | File | Scope | Completed |
 | ------ | ---- | ----- | --------- |
 | 00 | 00-design/TODO-01-reviewer-editor-design.md | Mockup, SPEC, design spec | 2026-10-20 |
+| 01 | 01-pin-contract/TODO-01-check-pin-contract.md | check-pin and its contract | 2026-10-20 |
 
-The design it produced: [design/SPEC.md](../design/SPEC.md), [design/decisions.md](../design/decisions.md) and [the design spec](../docs/specs/2026-10-20-vscode-extension-design.md).
+The `--check-pin` contract is documented in `kits/reviewer/README.md` and frozen by `tests/test_check_pin_contract.py`. The design it produced: [design/SPEC.md](../design/SPEC.md), [design/decisions.md](../design/decisions.md) and [the design spec](../docs/specs/2026-10-20-vscode-extension-design.md).
