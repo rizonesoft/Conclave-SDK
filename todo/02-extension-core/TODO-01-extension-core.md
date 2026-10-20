@@ -65,7 +65,7 @@ title: "TODO-01 -- Extension Core"
 | 15 | §15 | Extractor folder tracking linear in path length | §14 | [x] |
 | 16 | §16 | Process tree kill that ends everything or says so | §8 | [x] |
 | 17 | §17 | Tree kill: cut-short discovery and combined uncertainty | §16 | [x] |
-| 18 | §18 | Kit state SDK watchers released with their last folder | §10 | [ ] |
+| 18 | §18 | Kit state SDK watchers released with their last folder | §10 | [x] |
 
 ## 1. Extension scaffold, build and test harness
 
@@ -603,9 +603,12 @@ Review round 3 of `§10` (`docs/reviews/02-extension-core/D02-T01-s10.md`, the l
 
 - [x] Expose the number of SDK folders watched (for tests) and add the two tests to `extensions/vscode/test/integration/kitState.test.ts`: after the last folder using a local SDK is forgotten, no SDK folder is watched; after a folder's source changes to another SDK folder, only the new one is. Done when: both fail at the end of `§10`. Cheaper substitute: checking that events stop.
 - [x] Release an SDK folder's watchers in `KitStateService` when the last folder using it is forgotten or computed from another source, and keep them while any folder uses it. Done when: both tests pass and the local SDK test from `§10` still does. Cheaper substitute: disposing every SDK watcher on any forget.
-- [ ] Commit: `extension: SDK watchers released with their last folder`
+- [x] Commit: `extension: SDK watchers released with their last folder`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep kitState` passes, and the forgotten-folder case fails when watchers are never released.
+
+> **Verified:** 2026-10-20 | §18 | 0d9a7598bd01ca6b4ae4215bf74e2ee682d2ab52
+> **Review:** `docs/reviews/d02-t01-s18.json`
 
 ## Verification
 

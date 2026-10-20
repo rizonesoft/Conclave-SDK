@@ -50,7 +50,7 @@ Sections: 21 | Checklist items: 153
 | [x]    | D02 T01 §15 | Extractor folder tracking linear in path length         | none  | 6     |
 | [x]    | D02 T01 §16 | Process tree kill that ends everything or says so       | none  | 6     |
 | [x]    | D02 T01 §17 | Tree kill: cut-short discovery and combined uncertainty | none  | 5     |
-| [ ]    | D02 T01 §18 | Kit state SDK watchers released with their last folder  | none  | 3     |
+| [x]    | D02 T01 §18 | Kit state SDK watchers released with their last folder  | none  | 3     |
 | [ ]    | D05 T01 §1  | Kit install with dry-run preview                        | none  | 9     |
 | [ ]    | D05 T01 §2  | Kit update through forge sync                           | none  | 8     |
 | [ ]    | D05 T01 §3  | Kit health from forge check and doctor                  | none  | 6     |
@@ -97,6 +97,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 30/63 verified sections, 6 ready to run now.
+Progress: 31/63 verified sections, 5 ready to run now.
 
-Checklist: 247/504 items completed (includes Commit items).
+Checklist: 255/504 items completed (includes Commit items).
