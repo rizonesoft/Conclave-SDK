@@ -77,7 +77,8 @@ class CheckPinContract(unittest.TestCase):
                     launcher = pathlib.Path(tmp) / (present + ".cmd" if os.name == "nt" else present)
                     launcher.write_text("@exit /b 0\r\n" if os.name == "nt" else "#!/bin/sh\nexit 0\n", encoding="utf-8")
                     launcher.chmod(0o755)
-                env = {"PATH": tmp, **{k: os.environ[k] for k in ("SYSTEMROOT", "PATHEXT") if k in os.environ}}
+                # PATHEXT is set, not inherited: the launchers are .cmd files, which a caller's PATHEXT may not list.
+                env = {"PATH": tmp, **({"SYSTEMROOT": os.environ["SYSTEMROOT"], "PATHEXT": ".CMD"} if os.name == "nt" else {})}
                 run = check_pin(DISPATCHER, PINS / "valid-shipped.toml", env=env)
                 self.assertEqual(run.returncode, 0, run.stderr)
                 self.assertEqual(json.loads(run.stdout)["clis"], {cli: cli == present for cli in ("codex", "agy", "claude")})
