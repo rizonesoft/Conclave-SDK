@@ -233,7 +233,9 @@ def ready_rows(root: str, timeout: float = 300.0, phase: int | None = None) -> t
     """How many rows `query ready` offers, and the first one, or (None, "") when the query cannot be read.
 
     The SDK's todo-graph prints a JSON list of ready rows; a graph that prints a `N runnable now` summary (Isotone's)
-    is read by that line instead.
+    is read by that line instead. With `phase`, only that phase's rows count. The text summary does not say which
+    phase a row is in, so for a phase it is unknown (None, ""): a phase run then ends on its own closeout or park
+    marker, never on another phase's count, and is never pointed at another phase's row.
     """
     try:
         proc = subprocess.run([sys.executable, os.path.join(root, "scripts", "todo-graph.py"), "query", "ready"],
@@ -255,7 +257,7 @@ def ready_rows(root: str, timeout: float = 300.0, phase: int | None = None) -> t
         label = f"{first.get('ref', '')}  {first.get('title', '')}".strip() if isinstance(first, dict) else ""
         return len(rows), label
     counts = re.findall(r"(\d+) runnable now", out)
-    if not counts:
+    if not counts or phase is not None:
         return None, ""
     lines = [ln.strip() for ln in out.splitlines() if ln.strip() and "runnable now" not in ln]
     return int(counts[-1]), (lines[0] if lines else "")

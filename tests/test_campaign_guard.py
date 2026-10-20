@@ -208,6 +208,18 @@ class StopHook(Workspace):
         self.assertIn("Next ready row: D05 T01 §1", decision["reason"])
         self.assertIn("then the next phase", decision["reason"])
 
+    def test_a_phase_run_on_a_text_graph_ends_only_on_its_marker(self):
+        # A text summary names no phase: its count and rows belong to the whole plan, so a phase run ignores both.
+        self.acquire(scope="phase")
+        self.ready(1, "text")
+        decision = self.hook()
+        self.assertEqual(decision["decision"], "block")
+        self.assertNotIn("Next ready row", decision["reason"], "a phase run was pointed at a row of unknown phase")
+        self.ready(0, "text")
+        self.assertEqual(self.hook()["decision"], "block", "another phase's empty count ended a phase run")
+        self.write(RUN_FILE, f"## Closeout run={self.run_id()}\n", "a")
+        self.assertIsNone(self.hook())
+
     def test_an_unacknowledged_hook_error_survives_a_later_stop(self):
         self.acquire()
         guard._record_hook_error(self.root, guard.read_guard(self.root), "OSError: transient")
@@ -297,6 +309,40 @@ class Lifecycle(Workspace):
             guard.json.dump = real_dump
         self.assertEqual(sorted(os.listdir(os.path.join(self.root, "build"))), ["claude-campaign-guard.lock"])
         self.assertIn("guard created", self.acquire())
+
+    def test_a_failed_update_keeps_the_existing_guard_byte_for_byte(self):
+        self.acquire()
+        path = os.path.join(self.root, "build", "claude-campaign-guard.json")
+        with open(path, "rb") as fh:
+            before = fh.read()
+        real_dump, real_replace, replaced = guard.json.dump, guard.os.replace, []
+
+        def torn(doc, fh, **kw):
+            fh.write('{"runner": "cla')
+            raise OSError(28, "No space left on device")
+
+        def spy(src, dst):
+            replaced.append((src, dst))
+            return real_replace(src, dst)
+
+        guard.json.dump = torn
+        try:
+            with self.assertRaises(OSError):
+                self.acquire(cron_id="job-2")
+        finally:
+            guard.json.dump = real_dump
+        with open(path, "rb") as fh:
+            self.assertEqual(fh.read(), before, "a failed re-point damaged the live guard")
+        self.assertEqual(sorted(os.listdir(os.path.join(self.root, "build"))),
+                         ["claude-campaign-guard.json", "claude-campaign-guard.lock"])
+        guard.os.replace = spy
+        try:
+            self.acquire(cron_id="job-2")
+        finally:
+            guard.os.replace = real_replace
+        (src, dst), = replaced
+        self.assertEqual((os.path.dirname(src), dst), (os.path.dirname(path), path),
+                         "the guard is not published by a rename from beside it")
 
     def test_the_lock_is_exclusive_and_a_dead_holder_releases_it(self):
         with guard._Lock(self.root):
