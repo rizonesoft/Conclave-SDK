@@ -319,18 +319,18 @@ suite("kitState", () => {
     try {
       await service.states(one);
       await service.states(two);
-      assert.equal(service.watchedSdkFolders(), 1);
+      assert.deepEqual(service.watchedSdkFolders(), [first]);
       // One of two users leaves: still watched.
       service.forget(one);
-      assert.equal(service.watchedSdkFolders(), 1);
-      // The other moves to another SDK folder: only that one is watched.
+      assert.deepEqual(service.watchedSdkFolders(), [first]);
+      // The other moves to another SDK folder: only the new one is watched.
       current = second;
       service.invalidate(two);
       await service.states(two);
-      assert.equal(service.watchedSdkFolders(), 1);
+      assert.deepEqual(service.watchedSdkFolders(), [second]);
       // The last user leaves: none is.
       service.forget(two);
-      assert.equal(service.watchedSdkFolders(), 0);
+      assert.deepEqual(service.watchedSdkFolders(), []);
     } finally {
       service.dispose();
     }

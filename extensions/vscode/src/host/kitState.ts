@@ -157,9 +157,9 @@ export class KitStateService implements vscode.Disposable {
     this.forgotten.fire(folder);
   }
 
-  // How many SDK folders are watched (for tests): one for each SDK folder some known folder was last computed from.
-  watchedSdkFolders(): number {
-    return this.sdkWatchers.size;
+  // The SDK folders watched (for tests): one for each SDK folder some known folder was last computed from.
+  watchedSdkFolders(): string[] {
+    return [...this.sdkWatchers.keys()].sort();
   }
 
   // Records that the folder (key) now uses sdkFolder (or none), releasing the watchers of the SDK folder it used before
