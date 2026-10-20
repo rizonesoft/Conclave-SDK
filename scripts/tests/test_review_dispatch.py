@@ -460,6 +460,29 @@ class Dispatch(unittest.TestCase):
         self.assertIsNone(summary["round"])
         self.assertIn("cannot be read back", result.stderr)
 
+    def test_a_round_number_past_the_digit_limit_is_unreadable_and_keeps_the_review(self):
+        # Review round 1 of D06 T01 §8: a 5,000-digit round number made the reader's int() raise, so record lost the
+        # finished review's output and the listing would abort. The reader never raises; the file is just unreadable.
+        bad = self.repo / "docs/reviews/huge-number.md"
+        bad.parent.mkdir(parents=True)
+        body = "## Round " + "9" * 5000 + ": none\n\n- Writer: claude\n- Run: 2026-10-20T00:00:00Z\n"
+        bad.write_bytes(body.encode("utf-8"))
+        self.assertIsNone(self.module().read_rounds(body))
+        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(bad))
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("calc.py:2 subtracts", summary["review"])
+        self.assertEqual(bad.read_bytes(), body.encode("utf-8"))
+        result, listing = self.dispatch("--list-rounds", "--json")
+        self.assertEqual((result.returncode, listing["unreadable"]), (0, ["docs/reviews/huge-number.md"]))
+
+    def test_the_largest_review_record_writes_is_one_its_reader_reads(self):
+        # Review round 1 of D06 T01 §8: record wrote a 7-digit Lines count the 6-digit reader refused. The largest
+        # review a reviewer can return (MAX_OUTPUT_BYTES of newlines) must read back and take another round.
+        module, path = self.module(), self.repo / "docs/reviews/large.md"
+        module.record(path, {**self.RESULT, "review": "\n" * module.MAX_OUTPUT_BYTES}, "2026-10-20T00:00:00Z")
+        module.record(path, {**self.RESULT, "review": "Second."}, "2026-10-20T00:00:01Z")
+        self.assertEqual([r["number"] for r in module.read_rounds(path.read_bytes().decode("utf-8"))], [1, 2])
+
     @unittest.skipIf(os.name == "nt", "creating a symlink needs a privilege Windows does not grant by default")
     def test_a_symlink_loop_is_reported_without_aborting_the_listing(self):
         good = self.repo / "docs/reviews/good.md"

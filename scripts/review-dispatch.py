@@ -283,10 +283,13 @@ def atomic_write(path, text):
 # The review is stored byte for byte; a line's trailing "\r" is dropped only to compare, so a CRLF checkout reads the
 # same. Rounds recorded before the count have no Lines field and run to the next round heading; rounds recorded
 # before the digest have Lines without Digest and are read by their count alone.
-ROUND_HEADING = re.compile(r"^## Round (\d+): (none|([a-z0-9][a-z0-9-]*) \(`([^`]+)` via `([a-z]+)`\))$")
+# Numbers are ASCII digits of bounded length, so the reader's int() can never raise (`\d` also takes "²", and a number
+# past Python's digit limit raises). A review is at most MAX_OUTPUT_BYTES, so it has at most MAX_OUTPUT_BYTES + 1 lines,
+# and the count's width follows from that: whatever `record` writes, the reader reads.
+ROUND_HEADING = re.compile(r"^## Round ([0-9]{1,6}): (none|([a-z0-9][a-z0-9-]*) \(`([^`]+)` via `([a-z]+)`\))$")
 ROUND_LINE = re.compile(r"^- (Writer|Run|Effort|Lines|Digest|Skipped): (\S.*)$")
 SKIPPED = re.compile(r"^([a-z0-9][a-z0-9-]*) \((.*)\)$")
-COUNT = re.compile(r"[0-9]{1,6}")
+COUNT = re.compile(r"[0-9]{1,%d}" % len(str(MAX_OUTPUT_BYTES + 1)))
 DIGEST = re.compile(r"[0-9a-f]{16}")
 
 
@@ -386,13 +389,17 @@ def record(path, result, when):
     number = len(known) + 1
     who = f"{result['reviewer']} (`{result['model']}` via `{result['cli']}`)" if result["reviewer"] else "none"
     review = raw_lines(result["review"] or "No reviewer returned a review. This round is not an approval.")
+    if not COUNT.fullmatch(str(len(review))) or not ROUND_HEADING.match(f"## Round {number}: none"):
+        raise Unrecorded(f"the review or the round number is past what {path} can be read back with, "
+                         f"so the round was not recorded")
     lines = [f"## Round {number}: {who}", "", f"- Writer: {result['writer']}", f"- Run: {when}"]
     if result.get("effort"):
         lines.append(f"- Effort: {result['effort']}")
     lines += [f"- Skipped: {f['reviewer']} ({f['reason']})" for f in result["failover"]]
     lines += [f"- Lines: {len(review)}", f"- Digest: {digest(review)}", "", *review, ""]
-    tail = [canonical(line) for line in raw_lines(existing)[-2:]]
-    separator = "" if not existing or tail == ["", ""] else ("\n" if tail[-1] == "" else "\n\n")
+    # Always one blank line before the heading, even when the file already ends in one: a review whose last line is
+    # empty also ends the file in "\n\n", and the reader needs a blank line after the review's own lines.
+    separator = "" if not existing else ("\n" if existing.endswith("\n") else "\n\n")
     atomic_write(path, existing + separator + "\n".join(lines))
     return number
 
