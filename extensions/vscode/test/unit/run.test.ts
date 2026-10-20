@@ -127,7 +127,7 @@ test("a cancelled tree run has ended its process when it settles, 20 times over"
     const controller = new AbortController();
     const killer = async (target: number) => {
       pid.value = target;
-      await killTree(target);
+      return killTree(target);
     };
     const running = run(process.execPath, ["-e", "setInterval(() => {}, 1000)"], 60_000, undefined, { signal: controller.signal, tree: true, killer });
     await new Promise((r) => setTimeout(r, 50));
@@ -143,6 +143,7 @@ test("a cancelled tree run settles only when the tree kill is done, not when the
     process.kill(pid, "SIGKILL");
     await new Promise((r) => setTimeout(r, 300));
     killDone = true;
+    return { survivors: [], verified: true };
   };
   const controller = new AbortController();
   const running = run(process.execPath, ["-e", "setInterval(() => {}, 1000)"], 60_000, undefined, { signal: controller.signal, tree: true, killer });
@@ -153,24 +154,36 @@ test("a cancelled tree run settles only when the tree kill is done, not when the
   assert.equal(killDone, true, "the run settled on the exit, before the tree kill was done");
 });
 
-// A made-up process table for endTree: parent to children, which processes run, and what a kill does.
-function fakeTree(spawnOnKill: Map<number, number[]> = new Map(), unkillable = new Set<number>()) {
-  const children = new Map<number, number[]>();
-  const alive = new Set([1]);
+// A made-up process table for endTree. posix: a killed parent's children are reparented to init (0), as on Linux, and
+// processes can be stopped; otherwise (Windows) a dead parent keeps its id on its children and nothing is stopped.
+// spawnOnKill and spawnOnStop: a process that starts a child just as it is killed, or just before it is stopped.
+function fakeTree(options: { posix?: boolean; children?: [number, number[]][]; spawnOnKill?: [number, number[]][]; spawnOnStop?: [number, number[]][]; unkillable?: number[] } = {}) {
+  const children = new Map<number, number[]>(options.children ?? []);
+  const alive = new Set([1, ...[...children.values()].flat()]);
+  const stopped = new Set<number>();
+  const spawnOnKill = new Map(options.spawnOnKill ?? []);
+  const spawnOnStop = new Map(options.spawnOnStop ?? []);
+  const unkillable = new Set(options.unkillable ?? []);
   let clock = 0;
   const kills: number[][] = [];
+  const spawn = (parent: number, kids: number[]) => {
+    children.set(parent, [...(children.get(parent) ?? []), ...kids]);
+    kids.forEach((k) => alive.add(k));
+  };
   const ops: TreeOps = {
     table: async () => new Map([...children].map(([k, v]) => [k, [...v]])),
     kill: async (pids) => {
       kills.push(pids);
       for (const pid of pids) {
-        // A process that starts a child as it is being killed: the child appears after this round's look.
-        for (const child of spawnOnKill.get(pid) ?? []) {
-          children.set(pid, [...(children.get(pid) ?? []), child]);
-          alive.add(child);
+        if (!stopped.has(pid)) {
+          spawn(pid, spawnOnKill.get(pid) ?? []);
         }
         if (!unkillable.has(pid)) {
           alive.delete(pid);
+          if (options.posix) {
+            spawn(0, children.get(pid) ?? []);
+            children.delete(pid);
+          }
         }
       }
     },
@@ -178,37 +191,60 @@ function fakeTree(spawnOnKill: Map<number, number[]> = new Map(), unkillable = n
     now: () => clock,
     sleep: async (ms) => void (clock += ms),
   };
+  if (options.posix) {
+    ops.stop = (pids) => pids.forEach((pid) => {
+      if (!stopped.has(pid)) {
+        spawn(pid, spawnOnStop.get(pid) ?? []);
+        stopped.add(pid);
+      }
+    });
+  }
   return { ops, kills, alive };
 }
 
-test("endTree: a descendant started after a look is found by the next look and ended", async () => {
-  const tree = fakeTree(new Map([[1, [2]], [2, [3]]]));
-  assert.deepEqual(await endTree(1, tree.ops), []);
+test("endTree: on Windows, a descendant started as its parent is killed is found by the next look and ended", async () => {
+  const tree = fakeTree({ spawnOnKill: [[1, [2]], [2, [3]]] });
+  assert.deepEqual(await endTree(1, tree.ops), { survivors: [], verified: true });
   assert.deepEqual(tree.kills, [[1], [2], [3]]);
   assert.deepEqual([...tree.alive], []);
 });
 
-test("endTree: a look that never answers still ends in a kill", { timeout: 5000 }, async () => {
-  const tree = fakeTree();
+test("endTree: on POSIX, a child born just before its parent is stopped is frozen and ended, though killing reparents it", async () => {
+  // 1 has child 2; 2 starts 3 just before it is stopped. Killed before 3 was seen, 2 would hand 3 to init, out of reach.
+  const tree = fakeTree({ posix: true, children: [[1, [2]]], spawnOnStop: [[2, [3]]] });
+  assert.deepEqual(await endTree(1, tree.ops), { survivors: [], verified: true });
+  assert.deepEqual([...tree.alive], [], "a process of the tree is still running");
+  assert.deepEqual(tree.kills, [[1, 2, 3]], "the tree was killed before it was complete");
+});
+
+test("endTree: a look that never answers still ends in a kill, and the end is reported unverified", { timeout: 5000 }, async () => {
+  // A child the stalled table would have shown: it cannot be found, so the end is not reported as confirmed.
+  const tree = fakeTree({ children: [[1, [2]]] });
   tree.ops.table = () => new Promise(() => undefined);
-  assert.deepEqual(await endTree(1, tree.ops, 5000, 20), []);
-  assert.deepEqual(tree.kills, [[1]]);
+  assert.deepEqual(await endTree(1, tree.ops, 100, 10), { survivors: [], verified: false });
+  assert.deepEqual(tree.kills[0], [1]);
+  assert.ok(tree.alive.has(2), "the fake child is unseen, so it is still running");
 });
 
 test("endTree: a process that cannot be ended is returned at the deadline", async () => {
-  const tree = fakeTree(new Map(), new Set([1]));
-  assert.deepEqual(await endTree(1, tree.ops, 100), [1]);
+  const tree = fakeTree({ unkillable: [1] });
+  assert.deepEqual(await endTree(1, tree.ops, 100), { survivors: [1], verified: true });
   assert.ok(tree.kills.length > 1, "it tried more than once");
 });
 
-test("a cancelled run says which processes did not end", async () => {
-  const controller = new AbortController();
-  const running = run(process.execPath, ["-e", "setInterval(() => {}, 1000)"], 60_000, undefined, {
-    signal: controller.signal, tree: true, killer: async (pid) => (process.kill(pid, "SIGKILL"), [4242]),
-  });
-  await new Promise((r) => setTimeout(r, 300));
-  controller.abort();
-  assert.deepEqual(await running, { code: undefined, stdout: "", stderr: "", error: "cancelled, but 1 process did not end (4242)", survivors: [4242] });
+test("a cancelled run says which processes did not end, or that their end could not be confirmed", async () => {
+  for (const [end, error, extra] of [
+    [{ survivors: [4242], verified: true }, "cancelled, but 1 process did not end (4242)", { survivors: [4242] }],
+    [{ survivors: [], verified: false }, "cancelled, but the process table could not be read to confirm that every process ended", { survivors: [], unverified: true }],
+  ] as const) {
+    const controller = new AbortController();
+    const running = run(process.execPath, ["-e", "setInterval(() => {}, 1000)"], 60_000, undefined, {
+      signal: controller.signal, tree: true, killer: async (pid) => (process.kill(pid, "SIGKILL"), { survivors: [...end.survivors], verified: end.verified }),
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    controller.abort();
+    assert.deepEqual(await running, { code: undefined, stdout: "", stderr: "", error, ...extra });
+  }
 });
 
 test("an argument execFile cannot pass is a run that could not start, not a rejection", async () => {

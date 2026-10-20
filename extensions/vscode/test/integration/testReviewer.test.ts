@@ -130,7 +130,10 @@ suite("testReviewer", () => {
     });
     assert.deepEqual(outcome, { kind: "cancelled", note: "cancelled, but 1 process did not end (4242)" });
     assert.equal(pins().length, before.length + 1, "the temporary pin was deleted while a reviewer may still read it");
-    assert.deepEqual(await api.testReviewer(folder, "sonnet", { confirm: yes }), { kind: "refused", message: "Another test is running" });
+    assert.deepEqual(await api.testReviewer(folder, "sonnet", { confirm: yes }), { kind: "refused", message: "A cancelled test's process 4242 still runs" });
+    // Held for as long as the survivor runs: no deadline lets a second test start beside it.
+    await new Promise((r) => setTimeout(r, 1200));
+    assert.equal((await api.testReviewer(folder, "sonnet", { confirm: yes })).kind, "refused");
     survivorRuns = false;
     const started = Date.now();
     while (pins().length !== before.length && Date.now() - started < 5000) {

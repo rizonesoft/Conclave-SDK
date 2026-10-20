@@ -30,7 +30,7 @@ function failoverLines(summary: Summary): string[] {
 // with "review-dispatch refused: ..." on stderr. Anything else (no JSON, a run that never finished) is no review.
 export function parseTestRun(result: RunResult): TestOutcome {
   if (result.error?.startsWith("cancelled")) {
-    return result.survivors?.length ? { kind: "cancelled", note: result.error } : { kind: "cancelled" };
+    return result.survivors?.length || result.unverified ? { kind: "cancelled", note: result.error } : { kind: "cancelled" };
   }
   if (result.code === undefined) {
     return { kind: "failover", lines: [`The dispatcher did not finish: ${result.error ?? "it could not start"}`] };

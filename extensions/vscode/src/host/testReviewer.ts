@@ -13,13 +13,10 @@ import { run, running } from "./run";
 // finish in two to six minutes), and the process is killed 60 s after that if the dispatcher itself does not return.
 export const REVIEW_TIMEOUT_S = 600;
 export const PROCESS_TIMEOUT_MS = (REVIEW_TIMEOUT_S + 60) * 1000;
-// How long processes a cancel could not end keep the temporary pin and the one-test guard: they are checked every
-// 500 ms, for at most as long as a run may last.
-const SURVIVOR_WAIT_MS = PROCESS_TIMEOUT_MS;
-
+// Processes a cancel could not end keep the temporary pin and the one-test guard for as long as they run, checked every
+// 500 ms: a deadline would let a second test start beside a reviewer that is still running.
 async function ended(pids: number[], alive: (pid: number) => boolean): Promise<void> {
-  const deadline = Date.now() + SURVIVOR_WAIT_MS;
-  while (pids.some(alive) && Date.now() < deadline) {
+  while (pids.some(alive)) {
     await new Promise((r) => setTimeout(r, 500));
   }
 }
@@ -44,12 +41,14 @@ async function modal(title: string, detail: string): Promise<boolean> {
 // temporary pin that holds the chosen reviewer alone, asked for before every run. One test runs at a time.
 export class ReviewerTester {
   private running = false;
+  // Why the guard is still held after a test returned: the processes its cancel could not end.
+  private holding: string | undefined;
 
   constructor(private readonly python: PythonService, private readonly prompt: string) {}
 
   async test(folder: vscode.Uri, name: string, options: TestOptions = {}): Promise<TestOutcome> {
     if (this.running) {
-      return { kind: "refused", message: "Another test is running" };
+      return { kind: "refused", message: this.holding ?? "Another test is running" };
     }
     this.running = true;
     // The outcome returns at once; the guard is released only when the run's processes have ended (cleanup).
@@ -63,7 +62,10 @@ export class ReviewerTester {
       log(`Test reviewer ${name}: refused: ${String(error)}.`);
       return { kind: "refused", message: `The test could not run: ${String(error)}` };
     } finally {
-      void cleanup.catch(() => undefined).finally(() => (this.running = false));
+      void cleanup.catch(() => undefined).finally(() => {
+        this.running = false;
+        this.holding = undefined;
+      });
     }
   }
 
@@ -105,8 +107,9 @@ export class ReviewerTester {
       ], PROCESS_TIMEOUT_MS, folder.fsPath, { signal: options.signal, tree: true });
       reported(result);
       if (result.survivors?.length) {
+        this.holding = `A cancelled test's process${result.survivors.length === 1 ? "" : "es"} ${result.survivors.join(", ")} still run${result.survivors.length === 1 ? "s" : ""}`;
         await ended(result.survivors, options.alive ?? running);
-        log(`Test reviewer ${name}: the processes a cancel could not end have ended or been given up on; the temporary pin is deleted.`);
+        log(`Test reviewer ${name}: the processes a cancel could not end have ended; the temporary pin is deleted.`);
       }
     });
     const result = await Promise.race([reply, cleanup.then(() => reply)]);

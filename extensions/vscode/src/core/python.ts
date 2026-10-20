@@ -16,6 +16,8 @@ export interface RunResult {
   error?: string;
   // Processes a cancel or timeout could not end: a caller keeps what they may still use until they have.
   survivors?: number[];
+  // True when the process table could not be read to confirm that a cancel or timeout ended every process.
+  unverified?: boolean;
 }
 
 export interface PythonDeps {

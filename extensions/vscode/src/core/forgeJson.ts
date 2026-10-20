@@ -204,7 +204,7 @@ function tail(stderr: string | undefined): string[] {
 // shape the parser refuses) is a failure naming the command; a cancel is its own outcome.
 export function forgeOutcome<T>(command: string, result: RunResult, parse: (raw: string) => Parsed<T>): ForgeOutcome<T> {
   if (result.error?.startsWith("cancelled")) {
-    return result.survivors?.length ? { kind: "cancelled", note: result.error } : { kind: "cancelled" };
+    return result.survivors?.length || result.unverified ? { kind: "cancelled", note: result.error } : { kind: "cancelled" };
   }
   if (result.code === undefined) {
     return { kind: "failed", message: `forge ${command} did not finish: ${result.error ?? "it could not start"}`, stderrTail: tail(result.stderr) };
