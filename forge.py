@@ -628,9 +628,15 @@ def provision(
         mode = "isolated"
     agent = normalize_agent(agent)
     target_root = Path(target_root).resolve()
+    # Checked on the resolved path, which is the one written to, so no link (dangling or retargeted before this run)
+    # can lead into git's own data, or lead init over the kits' own source.
+    if any(os.path.normcase(part) == ".git" for part in target_root.parts):
+        raise ValueError(f"Target is inside a .git folder: {target_root}")
+    if not refresh and os.path.normcase(str(target_root)) == os.path.normcase(str(FORGE_ROOT)):
+        raise ValueError(f"Target is the Conclave-SDK source folder itself: {target_root}")
     target_root.mkdir(parents=True, exist_ok=True)
 
-    chosen = ["base", *(["todo"] if with_todo else []), *(kits or []), *(installed_kits(target_root) if refresh else [])]
+    chosen =["base", *(["todo"] if with_todo else []), *(kits or []), *(installed_kits(target_root) if refresh else [])]
     selected = [k for k in KIT_ORDER if k in chosen] + [k for k in dict.fromkeys(chosen) if k not in KIT_ORDER]
 
     def include(rel: str) -> bool:

@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readlinkSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import * as vscode from "vscode";
 import { type KitResult, parseProvision } from "../core/forgeJson";
@@ -8,7 +8,7 @@ import { ENTRY_DOCS, type InitChoice, initArgs, refuseTarget } from "../core/rep
 import type { ForgeSource } from "./forge";
 import { runForge } from "./forge";
 import { log } from "./output";
-import { protectedSnapshot } from "./protectedFiles";
+import { protectedSnapshot, Unreadable } from "./protectedFiles";
 import type { run } from "./run";
 
 export type OpenChoice = "window" | "workspace" | "none";
@@ -32,15 +32,28 @@ export function existingEntryDocs(folder: string): string[] {
   return ENTRY_DOCS.filter((doc) => existsSync(join(folder, doc)));
 }
 
-// A path as the file system will see it: the nearest existing ancestor with its links and junctions resolved (forge
-// resolves the target the same way), followed by the parts that do not exist yet.
-function canonical(path: string): string {
+// Links followed while resolving one path before it is given up as a loop, as POSIX's own limit.
+const MAX_LINKS = 40;
+
+// A path as the file system will see it, the way forge's Path.resolve() sees it: the nearest existing ancestor with its
+// links and junctions resolved, a dangling link followed to where it points, then the parts that do not exist yet.
+// Undefined when the links loop.
+function canonical(path: string, links = 0): string | undefined {
   const rest: string[] = [];
   let at = path;
   for (;;) {
     try {
       return join(realpathSync.native(at), ...rest.reverse());
     } catch {
+      let target: string | undefined;
+      try {
+        target = lstatSync(at).isSymbolicLink() ? resolve(dirname(at), readlinkSync(at)) : undefined;
+      } catch {
+        target = undefined;
+      }
+      if (target !== undefined) {
+        return links >= MAX_LINKS ? undefined : canonical(join(target, ...rest.reverse()), links + 1);
+      }
       const parent = dirname(at);
       if (parent === at) {
         return path;
@@ -70,7 +83,12 @@ export async function setUpRepository(choice: InitChoice, open: OpenChoice, deps
     return { ok: false, message: source.message };
   }
   const target = { resolve, sep, caseInsensitive: process.platform === "win32" };
-  const refused = refuseTarget(folder, source.folder, target) ?? refuseTarget(canonical(folder), canonical(source.folder), target);
+  const real = canonical(folder);
+  if (real === undefined) {
+    return { ok: false, message: `${folder} leads through a loop of links, so it was not set up.` };
+  }
+  // forge refuses both again on the path it resolves and writes to, so a link changed after this check is caught there.
+  const refused = refuseTarget(folder, source.folder, target) ?? refuseTarget(real, canonical(source.folder) ?? source.folder, target);
   if (refused) {
     return { ok: false, message: `${refused}, so it was not set up.` };
   }
@@ -85,12 +103,30 @@ export async function setUpRepository(choice: InitChoice, open: OpenChoice, deps
     return { ok: false, message: python.message };
   }
   const kept = existingEntryDocs(folder);
-  const before = protectedSnapshot(folder);
+  let before: Map<string, string>;
+  try {
+    before = protectedSnapshot(folder);
+  } catch (error) {
+    if (error instanceof Unreadable) {
+      return { ok: false, message: `The protected file ${error.path} could not be read (${error.code}), so nothing was set up: the files forge must not change cannot be proved unchanged.` };
+    }
+    throw error;
+  }
   const outcome = await runForge(source, python, args, (raw) => parseProvision("init", raw), { run: deps.run });
   if (outcome.kind !== "ok") {
     return { ok: false, message: outcome.kind === "failed" ? [outcome.message, ...outcome.stderrTail].join("\n") : "cancelled" };
   }
-  const changed = protectedChanges(before, protectedSnapshot(folder), outcome.value.written);
+  let after: Map<string, string>;
+  try {
+    after = protectedSnapshot(folder);
+  } catch (error) {
+    if (error instanceof Unreadable) {
+      log(`forge init ran in ${folder}, but the protected file ${error.path} could not be read afterwards (${error.code}).`);
+      return { ok: false, message: `forge init ran, but the protected file ${error.path} could not be read afterwards (${error.code}). Check the protected files with git.` };
+    }
+    throw error;
+  }
+  const changed = protectedChanges(before, after, outcome.value.written);
   if (changed.length) {
     log(`forge init changed protected files it did not report writing in ${folder}: ${changed.join(", ")}.`);
     return { ok: false, message: `forge init changed protected files it did not report writing: ${changed.join(", ")}. Check them with git.` };

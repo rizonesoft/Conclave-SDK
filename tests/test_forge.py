@@ -96,6 +96,55 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertFalse((self.target / "todo").exists())
         self.assertNotIn("todo-workflow", (self.target / "AGENTS.md").read_text(encoding="utf-8"))
 
+    def _link(self, target, link):
+        # A junction on Windows (no rights needed, and it may dangle), a symlink elsewhere. Both stay under self.target.
+        if os.name == "nt":
+            import _winapi
+
+            _winapi.CreateJunction(str(target), str(link))
+        else:
+            os.symlink(target, link)
+
+    def test_init_refuses_a_target_inside_a_git_folder_even_through_a_dangling_link(self):
+        git = self.target / "repo" / ".git"
+        git.mkdir(parents=True)
+        for path in (git / "new", self.target / "repo" / ".GIT" / "x" if os.name == "nt" else git / "x"):
+            with self.assertRaisesRegex(ValueError, "inside a .git folder"):
+                forge.provision(path)
+        # The link's destination does not exist (made, linked, then removed, since Windows only links to a folder that
+        # exists): resolving it is forge's own job, and the refusal follows it.
+        (git / "not-created-yet").mkdir()
+        self._link(git / "not-created-yet", self.target / "alias")
+        (git / "not-created-yet").rmdir()
+        with self.assertRaisesRegex(ValueError, "inside a .git folder"):
+            forge.provision(self.target / "alias")
+        with self.assertRaisesRegex(ValueError, "inside a .git folder"):
+            forge.provision(self.target / "alias", refresh=True)
+        self.assertEqual(sorted(p.name for p in git.iterdir()), [], "something was written inside .git")
+
+    def test_init_refuses_the_sdk_source_folder_itself_but_sync_may_refresh_it(self):
+        stand_in = self.target / "sdk"
+        stand_in.mkdir()
+        self._link(stand_in, self.target / "sdk-alias")
+        with unittest.mock.patch.object(forge, "FORGE_ROOT", stand_in.resolve()):
+            for path in (stand_in, self.target / "sdk-alias"):
+                with self.assertRaisesRegex(ValueError, "source folder itself"):
+                    forge.provision(path)
+            self.assertEqual(list(stand_in.iterdir()), [], "init wrote into the SDK folder")
+        # The SDK refreshes its own installed copy with sync (AGENTS.md), so refresh is not refused.
+        res = forge.provision(self.target / "plain", refresh=True)
+        self.assertEqual([k["kit"] for k in res["kits"]], ["base"])
+
+    def test_init_from_the_command_line_refuses_a_git_target_with_exit_2(self):
+        (self.target / ".git").mkdir()
+        proc = subprocess.run(
+            [sys.executable, str(pathlib.Path(forge.__file__)), "init", str(self.target / ".git" / "new")],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertIn("forge.py: error: Target is inside a .git folder", proc.stderr)
+        self.assertFalse((self.target / ".git" / "new").exists())
+
     def test_init_with_todo_links_the_workflow_from_agents_md(self):
         res = forge.provision(self.target, kits=["todo"])
         self.assertEqual([k["kit"] for k in res["kits"]], ["base", "todo"])
