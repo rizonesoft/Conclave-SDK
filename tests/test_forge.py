@@ -170,7 +170,9 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertEqual((self.target / "AGENTS.md").read_text(encoding="utf-8"), "project rules\n")
         self.assertEqual((self.target / "todo/TODO-00-INDEX.md").read_text(encoding="utf-8"), "our plan\n")
         self.assertEqual(graph.read_text(encoding="utf-8"), "old script\n")
-        self.assertFalse((self.target / ".conclave").exists())
+        # Only the kits the repo has: no reviewer pin, and the kit stamp (plan R38) names base and todo alone.
+        self.assertFalse((self.target / ".conclave/reviewers.toml").exists())
+        self.assertEqual(sorted(forge.read_kit_stamp(self.target)["kits"]), ["base", "todo"])
 
         forge.provision(self.target, refresh=True, refresh_scripts=True)
         self.assertNotEqual(graph.read_text(encoding="utf-8"), "old script\n")
@@ -597,6 +599,95 @@ class ForgeProvisionTests(unittest.TestCase):
                         100,
                         f"Table row wraps raw md ({len(line)} > 100 chars) at {md}:{lineno}",
                     )
+
+
+class ForgeKitStampTests(unittest.TestCase):
+    """The kit stamp (plan R38): which SDK commit and kit digests set a folder up, so a reader can tell older or newer
+    kits from partly installed ones."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.target = pathlib.Path(self.tmp.name) / "project"
+        self.target.mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def stamp(self):
+        path = self.target / ".conclave" / "kits.json"
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+    def test_kit_digest_changes_with_any_template_file_but_not_with_crlf_endings(self):
+        sdk = pathlib.Path(self.tmp.name) / "sdk"
+        templates = sdk / "kits" / "demo" / "templates"
+        templates.mkdir(parents=True)
+        (templates / "a.md").write_bytes(b"one\ntwo\n")
+        with unittest.mock.patch.object(forge, "FORGE_ROOT", sdk):
+            first = forge.kit_digest("demo")
+            self.assertRegex(first, r"^[0-9a-f]{64}$")
+            (templates / "a.md").write_bytes(b"one\r\ntwo\r\n")
+            self.assertEqual(forge.kit_digest("demo"), first, "CRLF endings changed the digest")
+            (templates / "a.md").write_bytes(b"one\ntwo!\n")
+            changed = forge.kit_digest("demo")
+            self.assertNotEqual(changed, first)
+            (templates / "b.md").write_bytes(b"new\n")
+            added = forge.kit_digest("demo")
+            self.assertNotEqual(added, changed)
+            (templates / "b.md").rename(templates / "c.md")
+            self.assertNotEqual(forge.kit_digest("demo"), added, "a rename kept the digest")
+
+    def test_digest_names_every_kit_and_the_sdk_commit_from_git_or_the_bundle_files(self):
+        res = subprocess.run([sys.executable, str(FORGE_ROOT / "forge.py"), "digest"], capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        digest = json.loads(res.stdout)
+        self.assertEqual(sorted(digest["kits"]), forge.list_kits())
+        self.assertRegex(digest["sdk"]["commit"], r"^[0-9a-f]{40}$")
+        self.assertRegex(digest["sdk"]["date"], r"^\d{4}-\d\d-\d\dT")
+        # A bundled copy has no .git: the commit and date come from SDK_COMMIT and SDK_DATE next to forge.py.
+        bundle = pathlib.Path(self.tmp.name) / "bundle"
+        (bundle / "kits").mkdir(parents=True)
+        (bundle / "SDK_COMMIT").write_text("a" * 40 + "\n", encoding="utf-8")
+        (bundle / "SDK_DATE").write_text("2026-10-20T12:00:00+02:00\n", encoding="utf-8")
+        with unittest.mock.patch.object(forge, "FORGE_ROOT", bundle):
+            self.assertEqual(forge.sdk_info(), {"commit": "a" * 40, "date": "2026-10-20T12:00:00+02:00"})
+
+    def test_init_kit_and_sync_write_the_stamp_and_a_dry_run_writes_nothing(self):
+        forge.apply_kit(self.target, "todo", dry_run=True)
+        self.assertIsNone(self.stamp(), "a dry run wrote the stamp")
+        forge.provision(self.target)
+        stamp = self.stamp()
+        self.assertEqual(stamp["schema_version"], 1)
+        sdk = forge.sdk_info()
+        self.assertEqual(stamp["kits"], {"base": {"digest": forge.kit_digest("base"), "commit": sdk["commit"], "date": sdk["date"]}})
+        forge.apply_kit(self.target, "reviewer")
+        self.assertEqual(sorted(self.stamp()["kits"]), ["base", "reviewer"], "a second kit dropped the first one's entry")
+        # sync refreshes every kit the folder has, so each is stamped with this SDK.
+        old = {"digest": "old", "commit": "b" * 40, "date": "2020-01-01T00:00:00Z"}
+        (self.target / ".conclave" / "kits.json").write_text(json.dumps({"schema_version": 1, "kits": {"base": old, "reviewer": old}}), encoding="utf-8")
+        forge.provision(self.target, refresh=True)
+        for kit in ("base", "reviewer"):
+            self.assertEqual(self.stamp()["kits"][kit], {"digest": forge.kit_digest(kit), "commit": sdk["commit"], "date": sdk["date"]})
+
+    def test_kit_over_an_existing_install_keeps_that_kits_old_stamp(self):
+        forge.apply_kit(self.target, "todo")
+        old = {"digest": "old", "commit": "b" * 40, "date": "2020-01-01T00:00:00Z"}
+        (self.target / ".conclave" / "kits.json").write_text(json.dumps({"schema_version": 1, "kits": {"todo": old}}), encoding="utf-8")
+        # Without sync's refresh the existing files are kept, so they are not this SDK's: the old entry stands.
+        res = forge.apply_kit(self.target, "todo")
+        self.assertTrue(res["preserved"])
+        self.assertEqual(self.stamp()["kits"]["todo"], old)
+
+    def test_the_sdk_folder_itself_gets_no_stamp(self):
+        sdk = pathlib.Path(self.tmp.name) / "sdk"
+        shutil.copytree(FORGE_ROOT / "kits" / "base", sdk / "kits" / "base")
+        with unittest.mock.patch.object(forge, "FORGE_ROOT", sdk.resolve()):
+            forge.provision(sdk, refresh=True)
+        self.assertFalse((sdk / ".conclave" / "kits.json").exists(), "the SDK stamped itself")
+
+    def test_check_reports_the_stamp(self):
+        self.assertIsNone(forge.check_repo(self.target)["kit_stamp"])
+        forge.provision(self.target)
+        self.assertEqual(forge.check_repo(self.target)["kit_stamp"], self.stamp())
 
 
 class ForgeCliErrorTests(unittest.TestCase):

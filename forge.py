@@ -14,6 +14,7 @@ its own self-contained, tracked directory (.agents/, .claude/, .codex/) with zer
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -78,6 +79,82 @@ def list_kits() -> list[str]:
         for d in kits_dir.iterdir()
         if d.is_dir() and (d / "templates").is_dir()
     )
+
+
+# Which SDK set each kit in a folder up (plan R38), so a reader can tell older or newer kits from partly installed ones.
+KIT_STAMP = ".conclave/kits.json"
+
+
+def kit_digest(kit_name: str) -> str:
+    """SHA-256 over every file of a kit's templates and host overlays: each path relative to the kit with "/"
+    separators, in that order, and each file's SHA-256 with CRLF read as LF, so a Windows and a Linux checkout of one
+    commit give one digest."""
+    kit_root = FORGE_ROOT / "kits" / kit_name
+    files = sorted(
+        (path.relative_to(kit_root).as_posix(), path)
+        for top in ("templates", "hosts")
+        for path in (kit_root / top).rglob("*")
+        if path.is_file()
+    )
+    digest = hashlib.sha256()
+    for rel, path in files:
+        body = hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+        digest.update(f"{rel}\0{body}\n".encode("utf-8"))
+    return digest.hexdigest()
+
+
+def sdk_info() -> dict:
+    """The commit and commit date of the SDK forge runs from: git's in a checkout, else SDK_COMMIT and SDK_DATE beside
+    forge.py (the copy bundled in the VS Code extension), else null."""
+    if (FORGE_ROOT / ".git").exists():
+        try:
+            run = subprocess.run(["git", "-C", str(FORGE_ROOT), "show", "-s", "--format=%H %cI", "HEAD"],
+                                 capture_output=True, text=True, timeout=30, check=True)
+            commit, date = run.stdout.split()
+            return {"commit": commit, "date": date}
+        except (OSError, subprocess.SubprocessError, ValueError) as exc:
+            # A checkout where git cannot run has no known commit: said on stderr, and the stamp records null.
+            print(f"forge.py: warning: could not read the SDK commit with git: {exc}", file=sys.stderr)
+
+    def read(name: str) -> str | None:
+        try:
+            return (FORGE_ROOT / name).read_text(encoding="utf-8").strip() or None
+        except OSError:
+            return None
+
+    return {"commit": read("SDK_COMMIT"), "date": read("SDK_DATE")}
+
+
+def sdk_digest() -> dict:
+    """`forge.py digest`: the SDK's commit and date and every kit's digest, the one definition the stamp, the VS Code
+    extension's recorded digest and its drift test share."""
+    return {"sdk": sdk_info(), "kits": {kit: kit_digest(kit) for kit in list_kits()}}
+
+
+def read_kit_stamp(target_root: Path) -> dict | None:
+    try:
+        stamp = json.loads((Path(target_root) / KIT_STAMP).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return stamp if isinstance(stamp, dict) and isinstance(stamp.get("kits"), dict) else None
+
+
+def write_kit_stamp(target_root: Path, kits: list[str]) -> bool:
+    """Records kits as set up from this SDK in the folder's .conclave/kits.json, keeping the other kits' entries. Not in
+    the SDK folder itself, whose stamp would name a commit it can never be part of, and never through a link."""
+    target_root = Path(target_root)
+    if not kits or os.path.normcase(str(target_root)) == os.path.normcase(str(FORGE_ROOT)):
+        return False
+    path = target_root / KIT_STAMP
+    if path.is_symlink() or _has_unsafe_parent(target_root, KIT_STAMP):
+        return False
+    old = read_kit_stamp(target_root)
+    entries = {k: v for k, v in (old or {}).get("kits", {}).items() if isinstance(v, dict)}
+    sdk = sdk_info()
+    for kit in kits:
+        entries[kit] = {"digest": kit_digest(kit), "commit": sdk["commit"], "date": sdk["date"]}
+    atomic_write(path, json.dumps({"schema_version": 1, "kits": dict(sorted(entries.items()))}, indent=2) + "\n")
+    return True
 
 
 def _has_unsafe_parent(target_root: Path, rel_path: str) -> bool:
@@ -325,6 +402,11 @@ def apply_kit(
             if not dry_run:
                 atomic_write(mcp_path, json.dumps(payload, indent=4) + "\n")
             installed.append(".mcp.json")
+
+    # The stamp says which SDK this kit's files came from, so it is written only when they all did: a fresh install,
+    # or sync's refresh of the SDK-managed files. Files kept from an earlier install leave that install's entry.
+    if not dry_run and (refresh or not preserved):
+        write_kit_stamp(target_root, [kit_name])
 
     return {
         "target": target_root.as_posix(),
@@ -709,6 +791,7 @@ def check_repo(target_root: Path) -> dict:
         "claude_skills": claude_skills,
         "codex_skills": codex_skills,
         "claude_agents": claude_agents,
+        "kit_stamp": read_kit_stamp(target_root),
     }
 
 
@@ -750,6 +833,7 @@ def main(argv: list[str] | None = None) -> int:
     p_doc.add_argument("--strict", action="store_true", help="Exit 3 if any check is missing or setup_required")
 
     sub.add_parser("kits", help="List available overlay kits")
+    sub.add_parser("digest", help="Print the SDK commit and date and every kit's digest as JSON")
 
     p_check = sub.add_parser("check", help="Inspect a target repository's agent setup")
     p_check.add_argument("target", help="Target repository path")
@@ -766,6 +850,9 @@ def main(argv: list[str] | None = None) -> int:
 def _run(args: argparse.Namespace) -> int:
     if args.command == "kits":
         print(json.dumps({"kits": list_kits()}, indent=2))
+        return 0
+    if args.command == "digest":
+        print(json.dumps(sdk_digest(), indent=2))
         return 0
 
     target = Path(args.target)
