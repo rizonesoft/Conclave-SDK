@@ -27,10 +27,17 @@ class Unsafe(Exception):
     pass
 
 
+def shown(name):
+    """A name as a refusal quotes it: at most 120 characters, so a hostile name never fills the reply or the log."""
+    return repr(name if len(name) <= 120 else name[:120] + "...")
+
+
 MAX_STREAM = MAX_BYTES + 64 * 1024 * 1024
 MAX_METADATA = 1024 * 1024
 MAX_CHAIN = 8
 MAX_PAX_KEYS = 16
+MAX_NAME = 4096
+PAX_KEYS = {"path", "linkpath", "comment"}
 EXTENDED = {tarfile.XHDTYPE, tarfile.XGLTYPE, tarfile.SOLARIS_XHDTYPE, tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK}
 WINDOWS_RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$", re.IGNORECASE)
 WINDOWS_FORBIDDEN = re.compile(r'[<>:"|?*\x00-\x1f]')
@@ -57,27 +64,32 @@ class Bounded(tarfile.TarInfo):
         else:
             tarfile_._conclave_chain = 0
         if self.type == tarfile.GNUTYPE_SPARSE:
-            raise Unsafe(f"{self.name!r} is a sparse file")
+            raise Unsafe(f"{shown(self.name)} is a sparse file")
         return super()._proc_member(tarfile_)
 
-    # Every member gets a copy of the PAX headers that apply to it, the global ones included, and _apply_pax_info is
-    # where that copy is made: a header with many keys would be copied into every later member. git writes one key in
-    # its global header (comment) and one or two in a member's (path, linkpath), so more than MAX_PAX_KEYS is refused.
+    # Every member gets the PAX headers that apply to it, the global ones included, applied and copied here. git writes
+    # one key in its global header (comment) and one or two in a member's (path, linkpath): any other key, a name
+    # longer than MAX_NAME bytes or more than MAX_PAX_KEYS keys is refused before tarfile applies or copies anything.
     def _apply_pax_info(self, pax_headers, encoding, errors):
         if len(pax_headers) > MAX_PAX_KEYS:
             raise Unsafe(f"a PAX header with {len(pax_headers)} keys, more than {MAX_PAX_KEYS}")
+        for key, value in pax_headers.items():
+            if key not in PAX_KEYS:
+                raise Unsafe(f"a PAX header holds {key!r}, which git does not write")
+            if key != "comment" and len(value) > MAX_NAME:
+                raise Unsafe(f"a PAX {key} of {len(value)} characters, longer than {MAX_NAME}")
         return super()._apply_pax_info(pax_headers, encoding, errors)
 
     # _proc_pax hands a PAX header that names a GNU sparse map to one of these before anything else reads it (3.11.4
     # to 3.14); refusing here, without delegating, means no map is parsed.
     def _proc_gnusparse_00(self, next_, *args):
-        raise Unsafe(f"{next_.name!r} is a sparse file (a GNU sparse map, refused before it is read)")
+        raise Unsafe(f"{shown(next_.name)} is a sparse file (a GNU sparse map, refused before it is read)")
 
     def _proc_gnusparse_01(self, next_, *args):
-        raise Unsafe(f"{next_.name!r} is a sparse file (a GNU sparse map, refused before it is read)")
+        raise Unsafe(f"{shown(next_.name)} is a sparse file (a GNU sparse map, refused before it is read)")
 
     def _proc_gnusparse_10(self, next_, *args):
-        raise Unsafe(f"{next_.name!r} is a sparse file (a GNU sparse map, refused before it is read)")
+        raise Unsafe(f"{shown(next_.name)} is a sparse file (a GNU sparse map, refused before it is read)")
 
 
 class Capped:
@@ -106,52 +118,54 @@ class Capped:
         return self._stream.tell()
 
 
+def check_member(member, seen, tops):
+    """Refuses a member that breaks a rule, the moment tarfile has read it: before the next member is read, so a rule
+    that sees one bad member (a name repeated by a global PAX path, a second top folder) stops the archive there."""
+    name = member.name
+    if len(name.encode("utf-8", "surrogateescape")) > MAX_NAME:
+        raise Unsafe(f"a name of {len(name)} characters is longer than {MAX_NAME}")
+    # A name seen before, exactly or differing only in case (one file on Windows and macOS), would let a later member
+    # replace an earlier one: a git archive never repeats a name, so the archive is refused.
+    folded = "/".join(p for p in re.split(r"[/\\]", name) if p not in ("", ".")).casefold()
+    if folded in seen:
+        raise Unsafe(f"{shown(name)} repeats {shown(seen[folded])}" if seen[folded] != name else f"{shown(name)} appears twice")
+    seen[folded] = name
+    if not (member.isfile() or member.isdir()):
+        raise Unsafe(f"{shown(name)} is not a regular file or a folder")
+    if not name or name.startswith(("/", "\\")) or DRIVE.match(name):
+        raise Unsafe(f"{shown(name)} is an absolute name")
+    parts = [p for p in re.split(r"[/\\]", name) if p not in ("", ".")]
+    if not parts or ".." in parts:
+        raise Unsafe(f"{shown(name)} leaves the archive's folder")
+    # Names Windows would change or read as something else (trailing dots or spaces are dropped, ':' opens an
+    # alternate stream, CON or NUL is a device): one could replace another file, so the archive is refused.
+    for part in parts:
+        if part.endswith((".", " ")) or WINDOWS_FORBIDDEN.search(part) or WINDOWS_RESERVED.match(part):
+            raise Unsafe(f"{shown(name)} has a part Windows cannot hold as written")
+    tops.add(parts[0])
+    if len(tops) > 1:
+        raise Unsafe(f"the archive has {len(tops)} top folders, not one")
+    if member.isfile() and len(parts) < 2:
+        raise Unsafe(f"{shown(name)} is a file outside the archive's top folder")
+
+
 def members_of(tar):
-    """The archive's members, read one at a time so the limits stop a hostile archive before it is all in memory."""
-    members, total = [], 0
+    """The archive's members and its single top folder, each member checked as it is read, so the limits and rules
+    stop a hostile archive before the rest of it is read."""
+    members, total, seen, tops = [], 0, {}, set()
     for member in tar:
         # Its PAX headers are applied by now (name, size); kept, they would hold every member's copy until extraction.
         member.pax_headers = {}
+        check_member(member, seen, tops)
         members.append(member)
         total += member.size if member.isfile() else 0
         if len(members) > MAX_MEMBERS:
             raise Unsafe(f"the archive holds more than {MAX_MEMBERS} members")
         if total > MAX_BYTES:
             raise Unsafe(f"the archive expands to more than {MAX_BYTES // (1024 * 1024)} MB")
-    return members
-
-
-def check(members):
-    """The archive's single top folder, or Unsafe naming the first member that breaks a rule."""
     if not members:
         raise Unsafe("the archive is empty")
-    tops, seen = set(), {}
-    for member in members:
-        name = member.name
-        # A name seen before, exactly or differing only in case (one file on Windows and macOS), would let a later
-        # member replace an earlier one: a git archive never repeats a name, so the archive is refused.
-        folded = "/".join(p for p in re.split(r"[/\\]", name) if p not in ("", ".")).casefold()
-        if folded in seen:
-            raise Unsafe(f"{name!r} repeats {seen[folded]!r}" if seen[folded] != name else f"{name!r} appears twice")
-        seen[folded] = name
-        if not (member.isfile() or member.isdir()):
-            raise Unsafe(f"{name!r} is not a regular file or a folder")
-        if not name or name.startswith(("/", "\\")) or DRIVE.match(name):
-            raise Unsafe(f"{name!r} is an absolute name")
-        parts = [p for p in re.split(r"[/\\]", name) if p not in ("", ".")]
-        if not parts or ".." in parts:
-            raise Unsafe(f"{name!r} leaves the archive's folder")
-        # Names Windows would change or read as something else (trailing dots or spaces are dropped, ':' opens an
-        # alternate stream, CON or NUL is a device): one could replace another file, so the archive is refused.
-        for part in parts:
-            if part.endswith((".", " ")) or WINDOWS_FORBIDDEN.search(part) or WINDOWS_RESERVED.match(part):
-                raise Unsafe(f"{name!r} has a part Windows cannot hold as written")
-        tops.add(parts[0])
-        if member.isfile() and len(parts) < 2:
-            raise Unsafe(f"{name!r} is a file outside the archive's top folder")
-    if len(tops) != 1:
-        raise Unsafe(f"the archive has {len(tops)} top folders, not one")
-    return tops.pop()
+    return members, tops.pop()
 
 
 def main(argv):
@@ -166,8 +180,7 @@ def main(argv):
         if os.path.getsize(archive) > MAX_ARCHIVE:
             raise Unsafe(f"the archive is larger than {MAX_ARCHIVE // (1024 * 1024)} MB")
         with gzip.open(archive, "rb") as stream, tarfile.open(fileobj=Capped(stream), mode="r:", tarinfo=Bounded) as tar:
-            members = members_of(tar)
-            top = check(members)
+            members, top = members_of(tar)
             if os.path.exists(destination) and os.listdir(destination):
                 raise Unsafe(f"{destination} is not empty")
             os.makedirs(destination, exist_ok=True)

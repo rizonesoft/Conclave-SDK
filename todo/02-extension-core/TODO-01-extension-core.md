@@ -443,6 +443,8 @@ Review round 3 of `§5` (`docs/reviews/02-extension-core/D02-T01-s5.md`, the las
 
 ## 14. Extractor checks each member as tarfile reads it
 
+> **Started:** 2026-10-20T14:24:00Z
+
 Review round 3 of `§12` (`docs/reviews/02-extension-core/D02-T01-s12.md`, the last round its loop allowed) found a fourth way a small archive makes `tarfile` allocate without bound: one global PAX `path` with a trailing slash gives every member a fresh copy of a 1 MB name, and `check()` runs only after all members are read. The extractor has been patched across six review rounds (`§7` and `§12`), each finding a `tarfile` feature git never uses, reached before any per-member check. So this section changes the shape rather than adding a seventh patch: each member is checked the moment `tarfile` yields it, and the PAX headers allowed are git's own subset.
 
 **Phase:** 1
@@ -454,11 +456,13 @@ Review round 3 of `§12` (`docs/reviews/02-extension-core/D02-T01-s12.md`, the l
 1. Write the failing test: the reviewer's global `path` archive is refused at the second member. Done when: it is accepted (or refused only after every member is read) by the extractor at the end of `§12`.
 2. Check members incrementally and allow only git's PAX keys in `extensions/vscode/resources/extract_sdk.py`. Done when: every extractor test passes on Windows and in WSL, and the SDK's own `git archive` extracts.
 
-- [ ] Add the global `path` archive to `extensions/vscode/test/unit/extractSdk.test.ts` (one `g` header with `path` = a 1 MB name ending in `/`, then 100 empty members). Done when: it fails on the extractor at the end of `§12`. Cheaper substitute: only the per-member PAX tests.
-- [ ] Move the per-member rules of `check()` into `members_of` in `extensions/vscode/resources/extract_sdk.py`, applied to each member as it is read (repeated or case-colliding names, type, absolute names, `..`, Windows names, top folder), with the top-folder count checked at the end. Done when: the global `path` archive is refused at its second member and every earlier test passes. Cheaper substitute: checking after all members are read.
-- [ ] Allow only the PAX keys git writes (`path`, `linkpath`, `comment`) in `Bounded._apply_pax_info`, and refuse a `path` or `linkpath` value over 4096 bytes before delegating. Done when: a test with another key (`mtime` set to a huge value, or an unknown key) and one with a 5000-byte `path` are refused. Cheaper substitute: the 16-key count alone.
-- [ ] Measure peak allocation with `tracemalloc` on the global `path` archive and record it in the findings file. Done when: the peak is recorded before and after. Cheaper substitute: asserting refusal only.
-- [ ] Run the extractor tests on Windows and in WSL, and extract the SDK's own `git archive`. Done when: all pass and the SDK's archive still extracts. Cheaper substitute: Windows only.
+- [x] Add the global `path` archive to `extensions/vscode/test/unit/extractSdk.test.ts` (one `g` header with `path` = a 1 MB name ending in `/`, then 100 empty members). Done when: it fails on the extractor at the end of `§12`. Cheaper substitute: only the per-member PAX tests.
+  The test's archive has 20,001 members after the global `path`, so the order is proven by the reason: checked as read, the second member is refused as a repeat; at the end of `§12` the member limit refused it first.
+- [x] Move the per-member rules of `check()` into `members_of` in `extensions/vscode/resources/extract_sdk.py`, applied to each member as it is read (repeated or case-colliding names, type, absolute names, `..`, Windows names, top folder), with the top-folder count checked at the end. Done when: the global `path` archive is refused at its second member and every earlier test passes. Cheaper substitute: checking after all members are read.
+- [x] Allow only the PAX keys git writes (`path`, `linkpath`, `comment`) in `Bounded._apply_pax_info`, and refuse a `path` or `linkpath` value over 4096 bytes before delegating. Done when: a test with another key (`mtime` set to a huge value, or an unknown key) and one with a 5000-byte `path` are refused. Cheaper substitute: the 16-key count alone.
+  At the end of `§12`, the `mtime` case crashed with an `OverflowError` traceback (exit 1, no JSON) and the 5000-character path reached extraction. Refusals now quote a name in at most 120 characters (`shown()`), since one quoted a 1 MB name; every refusal test asserts a reply under 600 characters.
+- [x] Measure peak allocation with `tracemalloc` on the global `path` archive and record it in the findings file. Done when: the peak is recorded before and after. Cheaper substitute: asserting refusal only.
+- [x] Run the extractor tests on Windows and in WSL, and extract the SDK's own `git archive`. Done when: all pass and the SDK's archive still extracts. Cheaper substitute: Windows only.
 - [ ] Commit: `extension: the extractor checks each member as tarfile reads it`
 
 **Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/extractSdk.test.js` passes on Windows and in WSL, and the global `path` case fails on the extractor at the end of `§12`.
