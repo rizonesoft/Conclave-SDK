@@ -29,46 +29,66 @@ class Unsafe(Exception):
 
 MAX_STREAM = MAX_BYTES + 64 * 1024 * 1024
 MAX_METADATA = 1024 * 1024
-METADATA = {b"x", b"g", b"L", b"K"}
+MAX_CHAIN = 8
+EXTENDED = {tarfile.XHDTYPE, tarfile.XGLTYPE, tarfile.SOLARIS_XHDTYPE, tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK}
 WINDOWS_RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$", re.IGNORECASE)
 WINDOWS_FORBIDDEN = re.compile(r'[<>:"|?*\x00-\x1f]')
 
 
-def header_size(block):
-    """The size field of a tar header: octal, or base-256 when its first byte has the high bit set."""
-    field = block[124:136]
-    if field[0] & 0x80:
-        return int.from_bytes(field[1:], "big")
-    text = field.split(b"\0", 1)[0].strip()
-    return int(text, 8) if text else 0
+class Bounded(tarfile.TarInfo):
+    """tarfile's own header parse with the limits in it, so the limits see exactly the boundaries extraction uses.
+
+    tarfile reads an extended header's whole payload (PAX x, g or Solaris X; GNU long name or link) into memory before
+    it yields the member the header describes, and it follows a chain of them recursively. TarInfo has no public hook
+    for that, so this overrides the private dispatch every header passes through (_proc_member, stable since Python
+    3.2), refusing on the header's own size before the payload is read. Sparse members are refused outright: a git
+    archive never holds one, and their maps are read from the stream with no bound.
+    """
+
+    def _proc_member(self, tarfile_):
+        if self.type in EXTENDED:
+            if self.size > MAX_METADATA:
+                raise Unsafe(f"a metadata header of {self.size} bytes is larger than {MAX_METADATA} bytes")
+            chain = getattr(tarfile_, "_conclave_chain", 0) + 1
+            if chain > MAX_CHAIN:
+                raise Unsafe(f"more than {MAX_CHAIN} extended headers in a row")
+            tarfile_._conclave_chain = chain
+        else:
+            tarfile_._conclave_chain = 0
+        if self.type == tarfile.GNUTYPE_SPARSE:
+            raise Unsafe(f"{self.name!r} is a sparse file")
+        return super()._proc_member(tarfile_)
+
+    def _apply_pax_info(self, pax_headers, encoding, errors):
+        if any(key.startswith("GNU.sparse.") for key in pax_headers):
+            raise Unsafe(f"{self.name!r} is a sparse file")
+        return super()._apply_pax_info(pax_headers, encoding, errors)
 
 
-def prepass(archive):
-    """Walks the raw tar headers through the gzip stream before tarfile reads anything, so a hostile archive is
-    stopped on its decompressed size or one oversized metadata header (a PAX or GNU long-name payload, which tarfile
-    reads whole into memory before it yields a member), never after the allocation."""
-    total = 0
-    with gzip.open(archive, "rb") as stream:
-        def read(n):
-            nonlocal total
-            data = stream.read(n)
-            total += len(data)
-            if total > MAX_STREAM:
-                raise Unsafe(f"the archive decompresses to more than {MAX_STREAM // (1024 * 1024)} MB")
-            return data
-        while True:
-            block = read(512)
-            if len(block) < 512 or block == bytes(512):
-                return
-            size = header_size(block)
-            if block[156:157] in METADATA and size > MAX_METADATA:
-                raise Unsafe(f"a metadata header of {size} bytes is larger than {MAX_METADATA} bytes")
-            remaining = (size + 511) // 512 * 512
-            while remaining:
-                chunk = read(min(remaining, 1024 * 1024))
-                if not chunk:
-                    return
-                remaining -= len(chunk)
+class Capped:
+    """The decompressed stream under tarfile, refusing a read or seek past MAX_STREAM: tarfile skips member data with
+    forward seeks, which decompress without passing through read, so the position is what is checked."""
+
+    def __init__(self, stream):
+        self._stream = stream
+
+    def _check(self, position):
+        if position > MAX_STREAM:
+            raise Unsafe(f"the archive decompresses to more than {MAX_STREAM // (1024 * 1024)} MB")
+
+    def read(self, size=-1):
+        if size is None or size < 0:
+            size = MAX_STREAM + 1 - self._stream.tell()
+        self._check(self._stream.tell() + min(size, MAX_STREAM + 1))
+        return self._stream.read(size)
+
+    def seek(self, offset, whence=0):
+        target = offset if whence == 0 else self._stream.tell() + offset if whence == 1 else MAX_STREAM + 1
+        self._check(target)
+        return self._stream.seek(offset, whence)
+
+    def tell(self):
+        return self._stream.tell()
 
 
 def members_of(tar):
@@ -128,8 +148,7 @@ def main(argv):
     try:
         if os.path.getsize(archive) > MAX_ARCHIVE:
             raise Unsafe(f"the archive is larger than {MAX_ARCHIVE // (1024 * 1024)} MB")
-        prepass(archive)
-        with tarfile.open(archive, "r:gz") as tar:
+        with gzip.open(archive, "rb") as stream, tarfile.open(fileobj=Capped(stream), mode="r:", tarinfo=Bounded) as tar:
             members = members_of(tar)
             top = check(members)
             if os.path.exists(destination) and os.listdir(destination):
@@ -139,7 +158,7 @@ def main(argv):
     except Unsafe as exc:
         print(json.dumps({"ok": False, "error": str(exc)}))
         return 2
-    except (OSError, tarfile.TarError, EOFError, ValueError, gzip.BadGzipFile) as exc:
+    except (OSError, tarfile.TarError, EOFError, ValueError, gzip.BadGzipFile, RecursionError) as exc:
         print(json.dumps({"ok": False, "error": f"the archive cannot be read: {exc}"}))
         return 2
     print(json.dumps({"ok": True, "top": top, "files": sum(1 for m in members if m.isfile())}))
