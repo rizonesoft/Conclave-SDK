@@ -37,6 +37,7 @@ MAX_METADATA = 1024 * 1024
 MAX_CHAIN = 8
 MAX_PAX_KEYS = 16
 MAX_NAME = 4096
+MAX_MTIME = 2 ** 33
 PAX_KEYS = {"path", "linkpath", "comment"}
 EXTENDED = {tarfile.XHDTYPE, tarfile.XGLTYPE, tarfile.SOLARIS_XHDTYPE, tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK}
 WINDOWS_RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$", re.IGNORECASE)
@@ -118,7 +119,15 @@ class Capped:
         return self._stream.tell()
 
 
-def check_member(member, seen, tops):
+class Seen:
+    """What check_member has seen so far, by case-folded name: every name, the files, the folders a name implies, and
+    the top folders."""
+
+    def __init__(self):
+        self.names, self.files, self.parents, self.tops = {}, set(), set(), set()
+
+
+def check_member(member, seen):
     """Refuses a member that breaks a rule, the moment tarfile has read it: before the next member is read, so a rule
     that sees one bad member (a name repeated by a global PAX path, a second top folder) stops the archive there."""
     name = member.name
@@ -127,9 +136,10 @@ def check_member(member, seen, tops):
     # A name seen before, exactly or differing only in case (one file on Windows and macOS), would let a later member
     # replace an earlier one: a git archive never repeats a name, so the archive is refused.
     folded = "/".join(p for p in re.split(r"[/\\]", name) if p not in ("", ".")).casefold()
-    if folded in seen:
-        raise Unsafe(f"{shown(name)} repeats {shown(seen[folded])}" if seen[folded] != name else f"{shown(name)} appears twice")
-    seen[folded] = name
+    if folded in seen.names:
+        earlier = seen.names[folded]
+        raise Unsafe(f"{shown(name)} repeats {shown(earlier)}" if earlier != name else f"{shown(name)} appears twice")
+    seen.names[folded] = name
     if not (member.isfile() or member.isdir()):
         raise Unsafe(f"{shown(name)} is not a regular file or a folder")
     if not name or name.startswith(("/", "\\")) or DRIVE.match(name):
@@ -142,21 +152,37 @@ def check_member(member, seen, tops):
     for part in parts:
         if part.endswith((".", " ")) or WINDOWS_FORBIDDEN.search(part) or WINDOWS_RESERVED.match(part):
             raise Unsafe(f"{shown(name)} has a part Windows cannot hold as written")
-    tops.add(parts[0])
-    if len(tops) > 1:
-        raise Unsafe(f"the archive has {len(tops)} top folders, not one")
+    seen.tops.add(parts[0])
+    if len(seen.tops) > 1:
+        raise Unsafe(f"the archive has {len(seen.tops)} top folders, not one")
     if member.isfile() and len(parts) < 2:
         raise Unsafe(f"{shown(name)} is a file outside the archive's top folder")
+    # A file where a folder is needed, in either order (a/b after the file a, or the file a after a/b): extraction
+    # would write one and then fail on the other, leaving a partial folder.
+    folded_parts = folded.split("/")
+    ancestors = ["/".join(folded_parts[:i]) for i in range(1, len(folded_parts))]
+    clash = next((a for a in ancestors if a in seen.files), None)
+    if clash is not None:
+        raise Unsafe(f"{shown(name)} needs {shown(seen.names[clash])} to be a folder, but it is a file")
+    if member.isfile():
+        if folded in seen.parents:
+            raise Unsafe(f"{shown(name)} is a file, but an earlier name needs it to be a folder")
+        seen.files.add(folded)
+    seen.parents.update(ancestors)
+    # tarfile writes the header's time with os.utime, which raises OverflowError past the platform's range: a git
+    # archive carries the commit time, so anything outside 1970 to 2242 is refused before anything is written.
+    if not 0 <= member.mtime < MAX_MTIME:
+        raise Unsafe(f"{shown(name)} has the time {member.mtime}, outside 1970 to 2242")
 
 
 def members_of(tar):
     """The archive's members and its single top folder, each member checked as it is read, so the limits and rules
     stop a hostile archive before the rest of it is read."""
-    members, total, seen, tops = [], 0, {}, set()
+    members, total, seen = [], 0, Seen()
     for member in tar:
         # Its PAX headers are applied by now (name, size); kept, they would hold every member's copy until extraction.
         member.pax_headers = {}
-        check_member(member, seen, tops)
+        check_member(member, seen)
         members.append(member)
         total += member.size if member.isfile() else 0
         if len(members) > MAX_MEMBERS:
@@ -165,7 +191,7 @@ def members_of(tar):
             raise Unsafe(f"the archive expands to more than {MAX_BYTES // (1024 * 1024)} MB")
     if not members:
         raise Unsafe("the archive is empty")
-    return members, tops.pop()
+    return members, seen.tops.pop()
 
 
 def main(argv):
@@ -188,7 +214,7 @@ def main(argv):
     except Unsafe as exc:
         print(json.dumps({"ok": False, "error": str(exc)}))
         return 2
-    except (OSError, tarfile.TarError, EOFError, ValueError, gzip.BadGzipFile, RecursionError) as exc:
+    except (OSError, tarfile.TarError, EOFError, ValueError, OverflowError, gzip.BadGzipFile, RecursionError) as exc:
         print(json.dumps({"ok": False, "error": f"the archive cannot be read: {exc}"}))
         return 2
     print(json.dumps({"ok": True, "top": top, "files": sum(1 for m in members if m.isfile())}))

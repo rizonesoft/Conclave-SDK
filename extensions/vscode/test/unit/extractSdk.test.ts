@@ -86,6 +86,11 @@ with tarfile.open(sys.argv[1], "w:gz") as tar:
                 + b"".join(plain(f"{name}/f{i}", b"") for i in range(20_001)))
         elif kind == "paxkey":
             raw(tar, extended({"mtime": "9" * 1000}) + plain(name, b"x"))
+        elif kind == "mtime":
+            # A GNU header's base-256 time: no PAX header, so only the member check sees it.
+            info.mtime = int(extra)
+            info.size = 1
+            raw(tar, info.tobuf(tarfile.GNU_FORMAT, "utf-8", "strict") + b"x" + bytes(511))
         elif kind == "longkey":
             # A PAX key of int(extra) control characters: quoted whole, its JSON escapes would pass the reply limit.
             raw(tar, extended({chr(1) * int(extra): "v"}) + plain(name, b"x"))
@@ -100,7 +105,7 @@ with tarfile.open(sys.argv[1], "w:gz") as tar:
             tar.addfile(info)
 `;
 
-type Member = ["dir" | "file" | "symlink" | "hardlink" | "pax" | "paxsize" | "solaris" | "chain" | "flood" | "sparse" | "paxsparse" | "globalkeys" | "globalpath" | "paxkey" | "longpath" | "longkey", string, string];
+type Member = ["dir" | "file" | "symlink" | "hardlink" | "pax" | "paxsize" | "solaris" | "chain" | "flood" | "sparse" | "paxsparse" | "globalkeys" | "globalpath" | "paxkey" | "longpath" | "longkey" | "mtime", string, string];
 const TOP: Member[] = [["dir", "o-r-1234567", ""], ["file", "o-r-1234567/forge.py", "print('forge')\n"], ["dir", "o-r-1234567/kits", ""]];
 
 function extract(members: Member[]): { code: number | null; reply: { ok: boolean; top?: string; error?: string }; dest: string } {
@@ -145,6 +150,10 @@ test("extractSdk: every unsafe member refuses the whole archive and writes nothi
     ["a global PAX path every member takes", /appears twice/, [...TOP, ["globalpath", "o-r-1234567", "3000"]]],
     ["a PAX key git does not write", /holds 'mtime'/, [...TOP, ["paxkey", "o-r-1234567/old.txt", ""]]],
     ["a PAX key of 900000 control characters", /holds '(\\x01)+\.\.\.'/, [...TOP, ["longkey", "o-r-1234567/key.txt", "900000"]]],
+    ["a file where a folder is needed", /needs 'o-r-1234567\/a' to be a folder/, [...TOP, ["file", "o-r-1234567/a", "x"], ["file", "o-r-1234567/a/b", "y"]]],
+    ["a folder's name taken by a later file", /is a file, but an earlier name needs it to be a folder/, [...TOP, ["file", "o-r-1234567/a/b", "y"], ["file", "o-r-1234567/a", "x"]]],
+    ["a file and a folder differing in case", /needs 'o-r-1234567\/A' to be a folder/, [...TOP, ["file", "o-r-1234567/A", "x"], ["file", "o-r-1234567/a/b", "y"]]],
+    ["a time past 2242", /has the time \d+, outside 1970 to 2242/, [...TOP, ["mtime", "o-r-1234567/late.txt", String(2n ** 80n)]]],
     ["a PAX path over 4096 characters", /PAX path of \d+ characters/, [...TOP, ["longpath", "o-r-1234567", "5000"]]],
     ["a stream past the decompressed limit", /decompresses to more than/, [...TOP, ["flood", "o-r-1234567/kits", "280"]]],
     ["names differing in case", /repeats/, [...TOP, ["file", "o-r-1234567/FORGE.PY", "print('other')"]]],
