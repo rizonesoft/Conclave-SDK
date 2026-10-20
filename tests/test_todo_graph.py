@@ -345,6 +345,61 @@ class Stamp(Tree):
                          ["implementation_sha"], self.sha)
 
 
+class QueryPlan(Tree):
+    """`query plan`: the plan's names and every section's status, for readers that must not parse todo/ (plan R34)."""
+
+    def setUp(self):
+        super().setUp()
+        self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "owner-decision", "--"),
+                              (3, "C", 0, "none", "§1")]))
+        self.write(todo_file([(1, "D", 1, "none", "--")], ident="beta", domain="01-later", status="draft"),
+                   domain="01-later")
+        (self.root / "todo/plan.json").write_text(json.dumps({
+            "title": "Site plan", "acceptance": "`design/SPEC.md`.", "phases": {"0": "Tooling"}}), encoding="utf-8")
+        report = self.root / "docs/reviews/00-workspace/D00-T01-s1.md"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text("# Review findings\n", encoding="utf-8")
+        path = self.root / "todo/00-workspace/TODO-01-a.md"
+        path.write_text(path.read_text(encoding="utf-8").replace("- [ ] Work.", "- [x] Work.", 1), encoding="utf-8")
+        for args in (["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "T"],
+                     ["config", "commit.gpgsign", "false"], ["add", "-A"], ["commit", "-qm", "x"]):
+            subprocess.run(["git", "-C", str(self.root), *args], check=True)
+        sha = subprocess.run(["git", "-C", str(self.root), "rev-parse", "HEAD"],
+                             capture_output=True, text=True).stdout.strip()
+        tg.stamp(self.root, "D00 T01 §1", sha, [{"round": 1, "report": str(report.relative_to(self.root)).replace("\\", "/"),
+                                                  "verdict": "clean"}], ["true -> ok"], "2026-10-20")
+        shutil.copytree(REPO / "kits/todo/templates/scripts", self.root / "scripts",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+
+    def query(self):
+        return subprocess.run([sys.executable, str(self.root / "scripts/todo-graph.py"), "query", "plan"],
+                              capture_output=True, text=True, encoding="utf-8")
+
+    def test_query_plan_reports_config_and_every_section(self):
+        result = self.query()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        plan = json.loads(result.stdout)
+        self.assertEqual((plan["title"], plan["acceptance"]), ("Site plan", "`design/SPEC.md`."))
+        self.assertEqual(plan["phases"], {"0": "Tooling", "99": "Manual, operator only"})
+        self.assertEqual(plan["sections"], [
+            {"ref": "D00 T01 §1", "path": "todo/00-workspace/TODO-01-a.md", "title": "A", "phase": 0,
+             "status": "verified", "depends": []},
+            {"ref": "D00 T01 §2", "path": "todo/00-workspace/TODO-01-a.md", "title": "B", "phase": 0,
+             "status": "blocked", "depends": []},
+            {"ref": "D00 T01 §3", "path": "todo/00-workspace/TODO-01-a.md", "title": "C", "phase": 0,
+             "status": "ready", "depends": ["D00 T01 §1"]},
+            {"ref": "D01 T01 §1", "path": "todo/01-later/TODO-01-a.md", "title": "D", "phase": 1,
+             "status": "deferred", "depends": []},
+        ])
+
+    def test_query_plan_refuses_an_unreadable_plan_json(self):
+        (self.root / "todo/plan.json").write_text("{", encoding="utf-8")
+        result = self.query()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("TODO refused: unreadable todo/plan.json", result.stderr)
+        self.assertEqual(result.stdout, "")
+
+
 class CliOutput(Tree):
     """The CLI's output is a contract other programs parse (the editor extension, process-plan): always UTF-8."""
 

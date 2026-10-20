@@ -75,6 +75,8 @@ Features must be addable without editing each other (plan R33). This section add
 
 ## 2. Plan query in todo-graph
 
+> **Started:** 2026-10-20T08:14:17Z
+
 The Plan section must not read `todo/` itself (plan R34): `todo_graph.py` owns the section rules and `plan_config` owns `todo/plan.json`. This section adds `todo-graph.py query plan`, printing the plan title, acceptance bar, phase names and every section with its status, to the todo kit.
 
 **Phase:** 0
@@ -86,10 +88,10 @@ The Plan section must not read `todo/` itself (plan R34): `todo_graph.py` owns t
 1. Write the failing tests in `tests/test_todo_graph.py`. Done when: they fail because `plan` is not a query kind.
 2. Implement the query in `kits/todo/templates/scripts/todo-graph.py` and refresh the SDK's copy. Done when: the tests pass and `scripts/todo-graph.py` matches the kit.
 
-- [ ] Add `test_query_plan_reports_config_and_every_section` to `tests/test_todo_graph.py`: a fixture plan with a verified, a ready and a blocked section, expecting `{"title", "acceptance", "phases": {"0": ...}, "sections": [{"ref", "path", "title", "phase", "status", "depends"}]}` with status `verified`, `ready`, `blocked` or `deferred`. Done when: it fails on the unchanged script. Cheaper substitute: asserting only the key names.
-- [ ] Add `plan` to the `query` choices in `kits/todo/templates/scripts/todo-graph.py`, building the sections from `graph` and `disposition` and the names from `plan_config`. Done when: the new test passes. Cheaper substitute: re-reading `todo/plan.json` with a second loader.
-- [ ] Add a refusal test for an unreadable `todo/plan.json` expecting the existing `Refused` message and exit code. Done when: it passes. Cheaper substitute: printing default phase names over a broken file.
-- [ ] Document `query plan` in `kits/todo/README.md` and refresh the SDK's copy with `python forge.py sync . --include-scripts`. Done when: `cmp scripts/todo-graph.py kits/todo/templates/scripts/todo-graph.py` reports no difference. Cheaper substitute: hand-editing `scripts/todo-graph.py`.
+- [x] Add `test_query_plan_reports_config_and_every_section` to `tests/test_todo_graph.py`: a fixture plan with a verified, a ready and a blocked section, expecting `{"title", "acceptance", "phases": {"0": ...}, "sections": [{"ref", "path", "title", "phase", "status", "depends"}]}` with status `verified`, `ready`, `blocked` or `deferred`. Done when: it fails on the unchanged script. Cheaper substitute: asserting only the key names.
+- [x] Add `plan` to the `query` choices in `kits/todo/templates/scripts/todo-graph.py`, building the sections from `graph` and `disposition` and the names from `plan_config`. Done when: the new test passes. Cheaper substitute: re-reading `todo/plan.json` with a second loader.
+- [x] Add a refusal test for an unreadable `todo/plan.json` expecting the existing `Refused` message and exit code. Done when: it passes. Cheaper substitute: printing default phase names over a broken file.
+- [x] Document `query plan` in `kits/todo/README.md` and refresh the SDK's copy with `python forge.py sync . --include-scripts`. Done when: `cmp scripts/todo-graph.py kits/todo/templates/scripts/todo-graph.py` reports no difference. Cheaper substitute: hand-editing `scripts/todo-graph.py`.
 - [ ] Commit: `todo kit: query plan reports the config and every section`, then push `main`
 
 **Test checkpoint:** `python -m unittest tests.test_todo_graph -v` passes, and `test_query_plan_reports_config_and_every_section` fails when the `plan` choice is removed.

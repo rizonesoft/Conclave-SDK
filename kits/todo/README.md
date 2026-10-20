@@ -13,6 +13,10 @@ Additive overlay that brings the Conclave TODO system into a project for Gemini 
 | `scripts/campaign_guard.py` | The `process-plan` run guard: Stop hook, guard file, heartbeat |
 | `.claude/settings.json` | Wires the Stop hook (seeded only when the project has none) |
 
+## Reading the plan from another program
+
+`python scripts/todo-graph.py query plan` prints the plan as JSON: `title`, `acceptance` and `phases` (number to name) from `todo/plan.json`, and `sections`, every section in plan order with its `ref`, `path`, `title`, `phase`, `depends` and `status` (`verified`, `ready`, `blocked`, or `deferred` when its file is not active). A program that shows the plan, such as the editor extension's Plan section, reads this instead of parsing `todo/`; an unreadable `todo/plan.json` is refused with exit 2, as every other query.
+
 ## The run guard (Claude Code)
 
 `process-plan` keeps a campaign alive with two parts: the Stop hook, which blocks the campaign session's end of turn while its run is open and trips a stall breaker after 3 pushes with no change, and a `CronCreate` heartbeat inside the session that resumes it when idle. There is no keep-alive outside the session. `campaign_guard.py` owns the guard file and the hook, runs the same on Windows and WSL (`python3` in the hook command, an OS file lock on both), and is tested by `tests/test_campaign_guard.py`. A project that already has `.claude/settings.json` keeps it: `forge.py doctor <repo> todo` reports `stop-hook` as `setup_required` until the Stop hook from `templates/.claude/settings.json` is added by hand. Gemini and Codex have no Stop hook or `CronCreate`, so their skills carry no guard.
