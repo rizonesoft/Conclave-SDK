@@ -128,6 +128,10 @@ The owner said no code is written until they approve the mockup. This section is
 
 ## 3. Interface SPEC and screenshots
 
+> **Started:** 2026-10-20T08:28:35Z
+
+**Corrected 2026-10-20:** writing the SPEC found the no-pin screen still describing the shipped pin as the old three-reviewer chain; it was corrected in the mockup and republished as canvas version 26 (`ff78d23`), applying `design/decisions.md`'s 2026-10-20 route decision, which names that commit as the current mockup source.
+
 Surface sections in `D03 T01` cite `design/SPEC.md` for their Fidelity. This section writes it from the approved mockup: one section per region and state, with every control, its states, its keyboard path and the message it shows, plus a screenshot per state in both themes. It changes no mockup behaviour.
 
 **Phase:** 0
@@ -139,19 +143,19 @@ Surface sections in `D03 T01` cite `design/SPEC.md` for their Fidelity. This sec
 1. Write `design/SPEC.md` from `design/mockup/project/Main.dc.html` and `design/decisions.md`. Done when: every control in the mockup appears in exactly one SPEC section.
 2. Capture screenshots into `design/screens/`. Done when: each SPEC section links a Dark Modern and a Light Modern screenshot that exist on disk.
 
-- [ ] Write `design/SPEC.md` §1 Layout and theming: regions, spacing, the theme tokens used (cite `design/mockup/project/Main.dc.html`). Done when: the section names every token the mockup uses. Cheaper substitute: a screenshot with no written token list.
-- [ ] Write `design/SPEC.md` §2 Reviewer cards: fields, per-CLI effort, agy note, add, rename, delete and their confirmations (plan R1 to R3). Done when: each control lists its states and keyboard path. Cheaper substitute: a field list without states.
-- [ ] Write `design/SPEC.md` §3 Route rows: the reviewer and fallback chips, drag and keyboard reorder, the add menu with its disabled reasons, remove, the no-route notice, and a hand-edited route's inline refusal (plan R4 to R6). Done when: each disabled reason, the notice and the three route refusals have their exact text written out. Cheaper substitute: "shows a reason" with no text. **Corrected 2026-10-20:** was the self-review warning, before `design/decisions.md`, Reviewer routes, 2026-10-20.
-- [ ] Write `design/SPEC.md` §4 Validation and Save: where each `Refused` message attaches, Save gating, Discard (plan R7 to R9, R13 to R15). Done when: every rule in plan R9 maps to a field. Cheaper substitute: errors shown only in a banner.
-- [ ] Write `design/SPEC.md` §5 Status and Test reviewer (plan R10 and R11). Done when: running, review, failover and refused outcomes each have their layout. Cheaper substitute: only the success outcome.
-- [ ] Write `design/SPEC.md` §6 TOML preview and diff (plan R12). Done when: added, removed and unchanged line styling is specified. Cheaper substitute: an unstyled text dump.
-- [ ] Write `design/SPEC.md` §7 Empty and failure states (plan R16 to R19). Done when: all six states are specified with their action and text. Cheaper substitute: one shared error state.
-- [ ] Write `design/SPEC.md` §8 Entry points and SDK source: the command title, both menu entries, the status bar text for every state, the source label, the sign-in and access refusals, and the sync confirmation text (plan R24 to R26). Done when: every status bar text and refusal text is written out. Cheaper substitute: a list of entry points with no texts.
-- [ ] Write `design/SPEC.md` §9 Kits view and health: the view container, tree nodes and their states, badges, actions and the doctor check rows (plan R27, R30). Done when: every state and status has its codicon and text. Cheaper substitute: the tree with no states.
-- [ ] Write `design/SPEC.md` §10 Kit install and update: each step, the preview groups, the refusal, the scope text and the result lists (plan R28, R29). Done when: every text is written out. Cheaper substitute: steps without texts.
-- [ ] Write `design/SPEC.md` §11 New repository setup: each wizard step, the defaults, the summary and the open choice (plan R31). Done when: every step's choices are listed. Cheaper substitute: the first step only.
-- [ ] Write `design/SPEC.md` §12 Feature sections: the Reviewers, Plan, Review rounds and WordPress site sections, when each shows, their rows, codicons, descriptions and actions (plan R33 to R37). Done when: every row type has its codicon and text. Cheaper substitute: one screenshot of the side bar.
-- [ ] Capture one screenshot per SPEC section and theme into `design/screens/` as `<section>-<dark|light>.png`. Done when: every image link in `design/SPEC.md` resolves to a file. Cheaper substitute: dark theme screenshots only.
+- [x] Write `design/SPEC.md` §1 Layout and theming: regions, spacing, the theme tokens used (cite `design/mockup/project/Main.dc.html`). Done when: the section names every token the mockup uses. Cheaper substitute: a screenshot with no written token list.
+- [x] Write `design/SPEC.md` §2 Reviewer cards: fields, per-CLI effort, agy note, add, rename, delete and their confirmations (plan R1 to R3). Done when: each control lists its states and keyboard path. Cheaper substitute: a field list without states.
+- [x] Write `design/SPEC.md` §3 Route rows: the reviewer and fallback chips, drag and keyboard reorder, the add menu with its disabled reasons, remove, the no-route notice, and a hand-edited route's inline refusal (plan R4 to R6). Done when: each disabled reason, the notice and the three route refusals have their exact text written out. Cheaper substitute: "shows a reason" with no text. **Corrected 2026-10-20:** was the self-review warning, before `design/decisions.md`, Reviewer routes, 2026-10-20.
+- [x] Write `design/SPEC.md` §4 Validation and Save: where each `Refused` message attaches, Save gating, Discard (plan R7 to R9, R13 to R15). Done when: every rule in plan R9 maps to a field. Cheaper substitute: errors shown only in a banner.
+- [x] Write `design/SPEC.md` §5 Status and Test reviewer (plan R10 and R11). Done when: running, review, failover and refused outcomes each have their layout. Cheaper substitute: only the success outcome.
+- [x] Write `design/SPEC.md` §6 TOML preview and diff (plan R12). Done when: added, removed and unchanged line styling is specified. Cheaper substitute: an unstyled text dump.
+- [x] Write `design/SPEC.md` §7 Empty and failure states (plan R16 to R19). Done when: all six states are specified with their action and text. Cheaper substitute: one shared error state.
+- [x] Write `design/SPEC.md` §8 Entry points and SDK source: the command title, both menu entries, the status bar text for every state, the source label, the sign-in and access refusals, and the sync confirmation text (plan R24 to R26). Done when: every status bar text and refusal text is written out. Cheaper substitute: a list of entry points with no texts.
+- [x] Write `design/SPEC.md` §9 Kits view and health: the view container, tree nodes and their states, badges, actions and the doctor check rows (plan R27, R30). Done when: every state and status has its codicon and text. Cheaper substitute: the tree with no states.
+- [x] Write `design/SPEC.md` §10 Kit install and update: each step, the preview groups, the refusal, the scope text and the result lists (plan R28, R29). Done when: every text is written out. Cheaper substitute: steps without texts.
+- [x] Write `design/SPEC.md` §11 New repository setup: each wizard step, the defaults, the summary and the open choice (plan R31). Done when: every step's choices are listed. Cheaper substitute: the first step only.
+- [x] Write `design/SPEC.md` §12 Feature sections: the Reviewers, Plan, Review rounds and WordPress site sections, when each shows, their rows, codicons, descriptions and actions (plan R33 to R37). Done when: every row type has its codicon and text. Cheaper substitute: one screenshot of the side bar.
+- [x] Capture one screenshot per SPEC section and theme into `design/screens/` as `<section>-<dark|light>.png`. Done when: every image link in `design/SPEC.md` resolves to a file. Cheaper substitute: dark theme screenshots only.
 - [ ] Commit: `design: interface SPEC from the approved mockup`
 
 **Test checkpoint:** `python -c "import pathlib,re,sys; t=pathlib.Path('design/SPEC.md').read_text(encoding='utf-8'); links=re.findall(r'\]\((screens/[^)]+)\)',t); bad=[l for l in links if not pathlib.Path('design',l).is_file()]; sys.exit(1 if len(re.findall(r'^## \d+\.',t,re.M))<11 or not links or bad else 0)"` exits 0, and exits 1 when a section or a linked screenshot is missing.
