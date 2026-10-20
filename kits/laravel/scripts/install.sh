@@ -65,7 +65,7 @@ if ! app_root=$(find_app_root "$target"); then
 	exit 1
 fi
 
-artisan_rel=$(python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "$app_root/artisan" "$target")
+artisan_rel=$(python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]).replace(os.sep, "/"))' "$app_root/artisan" "$target")
 
 has_unsafe_parent() {
 	local relative=$1

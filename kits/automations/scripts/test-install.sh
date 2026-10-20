@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Git Bash makes `ln -s` copy a directory unless MSYS asks for a native link; nativestrict fails loudly instead,
+# so the symlink containment checks below test a real link on Windows too. Other platforms ignore it.
+export MSYS="${MSYS:+$MSYS }winsymlinks:nativestrict"
+
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 installer="$script_dir/install.sh"
 work=$(mktemp -d)

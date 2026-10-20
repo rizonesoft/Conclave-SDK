@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Git Bash makes `ln -s` copy a directory unless MSYS asks for a native link; nativestrict fails loudly instead,
+# so the symlink containment checks below test a real link on Windows too. Other platforms ignore it.
+export MSYS="${MSYS:+$MSYS }winsymlinks:nativestrict"
+
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 installer="$script_dir/install.sh"
 doctor="$script_dir/doctor.sh"
@@ -42,8 +46,8 @@ rm -f "$kit_cache/stray.pyc"
 [ -f "$target/scripts/hooks/wordpress-phpcs-pre-push.sh" ]
 [ -f "$target/.agents/skills/wordpress-connect/SKILL.md" ]
 [ -f "$target/.ddev/providers/production.yaml" ]
-python3 -c 'import json; json.load(open("'"$target"'/mcp.wordpress.example.json"))'
-python3 -c 'import json, sys; sys.exit(json.load(open("'"$target"'/.conclave/wordpress-site.json"))["host"] != "pressable")'
+python3 -c 'import json, sys; json.load(open(sys.argv[1]))' "$target/mcp.wordpress.example.json"
+python3 -c 'import json, sys; sys.exit(json.load(open(sys.argv[1]))["host"] != "pressable")' "$target/.conclave/wordpress-site.json"
 # Modes come from the content: scripts executable, nothing world-writable, whatever the checkout reports.
 [ "$(stat -c %a "$target/bin/wp-remote")" = 755 ]
 [ "$(stat -c %a "$target/phpcs.xml.dist")" = 644 ]
@@ -85,7 +89,7 @@ mkdir -p "$wpcom"
 [ ! -e "$wpcom/.ddev" ]
 [ ! -e "$wpcom/mcp.wordpress.example.json" ]
 [ ! -e "$wpcom/scripts/mcp-headers.py" ]
-python3 -c 'import json, sys; sys.exit(json.load(open("'"$wpcom"'/.conclave/wordpress-site.json"))["host"] != "wpcom")'
+python3 -c 'import json, sys; sys.exit(json.load(open(sys.argv[1]))["host"] != "wpcom")' "$wpcom/.conclave/wordpress-site.json"
 wpcom_report=$("$doctor" "$wpcom")
 printf '%s\n' "$wpcom_report" | grep -Eq '^no-ddev +ok'
 # Re-running without --host follows the pin; a conflicting --host is refused.

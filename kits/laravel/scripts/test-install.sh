@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Git Bash makes `ln -s` copy a directory unless MSYS asks for a native link; nativestrict fails loudly instead,
+# so the symlink containment checks below test a real link on Windows too. Other platforms ignore it.
+export MSYS="${MSYS:+$MSYS }winsymlinks:nativestrict"
+
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 installer="$script_dir/install.sh"
 doctor="$script_dir/doctor.sh"
@@ -70,7 +74,7 @@ printf '{"name":"fixture/nested"}\n' > "$nested/platform/composer.json"
 "$installer" "$nested" >/dev/null
 [ -f "$nested/scripts/lsp-diagnostics.py" ]
 [ -f "$nested/platform/boost.json" ]
-python3 -c 'import json; d=json.load(open("'"$nested"'/.mcp.json")); assert d["mcpServers"]["laravel-boost"]["args"][0]=="platform/artisan"'
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["mcpServers"]["laravel-boost"]["args"][0]=="platform/artisan"' "$nested/.mcp.json"
 
 symlink_target="$work/symlink-target"
 mkdir -p "$symlink_target"
