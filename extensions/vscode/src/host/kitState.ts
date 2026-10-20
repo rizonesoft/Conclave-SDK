@@ -77,6 +77,14 @@ export class KitStateService implements vscode.Disposable {
   // The Python each folder's state was computed with, as a comparable string.
   private readonly pythons = new Map<string, string>();
   private readonly pending = new Map<string, NodeJS.Timeout>();
+  // Each folder's lifetime: a new object when the folder is first read after a forget, so a computation that started
+  // before a forget (or a dispose) can tell, and makes no watcher for a folder that has left.
+  private readonly lifetimes = new Map<string, object>();
+  // The SDK folder each folder's state was last computed from, and one watcher per SDK folder on what forge's answer
+  // depends on there (its kits and forge.py itself): a local checkout can change under a cached state.
+  private readonly sources = new Map<string, string>();
+  private readonly sdkWatchers = new Map<string, vscode.Disposable[]>();
+  private disposed = false;
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
   private readonly subscriptions: vscode.Disposable[] = [];
   readonly onDidChangeKitState = this.changed.event;
@@ -107,6 +115,9 @@ export class KitStateService implements vscode.Disposable {
   states(folder: vscode.Uri): Promise<KitStates> {
     const key = folder.toString();
     this.folders.set(key, folder);
+    if (!this.lifetimes.has(key)) {
+      this.lifetimes.set(key, {});
+    }
     let states = this.cache.get(key);
     if (!states) {
       states = this.serial(key, () => this.fresh(folder));
@@ -138,6 +149,8 @@ export class KitStateService implements vscode.Disposable {
     this.cache.delete(key);
     this.folders.delete(key);
     this.pythons.delete(key);
+    this.lifetimes.delete(key);
+    this.sources.delete(key);
   }
 
   private serial<T>(key: string, fn: () => Promise<T>): Promise<T> {
@@ -146,18 +159,43 @@ export class KitStateService implements vscode.Disposable {
     return next;
   }
 
-  // A computation whose generation moved on while it ran is out of date: it runs again.
+  // A computation whose generation moved on while it ran is out of date: it runs again. A folder that changed under
+  // every attempt gets no state (never a stale one); the invalidation that superseded the last attempt has an event
+  // pending, so a reader is told to read again.
   private async fresh(folder: vscode.Uri): Promise<KitStates> {
     const key = folder.toString();
-    let states: KitStates = { ok: false, message: "the kit state was not read" };
+    const lifetime = this.lifetimes.get(key);
     for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
       const generation = this.generations.get(key) ?? 0;
-      states = await this.compute(folder);
+      const states = await this.compute(folder, lifetime);
       if ((this.generations.get(key) ?? 0) === generation) {
-        break;
+        return states;
       }
     }
-    return states;
+    return { ok: false, message: "the folder kept changing while its kit state was read; it is read again when it settles" };
+  }
+
+  // Whether a computation that started with lifetime may still act for its folder.
+  private live(folder: vscode.Uri, lifetime: object | undefined): boolean {
+    return !this.disposed && lifetime !== undefined && this.lifetimes.get(folder.toString()) === lifetime;
+  }
+
+  private watchSdk(sdkFolder: string): void {
+    if (this.sdkWatchers.has(sdkFolder)) {
+      return;
+    }
+    const base = vscode.Uri.file(sdkFolder);
+    const watchers = ["kits/**", "forge.py"].map((glob) => vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(base, glob)));
+    const seen = () => {
+      for (const [key, sdk] of this.sources) {
+        const folder = this.folders.get(key);
+        if (sdk === sdkFolder && folder) {
+          this.invalidate(folder);
+        }
+      }
+    };
+    watchers.forEach((w) => (w.onDidChange(seen), w.onDidCreate(seen), w.onDidDelete(seen)));
+    this.sdkWatchers.set(sdkFolder, watchers);
   }
 
   private watch(folder: vscode.Uri, sdkFolder: string): void {
@@ -173,12 +211,22 @@ export class KitStateService implements vscode.Disposable {
     this.watchers.set(key, { globs: globs.join("|"), disposables });
   }
 
-  private async compute(folder: vscode.Uri): Promise<KitStates> {
+  private async compute(folder: vscode.Uri, lifetime: object | undefined): Promise<KitStates> {
+    const left: KitStates = { ok: false, message: "the folder is no longer watched" };
+    if (!this.live(folder, lifetime)) {
+      return left;
+    }
     const source = await this.deps.source(folder);
     if (!("folder" in source)) {
       return { ok: false, message: source.message };
     }
+    // The folder may have left while the source was resolved: then nothing is watched for it.
+    if (!this.live(folder, lifetime)) {
+      return left;
+    }
+    this.sources.set(folder.toString(), source.folder);
     this.watch(folder, source.folder);
+    this.watchSdk(source.folder);
     const python = await this.deps.python(folder);
     this.pythons.set(folder.toString(), identity(python));
     if (!("command" in python)) {
@@ -200,6 +248,8 @@ export class KitStateService implements vscode.Disposable {
   }
 
   dispose(): void {
+    this.disposed = true;
+    this.sdkWatchers.forEach((ws) => ws.forEach((w) => w.dispose()));
     this.subscriptions.forEach((s) => s.dispose());
     this.pending.forEach((t) => clearTimeout(t));
     this.watchers.forEach((w) => w.disposables.forEach((d) => d.dispose()));

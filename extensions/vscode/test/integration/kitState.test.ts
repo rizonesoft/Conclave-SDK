@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as vscode from "vscode";
@@ -26,7 +26,7 @@ suite("kitState", () => {
   suiteTeardown(async () => {
     await vscode.workspace.getConfiguration("conclave").update("sdkPath", undefined, vscode.ConfigurationTarget.Global);
     // The folders leave: their watchers let go of them, so they can be removed.
-    for (const name of ["repo", "explicit", "race", "config", "wordpress"]) {
+    for (const name of ["repo", "explicit", "race", "config", "wordpress", "settle", "left", "local"]) {
       api.forgetKitState(vscode.Uri.file(join(base, name)));
     }
     await new Promise((r) => setTimeout(r, 500));
@@ -210,5 +210,95 @@ suite("kitState", () => {
     }
     const after = await api.kitStates(folder);
     assert.ok(after.ok && after.kits.find((k) => k.kit === "wordpress")?.state === "partly", JSON.stringify(after));
+  });
+  test("kitState: a folder that changes under every attempt gets no state, never a stale one", async () => {
+    const work = join(base, "settle");
+    mkdirSync(work);
+    const folder = vscode.Uri.file(work);
+    const python = await api.python(folder);
+    assert.ok(python.ok);
+    const service: KitStateService = new KitStateService({
+      source: async () => ({ folder: sdk, label: "local Conclave-SDK (test)" }),
+      python: async () => python,
+      // Every computation is superseded while it runs.
+      run: async (file, args, timeoutMs, cwd, options) => {
+        if (args.includes("kits")) {
+          service.invalidate(folder);
+        }
+        return run(file, args, timeoutMs, cwd, options);
+      },
+    });
+    try {
+      const states = await service.states(folder);
+      assert.deepEqual(states, { ok: false, message: "the folder kept changing while its kit state was read; it is read again when it settles" });
+    } finally {
+      service.forget(folder);
+      service.dispose();
+    }
+  });
+
+  test("kitState: a folder forgotten while its state is read gets no watcher", async () => {
+    const work = join(base, "left");
+    mkdirSync(join(work, ".agents"), { recursive: true });
+    const folder = vscode.Uri.file(work);
+    let release: (() => void) | undefined;
+    const service = new KitStateService({
+      source: async () => {
+        await new Promise<void>((r) => (release = r));
+        return { folder: sdk, label: "local Conclave-SDK (test)" };
+      },
+      python: async () => ({ message: "not needed" }),
+    });
+    try {
+      const reading = service.states(folder);
+      while (!release) {
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      service.forget(folder);
+      release();
+      assert.deepEqual(await reading, { ok: false, message: "the folder is no longer watched" });
+      let events = 0;
+      const listener = service.onDidChangeKitState(() => (events += 1));
+      await new Promise((r) => setTimeout(r, 1000));
+      writeFileSync(join(work, ".agents", "new.md"), "x");
+      await new Promise((r) => setTimeout(r, 2000));
+      listener.dispose();
+      assert.equal(events, 0, "a watcher was made for a folder that had left");
+    } finally {
+      service.dispose();
+    }
+  });
+
+  test("kitState: a file added to a local SDK's kit templates changes the state of a folder that uses it", async () => {
+    const local = join(base, "local-sdk");
+    cpSync(join(sdk, "forge.py"), join(local, "forge.py"));
+    cpSync(join(sdk, "kits"), join(local, "kits"), { recursive: true });
+    const work = join(base, "local");
+    mkdirSync(work);
+    const folder = vscode.Uri.file(work);
+    const source = { folder: local, label: "local Conclave-SDK (copy)" };
+    assert.equal((await api.runForge(source, ["init", work, "--kit", "reviewer"])).kind, "ok");
+    const python = await api.python(folder);
+    assert.ok(python.ok);
+    const service = new KitStateService({ source: async () => source, python: async () => python });
+    try {
+      const before = await service.states(folder);
+      assert.ok(before.ok && before.kits.find((k) => k.kit === "reviewer")?.state === "installed", JSON.stringify(before));
+      await new Promise((r) => setTimeout(r, 1000));
+      let events = 0;
+      const listener = service.onDidChangeKitState(() => (events += 1));
+      writeFileSync(join(local, "kits", "reviewer", "templates", "docs", "added-to-the-kit.md"), "new\n");
+      const started = Date.now();
+      while (events === 0 && Date.now() - started < 10_000) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      listener.dispose();
+      assert.ok(events > 0, "a change in the SDK's kits did not change the state");
+      const after = await service.states(folder);
+      assert.ok(after.ok && after.kits.find((k) => k.kit === "reviewer")?.state === "partly", JSON.stringify(after));
+    } finally {
+      service.forget(folder);
+      service.dispose();
+    }
   });
 });
