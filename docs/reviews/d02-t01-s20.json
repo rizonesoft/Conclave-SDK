@@ -1,0 +1,28 @@
+{
+  "ref": "D02 T01 \u00a720",
+  "title": "Recursive deletes that never follow a link",
+  "implementation_sha": "91af7015f099a757b6a0543d329ee846d1914652",
+  "date": "2026-10-20",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-extension-core/D02-T01-s20.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/02-extension-core/D02-T01-s20.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/02-extension-core/D02-T01-s20.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "npm run test:integration -> 67 passing (2m)",
+    "npm test -> 113 pass, 0 fail, 4 skipped",
+    "WSL node --test out/test/unit/removeTree.test.js -> 4 pass"
+  ]
+}
