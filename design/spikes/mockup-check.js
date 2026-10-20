@@ -70,7 +70,7 @@ function checkMenus(out, where) {
   if (cm.label === 'Explorer context menu') shown = !!out.sideExplorer && (out.tree || []).some(function (t) { return t.label === 'reviewers.toml'; });
   else if (/ kit context menu$/.test(cm.label)) {
     const kit = cm.label.replace(/ kit context menu$/, '');
-    shown = !!out.sideConclave && (out.kitRows || []).some(function (r) { return r.kit === kit; });
+    shown = !!out.sideConclave && !!out.kitsOpen && (out.kitRows || []).some(function (r) { return r.kit === kit; });
   }
   if (!shown && orphans.length < 10) orphans.push(where + ': ' + cm.label);
   else if (!shown) orphans.push(where);
@@ -104,7 +104,7 @@ for (const workspace of dims.workspace) for (const overlay of dims.overlay) for 
     // alone and then as a round trip on one component: a menu closed on the way never comes back unasked.
     const other = workspace === 'multi' ? 'single' : 'multi';
     const steps = [['showExplorer', null], ['showConclave', null], ['setSource', { target: { value: 'path' } }],
-      ['setWorkspace', { target: { value: other } }], ['switchFolder', null]];
+      ['setWorkspace', { target: { value: other } }], ['switchFolder', null], ['toggleKitsPane', null]];
     for (const step of steps) {
       const c = make(p, src);
       const v = c.renderVals();
@@ -115,7 +115,8 @@ for (const workspace of dims.workspace) for (const overlay of dims.overlay) for 
     const trips = [[['setWorkspace', { target: { value: other } }], ['setWorkspace', { target: { value: workspace } }]],
       [['setWorkspace', { target: { value: 'multi' } }], ['switchFolder', null], ['setWorkspace', { target: { value: 'single' } }], ['setWorkspace', { target: { value: 'multi' } }], ['switchFolder', null]],
       [['showExplorer', null], ['showConclave', null]], [['showConclave', null], ['showExplorer', null]],
-      [['setSource', { target: { value: 'path' } }], ['setSource', { target: { value: 'bundled' } }]]];
+      [['setSource', { target: { value: 'path' } }], ['setSource', { target: { value: 'bundled' } }]],
+      [['toggleKitsPane', null], ['toggleKitsPane', null]]];
     for (const trip of trips) {
       const c = make(p, src);
       let closed = false;

@@ -1304,7 +1304,7 @@ class Component extends DCLogic {
     if (!o) return;
     const pinShown = this.e().screen !== 'no-pin' && this.props.sidebar !== 'kits-empty' && this.side() === 'explorer';
     const k = this.ks();
-    const kitsShown = this.side() === 'conclave' && !this.srcFailNow() && !k.bare[k.cur];
+    const kitsShown = this.side() === 'conclave' && !this.srcFailNow() && !k.bare[k.cur] && k.kitsOpen;
     if ((o.kind === 'menu' && !pinShown) || (o.kind === 'kit-menu' && !kitsShown)) this.setState({ ov: null });
   }
   ov() {
@@ -1508,7 +1508,7 @@ class Component extends DCLogic {
         ['Reveal in File Explorer', 'Shift+Alt+R'], ['Open in Integrated Terminal', ''], null, ['Select for Compare', ''], null, ['Cut', 'Ctrl+X'], ['Copy', 'Ctrl+C'], null,
         ['Copy Path', 'Shift+Alt+C'], ['Copy Relative Path', 'Ctrl+K Ctrl+Shift+C'], null, ['Rename...', 'F2'], ['Delete', 'Delete']];
       Object.assign(cm, { open: true, label: 'Explorer context menu', x: 170, y: this.wsKey() === 'multi' ? 224 : 202, items: rows.map(function (r) { return r ? { sep: false, item: true, label: r[0], kb: r[1], run: r[2] || chrome, cls: r[3] ? 'act' : '' } : { sep: true, item: false, label: '', kb: '', run: chrome, cls: '' }; }) });
-    } else if (o.kind === 'kit-menu' && this.side() === 'conclave' && kitRows.some(function (r) { return r.kit === o.kit; })) {
+    } else if (o.kind === 'kit-menu' && this.side() === 'conclave' && k.kitsOpen && kitRows.some(function (r) { return r.kit === o.kit; })) {
       // view/item/context on a kit row: Health while the kit is in the folder, the agent request to import the
       // kit, and on a kit stamped by an older SDK the request to update the kits. The menu opens at the row.
       const info = this.kitInfo(k, cur, o.kit);
