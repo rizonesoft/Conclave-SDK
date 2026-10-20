@@ -305,7 +305,7 @@ The Kits view, the dialogs and the reviewer editor need each folder's kit state 
 
 ## 11. Mockup parity fixtures and harness
 
-The build must match the approved mockup 1:1 (`design/platform-audit.md`), and a careful look is not proof. The mockup's own script already computes, for every scenario, each row's label, description, icon, badge, order and actions and every message text. This section exports that view model from the frozen mockup into fixtures, and gives every surface section one helper that fails on any difference. The example data (the orchard workspace, its plan and rounds) is test input fed to the extension, never product content.
+The build must match the approved mockup 1:1 (`design/platform-audit.md`), and a careful look is not proof. The mockup's own script already computes, for every scenario, each row's label, description, icon, badge, order and actions and every message text. This section exports that view model from the current mockup source `design/decisions.md` names (**Corrected 2026-10-20:** was the frozen mockup, which predates the family route rule) into fixtures, and gives every surface section one helper that fails on any difference. The example data (the orchard workspace, its plan and rounds) is test input fed to the extension, never product content.
 
 **Phase:** 1
 **Needs:** none
