@@ -66,7 +66,7 @@ title: "TODO-01 -- Extension Core"
 | 16 | §16 | Process tree kill that ends everything or says so | §8 | [x] |
 | 17 | §17 | Tree kill: cut-short discovery and combined uncertainty | §16 | [x] |
 | 18 | §18 | Kit state SDK watchers released with their last folder | §10 | [x] |
-| 19 | §19 | Folder computations bound to the lifetime they were asked in | §10, D05 T01 §3 | [ ] |
+| 19 | §19 | Folder work bound to the lifetime it was asked in | §10, D05 T01 §3 | [ ] |
 | 20 | §20 | Recursive deletes that never follow a link | §7 | [ ] |
 
 ## 1. Extension scaffold, build and test harness
@@ -612,9 +612,11 @@ Review round 3 of `§10` (`docs/reviews/02-extension-core/D02-T01-s10.md`, the l
 > **Verified:** 2026-10-20 | §18 | 0d9a7598bd01ca6b4ae4215bf74e2ee682d2ab52
 > **Review:** `docs/reviews/d02-t01-s18.json`
 
-## 19. Folder computations bound to the lifetime they were asked in
+## 19. Folder work bound to the lifetime it was asked in
 
 > **Started:** 2026-10-20T17:15:00Z
+
+> **Corrected 2026-10-20:** title shortened from "Folder computations bound to the lifetime they were asked in", whose 60 characters made every row of the generated plan's Phase 1 table 103 characters wide.
 
 Review round 3 of `D05 T01 §3` (`docs/reviews/05-kit-manager/D05-T01-s3.md`, the last round its loop allowed) found two gaps in how `KitHealthService` (`extensions/vscode/src/host/kitHealth.ts`) runs a folder's computation, and `KitStateService` (`extensions/vscode/src/host/kitState.ts`, `§10`) follows the same pattern. A computation checks its folder's lifetime only between attempts, so after a forget it still starts every remaining forge process (each doctor, each dry run). And a queued request captures the lifetime when it starts running, not when it was asked, so a request asked before a forget runs as part of the folder's next lifetime and answers for it. Both services move to one helper that serializes a folder's computations, captures the lifetime and generation when a request is asked, checks the lifetime before every forge process, and reruns a superseded computation, so the two services cannot drift apart again.
 

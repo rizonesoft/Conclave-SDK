@@ -262,6 +262,17 @@ class Graph(Tree):
         self.write(todo_file([(1, long_title, 0, "none", "--")]))
         self.refuses(f"deliverable/title over {tg.MAX_DELIVERABLE_LEN} chars")
 
+    def test_title_that_wraps_the_generated_plan_table_refuses_naming_the_section(self):
+        # Within the 88-character cell limit, but the plan pads every row to it: 60 characters make 103-character rows.
+        self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B" * 60, 0, "none", "--")]))
+        with self.assertRaises(tg.Refused) as ctx:
+            tg.projections(self.root, sync=True)
+        self.assertIn("plan table for phase 0 wraps raw md", str(ctx.exception))
+        self.assertIn("D00 T01 §2", str(ctx.exception))
+        self.assertFalse((self.root / tg.PLAN).exists(), "a wrapping plan was written")
+        self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B" * 57, 0, "none", "--")]))
+        tg.projections(self.root, sync=True)
+
     def test_superseded_without_successor_refuses(self):
         self.write(todo_file([(1, "A", 0, "none", "--")], status="superseded"))
         self.refuses("superseded TODO must name its successor")
