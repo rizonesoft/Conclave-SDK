@@ -44,7 +44,7 @@ title: "TODO-01 -- Feature Sections"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Feature section registry | D02 T01 §10, D05 T01 §5 | [ ] |
 | 2 | §2 | Plan query in todo-graph | D00 T01 §2 | [x] |
-| 3 | §3 | Round listing in the dispatcher | D00 T01 §2 | [ ] |
+| 3 | §3 | Round listing in the dispatcher | D00 T01 §2 | [x] |
 | 4 | §4 | Reviewers section | §1, D02 T01 §3 | [ ] |
 | 5 | §5 | Plan section | §1, §2 | [ ] |
 | 6 | §6 | Review rounds section | §1, §3, §8 | [ ] |
@@ -119,9 +119,12 @@ The Review rounds section must not parse the dispatcher's Markdown (plan R35, op
 - [x] Implement `list_rounds(records_dir)` beside `record` in `kits/reviewer/templates/scripts/review-dispatch.py`, so the writer and the reader of the format sit together, and make `--writer` and `--prompt` optional only with `--list-rounds`. Done when: the new test and every existing test pass. Cheaper substitute: a second parser in the extension.
 - [x] Add a test that a missing `docs/reviews/` prints `{"records": []}` and exit 0, and a malformed heading is reported in `"unreadable": [path]`, never dropped. Done when: both pass. Cheaper substitute: skipping bad files silently.
 - [x] Document the flag in `kits/reviewer/README.md` and refresh the SDK's copy with `python forge.py sync . --include-scripts`. Done when: `cmp scripts/review-dispatch.py kits/reviewer/templates/scripts/review-dispatch.py` reports no difference. Cheaper substitute: hand-editing `scripts/review-dispatch.py`.
-- [ ] Commit: `reviewer: list recorded review rounds as JSON`, then push `main`
+- [x] Commit: `reviewer: list recorded review rounds as JSON`, then push `main`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_review_dispatch.py -v` passes, and `test_list_rounds_reads_back_what_record_wrote` fails when `record`'s heading format changes without the reader.
+
+> **Verified:** 2026-10-20 | §3 | a7c73881df1b8ed48b370dde081e19ac11365d90
+> **Review:** `docs/reviews/d06-t01-s3.json`
 
 ## 4. Reviewers section
 
