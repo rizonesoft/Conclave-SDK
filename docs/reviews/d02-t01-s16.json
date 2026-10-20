@@ -1,0 +1,29 @@
+{
+  "ref": "D02 T01 \u00a716",
+  "title": "Process tree kill that ends everything or says so",
+  "implementation_sha": "966c418592796cd3af59bfae05456ba517d1c9c9",
+  "date": "2026-10-20",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-extension-core/D02-T01-s16.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/02-extension-core/D02-T01-s16.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/02-extension-core/D02-T01-s16.md",
+      "verdict": "stopped-at-3"
+    }
+  ],
+  "checks": [
+    "cd extensions/vscode && npm run compile && node --test out/test/unit/run.test.js -> Windows 16 pass, 1 skipped; WSL 17 of 17; with a single look the late-descendant case fails",
+    "npm run test:integration -- --grep testReviewer -> 7 passing; without holding survivors or an unconfirmed end, it fails",
+    "npm test -> tests 96, pass 94, skipped 2",
+    "npm run test:integration -> 41 passing"
+  ]
+}

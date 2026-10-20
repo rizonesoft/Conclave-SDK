@@ -30,29 +30,30 @@ Sections: 15 | Checklist items: 132
 
 ### Phase 1: Extension host and kit operations
 
-Sections: 19 | Checklist items: 145
+Sections: 20 | Checklist items: 150
 
-| Status | Reference   | Deliverable                                            | Needs | Items |
-| ------ | ----------- | ------------------------------------------------------ | ----- | ----- |
-| [x]    | D02 T01 §2  | Python resolution on Windows and WSL                   | none  | 8     |
-| [x]    | D02 T01 §3  | Dispatcher client and workspace states                 | none  | 11    |
-| [x]    | D02 T01 §4  | Comment-preserving pin text model                      | none  | 11    |
-| [x]    | D02 T01 §5  | Candidate validation through check-pin                 | none  | 8     |
-| [x]    | D02 T01 §6  | Atomic save, stale check and re-check                  | none  | 8     |
-| [x]    | D02 T01 §7  | SDK source: local checkout or GitHub commit            | none  | 12    |
-| [x]    | D02 T01 §8  | Test reviewer runner                                   | none  | 8     |
-| [x]    | D02 T01 §9  | Forge runner and summary parsing                       | none  | 8     |
-| [ ]    | D02 T01 §10 | Workspace kit state from forge                         | none  | 6     |
-| [ ]    | D02 T01 §11 | Mockup parity fixtures and harness                     | none  | 7     |
-| [x]    | D02 T01 §12 | Extractor limits at tarfile's own parse                | none  | 5     |
-| [x]    | D02 T01 §13 | Candidate folder links on Windows and shared fallbacks | none  | 5     |
-| [x]    | D02 T01 §14 | Extractor checks each member as tarfile reads it       | none  | 6     |
-| [x]    | D02 T01 §15 | Extractor folder tracking linear in path length        | none  | 6     |
-| [ ]    | D02 T01 §16 | Process tree kill that ends everything or says so      | none  | 6     |
-| [ ]    | D05 T01 §1  | Kit install with dry-run preview                       | none  | 9     |
-| [ ]    | D05 T01 §2  | Kit update through forge sync                          | none  | 8     |
-| [ ]    | D05 T01 §3  | Kit health from forge check and doctor                 | none  | 6     |
-| [ ]    | D05 T01 §4  | New repository setup through forge init                | none  | 7     |
+| Status | Reference   | Deliverable                                             | Needs | Items |
+| ------ | ----------- | ------------------------------------------------------- | ----- | ----- |
+| [x]    | D02 T01 §2  | Python resolution on Windows and WSL                    | none  | 8     |
+| [x]    | D02 T01 §3  | Dispatcher client and workspace states                  | none  | 11    |
+| [x]    | D02 T01 §4  | Comment-preserving pin text model                       | none  | 11    |
+| [x]    | D02 T01 §5  | Candidate validation through check-pin                  | none  | 8     |
+| [x]    | D02 T01 §6  | Atomic save, stale check and re-check                   | none  | 8     |
+| [x]    | D02 T01 §7  | SDK source: local checkout or GitHub commit             | none  | 12    |
+| [x]    | D02 T01 §8  | Test reviewer runner                                    | none  | 8     |
+| [x]    | D02 T01 §9  | Forge runner and summary parsing                        | none  | 8     |
+| [ ]    | D02 T01 §10 | Workspace kit state from forge                          | none  | 6     |
+| [ ]    | D02 T01 §11 | Mockup parity fixtures and harness                      | none  | 7     |
+| [x]    | D02 T01 §12 | Extractor limits at tarfile's own parse                 | none  | 5     |
+| [x]    | D02 T01 §13 | Candidate folder links on Windows and shared fallbacks  | none  | 5     |
+| [x]    | D02 T01 §14 | Extractor checks each member as tarfile reads it        | none  | 6     |
+| [x]    | D02 T01 §15 | Extractor folder tracking linear in path length         | none  | 6     |
+| [x]    | D02 T01 §16 | Process tree kill that ends everything or says so       | none  | 6     |
+| [ ]    | D02 T01 §17 | Tree kill: cut-short discovery and combined uncertainty | none  | 5     |
+| [ ]    | D05 T01 §1  | Kit install with dry-run preview                        | none  | 9     |
+| [ ]    | D05 T01 §2  | Kit update through forge sync                           | none  | 8     |
+| [ ]    | D05 T01 §3  | Kit health from forge check and doctor                  | none  | 6     |
+| [ ]    | D05 T01 §4  | New repository setup through forge init                 | none  | 7     |
 
 ### Phase 2: Editor surface and Kits view
 
@@ -95,6 +96,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 27/61 verified sections, 5 ready to run now.
+Progress: 28/62 verified sections, 5 ready to run now.
 
-Checklist: 230/496 items completed (includes Commit items).
+Checklist: 241/501 items completed (includes Commit items).
