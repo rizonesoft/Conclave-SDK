@@ -867,6 +867,7 @@ const SOURCES = { bundled: 'bundled Conclave-SDK@' + SHA, path: 'R:\\GitHub\\Con
 // R41: the extension never installs or updates kits. It shows the request for the operator's agent (the
 // adopt-conclave skill, which previews every write with forge first) and the forge command it stands for, to copy.
 function importReq(folder, kit) { return { ask: 'Ask your agent: adopt-conclave, add the ' + kit + ' kit to ' + folder.path, cmd: 'python forge.py kit ' + folder.path + ' ' + kit }; }
+function adoptReq(folder) { return { ask: 'Ask your agent: adopt-conclave, import the Conclave kits this project needs into ' + folder.path, cmd: 'python forge.py init ' + folder.path }; }
 function updateReq(folder, scripts) { return { ask: 'Ask your agent: adopt-conclave, update the kits in ' + folder.path, cmd: 'python forge.py sync ' + folder.path + (scripts ? ' --include-scripts' : '') }; }
 
 // The Kits view. Every list below mirrors forge.py at 97cca1d: the kit templates, apply_kit's
@@ -1758,7 +1759,7 @@ class Component extends DCLogic {
     let kwel = { open: false, shut: true, lines: [], buttons: [] };
     if (srcFail) kwel = { open: true, shut: false, lines: [{ t: srcFail.title }, { t: srcFail.body + ' Nothing was run.' }], buttons: this.srcActions(srcFail) };
     else if (infos.every(function (x) { return x.info.state === 'none'; })) {
-      const req = importReq(cur, 'base');
+      const req = adoptReq(cur);
       kwel = { open: true, shut: false, lines: [{ t: 'No Conclave kit is installed in ' + cur.name + '.' }, { t: 'Kits are imported by your agent with the adopt-conclave skill, which previews every file with forge before it writes. ' + req.ask }], buttons: [{ label: 'Copy import request', run: function () { self.copyReq(req); } }] };
     }
     if (kwel.shut) infos.forEach(function (x) {
