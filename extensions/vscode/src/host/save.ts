@@ -53,6 +53,8 @@ export class PinSession implements vscode.Disposable {
   private loadedText = "";
   private loadedHash = ABSENT;
   private isStale = false;
+  // Bumped by every load: a save asked before a load ran was edited against the older text.
+  private loads = 0;
   private queue: Promise<unknown> = Promise.resolve();
   private readonly watcher: vscode.FileSystemWatcher;
   private readonly changed = new vscode.EventEmitter<boolean>();
@@ -80,6 +82,7 @@ export class PinSession implements vscode.Disposable {
   load(): Promise<string> {
     return this.serial(async () => {
       const { text, hash } = await this.readPin();
+      this.loads += 1;
       this.loadedText = text;
       this.loadedHash = hash;
       this.setStale(false);
@@ -112,16 +115,21 @@ export class PinSession implements vscode.Disposable {
     });
   }
 
+  // The text was edited against the pin as loaded when Save was pressed: a load that runs before this save does (a
+  // reload asked earlier and still queued) refuses it as stale, since its edits do not include what was reloaded.
   save(text: string): Promise<SaveResult> {
-    return this.serial(() => this.saveNow(text));
+    const loads = this.loads;
+    return this.serial(() => this.saveNow(text, loads));
   }
 
-  private async saveNow(text: string): Promise<SaveResult> {
+  private async saveNow(text: string, loads: number): Promise<SaveResult> {
     const temp = join(this.folder.fsPath, ".conclave", `.reviewers.toml.${randomBytes(6).toString("hex")}.tmp`);
     const written = { created: false };
     let result: SaveResult;
     try {
-      result = await this.write(text, temp, written);
+      result = loads !== this.loads
+        ? refusal("stale", `${PIN} was reloaded after this save was asked, so it was not saved. Your edits are kept; save again to write them over the reloaded text.`)
+        : await this.write(text, temp, written);
     } catch (error) {
       result = { kind: "failed", message: `${PIN} was not saved: ${String(error)}. Your edits are kept.` };
     }

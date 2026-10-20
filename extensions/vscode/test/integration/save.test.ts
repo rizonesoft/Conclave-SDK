@@ -162,6 +162,39 @@ suite("save", () => {
     assert.deepEqual(temps(pin), []);
   });
 
+  test("save: a save asked while a reload is still queued is refused, since its edits predate the reload", async () => {
+    const { folder, pin, shipped } = copy();
+    let release: (() => void) | undefined;
+    const session = open(folder, {
+      afterWrite: async () => {
+        if (!release) {
+          await new Promise<void>((r) => (release = r));
+        }
+      },
+    });
+    await session.load();
+    const first = session.save(`${shipped}# B\n`);
+    while (!release) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    writeFileSync(pin, OTHER);
+    const reloading = session.reload();
+    const second = session.save(`${shipped}# D, edited against the first load\n`);
+    release();
+    assert.equal((await first).kind, "stale");
+    assert.equal(await reloading, OTHER);
+    const result = await second;
+    assert.equal(result.kind, "stale", JSON.stringify(result));
+    assert.match(result.message, /was reloaded after this save was asked/);
+    assert.equal(readFileSync(pin, "utf8"), OTHER);
+    // Consecutive saves with no reload between them still chain: the second is checked against the first's text.
+    assert.equal((await session.save(`${OTHER}# E\n`)).kind, "saved");
+    const [a, b] = await Promise.all([session.save(`${OTHER}# F\n`), session.save(`${OTHER}# G\n`)]);
+    assert.deepEqual([a.kind, b.kind], ["saved", "saved"]);
+    assert.equal(readFileSync(pin, "utf8"), `${OTHER}# G\n`);
+    assert.deepEqual(temps(pin), []);
+  });
+
   test("save: a disk check that read the pin before a save cannot mark the saved pin stale", async () => {
     const { folder, shipped } = copy();
     let hold: (() => void) | undefined;
