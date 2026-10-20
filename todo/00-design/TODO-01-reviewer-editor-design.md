@@ -41,7 +41,7 @@ title: "TODO-01 -- Reviewer Editor Design"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Clickable reviewer editor mockup | -- | [x] |
 | 2 | §2 | Owner approval and open design answers | §1 | [x] |
-| 3 | §3 | Interface SPEC and screenshots | §2, §5 | [ ] |
+| 3 | §3 | Interface SPEC and screenshots | §2, §5 | [x] |
 | 4 | §4 | Reviewer config design spec | §2, §5 | [ ] |
 | 5 | §5 | Mockup and plan follow the family route rule | §2 | [x] |
 | 6 | §6 | Reviewer rows in the pin layout state | §3, §4 | [ ] |
@@ -157,11 +157,14 @@ Surface sections in `D03 T01` cite `design/SPEC.md` for their Fidelity. This sec
 - [x] Write `design/SPEC.md` §11 New repository setup: each wizard step, the defaults, the summary and the open choice (plan R31). Done when: every step's choices are listed. Cheaper substitute: the first step only.
 - [x] Write `design/SPEC.md` §12 Feature sections: the Reviewers, Plan, Review rounds and WordPress site sections, when each shows, their rows, codicons, descriptions and actions (plan R33 to R37). Done when: every row type has its codicon and text. Cheaper substitute: one screenshot of the side bar.
 - [x] Capture one screenshot per SPEC section and theme into `design/screens/` as `<section>-<dark|light>.png`. Done when: every image link in `design/SPEC.md` resolves to a file. Cheaper substitute: dark theme screenshots only.
-- [ ] Commit: `design: interface SPEC from the approved mockup`
+- [x] Commit: `design: interface SPEC from the approved mockup`
 
 **Test checkpoint:** `python -c "import pathlib,re,sys; t=pathlib.Path('design/SPEC.md').read_text(encoding='utf-8'); parts=re.split(r'^## (\d+)\. ',t,flags=re.M); nums=[int(n) for n in parts[1::2]]; bad=[n for n,body in zip(nums,parts[2::2]) for th in ('dark','light') if f'](screens/{n}-{th}.png)' not in body or not pathlib.Path('design/screens',f'{n}-{th}.png').is_file()]; sys.exit(0 if nums==list(range(1,13)) and not bad else f'sections {nums}; missing {bad}')"` exits 0, and exits 1 naming what is wrong when a section is missing or out of order, or a section does not link its own dark and light screenshot that exists.
 
 **Corrected 2026-10-20:** review round 1 found the checkpoint passed with a section or every light screenshot removed (it counted at least 11 headings and checked only the links present); it now requires sections 1 to 12 in order, each linking its own pair.
+
+> **Verified:** 2026-10-20 | §3 | d8ced233229462e10d7d6232c02a98c0aba07d05
+> **Review:** `docs/reviews/d00-t01-s3.json`
 
 ## 4. Reviewer config design spec
 
