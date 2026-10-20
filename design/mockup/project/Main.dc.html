@@ -1303,7 +1303,8 @@ class Component extends DCLogic {
     const o = this.ov();
     if (!o) return;
     const pinShown = this.e().screen !== 'no-pin' && this.props.sidebar !== 'kits-empty' && this.side() === 'explorer';
-    const kitsShown = this.side() === 'conclave' && !this.srcFailNow() && this.props.sidebar !== 'kits-empty';
+    const k = this.ks();
+    const kitsShown = this.side() === 'conclave' && !this.srcFailNow() && !k.bare[k.cur];
     if ((o.kind === 'menu' && !pinShown) || (o.kind === 'kit-menu' && !kitsShown)) this.setState({ ov: null });
   }
   ov() {
@@ -1339,7 +1340,7 @@ class Component extends DCLogic {
     return k;
   }
   ks() { const s = this.state && this.state.k; return s && s.for === this.kitsFor() ? s : this.freshKits(); }
-  kupd(patch) { this.setState({ k: Object.assign({}, this.ks(), patch) }); }
+  kupd(patch) { this.setState({ k: Object.assign({}, this.ks(), patch) }); this.dropOrphanOverlay(); }
   hasMap(k, folderId) {
     const m = {};
     (k.bare[folderId] ? [] : startFiles(folderId, this.base().env.screen)).concat(k.added[folderId] || []).forEach(function (f) { m[f] = true; });
@@ -1836,7 +1837,7 @@ class Component extends DCLogic {
       sourceKey: this.srcKey(),
       setSource: function (ev) { self.setState({ src: ev.target.value }); self.dropOrphanOverlay(); },
       wsKey: this.wsKey(), multiRoot: multi,
-      setWorkspace: function (ev) { self.setState({ ws: ev.target.value, k: null }); },
+      setWorkspace: function (ev) { self.setState({ ws: ev.target.value, k: null }); self.dropOrphanOverlay(); },
       wsTitle: multi ? 'orchard (Workspace)' : 'orchard-web', wsSection: multi ? 'ORCHARD (WORKSPACE)' : 'ORCHARD-WEB',
       curFolderName: cur.name, curFolderPath: cur.path,
       switchFolder: function () { const c = self.ks(); self.kupd({ cur: c.cur === 'web' ? 'api' : 'web', sel: null }); },

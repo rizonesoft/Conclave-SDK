@@ -100,13 +100,38 @@ for (const workspace of dims.workspace) for (const overlay of dims.overlay) for 
         checkMenus(back, JSON.stringify(p) + ' then scenario ' + s + ' and back');
       } catch (err) { handlerErr++; }
     }
-    // The side bar switched away from the menu's pane, and the SDK source switched.
-    for (const step of [['showExplorer', null], ['showConclave', null], ['setSource', { target: { value: 'path' } }]]) {
+    // The side bar switched away from the menu's pane, the SDK source, the workspace and the folder switched, each
+    // alone and then as a round trip on one component: a menu closed on the way never comes back unasked.
+    const other = workspace === 'multi' ? 'single' : 'multi';
+    const steps = [['showExplorer', null], ['showConclave', null], ['setSource', { target: { value: 'path' } }],
+      ['setWorkspace', { target: { value: other } }], ['switchFolder', null]];
+    for (const step of steps) {
       const c = make(p, src);
       const v = c.renderVals();
       if (typeof v[step[0]] !== 'function') continue;
       try { v[step[0]](step[1]); checkMenus(c.renderVals(), JSON.stringify(p) + ' then ' + step[0]); }
       catch (err) { handlerErr++; }
+    }
+    const trips = [[['setWorkspace', { target: { value: other } }], ['setWorkspace', { target: { value: workspace } }]],
+      [['setWorkspace', { target: { value: 'multi' } }], ['switchFolder', null], ['setWorkspace', { target: { value: 'single' } }], ['setWorkspace', { target: { value: 'multi' } }], ['switchFolder', null]],
+      [['showExplorer', null], ['showConclave', null]], [['showConclave', null], ['showExplorer', null]],
+      [['setSource', { target: { value: 'path' } }], ['setSource', { target: { value: 'bundled' } }]]];
+    for (const trip of trips) {
+      const c = make(p, src);
+      let closed = false;
+      let label = '';
+      try {
+        for (const step of trip) {
+          const v = c.renderVals();
+          if (typeof v[step[0]] !== 'function') break;
+          v[step[0]](step[1]);
+          const after = c.renderVals();
+          checkMenus(after, JSON.stringify(p) + ' then ' + trip.map(function (s) { return s[0]; }).join(', '));
+          if (!(after.cm && after.cm.open)) closed = true;
+          else if (closed) { label = after.cm.label; break; }
+        }
+      } catch (err) { handlerErr++; }
+      if (label) orphans.push(JSON.stringify(p) + ' ' + trip.map(function (s) { return s[0]; }).join(', ') + ': ' + label + ' came back');
     }
   }
   // Handlers: first theme and source, every scenario, sidebar and workspace with no overlay, and every overlay on ready.
