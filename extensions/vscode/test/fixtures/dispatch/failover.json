@@ -1,0 +1,12 @@
+{
+  "writer": "codex",
+  "reviewer": null,
+  "failover": [
+    {
+      "reviewer": "sonnet",
+      "reason": "exited 3"
+    }
+  ],
+  "review": null,
+  "run": "2026-10-20T14:55:23Z"
+}

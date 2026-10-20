@@ -299,6 +299,8 @@ Every `forge.py` run goes through §9 from one SDK source (plan R24). This secti
 
 ## 8. Test reviewer runner
 
+> **Started:** 2026-10-20T14:45:00Z
+
 The owner asked for a "Test reviewer" action (plan R11). This section builds a temporary pin with only the chosen reviewer on a route, runs `scripts/review-dispatch.py --writer <w> --prompt <planted-bug> --pin <temp>` with the resolved Python, and returns the outcome: the review text, the failover reason, or the refusal. The planted-bug prompt ships as `extensions/vscode/resources/planted-bug-prompt.md`. It runs a real model, so it asks first, and it can be cancelled.
 
 **Phase:** 1
@@ -310,13 +312,17 @@ The owner asked for a "Test reviewer" action (plan R11). This section builds a t
 1. Write `extensions/vscode/src/core/testPin.ts` building the single-reviewer pin text from the candidate. Done when: `--check-pin` accepts its output for each shipped reviewer.
 2. Write `extensions/vscode/src/host/testReviewer.ts` running the dispatch with confirmation, cancellation and timeout. Done when: an integration test with a fake CLI on PATH returns its review text.
 
-- [ ] Write `extensions/vscode/resources/planted-bug-prompt.md`: a short review prompt over an inline code snippet with one off-by-one bug, asking for findings only. Done when: running it through `sonnet` on this host returns a review that names the bug. Cheaper substitute: a prompt with no planted bug, which proves only that the CLI starts.
-- [ ] Implement `singleReviewerPin(pinText, name)` in `extensions/vscode/src/core/testPin.ts` keeping the chosen reviewer table and setting one route to `[name]`, choosing a writer the reviewer cannot be (claude for agy and codex reviewers, codex for claude reviewers). Done when: unit tests show `--check-pin` accepts it for astra, gemini and sonnet. Cheaper substitute: running the full route, which tests failover instead of the reviewer.
-- [ ] Confirm before running in `extensions/vscode/src/host/testReviewer.ts` with a modal that names the reviewer, model and CLI and says a real model call is made. Done when: cancelling starts no process. Cheaper substitute: running on click.
-- [ ] Run the dispatch with a timeout from the spec and a cancellation token that kills the process tree. Done when: cancelling a fake slow CLI leaves no child process. Cheaper substitute: no cancel.
-- [ ] Parse the dispatcher's JSON summary into `review`, `failover` or `refused` outcomes, keeping the review text verbatim. Done when: unit tests over saved summaries cover all three. Cheaper substitute: showing raw stdout.
-- [ ] Delete the temp pin in a `finally` and log the run to the output channel. Done when: no temp pin remains after success, failure or cancel. Cheaper substitute: leaving temp files.
-- [ ] Write `extensions/vscode/test/integration/testReviewer.test.ts` with fake `codex`, `agy` and `claude` scripts on PATH returning a review, failing and hanging. Done when: the three outcomes are asserted and the hang case is cancelled. Cheaper substitute: calling real models in tests.
+- [x] Write `extensions/vscode/resources/planted-bug-prompt.md`: a short review prompt over an inline code snippet with one off-by-one bug, asking for findings only. Done when: running it through `sonnet` on this host returns a review that names the bug. Cheaper substitute: a prompt with no planted bug, which proves only that the CLI starts.
+  Run 2026-10-20 through the kit's dispatcher with a one-reviewer pin (`sonnet`, writer `codex`): Sonnet 5.5 named the off-by-one in the range bound, `window_sums([1, 2, 3, 4], 2)` returning `[3, 5]`, and the corrected `range(len(values) - size + 1)`.
+- [x] Implement `singleReviewerPin(pinText, name)` in `extensions/vscode/src/core/testPin.ts` keeping the chosen reviewer table and setting one route to `[name]`, choosing a writer the reviewer cannot be (claude for agy and codex reviewers, codex for claude reviewers). Done when: unit tests show `--check-pin` accepts it for astra, gemini and sonnet. Cheaper substitute: running the full route, which tests failover instead of the reviewer.
+- [x] Confirm before running in `extensions/vscode/src/host/testReviewer.ts` with a modal that names the reviewer, model and CLI and says a real model call is made. Done when: cancelling starts no process. Cheaper substitute: running on click.
+  The default confirmation is a modal (`Run test`); the API takes a `confirm` function, so the in-card confirmation of `design/SPEC.md` section 5 replaces it when the editor is built.
+- [x] Run the dispatch with a timeout from the spec and a cancellation token that kills the process tree. Done when: cancelling a fake slow CLI leaves no child process. Cheaper substitute: no cancel.
+  **Corrected 2026-10-20:** the spec names no timeout for a test run, so the default is the dispatcher's `--timeout 600` for the reviewer (real reviews here take two to six minutes) and the process is killed 60 s after that. Cancel and timeout kill the whole tree through `run(..., { tree: true, signal })` in `extensions/vscode/src/host/run.ts`: `taskkill /T /F` on Windows, and on POSIX the descendants found by parent id from `ps` (stopped, then killed), since the dispatcher starts each reviewer in its own session. `run` also returns stderr now, where the dispatcher writes its refusals.
+- [x] Parse the dispatcher's JSON summary into `review`, `failover` or `refused` outcomes, keeping the review text verbatim. Done when: unit tests over saved summaries cover all three. Cheaper substitute: showing raw stdout.
+  `parseTestRun` in `extensions/vscode/src/core/testOutcome.ts`, over the saved answers in `extensions/vscode/test/fixtures/dispatch/` (the failover one captured from the kit's dispatcher); a run that never finished or printed no summary is never a review.
+- [x] Delete the temp pin in a `finally` and log the run to the output channel. Done when: no temp pin remains after success, failure or cancel. Cheaper substitute: leaving temp files.
+- [x] Write `extensions/vscode/test/integration/testReviewer.test.ts` with fake `codex`, `agy` and `claude` scripts on PATH returning a review, failing and hanging. Done when: the three outcomes are asserted and the hang case is cancelled. Cheaper substitute: calling real models in tests.
 - [ ] Commit: `extension: test one reviewer on a planted bug`
 
 **Test checkpoint:** `cd extensions/vscode && npm test -- --test-name-pattern=testPin && npm run test:integration -- --grep testReviewer` passes, and fails when `singleReviewerPin` routes the reviewer to its own writer.
@@ -475,6 +481,8 @@ Review round 3 of `§12` (`docs/reviews/02-extension-core/D02-T01-s12.md`, the l
 > **Review:** `docs/reviews/d02-t01-s14.json`
 
 ## 15. Extractor folder tracking linear in path length
+
+> **Started:** 2026-10-20T14:40:00Z
 
 Review round 3 of `§14` (`docs/reviews/02-extension-core/D02-T01-s14.md`, the last round its loop allowed) found that the file-versus-folder check `§14` added keeps every ancestor of every name as its own string, so memory grows with the square of a path's depth: 16 names of about 2000 one-letter folders each, a 92,160-byte archive, peaked at 67 MB, and distinct deep prefixes reach gigabytes within every other limit. Folders are tracked instead as a trie of components with integer node ids, each name walked once, and a name may have at most 64 components (the deepest path in the local repositories under `R:\GitHub` has 14).
 

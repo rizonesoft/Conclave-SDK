@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import * as vscode from "vscode";
 import type { WorkspaceState } from "./core/checkPin";
 import type { SdkRefusal, SdkSource } from "./core/sdkSource";
@@ -7,6 +8,8 @@ import { log, output, recentLog } from "./host/output";
 import { PythonService, type PythonResolution, type PythonResolved } from "./host/python";
 import { PinSession, type SaveHooks } from "./host/save";
 import { SdkSourceService } from "./host/sdkSource";
+import { ReviewerTester, type TestOptions } from "./host/testReviewer";
+import type { TestOutcome } from "./core/testOutcome";
 
 // The reviewer editor panel. This is the scaffold's placeholder (D02 T01 §1); D03 T01 builds the editor in it.
 let panel: vscode.WebviewPanel | undefined;
@@ -24,6 +27,8 @@ export interface ConclaveApi {
   checkCandidate: (folder: vscode.Uri, text: string) => Promise<WorkspaceState>;
   // A folder's pin as loaded, with atomic save, stale check, re-check, discard and reload; tests pass their hooks.
   openPin: (folder: vscode.Uri, hooks?: SaveHooks) => PinSession;
+  // Test reviewer (plan R11): one dispatch of the planted-bug prompt through the named reviewer alone.
+  testReviewer: (folder: vscode.Uri, name: string, options?: TestOptions) => Promise<TestOutcome>;
 }
 
 export function activate(context: vscode.ExtensionContext): ConclaveApi {
@@ -36,6 +41,7 @@ export function activate(context: vscode.ExtensionContext): ConclaveApi {
   context.subscriptions.push(python);
   const dispatcher = new DispatcherClient(python);
   context.subscriptions.push(dispatcher);
+  const tester = new ReviewerTester(python, join(context.extensionPath, "resources", "planted-bug-prompt.md"));
   const sdk = new SdkSourceService(python, {
     extensionPath: context.extensionPath,
     storage: context.globalStorageUri.fsPath,
@@ -67,6 +73,7 @@ export function activate(context: vscode.ExtensionContext): ConclaveApi {
       context.subscriptions.push(session);
       return session;
     },
+    testReviewer: (folder, name, options) => tester.test(folder, name, options),
   };
 }
 

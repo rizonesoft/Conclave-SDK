@@ -11,6 +11,8 @@ export interface RunResult {
   // undefined when the process could not start (not found, not executable, timed out).
   code: number | undefined;
   stdout: string;
+  // What the process wrote to stderr: the dispatcher's refusals are there.
+  stderr?: string;
   error?: string;
 }
 
