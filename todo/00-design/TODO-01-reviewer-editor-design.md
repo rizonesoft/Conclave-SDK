@@ -320,6 +320,8 @@ The SPEC and the design spec describe what the extension builds, and every surfa
 
 Review round 3 of `§7` (`docs/reviews/00-design/D00-T01-s7.md`, the last round its loop allowed) found that the Explorer context menu on `reviewers.toml` (the `EntryMenu` artboard) stays open with Open in Conclave Reviewers, Rename and Delete after the scenario control switches to No pin yet, though the file and its tab are gone. An overlay whose target no longer exists closes, so the mockup never draws an action on a file that is not there; the kit context menu follows the same rule when its kit row leaves.
 
+> **Started:** 2026-10-20T22:30:00Z
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
@@ -329,9 +331,9 @@ Review round 3 of `§7` (`docs/reviews/00-design/D00-T01-s7.md`, the last round 
 1. Close the overlays in `design/mockup/project/Main.dc.html`. Done when: switching `EntryMenu` to No pin yet closes the menu, and so does any scenario that removes the kit row a kit menu is open on.
 2. Check and republish. Done when: every option combination renders and the link shows the change.
 
-- [ ] Commit the mockup check (every option combination through `renderVals()`, every binding resolved, every handler called) as `design/spikes/mockup-check.js`, with an assertion that no context menu is open on a missing target. Done when: `node design/spikes/mockup-check.js design/mockup/project/Main.dc.html --handlers` runs from the repository and fails on `e9e1cce`'s mockup. Cheaper substitute: the check kept in a scratch folder.
-- [ ] Close the Explorer context menu and the kit context menu in `design/mockup/project/Main.dc.html` when the scenario or side bar change removes their target (the pin file, the kit row). Done when: the in-memory check of every combination and handler finds no open menu whose target is missing. Cheaper substitute: closing every overlay on any scenario change.
-- [ ] Republish `design/mockup/project/` to the link in `design/README.md` and name the commit and canvas version as the current mockup source in `design/decisions.md`. Done when: the link shows the change. Cheaper substitute: an unpublished mockup change.
+- [x] Commit the mockup check (every option combination through `renderVals()`, every binding resolved, every handler called) as `design/spikes/mockup-check.js`, with an assertion that no context menu is open on a missing target. Done when: `node design/spikes/mockup-check.js design/mockup/project/Main.dc.html --handlers` runs from the repository and fails on `e9e1cce`'s mockup. Cheaper substitute: the check kept in a scratch folder.
+- [x] Close the Explorer context menu and the kit context menu in `design/mockup/project/Main.dc.html` when the scenario or side bar change removes their target (the pin file, the kit row). Done when: the in-memory check of every combination and handler finds no open menu whose target is missing. Cheaper substitute: closing every overlay on any scenario change.
+- [x] Republish `design/mockup/project/` to the link in `design/README.md` and name the commit and canvas version as the current mockup source in `design/decisions.md`. Done when: the link shows the change. Cheaper substitute: an unpublished mockup change.
 - [ ] Commit: `design: mockup overlays closed when their target leaves`
 
 **Test checkpoint:** `node design/spikes/mockup-check.js design/mockup/project/Main.dc.html --handlers` reports no menu open on a missing target, and does on `e9e1cce`'s mockup.
