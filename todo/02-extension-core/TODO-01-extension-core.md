@@ -53,7 +53,7 @@ title: "TODO-01 -- Extension Core"
 | 3 | §3 | Dispatcher client and workspace states | §2, D01 T01 §3 | [x] |
 | 4 | §4 | Comment-preserving pin text model | §1, D01 T01 §3 | [x] |
 | 5 | §5 | Candidate validation through check-pin | §3, §4 | [x] |
-| 6 | §6 | Atomic save, stale check and re-check | §5 | [ ] |
+| 6 | §6 | Atomic save, stale check and re-check | §5 | [x] |
 | 7 | §7 | SDK source: local checkout or GitHub commit | §1 | [x] |
 | 8 | §8 | Test reviewer runner | §3, §4 | [ ] |
 | 9 | §9 | Forge runner and summary parsing | §2, §7 | [ ] |
@@ -252,9 +252,12 @@ Saves must never leave a half-written pin and must never overwrite a change made
 - [x] Implement `discard()` returning the editor to the loaded text and `reload()` re-reading disk after `stale` or an external change seen by a `FileSystemWatcher` on `.conclave/reviewers.toml`. Done when: integration tests show both return the model to the disk text. Cheaper substitute: requiring the panel to be closed and reopened.
 - [x] Write `extensions/vscode/test/integration/save.test.ts` covering save, stale, read-only, re-check, discard and reload on a copy of `extensions/vscode/test/fixtures/workspaces/shipped/`. Done when: all pass and the stale test fails when the hash check is removed. Cheaper substitute: unit tests with a mocked file system only.
   Built as `PinSession` in `extensions/vscode/src/host/save.ts`, opened through the API's `openPin(folder, hooks)` (the hooks are the test points between write and rename, the rename, and the retry wait); D03 builds the editor on it. A save returns `saved` (with the re-check state and design spec section 4's toast text), `stale`, `read-only` or `failed`.
-- [ ] Commit: `extension: atomic save with stale check and re-check`
+- [x] Commit: `extension: atomic save with stale check and re-check`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep save` passes, and the stale case fails when the hash comparison in `extensions/vscode/src/host/save.ts` is removed.
+
+> **Verified:** 2026-10-20 | §6 | 90c69b62a5008e405b743cd943b6d44701defeea
+> **Review:** `docs/reviews/d02-t01-s6.json`
 
 ## 7. SDK source: local checkout or GitHub commit
 

@@ -38,7 +38,7 @@ Sections: 17 | Checklist items: 133
 | [x]    | D02 T01 §3  | Dispatcher client and workspace states                 | none  | 11    |
 | [x]    | D02 T01 §4  | Comment-preserving pin text model                      | none  | 11    |
 | [x]    | D02 T01 §5  | Candidate validation through check-pin                 | none  | 8     |
-| [ ]    | D02 T01 §6  | Atomic save, stale check and re-check                  | none  | 8     |
+| [x]    | D02 T01 §6  | Atomic save, stale check and re-check                  | none  | 8     |
 | [x]    | D02 T01 §7  | SDK source: local checkout or GitHub commit            | none  | 12    |
 | [ ]    | D02 T01 §8  | Test reviewer runner                                   | none  | 8     |
 | [ ]    | D02 T01 §9  | Forge runner and summary parsing                       | none  | 8     |
@@ -93,6 +93,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 22/59 verified sections, 5 ready to run now.
+Progress: 23/59 verified sections, 4 ready to run now.
 
-Checklist: 201/484 items completed (includes Commit items).
+Checklist: 207/484 items completed (includes Commit items).
