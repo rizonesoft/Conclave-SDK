@@ -23,8 +23,10 @@ spec.loader.exec_module(guard)
 # The fake graph answers `query ready` the way the test asks: the SDK's JSON list, or Isotone's text summary.
 FAKE_GRAPH = """import json, os, sys
 mode, n = open(os.path.join(os.path.dirname(__file__), 'ready.txt')).read().split()
-rows = [{"ref": "D00 T01 \\u00a73", "title": "Interface SPEC and screenshots"}] * int(n)
-if mode == "json":
+rows = [{"ref": "D00 T01 \\u00a73", "title": "Interface SPEC and screenshots", "phase": 0}] * int(n)
+if mode == "mixed":  # this phase's rows, and one ready row of a later phase
+    print(json.dumps(rows + [{"ref": "D05 T01 \\u00a71", "title": "Kit manager", "phase": 5}]))
+elif mode == "json":
     print(json.dumps(rows, indent=2))
 elif mode == "crash":
     sys.exit(1)
@@ -182,6 +184,30 @@ class StopHook(Workspace):
             self.assertEqual(self.hook()["decision"], "block", push)
         self.assertIsNone(self.hook(), "the hook's own state file reset the breaker")
 
+    def test_tracked_copies_of_the_guards_files_are_not_progress_either(self):
+        self.write(".gitignore", "scripts/ready.txt\n")
+        self.acquire()
+        self.hook()
+        subprocess.run(["git", "add", "-A"], cwd=self.root, capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-qm", "track build"], cwd=self.root, capture_output=True, check=True)
+        for push in (1, 2, 3):
+            self.assertEqual(self.hook()["decision"], "block", push)
+        self.assertIsNone(self.hook(), "a tracked state file reset the breaker")
+
+    def test_a_phase_run_reads_and_pushes_only_its_phase(self):
+        self.acquire(scope="phase")
+        self.ready(1, "mixed")
+        decision = self.hook()
+        self.assertIn("of Phase 0 only", decision["reason"])
+        self.assertNotIn("then the next phase", decision["reason"])
+        self.assertIn("Next ready row: D00 T01 §3", decision["reason"])
+        self.ready(0, "mixed")
+        self.assertIsNone(self.hook(), "another phase's ready row held a phase-only run open")
+        self.acquire(scope="plan")
+        decision = self.hook()
+        self.assertIn("Next ready row: D05 T01 §1", decision["reason"])
+        self.assertIn("then the next phase", decision["reason"])
+
     def test_an_unacknowledged_hook_error_survives_a_later_stop(self):
         self.acquire()
         guard._record_hook_error(self.root, guard.read_guard(self.root), "OSError: transient")
@@ -253,6 +279,24 @@ class Lifecycle(Workspace):
         self.assertTrue(guard.whoami(self.root, SESSION).endswith("scope=phase"))
         with self.assertRaises(guard.GuardError):
             self.acquire(scope="everything")
+        self.acquire(session=OTHER, cron_id="job-3", handover="resumed in a new session")
+        self.assertEqual(guard.read_guard(self.root)["scope"], "phase", "a handover widened a phase run to the plan")
+
+    def test_a_guard_write_that_fails_part_way_leaves_nothing_behind(self):
+        real_dump = guard.json.dump
+
+        def torn(doc, fh, **kw):
+            fh.write('{"runner": "cla')
+            raise OSError(28, "No space left on device")
+
+        guard.json.dump = torn
+        try:
+            with self.assertRaises(OSError):
+                self.acquire()
+        finally:
+            guard.json.dump = real_dump
+        self.assertEqual(sorted(os.listdir(os.path.join(self.root, "build"))), ["claude-campaign-guard.lock"])
+        self.assertIn("guard created", self.acquire())
 
     def test_the_lock_is_exclusive_and_a_dead_holder_releases_it(self):
         with guard._Lock(self.root):

@@ -123,9 +123,13 @@ class _Lock:
 
 def _write_json(path: str, doc) -> None:
     tmp = f"{path}.{os.getpid()}.tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(doc, fh, indent=2)
-    os.replace(tmp, path)
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh, indent=2)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 def read_guard(root: str) -> dict | None:
@@ -191,7 +195,8 @@ def _acquire_locked(root: str, session: str, phase: int, run_file: str, cron_id:
     same_run = previous.get("run_file") == run_file and previous.get("session_id") == session
     doc = {"runner": "claude", "workspace": root.replace("\\", "/"), "phase": phase,
            "run_file": run_file, "session_id": session, "cron_id": cron_id,
-           "scope": scope or (previous.get("scope") if previous.get("session_id") == session else None) or "plan",
+           "scope": scope or (previous.get("scope") if previous.get("session_id") == session or
+                              (handover and previous.get("run_file") == run_file) else None) or "plan",
            # The generation the heartbeat prompt carries, and when its job was created (the 7-day expiry counts
            # from it).
            "generation": generation or (previous.get("generation") if same_run and
@@ -224,7 +229,7 @@ def _acquire_locked(root: str, session: str, phase: int, run_file: str, cron_id:
             f"job {cron_id}, generation {doc['generation']}, run {doc['run_id']})")
 
 
-def ready_rows(root: str, timeout: float = 300.0) -> tuple[int | None, str]:
+def ready_rows(root: str, timeout: float = 300.0, phase: int | None = None) -> tuple[int | None, str]:
     """How many rows `query ready` offers, and the first one, or (None, "") when the query cannot be read.
 
     The SDK's todo-graph prints a JSON list of ready rows; a graph that prints a `N runnable now` summary (Isotone's)
@@ -244,6 +249,8 @@ def ready_rows(root: str, timeout: float = 300.0) -> tuple[int | None, str]:
     except ValueError:
         rows = None
     if isinstance(rows, list):
+        if phase is not None:  # a phase-scoped run: only that phase's rows (the JSON rows name their phase)
+            rows = [r for r in rows if isinstance(r, dict) and r.get("phase") == phase]
         first = rows[0] if rows else {}
         label = f"{first.get('ref', '')}  {first.get('title', '')}".strip() if isinstance(first, dict) else ""
         return len(rows), label
@@ -570,7 +577,8 @@ def fingerprint(root: str, run_rel: str, run_text: str, deadline: float | None =
     run_path = run_rel.replace("\\", "/")
     digest = hashlib.sha256()
     digest.update(_git(root, deadline, "rev-parse", "HEAD").strip() + b"\n")
-    digest.update(_git(root, deadline, "diff", "HEAD", "--", ".", f":(exclude){run_path}") + b"\n")
+    digest.update(_git(root, deadline, "diff", "HEAD", "--", ".", f":(exclude){run_path}",
+                       ":(exclude)build/claude-campaign-*") + b"\n")
     listed = _git(root, deadline, "ls-files", "-z", "--others", "--exclude-standard").decode("utf-8", "replace")
     for index, path in enumerate((p for p in listed.split("\0") if p and p != run_path and not OWN_FILES.match(p)),
                                  1):
@@ -616,7 +624,9 @@ def stop_decision(root: str, session: str) -> dict | None:
         if re.match(r"(## Closeout\b|PARKED\b)", line) and (not run_id or marker_run(line) == run_id):
             return None
     deadline = time.monotonic() + _env_int("CAMPAIGN_HOOK_BUDGET_SECONDS", int(HOOK_BUDGET_SECONDS))
-    ready, next_row = ready_rows(root, timeout=_remaining(deadline) / 2)
+    phase_only = guard.get("scope") == "phase"
+    ready, next_row = ready_rows(root, timeout=_remaining(deadline) / 2,
+                                 phase=guard.get("phase") if phase_only else None)
     if ready == 0:
         return None  # nothing runnable here: blocking cannot produce work that does not exist
     print_ = fingerprint(root, run_rel, run_text, deadline)
@@ -647,8 +657,10 @@ def stop_decision(root: str, session: str) -> dict | None:
         state["blocks"] += 1
         _write_json(state_path, state)
     tag = f" run={run_id}" if run_id else ""
+    onward = (f" of Phase {guard.get('phase')} only (this run covers that phase)" if phase_only
+              else ", then the next phase")
     reason = (f"Campaign run is still open ({run_rel}). Do not end the turn. Finish the open section's checklist, "
-              f"run its review and stamp it, then the next section, then the next phase. A commit, a green suite, a "
+              f"run its review and stamp it, then the next section{onward}. A commit, a green suite, a "
               f"red CI (repair it) or a status report is not a stop.")
     if next_row:
         reason += f" Next ready row: {next_row}."

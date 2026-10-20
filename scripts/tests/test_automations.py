@@ -283,6 +283,14 @@ class Units(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(text.splitlines()[0], marker)
 
+    def test_a_specifier_in_a_description_stays_literal_in_both_units(self):
+        task = {**fixture_task("demo-pct"), "description": "Disk at 90% on %n"}
+        units = run.systemd_units({"folder": "\\Demo\\", "prefix": "demo-", "tasks": {"demo-pct": task}},
+                                  "/home/op/repo", "/usr/bin/python3")
+        for name in ("demo-pct.service", "demo-pct.timer"):
+            with self.subTest(name=name):
+                self.assertIn("Description=Disk at 90%% on %%n\n", units[name])
+
     def test_the_service_runs_this_runner_with_the_name_and_escapes_specifiers(self):
         service = self.units()["demo-weekly.service"]
         self.assertIn("Type=oneshot", service)

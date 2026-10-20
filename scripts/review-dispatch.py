@@ -94,6 +94,8 @@ def load_pin(path=PIN):
         if same:
             raise Refused(f"route {writer!r} names {', '.join(same)}, of the writer's own family; "
                           f"a review comes from a different family")
+        if len({FAMILY[reviewers[r]["cli"]] for r in chain}) != len(chain):
+            raise Refused(f"route {writer!r}: the fallback must be of a third family, not the reviewer's own")
     return pin
 
 

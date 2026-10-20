@@ -326,6 +326,9 @@ class Dispatch(unittest.TestCase):
                     good.replace('claude = ["astra", "gemini"]', 'claude = ["astra", "sonnet"]'),
                     good.replace('gemini = ["astra", "sonnet"]', 'gemini = ["gemini", "sonnet"]'),
                     good.replace('claude = ["astra", "gemini"]', 'claude = ["astra", "gemini", "mini"]')
+                    + '\n[reviewers.mini]\ncli = "codex"\nmodel = "gpt-6-mini"\neffort = "low"\n',
+                    # A fallback of the reviewer's own family is not the third family the route promises.
+                    good.replace('claude = ["astra", "gemini"]', 'claude = ["astra", "mini"]')
                     + '\n[reviewers.mini]\ncli = "codex"\nmodel = "gpt-6-mini"\neffort = "low"\n'):
             with self.subTest(bad=bad[-60:]):
                 self.assertNotEqual(bad, good, "the replacement must match the fixture, or the case tests nothing")
