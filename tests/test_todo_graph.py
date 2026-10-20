@@ -1,4 +1,5 @@
 """Tests for the todo kit's scripts/lib/todo_graph.py and scripts/todo-graph.py: the graph refuses malformed work and stamps only real evidence."""
+import importlib.util
 import json
 import os
 import pathlib
@@ -6,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -391,6 +393,23 @@ class QueryPlan(Tree):
             {"ref": "D01 T01 §1", "path": "todo/01-later/TODO-01-a.md", "title": "D", "phase": 1,
              "status": "deferred", "depends": []},
         ])
+
+    def test_plan_status_edge_cases(self):
+        # A verified section reads verified even in a file that is no longer active; a section waiting on another
+        # file's unfinished section, or on an unfinished prerequisite in its own file, reads blocked.
+        spec = importlib.util.spec_from_file_location("todo_graph_cli", REPO / "kits/todo/templates/scripts/todo-graph.py")
+        cli = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cli)
+
+        def row(ref, done=False, status="active", needs=(), depends=()):
+            return types.SimpleNamespace(ref=ref, done=done, status=status, needs=list(needs), depends=list(depends))
+
+        rows = {r.ref: r for r in (row("D01 T01 §1", done=True, status="done"), row("D02 T01 §1", status="draft"),
+                                   row("D00 T01 §1", depends=["D02 T01 §1"]), row("D00 T01 §2"),
+                                   row("D00 T01 §3", depends=["D00 T01 §2"]))}
+        self.assertEqual({ref: cli.plan_status(r, rows) for ref, r in rows.items()},
+                         {"D01 T01 §1": "verified", "D02 T01 §1": "deferred", "D00 T01 §1": "blocked",
+                          "D00 T01 §2": "ready", "D00 T01 §3": "blocked"})
 
     def test_query_plan_refuses_an_unreadable_plan_json(self):
         (self.root / "todo/plan.json").write_text("{", encoding="utf-8")
