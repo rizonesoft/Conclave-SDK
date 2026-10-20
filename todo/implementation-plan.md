@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Design, pin contract and scaffold
 
-Sections: 13 | Checklist items: 124
+Sections: 14 | Checklist items: 127
 
 | Status | Reference  | Deliverable                                  | Needs | Items |
 | ------ | ---------- | -------------------------------------------- | ----- | ----- |
@@ -21,6 +21,7 @@ Sections: 13 | Checklist items: 124
 | [x]    | D01 T01 §1 | Strict schema_version type in load_pin       | none  | 7     |
 | [x]    | D01 T01 §2 | Dispatcher check-pin flag                    | none  | 12    |
 | [ ]    | D01 T01 §3 | Check-pin contract fixtures and test         | none  | 7     |
+| [ ]    | D01 T01 §4 | Check-pin CLI presence for each CLI          | none  | 3     |
 | [ ]    | D02 T01 §1 | Extension scaffold, build and test harness   | none  | 9     |
 | [x]    | D06 T01 §2 | Plan query in todo-graph                     | none  | 5     |
 | [x]    | D06 T01 §3 | Round listing in the dispatcher              | none  | 5     |
@@ -88,6 +89,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 10/54 verified sections, 3 ready to run now.
+Progress: 10/55 verified sections, 3 ready to run now.
 
-Checklist: 109/457 items completed (includes Commit items).
+Checklist: 109/460 items completed (includes Commit items).
