@@ -1640,26 +1640,27 @@ class Component extends DCLogic {
                       : row({ iOk: true, label: 'reviewers.toml', desc: e.stale ? 'valid, changed on disk' : 'valid (--check-pin)' }));
       } else if (s === 'refused') rows.push(row({ iBad: true, label: 'reviewers.toml', desc: 'refused: ' + env.refused.msg, title: env.refused.msg }));
       else if (s === 'unsupported-schema') rows.push(row({ iWarn: true, label: 'reviewers.toml', desc: 'newer schema than this extension reads' }));
-      else if (s === 'pin-layout') rows.push(row({ iWarn: true, label: 'reviewers.toml', desc: 'valid; a layout the editor does not edit' }));
+      else if (s === 'pin-layout') { rows.push(row({ iWarn: true, label: 'reviewers.toml', desc: 'valid; a layout the editor does not edit' })); ok = true; }
       else if (s === 'no-pin') rows.push(row({ iInfo: true, label: 'No reviewer pin', desc: '.conclave/reviewers.toml is missing', hasAct: true, actLabel: 'Install reviewer kit', act: install, actInstall: true }));
       else if (s === 'no-dispatcher') rows.push(row({ iBad: true, label: 'No dispatcher', desc: 'scripts/review-dispatch.py is missing', hasAct: true, actLabel: 'Install reviewer kit', act: install, actInstall: true }));
       else if (s === 'old-dispatcher') rows.push(row({ iWarn: true, label: 'Dispatcher too old', desc: 'no --check-pin; update from Conclave-SDK' }));
       else if (s === 'no-python') rows.push(row({ iBad: true, label: 'No Python 3.11 or later', desc: 'nothing runs until one is found' }));
       else if (s === 'untrusted') rows.push(row({ iWarn: true, label: 'Restricted Mode', desc: 'trust the workspace to run the dispatcher' }));
       let missing = 0;
-      // A refused pin refuses every dispatch, so no reviewer is listed as if it would run.
+      // A refused pin refuses every dispatch, so no reviewer is listed as if it would run. A valid pin in a layout the
+      // editor does not edit still runs reviews, so its reviewers are listed from --check-pin, opening the file.
       if (ok) {
         const m = e.loadedModel;
         m.reviewers.forEach(function (r) {
           const found = env.clis[r.cli];
           if (!found) missing += 1;
-          rows.push(row({ iOk: found, iWarn: !found, label: r.name, desc: r.model + ' via ' + r.cli + (found ? '' : ': not on PATH, skipped'), title: found ? r.model + ' via ' + CLI_PATH[r.cli] : r.cli + ' is not on PATH; this reviewer is skipped', hasAct: true, actLabel: 'Open ' + r.name + ' in Reviewer Settings', act: flash('Opens the Reviewers editor at the ' + r.name + ' card.'), actGo: true }));
+          rows.push(row({ iOk: found, iWarn: !found, label: r.name, desc: r.model + ' via ' + r.cli + (found ? '' : ': not on PATH, skipped'), title: found ? r.model + ' via ' + CLI_PATH[r.cli] : r.cli + ' is not on PATH; this reviewer is skipped', hasAct: true, actLabel: s === 'pin-layout' ? 'Open reviewers.toml' : 'Open ' + r.name + ' in Reviewer Settings', act: flash(s === 'pin-layout' ? 'Opens .conclave/reviewers.toml in the text editor.' : 'Opens the Reviewers editor at the ' + r.name + ' card.'), actGo: true }));
         });
         const routes = group('reviewers/routes', true, { label: 'Routes', desc: m.routes.length + (m.routes.length === 1 ? ' writer' : ' writers') });
         rows.push(routes);
         if (routes.open) m.routes.forEach(function (rt) { rows.push(row({ pad: 22, iRoute: true, label: rt.writer, desc: rt.names.join(', then ') })); });
       }
-      const desc = s === 'editor' && ok ? (missing ? missing + ' reviewer skipped' : 'ready') : '';
+      const desc = ok ? (missing ? missing + ' reviewer skipped' : 'ready') : '';
       pane('reviewers', 'REVIEWERS', desc, desc, [act('Open Reviewer Settings', 'aPeople', flash('Opens the Reviewers editor (conclave.openReviewers).')), act('Refresh', 'aRefresh', flash('Re-checked with --check-pin.'))], rows);
     }
 

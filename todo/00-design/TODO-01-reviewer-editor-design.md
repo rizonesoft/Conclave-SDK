@@ -239,6 +239,8 @@ The owner decided on 2026-10-20: "the reviewers fallback, it should only be a di
 
 ## 6. Reviewer rows in the pin layout state
 
+> **Started:** 2026-10-20T11:51:21Z
+
 Review round 3 of `§3` (`docs/reviews/00-design/D00-T01-s3.md`, the last round the review loop allows) found that the mockup's REVIEWERS view hides every reviewer and route in the `pin-layout` state (`design/mockup/project/Main.dc.html:1643` leaves `ok` false), while that state is a valid schema-1 pin whose reviewers and routes `--check-pin` returns, and `design/SPEC.md` §12 lists reviewers "with a valid pin". Reviews run in that state, so the side bar should say who reviews. This section changes the design: a dated decision, the mockup first, then the SPEC, the screenshots if they show the state, and `D06 T01 §4`'s item.
 
 **Phase:** 0
