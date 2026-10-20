@@ -49,7 +49,7 @@ title: "TODO-01 -- Feature Sections"
 | 5 | §5 | Plan section | §1, §2 | [ ] |
 | 6 | §6 | Review rounds section | §1, §3, §8 | [ ] |
 | 7 | §7 | WordPress site section | §1, D05 T01 §8 | [ ] |
-| 8 | §8 | Round record hardening | §3 | [ ] |
+| 8 | §8 | Round record hardening | §3 | [x] |
 
 ## 1. Feature section registry
 
@@ -253,9 +253,12 @@ Review round 3 of §3 (`docs/reviews/06-feature-sections/D06-T01-s3.md`, the las
 - [x] Match `MODEL` and `NAME` in `load_pin` with `fullmatch` (or `\Z`) so a trailing newline is refused. Done when: a pin with `model = "gpt-6-astra\n"` is refused with `has a malformed model` and no reviewer runs. Cheaper substitute: stripping the value, which edits the pin's meaning.
 - [x] Refuse in `record` to append to a findings file `read_rounds` cannot read, printing the round's JSON summary and saying why, with exit 2. Done when: the review text is still on stdout and the file is unchanged. Cheaper substitute: numbering by counting headings, which counts quoted ones.
 - [x] Refresh the SDK's copy with `python forge.py sync . --include-scripts` and update `kits/reviewer/README.md`. Done when: `cmp scripts/review-dispatch.py kits/reviewer/templates/scripts/review-dispatch.py` reports no difference. Cheaper substitute: hand-editing `scripts/review-dispatch.py`.
-- [ ] Commit: `reviewer: round records with a digest, stored byte for byte`, then push `main`
+- [x] Commit: `reviewer: round records with a digest, stored byte for byte`, then push `main`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_review_dispatch.py -v` passes on Windows and in WSL, and each new test fails against the dispatcher at the end of §3 (`a7c7388`).
+
+> **Verified:** 2026-10-20 | §8 | 996cff13979db81f1134068bffec4fc166922c02
+> **Review:** `docs/reviews/d06-t01-s8.json`
 
 ## Verification
 
