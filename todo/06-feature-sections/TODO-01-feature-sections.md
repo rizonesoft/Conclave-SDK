@@ -23,8 +23,8 @@ title: "TODO-01 -- Feature Sections"
 - -> XREF: D00 T01 §2 -- no code before the owner approves the mockup
 - -> XREF: D02 T01 §3 -- the Reviewers section shows the dispatcher client's state
 - -> XREF: D02 T01 §10 -- the per-kit state decides which sections show
-- -> XREF: D05 T01 §5 -- the Kits view owns the container, the current folder and the container badge this file adds to
-- -> XREF: D05 T01 §8 -- the WordPress site section reuses the doctor runner
+- -> XREF: D05 T02 §5 -- the Kits view owns the container, the current folder and the container badge this file adds to
+- -> XREF: D05 T02 §6 -- the WordPress site section reuses the doctor runner
 - -> XREF: D02 T01 §11 -- the parity fixtures and `expectParity` every surface section here asserts
 
 ## Outcome
@@ -42,18 +42,18 @@ title: "TODO-01 -- Feature Sections"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Feature section registry | D02 T01 §10, D05 T01 §5 | [ ] |
+| 1 | §1 | Feature section registry | D02 T01 §10, D05 T02 §5 | [ ] |
 | 2 | §2 | Plan query in todo-graph | D00 T01 §2 | [x] |
 | 3 | §3 | Round listing in the dispatcher | D00 T01 §2 | [x] |
 | 4 | §4 | Reviewers section | §1, D02 T01 §3 | [ ] |
 | 5 | §5 | Plan section | §1, §2 | [ ] |
 | 6 | §6 | Review rounds section | §1, §3, §8 | [ ] |
-| 7 | §7 | WordPress site section | §1, D05 T01 §8 | [ ] |
+| 7 | §7 | WordPress site section | §1, D05 T02 §6 | [ ] |
 | 8 | §8 | Round record hardening | §3 | [x] |
 
 ## 1. Feature section registry
 
-Features must be addable without editing each other (plan R33). This section adds a registry that contributes one view per feature to the `conclave` container, shows each only while its kit is in the current folder, runs no query in Restricted Mode, and adds each section's attention count to the container badge from D05 T01 §5.
+Features must be addable without editing each other (plan R33). This section adds a registry that contributes one view per feature to the `conclave` container, shows each only while its kit is in the current folder, runs no query in Restricted Mode, and adds each section's attention count to the container badge from D05 T02 §5.
 
 **Phase:** 2
 **Needs:** none
@@ -66,7 +66,7 @@ Features must be addable without editing each other (plan R33). This section add
 
 - [ ] Define `FeatureSection` in `extensions/vscode/src/host/sections/registry.ts`: `id`, `kit`, `title`, `load(folder)` returning rows and an attention count, and `commands`. Done when: the type compiles and the four sections in this file implement it. Cheaper substitute: one tree provider with a switch per feature.
 - [ ] Contribute `views.conclave` entries `conclave.reviewers`, `conclave.plan`, `conclave.rounds` and `conclave.site` in `extensions/vscode/package.json`, after `conclave.kits`, each with `when` `conclave.kit.<kit>`. Done when: the views appear in that order. Cheaper substitute: every view always visible.
-- [ ] Set `conclave.kit.<kit>` context keys in `extensions/vscode/src/host/sections/registry.ts` from D02 T01 §10's state for D05 T01 §5's current folder (true unless the kit is not installed). Done when: installing the todo kit shows the Plan section without a reload. Cheaper substitute: checking the kit only at activation.
+- [ ] Set `conclave.kit.<kit>` context keys in `extensions/vscode/src/host/sections/registry.ts` from D02 T01 §10's state for D05 T02 §5's current folder (true unless the kit is not installed). Done when: installing the todo kit shows the Plan section without a reload. Cheaper substitute: checking the kit only at activation.
 - [ ] Skip every `load` while the workspace is untrusted and show one "Restricted Mode" row per section. Done when: an integration test in an untrusted window runs no process. Cheaper substitute: running the read-only queries anyway.
 - [ ] Add the sections' attention counts to the container badge in `extensions/vscode/src/host/kitsView.ts`, counting a problem once when the Kits health already reports it. Done when: a missing reviewer CLI makes the badge 1, not 2. Cheaper substitute: a badge per section summed blindly.
 - [ ] Write `extensions/vscode/test/integration/sections.test.ts` with a test-only section. Done when: it passes and fails when the registry hard-codes the four sections. Cheaper substitute: testing only the shipped sections.
@@ -148,7 +148,7 @@ The pin's state belongs in the side bar, not only in the editor tab (plan R37). 
 - [ ] Implement `reviewersSection` in `extensions/vscode/src/host/sections/reviewersSection.ts` from the `--check-pin --json` result: `reviewers`, `routes` and `clis`. Done when: a unit test over the shipped fixture lists the rows in pin order. Cheaper substitute: reading `.conclave/reviewers.toml` directly.
 - [ ] Show one state row for `refused`, `unsupported-schema`, `no-pin`, `no-dispatcher`, `old-dispatcher`, `no-python` and `untrusted`, and no reviewer rows while the pin is refused. Done when: a unit test per state checks the row and that a refused pin lists no reviewer. Cheaper substitute: one generic error row.
 - [ ] Show the `pin-layout` state row `reviewers.toml` `valid; a layout the editor does not edit` (warning icon), then the reviewer rows and the Routes group from `--check-pin`, each reviewer's action `Open reviewers.toml` (`design/SPEC.md` §12). **Corrected 2026-10-20:** was the state row alone; `D00 T01 §6` lists the reviewers, since the pin is valid and reviews run. Done when: a unit test with `valid-inline-layout.toml` shows the state row, two reviewers and one route, and the open-file action. Cheaper substitute: showing `valid (--check-pin)`.
-- [ ] Move "Open Reviewer Settings" from D05 T01 §5's view title to `conclave.reviewers` and add inline Install (opening D05 T01 §6 preset to `reviewer`) on the no-pin and no-dispatcher rows. Done when: each action runs from the section. Cheaper substitute: keeping the command only in the Kits title.
+- [ ] Hold "Open Reviewer Settings" in `conclave.reviewers`'s view title, and add inline Copy import request (the `adopt-conclave` agent request and the `forge.py` command, `D05 T02 §7`) on the no-pin and no-dispatcher rows. Done when: each action runs from the section. Cheaper substitute: keeping the command only in the Command Palette. (**Corrected 2026-10-20, read-only kit view, `design/decisions.md`:** moved the command from the Kits title and added inline Install opening the dropped installer.)
 - [ ] Write `extensions/vscode/test/integration/reviewersSection.test.ts`. Done when: it passes and fails when a missing CLI is shown as ready. Cheaper substitute: a label snapshot.
 - [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/reviewers-section.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
 - [ ] Commit: `ui: Reviewers section in the Conclave side bar`
@@ -173,7 +173,7 @@ The operator wants to see the plan's progress and what is ready next (plan R34).
 2. Wire the actions. Done when: Validate, Open and Install each run.
 
 - [ ] Implement `planSection` in `extensions/vscode/src/host/sections/planSection.ts` from `todo-graph.py query plan`, grouping by phase in the order of `phases`. Done when: a unit test over a fixture shows Ready now, then each phase with its count. Cheaper substitute: reading `todo/*.md` in the extension.
-- [ ] Show "No todo/plan.json" with inline Install (D05 T01 §6 preset to `todo`) when the kit's `todo/plan.json` is missing, keeping todo-graph's bare phase numbers. Done when: the fixture without the file shows the row and "Phase 1". Cheaper substitute: inventing phase names.
+- [ ] Show "No todo/plan.json" with inline Copy import request (`D05 T02 §7`, for the todo kit) when the kit's `todo/plan.json` is missing (**Corrected 2026-10-20, read-only kit view, `design/decisions.md`:** inline Install opened the dropped installer), keeping todo-graph's bare phase numbers. Done when: the fixture without the file shows the row and "Phase 1". Cheaper substitute: inventing phase names.
 - [ ] Open a section row's `path` at its `## N.` heading, and run `todo-graph.py validate` from the title with its output in the Conclave channel. Done when: an integration test opens the right line. Cheaper substitute: opening the file at the top.
 - [ ] Write `extensions/vscode/test/integration/planSection.test.ts`. Done when: it passes and fails when a blocked section is listed under Ready now. Cheaper substitute: counting rows only.
 - [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/plan-section.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.

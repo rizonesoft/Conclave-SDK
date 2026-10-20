@@ -1,7 +1,8 @@
 # 05-kit-manager
 
-Kit operations from VS Code: state, install, update, health and new repositories, all through `forge.py`.
+Kits in VS Code, read only: state and health through `forge.py`; importing is the agent's (`adopt-conclave`).
 
 | File | Scope | Status |
 | ---- | ----- | ------ |
-| TODO-01-kit-manager.md | Kit install, update, health, init and the Kits view | active |
+| TODO-01-kit-manager.md | Kit install, update, health, init and the Kits view | superseded |
+| TODO-02-kit-view.md | Read-only Kits view, kit stamp, digest, adopt-conclave | active |

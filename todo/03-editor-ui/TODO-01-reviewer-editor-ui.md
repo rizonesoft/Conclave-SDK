@@ -20,7 +20,7 @@ title: "TODO-01 -- Reviewer Editor UI"
 - -> XREF: D00 T01 §3 -- `design/SPEC.md` is the Fidelity source of every section here
 - -> XREF: D02 T01 §5 -- candidate validation and `canSave`
 - -> XREF: D04 T01 §2 -- the WSL check walks this surface
-- -> XREF: D05 T01 §6 -- the no-pin and dispatcher states open the kit install and update flows
+- -> XREF: D05 T02 §7 -- the no-pin and dispatcher states show the adopt-conclave agent request
 - -> XREF: D02 T01 §11 -- the parity fixtures and `expectParity` every surface section here asserts
 - Every `npm`, `npx` and `node` command in this file runs in `extensions/vscode/`.
 
@@ -47,7 +47,7 @@ title: "TODO-01 -- Reviewer Editor UI"
 | 7 | §7 | TOML preview with diff against disk | §6 | [ ] |
 | 8 | §8 | Save, discard and reload flow | §6, D02 T01 §6 | [ ] |
 | 9 | §9 | Reviewer status and Test reviewer panel | §2, D02 T01 §8 | [ ] |
-| 10 | §10 | Empty and failure states | §1, D02 T01 §3, D05 T01 §6, D05 T01 §7 | [ ] |
+| 10 | §10 | Empty and failure states | §1, D02 T01 §3, D00 T01 §8 | [ ] |
 | 11 | §11 | Entry points: command, menus and status bar | §1, D02 T01 §3 | [ ] |
 
 ## 1. Webview shell, theming and message bridge
@@ -314,7 +314,7 @@ The operator sees whether each reviewer can run and can test one on a planted bu
 
 **Corrected 2026-10-20:** review of `D00 T01 §4` found that `load_pin` accepts TOML layouts the editor cannot edit in place (inline tables, quoted keys, arrays over several lines); a valid pin in one is the read-only `pin-layout` state (`design/decisions.md`, 2026-10-20; design spec section 2), added below.
 
-When the workspace is not `ready`, the panel replaces the editor with the state's explanation and action (plan R16 to R19, R21). This section renders `no-pin` (the side bar kit installer from `D05 T01 §6`, preset to `reviewer`), `refused` (message and Open file), `no-dispatcher` and `old-dispatcher` (the kit update flow from `D05 T01 §7`, with scripts included), the SDK source refusals from `D02 T01 §7`, `no-python` (the candidates tried and the setting), `untrusted` (Manage Workspace Trust) and `unsupported-schema`.
+When the workspace is not `ready`, the panel replaces the editor with the state's explanation and action (plan R16 to R19, R21). This section renders `no-pin` (the agent request and the `forge.py kit` command, copyable), `refused` (message and Open file), `no-dispatcher` and `old-dispatcher` (the agent request and the `forge.py sync --include-scripts` command, copyable), the SDK source refusal from `D02 T01 §7` (`sdk-path-invalid`), (**Corrected 2026-10-20, read-only kit view, `design/decisions.md`:** `no-pin` opened the side bar kit installer and the dispatcher states the update flow, and the GitHub refusals were rendered; both flows and the GitHub source are dropped), `no-python` (the candidates tried and the setting), `untrusted` (Manage Workspace Trust) and `unsupported-schema`.
 
 **Phase:** 2
 **Needs:** none
@@ -329,11 +329,11 @@ When the workspace is not `ready`, the panel replaces the editor with the state'
 1. Render each state in `extensions/vscode/src/webview/states.ts`. Done when: each workspace under `extensions/vscode/test/fixtures/workspaces/` shows its state.
 2. Wire each action. Done when: each action calls its host command and Retry re-classifies.
 
-- [ ] Render `no-pin` with "Install reviewer kit" opening the side bar kit installer from `D05 T01 §6` preset to `reviewer`, which shows the source label (bundled, local path, or `rizonetech/Conclave-SDK@<sha>`), and the command. Done when: the `no-pin` workspace shows the command and the action reveals the installer with `reviewer` chosen. Cheaper substitute: writing a default pin from the extension.
+- [ ] Render `no-pin` saying the reviewer kit is not installed, with the `adopt-conclave` agent request (`D05 T02 §7`) and `python forge.py kit <workspace> reviewer`, each with a Copy button. Done when: the `no-pin` workspace shows both and each copy places its text on the clipboard. Cheaper substitute: writing a default pin from the extension. (**Corrected 2026-10-20, read-only kit view, `design/decisions.md`:** opened the side bar kit installer preset to `reviewer`.)
 - [ ] Render `refused` with the `Refused` text verbatim and Open file. Done when: the `refused` workspace shows the dispatcher's message. Cheaper substitute: a generic "invalid pin".
-- [ ] Render `no-dispatcher` and `old-dispatcher`, each with "Update from Conclave-SDK" opening the kit update flow from `D05 T01 §7` with scripts included as the primary action and Copy command as the secondary one, naming `forge.py sync <workspace> --include-scripts`. Done when: both workspaces show their own heading, the command and both actions. Cheaper substitute: copy only.
-- [ ] Render the SDK source refusals from `D02 T01 §7` (`sdk-path-invalid`, `github-signin`, `github-no-access`, `github-rate-limited`, `github-offline`) inside the state that asked for the SDK, each with its SPEC text and action (Sign in to GitHub, Open Settings at `conclave.sdkPath`, Retry). Done when: each refusal from a fake GitHub server shows its text and action. Cheaper substitute: one "download failed" message.
-- [ ] Show forge's installed or updated file list from `D05 T01 §6` and `D05 T01 §7` in the editor's info strip once the re-check opens the editor. Done when: after an install the strip lists `.conclave/reviewers.toml`. Cheaper substitute: a toast with no list.
+- [ ] Render `no-dispatcher` and `old-dispatcher`, each with its own heading, the agent request to update the kits and `python forge.py sync <workspace> --include-scripts`, each with a Copy button. Done when: both workspaces show their heading and both copy actions. Cheaper substitute: the command only. (**Corrected 2026-10-20, read-only kit view, `design/decisions.md`:** the primary action opened the kit update flow.)
+- [ ] Render the SDK source refusal `sdk-path-invalid` from `D02 T01 §7` inside the state that asked for the SDK, with its SPEC text and Open Settings at `conclave.sdkPath`. Done when: a bad `conclave.sdkPath` shows the text and action. Cheaper substitute: one "SDK missing" message. (**Corrected 2026-10-20, read-only kit view, `design/decisions.md`:** also rendered the four GitHub refusals, dropped with the GitHub source in `D02 T01 §21`.)
+- [ ] Re-classify the workspace when `.conclave/reviewers.toml` or `scripts/review-dispatch.py` appears or changes, so the editor opens once the agent has installed the kit. Done when: writing the pin into a `no-pin` workspace opens the editor without Retry. Cheaper substitute: Retry only. (**Corrected 2026-10-20, read-only kit view, `design/decisions.md`:** showed forge's installed file list from the dropped install and update flows.)
 - [ ] Render `no-python` listing each candidate tried and its reason from `D02 T01 §2`, with Open Settings on `conclave.pythonPath`. Done when: a run with a bad setting shows it. Cheaper substitute: "Python not found".
 - [ ] Render `untrusted` with Manage Workspace Trust (`workbench.trust.manage`). Done when: an untrusted run shows it and starts no process. Cheaper substitute: an empty panel.
 - [ ] Render `unsupported-schema` naming the found and supported versions. Done when: a stubbed version 2 shows it. Cheaper substitute: rendering it as refused.

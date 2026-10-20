@@ -21,8 +21,8 @@ title: "TODO-01 -- Extension Core"
 - `scripts/review-dispatch.py`: `--check-pin`, `--pin`, `--writer`, `--prompt`, exit codes 0, 1 and 2.
 - `forge.py` `kits`, `kit`, `sync`, `init`, `check` and `doctor` and their JSON (shapes in `D05 T01` Current state), re-checked at `97cca1d`.
 - Every `npm`, `npx` and `node` command in this file runs in `extensions/vscode/`.
-- -> XREF: D05 T01 §1 -- every kit operation runs forge through §9 and reads state from §10
-- GitHub REST `GET /repos/{repo}/commits/{ref}` and `GET /repos/{repo}/tarball/{sha}`; `rizonetech/Conclave-SDK` is internal and has no tags (checked 2026-10-16).
+- -> XREF: D05 T02 §3 -- the kit state from §10 gains each folder's kit stamp
+- GitHub REST `GET /repos/{repo}/commits/{ref}` and `GET /repos/{repo}/tarball/{sha}`; `rizonetech/Conclave-SDK` is internal and has no tags (checked 2026-10-16). **Corrected 2026-10-20 (read-only kit view, `design/decisions.md`):** dropped with the GitHub source; §21 removes it.
 - -> XREF: D00 T01 §4 -- the design spec this file implements
 - -> XREF: D01 T01 §3 -- the contract and fixtures the dispatcher client depends on
 - -> XREF: D03 T01 §6 -- the webview shows the candidate validation from §5
@@ -30,19 +30,20 @@ title: "TODO-01 -- Extension Core"
 - -> XREF: D06 T01 §4 -- the Reviewers section shows the dispatcher state from §3
 - -> XREF: D06 T01 §1 -- the kit state from §10 decides which feature sections show
 - -> XREF: D03 T01 §1 -- every editor surface asserts parity with §11's fixtures
-- -> XREF: D05 T01 §5 -- every Kits surface asserts parity with §11's fixtures
+- -> XREF: D05 T02 §5 -- every Kits surface asserts parity with §11's fixtures
+- -> XREF: D00 T01 §7 -- the mockup change §11 exports from
 - -> XREF: D06 T01 §4 -- every feature section asserts parity with §11's fixtures
 
 ## Outcome
 
 - `npm run build`, `npm run lint` and `npm test` pass on Windows; `npm test` covers every module in `extensions/vscode/src/core/` against the fixtures.
 - On a workspace with the shipped pin the host reports state `ready` with the three reviewers and their CLI status; on each fixture in `extensions/vscode/test/fixtures/pins/` it reports the exact `Refused` text; on a workspace with no pin, no dispatcher, an old dispatcher, no Python or no trust it reports that state and runs nothing it should not.
-- With no SDK setting, forge runs from the bundled SDK and the source label names its build commit; with `conclave.sdkRef` set it runs from `rizonetech/Conclave-SDK` at the SHA that ref resolves to, shown before anything runs; every forge summary is parsed with its lists verbatim, and each folder's kit state agrees with forge's dry run.
+- With no SDK setting, forge runs from the bundled SDK and the source label names its build commit; with `conclave.sdkRef` set it runs from `rizonetech/Conclave-SDK` at the SHA that ref resolves to, shown before anything runs; every forge summary is parsed with its lists verbatim, and each folder's kit state agrees with forge's dry run. **Corrected 2026-10-20 (read-only kit view, `design/decisions.md`):** the GitHub source is dropped (§21): forge runs from the bundled SDK, or from `conclave.sdkPath` when a developer sets it.
 - An edit made through the pin text model and saved leaves every comment and table in place, lands through a temp file and rename, and is re-checked; a save over a file changed on disk is refused.
 
 **Adjacency:** list=not-applicable (one pin per workspace folder at the fixed path .conclave/reviewers.toml); document=not-applicable (the pin file is the record; nothing is printed or sent); settings=applicable @ D02 T01 §2; reporting=not-applicable (no summaries over many pins); notifications=not-applicable (single local user; outcomes show in the editor and output channel); permissions=applicable @ D02 T01 §3; audit=applicable @ D02 T01 §3; exchange=not-applicable (TOML on disk is the only format; no import or export); reverse=applicable @ D02 T01 §6
 
-**Adjacency rationale:** Settings are `conclave.pythonPath`, consumed by §2, and `conclave.sdkPath`, `conclave.sdkRepository` and `conclave.sdkRef`, consumed by §7. GitHub access is a second permission: §7 refuses a cancelled sign-in and a repository the operator cannot read, and proceeds when they can. Permissions are workspace trust (an untrusted workspace never runs its dispatcher) and a read-only pin (save refused), both in §3 and §6, with §3 the owner of the trust refusal. Audit is the "Conclave" output channel in §3 that logs every dispatcher command line, exit code and duration, never pin secrets (the pin holds none). Reverse is discard to disk and reload after an external change in §6; after a save, the file's git history is the undo.
+**Adjacency rationale:** Settings are `conclave.pythonPath`, consumed by §2, and `conclave.sdkPath`, `conclave.sdkRepository` and `conclave.sdkRef`, consumed by §7. GitHub access is a second permission: §7 refuses a cancelled sign-in and a repository the operator cannot read, and proceeds when they can. Permissions are workspace trust (an untrusted workspace never runs its dispatcher) and a read-only pin (save refused), both in §3 and §6, with §3 the owner of the trust refusal. Audit is the "Conclave" output channel in §3 that logs every dispatcher command line, exit code and duration, never pin secrets (the pin holds none). Reverse is discard to disk and reload after an external change in §6; after a save, the file's git history is the undo. **Corrected 2026-10-20 (read-only kit view, `design/decisions.md`):** `conclave.sdkRepository`, `conclave.sdkRef` and the GitHub permission go with §21.
 
 ## Implementation Order
 
@@ -58,7 +59,7 @@ title: "TODO-01 -- Extension Core"
 | 8 | §8 | Test reviewer runner | §3, §4 | [x] |
 | 9 | §9 | Forge runner and summary parsing | §2, §7 | [x] |
 | 10 | §10 | Workspace kit state from forge | §9 | [x] |
-| 11 | §11 | Mockup parity fixtures and harness | §1, D00 T01 §2 | [ ] |
+| 11 | §11 | Mockup parity fixtures and harness | §1, D00 T01 §7 | [ ] |
 | 12 | §12 | Extractor limits at tarfile's own parse | §7 | [x] |
 | 13 | §13 | Candidate folder links on Windows and shared fallbacks | §5 | [x] |
 | 14 | §14 | Extractor checks each member as tarfile reads it | §12 | [x] |
@@ -68,6 +69,9 @@ title: "TODO-01 -- Extension Core"
 | 18 | §18 | Kit state SDK watchers released with their last folder | §10 | [x] |
 | 19 | §19 | Folder work bound to the lifetime it was asked in | §10, D05 T01 §3 | [x] |
 | 20 | §20 | Recursive deletes that never follow a link | §7 | [x] |
+| 21 | §21 | GitHub SDK source and its archive extractor removed | §7 | [ ] |
+| 22 | §22 | Parity example inputs as fake runner outputs | §11 | [ ] |
+| 23 | §23 | Webview screenshot comparison with the mockup | §11, D03 T01 §1 | [ ] |
 
 ## 1. Extension scaffold, build and test harness
 
@@ -400,6 +404,8 @@ The Kits view, the dialogs and the reviewer editor need each folder's kit state 
 
 The build must match the approved mockup 1:1 (`design/platform-audit.md`), and a careful look is not proof. The mockup's own script already computes, for every scenario, each row's label, description, icon, badge, order and actions and every message text. This section exports that view model from the current mockup source `design/decisions.md` names (**Corrected 2026-10-20:** was the frozen mockup, which predates the family route rule) into fixtures, and gives every surface section one helper that fails on any difference. The example data (the orchard workspace, its plan and rounds) is test input fed to the extension, never product content.
 
+**Corrected 2026-10-20 (read-only kit view, `design/decisions.md`):** the example inputs item moved to §22 and the webview screenshot item to §23, so this section holds the export, the freshness check and `expectParity`; it now waits on the mockup change `D00 T01 §7`.
+
 **Phase:** 1
 **Needs:** none
 **Surface:** no
@@ -407,14 +413,12 @@ The build must match the approved mockup 1:1 (`design/platform-audit.md`), and a
 **Build order:**
 
 1. Write `extensions/vscode/scripts/export-parity.mjs` and commit its output under `extensions/vscode/test/parity/fixtures/`. Done when: one JSON file exists per scenario, side bar state, workspace and theme the mockup offers.
-2. Write `extensions/vscode/test/parity/expectParity.ts` and the webview screenshot comparison. Done when: a deliberately changed label fails both.
+2. Write `extensions/vscode/test/parity/expectParity.ts`. Done when: a deliberately changed label fails it.
 
-- [ ] Write `extensions/vscode/scripts/export-parity.mjs`: read the `data-dc-script` block of `design/mockup/project/Main.dc.html` at the current mockup source commit `design/decisions.md` names (the latest dated change's commit, else the frozen one; **Corrected 2026-10-20:** was the frozen commit, which predates the family route rule), run `Component.renderVals()` with each `scenario`, `sidebar`, `workspace` and `theme`, and write the result without functions to `extensions/vscode/test/parity/fixtures/<sidebar>.<scenario>.<workspace>.<theme>.json`. Done when: `cd extensions/vscode && node scripts/export-parity.mjs` writes every combination and a second run changes nothing. Cheaper substitute: fixtures typed by hand.
-- [ ] Record the example inputs the mockup uses (the forge dry runs and doctor checks per scenario, the `--check-pin` results, `todo-graph.py query plan` and `--list-rounds` output) as fake runner outputs in `extensions/vscode/test/parity/inputs/`, so the extension renders the same example data the mockup drew. Done when: each fixture names the input set it was drawn from. Cheaper substitute: stripping the example rows from the fixtures.
+- [ ] Write `extensions/vscode/scripts/export-parity.mjs`: read `design/mockup/project/Main.dc.html` from git at the current mockup source commit `design/decisions.md` names (the latest dated change's commit), run `Component.renderVals()` for every combination of the `theme`, `scenario`, `sidebar`, `workspace` and `overlay` options its `data-props` declare, and write one file per view-model key to `extensions/vscode/test/parity/fixtures/<key>.json`: the props the key depends on (each prop the key's value changes with), its distinct values without functions, and a table from those props to a value. Done when: `cd extensions/vscode && node scripts/export-parity.mjs` writes every key, a second run changes nothing, and `fixture(combination)` read back from the files equals `renderVals()` for every combination. Cheaper substitute: one file per combination. **Corrected 2026-10-20 (read-only kit view, `design/decisions.md`):** said one file per `<sidebar>.<scenario>.<workspace>.<theme>`, read the frozen commit and left out `overlay`; measured 2026-10-20 at `2bb8ac8`, that is 7,488 combinations of about 30 KB each, about 1.1 MB once each key's distinct values are kept once.
 - [ ] Add a check in `extensions/vscode/test/parity/fixtures.test.ts` that re-runs the export and compares it with the committed fixtures. Done when: editing a label in the mockup without re-exporting fails the test. Cheaper substitute: exporting once and never again.
 - [ ] Write `expectParity(surface, fixtureId, actual)` in `extensions/vscode/test/parity/expectParity.ts`, comparing tree rows (label, description, `ThemeIcon` id and colour, decoration badge, tooltip, inline actions, order), view titles, descriptions and title actions, and webview texts and control states, and reporting every difference at once. Done when: a unit test shows one changed description, icon or row order each failing with the exact field. Cheaper substitute: comparing row counts.
 - [ ] Map each mockup icon to its `ThemeIcon` id and each mockup colour class to its theme colour id from `design/platform-audit.md` in `extensions/vscode/test/parity/mapping.ts`. Done when: every icon and colour in the fixtures has a mapping. Cheaper substitute: skipping icons in the comparison.
-- [ ] Compare each webview (the Reviewers editor and the installer) against the mockup by screenshot in `extensions/vscode/test/parity/webview.screens.test.ts`: render the webview HTML with the fixture's state in both themes and compare it with the same region of `design/screens/` within a small pixel tolerance. Done when: moving one button by four pixels fails the comparison. Cheaper substitute: no visual check.
 - [ ] Commit: `extension: mockup parity fixtures and harness`
 
 **Test checkpoint:** `cd extensions/vscode && npm test -- --test-name-pattern=parity` passes, and fails when one label in a fixture is edited by hand.
@@ -664,6 +668,63 @@ Measured 2026-10-20 after the data loss recorded in `docs/phase-runs/2026-10-20-
 
 > **Verified:** 2026-10-20 | §20 | 91af7015f099a757b6a0543d329ee846d1914652
 > **Review:** `docs/reviews/d02-t01-s20.json`
+
+## 21. GitHub SDK source and its archive extractor removed
+
+The owner decided on 2026-10-20 that no kit source is configured (`design/decisions.md`, Read-only kit view and agent import): the extension reads every folder against the SDK bundled in it, and `conclave.sdkPath` stays as a developer override. This section removes the GitHub source `§7` built and the archive extractor `§12` to `§15` hardened, keeping the bundled and local sources and `removeTree` (`§20`).
+
+**Phase:** 1
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Remove the GitHub source, the extractor and their settings and tests. Done when: nothing in `extensions/vscode/` reaches GitHub or `extract_sdk.py`.
+2. Run every gate. Done when: build, lint, unit and integration pass.
+
+- [ ] Remove the GitHub choice from `chooseSource` and `bundledSource`'s message in `extensions/vscode/src/core/sdkSource.ts` (`sdkPath`, else the bundled SDK, else in development the checkout), and the sign-in, ref resolution, download, cache and eviction from `extensions/vscode/src/host/sdkSource.ts`. Done when: `rg "github|sdkRef|sdkRepository|tarball|getSession" extensions/vscode/src` finds nothing. Cheaper substitute: leaving the GitHub path unreachable.
+- [ ] Delete `extensions/vscode/resources/extract_sdk.py`, `extensions/vscode/test/unit/extractSdk.test.ts` and the GitHub tests of `test/unit/sdkSource.test.ts` and `test/integration/sdkSource.test.ts`, keeping the bundled and local tests. Done when: `npm test` and `npm run test:integration -- --grep "SDK source"` pass. Cheaper substitute: skipping the tests.
+- [ ] Remove `conclave.sdkRepository` and `conclave.sdkRef` from `contributes.configuration` in `extensions/vscode/package.json` and say in `conclave.sdkPath`'s description that it is a developer override of the bundled SDK. Done when: the settings UI lists `conclave.pythonPath` and `conclave.sdkPath` only. Cheaper substitute: deprecating the settings.
+- [ ] Commit: `extension: remove the GitHub SDK source`
+
+**Test checkpoint:** `cd extensions/vscode && npm run build && npm run lint && npm test && npm run test:integration` passes, and `rg "extract_sdk|sdkRef" extensions/vscode/src extensions/vscode/package.json` finds nothing.
+
+## 22. Parity example inputs as fake runner outputs
+
+The extension must render the same example data the mockup drew, or the parity fixtures of `§11` cannot match (moved from `§11` on 2026-10-20). This section records the inputs behind each scenario (forge's dry runs and doctor checks, the kit stamps, the `--check-pin` results, `todo-graph.py query plan` and `--list-rounds` output) as fake runner outputs the surface tests feed the extension.
+
+**Phase:** 1
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Derive each scenario's inputs from the mockup's own data. Done when: every input set a fixture names exists.
+2. Check them against the real tools' shapes. Done when: each parses with the extension's own parsers.
+
+- [ ] Record the example inputs the mockup uses as fake runner outputs in `extensions/vscode/test/parity/inputs/<input-set>/`, one file per command, from the mockup script's data (the orchard workspace, its kits, plan and rounds). Done when: each fixture of `§11` names the input set it was drawn from and that set exists. Cheaper substitute: stripping the example rows from the fixtures.
+- [ ] Parse every recorded input with the extension's parsers (`forgeJson.ts`, the `--check-pin` client, the plan and round parsers) in `extensions/vscode/test/parity/inputs.test.ts`. Done when: the test passes and fails when one input's shape is edited. Cheaper substitute: unchecked inputs.
+- [ ] Commit: `extension: parity example inputs`
+
+**Test checkpoint:** `cd extensions/vscode && npm test -- --test-name-pattern=parity` passes, and fails when one recorded input loses a required field.
+
+## 23. Webview screenshot comparison with the mockup
+
+A view model can match while the drawing does not (moved from `§11` on 2026-10-20). This section compares the Reviewers editor webview, the only webview left after the installer was dropped, with the mockup by screenshot, in both themes.
+
+**Phase:** 2
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Render the webview with a fixture's state to an image. Done when: the test writes one PNG per theme.
+2. Compare it with `design/screens/`. Done when: moving one button by four pixels fails the comparison.
+
+- [ ] Render the Reviewers editor webview HTML with a fixture's state in both themes to PNG in `extensions/vscode/test/parity/webview.screens.test.ts`, and compare it with the same region of `design/screens/` within a small pixel tolerance. Done when: moving one button by four pixels fails the comparison. Cheaper substitute: no visual check.
+- [ ] Commit: `extension: webview screenshot comparison`
+
+**Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep screens` passes, and fails when one control is moved by four pixels.
 
 ## Verification
 

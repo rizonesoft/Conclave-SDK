@@ -2,7 +2,7 @@
 schema_version: 1
 id: reviewer-editor-design
 domain: 00-design
-status: done
+status: active
 title: "TODO-01 -- Reviewer Editor Design"
 ---
 
@@ -21,7 +21,8 @@ title: "TODO-01 -- Reviewer Editor Design"
 - -> XREF: D01 T01 §2 -- the `--check-pin` output shape the mockup's status and errors are drawn from
 - -> XREF: D02 T01 §1 -- the scaffold starts only after the design spec in §4
 - -> XREF: D03 T01 §1 -- every surface section cites `design/SPEC.md` from §3
-- -> XREF: D05 T01 §5 -- the Kits view and dialogs cite `design/SPEC.md` §9 to §11
+- -> XREF: D05 T02 §5 -- the read-only Kits view cites `design/SPEC.md` §9 (corrected by §8)
+- -> XREF: D02 T01 §11 -- the parity fixtures are exported from the mockup source §7 names
 - -> XREF: D06 T01 §4 -- the feature sections cite `design/SPEC.md` §12
 
 ## Outcome
@@ -45,6 +46,8 @@ title: "TODO-01 -- Reviewer Editor Design"
 | 4 | §4 | Reviewer config design spec | §2, §5 | [x] |
 | 5 | §5 | Mockup and plan follow the family route rule | §2 | [x] |
 | 6 | §6 | Reviewer rows in the pin layout state | §3, §4 | [x] |
+| 7 | §7 | Read-only kit view in the mockup | §6 | [ ] |
+| 8 | §8 | SPEC and design spec for the read-only kit view | §7 | [ ] |
 
 ## 1. Clickable reviewer editor mockup
 
@@ -263,6 +266,47 @@ Review round 3 of `§3` (`docs/reviews/00-design/D00-T01-s3.md`, the last round 
 
 > **Verified:** 2026-10-20 | §6 | 4cf5550e471ef5e8e922e59d2f85541d5727c3c1
 > **Review:** `docs/reviews/d00-t01-s6.json`
+
+## 7. Read-only kit view in the mockup
+
+The owner decided on 2026-10-20 that the extension never installs, updates or sets up a repository, and that no kit source is configured (`design/decisions.md`, Read-only kit view and agent import). `design/decisions.md` requires a design change to land in `design/mockup/project/` first and be republished to the same link. This section removes the dropped flows from the mockup and draws the new states, so the parity fixtures (`D02 T01 §11`) export the product as it will be built.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Apply the change to `design/mockup/project/`. Done when: no artboard, sidebar state or overlay offers an install, update or new repository action, and the new states are drawn.
+2. Republish and record it. Done when: the link shows the change and `design/decisions.md` names the commit and canvas version as the current mockup source.
+
+- [ ] Remove from `design/mockup/project/Main.dc.html` the sidebar states `install-todo`, `install-todo-done`, `install-wordpress`, `install-laravel` and `update-done`, the overlays `update-pick`, `update-confirm`, `repo-kits`, `repo-confirm` and `sync-confirm`, the Kits view's Install, Update kits and Set up a new repository actions, and the SDK source control's GitHub choice with its five `SDK source:` refusal scenarios; and delete the artboards `InstallLaravel.dc.html`, `InstallTodo.dc.html`, `InstallWordPress.dc.html`, `RepoConfirm.dc.html` and `RepoKits.dc.html` with their `canvas.json` entries. Done when: a search of `design/mockup/project/` for `install-`, `update-pick`, `repo-kits`, `sdkRef` and `Set up a new repository` finds nothing. Cheaper substitute: hiding the actions behind a flag.
+- [ ] Draw the new states in `Main.dc.html`: a kit row with "newer kits than this extension" (tooltip "Update the Conclave extension") and one with "older kits" (copy the agent request to update them); the context menu's Copy import request; the empty-folder message naming the `adopt-conclave` request; the no-pin, no-dispatcher and old-dispatcher screens showing the agent request and the equivalent `python forge.py kit <folder> reviewer` or `python forge.py sync <folder> --include-scripts` command with Copy buttons in place of Install and Update; and the Reviewers and Plan sections' inline Install replaced by the same copy action. Done when: each is reachable from the control bar (a sidebar state or scenario per new state). Cheaper substitute: describing them in the SPEC only.
+- [ ] Recapture the screenshots in `design/screens/` whose artboards changed (at least the Kits view, the no-pin and dispatcher screens and the feature sections), in both themes. Done when: each changed artboard's PNG matches the republished canvas. Cheaper substitute: the old screenshots.
+- [ ] Republish `design/mockup/project/` to the link in `design/README.md`, update the README's requirement map (R16, R18, R24, R27 and R40 rows; R28, R29, R31 and R32 rows marked dropped) and fill the commit and canvas version into the 2026-10-20 "Read-only kit view and agent import" entry of `design/decisions.md` as the current mockup source. Done when: the link shows the change and the entry names the commit. Cheaper substitute: an unpublished mockup change.
+- [ ] Commit: `design: read-only kit view and agent import`
+
+**Test checkpoint:** `python -c "import pathlib,sys; t=''.join(p.read_text(encoding='utf-8') for p in pathlib.Path('design/mockup/project').glob('*.dc.html')); sys.exit(1 if any(k in t for k in ('install-todo','update-pick','repo-kits','Set up a new repository')) else 0)"` exits 0, and exits 1 on `fb5e468`'s mockup.
+
+## 8. SPEC and design spec for the read-only kit view
+
+The SPEC and the design spec describe what the extension builds, and every surface section cites them (`design/SPEC.md`, `docs/specs/2026-10-20-vscode-extension-design.md`). This section carries `§7`'s mockup into both and into `design/platform-audit.md`, so the D03, D05 and D06 sections build the read-only kit view and the agent requests instead of the dropped flows.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Correct the SPEC. Done when: §7 to §12 say the same as `§7`'s mockup.
+2. Correct the design spec and the platform audit. Done when: neither names the installer, the update flow, the wizard or the GitHub source except as dropped.
+
+- [ ] Rewrite `design/SPEC.md` §9 for the read-only Kits view (states, stamps, health, Copy import request, the empty-folder message), mark §10 Kit install and update and §11 New repository setup as dropped with the date and the decision, correct §7's no-pin and dispatcher screens and §8's SDK source (bundled, `conclave.sdkPath` as a developer override), and §12's inline Install actions. Done when: every control in `§7`'s mockup has its SPEC line and the SPEC names no dropped control as live. Cheaper substitute: a note at the top of the SPEC.
+- [ ] Correct `docs/specs/2026-10-20-vscode-extension-design.md` (the SDK source, the kit operations, the GitHub sign-in and archive extraction, the protected-file proof) with dated notes, adding the kit stamp, the bundled digest and the newer and older states. Done when: the design spec and `docs/plans/2026-10-16-vscode-extension.md` R24 and R27 to R41 agree. Cheaper substitute: leaving the design spec stale.
+- [ ] Correct `design/platform-audit.md`: drop the installer and wizard rows and add the new rows (the stamp descriptions, the copy actions). Done when: every element of `§7`'s mockup has a row. Cheaper substitute: none.
+- [ ] Commit: `design: SPEC and design spec for the read-only kit view`
+
+**Test checkpoint:** `python -c "import sys; t=open('design/SPEC.md', encoding='utf-8').read(); s9=t.split('## 9.')[1].split('## 10.')[0]; sys.exit(1 if ('Install' in s9 or 'newer kits' not in s9) else 0)"` exits 0, and exits 1 on `fb5e468`'s SPEC.
 
 ## Verification
 

@@ -8,29 +8,31 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Design, pin contract and scaffold
 
-Sections: 15 | Checklist items: 132
+Sections: 17 | Checklist items: 141
 
-| Status | Reference  | Deliverable                                  | Needs | Items |
-| ------ | ---------- | -------------------------------------------- | ----- | ----- |
-| [x]    | D00 T01 §1 | Clickable reviewer editor mockup             | none  | 26    |
-| [x]    | D00 T01 §2 | Owner approval and open design answers       | none  | 6     |
-| [x]    | D00 T01 §5 | Mockup and plan follow the family route rule | none  | 10    |
-| [x]    | D00 T01 §3 | Interface SPEC and screenshots               | none  | 14    |
-| [x]    | D00 T01 §4 | Reviewer config design spec                  | none  | 10    |
-| [x]    | D00 T01 §6 | Reviewer rows in the pin layout state        | none  | 6     |
-| [x]    | D01 T01 §1 | Strict schema_version type in load_pin       | none  | 7     |
-| [x]    | D01 T01 §2 | Dispatcher check-pin flag                    | none  | 12    |
-| [x]    | D01 T01 §3 | Check-pin contract fixtures and test         | none  | 7     |
-| [x]    | D01 T01 §4 | Check-pin CLI presence for each CLI          | none  | 3     |
-| [x]    | D01 T01 §5 | Reviewer CLIs found on PATH only             | none  | 5     |
-| [x]    | D02 T01 §1 | Extension scaffold, build and test harness   | none  | 9     |
-| [x]    | D06 T01 §2 | Plan query in todo-graph                     | none  | 5     |
-| [x]    | D06 T01 §3 | Round listing in the dispatcher              | none  | 5     |
-| [x]    | D06 T01 §8 | Round record hardening                       | none  | 7     |
+| Status | Reference  | Deliverable                                     | Needs | Items |
+| ------ | ---------- | ----------------------------------------------- | ----- | ----- |
+| [x]    | D00 T01 §1 | Clickable reviewer editor mockup                | none  | 26    |
+| [x]    | D00 T01 §2 | Owner approval and open design answers          | none  | 6     |
+| [x]    | D00 T01 §5 | Mockup and plan follow the family route rule    | none  | 10    |
+| [x]    | D00 T01 §3 | Interface SPEC and screenshots                  | none  | 14    |
+| [x]    | D00 T01 §4 | Reviewer config design spec                     | none  | 10    |
+| [x]    | D00 T01 §6 | Reviewer rows in the pin layout state           | none  | 6     |
+| [ ]    | D00 T01 §7 | Read-only kit view in the mockup                | none  | 5     |
+| [ ]    | D00 T01 §8 | SPEC and design spec for the read-only kit view | none  | 4     |
+| [x]    | D01 T01 §1 | Strict schema_version type in load_pin          | none  | 7     |
+| [x]    | D01 T01 §2 | Dispatcher check-pin flag                       | none  | 12    |
+| [x]    | D01 T01 §3 | Check-pin contract fixtures and test            | none  | 7     |
+| [x]    | D01 T01 §4 | Check-pin CLI presence for each CLI             | none  | 3     |
+| [x]    | D01 T01 §5 | Reviewer CLIs found on PATH only                | none  | 5     |
+| [x]    | D02 T01 §1 | Extension scaffold, build and test harness      | none  | 9     |
+| [x]    | D06 T01 §2 | Plan query in todo-graph                        | none  | 5     |
+| [x]    | D06 T01 §3 | Round listing in the dispatcher                 | none  | 5     |
+| [x]    | D06 T01 §8 | Round record hardening                          | none  | 7     |
 
 ### Phase 1: Extension host and kit operations
 
-Sections: 24 | Checklist items: 165
+Sections: 31 | Checklist items: 192
 
 | Status | Reference   | Deliverable                                             | Needs | Items |
 | ------ | ----------- | ------------------------------------------------------- | ----- | ----- |
@@ -43,7 +45,7 @@ Sections: 24 | Checklist items: 165
 | [x]    | D02 T01 §8  | Test reviewer runner                                    | none  | 8     |
 | [x]    | D02 T01 §9  | Forge runner and summary parsing                        | none  | 8     |
 | [x]    | D02 T01 §10 | Workspace kit state from forge                          | none  | 6     |
-| [ ]    | D02 T01 §11 | Mockup parity fixtures and harness                      | none  | 7     |
+| [ ]    | D02 T01 §11 | Mockup parity fixtures and harness                      | none  | 5     |
 | [x]    | D02 T01 §12 | Extractor limits at tarfile's own parse                 | none  | 5     |
 | [x]    | D02 T01 §13 | Candidate folder links on Windows and shared fallbacks  | none  | 5     |
 | [x]    | D02 T01 §14 | Extractor checks each member as tarfile reads it        | none  | 6     |
@@ -52,20 +54,28 @@ Sections: 24 | Checklist items: 165
 | [x]    | D02 T01 §17 | Tree kill: cut-short discovery and combined uncertainty | none  | 5     |
 | [x]    | D02 T01 §18 | Kit state SDK watchers released with their last folder  | none  | 3     |
 | [x]    | D02 T01 §20 | Recursive deletes that never follow a link              | none  | 5     |
+| [ ]    | D02 T01 §21 | GitHub SDK source and its archive extractor removed     | none  | 4     |
+| [ ]    | D02 T01 §22 | Parity example inputs as fake runner outputs            | none  | 3     |
 | [ ]    | D05 T01 §1  | Kit install with dry-run preview                        | none  | 9     |
 | [ ]    | D05 T01 §2  | Kit update through forge sync                           | none  | 8     |
 | [x]    | D05 T01 §3  | Kit health from forge check and doctor                  | none  | 6     |
 | [x]    | D02 T01 §19 | Folder work bound to the lifetime it was asked in       | none  | 4     |
 | [x]    | D05 T01 §4  | New repository setup through forge init                 | none  | 7     |
 | [ ]    | D05 T01 §10 | Protected-file proof refuses special files              | none  | 3     |
+| [ ]    | D05 T02 §1  | Kit stamp written by forge on every install             | none  | 6     |
+| [ ]    | D05 T02 §2  | Bundled SDK digest and drift test                       | none  | 4     |
+| [ ]    | D05 T02 §3  | Kit state for newer and older kit stamps                | none  | 4     |
+| [ ]    | D05 T02 §4  | New repository setup removed from the extension         | none  | 3     |
+| [ ]    | D05 T02 §7  | The adopt-conclave skill in the base kit                | none  | 5     |
 
 ### Phase 2: Editor surface and Kits view
 
-Sections: 21 | Checklist items: 176
+Sections: 24 | Checklist items: 197
 
 | Status | Reference   | Deliverable                                   | Needs | Items |
 | ------ | ----------- | --------------------------------------------- | ----- | ----- |
 | [ ]    | D03 T01 §1  | Webview shell, theming and message bridge     | none  | 9     |
+| [ ]    | D02 T01 §23 | Webview screenshot comparison with the mockup | none  | 2     |
 | [ ]    | D03 T01 §2  | Reviewer cards with per-CLI effort            | none  | 10    |
 | [ ]    | D03 T01 §3  | Reviewer add, rename and delete               | none  | 8     |
 | [ ]    | D03 T01 §4  | Route rows with a reviewer and one fallback   | none  | 11    |
@@ -74,13 +84,15 @@ Sections: 21 | Checklist items: 176
 | [ ]    | D03 T01 §7  | TOML preview with diff against disk           | none  | 8     |
 | [ ]    | D03 T01 §8  | Save, discard and reload flow                 | none  | 9     |
 | [ ]    | D03 T01 §9  | Reviewer status and Test reviewer panel       | none  | 8     |
+| [ ]    | D03 T01 §10 | Empty and failure states                      | none  | 13    |
 | [ ]    | D03 T01 §11 | Entry points: command, menus and status bar   | none  | 11    |
 | [ ]    | D05 T01 §5  | Conclave Activity Bar view with the Kits tree | none  | 11    |
 | [ ]    | D05 T01 §6  | Kit installer in the side bar                 | none  | 10    |
 | [ ]    | D05 T01 §7  | Kit update flow                               | none  | 7     |
-| [ ]    | D03 T01 §10 | Empty and failure states                      | none  | 13    |
 | [ ]    | D05 T01 §8  | Kit health detail                             | none  | 7     |
 | [ ]    | D05 T01 §9  | New repository wizard                         | none  | 10    |
+| [ ]    | D05 T02 §5  | Conclave view with the read-only Kits tree    | none  | 12    |
+| [ ]    | D05 T02 §6  | Kit health detail in the Kits tree            | none  | 7     |
 | [ ]    | D06 T01 §1  | Feature section registry                      | none  | 7     |
 | [ ]    | D06 T01 §4  | Reviewers section                             | none  | 7     |
 | [ ]    | D06 T01 §5  | Plan section                                  | none  | 6     |
@@ -100,6 +112,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 35/66 verified sections, 4 ready to run now.
+Progress: 35/78 verified sections, 4 ready to run now.
 
-Checklist: 274/516 items completed (includes Commit items).
+Checklist: 274/573 items completed (includes Commit items).

@@ -2,11 +2,14 @@
 schema_version: 1
 id: kit-manager
 domain: 05-kit-manager
-status: active
+status: superseded
+superseded_by: kit-view
 title: "TODO-01 -- Kit Manager"
 ---
 
 # TODO-01 -- Kit Manager
+
+> **Superseded 2026-10-20** by `TODO-02-kit-view.md` (owner, `design/decisions.md`, Read-only kit view and agent import): the extension never installs, updates or sets up a repository. `§3` stays as shipped; `§4`'s extension code is removed by `D05 T02 §4`; `§5` and `§8` continue as `D05 T02 §5` and `§6`; `§1`, `§2`, `§6`, `§7`, `§9` and `§10` are dropped.
 
 > **Goal:** From VS Code, the operator can see which Conclave-SDK kits a workspace has and how healthy they are, install any kit (previewed file by file before anything is written), update the installed kits, and set up a new repository, all by running `forge.py` from the SDK source the extension resolves (bundled, local checkout, or a pinned GitHub commit). The extension never copies kit files itself and never reimplements forge's rules: every write is forge's, and every list it shows is forge's JSON.
 
@@ -18,13 +21,13 @@ title: "TODO-01 -- Kit Manager"
 - `forge.py` (`kits`, `kit`, `sync`, `init`, `check`, `doctor`) and `README.md` "Importing into a New or Existing Project": the operations and their rules (additive, never overwrites project files).
 - `design/SPEC.md` §9 to §11 (from `D00 T01 §3`): the Kits view, the install and update dialogs, health detail and the new repository flow.
 - Every `npm`, `npx` and `node` command in this file runs in `extensions/vscode/`.
-- -> XREF: D02 T01 §9 -- the forge runner and summary parser every section here calls
-- -> XREF: D02 T01 §10 -- the per-kit workspace state the view and dialogs read
-- -> XREF: D03 T01 §10 -- the reviewer editor's no-pin and old-dispatcher states call §1 and §2
-- -> XREF: D04 T01 §1 -- acceptance walks every kit operation
-- -> XREF: D06 T01 §1 -- the feature sections share this container, its current folder and its badge
-- -> XREF: D00 T01 §3 -- `design/SPEC.md` is the Fidelity source of §5 to §9
-- -> XREF: D02 T01 §11 -- the parity fixtures and `expectParity` every surface section here asserts
+- Was a cross-reference (superseded 2026-10-20): D02 T01 §9 -- the forge runner and summary parser every section here calls
+- Was a cross-reference (superseded 2026-10-20): D02 T01 §10 -- the per-kit workspace state the view and dialogs read
+- Was a cross-reference (superseded 2026-10-20): D03 T01 §10 -- the reviewer editor's no-pin and old-dispatcher states call §1 and §2
+- Was a cross-reference (superseded 2026-10-20): D04 T01 §1 -- acceptance walks every kit operation
+- Was a cross-reference (superseded 2026-10-20): D06 T01 §1 -- the feature sections share this container, its current folder and its badge
+- Was a cross-reference (superseded 2026-10-20): D00 T01 §3 -- `design/SPEC.md` is the Fidelity source of §5 to §9
+- Was a cross-reference (superseded 2026-10-20): D02 T01 §11 -- the parity fixtures and `expectParity` every surface section here asserts
 
 ## Outcome
 
