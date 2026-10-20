@@ -44,7 +44,7 @@ title: "TODO-01 -- Kit Manager"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Kit install with dry-run preview | D02 T01 §9, D02 T01 §10 | [ ] |
 | 2 | §2 | Kit update through forge sync | D02 T01 §9, D02 T01 §10 | [ ] |
-| 3 | §3 | Kit health from forge check and doctor | D02 T01 §9 | [ ] |
+| 3 | §3 | Kit health from forge check and doctor | D02 T01 §9 | [x] |
 | 4 | §4 | New repository setup through forge init | D02 T01 §9 | [ ] |
 | 5 | §5 | Conclave Activity Bar view with the Kits tree | D02 T01 §10, D03 T01 §1 | [ ] |
 | 6 | §6 | Kit installer in the side bar | §1, §5 | [ ] |
@@ -124,9 +124,12 @@ The operator sees what is missing or needs setup for each installed kit (plan R3
 - [x] Refresh health after every install and update from §1 and §2, and on demand. Done when: the test sees health refreshed after an install. Cheaper substitute: health computed once at activation.
   Health is refreshed whenever the folder's kit state changes, which every install and update does (the kit state watches what forge writes), and by `refreshKitHealth` on demand; a computation that a refresh superseded runs again.
 - [x] Write `extensions/vscode/test/unit/kitHealth.test.ts` over recorded outputs saved in `extensions/vscode/test/fixtures/forge/`. Done when: the tests pass and fail when `unexpected` is counted as ok. Cheaper substitute: one recorded output.
-- [ ] Commit: `extension: kit health from forge check and doctor`
+- [x] Commit: `extension: kit health from forge check and doctor`
 
 **Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/kitHealth.test.js && npm run test:integration -- --grep kitHealth` passes, and fails when `healthFrom` ignores `setup_required`. **Corrected 2026-10-20:** was `npm test -- --test-name-pattern=kitHealth`, which does not filter on Node 24.14.1 (see `D02 T01 §2`).
+
+> **Verified:** 2026-10-20 | §3 | 3b11678be5c6bbbec15bef00726588e70b59fb08
+> **Review:** `docs/reviews/d05-t01-s3.json`
 
 ## 4. New repository setup through forge init
 

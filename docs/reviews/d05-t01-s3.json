@@ -1,0 +1,29 @@
+{
+  "ref": "D05 T01 \u00a73",
+  "title": "Kit health from forge check and doctor",
+  "implementation_sha": "3b11678be5c6bbbec15bef00726588e70b59fb08",
+  "date": "2026-10-20",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/05-kit-manager/D05-T01-s3.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/05-kit-manager/D05-T01-s3.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/05-kit-manager/D05-T01-s3.md",
+      "verdict": "stopped-at-3"
+    }
+  ],
+  "checks": [
+    "cd extensions/vscode && npm run compile && node --test out/test/unit/kitHealth.test.js && npm run test:integration -- --grep kitHealth -> unit 5 of 5 (Windows and WSL), integration 4 passing; counting setup_required as ok fails 2 unit tests",
+    "npm test -> tests 106, pass 104, skipped 2",
+    "npm run test:integration -> 55 passing",
+    "npx eslint src test -> exit 0"
+  ]
+}
