@@ -20,9 +20,9 @@ PINS = FIXTURES / "pins"
 EXPECTED = json.loads((PINS / "expected.json").read_text(encoding="utf-8"))
 
 
-def check_pin(dispatcher, pin, env=None):
+def check_pin(dispatcher, pin, env=None, cwd=None):
     return subprocess.run([sys.executable, str(dispatcher), "--check-pin", "--json", "--pin", str(pin)],
-                          capture_output=True, text=True, encoding="utf-8", timeout=60, env=env)
+                          capture_output=True, text=True, encoding="utf-8", timeout=60, env=env, cwd=cwd)
 
 
 def json_object(stdout):
@@ -80,7 +80,7 @@ class CheckPinContract(unittest.TestCase):
                 # PATHEXT is set, not inherited: the launchers are .cmd files, which a caller's PATHEXT may not list.
                 env = {"PATH": tmp, **({"PATHEXT": ".CMD"} if os.name == "nt" else {}),
                        **{k: os.environ[k] for k in ("SYSTEMROOT",) if k in os.environ}}
-                run = check_pin(DISPATCHER, PINS / "valid-shipped.toml", env=env)
+                run = check_pin(DISPATCHER, PINS / "valid-shipped.toml", env=env, cwd=tmp)
                 self.assertEqual(run.returncode, 0, run.stderr)
                 self.assertEqual(json.loads(run.stdout)["clis"], {cli: cli == present for cli in ("codex", "agy", "claude")})
 

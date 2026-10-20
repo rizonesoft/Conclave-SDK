@@ -122,6 +122,26 @@ def load_pin(path=PIN):
     return pin
 
 
+def find_cli(name):
+    """A reviewer CLI's path, from the absolute directories on PATH only, or None.
+
+    Reviews run from the reviewed repository's root, and Windows `shutil.which` looks in the working directory first
+    (always on Python 3.11, and on later ones unless NoDefaultCurrentDirectoryInExePath is set), so a `codex.cmd`
+    committed to that repository would be reported as installed and run as the reviewer. Relative PATH entries are
+    dropped for the same reason. On Windows the search is done here, by PATHEXT, so no Python version adds the directory.
+    """
+    directories = [d for d in os.environ.get("PATH", "").split(os.pathsep) if d and os.path.isabs(d)]
+    if os.name != "nt":
+        return shutil.which(name, path=os.pathsep.join(directories))
+    extensions = [e for e in os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(os.pathsep) if e]
+    for directory in directories:
+        for extension in extensions:
+            candidate = os.path.join(directory, name + extension)
+            if os.path.isfile(candidate):
+                return candidate
+    return None
+
+
 def command(reviewer, executable, prompt, prompt_path, output_path, timeout):
     """The argv and stdin for one read-only review. The model and effort come only from the pin."""
     cli, model, effort = reviewer["cli"], reviewer["model"], reviewer.get("effort")
@@ -226,7 +246,7 @@ def review(pin, writer, prompt_path, timeout):
     for name in pin["routes"][writer]:
         reviewer = pin["reviewers"][name]
         # The resolved path, not the bare name: on Windows a CLI is often a .cmd shim that Popen cannot find by name.
-        executable = shutil.which(reviewer["cli"])
+        executable = find_cli(reviewer["cli"])
         if executable is None:
             failover.append({"reviewer": name, "reason": f"{reviewer['cli']} is not installed"})
             continue
@@ -457,7 +477,7 @@ def main(argv=None):
         except Refused as exc:
             print(json.dumps({"ok": False, "error": str(exc)}) if args.json else f"refused: {exc}")
             return 2
-        clis = {cli: shutil.which(cli) is not None for cli in CLIS}
+        clis = {cli: find_cli(cli) is not None for cli in CLIS}
         print(json.dumps({"ok": True, "schema_version": pin["schema_version"], "reviewers": pin["reviewers"],
                           "routes": pin["routes"], "clis": clis}) if args.json else "ok")
         return 0

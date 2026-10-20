@@ -126,14 +126,14 @@ class Dispatch(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def dispatch(self, *args, **modes):
+    def dispatch(self, *args, cwd=None, **modes):
         system_root = {"SYSTEMROOT": os.environ["SYSTEMROOT"]} if os.name == "nt" else {}
         env = {"PATH": f"{self.bin}{os.pathsep}{Path(sys.executable).parent}", "FAKE_LOG": str(self.log),
                "FAKE_CHILD_PID": str(Path(self._tmp.name) / "child.pid"), **system_root,
                **{var: str(self.scratch) for var in ("TMP", "TEMP", "TMPDIR")},
                **{f"FAKE_{k.upper()}": v for k, v in modes.items()}}
         result = subprocess.run([sys.executable, "-B", str(self.repo / "scripts/review-dispatch.py"), *args],
-                                capture_output=True, text=True, env=env, timeout=60)
+                                capture_output=True, text=True, env=env, timeout=60, cwd=cwd)
         summary = json.loads(result.stdout) if result.stdout.strip().startswith("{") else None
         return result, summary
 
@@ -459,6 +459,27 @@ class Dispatch(unittest.TestCase):
         self.assertIn("calc.py:2 subtracts", summary["review"])
         self.assertIsNone(summary["round"])
         self.assertIn("cannot be read back", result.stderr)
+
+    def test_a_cli_in_the_working_directory_is_not_on_path(self):
+        # D01 T01 §5: Windows shutil.which looks in the working directory first unless NoDefaultCurrentDirectoryInExePath
+        # is set, so a codex committed to the reviewed repository was reported as installed and run as the reviewer.
+        # The dispatch() environment never sets that variable, so this runs as a plain Windows shell would.
+        self.launchers["codex"].unlink()
+        planted = self.repo / ("codex.cmd" if os.name == "nt" else "codex")
+        marker = self.repo / "planted-ran.txt"
+        if os.name == "nt":
+            planted.write_text(f'@echo planted> "{marker}"\r\n', encoding="utf-8")
+        else:
+            planted.write_text(f'#!/bin/sh\necho planted > "{marker}"\n', encoding="utf-8")
+            planted.chmod(0o755)
+        result, _ = self.dispatch("--check-pin", "--json", cwd=self.repo)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(json.loads(result.stdout)["clis"]["codex"], "a codex in the working directory counted as on PATH")
+        result, summary = self.dispatch("--writer", "gemini", "--prompt", str(self.prompt), cwd=self.repo)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(marker.exists(), "the planted codex in the working directory ran as the reviewer")
+        self.assertEqual(summary["reviewer"], "sonnet")
+        self.assertEqual([f["reviewer"] for f in summary["failover"]], ["astra"])
 
     def test_a_round_number_past_the_digit_limit_is_unreadable_and_keeps_the_review(self):
         # Review round 1 of D06 T01 §8: a 5,000-digit round number made the reader's int() raise, so record lost the
