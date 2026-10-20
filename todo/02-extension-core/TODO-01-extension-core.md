@@ -51,7 +51,7 @@ title: "TODO-01 -- Extension Core"
 | 1 | §1 | Extension scaffold, build and test harness | D00 T01 §4 | [x] |
 | 2 | §2 | Python resolution on Windows and WSL | §1 | [x] |
 | 3 | §3 | Dispatcher client and workspace states | §2, D01 T01 §3 | [ ] |
-| 4 | §4 | Comment-preserving pin text model | §1, D01 T01 §3 | [ ] |
+| 4 | §4 | Comment-preserving pin text model | §1, D01 T01 §3 | [x] |
 | 5 | §5 | Candidate validation through check-pin | §3, §4 | [ ] |
 | 6 | §6 | Atomic save, stale check and re-check | §5 | [ ] |
 | 7 | §7 | SDK source: local checkout or GitHub commit | §1 | [ ] |
@@ -183,9 +183,12 @@ The pin carries a comment above every table, and the owner requires comments to 
 - [x] Implement `setRoute(text, writer, names)` and `removeRoute(text, writer)`, writing the array on one line in the existing style. Done when: golden tests `set-route` and `remove-route` pass. Cheaper substitute: rewriting the whole `[routes]` table.
 - [x] Keep line endings: an edit to a CRLF file writes CRLF, an LF file writes LF. Done when: a CRLF copy of the shipped pin round-trips each golden edit with CRLF preserved. Cheaper substitute: normalising to LF on every edit.
 - [x] Write `extensions/vscode/test/unit/pinText.test.ts` running each golden case and asserting the output equals `expected.toml` byte for byte and that `scripts/review-dispatch.py --check-pin --json --pin <output>` returns `ok` true. Done when: the tests pass and fail when a comment line is dropped. Cheaper substitute: comparing parsed values only.
-- [ ] Commit: `extension: comment-preserving pin text model`
+- [x] Commit: `extension: comment-preserving pin text model`
 
 **Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/pinText.test.js` passes, and fails when `deleteReviewer` stops removing the comment block above the table. **Corrected 2026-10-20:** was `npm test -- --test-name-pattern=pinText`, which does not filter on Node 24.14.1 (see `§2`).
+
+> **Verified:** 2026-10-20 | §4 | d131b992853974b3559e06a3e1260b72f6ff1c4f
+> **Review:** `docs/reviews/d02-t01-s4.json`
 
 ## 5. Candidate validation through check-pin
 
