@@ -13,6 +13,8 @@ import { FORGE_PARSERS, runForge, type ForgeOptions, type ForgeSource } from "./
 import type { ForgeOutcome } from "./core/forgeJson";
 import { KitStateService, type KitStates } from "./host/kitState";
 import { KitHealthService, type KitHealthResult } from "./host/kitHealth";
+import { type OpenChoice, type RepoInitDeps, type RepoInitResult, setUpRepository } from "./host/repoInit";
+import type { InitChoice } from "./core/repoInit";
 import type { TestOutcome } from "./core/testOutcome";
 
 // The reviewer editor panel. This is the scaffold's placeholder (D02 T01 §1); D03 T01 builds the editor in it.
@@ -46,6 +48,8 @@ export interface ConclaveApi {
   kitHealth: (folder: vscode.Uri) => Promise<KitHealthResult>;
   onDidChangeKitHealth: vscode.Event<vscode.Uri>;
   refreshKitHealth: (folder: vscode.Uri) => void;
+  // Set up a new repository through forge init (D05 T01 §4); tests pass their own opener and process runner.
+  setUpRepository: (choice: InitChoice, open: OpenChoice, hooks?: Pick<RepoInitDeps, "openFolder" | "addToWorkspace" | "run">) => Promise<RepoInitResult>;
 }
 
 export function activate(context: vscode.ExtensionContext): ConclaveApi {
@@ -126,6 +130,17 @@ export function activate(context: vscode.ExtensionContext): ConclaveApi {
     kitHealth: (folder) => kitHealth.health(folder),
     onDidChangeKitHealth: kitHealth.onDidChangeKitHealth,
     refreshKitHealth: (folder) => kitHealth.refresh(folder),
+    setUpRepository: (choice, open, hooks) => setUpRepository(choice, open, {
+      source: async () => {
+        const source = await sdk.resolve();
+        return "ok" in source ? source : { message: source.message };
+      },
+      python: async () => {
+        const resolved = await python.python();
+        return resolved.ok ? resolved : { message: resolved.message };
+      },
+      ...hooks,
+    }),
     runForge: async (source, args, options) => {
       const parse = FORGE_PARSERS.get(args[0] ?? "");
       if (!parse) {
