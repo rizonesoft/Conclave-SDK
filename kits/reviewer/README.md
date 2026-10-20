@@ -4,10 +4,13 @@ Additive overlay that gives a project independent review by a different model: o
 
 ## Who reviews whom
 
-| Work written by | Reviewed by, in failover order |
-| --- | --- |
-| Claude or Gemini | GPT-6 Astra, then Gemini 4, then Sonnet 5.5 |
-| Codex | Gemini 4, then Sonnet 5.5 (Astra never reviews Astra) |
+| Work written by | Reviewer | Fallback |
+| --- | --- | --- |
+| Claude | GPT-6 Astra | Gemini 4 |
+| Codex | Gemini 4 | Sonnet 5.5 |
+| Gemini | GPT-6 Astra | Sonnet 5.5 |
+
+A reviewer is never of the writer's own model family, and a route has one fallback at most: the pin refuses anything else.
 
 | Reviewer | CLI | Model | Effort |
 | --- | --- | --- | --- |
@@ -46,4 +49,4 @@ The doctor loads the pin under the dispatcher's own rules and reports any review
 python3 scripts/review-dispatch.py --writer claude --prompt <scratch>/review-prompt.md --record docs/reviews/<topic>.md
 ```
 
-Exit 0 is a review (which may still find problems). Exit 1 means no reviewer could run, which is never an approval. Exit 2 means the pin or the arguments were refused and nothing ran.
+Exit 0 is a review (which may still find problems). Exit 1 means neither the reviewer nor its fallback returned a review (a reply ending `OVERALL: blocked` is not one), which is never an approval. Exit 2 means the pin or the arguments were refused and nothing ran.

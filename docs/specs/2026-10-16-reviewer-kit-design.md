@@ -30,6 +30,10 @@ A reviewer is skipped, with the reason recorded, when its CLI is not installed, 
 
 Each round prints a JSON summary and, with `--record`, appends a `## Round N` section (writer, reviewer, model, failover log, review text) to the findings file with an atomic write.
 
+## Amended 2026-10-20
+
+Owner decision: "the reviewers fallback, it should only be a different family reviewer + 1 fallback". A route names one reviewer and at most one fallback, and neither may be of the writer's family (codex is OpenAI, agy Google, claude Anthropic); the pin refuses anything else. The routes became Claude to Astra then Gemini 4, Codex to Gemini 4 then Sonnet 5.5, and Gemini to Astra then Sonnet 5.5. The routing table above is the original decision. The same day a reviewer whose sandbox could not read the repository returned a non-review, so the prompt gained `OVERALL: blocked`, which the dispatcher fails over.
+
 ## Reversal cost
 
 Low: additive kit; the routing is data in the pin.

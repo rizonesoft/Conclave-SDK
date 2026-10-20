@@ -17,7 +17,7 @@ Each agent reads only its own isolated folder and entrypoint alongside the share
 | `forge.py` / `forge.cmd` | CLI: `init`, `sync`, `kit`, `doctor`, `kits`, `check`. |
 | `kits/base/` | Every repo: entry docs, safety skills, subagents, rules, tier check. |
 | `kits/todo/` | TODO skills, `todo-graph.py`, starter `todo/` tree, workflow doc. |
-| `kits/reviewer/` | Reviewer pin (GPT-6 Astra, failover Gemini 4, Sonnet 5.5) and dispatcher. |
+| `kits/reviewer/` | Reviewer pin (another model family, one fallback) and dispatcher. |
 | `kits/automations/` | Scheduled tasks for Task Scheduler and systemd, with a failure email. |
 | `kits/laravel/`, `kits/wordpress/` | Stack kits. |
 | `prompts/` | Copy-pasteable prompts to import Conclave-SDK from Gemini, Claude, or Codex. |

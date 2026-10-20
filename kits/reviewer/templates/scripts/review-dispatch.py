@@ -3,10 +3,11 @@
 
     python3 scripts/review-dispatch.py --writer claude --prompt review-prompt.md --record docs/reviews/x.md
 
-`--writer` is the agent whose work is under review (claude, codex or gemini); its route in the pin lists reviewers in
-failover order. The first reviewer that runs and returns a review is the round. One that is not installed, exits
-non-zero, times out or returns nothing is skipped and the reason recorded. When every reviewer fails there is no
-review: exit 1, which never counts as approval. A review that finds problems is still a review (exit 0).
+`--writer` is the agent whose work is under review (claude, codex or gemini); its route in the pin lists one reviewer
+of a different model family and at most one fallback, also of a different family. The first reviewer that runs and returns a review is the round. One that is not installed, exits
+non-zero, times out, returns nothing, or ends its reply `OVERALL: blocked` (it could not reach the candidate, for
+example a sandbox that cannot read the repository) is skipped and the reason recorded. When every reviewer fails there
+is no review: exit 1, which never counts as approval. A review that finds problems is still a review (exit 0).
 
 Reviewers run read-only in the repository root: Codex in its read-only sandbox, Antigravity in plan mode inside its
 sandbox, Claude Code in plan mode. The script prints a JSON summary; `--record` also appends a `## Round N` section to
@@ -31,6 +32,9 @@ ROOT = Path(__file__).resolve().parents[1]
 PIN = ROOT / ".conclave" / "reviewers.toml"
 WRITERS = ("claude", "codex", "gemini")
 CLIS = ("codex", "agy", "claude")
+# A reviewer is never of the writer's own model family: its CLI names the family, and so does the writer.
+FAMILY = {"codex": "openai", "agy": "google", "claude": "anthropic"}
+WRITER_FAMILY = {"claude": "anthropic", "codex": "openai", "gemini": "google"}
 EFFORTS = {"codex": ("low", "medium", "high", "xhigh"), "claude": ("low", "medium", "high", "xhigh", "max")}
 MODEL = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -39,6 +43,8 @@ NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 ARGV_PROMPT_LIMIT = 24_000 if os.name == "nt" else 100_000
 # A review is prose. Output past this size is a runaway reviewer, not a review.
 MAX_OUTPUT_BYTES = 2_000_000
+# The prompt's reply format ends with an OVERALL line; `blocked` means the reviewer never saw the work.
+BLOCKED = re.compile(r"^\s*OVERALL:\s*blocked\b", re.IGNORECASE)
 POLL_SECONDS = 0.2
 CLEANUP_SECONDS = 10
 
@@ -80,10 +86,14 @@ def load_pin(path=PIN):
     if not isinstance(routes, dict) or set(routes) - set(WRITERS):
         raise Refused(f"[routes] may only name the writers {', '.join(WRITERS)}")
     for writer, chain in routes.items():
-        if not isinstance(chain, list) or not chain or not all(isinstance(r, str) for r in chain):
-            raise Refused(f"route {writer!r} must be a non-empty list of reviewer names")
+        if not isinstance(chain, list) or not 1 <= len(chain) <= 2 or not all(isinstance(r, str) for r in chain):
+            raise Refused(f"route {writer!r} must list one reviewer and at most one fallback")
         if any(r not in reviewers for r in chain) or len(set(chain)) != len(chain):
             raise Refused(f"route {writer!r} must list defined reviewers, each once")
+        same = [r for r in chain if FAMILY[reviewers[r]["cli"]] == WRITER_FAMILY[writer]]
+        if same:
+            raise Refused(f"route {writer!r} names {', '.join(same)}, of the writer's own family; "
+                          f"a review comes from a different family")
     return pin
 
 
@@ -208,12 +218,23 @@ def review(pin, writer, prompt_path, timeout):
             remove_scratch(tmp)
         if problem is None and not (stdout or "").strip():
             problem = "returned no review"
+        if problem is None:
+            problem = blocked(stdout)
         if problem:
             failover.append({"reviewer": name, "reason": problem})
             continue
         return {"writer": writer, "reviewer": name, "cli": reviewer["cli"], "model": reviewer["model"],
                 "effort": reviewer.get("effort"), "failover": failover, "review": stdout.strip()}
     return {"writer": writer, "reviewer": None, "failover": failover, "review": None}
+
+
+def blocked(text):
+    """Why a reply is not a review, when its last line is `OVERALL: blocked`; None for a review."""
+    lines = [line for line in text.strip().splitlines() if line.strip()]
+    if not lines or not BLOCKED.match(lines[-1]):
+        return None
+    reason = next((line.strip() for line in lines[:-1] if not line.lstrip().startswith("#")), "no reason given")
+    return f"could not review: {reason[:300]}"
 
 
 def atomic_write(path, text):
