@@ -1,0 +1,15 @@
+[
+  [
+    "rename_reviewer",
+    "astra",
+    "gpt6"
+  ],
+  [
+    "set_route",
+    "claude",
+    [
+      "gemini",
+      "gpt6"
+    ]
+  ]
+]

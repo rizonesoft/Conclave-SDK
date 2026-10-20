@@ -13,6 +13,7 @@ import json
 import re
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -21,13 +22,16 @@ PIN = ROOT / "kits/reviewer/templates/.conclave/reviewers.toml"
 # The layout the editor edits in place; any other line makes the pin read-only (the pin-layout state).
 HEADER = re.compile(r"\[(reviewers\.[A-Za-z0-9_-]+|routes)\][ \t]*(#.*)?")
 KEY = re.compile(r"([A-Za-z0-9_-]+)[ \t]*=[ \t]*(\"[^\"\\\n]*\"|'[^'\n]*'|[0-9]+)([ \t]*#.*)?")
-ROUTE = re.compile(r"([A-Za-z0-9_-]+)[ \t]*=[ \t]*\[((?:[ \t]*\"[A-Za-z0-9_-]+\"[ \t]*,?)*)\]([ \t]*#.*)?")
+# Elements need the comma between them that TOML requires, so no two quantifiers compete for the same spaces and a
+# long malformed array cannot backtrack exponentially.
+ROUTE = re.compile(r"([A-Za-z0-9_-]+)[ \t]*=[ \t]*\[([ \t]*(?:\"[A-Za-z0-9_-]+\"(?:[ \t]*,[ \t]*\"[A-Za-z0-9_-]+\")*(?:[ \t]*,)?[ \t]*)?)\]([ \t]*#.*)?")
+TOKEN = re.compile(r'"([A-Za-z0-9_-]+)"')
 
 
 def editable(text):
     """True when every line is blank, a comment, a header, a one-line key or a one-line route array."""
     table = None
-    for line in text.splitlines():
+    for line in text.split("\n"):
         s = line.strip()
         if not s or s.startswith("#"):
             continue
@@ -42,7 +46,19 @@ def editable(text):
 
 
 def lines_of(text):
-    return text.splitlines(keepends=True)
+    """Lines split on \n alone, each keeping its ending: TOML ends a line with \n or \r\n and nothing else, so a
+    U+2028 or a form feed inside a comment is a character of that line (str.splitlines would split there)."""
+    return re.findall(r"[^\n]*\n|[^\n]+$", text)
+
+
+def rebuild(inner, names):
+    """The array's inside with these names, in its own style: the spacing after "[", between elements and before "]"
+    are kept, so an edit changes only the names."""
+    tokens = list(TOKEN.finditer(inner))
+    lead = inner[:tokens[0].start()] if tokens else ""
+    trail = inner[tokens[-1].end():] if tokens else ""
+    sep = inner[tokens[0].end():tokens[1].start()] if len(tokens) >= 2 else ", "
+    return lead + sep.join(f'"{n}"' for n in names) + trail
 
 
 def eol(text):
@@ -139,14 +155,14 @@ def set_routes(text, change):
         m = ROUTE.fullmatch(lines[i].strip())
         if not m:
             continue
-        names = re.findall(r'"([A-Za-z0-9_-]+)"', m.group(2))
+        names = TOKEN.findall(m.group(2))
         new = change(names)
         if new == names:
             continue
         if not new:
             remove_line(lines, i, m.group(3))
         else:
-            lines[i] = lines[i].replace(f"[{m.group(2)}]", "[" + ", ".join(f'"{n}"' for n in new) + "]", 1)
+            lines[i] = lines[i].replace(f"[{m.group(2)}]", "[" + rebuild(m.group(2), new) + "]", 1)
     return "".join(lines)
 
 
@@ -158,7 +174,8 @@ def set_route(text, writer, names):
     for i in range(start + 1, end):
         m = ROUTE.fullmatch(lines[i].strip())
         if m and m.group(1) == writer:
-            lines[i] = lines[i].replace(f"[{m.group(2)}]", array, 1)
+            if TOKEN.findall(m.group(2)) != list(names):
+                lines[i] = lines[i].replace(f"[{m.group(2)}]", "[" + rebuild(m.group(2), names) + "]", 1)
             return "".join(lines)
     lines[end - 1] = ending(lines[end - 1], nl)
     lines.insert(end, f"{writer} = {array}{nl}")
@@ -234,6 +251,9 @@ def golden(shipped):
         ("remove-route-comment", shipped.replace('gemini = ["astra", "sonnet"]', 'gemini = ["astra", "sonnet"] # kept'),
          [["remove_route", "gemini"]]),
         ("add-field-no-final-newline", apply(bare, back[:2]), [["set_field", "mini", "effort", "low"]]),
+        # Review round 1 of D02 T01 §4: a route keeps its own spacing through a rename and a reorder.
+        ("route-style", shipped.replace('claude = ["astra", "gemini"]', 'claude = [ "astra" ,\t"gemini" ] # keep'),
+         [["rename_reviewer", "astra", "gpt6"], ["set_route", "claude", ["gemini", "gpt6"]]]),
     ]
 
 
@@ -265,6 +285,15 @@ def main():
     assert editable(shipped), "the shipped pin must be in the editable layout"
     assert not editable("reviewers = { astra = { cli = 'codex' } }\n"), "an inline table is not editable"
     check, Refused = load_pin()
+    # Review round 1 of D02 T01 §4: a U+2028 in a comment is part of that line, an unchanged route is not rewritten,
+    # and a long malformed array is refused at once.
+    sep = shipped.replace('effort = "medium"', 'effort = "medium" # one\u2028# two')
+    assert editable(sep) and set_field(sep, "astra", "effort", "high").count("# one\u2028# two") == 1
+    spaced = shipped.replace('claude = ["astra", "gemini"]', 'claude = [ "astra" ,\t"gemini" ] # keep')
+    assert set_route(spaced, "claude", ["astra", "gemini"]) == spaced
+    started = time.monotonic()
+    assert not editable('[routes]\nclaude = [' + '"a" ' * 5000 + '!')
+    assert time.monotonic() - started < 1, "the route pattern backtracks"
     # Review round 2 of D00 T01 §4: a removed line's trailing comment stays, and an insert after a last line with no
     # final newline still starts its own line.
     noted = cases(shipped)[1][3].replace('effort = "low"', 'effort = "low" # retained operator note')

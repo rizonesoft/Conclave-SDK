@@ -160,7 +160,8 @@ All validation comes from the workspace's own dispatcher (plan R7). This section
 
 The pin carries a comment above every table, and the owner requires comments to survive edits (plan R12). This section builds the text model: it reads the pin into reviewers and routes for display, and applies edits as minimal text changes so everything it does not touch stays byte for byte. It implements the approach the spec settles in `D00 T01 §4` (a CST-preserving library or a narrow hand-written editor for the pin's grammar) and never validates: an edit it can express is checked by the dispatcher in §5.
 
-**Corrected 2026-10-20:** each golden case is `input.toml`, `edits.json` (the edits in order) and `expected.toml`, written by `python design/spikes/pin_edits.py --write extensions/vscode/test/fixtures/edits`, so the TypeScript replays the reference's own edits; `remove-field-comment` moves `mini` to Antigravity first, as `remove-field` does, so its output is a pin the dispatcher accepts (removing a Codex reviewer's effort alone is refused).
+**Corrected 2026-10-20:** each golden case is `input.toml`, `edits.json` (the edits in order) and `expected.toml`, written by `python design/spikes/pin_edits.py --write extensions/vscode/test/fixtures/edits`, so the TypeScript replays the reference's own edits; `remove-field-comment` moves `mini` to Antigravity first, as `remove-field` does, so its output is a pin the dispatcher accepts (removing a Codex reviewer's effort alone is refused). Review round 1 added the `route-style` golden case (a route keeps its own spacing; an unchanged route is not rewritten), lines split on `
+` only, and a route pattern without exponential backtracking, in the reference and the port alike.
 
 **Phase:** 1
 **Needs:** none

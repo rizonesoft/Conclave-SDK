@@ -7,10 +7,15 @@
 // It never validates: the workspace dispatcher's --check-pin judges every result. Its behaviour is the reference
 // design/spikes/pin_edits.py, whose outputs are the golden cases under test/fixtures/edits/.
 
-const HEADER = /^\[(reviewers\.[A-Za-z0-9_-]+|routes)\][ \t]*(#.*)?$/;
-const KEY = /^([A-Za-z0-9_-]+)[ \t]*=[ \t]*("[^"\\\n]*"|'[^'\n]*'|[0-9]+)([ \t]*#.*)?$/;
-const ROUTE = /^([A-Za-z0-9_-]+)[ \t]*=[ \t]*\[((?:[ \t]*"[A-Za-z0-9_-]+"[ \t]*,?)*)\]([ \t]*#.*)?$/;
-const NAME = /"([A-Za-z0-9_-]+)"/g;
+// A comment runs to the end of the line, which TOML ends only at \n: [^\n] rather than ".", which in JavaScript also
+// stops at U+2028 and U+2029 (Python's "." does not), so both editors read the same lines.
+const HEADER = /^\[(reviewers\.[A-Za-z0-9_-]+|routes)\][ \t]*(#[^\n]*)?$/;
+const KEY = /^([A-Za-z0-9_-]+)[ \t]*=[ \t]*("[^"\\\n]*"|'[^'\n]*'|[0-9]+)([ \t]*#[^\n]*)?$/;
+// Elements need the comma between them that TOML requires, so no two quantifiers compete for the same spaces and a
+// long malformed array cannot backtrack exponentially.
+const ROUTE =
+  /^([A-Za-z0-9_-]+)[ \t]*=[ \t]*\[([ \t]*(?:"[A-Za-z0-9_-]+"(?:[ \t]*,[ \t]*"[A-Za-z0-9_-]+")*(?:[ \t]*,)?[ \t]*)?)\]([ \t]*#[^\n]*)?$/;
+const TOKEN = /"([A-Za-z0-9_-]+)"/g;
 
 export interface Span {
   start: number;
@@ -36,9 +41,25 @@ export interface PinView {
   routes: PinRoute[];
 }
 
-// Lines with their endings kept, split as Python's str.splitlines(keepends=True) splits the line endings a pin uses.
+// Lines split on \n alone, each keeping its ending (a CRLF line keeps its \r\n): TOML ends a line with \n or \r\n and
+// nothing else, so a U+2028 inside a comment is a character of that line.
 function linesOf(text: string): string[] {
-  return text.match(/[^\r\n]*(?:\r\n|\n|\r)|[^\r\n]+$/g) ?? [];
+  return text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+}
+
+function names(inner: string): string[] {
+  return [...inner.matchAll(TOKEN)].map((n) => n[1]);
+}
+
+// The array's inside with these names, in its own style: the spacing after "[", between elements and before "]" are
+// kept, so an edit changes only the names.
+function rebuild(inner: string, updated: string[]): string {
+  const tokens = [...inner.matchAll(TOKEN)];
+  const lead = tokens.length ? inner.slice(0, tokens[0].index) : "";
+  const last = tokens[tokens.length - 1];
+  const trail = tokens.length ? inner.slice((last.index ?? 0) + last[0].length) : "";
+  const sep = tokens.length >= 2 ? inner.slice((tokens[0].index ?? 0) + tokens[0][0].length, tokens[1].index) : ", ";
+  return lead + updated.map((n) => `"${n}"`).join(sep) + trail;
 }
 
 function eol(text: string): string {
@@ -55,7 +76,7 @@ function isComment(line: string): boolean {
 
 export function isEditableLayout(text: string): boolean {
   let table: string | undefined;
-  for (const raw of text.split(/\r\n|\n|\r/)) {
+  for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (line === "" || line.startsWith("#")) {
       continue;
@@ -154,6 +175,10 @@ export function addReviewer(text: string, name: string, entry: Record<string, st
   return lines.join("");
 }
 
+function same(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((n, k) => n === b[k]);
+}
+
 // Applies change(names) to every route; a route left empty is removed, never written as [].
 function setRoutes(text: string, change: (names: string[]) => string[]): string {
   const lines = linesOf(text);
@@ -163,15 +188,15 @@ function setRoutes(text: string, change: (names: string[]) => string[]): string 
     if (!m) {
       continue;
     }
-    const names = [...m[2].matchAll(NAME)].map((n) => n[1]);
-    const updated = change(names);
-    if (updated.length === names.length && updated.every((n, k) => n === names[k])) {
+    const current = names(m[2]);
+    const updated = change(current);
+    if (same(updated, current)) {
       continue;
     }
     if (updated.length === 0) {
       removeLine(lines, i, m[3]);
     } else {
-      lines[i] = replaceFirst(lines[i], `[${m[2]}]`, `[${updated.map((n) => `"${n}"`).join(", ")}]`);
+      lines[i] = replaceFirst(lines[i], `[${m[2]}]`, `[${rebuild(m[2], updated)}]`);
     }
   }
   return lines.join("");
@@ -199,15 +224,17 @@ export function deleteReviewer(text: string, name: string): string {
 }
 
 // Rewrites one writer's array on its own line, or appends a line after the last route when it has none.
-export function setRoute(text: string, writer: string, names: string[]): string {
+export function setRoute(text: string, writer: string, routeNames: string[]): string {
   const lines = linesOf(text);
   const nl = eol(text);
   const [start, end] = tableSpan(lines, "routes");
-  const array = `[${names.map((n) => `"${n}"`).join(", ")}]`;
+  const array = `[${routeNames.map((n) => `"${n}"`).join(", ")}]`;
   for (let i = start + 1; i < end; i += 1) {
     const m = ROUTE.exec(lines[i].trim());
     if (m && m[1] === writer) {
-      lines[i] = replaceFirst(lines[i], `[${m[2]}]`, array);
+      if (!same(names(m[2]), routeNames)) {
+        lines[i] = replaceFirst(lines[i], `[${m[2]}]`, `[${rebuild(m[2], routeNames)}]`);
+      }
       return lines.join("");
     }
   }
@@ -260,7 +287,7 @@ export function readPin(text: string): PinView | undefined {
           const body = lines[k].replace(/[\r\n]+$/, "");
           view.routes.push({
             writer: m[1],
-            names: [...m[2].matchAll(NAME)].map((n) => n[1]),
+            names: names(m[2]),
             span: { start: offsets[k], end: offsets[k] + body.length },
           });
         }

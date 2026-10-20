@@ -55,7 +55,7 @@ function python(): string[] {
 }
 
 test("pinText: every golden edit gives the reference's bytes, LF and CRLF", () => {
-  assert.equal(cases.length, 12, `expected 12 golden cases, found ${cases.join(", ")}`);
+  assert.equal(cases.length, 13, `expected 13 golden cases, found ${cases.join(", ")}`);
   for (const name of cases) {
     const input = read(name, "input.toml");
     const edits = JSON.parse(read(name, "edits.json")) as Edit[];
@@ -127,4 +127,23 @@ test("pinText: readPin's spans slice back to the text, and an unchanged value le
   assert.deepEqual(view?.routes.map((r) => [r.writer, r.names]), [
     ["claude", ["astra", "gemini"]], ["codex", ["gemini", "sonnet"]], ["gemini", ["astra", "sonnet"]],
   ]);
+});
+
+test("pinText: a route keeps its own spacing, and an unchanged route is not rewritten", () => {
+  const spaced = shipped.replace('claude = ["astra", "gemini"]', 'claude = [ "astra" ,\t"gemini" ] # keep');
+  assert.notEqual(spaced, shipped);
+  assert.equal(setRoute(spaced, "claude", ["astra", "gemini"]), spaced);
+  assert.ok(setRoute(spaced, "claude", ["gemini", "astra"]).includes('claude = [ "gemini" ,\t"astra" ] # keep'));
+});
+
+test("pinText: a U+2028 inside a comment is part of its line, as TOML reads it", () => {
+  const text = shipped.replace('effort = "medium"', 'effort = "medium" # one\u2028# two');
+  assert.ok(isEditableLayout(text));
+  assert.equal(setField(text, "astra", "effort", "high").split("# one\u2028# two").length, 2);
+});
+
+test("pinText: a long malformed route array is refused at once", () => {
+  const started = Date.now();
+  assert.equal(isEditableLayout("[routes]\nclaude = [" + '"a" '.repeat(5000) + "!"), false);
+  assert.ok(Date.now() - started < 1000, `took ${Date.now() - started} ms`);
 });
