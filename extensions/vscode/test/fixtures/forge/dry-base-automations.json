@@ -1,0 +1,22 @@
+{
+  "target": "<TARGET>",
+  "kit": "automations",
+  "agent": "all",
+  "dry_run": true,
+  "installed": [
+    ".agents/skills/scheduled-automations/SKILL.md",
+    ".claude/skills/scheduled-automations/SKILL.md",
+    ".codex/skills/scheduled-automations/agents/openai.yaml",
+    ".codex/skills/scheduled-automations/SKILL.md",
+    ".conclave/automations/alert.py",
+    ".conclave/automations/install.ps1",
+    ".conclave/automations/install.sh",
+    ".conclave/automations/README.md",
+    ".conclave/automations/run.py",
+    ".conclave/automations/tasks.json",
+    "scripts/tests/test_automations.py"
+  ],
+  "updated": [],
+  "preserved": [],
+  "merge_needed": []
+}

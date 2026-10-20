@@ -364,6 +364,8 @@ Every kit operation in `D05 T01` runs `forge.py` the same way, so this section i
 
 ## 10. Workspace kit state from forge
 
+> **Started:** 2026-10-20T15:45:00Z
+
 The Kits view, the dialogs and the reviewer editor need each folder's kit state (plan R27) without reimplementing forge. The rule comes from forge itself: for each kit `forge.py kits` returns, run `forge.py kit <folder> <kit> --dry-run --agent all`. An empty `installed` list means installed; a non-empty `installed` with a non-empty `preserved` means partly installed; an empty `preserved` means not installed. The state is relative to all three agents' folders, so a repository provisioned for one agent shows partly installed and says why.
 
 **Phase:** 1
@@ -375,14 +377,17 @@ The Kits view, the dialogs and the reviewer editor need each folder's kit state 
 1. Write `extensions/vscode/src/core/kitState.ts` with the rule. Done when: unit tests over recorded dry runs give the expected states.
 2. Write `extensions/vscode/src/host/kitState.ts` with caching and refresh. Done when: an integration test reads every kit's state for the shipped workspace and refreshes after a change.
 
-- [ ] Implement `kitState(dryRun)` in `extensions/vscode/src/core/kitState.ts` with the rule above, returning the state and the counts of files forge would add and keep. Done when: unit tests over recorded dry runs (an empty folder, a base-only folder, a folder with every kit, a claude-only folder) give not installed, installed and partly installed as expected. Cheaper substitute: one marker file per kit checked in TypeScript.
-- [ ] Explain partly installed with the count and the first five paths forge would add. Done when: the claude-only fixture's state names `.agents/` and `.codex/` paths. Cheaper substitute: "partly" with no reason.
-- [ ] Run the dry runs for a folder one at a time through §9 and cache them until a `FileSystemWatcher` on `.agents/`, `.claude/`, `.codex/`, `.conclave/`, `scripts/`, `todo/` or `docs/` fires or a `D05 T01` operation finishes. Done when: an integration test sees no forge call on a second read and one after a change. Cheaper substitute: re-running on every render.
-- [ ] Expose `onDidChangeKitState(folder)` for the Kits view and the reviewer editor. Done when: the test sees one event after an install. Cheaper substitute: polling.
-- [ ] Write `extensions/vscode/test/unit/kitState.test.ts` and `extensions/vscode/test/integration/kitState.test.ts`. Done when: both pass and the unit run fails when an empty `preserved` list is read as partly installed. Cheaper substitute: unit tests only.
+- [x] Implement `kitState(dryRun)` in `extensions/vscode/src/core/kitState.ts` with the rule above, returning the state and the counts of files forge would add and keep. Done when: unit tests over recorded dry runs (an empty folder, a base-only folder, a folder with every kit, a claude-only folder) give not installed, installed and partly installed as expected. Cheaper substitute: one marker file per kit checked in TypeScript.
+  The dry runs are recorded by `extensions/vscode/scripts/record-forge-fixtures.py` (`dry-<folder>-<kit>.json`). **Corrected 2026-10-20:** a fourth state, `unavailable`, carries forge's own refusal (the laravel kit outside a Laravel app exits 2, `No artisan found`); a file forge would update on a refresh counts as kept.
+- [x] Explain partly installed with the count and the first five paths forge would add. Done when: the claude-only fixture's state names `.agents/` and `.codex/` paths. Cheaper substitute: "partly" with no reason.
+  The reason leads with where the missing files are (`14 of 28 files are missing (5 in .agents/, 7 in .codex/, CODEX.md, GEMINI.md): ...`), then the first five paths.
+- [x] Run the dry runs for a folder one at a time through §9 and cache them until a `FileSystemWatcher` on `.agents/`, `.claude/`, `.codex/`, `.conclave/`, `scripts/`, `todo/` or `docs/` fires or a `D05 T01` operation finishes. Done when: an integration test sees no forge call on a second read and one after a change. Cheaper substitute: re-running on every render.
+  **Corrected 2026-10-20:** the root agent documents (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `CODEX.md`) are watched too, since the base kit writes them. A burst of changes (an install writes dozens of files) gives one event after 300 ms of quiet; without that, one install gave 85. A folder leaving the workspace drops its watchers and cache (`forget`), as the watchers hold a folder open on Windows.
+- [x] Expose `onDidChangeKitState(folder)` for the Kits view and the reviewer editor. Done when: the test sees one event after an install. Cheaper substitute: polling.
+- [x] Write `extensions/vscode/test/unit/kitState.test.ts` and `extensions/vscode/test/integration/kitState.test.ts`. Done when: both pass and the unit run fails when an empty `preserved` list is read as partly installed. Cheaper substitute: unit tests only.
 - [ ] Commit: `extension: workspace kit state from forge's dry run`
 
-**Test checkpoint:** `cd extensions/vscode && npm test -- --test-name-pattern=kitState` passes, and fails when an empty `preserved` list is read as partly installed.
+**Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/kitState.test.js && npm run test:integration -- --grep kitState` passes, and fails when an empty `preserved` list is read as partly installed. **Corrected 2026-10-20:** was `npm test -- --test-name-pattern=kitState`, which does not filter on Node 24.14.1 (see `§2`).
 
 ## 11. Mockup parity fixtures and harness
 

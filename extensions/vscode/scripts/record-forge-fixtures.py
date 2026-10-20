@@ -74,6 +74,21 @@ def main():
         record("check", ["check", str(repo)], repo)
         record("doctor", ["doctor", str(repo)], repo)
         record("kit-refused", ["kit", str(work / "missing"), "reviewer"], work / "missing", expect=2)
+        # Kit state (D02 T01 §10): every kit's dry run on an empty folder, a base-only folder, a folder with every kit
+        # that applies outside a Laravel app, and a folder provisioned for Claude alone.
+        cases = {"empty": [], "base": ["init", "{dir}"], "all": ["init", "{dir}", "--kit", "todo", "--kit", "reviewer",
+                 "--kit", "automations", "--kit", "wordpress"], "claude": ["init", "{dir}", "--agent", "claude"]}
+        for case, setup in cases.items():
+            folder = work / f"state-{case}"
+            folder.mkdir()
+            if setup:
+                code, _, stderr = forge([a.replace("{dir}", str(folder)) for a in setup], folder)
+                if code != 0:
+                    sys.exit(f"state-{case}: setup exited {code}\n{stderr[-2000:]}")
+            for kit in ("base", "todo", "reviewer", "automations", "wordpress"):
+                record(f"dry-{case}-{kit}", ["kit", str(folder), kit, "--dry-run", "--agent", "all"], folder)
+        record("dry-empty-laravel", ["kit", str(work / "state-empty"), "laravel", "--dry-run", "--agent", "all"],
+               work / "state-empty", expect=2)
     return 0
 
 
