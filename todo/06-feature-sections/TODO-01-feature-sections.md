@@ -43,7 +43,7 @@ title: "TODO-01 -- Feature Sections"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Feature section registry | D02 T01 §10, D05 T01 §5 | [ ] |
-| 2 | §2 | Plan query in todo-graph | D00 T01 §2 | [ ] |
+| 2 | §2 | Plan query in todo-graph | D00 T01 §2 | [x] |
 | 3 | §3 | Round listing in the dispatcher | D00 T01 §2 | [ ] |
 | 4 | §4 | Reviewers section | §1, D02 T01 §3 | [ ] |
 | 5 | §5 | Plan section | §1, §2 | [ ] |
@@ -92,9 +92,12 @@ The Plan section must not read `todo/` itself (plan R34): `todo_graph.py` owns t
 - [x] Add `plan` to the `query` choices in `kits/todo/templates/scripts/todo-graph.py`, building the sections from `graph` and `disposition` and the names from `plan_config`. Done when: the new test passes. Cheaper substitute: re-reading `todo/plan.json` with a second loader.
 - [x] Add a refusal test for an unreadable `todo/plan.json` expecting the existing `Refused` message and exit code. Done when: it passes. Cheaper substitute: printing default phase names over a broken file.
 - [x] Document `query plan` in `kits/todo/README.md` and refresh the SDK's copy with `python forge.py sync . --include-scripts`. Done when: `cmp scripts/todo-graph.py kits/todo/templates/scripts/todo-graph.py` reports no difference. Cheaper substitute: hand-editing `scripts/todo-graph.py`.
-- [ ] Commit: `todo kit: query plan reports the config and every section`, then push `main`
+- [x] Commit: `todo kit: query plan reports the config and every section`, then push `main`
 
 **Test checkpoint:** `python -m unittest tests.test_todo_graph -v` passes, and `test_query_plan_reports_config_and_every_section` fails when the `plan` choice is removed.
+
+> **Verified:** 2026-10-20 | §2 | ab4e53ba5b35229dd8f734088a28c5104e668097
+> **Review:** `docs/reviews/d06-t01-s2.json`
 
 ## 3. Round listing in the dispatcher
 
