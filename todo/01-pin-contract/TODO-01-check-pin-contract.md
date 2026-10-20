@@ -42,6 +42,10 @@ title: "TODO-01 -- Check Pin Contract"
 
 ## 1. Strict schema_version type in load_pin
 
+> **Started:** 2026-10-20T08:06:45Z
+
+**Corrected 2026-10-20:** the owner's CRLF-only changes the first step guarded against are gone (`git status --short` lists only this run's untracked findings file), so that step records the clean tree; and the staging step listed four files, but ticking this checklist changes this TODO file too, so it is staged with them.
+
 `load_pin` compares `pin["schema_version"] != 1`, which a TOML boolean `true` or float `1.0` passes, so a malformed pin loads and `--check-pin` would echo `"schema_version": true`. This section fixes the rule in the reviewer kit, proves it with a regression test that fails first, and refreshes the SDK's installed copy. It must not change any other rule or message.
 
 **Phase:** 0
@@ -53,12 +57,12 @@ title: "TODO-01 -- Check Pin Contract"
 1. Add the failing test in `kits/reviewer/templates/scripts/tests/test_review_dispatch.py`. Done when: it fails on the unchanged `load_pin` because `schema_version = true` loads.
 2. Fix `load_pin` in `kits/reviewer/templates/scripts/review-dispatch.py` and refresh the root copy with `python forge.py sync . --include-scripts`. Done when: the new test passes, every other test passes, and `scripts/review-dispatch.py` matches the kit.
 
-- [ ] Read `git status --short` and note the owner's CRLF-only changes under `.agents/`, `.claude/`, `.codex/` and `AGENTS.md`. Done when: the list is recorded in the section's working notes and none of those paths is ever staged. Cheaper substitute: `git add -A`.
-- [ ] Add `test_a_non_integer_schema_version_is_refused` to `kits/reviewer/templates/scripts/tests/test_review_dispatch.py`, writing the shipped pin with `schema_version = true` and then `schema_version = 1.0` and expecting exit 2 and no reviewer call. Done when: the test fails against the unchanged `load_pin`. Cheaper substitute: a test that only checks `schema_version = 2`.
-- [ ] Change the schema check in `load_pin` to require `type(pin["schema_version"]) is int and pin["schema_version"] == 1`, keeping the message `the reviewer pin needs exactly schema_version = 1, [reviewers.*] and [routes]`. Done when: the new test passes. Cheaper substitute: `isinstance(..., int)`, which still accepts `True`.
-- [ ] Refresh the SDK's installed copy with `python forge.py sync . --include-scripts`. Done when: `cmp scripts/review-dispatch.py kits/reviewer/templates/scripts/review-dispatch.py` reports no difference. Cheaper substitute: hand-editing `scripts/review-dispatch.py`.
-- [ ] Run `python -m unittest discover -s tests -v` and `bash kits/reviewer/scripts/test-install.sh`. Done when: both pass, with the one Windows skip unchanged. Cheaper substitute: running only the new test.
-- [ ] Stage only the kit's dispatcher and test and their two root copies. Done when: `git diff --cached --stat` lists exactly those four files. Cheaper substitute: staging the owner's CRLF changes.
+- [x] Read `git status --short` and note the owner's CRLF-only changes under `.agents/`, `.claude/`, `.codex/` and `AGENTS.md`. Done when: the list is recorded in the section's working notes and none of those paths is ever staged. Cheaper substitute: `git add -A`.
+- [x] Add `test_a_non_integer_schema_version_is_refused` to `kits/reviewer/templates/scripts/tests/test_review_dispatch.py`, writing the shipped pin with `schema_version = true` and then `schema_version = 1.0` and expecting exit 2 and no reviewer call. Done when: the test fails against the unchanged `load_pin`. Cheaper substitute: a test that only checks `schema_version = 2`.
+- [x] Change the schema check in `load_pin` to require `type(pin["schema_version"]) is int and pin["schema_version"] == 1`, keeping the message `the reviewer pin needs exactly schema_version = 1, [reviewers.*] and [routes]`. Done when: the new test passes. Cheaper substitute: `isinstance(..., int)`, which still accepts `True`.
+- [x] Refresh the SDK's installed copy with `python forge.py sync . --include-scripts`. Done when: `cmp scripts/review-dispatch.py kits/reviewer/templates/scripts/review-dispatch.py` reports no difference. Cheaper substitute: hand-editing `scripts/review-dispatch.py`.
+- [x] Run `python -m unittest discover -s tests -v` and `bash kits/reviewer/scripts/test-install.sh`. Done when: both pass, with the one Windows skip unchanged. Cheaper substitute: running only the new test.
+- [x] Stage only the kit's dispatcher and test, their two root copies and this TODO file. Done when: `git diff --cached --stat` lists exactly those five files. Cheaper substitute: staging the owner's CRLF changes.
 - [ ] Commit: `reviewer: refuse a non-integer schema_version`, then push `main`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_review_dispatch.py -v` passes including `test_a_non_integer_schema_version_is_refused`, and that test fails when the `type(...) is int` check is reverted.

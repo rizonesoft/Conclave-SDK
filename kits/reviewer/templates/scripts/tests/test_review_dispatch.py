@@ -312,6 +312,18 @@ class Dispatch(unittest.TestCase):
         self.assertEqual(summary["reviewer"], "gemini")
         self.assertTrue(summary["failover"][0]["reason"].startswith("could not start"), summary["failover"])
 
+    def test_a_non_integer_schema_version_is_refused(self):
+        # TOML true is Python True and 1.0 == 1, so both passed a `!= 1` check and loaded.
+        pin = self.repo / ".conclave/reviewers.toml"
+        good = pin.read_text()
+        for bad in ("schema_version = true", "schema_version = 1.0"):
+            with self.subTest(bad=bad):
+                pin.write_text(good.replace("schema_version = 1", bad), encoding="utf-8")
+                result, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt))
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("needs exactly schema_version = 1, [reviewers.*] and [routes]", result.stderr)
+                self.assertEqual(self.calls(), [])
+
     def test_a_bad_pin_refuses_before_any_reviewer_runs(self):
         pin = self.repo / ".conclave/reviewers.toml"
         good = pin.read_text()

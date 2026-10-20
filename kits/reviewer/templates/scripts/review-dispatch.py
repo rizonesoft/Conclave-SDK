@@ -61,7 +61,9 @@ def load_pin(path=PIN):
         raise Refused(f"no reviewer pin at {path}") from None
     except tomllib.TOMLDecodeError as exc:
         raise Refused(f"unreadable reviewer pin: {exc}") from None
-    if set(pin) != {"schema_version", "reviewers", "routes"} or pin["schema_version"] != 1:
+    # `type(...) is int`: TOML true is Python True (an int subclass) and 1.0 == 1, so `!= 1` alone let both load.
+    if set(pin) != {"schema_version", "reviewers", "routes"} or type(pin["schema_version"]) is not int \
+            or pin["schema_version"] != 1:
         raise Refused("the reviewer pin needs exactly schema_version = 1, [reviewers.*] and [routes]")
     reviewers = pin["reviewers"]
     if not isinstance(reviewers, dict) or not reviewers:
