@@ -29,12 +29,15 @@ export const FORGE_PARSERS = new Map<string, (raw: string) => Parsed<unknown>>([
   ["doctor", parseDoctor],
 ]);
 
-// Why args are not a read-only forge run, or undefined: a command outside FORGE_PARSERS, or `kit` without --dry-run,
-// which would install.
+// Why args are not a read-only forge run, or undefined: a command outside FORGE_PARSERS, `kit` without --dry-run,
+// which would install, or a `--`, after which argparse reads --dry-run as a folder name and installs into it.
 export function notReadOnly(args: string[]): string | undefined {
   const command = args[0] ?? "";
   if (!FORGE_PARSERS.has(command)) {
     return `forge ${command} is not a command the extension runs`;
+  }
+  if (args.includes("--")) {
+    return "forge arguments never include --: after it --dry-run would be read as a folder";
   }
   if (command === "kit" && !args.includes("--dry-run")) {
     return "forge kit runs only with --dry-run: the extension never installs a kit";

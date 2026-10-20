@@ -97,9 +97,11 @@ suite("forgeRunner", () => {
   test("forgeRunner: a command that writes is refused before anything runs (read-only kit view)", async () => {
     const target = join(base, "never-written");
     const started = api.recentLog().filter((l) => / in .* ms$/.test(l)).length;
-    for (const args of [["init", target], ["sync", target], ["kit", target, "todo"], ["kit", target, "todo", "--agent", "all"]]) {
+    // After "--", argparse reads "--dry-run" as the target folder, so the install would go there.
+    for (const args of [["init", target], ["sync", target], ["kit", target, "todo"], ["kit", target, "todo", "--agent", "all"],
+      ["kit", "--", "--dry-run", "todo"], ["kit", target, "todo", "--dry-run", "--", "x"]]) {
       const refused = await api.runForge({ folder: sdk, label }, args);
-      assert.ok(refused.kind === "failed" && /not a command the extension runs|only with --dry-run/.test(refused.message), JSON.stringify(refused));
+      assert.ok(refused.kind === "failed" && /not a command the extension runs|only with --dry-run|never include --/.test(refused.message), JSON.stringify(refused));
     }
     assert.equal(api.recentLog().filter((l) => / in .* ms$/.test(l)).length, started, "a writing command was run");
     assert.equal(existsSync(target), false);
