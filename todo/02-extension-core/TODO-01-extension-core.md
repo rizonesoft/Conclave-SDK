@@ -61,7 +61,8 @@ title: "TODO-01 -- Extension Core"
 | 11 | §11 | Mockup parity fixtures and harness | §1, D00 T01 §2 | [ ] |
 | 12 | §12 | Extractor limits at tarfile's own parse | §7 | [x] |
 | 13 | §13 | Candidate folder links on Windows and shared fallbacks | §5 | [x] |
-| 14 | §14 | Extractor checks each member as tarfile reads it | §12 | [ ] |
+| 14 | §14 | Extractor checks each member as tarfile reads it | §12 | [x] |
+| 15 | §15 | Extractor folder tracking linear in path length | §14 | [ ] |
 
 ## 1. Extension scaffold, build and test harness
 
@@ -466,9 +467,34 @@ Review round 3 of `§12` (`docs/reviews/02-extension-core/D02-T01-s12.md`, the l
   At the end of `§12`, the `mtime` case crashed with an `OverflowError` traceback (exit 1, no JSON) and the 5000-character path reached extraction. Refusals now quote a name in at most 120 characters (`shown()`), since one quoted a 1 MB name; every refusal test asserts a reply under 600 characters.
 - [x] Measure peak allocation with `tracemalloc` on the global `path` archive and record it in the findings file. Done when: the peak is recorded before and after. Cheaper substitute: asserting refusal only.
 - [x] Run the extractor tests on Windows and in WSL, and extract the SDK's own `git archive`. Done when: all pass and the SDK's archive still extracts. Cheaper substitute: Windows only.
-- [ ] Commit: `extension: the extractor checks each member as tarfile reads it`
+- [x] Commit: `extension: the extractor checks each member as tarfile reads it`
 
 **Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/extractSdk.test.js` passes on Windows and in WSL, and the global `path` case fails on the extractor at the end of `§12`.
+
+> **Verified:** 2026-10-20 | §14 | 89784c74645df36e807cce6d862d8aae93551faa
+> **Review:** `docs/reviews/d02-t01-s14.json`
+
+## 15. Extractor folder tracking linear in path length
+
+Review round 3 of `§14` (`docs/reviews/02-extension-core/D02-T01-s14.md`, the last round its loop allowed) found that the file-versus-folder check `§14` added keeps every ancestor of every name as its own string, so memory grows with the square of a path's depth: 16 names of about 2000 one-letter folders each, a 92,160-byte archive, peaked at 67 MB, and distinct deep prefixes reach gigabytes within every other limit. Folders are tracked instead as a trie of components with integer node ids, each name walked once, and a name may have at most 64 components (the deepest path in the local repositories under `R:\GitHub` has 14).
+
+**Phase:** 1
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write the failing test: the reviewer's deep-path archive is refused or stays under a measured allocation, and the conflict cases keep passing. Done when: the depth case fails on the extractor at the end of `§14`.
+2. Replace the ancestor set with a component trie and cap the depth in `extensions/vscode/resources/extract_sdk.py`. Done when: every extractor test passes on Windows and in WSL and the SDK's own `git archive` extracts.
+
+- [ ] Add a name of more than 64 components to the refusal cases in `extensions/vscode/test/unit/extractSdk.test.ts`. Done when: it fails on the extractor at the end of `§14`. Cheaper substitute: the shallow conflict cases only.
+- [ ] Refuse a name of more than 64 components in `check_member`. Done when: the depth test passes. Cheaper substitute: a cap on name length alone.
+- [ ] Track files and folders in a trie keyed by `(parent node id, case-folded component)` in `Seen`, walking each name once: a component that is a file node cannot have children, and a file cannot land on a node that has children. Done when: the three conflict cases (both orders, and differing in case) still pass. Cheaper substitute: the ancestor string set.
+- [ ] Measure peak allocation with `tracemalloc` on the reviewer's 16-name archive and on 20,000 distinct 64-component names, and record both in the findings file. Done when: both peaks are recorded and bounded. Cheaper substitute: asserting refusal only.
+- [ ] Run the extractor tests on Windows and in WSL, and extract the SDK's own `git archive`. Done when: all pass and the SDK's archive still extracts. Cheaper substitute: Windows only.
+- [ ] Commit: `extension: extractor folder tracking linear in path length`
+
+**Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/extractSdk.test.js` passes on Windows and in WSL, and the 65-component case fails on the extractor at the end of `§14`.
 
 ## Verification
 

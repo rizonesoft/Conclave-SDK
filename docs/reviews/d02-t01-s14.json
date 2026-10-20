@@ -1,0 +1,28 @@
+{
+  "ref": "D02 T01 \u00a714",
+  "title": "Extractor checks each member as tarfile reads it",
+  "implementation_sha": "89784c74645df36e807cce6d862d8aae93551faa",
+  "date": "2026-10-20",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-extension-core/D02-T01-s14.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/02-extension-core/D02-T01-s14.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/02-extension-core/D02-T01-s14.md",
+      "verdict": "stopped-at-3"
+    }
+  ],
+  "checks": [
+    "cd extensions/vscode && npm run compile && node --test out/test/unit/extractSdk.test.js -> pass 2, fail 0 on Windows and in WSL; the global path case is refused by the member limit at the end of section 12 and at its second member now",
+    "tracemalloc on the global path archive: 102.6 MB at 98f9857, 4.1 MB at c5593ea",
+    "npm test -> tests 72, pass 70, skipped 2"
+  ]
+}

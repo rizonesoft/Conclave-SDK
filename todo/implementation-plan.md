@@ -30,7 +30,7 @@ Sections: 15 | Checklist items: 132
 
 ### Phase 1: Extension host and kit operations
 
-Sections: 17 | Checklist items: 133
+Sections: 18 | Checklist items: 139
 
 | Status | Reference   | Deliverable                                            | Needs | Items |
 | ------ | ----------- | ------------------------------------------------------ | ----- | ----- |
@@ -46,7 +46,8 @@ Sections: 17 | Checklist items: 133
 | [ ]    | D02 T01 §11 | Mockup parity fixtures and harness                     | none  | 7     |
 | [x]    | D02 T01 §12 | Extractor limits at tarfile's own parse                | none  | 5     |
 | [x]    | D02 T01 §13 | Candidate folder links on Windows and shared fallbacks | none  | 5     |
-| [ ]    | D02 T01 §14 | Extractor checks each member as tarfile reads it       | none  | 6     |
+| [x]    | D02 T01 §14 | Extractor checks each member as tarfile reads it       | none  | 6     |
+| [ ]    | D02 T01 §15 | Extractor folder tracking linear in path length        | none  | 6     |
 | [ ]    | D05 T01 §1  | Kit install with dry-run preview                       | none  | 9     |
 | [ ]    | D05 T01 §2  | Kit update through forge sync                          | none  | 8     |
 | [ ]    | D05 T01 §3  | Kit health from forge check and doctor                 | none  | 6     |
@@ -93,6 +94,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 23/59 verified sections, 4 ready to run now.
+Progress: 24/60 verified sections, 4 ready to run now.
 
-Checklist: 207/484 items completed (includes Commit items).
+Checklist: 208/490 items completed (includes Commit items).
