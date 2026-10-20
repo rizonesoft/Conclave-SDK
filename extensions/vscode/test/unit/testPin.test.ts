@@ -54,4 +54,8 @@ test("testPin: an unknown reviewer, an unknown CLI or a layout the editor does n
   assert.equal(singleReviewerPin(shipped, "nobody"), undefined);
   assert.equal(singleReviewerPin(shipped.replace('cli = "agy"', 'cli = "gemini-cli"'), "gemini"), undefined);
   assert.equal(singleReviewerPin("schema_version = 1\nreviewers = { astra = { cli = \"codex\" } }\n", "astra"), undefined);
+  // A CLI named after an object property is unknown, not a lookup of Object's members.
+  assert.equal(singleReviewerPin(shipped.replace('cli = "claude"', 'cli = "constructor"'), "sonnet"), undefined);
+  // No [routes] table: the text model cannot add a route, so there is no pin (a refusal, not a throw).
+  assert.equal(singleReviewerPin(shipped.slice(0, shipped.indexOf("# Each writer is reviewed")), "sonnet"), undefined);
 });

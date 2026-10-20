@@ -42,6 +42,10 @@ export class ReviewerTester {
     this.running = true;
     try {
       return await this.testNow(folder, name, options);
+    } catch (error) {
+      // Anything unforeseen is a refusal the card can show, never a rejected promise.
+      log(`Test reviewer ${name}: refused: ${String(error)}.`);
+      return { kind: "refused", message: `The test could not run: ${String(error)}` };
     } finally {
       this.running = false;
     }

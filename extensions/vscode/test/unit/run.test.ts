@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,7 +26,17 @@ test("an exit code and its output come back; a missing file cannot start", async
   assert.match(missing.error ?? "", /ENOENT/);
 });
 
+// Running, not merely present: on POSIX a killed process stays a zombie (state Z) until its parent reaps it, and
+// process.kill(pid, 0) still succeeds on one, so ps decides there.
 function alive(pid: number): boolean {
+  if (process.platform !== "win32") {
+    try {
+      const state = execFileSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).trim();
+      return state !== "" && !state.startsWith("Z");
+    } catch {
+      return false;
+    }
+  }
   try {
     process.kill(pid, 0);
     return true;
@@ -73,6 +84,62 @@ test("cancelling a tree run kills the process and a descendant in its own sessio
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
+});
+
+test("cancelling a tree run kills a chain 25 processes deep, all gone when the run settles", async () => {
+  const work = mkdtempSync(join(tmpdir(), "conclave-chain-"));
+  const pids = join(work, "pids.txt");
+  // Each process records its id and starts the next, 25 deep; the last one waits.
+  const script = `
+    const fs = require("node:fs");
+    const depth = Number(process.env.CHAIN_DEPTH ?? "25");
+    fs.appendFileSync(${JSON.stringify(pids)}, process.pid + "\\n");
+    if (depth > 1) {
+      // Under node -e the code is not in argv, so it is passed along as the first argument.
+      require("node:child_process").spawn(process.execPath, ["-e", process.argv[1], process.argv[1]], {
+        stdio: "ignore", env: { ...process.env, CHAIN_DEPTH: String(depth - 1) } });
+    }
+    setInterval(() => {}, 1000);`;
+  const controller = new AbortController();
+  try {
+    const running = run(process.execPath, ["-e", script, script], 60_000, work, { signal: controller.signal, tree: true });
+    const started = Date.now();
+    const count = () => (existsSync(pids) ? readFileSync(pids, "utf8").trim().split("\n").length : 0);
+    while (count() < 25 && Date.now() - started < 20_000) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.equal(count(), 25);
+    const chain = readFileSync(pids, "utf8").trim().split("\n").map(Number);
+    controller.abort();
+    assert.equal((await running).error, "cancelled");
+    // Settled only once the kill is done: on POSIX nothing may be left at that moment; Windows may report a process
+    // for a few milliseconds after TerminateProcess, so it gets a short grace.
+    const until = Date.now() + (process.platform === "win32" ? 1000 : 0);
+    while (chain.some(alive) && Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    assert.deepEqual(chain.filter(alive), [], "processes of the chain are still running");
+  } finally {
+    // A failed assertion above must not leave the chain running.
+    controller.abort();
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("a cancelled tree run settles only when the tree kill is done, not when the process exits", async () => {
+  let killDone = false;
+  const killer = async (pid: number) => {
+    process.kill(pid, "SIGKILL");
+    await new Promise((r) => setTimeout(r, 300));
+    killDone = true;
+  };
+  const controller = new AbortController();
+  const running = run(process.execPath, ["-e", "setInterval(() => {}, 1000)"], 60_000, undefined, { signal: controller.signal, tree: true, killer });
+  await new Promise((r) => setTimeout(r, 300));
+  controller.abort();
+  const result = await running;
+  assert.equal(result.error, "cancelled");
+  assert.equal(killDone, true, "the run settled on the exit, before the tree kill was done");
 });
 
 test("an argument execFile cannot pass is a run that could not start, not a rejection", async () => {

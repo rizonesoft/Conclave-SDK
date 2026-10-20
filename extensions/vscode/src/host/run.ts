@@ -24,6 +24,8 @@ export interface RunOptions {
   // Kill the whole process tree on timeout or cancel: a dispatcher starts each reviewer CLI in its own session, which
   // killing the dispatcher alone would leave running.
   tree?: boolean;
+  // How a tree is killed: killTree; tests pass one that reports done later, to prove the run waits for it.
+  killer?: (pid: number) => Promise<void>;
 }
 
 // Runs an absolute path with an argument array: no shell, no console window on Windows, and a timeout that always
@@ -37,7 +39,8 @@ export function run(file: string, args: string[], timeoutMs: number, cwd?: strin
       return;
     }
     let settled = false;
-    // Set when a cancel or the timeout starts killing: the exit that kill causes is reported as that reason.
+    // Set when a cancel or the timeout starts killing: the run then settles only once the kill is done (with that
+    // reason), never on the exit the kill causes, so a caller cleaning up after a cancel never races the tree.
     let stopping: string | undefined;
     const settle = (result: RunResult) => {
       if (!settled) {
@@ -52,8 +55,9 @@ export function run(file: string, args: string[], timeoutMs: number, cwd?: strin
       child = execFile(file, args, { windowsHide: true, encoding: "utf8", cwd, maxBuffer: 4 * 1024 * 1024 },
         (error, stdout, stderr) => {
           if (stopping !== undefined) {
-            settle({ code: undefined, stdout: "", stderr: "", error: stopping });
-          } else if (error && typeof error.code !== "number") {
+            return;
+          }
+          if (error && typeof error.code !== "number") {
             settle({ code: undefined, stdout, stderr, error: String(error.code ?? error.message) });
           } else {
             settle({ code: error ? (error.code as number) : 0, stdout, stderr });
@@ -73,7 +77,7 @@ export function run(file: string, args: string[], timeoutMs: number, cwd?: strin
       stopping = error;
       const done = () => settle({ code: undefined, stdout: "", stderr: "", error });
       if (options.tree && child.pid !== undefined) {
-        void killTree(child.pid).then(done, done);
+        void (options.killer ?? killTree)(child.pid).then(done, done);
       } else {
         child.kill("SIGKILL");
         done();
@@ -106,8 +110,9 @@ function signal(pid: number, name: NodeJS.Signals): void {
 
 // Kills pid and every process it started. Windows: taskkill /T /F, which walks the tree while its root is alive.
 // POSIX: the descendants are found from ps by parent id, not by process group, since a child that started its own
-// session (as the dispatcher does for each reviewer) leaves the group; each round stops what it finds, so nothing can
-// start another process, until a round finds nothing new, and then all of them are killed.
+// session (as the dispatcher does for each reviewer) leaves the group. Each round takes one ps snapshot, follows it to
+// the whole tree under pid however deep, and stops every process found, so none can start another; rounds repeat
+// until one finds nothing new, and then all of them are killed.
 export async function killTree(pid: number): Promise<void> {
   if (process.platform === "win32") {
     const taskkill = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe");
@@ -126,10 +131,12 @@ export async function killTree(pid: number): Promise<void> {
       }
     }
     const before = tree.size;
-    for (const member of [...tree]) {
-      for (const child of parents.get(member) ?? []) {
+    const queue = [...tree];
+    while (queue.length) {
+      for (const child of parents.get(queue.pop() as number) ?? []) {
         if (!tree.has(child)) {
           tree.add(child);
+          queue.push(child);
           signal(child, "SIGSTOP");
         }
       }
