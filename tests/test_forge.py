@@ -770,6 +770,36 @@ class ForgeKitStampTests(unittest.TestCase):
         self.assertEqual(res["kits"], [])
         self.assertIn("unknown", res["refused_newer"][0]["reason"])
 
+    def _stamp_reviewer(self, entry):
+        if forge.read_kit_stamp(self.target) is None:
+            forge.provision(self.target, kits=["reviewer"])
+        stamp = forge.read_kit_stamp(self.target)
+        stamp["kits"]["reviewer"] = entry
+        (self.target / ".conclave" / "kits.json").write_text(json.dumps(stamp), encoding="utf-8")
+
+    def test_a_date_without_a_time_zone_or_a_malformed_entry_is_refused_not_crashed_or_ignored(self):
+        for entry in ({"digest": "x", "commit": "c" * 40, "date": "2099-01-01"},
+                      {"digest": "x", "commit": "c" * 40, "date": "2099-01-01T00:00:00"},
+                      "malformed", {"digest": "x", "commit": "c" * 40, "date": 2099}):
+            self._stamp_reviewer(entry)
+            res = forge.provision(self.target, refresh=True)
+            self.assertIn("reviewer", [r["kit"] for r in res["refused_newer"]], repr(entry))
+            self.assertEqual(forge.read_kit_stamp(self.target)["kits"]["reviewer"], entry, "a refused kit's entry was rewritten")
+
+    def test_sync_that_refuses_a_kit_leaves_the_agent_manifests_as_they_are(self):
+        forge.provision(self.target, kits=["reviewer"], mode="inherit", agent="all")
+        stamp = forge.read_kit_stamp(self.target)
+        stamp["kits"]["reviewer"] = {"digest": "later", "commit": "c" * 40, "date": "2099-01-01T00:00:00+00:00"}
+        (self.target / ".conclave" / "kits.json").write_text(json.dumps(stamp), encoding="utf-8")
+        manifests = {name: (self.target / ".agents" / name).read_bytes() for name in ("skills.json", "plugins.json")
+                     if (self.target / ".agents" / name).is_file()}
+        self.assertIn("skills.json", manifests)
+        for mode in ("inherit", "isolated"):
+            res = forge.provision(self.target, refresh=True, mode=mode, agent="all")
+            self.assertEqual([r["kit"] for r in res["refused_newer"]], ["reviewer"])
+            for name, before in manifests.items():
+                self.assertEqual((self.target / ".agents" / name).read_bytes(), before, f"{mode} sync changed {name}")
+
     def test_check_reports_the_stamp(self):
         self.assertIsNone(forge.check_repo(self.target)["kit_stamp"])
         forge.provision(self.target)

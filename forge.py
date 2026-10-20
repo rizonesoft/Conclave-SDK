@@ -159,17 +159,23 @@ def read_kit_stamp(target_root: Path) -> dict | None:
 
 def stamped_newer(target_root: Path, kit_name: str) -> str | None:
     """Why this SDK must not replace the kit's files, or None: the folder's stamp says a later SDK set the kit up, or
-    a date on either side is unknown, which is never taken as older. A kit with no stamp entry is never refused."""
-    entry = ((read_kit_stamp(target_root) or {}).get("kits") or {}).get(kit_name)
-    if not isinstance(entry, dict):
+    its entry cannot be read, or a date on either side is unknown or has no time zone, none of which is ever taken as
+    older. A kit with no stamp entry at all is never refused."""
+    kits = (read_kit_stamp(target_root) or {}).get("kits") or {}
+    if kit_name not in kits:
         return None
+    entry = kits[kit_name]
     sdk = sdk_info()
+    if not isinstance(entry, dict):
+        return f"{kit_name}'s stamp entry cannot be read ({entry!r}), so this SDK might be older; run the SDK that set it up"
 
     def when(text):
         try:
-            return datetime.fromisoformat(text) if isinstance(text, str) else None
+            moment = datetime.fromisoformat(text) if isinstance(text, str) else None
         except ValueError:
             return None
+        # A date without a time zone cannot be ordered against git's: unknown.
+        return moment if moment is not None and moment.tzinfo is not None else None
 
     theirs, ours = when(entry.get("date")), when(sdk["date"])
     if theirs is None or ours is None:
@@ -191,7 +197,8 @@ def write_kit_stamp(target_root: Path, kits: list[str]) -> bool:
     if path.is_symlink() or _has_unsafe_parent(target_root, KIT_STAMP):
         return False
     old = read_kit_stamp(target_root)
-    entries = {k: v for k, v in (old or {}).get("kits", {}).items() if isinstance(v, dict)}
+    # Other kits' entries stay exactly as found, an unreadable one too: it is that kit's record, not this run's.
+    entries = dict((old or {}).get("kits", {}))
     sdk = sdk_info()
     for kit in kits:
         entries[kit] = {"digest": kit_digest(kit), "commit": sdk["commit"], "date": sdk["date"]}
@@ -832,7 +839,9 @@ def provision(
     if "todo" in selected and fresh_agents and agents_md.is_file():
         atomic_write(agents_md, agents_md.read_bytes() + TODO_POINTER.encode("utf-8"))
 
-    if agent in ("all", "agy"):
+    # The manifests point at the folders of whichever SDK set each kit up, so a sync that refused a kit as newer leaves
+    # them exactly as they are rather than rewrite or remove that SDK's entries.
+    if agent in ("all", "agy") and not refused_newer:
         for stale_json in (target_root / ".agents/skills.json", target_root / ".agents/plugins.json"):
             if mode == "isolated" and stale_json.is_file():
                 stale_json.unlink()
