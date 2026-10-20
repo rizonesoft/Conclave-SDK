@@ -49,4 +49,12 @@ The doctor loads the pin under the dispatcher's own rules and reports any review
 python3 scripts/review-dispatch.py --writer claude --prompt <scratch>/review-prompt.md --record docs/reviews/<topic>.md
 ```
 
+To read the recorded rounds back (the editor extension's Review rounds section does), without running a reviewer:
+
+```bash
+python3 scripts/review-dispatch.py --list-rounds --json [--records docs/reviews]
+```
+
+It prints `{"records": [{"path", "rounds": [{"number", "reviewer", "model", "cli", "writer", "run", "effort", "skipped": [{"reviewer", "reason"}]}]}]}`, with `reviewer`, `model` and `cli` null for a round no reviewer returned, and adds `"unreadable": [path]` for a findings file whose round headings or lines are not in the format `--record` writes, never dropping it. Without `--json` it prints one line per round.
+
 Exit 0 is a review (which may still find problems). Exit 1 means neither the reviewer nor its fallback returned a review (a reply ending `OVERALL: blocked` is not one), which is never an approval. Exit 2 means the pin or the arguments were refused and nothing ran.

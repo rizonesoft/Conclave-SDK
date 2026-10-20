@@ -268,14 +268,89 @@ def record(path, result, when):
     return number
 
 
+# What `record` writes, read back by `list_rounds`: the round heading and the lines directly under it.
+ROUND_HEADING = re.compile(r"^## Round (\d+): (none|([a-z0-9][a-z0-9-]*) \(`([^`]+)` via `([a-z]+)`\))$")
+ROUND_LINE = re.compile(r"^- (Writer|Run|Effort|Skipped): (.+)$")
+SKIPPED = re.compile(r"^([a-z0-9][a-z0-9-]*) \((.*)\)$")
+
+
+def read_rounds(text):
+    """The rounds `record` wrote in one findings file, or None when a `## Round` heading is not one it writes.
+    A round runs to the next round heading: the review text inside it has `##` headings of its own."""
+    rounds = []
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if not line.startswith("## Round"):
+            continue
+        heading = ROUND_HEADING.match(line)
+        if not heading:
+            return None
+        entry = {"number": int(heading.group(1)), "reviewer": heading.group(3), "model": heading.group(4),
+                 "cli": heading.group(5), "writer": None, "run": None, "effort": None, "skipped": []}
+        for meta in lines[i + 2:]:
+            field = ROUND_LINE.match(meta)
+            if not field:
+                break
+            key, value = field.group(1).lower(), field.group(2)
+            if key == "skipped":
+                skipped = SKIPPED.match(value)
+                if not skipped:
+                    return None
+                entry["skipped"].append({"reviewer": skipped.group(1), "reason": skipped.group(2)})
+            else:
+                entry[key] = value
+        if entry["writer"] is None or entry["run"] is None:
+            return None
+        rounds.append(entry)
+    return rounds
+
+
+def list_rounds(records_dir):
+    """Every findings file under records_dir that holds rounds, with each round as `record` wrote it. A file
+    whose round headings or lines are not `record`'s is named in `unreadable`, never dropped."""
+    records_dir = Path(records_dir)
+    records, unreadable = [], []
+
+    def shown(path):
+        path = path.resolve()
+        return path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else path.as_posix()
+
+    for path in sorted(records_dir.rglob("*.md")) if records_dir.is_dir() else []:
+        rounds = read_rounds(path.read_text(encoding="utf-8", errors="replace"))
+        if rounds is None:
+            unreadable.append(shown(path))
+        elif rounds:
+            records.append({"path": shown(path), "rounds": rounds})
+    return {"records": records, **({"unreadable": unreadable} if unreadable else {})}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--writer", required=True, choices=WRITERS, help="The agent whose work is under review")
-    parser.add_argument("--prompt", required=True, help="File holding the review prompt")
+    parser.add_argument("--writer", choices=WRITERS, help="The agent whose work is under review")
+    parser.add_argument("--prompt", help="File holding the review prompt")
     parser.add_argument("--record", help="Findings file to append this round to")
     parser.add_argument("--timeout", type=int, default=1800, help="Seconds per reviewer before failing over")
     parser.add_argument("--pin", default=str(PIN), help=argparse.SUPPRESS)
+    parser.add_argument("--list-rounds", action="store_true",
+                        help="List the recorded review rounds instead of running one; no reviewer runs")
+    parser.add_argument("--json", action="store_true", help="With --list-rounds, print the listing as JSON")
+    parser.add_argument("--records", default=str(ROOT / "docs" / "reviews"),
+                        help="With --list-rounds, the folder of findings files (default docs/reviews)")
     args = parser.parse_args(argv)
+    if args.list_rounds:
+        listing = list_rounds(args.records)
+        if args.json:
+            print(json.dumps(listing, indent=2))
+        else:
+            for entry in listing["records"]:
+                for r in entry["rounds"]:
+                    who = f"{r['reviewer']} ({r['model']} via {r['cli']})" if r["reviewer"] else "no review"
+                    print(f"{entry['path']}  Round {r['number']}: {who}, writer {r['writer']}, {r['run']}")
+            for path in listing.get("unreadable", []):
+                print(f"{path}  unreadable: a round heading or line is not in the record format")
+        return 0
+    if not args.writer or not args.prompt:
+        parser.error("--writer and --prompt are required unless --list-rounds is given")
     try:
         result = review(load_pin(args.pin), args.writer, args.prompt, args.timeout)
     except (Refused, OSError) as exc:

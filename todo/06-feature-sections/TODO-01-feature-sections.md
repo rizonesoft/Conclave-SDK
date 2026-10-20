@@ -98,6 +98,8 @@ The Plan section must not read `todo/` itself (plan R34): `todo_graph.py` owns t
 
 ## 3. Round listing in the dispatcher
 
+> **Started:** 2026-10-20T08:20:00Z (recorded at 08:31; work began about 08:20)
+
 The Review rounds section must not parse the dispatcher's Markdown (plan R35, open question 13): `record` owns that format. This section adds `review-dispatch.py --list-rounds [--json] [--records <dir>]` to the reviewer kit, listing each record file under `docs/reviews/` with its rounds, read back from the headings and lines `record` writes.
 
 **Phase:** 0
@@ -109,10 +111,10 @@ The Review rounds section must not parse the dispatcher's Markdown (plan R35, op
 1. Write the failing tests in `kits/reviewer/templates/scripts/tests/test_review_dispatch.py`. Done when: they fail because `--list-rounds` is an unknown argument.
 2. Implement the listing next to `record` in `kits/reviewer/templates/scripts/review-dispatch.py` and refresh the SDK's copy. Done when: the tests pass and the root copy matches the kit.
 
-- [ ] Add `test_list_rounds_reads_back_what_record_wrote`: write two rounds with `record` (one reviewed, one with every reviewer skipped), then expect `--list-rounds --json` to print `{"records": [{"path", "rounds": [{"number", "reviewer", "model", "cli", "writer", "run", "effort", "skipped": [{"reviewer", "reason"}]}]}]}` with `reviewer` null for the skipped round. Done when: it fails on the unchanged script. Cheaper substitute: a fixture typed by hand instead of written by `record`.
-- [ ] Implement `list_rounds(records_dir)` beside `record` in `kits/reviewer/templates/scripts/review-dispatch.py`, so the writer and the reader of the format sit together, and make `--writer` and `--prompt` optional only with `--list-rounds`. Done when: the new test and every existing test pass. Cheaper substitute: a second parser in the extension.
-- [ ] Add a test that a missing `docs/reviews/` prints `{"records": []}` and exit 0, and a malformed heading is reported in `"unreadable": [path]`, never dropped. Done when: both pass. Cheaper substitute: skipping bad files silently.
-- [ ] Document the flag in `kits/reviewer/README.md` and refresh the SDK's copy with `python forge.py sync . --include-scripts`. Done when: `cmp scripts/review-dispatch.py kits/reviewer/templates/scripts/review-dispatch.py` reports no difference. Cheaper substitute: hand-editing `scripts/review-dispatch.py`.
+- [x] Add `test_list_rounds_reads_back_what_record_wrote`: write two rounds with `record` (one reviewed, one with every reviewer skipped), then expect `--list-rounds --json` to print `{"records": [{"path", "rounds": [{"number", "reviewer", "model", "cli", "writer", "run", "effort", "skipped": [{"reviewer", "reason"}]}]}]}` with `reviewer` null for the skipped round. Done when: it fails on the unchanged script. Cheaper substitute: a fixture typed by hand instead of written by `record`.
+- [x] Implement `list_rounds(records_dir)` beside `record` in `kits/reviewer/templates/scripts/review-dispatch.py`, so the writer and the reader of the format sit together, and make `--writer` and `--prompt` optional only with `--list-rounds`. Done when: the new test and every existing test pass. Cheaper substitute: a second parser in the extension.
+- [x] Add a test that a missing `docs/reviews/` prints `{"records": []}` and exit 0, and a malformed heading is reported in `"unreadable": [path]`, never dropped. Done when: both pass. Cheaper substitute: skipping bad files silently.
+- [x] Document the flag in `kits/reviewer/README.md` and refresh the SDK's copy with `python forge.py sync . --include-scripts`. Done when: `cmp scripts/review-dispatch.py kits/reviewer/templates/scripts/review-dispatch.py` reports no difference. Cheaper substitute: hand-editing `scripts/review-dispatch.py`.
 - [ ] Commit: `reviewer: list recorded review rounds as JSON`, then push `main`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_review_dispatch.py -v` passes, and `test_list_rounds_reads_back_what_record_wrote` fails when `record`'s heading format changes without the reader.

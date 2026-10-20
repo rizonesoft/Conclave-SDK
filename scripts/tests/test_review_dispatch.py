@@ -232,6 +232,42 @@ class Dispatch(unittest.TestCase):
         self.assertIn("## Round 2: gemini (`gemini-4-argon-high` via `agy`)", text)
         self.assertIn("- Skipped: astra (exited 3)", text)
 
+    def test_list_rounds_reads_back_what_record_wrote(self):
+        # Two rounds written by record itself: one reviewed, one where every reviewer was skipped.
+        record = self.repo / "docs/reviews/00-design/D00-T01-s1.md"
+        self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
+        self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record),
+                      codex="fail", agy="fail")
+        result, listing = self.dispatch("--list-rounds", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        (only,) = listing["records"]
+        self.assertEqual(only["path"], "docs/reviews/00-design/D00-T01-s1.md")
+        reviewed, skipped = only["rounds"]
+        self.assertEqual({k: reviewed[k] for k in ("number", "reviewer", "model", "cli", "writer", "effort", "skipped")},
+                         {"number": 1, "reviewer": "astra", "model": "gpt-6-astra", "cli": "codex", "writer": "claude",
+                          "effort": "medium", "skipped": []})
+        self.assertRegex(reviewed["run"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+        self.assertEqual({k: skipped[k] for k in ("number", "reviewer", "model", "cli", "effort", "skipped")},
+                         {"number": 2, "reviewer": None, "model": None, "cli": None, "effort": None,
+                          "skipped": [{"reviewer": "astra", "reason": "exited 3"},
+                                      {"reviewer": "gemini", "reason": "exited 3"}]})
+        self.assertNotIn("unreadable", listing)
+
+    def test_list_rounds_with_no_records_and_with_an_unreadable_heading(self):
+        result, listing = self.dispatch("--list-rounds", "--json")
+        self.assertEqual((result.returncode, listing), (0, {"records": []}))
+        good = self.repo / "docs/reviews/a.md"
+        self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(good))
+        bad = self.repo / "docs/reviews/b.md"
+        bad.write_text("# Findings\n\n## Round two: astra\n\n- Writer: claude\n", encoding="utf-8")
+        result, listing = self.dispatch("--list-rounds", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([r["path"] for r in listing["records"]], ["docs/reviews/a.md"])
+        self.assertEqual(listing["unreadable"], ["docs/reviews/b.md"])
+        self.assertEqual(self.calls()[-1:], self.calls()[:1], "listing ran a reviewer")
+        result, _ = self.dispatch("--prompt", str(self.prompt))
+        self.assertEqual(result.returncode, 2, "a review without --writer must still be refused")
+
     def test_a_large_prompt_reaches_gemini_by_file(self):
         self.prompt.write_text("x" * 150_000, encoding="utf-8")
         self.dispatch("--writer", "codex", "--prompt", str(self.prompt))
