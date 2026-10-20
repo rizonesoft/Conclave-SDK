@@ -4,8 +4,10 @@
 
 Runs this SDK's own forge.py (two folders up) on fresh temporary folders and writes each command's stdout to
 test/fixtures/forge/<name>.json, with the temporary folder written as <TARGET> and the SDK folder as <SDK>, so two runs
-give the same files. A refusal (exit 2, its message on stderr) is recorded as <name>.stderr with its exit code. Stdlib
-only; every file is written through a temporary file and os.replace.
+give the same files on one platform (the committed ones were recorded on Windows: the automations doctor checks
+pythonw there and systemctl elsewhere, and stub CLIs are .cmd files there). A refusal (exit 2, its message on stderr)
+is recorded as <name>.stderr with its exit code. Stdlib only; every file is written through a temporary file and
+os.replace.
 """
 import json
 import os

@@ -81,6 +81,7 @@ export function activate(context: vscode.ExtensionContext): ConclaveApi {
   const kitHealth = new KitHealthService({
     kitStates: (folder) => kitStates.states(folder),
     onDidChangeKitState: kitStates.onDidChangeKitState,
+    onDidForget: kitStates.onDidForget,
     source: async (folder) => {
       const source = await sdk.resolve(folder);
       return "ok" in source ? source : { message: source.message };

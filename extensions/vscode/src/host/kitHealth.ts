@@ -14,6 +14,8 @@ export interface KitHealthDeps {
   // Each kit's state (D02 T01 §10): health is read for the kits installed or partly installed.
   kitStates: (folder: vscode.Uri) => Promise<KitStates>;
   onDidChangeKitState: vscode.Event<vscode.Uri>;
+  // The kit state's folder lifetime: a folder it forgets is forgotten here too.
+  onDidForget?: vscode.Event<vscode.Uri>;
   source: (folder: vscode.Uri) => Promise<ForgeSource | { message: string }>;
   python: (folder: vscode.Uri) => Promise<Python | { message: string }>;
   run?: typeof run;
@@ -33,11 +35,21 @@ export class KitHealthService implements vscode.Disposable {
   private readonly generations = new Map<string, number>();
   private readonly queues = new Map<string, Promise<unknown>>();
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
-  private readonly subscription: vscode.Disposable;
+  private readonly subscriptions: vscode.Disposable[] = [];
   readonly onDidChangeKitHealth = this.changed.event;
 
   constructor(private readonly deps: KitHealthDeps) {
-    this.subscription = deps.onDidChangeKitState((folder) => this.refresh(folder));
+    this.subscriptions.push(deps.onDidChangeKitState((folder) => this.refresh(folder)));
+    if (deps.onDidForget) {
+      this.subscriptions.push(deps.onDidForget((folder) => this.forget(folder)));
+    }
+  }
+
+  // A folder that left: its cached health is dropped, and a computation in flight for it runs again if read.
+  forget(folder: vscode.Uri): void {
+    const key = folder.toString();
+    this.generations.set(key, (this.generations.get(key) ?? 0) + 1);
+    this.cache.delete(key);
   }
 
   health(folder: vscode.Uri): Promise<KitHealthResult> {
@@ -105,7 +117,7 @@ export class KitHealthService implements vscode.Disposable {
   }
 
   dispose(): void {
-    this.subscription.dispose();
+    this.subscriptions.forEach((s) => s.dispose());
     this.changed.dispose();
   }
 }

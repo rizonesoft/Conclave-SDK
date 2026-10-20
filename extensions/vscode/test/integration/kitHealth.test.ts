@@ -56,7 +56,7 @@ suite("kitHealth", () => {
   suiteTeardown(async () => {
     process.env.PATH = path;
     await vscode.workspace.getConfiguration("conclave").update("sdkPath", undefined, vscode.ConfigurationTarget.Global);
-    for (const name of ["reviewer", "slow"]) {
+    for (const name of ["reviewer", "slow", "away"]) {
       api.forgetKitState(vscode.Uri.file(join(base, name)));
     }
     await new Promise((r) => setTimeout(r, 500));
@@ -124,5 +124,19 @@ suite("kitHealth", () => {
       health.dispose();
       states.dispose();
     }
+  });
+  test("kitHealth: a folder that left and came back gets fresh health, not what was cached before it left", async () => {
+    const work = join(base, "away");
+    mkdirSync(work);
+    const folder = vscode.Uri.file(work);
+    const source = { folder: sdk, label: "local Conclave-SDK (test)" };
+    assert.equal((await api.runForge(source, ["init", work, "--kit", "reviewer"])).kind, "ok");
+    const before = await api.kitHealth(folder);
+    assert.ok(before.ok && !before.kits.some((k) => k.kit === "todo"), JSON.stringify(before));
+    // The folder leaves (its watchers go with it), changes while it is away, and comes back.
+    api.forgetKitState(folder);
+    assert.equal((await api.runForge(source, ["kit", work, "todo"])).kind, "ok");
+    const after = await api.kitHealth(folder);
+    assert.ok(after.ok && after.kits.some((k) => k.kit === "todo"), `the health from before the folder left came back: ${JSON.stringify(after)}`);
   });
 });

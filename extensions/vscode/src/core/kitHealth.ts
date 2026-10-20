@@ -8,8 +8,10 @@ export type KitHealth =
   | { kit: string; state: "unavailable"; reason: string };
 
 export interface FolderHealth {
-  // The agent-setup flags forge check reports as false, by forge's own names (has_agents_md and so on).
-  missingSetup: string[];
+  // forge check's presence flags, verbatim (has_agents_md and so on). They say what is there, not what is wrong: in
+  // the default isolated mode forge removes .agents/skills.json and plugins.json on purpose, so a false flag is not a
+  // problem. What a kit is missing is its doctor's to say.
+  presence: Record<string, boolean>;
   kits: KitHealth[];
 }
 
@@ -21,10 +23,10 @@ export function kitHealth(doctor: DoctorResult): KitHealth {
   return { kit: doctor.kit, state: "checked", problems: problems(doctor.checks), checks: doctor.checks };
 }
 
-// One folder's health: forge check's false flags, and each kit's doctor (or why it has none), in the order given.
+// One folder's health: forge check's presence flags, and each kit's doctor (or why it has none), in the order given.
 export function healthFrom(check: CheckResult, doctors: (DoctorResult | { kit: string; reason: string })[]): FolderHealth {
   return {
-    missingSetup: Object.entries(check.flags).filter(([, value]) => !value).map(([flag]) => flag),
+    presence: { ...check.flags },
     kits: doctors.map((d) => ("checks" in d ? kitHealth(d) : { kit: d.kit, state: "unavailable", reason: d.reason })),
   };
 }

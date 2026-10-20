@@ -86,8 +86,11 @@ export class KitStateService implements vscode.Disposable {
   private readonly sdkWatchers = new Map<string, vscode.Disposable[]>();
   private disposed = false;
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
+  private readonly forgotten = new vscode.EventEmitter<vscode.Uri>();
   private readonly subscriptions: vscode.Disposable[] = [];
   readonly onDidChangeKitState = this.changed.event;
+  // A folder left: what depends on its kit state (its health) drops what it holds for it too.
+  readonly onDidForget = this.forgotten.event;
 
   constructor(private readonly deps: KitStateDeps) {
     const all = () => this.folders.forEach((folder) => this.invalidate(folder));
@@ -151,6 +154,7 @@ export class KitStateService implements vscode.Disposable {
     this.pythons.delete(key);
     this.lifetimes.delete(key);
     this.useSdk(key, undefined);
+    this.forgotten.fire(folder);
   }
 
   // How many SDK folders are watched (for tests): one for each SDK folder some known folder was last computed from.
@@ -277,5 +281,6 @@ export class KitStateService implements vscode.Disposable {
     this.pending.forEach((t) => clearTimeout(t));
     this.watchers.forEach((w) => w.disposables.forEach((d) => d.dispose()));
     this.changed.dispose();
+    this.forgotten.dispose();
   }
 }

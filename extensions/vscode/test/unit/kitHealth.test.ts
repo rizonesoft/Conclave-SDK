@@ -45,10 +45,12 @@ test("kitHealth: any status but ok counts, unexpected and an unknown one include
   assert.ok(health.state === "checked" && health.checks.at(-1)?.status === "stale");
 });
 
-test("kitHealth: a folder's health has check's missing setup and every kit, in order", () => {
+test("kitHealth: a folder's health has check's presence flags verbatim and every kit, in order", () => {
   const check = parseCheck(readFileSync(join(fixtures, "health-check.json"), "utf8"));
   assert.ok(check.ok);
   const folder = healthFrom(check.value, [doctor("doctor-base"), doctor("doctor-reviewer"), { kit: "laravel", reason: "No artisan found" }]);
-  assert.deepEqual(folder.missingSetup, Object.entries(check.value.flags).filter(([, v]) => !v).map(([k]) => k));
+  // The flags are presence, verbatim: an isolated folder has no .agents manifests on purpose, which is not a problem.
+  assert.deepEqual(folder.presence, check.value.flags);
+  assert.equal(folder.presence.has_agy_skills_json, false);
   assert.deepEqual(folder.kits.map((k) => [k.kit, k.state]), [["base", "checked"], ["reviewer", "checked"], ["laravel", "unavailable"]]);
 });
