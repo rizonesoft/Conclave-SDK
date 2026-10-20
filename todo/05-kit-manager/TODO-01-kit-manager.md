@@ -28,9 +28,11 @@ title: "TODO-01 -- Kit Manager"
 
 ## Outcome
 
-- The Conclave view in the Activity Bar lists the five kits for the current folder (the only folder in a one-folder window; in a multi-root workspace the active editor's folder, which a Switch folder action changes) as installed, partly installed or not installed, with a health badge, read from forge.
+**Corrected 2026-10-20:** Conclave-SDK gained a sixth kit, `automations` (`8841942`), and the todo kit now seeds `.claude/settings.json` with the run guard's Stop hook (`688314c`). The view still lists every kit `forge.py kits` returns, now six; the protected files gain the project-owned `.conclave/automations/tasks.json` and `README.md` and `.claude/settings.json`, which forge never overwrites.
+
+- The Conclave view in the Activity Bar lists every kit `forge.py kits` returns for the current folder (the only folder in a one-folder window; in a multi-root workspace the active editor's folder, which a Switch folder action changes) as installed, partly installed or not installed, with a health badge, read from forge.
 - Installing a kit shows forge's `--dry-run` file list first, takes the agent choice and (WordPress) the host, writes only after confirmation, and lists what forge installed; updating runs `forge.py sync` and lists what it updated; health shows every `doctor` check; a new repository is set up with `forge.py init` and opened.
-- Protected project files (`AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, `.conclave/reviewers.toml`, `todo/`, `docs/`) are byte-identical before and after every install and update, proved by hash.
+- Protected project files (`AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, `.conclave/reviewers.toml`, `.conclave/automations/tasks.json`, `.conclave/automations/README.md`, `.claude/settings.json`, `todo/`, `docs/`) are byte-identical before and after every install and update, proved by hash.
 
 **Adjacency:** list=applicable @ D05 T01 §5; document=not-applicable (forge writes the files; the extension prints nothing); settings=not-applicable (the SDK source and Python settings are consumed in D02 T01 §2 and D02 T01 §7); reporting=applicable @ D05 T01 §8; notifications=not-applicable (single local user; results show in the view and output channel); permissions=applicable @ D05 T01 §1; audit=applicable @ D05 T01 §1; exchange=not-applicable (kits come only from the SDK source); reverse=applicable @ D05 T01 §2
 
@@ -67,7 +69,7 @@ Any kit can be installed into a workspace folder (plan R28). This section runs `
 - [ ] Refuse every forge run when `vscode.workspace.isTrusted` is false, before any process starts. Done when: an integration test with trust disabled starts no process. Cheaper substitute: relying on the manifest flag alone.
 - [ ] Run the preview and return forge's `installed`, `preserved` and `merge_needed` lists unchanged. Done when: a unit test over a recorded `--dry-run` summary returns the same lists. Cheaper substitute: computing the file list from the kit's templates in TypeScript.
 - [ ] Refuse to run when the preview's `merge_needed` is not empty, showing those paths, since forge cannot add them without a merge. Done when: a fake summary with `merge_needed` gets the refusal. Cheaper substitute: running anyway.
-- [ ] Hash the protected files that exist (`AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, `.conclave/reviewers.toml`, every file under `todo/` and `docs/`) before the real run and compare after, reporting any change as a defect. Done when: an integration test asserts no change after installing `todo` into a folder that already has `AGENTS.md`. Cheaper substitute: trusting forge's additive rule unchecked.
+- [ ] Hash the protected files that exist (`AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, `.conclave/reviewers.toml`, `.conclave/automations/tasks.json`, `.conclave/automations/README.md`, `.claude/settings.json`, every file under `todo/` and `docs/`) before the real run and compare after, reporting any change as a defect. Done when: an integration test asserts no change after installing `todo` into a folder that already has `AGENTS.md`. Cheaper substitute: trusting forge's additive rule unchecked.
 - [ ] Log every forge run (argv, source label and SHA from D02 T01 §7, exit code, forge's lists) to the "Conclave" output channel. Done when: the channel shows one block per run in the test. Cheaper substitute: logging only failures.
 - [ ] Refresh the folder's kit state from D02 T01 §10 after the run. Done when: the installed kit shows `installed` without a reload. Cheaper substitute: asking the operator to reload the window.
 - [ ] Write `extensions/vscode/test/integration/kitInstall.test.ts` with a fake SDK whose `forge.py` replays recorded summaries. Done when: it passes and fails when the protected-file check is removed. Cheaper substitute: tests of the argv only.
@@ -158,7 +160,7 @@ The kits need a home in VS Code (plan R27). This section contributes a "Conclave
 
 **Build order:**
 
-1. Contribute the view container and view in `extensions/vscode/package.json` and write `extensions/vscode/src/host/kitsView.ts`. Done when: the view lists the five kits for the shipped workspace with their states.
+1. Contribute the view container and view in `extensions/vscode/package.json` and write `extensions/vscode/src/host/kitsView.ts`. Done when: the view lists every kit `forge.py kits` returns for the shipped workspace with their states.
 2. Wire the actions and the badge. Done when: each action opens its flow and the badge counts kits needing attention.
 
 - [ ] Contribute `viewsContainers.activitybar` `conclave` with the icon `media/conclave.svg` and `views.conclave` `conclave.kits` named "Kits" in `extensions/vscode/package.json`. Done when: the Activity Bar shows the Conclave icon and the Kits view. Cheaper substitute: a view inside the Explorer.
