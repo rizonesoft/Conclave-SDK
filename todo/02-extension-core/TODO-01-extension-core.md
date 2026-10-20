@@ -613,6 +613,8 @@ Review round 3 of `§10` (`docs/reviews/02-extension-core/D02-T01-s10.md`, the l
 
 ## 19. Folder computations bound to the lifetime they were asked in
 
+> **Started:** 2026-10-20T17:15:00Z
+
 Review round 3 of `D05 T01 §3` (`docs/reviews/05-kit-manager/D05-T01-s3.md`, the last round its loop allowed) found two gaps in how `KitHealthService` (`extensions/vscode/src/host/kitHealth.ts`) runs a folder's computation, and `KitStateService` (`extensions/vscode/src/host/kitState.ts`, `§10`) follows the same pattern. A computation checks its folder's lifetime only between attempts, so after a forget it still starts every remaining forge process (each doctor, each dry run). And a queued request captures the lifetime when it starts running, not when it was asked, so a request asked before a forget runs as part of the folder's next lifetime and answers for it. Both services move to one helper that serializes a folder's computations, captures the lifetime and generation when a request is asked, checks the lifetime before every forge process, and reruns a superseded computation, so the two services cannot drift apart again.
 
 **Phase:** 1
@@ -624,9 +626,9 @@ Review round 3 of `D05 T01 §3` (`docs/reviews/05-kit-manager/D05-T01-s3.md`, th
 1. Write the failing tests: a forget while a computation is held stops it before its next forge process; a request asked before a forget answers for the forgotten lifetime even when it runs after a new read. Done when: both fail for both services at the end of `D05 T01 §3`.
 2. Write the helper and move both services onto it. Done when: the tests and every earlier kitState and kitHealth test pass.
 
-- [ ] Write `extensions/vscode/src/host/folderWork.ts` with `FolderWork<T>`: per-folder serialization, a lifetime and a generation captured when `read(folder)` is asked, `invalidate(folder)` (rerun), `forget(folder)` (stop), the retry cap, and an `alive()` check the computation calls before each process. Done when: unit-style integration tests of the helper cover asking before and after a forget. Cheaper substitute: patching each service separately.
-- [ ] Move `KitStateService` and `KitHealthService` onto `FolderWork`, calling `alive()` before every `runForge`. Done when: a forget while the first dry run (or `check`) is held starts no further forge process. Cheaper substitute: checking only after the computation.
-- [ ] Add the two regressions to `extensions/vscode/test/integration/kitState.test.ts` and `extensions/vscode/test/integration/kitHealth.test.ts`. Done when: each fails at the end of `D05 T01 §3`. Cheaper substitute: one service only.
+- [x] Write `extensions/vscode/src/host/folderWork.ts` with `FolderWork<T>`: per-folder serialization, a lifetime and a generation captured when `read(folder)` is asked, `invalidate(folder)` (rerun), `forget(folder)` (stop), the retry cap, and an `alive()` check the computation calls before each process. Done when: unit-style integration tests of the helper cover asking before and after a forget. Cheaper substitute: patching each service separately.
+- [x] Move `KitStateService` and `KitHealthService` onto `FolderWork`, calling `alive()` before every `runForge`. Done when: a forget while the first dry run (or `check`) is held starts no further forge process. Cheaper substitute: checking only after the computation.
+- [x] Add the two regressions to `extensions/vscode/test/integration/kitState.test.ts` and `extensions/vscode/test/integration/kitHealth.test.ts`. Done when: each fails at the end of `D05 T01 §3`. Cheaper substitute: one service only.
 - [ ] Commit: `extension: folder computations bound to the lifetime they were asked in`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep "kitState|kitHealth"` passes, and the forget-while-held case fails when the lifetime is checked only between attempts.

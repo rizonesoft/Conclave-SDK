@@ -145,16 +145,21 @@ suite("kitHealth", () => {
     const python = await api.python();
     assert.ok(python.ok);
     let reads = 0;
+    let doctors = 0;
     let release: (() => void) | undefined;
     const forgetting = new vscode.EventEmitter<vscode.Uri>();
     const health = new KitHealthService({
-      kitStates: async () => (reads += 1, { ok: true, kits: [] }),
+      // Two installed kits, so a computation that went on after the forget would start their doctors.
+      kitStates: async () => (reads += 1, { ok: true, kits: [{ kit: "base", state: "installed", kept: 1 }, { kit: "todo", state: "installed", kept: 1 }] }),
       onDidChangeKitState: new vscode.EventEmitter<vscode.Uri>().event,
       onDidForget: forgetting.event,
       source: async () => ({ folder: sdk, label: "local Conclave-SDK (test)" }),
       python: async () => python,
       // forge check is held until the folder has left.
       run: async (file, args, timeoutMs, cwd, options) => {
+        if (args.includes("doctor")) {
+          doctors += 1;
+        }
         const result = await run(file, args, timeoutMs, cwd, options);
         if (args.includes("check")) {
           await new Promise<void>((r) => (release = r));
@@ -168,9 +173,11 @@ suite("kitHealth", () => {
         await new Promise((r) => setTimeout(r, 20));
       }
       forgetting.fire(folder);
+      const doctorsAtForget = doctors;
       release();
       assert.deepEqual(await reading, { ok: false, message: "the folder is no longer watched" });
       assert.equal(reads, 1, "the computation read the folder again after it left");
+      assert.equal(doctors, doctorsAtForget, "a doctor started for a folder that had left");
     } finally {
       health.dispose();
       forgetting.dispose();

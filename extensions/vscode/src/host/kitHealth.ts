@@ -6,6 +6,7 @@ import type { Python } from "../core/python";
 import type { ForgeSource } from "./forge";
 import { runForge } from "./forge";
 import type { KitStates } from "./kitState";
+import { FolderWork } from "./folderWork";
 import type { run } from "./run";
 
 export type KitHealthResult = ({ ok: true } & FolderHealth) | { ok: false; message: string };
@@ -24,19 +25,16 @@ export interface KitHealthDeps {
 }
 
 const DOCTOR_TIMEOUT_MS = 30_000;
-const ATTEMPTS = 5;
+const LEFT = "the folder is no longer watched";
+const UNSETTLED = "the folder kept changing while its kit health was read; it is read again when it settles";
 
 // Each folder's kit health (plan R30), only from forge: `forge.py check` once, then `forge.py doctor <folder> <kit>`
 // for each kit installed or partly installed, one process at a time per folder, each with a timeout (a doctor that
 // does not answer makes that kit unavailable, not the folder). Cached until the folder's kit state changes (an install
 // or update, D05 T01 §1 and §2, changes it) or refresh is asked; a computation that a change superseded runs again.
 export class KitHealthService implements vscode.Disposable {
-  private readonly cache = new Map<string, Promise<KitHealthResult>>();
-  private readonly generations = new Map<string, number>();
-  private readonly queues = new Map<string, Promise<unknown>>();
-  // Each folder's lifetime, as in the kit state: a computation that started before a forget stops instead of reading
-  // the folder again, which would bring it back (its kit state and watchers) after it left.
-  private readonly lifetimes = new Map<string, object>();
+  private readonly work = new FolderWork<KitHealthResult>((folder, alive) => this.compute(folder, alive),
+    (why) => ({ ok: false, message: why === "left" ? LEFT : UNSETTLED }));
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
   private readonly subscriptions: vscode.Disposable[] = [];
   readonly onDidChangeKitHealth = this.changed.event;
@@ -48,61 +46,24 @@ export class KitHealthService implements vscode.Disposable {
     }
   }
 
-  // A folder that left: its cached health is dropped, and a computation in flight for it stops.
-  forget(folder: vscode.Uri): void {
-    const key = folder.toString();
-    this.lifetimes.delete(key);
-    this.cache.delete(key);
-  }
-
   health(folder: vscode.Uri): Promise<KitHealthResult> {
-    const key = folder.toString();
-    if (!this.lifetimes.has(key)) {
-      this.lifetimes.set(key, {});
-    }
-    let health = this.cache.get(key);
-    if (!health) {
-      health = this.serial(key, () => this.fresh(folder));
-      this.cache.set(key, health);
-    }
-    return health;
+    return this.work.read(folder);
   }
 
   // On demand, and after every change to the folder's kit state: the cached health is dropped and readers are told.
   refresh(folder: vscode.Uri): void {
-    const key = folder.toString();
-    this.generations.set(key, (this.generations.get(key) ?? 0) + 1);
-    this.cache.delete(key);
+    this.work.invalidate(folder);
     this.changed.fire(folder);
   }
 
-  private serial<T>(key: string, fn: () => Promise<T>): Promise<T> {
-    const next = (this.queues.get(key) ?? Promise.resolve()).then(fn, fn);
-    this.queues.set(key, next.catch(() => undefined));
-    return next;
+  // A folder that left: its cached health is dropped, and its computations start nothing more (FolderWork).
+  forget(folder: vscode.Uri): void {
+    this.work.forget(folder);
   }
 
-  private async fresh(folder: vscode.Uri): Promise<KitHealthResult> {
-    const key = folder.toString();
-    const lifetime = this.lifetimes.get(key);
-    const left: KitHealthResult = { ok: false, message: "the folder is no longer watched" };
-    for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
-      if (lifetime === undefined || this.lifetimes.get(key) !== lifetime) {
-        return left;
-      }
-      const generation = this.generations.get(key) ?? 0;
-      const health = await this.compute(folder);
-      if (this.lifetimes.get(key) !== lifetime) {
-        return left;
-      }
-      if ((this.generations.get(key) ?? 0) === generation) {
-        return health;
-      }
-    }
-    return { ok: false, message: "the folder kept changing while its kit health was read; it is read again when it settles" };
-  }
-
-  private async compute(folder: vscode.Uri): Promise<KitHealthResult> {
+  // alive() is checked before every forge process: a folder that left starts nothing more.
+  private async compute(folder: vscode.Uri, alive: () => boolean): Promise<KitHealthResult> {
+    const left: KitHealthResult = { ok: false, message: LEFT };
     const states = await this.deps.kitStates(folder);
     if (!states.ok) {
       return { ok: false, message: states.message };
@@ -115,12 +76,18 @@ export class KitHealthService implements vscode.Disposable {
     if (!("command" in python)) {
       return { ok: false, message: python.message };
     }
+    if (!alive()) {
+      return left;
+    }
     const check = await runForge(source, python, ["check", folder.fsPath], parseCheck, { run: this.deps.run });
     if (check.kind !== "ok") {
       return { ok: false, message: check.kind === "failed" ? check.message : "cancelled" };
     }
     const doctors: (DoctorResult | { kit: string; reason: string })[] = [];
     for (const state of states.kits.filter((k) => k.state === "installed" || k.state === "partly")) {
+      if (!alive()) {
+        return left;
+      }
       const doctor = await runForge(source, python, ["doctor", folder.fsPath, state.kit], parseDoctor,
         { run: this.deps.run, timeoutMs: this.deps.doctorTimeoutMs ?? DOCTOR_TIMEOUT_MS });
       doctors.push(doctor.kind === "ok"
@@ -131,6 +98,7 @@ export class KitHealthService implements vscode.Disposable {
   }
 
   dispose(): void {
+    this.work.dispose();
     this.subscriptions.forEach((s) => s.dispose());
     this.changed.dispose();
   }

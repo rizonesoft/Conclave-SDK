@@ -335,4 +335,52 @@ suite("kitState", () => {
       service.dispose();
     }
   });
+  test("kitState: a forgotten folder's computation starts no further forge process, and a read asked before the forget answers for it", async () => {
+    const work = join(base, "lifetime");
+    mkdirSync(work, { recursive: true });
+    const folder = vscode.Uri.file(work);
+    const python = await api.python();
+    assert.ok(python.ok);
+    const runs: string[] = [];
+    let release: (() => void) | undefined;
+    let held = false;
+    const service = new KitStateService({
+      source: async () => ({ folder: sdk, label: "local Conclave-SDK (test)" }),
+      python: async () => python,
+      // The first forge run (kits) is held until the test releases it.
+      run: async (file, args, timeoutMs, cwd, options) => {
+        runs.push(args.slice(args.indexOf("-I") + 2).join(" "));
+        const result = await run(file, args, timeoutMs, cwd, options);
+        if (!held) {
+          held = true;
+          await new Promise<void>((r) => (release = r));
+        }
+        return result;
+      },
+    });
+    try {
+      const first = service.states(folder);
+      while (!release) {
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      // A read asked now is queued behind the first; then the folder leaves, and is read again under a new lifetime.
+      service.invalidate(folder);
+      const queued = service.states(folder);
+      service.forget(folder);
+      const runsAtForget = runs.length;
+      const again = service.states(folder);
+      release();
+      assert.deepEqual(await first, { ok: false, message: "the folder is no longer watched" });
+      assert.deepEqual(await queued, { ok: false, message: "the folder is no longer watched" }, "a read asked before the forget answered for the new lifetime");
+      const after = await again;
+      assert.ok(after.ok, JSON.stringify(after));
+      // The forgotten computation started nothing more: the first forge process after the forget is the new read's
+      // own "kits", never the held computation's next dry run. (Later runs may repeat if something else invalidates.)
+      const later = runs.slice(runsAtForget);
+      assert.equal(later[0], "kits", later.join(" | "));
+    } finally {
+      service.forget(folder);
+      service.dispose();
+    }
+  });
 });
