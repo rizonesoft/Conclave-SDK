@@ -26,18 +26,32 @@ def forge_digest(root=ROOT):
     return json.loads(run.stdout)
 
 
-def committed_records():
-    """Every committed version of the record, oldest first, from git; empty outside a checkout."""
-    try:
-        shas = subprocess.run(["git", "-C", str(ROOT), "log", "--format=%H", "--reverse", "--", RECORD_PATH],
-                              capture_output=True, text=True, check=True).stdout.split()
-    except (OSError, subprocess.CalledProcessError):
-        return []
+class BaselineUnavailable(Exception):
+    """The record's history cannot be read in full, so no version can be shown to be new."""
+
+
+def committed_records(root=ROOT):
+    """Every committed version of the record, oldest first. A shallow clone, a git that fails, or a commit whose record
+    cannot be read raises BaselineUnavailable: the gate fails rather than pass without its baseline."""
+    def git(*args):
+        try:
+            return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=True).stdout
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise BaselineUnavailable(f"git {' '.join(args)} failed: {exc}") from exc
+
+    if git("rev-parse", "--is-shallow-repository").strip() != "false":
+        raise BaselineUnavailable("this clone is shallow, so the record's earlier versions are missing: fetch the full history")
     records = []
-    for sha in shas:
-        shown = subprocess.run(["git", "-C", str(ROOT), "show", f"{sha}:{RECORD_PATH}"], capture_output=True, text=True)
-        if shown.returncode == 0:
-            records.append((sha[:7], json.loads(shown.stdout)))
+    for sha in git("log", "--format=%H", "--reverse", "--", RECORD_PATH).split():
+        try:
+            records.append((sha[:7], json.loads(git("show", f"{sha}:{RECORD_PATH}"))))
+        except BaselineUnavailable:
+            # The commit that deleted the record has no file to show; any other failure is a missing baseline.
+            if not git("ls-tree", sha, "--", RECORD_PATH).strip():
+                continue
+            raise
+        except ValueError as exc:
+            raise BaselineUnavailable(f"the record committed in {sha[:7]} is not JSON: {exc}") from exc
     return records
 
 
@@ -57,7 +71,11 @@ class SdkDigestTests(unittest.TestCase):
     def test_no_committed_version_is_reused_for_other_contents_or_followed_by_a_lower_one(self):
         record = json.loads(RECORD.read_text(encoding="utf-8"))
         contents = (record.get("forge"), record["kits"])
-        for sha, old in committed_records():
+        try:
+            history = committed_records()
+        except BaselineUnavailable as exc:
+            self.fail(f"the version gate has no baseline: {exc}")
+        for sha, old in history:
             if old["version"] == record["version"]:
                 self.assertEqual((old.get("forge"), old["kits"]), contents,
                                  f"version {record['version']} was recorded with other contents in {sha}: raise the version")
@@ -97,6 +115,19 @@ class SdkDigestTests(unittest.TestCase):
             bumped = subprocess.run(script, capture_output=True, text=True)
             self.assertEqual(bumped.returncode, 0, bumped.stderr)
             self.assertEqual(json.loads((ext / "sdk-digest.json").read_text(encoding="utf-8"))["version"], "1.0.10")
+
+    def test_a_shallow_clone_or_a_failing_git_fails_the_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # Not a repository at all: git fails.
+            with self.assertRaises(BaselineUnavailable):
+                committed_records(pathlib.Path(tmp))
+            # A shallow clone of this repository: the earlier records are missing.
+            clone = pathlib.Path(tmp) / "shallow"
+            made = subprocess.run(["git", "clone", "--quiet", "--depth", "1", f"file://{ROOT.as_posix()}", str(clone)],
+                                  capture_output=True, text=True)
+            self.assertEqual(made.returncode, 0, made.stderr)
+            with self.assertRaisesRegex(BaselineUnavailable, "shallow"):
+                committed_records(clone)
 
     def test_versions_order_by_their_numbers(self):
         key = record_sdk_digest.version_key
