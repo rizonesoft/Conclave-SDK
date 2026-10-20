@@ -226,6 +226,39 @@ test("endTree: a look that never answers still ends in a kill, and the end is re
   assert.ok(tree.alive.has(2), "the fake child is unseen, so it is still running");
 });
 
+test("endTree: on POSIX, a table that reads again after a blind kill cannot confirm the end", async () => {
+  // Root 1 with child 2; the first two reads fail, so 1 is frozen and killed without 2 being seen, and 2 is
+  // reparented to init. The third read works, but no walk from 1 can find 2 any more.
+  const tree = fakeTree({ posix: true, children: [[1, [2]]] });
+  const table = tree.ops.table;
+  let reads = 0;
+  tree.ops.table = async () => (++reads <= 2 ? undefined : table());
+  const end = await endTree(1, tree.ops, 1000);
+  assert.deepEqual(end, { survivors: [], verified: false });
+  assert.ok(tree.alive.has(2), "the fake child is unseen, so it still runs");
+});
+
+test("endTree: on Windows, a table that reads again finds what it missed, since dead parents keep their ids", async () => {
+  const tree = fakeTree({ children: [[1, [2]]] });
+  const table = tree.ops.table;
+  let reads = 0;
+  tree.ops.table = async () => (++reads <= 2 ? undefined : table());
+  assert.deepEqual(await endTree(1, tree.ops, 1000), { survivors: [], verified: true });
+  assert.deepEqual([...tree.alive], []);
+});
+
+test("endTree: a table that is always slow still leads to a kill before the deadline", async () => {
+  const tree = fakeTree({ posix: true });
+  tree.ops.table = async () => {
+    await tree.ops.sleep(3000);
+    return undefined;
+  };
+  const end = await endTree(1, tree.ops, 5000);
+  assert.ok(tree.kills.length >= 1, "no kill was attempted");
+  assert.deepEqual(end, { survivors: [], verified: false });
+  assert.equal(tree.alive.has(1), false, "the root was left frozen");
+});
+
 test("endTree: a process that cannot be ended is returned at the deadline", async () => {
   const tree = fakeTree({ unkillable: [1] });
   assert.deepEqual(await endTree(1, tree.ops, 100), { survivors: [1], verified: true });

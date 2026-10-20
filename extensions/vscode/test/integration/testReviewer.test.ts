@@ -168,4 +168,17 @@ suite("testReviewer", () => {
     assert.equal(alive(child), false, "the hung CLI's child is still running");
     assert.deepEqual(pins(), before);
   });
+  // Last in the suite: an unconfirmed end holds the guard until the window is reloaded.
+  test("testReviewer: a cancel whose end could not be confirmed keeps the guard and the temporary pin", async () => {
+    const before = pins();
+    const outcome = await api.testReviewer(folder, "sonnet", {
+      confirm: yes,
+      run: async () => ({ code: undefined, stdout: "", stderr: "", error: "cancelled, but the process table could not be read to confirm that every process ended", survivors: [], unverified: true }),
+    });
+    assert.deepEqual(outcome, { kind: "cancelled", note: "cancelled, but the process table could not be read to confirm that every process ended" });
+    await new Promise((r) => setTimeout(r, 1200));
+    assert.equal(pins().length, before.length + 1, "the temporary pin was deleted while an unseen reviewer may read it");
+    const refused = await api.testReviewer(folder, "sonnet", { confirm: yes });
+    assert.ok(refused.kind === "refused" && /could not be confirmed ended/.test(refused.message), JSON.stringify(refused));
+  });
 });

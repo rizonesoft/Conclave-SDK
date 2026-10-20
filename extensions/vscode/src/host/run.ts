@@ -176,17 +176,27 @@ function bounded<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
 // Ends root and every process under it.
 //
 // Where processes can be frozen (POSIX), the whole tree is frozen before anything dies: the root is stopped, and each
-// look at the process table stops every new process it finds, until a look finds nothing new. Killing first would
-// lose a child born between a look and its parent's stop, since a POSIX child of a dead parent is reparented away from
-// the walk. Then every round kills what still runs and looks again (on Windows, which keeps a dead parent's id on its
-// children, a process born between a look and a kill is found by the next look). A look that cannot be read is never
-// taken as an empty table: the tree is reported unverified unless a later look is read and shows nothing running.
+// look at the process table stops every new process it finds, until a look finds nothing new or cannot be read.
+// Killing first would lose a child born between a look and its parent's stop, since a POSIX child of a dead parent is
+// reparented away from the walk. Then every round kills what is known to run, before it looks again, so a slow table
+// never keeps the kill from happening; on Windows, which keeps a dead parent's id on its children, the next look finds
+// a process born between a look and a kill.
+//
+// The end is confirmed (verified) only by a look that was read and shows nothing running and, on POSIX, only if no look
+// failed before the first kill: a child reparented while its ancestry could not be read cannot be found by any later
+// look. A table that cannot be read is never taken as empty.
 export async function endTree(root: number, ops: TreeOps, deadlineMs = KILL_WAIT_MS, helperMs = HELPER_MS): Promise<TreeEnd> {
   const known = new Set([root]);
   const deadline = ops.now() + deadlineMs;
+  const reparents = ops.stop !== undefined;
+  let blind = false;
+  let killed = false;
   const look = async (): Promise<boolean> => {
     const table = await bounded(ops.table(), helperMs, undefined);
     if (!table) {
+      if (reparents && !killed) {
+        blind = true;
+      }
       return false;
     }
     const queue = [...known];
@@ -211,16 +221,18 @@ export async function endTree(root: number, ops: TreeOps, deadlineMs = KILL_WAIT
     }
   }
   for (;;) {
-    const read = await look();
     const alive = [...known].filter((pid) => ops.running(pid));
-    if (read && alive.length === 0) {
-      return { survivors: [], verified: true };
-    }
-    if (ops.now() >= deadline) {
-      return { survivors: alive, verified: read };
-    }
     if (alive.length) {
       await bounded(ops.kill(alive), helperMs, undefined);
+      killed = true;
+    }
+    const read = await look();
+    const left = [...known].filter((pid) => ops.running(pid));
+    if (read && left.length === 0) {
+      return { survivors: [], verified: !blind };
+    }
+    if (ops.now() >= deadline) {
+      return { survivors: left, verified: read && !blind };
     }
     await ops.sleep(20);
   }

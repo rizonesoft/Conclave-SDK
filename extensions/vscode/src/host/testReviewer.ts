@@ -106,6 +106,13 @@ export class ReviewerTester {
         "--timeout", String(REVIEW_TIMEOUT_S),
       ], PROCESS_TIMEOUT_MS, folder.fsPath, { signal: options.signal, tree: true });
       reported(result);
+      if (result.unverified && !result.survivors?.length) {
+        // An end that could not be confirmed: an unseen reviewer may still run and read the pin. It cannot be watched,
+        // so the guard and the pin stay until the window is reloaded, and the refusal says what to check.
+        this.holding = "A cancelled test could not be confirmed ended (the process table could not be read). Check for a leftover reviewer CLI, then reload the window";
+        log(`Test reviewer ${name}: ${result.error}; the test guard and the temporary pin are kept until the window is reloaded.`);
+        await new Promise<never>(() => undefined);
+      }
       if (result.survivors?.length) {
         this.holding = `A cancelled test's process${result.survivors.length === 1 ? "" : "es"} ${result.survivors.join(", ")} still run${result.survivors.length === 1 ? "s" : ""}`;
         await ended(result.survivors, options.alive ?? running);
