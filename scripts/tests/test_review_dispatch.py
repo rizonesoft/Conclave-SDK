@@ -11,6 +11,7 @@ import tempfile
 import textwrap
 import time
 import unittest
+import unittest.mock
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 REPO_PIN = SCRIPTS.parent / ".conclave" / "reviewers.toml"
@@ -480,6 +481,27 @@ class Dispatch(unittest.TestCase):
         self.assertFalse(marker.exists(), "the planted codex in the working directory ran as the reviewer")
         self.assertEqual(summary["reviewer"], "sonnet")
         self.assertEqual([f["reviewer"] for f in summary["failover"]], ["astra"])
+
+    @unittest.skipUnless(os.name == "nt", "drive-relative paths, PATHEXT and extensionless lookups are Windows rules")
+    def test_find_cli_on_windows_paths(self):
+        # Review round 1 of D01 T01 §5: a drive-relative entry (\work\repo) passed os.path.isabs on Python 3.11 and
+        # 3.12; an empty PATHEXT found nothing; an extensionless executable was no longer found.
+        module = self.module()
+        folder = Path(self._tmp.name) / "clis"
+        folder.mkdir()
+        (folder / "codex.cmd").write_text("@exit /b 0\r\n", encoding="utf-8")
+        drive_relative = str(folder)[2:]  # "R:\x\clis" -> "\x\clis", resolved against the current drive
+        with unittest.mock.patch.dict(os.environ, {"PATH": drive_relative, "PATHEXT": ".CMD"}):
+            self.assertIsNone(module.find_cli("codex"), "a drive-relative PATH entry was searched")
+        with unittest.mock.patch.dict(os.environ, {"PATH": str(folder), "PATHEXT": ""}):
+            self.assertEqual(module.find_cli("codex"), str(folder / "codex.CMD"), "an empty PATHEXT found nothing")
+        # npm puts an extensionless shell script beside codex.cmd; Windows cannot run the script, so .cmd comes first,
+        # and the bare name is found only when no PATHEXT candidate is there.
+        (folder / "codex").write_text("#!/bin/sh\n", encoding="utf-8")
+        with unittest.mock.patch.dict(os.environ, {"PATH": str(folder), "PATHEXT": ".EXE;.CMD"}):
+            self.assertEqual(module.find_cli("codex"), str(folder / "codex.CMD"))
+            (folder / "codex.cmd").unlink()
+            self.assertEqual(module.find_cli("codex"), str(folder / "codex"), "an extensionless executable was lost")
 
     def test_a_round_number_past_the_digit_limit_is_unreadable_and_keeps_the_review(self):
         # Review round 1 of D06 T01 §8: a 5,000-digit round number made the reader's int() raise, so record lost the

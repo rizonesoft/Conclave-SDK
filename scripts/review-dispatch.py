@@ -130,16 +130,27 @@ def find_cli(name):
     committed to that repository would be reported as installed and run as the reviewer. Relative PATH entries are
     dropped for the same reason. On Windows the search is done here, by PATHEXT, so no Python version adds the directory.
     """
-    directories = [d for d in os.environ.get("PATH", "").split(os.pathsep) if d and os.path.isabs(d)]
+    directories = [d for d in os.environ.get("PATH", "").split(os.pathsep) if fully_qualified(d)]
     if os.name != "nt":
         return shutil.which(name, path=os.pathsep.join(directories))
-    extensions = [e for e in os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(os.pathsep) if e]
+    # An empty PATHEXT gets the defaults too, as shutil.which does. The bare name is the last candidate in each
+    # directory: npm puts an extensionless shell script beside codex.cmd, and Windows can run only the .cmd.
+    extensions = [e for e in os.environ.get("PATHEXT", "").split(os.pathsep) if e] or [".COM", ".EXE", ".BAT", ".CMD"]
     for directory in directories:
-        for extension in extensions:
-            candidate = os.path.join(directory, name + extension)
+        for candidate in [os.path.join(directory, name + e) for e in extensions] + [os.path.join(directory, name)]:
             if os.path.isfile(candidate):
                 return candidate
     return None
+
+
+def fully_qualified(directory):
+    """True for a PATH entry that names one place whatever the working directory: on Windows a drive and a root
+    (`C:\\x`) or a UNC share, never `\\x` (the current drive's) or `C:x` (that drive's current directory), which
+    os.path.isabs accepts on Python 3.11 and 3.12."""
+    if os.name != "nt":
+        return os.path.isabs(directory)
+    drive, rest = os.path.splitdrive(directory)
+    return drive.startswith(("\\\\", "//")) or (len(drive) == 2 and rest[:1] in ("\\", "/"))
 
 
 def command(reviewer, executable, prompt, prompt_path, output_path, timeout):
