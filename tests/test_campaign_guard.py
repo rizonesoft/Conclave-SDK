@@ -1,0 +1,284 @@
+"""The todo kit's campaign run guard: the Stop hook against a throwaway workspace, and the lifecycle commands."""
+import importlib.util
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+FORGE_ROOT = Path(__file__).resolve().parents[1]
+TEMPLATES = FORGE_ROOT / "kits" / "todo" / "templates"
+GUARD_PY = TEMPLATES / "scripts" / "campaign_guard.py"
+SESSION = "11111111-2222-3333-4444-555555555555"
+OTHER = "99999999-8888-7777-6666-555555555555"
+RUN_FILE = "docs/phase-runs/2099-01-01-phase-0.md"
+
+spec = importlib.util.spec_from_file_location("campaign_guard_under_test", GUARD_PY)
+guard = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(guard)
+
+# The fake graph answers `query ready` the way the test asks: the SDK's JSON list, or Isotone's text summary.
+FAKE_GRAPH = """import json, os, sys
+mode, n = open(os.path.join(os.path.dirname(__file__), 'ready.txt')).read().split()
+rows = [{"ref": "D00 T01 \\u00a73", "title": "Interface SPEC and screenshots"}] * int(n)
+if mode == "json":
+    print(json.dumps(rows, indent=2))
+elif mode == "crash":
+    sys.exit(1)
+else:
+    if rows:
+        print("00-design/TODO-01.md \\u00a73  Interface SPEC and screenshots")
+    print()
+    print(f"{n} runnable now, 0 runnable elsewhere")
+"""
+
+
+class Workspace(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = os.path.join(self._tmp.name, "ws")
+        for folder in ("scripts", "build", "docs/phase-runs"):
+            os.makedirs(os.path.join(self.root, folder))
+        shutil.copy(GUARD_PY, os.path.join(self.root, "scripts", "campaign_guard.py"))
+        self.write("scripts/todo-graph.py", FAKE_GRAPH)
+        self.write(".gitignore", "build/\nscripts/ready.txt\n")
+        self.ready(3)
+        self.write(RUN_FILE, "# Phase run: Phase 0\n\n## Critical events\n")
+        for args in (["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"],
+                     ["config", "commit.gpgsign", "false"], ["add", "-A"], ["commit", "-qm", "seed"]):
+            subprocess.run(["git", *args], cwd=self.root, capture_output=True, check=True)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def write(self, rel, text, mode="w"):
+        path = os.path.join(self.root, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, mode, encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+
+    def ready(self, n, mode="json"):
+        self.write("scripts/ready.txt", f"{mode} {n}")
+
+    def acquire(self, session=SESSION, **kw):
+        return guard.acquire(self.root, session, 0, RUN_FILE, kw.pop("cron_id", "job-1"), **kw)
+
+    def run_id(self):
+        return guard.read_guard(self.root)["run_id"]
+
+    def hook(self, session=SESSION, payload=None):
+        code, out = guard.stop_hook(payload if payload is not None else
+                                    json.dumps({"session_id": session, "cwd": self.root, "hook_event_name": "Stop"}),
+                                    self.root)
+        self.assertEqual(code, 0, "the hook always exits 0")
+        return json.loads(out) if out else None
+
+    def state(self):
+        return guard._read_state(self.root)
+
+
+class StopHook(Workspace):
+    def test_no_guard_another_session_or_an_empty_payload_allows(self):
+        self.assertIsNone(self.hook())
+        self.acquire()
+        self.assertIsNone(self.hook(session=OTHER))
+        self.assertIsNone(self.hook(payload=""))
+
+    def test_an_open_run_blocks_and_names_the_next_ready_row(self):
+        self.acquire()
+        decision = self.hook()
+        self.assertEqual(decision["decision"], "block")
+        self.assertIn("Next ready row: D00 T01 §3  Interface SPEC and screenshots.", decision["reason"])
+        self.assertIn(f"## Closeout run={self.run_id()}", decision["reason"])
+        self.assertEqual(self.state()["blocks"], 1)
+
+    def test_a_text_summary_graph_is_read_too(self):
+        self.acquire()
+        self.ready(2, "text")
+        self.assertIn("Next ready row: 00-design/TODO-01.md", self.hook()["reason"])
+        self.ready(0, "text")
+        self.assertIsNone(self.hook())
+
+    def test_nothing_runnable_allows(self):
+        self.acquire()
+        self.ready(0)
+        self.assertIsNone(self.hook())
+
+    def test_an_unreadable_graph_still_blocks(self):
+        self.acquire()
+        self.ready(0, "crash")
+        self.assertEqual(self.hook()["decision"], "block")
+
+    def test_only_this_runs_markers_end_it(self):
+        self.acquire()
+        self.write(RUN_FILE, "## Closeout run=abcdef123456\nPARKED 2099-01-01T00:00:00Z run=abcdef123456 old\n", "a")
+        self.assertEqual(self.hook()["decision"], "block", "an old run's markers ended this run")
+        self.write(RUN_FILE, f"PARKED 2099-01-02T00:00:00Z run={self.run_id()} blocked here\n", "a")
+        self.assertIsNone(self.hook())
+
+    def test_a_closeout_with_this_runs_id_allows(self):
+        self.acquire()
+        self.write(RUN_FILE, f"\n## Closeout run={self.run_id()}\n\nShipped.\n", "a")
+        self.assertIsNone(self.hook())
+
+    def test_the_breaker_trips_after_three_blocks_without_progress(self):
+        self.acquire()
+        for push in (1, 2, 3):
+            self.assertEqual(self.hook()["decision"], "block", push)
+        self.assertIsNone(self.hook(), "the fourth stop without progress must be allowed")
+        self.assertEqual((self.state()["trips"], self.state()["stalled"]), (1, True))
+
+    def test_bookkeeping_is_not_progress_and_real_work_is(self):
+        self.acquire()
+        for _ in range(3):
+            self.hook()
+        self.write(RUN_FILE, "- bookkeeping: heartbeat resumed 2099-01-01T00:00:00Z\n", "a")
+        self.assertIsNone(self.hook(), "a bookkeeping line reset the breaker")
+        for change in (lambda: self.write("notes.txt", "new untracked file\n"),
+                       lambda: self.write("notes.txt", "same file, new content\n"),
+                       lambda: self.write(RUN_FILE, "- Section D00 T01 §3 shipped\n", "a")):
+            for _ in range(3):
+                self.hook()
+            change()
+            decision = self.hook()
+            self.assertIsNotNone(decision, "real progress did not reset the breaker")
+            self.assertEqual(self.state()["blocks"], 1)
+
+    def test_a_failure_fails_open_and_is_recorded_for_the_heartbeat(self):
+        self.acquire()
+        os.unlink(os.path.join(self.root, RUN_FILE))
+        os.makedirs(os.path.join(self.root, RUN_FILE))  # opening the run file now raises
+        self.assertIsNone(self.hook())
+        line = guard.hook_error(self.root, SESSION)
+        self.assertTrue(line.startswith("campaign-stop hook failed at "), line)
+        with self.assertRaises(guard.GuardError):
+            guard.hook_error(self.root, OTHER)
+        with self.assertRaises(guard.GuardError):
+            guard.hook_error(self.root, SESSION, ack="not the line")
+        self.assertIn("acknowledged and cleared", guard.hook_error(self.root, SESSION, ack=line))
+        self.assertEqual(guard.hook_error(self.root, SESSION), "")
+
+    def test_a_malformed_guard_fails_open_into_its_own_error_file(self):
+        self.write("build/claude-campaign-guard.json", "{not json")
+        self.assertIsNone(self.hook())
+        line = guard.hook_error(self.root)
+        self.assertIn("recorded without the lock", line)
+        guard.hook_error(self.root, ack=line)
+        self.assertEqual(os.listdir(os.path.join(self.root, "build", "claude-campaign-hook-errors")), [])
+
+    def test_the_configured_command_runs_the_hook_from_any_shell(self):
+        settings = json.loads((TEMPLATES / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        command = settings["hooks"]["Stop"][0]["hooks"][0]["command"]
+        self.acquire()
+        # Claude Code runs hooks through Git Bash on Windows; `bash` on PATH there is often WSL's, which would not
+        # carry CLAUDE_PROJECT_DIR into Linux.
+        bash = "bash"
+        if os.name == "nt" and shutil.which("git"):
+            bash = str(Path(shutil.which("git")).resolve().parents[1] / "bin" / "bash.exe")
+        shells = [[bash, "-c"]] + ([["powershell.exe", "-NoProfile", "-Command"]] if os.name == "nt" else [])
+        ran = 0
+        for shell in shells:
+            if not shutil.which(shell[0]):
+                continue
+            with self.subTest(shell=shell[0]):
+                env = dict(os.environ, CLAUDE_PROJECT_DIR=self.root)
+                payload = json.dumps({"session_id": SESSION, "cwd": self.root, "hook_event_name": "Stop"})
+                proc = subprocess.run([*shell, command], input=payload, capture_output=True, text=True,
+                                      encoding="utf-8", env=env, cwd=self._tmp.name, timeout=120)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(json.loads(proc.stdout)["decision"], "block", proc.stderr)
+                ran += 1
+        self.assertGreater(ran, 0, "no shell could run the configured hook")
+
+
+class Lifecycle(Workspace):
+    def test_acquire_is_exclusive_and_a_handover_is_recorded(self):
+        self.assertIn("guard created", self.acquire())
+        rid = self.run_id()
+        with self.assertRaises(guard.GuardError):
+            self.acquire(session=OTHER, cron_id="job-2")
+        self.assertIn("handed over", self.acquire(session=OTHER, cron_id="job-2", handover="session died"))
+        doc = guard.read_guard(self.root)
+        self.assertEqual((doc["handover_from"], doc["run_id"], doc["cron_id"]), (SESSION, rid, "job-2"))
+        self.assertIn("re-pointed", self.acquire(session=OTHER, cron_id="job-3"))
+        self.assertEqual(self.run_id(), rid, "a re-point of the same run keeps its id")
+
+    def test_acquire_refuses_a_run_file_outside_the_workspace(self):
+        for bad in ("../outside.md", os.path.abspath("x.md")):
+            with self.subTest(bad=bad), self.assertRaises(guard.GuardError):
+                guard.acquire(self.root, SESSION, 0, bad, "job-1")
+
+    def test_every_end_checks_its_marker_and_leaves_the_job_to_cancel(self):
+        self.acquire()
+        with self.assertRaises(guard.GuardError):
+            guard.end(self.root, SESSION, "closeout")
+        with self.assertRaises(guard.GuardError):
+            guard.end(self.root, OTHER, "operator-stop")
+        with self.assertRaises(guard.GuardError):
+            guard.end(self.root, SESSION, "plan-done")
+        with self.assertRaises(guard.GuardError):
+            guard.end(self.root, SESSION, "stall")
+        self.write(RUN_FILE, f"## Closeout run={self.run_id()}\n", "a")
+        self.assertIn("CronDelete job-1", guard.end(self.root, SESSION, "closeout"))
+        self.assertIsNone(guard.read_guard(self.root))
+        self.assertIn("CronDelete job-1", guard.pending_cancel(self.root))
+        with self.assertRaises(guard.GuardError):
+            guard.cancel_confirmed(self.root, "job-9")
+        self.assertIn("nothing pending", guard.cancel_confirmed(self.root, "job-1"))
+        self.acquire(cron_id="job-4")
+        self.ready(0)
+        self.assertIn("plan-done", guard.end(self.root, SESSION, "plan-done"))
+
+    def test_whoami_names_what_a_heartbeat_is_to_the_run(self):
+        self.assertEqual(guard.whoami(self.root, SESSION), "NO GUARD")
+        self.acquire(generation="gen000000001")
+        self.assertEqual(guard.whoami(self.root, SESSION, "gen000000001"), f"OWNER run={self.run_id()}")
+        self.assertEqual(guard.whoami(self.root, SESSION, "gen000000000"), "NOT THE CURRENT JOB")
+        self.assertEqual(guard.whoami(self.root, OTHER), "NOT THE OWNER")
+        self.write("build/claude-campaign-guard.json", "{not json")
+        self.assertEqual(guard.whoami(self.root, SESSION), "MALFORMED GUARD")
+
+    def test_reconcile_health_and_expiry(self):
+        self.assertEqual(guard.reconcile(self.root, SESSION, ["job-7"]),
+                         ["reconcile: orphan job job-7 has no guard: CronDelete it"])
+        self.acquire()
+        self.assertEqual(guard.reconcile(self.root, SESSION, ["job-1"]), ["reconcile: consistent (guard and job job-1)"])
+        self.assertIn("start nothing", guard.reconcile(self.root, OTHER, ["job-1"])[0])
+        self.assertEqual(guard.health(self.root, SESSION, ["job-1"])[0], 0)
+        self.assertEqual(guard.health(self.root, SESSION, [])[0], 1)
+        created = guard.read_guard(self.root)["job_created_at"]
+        self.assertEqual(guard.expiry(self.root, SESSION, now=created)[0], 0)
+        import datetime
+        later = (datetime.datetime.strptime(created, guard.UTC_FORMAT) + datetime.timedelta(days=6, hours=13))
+        code, line = guard.expiry(self.root, SESSION, now=later.strftime(guard.UTC_FORMAT))
+        self.assertEqual(code, 1)
+        self.assertIn("replace due", line)
+
+    def test_reset_state_rechecks_ownership_under_the_lock(self):
+        self.acquire()
+        self.hook()
+        with self.assertRaises(guard.GuardError):
+            guard.reset_state(self.root, OTHER)
+        with self.assertRaises(guard.GuardError):
+            guard.reset_state(self.root, expect_no_guard=True)
+        self.assertEqual(guard.reset_state(self.root, SESSION), "reset-state: state deleted")
+
+    def test_the_command_line_runs_against_a_fixture_root(self):
+        def cli(*args):
+            return subprocess.run([sys.executable, "-B", str(GUARD_PY), *args, "--root", self.root],
+                                  capture_output=True, text=True, timeout=120)
+
+        self.assertEqual(len(subprocess.run([sys.executable, "-B", str(GUARD_PY), "mint-generation"],
+                                            capture_output=True, text=True).stdout.strip()), 12)
+        result = cli("acquire", "--session", SESSION, "--phase", "0", "--run-file", RUN_FILE, "--cron-id", "job-1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(cli("whoami", "--session", SESSION).stdout.startswith("OWNER run="))
+        self.assertEqual(cli("end", "--session", SESSION, "--reason", "nonsense").returncode, 1)
+        self.assertEqual(cli("frobnicate").returncode, 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

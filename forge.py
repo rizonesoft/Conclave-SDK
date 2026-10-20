@@ -495,6 +495,25 @@ def _doctor_automations(target_root: Path, add_check) -> None:
         add_check("scheduler:systemctl", *_systemd_user_manager())
 
 
+def _stop_hook_wiring(target_root: Path) -> tuple[str, str]:
+    """Whether .claude/settings.json runs the campaign guard's Stop hook. The todo kit seeds the file when a project
+    has none; a project's own settings file is never overwritten, so there the hook is added by hand."""
+    settings = target_root / ".claude/settings.json"
+    seed = FORGE_ROOT / "kits/todo/templates/.claude/settings.json"
+    hint = f"add the Stop hook from {seed.as_posix()} to {settings.as_posix()}"
+    try:
+        doc = json.loads(settings.read_text(encoding="utf-8"))
+        commands = [h.get("command", "") for entry in doc.get("hooks", {}).get("Stop", [])
+                    for h in entry.get("hooks", [])]
+    except FileNotFoundError:
+        return "setup_required", hint
+    except (OSError, ValueError, AttributeError, TypeError) as exc:
+        return "setup_required", f"{settings.as_posix()} does not parse as Claude Code settings: {exc}; {hint}"
+    if any("campaign_guard.py" in c and "stop-hook" in c for c in commands):
+        return "ok", settings.as_posix()
+    return "setup_required", hint
+
+
 def _systemd_user_manager(run=subprocess.run) -> tuple[str, str]:
     """Whether this user's systemd manager answers (read-only): `systemctl` on PATH is not enough, because WSL
     without systemd, or a session with no user bus, has the binary and no manager."""
@@ -558,9 +577,11 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
             for skill in TODO_SKILLS:
                 sk = target_root / agent_dir / "skills" / skill / "SKILL.md"
                 add_check(f"skill:{skill}:{agent_dir}", "ok" if sk.is_file() else "missing", sk.as_posix())
-        for rel in ("scripts/todo-graph.py", "scripts/lib/todo_graph.py", "todo/README.md", "docs/todo-workflow.md"):
+        for rel in ("scripts/todo-graph.py", "scripts/lib/todo_graph.py", "scripts/campaign_guard.py",
+                    "todo/README.md", "docs/todo-workflow.md"):
             path = target_root / rel
             add_check(rel, "ok" if path.is_file() else "missing", path.as_posix())
+        add_check("stop-hook", *_stop_hook_wiring(target_root))
     else:
         for entry in ("AGENTS.md", "GEMINI.md", "CLAUDE.md", "CODEX.md"):
             p = target_root / entry

@@ -351,6 +351,27 @@ class ForgeProvisionTests(unittest.TestCase):
         res = forge.apply_kit(project, "todo", agent="claude")
         self.assertEqual(res["installed"], [])
 
+    def test_the_todo_kit_wires_the_stop_hook_and_never_overwrites_a_projects_settings(self):
+        project = self.target / "guarded"
+        (project / ".claude").mkdir(parents=True)
+        own = '{"permissions": {"allow": ["Bash(git status)"]}}\n'
+        (project / ".claude/settings.json").write_text(own, encoding="utf-8")
+        res = forge.apply_kit(project, "todo")
+        self.assertIn(".claude/settings.json", res["preserved"])
+        self.assertIn("scripts/campaign_guard.py", res["installed"])
+        self.assertEqual((project / ".claude/settings.json").read_text(encoding="utf-8"), own)
+        checks = {c["name"]: c for c in forge.doctor_repo(project, "todo")["checks"]}
+        self.assertEqual(checks["stop-hook"]["status"], "setup_required")
+        self.assertIn("kits/todo/templates/.claude/settings.json", checks["stop-hook"]["detail"])
+        (project / ".claude/settings.json").unlink()
+        forge.apply_kit(project, "todo")
+        checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "todo")["checks"]}
+        self.assertEqual(checks["stop-hook"], "ok")
+        self.assertNotIn(".claude/settings.json", forge.apply_kit(project, "todo", agent="codex")["installed"])
+
+    def test_the_sdk_runs_the_stop_hook_its_todo_kit_ships(self):
+        self.assertEqual(forge._stop_hook_wiring(FORGE_ROOT)[0], "ok")
+
     def test_the_sdk_uses_the_agent_setup_its_kits_ship(self):
         # The kits are the only source. The SDK's own .agents/.claude/.codex and scripts/ are an installed copy of
         # base, todo, reviewer and automations (the SDK plans, reviews and schedules its own work with them; the
