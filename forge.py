@@ -229,7 +229,9 @@ def _is_sdk_managed(rel: str, include_scripts: bool) -> bool:
 
 def _kit_files_current(target_root: Path, kit_name: str, host: str | None) -> bool:
     """Whether every SDK-managed file of the kit (all agents, scripts included) present in the folder is this SDK's
-    file byte for byte: a link, an unsafe parent or a different file means it came from elsewhere."""
+    file, CRLF read as LF as in `kit_digest`: a link, an unsafe parent or a different file means it came from
+    elsewhere. It speaks for the files this SDK's kit has: forge never deletes, so a file an older SDK shipped and this
+    one retired stays in the folder whatever the stamp says, and no sync could remove it."""
     roots = [FORGE_ROOT / "kits" / kit_name / "templates"]
     if host:
         roots.append(FORGE_ROOT / "kits" / kit_name / "hosts" / host / "templates")
@@ -245,7 +247,7 @@ def _kit_files_current(target_root: Path, kit_name: str, host: str | None) -> bo
                 continue
             if dst.is_symlink() or not dst.is_file() or _has_unsafe_parent(target_root, rel):
                 return False
-            if dst.read_bytes() != src.read_bytes():
+            if dst.read_bytes().replace(b"\r\n", b"\n") != src.read_bytes().replace(b"\r\n", b"\n"):
                 return False
     return True
 

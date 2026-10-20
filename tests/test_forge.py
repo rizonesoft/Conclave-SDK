@@ -702,6 +702,15 @@ class ForgeKitStampTests(unittest.TestCase):
         forge.provision(self.target, refresh=True, agent="claude")
         self.assertEqual(self.stamp()["kits"]["todo"], old, "a claude-only sync stamped stale codex files as current")
 
+    def test_a_managed_file_that_differs_only_in_crlf_endings_still_matches(self):
+        forge.apply_kit(self.target, "todo")
+        old = self._stale_stamp("todo")
+        skill = self.target / ".claude/skills/create-todo/SKILL.md"
+        skill.write_bytes(skill.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+        forge.apply_kit(self.target, "todo")
+        self.assertNotEqual(self.stamp()["kits"]["todo"], old, "the same content with CRLF endings was taken for an older file")
+        self.assertEqual(self.stamp()["kits"]["todo"]["digest"], forge.kit_digest("todo"))
+
     def test_kit_digest_ignores_bytecode_the_installer_never_copies(self):
         sdk = pathlib.Path(self.tmp.name) / "sdk"
         templates = sdk / "kits" / "demo" / "templates"
