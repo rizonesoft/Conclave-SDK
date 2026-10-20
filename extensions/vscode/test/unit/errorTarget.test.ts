@@ -52,3 +52,11 @@ test("errorTarget: an unknown message attaches to the file with its text unchang
 test("errorTarget: a name Python prints in double quotes is read too", () => {
   assert.deepEqual(errorTarget(`invalid reviewer "it's"`), { kind: "name", reviewer: "it's", message: `invalid reviewer "it's"` });
 });
+
+test("errorTarget: a name Python printed with escapes is decoded to the card's name", () => {
+  // repr of a name holding a backslash doubles it; one holding both quotes uses '...' with \' inside.
+  assert.deepEqual(errorTarget("invalid reviewer 'a\\\\b'"), { kind: "name", reviewer: "a\\b", message: "invalid reviewer 'a\\\\b'" });
+  const both = `invalid reviewer 'it\\'s "x"'`;
+  assert.deepEqual(errorTarget(both), { kind: "name", reviewer: `it's "x"`, message: both });
+  assert.equal((errorTarget("invalid reviewer 'caf\\xe9'") as { reviewer: string }).reviewer, "caf\u00e9");
+});

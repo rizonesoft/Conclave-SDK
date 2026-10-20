@@ -125,7 +125,8 @@ suite("Workspace states", () => {
       await new Promise((r) => setTimeout(r, 20));
     }
     assert.equal(results[1].state.state, "ready");
-    assert.equal(canSave(flow.result(), shipped, shipped), false, "valid but unchanged from disk");
+    assert.ok(flow.settled());
+    assert.equal(canSave(flow.result(), shipped, shipped, flow.settled()), false, "valid but unchanged from disk");
   });
 
   test("two rapid checks of one folder start one dispatcher, and each call is logged", async () => {

@@ -10,9 +10,17 @@ export type ErrorTarget =
   | { kind: "screen"; message: string }
   | { kind: "file"; message: string };
 
-// A name as Python's repr prints it: 'x', or "x" when the name holds a single quote.
-const QUOTED = String.raw`'([^']*)'|"([^"]*)"`;
-const name = (m: RegExpExecArray) => m[1] ?? m[2];
+// A name as Python's repr prints it: 'x', or "x" when the name holds a single quote but no double one, with
+// backslash escapes inside (\\, \', \n, \xhh, \uhhhh, \Uhhhhhhhh), decoded back to the name the card shows.
+const QUOTED = String.raw`'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"`;
+const ESCAPES: Record<string, string> = { "\\": "\\", "'": "'", '"': '"', n: "\n", r: "\r", t: "\t", a: "\x07", b: "\b", f: "\f", v: "\v", "0": "\0" };
+
+function decode(literal: string): string {
+  return literal.replace(/\\(x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|.)/g, (whole, code: string) =>
+    code.length > 1 ? String.fromCodePoint(parseInt(code.slice(1), 16)) : (ESCAPES[code] ?? whole));
+}
+
+const name = (m: RegExpExecArray) => decode(m[1] ?? m[2]);
 
 const FORMS: [RegExp, (m: RegExpExecArray, message: string) => ErrorTarget][] = [
   [new RegExp(`^invalid reviewer (?:${QUOTED})$`), (m, message) => ({ kind: "name", reviewer: name(m), message })],
