@@ -1,0 +1,23 @@
+{
+  "ref": "D02 T01 \u00a721",
+  "title": "GitHub SDK source and its archive extractor removed",
+  "implementation_sha": "3c3bb7b9954f8080d9a3fefa5de1e2a36c94435d",
+  "date": "2026-10-20",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-extension-core/D02-T01-s21.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/02-extension-core/D02-T01-s21.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "npm run test:integration -> 53 passing (2m)",
+    "npm test -> 101 pass, 0 fail, 2 skipped",
+    "rg -i \"github|tarball|getSession\" extensions/vscode/src -> no match"
+  ]
+}

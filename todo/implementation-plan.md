@@ -54,7 +54,7 @@ Sections: 31 | Checklist items: 194
 | [x]    | D02 T01 §17 | Tree kill: cut-short discovery and combined uncertainty | none  | 5     |
 | [x]    | D02 T01 §18 | Kit state SDK watchers released with their last folder  | none  | 3     |
 | [x]    | D02 T01 §20 | Recursive deletes that never follow a link              | none  | 5     |
-| [ ]    | D02 T01 §21 | GitHub SDK source and its archive extractor removed     | none  | 4     |
+| [x]    | D02 T01 §21 | GitHub SDK source and its archive extractor removed     | none  | 4     |
 | [ ]    | D02 T01 §22 | Parity example inputs as fake runner outputs            | none  | 3     |
 | [ ]    | D05 T01 §1  | Kit install with dry-run preview                        | none  | 9     |
 | [ ]    | D05 T01 §2  | Kit update through forge sync                           | none  | 8     |
@@ -112,6 +112,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 36/78 verified sections, 3 ready to run now.
+Progress: 37/78 verified sections, 2 ready to run now.
 
-Checklist: 291/575 items completed (includes Commit items).
+Checklist: 292/575 items completed (includes Commit items).

@@ -69,7 +69,7 @@ title: "TODO-01 -- Extension Core"
 | 18 | §18 | Kit state SDK watchers released with their last folder | §10 | [x] |
 | 19 | §19 | Folder work bound to the lifetime it was asked in | §10, D05 T01 §3 | [x] |
 | 20 | §20 | Recursive deletes that never follow a link | §7 | [x] |
-| 21 | §21 | GitHub SDK source and its archive extractor removed | §7 | [ ] |
+| 21 | §21 | GitHub SDK source and its archive extractor removed | §7 | [x] |
 | 22 | §22 | Parity example inputs as fake runner outputs | §11 | [ ] |
 | 23 | §23 | Webview screenshot comparison with the mockup | §11, D03 T01 §1 | [ ] |
 
@@ -687,9 +687,12 @@ The owner decided on 2026-10-20 that no kit source is configured (`design/decisi
 - [x] Remove the GitHub choice from `chooseSource` and `bundledSource`'s message in `extensions/vscode/src/core/sdkSource.ts` (`sdkPath`, else the bundled SDK, else in development the checkout), and the sign-in, ref resolution, download, cache and eviction from `extensions/vscode/src/host/sdkSource.ts`. Done when: `rg "github|sdkRef|sdkRepository|tarball|getSession" extensions/vscode/src` finds nothing. Cheaper substitute: leaving the GitHub path unreachable.
 - [x] Delete `extensions/vscode/resources/extract_sdk.py`, `extensions/vscode/test/unit/extractSdk.test.ts` and the GitHub tests of `test/unit/sdkSource.test.ts` and `test/integration/sdkSource.test.ts`, keeping the bundled and local tests. Done when: `npm test` and `npm run test:integration -- --grep "SDK source"` pass. Cheaper substitute: skipping the tests.
 - [x] Remove `conclave.sdkRepository` and `conclave.sdkRef` from `contributes.configuration` in `extensions/vscode/package.json` and say in `conclave.sdkPath`'s description that it is a developer override of the bundled SDK. Done when: the settings UI lists `conclave.pythonPath` and `conclave.sdkPath` only. Cheaper substitute: deprecating the settings.
-- [ ] Commit: `extension: remove the GitHub SDK source`
+- [x] Commit: `extension: remove the GitHub SDK source`
 
 **Test checkpoint:** `cd extensions/vscode && npm run build && npm run lint && npm test && npm run test:integration` passes, and `rg "extract_sdk|sdkRef" extensions/vscode/src extensions/vscode/package.json` finds nothing.
+
+> **Verified:** 2026-10-20 | §21 | 3c3bb7b9954f8080d9a3fefa5de1e2a36c94435d
+> **Review:** `docs/reviews/d02-t01-s21.json`
 
 ## 22. Parity example inputs as fake runner outputs
 
