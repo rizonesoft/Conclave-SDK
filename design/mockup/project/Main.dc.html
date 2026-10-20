@@ -867,7 +867,8 @@ const SOURCES = { bundled: 'bundled Conclave-SDK@' + SHA, path: 'R:\\GitHub\\Con
 // R41: the extension never installs or updates kits. It shows the request for the operator's agent (the
 // adopt-conclave skill, which previews every write with forge first) and the forge command it stands for, to copy.
 function importReq(folder, kit) { return { ask: 'Ask your agent: adopt-conclave, add the ' + kit + ' kit to ' + folder.path, cmd: 'python forge.py kit ' + folder.path + ' ' + kit }; }
-function adoptReq(folder) { return { ask: 'Ask your agent: adopt-conclave, import the Conclave kits this project needs into ' + folder.path, cmd: 'python forge.py init ' + folder.path }; }
+// A folder with no kit: the agent chooses which kits it needs, so no single forge command stands for the request.
+function adoptReq(folder) { return { ask: 'Ask your agent: adopt-conclave, import the Conclave kits this project needs into ' + folder.path }; }
 function updateReq(folder, scripts) { return { ask: 'Ask your agent: adopt-conclave, update the kits in ' + folder.path, cmd: 'python forge.py sync ' + folder.path + (scripts ? ' --include-scripts' : '') }; }
 
 // The Kits view. Every list below mirrors forge.py at 97cca1d: the kit templates, apply_kit's
@@ -1184,7 +1185,11 @@ function scenarioBase(id) {
 }
 
 class Component extends DCLogic {
-  scen() { return (this.state && this.state.scenario) || this.props.scenario || 'ready'; }
+  scen() {
+    // A folder with no kit has no pin and no dispatcher, so the editor beside it can only be in the no-pin state.
+    if (this.props.sidebar === 'kits-empty') return 'no-pin';
+    return (this.state && this.state.scenario) || this.props.scenario || 'ready';
+  }
   themeKey() { return (this.state && this.state.theme) || this.props.theme || 'dark'; }
   base() {
     const s = this.scen();
@@ -1211,7 +1216,7 @@ class Component extends DCLogic {
   }
   flash(msg) { this.upd(this.toastPatch(msg)); }
   // Copying shows what went to the clipboard; the agent request and the forge command are copied as two lines.
-  copyReq(req) { this.flash('Copied to the clipboard: "' + req.ask + '", then "' + req.cmd + '".'); }
+  copyReq(req) { this.flash('Copied to the clipboard: "' + req.ask + '"' + (req.cmd ? ', then "' + req.cmd + '"' : '') + '.'); }
   copyLine(text) { this.flash('Copied to the clipboard: "' + text + '".'); }
   componentWillUnmount() { clearTimeout(this._toastT); clearTimeout(this._testT); }
 
