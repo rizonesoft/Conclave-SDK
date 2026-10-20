@@ -6,7 +6,6 @@ Governing plan: [docs/plans/2026-10-16-vscode-extension.md](../docs/plans/2026-1
 
 | Domain | File | Scope |
 | ------ | ---- | ----- |
-| 00 | 00-design/TODO-01-reviewer-editor-design.md | Mockup, owner approval, SPEC, design spec |
 | 01 | 01-pin-contract/TODO-01-check-pin-contract.md | SDK check-pin flag and its contract |
 | 02 | 02-extension-core/TODO-01-extension-core.md | Extension host modules |
 | 03 | 03-editor-ui/TODO-01-reviewer-editor-ui.md | Reviewers webview surface |
@@ -15,3 +14,9 @@ Governing plan: [docs/plans/2026-10-16-vscode-extension.md](../docs/plans/2026-1
 | 06 | 06-feature-sections/TODO-01-feature-sections.md | Reviewers, Plan, rounds, site sections |
 
 ## Completed TODOs
+
+| Domain | File | Scope | Completed |
+| ------ | ---- | ----- | --------- |
+| 00 | 00-design/TODO-01-reviewer-editor-design.md | Mockup, SPEC, design spec | 2026-10-20 |
+
+The design it produced: [design/SPEC.md](../design/SPEC.md), [design/decisions.md](../design/decisions.md) and [the design spec](../docs/specs/2026-10-20-vscode-extension-design.md).
