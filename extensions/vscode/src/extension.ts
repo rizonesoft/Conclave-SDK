@@ -5,7 +5,7 @@ import { sweepCandidates, withCandidate } from "./host/candidate";
 import { DispatcherClient } from "./host/dispatcher";
 import { log, output, recentLog } from "./host/output";
 import { PythonService, type PythonResolution, type PythonResolved } from "./host/python";
-import { PinSession, type SaveDeps } from "./host/save";
+import { PinSession, type SaveHooks } from "./host/save";
 import { SdkSourceService } from "./host/sdkSource";
 
 // The reviewer editor panel. This is the scaffold's placeholder (D02 T01 §1); D03 T01 builds the editor in it.
@@ -23,7 +23,7 @@ export interface ConclaveApi {
   // The dispatcher's verdict on candidate text, written to a candidate file that is deleted after the check.
   checkCandidate: (folder: vscode.Uri, text: string) => Promise<WorkspaceState>;
   // A folder's pin as loaded, with atomic save, stale check, re-check, discard and reload; tests pass their hooks.
-  openPin: (folder: vscode.Uri, hooks?: Pick<SaveDeps, "afterWrite" | "rename" | "delay">) => PinSession;
+  openPin: (folder: vscode.Uri, hooks?: SaveHooks) => PinSession;
 }
 
 export function activate(context: vscode.ExtensionContext): ConclaveApi {

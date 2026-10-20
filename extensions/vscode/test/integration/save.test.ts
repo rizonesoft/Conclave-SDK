@@ -142,6 +142,66 @@ suite("save", () => {
     assert.equal(readFileSync(pin, "utf8"), refused);
   });
 
+  test("save: a reload asked during a save waits for it, so the save still checks against what it loaded", async () => {
+    const { folder, pin, shipped } = copy();
+    let reloading: Promise<string> | undefined;
+    const session = open(folder, {
+      afterWrite: async () => {
+        writeFileSync(pin, OTHER);
+        reloading = session.reload();
+        // Unqueued, the reload would finish here and move the baseline to the other program's text.
+        await Promise.race([reloading, new Promise((r) => setTimeout(r, 300))]);
+      },
+    });
+    await session.load();
+    const result = await session.save(`${shipped}# mine\n`);
+    assert.equal(result.kind, "stale", JSON.stringify(result));
+    assert.equal(readFileSync(pin, "utf8"), OTHER);
+    assert.equal(await reloading, OTHER);
+    assert.equal(session.discard(), OTHER);
+    assert.deepEqual(temps(pin), []);
+  });
+
+  test("save: a disk check that read the pin before a save cannot mark the saved pin stale", async () => {
+    const { folder, shipped } = copy();
+    let hold: (() => void) | undefined;
+    const session = open(folder, {
+      read: async (path) => {
+        const bytes = readFileSync(path);
+        if (hold === undefined && holding) {
+          holding = false;
+          await new Promise<void>((r) => (hold = r));
+        }
+        return bytes;
+      },
+    });
+    let holding = false;
+    await session.load();
+    holding = true;
+    const checking = session.checkDisk();
+    while (hold === undefined) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    const saving = session.save(`${shipped}# mine\n`);
+    await new Promise((r) => setTimeout(r, 100));
+    hold();
+    await checking;
+    assert.equal((await saving).kind, "saved");
+    assert.equal(session.stale, false, "the disk check's older read marked the saved pin stale");
+  });
+
+  test("save: a temporary file that cannot be deleted is reported in the result, not thrown", async () => {
+    const { folder, pin, shipped } = copy();
+    const session = open(folder, { remove: () => Promise.reject(Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" })) });
+    await session.load();
+    writeFileSync(pin, OTHER);
+    const result = await session.save(`${shipped}# mine\n`);
+    assert.equal(result.kind, "stale", JSON.stringify(result));
+    assert.match(result.message, /changed on disk since it was loaded.*The temporary file .*\.tmp could not be deleted: Error: EACCES/s);
+    assert.equal(readFileSync(pin, "utf8"), OTHER);
+    temps(pin).forEach((n) => rmSync(join(pin, "..", n)));
+  });
+
   test("save: discard returns to the loaded text, and reload takes an outside change the watcher saw", async () => {
     const { folder, pin, shipped } = copy();
     const session = open(folder);
