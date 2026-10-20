@@ -18,10 +18,12 @@ with `--json`, `{"ok": true, "schema_version", "reviewers", "routes", "clis": {c
 
 Reviewers run read-only in the repository root: Codex in its read-only sandbox, Antigravity in plan mode inside its
 sandbox, Claude Code in plan mode. The script prints a JSON summary; `--record` also appends a `## Round N` section to
-the findings file with an atomic write. Works the same from PowerShell and from WSL. Stdlib only.
+the findings file with an atomic write, and writes nothing (exit 2, the summary still printed) to a findings file it
+cannot read back. Works the same from PowerShell and from WSL. Stdlib only.
 """
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -87,7 +89,8 @@ def load_pin(path=PIN):
     if not isinstance(reviewers, dict) or not reviewers:
         raise Refused("the reviewer pin defines no reviewers")
     for name, entry in reviewers.items():
-        if not NAME.match(name) or not isinstance(entry, dict):
+        # fullmatch: `$` alone also matches before a trailing newline, which would then break the round heading.
+        if not NAME.fullmatch(name) or not isinstance(entry, dict):
             raise Refused(f"invalid reviewer {name!r}")
         unknown = set(entry) - {"cli", "model", "effort"}
         if unknown:
@@ -95,7 +98,7 @@ def load_pin(path=PIN):
         cli, model, effort = entry.get("cli"), entry.get("model"), entry.get("effort")
         if cli not in CLIS:
             raise Refused(f"reviewer {name!r} needs cli = one of {', '.join(CLIS)}")
-        if not isinstance(model, str) or not MODEL.match(model):
+        if not isinstance(model, str) or not MODEL.fullmatch(model):
             raise Refused(f"reviewer {name!r} has a malformed model")
         if cli == "agy":
             if effort is not None:
@@ -263,7 +266,8 @@ def atomic_write(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(dir=path.parent)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        # newline="": the text is written as given, so a review's own "\r" bytes are stored and nothing is translated.
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
             handle.write(text)
         os.chmod(temporary, 0o644)
         os.replace(temporary, path)
@@ -273,30 +277,46 @@ def atomic_write(path, text):
 
 
 # A findings file is read back by `list_rounds`, so the envelope `record` writes around each review is unambiguous:
-# the metadata states how many lines the review has (`- Lines: N`, lines split on "\n" only), the reader skips exactly
-# that many without reading them, and the review is stored byte for byte, whatever headings or fences it holds.
-# Rounds recorded before the count existed have no Lines field and run to the next round heading.
+# the metadata states how many lines the review has (`- Lines: N`, lines split on "\n" only) and a digest of them
+# (`- Digest:`, the first 16 hex digits of the SHA-256 of the canonical lines joined with "\n"). The reader skips
+# exactly N lines and checks the digest, so neither a quoted heading nor an edit of the same length passes for a round.
+# The review is stored byte for byte; a line's trailing "\r" is dropped only to compare, so a CRLF checkout reads the
+# same. Rounds recorded before the count have no Lines field and run to the next round heading; rounds recorded
+# before the digest have Lines without Digest and are read by their count alone.
 ROUND_HEADING = re.compile(r"^## Round (\d+): (none|([a-z0-9][a-z0-9-]*) \(`([^`]+)` via `([a-z]+)`\))$")
-ROUND_LINE = re.compile(r"^- (Writer|Run|Effort|Lines|Skipped): (\S.*)$")
+ROUND_LINE = re.compile(r"^- (Writer|Run|Effort|Lines|Digest|Skipped): (\S.*)$")
 SKIPPED = re.compile(r"^([a-z0-9][a-z0-9-]*) \((.*)\)$")
+COUNT = re.compile(r"[0-9]{1,6}")
+DIGEST = re.compile(r"[0-9a-f]{16}")
 
 
-def text_lines(text):
-    """Lines split on "\n" alone, the one boundary both `record` and the reader use, with a CRLF checkout's "\r"
-    dropped. `str.splitlines` also splits on U+2028, U+0085 and others, which a review may contain."""
-    return [line[:-1] if line.endswith("\r") else line for line in text.split("\n")]
+def raw_lines(text):
+    """Lines split on "\n" alone, the one boundary `record` and the reader share, every other byte kept. `str.splitlines`
+    also splits on "\r", U+2028, U+0085 and others, which a review may contain."""
+    return text.split("\n")
+
+
+def canonical(line):
+    """A line as compared and digested: a CRLF checkout's trailing "\r" dropped."""
+    return line[:-1] if line.endswith("\r") else line
+
+
+def digest(lines):
+    return hashlib.sha256("\n".join(canonical(line) for line in lines).encode("utf-8")).hexdigest()[:16]
 
 
 def read_rounds(text):
     """The rounds `record` wrote in one findings file, or None when anything `record` writes is not as it writes it.
 
     A round is a `## Round` heading, a blank line, and a metadata block to the next blank line in which every line is
-    one of `record`'s fields (Writer and Run exactly once, Effort and Lines at most once, any number of Skipped). With
-    Lines, the next N lines are the review, skipped unread, and a blank line or the end of the file must follow them,
-    so a hand edit that changes the count shows as unreadable. Without Lines (a round recorded before the count), the
-    round runs to the next `## Round` line. Anything else makes the file unreadable rather than losing a field."""
+    one of `record`'s fields (Writer and Run exactly once, Effort, Lines and Digest at most once, any number of Skipped;
+    Digest only with Lines). With Lines, the next N lines are the review, skipped unread, and a blank line or the end of
+    the file must follow them; with Digest, they must also hash to it, so a hand edit inside a review shows as
+    unreadable even when it keeps the count. Without Lines (a round recorded before the count), the round runs to the
+    next `## Round` line. Anything else makes the file unreadable rather than losing a field."""
     rounds = []
-    lines = text_lines(text)
+    raw = raw_lines(text)
+    lines = [canonical(line) for line in raw]
     i = 0
     while i < len(lines):
         if not lines[i].startswith("## Round"):
@@ -307,7 +327,7 @@ def read_rounds(text):
             return None
         entry = {"number": int(heading.group(1)), "reviewer": heading.group(3), "model": heading.group(4),
                  "cli": heading.group(5), "writer": None, "run": None, "effort": None, "skipped": []}
-        count = None
+        count = sealed = None
         i += 2
         while i < len(lines) and lines[i] != "":
             field = ROUND_LINE.match(lines[i])
@@ -320,38 +340,59 @@ def read_rounds(text):
                     return None
                 entry["skipped"].append({"reviewer": skipped.group(1), "reason": skipped.group(2)})
             elif key == "lines":
-                if count is not None or not value.isdigit():
+                # ASCII digits only: "²" passes str.isdigit and int() raises on it.
+                if count is not None or not COUNT.fullmatch(value):
                     return None
                 count = int(value)
+            elif key == "digest":
+                if sealed is not None or not DIGEST.fullmatch(value):
+                    return None
+                sealed = value
             elif entry[key] is not None:
                 return None
             else:
                 entry[key] = value
             i += 1
-        if entry["writer"] is None or entry["run"] is None:
+        if entry["writer"] is None or entry["run"] is None or (sealed is not None and count is None):
             return None
         if count is not None:
-            i += 1 + count  # the blank line after the metadata, then the review, unread
+            start = i + 1  # the blank line after the metadata, then the review, unread
+            i = start + count
             if i > len(lines) or (i < len(lines) and lines[i] != ""):
+                return None
+            if sealed is not None and digest(raw[start:i]) != sealed:
                 return None
         rounds.append(entry)
     return rounds
 
 
+class Unrecorded(Exception):
+    """The findings file cannot be read back, so a round is not appended to it."""
+
+
 def record(path, result, when):
-    existing = path.read_text(encoding="utf-8") if path.is_file() else ""
-    # Numbered from the rounds actually recorded; a file the reader refuses falls back to counting headings, so a
-    # round is still recorded (and the listing names the file as unreadable).
+    """Append one round and return its number. A findings file the reader cannot read back gets nothing appended:
+    numbering it would have to guess (counting headings counts quoted ones), so `Unrecorded` is raised instead."""
+    try:
+        # Bytes, not read_text: universal newlines would turn a stored lone "\r" into a line break and move the
+        # line count of an earlier round.
+        existing = path.read_bytes().decode("utf-8") if path.exists() else ""
+    except (OSError, UnicodeDecodeError) as exc:
+        raise Unrecorded(f"{path} cannot be read back ({exc}), so the round was not recorded") from None
     known = read_rounds(existing)
-    number = (len(known) if known is not None else len(re.findall(r"^## Round \d+", existing, flags=re.M))) + 1
+    if known is None:
+        raise Unrecorded(f"{path} cannot be read back (a round heading or line is not in the format --record writes), "
+                         f"so the round was not recorded")
+    number = len(known) + 1
     who = f"{result['reviewer']} (`{result['model']}` via `{result['cli']}`)" if result["reviewer"] else "none"
-    review = text_lines(result["review"] or "No reviewer returned a review. This round is not an approval.")
+    review = raw_lines(result["review"] or "No reviewer returned a review. This round is not an approval.")
     lines = [f"## Round {number}: {who}", "", f"- Writer: {result['writer']}", f"- Run: {when}"]
     if result.get("effort"):
         lines.append(f"- Effort: {result['effort']}")
     lines += [f"- Skipped: {f['reviewer']} ({f['reason']})" for f in result["failover"]]
-    lines += [f"- Lines: {len(review)}", "", *review, ""]
-    separator = "" if not existing or existing.endswith("\n\n") else ("\n" if existing.endswith("\n") else "\n\n")
+    lines += [f"- Lines: {len(review)}", f"- Digest: {digest(review)}", "", *review, ""]
+    tail = [canonical(line) for line in raw_lines(existing)[-2:]]
+    separator = "" if not existing or tail == ["", ""] else ("\n" if tail[-1] == "" else "\n\n")
     atomic_write(path, existing + separator + "\n".join(lines))
     return number
 
@@ -375,7 +416,9 @@ def list_rounds(records_dir):
         # One file that cannot be read, or is not UTF-8, is named in `unreadable`; the others are still listed.
         try:
             rounds = read_rounds(path.read_bytes().decode("utf-8"))
-        except (OSError, UnicodeDecodeError, RuntimeError):  # RuntimeError: a symlink loop on older Pythons
+        # RuntimeError: a symlink loop on older Pythons. ValueError: anything read_rounds meets that int() or the
+        # digest cannot take, so one bad file never aborts the listing.
+        except (OSError, UnicodeDecodeError, RuntimeError, ValueError):
             rounds = None
         if rounds is None:
             unreadable.append(shown(path))
@@ -432,7 +475,13 @@ def main(argv=None):
         return 2
     when = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     if args.record:
-        result["round"] = record(Path(args.record), result, when)
+        try:
+            result["round"] = record(Path(args.record), result, when)
+        except Unrecorded as exc:
+            # The review still reaches stdout; only the findings file is left as it was.
+            print(json.dumps({**result, "round": None, "run": when}, indent=2))
+            print("review-dispatch refused: " + str(exc), file=sys.stderr)
+            return 2
     print(json.dumps({**result, "run": when}, indent=2))
     return 0 if result["reviewer"] else 1
 

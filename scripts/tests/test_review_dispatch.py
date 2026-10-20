@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -382,6 +383,82 @@ class Dispatch(unittest.TestCase):
         text = path.read_text(encoding="utf-8")
         self.assertIsNone(module.read_rounds(text.replace("- Lines: 1", "- Lines: 3")))
         self.assertIsNone(module.read_rounds(text.replace("Plain.", "Plain.\nAdded by hand.")))
+
+    def module(self):
+        spec = importlib.util.spec_from_file_location("dispatch_record", self.repo / "scripts/review-dispatch.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    RESULT = {"writer": "claude", "reviewer": "astra", "model": "gpt-6-astra", "cli": "codex", "effort": "medium",
+              "failover": []}
+
+    def test_a_lines_value_that_is_not_ascii_digits_is_unreadable_not_a_crash(self):
+        # D06 T01 §8 (1): "²" passes str.isdigit and int() raises; so does a count past Python's digit limit.
+        good = self.repo / "docs/reviews/good.md"
+        self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(good))
+        recorded = good.read_text(encoding="utf-8")
+        for name, value in (("superscript.md", "²"), ("huge.md", "9" * 5000)):
+            body = re.sub(r"- Lines: \d+", "- Lines: " + value, recorded)
+            self.assertNotEqual(body, recorded, name)
+            (self.repo / "docs/reviews" / name).write_text(body, encoding="utf-8")
+        result, listing = self.dispatch("--list-rounds", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([r["path"] for r in listing["records"]], ["docs/reviews/good.md"])
+        self.assertEqual(sorted(listing["unreadable"]), ["docs/reviews/huge.md", "docs/reviews/superscript.md"])
+
+    def test_an_edit_inside_a_review_that_keeps_its_line_count_is_refused(self):
+        # D06 T01 §8 (2): the count alone cannot see an edit of the same length; the digest can.
+        module, path = self.module(), self.repo / "docs/reviews/d.md"
+        module.record(path, {**self.RESULT, "review": "Finding one.\nOVERALL: needs-attention"}, "2026-10-20T00:00:00Z")
+        text = path.read_bytes().decode("utf-8")
+        self.assertRegex(text, r"\n- Digest: [0-9a-f]{16}\n")
+        self.assertEqual(len(module.read_rounds(text)), 1)
+        self.assertIsNone(module.read_rounds(text.replace("needs-attention", "approve")))
+        # A CRLF checkout of the same file still reads, and its digest still matches.
+        self.assertEqual(len(module.read_rounds(text.replace("\n", "\r\n"))), 1)
+
+    def test_a_review_is_stored_byte_for_byte_and_an_append_keeps_it_readable(self):
+        # D06 T01 §8 (3): a CRLF pair and a lone CR inside a review are stored as they came, and a second round
+        # appended after them does not turn the lone CR into a line break that breaks the first round's count.
+        module, path = self.module(), self.repo / "docs/reviews/b.md"
+        module.record(path, {**self.RESULT, "review": "A\r\nB\rC\nD"}, "2026-10-20T00:00:00Z")
+        self.assertIn(b"\nA\r\nB\rC\nD\n", path.read_bytes())
+        module.record(path, {**self.RESULT, "review": "Second."}, "2026-10-20T00:00:01Z")
+        raw = path.read_bytes()
+        self.assertIn(b"\nA\r\nB\rC\nD\n", raw)
+        self.assertEqual([r["number"] for r in module.read_rounds(raw.decode("utf-8"))], [1, 2])
+
+    def test_a_model_or_name_ending_in_a_newline_is_refused(self):
+        # D06 T01 §8 (4): `$` in MODEL and NAME accepted a trailing newline, which then broke the round heading.
+        pin = self.repo / ".conclave/reviewers.toml"
+        good = pin.read_text(encoding="utf-8")
+        cases = {'model = "gpt-6-astra\\n"': "reviewer 'astra' has a malformed model",
+                 '[reviewers."sonnet\\n"]': "invalid reviewer 'sonnet\\n'"}
+        for edit, message in cases.items():
+            with self.subTest(edit):
+                old = 'model = "gpt-6-astra"' if edit.startswith("model") else "[reviewers.sonnet]"
+                pin.write_text(good.replace(old, edit), encoding="utf-8")
+                result = self.check_pin("--json")
+                self.assertEqual(result.returncode, 2, result.stdout)
+                self.assertEqual(json.loads(result.stdout)["error"], message)
+                review, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt))
+                self.assertEqual(review.returncode, 2, review.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_record_refuses_to_append_to_a_findings_file_it_cannot_read(self):
+        # D06 T01 §8 (5): numbering an unreadable file by counting headings counted quoted ones; now nothing is
+        # appended, the review still reaches stdout, and the exit is 2.
+        bad = self.repo / "docs/reviews/bad.md"
+        bad.parent.mkdir(parents=True)
+        body = "# Findings\n\n## Round two: astra\n\n- Writer: claude\n"
+        bad.write_bytes(body.encode("utf-8"))
+        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(bad))
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(bad.read_bytes(), body.encode("utf-8"), "record appended to a file it cannot read")
+        self.assertIn("calc.py:2 subtracts", summary["review"])
+        self.assertIsNone(summary["round"])
+        self.assertIn("cannot be read back", result.stderr)
 
     @unittest.skipIf(os.name == "nt", "creating a symlink needs a privilege Windows does not grant by default")
     def test_a_symlink_loop_is_reported_without_aborting_the_listing(self):
