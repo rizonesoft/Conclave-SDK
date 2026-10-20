@@ -30,14 +30,24 @@ export function run(file: string, args: string[], timeoutMs: number, cwd?: strin
         resolve(result);
       }
     };
-    const child = execFile(file, args, { windowsHide: true, encoding: "utf8", cwd, maxBuffer: 4 * 1024 * 1024 },
-      (error, stdout) => {
-        if (error && typeof error.code !== "number") {
-          settle({ code: undefined, stdout, error: String(error.code ?? error.message) });
-        } else {
-          settle({ code: error ? (error.code as number) : 0, stdout });
-        }
-      });
+    let child: ReturnType<typeof execFile>;
+    try {
+      child = execFile(file, args, { windowsHide: true, encoding: "utf8", cwd, maxBuffer: 4 * 1024 * 1024 },
+        (error, stdout) => {
+          if (error && typeof error.code !== "number") {
+            settle({ code: undefined, stdout, error: String(error.code ?? error.message) });
+          } else {
+            settle({ code: error ? (error.code as number) : 0, stdout });
+          }
+        });
+    } catch (error) {
+      // execFile throws at once for an argument it cannot pass (a path with a NUL byte): that is a process that
+      // could not start, reported like any other, never a rejected promise.
+      const code = (error as NodeJS.ErrnoException).code;
+      resolve({ code: undefined, stdout: "", error: code ?? String(error) });
+      return;
+    }
+    // Declared after the launch: settle reads it only from callbacks, which always run later.
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       settle({ code: undefined, stdout: "", error: `timed out after ${timeoutMs / 1000} s` });
