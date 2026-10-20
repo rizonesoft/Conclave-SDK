@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { accessSync, constants, statSync } from "node:fs";
+import { accessSync, constants, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { RunResult } from "../core/python";
 
@@ -108,44 +108,88 @@ function signal(pid: number, name: NodeJS.Signals): void {
   }
 }
 
-// Kills pid and every process it started. Windows: taskkill /T /F, which walks the tree while its root is alive.
-// POSIX: the descendants are found from ps by parent id, not by process group, since a child that started its own
-// session (as the dispatcher does for each reviewer) leaves the group. Each round takes one ps snapshot, follows it to
-// the whole tree under pid however deep, and stops every process found, so none can start another; rounds repeat
-// until one finds nothing new, and then all of them are killed.
-export async function killTree(pid: number): Promise<void> {
-  if (process.platform === "win32") {
-    const taskkill = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe");
-    await quiet(taskkill, ["/T", "/F", "/PID", String(pid)]);
-    return;
-  }
-  const ps = ["/bin/ps", "/usr/bin/ps"].find(runnable) ?? "ps";
-  const tree = new Set([pid]);
-  signal(pid, "SIGSTOP");
-  for (let round = 0; round < 20; round += 1) {
-    const parents = new Map<number, number[]>();
-    for (const line of (await quiet(ps, ["-A", "-o", "pid=,ppid="])).split("\n")) {
-      const [child, parent] = line.trim().split(/\s+/).map(Number);
-      if (Number.isInteger(child) && Number.isInteger(parent)) {
-        parents.set(parent, [...(parents.get(parent) ?? []), child]);
-      }
-    }
-    const before = tree.size;
-    const queue = [...tree];
-    while (queue.length) {
-      for (const child of parents.get(queue.pop() as number) ?? []) {
-        if (!tree.has(child)) {
-          tree.add(child);
-          queue.push(child);
-          signal(child, "SIGSTOP");
-        }
-      }
-    }
-    if (tree.size === before) {
-      break;
+// Running, not merely present: a killed process stays in the table until it is reaped (a zombie on POSIX), and on
+// Linux /proc says which; elsewhere signal 0 does (Windows reports a terminated process as gone).
+export function running(pid: number): boolean {
+  if (process.platform === "linux") {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const state = stat.slice(stat.lastIndexOf(")") + 2, stat.lastIndexOf(")") + 3);
+      return state !== "Z" && state !== "X";
+    } catch {
+      return false;
     }
   }
-  for (const member of tree) {
-    signal(member, "SIGKILL");
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
   }
 }
+
+// Every process under pid in one snapshot of the process table, however deep. POSIX: ps; Windows: the parent ids from
+// CIM (taskkill's own report is localized, so it cannot be read back). An unreadable table gives pid alone.
+async function descendants(pid: number): Promise<Set<number>> {
+  const table = process.platform === "win32"
+    ? await quiet(join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
+      ["-NoProfile", "-NonInteractive", "-Command", "Get-CimInstance Win32_Process | ForEach-Object { \"$($_.ProcessId) $($_.ParentProcessId)\" }"])
+    : await quiet(["/bin/ps", "/usr/bin/ps"].find(runnable) ?? "ps", ["-A", "-o", "pid=,ppid="]);
+  const children = new Map<number, number[]>();
+  for (const line of table.split("\n")) {
+    const [child, parent] = line.trim().split(/\s+/).map(Number);
+    if (Number.isInteger(child) && Number.isInteger(parent) && child !== parent) {
+      children.set(parent, [...(children.get(parent) ?? []), child]);
+    }
+  }
+  const tree = new Set([pid]);
+  const queue = [pid];
+  while (queue.length) {
+    for (const child of children.get(queue.pop() as number) ?? []) {
+      if (!tree.has(child)) {
+        tree.add(child);
+        queue.push(child);
+      }
+    }
+  }
+  return tree;
+}
+
+// Kills pid and every process it started, and returns once they have all ended (at most KILL_WAIT_MS): a signal or
+// TerminateProcess only starts the end, and a caller that cleans up after a cancel must not race the tree.
+// Windows: the tree is read first, then taskkill /T /F, which walks it while its root is alive. POSIX: the descendants
+// are found by parent id, not by process group, since a child that started its own session (as the dispatcher does
+// for each reviewer) leaves the group. Each round stops every process found, so none can start another, and rounds
+// repeat until one finds nothing new; then all of them are killed.
+export async function killTree(pid: number): Promise<void> {
+  let tree: Set<number>;
+  if (process.platform === "win32") {
+    tree = await descendants(pid);
+    await quiet(join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe"), ["/T", "/F", "/PID", String(pid)]);
+  } else {
+    tree = new Set([pid]);
+    signal(pid, "SIGSTOP");
+    for (let round = 0; round < 20; round += 1) {
+      const before = tree.size;
+      for (const member of await descendants(pid)) {
+        if (!tree.has(member)) {
+          tree.add(member);
+          signal(member, "SIGSTOP");
+        }
+      }
+      // A stopped process cannot start another, but one may have started just before its stop: look again.
+      if (tree.size === before) {
+        break;
+      }
+    }
+    for (const member of tree) {
+      signal(member, "SIGKILL");
+    }
+  }
+  const deadline = Date.now() + KILL_WAIT_MS;
+  while ([...tree].some(running) && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 10));
+  }
+}
+
+const KILL_WAIT_MS = 5000;

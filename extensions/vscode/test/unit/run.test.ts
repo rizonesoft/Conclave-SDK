@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { findOnPath } from "../../src/core/which";
-import { run, runnable } from "../../src/host/run";
+import { killTree, run, runnable, running as isRunning } from "../../src/host/run";
 
 test("a process that ignores SIGTERM is killed at the timeout and the run settles", async () => {
   const started = Date.now();
@@ -112,17 +112,28 @@ test("cancelling a tree run kills a chain 25 processes deep, all gone when the r
     const chain = readFileSync(pids, "utf8").trim().split("\n").map(Number);
     controller.abort();
     assert.equal((await running).error, "cancelled");
-    // Settled only once the kill is done: on POSIX nothing may be left at that moment; Windows may report a process
-    // for a few milliseconds after TerminateProcess, so it gets a short grace.
-    const until = Date.now() + (process.platform === "win32" ? 1000 : 0);
-    while (chain.some(alive) && Date.now() < until) {
-      await new Promise((r) => setTimeout(r, 20));
-    }
-    assert.deepEqual(chain.filter(alive), [], "processes of the chain are still running");
+    // Settled only once every process has ended: checked at that instant, synchronously, with no grace.
+    assert.deepEqual(chain.filter(isRunning), [], "processes of the chain are still running");
   } finally {
     // A failed assertion above must not leave the chain running.
     controller.abort();
     rmSync(work, { recursive: true, force: true });
+  }
+});
+
+test("a cancelled tree run has ended its process when it settles, 20 times over", async () => {
+  for (let i = 0; i < 20; i += 1) {
+    const pid: { value?: number } = {};
+    const controller = new AbortController();
+    const killer = async (target: number) => {
+      pid.value = target;
+      await killTree(target);
+    };
+    const running = run(process.execPath, ["-e", "setInterval(() => {}, 1000)"], 60_000, undefined, { signal: controller.signal, tree: true, killer });
+    await new Promise((r) => setTimeout(r, 50));
+    controller.abort();
+    assert.equal((await running).error, "cancelled");
+    assert.ok(pid.value !== undefined && !isRunning(pid.value), `run ${i}: process ${pid.value} still running when the run settled`);
   }
 });
 
