@@ -259,6 +259,19 @@ test("endTree: a table that is always slow still leads to a kill before the dead
   assert.equal(tree.alive.has(1), false, "the root was left frozen");
 });
 
+test("endTree: on POSIX, discovery the deadline cuts short while it still finds processes cannot confirm the end", async () => {
+  // Each stop starts a child (2 starts 3, 3 starts 4, ...), and each look takes 2.6 s: discovery is still finding
+  // processes when the deadline ends it, so the last child born may be reparented unseen.
+  const tree = fakeTree({ posix: true, children: [[1, [2]]], spawnOnStop: [[2, [3]], [3, [4]], [4, [5]], [5, [6]]] });
+  const table = tree.ops.table;
+  tree.ops.table = async () => {
+    await tree.ops.sleep(2600);
+    return table();
+  };
+  const end = await endTree(1, tree.ops, 5000);
+  assert.equal(end.verified, false, JSON.stringify(end));
+});
+
 test("endTree: a process that cannot be ended is returned at the deadline", async () => {
   const tree = fakeTree({ unkillable: [1] });
   assert.deepEqual(await endTree(1, tree.ops, 100), { survivors: [1], verified: true });
@@ -269,6 +282,7 @@ test("a cancelled run says which processes did not end, or that their end could 
   for (const [end, error, extra] of [
     [{ survivors: [4242], verified: true }, "cancelled, but 1 process did not end (4242)", { survivors: [4242] }],
     [{ survivors: [], verified: false }, "cancelled, but the process table could not be read to confirm that every process ended", { survivors: [], unverified: true }],
+    [{ survivors: [7], verified: false }, "cancelled, but 1 process did not end (7), and the process table could not be read to confirm that every other process ended", { survivors: [7], unverified: true }],
   ] as const) {
     const controller = new AbortController();
     const running = run(process.execPath, ["-e", "setInterval(() => {}, 1000)"], 60_000, undefined, {

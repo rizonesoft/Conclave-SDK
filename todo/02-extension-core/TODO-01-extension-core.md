@@ -558,6 +558,8 @@ Review round 3 of `§8` (`docs/reviews/02-extension-core/D02-T01-s8.md`, the las
 
 ## 17. Tree kill: cut-short discovery and combined uncertainty
 
+> **Started:** 2026-10-20T16:15:00Z
+
 Review round 3 of `§16` (`docs/reviews/02-extension-core/D02-T01-s16.md`, the last round its loop allowed) found two gaps in `extensions/vscode/src/host/run.ts` and `extensions/vscode/src/host/testReviewer.ts`. On POSIX, discovery that the deadline cuts short while it is still finding new processes is not counted as blind, so killing those parents can reparent a child born after the last look while the end is reported confirmed. And a kill that leaves known survivors and also could not be confirmed loses the second fact: `run` reports only the survivors, and `ReviewerTester` releases the test guard once they end, though an unseen process may still run.
 
 **Phase:** 1
@@ -569,10 +571,10 @@ Review round 3 of `§16` (`docs/reviews/02-extension-core/D02-T01-s16.md`, the l
 1. Write the failing tests: discovery cut short by the deadline is reported unverified; a kill with known survivors and an unconfirmed end keeps both in `run`'s result and holds the guard after the survivors end. Done when: each fails at the end of `§16`.
 2. Fix both in `run.ts` and `testReviewer.ts`. Done when: the tests pass on Windows and in WSL.
 
-- [ ] Count POSIX discovery as complete only when a look finds nothing new, so discovery that the deadline or a failed read ends early makes the end unverified, in `endTree` in `extensions/vscode/src/host/run.ts`. Done when: a fake tree whose slow looks keep finding children is reported `verified: false`. Cheaper substitute: blind only on a failed read.
-- [ ] Keep `unverified: true` in `run`'s result alongside known survivors, with an error naming both. Done when: a killer returning `{ survivors: [7], verified: false }` gives a result with both. Cheaper substitute: survivors only.
-- [ ] Hold the test guard and the temporary pin in `ReviewerTester` whenever the end is unconfirmed, after any known survivors end. Done when: an integration test with a survivor and an unconfirmed end is still refused after the survivor ends. Cheaper substitute: releasing the guard once the survivors end.
-- [ ] Run the run and testReviewer tests on Windows and in WSL. Done when: all pass on both. Cheaper substitute: Windows only.
+- [x] Count POSIX discovery as complete only when a look finds nothing new, so discovery that the deadline or a failed read ends early makes the end unverified, in `endTree` in `extensions/vscode/src/host/run.ts`. Done when: a fake tree whose slow looks keep finding children is reported `verified: false`. Cheaper substitute: blind only on a failed read.
+- [x] Keep `unverified: true` in `run`'s result alongside known survivors, with an error naming both. Done when: a killer returning `{ survivors: [7], verified: false }` gives a result with both. Cheaper substitute: survivors only.
+- [x] Hold the test guard and the temporary pin in `ReviewerTester` whenever the end is unconfirmed, after any known survivors end. Done when: an integration test with a survivor and an unconfirmed end is still refused after the survivor ends. Cheaper substitute: releasing the guard once the survivors end.
+- [x] Run the run and testReviewer tests on Windows and in WSL. Done when: all pass on both. Cheaper substitute: Windows only.
 - [ ] Commit: `extension: a tree kill cut short is never reported confirmed`
 
 **Test checkpoint:** `cd extensions/vscode && npm run compile && node --test out/test/unit/run.test.js` passes on Windows and in WSL, and the cut-short discovery case fails with blind set only on a failed read.

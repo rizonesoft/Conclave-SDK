@@ -80,7 +80,11 @@ export function run(file: string, args: string[], timeoutMs: number, cwd?: strin
       const done = (end?: TreeEnd | void) => {
         if (end && end.survivors.length) {
           const n = end.survivors.length;
-          settle({ code: undefined, stdout: "", stderr: "", error: `${error}, but ${n} process${n === 1 ? "" : "es"} did not end (${end.survivors.join(", ")})`, survivors: end.survivors });
+          const unseen = end.verified ? "" : ", and the process table could not be read to confirm that every other process ended";
+          settle({
+            code: undefined, stdout: "", stderr: "", error: `${error}, but ${n} process${n === 1 ? "" : "es"} did not end (${end.survivors.join(", ")})${unseen}`,
+            survivors: end.survivors, ...(end.verified ? {} : { unverified: true }),
+          });
         } else if (end && !end.verified) {
           settle({ code: undefined, stdout: "", stderr: "", error: `${error}, but the process table could not be read to confirm that every process ended`, survivors: [], unverified: true });
         } else {
@@ -213,12 +217,17 @@ export async function endTree(root: number, ops: TreeOps, deadlineMs = KILL_WAIT
   };
   if (ops.stop) {
     ops.stop([root]);
-    for (let before = 0; known.size !== before && ops.now() < deadline;) {
-      before = known.size;
+    // Complete only when a look finds nothing new: discovery that the deadline or a failed read ends early may have
+    // missed a child that the kill then reparents, so the end cannot be confirmed.
+    let complete = false;
+    while (!complete && ops.now() < deadline) {
+      const before = known.size;
       if (!(await look())) {
         break;
       }
+      complete = known.size === before;
     }
+    blind ||= !complete;
   }
   for (;;) {
     const alive = [...known].filter((pid) => ops.running(pid));

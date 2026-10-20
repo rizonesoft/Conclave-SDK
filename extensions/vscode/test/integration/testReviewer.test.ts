@@ -169,14 +169,20 @@ suite("testReviewer", () => {
     assert.deepEqual(pins(), before);
   });
   // Last in the suite: an unconfirmed end holds the guard until the window is reloaded.
-  test("testReviewer: a cancel whose end could not be confirmed keeps the guard and the temporary pin", async () => {
+  test("testReviewer: a cancel whose end could not be confirmed keeps the guard and the pin, even after its known survivors end", async () => {
     const before = pins();
+    let survivorRuns = true;
+    const error = "cancelled, but 1 process did not end (4242), and the process table could not be read to confirm that every other process ended";
     const outcome = await api.testReviewer(folder, "sonnet", {
       confirm: yes,
-      run: async () => ({ code: undefined, stdout: "", stderr: "", error: "cancelled, but the process table could not be read to confirm that every process ended", survivors: [], unverified: true }),
+      run: async () => ({ code: undefined, stdout: "", stderr: "", error, survivors: [4242], unverified: true }),
+      alive: () => survivorRuns,
     });
-    assert.deepEqual(outcome, { kind: "cancelled", note: "cancelled, but the process table could not be read to confirm that every process ended" });
-    await new Promise((r) => setTimeout(r, 1200));
+    assert.deepEqual(outcome, { kind: "cancelled", note: error });
+    assert.deepEqual(await api.testReviewer(folder, "sonnet", { confirm: yes }), { kind: "refused", message: "A cancelled test's process 4242 still runs" });
+    survivorRuns = false;
+    await new Promise((r) => setTimeout(r, 1500));
+    // The known survivor has ended, but the end was never confirmed: still held, and the pin is kept.
     assert.equal(pins().length, before.length + 1, "the temporary pin was deleted while an unseen reviewer may read it");
     const refused = await api.testReviewer(folder, "sonnet", { confirm: yes });
     assert.ok(refused.kind === "refused" && /could not be confirmed ended/.test(refused.message), JSON.stringify(refused));
