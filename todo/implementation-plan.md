@@ -20,7 +20,7 @@ Sections: 14 | Checklist items: 127
 | [x]    | D00 T01 §6 | Reviewer rows in the pin layout state        | none  | 6     |
 | [x]    | D01 T01 §1 | Strict schema_version type in load_pin       | none  | 7     |
 | [x]    | D01 T01 §2 | Dispatcher check-pin flag                    | none  | 12    |
-| [ ]    | D01 T01 §3 | Check-pin contract fixtures and test         | none  | 7     |
+| [x]    | D01 T01 §3 | Check-pin contract fixtures and test         | none  | 7     |
 | [ ]    | D01 T01 §4 | Check-pin CLI presence for each CLI          | none  | 3     |
 | [ ]    | D02 T01 §1 | Extension scaffold, build and test harness   | none  | 9     |
 | [x]    | D06 T01 §2 | Plan query in todo-graph                     | none  | 5     |
@@ -89,6 +89,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 10/55 verified sections, 3 ready to run now.
+Progress: 11/55 verified sections, 3 ready to run now.
 
-Checklist: 109/460 items completed (includes Commit items).
+Checklist: 110/460 items completed (includes Commit items).

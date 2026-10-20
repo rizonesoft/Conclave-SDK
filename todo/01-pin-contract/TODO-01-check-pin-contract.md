@@ -38,7 +38,7 @@ title: "TODO-01 -- Check Pin Contract"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Strict schema_version type in load_pin | D00 T01 §2 | [x] |
 | 2 | §2 | Dispatcher check-pin flag | §1 | [x] |
-| 3 | §3 | Check-pin contract fixtures and test | §2 | [ ] |
+| 3 | §3 | Check-pin contract fixtures and test | §2 | [x] |
 | 4 | §4 | Check-pin CLI presence for each CLI | §3 | [ ] |
 
 ## 1. Strict schema_version type in load_pin
@@ -130,9 +130,12 @@ The extension relies on the exact JSON shape of `--check-pin`. This section free
 - [x] Write `tests/test_check_pin_contract.py` (stdlib `unittest`) running `kits/reviewer/templates/scripts/review-dispatch.py --check-pin --json --pin <fixture>` for every entry and asserting the exit code, the `ok` value, the exact `error` text and, for valid pins, the keys `schema_version`, `reviewers`, `routes`, `clis`. Done when: it passes inside `python -m unittest discover -s tests -v`. Cheaper substitute: asserting only exit codes.
 - [x] Save the `b7c649b` dispatcher with `git show b7c649b:kits/reviewer/templates/scripts/review-dispatch.py` as `extensions/vscode/test/fixtures/dispatchers/review-dispatch-b7c649b.py` and add a test that it prints no JSON object with an `ok` key for `--check-pin --json` (plan R18). Done when: the test passes and documents the detection rule. Cheaper substitute: detecting old dispatchers by exit code, which collides with refusal's exit 2.
 - [x] Add `extensions/vscode/test/fixtures/` and `tests/test_check_pin_contract.py` to the layout table in `README.md`. Done when: the README names both. Cheaper substitute: an undocumented fixture folder.
-- [ ] Commit: `test: freeze the check-pin contract over fixture pins`
+- [x] Commit: `test: freeze the check-pin contract over fixture pins`
 
 **Test checkpoint:** `python -m unittest tests.test_check_pin_contract -v` passes, and fails naming the fixture when one `error` string in `extensions/vscode/test/fixtures/pins/expected.json` is edited.
+
+> **Verified:** 2026-10-20 | §3 | 0c8f44ffe62a7b278330af47cdaf87c0ce638fe1
+> **Review:** `docs/reviews/d01-t01-s3.json`
 
 ## 4. Check-pin CLI presence for each CLI
 
