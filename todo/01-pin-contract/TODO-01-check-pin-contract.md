@@ -2,7 +2,7 @@
 schema_version: 1
 id: check-pin-contract
 domain: 01-pin-contract
-status: active
+status: done
 title: "TODO-01 -- Check Pin Contract"
 ---
 
@@ -40,7 +40,7 @@ title: "TODO-01 -- Check Pin Contract"
 | 2 | §2 | Dispatcher check-pin flag | §1 | [x] |
 | 3 | §3 | Check-pin contract fixtures and test | §2 | [x] |
 | 4 | §4 | Check-pin CLI presence for each CLI | §3 | [x] |
-| 5 | §5 | Reviewer CLIs found on PATH only | §4 | [ ] |
+| 5 | §5 | Reviewer CLIs found on PATH only | §4 | [x] |
 
 ## 1. Strict schema_version type in load_pin
 
@@ -180,9 +180,12 @@ Review round 3 of `§4` (`docs/reviews/01-pin-contract/D01-T01-s4.md`, the last 
 - [x] Add a `find_cli(name)` helper in `kits/reviewer/templates/scripts/review-dispatch.py` that searches only the absolute directories on `PATH`, with `NoDefaultCurrentDirectoryInExePath` set for the lookup on Windows, and use it in `review()` and `--check-pin`. Done when: the new test and every existing dispatcher test pass. Cheaper substitute: `shutil.which` with an explicit `path`, which still searches the working directory on Windows. **Corrected 2026-10-20:** setting `NoDefaultCurrentDirectoryInExePath` is not enough, because Python 3.11, which the SDK supports, prepends the working directory on Windows unconditionally; `find_cli` searches the absolute `PATH` directories by `PATHEXT` itself on Windows.
 - [x] Run `test_clis_says_which_reviewer_cli_is_on_path` in `tests/test_check_pin_contract.py` with `cwd` set to its temporary folder, so the caller's directory never takes part. Done when: it passes when run from a folder holding a `codex.cmd`. Cheaper substitute: none.
 - [x] Refresh the SDK copy with `python forge.py sync . --include-scripts` and run `python -m unittest discover -s tests` and the dispatcher tests on Windows and WSL. Done when: all pass and the copies match. Cheaper substitute: running the dispatcher tests only.
-- [ ] Commit: `reviewer: find reviewer CLIs on PATH only`, then push `main`
+- [x] Commit: `reviewer: find reviewer CLIs on PATH only`, then push `main`
 
 **Test checkpoint:** `python -m unittest discover -s scripts/tests -p test_review_dispatch.py -k working_directory -v` passes on Windows and WSL, and fails on the dispatcher at the end of `§4`, where the planted `codex` is reported as installed.
+
+> **Verified:** 2026-10-20 | §5 | e3e9d8e87d1d13934a8098f0fab4b037fd02502f
+> **Review:** `docs/reviews/d01-t01-s5.json`
 
 ## Verification
 

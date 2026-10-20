@@ -22,7 +22,7 @@ Sections: 15 | Checklist items: 132
 | [x]    | D01 T01 §2 | Dispatcher check-pin flag                    | none  | 12    |
 | [x]    | D01 T01 §3 | Check-pin contract fixtures and test         | none  | 7     |
 | [x]    | D01 T01 §4 | Check-pin CLI presence for each CLI          | none  | 3     |
-| [ ]    | D01 T01 §5 | Reviewer CLIs found on PATH only             | none  | 5     |
+| [x]    | D01 T01 §5 | Reviewer CLIs found on PATH only             | none  | 5     |
 | [ ]    | D02 T01 §1 | Extension scaffold, build and test harness   | none  | 9     |
 | [x]    | D06 T01 §2 | Plan query in todo-graph                     | none  | 5     |
 | [x]    | D06 T01 §3 | Round listing in the dispatcher              | none  | 5     |
@@ -90,6 +90,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 13/56 verified sections, 2 ready to run now.
+Progress: 14/56 verified sections, 1 ready to run now.
 
-Checklist: 132/466 items completed (includes Commit items).
+Checklist: 133/466 items completed (includes Commit items).
