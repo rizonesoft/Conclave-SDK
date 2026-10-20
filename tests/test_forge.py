@@ -131,9 +131,12 @@ class ForgeProvisionTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "source folder itself"):
                     forge.provision(path)
             self.assertEqual(list(stand_in.iterdir()), [], "init wrote into the SDK folder")
-        # The SDK refreshes its own installed copy with sync (AGENTS.md), so refresh is not refused.
-        res = forge.provision(self.target / "plain", refresh=True)
-        self.assertEqual([k["kit"] for k in res["kits"]], ["base"])
+            # The SDK refreshes its own installed copy with sync (AGENTS.md), so sync of the SDK folder itself, here a
+            # stand-in carrying the base kit, is not refused.
+            shutil.copytree(FORGE_ROOT / "kits" / "base", stand_in / "kits" / "base")
+            res = forge.provision(stand_in, refresh=True)
+            self.assertEqual([k["kit"] for k in res["kits"]], ["base"])
+            self.assertTrue((stand_in / "AGENTS.md").is_file())
 
     def test_init_from_the_command_line_refuses_a_git_target_with_exit_2(self):
         (self.target / ".git").mkdir()

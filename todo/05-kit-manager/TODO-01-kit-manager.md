@@ -312,6 +312,8 @@ Setting up a new repository (plan R31) needs a few choices. This section is a na
 
 Review round 3 of `§4` (`docs/reviews/05-kit-manager/D05-T01-s4.md`, the last round its loop allowed) found that the protected-file snapshot (`extensions/vscode/src/host/protectedFiles.ts`) treats every entry that is neither a link nor a folder as a file and reads it with `readFileSync`: a named pipe under `docs/` or `todo/` with no writer blocks the extension host before forge starts, with no way to cancel. Only regular files are hashed; a pipe, socket or device is recorded by its kind and never opened, so the proof neither hangs nor misses that the entry changed. Its advisory is taken here too: the forge test of the SDK-folder refusal syncs an unrelated folder, so dropping the `sync` exemption would still pass it; the test syncs the SDK stand-in itself.
 
+> **Started:** 2026-10-20T20:15:00Z
+
 **Phase:** 1
 **Needs:** none
 **Surface:** no
@@ -321,8 +323,8 @@ Review round 3 of `§4` (`docs/reviews/05-kit-manager/D05-T01-s4.md`, the last r
 1. Write the failing tests: a named pipe under a protected folder is recorded without being opened (POSIX), and `sync` of the SDK stand-in is not refused. Done when: the pipe test hangs or fails on `§4`'s snapshot, and the sync test fails when the `refresh` exemption is removed.
 2. Record a special file by its kind in `protectedSnapshot`, and change the forge test. Done when: both tests pass.
 
-- [ ] In `extensions/vscode/src/host/protectedFiles.ts`, hash only `isFile()` entries and record any other non-folder, non-link entry as `special:<kind>`, never opening it. Done when: a unit test with a FIFO under `docs/` (POSIX, run in WSL) returns a snapshot holding `docs/pipe` without blocking. Cheaper substitute: a read timeout.
-- [ ] In `tests/test_forge.py`, run `provision(stand_in, refresh=True)` against the patched `FORGE_ROOT` stand-in with kit templates the stand-in carries, and assert it is not refused. Done when: the test fails with the `not refresh` exemption removed from `provision`. Cheaper substitute: syncing an unrelated folder.
+- [x] In `extensions/vscode/src/host/protectedFiles.ts`, hash only `isFile()` entries and record any other non-folder, non-link entry as `special:<kind>`, never opening it. Done when: a unit test with a FIFO under `docs/` (POSIX, run in WSL) returns a snapshot holding `docs/pipe` without blocking. Cheaper substitute: a read timeout.
+- [x] In `tests/test_forge.py`, run `provision(stand_in, refresh=True)` against the patched `FORGE_ROOT` stand-in with kit templates the stand-in carries, and assert it is not refused. Done when: the test fails with the `not refresh` exemption removed from `provision`. Cheaper substitute: syncing an unrelated folder.
 - [ ] Commit: `extension: protected-file proof records special files without opening them`
 
 **Test checkpoint:** `cd extensions/vscode && npm test` passes on Windows and the protectedFiles unit tests pass in WSL, and `python -m unittest tests.test_forge -k refuses` passes and fails without the `sync` exemption.

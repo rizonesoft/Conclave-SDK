@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -44,6 +45,22 @@ test("protectedFiles: a linked protected folder or ancestor is recorded as a lin
     assert.deepEqual(protectedChanges(snapshot, protectedSnapshot(work), []), ["docs"]);
   } finally {
     removeTree(base);
+  }
+});
+
+test("protectedFiles: a named pipe under a protected folder is recorded by its kind and never opened", { skip: process.platform === "win32" && "named pipes are not files on Windows" }, () => {
+  const work = mkdtempSync(join(tmpdir(), "conclave-protected-"));
+  try {
+    mkdirSync(join(work, "docs"));
+    writeFileSync(join(work, "docs", "a.md"), "mine");
+    // No writer ever opens it: reading it would block the extension host for good.
+    const made = spawnSync("mkfifo", [join(work, "docs", "pipe")]);
+    assert.equal(made.status, 0, String(made.stderr));
+    const snapshot = protectedSnapshot(work);
+    assert.equal(snapshot.get("docs/pipe"), "special:fifo");
+    assert.ok(snapshot.has("docs/a.md"));
+  } finally {
+    removeTree(work);
   }
 });
 

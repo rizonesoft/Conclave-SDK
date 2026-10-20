@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, readlinkSync, type Stats } from "node:fs";
 import { join } from "node:path";
 import { PROTECTED_FILES, PROTECTED_FOLDERS } from "../core/protectedFiles";
 
@@ -12,7 +12,12 @@ export class Unreadable extends Error {
 
 const ABSENT = new Set(["ENOENT", "ENOTDIR"]);
 
-type Entry = { kind: "absent" } | { kind: "link"; digest: string } | { kind: "folder" } | { kind: "file" };
+type Entry = { kind: "absent" } | { kind: "link" | "special"; digest: string } | { kind: "folder" } | { kind: "file" };
+
+// A pipe, socket or device is recorded by its kind and never opened: reading a pipe with no writer blocks for ever.
+function special(stat: Stats): string {
+  return stat.isFIFO() ? "fifo" : stat.isSocket() ? "socket" : stat.isCharacterDevice() ? "char-device" : stat.isBlockDevice() ? "block-device" : "unknown";
+}
 
 // What is at rel inside folder, by lstat, so a link is never followed: its target is not the project's file to vouch
 // for, and reading through it could leave the folder.
@@ -24,7 +29,10 @@ function entry(folder: string, rel: string): Entry {
       // The link itself is the protected thing: a retargeted link is a change, read without leaving the folder.
       return { kind: "link", digest: `link:${readlinkSync(path)}` };
     }
-    return stat.isDirectory() ? { kind: "folder" } : { kind: "file" };
+    if (stat.isDirectory()) {
+      return { kind: "folder" };
+    }
+    return stat.isFile() ? { kind: "file" } : { kind: "special", digest: `special:${special(stat)}` };
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code ?? "unknown";
     if (ABSENT.has(code)) {
@@ -52,13 +60,13 @@ function record(folder: string, rel: string, into: Map<string, string>, walk: bo
     if (found.kind === "absent") {
       return;
     }
-    if (found.kind === "link") {
+    if (found.kind === "link" || found.kind === "special") {
       into.set(ancestor, found.digest);
       return;
     }
   }
   const found = entry(folder, rel);
-  if (found.kind === "link") {
+  if (found.kind === "link" || found.kind === "special") {
     into.set(rel, found.digest);
   } else if (found.kind === "file") {
     into.set(rel, hashFile(folder, rel));
