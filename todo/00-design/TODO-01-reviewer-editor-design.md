@@ -158,9 +158,13 @@ Surface sections in `D03 T01` cite `design/SPEC.md` for their Fidelity. This sec
 - [x] Capture one screenshot per SPEC section and theme into `design/screens/` as `<section>-<dark|light>.png`. Done when: every image link in `design/SPEC.md` resolves to a file. Cheaper substitute: dark theme screenshots only.
 - [ ] Commit: `design: interface SPEC from the approved mockup`
 
-**Test checkpoint:** `python -c "import pathlib,re,sys; t=pathlib.Path('design/SPEC.md').read_text(encoding='utf-8'); links=re.findall(r'\]\((screens/[^)]+)\)',t); bad=[l for l in links if not pathlib.Path('design',l).is_file()]; sys.exit(1 if len(re.findall(r'^## \d+\.',t,re.M))<11 or not links or bad else 0)"` exits 0, and exits 1 when a section or a linked screenshot is missing.
+**Test checkpoint:** `python -c "import pathlib,re,sys; t=pathlib.Path('design/SPEC.md').read_text(encoding='utf-8'); parts=re.split(r'^## (\d+)\. ',t,flags=re.M); nums=[int(n) for n in parts[1::2]]; bad=[n for n,body in zip(nums,parts[2::2]) for th in ('dark','light') if f'](screens/{n}-{th}.png)' not in body or not pathlib.Path('design/screens',f'{n}-{th}.png').is_file()]; sys.exit(0 if nums==list(range(1,13)) and not bad else f'sections {nums}; missing {bad}')"` exits 0, and exits 1 naming what is wrong when a section is missing or out of order, or a section does not link its own dark and light screenshot that exists.
+
+**Corrected 2026-10-20:** review round 1 found the checkpoint passed with a section or every light screenshot removed (it counted at least 11 headings and checked only the links present); it now requires sections 1 to 12 in order, each linking its own pair.
 
 ## 4. Reviewer config design spec
+
+> **Started:** 2026-10-20T08:56:03Z
 
 The brief requires a spec that settles seven decisions before the extension is built, and the owner added an eighth on 2026-10-16: where the SDK comes from (bundled by default). This section writes `docs/specs/<date>-vscode-extension-design.md`, dated the day it is written, from the plan, the approved mockup and `design/decisions.md`. Each decision records the options weighed, the choice, and the cost of reversing it.
 

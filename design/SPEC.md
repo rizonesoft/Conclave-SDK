@@ -50,8 +50,8 @@ Colours come only from the theme (alpha colours are written as 8-digit hex: `#9b
 | `--info-bg` | `#1b2a3a` | `#eaf2fb` | `--vscode-inputValidation-infoBackground` |
 | `--info-border` | `#0078d4` | `#005fb8` | `--vscode-inputValidation-infoBorder` |
 | `--ok` | `#73c991` | `#2d7a2a` | `--vscode-testing-iconPassed` |
-| `--badge-ok-bg` | `#1e3a29` | `#e3f1e2` | mix: 20% `--ok` on the editor |
-| `--badge-off-bg` | `#3a1e1e` | `#fbeceb` | mix: 20% `--err` on the editor |
+| `--badge-ok-bg` | `#1e3a29` | `#e3f1e2` | mix: 15% `--ok` into the background |
+| `--badge-off-bg` | `#3a1e1e` | `#fbeceb` | mix: 15% `--err` into the background |
 | `--code-bg` | `#181818` | `#f8f8f8` | `--vscode-textCodeBlock-background` |
 | `--diff-add` | `#9bb95538` | `#9bb95547` | `--vscode-diffEditor-insertedLineBackground` |
 | `--diff-del` | `#ff000038` | `#ff000024` | `--vscode-diffEditor-removedLineBackground` |
@@ -79,7 +79,7 @@ Colours come only from the theme (alpha colours are written as 8-digit hex: `#9b
 | `--dlg-bg` | `#202020` | `#f8f8f8` | `--vscode-editorWidget-background` |
 | `--scrim` | `rgba(0,0,0,.3)` | `rgba(0,0,0,.15)` | none: VS Code draws its own modal scrim |
 
-The quick input, menu, dialog, activity bar, tab and status bar tokens describe VS Code's own chrome, which the mockup draws and the extension does not: the build uses them only where a webview mirrors that chrome. Links use `--vscode-textLink-foreground` and `--vscode-textLink-activeForeground`.
+The two badge backgrounds have no theme variable, so the build mixes them: `color-mix(in srgb, var(--vscode-testing-iconPassed) 15%, var(--vscode-editor-background))` and the same with `--vscode-errorForeground`. That mix is the contract; the mockup's hex values for these two rows are its drawing (Dark Modern renders about `#2c3830` and `#402625`). The quick input, menu, dialog, activity bar, tab and status bar tokens describe VS Code's own chrome, which the mockup draws and the extension does not: the build uses them only where a webview mirrors that chrome. Links use `--vscode-textLink-foreground` and `--vscode-textLink-activeForeground`.
 
 ## 2. Reviewer cards
 
@@ -99,7 +99,7 @@ One card per reviewer (plan R1 to R3), an `article` labelled `Reviewer {name}`; 
 
 Rename: the pencil swaps the name for an input (label `New name for {name}`) with `Rename` and `Cancel`, and the note `Renaming also rewrites every route entry that names it. Enter to rename, Escape to cancel.` Enter renames, Escape cancels. An empty or unchanged name closes the input; a taken one shows `A reviewer named '{draft}' already exists. Names are table keys, so each must be unique.` A name the dispatcher refuses is reported by §4.
 
-Delete: the bin shows an alert in the card, `Delete {name}?`, with the impact and `Delete` and `Cancel`. The impact is `It is removed from the {writers} route.` (or `routes.`), or `No route names it.`; and, when a route would be left empty, `{writers} is left with no reviewer, so that work gets no review.` (`are` for more than one). A route left empty is removed. Starting a delete closes a rename, and the other way round.
+Delete: the bin shows an alert in the card, `Delete {name}?`, with the impact and `Delete` and `Cancel`. The impact is `It is removed from the {writers} route.` (or `routes.`), or `No route names it.`; and, when a route would be left empty, `{writers} is then left with no reviewer, so that work gets no review.` (`are then left` for more than one). A route left empty is removed. Starting a delete closes a rename, and the other way round.
 
 Add reviewer: a dashed card with a plus and `Add reviewer` opens a form, `New reviewer`, with `Name`, `CLI`, `Model` and `Effort` (default claude, `high`), the agy note `No effort: Gemini carries it in the model name.`, and `Add` and `Cancel`. Errors: `Give the reviewer a name.` and `A reviewer named '{name}' already exists.`
 
@@ -112,7 +112,7 @@ Keyboard: every control is a native button, input or select in tab order; Enter 
 
 Heading `ROUTES`, caption `A reviewer and one fallback, each of another model family: the first that returns a review is the round.` (plan R4 to R6, `design/decisions.md` Reviewer routes, 2026-10-20). One row each for `claude`, `codex` and `gemini`, captioned `Work written by Claude Code`, `Work written by OpenAI Codex` and `Work written by Gemini through Antigravity`. A key in `[routes]` that names no writer gets its own row, captioned `Not a writer: [routes] may only name claude, codex and gemini`, with a `Remove route` button.
 
-Chips: an ordered list labelled `Reviewer and fallback for {writer}`, at most two chips. Each chip has a drag grip, its number (`1`, `2`), the reviewer's name (monospace) and, on the second, the tag `fallback`. A name no reviewer has shows the tag `not defined`, and a name listed twice `listed twice`; both chips get a dashed error border. Buttons on each chip: `Move {name} up` (off on the first chip), `Move {name} down` (off on the last) and `Remove {name} from the {writer} route`. Dragging reorders within the row. Removing the last chip removes the writer's key from `[routes]`, never writing `[]`.
+Chips: an ordered list labelled `Reviewer and fallback for {writer}`. The editor adds at most two; a route edited by hand with more shows every entry it has (with the route's refusal, §4), so the extra one can be removed. Each chip has a drag grip, its number (`1`, `2`), the reviewer's name (monospace) and, on the second, the tag `fallback`. A name no reviewer has shows the tag `not defined`, and a name listed twice `listed twice`; both chips get a dashed error border. Buttons on each chip: `Move {name} up` (off on the first chip), `Move {name} down` (off on the last) and `Remove {name} from the {writer} route`. Dragging reorders within the row. Removing the last chip removes the writer's key from `[routes]`, never writing `[]`.
 
 Add menu: a select labelled `Add a reviewer to the {writer} route`, shown while the row has fewer than two chips and reviewers exist. Its first option reads `Add a reviewer to create the route` (no key), `Add the reviewer` (an empty list) or `Add the fallback` (one chip). Every reviewer follows; one the pin would refuse is disabled with its reason, the first that applies of `{name} (already in this route)`, `{name} (same family as the writer)` and, for the fallback, `{name} (same family as the reviewer)`. The family is the CLI's: codex is OpenAI, agy Google, claude Anthropic; the writers are claude (Anthropic), codex (OpenAI) and gemini (Google).
 
@@ -135,7 +135,7 @@ Header status pill: `Valid` (pass icon), `Valid, not saved` (after an edit), or 
 
 Save reason, at the left of the buttons and as Save's title, the first that applies: `Save is off: the dispatcher refuses this pin.`, `Save is off: the file changed on disk.`, `Save is off until you reload.`, `No unsaved changes.`, or nothing when Save is on.
 
-Buttons: `Open file` (always on; opens `.conclave/reviewers.toml` in the text editor), `Discard` (off without changes), `Save` (off with a problem, a stale file, kept edits or no changes). Save writes through a temporary file and a rename, re-checks, and shows the toast `Saved .conclave/reviewers.toml through a temporary file and a rename. Re-checked with --check-pin: ok.` Discard asks first in a warning banner: `Discard your unsaved edits and go back to the file on disk?` with `Discard edits` and `Keep editing`.
+Buttons: `Open file` (always on; opens `.conclave/reviewers.toml` in the text editor), `Discard` (off without changes), `Save` (off with a problem, a stale file, kept edits or no changes). Save writes through a temporary file and a rename, re-checks, and shows the toast `Saved .conclave/reviewers.toml through a temporary file and a rename. Re-checked with --check-pin: ok.`; if the re-check refuses the saved pin, the toast is `Saved, but --check-pin now refuses the pin: {message}` and the refusal shows at its field (`docs/specs/2026-10-20-vscode-extension-design.md` section 4) Discard asks first in a warning banner: `Discard your unsaved edits and go back to the file on disk?` with `Discard edits` and `Keep editing`.
 
 File changed on disk while open: an alert banner, `.conclave/reviewers.toml` `changed on disk after this editor loaded it.`, with `Reload from disk` (toast `Reloaded from disk. Re-checked with --check-pin: ok.`) and `Keep my edits`, which leaves the info banner `Keeping your edits. Save stays off until you reload, so the change on disk is never overwritten.` and `Reload from disk`.
 
@@ -155,7 +155,7 @@ Where each refusal attaches (the message verbatim, in the editor font, under the
 - `route '{writer}': the fallback must be of a third family, not the reviewer's own`: the writer's row.
 - `the reviewer pin needs exactly schema_version = 1, [reviewers.*] and [routes]` and `unreadable reviewer pin: ...`: the pin-refused screen (§7), since the editor opens only a pin whose TOML parses with that shape (`design/decisions.md` answer 3).
 
-The status bar's problems item reads `1 problem in reviewers.toml` or `No problems`.
+The mockup's status bar problems item (`1 problem in reviewers.toml`, `No problems`) is VS Code's own chrome (`design/platform-audit.md`); the extension does not draw it.
 
 ## 5. Status and Test reviewer
 
@@ -182,7 +182,7 @@ A panel labelled `TOML preview` (plan R12): the heading `reviewers.toml`, a mute
 
 Captions: Preview shows `Matches the file on disk` or `What Save writes (unsaved)`; Diff shows `No changes` or `{n} added, {m} removed, comments kept`.
 
-The code region is labelled `File text`: the editor font at 12px on 18px lines, at most 440px high and scrolling. Each line has a 34px right-aligned gutter (line number colour, not selectable), a 14px marker column and the text. Preview numbers every line. Diff is a line diff of the file on disk against the candidate: an added line is marked `+` on the inserted-line background and numbered in the new file; a removed line is marked `-` on the removed-line background and has no number; an unchanged line has neither. A comment line (text starting with `#`) is in the muted colour in every case. Comments always survive an edit (plan R12; `D00 T01 §4` settles how).
+The code region is labelled `File text`: the editor font at 12px on 18px lines, at most 440px high and scrolling. Each line has a 34px right-aligned gutter (line number colour, not selectable), a 14px marker column and the text. Preview numbers every line. Diff is a line diff of the file on disk against the candidate: an added line is marked `+` on the inserted-line background and numbered in the new file; a removed line is marked `-` on the removed-line background and has no number; an unchanged line has no marker and no background, and is numbered in the new file. A comment line (text starting with `#`) is in the muted colour in every case. Comments always survive an edit (plan R12; `D00 T01 §4` settles how).
 
 ## 7. Empty and failure states
 
@@ -280,6 +280,6 @@ REVIEWERS (reviewer kit): title actions `Open Reviewer Settings` and `Refresh`; 
 
 PLAN (todo kit), read from `scripts/todo-graph.py query plan` (`D06 T01 §2`): title actions `Validate the plan`, `Open the plan` and `Refresh`; description `{n} of {m} verified`. Without `todo/plan.json` a first row `No todo/plan.json` `phases show as numbers`. Then `Ready now` (`{n} sections`), and one collapsed group per phase, `Phase {n}: {name}` or `Phase {n}`, described `{n} of {m} verified`. A section row is its reference, described by its title (plus ` (needs {ref})` when blocked), tooltip `{status}: {title}`, action `Open {ref}`.
 
-REVIEW ROUNDS (reviewer kit), read from `scripts/review-dispatch.py --list-rounds --json` (`D06 T01 §3`): description `{n} rounds`; actions `Open docs/reviews` and `Refresh`; empty, `No rounds recorded yet` `docs/reviews/ is empty`. One group per findings file (`{n} rounds`) and one row per round, `Round {n}`: `{reviewer} ({model} via {cli}), writer {writer}, {run}` with an ok icon, or `no review, not an approval: {n} skipped` with an error icon. A file the listing names as unreadable is shown, never dropped. Action `Open round {n}`.
+REVIEW ROUNDS (reviewer kit), read from `scripts/review-dispatch.py --list-rounds --json` (`D06 T01 §3`): description `{n} rounds`; actions `Open docs/reviews` and `Refresh`; empty, `No rounds recorded yet` `docs/reviews/ is empty`. One group per findings file (`{n} rounds`) and one row per round, `Round {n}`: `{reviewer} ({model} via {cli}), writer {writer}, {run}` with an ok icon, or `no review, not an approval: {n} skipped` with an error icon. Action `Open round {n}`. A file the listing names as unreadable is shown, never dropped: a row with the `warning` icon, the file name as label, the description `unreadable: not in the record format`, the tooltip `{path}: a round heading or line is not in the format --record writes, or the file cannot be read`, and the action `Open {file}`.
 
 WORDPRESS SITE (wordpress kit), from `forge.py doctor` for the kit: description `{host}` or `{host}, not connected yet`; actions `Open the site pin` and `Refresh`; one row per `site-` check, its detail when ok and `{status}: {detail}` otherwise. A setup_required row has `How to finish this step`, which says `The wordpress-connect skill fills this in: ask your agent to run it. The extension only reads the site pin.`
