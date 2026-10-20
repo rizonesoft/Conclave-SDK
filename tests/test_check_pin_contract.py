@@ -8,6 +8,7 @@ import json
 import pathlib
 import subprocess
 import sys
+import tomllib
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -47,6 +48,10 @@ class CheckPinContract(unittest.TestCase):
                 if want["ok"]:
                     self.assertEqual(set(report), {"ok", "schema_version", "reviewers", "routes", "clis"}, name)
                     self.assertEqual(report["schema_version"], 1, name)
+                    # The reviewers and routes are the pin's own, in its order: what the extension lists and edits.
+                    pin = tomllib.loads((PINS / name).read_text(encoding="utf-8"))
+                    self.assertEqual(report["reviewers"], pin["reviewers"], f"{name}: reviewers")
+                    self.assertEqual(report["routes"], pin["routes"], f"{name}: routes")
                     self.assertEqual(set(report["clis"]), {"codex", "agy", "claude"}, name)
                     self.assertTrue(all(isinstance(v, bool) for v in report["clis"].values()), name)
                 elif "error_prefix" in want:
