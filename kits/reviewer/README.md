@@ -55,6 +55,6 @@ To read the recorded rounds back (the editor extension's Review rounds section d
 python3 scripts/review-dispatch.py --list-rounds --json [--records docs/reviews]
 ```
 
-It prints `{"records": [{"path", "rounds": [{"number", "reviewer", "model", "cli", "writer", "run", "effort", "skipped": [{"reviewer", "reason"}]}]}]}`, with `reviewer`, `model` and `cli` null for a round no reviewer returned, and adds `"unreadable": [path]` for a findings file whose round headings or lines are not in the format `--record` writes, never dropping it. Without `--json` it prints one line per round.
+It prints `{"records": [{"path", "rounds": [{"number", "reviewer", "model", "cli", "writer", "run", "effort", "skipped": [{"reviewer", "reason"}]}]}]}`, with `reviewer`, `model` and `cli` null for a round no reviewer returned, and adds `"unreadable": [path]` for a findings file whose round headings or lines are not in the format `--record` writes, never dropping it, or a file that cannot be read or is not UTF-8. Without `--json` it prints one line per round. So that a review quoting `## Round ...` can never pass for a round, `--record` writes such lines of the review with a Markdown escape (`\## Round`), which renders as the same text.
 
 Exit 0 is a review (which may still find problems). Exit 1 means neither the reviewer nor its fallback returned a review (a reply ending `OVERALL: blocked` is not one), which is never an approval. Exit 2 means the pin or the arguments were refused and nothing ran.

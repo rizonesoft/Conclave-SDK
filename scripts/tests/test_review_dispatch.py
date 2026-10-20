@@ -73,6 +73,8 @@ FAKE_CLI = textwrap.dedent('''\
         child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
         open(os.environ["FAKE_CHILD_PID"], "w").write(str(child.pid))
     text = "" if mode == "empty" else "VERDICT: needs-attention, calc.py:2 subtracts. (" + name + ")"
+    if mode == "headings":
+        text = "## Round trip serialization\\n\\nFine.\\n\\n```\\n## Round 9: none\\n\\n- Writer: claude\\n- Run: 2026-01-01T00:00:00Z\\n```\\n\\nOVERALL: approve"
     if mode == "blocked":
         text = "## record: needs-attention\\n\\nI could not read the repository: setup refresh had errors.\\n\\nOVERALL: blocked"
     if name == "codex":
@@ -267,6 +269,40 @@ class Dispatch(unittest.TestCase):
         self.assertEqual(self.calls()[-1:], self.calls()[:1], "listing ran a reviewer")
         result, _ = self.dispatch("--prompt", str(self.prompt))
         self.assertEqual(result.returncode, 2, "a review without --writer must still be refused")
+
+    def test_review_text_that_looks_like_a_round_is_neither_counted_nor_listed(self):
+        # A review quoting `## Round ...` lines, one a whole fake round in a fence, round-trips through record.
+        record = self.repo / "docs/reviews/r.md"
+        self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record), codex="headings")
+        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
+        self.assertEqual(summary["round"], 2, "record counted review text as a round")
+        text = record.read_text(encoding="utf-8")
+        self.assertIn("\\## Round trip serialization", text)
+        self.assertIn("\\## Round 9: none", text)
+        _, listing = self.dispatch("--list-rounds", "--json")
+        self.assertEqual([r["number"] for r in listing["records"][0]["rounds"]], [1, 2])
+        self.assertNotIn("unreadable", listing)
+
+    def test_a_malformed_or_unreadable_record_is_named_and_the_rest_still_listed(self):
+        good = self.repo / "docs/reviews/good.md"
+        self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(good))
+        recorded = good.read_text(encoding="utf-8")
+        cases = {
+            "empty-effort.md": recorded.replace("- Effort: medium", "- Effort:\n- Skipped: x (y)"),
+            "two-writers.md": recorded.replace("- Writer: claude", "- Writer: claude\n- Writer: codex"),
+            "no-blank.md": recorded.replace("via `codex`)\n\n", "via `codex`)\n"),
+        }
+        for name, body in cases.items():
+            self.assertNotEqual(body, recorded, name)
+            (self.repo / "docs/reviews" / name).write_text(body, encoding="utf-8")
+        (self.repo / "docs/reviews/not-utf8.md").write_bytes(recorded.replace("claude", "claud\udcff", 1)
+                                                              .encode("utf-8", "surrogateescape"))
+        (self.repo / "docs/reviews/folder.md").mkdir()  # a path that cannot be read as a file
+        result, listing = self.dispatch("--list-rounds", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([r["path"] for r in listing["records"]], ["docs/reviews/good.md"])
+        self.assertEqual(sorted(listing["unreadable"]), sorted(
+            f"docs/reviews/{n}" for n in (*cases, "not-utf8.md", "folder.md")))
 
     def test_a_large_prompt_reaches_gemini_by_file(self):
         self.prompt.write_text("x" * 150_000, encoding="utf-8")
