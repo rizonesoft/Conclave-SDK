@@ -1,32 +1,31 @@
 # Reviewer kit
 
-Additive overlay that gives a project independent review by a different model: one pin that names the reviewers, one command that runs a review round with failover, and a skill for Gemini (`.agents/`), Claude (`.claude/`) and Codex (`.codex/`). The todo kit's `review-todo-section` uses it for its review rounds.
+Additive overlay that gives a project independent review by a different model: one pin that names the reviewers, one command that runs a review round, and a skill for Gemini (`.agents/`), Claude (`.claude/`) and Codex (`.codex/`). The todo kit's `review-todo-section` uses it for its review rounds.
 
 ## Who reviews whom
 
-| Work written by | Reviewer | Fallback |
-| --- | --- | --- |
-| Claude | GPT-6 Astra | Gemini 4 |
-| Codex | Sonnet 5.5 | Gemini 4 |
-| Gemini | GPT-6 Astra | Sonnet 5.5 |
+| Work written by | Reviewer |
+| --- | --- |
+| Claude | GPT-6 Astra |
+| Codex | Sonnet 5.5 |
+| Gemini | GPT-6 Astra |
 
-A reviewer is never of the writer's own model family, and a route has one fallback at most: the pin refuses anything else.
+Each route names exactly one reviewer, never of the writer's own model family: the pin refuses anything else. A reviewer that cannot review is no review, and no other reviewer runs in its place.
 
 | Reviewer | CLI | Model | Effort |
 | --- | --- | --- | --- |
 | `astra` | `codex exec`, read-only sandbox | `gpt-6-astra` | `medium` |
-| `gemini` | `agy -p`, plan mode in its sandbox | `gemini-4-argon-medium` | in the model name |
 | `sonnet` | `claude -p`, plan mode | `claude-sonnet-5-5` | `high` |
 
-All three were tested headless on 2026-10-16: each found a planted bug and changed no file. Change reviewers, models or routes only in `.conclave/reviewers.toml`.
+A reviewer can also run through Antigravity (`cli = "agy"`, plan mode in its sandbox), with the effort in the model name (`gemini-4-argon-medium`). All three CLIs were tested headless on 2026-10-16: each found a planted bug and changed no file. Change reviewers, models or routes only in `.conclave/reviewers.toml`.
 
 ## What lands
 
 | Path | Role |
 | ---- | ---- |
 | `.conclave/reviewers.toml` | The reviewers and the route for each writer |
-| `scripts/review-dispatch.py` | Runs a round with failover and records it |
-| `scripts/tests/test_review_dispatch.py` | Routing, failover and record tests with fake CLIs |
+| `scripts/review-dispatch.py` | Runs a round and records it |
+| `scripts/tests/test_review_dispatch.py` | Routing, failed-review and record tests with fake CLIs |
 | `docs/review-round-prompt.md` | The prompt template: candidate, lenses, reply format |
 | `.{agents,claude,codex}/skills/independent-review/` | When and how to get a review |
 
@@ -41,7 +40,7 @@ python forge.py doctor /path/to/project reviewer
 kits/reviewer/scripts/install.sh /path/to/project [--dry-run]
 ```
 
-The doctor loads the pin under the dispatcher's own rules and reports any reviewer CLI that is not installed (that reviewer is skipped at run time). Operator globals: the `codex`, `agy` and `claude` CLIs, signed in.
+The doctor loads the pin under the dispatcher's own rules and reports any reviewer CLI that is not installed (a round routed to that reviewer has no review). Operator globals: the `codex`, `agy` and `claude` CLIs, signed in.
 
 ## Running a round
 
@@ -65,4 +64,4 @@ python3 scripts/review-dispatch.py --check-pin --json [--pin .conclave/reviewers
 
 A pin that loads prints `{"ok": true, "schema_version": 1, "reviewers": {...}, "routes": {...}, "clis": {"codex": true, "agy": false, "claude": true}}` and exits 0: `reviewers` and `routes` are exactly what `load_pin` returns, and `clis` says which reviewer CLIs are on `PATH`. A CLI is looked for only in the absolute directories on `PATH`, never in the working directory, so a `codex.cmd` committed to the reviewed repository is neither counted nor run. A refused or missing pin prints `{"ok": false, "error": "<message>"}`, the message a review run would refuse with, and exits 2. Without `--json` it prints `ok` or `refused: <message>`. `--writer` and `--prompt` are not needed.
 
-Exit 0 is a review (which may still find problems). Exit 1 means neither the reviewer nor its fallback returned a review (a reply ending `OVERALL: blocked` is not one), which is never an approval. Exit 2 means the pin or the arguments were refused and nothing ran, or that `--record` named a findings file it cannot read back (the review still prints).
+Exit 0 is a review (which may still find problems). Exit 1 means the reviewer returned no review (a reply ending `OVERALL: blocked` is not one), which is never an approval; the summary's `failover` names it and the reason. Exit 2 means the pin or the arguments were refused and nothing ran, or that `--record` named a findings file it cannot read back (the review still prints).

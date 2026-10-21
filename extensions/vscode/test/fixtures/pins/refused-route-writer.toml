@@ -1,15 +1,14 @@
 # Independent reviewers for this repository, read by scripts/review-dispatch.py.
 #
-# A route names one reviewer and at most one fallback for work written by one
-# agent, and neither is of the writer's own model family (the CLI names it:
-# codex is OpenAI, agy is Google, claude is Anthropic). The first reviewer that
-# runs and returns a review is the round; one that is not installed, fails,
-# times out, returns nothing or replies OVERALL: blocked is skipped and the
-# reason recorded. If both fail there is no review, never an approval.
+# A route names exactly one reviewer for work written by one agent, never of
+# the writer's own model family (the CLI names it: codex is OpenAI, agy is
+# Google, claude is Anthropic). A reviewer that is not installed, fails, times
+# out, returns nothing or replies OVERALL: blocked is skipped and the reason
+# recorded: there is no review, never an approval, and no other reviewer runs.
 #
 # Loaded strictly: an unknown key, an unknown CLI, a malformed model, a route
-# naming an undefined reviewer, a same-family reviewer or a second fallback
-# refuses every dispatch.
+# naming an undefined reviewer, a same-family reviewer or more than one
+# reviewer refuses every dispatch.
 
 schema_version = 1
 
@@ -31,10 +30,10 @@ cli = "claude"
 model = "claude-sonnet-5-5"
 effort = "high"
 
-# Each writer is reviewed by the other two families: Astra first wherever it
-# may review, and the third family as the one fallback.
+# Each writer is reviewed by one reviewer of another family, each route by a
+# different CLI.
 [routes]
-claude = ["astra", "gemini"]
-codex = ["gemini", "sonnet"]
-gemini = ["astra", "sonnet"]
+claude = ["astra"]
+codex = ["gemini"]
+gemini = ["sonnet"]
 opus = ["astra"]

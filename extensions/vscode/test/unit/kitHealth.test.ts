@@ -24,10 +24,12 @@ test("kitHealth: the reviewer doctor with every CLI is healthy, with every check
 });
 
 test("kitHealth: a missing reviewer CLI is one setup_required check, named with its detail", () => {
-  const health = kitHealth(doctor("doctor-reviewer-no-agy"));
+  const health = kitHealth(doctor("doctor-reviewer-no-claude"));
   assert.ok(health.state === "checked" && health.problems === 1);
-  const gemini = health.state === "checked" ? health.checks.filter((c) => c.status !== "ok") : [];
-  assert.deepEqual(gemini, [{ name: "reviewer:gemini", status: "setup_required", detail: "agy CLI not installed; this reviewer is skipped" }]);
+  const sonnet = health.state === "checked" ? health.checks.filter((c) => c.status !== "ok") : [];
+  assert.deepEqual(sonnet, [{
+    name: "reviewer:sonnet", status: "setup_required", detail: "claude CLI not installed; a round routed to this reviewer has no review",
+  }]);
 });
 
 test("kitHealth: the WordPress doctor before the site is set up counts every check that needs setup", () => {

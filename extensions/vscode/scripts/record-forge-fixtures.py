@@ -114,14 +114,14 @@ def main():
         record("dry-empty-laravel", ["kit", str(work / "state-empty"), "laravel", "--dry-run", "--agent", "all"],
                work / "state-empty", expect=2)
         # Kit health (D05 T01 §3): check once, and every kit's doctor on the folder with every kit, with every reviewer
-        # CLI present; the reviewer doctor again with the Gemini CLI missing; the WordPress doctor needs its site set up.
+        # CLI present; the reviewer doctor again with the Claude CLI missing; the WordPress doctor needs its site set up.
         every = stub_bin(work / "bin-every", ["codex", "agy", "claude"])
-        no_agy = stub_bin(work / "bin-no-agy", ["codex", "claude"])
+        no_claude = stub_bin(work / "bin-no-claude", ["codex", "agy"])
         folder = work / "state-all"
         record("health-check", ["check", str(folder)], folder, bin_dir=every)
         for kit in ("base", "todo", "reviewer", "automations", "wordpress"):
             record(f"doctor-{kit}", ["doctor", str(folder), kit], folder, bin_dir=every)
-        record("doctor-reviewer-no-agy", ["doctor", str(folder), "reviewer"], folder, bin_dir=no_agy)
+        record("doctor-reviewer-no-claude", ["doctor", str(folder), "reviewer"], folder, bin_dir=no_claude)
     return 0
 
 

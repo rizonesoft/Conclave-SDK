@@ -39,11 +39,6 @@
       "detail": "gpt-6-astra via <BIN>\\codex.CMD"
     },
     {
-      "name": "reviewer:gemini",
-      "status": "ok",
-      "detail": "gemini-4-argon-high via <BIN>\\agy.CMD"
-    },
-    {
       "name": "reviewer:sonnet",
       "status": "ok",
       "detail": "claude-sonnet-5-5 via <BIN>\\claude.CMD"

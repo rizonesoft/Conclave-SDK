@@ -31,7 +31,7 @@ Dry-run any of them with `--dry-run`. There is no `--force`.
 | --- | ---------- | ------------ |
 | `base/` | Agent overlay: the four entry docs, safety skills | Every new repository (not a stack) |
 | `todo/` | TODO skills, `todo-graph.py`, starter `todo/` tree | Work is planned in TODO files |
-| `reviewer/` | Reviewer pin, review dispatcher with failover, review skill | Independent review |
+| `reviewer/` | Reviewer pin, review dispatcher, review skill | Independent review |
 | `laravel/` | Boost MCP, `boost.json`, LSP, `laravel-boost`, pre-push hook | Tree has `artisan` |
 | `wordpress/` | Site pin, pinned SSH/SFTP, WordPress MCP, DDEV, PHPCS | WordPress site project |
 

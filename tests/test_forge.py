@@ -472,7 +472,7 @@ class ForgeProvisionTests(unittest.TestCase):
         checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "reviewer")["checks"]}
         self.assertEqual(checks["reviewer-pin"], "ok")
         self.assertEqual(checks["skill:independent-review:.claude"], "ok")
-        self.assertEqual({k for k in checks if k.startswith("reviewer:")}, {"reviewer:astra", "reviewer:gemini", "reviewer:sonnet"})
+        self.assertEqual({k for k in checks if k.startswith("reviewer:")}, {"reviewer:astra", "reviewer:sonnet"})
         self.assertIn("reviewer", forge.installed_kits(project))
 
         (project / ".conclave/reviewers.toml").write_text("schema_version = 1\n", encoding="utf-8")

@@ -86,24 +86,29 @@ suite("forgeRunner", () => {
     assert.ok(failed.kind === "failed" && failed.message === "forge kits exited 2", JSON.stringify(failed));
     assert.deepEqual(failed.stderrTail, Array.from({ length: 20 }, (_, i) => `line ${i + 11}`));
     // A name that is not a command the extension runs (inherited object names included) starts nothing.
-    const runs = api.recentLog().filter((l) => l.startsWith("forge: ")).length;
+    // The newest forge line, not a count, for the reason given in the read-only kit view test below.
+    const lastForge = () => api.recentLog().filter((l) => l.startsWith("forge: ")).at(-1);
+    const runs = lastForge();
     for (const command of ["rm", "__proto__", "toString", "constructor"]) {
       const refused = await api.runForge({ folder: sdk, label }, [command]);
       assert.deepEqual(refused, { kind: "failed", message: `forge ${command} is not a command the extension runs`, stderrTail: [] }, command);
     }
-    assert.equal(api.recentLog().filter((l) => l.startsWith("forge: ")).length, runs, "a refused command was run");
+    assert.equal(lastForge(), runs, "a refused command was run");
   });
 
   test("forgeRunner: a command that writes is refused before anything runs (read-only kit view)", async () => {
     const target = join(base, "never-written");
-    const started = api.recentLog().filter((l) => / in .* ms$/.test(l)).length;
+    // The newest finished run, not a count: the recent log keeps its last 200 lines, so the refusals' own lines can
+    // push older runs out of it and a count drops though nothing ran.
+    const lastRun = () => api.recentLog().filter((l) => / in .* ms$/.test(l)).at(-1);
+    const started = lastRun();
     // After "--", argparse reads "--dry-run" as the target folder, so the install would go there.
     for (const args of [["init", target], ["sync", target], ["kit", target, "todo"], ["kit", target, "todo", "--agent", "all"],
       ["kit", "--", "--dry-run", "todo"], ["kit", target, "todo", "--dry-run", "--", "x"]]) {
       const refused = await api.runForge({ folder: sdk, label }, args);
       assert.ok(refused.kind === "failed" && /not a command the extension runs|only with --dry-run|never include --/.test(refused.message), JSON.stringify(refused));
     }
-    assert.equal(api.recentLog().filter((l) => / in .* ms$/.test(l)).length, started, "a writing command was run");
+    assert.equal(lastRun(), started, "a writing command was run");
     assert.equal(existsSync(target), false);
     // The read-only form still runs.
     process.env.CONCLAVE_FAKE_FORGE = "answer";

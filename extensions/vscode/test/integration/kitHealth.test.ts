@@ -74,7 +74,7 @@ suite("kitHealth", () => {
     assert.ok(health.ok, JSON.stringify(health));
     const reviewer = health.kits.find((k) => k.kit === "reviewer");
     assert.ok(reviewer?.state === "checked" && reviewer.problems === 0, JSON.stringify(reviewer));
-    assert.ok(reviewer.state === "checked" && reviewer.checks.some((c) => c.name === "reviewer:gemini" && c.status === "ok"));
+    assert.ok(reviewer.state === "checked" && reviewer.checks.some((c) => c.name === "reviewer:sonnet" && c.status === "ok"));
     assert.equal(health.kits.some((k) => k.kit === "todo"), false, "doctor ran for a kit that is not installed");
 
     await new Promise((r) => setTimeout(r, 1000));

@@ -226,10 +226,10 @@ def cases(shipped):
                              "mini", "model", "gpt-6-mini"), "mini", "effort", "low")),
         ("rename-reviewer", "astra renamed gpt6", shipped, rename_reviewer(shipped, "astra", "gpt6")),
         ("delete-reviewer", "sonnet deleted", shipped, delete_reviewer(shipped, "sonnet")),
-        ("set-route", "codex reviewed by sonnet, then gemini", shipped, set_route(shipped, "codex", ["sonnet", "gemini"])),
+        ("set-route", "gemini reviewed by sonnet", shipped, set_route(shipped, "gemini", ["sonnet"])),
         ("remove-route", "gemini's route removed", shipped, removed_route),
         ("add-route", "a route for a writer with none, appended", removed_route,
-         set_route(removed_route, "gemini", ["sonnet", "astra"])),
+         set_route(removed_route, "gemini", ["sonnet"])),
     ]
 
 
@@ -254,18 +254,19 @@ def golden(shipped):
         ("add-field", no_effort, back),
         ("rename-reviewer", shipped, [["rename_reviewer", "astra", "gpt6"]]),
         ("delete-reviewer", shipped, [["delete_reviewer", "sonnet"]]),
-        ("set-route", shipped, [["set_route", "codex", ["sonnet", "gemini"]]]),
+        ("set-route", shipped, [["set_route", "gemini", ["sonnet"]]]),
         ("remove-route", shipped, [["remove_route", "gemini"]]),
-        ("add-route", remove_route(shipped, "gemini"), [["set_route", "gemini", ["sonnet", "astra"]]]),
+        ("add-route", remove_route(shipped, "gemini"), [["set_route", "gemini", ["sonnet"]]]),
         # The same move to Antigravity as remove-field, with a note on the effort line that must stay behind.
         ("remove-field-comment", added.replace('effort = "low"', 'effort = "low" # retained operator note'),
          to_agy + [["set_field", "mini", "effort", None]]),
-        ("remove-route-comment", shipped.replace('gemini = ["astra", "sonnet"]', 'gemini = ["astra", "sonnet"] # kept'),
+        ("remove-route-comment", shipped.replace('gemini = ["astra"]', 'gemini = ["astra"] # kept'),
          [["remove_route", "gemini"]]),
         ("add-field-no-final-newline", apply(bare, back[:2]), [["set_field", "mini", "effort", "low"]]),
-        # Review round 1 of D02 T01 §4: a route keeps its own spacing through a rename and a reorder.
-        ("route-style", shipped.replace('claude = ["astra", "gemini"]', 'claude = [ "astra" ,\t"gemini" ] # keep'),
-         [["rename_reviewer", "astra", "gpt6"], ["set_route", "claude", ["gemini", "gpt6"]]]),
+        # Review round 1 of D02 T01 §4: a route keeps its own spacing through a rename, and through removing a second
+        # reviewer added by hand (a route names one reviewer, so that pin is refused until the extra goes).
+        ("route-style", shipped.replace('claude = ["astra"]', 'claude = [ "astra" ,\t"sonnet" ] # keep'),
+         [["rename_reviewer", "astra", "gpt6"], ["set_route", "claude", ["gpt6"]]]),
     ]
 
 
@@ -302,10 +303,10 @@ def main():
     sep = shipped.replace('effort = "medium"', 'effort = "medium" # one\u2028# two')
     assert editable(sep) and set_field(sep, "astra", "effort", "high").count("# one\u2028# two") == 1
     for tail in ("\u0085", "\u2028", "   "):
-        kept = shipped.replace('claude = ["astra", "gemini"]', 'claude = ["astra", "gemini"] # keep' + tail)
+        kept = shipped.replace('claude = ["astra"]', 'claude = ["astra"] # keep' + tail)
         assert editable(kept) and "\n# keep" + tail + "\n" in remove_route(kept, "claude"), repr(tail)
-    spaced = shipped.replace('claude = ["astra", "gemini"]', 'claude = [ "astra" ,\t"gemini" ] # keep')
-    assert set_route(spaced, "claude", ["astra", "gemini"]) == spaced
+    spaced = shipped.replace('claude = ["astra"]', 'claude = [ "astra" ] # keep')
+    assert set_route(spaced, "claude", ["astra"]) == spaced
     started = time.monotonic()
     assert not editable('[routes]\nclaude = [' + '"a" ' * 5000 + '!')
     assert time.monotonic() - started < 1, "the route pattern backtracks"
@@ -313,7 +314,7 @@ def main():
     # final newline still starts its own line.
     noted = cases(shipped)[1][3].replace('effort = "low"', 'effort = "low" # retained operator note')
     assert "\n# retained operator note\n" in set_field(noted, "mini", "effort", None), "field comment dropped"
-    routed = shipped.replace('gemini = ["astra", "sonnet"]', 'gemini = ["astra", "sonnet"] # kept')
+    routed = shipped.replace('gemini = ["astra"]', 'gemini = ["astra"] # kept')
     assert routed.endswith("# kept\n") and remove_route(routed, "gemini").endswith("# kept\n"), "route comment dropped"
     bare = 'schema_version = 1\n[routes]\n[reviewers.mini]\ncli = "agy"\nmodel = "gemini-4-argon-low"'
     assert editable(bare)

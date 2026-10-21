@@ -39,14 +39,9 @@
       "detail": "gpt-6-astra via <BIN>\\codex.CMD"
     },
     {
-      "name": "reviewer:gemini",
-      "status": "setup_required",
-      "detail": "agy CLI not installed; this reviewer is skipped"
-    },
-    {
       "name": "reviewer:sonnet",
-      "status": "ok",
-      "detail": "claude-sonnet-5-5 via <BIN>\\claude.CMD"
+      "status": "setup_required",
+      "detail": "claude CLI not installed; a round routed to this reviewer has no review"
     }
   ]
 }

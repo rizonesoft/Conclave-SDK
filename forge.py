@@ -623,7 +623,7 @@ def _doctor_reviewer(target_root: Path, add_check) -> None:
         for name, reviewer in pin["reviewers"].items():
             found = shutil.which(reviewer["cli"])
             add_check(f"reviewer:{name}", "ok" if found else "setup_required",
-                      f"{reviewer['model']} via {found}" if found else f"{reviewer['cli']} CLI not installed; this reviewer is skipped")
+                      f"{reviewer['model']} via {found}" if found else f"{reviewer['cli']} CLI not installed; a round routed to this reviewer has no review")
 
 
 def _doctor_automations(target_root: Path, add_check) -> None:

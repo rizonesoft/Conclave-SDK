@@ -5,5 +5,4 @@ reviewers = { astra = { cli = "codex", model = "gpt-6-astra", effort = "medium" 
 [routes]
 claude = [
     "astra",
-    "gemini",
 ]

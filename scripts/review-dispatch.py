@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""Run one independent review round with the reviewers pinned in .conclave/reviewers.toml, failing over in order.
+"""Run one independent review round with the reviewer pinned in .conclave/reviewers.toml for the writer.
 
     python3 scripts/review-dispatch.py --writer claude --prompt review-prompt.md --record docs/reviews/x.md
     python3 scripts/review-dispatch.py --check-pin [--json] [--pin <path>]     the pin's verdict; runs no reviewer
     python3 scripts/review-dispatch.py --list-rounds [--json] [--records <dir>]  recorded rounds; runs no reviewer
 
-`--writer` is the agent whose work is under review (claude, codex or gemini); its route in the pin lists one reviewer
-of a different model family and at most one fallback, also of a different family. The first reviewer that runs and
-returns a review is the round. One that is not installed, exits non-zero, times out, returns nothing, or ends its
-reply `OVERALL: blocked` (it could not reach the candidate, for example a sandbox that cannot read the repository) is
-skipped and the reason recorded. When every reviewer fails there is no review: exit 1, which never counts as approval.
-A review that finds problems is still a review (exit 0).
+`--writer` is the agent whose work is under review (claude, codex or gemini); its route in the pin names exactly one
+reviewer, of a different model family. A reviewer that is not installed, exits non-zero, times out, returns nothing, or
+ends its reply `OVERALL: blocked` (it could not reach the candidate, for example a sandbox that cannot read the
+repository) is skipped and the reason recorded under `failover`. Then there is no review: exit 1, which never counts as
+approval, and no other reviewer runs. A review that finds problems is still a review (exit 0).
 
 `--check-pin` loads the pin with `load_pin`, the only place the rules live, and reports without running anything:
 with `--json`, `{"ok": true, "schema_version", "reviewers", "routes", "clis": {cli: on PATH}}` and exit 0, or
@@ -109,16 +108,14 @@ def load_pin(path=PIN):
     if not isinstance(routes, dict) or set(routes) - set(WRITERS):
         raise Refused(f"[routes] may only name the writers {', '.join(WRITERS)}")
     for writer, chain in routes.items():
-        if not isinstance(chain, list) or not 1 <= len(chain) <= 2 or not all(isinstance(r, str) for r in chain):
-            raise Refused(f"route {writer!r} must list one reviewer and at most one fallback")
-        if any(r not in reviewers for r in chain) or len(set(chain)) != len(chain):
-            raise Refused(f"route {writer!r} must list defined reviewers, each once")
-        same = [r for r in chain if FAMILY[reviewers[r]["cli"]] == WRITER_FAMILY[writer]]
-        if same:
-            raise Refused(f"route {writer!r} names {', '.join(same)}, of the writer's own family; "
+        if not isinstance(chain, list) or len(chain) != 1 or not isinstance(chain[0], str):
+            raise Refused(f"route {writer!r} must list exactly one reviewer")
+        (name,) = chain
+        if name not in reviewers:
+            raise Refused(f"route {writer!r} must list a defined reviewer")
+        if FAMILY[reviewers[name]["cli"]] == WRITER_FAMILY[writer]:
+            raise Refused(f"route {writer!r} names {name}, of the writer's own family; "
                           f"a review comes from a different family")
-        if len({FAMILY[reviewers[r]["cli"]] for r in chain}) != len(chain):
-            raise Refused(f"route {writer!r}: the fallback must be of a third family, not the reviewer's own")
     return pin
 
 
@@ -219,7 +216,7 @@ def feed(pipe, text):
 def run(argv, stdin_text, timeout, watched):
     """Run one reviewer in its own process group, watching the size of every file it writes while it runs, so neither
     a hang nor a flood of output can take the dispatcher or the disk down. The group is ended afterwards whatever
-    happened. Returns (exit code, None) or (None, reason to fail over)."""
+    happened. Returns (exit code, None) or (None, why there is no review)."""
     group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
     stdout_path = watched[0]
     with open(stdout_path, "wb") as output:
@@ -250,7 +247,7 @@ def run(argv, stdin_text, timeout, watched):
 
 
 def review(pin, writer, prompt_path, timeout):
-    """Walk the writer's route until one reviewer returns a review. Returns the summary dict."""
+    """Run the writer's one reviewer. Returns the summary dict, with the reviewer None when it gave no review."""
     if writer not in pin["routes"]:
         raise Refused(f"the reviewer pin has no route for writer {writer!r}")
     prompt = Path(prompt_path).read_text(encoding="utf-8")
@@ -258,15 +255,14 @@ def review(pin, writer, prompt_path, timeout):
         raise Refused("the review prompt is empty")
     if "\0" in prompt:
         raise Refused("the review prompt contains a NUL byte; no command line can carry it")
-    failover = []
-    for name in pin["routes"][writer]:
-        reviewer = pin["reviewers"][name]
-        # The resolved path, not the bare name: on Windows a CLI is often a .cmd shim that Popen cannot find by name.
-        executable = find_cli(reviewer["cli"])
-        if executable is None:
-            failover.append({"reviewer": name, "reason": f"{reviewer['cli']} is not installed"})
-            continue
-        stdout = None
+    (name,) = pin["routes"][writer]
+    reviewer = pin["reviewers"][name]
+    # The resolved path, not the bare name: on Windows a CLI is often a .cmd shim that Popen cannot find by name.
+    executable = find_cli(reviewer["cli"])
+    stdout = None
+    if executable is None:
+        problem = f"{reviewer['cli']} is not installed"
+    else:
         tmp = Path(tempfile.mkdtemp())
         try:
             stdout_path, message_path = tmp / "stdout.txt", tmp / "last-message.md"
@@ -281,12 +277,10 @@ def review(pin, writer, prompt_path, timeout):
             problem = "returned no review"
         if problem is None:
             problem = blocked(stdout)
-        if problem:
-            failover.append({"reviewer": name, "reason": problem})
-            continue
-        return {"writer": writer, "reviewer": name, "cli": reviewer["cli"], "model": reviewer["model"],
-                "effort": reviewer.get("effort"), "failover": failover, "review": stdout.strip()}
-    return {"writer": writer, "reviewer": None, "failover": failover, "review": None}
+    if problem:
+        return {"writer": writer, "reviewer": None, "failover": [{"reviewer": name, "reason": problem}], "review": None}
+    return {"writer": writer, "reviewer": name, "cli": reviewer["cli"], "model": reviewer["model"],
+            "effort": reviewer.get("effort"), "failover": [], "review": stdout.strip()}
 
 
 def blocked(text):
@@ -475,7 +469,7 @@ def main(argv=None):
     parser.add_argument("--writer", choices=WRITERS, help="The agent whose work is under review")
     parser.add_argument("--prompt", help="File holding the review prompt")
     parser.add_argument("--record", help="Findings file to append this round to")
-    parser.add_argument("--timeout", type=int, default=1800, help="Seconds per reviewer before failing over")
+    parser.add_argument("--timeout", type=int, default=1800, help="Seconds before the reviewer is stopped and the round has no review")
     parser.add_argument("--pin", default=str(PIN), help=argparse.SUPPRESS)
     parser.add_argument("--check-pin", action="store_true",
                         help="Report whether the pin loads, and each CLI's presence, instead of running a review; "

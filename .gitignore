@@ -14,3 +14,4 @@ extensions/vscode/.vscode-test/
 extensions/vscode/*.vsix
 # Written by the integration tests when they change a folder-level setting
 extensions/vscode/test/fixtures/workspaces/*/.vscode/
+.aider*

@@ -32,7 +32,7 @@ const FORMS: [RegExp, (m: RegExpExecArray, message: string) => ErrorTarget][] = 
   [new RegExp(`^reviewer (?:${QUOTED}) needs effort = one of `), (m, message) => ({ kind: "effort", reviewer: name(m), message })],
   [/^the reviewer pin defines no reviewers$/, (_m, message) => ({ kind: "cards", message })],
   [/^\[routes\] may only name the writers /, (_m, message) => ({ kind: "unknown-writer", message })],
-  [new RegExp(`^route (?:${QUOTED})(?: must list | names |: the fallback must be of a third family)`),
+  [new RegExp(`^route (?:${QUOTED})(?: must list | names )`),
     (m, message) => ({ kind: "route", writer: name(m), message })],
   [/^the reviewer pin needs exactly schema_version = 1, \[reviewers\.\*\] and \[routes\]$/, (_m, message) => ({ kind: "screen", message })],
   [/^unreadable reviewer pin: /, (_m, message) => ({ kind: "screen", message })],

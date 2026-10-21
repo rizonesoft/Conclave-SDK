@@ -10,6 +10,7 @@
   "has_verify_agent_tiers": true,
   "agy_skills": [
     "add-todo",
+    "adopt-conclave",
     "authoring-skills",
     "create-todo",
     "groom-plan",
@@ -22,6 +23,7 @@
   ],
   "claude_skills": [
     "add-todo",
+    "adopt-conclave",
     "authoring-skills",
     "create-todo",
     "groom-plan",
@@ -34,6 +36,7 @@
   ],
   "codex_skills": [
     "add-todo",
+    "adopt-conclave",
     "authoring-skills",
     "create-todo",
     "groom-plan",
@@ -55,14 +58,14 @@
     "schema_version": 1,
     "kits": {
       "base": {
-        "digest": "8dde0d815635c88a1ef56dcb363e3f71b208d84ce7c7be41c8c9df3b08cb0964",
-        "commit": "a3fc6c1e24619fe9a00f67f191fa32746357dafe",
-        "date": "2026-10-21T01:19:46+02:00"
+        "digest": "1a2652c2821872d8e8b459f7bd40cc35b324adc0a687382c2a769cbee98c922c",
+        "commit": "30f95dc9c8ae794868324a3f01dcec73b46c6df4",
+        "date": "2026-10-21T09:24:00+02:00"
       },
       "todo": {
-        "digest": "e5fdf3604bcc6e9a8a38cfb5373d1b0f65ff21f8a5ae094709c397e209af2dc2",
-        "commit": "a3fc6c1e24619fe9a00f67f191fa32746357dafe",
-        "date": "2026-10-21T01:19:46+02:00"
+        "digest": "47ea7f3e89229f06a3e03baa7fd11f996953f6a3681bda4e018417ac76011980",
+        "commit": "30f95dc9c8ae794868324a3f01dcec73b46c6df4",
+        "date": "2026-10-21T09:24:00+02:00"
       }
     }
   }

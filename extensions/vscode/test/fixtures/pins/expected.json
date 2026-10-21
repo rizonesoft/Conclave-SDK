@@ -73,32 +73,22 @@
   "refused-empty-route.toml": {
     "exit": 2,
     "ok": false,
-    "error": "route 'codex' must list one reviewer and at most one fallback"
+    "error": "route 'codex' must list exactly one reviewer"
   },
   "refused-route-too-long.toml": {
     "exit": 2,
     "ok": false,
-    "error": "route 'claude' must list one reviewer and at most one fallback"
+    "error": "route 'claude' must list exactly one reviewer"
   },
   "refused-same-family.toml": {
     "exit": 2,
     "ok": false,
     "error": "route 'claude' names sonnet, of the writer's own family; a review comes from a different family"
   },
-  "refused-fallback-family.toml": {
-    "exit": 2,
-    "ok": false,
-    "error": "route 'claude': the fallback must be of a third family, not the reviewer's own"
-  },
   "refused-undefined-reviewer.toml": {
     "exit": 2,
     "ok": false,
-    "error": "route 'codex' must list defined reviewers, each once"
-  },
-  "refused-duplicate-reviewer.toml": {
-    "exit": 2,
-    "ok": false,
-    "error": "route 'codex' must list defined reviewers, each once"
+    "error": "route 'codex' must list a defined reviewer"
   },
   "refused-unparsable.toml": {
     "exit": 2,

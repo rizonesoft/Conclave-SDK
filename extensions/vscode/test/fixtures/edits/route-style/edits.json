@@ -8,7 +8,6 @@
     "set_route",
     "claude",
     [
-      "gemini",
       "gpt6"
     ]
   ]

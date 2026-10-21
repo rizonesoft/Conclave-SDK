@@ -1,4 +1,4 @@
-"""scripts/review-dispatch.py: routing, failover, read-only invocations and records, with fake reviewer CLIs."""
+"""scripts/review-dispatch.py: routing, failed reviews, read-only invocations and records, with fake reviewer CLIs."""
 import importlib.util
 import json
 import os
@@ -16,8 +16,8 @@ import unittest.mock
 SCRIPTS = Path(__file__).resolve().parents[1]
 REPO_PIN = SCRIPTS.parent / ".conclave" / "reviewers.toml"
 
-# The kit's shipped reviewers and routes. The suite exercises the dispatcher against this fixture, never against the
-# repository's own pin, which a project may narrow (one reviewer, no failover) without changing what is tested here.
+# One reviewer for each CLI, and each writer routed to a different one, so every CLI's invocation is exercised. The
+# suite runs against this fixture, never against the repository's own pin, which a project may change.
 FIXTURE_PIN = textwrap.dedent('''    schema_version = 1
 
     [reviewers.astra]
@@ -35,9 +35,9 @@ FIXTURE_PIN = textwrap.dedent('''    schema_version = 1
     effort = "high"
 
     [routes]
-    claude = ["astra", "gemini"]
-    codex = ["gemini", "sonnet"]
-    gemini = ["astra", "sonnet"]
+    claude = ["astra"]
+    codex = ["gemini"]
+    gemini = ["sonnet"]
 ''')
 
 # One fake reviewer for every CLI; a per-CLI launcher passes its name first. Launchers are a shell script on Linux and
@@ -172,53 +172,49 @@ class Dispatch(unittest.TestCase):
         else:
             self.assertEqual(call["argv"][-1], "-p=" + self.prompt.read_text())
 
-    def test_a_route_is_one_reviewer_and_one_fallback_never_the_writers_family(self):
+    def test_a_route_is_one_reviewer_and_nothing_runs_after_it_fails(self):
         result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), codex="fail")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(summary["reviewer"], "gemini")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIsNone(summary["reviewer"])
+        self.assertEqual(summary["failover"], [{"reviewer": "astra", "reason": "exited 3"}])
+        self.assertEqual([c["cli"] for c in self.calls()], ["codex"], "another reviewer ran after the route's one")
         self.log.unlink()
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), codex="fail", agy="empty")
-        self.assertEqual(result.returncode, 1, "a third reviewer ran after the fallback")
-        self.assertEqual([f["reason"] for f in summary["failover"]], ["exited 3", "returned no review"])
-        self.assertEqual([c["cli"] for c in self.calls()], ["codex", "agy"], "Sonnet must never review Claude's work")
+        _, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), codex="empty")
+        self.assertEqual(summary["failover"], [{"reviewer": "astra", "reason": "returned no review"}])
 
-    def test_the_fallback_for_codex_work_is_sonnet_in_plan_mode(self):
-        result, summary = self.dispatch("--writer", "codex", "--prompt", str(self.prompt), agy="fail")
+    def test_sonnet_reviews_gemini_work_in_plan_mode(self):
+        result, summary = self.dispatch("--writer", "gemini", "--prompt", str(self.prompt))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(summary["reviewer"], "sonnet")
         sonnet = self.calls()[-1]
         self.assertEqual(sonnet["argv"][sonnet["argv"].index("--permission-mode") + 1], "plan")
         self.assertEqual(sonnet["argv"][sonnet["argv"].index("--model") + 1], "claude-sonnet-5-5")
 
-    def test_a_reviewer_that_could_not_reach_the_candidate_fails_over(self):
+    def test_a_reviewer_that_could_not_reach_the_candidate_is_no_review(self):
         # A reply ending OVERALL: blocked says the reviewer never saw the work (a sandbox that cannot read the
-        # repository): it is not a review, so the next reviewer runs.
+        # repository): it is not a review.
         result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), codex="blocked")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(summary["reviewer"], "gemini")
+        self.assertEqual(result.returncode, 1)
+        self.assertIsNone(summary["review"])
         self.assertEqual(summary["failover"][0]["reviewer"], "astra")
         self.assertIn("could not review: ", summary["failover"][0]["reason"])
         self.assertIn("setup refresh had errors", summary["failover"][0]["reason"])
-        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt),
-                                        codex="blocked", agy="blocked", claude="blocked")
-        self.assertEqual(result.returncode, 1)
-        self.assertIsNone(summary["review"])
 
-    def test_a_missing_cli_fails_over(self):
+    def test_a_missing_cli_is_no_review(self):
         self.launchers["codex"].unlink()
-        _, summary = self.dispatch("--writer", "gemini", "--prompt", str(self.prompt))
-        self.assertEqual(summary["reviewer"], "sonnet")
+        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt))
+        self.assertEqual((result.returncode, summary["reviewer"]), (1, None))
         self.assertEqual(summary["failover"], [{"reviewer": "astra", "reason": "codex is not installed"}])
 
-    def test_a_timeout_fails_over(self):
+    def test_a_timeout_is_no_review(self):
         _, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--timeout", "2", codex="sleep")
-        self.assertEqual(summary["reviewer"], "gemini")
-        self.assertEqual(summary["failover"][0]["reason"], "timed out")
+        self.assertIsNone(summary["reviewer"])
+        self.assertEqual(summary["failover"], [{"reviewer": "astra", "reason": "timed out"}])
 
     def test_no_review_is_never_an_approval(self):
         record = self.repo / "docs/reviews/round.md"
         result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record),
-                                        codex="fail", agy="fail", claude="fail")
+                                        codex="fail")
         self.assertEqual(result.returncode, 1)
         self.assertIsNone(summary["reviewer"])
         self.assertIn("not an approval", record.read_text())
@@ -233,7 +229,7 @@ class Dispatch(unittest.TestCase):
         self.assertEqual(summary["round"], 2)
         self.assertTrue(text.startswith("# Findings\n"))
         self.assertIn("## Round 1: astra (`gpt-6-astra` via `codex`)", text)
-        self.assertIn("## Round 2: gemini (`gemini-4-argon-high` via `agy`)", text)
+        self.assertIn("## Round 2: none", text)
         self.assertIn("- Skipped: astra (exited 3)", text)
 
     def check_pin(self, *args):
@@ -315,11 +311,10 @@ class Dispatch(unittest.TestCase):
         self.assertIn("--writer and --prompt are required", result.stderr)
 
     def test_list_rounds_reads_back_what_record_wrote(self):
-        # Two rounds written by record itself: one reviewed, one where every reviewer was skipped.
+        # Two rounds written by record itself: one reviewed, one where the reviewer was skipped.
         record = self.repo / "docs/reviews/00-design/D00-T01-s1.md"
         self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
-        self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record),
-                      codex="fail", agy="fail")
+        self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record), codex="fail")
         result, listing = self.dispatch("--list-rounds", "--json")
         self.assertEqual(result.returncode, 0, result.stderr)
         (only,) = listing["records"]
@@ -331,8 +326,7 @@ class Dispatch(unittest.TestCase):
         self.assertRegex(reviewed["run"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
         self.assertEqual({k: skipped[k] for k in ("number", "reviewer", "model", "cli", "effort", "skipped")},
                          {"number": 2, "reviewer": None, "model": None, "cli": None, "effort": None,
-                          "skipped": [{"reviewer": "astra", "reason": "exited 3"},
-                                      {"reviewer": "gemini", "reason": "exited 3"}]})
+                          "skipped": [{"reviewer": "astra", "reason": "exited 3"}]})
         self.assertNotIn("unreadable", listing)
 
     def test_list_rounds_with_no_records_and_with_an_unreadable_heading(self):
@@ -476,11 +470,10 @@ class Dispatch(unittest.TestCase):
         result, _ = self.dispatch("--check-pin", "--json", cwd=self.repo)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(json.loads(result.stdout)["clis"]["codex"], "a codex in the working directory counted as on PATH")
-        result, summary = self.dispatch("--writer", "gemini", "--prompt", str(self.prompt), cwd=self.repo)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), cwd=self.repo)
+        self.assertEqual(result.returncode, 1, result.stderr)
         self.assertFalse(marker.exists(), "the planted codex in the working directory ran as the reviewer")
-        self.assertEqual(summary["reviewer"], "sonnet")
-        self.assertEqual([f["reviewer"] for f in summary["failover"]], ["astra"])
+        self.assertEqual(summary["failover"], [{"reviewer": "astra", "reason": "codex is not installed"}])
 
     @unittest.skipUnless(os.name == "nt", "drive-relative paths, PATHEXT and extensionless lookups are Windows rules")
     def test_find_cli_on_windows_paths(self):
@@ -577,14 +570,14 @@ class Dispatch(unittest.TestCase):
         started = time.monotonic()
         _, summary = self.dispatch("--writer", "codex", "--prompt", str(self.prompt), "--timeout", "40", agy="flood")
         self.assertLess(time.monotonic() - started, 30, "the cap was only applied at the timeout")
-        self.assertEqual(summary["reviewer"], "sonnet")
+        self.assertIsNone(summary["reviewer"])
         self.assertEqual(summary["failover"][0]["reason"], "returned more than 2000000 bytes")
 
     def test_codex_flooding_its_message_file_is_stopped_while_it_runs(self):
         started = time.monotonic()
         _, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--timeout", "40", codex="floodfile")
         self.assertLess(time.monotonic() - started, 30, "the cap was only applied at the timeout")
-        self.assertEqual(summary["reviewer"], "gemini")
+        self.assertIsNone(summary["reviewer"])
         self.assertEqual(summary["failover"][0]["reason"], "returned more than 2000000 bytes")
 
     def test_a_file_still_held_after_the_reviewer_exits_does_not_cost_the_round(self):
@@ -635,7 +628,7 @@ class Dispatch(unittest.TestCase):
         argv, _ = module.command(reviewer, "/usr/bin/agy", "short prompt", Path("/p.md"), Path("o"), 60)
         self.assertEqual(argv[-1], "-p=short prompt")
 
-    def test_a_reviewer_that_cannot_start_fails_over(self):
+    def test_a_reviewer_that_cannot_start_is_no_review(self):
         # Installed, but not a program the system can start, so the launch itself fails.
         self.launchers["codex"].unlink()
         if os.name == "nt":
@@ -643,7 +636,7 @@ class Dispatch(unittest.TestCase):
         else:
             write_launcher(self.bin, "codex", "unused").write_text("#!/nonexistent/interpreter\n", encoding="utf-8")
         _, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt))
-        self.assertEqual(summary["reviewer"], "gemini")
+        self.assertIsNone(summary["reviewer"])
         self.assertTrue(summary["failover"][0]["reason"].startswith("could not start"), summary["failover"])
 
     def test_a_non_integer_schema_version_is_refused(self):
@@ -676,20 +669,19 @@ class Dispatch(unittest.TestCase):
 
 def bad_pins(good):
     """Every rule a parsable pin can break, each as one edit of the shipped pin, shared by the review and check tests."""
-    mini = '\n[reviewers.mini]\ncli = "codex"\nmodel = "gpt-6-mini"\neffort = "low"\n'
     return (good.replace('effort = "medium"', 'effort = "extreme"'),
             good.replace('cli = "codex"', 'cli = "bash"'),
-            good.replace('codex = ["gemini", "sonnet"]', 'codex = ["gemini", "opus"]'),
+            good.replace('codex = ["gemini"]', 'codex = ["opus"]'),
             good.replace('model = "gpt-6-astra"', 'model = "gpt-6-astra; rm -rf ~"'),
             good + '\n[extra]\nkey = 1\n',
-            good.replace('codex = ["gemini", "sonnet"]', 'codex = [["gemini"], "sonnet"]'),
+            good.replace('codex = ["gemini"]', 'codex = [["gemini"]]'),
             good.replace('model = "gemini-4-argon-high"', 'model = "gemini-4-argon-high"\neffort = "high"'),
-            # A reviewer of the writer's own family, and a second fallback.
-            good.replace('claude = ["astra", "gemini"]', 'claude = ["astra", "sonnet"]'),
-            good.replace('gemini = ["astra", "sonnet"]', 'gemini = ["gemini", "sonnet"]'),
-            good.replace('claude = ["astra", "gemini"]', 'claude = ["astra", "gemini", "mini"]') + mini,
-            # A fallback of the reviewer's own family is not the third family the route promises.
-            good.replace('claude = ["astra", "gemini"]', 'claude = ["astra", "mini"]') + mini)
+            # A reviewer of the writer's own family, an empty route, a second reviewer, and a name outside a list.
+            good.replace('claude = ["astra"]', 'claude = ["sonnet"]'),
+            good.replace('gemini = ["sonnet"]', 'gemini = ["gemini"]'),
+            good.replace('claude = ["astra"]', 'claude = []'),
+            good.replace('claude = ["astra"]', 'claude = ["astra", "gemini"]'),
+            good.replace('claude = ["astra"]', 'claude = "astra"'))
 
 
 class RepositoryPin(unittest.TestCase):

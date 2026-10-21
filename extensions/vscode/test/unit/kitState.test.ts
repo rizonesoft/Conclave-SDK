@@ -28,19 +28,19 @@ test("kitState: each recorded folder gives the expected state for every kit", ()
       assert.equal(state(folder, kit).state, kits[kit], `${folder} ${kit}`);
     }
   }
-  assert.deepEqual(state("base", "base"), { kit: "base", state: "installed", kept: 28 });
+  assert.deepEqual(state("base", "base"), { kit: "base", state: "installed", kept: 32 });
   assert.deepEqual(state("empty", "reviewer"), { kit: "reviewer", state: "not-installed", add: 8 });
 });
 
 test("kitState: partly installed says how many files are missing and names the first five", () => {
   const partly = state("claude", "base");
   assert.ok(partly.state === "partly");
-  assert.equal(partly.add, 14);
-  assert.equal(partly.kept, 14);
+  assert.equal(partly.add, 17);
+  assert.equal(partly.kept, 15);
   // Both agent folders a Claude-only repository lacks are named, with how many files each is missing.
-  assert.match(partly.reason, /^14 of 28 files are missing \(5 in \.agents\/, 7 in \.codex\/, CODEX\.md, GEMINI\.md\): /);
-  assert.match(partly.reason, /, and 9 more$/);
-  const named = partly.reason.replace(/^[^:]*: /, "").replace(/, and 9 more$/, "").split(", ");
+  assert.match(partly.reason, /^17 of 32 files are missing \(6 in \.agents\/, 9 in \.codex\/, CODEX\.md, GEMINI\.md\): /);
+  assert.match(partly.reason, /, and 12 more$/);
+  const named = partly.reason.replace(/^[^:]*: /, "").replace(/, and 12 more$/, "").split(", ");
   assert.equal(named.length, 5);
   // The Codex files a Claude-only folder lacks are among those forge would add.
   const raw = JSON.parse(readFileSync(join(fixtures, "dry-claude-base.json"), "utf8"));

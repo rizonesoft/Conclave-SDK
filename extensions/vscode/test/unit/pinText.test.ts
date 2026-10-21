@@ -83,7 +83,7 @@ test("pinText: every golden output is a pin the dispatcher accepts", () => {
 test("pinText: a deleted reviewer takes its comment block and leaves no orphan comment", () => {
   const out = deleteReviewer(shipped, "sonnet");
   assert.ok(!out.includes("# Sonnet 5.5 through Claude Code in plan mode."));
-  assert.ok(out.includes("# Each writer is reviewed by the other two families"), "the [routes] comment went too");
+  assert.ok(out.includes("# Each writer is reviewed by one reviewer of another family"), "the [routes] comment went too");
 });
 
 test("pinText: the editable layout is the shipped one, LF or CRLF, and nothing else", () => {
@@ -95,7 +95,7 @@ test("pinText: the editable layout is the shipped one, LF or CRLF, and nothing e
     ["quoted key", shipped.replace('cli = "codex"', '"cli" = "codex"')],
     ["dotted key", shipped.replace('cli = "codex"', 'reviewers.astra.cli = "codex"')],
     ["escape", shipped.replace('model = "gpt-6-astra"', 'model = "gpt-6\\u002dastra"')],
-    ["two-line array", shipped.replace('claude = ["astra", "gemini"]', 'claude = [\n  "astra", "gemini"]')],
+    ["two-line array", shipped.replace('claude = ["astra"]', 'claude = [\n  "astra"]')],
   ]) {
     assert.notEqual(text, shipped, `${label}: the fixture edit matched nothing`);
     assert.equal(isEditableLayout(text), false, label);
@@ -125,15 +125,17 @@ test("pinText: readPin's spans slice back to the text, and an unchanged value le
     name: "gemini", cli: "agy", model: "gemini-4-argon-high", span: view?.reviewers[1].span,
   });
   assert.deepEqual(view?.routes.map((r) => [r.writer, r.names]), [
-    ["claude", ["astra", "gemini"]], ["codex", ["gemini", "sonnet"]], ["gemini", ["astra", "sonnet"]],
+    ["claude", ["astra"]], ["codex", ["gemini"]], ["gemini", ["sonnet"]],
   ]);
 });
 
 test("pinText: a route keeps its own spacing, and an unchanged route is not rewritten", () => {
-  const spaced = shipped.replace('claude = ["astra", "gemini"]', 'claude = [ "astra" ,\t"gemini" ] # keep');
+  // Two names: a hand-edited route the dispatcher refuses, which the editor must still rewrite in its own style.
+  const spaced = shipped.replace('claude = ["astra"]', 'claude = [ "astra" ,\t"gemini" ] # keep');
   assert.notEqual(spaced, shipped);
   assert.equal(setRoute(spaced, "claude", ["astra", "gemini"]), spaced);
   assert.ok(setRoute(spaced, "claude", ["gemini", "astra"]).includes('claude = [ "gemini" ,\t"astra" ] # keep'));
+  assert.ok(setRoute(spaced, "claude", ["astra"]).includes('claude = [ "astra" ] # keep'));
 });
 
 test("pinText: a U+2028 inside a comment is part of its line, as TOML reads it", () => {
@@ -150,7 +152,7 @@ test("pinText: a long malformed route array is refused at once", () => {
 
 test("pinText: a removed line's comment survives byte for byte, whatever ends it", () => {
   for (const tail of ["\u0085", "\u2028", "   "]) {
-    const text = shipped.replace('claude = ["astra", "gemini"]', 'claude = ["astra", "gemini"] # keep' + tail);
+    const text = shipped.replace('claude = ["astra"]', 'claude = ["astra"] # keep' + tail);
     assert.ok(isEditableLayout(text), JSON.stringify(tail));
     assert.ok(removeRoute(text, "claude").includes("\n# keep" + tail + "\n"), JSON.stringify(tail));
     const field = shipped.replace('effort = "high"', 'effort = "high" # note' + tail);
