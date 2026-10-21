@@ -75,7 +75,7 @@ Sections: 33 | Checklist items: 203
 
 ### Phase 2: Editor surface and Kits view
 
-Sections: 24 | Checklist items: 197
+Sections: 24 | Checklist items: 195
 
 | Status | Reference   | Deliverable                                   | Needs | Items |
 | ------ | ----------- | --------------------------------------------- | ----- | ----- |
@@ -83,7 +83,7 @@ Sections: 24 | Checklist items: 197
 | [ ]    | D02 T01 §23 | Webview screenshot comparison with the mockup | none  | 2     |
 | [ ]    | D03 T01 §2  | Reviewer cards with per-CLI effort            | none  | 10    |
 | [ ]    | D03 T01 §3  | Reviewer add, rename and delete               | none  | 8     |
-| [ ]    | D03 T01 §4  | Route rows with a reviewer and one fallback   | none  | 11    |
+| [ ]    | D03 T01 §4  | Route rows with one reviewer each             | none  | 9     |
 | [ ]    | D03 T01 §5  | No-route notice                               | none  | 5     |
 | [ ]    | D03 T01 §6  | Inline validation and Save gating             | none  | 8     |
 | [ ]    | D03 T01 §7  | TOML preview with diff against disk           | none  | 8     |
@@ -119,4 +119,4 @@ Sections: 6 | Checklist items: 43
 
 Progress: 45/83 verified sections, 4 ready to run now.
 
-Checklist: 328/595 items completed (includes Commit items).
+Checklist: 328/593 items completed (includes Commit items).

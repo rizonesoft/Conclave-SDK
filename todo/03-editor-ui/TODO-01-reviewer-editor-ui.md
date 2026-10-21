@@ -26,7 +26,7 @@ title: "TODO-01 -- Reviewer Editor UI"
 
 ## Outcome
 
-- Opening `conclave.openReviewers` on the shipped workspace shows the three reviewer cards, three route rows of a reviewer and one fallback (**Corrected 2026-10-20:** were rows with the self-review warnings, before `design/decisions.md`, Reviewer routes, 2026-10-20), a clean preview, and CLI status, in Dark Modern and Light Modern, matching `design/screens/`.
+- Opening `conclave.openReviewers` on the shipped workspace shows the three reviewer cards, three route rows of one reviewer each (**Corrected 2026-10-20:** were rows with the self-review warnings, before `design/decisions.md`, Reviewer routes, 2026-10-20; **Corrected 2026-10-21:** were rows of a reviewer and one fallback, before One reviewer per route), a clean preview, and CLI status, in Dark Modern and Light Modern, matching `design/screens/`.
 - Every edit updates the preview and diff, shows the dispatcher's error at its field, disables Save while refused, and Save writes the file that the preview showed.
 - Each empty and failure state from `design/SPEC.md` §7 renders with its action.
 
@@ -41,7 +41,7 @@ title: "TODO-01 -- Reviewer Editor UI"
 | 1 | §1 | Webview shell, theming and message bridge | D00 T01 §3, D02 T01 §1, D02 T01 §11 | [ ] |
 | 2 | §2 | Reviewer cards with per-CLI effort | §1, D02 T01 §4 | [ ] |
 | 3 | §3 | Reviewer add, rename and delete | §2 | [ ] |
-| 4 | §4 | Route rows with a reviewer and one fallback | §1, D02 T01 §4 | [ ] |
+| 4 | §4 | Route rows with one reviewer each | §1, D02 T01 §4 | [ ] |
 | 5 | §5 | No-route notice | §4 | [ ] |
 | 6 | §6 | Inline validation and Save gating | §2, §4, D02 T01 §5 | [ ] |
 | 7 | §7 | TOML preview with diff against disk | §6 | [ ] |
@@ -137,36 +137,36 @@ Reviewers are added, renamed and deleted from the panel (plan R3). This section 
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep reviewerCrud` passes and fails when `renameReviewer` is replaced by a header-only rename.
 
-## 4. Route rows with a reviewer and one fallback
+## 4. Route rows with one reviewer each
 
-**Corrected 2026-10-20:** was "Route rows with ordered failover editing", for a list of any length. The owner's family route rule (`design/decisions.md`, Reviewer routes, 2026-10-20) makes a route a reviewer and one fallback, neither of the writer's family and the fallback of a third; the route editor never offers a reviewer the pin would refuse, and a route that another edit breaks (a reviewer's CLI changed into the writer's family or its fallback's) shows `load_pin`'s refusal inline at the route row with Save off. The row now holds at most two chips and its add menu offers only what the pin accepts, computed by `routeChoices` (new here; it replaces §5's self-review warning). The add-to-absent example moved from astra, which the pin now refuses on the codex row, to gemini.
+**Corrected 2026-10-20:** was "Route rows with ordered failover editing", for a list of any length. The owner's family route rule (`design/decisions.md`, Reviewer routes, 2026-10-20) made a route a reviewer and one fallback.
 
-Each writer's route is a reviewer and one fallback, each of another model family (plan R4, R5). This section renders the claude, codex and gemini rows and edits them with drag, keyboard moves, add and remove, sending `setRoute` and `removeRoute` from `D02 T01 §4`. The add menu disables, with the reason, a reviewer already in the row, one of the writer's family and, for the fallback, one of the reviewer's family; a full row has none. It shows a route that names an undefined reviewer as written, so §6 can flag it, and a hand-edited route that breaks the family rule gets the dispatcher's refusal from §6.
+**Corrected 2026-10-21:** was "Route rows with a reviewer and one fallback", with two numbered chips, drag and keyboard reordering, the `fallback` tag and a third-family rule. The owner dropped the fallback (`design/decisions.md`, One reviewer per route, 2026-10-21): a route names exactly one reviewer, never of the writer's family, so a row holds one chip with no order controls, and the add menu shows only on an empty row and disables only a reviewer of the writer's family.
+
+Each writer's route is one reviewer of another model family (plan R4, R5). This section renders the claude, codex and gemini rows and edits them with add and remove, sending `setRoute` and `removeRoute` from `D02 T01 §4`. The add menu, shown only while the row has no chip, disables with the reason a reviewer of the writer's family. It shows a route that names an undefined reviewer as written, so §6 can flag it, and a hand-edited route with more than one name shows every entry with the dispatcher's refusal from §6, so the extras can be removed.
 
 **Phase:** 2
 **Needs:** none
 **Surface:** yes
 **Fidelity:** `design/SPEC.md` §3 Route rows; `design/screens/3-dark.png` and `design/screens/3-light.png`.
-**Job:** Let the operator choose, for each writer, the reviewer from another model family and the one fallback that takes over when it cannot run.
-**Treatment:** One row per writer in the order claude, codex, gemini; two chips numbered 1 and 2, the second tagged fallback; drag handle, move buttons and remove on each chip; an add menu at the row end while the row holds fewer than two.
-**Chrome:** Row label names the writer; the no-route notice from §5 replaces the chips when the route is absent.
+**Job:** Let the operator choose, for each writer, the one reviewer from another model family.
+**Treatment:** One row per writer in the order claude, codex, gemini; one chip with the reviewer's name and a remove button; an add menu at the row end only while the row has no chip.
+**Chrome:** Row label names the writer; the no-route notice from §5 replaces the chip when the route is absent.
 
 **Build order:**
 
-1. Render rows in `extensions/vscode/src/webview/routes.ts`. Done when: the shipped workspace shows the three rows in failover order.
-2. Edit by drag, keyboard, add and remove within two chips. Done when: each edit sends one `setRoute`, the preview shows the new array, and no edit offers a route the pin refuses.
+1. Render rows in `extensions/vscode/src/webview/routes.ts`. Done when: the shipped workspace shows the three rows, one chip each.
+2. Edit by add and remove. Done when: each edit sends one `setRoute` or `removeRoute`, the preview shows the new array, and no edit offers a route the pin refuses.
 
-- [ ] Render a row per writer in `extensions/vscode/src/webview/routes.ts` with numbered chips in route order, from the `model` message. Done when: the codex row reads `1 gemini, 2 sonnet`. Cheaper substitute: an unordered tag list.
-- [ ] Reorder by drag with the HTML drag and drop API, sending `setRoute`. Done when: dragging sonnet above gemini on the codex row writes `codex = ["sonnet", "gemini"]`. Cheaper substitute: drag without a keyboard path.
-- [ ] Reorder by keyboard with move-up and move-down buttons on each chip and Alt+Up and Alt+Down. Done when: the same reorder works without a mouse. Cheaper substitute: drag only.
-- [ ] Implement `routeChoices(model, writer)` in `extensions/vscode/src/core/routeChoices.ts` returning each defined reviewer with its disabled reason: `already in this route`, `same family as the writer` (codex is OpenAI, agy Google, claude Anthropic, as `FAMILY` and `WRITER_FAMILY` in `review-dispatch.py`) or, while the row holds one chip, `same family as the reviewer`. Done when: `extensions/vscode/test/unit/routeChoices.test.ts` gives, for a codex row holding gemini, astra disabled as `same family as the writer` and sonnet enabled, and fails when agy's family is removed. Cheaper substitute: offering every reviewer and letting Save refuse.
-- [ ] Add from a menu built from `routeChoices`, each disabled option labelled with its reason, and hide the menu while the row holds two chips. Done when: the shipped claude row (astra, gemini) shows no add menu, and with gemini removed the menu disables astra as already present and sonnet as `same family as the writer`. Cheaper substitute: a free-text add.
-- [ ] Remove a chip, sending `setRoute`, and send `removeRoute` when the last chip goes. Done when: removing both codex chips removes the `codex` key from `[routes]`. Cheaper substitute: writing `codex = []`, which the dispatcher refuses.
+- [ ] Render a row per writer in `extensions/vscode/src/webview/routes.ts` with one chip per route entry, from the `model` message. Done when: the shipped codex row shows the one chip `gemini`. Cheaper substitute: the route as plain text.
+- [ ] Implement `routeChoices(model, writer)` in `extensions/vscode/src/core/routeChoices.ts` returning each defined reviewer with its disabled reason, `same family as the writer` (codex is OpenAI, agy Google, claude Anthropic, as `FAMILY` and `WRITER_FAMILY` in `review-dispatch.py`) or none. Done when: `extensions/vscode/test/unit/routeChoices.test.ts` gives, for the gemini row, gemini disabled as `same family as the writer` and astra and sonnet enabled, and fails when agy's family is removed. Cheaper substitute: offering every reviewer and letting Save refuse.
+- [ ] Add from a menu built from `routeChoices`, each disabled option labelled with its reason, shown only while the row has no chip. Done when: the shipped claude row shows no add menu, and the `refused-empty-route.toml` workspace's codex row menu disables astra as `same family as the writer`. Cheaper substitute: a free-text add.
+- [ ] Remove a chip, sending `setRoute`, and send `removeRoute` when the last chip goes. Done when: removing the codex chip removes the `codex` key from `[routes]`, and on the `refused-route-too-long.toml` workspace removing gemini writes `claude = ["astra"]`. Cheaper substitute: writing `codex = []`, which the dispatcher refuses.
 - [ ] Add a route to a writer that has none, from the no-route notice's action. Done when: adding gemini to an absent codex route writes `codex = ["gemini"]`. Cheaper substitute: requiring a hand edit.
 - [ ] Show an undefined reviewer named on disk as a chip marked unknown. Done when: the `refused-undefined-reviewer.toml` workspace shows the chip. Cheaper substitute: hiding the unknown name.
-- [ ] Write `extensions/vscode/test/integration/routes.test.ts` covering render, drag, keyboard reorder, the two-chip limit, add with the family-disabled choices, remove to empty and add to absent. Done when: all pass and fail when the last remove writes an empty array. Cheaper substitute: render test only.
-- [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/route-rows-with-a-reviewer-and-one-fallback.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
-- [ ] Commit: `ui: route rows with a reviewer and one fallback`
+- [ ] Write `extensions/vscode/test/integration/routes.test.ts` covering render, the one-chip limit, add with the family-disabled choices, remove to absent, add to absent and a hand-edited route of two names. Done when: all pass and fail when the last remove writes an empty array. Cheaper substitute: render test only.
+- [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/route-rows-with-one-reviewer-each.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
+- [ ] Commit: `ui: route rows with one reviewer each`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep routes` passes and fails when removing the last chip writes `[]` instead of removing the key, or when the add menu offers a reviewer of the writer's family.
 
@@ -284,7 +284,7 @@ This section wires the toolbar to `D02 T01 §6`: Save writes atomically and show
 
 ## 9. Reviewer status and Test reviewer panel
 
-The operator sees whether each reviewer can run and can test one on a planted bug (plan R10, R11). This section shows the `clis` map from the latest `ready` check as a badge on each card, and a Test reviewer action per card that runs `D02 T01 §8` and shows running, review, failover and refused outcomes.
+The operator sees whether each reviewer can run and can test one on a planted bug (plan R10, R11). This section shows the `clis` map from the latest `ready` check as a badge on each card, and a Test reviewer action per card that runs `D02 T01 §8` and shows running, review, no review and refused outcomes.
 
 **Phase:** 2
 **Needs:** none
@@ -297,13 +297,13 @@ The operator sees whether each reviewer can run and can test one on a planted bu
 **Build order:**
 
 1. Render badges in `extensions/vscode/src/webview/status.ts`. Done when: each card shows its CLI's state from `clis`.
-2. Wire Test reviewer and its outcomes. Done when: the fake-CLI integration test shows review, failover and cancel.
+2. Wire Test reviewer and its outcomes. Done when: the fake-CLI integration test shows review, no review and cancel.
 
-- [ ] Render a badge per card from `clis[cli]` in `extensions/vscode/src/webview/status.ts`, with the SPEC's text for found and not found (not found says the reviewer is skipped at run time). Done when: a workspace where `agy` is off PATH shows not found on gemini only. Cheaper substitute: a status computed in TypeScript with `which`.
+- [ ] Render a badge per card from `clis[cli]` in `extensions/vscode/src/webview/status.ts`, with the SPEC's text for found and not found (not found says a round routed to the reviewer has no review). Done when: a workspace where `agy` is off PATH shows not found on gemini only. Cheaper substitute: a status computed in TypeScript with `which`.
 - [ ] Refresh badges after every check and save. Done when: installing a fake CLI on PATH and saving flips the badge. Cheaper substitute: badges set once at open.
 - [ ] Add Test reviewer to each card, sent as `test` with the reviewer name, disabled while the candidate is refused or another test runs. Done when: clicking runs the confirmation from `D02 T01 §8`. Cheaper substitute: testing the saved pin when the candidate differs.
 - [ ] Show the running state with Cancel wired to the host's cancellation token. Done when: Cancel on a hanging fake CLI ends the run and shows "Cancelled". Cheaper substitute: no cancel.
-- [ ] Show the review outcome text verbatim, the failover reason, or the refusal message, per `design/SPEC.md` §5. Done when: each fake-CLI case shows its outcome. Cheaper substitute: success only.
+- [ ] Show the review outcome text verbatim, the skipped reviewer's reason, or the refusal message, per `design/SPEC.md` §5. Done when: each fake-CLI case shows its outcome. Cheaper substitute: success only.
 - [ ] Write `extensions/vscode/test/integration/status.test.ts` covering badges, refresh, each outcome and cancel. Done when: all pass and fail when the badge ignores `clis`. Cheaper substitute: a badge render test only.
 - [ ] Assert mockup parity for every scenario this section draws in `extensions/vscode/test/parity/reviewer-status-and-test-reviewer-panel.parity.test.ts` with `expectParity` from D02 T01 §11. Done when: the test passes and fails when one label, description, icon, badge, order or action differs from the mockup's fixture. Cheaper substitute: comparing by eye against the mockup.
 - [ ] Commit: `ui: reviewer status and Test reviewer`

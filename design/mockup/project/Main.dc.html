@@ -151,15 +151,13 @@ select.input{padding:0 4px}
 .route-h{display:flex;align-items:baseline;gap:10px}
 .writer{font-size:13px;font-weight:600;color:var(--fg-strong)}
 .chips{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
-.chip{display:flex;align-items:center;gap:6px;height:30px;padding:0 4px 0 6px;background:var(--chip-bg);border:1px solid var(--card-border);border-radius:3px;cursor:grab}
+.chip{display:flex;align-items:center;gap:6px;height:30px;padding:0 4px 0 6px;background:var(--chip-bg);border:1px solid var(--card-border);border-radius:3px}
 .chip.warn{border-color:var(--warn-border)}
 .chip.unknown{border-color:var(--err-border);border-style:dashed}
-.chip .num{width:18px;height:18px;border-radius:9px;background:var(--btn2-bg);display:inline-flex;align-items:center;justify-content:center;font-size:11px;color:var(--fg)}
 .chip .nm{flex:1;font-size:13px}
 .chip .tag{font-size:11px;color:var(--fg-muted)}
 .chip .wi{color:var(--warn)}
 .chip .ei{color:var(--err)}
-.grip{color:var(--fg-muted)}
 .warnline{display:flex;gap:6px;align-items:flex-start;font-size:12px;line-height:17px;color:var(--warn)}
 .notice{display:flex;gap:8px;align-items:flex-start;padding:8px;border:1px solid var(--info-border);background:var(--info-bg);border-radius:3px;font-size:12px;line-height:17px}
 .addsel{width:auto;min-width:200px;align-self:flex-start}
@@ -662,7 +660,7 @@ button.tab.active{background:var(--tab-active)}
 
             <div class="lower">
               <section aria-label="Routes">
-                <div class="sec-head"><h2>Routes</h2><span class="muted">A reviewer and one fallback, each of another model family: the first that returns a review is the round.</span></div>
+                <div class="sec-head"><h2>Routes</h2><span class="muted">One reviewer of another model family for each writer. A reviewer that cannot review is no review.</span></div>
                 <sc-for list="{{rows}}" as="row" hint-placeholder-count="3">
                   <div class="route {{row.cls}}">
                     <div class="route-h">
@@ -671,17 +669,11 @@ button.tab.active{background:var(--tab-active)}
                       <sc-if value="{{row.notWriter}}" hint-placeholder-val="{{false}}"><button class="btn2 small" onClick="{{row.removeKey}}">Remove route</button></sc-if>
                     </div>
                     <sc-if value="{{row.hasChips}}" hint-placeholder-val="{{true}}">
-                      <ol class="chips" aria-label="Reviewer and fallback for {{row.writer}}">
-                        <sc-for list="{{row.chips}}" as="ch" hint-placeholder-count="3">
-                          <li class="chip {{ch.cls}}" draggable="true" onDragStart="{{ch.onDragStart}}" onDragOver="{{ch.onDragOver}}" onDrop="{{ch.onDrop}}">
-                            <svg class="ci grip" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M7 4C7 4.552 6.552 5 6 5C5.448 5 5 4.552 5 4C5 3.448 5.448 3 6 3C6.552 3 7 3.448 7 4ZM10 3C9.448 3 9 3.448 9 4C9 4.552 9.448 5 10 5C10.552 5 11 4.552 11 4C11 3.448 10.552 3 10 3ZM6 7C5.448 7 5 7.448 5 8C5 8.552 5.448 9 6 9C6.552 9 7 8.552 7 8C7 7.448 6.552 7 6 7ZM10 7C9.448 7 9 7.448 9 8C9 8.552 9.448 9 10 9C10.552 9 11 8.552 11 8C11 7.448 10.552 7 10 7ZM6 11C5.448 11 5 11.448 5 12C5 12.552 5.448 13 6 13C6.552 13 7 12.552 7 12C7 11.448 6.552 11 6 11ZM10 11C9.448 11 9 11.448 9 12C9 12.552 9.448 13 10 13C10.552 13 11 12.552 11 12C11 11.448 10.552 11 10 11Z"></path></svg>
-                            <span class="num">{{ch.num}}</span>
+                      <ol class="chips" aria-label="Reviewer for {{row.writer}}">
+                        <sc-for list="{{row.chips}}" as="ch" hint-placeholder-count="1">
+                          <li class="chip {{ch.cls}}">
                             <span class="nm mono">{{ch.name}}</span>
-                            <sc-if value="{{ch.fallback}}" hint-placeholder-val="{{false}}"><span class="tag">fallback</span></sc-if>
                             <sc-if value="{{ch.unknown}}" hint-placeholder-val="{{false}}"><span class="tag">not defined</span></sc-if>
-                            <sc-if value="{{ch.dup}}" hint-placeholder-val="{{false}}"><span class="tag">listed twice</span></sc-if>
-                            <button class="icon-btn" aria-label="Move {{ch.name}} up" disabled="{{ch.upDis}}" onClick="{{ch.up}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.14603 9.85423C3.34103 10.0492 3.65803 10.0492 3.85303 9.85423L7.99903 5.70823L12.145 9.85423C12.34 10.0492 12.657 10.0492 12.852 9.85423C13.047 9.65923 13.047 9.34223 12.852 9.14723L8.35203 4.64723C8.15703 4.45223 7.84003 4.45223 7.64503 4.64723L3.14503 9.14723C2.95003 9.34223 2.95103 9.65923 3.14603 9.85423Z"></path></svg></button>
-                            <button class="icon-btn" aria-label="Move {{ch.name}} down" disabled="{{ch.downDis}}" onClick="{{ch.down}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3.14598 5.85423L7.64598 10.3542C7.84098 10.5492 8.15798 10.5492 8.35298 10.3542L12.853 5.85423C13.048 5.65923 13.048 5.34223 12.853 5.14723C12.658 4.95223 12.341 4.95223 12.146 5.14723L7.99998 9.29323L3.85398 5.14723C3.65898 4.95223 3.34198 4.95223 3.14698 5.14723C2.95198 5.34223 2.95098 5.65923 3.14598 5.85423Z"></path></svg></button>
                             <button class="icon-btn" aria-label="Remove {{ch.name}} from the {{row.writer}} route" onClick="{{ch.remove}}"><svg class="ci" width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8.70701 8.00001L12.353 4.35401C12.548 4.15901 12.548 3.84201 12.353 3.64701C12.158 3.45201 11.841 3.45201 11.646 3.64701L8.00001 7.29301L4.35401 3.64701C4.15901 3.45201 3.84201 3.45201 3.64701 3.64701C3.45201 3.84201 3.45201 4.15901 3.64701 4.35401L7.29301 8.00001L3.64701 11.646C3.45201 11.841 3.45201 12.158 3.64701 12.353C3.74501 12.451 3.87301 12.499 4.00101 12.499C4.12901 12.499 4.25701 12.45 4.35501 12.353L8.00101 8.70701L11.647 12.353C11.745 12.451 11.873 12.499 12.001 12.499C12.129 12.499 12.257 12.45 12.355 12.353C12.55 12.158 12.55 11.841 12.355 11.646L8.70901 8.00001H8.70701Z"></path></svg></button>
                           </li>
                         </sc-for>
@@ -833,33 +825,32 @@ button.tab.active{background:var(--tab-active)}
   </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"scenario":{"editor":"enum","options":["ready","agy-missing","stale","err-bad-name","err-unknown-key","err-bad-cli","err-bad-model","err-agy-effort","err-bad-effort","err-no-reviewers","err-route-writer","err-empty-route","err-undefined-reviewer","err-duplicate-reviewer","err-route-too-long","err-same-family","err-fallback-family","refused-schema","refused-unparsable","unsupported-schema","pin-layout","no-pin","no-dispatcher","old-dispatcher","no-python","untrusted"],"default":"ready"},"sidebar":{"editor":"enum","options":["explorer","kits","kits-health","kits-stamps","kits-empty","sections"],"default":"explorer"},"workspace":{"editor":"enum","options":["single","multi"],"default":"single"},"overlay":{"editor":"enum","options":["none","palette","context-menu","kit-menu"],"default":"none"},"$preview":{"width":1440,"height":1060}}'>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"scenario":{"editor":"enum","options":["ready","agy-missing","stale","err-bad-name","err-unknown-key","err-bad-cli","err-bad-model","err-agy-effort","err-bad-effort","err-no-reviewers","err-route-writer","err-empty-route","err-undefined-reviewer","err-route-too-long","err-same-family","refused-schema","refused-unparsable","unsupported-schema","pin-layout","no-pin","no-dispatcher","old-dispatcher","no-python","untrusted"],"default":"ready"},"sidebar":{"editor":"enum","options":["explorer","kits","kits-health","kits-stamps","kits-empty","sections"],"default":"explorer"},"workspace":{"editor":"enum","options":["single","multi"],"default":"single"},"overlay":{"editor":"enum","options":["none","palette","context-menu","kit-menu"],"default":"none"},"$preview":{"width":1440,"height":1060}}'>
 // Mockup only. The extension never validates the pin itself: it runs the workspace's own
 // scripts/review-dispatch.py --check-pin --json. The validate() below imitates load_pin so the
 // mockup can show the dispatcher's exact messages; it is not a design for the product.
 const HEAD = [
   '# Independent reviewers for this repository, read by scripts/review-dispatch.py.',
   '#',
-  '# A route names one reviewer and at most one fallback for work written by one',
-  '# agent, and neither is of the writer\'s own model family (the CLI names it:',
-  '# codex is OpenAI, agy is Google, claude is Anthropic). The first reviewer that',
-  '# runs and returns a review is the round; one that is not installed, fails,',
-  '# times out, returns nothing or replies OVERALL: blocked is skipped and the',
-  '# reason recorded. If both fail there is no review, never an approval.',
+  '# A route names exactly one reviewer for work written by one agent, never of',
+  '# the writer\'s own model family (the CLI names it: codex is OpenAI, agy is',
+  '# Google, claude is Anthropic). A reviewer that is not installed, fails, times',
+  '# out, returns nothing or replies OVERALL: blocked is skipped and the reason',
+  '# recorded: there is no review, never an approval, and no other reviewer runs.',
   '#',
   '# Loaded strictly: an unknown key, an unknown CLI, a malformed model, a route',
-  '# naming an undefined reviewer, a same-family reviewer or a second fallback',
-  '# refuses every dispatch.'
+  '# naming an undefined reviewer, a same-family reviewer or more than one',
+  '# reviewer refuses every dispatch.'
 ];
-const ROUTES_COMMENT = ['# Each writer is reviewed by the other two families: Astra first wherever it', '# may review, and the third family as the one fallback.'];
+const ROUTES_COMMENT = ['# Astra reviews wherever it may; Sonnet reviews Codex work (owner decision', '# 2026-10-21: one reviewer per writer, no fallback).'];
 const WRITERS = ['claude', 'codex', 'gemini'];
 const CLIS = ['codex', 'agy', 'claude'];
 const EFFORTS = { codex: ['low', 'medium', 'high', 'xhigh'], claude: ['low', 'medium', 'high', 'xhigh', 'max'] };
 const DEFAULT_EFFORT = { codex: 'medium', claude: 'high' };
 const MODEL_RE = /^[a-z0-9][a-z0-9.-]*$/;
 const NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
-// load_pin's families (review-dispatch.py FAMILY and WRITER_FAMILY): a route never names the writer's family,
-// and its one fallback is of a third family.
+// load_pin's families (review-dispatch.py FAMILY and WRITER_FAMILY): a route's one reviewer is never of the
+// writer's family.
 const FAMILY = { codex: 'openai', agy: 'google', claude: 'anthropic' };
 const WRITER_FAMILY = { claude: 'anthropic', codex: 'openai', gemini: 'google' };
 const CLI_LABEL = { codex: 'codex (OpenAI Codex)', agy: 'agy (Antigravity)', claude: 'claude (Claude Code)' };
@@ -929,10 +920,10 @@ const PHASE_KIT = { 0: 'Repository and tooling', 99: 'Manual, operator only' };
 const ROUND_RECORDS = [
   { file: 'docs/reviews/checkout-form.md', rounds: [
     { n: 2, who: 'astra (gpt-6-astra via codex)', writer: 'claude', run: '2026-10-15T09:12:40Z', skipped: [] },
-    { n: 1, who: null, writer: 'claude', run: '2026-10-14T16:40:05Z', skipped: ['astra (timed out)', 'gemini (returned no review)'] }
+    { n: 1, who: null, writer: 'claude', run: '2026-10-14T16:40:05Z', skipped: ['astra (timed out)'] }
   ] },
   { file: 'docs/reviews/catalogue-pages.md', rounds: [
-    { n: 1, who: 'gemini (gemini-4-argon-high via agy)', writer: 'codex', run: '2026-10-09T11:05:18Z', skipped: [] }
+    { n: 1, who: 'sonnet (claude-sonnet-5-5 via claude)', writer: 'codex', run: '2026-10-09T11:05:18Z', skipped: [] }
   ] },
   // --list-rounds names a file it cannot read back in `unreadable`; it is shown, never dropped.
   { file: 'docs/reviews/hand-edited.md', unreadable: true, rounds: [] }
@@ -1051,10 +1042,8 @@ const SCENARIOS = [
   ['err-route-writer', 'Error: route for an unknown writer'],
   ['err-empty-route', 'Error: empty route'],
   ['err-undefined-reviewer', 'Error: route names an undefined reviewer'],
-  ['err-duplicate-reviewer', 'Error: reviewer twice in one route'],
-  ['err-route-too-long', 'Error: route with a second fallback'],
+  ['err-route-too-long', 'Error: route with a second reviewer'],
   ['err-same-family', "Error: reviewer of the writer's family"],
-  ['err-fallback-family', "Error: fallback of the reviewer's family"],
   ['refused-schema', 'Refused: schema_version = 2'],
   ['refused-unparsable', 'Refused: TOML does not parse'],
   ['unsupported-schema', 'Pin newer than the extension'],
@@ -1083,9 +1072,9 @@ function shipped() {
     ],
     routesComment: ROUTES_COMMENT.slice(),
     routes: [
-      { writer: 'claude', names: ['astra', 'gemini'] },
-      { writer: 'codex', names: ['gemini', 'sonnet'] },
-      { writer: 'gemini', names: ['astra', 'sonnet'] }
+      { writer: 'claude', names: ['astra'] },
+      { writer: 'codex', names: ['sonnet'] },
+      { writer: 'gemini', names: ['astra'] }
     ]
   };
 }
@@ -1129,12 +1118,10 @@ function validate(m) {
   for (let i = 0; i < m.routes.length; i++) {
     const rt = m.routes[i];
     const at = { kind: 'route', writer: rt.writer };
-    if (rt.names.length < 1 || rt.names.length > 2) return { msg: 'route ' + pyq(rt.writer) + ' must list one reviewer and at most one fallback', target: at };
-    if (rt.names.some(function (n) { return names.indexOf(n) < 0; }) || new Set(rt.names).size !== rt.names.length) return { msg: 'route ' + pyq(rt.writer) + ' must list defined reviewers, each once', target: at };
-    const fam = function (n) { return FAMILY[m.reviewers.find(function (r) { return r.name === n; }).cli]; };
-    const same = rt.names.filter(function (n) { return fam(n) === WRITER_FAMILY[rt.writer]; });
-    if (same.length) return { msg: 'route ' + pyq(rt.writer) + ' names ' + same.join(', ') + ", of the writer's own family; a review comes from a different family", target: at };
-    if (new Set(rt.names.map(fam)).size !== rt.names.length) return { msg: 'route ' + pyq(rt.writer) + ": the fallback must be of a third family, not the reviewer's own", target: at };
+    if (rt.names.length !== 1) return { msg: 'route ' + pyq(rt.writer) + ' must list exactly one reviewer', target: at };
+    const one = rt.names[0];
+    if (names.indexOf(one) < 0) return { msg: 'route ' + pyq(rt.writer) + ' must list a defined reviewer', target: at };
+    if (FAMILY[m.reviewers.find(function (r) { return r.name === one; }).cli] === WRITER_FAMILY[rt.writer]) return { msg: 'route ' + pyq(rt.writer) + ' names ' + one + ", of the writer's own family; a review comes from a different family", target: at };
   }
   return null;
 }
@@ -1160,7 +1147,7 @@ function scenarioBase(id) {
   const rev = function (n) { return m.reviewers.find(function (x) { return x.name === n; }); };
   const route = function (w) { return m.routes.find(function (x) { return x.writer === w; }); };
   if (id === 'agy-missing') env.clis.agy = false;
-  if (id === 'stale') { env.stale = true; env.staleModel = shipped(); env.staleModel.routes.find(function (x) { return x.writer === 'codex'; }).names = ['sonnet', 'gemini']; }
+  if (id === 'stale') { env.stale = true; env.staleModel = shipped(); env.staleModel.routes.find(function (x) { return x.writer === 'codex'; }).names = ['gemini']; }
   if (id === 'err-bad-name') { rev('sonnet').name = 'Sonnet'; m.routes.forEach(function (rt) { rt.names = rt.names.map(function (n) { return n === 'sonnet' ? 'Sonnet' : n; }); }); }
   if (id === 'err-unknown-key') rev('astra').extra = [{ key: 'temperature', value: '0.2' }];
   if (id === 'err-bad-cli') rev('astra').cli = 'bash';
@@ -1170,15 +1157,9 @@ function scenarioBase(id) {
   if (id === 'err-no-reviewers') { m.reviewers = []; m.emptyReviewersTable = true; }
   if (id === 'err-route-writer') m.routes.push({ writer: 'copilot', names: ['astra'] });
   if (id === 'err-empty-route') route('codex').names = [];
-  if (id === 'err-undefined-reviewer') route('codex').names = ['gemini', 'opus'];
-  if (id === 'err-duplicate-reviewer') route('codex').names = ['gemini', 'gemini'];
-  if (id === 'err-route-too-long') route('claude').names = ['astra', 'gemini', 'sonnet'];
-  if (id === 'err-same-family') route('gemini').names = ['gemini', 'sonnet'];
-  if (id === 'err-fallback-family') {
-    m.reviewers.push({ id: 'r4', name: 'mini', cli: 'codex', model: 'gpt-6-mini', effort: 'low', extra: [], comment: [] });
-    m.nextId = 5;
-    route('claude').names = ['astra', 'mini'];
-  }
+  if (id === 'err-undefined-reviewer') route('codex').names = ['opus'];
+  if (id === 'err-route-too-long') route('claude').names = ['astra', 'gemini'];
+  if (id === 'err-same-family') route('gemini').names = ['gemini'];
   if (id === 'refused-schema') { m.schema = 2; env.screen = 'refused'; env.refused = { msg: 'the reviewer pin needs exactly schema_version = 1, [reviewers.*] and [routes]', line: 11, text: null }; }
   if (id === 'refused-unparsable') { env.screen = 'refused'; env.refused = { msg: "unreadable reviewer pin: Expected '=' after a key in a key/value pair (at line 17, column 8)", line: 17, text: 'effort "medium"' }; }
   if (['unsupported-schema', 'pin-layout', 'no-pin', 'no-dispatcher', 'old-dispatcher', 'no-python', 'untrusted'].indexOf(id) >= 0) env.screen = id;
@@ -1419,7 +1400,7 @@ class Component extends DCLogic {
         });
         const routes = group('reviewers/routes', true, { label: 'Routes', desc: m.routes.length + (m.routes.length === 1 ? ' writer' : ' writers') });
         rows.push(routes);
-        if (routes.open) m.routes.forEach(function (rt) { rows.push(row({ pad: 22, iRoute: true, label: rt.writer, desc: rt.names.join(', then ') })); });
+        if (routes.open) m.routes.forEach(function (rt) { rows.push(row({ pad: 22, iRoute: true, label: rt.writer, desc: rt.names.join(', ') })); });
       }
       const desc = ok ? (missing ? missing + ' reviewer skipped' : 'ready') : '';
       pane('reviewers', 'REVIEWERS', desc, desc, [act('Open Reviewer Settings', 'aPeople', flash('Opens the Reviewers editor (conclave.openReviewers).')), act('Refresh', 'aRefresh', flash('Re-checked with --check-pin.'))], rows);
@@ -1543,7 +1524,7 @@ class Component extends DCLogic {
     if (s === 'no-pin') {
       d.isInfo = true;
       d.heading = 'The reviewer kit is not installed';
-      d.paras = paras(['This workspace has no `.conclave/reviewers.toml`, so `scripts/review-dispatch.py` has no reviewers to run.', 'Importing the Conclave-SDK reviewer kit adds the shipped pin (for each writer, a reviewer of another model family and one fallback of the third) and only adds missing files. This editor opens on its own once the pin exists.']);
+      d.paras = paras(['This workspace has no `.conclave/reviewers.toml`, so `scripts/review-dispatch.py` has no reviewers to run.', 'Importing the Conclave-SDK reviewer kit adds the shipped pin (for each writer, one reviewer of another model family) and only adds missing files. This editor opens on its own once the pin exists.']);
       d.copies = copies(importReq(FOLDERS[0], 'reviewer'));
     } else if (s === 'refused') {
       const ref = this.base().env.refused;
@@ -1684,43 +1665,23 @@ class Component extends DCLogic {
       const rt = byWriter[w];
       const isWriter = WRITERS.indexOf(w) >= 0;
       const list = rt ? rt.names : [];
-      const seen = {};
       const chips = list.map(function (n, i) {
         const rv = m.reviewers.find(function (x) { return x.name === n; });
-        const dup = !!seen[n]; seen[n] = true;
         return {
-          name: n, num: i + 1, fallback: i === 1, unknown: !rv, dup: dup,
-          cls: !rv || dup ? 'unknown' : '',
-          upDis: i === 0, downDis: i === list.length - 1,
-          up: function () { self.routeMut(w, function (x) { const a = x.names; const tmp = a[i - 1]; a[i - 1] = a[i]; a[i] = tmp; }); },
-          down: function () { self.routeMut(w, function (x) { const a = x.names; const tmp = a[i + 1]; a[i + 1] = a[i]; a[i] = tmp; }); },
-          remove: function () { self.routeMut(w, function (x) { x.names.splice(i, 1); x._drop = true; }); },
-          onDragStart: function (ev) { self._drag = { w: w, i: i }; if (ev.dataTransfer) { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', n); } },
-          onDragOver: function (ev) { if (self._drag && self._drag.w === w) ev.preventDefault(); },
-          onDrop: function (ev) {
-            ev.preventDefault();
-            const dr = self._drag; self._drag = null;
-            if (!dr || dr.w !== w || dr.i === i) return;
-            self.routeMut(w, function (x) { const item = x.names.splice(dr.i, 1)[0]; x.names.splice(i, 0, item); });
-          }
+          name: n, unknown: !rv, cls: !rv ? 'unknown' : '',
+          remove: function () { self.routeMut(w, function (x) { x.names.splice(i, 1); x._drop = true; }); }
         };
       });
       const famOf = function (n) { const rv = m.reviewers.find(function (x) { return x.name === n; }); return rv ? FAMILY[rv.cli] : null; };
-      const firstFam = list.length ? famOf(list[0]) : null;
-      const why = function (n) {
-        if (list.indexOf(n) >= 0) return 'already in this route';
-        if (famOf(n) === WRITER_FAMILY[w]) return 'same family as the writer';
-        if (list.length === 1 && famOf(n) === firstFam) return 'same family as the reviewer';
-        return '';
-      };
-      const addOptions = [{ value: '', label: !rt ? 'Add a reviewer to create the route' : (list.length ? 'Add the fallback' : 'Add the reviewer'), disabled: false }].concat(names.map(function (n) { const r = why(n); return { value: n, label: r ? n + ' (' + r + ')' : n, disabled: !!r }; }));
+      const why = function (n) { return famOf(n) === WRITER_FAMILY[w] ? 'same family as the writer' : ''; };
+      const addOptions = [{ value: '', label: !rt ? 'Add a reviewer to create the route' : 'Add the reviewer', disabled: false }].concat(names.map(function (n) { const r = why(n); return { value: n, label: r ? n + ' (' + r + ')' : n, disabled: !!r }; }));
       const hasErr = errOn('route', w);
       return {
         writer: w, caption: isWriter ? CAPTION[w] : 'Not a writer: [routes] may only name claude, codex and gemini',
         notWriter: !isWriter, cls: hasErr ? 'has-err' : '',
         hasChips: !!rt && list.length > 0, chips: chips,
         absent: isWriter && !rt, emptyList: !!rt && list.length === 0,
-        hasErr: hasErr, canAdd: isWriter && names.length > 0 && list.length < 2, addOptions: addOptions,
+        hasErr: hasErr, canAdd: isWriter && names.length > 0 && list.length === 0, addOptions: addOptions,
         onAdd: function (ev) { self.addTo(w, ev.target.value); },
         removeKey: function () { self.mut(function (mm) { mm.routes = mm.routes.filter(function (x) { return x.writer !== w; }); }); }
       };

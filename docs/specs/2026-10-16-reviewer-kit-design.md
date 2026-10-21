@@ -34,6 +34,10 @@ Each round prints a JSON summary and, with `--record`, appends a `## Round N` se
 
 Owner decision: "the reviewers fallback, it should only be a different family reviewer + 1 fallback". A route names one reviewer and at most one fallback, and neither may be of the writer's family (codex is OpenAI, agy Google, claude Anthropic); the pin refuses anything else. The routes became Claude to Astra then Gemini 4, Codex to Gemini 4 then Sonnet 5.5, and Gemini to Astra then Sonnet 5.5. The routing table above is the original decision. The same day a reviewer whose sandbox could not read the repository returned a non-review, so the prompt gained `OVERALL: blocked`, which the dispatcher fails over.
 
+## Amended 2026-10-21
+
+Owner decision: "The reviewers do not need a fallback. It creates more issues than its useful." A route names exactly one reviewer, never of the writer's family; when it is not installed, fails, times out, returns nothing or replies `OVERALL: blocked` there is no review (exit 1), and no other reviewer runs. The shipped pin drops the Gemini reviewer: Claude and Gemini work go to Astra, Codex work to Sonnet 5.5. The summary's `failover` key stays and holds at most one entry. The Failover section above and the 2026-10-20 amendment are superseded (`design/decisions.md`, One reviewer per route, 2026-10-21).
+
 ## Reversal cost
 
 Low: additive kit; the routing is data in the pin.
