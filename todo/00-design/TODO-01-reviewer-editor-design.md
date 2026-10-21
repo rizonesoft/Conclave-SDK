@@ -354,6 +354,8 @@ Review round 3 of `§8` (`docs/reviews/00-design/D00-T01-s8.md`, the last round 
 
 **Corrected 2026-10-21 (while building):** the inventory leaves out the mockup's narration of what VS Code does for an Open or Reveal action (`Opens {file}.`): the extension shows no such message, and the SPEC names what each action opens in prose. A row tooltip that repeats the row's own description, or is the full path of its label, is that data shown again and is not listed. The check covers the whole SPEC, where the dispatcher's messages live (§4).
 
+**Corrected 2026-10-21 (review round 1):** the script is a coverage aid, not a completeness proof: it reads pane titles, descriptions and their tooltips, action labels, first-shown row tooltips and messages, not row labels and descriptions (mostly example data) or rows in collapsed groups, and a template matches any text with the same fixed parts. String-for-string parity with the mockup belongs to `D02 T01 §11`, whose fixtures are the mockup's own view model compared with what the extension renders; the section's goal, the strings the round 3 review of `§8` named plus those the script finds, stands.
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no

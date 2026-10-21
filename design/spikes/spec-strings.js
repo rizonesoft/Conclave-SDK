@@ -1,9 +1,16 @@
 // SPEC string inventory for the feature panes (D00 T01 §10): renders the mockup's `sections` side bar for every
-// scenario, workspace and theme, calls every pane and row action, and lists every distinct pane title, description and
+// scenario, workspace and theme, calls every pane action and the actions of the rows first shown, and lists every
+// distinct pane title, description and
 // tooltip, action label, row tooltip, action label and message (the toast an action shows). With --spec it checks each
 // against design/SPEC.md: a string is covered when a backticked span there matches it verbatim, or as a template whose
 // {placeholders} stand for any text and which has at least one fixed character. A row tooltip that repeats the row's own
 // description, or is the full path of its label, is that data shown again and not listed. Exits 1 on a missing string.
+//
+// What it is not: a proof that every string is specified. It reads pane titles, descriptions and their tooltips, action
+// labels, the tooltips of the rows first shown, and messages; it does not read row labels and descriptions, which are
+// mostly the example data, or rows inside collapsed groups, and a template matches any text with the same fixed parts.
+// String-for-string parity with the mockup is the parity fixtures' job (D02 T01 §11), exported from the mockup's own
+// view model and compared with what the extension renders.
 // Usage: node design/spikes/spec-strings.js design/mockup/project/Main.dc.html [--spec design/SPEC.md]
 'use strict';
 const fs = require('fs');
