@@ -42,7 +42,7 @@ title: "TODO-02 -- Read-only Kit View and Agent Import"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Kit stamp written by forge on every install | -- | [x] |
-| 2 | §2 | Bundled SDK digest and drift test | §1 | [ ] |
+| 2 | §2 | Bundled SDK digest and drift test | §1 | [x] |
 | 3 | §3 | Kit state for newer and older kit stamps | §1, D02 T01 §10 | [ ] |
 | 4 | §4 | New repository setup removed from the extension | -- | [x] |
 | 5 | §5 | Conclave view with the read-only Kits tree | §3, D03 T01 §1, D00 T01 §8 | [ ] |
@@ -99,9 +99,12 @@ The extension must change when the kits change (plan R39). `extensions/vscode/sd
 - [x] Write `extensions/vscode/scripts/record-sdk-digest.py` (standard library): run `python forge.py digest` from the SDK root and write `{"version": <package.json version>, "kits": ...}` to `extensions/vscode/sdk-digest.json` atomically, refusing when the kits digest changed and the version in `package.json` is the one already recorded. Done when: running it twice changes nothing, and after a kit edit it refuses until the version is raised. Cheaper substitute: editing the file by hand.
 - [x] Write `tests/test_sdk_digest.py`: the recorded kit digests equal `forge.py digest`'s, and the recorded version equals `extensions/vscode/package.json`'s. Done when: editing one template file fails it with the kit's name, and so does raising the version without re-recording. Cheaper substitute: checking only that the file exists.
 - [x] Record the first `sdk-digest.json` and describe the rule in `AGENTS.md` beside the SDK's own copy rule: a kit change ships with a new extension version and a re-recorded digest. Done when: `python -m unittest discover -s tests` passes. Cheaper substitute: no written rule.
-- [ ] Commit: `extension: bundled SDK digest recorded with each version`
+- [x] Commit: `extension: bundled SDK digest recorded with each version`
 
 **Test checkpoint:** `python -m unittest tests.test_sdk_digest` passes, and fails after any change under `kits/*/templates/` until `record-sdk-digest.py` runs with a raised version.
+
+> **Verified:** 2026-10-21 | §2 | 5f0efae3b9faa6c2019975926162f6d9ba2b72d2
+> **Review:** `docs/reviews/d05-t02-s2.json`
 
 ## 3. Kit state for newer and older kit stamps
 

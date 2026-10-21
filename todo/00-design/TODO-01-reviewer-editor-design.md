@@ -50,7 +50,7 @@ title: "TODO-01 -- Reviewer Editor Design"
 | 8 | §8 | SPEC and design spec for the read-only kit view | §7 | [x] |
 | 9 | §9 | Mockup overlays closed when their target leaves | §7 | [x] |
 | 10 | §10 | Feature-pane strings missing from the SPEC | §8 | [ ] |
-| 11 | §11 | Kit menu closed when the Kits section collapses | §9 | [ ] |
+| 11 | §11 | Kit menu closed when the Kits section collapses | §9 | [x] |
 
 ## 1. Clickable reviewer editor mockup
 
@@ -387,9 +387,12 @@ Review round 3 of `§9` (`docs/reviews/00-design/D00-T01-s9.md`, the last round 
 - [x] In `design/spikes/mockup-check.js`, require `kitsOpen` for a kit menu's target, and add collapsing and expanding the section to the round trips. Done when: it exits 1 on `97a68d7`'s mockup. Cheaper substitute: none.
 - [x] In `design/mockup/project/Main.dc.html`, treat a collapsed KITS section as no target in `dropOrphanOverlay` and in the kit menu's render guard. Done when: the check exits 0. Cheaper substitute: closing every menu on any toggle.
 - [x] Republish `design/mockup/project/` to the link in `design/README.md` and name the commit and canvas version as the current mockup source in `design/decisions.md`. Done when: the link shows the change. Cheaper substitute: an unpublished change.
-- [ ] Commit: `design: kit menu closed when the Kits section collapses`
+- [x] Commit: `design: kit menu closed when the Kits section collapses`
 
 **Test checkpoint:** `node design/spikes/mockup-check.js design/mockup/project/Main.dc.html --handlers` exits 0, and exits 1 on `97a68d7`'s mockup.
+
+> **Verified:** 2026-10-21 | §11 | 8d00e9cce8c59eae776319f8ad6c03bc8dff06cc
+> **Review:** `docs/reviews/d00-t01-s11.json`
 
 ## Verification
 

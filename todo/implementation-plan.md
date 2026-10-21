@@ -22,7 +22,7 @@ Sections: 20 | Checklist items: 152
 | [x]    | D00 T01 §8  | SPEC and design spec for the read-only kit view | none  | 4     |
 | [x]    | D00 T01 §9  | Mockup overlays closed when their target leaves | none  | 4     |
 | [ ]    | D00 T01 §10 | Feature-pane strings missing from the SPEC      | none  | 3     |
-| [ ]    | D00 T01 §11 | Kit menu closed when the Kits section collapses | none  | 4     |
+| [x]    | D00 T01 §11 | Kit menu closed when the Kits section collapses | none  | 4     |
 | [x]    | D01 T01 §1  | Strict schema_version type in load_pin          | none  | 7     |
 | [x]    | D01 T01 §2  | Dispatcher check-pin flag                       | none  | 12    |
 | [x]    | D01 T01 §3  | Check-pin contract fixtures and test            | none  | 7     |
@@ -66,7 +66,7 @@ Sections: 32 | Checklist items: 199
 | [x]    | D05 T01 §4  | New repository setup through forge init                  | none  | 7     |
 | [ ]    | D05 T01 §10 | Protected-file proof refuses special files               | none  | 3     |
 | [x]    | D05 T02 §1  | Kit stamp written by forge on every install              | none  | 6     |
-| [ ]    | D05 T02 §2  | Bundled SDK digest and drift test                        | none  | 4     |
+| [x]    | D05 T02 §2  | Bundled SDK digest and drift test                        | none  | 4     |
 | [ ]    | D05 T02 §3  | Kit state for newer and older kit stamps                 | none  | 4     |
 | [x]    | D05 T02 §4  | New repository setup removed from the extension          | none  | 5     |
 | [ ]    | D05 T02 §7  | The adopt-conclave skill in the base kit                 | none  | 6     |
@@ -116,6 +116,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 41/82 verified sections, 7 ready to run now.
+Progress: 43/82 verified sections, 5 ready to run now.
 
-Checklist: 316/591 items completed (includes Commit items).
+Checklist: 318/591 items completed (includes Commit items).
