@@ -187,7 +187,7 @@ def stamped_newer(target_root: Path, kit_name: str) -> str | None:
     return None
 
 
-def write_kit_stamp(target_root: Path, kits: list[str]) -> bool:
+def write_kit_stamp(target_root: Path, kits: list[str], digests: dict | None = None) -> bool:
     """Records kits as set up from this SDK in the folder's .conclave/kits.json, keeping the other kits' entries. Not in
     the SDK folder itself, whose stamp would name a commit it can never be part of, and never through a link."""
     target_root = Path(target_root)
@@ -201,7 +201,8 @@ def write_kit_stamp(target_root: Path, kits: list[str]) -> bool:
     entries = dict((old or {}).get("kits", {}))
     sdk = sdk_info()
     for kit in kits:
-        entries[kit] = {"digest": kit_digest(kit), "commit": sdk["commit"], "date": sdk["date"]}
+        # A digest read before the kit's files were written is passed in, so the stamp follows them at once.
+        entries[kit] = {"digest": (digests or {}).get(kit) or kit_digest(kit), "commit": sdk["commit"], "date": sdk["date"]}
     atomic_write(path, json.dumps({"schema_version": 1, "kits": dict(sorted(entries.items()))}, indent=2) + "\n")
     return True
 
@@ -370,10 +371,12 @@ def apply_kit(
     if kit_name not in available:
         raise ValueError(f"Unknown kit '{kit_name}'. Available kits: {', '.join(available)}")
     # A kit a later SDK set up is never replaced by this one (a dry run only reads, so it still answers). The SDK's
-    # commit is read before any file is written, so the stamp follows the kit's files at once and a watcher sees one
-    # burst of writes, not two.
+    # commit and the kit's digest are read before any file is written, so the stamp follows the kit's files at once and
+    # a watcher sees one burst of writes, not two.
+    digest = None
     if not dry_run:
         sdk_info()
+        digest = kit_digest(kit_name)
         newer = stamped_newer(target_root, kit_name)
         if newer:
             raise ValueError(f"Refusing to replace a newer kit: {newer}")
@@ -489,7 +492,7 @@ def apply_kit(
     # kit in the folder matches this SDK, for every agent and with scripts. Files kept from an earlier install (sync
     # without --include-scripts, sync for one agent, kit over an install) leave that install's entry.
     if not dry_run and _kit_files_current(target_root, kit_name, extra.get("host")):
-        write_kit_stamp(target_root, [kit_name])
+        write_kit_stamp(target_root, [kit_name], {kit_name: digest})
 
     return {
         "target": target_root.as_posix(),

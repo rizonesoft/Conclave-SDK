@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import * as vscode from "vscode";
-import { parseCheck, parseDigest, parseKit, parseKits, type SdkDigest } from "../core/forgeJson";
+import { parseCheck, parseDigest, parseKit, parseKits } from "../core/forgeJson";
 import { kitState, type KitState, refusalReason, type Stamp, stampOf } from "../core/kitState";
 import type { Python } from "../core/python";
 import type { ForgeSource } from "./forge";
@@ -82,8 +82,6 @@ export class KitStateService implements vscode.Disposable {
   // depends on there (its kits and forge.py itself): a local checkout can change under a cached state.
   private readonly sources = new Map<string, string>();
   private readonly sdkWatchers = new Map<string, vscode.Disposable[]>();
-  // Each SDK folder's forge.py digest, read once and dropped when its kits or forge.py change.
-  private readonly digests = new Map<string, SdkDigest>();
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
   private readonly forgotten = new vscode.EventEmitter<vscode.Uri>();
   private readonly subscriptions: vscode.Disposable[] = [];
@@ -174,9 +172,11 @@ export class KitStateService implements vscode.Disposable {
       return;
     }
     const base = vscode.Uri.file(sdkFolder);
-    const watchers = ["kits/**", "forge.py"].map((glob) => vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(base, glob)));
+    // The kits and forge.py, and the SDK's commit and date the stamps are compared with: git's HEAD and refs in a
+    // checkout (a commit that changes no kit still moves the date), SDK_COMMIT and SDK_DATE in a bundle.
+    const globs = ["kits/**", "forge.py", "SDK_COMMIT", "SDK_DATE", ".git/HEAD", ".git/refs/heads/**", ".git/packed-refs"];
+    const watchers = globs.map((glob) => vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(base, glob)));
     const seen = () => {
-      this.digests.delete(sdkFolder);
       for (const [key, sdk] of this.sources) {
         const folder = this.folders.get(key);
         if (sdk === sdkFolder && folder) {
@@ -226,19 +226,14 @@ export class KitStateService implements vscode.Disposable {
     if (kits.kind !== "ok") {
       return { ok: false, message: kits.kind === "failed" ? kits.message : "cancelled" };
     }
-    // The SDK's digest (once per SDK folder) and the folder's stamp from forge check; without either every kit's
-    // stamp is none, and the dry run's state stands.
-    let digest = this.digests.get(source.folder);
-    if (!digest) {
-      if (!alive()) {
-        return left;
-      }
-      const read = await runForge(source, python, ["digest"], parseDigest, options);
-      if (read.kind === "ok") {
-        digest = read.value;
-        this.digests.set(source.folder, digest);
-      }
+    // The SDK's digest and the folder's stamp from forge check, read with every computation (the state itself is
+    // cached per folder): a cached digest could outlive its SDK's change. Without either, every kit's stamp is none
+    // and the dry run's state stands.
+    if (!alive()) {
+      return left;
     }
+    const read = await runForge(source, python, ["digest"], parseDigest, options);
+    const digest = read.kind === "ok" ? read.value : undefined;
     if (!alive()) {
       return left;
     }

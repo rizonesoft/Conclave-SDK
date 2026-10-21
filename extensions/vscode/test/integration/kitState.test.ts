@@ -117,6 +117,11 @@ suite("kitState", () => {
     // Newer kits keep the dry run's state; only the stamp says they are another SDK's.
     assert.ok(todo?.stamp === "newer" && todo.state === "installed", JSON.stringify(todo));
     assert.equal(stampOf(await write("2000-01-01T00:00:00+00:00"), "todo")?.stamp, "older");
+    // A newer stamp on a kit whose dry run lists files to add: the state stays the dry run's (partly installed), and
+    // the stamp says the files are another SDK's, which is what the view shows.
+    rmSync(join(work, ".claude", "skills", "create-todo", "SKILL.md"));
+    const partly = stampOf(await write("2099-01-01T00:00:00+00:00"), "todo");
+    assert.ok(partly?.stamp === "newer" && partly.state === "partly", JSON.stringify(partly));
   });
 
   test("kitState: a kit operation's invalidate reads the state again", async () => {
@@ -330,6 +335,19 @@ suite("kitState", () => {
       assert.ok(events > 0, "a change in the SDK's kits did not change the state");
       const after = await service.states(folder);
       assert.ok(after.ok && after.kits.find((k) => k.kit === "reviewer")?.state === "partly", JSON.stringify(after));
+      // The SDK's date moves without any kit changing (a bundle's SDK_DATE here; a checkout's git HEAD and refs alike):
+      // the stamps are compared with it, so the state is read again.
+      await service.states(folder);
+      await new Promise((r) => setTimeout(r, 1000));
+      let dated = 0;
+      const datedListener = service.onDidChangeKitState(() => (dated += 1));
+      writeFileSync(join(local, "SDK_DATE"), "2026-10-21T02:00:00+02:00\n");
+      const since = Date.now();
+      while (dated === 0 && Date.now() - since < 10_000) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      datedListener.dispose();
+      assert.ok(dated > 0, "a change of the SDK's date did not read the state again");
     } finally {
       service.forget(folder);
       service.dispose();

@@ -1,6 +1,6 @@
 {
-  "version": "0.0.6",
-  "forge": "b7f394599c8e9c64e6b3358c61e0a906d7f1d4bcbe815ddddaa134f2bc947fb9",
+  "version": "0.0.7",
+  "forge": "07e51b8f7a8f76f17feb39e503fdc4ce67b930c01f56dad09d43be4dd3179fba",
   "kits": {
     "automations": "b8a55332267207471eab2f69347b1ab2038f46ebc645e8df6de7726347b053fb",
     "base": "8dde0d815635c88a1ef56dcb363e3f71b208d84ce7c7be41c8c9df3b08cb0964",
