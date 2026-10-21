@@ -71,7 +71,7 @@ Sections: 33 | Checklist items: 203
 | [x]    | D05 T02 §4  | New repository setup removed from the extension           | none  | 5     |
 | [ ]    | D05 T02 §7  | The adopt-conclave skill in the base kit                  | none  | 6     |
 | [x]    | D05 T02 §8  | Sync refuses to replace a kit stamped newer than its SDK  | none  | 4     |
-| [ ]    | D05 T02 §9  | Sync reads stamped kits and survives a malformed manifest | none  | 4     |
+| [x]    | D05 T02 §9  | Sync reads stamped kits and survives a malformed manifest | none  | 4     |
 
 ### Phase 2: Editor surface and Kits view
 
@@ -117,6 +117,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 44/83 verified sections, 5 ready to run now.
+Progress: 45/83 verified sections, 4 ready to run now.
 
-Checklist: 327/595 items completed (includes Commit items).
+Checklist: 328/595 items completed (includes Commit items).

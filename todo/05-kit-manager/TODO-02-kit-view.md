@@ -49,7 +49,7 @@ title: "TODO-02 -- Read-only Kit View and Agent Import"
 | 6 | §6 | Kit health detail in the Kits tree | §5 | [ ] |
 | 7 | §7 | The adopt-conclave skill in the base kit | §1 | [ ] |
 | 8 | §8 | Sync refuses to replace a kit stamped newer than its SDK | §1 | [x] |
-| 9 | §9 | Sync reads stamped kits and survives a malformed manifest | §8 | [ ] |
+| 9 | §9 | Sync reads stamped kits and survives a malformed manifest | §8 | [x] |
 
 ## 1. Kit stamp written by forge on every install
 
@@ -285,9 +285,12 @@ Review round 3 of `§8` (`docs/reviews/05-kit-manager/D05-T02-s8.md`, the last r
 - [x] In `provision`, add every kit `read_kit_stamp` names (that this SDK lists) to the kits `sync` refreshes, so a newer one is refused and reported in `refused_newer` with its manifest entry kept. Done when: a test installs the todo kit inherited for one agent from a stand-in newer SDK, then syncs with an older one: todo is in `refused_newer` and its manifest entry stays. Cheaper substitute: scanning the manifests for kit paths.
 - [x] Read a manifest whose `entries` is missing or not a list as having no entries, in the refused-entry reader. Done when: a test with `{"entries": null}` in `.agents/skills.json` syncs in `inherit` mode without an exception and writes a valid manifest. Cheaper substitute: catching every exception around the manifest.
 - [x] Raise the extension's version and re-record `extensions/vscode/sdk-digest.json` (forge.py changes). Done when: `tests/test_sdk_digest.py` passes. Cheaper substitute: none.
-- [ ] Commit: `forge: sync reads stamped kits and survives a malformed manifest`
+- [x] Commit: `forge: sync reads stamped kits and survives a malformed manifest`
 
 **Test checkpoint:** `python -m unittest tests.test_forge -k inherited_newer -k malformed_manifest` passes, and fails at the end of `§8`.
+
+> **Verified:** 2026-10-21 | §9 | c2bd36956966d124ff49148591838b90c0bc15a4
+> **Review:** `docs/reviews/d05-t02-s9.json`
 
 ## Verification
 
