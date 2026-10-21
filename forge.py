@@ -263,7 +263,7 @@ AUTOMATIONS_SCRIPTS = tuple(f"{AUTOMATIONS_DIR}/{name}" for name in ("run.py", "
 
 
 KIT_ORDER = ("base", "todo", "reviewer", "automations", "laravel", "wordpress")
-BASE_SKILLS = ("authoring-skills", "local-tool-safety")
+BASE_SKILLS = ("adopt-conclave", "authoring-skills", "local-tool-safety")
 AGENT_DIRS = (".agents", ".claude", ".codex")
 SDK_MANAGED_PREFIXES = tuple(f"{d}/{kind}/" for d in AGENT_DIRS for kind in ("skills", "rules")) + (".claude/agents/",)
 SDK_MANAGED_SCRIPT_PREFIXES = ("scripts/", "bin/") + AUTOMATIONS_SCRIPTS

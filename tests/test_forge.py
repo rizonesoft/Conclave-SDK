@@ -30,9 +30,10 @@ def provisioned_mode(posix_mode):
     return posix_mode if os.name != "nt" else 0o666
 
 
-BASE_SKILLS = ["authoring-skills", "local-tool-safety"]
+BASE_SKILLS = ["adopt-conclave", "authoring-skills", "local-tool-safety"]
 EXPECTED_SKILLS = [
     "add-todo",
+    "adopt-conclave",
     "authoring-skills",
     "create-todo",
     "groom-plan",

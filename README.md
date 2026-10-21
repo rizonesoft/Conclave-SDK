@@ -31,6 +31,8 @@ Each agent reads only its own isolated folder and entrypoint alongside the share
 
 ## Importing into a New or Existing Project (Gemini, Claude, or Codex)
 
+The usual way in is the `adopt-conclave` skill, which the base kit installs for every agent: ask your agent, for example "adopt-conclave, add the reviewer kit to R:\GitHub\Site", and it runs the commands below for you, previewing each kit with `--dry-run`, resolving conflicts with you and checking the protected files with git afterwards. The commands below are what it runs, and work the same by hand.
+
 Nothing is installed unless you ask for it: `init` always installs the `base` kit and adds only the kits you name. Run from Windows PowerShell (or pass `/mnt/r/GitHub/Conclave-SDK/forge.py` inside WSL).
 
 ### 1. New Project

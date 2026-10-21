@@ -220,6 +220,10 @@ Health needs detail, not just a badge (plan R30). This section shows a kit's `do
 
 Importing and updating kits is the agent's job (plan R41). This section adds an `adopt-conclave` skill to the base kit for Antigravity, Claude Code and Codex: it finds the SDK (the repository it runs in when that holds `forge.py`, else `CONCLAVE_SDK`, else it asks once), runs `forge.py check` and `doctor` on the target, previews each kit with `--dry-run`, resolves `merge_needed` paths and existing project files with the operator, runs `init`, `kit` or `sync`, checks the protected files (`AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, `.conclave/`, `.claude/settings.json`, `todo/`, `docs/`) with `git diff` afterwards, runs `doctor` again and reports forge's lists. It never passes `--force` unless the operator asks for that one run.
 
+> **Started:** 2026-10-21T01:30:00Z
+
+**Corrected 2026-10-21 (while building):** the SDK's own `.claude/` is still pending deletion after the incident, so the skill's Claude copy is in the kit and the SDK's `.agents/` and `.codex/` copies only; the copy test fails for `.claude/skills/adopt-conclave/SKILL.md` with the other 22 `.claude/` files until `git restore --source=HEAD -- .claude` and a `forge.py sync .` can run.
+
 **Phase:** 1
 **Needs:** none
 **Surface:** no
@@ -229,11 +233,11 @@ Importing and updating kits is the agent's job (plan R41). This section adds an 
 1. Write the skill in the three agents' template folders and the tests that list it. Done when: `tests/test_forge.py`'s skill lists name it and fail until it exists in all three.
 2. Refresh the SDK's own copy. Done when: `python -m unittest discover -s tests` passes.
 
-- [ ] Write `kits/base/templates/.claude/skills/adopt-conclave/SKILL.md`, `kits/base/templates/.agents/skills/adopt-conclave/SKILL.md` and `kits/base/templates/.codex/skills/adopt-conclave/SKILL.md` (with `agents/openai.yaml` for Codex, as the other base skills have), following `authoring-skills`' layout checklist: when to use, the steps above as a numbered workflow with each forge command, the stop conditions (a dirty protected file, `merge_needed`, an untrusted target) and the report format. Done when: the three files agree in substance and pass the layout checklist. Cheaper substitute: one agent only.
-- [ ] Say in the skill that a kit `forge.py` lists under `refused_newer` (or refuses with `kit`) was set up by a later SDK, so the agent runs that SDK for it and never forces it (from §8). Done when: the three skill files name the refusal. Cheaper substitute: none.
-- [ ] Add `adopt-conclave` to `BASE_SKILLS` in `forge.py` and the expected lists in `tests/test_forge.py`. Done when: `python -m unittest tests.test_forge` passes, and fails with the skill folder removed from one agent. Cheaper substitute: not listing it.
-- [ ] Refresh the SDK's own copy with `python forge.py sync . --include-scripts` and update `README.md` "Importing into a New or Existing Project" to lead with the skill and keep the forge commands. Done when: the test that the SDK's copy matches its kits passes and the README names the skill. Cheaper substitute: README unchanged.
-- [ ] Run the skill on a scratch folder (init with the todo kit, then the reviewer kit on the same folder) and record the report in `docs/reviews/05-kit-manager/D05-T02-s7.md`. Done when: the record shows the dry runs, forge's lists, a clean protected-file diff and the stamp from §1. Cheaper substitute: no live run.
+- [x] Write `kits/base/templates/.claude/skills/adopt-conclave/SKILL.md`, `kits/base/templates/.agents/skills/adopt-conclave/SKILL.md` and `kits/base/templates/.codex/skills/adopt-conclave/SKILL.md` (with `agents/openai.yaml` for Codex, as the other base skills have), following `authoring-skills`' layout checklist: when to use, the steps above as a numbered workflow with each forge command, the stop conditions (a dirty protected file, `merge_needed`, an untrusted target) and the report format. Done when: the three files agree in substance and pass the layout checklist. Cheaper substitute: one agent only.
+- [x] Say in the skill that a kit `forge.py` lists under `refused_newer` (or refuses with `kit`) was set up by a later SDK, so the agent runs that SDK for it and never forces it (from §8). Done when: the three skill files name the refusal. Cheaper substitute: none.
+- [x] Add `adopt-conclave` to `BASE_SKILLS` in `forge.py` and the expected lists in `tests/test_forge.py`. Done when: `python -m unittest tests.test_forge` passes, and fails with the skill folder removed from one agent. Cheaper substitute: not listing it.
+- [x] Refresh the SDK's own copy with `python forge.py sync . --include-scripts` and update `README.md` "Importing into a New or Existing Project" to lead with the skill and keep the forge commands. Done when: the test that the SDK's copy matches its kits passes and the README names the skill. Cheaper substitute: README unchanged.
+- [x] Run the skill on a scratch folder (init with the todo kit, then the reviewer kit on the same folder) and record the report in `docs/reviews/05-kit-manager/D05-T02-s7.md`. Done when: the record shows the dry runs, forge's lists, a clean protected-file diff and the stamp from §1. Cheaper substitute: no live run.
 - [ ] Commit: `kits: adopt-conclave skill imports kits through forge`
 
 **Test checkpoint:** `python -m unittest tests.test_forge` passes, and fails when `kits/base/templates/.codex/skills/adopt-conclave/SKILL.md` is removed.
