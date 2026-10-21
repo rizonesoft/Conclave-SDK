@@ -4,4 +4,4 @@ The Conclave side bar's feature sections under the Kits tree, each fed by its ki
 
 | File | Scope | Status |
 | ---- | ----- | ------ |
-| TODO-01-feature-sections.md | Section registry, SDK queries, Reviewers, Plan, site | active |
+| TODO-01-feature-sections.md | Section registry, SDK queries, Reviewers, rounds; Plan, site deferred | active |

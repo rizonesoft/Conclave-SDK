@@ -1,4 +1,0 @@
-{
-  "exit": 2,
-  "stderr": "forge.py: error: No artisan found under <TARGET> (looked at root, platform/, and first-level children).\n"
-}

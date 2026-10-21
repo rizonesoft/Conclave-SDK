@@ -8,7 +8,7 @@ title: "TODO-01 -- Feature Sections"
 
 # TODO-01 -- Feature Sections
 
-> **Goal:** The Conclave side bar holds one section per feature under the Kits tree: Reviewers, Plan, Review rounds and WordPress site. Each section shows only while its kit is in the current folder, reads its data from that kit's own script (never by parsing kit files in the extension) and has its own commands under `conclave.<feature>.*`, so a later feature is a new section and a new module, not an edit to the others.
+> **Goal:** The Conclave side bar holds one section per feature under the Kits tree: Reviewers, Plan, Review rounds and WordPress site. Each section shows only while its kit is in the current folder, reads its data from that kit's own script (never by parsing kit files in the extension) and has its own commands under `conclave.<feature>.*`, so a later feature is a new section and a new module, not an edit to the others. **Corrected 2026-10-21 (reviewer-only extension, `design/decisions.md`):** the extension keeps only Reviewers and Review rounds, in a Conclave side bar of its own with no Kits tree and no section gated on kit state; Plan (`§5`) and WordPress site (`§7`) are deferred with the kit features and wait on `D05 T02 §5` and `§6`.
 
 > **Current state:** Measured 2026-10-16 at Conclave-SDK `ff17f29`. No extension code exists. The owner chose one section per feature on 2026-10-16 and asked for room for Plan, Review rounds and WordPress site; the mockup draws all four sections (`sidebar` = `sections`). `scripts/todo-graph.py query ready|blocked|stats` prints JSON, but no query returns every section with its status or the phase names from `todo/plan.json` (only `plan --sync` renders them). `scripts/review-dispatch.py` appends rounds to `--record` files (`docs/reviews/<topic>.md` by the independent-review skill) as `## Round N: <who>` with Writer, Run, Effort and Skipped lines, and has no way to list them. `forge.py doctor <folder> wordpress` already reports `site-pin`, `site-identity` and `site-ssh`.
 
@@ -22,15 +22,15 @@ title: "TODO-01 -- Feature Sections"
 - Every `npm`, `npx` and `node` command in this file runs in `extensions/vscode/`; SDK changes go to the kit first, then `python forge.py sync . --include-scripts` refreshes the SDK's installed copy.
 - -> XREF: D00 T01 §2 -- no code before the owner approves the mockup
 - -> XREF: D02 T01 §3 -- the Reviewers section shows the dispatcher client's state
-- -> XREF: D02 T01 §10 -- the per-kit state decides which sections show
-- -> XREF: D05 T02 §5 -- the Kits view owns the container, the current folder and the container badge this file adds to
-- -> XREF: D05 T02 §6 -- the WordPress site section reuses the doctor runner
+- Was a cross-reference (removed 2026-10-21): D02 T01 §10 -- the per-kit state decides which sections show
+- -> XREF: D05 T02 §5 -- deferred 2026-10-21: the Kits view the Plan section (§5) waits on; §1 now owns the container, the current folder and the badge
+- -> XREF: D05 T02 §6 -- deferred 2026-10-21: the doctor runner the WordPress site section (§7) waits on
 - -> XREF: D02 T01 §11 -- the parity fixtures and `expectParity` every surface section here asserts
 
 ## Outcome
 
-- With the reviewer and todo kits installed, the Conclave side bar shows Kits, Reviewers, Plan and Review rounds; with the WordPress kit, also WordPress site; a folder without a kit shows no section for it.
-- The Plan section lists the ready sections and every phase with its verified count from `todo-graph.py query plan`, with the phase names `todo/plan.json` gives.
+- In a folder with a reviewer pin the Conclave side bar shows Reviewers, and Review rounds while `scripts/review-dispatch.py` exists. **Corrected 2026-10-21 (reviewer-only extension, `design/decisions.md`):** was Kits, Reviewers, Plan and Review rounds, and WordPress site with that kit.
+- Deferred 2026-10-21: the Plan section lists the ready sections and every phase with its verified count from `todo-graph.py query plan`, with the phase names `todo/plan.json` gives.
 - The Review rounds section lists every round record and round from `review-dispatch.py --list-rounds --json`, marking a round with no reviewer as not an approval.
 - Adding a section is one module registered in `extensions/vscode/src/host/sections/registry.ts`, proved by a test section registered only in the test.
 
@@ -42,18 +42,18 @@ title: "TODO-01 -- Feature Sections"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Feature section registry | D02 T01 §10, D05 T02 §5 | [ ] |
+| 1 | §1 | Feature section registry | D02 T01 §3 | [ ] |
 | 2 | §2 | Plan query in todo-graph | D00 T01 §2 | [x] |
 | 3 | §3 | Round listing in the dispatcher | D00 T01 §2 | [x] |
 | 4 | §4 | Reviewers section | §1, D02 T01 §3 | [ ] |
-| 5 | §5 | Plan section | §1, §2 | [ ] |
+| 5 | §5 | Plan section | §1, §2, D05 T02 §5 | [ ] |
 | 6 | §6 | Review rounds section | §1, §3, §8 | [ ] |
 | 7 | §7 | WordPress site section | §1, D05 T02 §6 | [ ] |
 | 8 | §8 | Round record hardening | §3 | [x] |
 
 ## 1. Feature section registry
 
-Features must be addable without editing each other (plan R33). This section adds a registry that contributes one view per feature to the `conclave` container, shows each only while its kit is in the current folder, runs no query in Restricted Mode, and adds each section's attention count to the container badge from D05 T02 §5.
+Features must be addable without editing each other (plan R33). This section contributes the `conclave` view container to the Activity Bar, holds the current folder (the only folder in a one-folder window; in a multi-root workspace the active editor's folder, which a Switch folder action changes), adds a registry that contributes one view per feature to the container, shows each only while its `when` holds for the current folder, runs no query in Restricted Mode, and puts the sections' attention counts on the container badge. **Corrected 2026-10-21 (reviewer-only extension, `design/decisions.md`):** the container, the current folder and the badge were the Kits view's (`D05 T02 §5`), and each section showed only while its kit was in the folder (`D02 T01 §10`); both are deferred or removed.
 
 **Phase:** 2
 **Needs:** none
@@ -61,18 +61,18 @@ Features must be addable without editing each other (plan R33). This section add
 
 **Build order:**
 
-1. Write `extensions/vscode/src/host/sections/registry.ts` and its `FeatureSection` interface. Done when: a section registered in a test appears and disappears with its kit.
+1. Write `extensions/vscode/src/host/sections/registry.ts` and its `FeatureSection` interface. Done when: a section registered in a test appears and disappears with its `when`.
 2. Wire the badge and trust. Done when: the badge sums the sections' counts and an untrusted window runs no query.
 
-- [ ] Define `FeatureSection` in `extensions/vscode/src/host/sections/registry.ts`: `id`, `kit`, `title`, `load(folder)` returning rows and an attention count, and `commands`. Done when: the type compiles and the four sections in this file implement it. Cheaper substitute: one tree provider with a switch per feature.
-- [ ] Contribute `views.conclave` entries `conclave.reviewers`, `conclave.plan`, `conclave.rounds` and `conclave.site` in `extensions/vscode/package.json`, after `conclave.kits`, each with `when` `conclave.kit.<kit>`. Done when: the views appear in that order. Cheaper substitute: every view always visible.
-- [ ] Set `conclave.kit.<kit>` context keys in `extensions/vscode/src/host/sections/registry.ts` from D02 T01 §10's state for D05 T02 §5's current folder (true unless the kit is not installed). Done when: installing the todo kit shows the Plan section without a reload. Cheaper substitute: checking the kit only at activation.
+- [ ] Define `FeatureSection` in `extensions/vscode/src/host/sections/registry.ts`: `id`, `title`, `when`, `load(folder)` returning rows and an attention count, and `commands`. Done when: the type compiles and the Reviewers (§4) and Review rounds (§6) sections implement it. Cheaper substitute: one tree provider with a switch per feature.
+- [ ] Contribute the `conclave` view container (icon `extensions/vscode/media/conclave.svg`) and its `views.conclave` entries `conclave.reviewers` and `conclave.rounds` in `extensions/vscode/package.json`, Review rounds with `when` `conclave.dispatcher`. Done when: the views appear in that order and Review rounds hides in a folder without `scripts/review-dispatch.py`. Cheaper substitute: every view always visible. **Corrected 2026-10-21 (reviewer-only extension, `design/decisions.md`):** also `conclave.plan` and `conclave.site`, after `conclave.kits`, each with `when` `conclave.kit.<kit>`.
+- [ ] Hold the current folder in `extensions/vscode/src/host/sections/registry.ts` with a Switch folder title action in a multi-root workspace, and set `conclave.dispatcher` for it when `scripts/review-dispatch.py` appears or goes. Done when: switching folders reloads every section, and writing the dispatcher into a folder shows Review rounds without a reload. Cheaper substitute: the first folder only. **Corrected 2026-10-21 (reviewer-only extension, `design/decisions.md`):** set `conclave.kit.<kit>` keys from `D02 T01 §10`'s kit state for `D05 T02 §5`'s current folder.
 - [ ] Skip every `load` while the workspace is untrusted and show one "Restricted Mode" row per section. Done when: an integration test in an untrusted window runs no process. Cheaper substitute: running the read-only queries anyway.
-- [ ] Add the sections' attention counts to the container badge in `extensions/vscode/src/host/kitsView.ts`, counting a problem once when the Kits health already reports it. Done when: a missing reviewer CLI makes the badge 1, not 2. Cheaper substitute: a badge per section summed blindly.
-- [ ] Write `extensions/vscode/test/integration/sections.test.ts` with a test-only section. Done when: it passes and fails when the registry hard-codes the four sections. Cheaper substitute: testing only the shipped sections.
+- [ ] Put the sum of the sections' attention counts on the container badge from `extensions/vscode/src/host/sections/registry.ts`. Done when: a missing reviewer CLI makes the badge 1. Cheaper substitute: no badge. **Corrected 2026-10-21 (reviewer-only extension, `design/decisions.md`):** the badge was set in `kitsView.ts` and counted a problem once when the Kits health already reported it.
+- [ ] Write `extensions/vscode/test/integration/sections.test.ts` with a test-only section. Done when: it passes and fails when the registry hard-codes its two sections. Cheaper substitute: testing only the shipped sections.
 - [ ] Commit: `ui: feature section registry in the Conclave side bar`
 
-**Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep sections` passes, and fails when a section shows for a folder without its kit.
+**Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep sections` passes, and fails when a section shows while its `when` is false.
 
 ## 2. Plan query in todo-graph
 
@@ -130,7 +130,7 @@ The Review rounds section must not parse the dispatcher's Markdown (plan R35, op
 
 **Corrected 2026-10-20:** review of `D00 T01 §4` found that `load_pin` accepts TOML layouts the editor cannot edit in place (inline tables, quoted keys, arrays over several lines); a valid pin in one is the read-only `pin-layout` state (`design/decisions.md`, 2026-10-20; design spec section 2), added below.
 
-The pin's state belongs in the side bar, not only in the editor tab (plan R37). This section shows the pin state from D02 T01 §3, each reviewer with its CLI status and each route, and moves Open Reviewer Settings from the Kits title bar to this section's.
+The pin's state belongs in the side bar, not only in the editor tab (plan R37). This section shows the pin state from D02 T01 §3, each reviewer with its CLI status and each route, and holds Open Reviewer Settings in this section's title bar (**Corrected 2026-10-21:** moved it from the Kits title bar, deferred with the Kits view).
 
 **Phase:** 2
 **Needs:** none
@@ -156,6 +156,8 @@ The pin's state belongs in the side bar, not only in the editor tab (plan R37). 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep reviewersSection` passes, and fails when the section reads the pin file instead of `--check-pin`.
 
 ## 5. Plan section
+
+> **Deferred 2026-10-21** (owner, `design/decisions.md`, Reviewer-only extension): the Plan section comes back with the kit features; it waits on `D05 T02 §5`, whose file is `draft`.
 
 The operator wants to see the plan's progress and what is ready next (plan R34). This section renders §2's `query plan`: a Ready now group, one group per phase with its verified count, and a row for each section that opens its TODO file at the section.
 
@@ -208,6 +210,8 @@ Past review rounds should be one click away (plan R35). This section renders §3
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep roundsSection` passes, and fails when the section reads the Markdown records itself.
 
 ## 7. WordPress site section
+
+> **Deferred 2026-10-21** (owner, `design/decisions.md`, Reviewer-only extension): the WordPress site section comes back with the kit features; it waits on `D05 T02 §6`, whose file is `draft`.
 
 A WordPress folder needs its live site's connection state in view (plan R36). This section shows the `site-pin`, `site-identity` and `site-ssh` rows of `forge.py doctor <folder> wordpress` through D05 T01 §8's runner, with the host in the description; the wordpress-connect skill, run by the agent, stays the only writer of the site pin.
 
@@ -262,5 +266,5 @@ Review round 3 of §3 (`docs/reviews/06-feature-sections/D06-T01-s3.md`, the las
 
 ## Verification
 
-- In the mockup's `sections` state and in the built extension, a folder with the reviewer, todo and WordPress kits shows the Kits tree and all four sections with the same rows, and a folder without them shows only the Kits tree.
+- In the mockup's `sections` state and in the built extension, a folder with the reviewer kit shows Reviewers and Review rounds with the same rows. **Corrected 2026-10-21 (reviewer-only extension, `design/decisions.md`):** was the Kits tree and all four sections; the mockup still draws Kits, Plan and WordPress site, deferred.
 - `python scripts/todo-graph.py validate` and `python scripts/todo-graph.py plan --check` pass.

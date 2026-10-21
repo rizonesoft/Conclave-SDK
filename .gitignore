@@ -9,7 +9,6 @@ Thumbs.db
 extensions/vscode/node_modules/
 extensions/vscode/out/
 extensions/vscode/dist/
-extensions/vscode/sdk/
 extensions/vscode/.vscode-test/
 extensions/vscode/*.vsix
 # Written by the integration tests when they change a folder-level setting

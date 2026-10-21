@@ -182,13 +182,13 @@ Reversal cost: low. Supporting a version 2 is a new text-model branch and its go
 
 ## 7. Packaging
 
-Choice: `npx @vscode/vsce package` in `extensions/vscode/` builds `conclave-<version>.vsix`, with `publisher` `rizonetech`, the name `conclave`, and the bundled SDK under `sdk/` (section 8), whose digest must match `extensions/vscode/sdk-digest.json` (`D05 T02 §2`). The owner decided on 2026-10-17 that it is not listed on the Visual Studio Marketplace: each version's `.vsix` is attached to a GitHub release of `rizonetech/Conclave-SDK` and installed from there (`design/decisions.md`, plan R22). `D04 T01 §6` recorded that decision point; a later change to it is a new dated decision.
+Choice: `npx @vscode/vsce package` in `extensions/vscode/` builds `conclave-<version>.vsix`, with `publisher` `rizonetech`, the name `conclave`, and the bundled SDK under `sdk/` (section 8), whose digest must match `extensions/vscode/sdk-digest.json` (`D05 T02 §2`). **Corrected 2026-10-21 (reviewer-only extension, `design/decisions.md`):** nothing is bundled and the digest record is removed (`D02 T01 §24`). The owner decided on 2026-10-17 that it is not listed on the Visual Studio Marketplace: each version's `.vsix` is attached to a GitHub release of `rizonetech/Conclave-SDK` and installed from there (`design/decisions.md`, plan R22). `D04 T01 §6` recorded that decision point; a later change to it is a new dated decision.
 
 Reversal cost: low. Publishing is a release step, not a code change.
 
 ## 8. Where the SDK comes from
 
-**Corrected 2026-10-20** (owner, `design/decisions.md`, Read-only kit view and agent import): the extension never installs, updates or sets up a repository, and no kit source is configured. It runs `forge.py` only to read (`kits`, `kit --dry-run`, `check`, `doctor`, `digest`), from one source per run (plan R24):
+**Deferred 2026-10-21 (reviewer-only extension, `design/decisions.md`):** the extension runs no `forge.py`, so this section waits with the kit features; `D02 T01 §24` removed the SDK source, `conclave.sdkPath`, the digest record and its drift test. **Corrected 2026-10-20** (owner, `design/decisions.md`, Read-only kit view and agent import): the extension never installs, updates or sets up a repository, and no kit source is configured. It runs `forge.py` only to read (`kits`, `kit --dry-run`, `check`, `doctor`, `digest`), from one source per run (plan R24):
 
 - Bundled (the default): `forge.py` and `kits/` copied into the `.vsix` under `sdk/` at build time, with `sdk/SDK_COMMIT` naming the commit and `sdk/SDK_DATE` its date. Labelled `bundled Conclave-SDK@<short sha>`.
 - `conclave.sdkPath`, a developer override for working on Conclave-SDK itself: a local checkout; it must hold `forge.py` and `kits/`, else the refusal `conclave.sdkPath is not a Conclave-SDK checkout.` Labelled with the path.

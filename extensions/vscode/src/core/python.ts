@@ -1,4 +1,4 @@
-// Choosing the Python that runs the workspace's dispatcher and forge.py (design spec section 5).
+// Choosing the Python that runs the workspace's dispatcher (design spec section 5).
 //
 // The setting conclave.pythonPath wins when set, and when it is set but unusable that is the answer: the operator's
 // choice is never silently replaced by a discovered Python. Otherwise "py -3" then "python" on Windows, "python3" then

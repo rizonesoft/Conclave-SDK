@@ -75,6 +75,18 @@ The owner, in the session: "The reviewers do not need a fallback. It creates mor
 
 Applied to `design/mockup/project/Main.dc.html` in the working copy; the hosted canvas is not yet republished and `design/screens/3-*.png` are not yet captured again from it.
 
+### Reviewer-only extension (2026-10-21)
+
+The owner, in the session: "We need to simplify the VS code extension more, we will add features for later; remove everything related to the kits from the extension and just keep reviewers features", then, asked what happens to the side bar: "Keep Reviewers + Review rounds". This narrows Read-only kit view and agent import (2026-10-20) without reversing its rule that the extension never writes kits.
+
+- The extension shows no kits and runs no `forge.py`. Removed from the extension: the forge runner and its parsers (`D02 T01 §9`), the per-folder kit state (`§10`, `§18`), folder work (`§19`), kit health (`D05 T01 §3`), the SDK source and `conclave.sdkPath` (`D02 T01 §7`), and the bundled SDK digest with its drift test (`D05 T02 §2`). The removal is `D02 T01 §24`.
+- Deferred until the kit features return, not dropped: the Kits view and health detail (`D05 T02 §3`, `§5`, `§6`, file status `draft`), and the Plan and WordPress site side bar sections (`D06 T01 §5`, `§7`). The mockup keeps drawing them as the design to come back to; the parity fixtures and the acceptance walk cover only the reviewer editor, Reviewers and Review rounds.
+- Kept: the reviewer editor and everything under it (Python resolution, the dispatcher client and workspace states, the pin text model, candidate checks, atomic save, Test reviewer), its entry points, and a Conclave side bar holding only Reviewers and Review rounds, with no Kits tree and no section gated on kit state (Reviewers shows the pin state; Review rounds shows while `scripts/review-dispatch.py` exists).
+- Kept in the SDK, outside the extension: `forge.py` with `digest` and the kit stamp `.conclave/kits.json` (`D05 T02 §1`, `§8`, `§9`), and the `adopt-conclave` skill (`D05 T02 §7`). The no-pin and dispatcher states still show the copyable agent request and `forge.py` command, as text; nothing in the extension runs them.
+- The extension no longer bundles `forge.py` or `kits/`, so a kit change no longer raises the extension's version.
+
+Reversing it costs restoring the removed modules, tests and forge fixtures from git at `9107f77`, re-adding `conclave.sdkPath` and the digest test, and returning `kit-view` to `active`.
+
 ## Other owner decisions
 
 - Marketplace: no (2026-10-17). The extension is not listed on the Visual Studio Marketplace: the `.vsix` bundles every kit and `rizonetech/Conclave-SDK` is internal, so each version's `.vsix` is attached to a GitHub release of that repository and organization members install it from there (plan R22, `D04 T01 §6`).

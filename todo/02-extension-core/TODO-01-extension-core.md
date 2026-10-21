@@ -8,7 +8,7 @@ title: "TODO-01 -- Extension Core"
 
 # TODO-01 -- Extension Core
 
-> **Goal:** A buildable, tested VS Code extension whose host side finds a usable Python on Windows and in WSL, runs the workspace's own `scripts/review-dispatch.py --check-pin --json` to classify the workspace, edits pin text without losing comments, validates every candidate through the dispatcher, saves atomically with a stale-disk check and a re-check, runs every `forge.py` operation through one runner from the SDK bundled in the extension, a local checkout or a pinned GitHub commit, reads each folder's kit state from forge, and runs one reviewer on a planted bug. The webview in `D03 T01` drives all of it through messages and holds no rules of its own.
+> **Goal:** A buildable, tested VS Code extension whose host side finds a usable Python on Windows and in WSL, runs the workspace's own `scripts/review-dispatch.py --check-pin --json` to classify the workspace, edits pin text without losing comments, validates every candidate through the dispatcher, saves atomically with a stale-disk check and a re-check, and runs one reviewer on a planted bug. **Corrected 2026-10-21 (reviewer-only extension, `design/decisions.md`):** it also ran every `forge.py` operation through one runner from an SDK source and read each folder's kit state from forge; `§24` removes both. The webview in `D03 T01` drives all of it through messages and holds no rules of its own.
 
 > **Current state:** Measured 2026-10-16 in Conclave-SDK. No extension code exists: `extensions/vscode/` holds only the contract fixtures from `D01 T01 §3` once that ships, with no `package.json`, `tsconfig.json`, `src/` or `test/` code. Node `v24.14.1`, npm `11.11.0` and VS Code `1.142.0` are installed on the Windows host. Python is available as `python` (3.14.4, `python --version` on 2026-10-16). The dispatcher has no `--check-pin` until `D01 T01 §2`.
 
@@ -21,16 +21,17 @@ title: "TODO-01 -- Extension Core"
 - `scripts/review-dispatch.py`: `--check-pin`, `--pin`, `--writer`, `--prompt`, exit codes 0, 1 and 2.
 - `forge.py` `kits`, `kit`, `sync`, `init`, `check` and `doctor` and their JSON (shapes in `D05 T01` Current state), re-checked at `97cca1d`.
 - Every `npm`, `npx` and `node` command in this file runs in `extensions/vscode/`.
-- -> XREF: D05 T02 §3 -- the kit state from §10 gains each folder's kit stamp
+- Was a cross-reference (deferred 2026-10-21): D05 T02 §3 -- the kit state from §10 gains each folder's kit stamp
+- -> XREF: D05 T02 §2 -- §24 removes the bundled digest and drift test §2 built
 - GitHub REST `GET /repos/{repo}/commits/{ref}` and `GET /repos/{repo}/tarball/{sha}`; `rizonetech/Conclave-SDK` is internal and has no tags (checked 2026-10-16). **Corrected 2026-10-20 (read-only kit view, `design/decisions.md`):** dropped with the GitHub source; §21 removes it.
 - -> XREF: D00 T01 §4 -- the design spec this file implements
 - -> XREF: D01 T01 §3 -- the contract and fixtures the dispatcher client depends on
 - -> XREF: D03 T01 §6 -- the webview shows the candidate validation from §5
 - -> XREF: D04 T01 §1 -- integration tests exercise every host module here
 - -> XREF: D06 T01 §4 -- the Reviewers section shows the dispatcher state from §3
-- -> XREF: D06 T01 §1 -- the kit state from §10 decides which feature sections show
+- Was a cross-reference (removed 2026-10-21): D06 T01 §1 -- the kit state from §10 decides which feature sections show
 - -> XREF: D03 T01 §1 -- every editor surface asserts parity with §11's fixtures
-- -> XREF: D05 T02 §5 -- every Kits surface asserts parity with §11's fixtures
+- Was a cross-reference (deferred 2026-10-21): D05 T02 §5 -- every Kits surface asserts parity with §11's fixtures
 - -> XREF: D00 T01 §7 -- the mockup change §11 exports from
 - -> XREF: D06 T01 §4 -- every feature section asserts parity with §11's fixtures
 
@@ -72,6 +73,7 @@ title: "TODO-01 -- Extension Core"
 | 21 | §21 | GitHub SDK source and its archive extractor removed | §7 | [x] |
 | 22 | §22 | Parity example inputs as fake runner outputs | §11 | [ ] |
 | 23 | §23 | Webview screenshot comparison with the mockup | §11, D03 T01 §1 | [ ] |
+| 24 | §24 | Kit features removed from the extension | §21 | [ ] |
 
 ## 1. Extension scaffold, build and test harness
 
@@ -696,7 +698,7 @@ The owner decided on 2026-10-20 that no kit source is configured (`design/decisi
 
 ## 22. Parity example inputs as fake runner outputs
 
-The extension must render the same example data the mockup drew, or the parity fixtures of `§11` cannot match (moved from `§11` on 2026-10-20). This section records the inputs behind each scenario (forge's dry runs and doctor checks, the kit stamps, the `--check-pin` results, `todo-graph.py query plan` and `--list-rounds` output) as fake runner outputs the surface tests feed the extension.
+The extension must render the same example data the mockup drew, or the parity fixtures of `§11` cannot match (moved from `§11` on 2026-10-20). This section records the inputs behind each scenario (the `--check-pin` results and `--list-rounds` output) as fake runner outputs the surface tests feed the extension. **Corrected 2026-10-21 (reviewer-only extension, `design/decisions.md`):** also forge's dry runs and doctor checks, the kit stamps and `todo-graph.py query plan`, deferred with the Kits view and the Plan section.
 
 **Phase:** 1
 **Needs:** none
@@ -707,8 +709,8 @@ The extension must render the same example data the mockup drew, or the parity f
 1. Derive each scenario's inputs from the mockup's own data. Done when: every input set a fixture names exists.
 2. Check them against the real tools' shapes. Done when: each parses with the extension's own parsers.
 
-- [ ] Record the example inputs the mockup uses as fake runner outputs in `extensions/vscode/test/parity/inputs/<input-set>/`, one file per command, from the mockup script's data (the orchard workspace, its kits, plan and rounds). Done when: each fixture of `§11` names the input set it was drawn from and that set exists. Cheaper substitute: stripping the example rows from the fixtures.
-- [ ] Parse every recorded input with the extension's parsers (`forgeJson.ts`, the `--check-pin` client, the plan and round parsers) in `extensions/vscode/test/parity/inputs.test.ts`. Done when: the test passes and fails when one input's shape is edited. Cheaper substitute: unchecked inputs.
+- [ ] Record the example inputs the mockup uses as fake runner outputs in `extensions/vscode/test/parity/inputs/<input-set>/`, one file per command, from the mockup script's data (the orchard workspace, its pin and rounds). Done when: each fixture of `§11` names the input set it was drawn from and that set exists. Cheaper substitute: stripping the example rows from the fixtures.
+- [ ] Parse every recorded input with the extension's parsers (the `--check-pin` client and the round parser; **Corrected 2026-10-21:** also `forgeJson.ts` and the plan parser, deferred with the kit features) in `extensions/vscode/test/parity/inputs.test.ts`. Done when: the test passes and fails when one input's shape is edited. Cheaper substitute: unchecked inputs.
 - [ ] Commit: `extension: parity example inputs`
 
 **Test checkpoint:** `cd extensions/vscode && npm test -- --test-name-pattern=parity` passes, and fails when one recorded input loses a required field.
@@ -730,6 +732,31 @@ A view model can match while the drawing does not (moved from `§11` on 2026-10-
 - [ ] Commit: `extension: webview screenshot comparison`
 
 **Test checkpoint:** `cd extensions/vscode && npm run test:integration -- --grep screens` passes, and fails when one control is moved by four pixels.
+
+## 24. Kit features removed from the extension
+
+The owner decided on 2026-10-21 that the extension keeps only the reviewer features (`design/decisions.md`, Reviewer-only extension): it shows no kits and runs no `forge.py`. This section removes what `§7`, `§9`, `§10`, `§18`, `§19`, `D05 T01 §3` and `D05 T02 §2` built in the extension, and keeps the reviewer host modules, `run.ts`'s tree kill (the Test reviewer's) and `removeTree` (`§20`, the tests' cleanup). `forge.py`, its `digest` command and the kit stamp stay in the SDK.
+
+> **Started:** 2026-10-21T14:00:00Z
+
+**Phase:** 1
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Remove the kit modules, their API, settings, tests, fixtures and scripts. Done when: nothing under `extensions/vscode/src` runs or parses `forge.py`.
+2. Remove the bundled SDK digest and its drift test from the SDK. Done when: a kit change needs no extension version.
+3. Run every gate. Done when: build, lint, unit, integration and the SDK's Python tests pass.
+
+- [x] Delete `extensions/vscode/src/core/forgeJson.ts`, `kitState.ts`, `kitHealth.ts`, `sdkSource.ts` and `extensions/vscode/src/host/forge.ts`, `kitState.ts`, `kitHealth.ts`, `sdkSource.ts`, `folderWork.ts`, and drop `sdkSource`, `runForge`, `kitStates`, `onDidChangeKitState`, `invalidateKitState`, `forgetKitState`, `kitHealth`, `onDidChangeKitHealth` and `refreshKitHealth` from `ConclaveApi` in `extensions/vscode/src/extension.ts`. Done when: `rg -i "forge|kitState|kitHealth|sdkSource" extensions/vscode/src` finds nothing. Cheaper substitute: leaving the modules unreferenced.
+- [x] Delete their tests (`test/unit/forgeJson.test.ts`, `kitState.test.ts`, `kitHealth.test.ts`, `sdkSource.test.ts`; `test/integration/forgeFixture.ts`, `forgeRunner.test.ts`, `kitState.test.ts`, `kitHealth.test.ts`, `sdkSource.test.ts`), `extensions/vscode/test/fixtures/forge/` and `extensions/vscode/scripts/record-forge-fixtures.py`. Done when: `npm test` and `npm run test:integration` pass with the reviewer tests only. Cheaper substitute: skipping the tests.
+- [x] Remove `conclave.sdkPath` from `contributes.configuration` and `restrictedConfigurations` in `extensions/vscode/package.json`, drop `forge.py` from its description, `conclave.pythonPath`'s and the trust description, and raise the version to `0.0.12` (with `package-lock.json`). Done when: the settings UI lists `conclave.pythonPath` only. Cheaper substitute: deprecating the setting.
+- [x] Delete `extensions/vscode/sdk-digest.json`, `extensions/vscode/scripts/record-sdk-digest.py` and `tests/test_sdk_digest.py`, the `sdk/` ignores in `.gitignore` and `extensions/vscode/eslint.config.mjs`, and the digest rule in `AGENTS.md`. Done when: `rg "sdk-digest|record-sdk-digest" AGENTS.md tests extensions/vscode` finds nothing. Cheaper substitute: keeping the drift test with nothing bundled.
+- [x] Say in `extensions/vscode/README.md` that the extension edits and tests the reviewer pin and does not show, install or update kits. Done when: the README names `adopt-conclave` as the way to import kits. Cheaper substitute: README unchanged.
+- [x] Commit: `extension: reviewer features only, kit features removed`
+
+**Test checkpoint:** `cd extensions/vscode && npm run build && npm run lint && npm test && npm run test:integration` passes, `python -m unittest discover -s tests` passes, and `rg -i "forge|kitState|sdkPath" extensions/vscode/src extensions/vscode/package.json` finds nothing.
 
 ## Verification
 

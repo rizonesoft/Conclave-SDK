@@ -2,11 +2,13 @@
 schema_version: 1
 id: kit-view
 domain: 05-kit-manager
-status: active
+status: draft
 title: "TODO-02 -- Read-only Kit View and Agent Import"
 ---
 
 # TODO-02 -- Read-only Kit View and Agent Import
+
+> **Deferred 2026-10-21** (owner, `design/decisions.md`, Reviewer-only extension): the extension shows no kits, so this file is `draft` until the kit features return. Shipped and kept in the SDK: `§1`, `§8` and `§9` (forge's kit stamp) and `§7`'s skill (`adopt-conclave`, built at `56c3046`, waiting for its review stamp). Shipped and removed by `D02 T01 §24`: `§2`'s bundled digest and drift test, with the kit state (`D02 T01 §10`) and kit health (`D05 T01 §3`) the view read. Waiting: `§3`, `§5` and `§6`, which then need the kit state, kit health and an SDK source restored first. `§4` stays as shipped.
 
 > **Goal:** The extension shows, for the current folder, which Conclave-SDK kits are installed, partly installed or not installed and how healthy they are, read from forge against the SDK bundled in the extension, and says when a folder was set up with newer or older kits than it knows. It never installs, updates or sets up a repository: an `adopt-conclave` skill in the base kit does that through `forge.py` with the operator. A digest recorded with each extension version, and a stamp forge writes into each project, keep the two in step. Supersedes `TODO-01-kit-manager.md` (owner, 2026-10-20, `design/decisions.md`, Read-only kit view and agent import).
 
@@ -20,10 +22,10 @@ title: "TODO-02 -- Read-only Kit View and Agent Import"
 - `design/SPEC.md` §9 (corrected by `D00 T01 §8`): the read-only Kits view and health.
 - Every `npm`, `npx` and `node` command in this file runs in `extensions/vscode/`; the SDK's Python stays standard library only.
 - -> XREF: D00 T01 §7 -- the mockup and decision this file builds
-- -> XREF: D02 T01 §10 -- the per-kit state §3 extends and §5 shows
+- Was a cross-reference (removed 2026-10-21): D02 T01 §10 -- the per-kit state §3 extends and §5 shows
 - -> XREF: D02 T01 §21 -- the GitHub source removal that leaves the bundled SDK as the source §2 and §3 compare with
 - -> XREF: D03 T01 §10 -- the no-pin and dispatcher states show §7's agent request
-- -> XREF: D04 T01 §4 -- the bundle step packages the SDK whose digest §2 records
+- Was a cross-reference (removed 2026-10-21): D04 T01 §4 -- the bundle step packages the SDK whose digest §2 records
 - -> XREF: D06 T01 §1 -- the feature sections share §5's container, current folder and badge
 
 ## Outcome

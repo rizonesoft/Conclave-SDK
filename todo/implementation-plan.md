@@ -35,7 +35,7 @@ Sections: 20 | Checklist items: 152
 
 ### Phase 1: Extension host and kit operations
 
-Sections: 33 | Checklist items: 203
+Sections: 34 | Checklist items: 209
 
 | Status | Reference   | Deliverable                                               | Needs | Items |
 | ------ | ----------- | --------------------------------------------------------- | ----- | ----- |
@@ -59,6 +59,7 @@ Sections: 33 | Checklist items: 203
 | [x]    | D02 T01 §20 | Recursive deletes that never follow a link                | none  | 5     |
 | [x]    | D02 T01 §21 | GitHub SDK source and its archive extractor removed       | none  | 4     |
 | [ ]    | D02 T01 §22 | Parity example inputs as fake runner outputs              | none  | 3     |
+| [ ]    | D02 T01 §24 | Kit features removed from the extension                   | none  | 6     |
 | [ ]    | D05 T01 §1  | Kit install with dry-run preview                          | none  | 9     |
 | [ ]    | D05 T01 §2  | Kit update through forge sync                             | none  | 8     |
 | [x]    | D05 T01 §3  | Kit health from forge check and doctor                    | none  | 6     |
@@ -117,6 +118,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 45/83 verified sections, 4 ready to run now.
+Progress: 45/84 verified sections, 4 ready to run now.
 
-Checklist: 328/593 items completed (includes Commit items).
+Checklist: 338/599 items completed (includes Commit items).

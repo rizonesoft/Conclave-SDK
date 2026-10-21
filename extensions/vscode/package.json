@@ -1,8 +1,8 @@
 {
   "name": "conclave",
   "displayName": "Conclave",
-  "description": "Manage Conclave-SDK kits and edit the reviewer pin of the current repository.",
-  "version": "0.0.11",
+  "description": "Edit and test the reviewer pin of the current Conclave repository.",
+  "version": "0.0.12",
   "publisher": "rizonetech",
   "private": true,
   "license": "UNLICENSED",
@@ -24,10 +24,9 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "In Restricted Mode Conclave runs no process: no dispatcher, no Python and no forge.py until the workspace is trusted.",
+      "description": "In Restricted Mode Conclave runs no process: no dispatcher and no Python until the workspace is trusted.",
       "restrictedConfigurations": [
-        "conclave.pythonPath",
-        "conclave.sdkPath"
+        "conclave.pythonPath"
       ]
     }
   },
@@ -49,13 +48,7 @@
           "type": "string",
           "default": "",
           "scope": "machine-overridable",
-          "markdownDescription": "Python 3.11 or later that runs the workspace's `scripts/review-dispatch.py` and `forge.py`. Empty: `py -3` then `python` on Windows, `python3` then `python` elsewhere, found on `PATH` only. A set but unusable path is an error; discovery is not tried in its place."
-        },
-        "conclave.sdkPath": {
-          "type": "string",
-          "default": "",
-          "scope": "machine-overridable",
-          "markdownDescription": "For working on Conclave-SDK itself: a local checkout (holding `forge.py` and `kits/`) to read kits from instead of the SDK bundled in the extension. Leave it empty otherwise. A set path that is not a checkout is an error, not a fall-back."
+          "markdownDescription": "Python 3.11 or later that runs the workspace's `scripts/review-dispatch.py`. Empty: `py -3` then `python` on Windows, `python3` then `python` elsewhere, found on `PATH` only. A set but unusable path is an error; discovery is not tried in its place."
         }
       }
     }

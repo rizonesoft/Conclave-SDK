@@ -4,7 +4,7 @@ id: ship-extension
 domain: 04-ship
 status: active
 title: "TODO-01 -- Ship Extension"
-depends_on: ["reviewer-editor-ui", "kit-manager"]
+depends_on: ["reviewer-editor-ui", "feature-sections"]
 ---
 
 # TODO-01 -- Ship Extension
@@ -21,8 +21,8 @@ depends_on: ["reviewer-editor-ui", "kit-manager"]
 - `design/SPEC.md`: the acceptance walk.
 - -> XREF: D02 T01 §8 -- the Test reviewer run is part of the acceptance walk
 - -> XREF: D03 T01 §10 -- the empty and failure states are part of the acceptance walk
-- -> XREF: D05 T02 §5 -- the read-only Kits view and the agent import are part of the acceptance walk
-- Every `npm`, `npx` and `node` command in this file runs in `extensions/vscode/`; the file depends on the whole of `reviewer-editor-ui` and `kit-manager` (frontmatter).
+- Was a cross-reference (deferred 2026-10-21): D05 T02 §5 -- the read-only Kits view and the agent import are part of the acceptance walk
+- Every `npm`, `npx` and `node` command in this file runs in `extensions/vscode/`; the file depends on the whole of `reviewer-editor-ui` and `feature-sections` (frontmatter; **corrected 2026-10-21 (reviewer-only extension, `design/decisions.md`):** was `kit-manager`).
 
 ## Outcome
 
@@ -66,7 +66,7 @@ Unit and integration tests use fixtures and fake CLIs. This section walks the re
 - [ ] Run Test reviewer on astra and sonnet, the shipped pin's reviewers, with the real CLIs and record each outcome (**Corrected 2026-10-21:** the shipped pin no longer defines gemini). Done when: each returns a review naming the planted bug or a recorded skipped reason. Cheaper substitute: fake CLIs.
 - [ ] Reach every empty and failure state with real causes (rename the pin, an old dispatcher copy, a bad `conclave.pythonPath`, Restricted Mode) and record each. Done when: all seven states are recorded. Cheaper substitute: fixture workspaces only.
 - [ ] With `conclave.sdkPath` empty, import the reviewer kit into an empty scratch workspace with the `adopt-conclave` skill and an old dispatcher copy, and record that the editor opens on its own and that an old dispatcher shows its copyable request. Done when: both are recorded with the bundled SHA shown and the pin hash before and after. Cheaper substitute: the local checkout only. (**Corrected 2026-10-20, read-only kit view, `design/decisions.md`:** installed from GitHub and updated through the extension's update flow, both dropped.)
-- [ ] Walk the Kits view on a scratch folder after importing `todo`, then `wordpress` with host `wpcom`, with the `adopt-conclave` skill: each kit's state and health, and a folder whose kit stamp is newer and one whose stamp is older than the extension's. Done when: every state is recorded with forge's lists. Cheaper substitute: one kit. (**Corrected 2026-10-20, read-only kit view, `design/decisions.md`:** installed, updated and set up a repository from the extension.)
+- [x] ~~Walk the Kits view on a scratch folder after importing `todo`, then `wordpress` with host `wpcom`, with the `adopt-conclave` skill: each kit's state and health, and a folder whose kit stamp is newer and one whose stamp is older than the extension's.~~ Struck 2026-10-21 (reviewer-only extension, `design/decisions.md`): the Kits view is deferred with `D05 T02`. Done when: `todo/05-kit-manager/TODO-02-kit-view.md` is `draft`. Cheaper substitute: none. (**Corrected 2026-10-20, read-only kit view, `design/decisions.md`:** installed, updated and set up a repository from the extension.)
 - [ ] Open the editor from each entry point (Command Palette, Explorer context menu, editor title button, status bar) and record the status bar text in the ready, refused and no-pin states. Done when: all four are recorded. Cheaper substitute: the command only.
 - [ ] Fix each defect found in its owning file with a regression test that fails before the fix, and cite the commit in the acceptance record. Done when: no open defect remains in the record. Cheaper substitute: a workaround in the webview.
 - [ ] Commit: `docs: Windows acceptance of the reviewer editor`
@@ -91,7 +91,7 @@ In a Remote WSL window the extension runs in the WSL extension host (`extensionK
 - [ ] Repeat the walk on a copy under `~/` inside WSL. Done when: the record covers both path forms. Cheaper substitute: one path form.
 - [ ] Save on both workspaces and confirm the atomic rename and line endings with `file .conclave/reviewers.toml` and `git diff --no-index`. Done when: line endings match the original and no temp file remains. Cheaper substitute: not checking line endings.
 - [ ] Run Test reviewer with the WSL CLIs, recording a not-installed CLI as its skipped reason. Done when: each reviewer's outcome is recorded. Cheaper substitute: skipping the test action.
-- [ ] Install the kit from GitHub in the Remote WSL window, confirming the sign-in carries over and the download lands in the Linux-side global storage. Done when: the record shows the SHA and the Linux cache path. Cheaper substitute: the Windows install only.
+- [x] ~~Install the kit from GitHub in the Remote WSL window, confirming the sign-in carries over and the download lands in the Linux-side global storage.~~ Struck 2026-10-21 (reviewer-only extension, `design/decisions.md`): the GitHub source was removed by `D02 T01 §21` and the extension installs no kit. Done when: `rg sdkRef extensions/vscode/package.json` finds nothing. Cheaper substitute: none.
 - [ ] Fix each defect in its owning file with a regression test, citing the commit in the record. Done when: no open defect remains. Cheaper substitute: a WSL-only branch in the webview.
 - [ ] Commit: `docs: Remote WSL acceptance of the reviewer editor`
 
@@ -110,7 +110,7 @@ The extension needs its own README (also the marketplace page), and the SDK's `R
 1. Write `extensions/vscode/README.md` and `extensions/vscode/CHANGELOG.md`. Done when: every setting, entry point, kit operation and empty state is described.
 2. Update the SDK's `README.md` and `AGENTS.md`. Done when: both name `extensions/vscode/` and its commands.
 
-- [ ] Write `extensions/vscode/README.md` with an answer-first opening, requirements (VS Code, Python 3.11 or later), install from `.vsix`, every setting (`pythonPath`, and `sdkPath` as a developer override), the entry points, the read-only Kits view and the `adopt-conclave` import (**Corrected 2026-10-20, read-only kit view, `design/decisions.md`:** listed `sdkRepository`, `sdkRef` and each kit operation), each empty state's meaning and a screenshot from `design/screens/`. Done when: every setting in `extensions/vscode/package.json` `contributes.configuration` is described. Cheaper substitute: a one-line README.
+- [ ] Write `extensions/vscode/README.md` with an answer-first opening, requirements (VS Code, Python 3.11 or later), install from `.vsix`, every setting (`pythonPath`), the entry points, the Reviewers and Review rounds sections, that kits are imported with the `adopt-conclave` skill and not by the extension (**Corrected 2026-10-21 (reviewer-only extension, `design/decisions.md`):** also `sdkPath` and the read-only Kits view; **Corrected 2026-10-20, read-only kit view, `design/decisions.md`:** listed `sdkRepository`, `sdkRef` and each kit operation), each empty state's meaning and a screenshot from `design/screens/`. Done when: every setting in `extensions/vscode/package.json` `contributes.configuration` is described. Cheaper substitute: a one-line README.
 - [ ] Add `extensions/vscode/CHANGELOG.md` with the first version's entry. Done when: `vsce package` reads it without warning. Cheaper substitute: no changelog.
 - [ ] Add `extensions/vscode/` to the layout table in the SDK `README.md` and an "Editor extension" section with the build and test commands. Done when: the table row is at or under 100 characters and the commands run as written. Cheaper substitute: a link only.
 - [ ] Add an `extensions/vscode/` paragraph to the SDK `AGENTS.md` (Node toolchain only there, `npm` commands run there, Python stays standard library only). Done when: the paragraph names the test commands. Cheaper substitute: no rule.
@@ -132,9 +132,9 @@ The extension ships as a `.vsix` (plan R22). This section adds `npm run package`
 1. Add `npm run package`. Done when: it writes `conclave-<version>.vsix`.
 2. Install and open it in a clean profile. Done when: the panel opens in state `ready` from the installed build.
 
-- [ ] Add `npm run bundle-sdk` (`extensions/vscode/scripts/bundle-sdk.mjs`) copying `forge.py` and `kits/` from the SDK root into `extensions/vscode/sdk/` and writing `sdk/SDK_COMMIT` from `git rev-parse HEAD`, refusing when `git status --porcelain -- forge.py kits` is not empty, and run it first in `npm run package`. Done when: `sdk/SDK_COMMIT` equals `HEAD` and a dirty kit file makes the bundle refuse. Cheaper substitute: bundling an uncommitted kits tree. The bundle also writes `sdk/SDK_DATE` (the commit's date) and refuses when `extensions/vscode/sdk-digest.json` (`D05 T02 §2`) does not match the kits being bundled (**Corrected 2026-10-20, read-only kit view, `design/decisions.md`:** added for the kit stamp and digest).
+- [x] ~~Add `npm run bundle-sdk` (`extensions/vscode/scripts/bundle-sdk.mjs`) copying `forge.py` and `kits/` into `extensions/vscode/sdk/` with `sdk/SDK_COMMIT` and `sdk/SDK_DATE`, checked against `extensions/vscode/sdk-digest.json`.~~ Struck 2026-10-21 (reviewer-only extension, `design/decisions.md`): the extension runs no `forge.py` and bundles no SDK; `D02 T01 §24` removed the digest record. Done when: `extensions/vscode/sdk-digest.json` does not exist. Cheaper substitute: none.
 - [ ] Add `@vscode/vsce` as a dev dependency and `"package": "vsce package --no-dependencies"` in `package.json`, with `repository`, `license` and `icon` set. Done when: `npm run package` exits 0 with no warnings. Cheaper substitute: `--allow-missing-repository`.
-- [ ] List the package with `npx vsce ls` and tighten `.vscodeignore` until it holds `dist/`, `resources/`, `sdk/`, `README.md`, `CHANGELOG.md`, `LICENSE` and `package.json` only. Done when: no `src/`, `test/`, `todo/`, `docs/` or `.conclave/` path is listed. Cheaper substitute: shipping the whole repository.
+- [ ] List the package with `npx vsce ls` and tighten `.vscodeignore` until it holds `dist/`, `resources/`, `README.md`, `CHANGELOG.md`, `LICENSE` and `package.json` only. Done when: no `src/`, `test/`, `todo/`, `docs/` or `.conclave/` path is listed. Cheaper substitute: shipping the whole repository.
 - [ ] Install with `code --profile conclave-clean --install-extension conclave-<version>.vsix` and open a scratch copy of the shipped workspace. Done when: `conclave.openReviewers` shows state `ready`. Cheaper substitute: testing only in the Extension Development Host.
 - [ ] Install the same `.vsix` into the Remote WSL host and open the WSL copy. Done when: the panel shows `ready` with the Linux Python logged. Cheaper substitute: Windows only.
 - [ ] Record the package size, file list and both installs in `docs/acceptance/<date>-package.md`. Done when: the record exists. Cheaper substitute: no record.
