@@ -41,6 +41,17 @@ test("errorTarget: every refused fixture's message attaches where the SPEC says,
   }
 });
 
+test("errorTarget: an older dispatcher's route refusals still attach to the route row", () => {
+  // Messages of a workspace dispatcher from before one reviewer per route (2026-10-21).
+  for (const message of [
+    "route 'claude' must list one reviewer and at most one fallback",
+    "route 'codex' must list defined reviewers, each once",
+    "route 'claude': the fallback must be of a third family, not the reviewer's own",
+  ]) {
+    assert.deepEqual(errorTarget(message), { kind: "route", writer: message.split("'")[1], message }, message);
+  }
+});
+
 test("errorTarget: an unknown message attaches to the file with its text unchanged", () => {
   const message = "route 'claude' is something load_pin does not say yet";
   assert.deepEqual(errorTarget("a message no rule knows"), { kind: "file", message: "a message no rule knows" });

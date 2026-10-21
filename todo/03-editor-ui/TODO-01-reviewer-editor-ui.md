@@ -26,7 +26,7 @@ title: "TODO-01 -- Reviewer Editor UI"
 
 ## Outcome
 
-- Opening `conclave.openReviewers` on the shipped workspace shows the three reviewer cards, three route rows of one reviewer each (**Corrected 2026-10-20:** were rows with the self-review warnings, before `design/decisions.md`, Reviewer routes, 2026-10-20; **Corrected 2026-10-21:** were rows of a reviewer and one fallback, before One reviewer per route), a clean preview, and CLI status, in Dark Modern and Light Modern, matching `design/screens/`.
+- Opening `conclave.openReviewers` on the shipped workspace (`extensions/vscode/test/fixtures/workspaces/shipped`, which keeps one reviewer per CLI, astra, gemini and sonnet, so every card state is drawn; the kit's shipped pin has astra and sonnet only) shows the three reviewer cards, three route rows of one reviewer each (**Corrected 2026-10-20:** were rows with the self-review warnings, before `design/decisions.md`, Reviewer routes, 2026-10-20; **Corrected 2026-10-21:** were rows of a reviewer and one fallback, before One reviewer per route), a clean preview, and CLI status, in Dark Modern and Light Modern, matching `design/screens/`.
 - Every edit updates the preview and diff, shows the dispatcher's error at its field, disables Save while refused, and Save writes the file that the preview showed.
 - Each empty and failure state from `design/SPEC.md` §7 renders with its action.
 
