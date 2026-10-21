@@ -33,7 +33,7 @@ Sections: 20 | Checklist items: 152
 | [x]    | D06 T01 §3  | Round listing in the dispatcher                 | none  | 5     |
 | [x]    | D06 T01 §8  | Round record hardening                          | none  | 7     |
 
-### Phase 1: Extension host and kit operations
+### Phase 1: Extension host
 
 Sections: 34 | Checklist items: 209
 
@@ -74,7 +74,7 @@ Sections: 34 | Checklist items: 209
 | [x]    | D05 T02 §8  | Sync refuses to replace a kit stamped newer than its SDK  | none  | 4     |
 | [x]    | D05 T02 §9  | Sync reads stamped kits and survives a malformed manifest | none  | 4     |
 
-### Phase 2: Editor surface and Kits view
+### Phase 2: Editor surface and side bar
 
 Sections: 24 | Checklist items: 195
 

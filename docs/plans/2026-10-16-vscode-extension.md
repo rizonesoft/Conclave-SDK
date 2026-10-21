@@ -116,11 +116,11 @@ How the extension validates, edits, saves and re-checks the pin, runs on Windows
 | Phase | Work | TODO files |
 | --- | --- | --- |
 | 0 | Mockup, approval, SPEC, design, queries, scaffold | D00 T01, D01 T01, D02 T01 §1, D06 T01 |
-| 1 | Python, dispatcher, pin text, save, SDK source, forge runner, kit ops | D02 T01, D05 T01 |
-| 2 | Webview, entry points, Kits view, dialogs, feature sections | D03 T01, D05 T01, D06 T01 |
+| 1 | Python, dispatcher, pin text, save, Test reviewer, kit features removed | D02 T01 |
+| 2 | Webview, entry points, Reviewers and Review rounds sections | D03 T01, D06 T01 |
 | 6 | Integration tests, WSL check, `.vsix`, review rounds, docs, marketplace | D04 T01 |
 
-The phase names above are set in `todo/plan.json`, which the generated plan reads.
+The phase names above are set in `todo/plan.json`, which the generated plan reads. **Corrected 2026-10-21 (reviewer-only extension, `design/decisions.md`):** Phase 1 also held the SDK source, the forge runner and kit operations (`D05 T01`), and Phase 2 the Kits view and dialogs; the kit work is deferred with `D05 T02` (`draft`) and the Plan and WordPress site sections.
 
 ## Rules
 

@@ -138,7 +138,7 @@ The pin's state belongs in the side bar, not only in the editor tab (plan R37). 
 **Fidelity:** `design/SPEC.md` §12 Feature sections; `design/screens/12-dark.png` and `design/screens/12-light.png`.
 **Job:** Tell the operator whether reviews will run, and which reviewer is skipped, without opening the editor.
 **Treatment:** A native `TreeView`: a state row, one row per reviewer (model via CLI, warning codicon when the CLI is missing), a Routes group with one row per writer.
-**Chrome:** Title actions Open Reviewer Settings and Refresh; inline Install on the no-pin and no-dispatcher rows; inline Open on a reviewer row, opening the editor at its card.
+**Chrome:** Title actions Open Reviewer Settings and Refresh; inline Copy import request on the no-pin and no-dispatcher rows (**Corrected 2026-10-21, review round 2 of `D02 T01 §24`:** was inline Install, which opened the installer dropped on 2026-10-20); inline Open on a reviewer row, opening the editor at its card.
 
 **Build order:**
 

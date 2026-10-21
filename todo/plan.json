@@ -3,8 +3,8 @@
   "acceptance": "`docs/plans/2026-10-16-vscode-extension.md` (requirements R1 to R32) plus `design/SPEC.md` (the interface).",
   "phases": {
     "0": "Design, pin contract and scaffold",
-    "1": "Extension host and kit operations",
-    "2": "Editor surface and Kits view",
+    "1": "Extension host",
+    "2": "Editor surface and side bar",
     "6": "Acceptance and ship",
     "99": "Manual, operator only"
   }
