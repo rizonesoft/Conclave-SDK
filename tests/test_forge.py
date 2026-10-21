@@ -798,7 +798,28 @@ class ForgeKitStampTests(unittest.TestCase):
             res = forge.provision(self.target, refresh=True, mode=mode, agent="all")
             self.assertEqual([r["kit"] for r in res["refused_newer"]], ["reviewer"])
             for name, before in manifests.items():
-                self.assertEqual((self.target / ".agents" / name).read_bytes(), before, f"{mode} sync changed {name}")
+                # The same entries: the refused kit's as they were, the synced base kit's from this SDK as before.
+                entries = lambda raw: sorted(e["path"] for e in json.loads(raw)["entries"])
+                self.assertEqual(entries((self.target / ".agents" / name).read_bytes()), entries(before), f"{mode} sync changed {name}")
+
+    def test_a_refusing_sync_keeps_the_refused_kits_manifest_entries_and_adds_the_others(self):
+        forge.provision(self.target, kits=["reviewer"], mode="inherit", agent="all")
+        stamp = forge.read_kit_stamp(self.target)
+        stamp["kits"]["reviewer"] = {"digest": "later", "commit": "c" * 40, "date": "2099-01-01T00:00:00+00:00"}
+        (self.target / ".conclave" / "kits.json").write_text(json.dumps(stamp), encoding="utf-8")
+        skills = self.target / ".agents" / "skills.json"
+        manifest = json.loads(skills.read_text(encoding="utf-8"))
+        # The newer SDK's own path for the reviewer's skills, which this older SDK must not rewrite.
+        newer_path = "/newer-sdk/kits/reviewer/templates/.agents/skills"
+        manifest["entries"] = [e if "/kits/reviewer/" not in e["path"] else {"path": newer_path} for e in manifest["entries"]]
+        skills.write_text(json.dumps(manifest), encoding="utf-8")
+        res = forge.provision(self.target, refresh=True, kits=["todo"], mode="inherit", agent="all")
+        self.assertEqual([r["kit"] for r in res["refused_newer"]], ["reviewer"])
+        paths = [e["path"] for e in json.loads(skills.read_text(encoding="utf-8"))["entries"]]
+        self.assertIn(newer_path, paths, "the refused kit's entry was dropped or rewritten")
+        self.assertTrue(any("/kits/todo/" in p for p in paths), "the newly synced todo kit has no entry")
+        self.assertTrue(any("/kits/base/" in p for p in paths))
+        self.assertFalse(any("/kits/reviewer/" in p and p != newer_path for p in paths), "this SDK's reviewer path was added")
 
     def test_check_reports_the_stamp(self):
         self.assertIsNone(forge.check_repo(self.target)["kit_stamp"])

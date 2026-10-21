@@ -839,21 +839,33 @@ def provision(
     if "todo" in selected and fresh_agents and agents_md.is_file():
         atomic_write(agents_md, agents_md.read_bytes() + TODO_POINTER.encode("utf-8"))
 
-    # The manifests point at the folders of whichever SDK set each kit up, so a sync that refused a kit as newer leaves
-    # them exactly as they are rather than rewrite or remove that SDK's entries.
-    if agent in ("all", "agy") and not refused_newer:
+    # The manifests point at the folders of whichever SDK set each kit up. A kit sync refused as newer keeps its own
+    # entries exactly as they are; the kits this run applied get this SDK's entries; and with a refusal nothing is
+    # deleted, since the refused kits' entries are still in use.
+    refused = {r["kit"] for r in refused_newer}
+
+    def refused_entries(path: Path) -> list:
+        try:
+            old = json.loads(path.read_text(encoding="utf-8")).get("entries", [])
+        except (OSError, ValueError, AttributeError):
+            return []
+        return [e for e in old if isinstance(e, dict) and any(f"/kits/{k}/" in str(e.get("path", "")) for k in refused)]
+
+    if agent in ("all", "agy"):
         for stale_json in (target_root / ".agents/skills.json", target_root / ".agents/plugins.json"):
-            if mode == "isolated" and stale_json.is_file():
+            if mode == "isolated" and stale_json.is_file() and not refused:
                 stale_json.unlink()
         # The manifests reference the chosen kits' own folders, so they never expose more than was asked for.
         if mode in ("hybrid", "inherit"):
             skill_dirs = [FORGE_ROOT / "kits" / k / "templates/.agents/skills" for k in selected]
-            entries = [{"path": d.as_posix()} for d in skill_dirs if d.is_dir()]
-            write_if_allowed(target_root / ".agents/skills.json", json.dumps({"entries": entries}, indent=2) + "\n", True)
+            manifest = target_root / ".agents/skills.json"
+            entries = refused_entries(manifest) + [{"path": d.as_posix()} for d in skill_dirs if d.is_dir()]
+            write_if_allowed(manifest, json.dumps({"entries": entries}, indent=2) + "\n", True)
         if mode == "inherit":
             plugin_dirs = [FORGE_ROOT / "kits" / k / "plugins" for k in selected]
-            entries = [{"path": d.as_posix()} for d in plugin_dirs if d.is_dir()]
-            write_if_allowed(target_root / ".agents/plugins.json", json.dumps({"entries": entries}, indent=2) + "\n", True)
+            manifest = target_root / ".agents/plugins.json"
+            entries = refused_entries(manifest) + [{"path": d.as_posix()} for d in plugin_dirs if d.is_dir()]
+            write_if_allowed(manifest, json.dumps({"entries": entries}, indent=2) + "\n", True)
 
     written = [rel for r in kit_results for rel in (*r["installed"], *r["updated"])] + forced
     skipped = [rel for r in kit_results for rel in r["preserved"] if rel not in forced]
