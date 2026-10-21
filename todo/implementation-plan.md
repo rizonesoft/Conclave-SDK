@@ -35,42 +35,43 @@ Sections: 20 | Checklist items: 152
 
 ### Phase 1: Extension host and kit operations
 
-Sections: 32 | Checklist items: 199
+Sections: 33 | Checklist items: 203
 
-| Status | Reference   | Deliverable                                              | Needs | Items |
-| ------ | ----------- | -------------------------------------------------------- | ----- | ----- |
-| [x]    | D02 T01 §2  | Python resolution on Windows and WSL                     | none  | 8     |
-| [x]    | D02 T01 §3  | Dispatcher client and workspace states                   | none  | 11    |
-| [x]    | D02 T01 §4  | Comment-preserving pin text model                        | none  | 11    |
-| [x]    | D02 T01 §5  | Candidate validation through check-pin                   | none  | 8     |
-| [x]    | D02 T01 §6  | Atomic save, stale check and re-check                    | none  | 8     |
-| [x]    | D02 T01 §7  | SDK source: local checkout or GitHub commit              | none  | 12    |
-| [x]    | D02 T01 §8  | Test reviewer runner                                     | none  | 8     |
-| [x]    | D02 T01 §9  | Forge runner and summary parsing                         | none  | 8     |
-| [x]    | D02 T01 §10 | Workspace kit state from forge                           | none  | 6     |
-| [ ]    | D02 T01 §11 | Mockup parity fixtures and harness                       | none  | 5     |
-| [x]    | D02 T01 §12 | Extractor limits at tarfile's own parse                  | none  | 5     |
-| [x]    | D02 T01 §13 | Candidate folder links on Windows and shared fallbacks   | none  | 5     |
-| [x]    | D02 T01 §14 | Extractor checks each member as tarfile reads it         | none  | 6     |
-| [x]    | D02 T01 §15 | Extractor folder tracking linear in path length          | none  | 6     |
-| [x]    | D02 T01 §16 | Process tree kill that ends everything or says so        | none  | 6     |
-| [x]    | D02 T01 §17 | Tree kill: cut-short discovery and combined uncertainty  | none  | 5     |
-| [x]    | D02 T01 §18 | Kit state SDK watchers released with their last folder   | none  | 3     |
-| [x]    | D02 T01 §20 | Recursive deletes that never follow a link               | none  | 5     |
-| [x]    | D02 T01 §21 | GitHub SDK source and its archive extractor removed      | none  | 4     |
-| [ ]    | D02 T01 §22 | Parity example inputs as fake runner outputs             | none  | 3     |
-| [ ]    | D05 T01 §1  | Kit install with dry-run preview                         | none  | 9     |
-| [ ]    | D05 T01 §2  | Kit update through forge sync                            | none  | 8     |
-| [x]    | D05 T01 §3  | Kit health from forge check and doctor                   | none  | 6     |
-| [x]    | D02 T01 §19 | Folder work bound to the lifetime it was asked in        | none  | 4     |
-| [x]    | D05 T01 §4  | New repository setup through forge init                  | none  | 7     |
-| [ ]    | D05 T01 §10 | Protected-file proof refuses special files               | none  | 3     |
-| [x]    | D05 T02 §1  | Kit stamp written by forge on every install              | none  | 6     |
-| [x]    | D05 T02 §2  | Bundled SDK digest and drift test                        | none  | 4     |
-| [ ]    | D05 T02 §3  | Kit state for newer and older kit stamps                 | none  | 4     |
-| [x]    | D05 T02 §4  | New repository setup removed from the extension          | none  | 5     |
-| [ ]    | D05 T02 §7  | The adopt-conclave skill in the base kit                 | none  | 6     |
-| [ ]    | D05 T02 §8  | Sync refuses to replace a kit stamped newer than its SDK | none  | 4     |
+| Status | Reference   | Deliverable                                               | Needs | Items |
+| ------ | ----------- | --------------------------------------------------------- | ----- | ----- |
+| [x]    | D02 T01 §2  | Python resolution on Windows and WSL                      | none  | 8     |
+| [x]    | D02 T01 §3  | Dispatcher client and workspace states                    | none  | 11    |
+| [x]    | D02 T01 §4  | Comment-preserving pin text model                         | none  | 11    |
+| [x]    | D02 T01 §5  | Candidate validation through check-pin                    | none  | 8     |
+| [x]    | D02 T01 §6  | Atomic save, stale check and re-check                     | none  | 8     |
+| [x]    | D02 T01 §7  | SDK source: local checkout or GitHub commit               | none  | 12    |
+| [x]    | D02 T01 §8  | Test reviewer runner                                      | none  | 8     |
+| [x]    | D02 T01 §9  | Forge runner and summary parsing                          | none  | 8     |
+| [x]    | D02 T01 §10 | Workspace kit state from forge                            | none  | 6     |
+| [ ]    | D02 T01 §11 | Mockup parity fixtures and harness                        | none  | 5     |
+| [x]    | D02 T01 §12 | Extractor limits at tarfile's own parse                   | none  | 5     |
+| [x]    | D02 T01 §13 | Candidate folder links on Windows and shared fallbacks    | none  | 5     |
+| [x]    | D02 T01 §14 | Extractor checks each member as tarfile reads it          | none  | 6     |
+| [x]    | D02 T01 §15 | Extractor folder tracking linear in path length           | none  | 6     |
+| [x]    | D02 T01 §16 | Process tree kill that ends everything or says so         | none  | 6     |
+| [x]    | D02 T01 §17 | Tree kill: cut-short discovery and combined uncertainty   | none  | 5     |
+| [x]    | D02 T01 §18 | Kit state SDK watchers released with their last folder    | none  | 3     |
+| [x]    | D02 T01 §20 | Recursive deletes that never follow a link                | none  | 5     |
+| [x]    | D02 T01 §21 | GitHub SDK source and its archive extractor removed       | none  | 4     |
+| [ ]    | D02 T01 §22 | Parity example inputs as fake runner outputs              | none  | 3     |
+| [ ]    | D05 T01 §1  | Kit install with dry-run preview                          | none  | 9     |
+| [ ]    | D05 T01 §2  | Kit update through forge sync                             | none  | 8     |
+| [x]    | D05 T01 §3  | Kit health from forge check and doctor                    | none  | 6     |
+| [x]    | D02 T01 §19 | Folder work bound to the lifetime it was asked in         | none  | 4     |
+| [x]    | D05 T01 §4  | New repository setup through forge init                   | none  | 7     |
+| [ ]    | D05 T01 §10 | Protected-file proof refuses special files                | none  | 3     |
+| [x]    | D05 T02 §1  | Kit stamp written by forge on every install               | none  | 6     |
+| [x]    | D05 T02 §2  | Bundled SDK digest and drift test                         | none  | 4     |
+| [ ]    | D05 T02 §3  | Kit state for newer and older kit stamps                  | none  | 4     |
+| [x]    | D05 T02 §4  | New repository setup removed from the extension           | none  | 5     |
+| [ ]    | D05 T02 §7  | The adopt-conclave skill in the base kit                  | none  | 6     |
+| [x]    | D05 T02 §8  | Sync refuses to replace a kit stamped newer than its SDK  | none  | 4     |
+| [ ]    | D05 T02 §9  | Sync reads stamped kits and survives a malformed manifest | none  | 4     |
 
 ### Phase 2: Editor surface and Kits view
 
@@ -116,6 +117,6 @@ Sections: 6 | Checklist items: 43
 | [ ]    | D04 T01 §5 | Independent review rounds        | none                   | 6     |
 | [ ]    | D04 T01 §6 | Marketplace publishing decision  | none                   | 5     |
 
-Progress: 43/82 verified sections, 5 ready to run now.
+Progress: 44/83 verified sections, 5 ready to run now.
 
-Checklist: 318/591 items completed (includes Commit items).
+Checklist: 319/595 items completed (includes Commit items).

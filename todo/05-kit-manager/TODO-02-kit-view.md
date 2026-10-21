@@ -48,7 +48,8 @@ title: "TODO-02 -- Read-only Kit View and Agent Import"
 | 5 | §5 | Conclave view with the read-only Kits tree | §3, D03 T01 §1, D00 T01 §8 | [ ] |
 | 6 | §6 | Kit health detail in the Kits tree | §5 | [ ] |
 | 7 | §7 | The adopt-conclave skill in the base kit | §1 | [ ] |
-| 8 | §8 | Sync refuses to replace a kit stamped newer than its SDK | §1 | [ ] |
+| 8 | §8 | Sync refuses to replace a kit stamped newer than its SDK | §1 | [x] |
+| 9 | §9 | Sync reads stamped kits and survives a malformed manifest | §8 | [ ] |
 
 ## 1. Kit stamp written by forge on every install
 
@@ -255,9 +256,32 @@ Review round 3 of `D00 T01 §7` (`docs/reviews/00-design/D00-T01-s7.md`, the las
 - [x] In `forge.py`, before writing, compare each kit's stamp entry date with `sdk_info()["date"]`; for a newer entry, skip that kit in `sync` (reported in the result as `refused_newer`, with the reason) and refuse `kit` for it with exit 2. Done when: a test shows `sync` refreshes the older kit, leaves the newer kit's files and entry unchanged, and lists it in `refused_newer`. Cheaper substitute: a warning only.
 - [x] Treat an unknown date (no git, no `SDK_DATE`) on either side as unknown, never as older: `sync` then refuses to replace a stamped kit and says why. Done when: a test with `sdk_info()` patched to null dates refuses. Cheaper substitute: comparing commits only.
 - [x] Document the guard in `README.md` "Importing into a New or Existing Project": a newer kit means running that SDK, not this one. Done when: the README names the refusal and `refused_newer`. Cheaper substitute: no documentation. (**Corrected 2026-10-20:** also named the `adopt-conclave` skill, which does not exist until §7; §7 carries that part.)
-- [ ] Commit: `forge: sync never downgrades a kit stamped newer than its SDK`
+- [x] Commit: `forge: sync never downgrades a kit stamped newer than its SDK`
 
 **Test checkpoint:** `python -m unittest tests.test_forge -k newer` passes, and fails when the guard is removed.
+
+> **Verified:** 2026-10-21 | §8 | 800f3fb52fc29b8c83fa7d21f62b3c4a70d16aed
+> **Review:** `docs/reviews/d05-t02-s8.json`
+
+## 9. Sync reads stamped kits and survives a malformed manifest
+
+Review round 3 of `§8` (`docs/reviews/05-kit-manager/D05-T02-s8.md`, the last round its loop allowed) found two gaps in `forge.py`'s `sync`. A kit a folder holds only through an inherited manifest (`--mode inherit`, no local skill or script) is invisible to `installed_kits()`, so its newer stamp is never checked and an older SDK's `sync` drops its manifest entry without reporting it. And a manifest whose `entries` is not a list (`{"entries": null}`) makes the refused-entry reader raise `TypeError` after the kits were applied. `sync` takes every kit the folder's stamp names as one it has, so the guard sees it, and reads a malformed manifest as having no entries.
+
+**Phase:** 1
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write the failing tests in `tests/test_forge.py`. Done when: both fail at the end of `§8`.
+2. Fix `provision`. Done when: both pass with every earlier stamp and guard test.
+
+- [ ] In `provision`, add every kit `read_kit_stamp` names (that this SDK lists) to the kits `sync` refreshes, so a newer one is refused and reported in `refused_newer` with its manifest entry kept. Done when: a test installs the todo kit inherited for one agent from a stand-in newer SDK, then syncs with an older one: todo is in `refused_newer` and its manifest entry stays. Cheaper substitute: scanning the manifests for kit paths.
+- [ ] Read a manifest whose `entries` is missing or not a list as having no entries, in the refused-entry reader. Done when: a test with `{"entries": null}` in `.agents/skills.json` syncs in `inherit` mode without an exception and writes a valid manifest. Cheaper substitute: catching every exception around the manifest.
+- [ ] Raise the extension's version and re-record `extensions/vscode/sdk-digest.json` (forge.py changes). Done when: `tests/test_sdk_digest.py` passes. Cheaper substitute: none.
+- [ ] Commit: `forge: sync reads stamped kits and survives a malformed manifest`
+
+**Test checkpoint:** `python -m unittest tests.test_forge -k inherited_newer -k malformed_manifest` passes, and fails at the end of `§8`.
 
 ## Verification
 

@@ -1,0 +1,26 @@
+{
+  "ref": "D05 T02 \u00a78",
+  "title": "Sync refuses to replace a kit stamped newer than its SDK",
+  "implementation_sha": "800f3fb52fc29b8c83fa7d21f62b3c4a70d16aed",
+  "date": "2026-10-21",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/05-kit-manager/D05-T02-s8.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/05-kit-manager/D05-T02-s8.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/05-kit-manager/D05-T02-s8.md",
+      "verdict": "stopped-at-3"
+    }
+  ],
+  "checks": [
+    "python -m unittest tests.test_forge -k newer -k unknown_date -k time_zone -k manifests -k refusing_sync -> OK (Windows and WSL)"
+  ]
+}
