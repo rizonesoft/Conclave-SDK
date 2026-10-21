@@ -7,7 +7,7 @@ Additive overlay that gives a project independent review by a different model: o
 | Work written by | Reviewer | Fallback |
 | --- | --- | --- |
 | Claude | GPT-6 Astra | Gemini 4 |
-| Codex | Gemini 4 | Sonnet 5.5 |
+| Codex | Sonnet 5.5 | Gemini 4 |
 | Gemini | GPT-6 Astra | Sonnet 5.5 |
 
 A reviewer is never of the writer's own model family, and a route has one fallback at most: the pin refuses anything else.
@@ -15,7 +15,7 @@ A reviewer is never of the writer's own model family, and a route has one fallba
 | Reviewer | CLI | Model | Effort |
 | --- | --- | --- | --- |
 | `astra` | `codex exec`, read-only sandbox | `gpt-6-astra` | `medium` |
-| `gemini` | `agy -p`, plan mode in its sandbox | `gemini-4-argon-high` | in the model name |
+| `gemini` | `agy -p`, plan mode in its sandbox | `gemini-4-argon-medium` | in the model name |
 | `sonnet` | `claude -p`, plan mode | `claude-sonnet-5-5` | `high` |
 
 All three were tested headless on 2026-10-16: each found a planted bug and changed no file. Change reviewers, models or routes only in `.conclave/reviewers.toml`.
