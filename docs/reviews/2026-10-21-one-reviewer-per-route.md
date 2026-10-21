@@ -39,3 +39,27 @@ The installed kit copies and omitted fixtures remain unverified. Superseded deci
 Commit messages were neither supplied nor accessible, so their claims cannot be assessed. The omitted fixture regeneration and installed-copy equality claims also remain unverified.
 
 OVERALL: needs-attention
+
+## Round 3: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-10-21T08:35:12Z
+- Effort: medium
+- Lines: 15
+- Digest: 282071ea76e27235
+
+### adversarial: approve
+
+No routing defect found in the restored pattern.
+
+### integration: needs-attention
+
+Both round 2 findings are resolved, but one stale acceptance criterion remains:
+
+1. `todo/03-editor-ui/TODO-01-reviewer-editor-ui.md:132` requires deleting `gemini` to list the claude, gemini and codex rows. In the explicitly identified fixture, only `codex` references that reviewer. Reproduce by reading `extensions/vscode/test/fixtures/workspaces/shipped/.conclave/reviewers.toml:35`: the routes select astra, gemini and sonnet respectively. Following this criterion would incorrectly identify two unaffected routes. Change the expected affected list to codex only.
+
+### consistency: approve
+
+No prohibited dashes or wrapped Markdown list items in the candidate changes.
+
+OVERALL: needs-attention
