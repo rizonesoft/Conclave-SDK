@@ -806,6 +806,18 @@ class ForgeKitStampTests(unittest.TestCase):
         self.assertEqual(forge.check_repo(self.target)["kit_stamp"], self.stamp())
 
 
+class ProcessPlanAuditTests(unittest.TestCase):
+    """process-plan's audit runs the kits' tests and the project's own: neither replaces the other (a project such as
+    Recto keeps its script tests in tests/scripts, where kits install theirs under scripts/tests)."""
+
+    def test_the_audit_runs_both_test_folders_in_every_agent_copy(self):
+        for agent in (".agents", ".claude", ".codex"):
+            text = (FORGE_ROOT / "kits/todo/templates" / agent / "skills/process-plan/SKILL.md").read_text(encoding="utf-8")
+            audit = text.split("## 1. Audit the whole plan", 1)[1].split("## ", 1)[0]
+            self.assertIn("python -m unittest discover -s scripts/tests", audit, agent)
+            self.assertIn("python -m unittest discover -s tests/scripts", audit, agent)
+
+
 class ForgeCliErrorTests(unittest.TestCase):
     """A refusal from forge's own checks is a one-line error and exit 2, never a traceback a caller must parse."""
 

@@ -2,7 +2,7 @@
   "name": "conclave",
   "displayName": "Conclave",
   "description": "Manage Conclave-SDK kits and edit the reviewer pin of the current repository.",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "publisher": "rizonetech",
   "private": true,
   "license": "UNLICENSED",

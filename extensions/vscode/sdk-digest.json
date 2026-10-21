@@ -1,12 +1,12 @@
 {
-  "version": "0.0.4",
+  "version": "0.0.5",
   "forge": "6bc712ae286f73ea6d9c3d0bab9bd9d8f627f5b602bc8dabf18f32c2aa9ee84c",
   "kits": {
     "automations": "b8a55332267207471eab2f69347b1ab2038f46ebc645e8df6de7726347b053fb",
     "base": "8dde0d815635c88a1ef56dcb363e3f71b208d84ce7c7be41c8c9df3b08cb0964",
     "laravel": "ce1f8491263332e28b7e726e34028cf57b94d34d979e60ee1d7d3c0ae283fe15",
     "reviewer": "1d92271e30d7c5743ceba5a13f484d69ddd69d8257957bcd90af6842d27b999c",
-    "todo": "e5fdf3604bcc6e9a8a38cfb5373d1b0f65ff21f8a5ae094709c397e209af2dc2",
+    "todo": "1ce1c34291c7b55edae701ba9c7618620112521011479017eddd95bfb6665dca",
     "wordpress": "524c7ec46e290767ddb55e698ae3a95da24a66a53f31d227dca2db657735e430"
   }
 }
