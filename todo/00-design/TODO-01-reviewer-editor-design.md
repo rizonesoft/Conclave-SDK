@@ -350,6 +350,10 @@ Review round 3 of `§7` (`docs/reviews/00-design/D00-T01-s7.md`, the last round 
 
 Review round 3 of `§8` (`docs/reviews/00-design/D00-T01-s8.md`, the last round its loop allowed) found strings the mockup draws that `design/SPEC.md` §12 still lacks: WORDPRESS SITE's `Open the site pin` (opens `.conclave/wordpress-site.json`) and `Refresh` (`Re-ran forge.py doctor --kit wordpress.`); the tooltips of PLAN's description (`scripts/todo-graph.py query stats`), REVIEW ROUNDS' description (`Read from the round records the dispatcher writes`) and a findings-file group (its full path); and a phase group named in `todo/plan.json` showing the name alone, not `Phase {n}: {name}`. The SPEC takes them from the mockup at its current source, and every string of §12 is checked against the mockup's feature panes by a script, so the inventory is complete rather than found one review at a time.
 
+> **Started:** 2026-10-21T00:20:00Z
+
+**Corrected 2026-10-21 (while building):** the inventory leaves out the mockup's narration of what VS Code does for an Open or Reveal action (`Opens {file}.`): the extension shows no such message, and the SPEC names what each action opens in prose. A row tooltip that repeats the row's own description, or is the full path of its label, is that data shown again and is not listed. The check covers the whole SPEC, where the dispatcher's messages live (§4).
+
 **Phase:** 0
 **Needs:** none
 **Surface:** no
@@ -359,8 +363,8 @@ Review round 3 of `§8` (`docs/reviews/00-design/D00-T01-s8.md`, the last round 
 1. Inventory the strings. Done when: a script lists every label, description, tooltip, action and message the feature panes draw.
 2. Correct the SPEC. Done when: every listed string is in §12, verbatim or as its template.
 
-- [ ] Write `design/spikes/spec-strings.js`: from `design/mockup/project/Main.dc.html`, render the `sections` side bar for every scenario, workspace and theme, call each pane's actions, and list every distinct label, description, tooltip, action label and flash message with `{value}` templates where the example data varies. Done when: it prints the list for the current mockup source. Cheaper substitute: reading the source by hand.
-- [ ] Add the strings the list shows and §12 lacks to `design/SPEC.md` §12, including the three groups above, and correct the phase label to the mockup's. Done when: each listed string appears in §12 verbatim or as its template, checked by the script's `--spec design/SPEC.md` mode, which exits 1 on a missing one. Cheaper substitute: the three named strings only.
+- [x] Write `design/spikes/spec-strings.js`: from `design/mockup/project/Main.dc.html`, render the `sections` side bar for every scenario, workspace and theme, call each pane's actions, and list every distinct label, description, tooltip, action label and flash message with `{value}` templates where the example data varies. Done when: it prints the list for the current mockup source. Cheaper substitute: reading the source by hand.
+- [x] Add the strings the list shows and §12 lacks to `design/SPEC.md` §12, including the three groups above, and correct the phase label to the mockup's. Done when: each listed string appears in §12 verbatim or as its template, checked by the script's `--spec design/SPEC.md` mode, which exits 1 on a missing one. Cheaper substitute: the three named strings only.
 - [ ] Commit: `design: SPEC holds every feature-pane string`
 
 **Test checkpoint:** `node design/spikes/spec-strings.js design/mockup/project/Main.dc.html --spec design/SPEC.md` exits 0, and exits 1 on `a3fc6c1`'s SPEC.
