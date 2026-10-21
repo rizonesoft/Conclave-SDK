@@ -821,6 +821,29 @@ class ForgeKitStampTests(unittest.TestCase):
         self.assertTrue(any("/kits/base/" in p for p in paths))
         self.assertFalse(any("/kits/reviewer/" in p and p != newer_path for p in paths), "this SDK's reviewer path was added")
 
+    def test_an_inherited_newer_kit_with_no_local_files_is_refused_and_keeps_its_entry(self):
+        forge.provision(self.target, kits=["todo"], mode="inherit", agent="agy", include_scripts=False)
+        self.assertNotIn("todo", forge.installed_kits(self.target), "the inherited kit must be invisible to installed_kits")
+        stamp = forge.read_kit_stamp(self.target)
+        stamp["kits"]["todo"] = {"digest": "later", "commit": "c" * 40, "date": "2099-01-01T00:00:00+00:00"}
+        (self.target / ".conclave" / "kits.json").write_text(json.dumps(stamp), encoding="utf-8")
+        skills = self.target / ".agents" / "skills.json"
+        todo_entries = [e for e in json.loads(skills.read_text(encoding="utf-8"))["entries"] if "/kits/todo/" in e["path"]]
+        self.assertTrue(todo_entries)
+        res = forge.provision(self.target, refresh=True, mode="inherit", agent="agy", include_scripts=False)
+        self.assertIn("todo", [r["kit"] for r in res["refused_newer"]])
+        after = json.loads(skills.read_text(encoding="utf-8"))["entries"]
+        for entry in todo_entries:
+            self.assertIn(entry, after, "the newer inherited kit's entry was dropped")
+
+    def test_a_malformed_manifest_is_read_as_no_entries(self):
+        forge.provision(self.target, kits=["todo"], mode="inherit", agent="all")
+        skills = self.target / ".agents" / "skills.json"
+        for broken in ('{"entries": null}', '{"entries": "x"}', '[]', 'not json'):
+            skills.write_text(broken, encoding="utf-8")
+            forge.provision(self.target, refresh=True, mode="inherit", agent="all")
+            self.assertIsInstance(json.loads(skills.read_text(encoding="utf-8"))["entries"], list, broken)
+
     def test_check_reports_the_stamp(self):
         self.assertIsNone(forge.check_repo(self.target)["kit_stamp"])
         forge.provision(self.target)

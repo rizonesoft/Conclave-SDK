@@ -267,6 +267,8 @@ Review round 3 of `D00 T01 §7` (`docs/reviews/00-design/D00-T01-s7.md`, the las
 
 Review round 3 of `§8` (`docs/reviews/05-kit-manager/D05-T02-s8.md`, the last round its loop allowed) found two gaps in `forge.py`'s `sync`. A kit a folder holds only through an inherited manifest (`--mode inherit`, no local skill or script) is invisible to `installed_kits()`, so its newer stamp is never checked and an older SDK's `sync` drops its manifest entry without reporting it. And a manifest whose `entries` is not a list (`{"entries": null}`) makes the refused-entry reader raise `TypeError` after the kits were applied. `sync` takes every kit the folder's stamp names as one it has, so the guard sees it, and reads a malformed manifest as having no entries.
 
+> **Started:** 2026-10-21T01:00:00Z
+
 **Phase:** 1
 **Needs:** none
 **Surface:** no
@@ -276,9 +278,9 @@ Review round 3 of `§8` (`docs/reviews/05-kit-manager/D05-T02-s8.md`, the last r
 1. Write the failing tests in `tests/test_forge.py`. Done when: both fail at the end of `§8`.
 2. Fix `provision`. Done when: both pass with every earlier stamp and guard test.
 
-- [ ] In `provision`, add every kit `read_kit_stamp` names (that this SDK lists) to the kits `sync` refreshes, so a newer one is refused and reported in `refused_newer` with its manifest entry kept. Done when: a test installs the todo kit inherited for one agent from a stand-in newer SDK, then syncs with an older one: todo is in `refused_newer` and its manifest entry stays. Cheaper substitute: scanning the manifests for kit paths.
-- [ ] Read a manifest whose `entries` is missing or not a list as having no entries, in the refused-entry reader. Done when: a test with `{"entries": null}` in `.agents/skills.json` syncs in `inherit` mode without an exception and writes a valid manifest. Cheaper substitute: catching every exception around the manifest.
-- [ ] Raise the extension's version and re-record `extensions/vscode/sdk-digest.json` (forge.py changes). Done when: `tests/test_sdk_digest.py` passes. Cheaper substitute: none.
+- [x] In `provision`, add every kit `read_kit_stamp` names (that this SDK lists) to the kits `sync` refreshes, so a newer one is refused and reported in `refused_newer` with its manifest entry kept. Done when: a test installs the todo kit inherited for one agent from a stand-in newer SDK, then syncs with an older one: todo is in `refused_newer` and its manifest entry stays. Cheaper substitute: scanning the manifests for kit paths.
+- [x] Read a manifest whose `entries` is missing or not a list as having no entries, in the refused-entry reader. Done when: a test with `{"entries": null}` in `.agents/skills.json` syncs in `inherit` mode without an exception and writes a valid manifest. Cheaper substitute: catching every exception around the manifest.
+- [x] Raise the extension's version and re-record `extensions/vscode/sdk-digest.json` (forge.py changes). Done when: `tests/test_sdk_digest.py` passes. Cheaper substitute: none.
 - [ ] Commit: `forge: sync reads stamped kits and survives a malformed manifest`
 
 **Test checkpoint:** `python -m unittest tests.test_forge -k inherited_newer -k malformed_manifest` passes, and fails at the end of `§8`.

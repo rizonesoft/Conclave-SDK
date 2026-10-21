@@ -804,7 +804,10 @@ def provision(
         raise ValueError(f"Target is the Conclave-SDK source folder itself: {target_root}")
     target_root.mkdir(parents=True, exist_ok=True)
 
-    chosen =["base", *(["todo"] if with_todo else []), *(kits or []), *(installed_kits(target_root) if refresh else [])]
+    # sync refreshes the kits the folder has: those its files show, and those its kit stamp names, which also covers a
+    # kit inherited through a manifest with no local file, so the newer-kit guard sees it.
+    stamped = [k for k in ((read_kit_stamp(target_root) or {}).get("kits") or {}) if k in list_kits()] if refresh else []
+    chosen = ["base", *(["todo"] if with_todo else []), *(kits or []), *(installed_kits(target_root) if refresh else []), *stamped]
     selected = [k for k in KIT_ORDER if k in chosen] + [k for k in dict.fromkeys(chosen) if k not in KIT_ORDER]
 
     def include(rel: str) -> bool:
@@ -848,9 +851,12 @@ def provision(
     refused = {r["kit"] for r in refused_newer}
 
     def refused_entries(path: Path) -> list:
+        # A manifest that is missing, not JSON, or whose entries are not a list has no entries to keep.
         try:
             old = json.loads(path.read_text(encoding="utf-8")).get("entries", [])
         except (OSError, ValueError, AttributeError):
+            return []
+        if not isinstance(old, list):
             return []
         return [e for e in old if isinstance(e, dict) and any(f"/kits/{k}/" in str(e.get("path", "")) for k in refused)]
 
