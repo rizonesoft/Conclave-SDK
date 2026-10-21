@@ -4,7 +4,7 @@ id: ship-extension
 domain: 04-ship
 status: active
 title: "TODO-01 -- Ship Extension"
-depends_on: ["reviewer-editor-ui", "feature-sections"]
+depends_on: ["reviewer-editor-ui"]
 ---
 
 # TODO-01 -- Ship Extension
@@ -22,7 +22,7 @@ depends_on: ["reviewer-editor-ui", "feature-sections"]
 - -> XREF: D02 T01 §8 -- the Test reviewer run is part of the acceptance walk
 - -> XREF: D03 T01 §10 -- the empty and failure states are part of the acceptance walk
 - Was a cross-reference (deferred 2026-10-21): D05 T02 §5 -- the read-only Kits view and the agent import are part of the acceptance walk
-- Every `npm`, `npx` and `node` command in this file runs in `extensions/vscode/`; the file depends on the whole of `reviewer-editor-ui` and `feature-sections` (frontmatter; **corrected 2026-10-21 (reviewer-only extension, `design/decisions.md`):** was `kit-manager`).
+- Every `npm`, `npx` and `node` command in this file runs in `extensions/vscode/`; the file depends on the whole of `reviewer-editor-ui` (frontmatter) and, through §1, on the kept side bar sections `D06 T01 §1`, `§4` and `§6`, not on the deferred Plan and WordPress site sections (**corrected 2026-10-21 (reviewer-only extension, `design/decisions.md`, review round 1 of `D02 T01 §24`):** was `kit-manager`).
 
 ## Outcome
 
@@ -39,7 +39,7 @@ depends_on: ["reviewer-editor-ui", "feature-sections"]
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Windows end-to-end acceptance | -- | [ ] |
+| 1 | §1 | Windows end-to-end acceptance | D06 T01 §1, D06 T01 §4, D06 T01 §6 | [ ] |
 | 2 | §2 | Remote WSL acceptance | §1 | [ ] |
 | 3 | §3 | Extension README and SDK docs | §1 | [ ] |
 | 4 | §4 | VSIX packaging and install check | §2, §3 | [ ] |
@@ -65,7 +65,7 @@ Unit and integration tests use fixtures and fake CLIs. This section walks the re
 - [ ] Edit, save and inspect the pin with `git diff --no-index` against the original. Done when: only the edited lines differ and every comment remains. Cheaper substitute: trusting the preview.
 - [ ] Run Test reviewer on astra and sonnet, the shipped pin's reviewers, with the real CLIs and record each outcome (**Corrected 2026-10-21:** the shipped pin no longer defines gemini). Done when: each returns a review naming the planted bug or a recorded skipped reason. Cheaper substitute: fake CLIs.
 - [ ] Reach every empty and failure state with real causes (rename the pin, an old dispatcher copy, a bad `conclave.pythonPath`, Restricted Mode) and record each. Done when: all seven states are recorded. Cheaper substitute: fixture workspaces only.
-- [ ] With `conclave.sdkPath` empty, import the reviewer kit into an empty scratch workspace with the `adopt-conclave` skill and an old dispatcher copy, and record that the editor opens on its own and that an old dispatcher shows its copyable request. Done when: both are recorded with the bundled SHA shown and the pin hash before and after. Cheaper substitute: the local checkout only. (**Corrected 2026-10-20, read-only kit view, `design/decisions.md`:** installed from GitHub and updated through the extension's update flow, both dropped.)
+- [ ] Import the reviewer kit into an empty scratch workspace with the `adopt-conclave` skill and an old dispatcher copy, and record that the editor opens on its own and that an old dispatcher shows its copyable request. Done when: both are recorded with the pin hash before and after. Cheaper substitute: a workspace copied by hand. (**Corrected 2026-10-21 (reviewer-only extension, `design/decisions.md`, review round 1 of `D02 T01 §24`):** started with `conclave.sdkPath` empty and recorded the bundled SHA, both removed by `D02 T01 §24`.) (**Corrected 2026-10-20, read-only kit view, `design/decisions.md`:** installed from GitHub and updated through the extension's update flow, both dropped.)
 - [x] ~~Walk the Kits view on a scratch folder after importing `todo`, then `wordpress` with host `wpcom`, with the `adopt-conclave` skill: each kit's state and health, and a folder whose kit stamp is newer and one whose stamp is older than the extension's.~~ Struck 2026-10-21 (reviewer-only extension, `design/decisions.md`): the Kits view is deferred with `D05 T02`. Done when: `todo/05-kit-manager/TODO-02-kit-view.md` is `draft`. Cheaper substitute: none. (**Corrected 2026-10-20, read-only kit view, `design/decisions.md`:** installed, updated and set up a repository from the extension.)
 - [ ] Open the editor from each entry point (Command Palette, Explorer context menu, editor title button, status bar) and record the status bar text in the ready, refused and no-pin states. Done when: all four are recorded. Cheaper substitute: the command only.
 - [ ] Fix each defect found in its owning file with a regression test that fails before the fix, and cite the commit in the acceptance record. Done when: no open defect remains in the record. Cheaper substitute: a workaround in the webview.
