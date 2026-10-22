@@ -9,17 +9,15 @@ Your own review is not enough for a nontrivial change: a different model reviews
 
 | Work written by | Reviewer |
 | --- | --- |
-| Claude | GPT-6.1 Sol |
-| Codex | Sonnet 5.5 |
-| Gemini | GPT-6.1 Sol |
+| Claude (Opus 5.5) | GPT-6.1 Sol at xhigh |
 
-Each route names exactly one reviewer, never of the writer's own model family: the pin refuses anything else.
+Claude Opus writes and GPT reviews: the pin routes no other writer, so a round for Codex or Gemini work refuses (owner decision 2026-10-22, after trials of other writer and reviewer pairs). The route names exactly one reviewer, never of the writer's own model family: the pin refuses anything else.
 
 ## Steps
 
 1. Review your own change first and fix what you find.
 2. Write the review prompt to a scratch file, not the repository, from `docs/review-round-prompt.md`: name the candidate commit or range, the governing documents, and the lenses that apply.
-3. Run the round, naming yourself as the writer (`claude`, `codex` or `gemini`):
+3. Run the round as the writer `claude`, the only writer the pin routes:
 
    ```bash
    python3 scripts/review-dispatch.py --writer claude --prompt <scratch>/review-prompt.md --record docs/reviews/<topic>.md
@@ -27,7 +25,7 @@ Each route names exactly one reviewer, never of the writer's own model family: t
 
    On Windows use `python` instead of `python3`; the command is otherwise the same.
 4. Read the review. Verify every finding against the code before acting: fix what is real, and record why anything else is not.
-5. Commit fixes as new commits and run another round on the new tip, up to 3 rounds. A unit that needs patching three rounds running gets re-thought, not patched again.
+5. Commit fixes as new commits and run another round on the new tip, up to 22 rounds (a round that returns no review does not count). A unit that needs patching three rounds running gets re-thought, not patched again.
 
 ## Rules
 
