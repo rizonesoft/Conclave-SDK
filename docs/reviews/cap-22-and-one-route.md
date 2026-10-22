@@ -27,3 +27,27 @@ Finding 3 contradicts [kits/reviewer/README.md:11](R:/GitHub/Conclave-SDK/kits/r
 The historical full-suite pass claims were not independently verified. I used read-only probes; executing those suites would create test fixtures, contrary to the no-file-modification instruction.
 
 OVERALL: needs-attention
+
+## Round 2: sol (`gpt-6.1-sol` via `codex`)
+
+- Writer: claude
+- Run: 2026-10-22T11:27:00Z
+- Effort: xhigh
+- Lines: 15
+- Digest: 3194ad7d9f8b39ba
+
+### adversarial: approve
+
+### consistency: advisory
+
+`kits/reviewer/templates/.codex/skills/independent-review/SKILL.md:23` still hard-codes `--writer claude` beneath the corrected actual-writer instruction. Label this example Claude-only or use an actual-writer placeholder to remove ambiguity. The Antigravity template and installed copies have the same example.
+
+### integration: approve
+
+### source-defect: approve
+
+### record: advisory
+
+The commit’s full-suite pass, skip counts, and external-repository receipt-validation claims were not independently reproduced. Verification used read-only, in-memory probes; the suites create fixture files.
+
+OVERALL: approve

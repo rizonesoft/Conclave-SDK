@@ -20,6 +20,7 @@ Claude Opus writes and GPT reviews: the pin routes no other writer, so a round f
 3. Run the round naming the agent that wrote the change as the writer, never another: only `claude` has a route, so a round for Codex or Gemini work refuses, which is no review:
 
    ```bash
+   # Claude-written work, the only route:
    python3 scripts/review-dispatch.py --writer claude --prompt <scratch>/review-prompt.md --record docs/reviews/<topic>.md
    ```
 
