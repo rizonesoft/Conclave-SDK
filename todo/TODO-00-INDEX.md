@@ -10,8 +10,8 @@ Governing plan: [docs/plans/2026-10-16-vscode-extension.md](../docs/plans/2026-1
 | 03 | 03-editor-ui/TODO-01-reviewer-editor-ui.md | Reviewers webview surface |
 | 04 | 04-ship/TODO-01-ship-extension.md | Acceptance, vsix, review, marketplace |
 | 00 | 00-design/TODO-01-reviewer-editor-design.md | Mockup, SPEC, design spec |
-| 05 | 05-kit-manager/TODO-02-kit-view.md | Deferred (draft): Kits view, kit stamp, digest, adopt-conclave |
-| 06 | 06-feature-sections/TODO-01-feature-sections.md | Reviewers and rounds sections; Plan, site deferred |
+| 05 | 05-kit-manager/TODO-02-kit-view.md | Deferred: Kits view, kit stamp, digest, adopt-conclave |
+| 06 | 06-feature-sections/TODO-01-feature-sections.md | Reviewers, rounds; Plan, site deferred |
 
 ## Completed TODOs
 
