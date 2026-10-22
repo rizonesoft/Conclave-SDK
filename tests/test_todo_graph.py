@@ -366,12 +366,21 @@ class Stamp(Tree):
 
     def test_stamp_refuses_an_earlier_cap_on_a_new_receipt(self):
         self.tick_work()
-        for verdict in ("stopped-at-3", "stopped-low-severity", "approve"):
+        for verdict, message in (("stopped-at-3", "a new receipt's verdicts"),
+                                 ("stopped-low-severity", "a new receipt's verdicts"),
+                                 ("approve", "no valid review rounds")):
             with self.subTest(verdict=verdict):
-                with self.assertRaisesRegex(tg.Refused, "a new receipt's verdicts"):
+                with self.assertRaisesRegex(tg.Refused, message):
                     tg.stamp(self.root, "D00 T01 §1", self.sha, [dict(self.reviews[0], verdict=verdict)],
                              ["true -> ok"], "2026-10-22")
         self.assertFalse((self.root / "docs/reviews/d00-t01-s1.json").exists())
+
+    def test_stamp_refuses_malformed_reviews_without_crashing(self):
+        self.tick_work()
+        for reviews in (None, [dict(self.reviews[0], verdict=[])], [dict(self.reviews[0], verdict={})], ["x"]):
+            with self.subTest(reviews=reviews):
+                with self.assertRaises(tg.Refused):
+                    tg.stamp(self.root, "D00 T01 §1", self.sha, reviews, ["true -> ok"], "2026-10-22")
 
     def test_receipts_written_under_earlier_caps_still_validate(self):
         # Receipts are never rewritten: every verdict an installed copy already recorded stays valid after a cap change.

@@ -622,9 +622,9 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False):
     receipt = f"docs/reviews/{slug}.json"
     data = {"ref": ref, "title": row.title, "implementation_sha": sha, "date": date,
             "reviews": reviews, "checks": checks}
-    require(all(isinstance(r, dict) and r.get("verdict") in VERDICTS for r in reviews),
-            f"a new receipt's verdicts are one of {', '.join(sorted(VERDICTS))}: {ref}")
     receipt_data_ok(data, ref, sha, root=root)  # every argument is checked before anything is written
+    require(all(r["verdict"] in VERDICTS for r in reviews),
+            f"a new receipt's verdicts are one of {', '.join(sorted(VERDICTS))}: {ref}")
     receipt_path = root / receipt
     require(not receipt_path.exists(), f"receipt already exists: {receipt}")
     path = root / row.path

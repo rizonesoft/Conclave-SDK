@@ -1,4 +1,4 @@
 interface:
   display_name: "Independent review"
-  short_description: "Claude-written work only: GPT-6.1 Sol reviews it; Codex work has no route."
+  short_description: "Sol reviews Claude-written work only; Codex work has no route."
   default_prompt: "This repository routes only Claude-written work to its reviewer; scripts/review-dispatch.py refuses --writer codex. Hand Codex-written changes to Claude rather than shipping them unreviewed."

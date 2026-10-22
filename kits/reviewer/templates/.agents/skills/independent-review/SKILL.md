@@ -17,7 +17,7 @@ Claude Opus writes and GPT reviews: the pin routes no other writer, so a round f
 
 1. Review your own change first and fix what you find.
 2. Write the review prompt to a scratch file, not the repository, from `docs/review-round-prompt.md`: name the candidate commit or range, the governing documents, and the lenses that apply.
-3. Run the round as the writer `claude`, the only writer the pin routes:
+3. Run the round naming the agent that wrote the change as the writer, never another: only `claude` has a route, so a round for Codex or Gemini work refuses, which is no review:
 
    ```bash
    python3 scripts/review-dispatch.py --writer claude --prompt <scratch>/review-prompt.md --record docs/reviews/<topic>.md
