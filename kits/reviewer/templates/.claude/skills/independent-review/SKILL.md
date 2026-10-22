@@ -9,9 +9,9 @@ Your own review is not enough for a nontrivial change: a different model reviews
 
 | Work written by | Reviewer |
 | --- | --- |
-| Claude | GPT-6 Astra |
+| Claude | GPT-6.1 Sol |
 | Codex | Sonnet 5.5 |
-| Gemini | GPT-6 Astra |
+| Gemini | GPT-6.1 Sol |
 
 Each route names exactly one reviewer, never of the writer's own model family: the pin refuses anything else.
 

@@ -32,8 +32,8 @@ done
 fresh="$work/fresh"
 mkdir -p "$fresh"
 "$installer" "$fresh" >/dev/null
-grep -q 'model = "gpt-6-astra"' "$fresh/.conclave/reviewers.toml"
-grep -q 'codex = \["gemini", "sonnet"\]' "$fresh/.conclave/reviewers.toml"
+grep -q 'model = "gpt-6.1-sol"' "$fresh/.conclave/reviewers.toml"
+grep -q 'codex = \["sonnet"\]' "$fresh/.conclave/reviewers.toml"
 
 tree_after_first=$(cd "$target" && find . -type f -print0 | sort -z | xargs -0 -r sha256sum)
 "$installer" "$target" >/dev/null
