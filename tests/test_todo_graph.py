@@ -357,6 +357,34 @@ class Stamp(Tree):
         self.assertEqual(json.loads((self.root / receipt).read_text(encoding="utf-8"))
                          ["implementation_sha"], self.sha)
 
+    def test_stamp_accepts_the_current_round_cap(self):
+        self.tick_work()
+        reviews = [dict(self.reviews[0], verdict=f"stopped-at-{tg.REVIEW_ROUND_CAP}")]
+        tg.stamp(self.root, "D00 T01 §1", self.sha, reviews, ["true -> ok"], "2026-10-22")
+        self.assertTrue(tg.graph(self.root)["D00 T01 §1"].done)
+        self.assertEqual(tg.REVIEW_ROUND_CAP, 22)
+
+    def test_stamp_refuses_an_earlier_cap_on_a_new_receipt(self):
+        self.tick_work()
+        for verdict in ("stopped-at-3", "stopped-low-severity", "approve"):
+            with self.subTest(verdict=verdict):
+                with self.assertRaisesRegex(tg.Refused, "a new receipt's verdicts"):
+                    tg.stamp(self.root, "D00 T01 §1", self.sha, [dict(self.reviews[0], verdict=verdict)],
+                             ["true -> ok"], "2026-10-22")
+        self.assertFalse((self.root / "docs/reviews/d00-t01-s1.json").exists())
+
+    def test_receipts_written_under_earlier_caps_still_validate(self):
+        # Receipts are never rewritten: every verdict an installed copy already recorded stays valid after a cap change.
+        for verdict in ("clean", "fixed", "stopped-at-3", "stopped-at-8", "stopped-at-13", "stopped-at-22",
+                        "stopped-low-severity"):
+            with self.subTest(verdict=verdict):
+                data = {"ref": "D00 T01 §1", "implementation_sha": self.sha, "date": "2026-10-13",
+                        "reviews": [dict(self.reviews[0], verdict=verdict)], "checks": ["true -> ok"]}
+                tg.receipt_data_ok(data, "D00 T01 §1", self.sha, root=self.root)
+        data["reviews"] = [dict(self.reviews[0], verdict="stopped-at-4")]
+        with self.assertRaisesRegex(tg.Refused, "no valid review rounds"):
+            tg.receipt_data_ok(data, "D00 T01 §1", self.sha, root=self.root)
+
 
 class QueryPlan(Tree):
     """`query plan`: the plan's names and every section's status, for readers that must not parse todo/ (plan R34)."""

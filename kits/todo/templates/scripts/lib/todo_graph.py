@@ -26,7 +26,13 @@ NEEDS = {"windows-host", "arm64-host", "display-session", "office", "libreoffice
          "attended", "owner-decision", "third-party", "operator"}
 WAITING = {"owner-decision", "third-party", "operator"}
 STATUSES = {"draft", "active", "blocked", "done", "superseded"}
-VERDICTS = {"clean", "fixed", "stopped-at-3"}
+# A new stamp ends its review loop clean, fixed or at the current cap of REVIEW_ROUND_CAP rounds
+# (review-todo-section).
+REVIEW_ROUND_CAP = 22
+VERDICTS = {"clean", "fixed", f"stopped-at-{REVIEW_ROUND_CAP}"}
+# Verdicts that stay valid on receipts already written: the earlier caps (3, 8 and 13) and the severity stop some
+# installed copies recorded. A receipt is never rewritten, so a cap change must not refuse one.
+EARLIER_VERDICTS = {"stopped-at-3", "stopped-at-8", "stopped-at-13", "stopped-low-severity"}
 ADJACENCY_KEYS = ["list", "document", "settings", "reporting", "notifications", "permissions",
                   "audit", "exchange", "reverse"]
 # The closed phase list. A project names its phases (and the plan's title and acceptance bar) in
@@ -176,8 +182,8 @@ def receipt_data_ok(data, ref, stamp_sha, root=None):
     require(isinstance(rounds, list) and rounds and all(
         isinstance(r, dict) and isinstance(r.get("round"), int)
         and isinstance(r.get("report"), str) and r["report"]
-        and isinstance(r.get("verdict"), str) and r["verdict"] in VERDICTS for r in rounds),
-        f"receipt has no valid review rounds (verdict one of {', '.join(sorted(VERDICTS))}): {ref}")
+        and isinstance(r.get("verdict"), str) and r["verdict"] in VERDICTS | EARLIER_VERDICTS for r in rounds),
+        f"receipt has no valid review rounds (verdict one of {', '.join(sorted(VERDICTS | EARLIER_VERDICTS))}): {ref}")
     if root is not None:
         root_path = Path(root)
         root_resolved = root_path.resolve()
@@ -616,6 +622,8 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False):
     receipt = f"docs/reviews/{slug}.json"
     data = {"ref": ref, "title": row.title, "implementation_sha": sha, "date": date,
             "reviews": reviews, "checks": checks}
+    require(all(isinstance(r, dict) and r.get("verdict") in VERDICTS for r in reviews),
+            f"a new receipt's verdicts are one of {', '.join(sorted(VERDICTS))}: {ref}")
     receipt_data_ok(data, ref, sha, root=root)  # every argument is checked before anything is written
     receipt_path = root / receipt
     require(not receipt_path.exists(), f"receipt already exists: {receipt}")
