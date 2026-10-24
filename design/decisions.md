@@ -87,6 +87,16 @@ The owner, in the session: "We need to simplify the VS code extension more, we w
 
 Reversing it costs restoring the removed modules, tests and forge fixtures from git at `9107f77`, re-adding `conclave.sdkPath` and the digest test, and returning `kit-view` to `active`.
 
+### Scheduled reviewer pin (2026-10-25)
+
+The owner, in the session, asked for the reviewer kit to take the scheduled review loop and chose GPT-6 Astra with the full schedule for both the kit's shipped pin and the SDK's own pin. The dispatcher stays multi-CLI: Codex, Antigravity and Claude Code reviewers, one reviewer per route, never of the writer's family.
+
+- The shipped pin is `astra` (`codex`, `gpt-6-astra`, `medium`) with `claude = ["astra"]`, plus a `[schedule]` table: `severity_stop_after = 0`, a medium plan pass, a medium completion pass, three fixed adversarial rounds at high, medium and low effort, a low-effort rotation of one lens per round, and a medium escalation after a low-effort P1.
+- `load_pin` accepts `[schedule]` as an optional third table and checks its efforts against every routed CLI that takes one (Antigravity takes none). The top-level refusal text stays `the reviewer pin needs exactly schema_version = 1, [reviewers.*] and [routes]`, which the extension's error target matches.
+- `--check-pin --json` adds a `schedule` key only when the pin has one; the summary keeps `failover`.
+- The extension's pin text model knows only the `[reviewers.*]` and `[routes]` headers, so a pin with `[schedule]` opens in the read-only `pin-layout` state. Editing a scheduled pin in the editor waits for a later entry; the pin is edited by hand meanwhile.
+- The todo kit's `SEVERITY_CUTOFF_ROUND` equals the shipped `severity_stop_after`, and the todo kit reads the dispatcher, so it depends on the reviewer kit.
+
 ## Other owner decisions
 
 - Marketplace: no (2026-10-17). The extension is not listed on the Visual Studio Marketplace: the `.vsix` bundles every kit and `rizonetech/Conclave-SDK` is internal, so each version's `.vsix` is attached to a GitHub release of that repository and organization members install it from there (plan R22, `D04 T01 §6`).

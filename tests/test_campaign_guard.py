@@ -1,17 +1,24 @@
-"""The todo kit's campaign run guard: the Stop hook against a throwaway workspace, and the lifecycle commands."""
+"""scripts/campaign_guard.py, the process-plan run guard: the Stop hook against a throwaway workspace, and the
+lifecycle commands.
+
+The guard and the Stop hook wiring are read from this repository.
+"""
 import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
+import time
+import threading
 import unittest
+from unittest import mock
 
-FORGE_ROOT = Path(__file__).resolve().parents[1]
-TEMPLATES = FORGE_ROOT / "kits" / "todo" / "templates"
-GUARD_PY = TEMPLATES / "scripts" / "campaign_guard.py"
+REPO = Path(__file__).resolve().parents[1]
+GUARD_PY = REPO / "kits" / "todo" / "templates" / "scripts" / "campaign_guard.py"
 SESSION = "11111111-2222-3333-4444-555555555555"
 OTHER = "99999999-8888-7777-6666-555555555555"
 RUN_FILE = "docs/phase-runs/2099-01-01-phase-0.md"
@@ -22,6 +29,11 @@ spec.loader.exec_module(guard)
 
 # The fake graph answers `query ready` the way the test asks: the SDK's JSON list, or Isotone's text summary.
 FAKE_GRAPH = """import json, os, sys
+if sys.argv[2:3] == ["stats"]:  # open rows from open.txt (none when absent)
+    path = os.path.join(os.path.dirname(__file__), 'open.txt')
+    still_open = int(open(path).read()) if os.path.exists(path) else 0
+    print(json.dumps({"total": 10, "verified": 10 - still_open}))
+    sys.exit(0)
 mode, n = open(os.path.join(os.path.dirname(__file__), 'ready.txt')).read().split()
 rows = [{"ref": "D00 T01 \\u00a73", "title": "Interface SPEC and screenshots", "phase": 0}] * int(n)
 if mode == "mixed":  # this phase's rows, and one ready row of a later phase
@@ -49,7 +61,7 @@ class Workspace(unittest.TestCase):
             os.makedirs(os.path.join(self.root, folder))
         shutil.copy(GUARD_PY, os.path.join(self.root, "scripts", "campaign_guard.py"))
         self.write("scripts/todo-graph.py", FAKE_GRAPH)
-        self.write(".gitignore", "build/\nscripts/ready.txt\n")
+        self.write(".gitignore", "build/\nscripts/ready.txt\nscripts/open.txt\n")
         self.ready(3)
         self.write(RUN_FILE, "# Phase run: Phase 0\n\n## Critical events\n")
         for args in (["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"],
@@ -244,7 +256,7 @@ class StopHook(Workspace):
         self.assertEqual(decision["decision"], "block", "an unreadable graph still blocks an open run")
 
     def test_the_configured_command_runs_the_hook_from_any_shell(self):
-        settings = json.loads((TEMPLATES / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        settings = json.loads((REPO / ".claude" / "settings.json").read_text(encoding="utf-8"))
         command = settings["hooks"]["Stop"][0]["hooks"][0]["command"]
         self.acquire()
         # Claude Code runs hooks through Git Bash on Windows; `bash` on PATH there is often WSL's, which would not
@@ -388,7 +400,135 @@ class Lifecycle(Workspace):
         self.assertIn("nothing pending", guard.cancel_confirmed(self.root, "job-1"))
         self.acquire(cron_id="job-4")
         self.ready(0)
+        self.write("scripts/open.txt", "1")  # nothing ready, but a blocked row is still open: a park, not done
+        with self.assertRaises(guard.GuardError) as ctx:
+            guard.end(self.root, SESSION, "plan-done")
+        self.assertIn("still open", str(ctx.exception))
+        self.write("scripts/open.txt", "0")
         self.assertIn("plan-done", guard.end(self.root, SESSION, "plan-done"))
+
+    def test_a_re_point_without_a_phase_keeps_the_phase(self):
+        guard.acquire(self.root, SESSION, 4, RUN_FILE, "job-1")
+        guard.acquire(self.root, SESSION, None, RUN_FILE, "job-2")  # a new heartbeat job, no --phase
+        self.assertEqual(guard.read_guard(self.root)["phase"], 4)
+        with self.assertRaises(guard.GuardError):  # another session's guard is never taken without its phase
+            guard.acquire(self.root, OTHER, None, RUN_FILE, "job-3", handover="test")
+        self.assertEqual(guard.read_guard(self.root)["phase"], 4)
+        self.assertEqual(guard.main(["acquire", "--session", SESSION, "--run-file", RUN_FILE, "--cron-id", "job-4",
+                                     "--root", self.root]), 0)
+        self.assertEqual(guard.read_guard(self.root)["phase"], 4)
+
+    def test_a_fresh_guard_needs_a_phase(self):
+        with self.assertRaises(guard.GuardError):
+            guard.acquire(self.root, SESSION, None, RUN_FILE, "job-1")
+        self.assertIsNone(guard.read_guard(self.root))
+
+    def test_an_interrupted_end_leaves_no_run_to_resume(self):
+        self.acquire()
+        self.write(RUN_FILE, f"## Closeout run={self.run_id()}\n", "a")
+        real = guard._write_json
+
+        def die_on_pending(path, doc):
+            if path.endswith("pending-cancel.json"):
+                raise KeyboardInterrupt
+            return real(path, doc)
+
+        with mock.patch.object(guard, "_write_json", side_effect=die_on_pending):
+            with self.assertRaises(KeyboardInterrupt):
+                guard.end(self.root, SESSION, "closeout")
+        self.assertIsNone(guard.read_guard(self.root))  # the heartbeat finds no guard and deletes itself
+        self.assertEqual(guard.whoami(self.root, SESSION), "NO GUARD")
+
+    def test_the_fingerprint_never_reads_a_link_or_a_special_file(self):
+        self.write("notes.txt", "x\n")
+        self.write("fifo-standin", "")
+        real_lstat = os.lstat
+
+        def as_fifo(path, *a, **k):
+            info = real_lstat(path, *a, **k)
+            if os.path.basename(path) == "fifo-standin":
+                fields = list(info)
+                fields[0] = stat.S_IFIFO | 0o644
+                return os.stat_result(fields)
+            return info
+
+        read = []
+        real_read = guard._read_regular
+        with mock.patch.object(guard.os, "lstat", side_effect=as_fifo), \
+                mock.patch.object(guard, "_read_regular", side_effect=lambda p, n, seen=None: read.append(p) or real_read(p, n, seen)):
+            first = guard.fingerprint(self.root, RUN_FILE, "")
+        self.assertEqual([os.path.basename(p) for p in read], ["notes.txt"])  # the FIFO is named, never opened
+        with mock.patch.object(guard.os, "lstat", side_effect=as_fifo):
+            self.assertEqual(guard.fingerprint(self.root, RUN_FILE, ""), first)
+        # A regular file swapped for something else after the lstat is not read either: a directory, or another file
+        # (what following a link swapped in would open) whose identity differs from what the lstat saw.
+        self.assertIsNone(guard._read_regular(os.path.join(self.root, "build"), 10))
+        self.write("other.txt", "secret\n")
+        seen = os.lstat(os.path.join(self.root, "notes.txt"))
+        self.assertIsNone(guard._read_regular(os.path.join(self.root, "other.txt"), 100, seen))
+        self.assertEqual(guard._read_regular(os.path.join(self.root, "notes.txt"), 100, seen), b"x\n")
+
+    def test_a_real_link_is_opened_as_itself_never_followed(self):
+        target = os.path.join(self.root, "target.txt")
+        self.write("target.txt", "secret\n")
+        link = os.path.join(self.root, "link.txt")
+        try:
+            os.symlink(target, link)
+        except OSError:
+            self.skipTest("this account cannot create symbolic links")
+        self.assertIsNone(guard._read_regular(link, 100, os.lstat(link)))
+        self.assertEqual(guard._read_regular(target, 100, os.lstat(target)), b"secret\n")
+        # A dangling link proves the open never follows: following would fail on the missing target.
+        dangling = os.path.join(self.root, "dangling.txt")
+        os.symlink(os.path.join(self.root, "nowhere.txt"), dangling)
+        if os.name == "nt":
+            fd = guard._open_no_follow(dangling)  # the link itself opens
+            try:
+                self.assertTrue(os.fstat(fd).st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+            finally:
+                os.close(fd)
+        else:
+            with self.assertRaises(OSError):  # O_NOFOLLOW refuses the link instead of following it
+                guard._open_no_follow(dangling)
+
+    def test_a_stalled_path_is_outwaited_and_later_paths_count_by_name(self):
+        for name in ("a-stalls.txt", "b.txt", "c.txt"):
+            self.write(name, "x\n")
+        release = threading.Event()
+        seen = []
+        real = guard._untracked_line
+
+        def line(full, path, *rest):
+            seen.append(path)
+            if path == "a-stalls.txt":
+                release.wait(30)  # a call that never returns in time, like a read through a stalled share
+            return real(full, path, *rest)
+
+        started = time.monotonic()
+        try:
+            with mock.patch.object(guard, "_untracked_line", side_effect=line), \
+                    mock.patch.object(guard, "FILE_SECONDS", 0.3), self.assertRaises(guard.GuardError):
+                guard.fingerprint(self.root, RUN_FILE, "")
+        finally:
+            release.set()
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertNotIn("b.txt", seen)  # after the stall no further path is touched
+        self.assertNotIn("c.txt", seen)
+        # An incomplete observation is an error: the hook fails open and records it, and the breaker's counters stay
+        # where they were (neither progress nor a stall).
+        self.acquire()
+        before = guard._read_state(self.root)
+        release.clear()
+        try:
+            with mock.patch.object(guard, "_untracked_line", side_effect=line), \
+                    mock.patch.object(guard, "FILE_SECONDS", 0.3):
+                self.assertIsNone(self.hook())  # fails open
+        finally:
+            release.set()
+        after = guard._read_state(self.root)
+        self.assertIn("a path stalled", after.get("hook_error", ""))  # recorded for the heartbeat
+        self.assertEqual({k: after.get(k) for k in ("blocks", "trips", "fingerprint")},
+                         {k: before.get(k) for k in ("blocks", "trips", "fingerprint")})
 
     def test_whoami_names_what_a_heartbeat_is_to_the_run(self):
         self.assertEqual(guard.whoami(self.root, SESSION), "NO GUARD")

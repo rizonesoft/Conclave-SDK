@@ -5,13 +5,17 @@
     python scripts/todo-graph.py build                       # todo/ -> build/todo-cache.json
     python scripts/todo-graph.py render                      # mermaid dependency graph
     python scripts/todo-graph.py plan --sync | --check
-    python scripts/todo-graph.py query ready | blocked | stats | deferred | adjacency | plan
+    python scripts/todo-graph.py query ready | blocked | stats | deferred | adjacency | plan | rounds
     python scripts/todo-graph.py resolve 'D02 T01 §1'        # exit 0 ready, 1 no such section,
                                                              # 2 no reference in input, 3 verified,
                                                              # 4 waiting; a pasted plan row works too
     python scripts/todo-graph.py classify 'D02 T01 §1' ...   # dispositions as JSON
     python scripts/todo-graph.py stamp 'D02 T01 §1' --sha <40-char commit> \
-        --review '<round>:<report path>:<clean|fixed|stopped-at-22>' --check '<command> -> <result>'
+        --plan '<findings file>' \
+        --completion '<findings file>:<complete|completed|filed>' \
+        --review '<round>:<report path>:<clean|fixed|stopped-at-33|stopped-low-severity>' --check '<command> -> <result>' \
+        [--cap-outcome '<what was done when the review cap was reached>']   # required with a stopped verdict
+    python scripts/todo-graph.py unstamp 'D02 T01 §1' --reason '<what regressed, and the repair section>'
 
 Format and rules: todo/README.md. Stdlib only.
 """
@@ -24,7 +28,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from todo_graph import (ROOT, Refused, adjacency_report, atomic, deferrals, disposition,  # noqa: E402
-                        extract_ref, graph, ordered, plan_config, projections, require, stamp)
+                        extract_ref, graph, ordered, plan_config, projections, require, review_rounds, settled, stamp,
+                        suspects, unstamp)
 
 
 def review_round(value):
@@ -32,6 +37,12 @@ def review_round(value):
     require(len(parts) == 3 and parts[0].isdigit() and parts[1],
             f"--review takes round:report:verdict, not {value!r}")
     return {"round": int(parts[0]), "report": parts[1], "verdict": parts[2]}
+
+
+def completion_review(value):
+    report, _, verdict = value.rpartition(":")
+    require(bool(report) and bool(verdict), f"--completion takes <findings file>:<verdict>, not {value!r}")
+    return {"report": report, "verdict": verdict}
 
 
 def plan_status(row, rows):
@@ -49,7 +60,7 @@ def main():
     for name in ("validate", "build", "render"):
         sub.add_parser(name)
     q = sub.add_parser("query")
-    q.add_argument("kind", choices=["ready", "blocked", "stats", "deferred", "adjacency", "plan"])
+    q.add_argument("kind", choices=["ready", "blocked", "stats", "deferred", "adjacency", "plan", "rounds"])
     r = sub.add_parser("resolve")
     r.add_argument("ref")
     c = sub.add_parser("classify")
@@ -64,9 +75,24 @@ def main():
     s.add_argument("--review", action="append", default=[], type=review_round)
     s.add_argument("--check", dest="checks", action="append", default=[])
     s.add_argument("--date", default=date.today().isoformat())
+    s.add_argument("--cap-outcome", help="with a stopped-at verdict: what was done when the review cap was reached")
+    s.add_argument("--plan", help="required: <findings file>, the one-pass plan review before the build")
+    s.add_argument("--completion", type=completion_review,
+                   help="required: <findings file>:<complete|completed|filed>, the one-pass completion review")
+    u = sub.add_parser("unstamp", help="an audit found a stamped section regressed: reopen it, keeping the receipt")
+    u.add_argument("ref")
+    u.add_argument("--reason", required=True)
+    u.add_argument("--date", default=date.today().isoformat())
     args = p.parse_args()
+    if args.command == "unstamp":
+        revoked = unstamp(ROOT, args.ref, args.reason, args.date)
+        print(f"unstamped {args.ref}; receipt kept as {revoked}; plan synchronized")
+        for ref in suspects(ROOT, args.ref):
+            print(f"suspect until {args.ref} re-stamps: {ref}")
+        return 0
     if args.command == "stamp":
-        receipt = stamp(ROOT, args.ref, args.sha, args.review, args.checks, args.date, sync_plan=True)
+        receipt = stamp(ROOT, args.ref, args.sha, args.review, args.checks, args.date, sync_plan=True,
+                        cap_outcome=args.cap_outcome, completion=args.completion, plan=args.plan)
         print(f"stamped {args.ref}; receipt {receipt}; plan synchronized")
         return 0
     rows = graph()
@@ -82,7 +108,7 @@ def main():
             print("TODO refused: no such section: " + ref, file=sys.stderr)
             return 1
         row = rows[ref]
-        unmet = [d for d in row.depends if not rows[d].done]
+        unmet = [d for d in row.depends if not settled(d, rows)]
         print(json.dumps({**row.public(), "body": row.body, "unmet_depends": unmet,
                           "skill_arg": ref, "exit": disposition(row, rows)},
                          indent=2, ensure_ascii=False))
@@ -102,6 +128,8 @@ def main():
             result = deferrals()
         elif args.kind == "adjacency":
             result = adjacency_report()
+        elif args.kind == "rounds":
+            result = review_rounds()
         elif args.kind == "plan":
             # The plan's names come from plan_config and every section from the graph, so a reader such as the
             # editor extension never parses todo/ itself (plan R34). graph() has already loaded todo/plan.json

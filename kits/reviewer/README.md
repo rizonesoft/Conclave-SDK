@@ -6,15 +6,31 @@ Additive overlay that gives a project independent review by a different model: o
 
 | Work written by | Reviewer |
 | --- | --- |
-| Claude (Opus 5.5) | GPT-6.1 Sol at xhigh |
+| Claude | GPT-6 Astra through Codex, effort set by the schedule |
 
-Claude Opus writes and GPT reviews: the pin routes no other writer, so a round for Codex or Gemini work refuses (owner decision 2026-10-22, after trials of other writer and reviewer pairs). The route names exactly one reviewer, never of the writer's own model family: the pin refuses anything else. A reviewer that cannot review is no review, and no other reviewer runs in its place.
+The starting pin routes Claude's work to Astra and no other writer, so a round for Codex or Gemini work refuses until the project adds a route. The route names exactly one reviewer, never of the writer's own model family: the pin refuses anything else. A reviewer that cannot review is no review, and no other reviewer runs in its place.
 
-| Reviewer | CLI | Model | Effort |
+| Reviewer | CLI | Model | Default effort |
 | --- | --- | --- | --- |
-| `sol` | `codex exec`, read-only sandbox | `gpt-6.1-sol` | `xhigh` |
+| `astra` | `codex exec`, read-only sandbox | `gpt-6-astra` | `medium` |
 
-The dispatcher can also run a reviewer through Claude Code (`cli = "claude"`, plan mode) or Antigravity (`cli = "agy"`, plan mode in its sandbox, with the effort in the model name: `gemini-4-argon-medium`). All three CLIs were tested headless on 2026-10-16: each found a planted bug and changed no file. Change reviewers, models or routes only in `.conclave/reviewers.toml`.
+The dispatcher can also run a reviewer through Claude Code (`cli = "claude"`, plan mode) or Antigravity (`cli = "agy"`, plan mode in its sandbox, with the effort in the model name: `gemini-4-argon-medium`). Change reviewers, models, routes or the schedule only in `.conclave/reviewers.toml`. The pin is a starting point the project owns once installed, not a link back to the SDK.
+
+## The review schedule
+
+The pin's `[schedule]` table makes the dispatcher pick each pass's effort and lenses, so the loop runs the same way every time:
+
+| Pass | Effort | Lenses |
+| --- | --- | --- |
+| Plan review (`--kind plan`), before the build | medium | plan |
+| Completion review (`--kind completion`), after it | medium | completion prompt |
+| Round 1 | high | adversarial, integration, source-defect, plan-delivery |
+| Round 2 | medium | adversarial |
+| Round 3 | low | adversarial |
+| Later rounds, one lens each | low | consistency, quality, design, optimization, record |
+| After a low-effort round that finds a P1 | medium | adversarial |
+
+The design lens joins the rotation only with `--surface`. Each review tags its findings `P1`, `P2` or `P3` and ends with a `HIGHEST:` line. With `severity_stop_after = 0` the first round with no P1 or P2 finding ends the loop (the summary's `severity_stop` is true); the cap stays 33 rounds. Delete the whole `[schedule]` block to review every round at the reviewer's own effort with the prompt's fallback lens list.
 
 ## What lands
 
@@ -22,8 +38,10 @@ The dispatcher can also run a reviewer through Claude Code (`cli = "claude"`, pl
 | ---- | ---- |
 | `.conclave/reviewers.toml` | The reviewers and the route for each writer |
 | `scripts/review-dispatch.py` | Runs a round and records it |
-| `scripts/tests/test_review_dispatch.py` | Routing, failed-review and record tests with fake CLIs |
-| `docs/review-round-prompt.md` | The prompt template: candidate, lenses, reply format |
+| `scripts/tests/test_review_dispatch.py` | Routing, schedule, failed-review and record tests |
+| `docs/review-round-prompt.md` | The round prompt: candidate, lenses, severities, reply format |
+| `docs/plan-review-prompt.md` | The one-pass plan review before the build |
+| `docs/completion-review-prompt.md` | The one-pass completion and excellence review |
 | `.{agents,claude,codex}/skills/independent-review/` | When and how to get a review |
 
 ## Install
@@ -45,6 +63,13 @@ The doctor loads the pin under the dispatcher's own rules and reports any review
 python3 scripts/review-dispatch.py --writer claude --prompt <scratch>/review-prompt.md --record docs/reviews/<topic>.md
 ```
 
+Before the build, and again once it is built, run the one-pass reviews (neither counts as a round, and a findings file holds one returned review of each kind):
+
+```bash
+python3 scripts/review-dispatch.py --kind plan --candidate <40-char SHA> --writer claude --prompt <scratch>/plan-prompt.md --record docs/reviews/<topic>.md
+python3 scripts/review-dispatch.py --kind completion --candidate <40-char SHA> --writer claude --prompt <scratch>/completion-prompt.md --record docs/reviews/<topic>.md
+```
+
 To read the recorded rounds back (the editor extension's Review rounds section does), without running a reviewer:
 
 ```bash
@@ -59,6 +84,6 @@ To ask whether the pin loads, the same way a review run would load it, without r
 python3 scripts/review-dispatch.py --check-pin --json [--pin .conclave/reviewers.toml]
 ```
 
-A pin that loads prints `{"ok": true, "schema_version": 1, "reviewers": {...}, "routes": {...}, "clis": {"codex": true, "agy": false, "claude": true}}` and exits 0: `reviewers` and `routes` are exactly what `load_pin` returns, and `clis` says which reviewer CLIs are on `PATH`. A CLI is looked for only in the absolute directories on `PATH`, never in the working directory, so a `codex.cmd` committed to the reviewed repository is neither counted nor run. A refused or missing pin prints `{"ok": false, "error": "<message>"}`, the message a review run would refuse with, and exits 2. Without `--json` it prints `ok` or `refused: <message>`. `--writer` and `--prompt` are not needed.
+A pin that loads prints `{"ok": true, "schema_version": 1, "reviewers": {...}, "routes": {...}, "schedule": {...}, "clis": {"codex": true, "agy": false, "claude": true}}` and exits 0: `reviewers`, `routes` and `schedule` are exactly what `load_pin` returns (`schedule` only when the pin has one), and `clis` says which reviewer CLIs are on `PATH`. A CLI is looked for only in the absolute directories on `PATH`, never in the working directory, so a `codex.cmd` committed to the reviewed repository is neither counted nor run. A refused or missing pin prints `{"ok": false, "error": "<message>"}`, the message a review run would refuse with, and exits 2. Without `--json` it prints `ok` or `refused: <message>`. `--writer` and `--prompt` are not needed.
 
 Exit 0 is a review (which may still find problems). Exit 1 means the reviewer returned no review (a reply ending `OVERALL: blocked` is not one), which is never an approval; the summary's `failover` names it and the reason. Exit 2 means the pin or the arguments were refused and nothing ran, or that `--record` named a findings file it cannot read back (the review still prints).
