@@ -38,4 +38,4 @@ Like every kit it only adds missing files: an existing `todo/` plan, skill or sc
 
 ## Keeping it current
 
-This kit is the only source of the TODO system. Change a file in `templates/`, copy skill changes into the SDK's own `.agents/`, `.claude/` or `.codex/` (`tests/test_forge.py` fails until they match), and run `forge.py sync <repo>` in projects that should pick it up. `tests/test_todo_graph.py` tests `templates/scripts/`.
+This kit is the only source of the TODO system. Change a file in `templates/`, then run `python forge.py self-sync` to refresh the SDK's own `.agents/`, `.claude/`, `.codex/` and `scripts/` (`tests/test_forge.py` fails until they match). Projects keep the copy they took; port a change into one by hand when it wants it. `tests/test_todo_graph.py` tests `templates/scripts/`.

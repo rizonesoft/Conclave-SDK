@@ -68,7 +68,7 @@ Use the word "rules" carefully:
 4. Keep `description` specific enough for automatic selection.
 5. Put long checklists in `references/`.
 6. Put OpenAI/Codex metadata in `.codex/skills/<skill-name>/agents/openai.yaml`.
-7. Update `kits/base/templates/` when new projects should inherit the skill.
+7. When other projects should start from the skill too, copy it into the matching Conclave-SDK kit's `templates/` by hand.
 8. Update `AGENTS.md` if the skill changes project behavior.
 9. Validate all skill files, references, and metadata.
 

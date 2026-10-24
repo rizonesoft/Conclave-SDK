@@ -1,4 +1,4 @@
-"""Tests for forge.py provisioning modes, 3-agent isolation, stack kits, and prose hygiene."""
+"""Tests for forge.py template provisioning, 3-agent isolation, stack kits, and prose hygiene."""
 import json
 import os
 import pathlib
@@ -30,10 +30,9 @@ def provisioned_mode(posix_mode):
     return posix_mode if os.name != "nt" else 0o666
 
 
-BASE_SKILLS = ["adopt-conclave", "authoring-skills", "local-tool-safety"]
+BASE_SKILLS = ["authoring-skills", "local-tool-safety"]
 EXPECTED_SKILLS = [
     "add-todo",
-    "adopt-conclave",
     "authoring-skills",
     "create-todo",
     "groom-plan",
@@ -69,8 +68,10 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertTrue(status["has_gemini_md"])
         self.assertTrue(status["has_claude_md"])
         self.assertTrue(status["has_codex_md"])
-        self.assertFalse(status["has_agy_skills_json"])
-        self.assertFalse(status["has_agy_plugins_json"])
+        self.assertFalse((self.target / ".agents/skills.json").exists())
+        self.assertFalse((self.target / ".agents/plugins.json").exists())
+        self.assertFalse((self.target / ".conclave/kits.json").exists(), "a template copy records no link to the SDK")
+        self.assertEqual(status["kits"], ["base", "todo"])
         self.assertTrue(status["has_todo_graph"])
         self.assertTrue(status["has_verify_agent_tiers"])
         self.assertEqual(status["agy_skills"], EXPECTED_SKILLS)
@@ -119,11 +120,9 @@ class ForgeProvisionTests(unittest.TestCase):
         (git / "not-created-yet").rmdir()
         with self.assertRaisesRegex(ValueError, "inside a .git folder"):
             forge.provision(self.target / "alias")
-        with self.assertRaisesRegex(ValueError, "inside a .git folder"):
-            forge.provision(self.target / "alias", refresh=True)
         self.assertEqual(sorted(p.name for p in git.iterdir()), [], "something was written inside .git")
 
-    def test_init_refuses_the_sdk_source_folder_itself_but_sync_may_refresh_it(self):
+    def test_init_refuses_the_sdk_source_folder_itself(self):
         stand_in = self.target / "sdk"
         stand_in.mkdir()
         self._link(stand_in, self.target / "sdk-alias")
@@ -132,12 +131,6 @@ class ForgeProvisionTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "source folder itself"):
                     forge.provision(path)
             self.assertEqual(list(stand_in.iterdir()), [], "init wrote into the SDK folder")
-            # The SDK refreshes its own installed copy with sync (AGENTS.md), so sync of the SDK folder itself, here a
-            # stand-in carrying the base kit, is not refused.
-            shutil.copytree(FORGE_ROOT / "kits" / "base", stand_in / "kits" / "base")
-            res = forge.provision(stand_in, refresh=True)
-            self.assertEqual([k["kit"] for k in res["kits"]], ["base"])
-            self.assertTrue((stand_in / "AGENTS.md").is_file())
 
     def test_init_from_the_command_line_refuses_a_git_target_with_exit_2(self):
         (self.target / ".git").mkdir()
@@ -155,68 +148,57 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertIn("docs/todo-workflow.md", (self.target / "AGENTS.md").read_text(encoding="utf-8"))
         self.assertEqual(forge.check_repo(self.target)["claude_skills"], EXPECTED_SKILLS)
 
-    def test_sync_refreshes_only_the_kits_a_repo_has_and_never_project_files(self):
+    def test_init_and_kit_copy_once_and_never_overwrite_the_projects_copy(self):
+        # The SDK is a template: a second init or kit run adds only what is missing and leaves every file the project
+        # already has, skills and scripts included, exactly as the project left it.
         forge.provision(self.target, with_todo=True)
         skill = self.target / ".claude/skills/create-todo/SKILL.md"
-        skill.write_text("stale\n", encoding="utf-8")
-        (self.target / "AGENTS.md").write_text("project rules\n", encoding="utf-8")
-        (self.target / "todo/TODO-00-INDEX.md").write_text("our plan\n", encoding="utf-8")
+        skill.write_text("adapted\n", encoding="utf-8")
         graph = self.target / "scripts/todo-graph.py"
-        graph.write_text("old script\n", encoding="utf-8")
+        graph.write_text("our script\n", encoding="utf-8")
+        (self.target / ".codex/skills/create-todo/SKILL.md").unlink()
 
-        res = forge.provision(self.target, refresh=True)
-        self.assertEqual([k["kit"] for k in res["kits"]], ["base", "todo"])
-        self.assertIn(".claude/skills/create-todo/SKILL.md", res["written"])
-        self.assertEqual(skill.read_bytes(), (FORGE_ROOT / "kits/todo/templates/.claude/skills/create-todo/SKILL.md").read_bytes().replace(b"\r\n", b"\n"))
-        self.assertEqual((self.target / "AGENTS.md").read_text(encoding="utf-8"), "project rules\n")
-        self.assertEqual((self.target / "todo/TODO-00-INDEX.md").read_text(encoding="utf-8"), "our plan\n")
-        self.assertEqual(graph.read_text(encoding="utf-8"), "old script\n")
-        # Only the kits the repo has: no reviewer pin, and the kit stamp (plan R38) names base and todo alone.
-        self.assertFalse((self.target / ".conclave/reviewers.toml").exists())
-        self.assertEqual(sorted(forge.read_kit_stamp(self.target)["kits"]), ["base", "todo"])
+        res = forge.provision(self.target, with_todo=True)
+        self.assertEqual(res["written"], [".codex/skills/create-todo/SKILL.md"])
+        self.assertIn(".claude/skills/create-todo/SKILL.md", res["skipped"])
+        self.assertEqual(skill.read_text(encoding="utf-8"), "adapted\n")
+        self.assertEqual(graph.read_text(encoding="utf-8"), "our script\n")
+        self.assertEqual(forge.apply_kit(self.target, "todo")["installed"], [])
+        self.assertFalse((self.target / ".conclave/kits.json").exists())
 
-        forge.provision(self.target, refresh=True, refresh_scripts=True)
-        self.assertNotEqual(graph.read_text(encoding="utf-8"), "old script\n")
+    def test_the_cli_has_no_sync_or_mode_that_links_a_project_to_the_sdk(self):
+        for argv in (["sync", str(self.target)], ["digest"], ["init", str(self.target), "--mode", "inherit"]):
+            with self.subTest(argv=argv):
+                proc = subprocess.run([sys.executable, str(pathlib.Path(forge.__file__)), *argv],
+                                      capture_output=True, text=True)
+                self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertEqual(list(self.target.iterdir()), [])
 
-    def test_sync_never_writes_through_a_symlinked_skill_directory(self):
-        forge.provision(self.target)
-        outside = self.target.parent / (self.target.name + "-outside")
-        outside.mkdir()
-        try:
-            (outside / "SKILL.md").write_text("theirs\n", encoding="utf-8")
-            skill_dir = self.target / ".claude/skills/local-tool-safety"
-            shutil.rmtree(skill_dir)
-            skill_dir.symlink_to(outside, target_is_directory=True)
-            with self.assertRaises(ValueError):
-                forge.provision(self.target, refresh=True)
-            self.assertEqual((outside / "SKILL.md").read_text(encoding="utf-8"), "theirs\n")
-            self.assertEqual(sorted(f.name for f in outside.iterdir()), ["SKILL.md"])
-        finally:
-            shutil.rmtree(outside)
+    def test_self_sync_refreshes_only_the_sdks_own_installed_copy(self):
+        stand_in = self.target / "sdk"
+        for kit in forge.SELF_KITS:
+            shutil.copytree(FORGE_ROOT / "kits" / kit, stand_in / "kits" / kit)
+        (stand_in / "AGENTS.md").write_text("sdk rules\n", encoding="utf-8")
+        with unittest.mock.patch.object(forge, "FORGE_ROOT", stand_in.resolve()):
+            first = forge.self_sync()
+            self.assertIn(".claude/skills/create-todo/SKILL.md", first["updated"])
+            self.assertIn("scripts/todo-graph.py", first["updated"])
+            self.assertIn(".conclave/automations/run.py", first["updated"])
+            self.assertNotIn(".conclave/automations/tasks.json", first["updated"])
+            self.assertNotIn(".conclave/reviewers.toml", first["updated"])
+            self.assertIn("docs/todo-workflow.md", first["updated"])
+            self.assertFalse(any(rel.startswith("todo/") for rel in first["updated"]))
+            self.assertEqual((stand_in / "AGENTS.md").read_text(encoding="utf-8"), "sdk rules\n")
+            (stand_in / ".claude/skills/create-todo/SKILL.md").write_text("drifted\n", encoding="utf-8")
+            self.assertEqual(forge.self_sync(dry_run=True)["updated"], [".claude/skills/create-todo/SKILL.md"])
+            self.assertEqual(forge.self_sync()["updated"], [".claude/skills/create-todo/SKILL.md"])
+            self.assertEqual(forge.self_sync()["updated"], [])
 
-    def test_hybrid_mode_includes_skills_json_and_all_three_agents(self):
-        forge.provision(self.target, mode="hybrid", agent="all")
-        status = forge.check_repo(self.target)
-        self.assertTrue(status["has_agy_skills_json"])
-        self.assertEqual(status["agy_skills"], BASE_SKILLS)
-        self.assertEqual(status["claude_skills"], BASE_SKILLS)
-        self.assertEqual(status["codex_skills"], BASE_SKILLS)
-
-    def test_inherit_mode_writes_manifests_without_copying_skill_dirs(self):
-        forge.provision(self.target, mode="inherit", agent="agy", include_scripts=False)
-        status = forge.check_repo(self.target)
-        self.assertTrue(status["has_agy_skills_json"])
-        self.assertTrue(status["has_agy_plugins_json"])
-        self.assertEqual(status["agy_skills"], [])
-        self.assertEqual(status["claude_skills"], [])
-        self.assertEqual(status["codex_skills"], [])
-
-    def test_single_agent_sync_and_gemini_alias_preserve_existing_docs(self):
+    def test_single_agent_init_and_gemini_alias_preserve_existing_docs(self):
         custom_agents = "# Custom Project AGENTS.md\n"
         (self.target / "AGENTS.md").write_text(custom_agents, encoding="utf-8")
         forge.provision(
             self.target,
-            mode="isolated",
             agent="gemini",
             include_scripts=False,
             overwrite_existing_docs=False,
@@ -446,14 +428,14 @@ class ForgeProvisionTests(unittest.TestCase):
     def test_the_sdk_uses_the_agent_setup_its_kits_ship(self):
         # The kits are the only source. The SDK's own .agents/.claude/.codex and scripts/ are an installed copy of
         # base, todo, reviewer and automations (the SDK plans, reviews and schedules its own work with them; the
-        # owner chose on 2026-10-17 to keep base's scripts too, design/decisions.md), refreshed from the kits, so
-        # they must match them.
+        # owner chose on 2026-10-17 to keep base's scripts too, design/decisions.md), refreshed from the kits by
+        # `forge.py self-sync`, so they must match them.
         def text(path):
             return path.read_bytes().replace(b"\r\n", b"\n")
 
         for kit in ("base", "todo", "reviewer", "automations"):
             templates = FORGE_ROOT / "kits" / kit / "templates"
-            prefixes = forge.SDK_MANAGED_PREFIXES + forge.SDK_MANAGED_SCRIPT_PREFIXES
+            prefixes = forge.SELF_PREFIXES
             for source in sorted(templates.rglob("*")):
                 rel = source.relative_to(templates).as_posix()
                 if not source.is_file() or not rel.startswith(prefixes) or not forge._rel_allowed_for_agent(rel, "all"):
@@ -463,7 +445,7 @@ class ForgeProvisionTests(unittest.TestCase):
                     self.assertTrue(installed.is_file(), "missing from the SDK's own agent setup")
                     self.assertEqual(text(installed), text(source), "the SDK's own copy drifted from its kit")
 
-    def test_reviewer_kit_install_doctor_and_sync_detection(self):
+    def test_reviewer_kit_install_doctor_and_detection(self):
         project = self.target / "reviewed"
         project.mkdir()
         res = forge.apply_kit(project, "reviewer")
@@ -485,7 +467,7 @@ class ForgeProvisionTests(unittest.TestCase):
                                 capture_output=True, text=True, timeout=300)
         self.assertEqual(result.returncode, 0, result.stderr[-2000:])
 
-    def test_automations_kit_install_doctor_and_sync_detection(self):
+    def test_automations_kit_install_doctor_and_detection(self):
         project = self.target / "scheduled"
         project.mkdir()
         res = forge.apply_kit(project, "automations")
@@ -516,14 +498,6 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertEqual(checks["automations-tasks"], "missing")
         self.assertNotIn("automations-folder", checks)
 
-        # sync keeps the project's task list and README, and refreshes the runner only with --include-scripts.
-        runner = project / ".conclave/automations/run.py"
-        runner.write_text("old runner\n", encoding="utf-8")
-        forge.provision(project, refresh=True)
-        self.assertEqual(runner.read_text(encoding="utf-8"), "old runner\n")
-        forge.provision(project, refresh=True, refresh_scripts=True)
-        self.assertNotEqual(runner.read_text(encoding="utf-8"), "old runner\n")
-        self.assertEqual(tasks.read_text(encoding="utf-8"), '{"schema_version": 1, "folder": "Demo", "tasks": []}')
 
     def test_the_doctor_needs_a_systemd_user_manager_that_answers_not_just_systemctl(self):
         def answers(code, err=""):
@@ -557,7 +531,7 @@ class ForgeProvisionTests(unittest.TestCase):
             self.assertNotIn("\u2013", text, f"en dash found in {path}")
 
     def test_micro_todo_and_complete_plan_rules_present_across_all_agents(self):
-        forge.provision(self.target, mode="isolated", agent="all", with_todo=True, overwrite_existing_docs=True)
+        forge.provision(self.target, agent="all", with_todo=True, overwrite_existing_docs=True)
         self.assertIn("docs/todo-workflow.md", (self.target / "AGENTS.md").read_text(encoding="utf-8"))
         agents_text = (self.target / "docs/todo-workflow.md").read_text(encoding="utf-8")
         self.assertIn("Small, single-responsibility sections", agents_text)
@@ -600,255 +574,6 @@ class ForgeProvisionTests(unittest.TestCase):
                         100,
                         f"Table row wraps raw md ({len(line)} > 100 chars) at {md}:{lineno}",
                     )
-
-
-class ForgeKitStampTests(unittest.TestCase):
-    """The kit stamp (plan R38): which SDK commit and kit digests set a folder up, so a reader can tell older or newer
-    kits from partly installed ones."""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.target = pathlib.Path(self.tmp.name) / "project"
-        self.target.mkdir()
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def stamp(self):
-        path = self.target / ".conclave" / "kits.json"
-        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
-
-    def test_kit_digest_changes_with_any_template_file_but_not_with_crlf_endings(self):
-        sdk = pathlib.Path(self.tmp.name) / "sdk"
-        templates = sdk / "kits" / "demo" / "templates"
-        templates.mkdir(parents=True)
-        (templates / "a.md").write_bytes(b"one\ntwo\n")
-        with unittest.mock.patch.object(forge, "FORGE_ROOT", sdk):
-            first = forge.kit_digest("demo")
-            self.assertRegex(first, r"^[0-9a-f]{64}$")
-            (templates / "a.md").write_bytes(b"one\r\ntwo\r\n")
-            self.assertEqual(forge.kit_digest("demo"), first, "CRLF endings changed the digest")
-            (templates / "a.md").write_bytes(b"one\ntwo!\n")
-            changed = forge.kit_digest("demo")
-            self.assertNotEqual(changed, first)
-            (templates / "b.md").write_bytes(b"new\n")
-            added = forge.kit_digest("demo")
-            self.assertNotEqual(added, changed)
-            (templates / "b.md").rename(templates / "c.md")
-            self.assertNotEqual(forge.kit_digest("demo"), added, "a rename kept the digest")
-
-    def test_digest_names_every_kit_and_the_sdk_commit_from_git_or_the_bundle_files(self):
-        res = subprocess.run([sys.executable, str(FORGE_ROOT / "forge.py"), "digest"], capture_output=True, text=True)
-        self.assertEqual(res.returncode, 0, res.stderr)
-        digest = json.loads(res.stdout)
-        self.assertEqual(sorted(digest["kits"]), forge.list_kits())
-        self.assertRegex(digest["sdk"]["commit"], r"^[0-9a-f]{40}$")
-        self.assertRegex(digest["sdk"]["date"], r"^\d{4}-\d\d-\d\dT")
-        # A bundled copy has no .git: the commit and date come from SDK_COMMIT and SDK_DATE next to forge.py.
-        bundle = pathlib.Path(self.tmp.name) / "bundle"
-        (bundle / "kits").mkdir(parents=True)
-        (bundle / "SDK_COMMIT").write_text("a" * 40 + "\n", encoding="utf-8")
-        (bundle / "SDK_DATE").write_text("2026-10-20T12:00:00+02:00\n", encoding="utf-8")
-        with unittest.mock.patch.object(forge, "FORGE_ROOT", bundle):
-            self.assertEqual(forge.sdk_info(), {"commit": "a" * 40, "date": "2026-10-20T12:00:00+02:00"})
-
-    def test_init_kit_and_sync_write_the_stamp_and_a_dry_run_writes_nothing(self):
-        forge.apply_kit(self.target, "todo", dry_run=True)
-        self.assertIsNone(self.stamp(), "a dry run wrote the stamp")
-        forge.provision(self.target)
-        stamp = self.stamp()
-        self.assertEqual(stamp["schema_version"], 1)
-        sdk = forge.sdk_info()
-        self.assertEqual(stamp["kits"], {"base": {"digest": forge.kit_digest("base"), "commit": sdk["commit"], "date": sdk["date"]}})
-        forge.apply_kit(self.target, "reviewer")
-        self.assertEqual(sorted(self.stamp()["kits"]), ["base", "reviewer"], "a second kit dropped the first one's entry")
-        # sync refreshes every kit the folder has, so each is stamped with this SDK.
-        old = {"digest": "old", "commit": "b" * 40, "date": "2020-01-01T00:00:00Z"}
-        (self.target / ".conclave" / "kits.json").write_text(json.dumps({"schema_version": 1, "kits": {"base": old, "reviewer": old}}), encoding="utf-8")
-        forge.provision(self.target, refresh=True)
-        for kit in ("base", "reviewer"):
-            self.assertEqual(self.stamp()["kits"][kit], {"digest": forge.kit_digest(kit), "commit": sdk["commit"], "date": sdk["date"]})
-
-    def _stale_stamp(self, kit):
-        old = {"digest": "old", "commit": "b" * 40, "date": "2020-01-01T00:00:00Z"}
-        (self.target / ".conclave" / "kits.json").write_text(json.dumps({"schema_version": 1, "kits": {kit: old}}), encoding="utf-8")
-        return old
-
-    def test_a_kit_whose_files_all_match_this_sdk_is_stamped_and_one_with_a_stale_file_keeps_its_old_entry(self):
-        forge.apply_kit(self.target, "todo")
-        old = self._stale_stamp("todo")
-        # Every SDK-managed file already matches this SDK, so a re-run truthfully stamps it.
-        forge.apply_kit(self.target, "todo")
-        self.assertEqual(self.stamp()["kits"]["todo"]["digest"], forge.kit_digest("todo"))
-        # A skill kept from an earlier install is not this SDK's: kit keeps it, so the old entry stands.
-        self._stale_stamp("todo")
-        (self.target / ".claude/skills/create-todo/SKILL.md").write_text("from an older SDK\n", encoding="utf-8")
-        res = forge.apply_kit(self.target, "todo")
-        self.assertIn(".claude/skills/create-todo/SKILL.md", res["preserved"])
-        self.assertEqual(self.stamp()["kits"]["todo"], old)
-
-    def test_sync_without_scripts_keeps_the_old_entry_while_a_script_is_stale(self):
-        forge.provision(self.target, with_todo=True)
-        old = self._stale_stamp("todo")
-        (self.target / "scripts/todo-graph.py").write_text("old script\n", encoding="utf-8")
-        forge.provision(self.target, refresh=True)
-        self.assertEqual(self.stamp()["kits"]["todo"], old, "sync stamped a kit whose script it kept")
-        forge.provision(self.target, refresh=True, refresh_scripts=True)
-        self.assertEqual(self.stamp()["kits"]["todo"]["digest"], forge.kit_digest("todo"))
-
-    def test_sync_for_one_agent_keeps_the_old_entry_while_another_agents_files_are_stale(self):
-        forge.provision(self.target, with_todo=True)
-        old = self._stale_stamp("todo")
-        (self.target / ".codex/skills/create-todo/SKILL.md").write_text("from an older SDK\n", encoding="utf-8")
-        forge.provision(self.target, refresh=True, agent="claude")
-        self.assertEqual(self.stamp()["kits"]["todo"], old, "a claude-only sync stamped stale codex files as current")
-
-    def test_a_managed_file_that_differs_only_in_crlf_endings_still_matches(self):
-        forge.apply_kit(self.target, "todo")
-        old = self._stale_stamp("todo")
-        skill = self.target / ".claude/skills/create-todo/SKILL.md"
-        skill.write_bytes(skill.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
-        forge.apply_kit(self.target, "todo")
-        self.assertNotEqual(self.stamp()["kits"]["todo"], old, "the same content with CRLF endings was taken for an older file")
-        self.assertEqual(self.stamp()["kits"]["todo"]["digest"], forge.kit_digest("todo"))
-
-    def test_kit_digest_ignores_bytecode_the_installer_never_copies(self):
-        sdk = pathlib.Path(self.tmp.name) / "sdk"
-        templates = sdk / "kits" / "demo" / "templates"
-        (templates / "scripts" / "__pycache__").mkdir(parents=True)
-        (templates / "scripts" / "tool.py").write_bytes(b"print(1)\n")
-        with unittest.mock.patch.object(forge, "FORGE_ROOT", sdk):
-            before = forge.kit_digest("demo")
-            (templates / "scripts" / "__pycache__" / "tool.cpython-314.pyc").write_bytes(b"\x00bytecode")
-            self.assertEqual(forge.kit_digest("demo"), before)
-
-    def test_the_sdk_folder_itself_gets_no_stamp(self):
-        sdk = pathlib.Path(self.tmp.name) / "sdk"
-        shutil.copytree(FORGE_ROOT / "kits" / "base", sdk / "kits" / "base")
-        with unittest.mock.patch.object(forge, "FORGE_ROOT", sdk.resolve()):
-            forge.provision(sdk, refresh=True)
-        self.assertFalse((sdk / ".conclave" / "kits.json").exists(), "the SDK stamped itself")
-
-    def _newer_reviewer(self):
-        """A folder whose reviewer kit a later SDK set up: its stamp entry is dated after this SDK, and one of its
-        skills holds that SDK's newer text."""
-        forge.provision(self.target, kits=["todo", "reviewer"])
-        stamp = forge.read_kit_stamp(self.target)
-        stamp["kits"]["reviewer"] = {"digest": "later", "commit": "c" * 40, "date": "2099-01-01T00:00:00+00:00"}
-        (self.target / ".conclave" / "kits.json").write_text(json.dumps(stamp), encoding="utf-8")
-        skill = self.target / ".claude/skills/independent-review/SKILL.md"
-        skill.write_text("from a newer SDK\n", encoding="utf-8")
-        return stamp["kits"]["reviewer"], skill
-
-    def test_sync_from_an_older_sdk_leaves_a_kit_stamped_newer_and_refreshes_the_rest(self):
-        entry, skill = self._newer_reviewer()
-        todo_skill = self.target / ".claude/skills/create-todo/SKILL.md"
-        todo_skill.write_text("stale\n", encoding="utf-8")
-        res = forge.provision(self.target, refresh=True)
-        self.assertEqual(skill.read_text(encoding="utf-8"), "from a newer SDK\n", "sync replaced a kit stamped newer")
-        self.assertEqual(forge.read_kit_stamp(self.target)["kits"]["reviewer"], entry)
-        self.assertEqual([r["kit"] for r in res["refused_newer"]], ["reviewer"])
-        self.assertIn("2099-01-01", res["refused_newer"][0]["reason"])
-        self.assertNotIn("reviewer", [k["kit"] for k in res["kits"]])
-        self.assertNotEqual(todo_skill.read_text(encoding="utf-8"), "stale\n", "the older kit was not refreshed")
-
-    def test_kit_refuses_a_kit_stamped_newer_but_a_dry_run_still_reads_it(self):
-        _entry, skill = self._newer_reviewer()
-        with self.assertRaisesRegex(ValueError, "newer"):
-            forge.apply_kit(self.target, "reviewer")
-        self.assertEqual(skill.read_text(encoding="utf-8"), "from a newer SDK\n")
-        forge.apply_kit(self.target, "reviewer", dry_run=True)
-        res = subprocess.run([sys.executable, str(FORGE_ROOT / "forge.py"), "kit", str(self.target), "reviewer"], capture_output=True, text=True)
-        self.assertEqual(res.returncode, 2, res.stderr)
-        self.assertIn("newer", res.stderr)
-
-    def test_an_unknown_date_on_either_side_is_never_taken_as_older(self):
-        forge.provision(self.target, kits=["reviewer"])
-        with unittest.mock.patch.object(forge, "sdk_info", return_value={"commit": None, "date": None}):
-            res = forge.provision(self.target, refresh=True)
-        # Every stamped kit: base and reviewer, so no kit result at all, and sync still answers.
-        self.assertEqual([r["kit"] for r in res["refused_newer"]], ["base", "reviewer"])
-        self.assertEqual(res["kits"], [])
-        self.assertIn("unknown", res["refused_newer"][0]["reason"])
-
-    def _stamp_reviewer(self, entry):
-        if forge.read_kit_stamp(self.target) is None:
-            forge.provision(self.target, kits=["reviewer"])
-        stamp = forge.read_kit_stamp(self.target)
-        stamp["kits"]["reviewer"] = entry
-        (self.target / ".conclave" / "kits.json").write_text(json.dumps(stamp), encoding="utf-8")
-
-    def test_a_date_without_a_time_zone_or_a_malformed_entry_is_refused_not_crashed_or_ignored(self):
-        for entry in ({"digest": "x", "commit": "c" * 40, "date": "2099-01-01"},
-                      {"digest": "x", "commit": "c" * 40, "date": "2099-01-01T00:00:00"},
-                      "malformed", {"digest": "x", "commit": "c" * 40, "date": 2099}):
-            self._stamp_reviewer(entry)
-            res = forge.provision(self.target, refresh=True)
-            self.assertIn("reviewer", [r["kit"] for r in res["refused_newer"]], repr(entry))
-            self.assertEqual(forge.read_kit_stamp(self.target)["kits"]["reviewer"], entry, "a refused kit's entry was rewritten")
-
-    def test_sync_that_refuses_a_kit_leaves_the_agent_manifests_as_they_are(self):
-        forge.provision(self.target, kits=["reviewer"], mode="inherit", agent="all")
-        stamp = forge.read_kit_stamp(self.target)
-        stamp["kits"]["reviewer"] = {"digest": "later", "commit": "c" * 40, "date": "2099-01-01T00:00:00+00:00"}
-        (self.target / ".conclave" / "kits.json").write_text(json.dumps(stamp), encoding="utf-8")
-        manifests = {name: (self.target / ".agents" / name).read_bytes() for name in ("skills.json", "plugins.json")
-                     if (self.target / ".agents" / name).is_file()}
-        self.assertIn("skills.json", manifests)
-        for mode in ("inherit", "isolated"):
-            res = forge.provision(self.target, refresh=True, mode=mode, agent="all")
-            self.assertEqual([r["kit"] for r in res["refused_newer"]], ["reviewer"])
-            for name, before in manifests.items():
-                # The same entries: the refused kit's as they were, the synced base kit's from this SDK as before.
-                entries = lambda raw: sorted(e["path"] for e in json.loads(raw)["entries"])
-                self.assertEqual(entries((self.target / ".agents" / name).read_bytes()), entries(before), f"{mode} sync changed {name}")
-
-    def test_a_refusing_sync_keeps_the_refused_kits_manifest_entries_and_adds_the_others(self):
-        forge.provision(self.target, kits=["reviewer"], mode="inherit", agent="all")
-        stamp = forge.read_kit_stamp(self.target)
-        stamp["kits"]["reviewer"] = {"digest": "later", "commit": "c" * 40, "date": "2099-01-01T00:00:00+00:00"}
-        (self.target / ".conclave" / "kits.json").write_text(json.dumps(stamp), encoding="utf-8")
-        skills = self.target / ".agents" / "skills.json"
-        manifest = json.loads(skills.read_text(encoding="utf-8"))
-        # The newer SDK's own path for the reviewer's skills, which this older SDK must not rewrite.
-        newer_path = "/newer-sdk/kits/reviewer/templates/.agents/skills"
-        manifest["entries"] = [e if "/kits/reviewer/" not in e["path"] else {"path": newer_path} for e in manifest["entries"]]
-        skills.write_text(json.dumps(manifest), encoding="utf-8")
-        res = forge.provision(self.target, refresh=True, kits=["todo"], mode="inherit", agent="all")
-        self.assertEqual([r["kit"] for r in res["refused_newer"]], ["reviewer"])
-        paths = [e["path"] for e in json.loads(skills.read_text(encoding="utf-8"))["entries"]]
-        self.assertIn(newer_path, paths, "the refused kit's entry was dropped or rewritten")
-        self.assertTrue(any("/kits/todo/" in p for p in paths), "the newly synced todo kit has no entry")
-        self.assertTrue(any("/kits/base/" in p for p in paths))
-        self.assertFalse(any("/kits/reviewer/" in p and p != newer_path for p in paths), "this SDK's reviewer path was added")
-
-    def test_an_inherited_newer_kit_with_no_local_files_is_refused_and_keeps_its_entry(self):
-        forge.provision(self.target, kits=["todo"], mode="inherit", agent="agy", include_scripts=False)
-        self.assertNotIn("todo", forge.installed_kits(self.target), "the inherited kit must be invisible to installed_kits")
-        stamp = forge.read_kit_stamp(self.target)
-        stamp["kits"]["todo"] = {"digest": "later", "commit": "c" * 40, "date": "2099-01-01T00:00:00+00:00"}
-        (self.target / ".conclave" / "kits.json").write_text(json.dumps(stamp), encoding="utf-8")
-        skills = self.target / ".agents" / "skills.json"
-        todo_entries = [e for e in json.loads(skills.read_text(encoding="utf-8"))["entries"] if "/kits/todo/" in e["path"]]
-        self.assertTrue(todo_entries)
-        res = forge.provision(self.target, refresh=True, mode="inherit", agent="agy", include_scripts=False)
-        self.assertIn("todo", [r["kit"] for r in res["refused_newer"]])
-        after = json.loads(skills.read_text(encoding="utf-8"))["entries"]
-        for entry in todo_entries:
-            self.assertIn(entry, after, "the newer inherited kit's entry was dropped")
-
-    def test_a_malformed_manifest_is_read_as_no_entries(self):
-        forge.provision(self.target, kits=["todo"], mode="inherit", agent="all")
-        skills = self.target / ".agents" / "skills.json"
-        for broken in ('{"entries": null}', '{"entries": "x"}', '[]', 'not json'):
-            skills.write_text(broken, encoding="utf-8")
-            forge.provision(self.target, refresh=True, mode="inherit", agent="all")
-            self.assertIsInstance(json.loads(skills.read_text(encoding="utf-8"))["entries"], list, broken)
-
-    def test_check_reports_the_stamp(self):
-        self.assertIsNone(forge.check_repo(self.target)["kit_stamp"])
-        forge.provision(self.target)
-        self.assertEqual(forge.check_repo(self.target)["kit_stamp"], self.stamp())
 
 
 class ProcessPlanAuditTests(unittest.TestCase):

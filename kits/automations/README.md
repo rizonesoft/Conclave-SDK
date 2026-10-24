@@ -6,18 +6,18 @@ Additive overlay that gives a project scheduled jobs that report their own failu
 
 All paths under `.conclave/automations/` unless they start with a dot folder or `scripts/`.
 
-| Path | Role | `sync` |
+| Path | Role | Edited |
 | ---- | ---- | ---- |
 | `tasks.json` | The project's task list (`folder: null` until set) | Never |
 | `README.md` | What runs, when, and when it fails | Never |
-| `run.py` | Runs a task, keeps its log, calls the alert on a failure | Scripts |
-| `alert.py` | The failure email through SMTP2GO, key from the vault | Scripts |
-| `install.ps1` | Registers every task in Task Scheduler, under the folder | Scripts |
-| `install.sh` | The same as systemd user timers on Linux and WSL | Scripts |
-| `scripts/tests/test_automations.py` | Runner, alert, unit and installer tests | Scripts |
-| `.{agents,claude,codex}/skills/scheduled-automations/` | How to add or fix a task | Always |
+| `run.py` | Runs a task, keeps its log, calls the alert on a failure | Runner |
+| `alert.py` | The failure email through SMTP2GO, key from the vault | Runner |
+| `install.ps1` | Registers every task in Task Scheduler, under the folder | Runner |
+| `install.sh` | The same as systemd user timers on Linux and WSL | Runner |
+| `scripts/tests/test_automations.py` | Runner, alert, unit and installer tests | Runner |
+| `.{agents,claude,codex}/skills/scheduled-automations/` | How to add or fix a task | Skill |
 
-"Scripts" means `python forge.py sync <target> --include-scripts` refreshes the file; the task list and its README stay the project's.
+Every file is copied once and is the project's from then on. "Never" means the project edits it as a matter of course; "Runner" means the project changes it only to fix the runner itself, never to add a task.
 
 ## The task list
 

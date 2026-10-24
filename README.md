@@ -14,7 +14,7 @@ Each agent reads only its own isolated folder and entrypoint alongside the share
 
 | Path | Purpose |
 | ---- | ------- |
-| `forge.py` / `forge.cmd` | CLI: `init`, `sync`, `kit`, `doctor`, `kits`, `check`. |
+| `forge.py` / `forge.cmd` | CLI: `init`, `kit`, `doctor`, `kits`, `check`, `self-sync`. |
 | `kits/base/` | Every repo: entry docs, safety skills, subagents, rules, tier check. |
 | `kits/todo/` | TODO skills, `todo-graph.py`, starter `todo/` tree, workflow doc. |
 | `kits/reviewer/` | Reviewer pin (one reviewer of another model family) and dispatcher. |
@@ -31,7 +31,7 @@ Each agent reads only its own isolated folder and entrypoint alongside the share
 
 ## Importing into a New or Existing Project (Gemini, Claude, or Codex)
 
-The usual way in is the `adopt-conclave` skill, which the base kit installs for every agent: ask your agent, for example "adopt-conclave, add the reviewer kit to R:\GitHub\Site", and it runs the commands below for you, previewing each kit with `--dry-run`, resolving conflicts with you and checking the protected files with git afterwards. The commands below are what it runs, and work the same by hand.
+Conclave-SDK is a template, not a master copy. `init` and `kit` copy files into the project once and never overwrite a file that is already there, and nothing they write records which SDK the project came from or points back at it. From then on the project owns its copy: adapt the skills, scripts and pins to the project, and they never drift against the SDK because they are not tied to it. To pick up a later SDK improvement, read the kit's change and port it by hand, like any other code you borrow.
 
 Nothing is installed unless you ask for it: `init` always installs the `base` kit and adds only the kits you name. Run from Windows PowerShell (or pass `/mnt/r/GitHub/Conclave-SDK/forge.py` inside WSL).
 
@@ -49,12 +49,11 @@ python R:\GitHub\Conclave-SDK\forge.py init R:\GitHub\MyLaravelApp --kit todo --
 
 ### 2. Existing Project
 
-`kit` adds one kit and only copies missing files. `sync` updates the kits the repository already has (plus any `--kit` you add): it refreshes their skills, rules and subagents, and with `--include-scripts` their `scripts/` and `bin/` files. Neither ever overwrites `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, `docs/`, a `todo/` plan, a site pin or other project files. Both take `--agent all|gemini|claude|codex`. Every install records which SDK set each kit up in `.conclave/kits.json` (the kit stamp), and neither command replaces a kit a later SDK set up: `kit` refuses it, `sync` leaves it and lists it under `refused_newer`, and an unknown date on either side counts as possibly newer. Run that SDK, or a later one, for those kits.
+`kit` adds one kit and only copies missing files: every file the project already has, its own or one an earlier copy left, is listed under `preserved` and left exactly as it is. It takes `--agent all|gemini|claude|codex` and `--dry-run` to preview. `check` lists the kits a repository appears to have, judged by their files alone.
 
 ```powershell
 python R:\GitHub\Conclave-SDK\forge.py kit R:\GitHub\ExistingRepo base
 python R:\GitHub\Conclave-SDK\forge.py kit R:\GitHub\ExistingRepo todo
-python R:\GitHub\Conclave-SDK\forge.py sync R:\GitHub\ExistingRepo --include-scripts
 
 # Read-only health and setup checks
 python R:\GitHub\Conclave-SDK\forge.py check R:\GitHub\ExistingRepo
@@ -76,11 +75,11 @@ Paste the prompt from [`prompts/bootstrap-project-prompt.md`](file:///R:/GitHub/
 | `laravel` | `boost.json`, `.mcp.json`, LSP diagnostics, `laravel-boost` | `artisan` exists |
 | `wordpress` | Site pin, SSH/SFTP, WordPress MCP, DDEV, PHPCS | A WordPress site |
 
-## Provisioning Modes
+## Isolation
 
-* **`isolated` (Default):** Copies tracked skills and rules into `.agents/`, `.claude/`, and `.codex/` inside the target repository with zero external path dependencies. Every repository is 100% self-contained and each agent is isolated in its own directory.
-* **`hybrid`:** Optional mode that copies isolated skills and also writes `.agents/skills.json` pointing at the Antigravity skill folders of the chosen kits.
-* **`inherit`:** Optional mode that writes `.agents/skills.json` and `.agents/plugins.json` without copying skill Markdown files.
+`forge.py` copies tracked skills and rules into `.agents/`, `.claude/` and `.codex/` inside the target repository with zero external path dependencies: no manifest, link or stamp points at the SDK. Every repository is 100% self-contained and each agent is isolated in its own directory.
+
+The SDK itself is the one exception: it plans, reviews and schedules its own work with the `base`, `todo`, `reviewer` and `automations` kits, so it keeps an installed copy of them that `python forge.py self-sync` refreshes from the kits (`tests/test_forge.py` fails until the two match).
 
 ## TODO Workflow Discipline
 

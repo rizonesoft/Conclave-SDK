@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
-"""Conclave-SDK CLI: provision, synchronize, and audit isolated agent customizations and stack kits.
+"""Conclave-SDK CLI: copy agent customizations and stack kits into a project, then audit them.
 
-    python forge.py init <target> [--mode isolated|hybrid|inherit] [--agent all|agy|gemini|claude|codex] [--kit <kit>] [--with-todo] [--force]
-    python forge.py sync <target> [--mode isolated|hybrid|inherit] [--agent all|agy|gemini|claude|codex] [--kit <kit>] [--include-scripts]
+    python forge.py init <target> [--agent all|agy|gemini|claude|codex] [--kit <kit>] [--with-todo] [--force]
     python forge.py kit <target> <kit> [--agent all|agy|gemini|claude|codex] [--host pressable|wpcom] [--dry-run]
     python forge.py doctor <target> [laravel|wordpress|reviewer|automations|todo|base] [--strict]
     python forge.py kits
     python forge.py check <target>
+    python forge.py self-sync
 
-Stdlib only. Uses atomic temp-file-then-replace writes. Default mode is 'isolated': each agent gets
-its own self-contained, tracked directory (.agents/, .claude/, .codex/) with zero external path coupling.
+Stdlib only. Uses atomic temp-file-then-replace writes. The SDK is a template, not a master copy: init and kit copy
+files once and never overwrite one that exists, and nothing records which SDK a project came from or points back
+at it, so a project owns its copy from then on. self-sync refreshes the SDK's own installed copy of its kits.
 """
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -82,131 +81,6 @@ def list_kits() -> list[str]:
     )
 
 
-# Which SDK set each kit in a folder up (plan R38), so a reader can tell older or newer kits from partly installed ones.
-KIT_STAMP = ".conclave/kits.json"
-
-
-def kit_digest(kit_name: str) -> str:
-    """SHA-256 over every file of a kit's templates and host overlays: each path relative to the kit with "/"
-    separators, in that order, and each file's SHA-256 with CRLF read as LF, so a Windows and a Linux checkout of one
-    commit give one digest."""
-    kit_root = FORGE_ROOT / "kits" / kit_name
-    # Bytecode left by running a kit's own tests is not kit content: the installer never copies it either.
-    files = sorted(
-        (path.relative_to(kit_root).as_posix(), path)
-        for top in ("templates", "hosts")
-        for path in (kit_root / top).rglob("*")
-        if path.is_file() and "__pycache__" not in path.parts
-    )
-    digest = hashlib.sha256()
-    for rel, path in files:
-        body = hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
-        digest.update(f"{rel}\0{body}\n".encode("utf-8"))
-    return digest.hexdigest()
-
-
-# sdk_info's answer per SDK folder: it cannot change while forge runs, and reading it costs a git process.
-_SDK_INFO: dict[str, dict] = {}
-
-
-def sdk_info() -> dict:
-    """The commit and commit date of the SDK forge runs from: git's in a checkout, else SDK_COMMIT and SDK_DATE beside
-    forge.py (the copy bundled in the VS Code extension), else null. Read once per SDK folder."""
-    key = str(FORGE_ROOT)
-    if key not in _SDK_INFO:
-        _SDK_INFO[key] = _read_sdk_info()
-    return dict(_SDK_INFO[key])
-
-
-def _read_sdk_info() -> dict:
-    if (FORGE_ROOT / ".git").exists():
-        try:
-            run = subprocess.run(["git", "-C", str(FORGE_ROOT), "show", "-s", "--format=%H %cI", "HEAD"],
-                                 capture_output=True, text=True, timeout=30, check=True)
-            commit, date = run.stdout.split()
-            return {"commit": commit, "date": date}
-        except (OSError, subprocess.SubprocessError, ValueError) as exc:
-            # A checkout where git cannot run has no known commit: said on stderr, and the stamp records null.
-            print(f"forge.py: warning: could not read the SDK commit with git: {exc}", file=sys.stderr)
-
-    def read(name: str) -> str | None:
-        try:
-            return (FORGE_ROOT / name).read_text(encoding="utf-8").strip() or None
-        except OSError:
-            return None
-
-    return {"commit": read("SDK_COMMIT"), "date": read("SDK_DATE")}
-
-
-def forge_digest() -> str:
-    """SHA-256 of forge.py itself, CRLF read as LF: the bundled SDK is forge.py and the kits, so both are recorded."""
-    return hashlib.sha256((FORGE_ROOT / "forge.py").read_bytes().replace(b"\r\n", b"\n")).hexdigest()
-
-
-def sdk_digest() -> dict:
-    """`forge.py digest`: the SDK's commit and date, forge.py's digest and every kit's digest, the one definition the
-    stamp, the VS Code extension's recorded digest and its drift test share."""
-    return {"sdk": sdk_info(), "forge": forge_digest(), "kits": {kit: kit_digest(kit) for kit in list_kits()}}
-
-
-def read_kit_stamp(target_root: Path) -> dict | None:
-    try:
-        stamp = json.loads((Path(target_root) / KIT_STAMP).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    return stamp if isinstance(stamp, dict) and isinstance(stamp.get("kits"), dict) else None
-
-
-def stamped_newer(target_root: Path, kit_name: str) -> str | None:
-    """Why this SDK must not replace the kit's files, or None: the folder's stamp says a later SDK set the kit up, or
-    its entry cannot be read, or a date on either side is unknown or has no time zone, none of which is ever taken as
-    older. A kit with no stamp entry at all is never refused."""
-    kits = (read_kit_stamp(target_root) or {}).get("kits") or {}
-    if kit_name not in kits:
-        return None
-    entry = kits[kit_name]
-    sdk = sdk_info()
-    if not isinstance(entry, dict):
-        return f"{kit_name}'s stamp entry cannot be read ({entry!r}), so this SDK might be older; run the SDK that set it up"
-
-    def when(text):
-        try:
-            moment = datetime.fromisoformat(text) if isinstance(text, str) else None
-        except ValueError:
-            return None
-        # A date without a time zone cannot be ordered against git's: unknown.
-        return moment if moment is not None and moment.tzinfo is not None else None
-
-    theirs, ours = when(entry.get("date")), when(sdk["date"])
-    if theirs is None or ours is None:
-        return (f"{kit_name} was set up from Conclave-SDK@{entry.get('commit')} ({entry.get('date')}) and this SDK is "
-                f"@{sdk['commit']} ({sdk['date']}): a date is unknown, so this SDK might be older; run the SDK that set it up")
-    if theirs > ours:
-        return (f"{kit_name} was set up from Conclave-SDK@{entry.get('commit')} ({entry.get('date')}), newer than this "
-                f"SDK @{sdk['commit']} ({sdk['date']}); run that SDK or a later one")
-    return None
-
-
-def write_kit_stamp(target_root: Path, kits: list[str], digests: dict | None = None) -> bool:
-    """Records kits as set up from this SDK in the folder's .conclave/kits.json, keeping the other kits' entries. Not in
-    the SDK folder itself, whose stamp would name a commit it can never be part of, and never through a link."""
-    target_root = Path(target_root)
-    if not kits or os.path.normcase(str(target_root)) == os.path.normcase(str(FORGE_ROOT)):
-        return False
-    path = target_root / KIT_STAMP
-    if path.is_symlink() or _has_unsafe_parent(target_root, KIT_STAMP):
-        return False
-    old = read_kit_stamp(target_root)
-    # Other kits' entries stay exactly as found, an unreadable one too: it is that kit's record, not this run's.
-    entries = dict((old or {}).get("kits", {}))
-    sdk = sdk_info()
-    for kit in kits:
-        # A digest read before the kit's files were written is passed in, so the stamp follows them at once.
-        entries[kit] = {"digest": (digests or {}).get(kit) or kit_digest(kit), "commit": sdk["commit"], "date": sdk["date"]}
-    atomic_write(path, json.dumps({"schema_version": 1, "kits": dict(sorted(entries.items()))}, indent=2) + "\n")
-    return True
-
-
 def _has_unsafe_parent(target_root: Path, rel_path: str) -> bool:
     parts = Path(rel_path).parts[:-1]
     current = target_root
@@ -257,48 +131,18 @@ TODO_SKILLS = (
 WORDPRESS_PIN = ".conclave/wordpress-site.json"
 REVIEWER_PIN = ".conclave/reviewers.toml"
 AUTOMATIONS_DIR = ".conclave/automations"
-# The automations kit's runner, alert and installers: kit code that `sync --include-scripts` refreshes, beside the
-# project's own tasks.json and README.md in the same folder.
+# The automations kit's runner, alert and installers: kit code, beside the project's own tasks.json and README.md.
 AUTOMATIONS_SCRIPTS = tuple(f"{AUTOMATIONS_DIR}/{name}" for name in ("run.py", "alert.py", "install.ps1", "install.sh"))
 
 
 KIT_ORDER = ("base", "todo", "reviewer", "automations", "laravel", "wordpress")
-BASE_SKILLS = ("adopt-conclave", "authoring-skills", "local-tool-safety")
+BASE_SKILLS = ("authoring-skills", "local-tool-safety")
 AGENT_DIRS = (".agents", ".claude", ".codex")
-SDK_MANAGED_PREFIXES = tuple(f"{d}/{kind}/" for d in AGENT_DIRS for kind in ("skills", "rules")) + (".claude/agents/",)
-SDK_MANAGED_SCRIPT_PREFIXES = ("scripts/", "bin/") + AUTOMATIONS_SCRIPTS
-
-
-def _is_sdk_managed(rel: str, include_scripts: bool) -> bool:
-    """Files `sync` may bring up to date: what the SDK owns, never what the project writes."""
-    if rel.startswith(SDK_MANAGED_PREFIXES):
-        return True
-    return include_scripts and rel.startswith(SDK_MANAGED_SCRIPT_PREFIXES)
-
-
-def _kit_files_current(target_root: Path, kit_name: str, host: str | None) -> bool:
-    """Whether every SDK-managed file of the kit (all agents, scripts included) present in the folder is this SDK's
-    file, CRLF read as LF as in `kit_digest`: a link, an unsafe parent or a different file means it came from
-    elsewhere. It speaks for the files this SDK's kit has: forge never deletes, so a file an older SDK shipped and this
-    one retired stays in the folder whatever the stamp says, and no sync could remove it."""
-    roots = [FORGE_ROOT / "kits" / kit_name / "templates"]
-    if host:
-        roots.append(FORGE_ROOT / "kits" / kit_name / "hosts" / host / "templates")
-    for root in roots:
-        for src in root.rglob("*"):
-            if not src.is_file():
-                continue
-            rel = src.relative_to(root).as_posix()
-            if not _rel_allowed_for_agent(rel, "all") or not _is_sdk_managed(rel, True):
-                continue
-            dst = target_root / rel
-            if not (dst.exists() or dst.is_symlink()):
-                continue
-            if dst.is_symlink() or not dst.is_file() or _has_unsafe_parent(target_root, rel):
-                return False
-            if dst.read_bytes().replace(b"\r\n", b"\n") != src.read_bytes().replace(b"\r\n", b"\n"):
-                return False
-    return True
+# The kits the SDK installs in itself (AGENTS.md), and the files of theirs `self-sync` keeps current there: skills,
+# rules, subagents, scripts and the automations runner. The SDK's own docs, plan and pins are its project files.
+SELF_KITS = ("base", "todo", "reviewer", "automations")
+SELF_PREFIXES = tuple(f"{d}/{kind}/" for d in AGENT_DIRS for kind in ("skills", "rules")) + (
+    ".claude/agents/", "scripts/", "bin/", "docs/") + AUTOMATIONS_SCRIPTS
 
 
 def installed_kits(target_root: Path) -> list[str]:
@@ -347,15 +191,12 @@ def apply_kit(
     agent: str = "all",
     dry_run: bool = False,
     host: str | None = None,
-    refresh: bool = False,
-    refresh_scripts: bool = False,
     include=None,
 ) -> dict:
     """Apply an additive overlay kit ('base', 'todo', 'reviewer', 'automations', 'laravel', 'wordpress') for all or one agent without overwriting existing files.
 
-    `refresh` (used by `sync`) also brings SDK-managed files that already exist up to date: skills, rules and
-    subagents, plus scripts and bin/ helpers when `refresh_scripts` is set. Project files (entry docs, docs/, todo/,
-    site pins, config) are never overwritten. `include(rel)` can leave paths out entirely.
+    A file that already exists is the project's and is never replaced: the kit is a template copied once, and the
+    project adapts its copy from then on. `include(rel)` can leave paths out entirely.
 
     `host` picks the WordPress kit's host overlay (kits/wordpress/hosts/<host>/templates); other kits ignore it. An
     existing site pin decides the host, so re-running the kit can never add another host's files; without a pin the
@@ -370,16 +211,6 @@ def apply_kit(
     available = list_kits()
     if kit_name not in available:
         raise ValueError(f"Unknown kit '{kit_name}'. Available kits: {', '.join(available)}")
-    # A kit a later SDK set up is never replaced by this one (a dry run only reads, so it still answers). The SDK's
-    # commit and the kit's digest are read before any file is written, so the stamp follows the kit's files at once and
-    # a watcher sees one burst of writes, not two.
-    digest = None
-    if not dry_run:
-        sdk_info()
-        digest = kit_digest(kit_name)
-        newer = stamped_newer(target_root, kit_name)
-        if newer:
-            raise ValueError(f"Refusing to replace a newer kit: {newer}")
 
     template_root = FORGE_ROOT / "kits" / kit_name / "templates"
     installed: list[str] = []
@@ -451,17 +282,9 @@ def apply_kit(
         if _has_unsafe_parent(target_root, rel):
             raise ValueError(f"Refusing destination with unsafe parent: {rel}")
 
-    updated: list[str] = []
     for src, dst, rel in plan:
         if dst.exists() or dst.is_symlink():
-            refreshable = refresh and _is_sdk_managed(rel, refresh_scripts) and dst.is_file() and not dst.is_symlink()
-            # An existing file under a symlinked directory belongs to wherever the link points; never write through it.
-            if refreshable and not _has_unsafe_parent(target_root, rel) and dst.read_bytes() != src.read_bytes():
-                if not dry_run:
-                    atomic_write(dst, src.read_bytes())
-                updated.append(rel)
-            else:
-                preserved.append(rel)
+            preserved.append(rel)
             continue
         if not dry_run:
             atomic_write(dst, src.read_bytes())
@@ -488,19 +311,12 @@ def apply_kit(
                 atomic_write(mcp_path, json.dumps(payload, indent=4) + "\n")
             installed.append(".mcp.json")
 
-    # The stamp says which SDK this kit's files came from, so it is written only when every SDK-managed file of the
-    # kit in the folder matches this SDK, for every agent and with scripts. Files kept from an earlier install (sync
-    # without --include-scripts, sync for one agent, kit over an install) leave that install's entry.
-    if not dry_run and _kit_files_current(target_root, kit_name, extra.get("host")):
-        write_kit_stamp(target_root, [kit_name], {kit_name: digest})
-
     return {
         "target": target_root.as_posix(),
         "kit": kit_name,
         "agent": agent,
         "dry_run": dry_run,
         "installed": installed,
-        "updated": updated,
         "preserved": preserved,
         "merge_needed": merge_needed,
         **extra,
@@ -775,60 +591,35 @@ ENTRY_DOCS = ("AGENTS.md", "GEMINI.md", "CLAUDE.md", "CODEX.md")
 def provision(
     target_root: Path,
     *,
-    mode: str = "isolated",
     agent: str = "all",
     include_scripts: bool = True,
     with_todo: bool = False,
     kits: list[str] | None = None,
     wordpress_host: str | None = None,
     overwrite_existing_docs: bool = False,
-    refresh: bool = False,
-    refresh_scripts: bool = False,
 ) -> dict:
-    """`init` and `sync`: install the base kit plus only the kits asked for, never the whole SDK.
-
-    `with_todo` is shorthand for the `todo` kit. With `refresh` (`sync`), every kit the repository already has is
-    included too, and its SDK-managed files are brought up to date (scripts only with `refresh_scripts`). Project
-    files are never overwritten; `overwrite_existing_docs` (`init --force`) rewrites only the four entry docs.
-    `hybrid` also writes `.agents/skills.json`; `inherit` writes the Antigravity manifests instead of copying its skills.
+    """`init`: copy the base kit plus only the kits asked for, never the whole SDK, and never over a file the project
+    already has. `with_todo` is shorthand for the `todo` kit; `overwrite_existing_docs` (`init --force`) rewrites only
+    the four entry docs. Nothing written points back at the SDK, so the project owns everything init copied.
     """
-    if mode == "copy":
-        mode = "isolated"
     agent = normalize_agent(agent)
     target_root = Path(target_root).resolve()
     # Checked on the resolved path, which is the one written to, so no link (dangling or retargeted before this run)
     # can lead into git's own data, or lead init over the kits' own source.
     if any(os.path.normcase(part) == ".git" for part in target_root.parts):
         raise ValueError(f"Target is inside a .git folder: {target_root}")
-    if not refresh and os.path.normcase(str(target_root)) == os.path.normcase(str(FORGE_ROOT)):
-        raise ValueError(f"Target is the Conclave-SDK source folder itself: {target_root}")
+    if os.path.normcase(str(target_root)) == os.path.normcase(str(FORGE_ROOT)):
+        raise ValueError(f"Target is the Conclave-SDK source folder itself (use self-sync): {target_root}")
     target_root.mkdir(parents=True, exist_ok=True)
 
-    # sync refreshes the kits the folder has: those its files show, and those its kit stamp names, which also covers a
-    # kit inherited through a manifest with no local file, so the newer-kit guard sees it.
-    stamped = [k for k in ((read_kit_stamp(target_root) or {}).get("kits") or {}) if k in list_kits()] if refresh else []
-    chosen = ["base", *(["todo"] if with_todo else []), *(kits or []), *(installed_kits(target_root) if refresh else []), *stamped]
+    chosen = ["base", *(["todo"] if with_todo else []), *(kits or [])]
     selected = [k for k in KIT_ORDER if k in chosen] + [k for k in dict.fromkeys(chosen) if k not in KIT_ORDER]
 
     def include(rel: str) -> bool:
-        if not include_scripts and rel.startswith("scripts/"):
-            return False
-        return not (mode == "inherit" and rel.startswith(".agents/skills/"))
+        return include_scripts or not rel.startswith("scripts/")
 
-    # sync goes on with the other kits and reports a kit a later SDK set up; init and kit refuse it in apply_kit.
-    refused_newer = []
-    if refresh:
-        for kit_name in list(selected):
-            newer = stamped_newer(target_root, kit_name)
-            if newer:
-                refused_newer.append({"kit": kit_name, "reason": newer})
-                selected.remove(kit_name)
-
-    kit_results = [
-        apply_kit(target_root, kit_name, agent=agent, host=wordpress_host, refresh=refresh,
-                  refresh_scripts=refresh_scripts, include=include)
-        for kit_name in selected
-    ]
+    kit_results = [apply_kit(target_root, kit_name, agent=agent, host=wordpress_host, include=include)
+                   for kit_name in selected]
 
     forced: list[str] = []
     if overwrite_existing_docs:
@@ -839,54 +630,41 @@ def provision(
                 forced.append(doc)
 
     agents_md = target_root / "AGENTS.md"
-    # The base kit's result, if it ran: sync may have refused it as stamped newer.
-    base_result = next((r for r in kit_results if r["kit"] == "base"), None)
-    fresh_agents = (base_result is not None and "AGENTS.md" in base_result["installed"]) or "AGENTS.md" in forced
+    fresh_agents = "AGENTS.md" in kit_results[0]["installed"] or "AGENTS.md" in forced
     if "todo" in selected and fresh_agents and agents_md.is_file():
         atomic_write(agents_md, agents_md.read_bytes() + TODO_POINTER.encode("utf-8"))
 
-    # The manifests point at the folders of whichever SDK set each kit up. A kit sync refused as newer keeps its own
-    # entries exactly as they are; the kits this run applied get this SDK's entries; and with a refusal nothing is
-    # deleted, since the refused kits' entries are still in use.
-    refused = {r["kit"] for r in refused_newer}
-
-    def refused_entries(path: Path) -> list:
-        # A manifest that is missing, not JSON, or whose entries are not a list has no entries to keep.
-        try:
-            old = json.loads(path.read_text(encoding="utf-8")).get("entries", [])
-        except (OSError, ValueError, AttributeError):
-            return []
-        if not isinstance(old, list):
-            return []
-        return [e for e in old if isinstance(e, dict) and any(f"/kits/{k}/" in str(e.get("path", "")) for k in refused)]
-
-    if agent in ("all", "agy"):
-        for stale_json in (target_root / ".agents/skills.json", target_root / ".agents/plugins.json"):
-            if mode == "isolated" and stale_json.is_file() and not refused:
-                stale_json.unlink()
-        # The manifests reference the chosen kits' own folders, so they never expose more than was asked for.
-        if mode in ("hybrid", "inherit"):
-            skill_dirs = [FORGE_ROOT / "kits" / k / "templates/.agents/skills" for k in selected]
-            manifest = target_root / ".agents/skills.json"
-            entries = refused_entries(manifest) + [{"path": d.as_posix()} for d in skill_dirs if d.is_dir()]
-            write_if_allowed(manifest, json.dumps({"entries": entries}, indent=2) + "\n", True)
-        if mode == "inherit":
-            plugin_dirs = [FORGE_ROOT / "kits" / k / "plugins" for k in selected]
-            manifest = target_root / ".agents/plugins.json"
-            entries = refused_entries(manifest) + [{"path": d.as_posix()} for d in plugin_dirs if d.is_dir()]
-            write_if_allowed(manifest, json.dumps({"entries": entries}, indent=2) + "\n", True)
-
-    written = [rel for r in kit_results for rel in (*r["installed"], *r["updated"])] + forced
+    written = [rel for r in kit_results for rel in r["installed"]] + forced
     skipped = [rel for r in kit_results for rel in r["preserved"] if rel not in forced]
     return {
         "target": target_root.as_posix(),
-        "mode": mode,
         "agent": agent,
         "written": written,
         "skipped": skipped,
         "kits": kit_results,
-        "refused_newer": refused_newer,
     }
+
+
+def self_sync(dry_run: bool = False) -> dict:
+    """`self-sync`: bring the SDK's own installed copy of its kits (SELF_KITS) up to date with the kits, which are the
+    only source (AGENTS.md). Only SELF_PREFIXES files are written; the SDK's entry docs, docs/, todo/ and pins stay
+    its own. This is the one place forge overwrites, and only inside the SDK folder: projects are never synced."""
+    updated: list[str] = []
+    for kit_name in SELF_KITS:
+        template_root = FORGE_ROOT / "kits" / kit_name / "templates"
+        for src in sorted(template_root.rglob("*")):
+            rel = src.relative_to(template_root).as_posix()
+            if not src.is_file() or not rel.startswith(SELF_PREFIXES) or not _rel_allowed_for_agent(rel, "all"):
+                continue
+            dst = FORGE_ROOT / rel
+            if dst.is_symlink() or _has_unsafe_parent(FORGE_ROOT, rel):
+                raise ValueError(f"Refusing to write through a link in the SDK folder: {rel}")
+            if dst.is_file() and dst.read_bytes().replace(b"\r\n", b"\n") == src.read_bytes().replace(b"\r\n", b"\n"):
+                continue
+            if not dry_run:
+                atomic_write(dst, src.read_bytes())
+            updated.append(rel)
+    return {"target": FORGE_ROOT.as_posix(), "dry_run": dry_run, "updated": updated}
 
 
 def check_repo(target_root: Path) -> dict:
@@ -901,15 +679,13 @@ def check_repo(target_root: Path) -> dict:
         "has_gemini_md": (target_root / "GEMINI.md").is_file(),
         "has_claude_md": (target_root / "CLAUDE.md").is_file(),
         "has_codex_md": (target_root / "CODEX.md").is_file(),
-        "has_agy_skills_json": (target_root / ".agents/skills.json").is_file(),
-        "has_agy_plugins_json": (target_root / ".agents/plugins.json").is_file(),
         "has_todo_graph": (target_root / "scripts/todo-graph.py").is_file(),
         "has_verify_agent_tiers": (target_root / "scripts/verify-agent-tiers.mjs").is_file(),
         "agy_skills": agy_skills,
         "claude_skills": claude_skills,
         "codex_skills": codex_skills,
         "claude_agents": claude_agents,
-        "kit_stamp": read_kit_stamp(target_root),
+        "kits": installed_kits(target_root),
     }
 
 
@@ -922,21 +698,12 @@ def main(argv: list[str] | None = None) -> int:
 
     p_init = sub.add_parser("init", help="Install the base kit plus only the kits named with --kit")
     p_init.add_argument("target", help="Target repository path")
-    p_init.add_argument("--mode", choices=["isolated", "copy", "hybrid", "inherit"], default="isolated")
     p_init.add_argument("--agent", choices=AGENT_CHOICES, default="all")
     p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, reviewer, automations, laravel, wordpress)")
     p_init.add_argument("--wp-host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
     p_init.add_argument("--no-scripts", action="store_true", help="Leave out the kits' scripts/ files")
     p_init.add_argument("--with-todo", action="store_true", help="Shorthand for --kit todo")
     p_init.add_argument("--force", action="store_true", help="Overwrite existing AGENTS.md, GEMINI.md, CLAUDE.md, CODEX.md")
-
-    p_sync = sub.add_parser("sync", help="Update the kits a repo already has (plus any --kit); project files are never overwritten")
-    p_sync.add_argument("target", help="Target repository path")
-    p_sync.add_argument("--mode", choices=["isolated", "copy", "hybrid", "inherit"], default="isolated")
-    p_sync.add_argument("--agent", choices=AGENT_CHOICES, default="all")
-    p_sync.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, reviewer, automations, laravel, wordpress)")
-    p_sync.add_argument("--wp-host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
-    p_sync.add_argument("--include-scripts", action="store_true", help="Also update existing scripts/ and bin/ files from the kits")
 
     p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, todo, reviewer, automations, laravel, wordpress) to a target repo")
     p_kit.add_argument("target", help="Target repository path")
@@ -951,7 +718,8 @@ def main(argv: list[str] | None = None) -> int:
     p_doc.add_argument("--strict", action="store_true", help="Exit 3 if any check is missing or setup_required")
 
     sub.add_parser("kits", help="List available overlay kits")
-    sub.add_parser("digest", help="Print the SDK commit and date and every kit's digest as JSON")
+    p_self = sub.add_parser("self-sync", help="Refresh the SDK's own installed copy of base, todo, reviewer and automations")
+    p_self.add_argument("--dry-run", action="store_true", help="List the files that would change without writing")
 
     p_check = sub.add_parser("check", help="Inspect a target repository's agent setup")
     p_check.add_argument("target", help="Target repository path")
@@ -969,8 +737,8 @@ def _run(args: argparse.Namespace) -> int:
     if args.command == "kits":
         print(json.dumps({"kits": list_kits()}, indent=2))
         return 0
-    if args.command == "digest":
-        print(json.dumps(sdk_digest(), indent=2))
+    if args.command == "self-sync":
+        print(json.dumps(self_sync(dry_run=args.dry_run), indent=2))
         return 0
 
     target = Path(args.target)
@@ -990,26 +758,12 @@ def _run(args: argparse.Namespace) -> int:
     if args.command == "init":
         res = provision(
             target,
-            mode=args.mode,
             agent=args.agent,
             include_scripts=not args.no_scripts,
             with_todo=args.with_todo,
             kits=args.kit,
             wordpress_host=args.wp_host,
             overwrite_existing_docs=args.force,
-        )
-        print(json.dumps(res, indent=2))
-        return 0
-
-    if args.command == "sync":
-        res = provision(
-            target,
-            mode=args.mode,
-            agent=args.agent,
-            kits=args.kit,
-            wordpress_host=args.wp_host,
-            refresh=True,
-            refresh_scripts=args.include_scripts,
         )
         print(json.dumps(res, indent=2))
         return 0

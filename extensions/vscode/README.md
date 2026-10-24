@@ -1,6 +1,6 @@
 # Conclave for VS Code
 
-The Conclave VS Code extension: the reviewer pin editor for repositories provisioned by Conclave-SDK. It edits and tests `.conclave/reviewers.toml` through the workspace's own `scripts/review-dispatch.py`; it does not show, install or update kits (the `adopt-conclave` skill does that through `forge.py`). It is planned in `docs/plans/2026-10-16-vscode-extension.md`, designed in `docs/specs/2026-10-20-vscode-extension-design.md` and `design/SPEC.md`, and built through the SDK's `todo/` tree.
+The Conclave VS Code extension: the reviewer pin editor for repositories provisioned by Conclave-SDK. It edits and tests `.conclave/reviewers.toml` through the workspace's own `scripts/review-dispatch.py`; it does not install or update kits: `forge.py init` and `forge.py kit` copy a kit into a project once, and the project owns that copy from then on. It is planned in `docs/plans/2026-10-16-vscode-extension.md`, designed in `docs/specs/2026-10-20-vscode-extension-design.md` and `design/SPEC.md`, and built through the SDK's `todo/` tree.
 
 ## Develop
 
