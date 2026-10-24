@@ -11,13 +11,13 @@ Exactly three endings: zero open rows and a written closeout; every leftover row
 
 The whole plan is `process-plan`, not this skill. When the session entered through `process-plan`, return to it after closeout or park; a session pinned to one phase ends here.
 
-Attended means interruptible, not stoppable: answer a mid-run message briefly and continue the loop in the same turn. The one exception outranks everything: if the user tells you to stop or pause, obey immediately, record it in the run file, end the run guard (`python scripts/campaign_guard.py end --session $CLAUDE_CODE_SESSION_ID --reason operator-stop`, then `CronDelete` the heartbeat it names), and wait.
+Attended means interruptible, not stoppable: answer a mid-run message briefly and continue the loop in the same turn. The one exception outranks everything: if the user tells you to stop or pause, obey immediately, record it in the run file, end the run guard (`python scripts/campaign_guard.py end --session $CLAUDE_CODE_SESSION_ID --reason operator-stop`, with `$env:CLAUDE_CODE_SESSION_ID` in PowerShell, then `CronDelete` the heartbeat it names), and wait.
 
 Completion never buys completion with a bypass: no `--no-verify`, no amend of a candidate under review, no force-push. A red gate is work, not a skip.
 
 ## Step 0: open the run
 
-Check that no other writer holds the tree (`git status`; ask about unfamiliar uncommitted work). Writes are serial: this run is the only writer. Open the run file `docs/phase-runs/<YYYY-MM-DD>-phase-<N>.md` (create `docs/phase-runs/` if absent) and append every finding the moment it is made: the file survives session death where chat scrollback does not. A phase started on its own (not from `process-plan`) starts the run guard first, as `process-plan` describes, with `--scope phase`, so its heartbeat resumes this phase and never the rest of the plan; one started from `process-plan` already has it.
+Read `todo/README.md` (the format every TODO edit keeps) before the run's first write, then check that no other writer holds the tree (`git status`; ask about unfamiliar uncommitted work). Writes are serial: this run is the only writer. Open the run file `docs/phase-runs/<YYYY-MM-DD>-phase-<N>.md` (create `docs/phase-runs/` if absent) and append every finding the moment it is made: the file survives session death where chat scrollback does not. A phase started on its own (not from `process-plan`) starts the run guard first, as `process-plan` describes, with `--scope phase`, so its heartbeat resumes this phase and never the rest of the plan; one started from `process-plan` already has it.
 
 ```markdown
 # Phase run: <heading>
@@ -45,11 +45,26 @@ Read the most recent prior run file for this phase, if one exists: anything unre
 
 ## Step 2: gap-audit the phase for 100% completeness
 
-Read the phase as a user would use it, end to end, against its governing documents (the milestone "Done when" in the foundation plan, the SPEC sections the phase implements). Ask what is missing for a 100% complete phase: screens, dialogs, controls, settings consumers, refusal/error paths, undo/reverse paths, persistence read-backs, or handoffs between domains nobody specified. Split any coarse umbrella sections into small, single-responsibility sections and expand any summary checkboxes into concrete five-part micro-steps. File each gap with `add-todo` (evidence, owner, dependency) and sync the plan. Never cap planning or silently drop scope. A gap found is a gap filed the same turn.
+Read the phase as a user would use it, end to end, against its governing documents (the milestone "Done when" in the project's governing plan, the SPEC sections the phase implements). Ask what is missing for a 100% complete phase: screens, dialogs, controls, settings consumers, refusal/error paths, undo/reverse paths, persistence read-backs, or handoffs between domains nobody specified. Split any coarse umbrella sections into small, single-responsibility sections and expand any summary checkboxes into concrete five-part micro-steps. File each gap with `add-todo` (evidence, owner, dependency) and sync the plan. Never cap planning or silently drop scope. A gap found is a gap filed the same turn.
 
 ## Step 3: ship the phase, one row at a time
 
-In the generated plan's table order, for each open row: `process-todo-section`, then `review-todo-section`. Record each outcome in the run file. Commit the section work, then its stamp commit. Skip rows whose `resolve` is not exit 0 here, and re-check them after each stamp: the graph moves as rows flip. When every remaining open row is a leftover, the phase parks: write a column-0 `PARKED <UTC stamp> run=<run id> <one-line reason>` line in the run file (the run id `acquire` printed, so the Stop hook lets the turn end) followed by the park record (each leftover, what blocks it, where the blocker lives), commit the run file, and return to `process-plan`. A phase started on its own ends its guard here: `python scripts/campaign_guard.py end --session $CLAUDE_CODE_SESSION_ID --reason park`, `CronDelete` the job it names, confirm with `CronList`, then `cancel-confirmed`.
+In the generated plan's table order, for each open row: `process-todo-section`, then `review-todo-section`, whose one-pass completion and excellence review comes before its regular rounds and whose verdict every new stamp carries (`stamp --completion '<findings file>:<complete|completed|filed>'`, beside the plan review's `--plan` findings file). Every gap it files becomes a new section through `add-todo` in this phase or the one that owns it. Record each outcome in the run file, with the completion verdict and any sections filed. Commit the section work, then its stamp commit. After the stamp commit is pushed, run `python scripts/merge_prs.py` before claiming the next row: it merges green dependency pull requests (Dependabot, plus any producer the `merge` policy in `.conclave/ci.json` names) only when the tree is clean, `HEAD` is `origin/main` and no section is in progress, one at a time, and leaves any that fails for the operator. Record its last line in the run file when it merged or stopped.
+
+Then check CI, red first: run `python scripts/ci_status.py` (the latest completed run of each watched workflow on main, and whether newer runs are still in progress) before claiming the next row.
+
+- Exit 0: no watched workflow is red; carry on.
+- Exit 1 (red): red comes before any new row. Read the failed job's log, bounded (`gh run view <id> --log-failed`, the last 200 lines into scratch). If it is an infrastructure or flaky failure (a runner outage, a network or download failure, or a test the run file already records as flaky), run `gh run rerun <id> --failed` once and record it; a second red on the same commit is a real failure. Otherwise diagnose and fix it at the owning layer: a fix commit with a regression test that fails before it, or a section through `add-todo` when the fix is real scope (that section is then the next row). Never skip, disable or loosen a check, test or workflow to make CI green.
+- Exit 3 (`gh` missing, unauthenticated or failing): the state is unknown, never green. Record it in the run file and carry on; the next boundary checks again.
+- Record every red in the run file's Sections or Critical events: workflow, commit, run URL, failed jobs, the cause and the outcome (rerun green, fix commit, or the section filed).
+
+Long jobs never stall the run:
+
+- One heavy job at a time: a build, an instrumented or sanitizer build, a review round and a long test suite never overlap, because other sessions may share the machine. Before each, read the free memory (`(Get-Counter '\Memory\Available MBytes').CounterSamples[0].CookedValue` on Windows, `free -m` on Linux); under about 3000 MB, wait (re-check every minute, up to 30 minutes) instead of starting a job the host may kill.
+- After launching a background job, confirm within a few minutes that its process exists and its output file is growing or it has finished. Never wait on a job whose process is gone: a job that ended without its result (killed, no output, no notification) is relaunched once, alone, and the relaunch recorded in the findings file and the run file; a second loss is a Critical event, and the row continues with the next step that does not need that result or parks as a leftover.
+- An idle wait longer than 15 minutes with no job alive is a stall: re-check the job, resume the row, and record it.
+
+Skip rows whose `resolve` is not exit 0 here, and rows whose Needs name a host this session cannot reach (`resolve` and `query ready` do not know which hosts are reachable, so a host-bound row can exit 0 and still be a leftover; step 1.3 records which), and re-check them after each stamp: the graph moves as rows flip. When every remaining open row is a leftover, the phase parks: write a column-0 `PARKED <UTC stamp> run=<run id> <one-line reason>` line in the run file (the run id `acquire` printed, so the Stop hook lets the turn end) followed by the park record (each leftover, what blocks it, where the blocker lives), commit the run file, and return to `process-plan`. A phase started on its own ends its guard here: `python scripts/campaign_guard.py end --session $CLAUDE_CODE_SESSION_ID --reason park`, `CronDelete` the job it names, confirm with `CronList`, then `cancel-confirmed`.
 
 ## Step 4: closeout
 
@@ -61,3 +76,4 @@ When the phase table is all `[x]`: `process-todo-file` on any file the phase exh
 - Do not tick `implementation-plan.md` by hand. It is generated; sync it.
 - Do not claim a phase complete while its table has `[ ]` rows, and do not call a parked phase complete or a stall.
 - Do not end the turn on the audit. Ship, park, or close out.
+- Do not claim a new row while `scripts/ci_status.py` reports main red, and never make CI green by skipping, disabling or loosening a check.

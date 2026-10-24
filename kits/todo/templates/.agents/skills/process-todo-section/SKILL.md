@@ -37,9 +37,9 @@ Use the printed `skill_arg` (`DNN TNN §N`) as the canonical form for the rest o
 
 If the section carries `windows-host`, `arm64-host`, `display-session`, `office`, `libreoffice` or `attended` in Needs, confirm that environment is actually reachable before writing `Started:`. If it is not, stop and say what the section waits on: starting an environment-bound section without the environment burns a session producing nothing committable.
 
-Write `Started:` now. If the section body carries no `> **Started:**` line, add one directly under its heading with the current UTC instant. Do not overwrite an existing one on resume.
+Before the first edit in a session, read `todo/README.md` (the format every TODO edit must keep). Before any write, stop here if another writer holds the tree. Check `git status` for unfamiliar uncommitted work you do not understand, and ask before building over it.
 
-Stop here if another writer holds the tree. Check `git status` for unfamiliar uncommitted work you do not understand, and ask before building over it.
+Write `Started:` now. If the section body carries no `> **Started:**` line, add one directly under its heading with the current UTC instant. Do not overwrite an existing one on resume.
 
 ## Execution discipline
 
@@ -47,15 +47,15 @@ Stop here if another writer holds the tree. Check `git status` for unfamiliar un
 - **Follow the corrected contract.** The checklist items define the scope. Adjacent wrongness gets filed with `add-todo` (or in `todo/findings.md` with `file:line` when it is genuinely out of scope), not fixed in passing inside this section's work. The standing rule to fix what you find applies at the owning layer with its own owner; it does not widen this section.
 - **Commits follow logical steps.** A section may be committed in one or more commits as steps complete; review fix-loop commits append to the candidate range, never amend. Plan corrections ride with the section commits or land as their own `todo:` commit first when substantial.
 - **Never mark `[x]` without evidence.** The Implementation Order row flips only through `stamp`, after review. This skill never flips a row itself.
-- **User data first.** Every file write follows the saving rule: temporary file in the destination folder, then atomic replace (`ReplaceFileW`, `MoveFileExW`, or `os.replace`). Read back what was written. Destructive paths are confirmed. The checkpoint exercises a failure path, not only the happy path.
-- **The layer rules hold.** Respect the module boundaries and thread-safety contract in `AGENTS.md` and the foundation plan (e.g., `src/pdf` owns the native PDF engine, the UI thread never parses or renders PDFs, and a document belongs to its actor thread). A fix that violates the module table is wrong even when it works.
+- **User data first.** Every file write follows the project's saving rule (its governing plan or `AGENTS.md`): temporary file in the destination folder, then atomic replace (`ReplaceFileW`, `MoveFileExW`, or `os.replace`). Read back what was written. Destructive paths are confirmed. The checkpoint exercises a failure path, not only the happy path.
+- **The layer rules hold.** Respect the module boundaries and thread-safety contract in `AGENTS.md` and the project's governing plan. A fix that violates the module table is wrong even when it works.
 - **Fidelity is the bar on surfaces.** Build against `design/SPEC.md` and its screenshot, using tokens from `design/tokens/` only. No raw hex value on a control.
 
 ## Workflow
 
 ### 1. Read the whole contract
 
-Read the entire TODO file, not just the section: Goal, Current state, Inputs and Adjacency carry context the section assumes. Read the sections this one depends on: their `Verified:` stamps and receipts tell you what actually shipped versus what was planned. Read the governing excerpts named in Inputs (foundation plan sections, SPEC sections).
+Read the entire TODO file, not just the section: Goal, Current state, Inputs and Adjacency carry context the section assumes. Read the sections this one depends on: their `Verified:` stamps and receipts tell you what actually shipped versus what was planned. Read the governing excerpts named in Inputs (governing plan sections, SPEC sections).
 
 ### 2. Validate the plan before building it
 
@@ -81,15 +81,25 @@ Fix findings in the TODO file, before implementation, so plan and build never di
 
 Correct the plan, never the goalpost: narrowing a section so the code you were about to write happens to satisfy it is fitting the contract to the implementation. Report every plan correction alongside the implementation. If step 2 finds nothing, say so in one line and move on.
 
+### 3a. Plan review by the pinned reviewer (one pass, before any code)
+
+Once the section is corrected, commit it (with `plan --sync`) so the reviewer reads the exact contract you will build, then have the pinned reviewer judge whether that contract produces a 100% complete feature. Write the prompt to a scratch file from `docs/plan-review-prompt.md`, then run:
+
+```powershell
+python scripts/review-dispatch.py --kind plan --candidate <full SHA of that commit> --writer claude --prompt <scratch-plan-prompt.md> --record docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md
+```
+
+The dispatcher sets the effort and the `plan` lens from the pin's `[schedule] plan` step and appends a `## Plan review` section; it is not a round, it does not move the round schedule, and a findings file takes one returned plan review. Fix every `P1` and `P2` gap in the section the same way as step 3 (corrected in place, dated), and file a `P3` you do not take through `add-todo`. Under the plan review in the findings file, add one line per gap: `- Planned: <gap> in <commit>` or `- Filed: DNN TNN §N (<gap>)`. When the dispatcher exits 1, no review happened: run the pass again before building. `stamp` requires this review as `--plan '<findings file>'`, naming the section's own findings file (the `--record` path above; another section's file refuses), refuses one whose candidate is later than the commit that records `Started:`, and refuses one run at another effort or lenses than the schedule's `plan` step; a section stamped before plan reviews existed has none and stays valid only as frozen under `before_plan` in `docs/reviews/legacy-receipts.json`.
+
 ### 4. Build the corrected contract
 
-Work the Build order and micro-step checklist top to bottom. Tick each micro-step item as its `Done when:` becomes true, in the file, as you go; never tick a partially finished item (`partial-flip-shipped` is fatal). If every micro-step in the section was already 100% implemented in the codebase, do not churn working code just to manufacture a diff: verify every `Done when:` and `Cheaper substitute:`, write any missing falsifiable test, run the checkpoint in Step 6, commit the ticked checklist and verification evidence in Step 7, and hand to `review-todo-section`. Write the failing test first where the section names one. Build the cheaper substitute's failure into the checkpoint so the wrong thing cannot pass. UI sections consume the shared controls and slots named in `**Chrome:**` (one `ShellPage`, named slots, stock WinUI controls); a second toolbar, panel or dialog shape is a defect.
+Work the Build order and micro-step checklist top to bottom. Tick each micro-step item as its `Done when:` becomes true, in the file, as you go; never tick a partially finished item (`partial-flip-shipped` is fatal). If every micro-step in the section was already 100% implemented in the codebase, do not churn working code just to manufacture a diff: verify every `Done when:` and `Cheaper substitute:`, write any missing falsifiable test, run the checkpoint in Step 6, commit the ticked checklist and verification evidence in Step 7, and hand to `review-todo-section`. Write the failing test first where the section names one. Build the cheaper substitute's failure into the checkpoint so the wrong thing cannot pass. UI sections consume the shared controls and slots named in `**Chrome:**` (one shell page or layout, named slots, the project's shared control library); a second toolbar, panel or dialog shape is a defect.
 
 Run gates while iterating, bounded to the touched area: the build for the touched projects, the affected test cases, and CLI runs over the named corpus files. Warnings are errors at the configured level.
 
 ### 5. Surface and feature completeness
 
-Before the checkpoint, account for 100% of every control, menu item, dialog and state on the Fidelity screenshot and SPEC section: each is working (proven on the rendered surface with real data and read-back) or deferred to a named, resolving section (`python scripts/todo-graph.py resolve '<ref>'` must not exit 1 or 2). A control disabled with a reason that names no section is missing, not deferred. Confirm the refusal/error/recovery path and undo/reverse path required by the section hold. `review-todo-section` refuses the stamp for an unaccounted control, so decide here.
+Before the checkpoint, account for 100% of every control, menu item, dialog and state on the Fidelity screenshot and SPEC section: each is working (proven on the rendered surface with real data and read-back) or deferred to a named, resolving section (`python scripts/todo-graph.py resolve '<ref>'` must not exit 1 or 2). A control disabled with a reason that names no section is missing, not deferred. Confirm the refusal/error/recovery path and undo/reverse path required by the section hold. `review-todo-section` refuses the stamp for an unaccounted control, so decide here. This pass is yours; after the commit, `review-todo-section` step 3 has the pinned reviewer run the one-pass completion and excellence review on the built feature, and every in-scope gap it finds is built in this section before the regular rounds.
 
 ### 6. Run the Test checkpoint, for real
 
@@ -106,7 +116,7 @@ Commit the section work (in one or more commits as steps complete), recording th
 <plan corrections, if any>
 ```
 
-Then invoke `review-todo-section` on the same ref. Review writes the stamp (through `stamp`, which flips the row and syncs the plan). Commit the stamp and the regenerated plan as the stamp commit (`todo: stamp <ref>`).
+Then invoke `review-todo-section` on the same ref. It runs the one-pass completion and excellence review first (`scripts/review-dispatch.py --kind completion`): implement every in-scope gap and excellence item it lists in this section, file the rest through `add-todo`, then the regular rounds run. Review writes the stamp through `stamp --plan --completion`, which flips the row and syncs the plan. Commit the stamp and the regenerated plan as the stamp commit (`todo: stamp <ref>`).
 
 ### 8. Report
 
