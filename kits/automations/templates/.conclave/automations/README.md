@@ -50,3 +50,21 @@ Tests: `python scripts/tests/test_automations.py`. The installers read `tasks.js
 1. Add an entry to `tasks.json`: a `<folder>-` name, a one-line description, the command (`python` and a script in this repository), a trigger (`{"weekly": "<Day>", "at": "HH:MM"}` or `{"at_logon_delay_minutes": N, "every_minutes": N}`), and `timeout_minutes`.
 2. Add its row to the table above; `scripts/tests/test_automations.py` fails until the table and the file agree.
 3. Run the tests, then the installer.
+
+## Example: merging dependency pull requests
+
+The `todo` kit ships `scripts/merge_prs.py`, which merges green dependency pull requests one at a time when it is safe: the working tree is clean, `HEAD` is `origin/main`, no TODO section is in progress, and (with `--scheduled`) no campaign run guard (`build/claude-campaign-guard.json`) is held. It holds the campaign guard's lock for its whole window, so no campaign starts mid-merge. Its policy (required checks, labels, extra producers such as a pins workflow, excluded branches) is the optional `merge` object in `.conclave/ci.json`; without it only Dependabot pull requests that change nothing outside `.github/` qualify, and a pull request with no checks never merges. `python scripts/merge_prs.py --dry-run` says why each one is waiting.
+
+To schedule it, add this entry to `tasks.json` (with your own folder prefix) and its row to the table above:
+
+```json
+{
+  "name": "<folder>-pr-merge",
+  "description": "Merge green dependency pull requests while no campaign runs; email when a merge fails",
+  "command": ["python", "scripts/merge_prs.py", "--scheduled"],
+  "trigger": {"at_logon_delay_minutes": 15, "every_minutes": 360},
+  "timeout_minutes": 20
+}
+```
+
+The task fails, and emails, only when a merge fails (the pull request stays open) or the `git pull --ff-only` or `todo-graph.py validate` after one fails (that pull request is merged; the rest wait). Either leaves `build/merge-prs-stopped.json`, and every later run refuses until you have checked `main` and deleted it.
