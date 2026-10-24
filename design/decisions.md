@@ -97,7 +97,18 @@ The owner, in the session, asked for the reviewer kit to take the scheduled revi
 - The extension's pin text model knows only the `[reviewers.*]` and `[routes]` headers, so a pin with `[schedule]` opens in the read-only `pin-layout` state. Editing a scheduled pin in the editor waits for a later entry; the pin is edited by hand meanwhile.
 - The todo kit's `SEVERITY_CUTOFF_ROUND` equals the shipped `severity_stop_after`, and the todo kit reads the dispatcher, so it depends on the reviewer kit.
 
+### Template SDK and import-only kit features (2026-10-25)
+
+The owner, in the session: "everytime I import parts of the SDK, it links the repo to the SDK, and this causes drift. The SDK should act like a template and not a master copy", then chose a pure template and to keep the extension's kit features as import-only. This narrows Read-only kit view and agent import (2026-10-20) and Reviewer-only extension (2026-10-21).
+
+- `forge.py init` and `forge.py kit` copy a kit's files into a project once and never overwrite a file that exists. Nothing records which SDK a project came from: the kit stamp `.conclave/kits.json`, `forge.py digest` and `forge.py sync` are removed (plan R38 dropped). The project owns its copy and changes it like any other file.
+- The `adopt-conclave` skill is removed from the base kit (plan R41 dropped): with no update path there is nothing for it to reconcile, and importing is one `forge.py kit` command with `--dry-run` first.
+- The SDK's own installed copy is refreshed with `python forge.py self-sync`, which takes no target and writes only inside the SDK folder.
+- When the extension's kit features return they are import-only: each kit's state and health from `forge.py check` and `forge.py doctor`, and a copyable `python forge.py kit <folder> <kit>` command for a kit that is missing. No update request, no newer or older kit badge and no bundled digest (plan R39 and R40 dropped). The no-pin state shows `python forge.py kit <folder> reviewer`; the no-dispatcher state shows the same command, which restores a missing `scripts/review-dispatch.py`; the old-dispatcher state says the project's copy predates `--check-pin` and is replaced from the reviewer kit by hand, since forge never overwrites it.
+
+Reversing it costs restoring the stamp, digest, sync and `adopt-conclave` from git at `66321d0~1`.
+
 ## Other owner decisions
 
-- Marketplace: no (2026-10-17). The extension is not listed on the Visual Studio Marketplace: the `.vsix` bundles every kit and `rizonetech/Conclave-SDK` is internal, so each version's `.vsix` is attached to a GitHub release of that repository and organization members install it from there (plan R22, `D04 T01 §6`).
-- The SDK's own copy of the kits (2026-10-17): the SDK root keeps every file of the `base`, `todo` and `reviewer` kits, including base's `docs/agent-skills-and-rules-structure.md` and `scripts/verify-agent-tiers.mjs`, so `python forge.py sync . --include-scripts` stays the refresh command (`todo/findings.md`, `AGENTS.md:13`).
+- Marketplace: no (2026-10-17). The extension is not listed on the Visual Studio Marketplace: the `.vsix` bundled every kit at the time (no longer, Reviewer-only extension, 2026-10-21) and `rizonetech/Conclave-SDK` is internal, so each version's `.vsix` is attached to a GitHub release of that repository and organization members install it from there (plan R22, `D04 T01 §6`).
+- The SDK's own copy of the kits (2026-10-17): the SDK root keeps every file of the `base`, `todo` and `reviewer` kits, including base's `docs/agent-skills-and-rules-structure.md` and `scripts/verify-agent-tiers.mjs`, so `python forge.py sync . --include-scripts` stays the refresh command (`todo/findings.md`, `AGENTS.md:13`). **Corrected 2026-10-25 (template SDK):** the refresh command is `python forge.py self-sync`, and the copy also holds the `automations` kit.
