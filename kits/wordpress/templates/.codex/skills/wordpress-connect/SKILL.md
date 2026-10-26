@@ -1,6 +1,6 @@
 ---
 name: wordpress-connect
-description: "Connect a WordPress project to its one live site on Pressable or WordPress.com: site pin, SSH/SFTP through a Conclave credential, the WordPress MCP and, on Pressable only, a pull-only DDEV mirror. Use when setting up or repairing a WordPress project's site access, or when the WordPress kit was just installed."
+description: "Connect a WordPress project to its one live site on Pressable or WordPress.com: site pin, SSH/SFTP through a Conclave credential, the WordPress MCP and, on Pressable (or a WordPress.com Atomic site that asks for one), a pull-only DDEV mirror. Use when setting up or repairing a WordPress project's site access, or when the WordPress kit was just installed."
 ---
 
 # Connect a WordPress project to its site
@@ -32,13 +32,13 @@ Then add the SSH host key once (`ssh-keyscan -t ed25519 <ssh_host> >> ~/.ssh/kno
   2. `<site>-wordpress`, `scheme: basic`, `url: <url>/wp-json/mcp/mcp-adapter-default-server`, `username` and `wordpress_user_id` from `bin/wp-remote user list --role=administrator`.
 
   With approval, enable the adapter with Pressable `toggle_site_wordpress_mcp` (Pressable installs and updates `mcp-adapter`). If Elementor 4.3+ is active and `bin/wp-remote option get elementor_mcp_enabled` is missing or false, Elementor removes the adapter's default server: set the option to `1` after a backup (rizonetech-com, "The Elementor 4.3 trap"). With approval, run `python3 scripts/create-application-password.py <site>-wordpress --title "<Site> Production WordPress MCP"` and put the printed UUID into `application_password_uuid` and the item id into `item`. Prove both with `python3 scripts/check-mcp.py`.
-- **WordPress.com:** the WordPress.com connector (user scope) is the WordPress MCP. Confirm `wpcom-user-sites` reports `mcp_access: available` for the site. Add nothing to `.mcp.json` and never install `mcp-adapter`.
+- **WordPress.com:** the WordPress.com connector (user scope) is the WordPress MCP. Confirm `wpcom-user-sites` reports `mcp_access: available` for the site. Add nothing to `.mcp.json` and never install `mcp-adapter`, unless the owner asks for the site's own MCP servers (the MCP Adapter or Elementor MCP) beside the connector: then pin each as a `basic` entry whose url is on the pinned site under `/wp-json/`, with its Application Password in a new vault item, and port `mcp-headers.py`, `check-mcp.py`, `create-application-password.py` and `lib/mcp_http.py` from `hosts/pressable/templates/scripts/` as road-diamond-com did. `wp_site.py` refuses any other url and every `bearer` entry on a WordPress.com pin.
 
 If the site still has Novamira, ask before removing it and follow jmrgroup-coza's "Novamira removal" recipe; never install it.
 
-## 4. Local DDEV (Pressable only)
+## 4. Local DDEV (Pressable; WordPress.com Atomic on request)
 
-WordPress.com sites get no DDEV. On Pressable, match production's PHP and database versions (`bin/wp-remote cli info`, `bin/wp-remote db query 'SELECT VERSION()'`):
+WordPress.com sites get no DDEV unless the owner asks for the mirror on an Atomic site (SSH; a Simple site never has one): then copy `.ddev/providers/production.yaml`, `bin/ddev` and `bin/wp` from `hosts/pressable/templates/` as road-diamond-com did. Match production's PHP and database versions (`bin/wp-remote cli info`, `bin/wp-remote db query 'SELECT VERSION()'`):
 
 ```bash
 bin/ddev config --project-type=wordpress --docroot=public --php-version=<x.y> --database=mariadb:<x.y> --router-http-port=8088 --router-https-port=8448

@@ -8,6 +8,7 @@ must name the pinned site, environment, endpoint, WordPress user and Application
 """
 import base64
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -34,9 +35,23 @@ def expected_fields(pin, connection):
             "endpoint": endpoint, "wordpress_user_id": str(user_id), "application_password_uuid": uuid}
 
 
+def called(connection, found):
+    """Refuse when Claude Code says it is calling another server or URL than the pin names for this connection.
+
+    The client sends the header to the URL in .mcp.json, which this helper never reads; Claude Code passes that server's
+    name and URL in CLAUDE_CODE_MCP_SERVER_NAME and CLAUDE_CODE_MCP_SERVER_URL, so an edited .mcp.json gets no credential.
+    """
+    name, url = os.environ.get("CLAUDE_CODE_MCP_SERVER_NAME"), os.environ.get("CLAUDE_CODE_MCP_SERVER_URL")
+    if name is not None and name != connection:
+        raise ValueError("the client is calling another MCP server")
+    if url is not None and url.rstrip("/") != (found.get("url") or "").rstrip("/"):
+        raise ValueError("the client is calling a URL the site pin does not name")
+
+
 def headers(connection, pin=None):
     pin = pin or wp_site.load()
     found = entry(pin, connection)
+    called(connection, found)
     (item_id,) = wp_site.require(pin, f"mcp.{connection}.item")
     if found["scheme"] == "bearer":
         fields = wp_site.vault_fields(item_id)

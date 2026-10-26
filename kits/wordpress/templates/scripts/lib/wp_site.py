@@ -38,7 +38,10 @@ DIGITS = re.compile(r"^[0-9]+$")
 def _optional(value, pattern, name):
     if value is None:
         return
-    if not isinstance(value, str) or not pattern.match(value):
+    # fullmatch: `match` with a `$` anchor also accepts a trailing newline, which would reach a remote command line.
+    if not isinstance(value, str) or not pattern.fullmatch(value):
+        raise ValueError(f"invalid {name} in the site pin")
+    if pattern is URL and any(segment in (".", "..") for segment in value.split("/")[3:]):
         raise ValueError(f"invalid {name} in the site pin")
 
 
@@ -86,10 +89,8 @@ def validate(pin):
     mcp = pin.get("mcp", {})
     if not isinstance(mcp, dict):
         raise ValueError("mcp in the site pin must be an object")
-    if mcp and pin["host"] != "pressable":
-        raise ValueError("a WordPress.com site uses the WordPress.com connector, so its pin has no mcp servers")
     for name, entry in mcp.items():
-        if not CONNECTION.match(name):
+        if not CONNECTION.fullmatch(name):
             raise ValueError("invalid mcp connection name in the site pin")
         _keys(entry, ("item", "scheme", "url", "username", "wordpress_user_id", "application_password_uuid"), "mcp." + name)
         if entry.get("scheme") not in SCHEMES:
@@ -100,7 +101,14 @@ def validate(pin):
             _optional(entry.get("username"), USERNAME, f"mcp.{name}.username")
             _optional_id(entry.get("wordpress_user_id"), f"mcp.{name}.wordpress_user_id")
             _optional(entry.get("application_password_uuid"), UUID, f"mcp.{name}.application_password_uuid")
+            # A site credential may only be sent to the pinned site itself.
+            if entry.get("url") is not None and (pin.get("url") is None or not entry["url"].startswith(pin["url"] + "/wp-json/")):
+                raise ValueError(f"mcp.{name}.url must be on the pinned site, under {pin.get('url')}/wp-json/")
         else:
+            # A WordPress.com pin may carry the site's own `basic` MCP servers (the MCP Adapter, Elementor MCP) beside the
+            # WordPress.com connector, but never the account-wide Pressable token.
+            if pin["host"] != "pressable":
+                raise ValueError(f"mcp.{name} is a bearer connection, which only a Pressable site pin carries")
             if any(entry.get(key) is not None for key in ("username", "wordpress_user_id", "application_password_uuid")):
                 raise ValueError(f"mcp.{name} is a bearer connection and carries no WordPress user")
             if entry.get("url") not in (None, PRESSABLE_MCP):
@@ -149,7 +157,7 @@ def ssh_enabled(pin):
 
 def vault_fields(item_id):
     """Read one Conclave item by immutable id and return its fields keyed by label. Never prints anything."""
-    if not ITEM_ID.match(item_id or ""):
+    if not ITEM_ID.fullmatch(item_id or ""):
         raise ValueError("invalid vault item id")
     result = subprocess.run([OP, "item", "get", item_id, "--vault", VAULT, "--format=json"],
                             capture_output=True, text=True, timeout=30, check=True)

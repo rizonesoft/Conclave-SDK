@@ -83,13 +83,31 @@ class Pin(unittest.TestCase):
         with self.assertRaises(ValueError):
             wp_site.validate({**base, "mcp": {"x-pressable": {**good["x-pressable"], "url": "https://evil.example.com"}}})
 
+    def test_values_must_match_whole(self):
+        # A trailing newline would pass a `$`-anchored match and reach a remote command line.
+        for key, bad in (("url", "https://example.wpcomstaging.com\n"), ("wp_path", "/srv/htdocs\n"), ("item", ITEM + "\n"),
+                         ("username", "example.wordpress.com\n"), ("ssh_host", "ssh.wp.com\n")):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                pin(**{key: bad})
+
     def test_a_simple_site_has_no_ssh(self):
         self.assertFalse(wp_site.ssh_enabled(pin(ssh_host=None)))
         self.assertTrue(wp_site.ssh_enabled(pin()))
 
-    def test_a_wordpress_com_pin_has_no_mcp_servers(self):
-        with self.assertRaises(ValueError):
-            pin(mcp={"x-wordpress": {"scheme": "basic"}})
+    def test_a_wordpress_com_pin_takes_only_its_own_sites_wordpress_mcp(self):
+        # The site's own MCP Adapter or Elementor MCP may sit beside the WordPress.com connector; the account-wide
+        # Pressable token still has no place on a WordPress.com pin.
+        own = {"item": ITEM, "scheme": "basic", "url": "https://example.wpcomstaging.com/wp-json/elementor/mcp",
+               "username": "example", "wordpress_user_id": 1, "application_password_uuid": None}
+        self.assertEqual(pin(mcp={"x-elementor": own})["mcp"]["x-elementor"]["url"], own["url"])
+        for bad in ({"item": ITEM, "scheme": "bearer", "url": "https://mcp.pressable.com"},
+                    {**own, "url": "https://elsewhere.example.com/wp-json/elementor/mcp"},
+                    {**own, "url": "https://example.wpcomstaging.com.evil.example.com/wp-json/mcp"},
+                    {**own, "url": "https://example.wpcomstaging.com/wp-admin/mcp"},
+                    {**own, "url": "https://example.wpcomstaging.com/wp-json/../wp-admin"},
+                    {**own, "url": "https://example.wpcomstaging.com/wp-json/elementor/mcp\n"}):
+            with self.subTest(entry=bad), self.assertRaises(ValueError):
+                pin(mcp={"x-wordpress": bad})
 
     def test_require_names_every_unset_value(self):
         with self.assertRaises(ValueError) as caught:

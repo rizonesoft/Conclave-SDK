@@ -1,5 +1,5 @@
 {
-  "_about": "The one place that names this project's live WordPress site (WordPress.com). Every helper reads it through scripts/lib/wp_site.py. null means the setup (the wordpress-connect skill) has not filled it in yet: copy sftp_host, username and the WordPress root from Hosting > Settings > SFTP/SSH and the first SSH login. The WordPress MCP is the user-scope WordPress.com connector, so there are no mcp servers here.",
+  "_about": "The one place that names this project's live WordPress site (WordPress.com). Every helper reads it through scripts/lib/wp_site.py. null means the setup (the wordpress-connect skill) has not filled it in yet: copy sftp_host, username and the WordPress root from Hosting > Settings > SFTP/SSH and the first SSH login. The WordPress MCP is the user-scope WordPress.com connector; mcp holds only the site's own basic servers (url on this site under /wp-json/) when the owner asks for them.",
   "host": "wpcom",
   "site_id": null,
   "url": null,

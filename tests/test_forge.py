@@ -315,18 +315,65 @@ class ForgeProvisionTests(unittest.TestCase):
         pin = json.loads(pin_path.read_text())
         pin.update(site_id=257780254, url="https://example.wpcomstaging.com")
         pin_path.write_text(json.dumps(pin))
-        (site / ".ddev").mkdir()
         by_name = {c["name"]: c["status"] for c in forge.doctor_repo(site)["checks"]}
         self.assertEqual(by_name["site-identity"], "ok")
         self.assertEqual(by_name["site-ssh"], "setup_required")
-        self.assertEqual(by_name["no-ddev"], "unexpected")
 
-        # A Simple site has no SSH: with ssh.ssh_host null the doctor asks for nothing SSH-related.
-        (site / ".ddev").rmdir()
+        # An Atomic site has SSH, so it may opt into the pull-only mirror: the doctor then checks it like Pressable's.
+        (site / ".ddev").mkdir()
+        by_name = {c["name"]: c["status"] for c in forge.doctor_repo(site)["checks"]}
+        self.assertNotIn("no-ddev", by_name)
+        self.assertEqual(by_name["ddev-config"], "setup_required")
+        self.assertEqual(by_name["production-sync"], "setup_required")
+        self.assertEqual(by_name["helper:.ddev/providers/production.yaml"], "missing")
+
+        # The site's own MCP servers may sit beside the connector; each must be registered in .mcp.json.
+        own = {"item": "abcdefghijklmnopqrstuvwxyz", "scheme": "basic", "url": pin["url"] + "/wp-json/elementor/mcp",
+               "username": "example", "wordpress_user_id": 1, "application_password_uuid": None}
+        pin_path.write_text(json.dumps({**pin, "mcp": {"example-elementor": own}}))
+        checks = {c["name"]: c for c in forge.doctor_repo(site)["checks"]}
+        self.assertEqual(checks["site-pin"]["status"], "ok")
+        self.assertIn("application_password_uuid", checks["mcp:example-elementor"]["detail"])
+        self.assertIn(".mcp.json", checks["mcp:example-elementor"]["detail"])
+        self.assertEqual(checks["helper:scripts/mcp-headers.py"]["status"], "missing")
+        self.assertNotIn("mcp-pinned", checks)
+
+        # A registration must be an http server whose credential comes from this checkout's helper for this connection.
+        full = {**own, "application_password_uuid": "62a010d2-6cf8-4200-abb0-d80117954d9c"}
+        pin_path.write_text(json.dumps({**pin, "mcp": {"example-elementor": full}}))
+        helper = f"python3 {(site / 'scripts/mcp-headers.py').as_posix()} example-elementor"
+        good = {"type": "http", "url": full["url"], "headersHelper": helper}
+        for bad, reason in (({**good, "type": None}, "type must be http"),
+                            ({"type": "http", "url": full["url"]}, "headersHelper"),
+                            ({**good, "headersHelper": helper.replace("example-elementor", "other")}, "headersHelper"),
+                            ({**good, "headersHelper": "python3 /elsewhere/scripts/mcp-headers.py example-elementor"},
+                             "headersHelper")):
+            with self.subTest(registration=bad):
+                (site / ".mcp.json").write_text(json.dumps({"mcpServers": {"example-elementor": bad}}))
+                check = {c["name"]: c for c in forge.doctor_repo(site)["checks"]}["mcp:example-elementor"]
+                self.assertEqual(check["status"], "setup_required")
+                self.assertIn(reason, check["detail"])
+        quoted = {**good, "headersHelper": f'python3 "{(site / "scripts/mcp-headers.py").as_posix()}" example-elementor'}
+        for registration in (good, quoted):
+            with self.subTest(registration=registration):
+                (site / ".mcp.json").write_text(json.dumps({"mcpServers": {"example-elementor": registration}}))
+                status = {c["name"]: c["status"] for c in forge.doctor_repo(site)["checks"]}["mcp:example-elementor"]
+                self.assertEqual(status, "ok")
+        (site / ".mcp.json").write_text(json.dumps({"mcpServers": {"example-elementor": {**good, "headersHelper": 'python3 "x'}}}))
+        status = {c["name"]: c["status"] for c in forge.doctor_repo(site)["checks"]}["mcp:example-elementor"]
+        self.assertEqual(status, "setup_required")
+        (site / ".mcp.json").unlink()
+
+        # A Simple site has no SSH: with ssh.ssh_host null the doctor asks for nothing SSH-related, and a mirror is wrong.
         pin_path.write_text(json.dumps({**pin, "ssh": {**pin["ssh"], "ssh_host": None}}))
         by_name = {c["name"]: c["status"] for c in forge.doctor_repo(site)["checks"]}
         self.assertEqual(by_name["site-ssh"], "ok")
         self.assertNotIn("sshpass", by_name)
+        self.assertEqual(by_name["no-ddev"], "unexpected")
+        self.assertNotIn("ddev-config", by_name)
+        (site / ".ddev").rmdir()
+        by_name = {c["name"]: c["status"] for c in forge.doctor_repo(site)["checks"]}
+        self.assertEqual(by_name["no-ddev"], "ok")
 
         # Re-applying the kit follows the pin, never adding Pressable files; a conflicting host is refused.
         pin_path.write_text(json.dumps(pin))
@@ -370,7 +417,9 @@ class ForgeProvisionTests(unittest.TestCase):
         pin["pressable"]["account_id"] = 1432766
         pin_path.write_text(json.dumps(pin))
         (site / ".mcp.json").write_text(json.dumps({"mcpServers": {
-            "example-pressable": {"type": "http", "url": "https://mcp.pressable.com"},
+            "example-pressable": {"type": "http", "url": "https://mcp.pressable.com",
+                                  # Quoted, as a shell takes it: the doctor splits the command the same way.
+                                  "headersHelper": f'python3 "{(site / "scripts/mcp-headers.py").as_posix()}" example-pressable'},
         }}))
         checks = {c["name"]: c["status"] for c in forge.doctor_repo(site)["checks"]}
         self.assertEqual(checks["site-identity"], "ok")

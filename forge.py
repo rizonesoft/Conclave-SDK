@@ -18,6 +18,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import sys
@@ -343,6 +344,16 @@ def _load_wordpress_pin(target_root: Path) -> tuple[dict | None, str]:
         return None, f"invalid: {exc}"
 
 
+def _helper_command(command) -> list[str]:
+    """A `headersHelper` command as the shell splits it: quoted paths stay whole, an unbalanced quote yields nothing."""
+    try:
+        # Windows paths keep their backslashes: non-POSIX splitting leaves the quotes on, so they are stripped here.
+        parts = shlex.split(str(command or ""), posix=os.name != "nt")
+    except ValueError:
+        return []
+    return [part[1:-1] if len(part) > 1 and part[0] == part[-1] and part[0] in "\"'" else part for part in parts]
+
+
 def _doctor_wordpress(target_root: Path, add_check) -> None:
     """Read-only WordPress checks: the site pin decides the host, then each host's own setup is checked."""
     pin, pin_state = _load_wordpress_pin(target_root)
@@ -363,10 +374,19 @@ def _doctor_wordpress(target_root: Path, add_check) -> None:
         else:
             add_check("site-ssh", "ok", "WordPress.com Simple site: no SSH (ssh.ssh_host is null)")
 
+    # A Pressable site always has the DDEV mirror and the pinned MCP servers. A WordPress.com site with SSH (Atomic) may
+    # opt into either: a pull-only mirror (`.ddev`) and the site's own `basic` MCP servers beside the connector.
+    servers = pin.get("mcp", {}) if pin else {}
+    mirror = host == "pressable" or (host == "wpcom" and ssh_enabled and (target_root / ".ddev").exists())
+    own_mcp = host == "pressable" or (host == "wpcom" and bool(servers))
     helpers = ["scripts/lib/wp_site.py", "scripts/lib/site_ssh.py", "scripts/site-access.py", "bin/wp-remote"]
+    if own_mcp:
+        helpers += ["scripts/lib/mcp_http.py", "scripts/mcp-headers.py", "scripts/check-mcp.py",
+                    "scripts/create-application-password.py"]
     if host == "pressable":
-        helpers += ["scripts/lib/mcp_http.py", "scripts/mcp-headers.py", "scripts/check-mcp.py", "scripts/sftp-item.py",
-                    "scripts/create-application-password.py", "bin/ddev", "bin/wp", ".ddev/providers/production.yaml"]
+        helpers += ["scripts/sftp-item.py"]
+    if mirror:
+        helpers += ["bin/ddev", "bin/wp", ".ddev/providers/production.yaml"]
     for rel in helpers:
         path = target_root / rel
         add_check(f"helper:{rel}", "ok" if path.is_file() else "missing", path.as_posix())
@@ -382,7 +402,7 @@ def _doctor_wordpress(target_root: Path, add_check) -> None:
         sshpass = shutil.which("sshpass")
         add_check("sshpass", "ok" if sshpass else "setup_required", sshpass or "operator global: apt install sshpass")
 
-    if host == "pressable":
+    if mirror:
         wp_root = _find_wordpress_root(target_root)
         add_check("wordpress-root", "ok" if wp_root else "setup_required",
                   wp_root.as_posix() if wp_root else "wordpress-connect step 4: bin/ddev pull production -y")
@@ -394,9 +414,19 @@ def _doctor_wordpress(target_root: Path, add_check) -> None:
         sync = target_root / "scripts/production-sync.py"
         add_check("production-sync", "ok" if sync.is_file() else "setup_required",
                   sync.as_posix() if sync.is_file() else "wordpress-connect step 4: port from jmrgroup-coza")
-        servers = pin.get("mcp", {})
-        add_check("mcp-pinned", "ok" if servers else "setup_required",
-                  ", ".join(sorted(servers)) if servers else "wordpress-connect step 3: pin the WordPress and Pressable connections")
+    elif host == "wpcom":
+        ddev_dir = target_root / ".ddev"
+        add_check("no-ddev", "unexpected" if ddev_dir.exists() else "ok",
+                  "a WordPress.com Simple site has no SSH, so no local DDEV mirror" if ddev_dir.exists()
+                  else "WordPress.com: no local mirror")
+
+    if host == "wpcom":
+        add_check("wordpress-mcp", "ok", "the user-scope WordPress.com connector"
+                  + (", plus the site's own servers below" if servers else "; nothing in .mcp.json"))
+    if own_mcp:
+        if host == "pressable":
+            add_check("mcp-pinned", "ok" if servers else "setup_required",
+                      ", ".join(sorted(servers)) if servers else "wordpress-connect step 3: pin the WordPress and Pressable connections")
         try:
             registered = json.loads((target_root / ".mcp.json").read_text(encoding="utf-8")).get("mcpServers", {})
         except (OSError, ValueError, AttributeError):
@@ -406,16 +436,18 @@ def _doctor_wordpress(target_root: Path, add_check) -> None:
             server = registered.get(name)
             if not isinstance(server, dict):
                 missing.append(".mcp.json")
-            elif server.get("url") != entry.get("url"):
-                missing.append(".mcp.json url differs from the pin")
+            else:
+                if server.get("url") != entry.get("url"):
+                    missing.append(".mcp.json url differs from the pin")
+                if server.get("type") != "http":
+                    missing.append(".mcp.json type must be http")
+                # The credential comes only from this checkout's helper, which pins the item for this connection.
+                helper = _helper_command(server.get("headersHelper"))
+                if (len(helper) < 2 or helper[-1] != name
+                        or Path(helper[-2]).resolve() != (target_root / "scripts/mcp-headers.py").resolve()):
+                    missing.append(f".mcp.json headersHelper must be <python> {target_root.as_posix()}/scripts/mcp-headers.py {name}")
             add_check(f"mcp:{name}", "setup_required" if missing else "ok",
                       f"wordpress-connect step 3: {', '.join(missing)}" if missing else entry["url"])
-    elif host == "wpcom":
-        ddev_dir = target_root / ".ddev"
-        add_check("no-ddev", "unexpected" if ddev_dir.exists() else "ok",
-                  "a WordPress.com site has no local DDEV mirror" if ddev_dir.exists() else "WordPress.com: no local mirror")
-        add_check("wordpress-mcp", "ok", "the user-scope WordPress.com connector; nothing in .mcp.json")
-
 
 def _doctor_reviewer(target_root: Path, add_check) -> None:
     """Read-only reviewer checks: the pin loads under the dispatcher's own rules and each routed CLI is installed."""

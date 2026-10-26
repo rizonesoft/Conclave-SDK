@@ -100,6 +100,22 @@ class HeaderHelper(unittest.TestCase):
             headers.headers("other-wordpress", pin())
         run.assert_not_called()
 
+    def test_the_client_must_be_calling_the_pinned_url(self):
+        # Claude Code tells the helper which server and URL it is about to call; anything else gets no credential.
+        fields = vault_item(WP_ITEM, **wordpress_fields())
+        for env in ({"CLAUDE_CODE_MCP_SERVER_URL": "https://elsewhere.example.com/wp-json/mcp/mcp-adapter-default-server"},
+                    {"CLAUDE_CODE_MCP_SERVER_URL": "https://mcp.pressable.com"},
+                    {"CLAUDE_CODE_MCP_SERVER_NAME": "example-pressable"}):
+            with self.subTest(env=env), patch.dict(headers.os.environ, env), \
+                    patch.object(wp_site.subprocess, "run") as run, self.assertRaises(ValueError):
+                headers.headers("example-wordpress", pin())
+            run.assert_not_called()
+        good = {"CLAUDE_CODE_MCP_SERVER_URL": "https://example.com/wp-json/mcp/mcp-adapter-default-server",
+                "CLAUDE_CODE_MCP_SERVER_NAME": "example-wordpress"}
+        with patch.dict(headers.os.environ, good):
+            result, _ = self.headers_for("example-wordpress", fields)
+        self.assertTrue(result["Authorization"].startswith("Basic "))
+
     def test_the_cli_never_prints_a_credential_on_failure(self):
         result = subprocess.run([sys.executable, str(SCRIPTS / "mcp-headers.py")], capture_output=True, text=True)
         self.assertEqual(result.returncode, 1)

@@ -1,4 +1,4 @@
 interface:
   display_name: "WordPress connect"
-  short_description: "Pin the live site, then set up SSH/SFTP, the WordPress MCP and (Pressable only) DDEV."
-  default_prompt: "Connect this WordPress project to its live site on Pressable or WordPress.com. Fill .conclave/wordpress-site.json from the host, set up SSH/SFTP through a Conclave credential, the WordPress MCP and, on Pressable only, a pull-only DDEV mirror. Ask before every write to the live site or host and never print a secret."
+  short_description: "Pin the live site, then set up SSH/SFTP, the WordPress MCP and, on Pressable or on request on Atomic, DDEV."
+  default_prompt: "Connect this WordPress project to its live site on Pressable or WordPress.com. Fill .conclave/wordpress-site.json from the host, set up SSH/SFTP through a Conclave credential, the WordPress MCP and, on Pressable (or a WordPress.com Atomic site that asks for one), a pull-only DDEV mirror. Ask before every write to the live site or host and never print a secret."
