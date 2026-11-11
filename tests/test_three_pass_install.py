@@ -51,6 +51,7 @@ title: "TODO-01 -- A"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | The thing | -- | [ ] |
+| 2 | §2 | The later thing | §1 | [ ] |
 
 ## 1. The thing
 
@@ -66,6 +67,21 @@ title: "TODO-01 -- A"
 
 - [ ] Write `src/thing.py`. Done when: it holds the thing. Cheaper substitute: an empty file must fail.
 - [ ] Commit: `x: the thing`
+
+**Test checkpoint:** `true` exits 0.
+
+## 2. The later thing
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Do it in `src/later.py`. Done when: it shows.
+
+- [ ] Write `src/later.py`. Done when: it holds the later thing. Cheaper substitute: an empty file must fail.
+- [ ] Commit: `x: the later thing`
 
 **Test checkpoint:** `true` exits 0.
 
@@ -192,11 +208,13 @@ class FreshInstall(unittest.TestCase):
                                  reply("completion", lenses["completion"], "P2", True))
         self.assertEqual((completion["highest"], completion["blocking"]), ("P2", True))
 
-        # The gap is repaired in a new commit, noted under the completion review, and reconciled.
+        # The completion review raised two gaps: one in scope, repaired in a new commit, and one out of scope, filed
+        # as §2. Both are noted under the review, and the reconciliation prompt tells the reviewer how each closes.
         (self.repo / "src/thing.py").write_text("THING = 2\n", encoding="utf-8")
         record = self.repo / RECORD
         with open(record, "a", encoding="utf-8", newline="") as handle:
-            handle.write("\n- Implemented: gap 1, the thing is thicker, in the repair commit\n")
+            handle.write("\n- Implemented: gap 1, the thing is thicker, in the repair commit\n"
+                         "- Filed: D00 T01 §2 (gap 2, the later thing)\n")
         repaired = self.commit("x: repair the completion gap")
         reconciliation = self.review(
             "reconciliation", repaired, "reconciliation-review-prompt.md",
@@ -208,6 +226,7 @@ class FreshInstall(unittest.TestCase):
         # The filled reconciliation prompt reached the reviewer with its context, its checks and the lens request.
         sent = json.loads(self.log.read_text(encoding="utf-8").splitlines()[-1])["stdin"]
         for needle in (built, repaired, RECORD, "true -> exit 0", "are its promises the same",
+                       "is closed only by the repair", "is closed when it is filed",
                        "LENS plan-delivery: <clean|findings>", "RECONCILIATION: complete"):
             self.assertIn(needle, sent)
         self.assertNotIn("<COMPLETION_SHA>", sent)

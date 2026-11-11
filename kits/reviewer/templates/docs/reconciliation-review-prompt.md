@@ -18,7 +18,7 @@ You are an independent reviewer. Do not modify any file. A completion review of 
 
 ## What to check
 
-1. Every in-scope gap in the failed completion review and in each earlier reconciliation that returned gaps: closed, with the `path:line` or test that shows it, or still open.
+1. Every gap in the failed completion review and in each earlier reconciliation that returned gaps: closed or still open. A gap that review marked in scope (`missing-in-scope` or `in-scope`) is closed only by the repair, shown by the `path:line` or test and the writer's `- Implemented:` line; filing it elsewhere is narrowing the section's promise and leaves it open. A gap that review marked out of scope (`missing-out-of-scope` or `out-of-scope`) is closed when it is filed: a `- Filed: DNN TNN §N (<gap>)` line under the review that raised it, naming a section that exists (`python3 scripts/todo-graph.py resolve "DNN TNN §N"` does not exit 1 or 2) and whose text owns that gap. A filed section that does not resolve, or does not cover the gap, leaves it open.
 2. Each repair: does it introduce a regression, a weakened test or a narrowed behaviour?
 3. The section's contract: are its promises the same as when the completion review read them? The stamp compares the section's text at both commits and refuses a changed promise.
 
