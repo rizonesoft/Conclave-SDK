@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
   - name: Report a vulnerability
-    url: https://github.com/rizonetech/Conclave-SDK/security/advisories/new
-    about: Report a security problem privately. Never open a public issue for one.
+    url: https://github.com/rizonetech/Conclave-SDK/blob/main/SECURITY.md
+    about: A security problem is reported privately, as SECURITY.md describes. Never open an issue for one.
