@@ -161,6 +161,8 @@ The dispatcher runs the three-pass kinds from the pin §1 loads: order, the sect
 
 ## 4. Template pin, prompts, skills and READMEs on three-pass
 
+> **Started:** 2026-11-11T13:36:48Z
+
 Everything a project reads when it installs the kits describes the three-pass shape, and new installs start on it (R14, R15).
 
 **Phase:** 0
@@ -174,6 +176,9 @@ Everything a project reads when it installs the kits describes the three-pass sh
 3. Update the skills and READMEs, then `python forge.py self-sync`. Done when: the checkpoint passes.
 
 - [ ] Rewrite `kits/reviewer/templates/.conclave/reviewers.toml` as a three-pass pin: `pass_cap`, `blocking`, completion lenses `plan-delivery` and `record`, a conditional `design` entry left as a commented example, and a comment recording that new installs start on three-pass and how to keep rotation (plan Decisions). Done when: `python kits/reviewer/templates/scripts/review-dispatch.py --check-pin --pin kits/reviewer/templates/.conclave/reviewers.toml` prints `ok`. Cheaper substitute: leaving the rotation pin with a comment must fail.
+- [ ] Ask for the `HIGHEST:` line on every three-pass pass in `review-dispatch.py` and `review_pin.lens_block`, also when the pass has no lenses (a completion step without lenses, as in a pin written before completion had its own). Done when: a test under such a pin shows the prompt the stub reviewer received asks for `HIGHEST:` and a reply carrying it is recorded as the completion review. **Corrected 2026-11-11:** added; since §3 a three-pass reply without the line is incomplete, and a pass with no lenses was never asked for it. Cheaper substitute: relying on the prompt template alone must fail, because a project owns its templates.
+- [ ] Route `agy` to the installed reviewer in the template pin and name the writers `claude`, `codex` and `agy` (with `gemini` as another name for `agy`) wherever a skill, prompt or README shows `--writer` (owner decision 2026-11-11). Done when: `python kits/reviewer/templates/scripts/review-dispatch.py --check-pin --json --pin kits/reviewer/templates/.conclave/reviewers.toml` reports an `agy` route and no file under `kits/reviewer` or `kits/todo` shows `--writer claude` as the only choice. **Corrected 2026-11-11:** added.
+- [ ] Move the SDK's own `.conclave/reviewers.toml` to the three-pass template pin in the same commit as the template, and say in `AGENTS.md` that the SDK reviews its own sections three-pass. Done when: `python scripts/review-dispatch.py --check-pin` prints `ok` for a three-pass pin, and this section, whose plan review read the rotation pin, still finishes under rotation (its remaining passes run and the stamp accepts them). **Corrected 2026-11-11:** added; the pin is not covered by `self-sync`.
 - [ ] Add `kits/reviewer/templates/docs/reconciliation-review-prompt.md` and list it in `kits/reviewer/scripts/install.sh`, `kits/reviewer/scripts/test-install.sh` and the `forge.py` kit manifest if one names the prompts. Done when: the install test finds it in a fresh install.
 - [ ] Update `plan-review-prompt.md`, `review-round-prompt.md` and `completion-review-prompt.md` in `kits/reviewer/templates/docs/` for the lens verdict lines, the `HIGHEST:` line and the three-pass order (plan R7, R9). Done when: each names the lines the dispatcher checks and none promises a 33-round loop as the only shape.
 - [ ] Rewrite `kits/reviewer/README.md` for both policies: the pin keys, the passes, the lens verdict lines, conditional lenses, blocking, the caps, `review_pin.py` and how an existing pin moves to three-pass. Done when: every table row is at most 120 characters and every key the loader accepts is named.
