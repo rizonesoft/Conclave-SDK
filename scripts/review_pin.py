@@ -5,6 +5,7 @@ scripts/review-dispatch.py and the todo kit's stamp both read the pin through it
 beyond the pin's conventional place beside this file's folder, so a project can copy this one file.
 
     python3 scripts/review_pin.py --check [--pin <path>]            ok, or the refusal (exit 2)
+    python3 scripts/review_pin.py --check --all [--pin <path>]      every independent fault, one line each (exit 2)
     python3 scripts/review_pin.py --lenses <kind> [--paths <file> ...] [--pin <path>]
                                                                     that pass's lenses, one `name: question` per line;
                                                                     the conditional ones only for the files given
@@ -68,14 +69,13 @@ class Refused(Exception):
     """The pin or the arguments are wrong; nothing ran."""
 
 
-def load_pin(path=PIN, data=None):
-    """The checked pin at `path`, or, given `data`, the pin in those bytes (a committed pin read with `git show`), so
-    a read-only caller needs no temporary file."""
+def _read(path, data):
+    """The pin's TOML as a dict, or the refusal for a pin that cannot be read at all."""
     try:
         if data is None:
             with open(path, "rb") as handle:
                 data = handle.read()
-        pin = tomllib.loads(data.decode("utf-8"))
+        return tomllib.loads(data.decode("utf-8"))
     except FileNotFoundError:
         raise Refused(f"no reviewer pin at {path}") from None
     except tomllib.TOMLDecodeError as exc:
@@ -91,47 +91,74 @@ def load_pin(path=PIN, data=None):
         raise Refused(f"unreadable reviewer pin: {exc}") from None
     except RecursionError:
         raise Refused("unreadable reviewer pin: nested too deeply to read") from None
+
+
+def check_shape(pin):
     # `type(...) is int`: TOML true is Python True (an int subclass) and 1.0 == 1, so `!= 1` alone let both load.
-    # The optional [schedule] is checked below; this refusal text is part of the --check-pin contract.
+    # The optional [schedule] is checked separately; this refusal text is part of the --check-pin contract.
     if not {"schema_version", "reviewers", "routes"} <= set(pin) <= {"schema_version", "reviewers", "routes",
                                                                      "schedule"} \
             or type(pin["schema_version"]) is not int or pin["schema_version"] != 1:
         raise Refused("the reviewer pin needs exactly schema_version = 1, [reviewers.*] and [routes]")
-    reviewers = pin["reviewers"]
+
+
+def check_reviewers_table(reviewers):
     if not isinstance(reviewers, dict) or not reviewers:
         raise Refused("the reviewer pin defines no reviewers")
-    for name, entry in reviewers.items():
-        # fullmatch: `$` alone also matches before a trailing newline, which would then break the round heading.
-        if not NAME.fullmatch(name) or not isinstance(entry, dict):
-            raise Refused(f"invalid reviewer {name!r}")
-        unknown = set(entry) - {"cli", "model", "effort"}
-        if unknown:
-            raise Refused(f"reviewer {name!r} has unknown keys: {', '.join(sorted(unknown))}")
-        cli, model = entry.get("cli"), entry.get("model")
-        if cli not in CLIS:
-            raise Refused(f"reviewer {name!r} needs cli = one of {', '.join(CLIS)}")
-        if not isinstance(model, str) or not MODEL.fullmatch(model):
-            raise Refused(f"reviewer {name!r} has a malformed model")
-        if cli == "agy":
-            if "effort" in entry:
-                raise Refused(f"reviewer {name!r}: Antigravity carries the effort in the model name, so set no effort")
-        # Optional: the reviewer's effort is what a pin without a [schedule] runs at; without one, its CLI decides.
-        elif "effort" in entry and not _one_of(entry["effort"], EFFORTS[cli]):
-            raise Refused(f"reviewer {name!r} needs effort = one of {', '.join(EFFORTS[cli])}")
-    routes = pin["routes"]
+
+
+def check_reviewer(name, entry):
+    # fullmatch: `$` alone also matches before a trailing newline, which would then break the round heading.
+    if not NAME.fullmatch(name) or not isinstance(entry, dict):
+        raise Refused(f"invalid reviewer {name!r}")
+    unknown = set(entry) - {"cli", "model", "effort"}
+    if unknown:
+        raise Refused(f"reviewer {name!r} has unknown keys: {', '.join(sorted(unknown))}")
+    cli, model = entry.get("cli"), entry.get("model")
+    if cli not in CLIS:
+        raise Refused(f"reviewer {name!r} needs cli = one of {', '.join(CLIS)}")
+    if not isinstance(model, str) or not MODEL.fullmatch(model):
+        raise Refused(f"reviewer {name!r} has a malformed model")
+    if cli == "agy":
+        if "effort" in entry:
+            raise Refused(f"reviewer {name!r}: Antigravity carries the effort in the model name, so set no effort")
+    # Optional: the reviewer's effort is what a pin without a [schedule] runs at; without one, its CLI decides.
+    elif "effort" in entry and not _one_of(entry["effort"], EFFORTS[cli]):
+        raise Refused(f"reviewer {name!r} needs effort = one of {', '.join(EFFORTS[cli])}")
+
+
+def check_writers(routes):
     if not isinstance(routes, dict) or set(routes) - set(WRITERS):
         raise Refused(f"[routes] may only name the writers {', '.join(WRITERS)}")
     doubled = sorted(name for name in routes if ALIASES.get(name) in routes)
     if doubled:
         raise Refused(f"[routes] names both {' and '.join(doubled)}, which are one writer; keep one of them")
+
+
+def check_route(writer, chain, reviewers):
+    if not isinstance(chain, list) or len(chain) != 1 or not isinstance(chain[0], str):
+        raise Refused(f"route {writer!r} must list exactly one reviewer")
+    if chain[0] not in reviewers:
+        raise Refused(f"route {writer!r} must list a defined reviewer")
+    if FAMILY[reviewers[chain[0]]["cli"]] == WRITER_FAMILY[writer]:
+        raise Refused(f"route {writer!r} names {chain[0]}, of the writer's own family; "
+                      f"a review comes from a different family")
+
+
+def load_pin(path=PIN, data=None):
+    """The checked pin at `path`, or, given `data`, the pin in those bytes (a committed pin read with `git show`), so
+    a read-only caller needs no temporary file. It raises the first fault in its own fixed order; `faults` lists
+    every independent one."""
+    pin = _read(path, data)
+    check_shape(pin)
+    reviewers = pin["reviewers"]
+    check_reviewers_table(reviewers)
+    for name, entry in reviewers.items():
+        check_reviewer(name, entry)
+    routes = pin["routes"]
+    check_writers(routes)
     for writer, chain in routes.items():
-        if not isinstance(chain, list) or len(chain) != 1 or not isinstance(chain[0], str):
-            raise Refused(f"route {writer!r} must list exactly one reviewer")
-        if chain[0] not in reviewers:
-            raise Refused(f"route {writer!r} must list a defined reviewer")
-        if FAMILY[reviewers[chain[0]]["cli"]] == WRITER_FAMILY[writer]:
-            raise Refused(f"route {writer!r} names {chain[0]}, of the writer's own family; "
-                          f"a review comes from a different family")
+        check_route(writer, chain, reviewers)
     if "schedule" in pin:
         routed = list(dict.fromkeys(chain[0] for chain in routes.values()))
         check_schedule(pin["schedule"], {reviewers[name]["cli"] for name in routed})
@@ -140,6 +167,122 @@ def load_pin(path=PIN, data=None):
                 if reviewers[name]["cli"] == "agy":
                     check_agy_effort(name, reviewers[name]["model"], pin["schedule"])
     return pin
+
+
+def faults(path=PIN, data=None):
+    """Every independent fault of the pin, as the messages `load_pin` would refuse with one at a time, in the order of
+    the pin's tables: the reviewers, the routes, then the schedule's keys as the file gives them. Empty for a pin
+    that loads. A pin that cannot be read is its one fault.
+
+    A check that rests on a part already reported is skipped, so nothing is reported twice and nothing is invented:
+    a route to a reviewer whose own entry is at fault, everything under a schedule whose key set or policy is wrong,
+    the one-owner rule and a conditional entry's overlap when a step they read is at fault, `no_progress_cap`'s
+    upper bound when `pass_cap` is at fault, and an Antigravity reviewer's effort when a step is."""
+    try:
+        pin = _read(path, data)
+    except Refused as exc:
+        return [str(exc)]
+    found = []
+
+    def holds(check, *args):
+        try:
+            check(*args)
+            return True
+        except Refused as exc:
+            if str(exc) not in found:
+                found.append(str(exc))
+            return False
+
+    if not isinstance(pin, dict):
+        return ["the reviewer pin needs exactly schema_version = 1, [reviewers.*] and [routes]"]
+    holds(check_shape, pin)
+    reviewers = pin.get("reviewers")
+    good = {}
+    if "reviewers" in pin and holds(check_reviewers_table, reviewers):
+        good = {name: entry for name, entry in reviewers.items() if holds(check_reviewer, name, entry)}
+    routes = pin.get("routes")
+    routed = []
+    if "routes" in pin and holds(check_writers, routes):
+        for writer, chain in routes.items():
+            named = chain[0] if isinstance(chain, list) and len(chain) == 1 and isinstance(chain[0], str) else None
+            if named is not None and isinstance(reviewers, dict) and named in reviewers and named not in good:
+                continue  # its reviewer's own entry is already reported
+            if holds(check_route, writer, chain, good) and named not in routed:
+                routed.append(named)
+    if "schedule" not in pin:
+        return found
+    schedule = pin["schedule"]
+    efforts = [e for e in EFFORTS["claude"]
+               if all(e in EFFORTS[good[name]["cli"]] for name in routed if good[name]["cli"] in EFFORTS)]
+    if not isinstance(schedule, dict) or "policy" not in schedule:
+        if not isinstance(schedule, dict) or set(schedule) != ROTATION_KEYS:
+            holds(check_schedule, schedule, set())
+            return found
+        for key, step in schedule.items():
+            if key == "rounds":
+                if isinstance(step, list) and step:
+                    for n, entry in enumerate(step, 1):
+                        holds(check_step, f"round {n}", entry, efforts)
+                else:
+                    found.append("[schedule] rounds needs at least one round")
+            elif key == "severity_stop_after":
+                if type(step) is not int or not 0 <= step <= 33:
+                    found.append("[schedule] severity_stop_after needs a whole number of rounds from 0 to 33")
+            else:
+                holds(check_step, key, step, efforts, LENSES, "none" if key == "completion" else "required")
+        return found
+    if schedule["policy"] != THREE_PASS or not holds(check_three_pass_keys, schedule):
+        if schedule["policy"] != THREE_PASS:
+            found.append(f"[schedule] policy must be \"{THREE_PASS}\"; a schedule without the key rotates")
+        return found
+    # Collected per key, then given in the order the file has the schedule's keys.
+    per = {key: [] for key in schedule}
+    late = []
+
+    def into(bucket, check, *args):
+        try:
+            check(*args)
+            return True
+        except Refused as exc:
+            if str(exc) not in bucket:
+                bucket.append(str(exc))
+            return False
+
+    extra = schedule.get("lenses", {})
+    table = dict(LENSES)
+    if into(per.get("lenses", late), check_extra_lenses_table, extra):
+        table.update({name: q for name, q in extra.items() if into(per["lenses"], check_extra_lens, name, q)})
+    sound = {kind: into(per[kind], check_step, kind, schedule[kind], efforts, table,
+                        "optional" if kind == "completion" else "required")
+             for kind in ("plan", "completion", "reconciliation")}
+    sound["round"] = into(per["rounds"], check_one_round, schedule["rounds"]) \
+        and into(per["rounds"], check_step, "round 1", schedule["rounds"][0], efforts, table)
+    cap_sound = "pass_cap" not in schedule or into(per["pass_cap"], check_pass_cap, schedule)
+    if "no_progress_cap" in schedule:
+        stall = schedule["no_progress_cap"]
+        if cap_sound:
+            into(per["no_progress_cap"], check_no_progress_cap, schedule)
+        elif type(stall) is not int or stall < 1:
+            # pass_cap is already reported, so only what does not rest on it is said here.
+            per["no_progress_cap"].append("[schedule] no_progress_cap needs a whole number of passes from 1 to pass_cap")
+    if "blocking" in schedule:
+        into(per["blocking"], check_blocking, schedule)
+    owners = None
+    if all(sound[kind] for kind in ("plan", "round", "completion")):
+        try:
+            owners = lens_owners(schedule)
+        except Refused as exc:
+            late.append(str(exc))
+    if "conditional" in schedule and into(per["conditional"], check_conditional_table, schedule["conditional"]):
+        for n, entry in enumerate(schedule["conditional"], 1):
+            if into(per["conditional"], check_conditional_entry, n, entry, table) \
+                    and owners is not None and sound["reconciliation"]:
+                into(per["conditional"], check_conditional_overlap, n, entry, schedule, owners)
+    if all(sound.values()):
+        for name in routed:
+            if good[name]["cli"] == "agy":
+                into(late, check_agy_effort, name, good[name]["model"], schedule)
+    return found + [message for key in schedule for message in per[key]] + late
 
 
 def route_for(pin, writer):
@@ -247,34 +390,37 @@ def check_schedule(schedule, clis):
         raise Refused("[schedule] severity_stop_after needs a whole number of rounds from 0 to 33")
 
 
-def check_three_pass(schedule, efforts):
+def check_three_pass_keys(schedule):
     if not THREE_PASS_KEYS <= set(schedule) <= THREE_PASS_KEYS | THREE_PASS_OPTIONAL:
         raise Refused(f"[schedule] with policy = \"{THREE_PASS}\" needs exactly {', '.join(sorted(THREE_PASS_KEYS))}, "
                       f"and may add {', '.join(sorted(THREE_PASS_OPTIONAL))}"
                       + _keys(schedule, THREE_PASS_KEYS, THREE_PASS_OPTIONAL))
-    extra = schedule.get("lenses", {})
+
+
+def check_extra_lenses_table(extra):
     if not isinstance(extra, dict):
         raise Refused("[schedule.lenses] must be a table of lens name = \"question\"")
-    for name, question in extra.items():
-        if not NAME.fullmatch(name):
-            raise Refused(f"[schedule.lenses] {name!r} is not a lens name (lowercase letters, digits and dashes)")
-        if name in LENSES:
-            raise Refused(f"[schedule.lenses] {name!r} is already a built-in lens; a pin adds lenses, it does not "
-                          f"redefine them")
-        if not isinstance(question, str) or not question.strip() or "\n" in question or "\r" in question:
-            raise Refused(f"[schedule.lenses] {name!r} needs its question as one line of text")
-    table = lens_table(schedule)
-    check_step("plan", schedule["plan"], efforts, table)
-    # Optional on completion: a pin written before completion had lenses of its own gives it none.
-    check_step("completion", schedule["completion"], efforts, table, lenses="optional")
-    check_step("reconciliation", schedule["reconciliation"], efforts, table)
-    rounds = schedule["rounds"]
+
+
+def check_extra_lens(name, question):
+    if not NAME.fullmatch(name):
+        raise Refused(f"[schedule.lenses] {name!r} is not a lens name (lowercase letters, digits and dashes)")
+    if name in LENSES:
+        raise Refused(f"[schedule.lenses] {name!r} is already a built-in lens; a pin adds lenses, it does not "
+                      f"redefine them")
+    if not isinstance(question, str) or not question.strip() or "\n" in question or "\r" in question:
+        raise Refused(f"[schedule.lenses] {name!r} needs its question as one line of text")
+
+
+def check_one_round(rounds):
     if not isinstance(rounds, list) or len(rounds) != 1:
         raise Refused(f"[schedule] with policy = \"{THREE_PASS}\" needs exactly one round in rounds")
-    check_step("round 1", rounds[0], efforts, table)
-    # One owner per lens: plan, the round and completion each ask their own questions. Reconciliation rechecks a
-    # repaired candidate, so it may repeat lenses.
-    owned = {"plan": schedule["plan"]["lenses"], "round": rounds[0]["lenses"],
+
+
+def lens_owners(schedule):
+    """lens -> the one of plan, round and completion that always has it. One owner per lens: plan, the round and
+    completion each ask their own questions. Reconciliation rechecks a repaired candidate, so it may repeat lenses."""
+    owned = {"plan": schedule["plan"]["lenses"], "round": schedule["rounds"][0]["lenses"],
              "completion": schedule["completion"].get("lenses", [])}
     seen = {}
     for kind, names in owned.items():
@@ -283,52 +429,95 @@ def check_three_pass(schedule, efforts):
                 raise Refused(f"[schedule] the lens {name} is listed in both {seen[name]} and {kind}; a lens belongs "
                               f"to one of plan, the round and completion")
             seen[name] = kind
-    if "pass_cap" in schedule:
-        cap = schedule["pass_cap"]
-        if type(cap) is not int or not MIN_PASS_CAP <= cap <= MAX_PASS_CAP:
-            raise Refused(f"[schedule] pass_cap needs a whole number of review passes from {MIN_PASS_CAP} to "
-                          f"{MAX_PASS_CAP}")
-    if "no_progress_cap" in schedule:
-        stall = schedule["no_progress_cap"]
-        if type(stall) is not int or not 1 <= stall <= pass_cap(schedule):
-            raise Refused(f"[schedule] no_progress_cap needs a whole number of passes from 1 to pass_cap "
-                          f"({pass_cap(schedule)})")
-    if "blocking" in schedule:
-        levels = schedule["blocking"]
-        if not isinstance(levels, list) or not all(_one_of(level, SEVERITIES) for level in levels) \
-                or len(set(levels)) != len(levels) or "P1" not in levels:
-            raise Refused(f"[schedule] blocking needs a list of distinct levels from {', '.join(SEVERITIES)}, with P1 "
-                          f"among them")
-    entries = schedule.get("conditional", [])
+    return seen
+
+
+def check_pass_cap(schedule):
+    cap = schedule["pass_cap"]
+    if type(cap) is not int or not MIN_PASS_CAP <= cap <= MAX_PASS_CAP:
+        raise Refused(f"[schedule] pass_cap needs a whole number of review passes from {MIN_PASS_CAP} to "
+                      f"{MAX_PASS_CAP}")
+
+
+def check_no_progress_cap(schedule):
+    stall = schedule["no_progress_cap"]
+    if type(stall) is not int or not 1 <= stall <= pass_cap(schedule):
+        raise Refused(f"[schedule] no_progress_cap needs a whole number of passes from 1 to pass_cap "
+                      f"({pass_cap(schedule)})")
+
+
+def check_blocking(schedule):
+    levels = schedule["blocking"]
+    if not isinstance(levels, list) or not all(_one_of(level, SEVERITIES) for level in levels) \
+            or len(set(levels)) != len(levels) or "P1" not in levels:
+        raise Refused(f"[schedule] blocking needs a list of distinct levels from {', '.join(SEVERITIES)}, with P1 "
+                      f"among them")
+
+
+def check_conditional_table(entries):
     if not isinstance(entries, list):
         raise Refused("[[schedule.conditional]] must be an array of tables")
+
+
+def check_conditional_entry(n, entry, table):
+    where = f"[[schedule.conditional]] entry {n}"
+    if not isinstance(entry, dict) or set(entry) != CONDITIONAL_KEYS:
+        raise Refused(f"{where} needs exactly {', '.join(sorted(CONDITIONAL_KEYS))}"
+                      + (_keys(entry, CONDITIONAL_KEYS) if isinstance(entry, dict) else ""))
+    if not _lens_list(entry["lenses"], table):
+        raise Refused(f"{where} needs lenses = a list of distinct lenses from {', '.join(table)}")
+    passes = entry["passes"]
+    if not isinstance(passes, list) or not passes or not all(_one_of(p, SECTION_KINDS) for p in passes) \
+            or len(set(passes)) != len(passes):
+        raise Refused(f"{where} needs passes = a list of distinct passes from {', '.join(SECTION_KINDS)}")
+    paths = entry["paths"]
+    if not isinstance(paths, list) or not paths or not all(_relative_prefix(p) for p in paths) \
+            or len(set(paths)) != len(paths):
+        raise Refused(f"{where} needs paths = a list of distinct repository-relative path prefixes with forward "
+                      f"slashes (no leading /, no empty, . or .. part, no drive)")
+
+
+def check_conditional_overlap(n, entry, schedule, owners):
+    where = f"[[schedule.conditional]] entry {n}"
+    for kind in entry["passes"]:
+        always = schedule["rounds"][0] if kind == "round" else schedule[kind]
+        repeated = [name for name in entry["lenses"] if name in always.get("lenses", [])]
+        if repeated:
+            raise Refused(f"{where} repeats the lens {repeated[0]}, which the {kind} pass always has")
+        # The one-owner rule holds for conditional lenses too: a lens plan, the round or completion always has
+        # cannot be handed to another of them by path. Reconciliation may repeat lenses, here as in its own list.
+        taken = [name for name in entry["lenses"] if kind != "reconciliation" and name in owners]
+        if taken:
+            raise Refused(f"{where} gives the {kind} pass the lens {taken[0]}, which belongs to {owners[taken[0]]}; "
+                          f"a lens belongs to one of plan, the round and completion")
+
+
+def check_three_pass(schedule, efforts):
+    """The three-pass schedule, in the order `load_pin` has always refused in."""
+    check_three_pass_keys(schedule)
+    extra = schedule.get("lenses", {})
+    check_extra_lenses_table(extra)
+    for name, question in extra.items():
+        check_extra_lens(name, question)
+    table = lens_table(schedule)
+    check_step("plan", schedule["plan"], efforts, table)
+    # Optional on completion: a pin written before completion had lenses of its own gives it none.
+    check_step("completion", schedule["completion"], efforts, table, lenses="optional")
+    check_step("reconciliation", schedule["reconciliation"], efforts, table)
+    check_one_round(schedule["rounds"])
+    check_step("round 1", schedule["rounds"][0], efforts, table)
+    owners = lens_owners(schedule)
+    if "pass_cap" in schedule:
+        check_pass_cap(schedule)
+    if "no_progress_cap" in schedule:
+        check_no_progress_cap(schedule)
+    if "blocking" in schedule:
+        check_blocking(schedule)
+    entries = schedule.get("conditional", [])
+    check_conditional_table(entries)
     for n, entry in enumerate(entries, 1):
-        where = f"[[schedule.conditional]] entry {n}"
-        if not isinstance(entry, dict) or set(entry) != CONDITIONAL_KEYS:
-            raise Refused(f"{where} needs exactly {', '.join(sorted(CONDITIONAL_KEYS))}"
-                          + (_keys(entry, CONDITIONAL_KEYS) if isinstance(entry, dict) else ""))
-        if not _lens_list(entry["lenses"], table):
-            raise Refused(f"{where} needs lenses = a list of distinct lenses from {', '.join(table)}")
-        passes = entry["passes"]
-        if not isinstance(passes, list) or not passes or not all(_one_of(p, SECTION_KINDS) for p in passes) \
-                or len(set(passes)) != len(passes):
-            raise Refused(f"{where} needs passes = a list of distinct passes from {', '.join(SECTION_KINDS)}")
-        paths = entry["paths"]
-        if not isinstance(paths, list) or not paths or not all(_relative_prefix(p) for p in paths) \
-                or len(set(paths)) != len(paths):
-            raise Refused(f"{where} needs paths = a list of distinct repository-relative path prefixes with forward "
-                          f"slashes (no leading /, no empty, . or .. part, no drive)")
-        for kind in passes:
-            always = schedule["rounds"][0] if kind == "round" else schedule[kind]
-            repeated = [name for name in entry["lenses"] if name in always.get("lenses", [])]
-            if repeated:
-                raise Refused(f"{where} repeats the lens {repeated[0]}, which the {kind} pass always has")
-            # The one-owner rule holds for conditional lenses too: a lens plan, the round or completion always has
-            # cannot be handed to another of them by path. Reconciliation may repeat lenses, here as in its own list.
-            taken = [name for name in entry["lenses"] if kind != "reconciliation" and name in seen]
-            if taken:
-                raise Refused(f"{where} gives the {kind} pass the lens {taken[0]}, which belongs to {seen[taken[0]]}; "
-                              f"a lens belongs to one of plan, the round and completion")
+        check_conditional_entry(n, entry, table)
+        check_conditional_overlap(n, entry, schedule, owners)
 
 
 def _relative_prefix(path):
@@ -489,6 +678,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--check", action="store_true", help="Load the pin: ok, or the refusal (exit 2)")
+    parser.add_argument("--all", action="store_true",
+                        help="With --check: list every independent fault, one line each, instead of the first")
     group.add_argument("--lenses", metavar="KIND", choices=SECTION_KINDS,
                        help="Print that pass's lenses with their questions (three-pass pins)")
     group.add_argument("--caps", action="store_true", help="Print pass_cap and no_progress_cap (three-pass pins)")
@@ -497,6 +688,15 @@ def main(argv=None):
                              "so the conditional lenses that apply to them are listed too")
     parser.add_argument("--pin", default=str(PIN), help="The pin to read (default .conclave/reviewers.toml)")
     args = parser.parse_args(argv)
+    if args.all and not args.check:
+        parser.error("--all goes with --check")
+    if args.all:
+        found = faults(args.pin)
+        for message in found:
+            print(f"review-pin refused: {message}", file=sys.stderr)
+        if not found:
+            print("ok")
+        return 2 if found else 0
     try:
         pin = load_pin(args.pin)
         schedule = pin.get("schedule", {})

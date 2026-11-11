@@ -142,6 +142,7 @@ To ask what the pin says without running a reviewer:
 
 ```bash
 python3 scripts/review_pin.py --check                       # ok, or the refusal
+python3 scripts/review_pin.py --check --all                 # every independent fault, one line each
 python3 scripts/review_pin.py --lenses round --paths src/ui/a.c   # that pass's lenses with their questions
 python3 scripts/review_pin.py --caps                        # pass_cap and no_progress_cap
 python3 scripts/review-dispatch.py --check-pin --json [--pin .conclave/reviewers.toml]

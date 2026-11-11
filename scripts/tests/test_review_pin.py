@@ -417,6 +417,142 @@ class ThreePass(Cases):
         self.assertEqual(review_pin.missing_lens_verdicts([], "anything"), [])
 
 
+class Faults(unittest.TestCase):
+    """`faults`: every independent fault at once, in the order of the pin's tables, while `load_pin` keeps its own."""
+
+    def found(self, text):
+        return review_pin.faults(data=text.encode("utf-8"))
+
+    def first(self, text):
+        with self.assertRaises(review_pin.Refused) as refused:
+            load(text)
+        return str(refused.exception)
+
+    def test_a_pin_that_loads_has_no_faults(self):
+        for text in (HEAD, ROTATION, THREE_PASS, EARLIER_THREE_PASS):
+            self.assertEqual(self.found(text), [])
+
+    def test_three_independent_faults_are_all_reported(self):
+        bad = THREE_PASS.replace("pass_cap = 45", "pass_cap = 2").replace(
+            'blocking = ["P1", "P2"]', 'blocking = ["P2"]').replace(
+            'lenses = ["adversarial", "plan-delivery", "record"]', 'lenses = ["adversarial", "vibes"]')
+        found = self.found(bad)
+        self.assertEqual(len(found), 3, found)
+        self.assertIn("[schedule] pass_cap needs", found[0])
+        self.assertIn("[schedule] blocking needs", found[1])
+        self.assertIn("[schedule] reconciliation needs lenses", found[2])
+        # load_pin still raises one of them, and it is among those listed.
+        self.assertIn(self.first(bad), found)
+
+    def test_the_loader_keeps_its_order_while_faults_follows_the_file(self):
+        # The loader checks the steps before the caps; the file has pass_cap before [schedule.plan].
+        bad = THREE_PASS.replace("pass_cap = 45", "pass_cap = 2").replace('lenses = ["plan"]', 'lenses = ["vibes"]')
+        self.assertIn("[schedule] plan needs lenses", self.first(bad))
+        found = self.found(bad)
+        self.assertEqual([m.split(" needs")[0] for m in found], ["[schedule] pass_cap", "[schedule] plan"])
+
+    def test_faults_across_reviewers_routes_and_the_schedule(self):
+        bad = THREE_PASS.replace('cli = "codex"', 'cli = "bash"').replace(
+            'claude = ["astra"]', 'claude = ["astra"]\nopus = ["astra"]').replace("pass_cap = 45", "pass_cap = 1000")
+        found = self.found(bad)
+        self.assertEqual(len(found), 3, found)
+        self.assertIn("reviewer 'astra' needs cli", found[0])
+        self.assertIn("[routes] may only name the writers", found[1])
+        self.assertIn("[schedule] pass_cap needs", found[2])
+        # The route to the reviewer whose own entry is at fault adds nothing of its own.
+        only = self.found(THREE_PASS.replace('cli = "codex"', 'cli = "bash"'))
+        self.assertEqual(len(only), 1, only)
+        self.assertIn("reviewer 'astra' needs cli", only[0])
+        # A route that is itself wrong is still reported beside a sound reviewer.
+        routes = self.found(HEAD.replace('claude = ["astra"]', 'claude = ["astra", "astra"]\ncodex = ["nobody"]'))
+        self.assertEqual(len(routes), 2, routes)
+        self.assertIn("route 'claude' must list exactly one reviewer", routes[0])
+        self.assertIn("route 'codex' must list a defined reviewer", routes[1])
+
+    def test_a_rotation_schedule_reports_each_bad_step(self):
+        bad = ROTATION.replace('[schedule.plan]\neffort = "medium"', '[schedule.plan]\neffort = "extreme"').replace(
+            '[schedule.escalation]\neffort = "medium"\nlenses = ["adversarial"]',
+            '[schedule.escalation]\neffort = "medium"\nlenses = ["nope"]').replace(
+            "severity_stop_after = 0", "severity_stop_after = 99")
+        found = self.found(bad)
+        self.assertEqual(len(found), 3, found)
+        self.assertIn("severity_stop_after needs", found[0])
+        self.assertIn("[schedule] plan needs effort", found[1])
+        self.assertIn("[schedule] escalation needs lenses", found[2])
+        # A wrong key set is one fault, and nothing under it is looked at.
+        keys = self.found(ROTATION.replace("severity_stop_after = 0", "severity_stop = 0").replace(
+            '[schedule.plan]\neffort = "medium"', '[schedule.plan]\neffort = "extreme"'))
+        self.assertEqual(len(keys), 1, keys)
+        self.assertIn("(unknown: severity_stop; missing: severity_stop_after)", keys[0])
+
+    def test_extra_lenses_and_conditional_entries_are_each_checked(self):
+        line = 'concurrency = "On two or more CPUs, which lock or teardown order is wrong?"'
+        bad = THREE_PASS.replace(line, line + '\nquality = "Mine"\nBad_Name = "x"').replace(
+            'passes = ["plan", "round"]', 'passes = ["rounds"]').replace(
+            'paths = ["src/kernel/", "include/kernel/"]', 'paths = ["/abs/"]')
+        found = self.found(bad)
+        self.assertEqual(len(found), 4, found)
+        self.assertIn("'quality' is already a built-in lens", found[0])
+        self.assertIn("'Bad_Name' is not a lens name", found[1])
+        self.assertIn("[[schedule.conditional]] entry 1 needs paths", found[2])
+        self.assertIn("[[schedule.conditional]] entry 2 needs passes", found[3])
+
+    def test_a_check_that_rests_on_a_reported_part_is_skipped(self):
+        # The round's lenses are at fault, so the one-owner rule and a conditional overlap that read them are not run.
+        bad = THREE_PASS.replace('lenses = ["adversarial", "integration", "quality"]',
+                                 'lenses = ["adversarial", "nope", "plan"]')
+        found = self.found(bad)
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("[schedule] round 1 needs lenses", found[0])
+        # With sound steps the one-owner rule is reported, once.
+        owner = self.found(THREE_PASS.replace('lenses = ["plan-delivery", "record"]', 'lenses = ["plan", "record"]'))
+        self.assertEqual(len(owner), 1, owner)
+        self.assertIn("the lens plan is listed in both plan and completion", owner[0])
+        # A bad pass_cap is reported once; no_progress_cap is not blamed for a bound it cannot be held to.
+        cap = self.found(THREE_PASS.replace("pass_cap = 45", "pass_cap = true"))
+        self.assertEqual(len(cap), 1, cap)
+        both = self.found(THREE_PASS.replace("pass_cap = 45", "pass_cap = true").replace(
+            "no_progress_cap = 3", "no_progress_cap = 0"))
+        self.assertEqual([m.split(" needs")[0] for m in both], ["[schedule] pass_cap", "[schedule] no_progress_cap"])
+        # An unknown policy, or a wrong key set, is the schedule's one fault.
+        policy = self.found(THREE_PASS.replace('policy = "three-pass"', 'policy = "two-pass"').replace(
+            "pass_cap = 45", "pass_cap = 2"))
+        self.assertEqual(len(policy), 1, policy)
+        self.assertIn("policy must be", policy[0])
+        keys = self.found(THREE_PASS.replace("pass_cap = 45", "pass_cpa = 2").replace(
+            'lenses = ["plan"]', 'lenses = ["vibes"]'))
+        self.assertEqual(len(keys), 1, keys)
+        self.assertIn("(unknown: pass_cpa)", keys[0])
+
+    def test_every_single_fault_the_loader_refuses_is_what_faults_reports(self):
+        cases = (HEAD.replace("schema_version = 1", "schema_version = 2"),
+                 HEAD.replace('model = "gpt-6-astra"', 'model = "bad model"'),
+                 HEAD.replace('claude = ["astra"]', 'claude = []'),
+                 HEAD.replace('claude = ["astra"]', 'claude = ["astra"]\ngemini = ["astra"]\nagy = ["astra"]'),
+                 ROTATION.replace('lenses = ["consistency", "design", "record"]', "lenses = []"),
+                 THREE_PASS + '\n[[schedule.rounds]]\neffort = "medium"\nlenses = ["optimization"]\n',
+                 THREE_PASS.replace('lenses = ["design"]\npasses = ["plan", "round"]',
+                                    'lenses = ["quality"]\npasses = ["plan"]'),
+                 THREE_PASS.replace('cli = "codex"\nmodel = "gpt-6-astra"\neffort = "medium"',
+                                    'cli = "agy"\nmodel = "gemini-4-argon-high"'))
+        for text in cases:
+            with self.subTest(text=text[-60:]):
+                self.assertEqual(self.found(text), [self.first(text)])
+
+    def test_a_pin_that_cannot_be_read_is_its_one_fault(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            for label, make in (("missing", lambda p: None), ("a folder", lambda p: p.mkdir()),
+                                ("not UTF-8", lambda p: p.write_bytes(b"schema_version = 1\n\xff\xfe")),
+                                ("not TOML", lambda p: p.write_text("not toml [", encoding="utf-8"))):
+                with self.subTest(label):
+                    path = folder / (label.replace(" ", "-") + ".toml")
+                    make(path)
+                    with self.assertRaises(review_pin.Refused) as refused:
+                        review_pin.load_pin(path)
+                    self.assertEqual(review_pin.faults(path), [str(refused.exception)])
+
+
 class CommandLine(unittest.TestCase):
     def run_cli(self, text, *args):
         with tempfile.TemporaryDirectory() as tmp:
@@ -433,6 +569,35 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(bad.returncode, 2)
         self.assertIn("review-pin refused: [schedule] pass_cap needs", bad.stderr)
         self.assertEqual(bad.stdout, "")
+
+    def test_check_all_lists_every_fault_and_only_goes_with_check(self):
+        bad = THREE_PASS.replace("pass_cap = 45", "pass_cap = 2").replace(
+            'blocking = ["P1", "P2"]', 'blocking = ["P2"]').replace(
+            'lenses = ["adversarial", "plan-delivery", "record"]', 'lenses = ["adversarial", "vibes"]')
+        done = self.run_cli(bad, "--check", "--all")
+        self.assertEqual(done.returncode, 2)
+        lines = done.stderr.splitlines()
+        self.assertEqual(len(lines), 3, done.stderr)
+        self.assertTrue(all(line.startswith("review-pin refused: [schedule] ") for line in lines), done.stderr)
+        self.assertEqual(done.stdout, "")
+        self.assertNotIn("Traceback", done.stderr)
+        # The plain check still stops at the first, in the loader's own order.
+        one = self.run_cli(bad, "--check")
+        self.assertEqual((one.returncode, len(one.stderr.splitlines())), (2, 1))
+        ok = self.run_cli(THREE_PASS, "--check", "--all")
+        self.assertEqual((ok.returncode, ok.stdout, ok.stderr), (0, "ok\n", ""))
+        unreadable = self.run_cli("not toml [", "--check", "--all")
+        self.assertEqual(unreadable.returncode, 2)
+        self.assertEqual(len(unreadable.stderr.splitlines()), 1)
+        self.assertIn("review-pin refused: unreadable reviewer pin", unreadable.stderr)
+        self.assertNotIn("Traceback", unreadable.stderr)
+        alone = self.run_cli(THREE_PASS, "--caps", "--all")
+        self.assertEqual(alone.returncode, 2)
+        self.assertIn("--all goes with --check", alone.stderr)
+        missing = subprocess.run([sys.executable, str(SCRIPTS / "review_pin.py"), "--check", "--all", "--pin",
+                                  str(SCRIPTS / "no-such-pin.toml")], capture_output=True, text=True, timeout=60)
+        self.assertEqual(missing.returncode, 2)
+        self.assertIn("review-pin refused: no reviewer pin at", missing.stderr)
 
     def test_lenses_prints_each_lens_with_its_question(self):
         table = review_pin.lens_table(tomllib.loads(THREE_PASS)["schedule"])
