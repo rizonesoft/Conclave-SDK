@@ -139,7 +139,11 @@ Codex needs the `block` answer and must never be stopped by a broken hook. A sma
 
 ## 4. Heartbeat stall breaker for a harness with no Stop hook
 
+> **Started:** 2026-11-11T23:42:54Z
+
 When a harness has no Stop hook that can hold a run, the heartbeat is the only thing that sees it. `heartbeat-still` counts heartbeat resumptions that found nothing changed and ends a run that is going nowhere. Source: RasterFold `scripts/campaign_guard.py:771` and `:89`.
+
+**Corrected 2026-11-12 (validation):** checked against RasterFold at `b334933`. Its first call on a new fingerprint sets the baseline and counts nothing, so two calls on an unchanged tree read `hb_still` 1, not 2. It never ends the run itself (its heartbeat prompt's trips-of-2 step does); here the second trip ends the run through `end`'s own `stall` path (`_end_locked`, which already requires `trips` of 2), so a harness with no session heartbeat (the unattended kit's outside one, D02 T02 §7) stops a stuck run too. The kit's Stop hook writes its state with only its own keys, which would drop `hb_fingerprint` and `hb_still`; it keeps them, as RasterFold's does. A refusal exits 1, the guard's code for every `GuardError`.
 
 **Phase:** 2
 **Needs:** none
@@ -150,10 +154,11 @@ When a harness has no Stop hook that can hold a run, the heartbeat is the only t
 1. Add `heartbeat-still` to `kits/todo/templates/scripts/campaign_guard.py`. Done when: six stills count one stall trip.
 2. Cover the counter and its reset. Done when: the checkpoint passes.
 
-- [ ] Add `heartbeat_still(root, session)` and the `heartbeat-still --session S` command to `campaign_guard.py`: compare the tree fingerprint the stall breaker already computes with the one stored as `hb_fingerprint` in the state file, and count `hb_still` up when they match (RasterFold `:771`). Done when: a test calling it twice on an unchanged tree reads `hb_still` as 2. Cheaper substitute: counting every call must fail the reset test below.
+- [ ] Add `heartbeat_still(root, session)` and the `heartbeat-still --session S` command to `campaign_guard.py`: compare the tree fingerprint the stall breaker already computes with the one stored as `hb_fingerprint` in the state file, and count `hb_still` up when they match (RasterFold `:771`). Done when: a test reads `hb_still` 0 after the first call (the baseline) and 2 after two more on an unchanged tree. **Corrected 2026-11-12 (validation):** said two calls read 2. Cheaper substitute: counting every call must fail the reset test below.
 - [ ] Reset `hb_still` to 0 and store the new fingerprint in `heartbeat_still` when the tree changed. Done when: a test commits a file between two calls and reads `hb_still` as 0.
-- [ ] Count one stall trip in `heartbeat_still` at `MAX_HEARTBEAT_STILLS = 6` stills, and end the run with reason `stall` on the second trip, through the same path the Stop hook's breaker uses (RasterFold `:89`). Done when: a test with twelve stills finds the guard released with reason `stall`, and one with six finds it still held with one trip recorded.
-- [ ] Refuse `heartbeat-still` for a session that does not hold the guard, with exit 2 and the guard untouched. Done when: a test with another session id finds the refusal and the state file unchanged.
+- [ ] Count one stall trip in `heartbeat_still` at `MAX_HEARTBEAT_STILLS = 6` stills, and end the run with reason `stall` on the second trip, through the same path the Stop hook's breaker uses (RasterFold `:89`). Done when: a test with twelve stills after the baseline finds the guard released with reason `stall` through `end` (the guard file gone, the pending cancellation naming the job), and one with six finds it still held with one trip recorded.
+- [ ] Keep `hb_fingerprint` and `hb_still` in `stop_decision` of `campaign_guard.py` when the Stop hook writes its state. Done when: a test runs a heartbeat still, then the Stop hook, and reads `hb_still` unchanged. **Corrected 2026-11-12 (validation):** added.
+- [ ] Refuse `heartbeat-still` for a session that does not hold the guard, with exit 1 (a `GuardError`) and the guard untouched. Done when: a test with another session id finds the refusal and the state file unchanged.
 - [ ] Run `python forge.py self-sync` and name the command in the guard's docstring. Done when: `scripts/campaign_guard.py` equals the kit file.
 - [ ] Commit: `todo: heartbeat-still ends a run that changes nothing`
 
