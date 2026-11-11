@@ -149,10 +149,10 @@ Surface and feature completeness: 100% of every control, menu item, dialog and s
 Tick nothing by hand. Confirm every checklist item except `Commit:` is `[x]`, then stamp with the command for the pin's schedule. Under a three-pass pin, with the last returned pass having reviewed the stamped commit:
 
 ```powershell
-python scripts/todo-graph.py stamp 'DNN TNN §N' --sha <full tip SHA> --plan 'docs/reviews/<domain>/D<NN>-T<NN>-s<N>.md' --completion 'docs/reviews/<domain>/D<NN>-T<NN>-s<N>.md:<complete|reconciled|filed>' --review '1:docs/reviews/<domain>/D<NN>-T<NN>-s<N>.md:<clean|fixed>' --check '<checkpoint command> -> <quoted result>'
+python scripts/todo-graph.py stamp 'DNN TNN §N' --sha <full tip SHA> --plan 'docs/reviews/<domain>/D<NN>-T<NN>-s<N>.md' --completion 'docs/reviews/<domain>/D<NN>-T<NN>-s<N>.md:<complete|reconciled|filed>' --review '<N>:docs/reviews/<domain>/D<NN>-T<NN>-s<N>.md:<clean|fixed>' --check '<checkpoint command> -> <quoted result>'
 ```
 
-The three-pass verdicts: `--completion` is `complete` (the completion found no gap), `reconciled` (it returned gaps and the last reconciliation ended complete) or `filed` (the last pass ended gaps whose worst finding is below the pin's `blocking` levels and every gap is on a `- Filed:` line). `completed` is not accepted. There is exactly one `--review`, for the one round: `clean` when it approved, `fixed` when it found something that was then fixed. There is no `--cap-outcome`, no `stopped-` verdict and no severity stop. The receipt records `passes_spent` and `pass_cap`.
+The three-pass verdicts: `--completion` is `complete` (the completion found no gap), `reconciled` (it returned gaps and the last reconciliation ended complete) or `filed` (the last pass ended gaps whose worst finding is below the pin's `blocking` levels and every gap is on a `- Filed:` line). `completed` is not accepted. There is exactly one `--review`, for the one round that returned a review, under the number the dispatcher gave it: `1` when the first attempt returned, and the number in the `round` field of its summary (the `## Round N` heading that names a reviewer in the findings file) when an earlier attempt was an outage or an incomplete reply. Its verdict is `clean` when it approved, `fixed` when it found something that was then fixed. There is no `--cap-outcome`, no `stopped-` verdict and no severity stop. The receipt records `passes_spent` and `pass_cap`.
 
 Under a rotation pin:
 
