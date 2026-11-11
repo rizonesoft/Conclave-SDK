@@ -12,12 +12,12 @@ Sections: 5 | Checklist items: 51
 
 | Status | Reference  | Deliverable                                             | Needs | Items |
 | ------ | ---------- | ------------------------------------------------------- | ----- | ----- |
-| [ ]    | D00 T01 §1 | Pin loader module with the three-pass keys              | none  | 14    |
+| [x]    | D00 T01 §1 | Pin loader module with the three-pass keys              | none  | 14    |
 | [ ]    | D00 T01 §2 | Three-pass dispatcher                                   | none  | 14    |
 | [ ]    | D00 T01 §3 | Three-pass stamp rules in the todo kit                  | none  | 10    |
 | [ ]    | D00 T01 §4 | Template pin, prompts, skills and READMEs on three-pass | none  | 9     |
 | [ ]    | D00 T01 §5 | Pin check that reports every fault at once              | none  | 4     |
 
-Progress: 0/5 verified sections, 1 ready to run now.
+Progress: 1/5 verified sections, 2 ready to run now.
 
-Checklist: 13/51 items completed (includes Commit items).
+Checklist: 14/51 items completed (includes Commit items).

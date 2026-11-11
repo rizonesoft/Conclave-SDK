@@ -32,7 +32,7 @@ title: "TODO-01 -- Three-pass review"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Pin loader module with the three-pass keys | -- | [ ] |
+| 1 | §1 | Pin loader module with the three-pass keys | -- | [x] |
 | 2 | §2 | Three-pass dispatcher | §1 | [ ] |
 | 3 | §3 | Three-pass stamp rules in the todo kit | §2 | [ ] |
 | 4 | §4 | Template pin, prompts, skills and READMEs on three-pass | §3 | [ ] |
@@ -67,9 +67,12 @@ Pin handling moves out of the dispatcher into `review_pin.py` and learns the thr
 - [x] Add a `--check`, `--lenses <kind>` and `--caps` command line to `review_pin.py` with `--pin <path>`: `--lenses` prints one `name: question` line per lens of that pass, the conditional ones only for the files given with `--paths`, and `--caps` prints `pass_cap N` and `no_progress_cap N` (or `none`). Done when: a test asserts the exact lines for a three-pass pin with and without `--paths`, the configured caps, and that `--check` exits 2 with the refusal on a bad pin. **Corrected 2026-11-11 (plan review):** the output was undefined and conditional lenses had no input.
 - [x] Write `kits/reviewer/templates/scripts/tests/test_review_pin.py` covering every item above. Done when: `python -m unittest discover -s kits/reviewer/templates/scripts/tests -p test_review_pin.py` passes and fails when a refusal is removed.
 - [x] Install `review_pin.py` and its test: `kits/reviewer/scripts/install.sh` copies the template tree recursively, so add fresh-install assertions for both files to `kits/reviewer/scripts/test-install.sh`, name them in `kits/reviewer/README.md`, and run `python forge.py self-sync`. Done when: `bash kits/reviewer/scripts/test-install.sh` passes and fails with `review_pin.py` removed from the template, `scripts/review_pin.py` equals the kit file, and `python -m unittest discover -s tests` passes. **Corrected 2026-11-11 (plan review):** said the installer lists files; it discovers them. Cheaper substitute: copying the file into the SDK by hand without the install assertion must fail review.
-- [ ] Commit: `reviewer: move pin handling into review_pin.py with the three-pass keys`
+- [x] Commit: `reviewer: move pin handling into review_pin.py with the three-pass keys`
 
 **Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests` and `python -m unittest discover -s tests` both end `OK`, and `bash kits/reviewer/scripts/test-install.sh` passes; removing the one-owner check from `review_pin.py` makes `test_review_pin.py` fail.
+
+> **Verified:** 2026-11-11 | §1 | 0ecf0655c9dc685e985a604755e1215767eed3f0
+> **Review:** `docs/reviews/d00-t01-s1.json`
 
 ## 2. Three-pass dispatcher
 
