@@ -35,7 +35,7 @@ title: "TODO-01 -- Install record, diff and update"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Kit file plan shared by install, diff and update | -- | [x] |
-| 2 | §2 | Install record in `.conclave/kits.json` | §1 | [ ] |
+| 2 | §2 | Install record in `.conclave/kits.json` | §1 | [x] |
 | 3 | §3 | Read-only `forge.py diff` | §2 | [ ] |
 | 4 | §4 | `forge.py update` for missing and kit-newer files | §3 | [ ] |
 | 5 | §5 | `forge.py record` for projects installed before the record | §3 | [ ] |
@@ -100,6 +100,9 @@ title: "TODO-01 -- Install record, diff and update"
 - [x] Commit: `forge: record what a project installed in .conclave/kits.json`
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; making `apply_kit` record preserved files makes the edited-skill test fail, and moving `load_record` after the copy loop makes the nothing-written test fail. **Corrected 2026-11-11 (plan review):** the second mutation was added with the validate-first item.
+
+> **Verified:** 2026-11-11 | §2 | 8d88711aef6a45c092adbc51b3ead67327c4457a
+> **Review:** `docs/reviews/d01-t01-s2.json`
 
 ## 3. Read-only `forge.py diff`
 

@@ -1,0 +1,84 @@
+{
+  "ref": "D01 T01 \u00a72",
+  "title": "Install record in `.conclave/kits.json`",
+  "implementation_sha": "8d88711aef6a45c092adbc51b3ead67327c4457a",
+  "date": "2026-11-11",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/01-forge/D01-T01-s2.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s tests -p test_forge.py -> Ran 63 tests in 17.925s, OK (skipped=1)",
+    "python -m unittest discover -s tests -> Ran 333 tests in 90.495s, OK (skipped=95)"
+  ],
+  "completion": {
+    "report": "docs/reviews/01-forge/D01-T01-s2.md",
+    "verdict": "reconciled",
+    "candidate": "8d88711aef6a45c092adbc51b3ead67327c4457a",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/01-forge/D01-T01-s2.md",
+    "candidate": "6a46ee22a6d73c8df26b44e065fab07934464ba4",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "6a46ee22a6d73c8df26b44e065fab07934464ba4",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 7,
+  "pass_cap": 33
+}
