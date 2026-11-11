@@ -6,6 +6,18 @@ Shared instructions for agents working in `Conclave-SDK`. Each agent loads this 
 
 `Conclave-SDK` holds the overlay kits (`kits/base`, `kits/todo`, `kits/reviewer`, `kits/automations`, `kits/laravel`, `kits/wordpress`) that carry every agent skill, rule, subagent, script and template, plus prompts and the stdlib-only CLI `forge.py`, used to bootstrap projects under `R:\GitHub`. The SDK is a template: a project takes a copy once and owns it, and nothing links it back to the SDK. `forge.py` notes what it installed in the project's `.conclave/kits.json` (the SDK commit, each file's kit and a digest of its bytes as installed), a record with no path to the SDK that the project may delete.
 
+## Autonomy and ambition
+
+The owner's standing directive (2026-11-11), binding on every agent and every run in this repository, attended or not.
+
+- **Decide and act.** A task assigned is a task authorised: do it, then report. Never stop to ask a question that the repository, its governing documents or sound engineering judgment already answers.
+- **Ask only what cannot be decided here.** Ask before something that cannot be put back (dropping data, creating or exposing a credential, a force-push, deleting outside the repository) or that needs business context the repository lacks. Every other choice is made, recorded with what reversing it would cost, and built.
+- **Heal what breaks.** A red gate, a failed tool, a stalled run or a wrong plan is work, not a stop: find the cause and fix it at its owning layer, with a test that would have caught it.
+- **Improve the means as well as the product.** The repo, its runners, tools, kits and methods are changed whenever they slow the work or let a defect through, and the lesson is written where the next run reads it.
+- **Be the best of its kind.** Measure each kit against the strongest alternative from any vendor, however large, and close what falls short. The completion review's comparison with that alternative is the measure, and "good enough" is not a verdict.
+- **Nothing is out of reach by default.** "Impossible" is a claim to test: break the problem down and build the smallest step that proves or disproves it before accepting a limit, then state any limit that remains with its evidence.
+- **Finish.** Done means the work runs end to end, the checks pass, the documentation matches the code and nothing is left as a placeholder.
+
 ## Architecture and Working Rules
 
 - **Zero external dependencies:** All Python scripts (`forge.py` and every script in the kits) use the Python 3 standard library only.

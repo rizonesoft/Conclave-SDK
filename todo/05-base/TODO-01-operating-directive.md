@@ -15,6 +15,7 @@ title: "TODO-01 -- Operating directive in the base kit"
 ## Inputs
 
 - `docs/plans/2026-11-11-sdk-audit-and-roadmap.md`: "The standing directive as kits", the two `base (extend)` rows, and the sentences on `forge.py init --goal` and the acceptance bar.
+- `AGENTS.md` (Autonomy and ambition, added 2026-11-11 on the owner's word): the SDK's own statement of the directive, and the wording §1 carries into the base kit's template. **Corrected 2026-11-11:** added; the directive was not yet written down in this repository when the file was authored.
 - `global/claude/rules/claude-code.md` sections 3, 5 and 6: the source of the directive's rules. `global/` is imported material and is read, never changed, by this file.
 - `kits/base/templates/AGENTS.md` and the three rule files `kits/base/templates/.claude/rules/claude-output-and-safety.md`, `.agents/rules/agy-output-and-safety.md` and `.codex/rules/codex-output-and-safety.md`.
 - -> XREF: D03 T01 §1 -- the other keys of `todo/plan.json` are defined there; §4 here writes only `acceptance`

@@ -155,7 +155,7 @@ The SDK plans its own work with its own `todo` kit. The live plan is [`todo/impl
 
 ## Running the SDK's own plan unattended
 
-On Windows, `pwsh scripts/start-run.ps1` starts a Claude Code session in this checkout on the latest Opus, with permission prompts off and a `/goal` to finish the plan through the `process-plan` skill. `pwsh scripts/start-run.ps1 -InstallShortcut` puts "Conclave-SDK unattended run" on the desktop, and `-DryRun` prints what would run and changes nothing. The session signs in with the long-lived token in the user variable `CLAUDE_CODE_OAUTH_TOKEN` when one is stored, and with the claude.ai sign-in otherwise. The token is never printed.
+On Windows, `pwsh scripts/start-run.ps1` starts a Claude Code session in this checkout on the latest Opus, with permission prompts off and a `/goal` to finish the plan through the `process-plan` skill. `pwsh scripts/start-run.ps1 -InstallShortcut` puts "Conclave-SDK unattended run" on the desktop, and `-DryRun` prints what would run and changes nothing. When a run guard from an earlier session is held, it names that session and waits for Enter before the new session may take the run over; with no guard held, the new session is told never to take one over, so two launches cannot both write to the tree. The standing rules for such a run are in the Autonomy and ambition section of [`AGENTS.md`](AGENTS.md). The session signs in with the long-lived token in the user variable `CLAUDE_CODE_OAUTH_TOKEN` when one is stored, and with the claude.ai sign-in otherwise. The token is never printed.
 
 ## Repository Layout
 
