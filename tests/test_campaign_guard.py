@@ -337,6 +337,12 @@ class AntigravityPayload(Workspace):
         self.write(RUN_FILE, f"PARKED 2099-01-02T00:00:00Z run={self.run_id()} blocked here\n", "a")
         self.assertIsNone(self.agy(), "a parked run was held")
 
+    def test_session_id_comes_before_conversation_id(self):
+        self.acquire()
+        both = {"session_id": SESSION, "conversationId": OTHER, "workspacePaths": [self.root]}
+        self.assertEqual(json.loads(self.raw(both))["decision"], "continue")
+        self.assertEqual(self.raw({**both, "session_id": OTHER, "conversationId": SESSION}), "")
+
     def test_this_runs_closeout_releases_an_antigravity_session(self):
         self.acquire()
         self.write(RUN_FILE, f"\n## Closeout run={self.run_id()}\n", "a")

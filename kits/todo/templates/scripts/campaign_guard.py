@@ -865,7 +865,8 @@ def stop_hook(stdin: str, project_dir: str | None) -> tuple[int, str]:
         guard = read_guard(root)
         if guard is None:
             return 0, ""  # no run is open here, so there is nothing to hold and nothing to report
-        session = str(event.get("conversationId") or event.get("session_id") or "")
+        # `session_id` names the session when present; Antigravity's `conversationId` stands in when it is not.
+        session = str(event.get("session_id") or event.get("conversationId") or "")
         if not session:
             raise GuardError("the Stop payload names no session (neither session_id nor conversationId)")
         decision = stop_decision(root, session)
