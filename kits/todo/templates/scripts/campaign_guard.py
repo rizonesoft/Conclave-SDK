@@ -12,6 +12,7 @@
     python scripts/campaign_guard.py reconcile --session S --jobs J1,J2
     python scripts/campaign_guard.py health --session S --jobs J1,J2
     python scripts/campaign_guard.py expiry --session S [--now ISO]
+    python scripts/campaign_guard.py heartbeat-still --session S     (a heartbeat resumption: counts a still, trips, ends a stall)
 
 A campaign run has three parts. The guard file (`build/claude-campaign-guard.json`) names the session that owns the
 run, its phase, run file, heartbeat job and run id; it is written and deleted only through this module, under an
@@ -48,6 +49,9 @@ REPO = os.path.normpath(os.path.join(HERE, ".."))
 END_REASONS = ("closeout", "park", "plan-done", "operator-stop", "escalation", "stall")
 LOCK_WAIT = 10.0
 MAX_BLOCKS_WITHOUT_PROGRESS = 3
+# Heartbeat resumptions in a row with no tree change that count one stall trip (`heartbeat-still`): at one heartbeat
+# every 5 minutes, about 30 minutes of resuming with nothing done; the second trip ends the run.
+MAX_HEARTBEAT_STILLS = 6
 SCOPES = ("plan", "phase")
 # Claude Code stops a Stop hook at the timeout .claude/settings.json gives it (60 seconds) and treats that as a
 # non-blocking error, so the hook keeps its own deadline well inside it and still has time to record a failure.
@@ -780,11 +784,13 @@ def stop_decision(root: str, session: str) -> dict | None:
             return None
         old = _read_state(root)
         state = {"fingerprint": str(old.get("fingerprint", "")), "blocks": int(old.get("blocks", 0) or 0),
-                 "trips": int(old.get("trips", 0) or 0), "stalled": False}
+                 "trips": int(old.get("trips", 0) or 0), "stalled": False,
+                 "hb_still": int(old.get("hb_still", 0) or 0)}  # the heartbeat's count: one progress, two observers
         # An error the heartbeat has not acknowledged yet stays until it is (`hook-error --ack`).
         state.update({k: old[k] for k in ("hook_error", "hook_error_at") if old.get(k)})
         if state["fingerprint"] != print_:
-            state.update(fingerprint=print_, blocks=0, trips=0)  # the tree moved: real progress resets the breaker
+            # The tree moved: real progress resets both observers' counts and the trips they share.
+            state.update(fingerprint=print_, blocks=0, trips=0, hb_still=0)
         if state["blocks"] >= MAX_BLOCKS_WITHOUT_PROGRESS:
             # Repeated pushes with no change to the tree mean the session is stuck, not idle: let it stop.
             state.update(blocks=0, trips=state["trips"] + 1, stalled=True, stalled_at=_utc_now())
@@ -808,6 +814,50 @@ def stop_decision(root: str, session: str) -> dict | None:
                f"escalation', CronDelete the heartbeat it names, then report. The breaker allows the stop after "
                f"{MAX_BLOCKS_WITHOUT_PROGRESS} pushes with no tree change (this is push {state['blocks']}).")
     return {"decision": "block", "reason": reason}
+
+
+def heartbeat_still(root: str, session: str) -> str:
+    """One heartbeat resumption's progress accounting, for a harness whose Stop hook cannot hold the run (or a run
+    the hook has let go): it compares the tree with the same `fingerprint` the Stop hook's breaker keeps, so the two
+    observers share one notion of progress and one `trips` count. A changed tree resets `blocks`, `hb_still` and
+    `trips`; MAX_HEARTBEAT_STILLS resumptions in a row with no change count one trip; the second trip ends the run
+    with reason `stall` through `end`'s own path. Source: RasterFold `scripts/campaign_guard.py:771` (b334933),
+    which kept a second fingerprint and left the ending to its heartbeat prompt."""
+    guard = read_guard(root)
+    if guard is None or not session or str(guard.get("session_id", "")) != session:
+        raise GuardError("heartbeat-still needs the --session that owns a live guard")
+    run_rel = str(guard.get("run_file", ""))
+    if not run_rel or os.path.isabs(run_rel) or ".." in run_rel.replace("\\", "/").split("/"):
+        raise GuardError(f"run file {run_rel!r} is not a path inside the project")
+    try:
+        with open(os.path.join(root, run_rel), encoding="utf-8", errors="replace") as fh:
+            run_text = fh.read()
+    except FileNotFoundError:
+        raise GuardError(f"the run file {run_rel} is missing") from None
+    deadline = time.monotonic() + _env_int("CAMPAIGN_HEARTBEAT_BUDGET_SECONDS", 120)
+    print_ = fingerprint(root, run_rel, run_text, deadline)
+    _, state_path = _paths(root)
+    with _Lock(root):
+        try:
+            still = read_guard(root)
+        except GuardError:
+            still = None
+        if not _same_run(still, guard):
+            return "heartbeat-still: the guard changed while noting; nothing written"
+        state = dict(_read_state(root))
+        if str(state.get("fingerprint", "")) != print_:
+            state.update(fingerprint=print_, blocks=0, hb_still=0, trips=0, stalled=False)
+            _write_json(state_path, state)
+            return "heartbeat-still: progress (still count and trips reset)"
+        state["hb_still"] = int(state.get("hb_still", 0) or 0) + 1
+        if state["hb_still"] < MAX_HEARTBEAT_STILLS:
+            _write_json(state_path, state)
+            return f"heartbeat-still: still {state['hb_still']} of {MAX_HEARTBEAT_STILLS}"
+        state.update(hb_still=0, trips=int(state.get("trips", 0) or 0) + 1, stalled=True, stalled_at=_utc_now())
+        _write_json(state_path, state)
+        if state["trips"] < 2:
+            return f"heartbeat-still: trip {state['trips']} after {MAX_HEARTBEAT_STILLS} resumptions with no tree change"
+        return "heartbeat-still: second trip; " + _end_locked(root, session, "stall", None)
 
 
 def _record_hook_error(root: str, guard: dict | None, reason: str) -> None:
@@ -921,6 +971,9 @@ def main(argv: list[str]) -> int:
             line = hook_error(root, opts.get("session"), opts.get("ack"))
             if line:
                 print(line)
+            return 0
+        if argv[0] == "heartbeat-still":
+            print(heartbeat_still(root, opts.get("session", "")))
             return 0
         if argv[0] == "mint-generation" and not opts:
             print(mint_generation())

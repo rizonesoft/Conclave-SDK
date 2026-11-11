@@ -406,6 +406,111 @@ class AntigravityPayload(Workspace):
         self.assertIn("not a JSON object", self.recorded())
 
 
+class HeartbeatStill(Workspace):
+    """`heartbeat-still`: a heartbeat resumption that found nothing changed, for a harness no Stop hook holds. It
+    shares the Stop hook's fingerprint and trips, so the two observers agree on progress."""
+
+    def still(self, session=SESSION):
+        return guard.heartbeat_still(self.root, session)
+
+    def commit(self, name):
+        self.write(name, f"{name}\n")
+        subprocess.run(["git", "add", "-A"], cwd=self.root, capture_output=True, check=True)
+        subprocess.run(["git", "commit", "-qm", name], cwd=self.root, capture_output=True, check=True)
+
+    def test_the_first_call_sets_the_baseline_and_each_still_counts(self):
+        self.acquire()
+        self.assertIn("progress", self.still())
+        self.assertEqual(self.state()["hb_still"], 0)
+        self.assertIn("still 1 of", self.still())
+        self.assertIn("still 2 of", self.still())
+        self.assertEqual(self.state()["hb_still"], 2)
+
+    def test_progress_resets_the_count_and_the_shared_trips(self):
+        self.acquire()
+        self.still()
+        for _ in range(3):
+            self.still()
+        self.assertEqual(self.state()["hb_still"], 3)
+        self.commit("first-work.txt")
+        self.assertIn("progress", self.still())
+        self.assertEqual(self.state()["hb_still"], 0, "progress left the still count")
+        for _ in range(guard.MAX_HEARTBEAT_STILLS):
+            self.still()
+        self.assertEqual(self.state()["trips"], 1)
+        self.commit("real-work.txt")
+        self.assertIn("progress", self.still())
+        self.assertEqual((self.state()["hb_still"], self.state()["trips"]), (0, 0))
+        for _ in range(guard.MAX_HEARTBEAT_STILLS):
+            self.still()
+        self.assertIsNotNone(guard.read_guard(self.root), "a trip from before the progress ended the run")
+        self.assertEqual(self.state()["trips"], 1)
+
+    def test_held_through_eleven_stills_and_released_at_the_twelfth(self):
+        self.acquire()
+        self.still()  # the baseline
+        for n in range(1, 2 * guard.MAX_HEARTBEAT_STILLS):
+            line = self.still()
+            self.assertIsNotNone(guard.read_guard(self.root), f"released at still {n}")
+            expected = (1, 0) if n == guard.MAX_HEARTBEAT_STILLS else (
+                (0, n) if n < guard.MAX_HEARTBEAT_STILLS else (1, n - guard.MAX_HEARTBEAT_STILLS))
+            self.assertEqual((self.state()["trips"], self.state()["hb_still"]), expected, (n, line))
+        line = self.still()
+        self.assertIn("second trip", line)
+        self.assertIn("end: stall", line)
+        self.assertIsNone(guard.read_guard(self.root), "two trips left the guard held")
+        self.assertIn("job-1", open(os.path.join(self.root, "build", "claude-campaign-pending-cancel.json")).read())
+
+    def test_the_stop_hook_and_the_heartbeat_share_progress_and_trips(self):
+        self.acquire()
+        self.still()
+        self.still()
+        self.assertEqual(self.state()["hb_still"], 1)
+        for push in (1, 2, 3):
+            self.hook()
+            self.assertEqual((self.state()["blocks"], self.state()["hb_still"]), (push, 1), "the hook dropped the count")
+        self.assertIsNone(self.hook(), "the breaker did not trip")
+        self.assertEqual((self.state()["trips"], self.state()["hb_still"]), (1, 1))
+        print_ = self.state()["fingerprint"]
+        for n in range(2, guard.MAX_HEARTBEAT_STILLS):
+            self.still()
+            self.assertEqual((self.state()["fingerprint"], self.state()["hb_still"]), (print_, n))
+        self.assertIn("end: stall", self.still(), "the hook's trip did not count toward the heartbeat's release")
+        # A change the Stop hook sees resets the heartbeat's count too.
+        self.acquire(session=OTHER, cron_id="job-2")
+        guard.heartbeat_still(self.root, OTHER)
+        guard.heartbeat_still(self.root, OTHER)
+        self.commit("seen-by-the-hook.txt")
+        self.hook(session=OTHER)
+        self.assertEqual((self.state()["hb_still"], self.state()["trips"]), (0, 0))
+
+    def run_cli(self, session):
+        return subprocess.run([sys.executable, os.path.join(self.root, "scripts", "campaign_guard.py"),
+                               "heartbeat-still", "--root", self.root, "--session", session],
+                              capture_output=True, text=True, timeout=120)
+
+    def test_the_command_line_counts_releases_and_refuses(self):
+        state_path = guard._paths(self.root)[1]
+        result = self.run_cli(SESSION)
+        self.assertEqual(result.returncode, 1, "no guard: refused")
+        self.assertFalse(os.path.exists(state_path))
+        self.acquire()
+        self.assertEqual(self.run_cli(SESSION).returncode, 0)
+        self.assertIn("still 1 of", self.run_cli(SESSION).stdout)
+        self.assertEqual(self.state()["hb_still"], 1)
+        before = open(state_path, "rb").read()
+        result = self.run_cli(OTHER)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(open(state_path, "rb").read(), before)
+        last = None
+        for _ in range(2 * guard.MAX_HEARTBEAT_STILLS - 1):  # stills 2 to 12 after the baseline and still 1
+            last = self.run_cli(SESSION)
+        assert last is not None
+        self.assertIn("end: stall", last.stdout)
+        self.assertIsNone(guard.read_guard(self.root))
+
+
 class Lifecycle(Workspace):
     def test_acquire_is_exclusive_and_a_handover_is_recorded(self):
         self.assertIn("guard created", self.acquire())
