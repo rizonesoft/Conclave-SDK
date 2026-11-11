@@ -38,7 +38,7 @@ title: "TODO-01 -- Install record, diff and update"
 | 2 | §2 | Install record in `.conclave/kits.json` | §1 | [x] |
 | 3 | §3 | Read-only `forge.py diff` | §2 | [x] |
 | 4 | §4 | `forge.py update` for missing and kit-newer files | §3 | [x] |
-| 5 | §5 | `forge.py record` for projects installed before the record | §3 | [ ] |
+| 5 | §5 | `forge.py record` for projects installed before the record | §3 | [x] |
 | 6 | §6 | `.kit-new` copies for a hand merge | §4 | [ ] |
 | 7 | §7 | Weekly drift report across projects | §3 | [ ] |
 | 8 | §8 | `init` that writes nothing when a kit refuses | §1 | [ ] |
@@ -200,9 +200,12 @@ Every project installed so far has no record, so none of its files can be `kit-n
 - [x] Settle an interrupted run in `record_project` with `_recover` after the read-only refusals (the target, the record, the kit named and its plan) and before it reads the states, except on `--dry-run`, which writes nothing at all. Done when: `record <project> nope` and a refusing plan on an interrupted project exit 2 and leave its files and staged file as they were, a test with a staged `.forge-new` for a recorded, deleted file finds it moved into place by `record`, and a dry run on the same fixture leaves every file under the target byte for byte as before while listing what it would record. **Corrected 2026-11-11 (validation, plan review):** added; the plan review put the refusals before recovery.
 - [x] Add the `record` subcommand to `main` and `_run` in `forge.py` with `--dry-run`, printing `recorded` and `skipped` with the reason for each skipped file: its `diff` state (`differs`, `missing`, `unsafe`, `unreadable`, `generated`) or `recorded` for a file that already has an entry. Done when: a test parses the output of the command line and finds each of those reasons on a fixture holding it. **Corrected 2026-11-11 (validation):** the reasons were only `differs` and `missing`.
 - [x] Describe `record` in `README.md` under the existing-project steps: run `record`, then `diff`, then `update`. Done when: the three commands appear in that order with the SDK's path spelled as the rest of the README spells it.
-- [ ] Commit: `forge: record adopts an install made before the record existed`
+- [x] Commit: `forge: record adopts an install made before the record existed`
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; making `record_project` record a differing file makes the edited-skill test fail.
+
+> **Verified:** 2026-11-11 | §5 | f68484bc42d081b423296bde1f968cc3f69f3c82
+> **Review:** `docs/reviews/d01-t01-s5.json`
 
 ## 6. `.kit-new` copies for a hand merge
 
