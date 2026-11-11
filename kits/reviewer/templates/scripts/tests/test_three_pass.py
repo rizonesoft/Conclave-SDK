@@ -468,7 +468,15 @@ class Conditional(ThreePass):
         # Completion is not one of the entry's passes.
         self.assertEqual(self.ok("completion", built)["lenses"], LENSES["completion"])
 
-    def test_a_failed_git_lookup_refuses_before_a_reviewer_runs(self):
+    def test_a_failed_changed_file_lookup_is_a_refusal(self):
+        # Round 5 of D00 T01 §2: the test below stops at the pin lookup, so the diff failure itself had no test.
+        module = self.module()
+        self.assertEqual(module.changed_paths(self.base, self.base), [])
+        with self.assertRaises(module.Refused) as refused:
+            module.changed_paths("0" * 40, self.base)
+        self.assertIn("cannot list the files changed between", str(refused.exception))
+
+    def test_a_missing_git_refuses_before_a_reviewer_runs(self):
         self.ok("plan", self.base)
         built = self.commit("build", {"src/kernel/a.c": "int x;\n"})
         before = len(self.calls())

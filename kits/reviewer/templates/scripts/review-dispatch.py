@@ -50,8 +50,11 @@ order is checked before a reviewer runs, each candidate must be a commit descend
 reconciliation is refused once the section has spent its `pass_cap` returned passes, after `no_progress_cap`
 reconciliations in a row with no less severe a worst finding, and after a pass whose worst finding is below the
 pin's `blocking` levels. A three-pass section runs under the pin committed at its plan review's candidate, schedule
-and route both; when that three-pass pin no longer loads the pass is refused, never run under the working tree's. A
-section whose plan candidate holds a rotation pin, or none, follows the working tree's pin as it always did.
+and route both; when that three-pass pin no longer loads the pass is refused, never run under the working tree's,
+and a plan review is refused while the working tree's three-pass pin is not committed at its candidate. A rotation
+section follows the working tree's pin as it always did, with one exception that keeps it on the rules it began
+under: once the working tree's pin has become three-pass, it finishes under the rotation pin committed at its plan
+review's candidate, and is refused when that commit holds no pin.
 
 Under three-pass every scheduled lens is appended with its question and owes one line `LENS <name>: clean` or
 `LENS <name>: findings`. A reply missing a lens line, or the final verdict lines of its kind, is recorded with no
