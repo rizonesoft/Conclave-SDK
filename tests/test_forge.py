@@ -28,12 +28,15 @@ def repository_files():
 # plugins and machine-level rules, hooks and skills. forge.py never installs it, and it is not held to the SDK's
 # writing rules (its rules files quote the very characters those rules forbid).
 IMPORTED = ("global/", "plugins/")
+# Captured content: a reviewer's reply is recorded byte for byte under a digest, so its own punctuation stays.
+CAPTURED = ("docs/reviews/",)
 
 
 def written_files():
-    """`repository_files` without the imported folders: what the SDK's writing rules apply to."""
+    """`repository_files` without the imported folders and the recorded reviews: what the SDK's writing rules
+    apply to."""
     return [path for path in repository_files()
-            if not path.relative_to(FORGE_ROOT).as_posix().startswith(IMPORTED)
+            if not path.relative_to(FORGE_ROOT).as_posix().startswith(IMPORTED + CAPTURED)
             or path.relative_to(FORGE_ROOT).as_posix() in ("global/README.md", "plugins/README.md")]
 
 

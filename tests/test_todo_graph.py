@@ -432,7 +432,7 @@ class Stamp(Tree):
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text("# Review findings\n\n" + envelope(1), encoding="utf-8")
         (self.root / ".conclave").mkdir()
-        (self.root / tg.PIN).write_text(UNIFORM_PIN, encoding="utf-8")
+        (self.root / tg.PIN).write_text(self.PIN_TEXT, encoding="utf-8")
         for args in (["init", "-q"], ["config", "user.email", "t@example.com"],
                      ["config", "user.name", "T"], ["add", "-A"], ["commit", "-qm", "x"]):
             subprocess.run(["git", "-C", str(self.root), *args], check=True)
@@ -445,6 +445,7 @@ class Stamp(Tree):
 
     COMPLETION = "docs/reviews/00-workspace/D00-T01-s1-completion.md"
     PLAN = "docs/reviews/00-workspace/D00-T01-s1.md"  # the section's own findings file, beside its rounds
+    PIN_TEXT = UNIFORM_PIN  # the pin the first commit holds; ThreePassStamp commits a three-pass one there
 
     @staticmethod
     def only(text, plans):
@@ -522,7 +523,8 @@ class Stamp(Tree):
         before = self.snapshot()
         with self.assertRaises(tg.Refused) as ctx:
             tg.stamp(self.root, "D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-23")
-        self.assertIn("--completion '<findings file>:<complete|completed|filed>' is required", str(ctx.exception))
+        self.assertIn("--completion '<findings file>:<complete|completed|filed|reconciled>' is required",
+                      str(ctx.exception))
         self.assertEqual(self.snapshot(), before)
 
     def test_an_unknown_completion_verdict_refuses(self):
@@ -1536,6 +1538,345 @@ class Stamp(Tree):
             ("low", ["adversarial"]), ("low", ["adversarial"]), ("medium", ["adversarial"]), ("low", ["quality"]),
             ("low", ["design"]), ("low", ["optimization"]), ("low", ["record"])])
         self.assertEqual(json.loads(receipt.read_text(encoding="utf-8"))["rounds_spent"], 10)
+
+
+THREE_PASS_PIN = UNIFORM_PIN.split("[schedule]")[0] + """[schedule]
+policy = "three-pass"
+pass_cap = 45
+plan = { effort = "medium", lenses = ["plan"] }
+rounds = [{ effort = "medium", lenses = ["adversarial", "integration"] }]
+completion = { effort = "medium", lenses = ["plan-delivery", "record"] }
+reconciliation = { effort = "medium", lenses = ["adversarial", "plan-delivery", "record"] }
+"""
+
+
+class ThreePassStamp(Stamp):
+    """The three-pass chain (plan, one round, completion, reconciliations) recorded by the dispatcher's own writers,
+    stamped, and read back through the graph."""
+    PIN_TEXT = THREE_PASS_PIN
+    FILE = Stamp.PLAN
+    LENSES = {"plan": ["plan"], "round": ["adversarial", "integration"], "completion": ["plan-delivery", "record"],
+              "reconciliation": ["adversarial", "plan-delivery", "record"]}
+
+    def setUp(self):
+        super().setUp()
+        # The rotation fixture's records go: a three-pass section keeps every pass in its own findings file.
+        (self.root / self.COMPLETION).unlink()
+        (self.root / self.FILE).write_text("# Review findings\n", encoding="utf-8")
+        self.clock = 0
+
+    def pin(self, text):
+        """Commit another pin as the repository's first one would have been: only the tests of a moved pin use it."""
+        (self.root / tg.PIN).write_text(text, encoding="utf-8")
+        return self.commit("pin")
+
+    def passed(self, kind, candidate, top="none", gaps=False, lenses=None, reviewer="astra", review=None, notes="",
+               effort="medium"):
+        """One returned pass as the dispatcher records it."""
+        dispatch = tg.review_dispatch()
+        self.clock += 1
+        names = self.LENSES[kind] if lenses is None else lenses
+        lines = [f"LENS {n}: {'findings' if gaps else 'clean'}" for n in names] + [f"HIGHEST: {top}"]
+        if kind == "plan":
+            lines += ["PLAN: gaps" if gaps else "PLAN: complete"]
+        lines += [f"OVERALL: {'needs-attention' if gaps else 'approve'}"] if kind in ("plan", "round") else \
+            [f"{kind.upper()}: {'gaps' if gaps else 'complete'}"]
+        result = {"writer": "claude", "reviewer": reviewer, "model": "m", "cli": "codex", "effort": effort,
+                  "lenses": names, "failover": [], "review": review or "\n".join(["1. text.", *lines])}
+        when = f"2026-10-23T00:00:{self.clock:02d}Z"
+        path = self.root / self.FILE
+        if kind == "round":
+            dispatch.record(path, result, when, candidate)
+        else:
+            dispatch.record_completion(path, result, when, candidate, kind=kind)
+        if notes:
+            with open(path, "a", encoding="utf-8", newline="") as handle:
+                handle.write("\n" + notes + "\n")
+
+    def build(self, message="build"):
+        (self.root / "work.txt").write_text(message + "\n", encoding="utf-8")
+        return self.commit(message)
+
+    def chain(self, completion=("none", False), reconciliations=(), round_gaps=False, notes=""):
+        """Plan at the start commit, a build, the round and the completion on it, then one repair commit and
+        reconciliation per (top, gaps) pair; `notes` go under the last pass. Returns the last candidate."""
+        self.passed("plan", self.start)
+        self.tick_work()
+        sha = self.build()
+        self.passed("round", sha, top="P2" if round_gaps else "none", gaps=round_gaps)
+        last = not reconciliations
+        self.passed("completion", sha, *completion, notes=notes if last else "")
+        for n, (top, gaps) in enumerate(reconciliations, 1):
+            sha = self.build(f"repair {n}")
+            self.passed("reconciliation", sha, top, gaps, notes=notes if n == len(reconciliations) else "")
+        return sha
+
+    def stamp3(self, sha, verdict="complete", round_verdict="clean"):
+        receipt = tg.stamp(self.root, "D00 T01 §1", sha, [{"round": 1, "report": self.FILE, "verdict": round_verdict}],
+                           ["true -> ok"], "2026-10-24", completion={"report": self.FILE, "verdict": verdict},
+                           plan=self.FILE)
+        self.assertTrue(tg.graph(self.root)["D00 T01 §1"].done)
+        return json.loads((self.root / receipt).read_text(encoding="utf-8"))
+
+    def stamp3_refuses(self, sha, fragment, verdict="complete", round_verdict="clean"):
+        with self.assertRaises(tg.Refused) as ctx:
+            self.stamp3(sha, verdict, round_verdict)
+        self.assertIn(fragment, str(ctx.exception))
+        self.assertFalse((self.root / "docs/reviews/d00-t01-s1.json").exists())
+
+    def test_a_clean_chain_stamps_and_reads_back(self):
+        data = self.stamp3(self.chain())
+        self.assertEqual((data["passes_spent"], data["pass_cap"], data["rounds_spent"]), (3, 45, 1))
+        self.assertEqual(data["schedule_sha"], self.start)
+        self.assertEqual(data["schedule"]["policy"], "three-pass")
+
+    def test_a_round_that_found_something_may_end_fixed(self):
+        self.stamp3(self.chain(round_gaps=True), round_verdict="fixed")
+
+    def test_gaps_need_a_reconciliation_that_ends_complete(self):
+        sha = self.chain(completion=("P2", True))
+        # `completed` is the rotation verdict for gaps fixed in the section: under three-pass a reconciliation proves it.
+        self.stamp3_refuses(sha, "takes completion verdict complete or reconciled", verdict="completed")
+        self.stamp3_refuses(sha, "needs a returned ## Reconciliation review", verdict="reconciled")
+        repaired = self.build("repair")
+        self.passed("reconciliation", repaired)
+        data = self.stamp3(repaired, verdict="reconciled")
+        self.assertEqual((data["passes_spent"], data["completion"]["candidate"]), (4, repaired))
+
+    def test_a_reconciliation_that_still_has_gaps_does_not_stamp(self):
+        sha = self.chain(completion=("P2", True), reconciliations=[("P2", True)])
+        self.stamp3_refuses(sha, "a last reconciliation ending RECONCILIATION: complete", verdict="reconciled")
+
+    def test_the_chain_is_one_plan_one_round_one_completion_in_order_on_the_stamped_commit(self):
+        with self.subTest("two rounds"):
+            sha = self.chain()
+            self.passed("round", sha)
+            self.stamp3_refuses(sha, "the review loop")
+        self.setUp_again()
+        with self.subTest("a round without a candidate"):
+            self.passed("plan", self.start)
+            self.tick_work()
+            sha = self.build()
+            self.passed("round", None)
+            self.passed("completion", sha)
+            self.stamp3_refuses(sha, "recorded no --candidate")
+        self.setUp_again()
+        with self.subTest("the last pass on another commit than the stamped one"):
+            sha = self.chain()
+            later = self.build("later")
+            self.stamp3_refuses(later, "not the stamped commit")
+            del sha
+        self.setUp_again()
+        with self.subTest("a completion on a commit before the round's"):
+            self.passed("plan", self.start)
+            self.tick_work()
+            sha = self.build()
+            later = self.build("more")
+            self.passed("round", later)
+            self.passed("completion", sha)
+            self.stamp3_refuses(later, "must run after the round")
+        self.setUp_again()
+        with self.subTest("another reviewer than the pinned one"):
+            self.passed("plan", self.start)
+            self.tick_work()
+            sha = self.build()
+            self.passed("round", sha, reviewer="sol")
+            self.passed("completion", sha)
+            self.stamp3_refuses(sha, "not the reviewer astra")
+
+    def setUp_again(self):
+        self.tearDown()
+        self.setUp()
+
+    def test_the_cap_is_the_sections_pins(self):
+        self.tearDown()
+        type(self).PIN_TEXT = THREE_PASS_PIN.replace("pass_cap = 45", "pass_cap = 4")
+        try:
+            self.setUp()
+            sha = self.chain(completion=("P2", True), reconciliations=[("P2", True), ("none", False)])
+            self.stamp3_refuses(sha, "allows 4 review passes (pass_cap), not 5", verdict="reconciled")
+        finally:
+            type(self).PIN_TEXT = THREE_PASS_PIN
+
+    def test_a_reconciliation_must_have_been_eligible(self):
+        with self.subTest("after a completion that was complete"):
+            sha = self.chain(reconciliations=[("none", False)])
+            self.stamp3_refuses(sha, "", verdict="reconciled")
+        for label, pin, completion, recs, fragment in (
+                ("below the blocking levels", 'pass_cap = 45\nblocking = ["P1", "P2"]', ("P3", True),
+                 [("none", False)], "below the pin's blocking levels"),
+                ("past a stalled chain", "pass_cap = 45\nno_progress_cap = 1", ("P2", True),
+                 [("P2", True), ("none", False)], "no_progress_cap of 1")):
+            self.tearDown()
+            type(self).PIN_TEXT = THREE_PASS_PIN.replace("pass_cap = 45", pin)
+            try:
+                self.setUp()
+                with self.subTest(label):
+                    sha = self.chain(completion=completion, reconciliations=recs)
+                    self.stamp3_refuses(sha, fragment, verdict="reconciled")
+            finally:
+                type(self).PIN_TEXT = THREE_PASS_PIN
+
+    def filed_case(self, blocking, reconciled):
+        """A chain whose last pass ends HIGHEST: P2 and gaps, its finding filed as §2, under `blocking`."""
+        self.tearDown()
+        type(self).PIN_TEXT = THREE_PASS_PIN.replace("pass_cap = 45", f"pass_cap = 45\nblocking = {blocking}")
+        try:
+            self.setUp()
+            note = "- Filed: D00 T01 §2 (the P2 finding)"
+            if reconciled:
+                return self.chain(completion=("P1", True), reconciliations=[("P2", True)], notes=note)
+            return self.chain(completion=("P2", True), notes=note)
+        finally:
+            type(self).PIN_TEXT = THREE_PASS_PIN
+
+    def test_filed_is_for_a_last_pass_below_the_blocking_levels(self):
+        for reconciled in (False, True):
+            with self.subTest(reconciled=reconciled, blocking="P1 and P2"):
+                sha = self.filed_case('["P1", "P2"]', reconciled)
+                self.stamp3_refuses(sha, "below the pin's blocking levels", verdict="filed")
+            with self.subTest(reconciled=reconciled, blocking="P1 only"):
+                sha = self.filed_case('["P1"]', reconciled)
+                data = self.stamp3(sha, verdict="filed")
+                self.assertEqual((data["completion"]["filed"], data["passes_spent"]),
+                                 (["D00 T01 §2"], 4 if reconciled else 3))
+        with self.subTest("a pin without blocking takes no filed verdict"):
+            self.tearDown()
+            self.setUp()
+            sha = self.chain(completion=("P3", True), notes="- Filed: D00 T01 §2 (x)")
+            self.stamp3_refuses(sha, "takes completion verdict complete or reconciled", verdict="filed")
+
+    def test_the_receipt_is_held_to_the_pin_at_the_plan_reviews_candidate(self):
+        self.passed("plan", self.start)
+        self.tick_work()
+        (self.root / tg.PIN).write_text(THREE_PASS_PIN.replace('"adversarial", "integration"', '"quality"', 1),
+                                        encoding="utf-8")
+        sha = self.build("build with a moved pin")
+        # The dispatcher ran the round under the earlier pin, so the earlier lenses are what the stamp expects.
+        self.passed("round", sha)
+        self.passed("completion", sha)
+        data = self.stamp3(sha)
+        self.assertEqual(data["schedule"]["rounds"][0]["lenses"], ["adversarial", "integration"])
+        receipt = self.root / "docs/reviews/d00-t01-s1.json"
+        for label, change in (("deleted", lambda d: d.pop("schedule_sha")),
+                              ("replaced by the stamped commit", lambda d: d.update(schedule_sha=sha)),
+                              ("passes_spent edited", lambda d: d.update(passes_spent=2)),
+                              ("pass_cap edited", lambda d: d.update(pass_cap=99)),
+                              ("pass accounting dropped", lambda d: (d.pop("pass_cap"), d.pop("passes_spent")))):
+            with self.subTest(label):
+                edited = dict(data)
+                change(edited)
+                receipt.write_text(json.dumps(edited, indent=2) + "\n", encoding="utf-8")
+                with self.assertRaises(tg.Refused):
+                    tg.graph(self.root)
+        receipt.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        tg.graph(self.root)
+
+    def test_conditional_lenses_are_replayed_from_the_changed_files(self):
+        self.tearDown()
+        type(self).PIN_TEXT = THREE_PASS_PIN + (
+            '\n[[schedule.conditional]]\nlenses = ["design"]\npasses = ["plan", "round"]\npaths = ["src/ui/"]\n')
+        try:
+            self.setUp()
+            self.passed("plan", self.start, lenses=["plan", "design"])   # named with --paths before the build
+            self.tick_work()
+            (self.root / "src/ui").mkdir(parents=True)
+            (self.root / "src/ui/a.txt").write_text("x\n", encoding="utf-8")
+            sha = self.commit("ui build")
+            self.passed("round", sha)                                      # recorded without the lens its files call for
+            self.passed("completion", sha)
+            self.stamp3_refuses(sha, "the schedule expects medium with ['adversarial', 'integration', 'design']")
+            self.setUp_again()
+            self.passed("plan", self.start)
+            self.tick_work()
+            sha = self.build()                                              # touches nothing under src/ui/
+            self.passed("round", sha, lenses=["adversarial", "integration", "design"])
+            self.passed("completion", sha)
+            self.stamp3_refuses(sha, "the schedule expects medium with ['adversarial', 'integration']")
+            self.setUp_again()
+            self.passed("plan", self.start, lenses=["plan", "design"])
+            self.tick_work()
+            (self.root / "src/ui").mkdir(parents=True)
+            (self.root / "src/ui/a.txt").write_text("x\n", encoding="utf-8")
+            sha = self.commit("ui build")
+            self.passed("round", sha, lenses=["adversarial", "integration", "design"])
+            self.passed("completion", sha)
+            self.stamp3(sha)
+        finally:
+            type(self).PIN_TEXT = THREE_PASS_PIN
+
+    def test_a_changed_promise_between_the_completion_and_its_reconciliation_refuses(self):
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        self.passed("plan", self.start)
+        self.tick_work()
+        sha = self.build()
+        self.passed("round", sha)
+        self.passed("completion", sha, "P2", True)
+        text = todo.read_text(encoding="utf-8")
+        todo.write_text(text.replace("- [x] Work.", "- [x] Work, but less of it.", 1), encoding="utf-8")
+        narrowed = self.commit("narrow the section")
+        self.passed("reconciliation", narrowed)
+        self.stamp3_refuses(narrowed, "the section's contract changed", verdict="reconciled")
+
+    def test_a_step_without_an_effort_is_recorded_and_replayed_with_none(self):
+        self.tearDown()
+        type(self).PIN_TEXT = THREE_PASS_PIN.replace(
+            'rounds = [{ effort = "medium", lenses', 'rounds = [{ lenses')
+        try:
+            self.setUp()
+            self.passed("plan", self.start)
+            self.tick_work()
+            sha = self.build()
+            self.passed("round", sha, effort=None)
+            self.passed("completion", sha)
+            self.stamp3(sha)
+            self.setUp_again()
+            self.passed("plan", self.start)
+            self.tick_work()
+            sha = self.build()
+            self.passed("round", sha)                       # recorded at medium, which the step does not set
+            self.passed("completion", sha)
+            self.stamp3_refuses(sha, "ran at medium")
+        finally:
+            type(self).PIN_TEXT = THREE_PASS_PIN
+
+    def test_ticking_boxes_and_recording_evidence_does_not_change_the_promise(self):
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        before = tg.section_contract(self.root, self.start, "D00 T01 §1")
+        self.tick_work()
+        text = todo.read_text(encoding="utf-8")
+        todo.write_text(text.replace("- [x] Work.", "- [x] Work. **Corrected 2026-11-11:** a note.", 1),
+                        encoding="utf-8")
+        ticked = self.commit("ticked, with a dated note")
+        self.assertEqual(tg.section_contract(self.root, ticked, "D00 T01 §1"), before)
+        todo.write_text(text.replace("- [x] Work.", "- [x] Other work.", 1), encoding="utf-8")
+        changed = self.commit("another promise")
+        self.assertNotEqual(tg.section_contract(self.root, changed, "D00 T01 §1"), before)
+
+    def test_a_section_that_began_under_rotation_is_held_to_it_after_the_switch(self):
+        self.tearDown()
+        type(self).PIN_TEXT = UNIFORM_PIN
+        try:
+            Stamp.setUp(self)              # the rotation fixture: plan, completion and one clean round
+        finally:
+            type(self).PIN_TEXT = THREE_PASS_PIN
+        self.tick_work()
+        (self.root / tg.PIN).write_text(THREE_PASS_PIN, encoding="utf-8")
+        switched = self.commit("switch to three-pass")
+        self.write_completion(candidate=switched)
+        receipt = self.stamp("D00 T01 §1", switched, self.reviews, ["true -> ok"], "2026-10-24")
+        data = json.loads((self.root / receipt).read_text(encoding="utf-8"))
+        self.assertEqual(data["schedule_sha"], self.start)
+        self.assertNotIn("policy", data["schedule"])
+        self.assertNotIn("passes_spent", data)
+        self.assertTrue(tg.graph(self.root)["D00 T01 §1"].done)
+
+
+# ThreePassStamp borrows Stamp's fixture and helpers, not its tests: those are the rotation contract and run once,
+# in Stamp. unittest skips a name that is not callable.
+for _name in dir(Stamp):
+    if _name.startswith("test_") and _name not in vars(ThreePassStamp):
+        setattr(ThreePassStamp, _name, None)
 
 
 class PlanTable(Tree):
