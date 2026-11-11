@@ -37,7 +37,7 @@ title: "TODO-01 -- Install record, diff and update"
 | 1 | §1 | Kit file plan shared by install, diff and update | -- | [x] |
 | 2 | §2 | Install record in `.conclave/kits.json` | §1 | [x] |
 | 3 | §3 | Read-only `forge.py diff` | §2 | [x] |
-| 4 | §4 | `forge.py update` for missing and kit-newer files | §3 | [ ] |
+| 4 | §4 | `forge.py update` for missing and kit-newer files | §3 | [x] |
 | 5 | §5 | `forge.py record` for projects installed before the record | §3 | [ ] |
 | 6 | §6 | `.kit-new` copies for a hand merge | §4 | [ ] |
 | 7 | §7 | Weekly drift report across projects | §3 | [ ] |
@@ -170,9 +170,12 @@ title: "TODO-01 -- Install record, diff and update"
 - [x] Update without a record in `update_project`: write `missing` files only, list `differs` files under `left`, and say in the result that `record` (§5) adopts the files identical to the kit as installed, and that a differing file is merged by hand, with `update --kit-new` (§6) to help. **Corrected 2026-11-11 (plan review):** the hint said `record` makes differing files updatable, which §5 does not. Done when: a test without `.conclave/kits.json` finds a differing file untouched and the hint present.
 - [x] Add the `update` subcommand to `main` and `_run` in `forge.py` with `--only` (repeatable), `--no-scripts` and `--dry-run`, printing JSON with `written`, `left` and `record`. Done when: a test runs the command line on the six-state fixture, parses the first run's JSON naming the `missing` and `kit-newer` files under `written` with their new digests in the record, finds the second run's `written` empty and a following `diff` reporting both `identical`, and runs `--only` twice and `--no-scripts` through the command line. **Corrected 2026-11-11 (plan review):** a command that did nothing passed.
 - [x] Add an `update` section to `README.md` beside `diff`, stating that it never writes over a changed file. Done when: the README names `--only` and `--dry-run` with one example each.
-- [ ] Commit: `forge: update writes only missing and kit-newer files`
+- [x] Commit: `forge: update writes only missing and kit-newer files`
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; making `update_project` also write `project-changed` files makes the six-state test fail.
+
+> **Verified:** 2026-11-11 | §4 | 884c2231d05db3fc58b4a4838f9234c93606eaa5
+> **Review:** `docs/reviews/d01-t01-s4.json`
 
 ## 5. `forge.py record` for projects installed before the record
 
