@@ -393,18 +393,25 @@ def _record_install(record: dict, kit_name: str, agent: str, host: str | None, d
 
 def _write_recorded(target_root: Path, record: dict, kit_name: str, agent: str, host: str | None,
                     copies: list[tuple[str, Path, bytes]]) -> None:
-    """Write `(relative path, destination, bytes)` files and record them under their kit.
+    """Write `(relative path, destination, bytes)` files and record them under their kit, so that no failure leaves
+    a record that is wrong in a way a later run cannot repair.
 
-    The record is written first, naming every file about to be written, and trimmed back to what was written when
-    a write fails. So a failure that also stops the record being rewritten (a full disk) leaves a record that names
-    files not yet there, never files with no record: the next run of the same command writes those files, since they
-    are missing, and the record is then true. The other order would leave written files unrecorded for good, because
-    a later run skips a file that exists.
+    A file that is not there yet is recorded before it is written, and the entry is taken out again when its write
+    fails. If that rewrite of the record fails too (a full disk), the record names a file that is missing, and the
+    next run of the same command writes it, so the record becomes true. Recording it afterwards would risk a written
+    file with no record, which no later run repairs, because a later run skips a file that exists.
+
+    A file being replaced (an entry doc under `init --force`) is the other way round: its entry changes only after
+    its bytes did. Until then the record keeps the digest the file was installed with, which is still what is on
+    disk if the replacement fails. If the record cannot be rewritten after a successful replacement, the file holds
+    the kit's bytes under its earlier digest, which a comparison with the kit still reads as identical.
     """
     if not copies:
         return
-    earlier = {rel: record["files"].get(rel) for rel, _dst, _data in copies}
-    _record_install(record, kit_name, agent, host, {rel: file_digest(data) for rel, _dst, data in copies})
+    replacing = {rel for rel, dst, _data in copies if dst.exists() or dst.is_symlink()}
+    digests = {rel: file_digest(data) for rel, _dst, data in copies}
+    earlier = {rel: record["files"].get(rel) for rel in digests}
+    _record_install(record, kit_name, agent, host, {rel: d for rel, d in digests.items() if rel not in replacing})
     write_record(target_root, record)
     written: set[str] = set()
     try:
@@ -412,18 +419,22 @@ def _write_recorded(target_root: Path, record: dict, kit_name: str, agent: str, 
             atomic_write(dst, data)
             written.add(rel)
     except BaseException:
-        for rel, entry in earlier.items():
-            if rel in written:
+        for rel in digests:
+            if rel in written or rel in replacing:
                 continue
-            if entry is None:
+            if earlier[rel] is None:
                 record["files"].pop(rel, None)
             else:
-                record["files"][rel] = entry
+                record["files"][rel] = earlier[rel]
+        _record_install(record, kit_name, agent, host, {rel: digests[rel] for rel in replacing & written})
         try:
             write_record(target_root, record)
         except OSError:
-            pass  # the record still names the unwritten files; the next run writes them (see the docstring)
+            pass  # see the docstring: what the record now says is repaired by the next run
         raise
+    if replacing:
+        _record_install(record, kit_name, agent, host, {rel: digests[rel] for rel in replacing})
+        write_record(target_root, record)
 
 
 def apply_kit(

@@ -1078,6 +1078,39 @@ class InstallRecordTests(unittest.TestCase):
         self.assertEqual(self.record()["files"][rel]["sha256"], "c" * 64)
         self.assertFalse((self.target / rel).exists())
 
+    def test_a_forced_replacement_on_a_full_disk_keeps_the_baseline_and_recovers(self):
+        # The doc was installed from an earlier kit version (another digest) and is still that version on disk.
+        # --force on a disk that is full from the first doc on: the doc is not replaced and the record cannot be
+        # rewritten either, so the record must still hold the digest the doc was installed with.
+        forge.provision(self.target)
+        record = self.record()
+        record["files"]["AGENTS.md"]["sha256"] = "c" * 64
+        forge.write_record(self.target, record)
+        (self.target / "AGENTS.md").write_text("the earlier template\n", encoding="utf-8")
+        real = forge.atomic_write
+        record_path = (self.target / forge.RECORD).resolve()
+        state = {"full": False, "record_writes_refused": 0}
+
+        def filling(path, data):
+            if pathlib.Path(path).name == "AGENTS.md":
+                state["full"] = True
+            if state["full"]:
+                if pathlib.Path(path).resolve() == record_path:
+                    state["record_writes_refused"] += 1
+                raise OSError("disk full")
+            real(path, data)
+
+        with unittest.mock.patch.object(forge, "atomic_write", filling):
+            with self.assertRaisesRegex(OSError, "disk full"):
+                forge.provision(self.target, overwrite_existing_docs=True)
+        self.assertGreaterEqual(state["record_writes_refused"], 1, "the rollback write must have been the one refused")
+        self.assertEqual((self.target / "AGENTS.md").read_text(encoding="utf-8"), "the earlier template\n")
+        self.assertEqual(self.record()["files"]["AGENTS.md"]["sha256"], "c" * 64)
+        # With space again, --force replaces the doc and the record follows it.
+        forge.provision(self.target, overwrite_existing_docs=True)
+        self.assertEqual((self.target / "AGENTS.md").read_bytes(), (FORGE_ROOT / "kits/base/templates/AGENTS.md").read_bytes())
+        self.assertEqual(self.record()["files"]["AGENTS.md"]["sha256"], self.template_digest("base", "AGENTS.md"))
+
     def test_a_forced_entry_doc_that_fails_keeps_its_earlier_record(self):
         forge.provision(self.target)
         earlier = self.record()["files"]["AGENTS.md"]
