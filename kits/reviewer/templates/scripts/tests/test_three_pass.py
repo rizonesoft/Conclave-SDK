@@ -365,6 +365,19 @@ class Conditional(ThreePass):
         # Completion is not one of the entry's passes.
         self.assertEqual(self.ok("completion", built)["lenses"], LENSES["completion"])
 
+    def test_a_failed_git_lookup_refuses_before_a_reviewer_runs(self):
+        self.ok("plan", self.base)
+        built = self.commit("build", {"src/kernel/a.c": "int x;\n"})
+        before = len(self.calls())
+        # The base harness's PATH holds the fake reviewers and Python only: git cannot be found.
+        result, _ = Harness.dispatch(self, "--kind", "round", "--writer", "claude", "--prompt", str(self.prompt),
+                                     "--candidate", built, "--record", str(self.record), codex="say",
+                                     say=reply("round", LENSES["round"]))
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("review-dispatch refused", result.stderr)
+        self.assertEqual(len(self.calls()), before)
+        self.assertEqual(len(self.findings()["rounds"]), 0)
+
     def test_no_matching_file_means_no_conditional_lens(self):
         self.ok("plan", self.base)
         built = self.commit("app only", {"src/app/a.py": "x = 1\n", "src/kernelish.c": "int y;\n"})
