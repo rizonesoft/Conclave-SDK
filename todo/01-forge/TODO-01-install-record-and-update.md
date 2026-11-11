@@ -39,7 +39,7 @@ title: "TODO-01 -- Install record, diff and update"
 | 3 | §3 | Read-only `forge.py diff` | §2 | [x] |
 | 4 | §4 | `forge.py update` for missing and kit-newer files | §3 | [x] |
 | 5 | §5 | `forge.py record` for projects installed before the record | §3 | [x] |
-| 6 | §6 | `.kit-new` copies for a hand merge | §4 | [ ] |
+| 6 | §6 | `.kit-new` copies for a hand merge | §4 | [x] |
 | 7 | §7 | Weekly drift report across projects | §3 | [ ] |
 | 8 | §8 | `init` that writes nothing when a kit refuses | §1 | [ ] |
 | 9 | §9 | Backup of the entry docs `init --force` replaces | -- | [ ] |
@@ -231,9 +231,12 @@ A file both sides changed cannot be updated safely. `update --kit-new` writes th
 - [x] Keep `.kit-new` files, and forge's own staged `.forge-new` and `.forge-replace` files, out of every kit plan in `kit_plan`, so one left in a kit by mistake is never installed. Done when: a test with each in a scratch kit's templates finds them absent from the plan. **Corrected 2026-11-11 (validation):** the staged suffixes are the same mistake.
 - [x] Add `merged=()` to `record_project` and `--merged <path>` (repeatable, relative to the project as `--only` is) to `record` in `forge.py`: for each named kit file whose `<path>.kit-new` is a regular file still holding the kit's current bytes, set its entry to that digest under its kit (creating the kit and file entries for a file with no entry), write the record once, then remove the sibling. Every argument is checked before `_recover` and before any write, and one bad argument refuses the batch: no sibling, a sibling the project edited or one the kit has moved past (re-run `update --kit-new` after deleting it), a link or folder, or a path no kit ships. `--dry-run` lists what it would record and changes nothing. Done when: a test merges a `both-changed` file by hand and runs `record --merged` to find `diff` reporting it `project-changed` and the sibling gone; a merge that took the kit's version whole (`identical`) is accepted and a later kit change reads `kit-newer`; a `differs` file with no entry gains its kit and file entries; a test that changes the kit template between `update --kit-new` and `record --merged` gets exit 2 with the record unchanged; a batch of one good and one bad path changes nothing; an interrupted project refuses with its staged file untouched; and `--dry-run --merged` leaves every file and the record byte for byte as before. Cheaper substitute: recording the merged file's own digest must fail, since `update` would then take the next kit version over the merge. **Corrected 2026-11-11 (validation, plan review):** added; plain `record` never replaces an entry, and the plan review found that recording the current kit's digest after the SDK moved would hide the newer change.
 - [x] Document the merge in `README.md`: compare, edit the project's file, then `python forge.py record <project> --merged <path relative to the project>`, which checks the sibling against the kit, records it and removes it. Done when: the README example names the project and a relative path, and a test runs that exact command line. **Corrected 2026-11-11 (validation, plan review, round 1):** said plain `record`, then omitted the project argument, then told the project to delete the copy that `--merged` checks. Done when: the steps are in the `update` section.
-- [ ] Commit: `forge: update --kit-new writes a changed file's kit version beside it`
+- [x] Commit: `forge: update --kit-new writes a changed file's kit version beside it`
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; making `--kit-new` write to the project's own path makes the sibling test fail.
+
+> **Verified:** 2026-11-11 | §6 | 53d5b0905d9834cbf93f3971ae79a8f4f2c5fc98
+> **Review:** `docs/reviews/d01-t01-s6.json`
 
 ## 7. Weekly drift report across projects
 
