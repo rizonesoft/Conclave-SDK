@@ -16,6 +16,10 @@ FORGE_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(FORGE_ROOT))
 import forge  # noqa: E402
 
+# A doctor run on a project with .codex/ asks Codex's app-server whether its Stop hook is approved; tests answer from
+# a stub (an empty listing unless a test sets a scenario), never the machine's real Codex.
+os.environ["CODEX_HOOK_TRUST_SERVER"] = json.dumps([sys.executable, str(FORGE_ROOT / "tests/fixtures/codex_app_server_stub.py")])
+
 
 def repository_files():
     """The SDK's own files: those git tracks or would track, so ignored output (a build, a cache)
@@ -584,7 +588,18 @@ class ForgeProvisionTests(unittest.TestCase):
     def test_todo_kit_install_and_doctor(self):
         project = self.target / "planned"
         project.mkdir()
+        # The stub Codex lists this project's campaign Stop hook as trusted, as a real one does once init approved it.
+        key = str(project.resolve() / ".codex" / "hooks.json")
+        scenario = self.target / "codex-scenario.json"
+        scenario.write_text(json.dumps({"listings": [{"data": [{"hooks": [{
+            "key": key + ":stop:0:0", "eventName": "stop", "source": "project", "sourcePath": key,
+            "command": "python -c scripts/codex-campaign-hook.py", "currentHash": "sha256:" + "a" * 64,
+            "trustStatus": "trusted"}]}]}]}), encoding="utf-8")
+        stub = unittest.mock.patch.dict(os.environ, {"CODEX_STUB_SCENARIO": str(scenario)})
+        stub.start()
+        self.addCleanup(stub.stop)
         res = forge.apply_kit(project, "todo")
+        self.assertEqual(res["codex_hook"], "trusted")
         self.assertIn("scripts/todo-graph.py", res["installed"])
         self.assertIn("todo/README.md", res["installed"])
         self.assertEqual((project / "scripts/todo-graph.py").stat().st_mode & 0o777, provisioned_mode(0o755))
@@ -671,6 +686,7 @@ class ForgeProvisionTests(unittest.TestCase):
     def test_the_sdk_runs_the_stop_hook_its_todo_kit_ships(self):
         self.assertEqual(forge._stop_hook_wiring(FORGE_ROOT)[0], "ok")
         self.assertEqual(forge._stop_hook_wiring(FORGE_ROOT, ".agents/hooks.json")[0], "ok")
+        self.assertEqual(forge._stop_hook_wiring(FORGE_ROOT, ".codex/hooks.json")[0], "ok")
         self.assertEqual((FORGE_ROOT / ".agents/hooks.json").read_bytes().replace(b"\r\n", b"\n"),
                          (FORGE_ROOT / "kits/todo/templates/.agents/hooks.json").read_bytes().replace(b"\r\n", b"\n"))
 

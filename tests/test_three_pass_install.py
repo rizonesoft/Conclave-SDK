@@ -17,6 +17,9 @@ import tomllib
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+# Installing the todo kit approves its Codex Stop hook through Codex's app-server; tests answer from a stub, never the
+# machine's real Codex (which would record approvals for scratch folders in the user's config).
+os.environ["CODEX_HOOK_TRUST_SERVER"] = json.dumps([sys.executable, str(ROOT / "tests/fixtures/codex_app_server_stub.py")])
 _spec = importlib.util.spec_from_file_location("forge_for_install_test", ROOT / "forge.py")
 forge = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(forge)

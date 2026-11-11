@@ -165,7 +165,7 @@ FORGE_SUFFIXES = (KIT_NEW, ".forge-new", ".forge-replace")
 # rules, subagents, scripts and the automations runner. The SDK's own docs, plan and pins are its project files.
 SELF_KITS = ("base", "todo", "reviewer", "automations")
 SELF_PREFIXES = tuple(f"{d}/{kind}/" for d in AGENT_DIRS for kind in ("skills", "rules")) + (
-    ".claude/agents/", "scripts/", "bin/", "docs/", ".agents/hooks.json") + AUTOMATIONS_SCRIPTS
+    ".claude/agents/", "scripts/", "bin/", "docs/", ".agents/hooks.json", ".codex/hooks.json") + AUTOMATIONS_SCRIPTS
 
 
 def installed_kits(target_root: Path) -> list[str]:
@@ -670,7 +670,7 @@ def apply_kit(
                 atomic_write(mcp_path, json.dumps(payload, indent=4) + "\n")
             installed.append(".mcp.json")
 
-    return {
+    result = {
         "target": target_root.as_posix(),
         "kit": kit_name,
         "agent": agent,
@@ -680,6 +680,22 @@ def apply_kit(
         "merge_needed": merge_needed,
         **extra,
     }
+    if kit_name == "todo" and ".codex/hooks.json" in installed and not dry_run:
+        result["codex_hook"] = _approve_codex_hook(target_root)
+    return result
+
+
+def _approve_codex_hook(target_root: Path) -> str:
+    """Approve the campaign Stop hook the todo kit just installed for Codex, through Codex's own app-server (the
+    kit's codex-hook-trust.py), so a Codex run in the project is held by the run guard from the first session.
+    A machine without Codex, or one whose Codex does not answer, is reported, never an error: the install stands
+    and the doctor says what is left."""
+    trust = _codex_trust_module()
+    try:
+        results = trust.trust(Path(target_root))
+    except (trust.TrustError, OSError) as exc:
+        return f"not approved: {exc}; run python scripts/codex-hook-trust.py in the project"
+    return "approved" if any(r["approved"] for r in results) else "trusted"
 
 
 # What `diff` says of each kit file. With a record entry: the first six. Without one (a kit installed before the
@@ -1326,7 +1342,7 @@ def _stop_hook_wiring(target_root: Path, hook_file: str = ".claude/settings.json
     settings = target_root / hook_file
     seed = FORGE_ROOT / "kits/todo/templates" / hook_file
     hint = f"add the Stop hook from {seed.as_posix()} to {settings.as_posix()}"
-    antigravity = hook_file == ".agents/hooks.json"
+    antigravity = hook_file == ".agents/hooks.json"  # .claude/settings.json and .codex/hooks.json share one shape
     disabled: list = []
     try:
         doc = json.loads(settings.read_text(encoding="utf-8"))
@@ -1339,8 +1355,11 @@ def _stop_hook_wiring(target_root: Path, hook_file: str = ".claude/settings.json
     except (OSError, ValueError, AttributeError, TypeError) as exc:
         return "setup_required", f"{settings.as_posix()} does not parse as a hook file: {exc}; {hint}"
 
+    # Codex runs the guard through its wrapper (scripts/codex-campaign-hook.py); the others call it directly.
+    markers = ("codex-campaign-hook.py",) if hook_file == ".codex/hooks.json" else ("campaign_guard.py", "stop-hook")
+
     def guarded(found) -> bool:
-        return any(isinstance(c, str) and "campaign_guard.py" in c and "stop-hook" in c for c in found)
+        return any(isinstance(c, str) and all(m in c for m in markers) for c in found)
 
     if guarded(commands):
         return "ok", settings.as_posix()
@@ -1350,6 +1369,30 @@ def _stop_hook_wiring(target_root: Path, hook_file: str = ".claude/settings.json
         return "setup_required", (f"{settings.as_posix()} is in Claude Code's shape, which Antigravity loads as one "
                                   f"hook named 'hooks'; {hint}")
     return "setup_required", hint
+
+
+def _codex_trust_module() -> types.ModuleType:
+    """The todo kit's codex-hook-trust.py, loaded from the kit (forge reads, the project's copy is the project's)."""
+    path = FORGE_ROOT / "kits/todo/templates/scripts/codex-hook-trust.py"
+    module = types.ModuleType("_forge_codex_hook_trust")
+    module.__file__ = str(path)
+    exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), module.__dict__)
+    return module
+
+
+def _codex_hook_approval(target_root: Path) -> tuple[str, str]:
+    """Whether Codex will run the project's campaign Stop hook: approved against its current hash, as Codex's own
+    `hooks/list` reports it (read-only). Codex skips a hook that is `untrusted` or `modified`."""
+    trust = _codex_trust_module()
+    fix = f"run python scripts/codex-hook-trust.py in {Path(target_root).as_posix()}"
+    try:
+        results = trust.trust(Path(target_root), check=True)
+    except (trust.TrustError, OSError) as exc:
+        return "setup_required", f"{exc}; {fix}"
+    stale = [f"{r['key']} is {r['status']}" for r in results if r["status"] != "trusted"]
+    if stale:
+        return "setup_required", f"Codex skips the Stop hook until it is approved ({'; '.join(stale)}); {fix}"
+    return "ok", ", ".join(r["key"] for r in results)
 
 
 def _systemd_user_manager(run=subprocess.run) -> tuple[str, str]:
@@ -1422,6 +1465,9 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
         add_check("stop-hook", *_stop_hook_wiring(target_root))
         if (target_root / ".agents").is_dir():
             add_check("stop-hook:.agents", *_stop_hook_wiring(target_root, ".agents/hooks.json"))
+        if (target_root / ".codex").is_dir():
+            add_check("stop-hook:.codex", *_stop_hook_wiring(target_root, ".codex/hooks.json"))
+            add_check("stop-hook-approved:.codex", *_codex_hook_approval(target_root))
     else:
         for entry in ("AGENTS.md", "GEMINI.md", "CLAUDE.md", "CODEX.md"):
             p = target_root / entry
