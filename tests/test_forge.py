@@ -1827,6 +1827,13 @@ class UpdateTests(KitFixture, unittest.TestCase):
             result = forge.update_project(self.target)
         self.assertEqual(result["left"], [{"path": rel, "state": "project-only"}])
         self.assertEqual((self.target / rel).read_bytes(), before)
+        # A selection holding only retired files names nothing a kit ships, and refuses before any write.
+        with unittest.mock.patch.object(forge, "FORGE_ROOT", sdk):
+            snapshot = self.snapshot(self.target)
+            for only in (rel, ".claude/skills/groom-plan"):
+                with self.assertRaisesRegex(ValueError, "no file a kit ships"):
+                    forge.update_project(self.target, only=[only])
+                self.assertEqual(self.snapshot(self.target), snapshot, only)
 
     def test_only_narrows_to_a_file_or_a_folder(self):
         self.six_state_fixture()

@@ -839,12 +839,14 @@ def update_project(target_root: Path, kit_name: str | None = None, *, only=(), d
     def chosen(rel: str) -> bool:
         return (not paths or _under(rel, paths)) and not (no_scripts and rel.startswith("scripts/"))
 
-    first, _ = _diff_kits(target_root, kit_name, patch=False)
+    first, first_sources = _diff_kits(target_root, kit_name, patch=False)
     target = Path(first["target"])
     known = [item for kit in first["kits"].values() for item in kit["files"]]
+    # A selection must name what a kit ships now: a retired file (project-only) is never written, so it matches none.
+    shipped = [rel for source in first_sources.values() for rel in source["plan"]]
     for path in paths:
-        if not any(_under(item["path"], [path]) for item in known):
-            raise ValueError(f"--only {path}: no kit file the project has is there")
+        if not any(_under(rel, [path]) for rel in shipped):
+            raise ValueError(f"--only {path}: no file a kit ships is there")
     for item in known:
         if item["state"] == "unsafe" and chosen(item["path"]):
             raise ValueError(f"Refusing destination that is a link or under one: {item['path']}")
