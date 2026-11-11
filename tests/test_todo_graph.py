@@ -1555,6 +1555,7 @@ class ThreePassStamp(Stamp):
     stamped, and read back through the graph."""
     PIN_TEXT = THREE_PASS_PIN
     FILE = Stamp.PLAN
+    CLI, MODEL = "codex", "m"   # what the fixture pin's one reviewer runs through
     LENSES = {"plan": ["plan"], "round": ["adversarial", "integration"], "completion": ["plan-delivery", "record"],
               "reconciliation": ["adversarial", "plan-delivery", "record"]}
 
@@ -1581,7 +1582,7 @@ class ThreePassStamp(Stamp):
             lines += ["PLAN: gaps" if gaps else "PLAN: complete"]
         lines += [f"OVERALL: {'needs-attention' if gaps else 'approve'}"] if kind in ("plan", "round") else \
             [f"{kind.upper()}: {'gaps' if gaps else 'complete'}"]
-        result = {"writer": "claude", "reviewer": reviewer, "model": "m", "cli": "codex", "effort": effort,
+        result = {"writer": "claude", "reviewer": reviewer, "model": self.MODEL, "cli": self.CLI, "effort": effort,
                   "lenses": names, "failover": [], "review": review or "\n".join(["1. text.", *lines])}
         when = f"2026-10-23T00:00:{self.clock:02d}Z"
         path = self.root / self.FILE
@@ -1817,6 +1818,33 @@ class ThreePassStamp(Stamp):
         narrowed = self.commit("narrow the section")
         self.passed("reconciliation", narrowed)
         self.stamp3_refuses(narrowed, "the section's contract changed", verdict="reconciled")
+
+    def test_a_chain_reviewed_through_antigravity_stamps(self):
+        # Completion review of D00 T01 §3: the dispatcher recorded no effort for Antigravity, and the replay refused.
+        self.tearDown()
+        type(self).PIN_TEXT = THREE_PASS_PIN.replace('cli = "codex"\nmodel = "m"\neffort = "medium"',
+                                                     'cli = "agy"\nmodel = "gemini-4-argon-medium"')
+        type(self).CLI, type(self).MODEL = "agy", "gemini-4-argon-medium"
+        try:
+            self.setUp()
+            data = self.stamp3(self.chain())
+            self.assertEqual((data["plan"]["effort"], data["plan"]["model"]), ("medium", "gemini-4-argon-medium"))
+        finally:
+            type(self).PIN_TEXT, type(self).CLI, type(self).MODEL = THREE_PASS_PIN, "codex", "m"
+
+    def test_the_help_and_the_refusal_name_the_three_pass_order_and_verdicts(self):
+        cli = subprocess.run([sys.executable, str(SCRIPTS / "todo-graph.py"), "stamp", "--help"],
+                             capture_output=True, text=True, encoding="utf-8", timeout=60)
+        self.assertEqual(cli.returncode, 0, cli.stderr)
+        text = " ".join(cli.stdout.split()).replace("- ", "-")   # argparse may wrap after a hyphen
+        for needle in ("reconciled (three-pass pins)", "completed (rotation pins only)", "below the pin's blocking"):
+            self.assertIn(needle, text)
+        self.tick_work()
+        with self.assertRaises(tg.Refused) as ctx:
+            tg.stamp(self.root, "D00 T01 §1", self.sha, [{"round": 1, "report": self.FILE, "verdict": "clean"}],
+                     ["true -> ok"], "2026-10-24", plan=self.FILE)
+        self.assertIn("under a three-pass pin after the round, under a rotation pin before the rounds",
+                      str(ctx.exception))
 
     def test_a_step_without_an_effort_is_recorded_and_replayed_with_none(self):
         self.tearDown()

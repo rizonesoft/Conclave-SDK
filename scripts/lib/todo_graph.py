@@ -1310,8 +1310,9 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=No
     slug = re.sub(r"[^a-z0-9]+", "-", ref.lower().replace("§", "s")).strip("-")
     receipt = f"docs/reviews/{slug}.json"
     require(completion is not None,
-            f"--completion '<findings file>:<{'|'.join(COMPLETION_VERDICTS)}>' is required: run the one-pass completion "
-            f"review (scripts/review-dispatch.py --kind completion) before the rounds and name its verdict: {ref}")
+            f"--completion '<findings file>:<{'|'.join(COMPLETION_VERDICTS)}>' is required: run the completion review "
+            f"(scripts/review-dispatch.py --kind completion; under a three-pass pin after the round, under a rotation "
+            f"pin before the rounds) and name its verdict: {ref}")
     require(plan is not None,
             f"--plan '<findings file>' is required: run the one-pass plan review (scripts/review-dispatch.py --kind "
             f"plan) before the build: {ref}")

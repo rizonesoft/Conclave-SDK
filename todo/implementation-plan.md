@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Three-pass review
 
-Sections: 7 | Checklist items: 75
+Sections: 8 | Checklist items: 79
 
 | Status | Reference  | Deliverable                                             | Needs        | Items |
 | ------ | ---------- | ------------------------------------------------------- | ------------ | ----- |
@@ -19,7 +19,8 @@ Sections: 7 | Checklist items: 75
 | [ ]    | D00 T01 §5 | Pin check that reports every fault at once              | none         | 4     |
 | [ ]    | D00 T01 §6 | Reviewer process tree ended on Windows by a job object  | windows-host | 5     |
 | [ ]    | D00 T01 §7 | Review prompt filler                                    | none         | 5     |
+| [ ]    | D00 T01 §8 | Stamp that recovers from a write cut short              | none         | 4     |
 
-Progress: 2/7 verified sections, 4 ready to run now.
+Progress: 2/8 verified sections, 4 ready to run now.
 
-Checklist: 51/75 items completed (includes Commit items).
+Checklist: 51/79 items completed (includes Commit items).

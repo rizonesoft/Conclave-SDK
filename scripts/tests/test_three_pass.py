@@ -553,6 +553,25 @@ class Writers(ThreePass):
         self.assertTrue(module.returned_review(entry))
 
 
+class Antigravity(ThreePass):
+    def test_a_pass_reviewed_through_antigravity_records_the_scheduled_effort(self):
+        # Completion review of D00 T01 §3: the record held no effort, so the stamp's replay of the schedule refused it.
+        argon = PIN.replace('cli = "codex"\nmodel = "gpt-6.1-sol"\neffort = "xhigh"',
+                            'cli = "agy"\nmodel = "gemini-4-argon-medium"').replace('gemini = ["sol"]\n', "")
+        self.base = self.commit("antigravity reviewer", {".conclave/reviewers.toml": argon})
+        module = self.module()
+        schedule = module.load_pin(self.repo / ".conclave/reviewers.toml")["schedule"]
+        say = reply("plan", LENSES["plan"])
+        result, summary = self.dispatch("--kind", "plan", "--writer", "claude", "--prompt", str(self.prompt),
+                                        "--candidate", self.base, "--record", str(self.record), agy="say", say=say)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((summary["cli"], summary["effort"]), ("agy", "medium"))
+        self.assertFalse([a for a in self.calls()[-1]["argv"] if "effort" in a])
+        (entry,) = self.findings()["plans"]
+        expected = module.scheduled(schedule, "plan", [], False)
+        self.assertEqual((entry["effort"], entry["lenses"]), (expected["effort"], expected["lenses"]))
+
+
 class Decoding(ThreePass):
     def test_a_reply_is_utf8_or_windows_1252_and_never_raises(self):
         module = self.module()

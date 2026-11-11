@@ -39,6 +39,7 @@ title: "TODO-01 -- Three-pass review"
 | 5 | §5 | Pin check that reports every fault at once | §1 | [ ] |
 | 6 | §6 | Reviewer process tree ended on Windows by a job object | §2 | [ ] |
 | 7 | §7 | Review prompt filler | §2 | [ ] |
+| 8 | §8 | Stamp that recovers from a write cut short | §3 | [ ] |
 
 ## 1. Pin loader module with the three-pass keys
 
@@ -242,6 +243,26 @@ Filed 2026-11-11 from the completion review of §2 (an out-of-scope excellence i
 - [ ] Commit: `reviewer: fill review prompts with review-prompt.py`
 
 **Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests -p test_review_prompt.py` ends `OK`; removing the unfilled-placeholder refusal makes its test fail.
+
+## 8. Stamp that recovers from a write cut short
+
+Filed 2026-11-11 from the completion review of §3 (an out-of-scope gap). `stamp` in `lib/todo_graph.py` writes the receipt, then the TODO file, then the plan, and rolls back when one of them raises. A process killed between the writes cannot roll back: the receipt exists, the TODO file is unstamped, and the next `stamp` refuses with "receipt already exists" until someone deletes the receipt by hand.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Make `stamp` in `kits/todo/templates/scripts/lib/todo_graph.py` recognise a receipt left by a stamp that never reached the TODO file, and finish or replace it. Done when: a retry after a kill at each write boundary succeeds.
+2. Cover each boundary in `tests/test_todo_graph.py`, then `python forge.py self-sync`. Done when: the checkpoint passes.
+
+- [ ] Detect in `stamp` of `todo_graph.py` a receipt for a section whose TODO file carries no `Verified:` line for it, and replace it when it names the same commit and reviews, refusing only when it differs. Done when: a test writes the receipt, skips the TODO write, and a second `stamp` with the same arguments succeeds; one with another commit refuses naming the leftover receipt. Cheaper substitute: deleting any existing receipt unconditionally must fail.
+- [ ] Regenerate a stale `todo/implementation-plan.md` on the retry in `stamp` when the TODO file was stamped and the plan was not. Done when: a test stops after the TODO write and `python scripts/todo-graph.py plan --check` passes after the retry.
+- [ ] Name the recovery in `kits/todo/templates/todo/README.md` under stamps and receipts, and run `python forge.py self-sync`. Done when: `scripts/lib/todo_graph.py` equals the kit file.
+- [ ] Commit: `todo: a stamp cut short between its writes can be retried`
+
+**Test checkpoint:** `python -m unittest tests.test_todo_graph` ends `OK`; removing the leftover-receipt check makes its test fail.
 
 ## Verification
 

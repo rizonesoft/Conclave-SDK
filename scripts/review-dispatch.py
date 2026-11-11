@@ -308,7 +308,12 @@ def review(pin, writer, prompt_path, timeout, plan=None, kind="round"):
     # With a schedule the step alone decides, so the record always shows what the schedule says and the stamp can
     # replay it: a step without an effort passes none, whatever the reviewer's own. Without a schedule the reviewer's
     # effort runs. With neither, no effort is passed and the CLI's own configuration decides.
-    effort = None if reviewer["cli"] == "agy" else (plan["effort"] if plan else reviewer.get("effort"))
+    effort = plan["effort"] if plan else reviewer.get("effort")
+    if reviewer["cli"] == "agy":
+        # Antigravity takes no effort argument: it runs at the effort its model name carries. That is the scheduled
+        # effort whenever the name ends with it (a three-pass pin loads only so), and then the record says so, as the
+        # stamp's replay of the schedule expects; otherwise nothing is claimed.
+        effort = effort if effort and reviewer["model"].endswith(f"-{effort}") else None
     lenses = plan["lenses"] if plan else []
     schedule = pin.get("schedule", {})
     three_pass = schedule.get("policy") == THREE_PASS
