@@ -555,6 +555,16 @@ def _write_recorded(target_root: Path, record: dict, kit_name: str, agent: str |
             _record_install(record, kit_name, agent, host, {rel: digest}, commit)
             write_record(target_root, record)
         except BaseException:
+            # An interrupt (or a failure after the rename inside write_record) can come after the record already
+            # names the new digest. Then the staged file and journal are what lets the next run finish the file
+            # (_recover), so they stay; removing them would leave the old bytes recorded as the new ones.
+            try:
+                committed = (load_record(target_root) or {"files": {}})["files"].get(rel) == {
+                    "kit": kit_name, "sha256": digest}
+            except (OSError, ValueError):
+                committed = False
+            if committed:
+                raise
             # The journal first: a journal left without its staged file would read as a rename that happened. If it
             # cannot be removed, the staged file stays with it and the next run settles the pair (_recover).
             try:

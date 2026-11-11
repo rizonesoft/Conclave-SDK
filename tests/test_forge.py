@@ -1902,6 +1902,31 @@ class UpdateTests(KitFixture, unittest.TestCase):
                 self.assertFalse((self.target / forge.PENDING).exists())
                 self.assertEqual([p for p in self.snapshot(self.target) if p.endswith((forge.STAGED, forge.STAGED_REPLACE))], [])
 
+    def test_an_interrupt_after_the_record_is_written_is_finished_by_the_next_run(self):
+        for state in ("kit-newer", "missing"):
+            with self.subTest(state=state):
+                shutil.rmtree(self.target)
+                self.target.mkdir()
+                self.six_state_fixture()
+                rel = self.SIX[state]
+                real = forge.write_record
+
+                def write_then_interrupt(target_root, record):
+                    real(target_root, record)
+                    raise KeyboardInterrupt
+
+                with unittest.mock.patch.object(forge, "write_record", write_then_interrupt):
+                    with self.assertRaises(KeyboardInterrupt):
+                        forge.update_project(self.target, only=[rel])
+                self.assertEqual(self.loaded()["files"][rel]["sha256"], forge.file_digest(self.kit_bytes(rel)))
+                result = forge.update_project(self.target)
+                self.assertEqual((self.target / rel).read_bytes(), self.kit_bytes(rel), state)
+                self.assertEqual(self.states(forge.diff_project(self.target))[rel], "identical", state)
+                self.assertNotIn(rel, [i["path"] for i in result["left"]])
+                self.assertFalse((self.target / forge.PENDING).exists())
+                self.assertEqual([p for p in self.snapshot(self.target)
+                                  if p.endswith((forge.STAGED, forge.STAGED_REPLACE))], [])
+
     def test_an_edit_made_after_a_failed_rename_is_kept(self):
         self.six_state_fixture()
         second = self.target / self.SIX["kit-newer"]
