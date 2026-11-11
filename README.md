@@ -40,7 +40,7 @@ Each agent reads only its own isolated folder and entrypoint alongside the share
 ## Why it exists
 
 - **One source for three agents.** A skill is written once per agent folder and installed the same way for Claude Code, Codex and Antigravity, so a project does not keep three setups by hand.
-- **Copied once, owned by the project.** Nothing links a project back to the SDK. The project adapts its copy, and `forge.py` never overwrites a file the project already has.
+- **Copied once, owned by the project.** Nothing links a project back to the SDK. The project adapts its copy, `forge.py` never overwrites a file the project changed, and `diff` and `update` bring in later kit improvements safely.
 - **Review by another model family.** The `reviewer` kit pins a reviewer that is never the writer's own model family, and the `todo` kit will not mark a section done without that review on record.
 - **A plan that finishes.** The `todo` kit turns a plan into small sections with checkable steps, a generated plan file and a run guard that keeps an unattended run going.
 - **Nothing to install.** Every script is Python 3 standard library only, with atomic writes, on Windows, Linux and WSL.
@@ -93,7 +93,7 @@ Then open the project in Claude Code, Codex or Antigravity. Each agent finds its
 
 ## Importing into a New or Existing Project (Gemini, Claude, or Codex)
 
-Conclave-SDK is a template, not a master copy. `init` and `kit` copy files into the project once and never overwrite a file that is already there, and they note what they installed in the project's `.conclave/kits.json`: the SDK commit, and for each file its kit and a digest of its bytes as installed. The record holds no path back to the SDK and the project may delete it: nothing breaks, and forge then only knows less about which files are still as installed. From then on the project owns its copy: adapt the skills, scripts and pins to the project, and they never drift against the SDK because they are not tied to it. To pick up a later SDK improvement, read the kit's change and port it by hand, like any other code you borrow.
+Conclave-SDK is a template, not a master copy. `init` and `kit` copy files into the project once and never overwrite a file that is already there, and they note what they installed in the project's `.conclave/kits.json`: the SDK commit, and for each file its kit and a digest of its bytes as installed. The record holds no path back to the SDK and the project may delete it: nothing breaks, and forge then only knows less about which files are still as installed. From then on the project owns its copy: adapt the skills, scripts and pins to the project. To pick up a later SDK improvement, `diff` shows what changed and `update` takes only the files the project never edited; a file both sides changed is merged by hand with `update --kit-new` (see below).
 
 Nothing is installed unless you ask for it: `init` always installs the `base` kit and adds only the kits you name. Run it from the clone, in Windows PowerShell or inside WSL.
 

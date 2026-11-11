@@ -6,9 +6,7 @@ Governing plans: [docs/plans/2026-11-11-sdk-audit-and-roadmap.md](../docs/plans/
 
 | Domain | File | Scope |
 | ------ | ---- | ----- |
-| 00 | 00-reviewer/TODO-01-three-pass-review.md | Three-pass review in the reviewer and todo kits |
 | 00 | 00-reviewer/TODO-02-three-writers.md | Codex route, Antigravity flag check and subagents |
-| 01 | 01-forge/TODO-01-install-record-and-update.md | Install record, diff, update and drift report |
 | 01 | 01-forge/TODO-02-gates-and-skill-source.md | check-all, one installer, generated skill copies |
 | 02 | 02-unattended/TODO-01-run-guard-three-agents.md | Campaign guard hooks for Antigravity and Codex |
 | 02 | 02-unattended/TODO-02-unattended-kit.md | Preflight, launcher, heartbeat, boot unit, shortcut |
@@ -19,3 +17,8 @@ Governing plans: [docs/plans/2026-11-11-sdk-audit-and-roadmap.md](../docs/plans/
 | 06 | 06-global/TODO-01-imported-material.md | Plugins from plugins/, retired copies removed |
 
 ## Completed TODOs
+
+| Domain | File | Scope | Completed |
+| ------ | ---- | ----- | --------- |
+| 00 | 00-reviewer/TODO-01-three-pass-review.md | Three-pass review in the reviewer and todo kits | 2026-11-11 |
+| 01 | 01-forge/TODO-01-install-record-and-update.md | Install record, diff, update and drift report | 2026-11-11 |
