@@ -258,11 +258,36 @@ class Refusals(Filler):
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         args = ["--kind", "round", "--candidate", CAND, "--out", str(self.out), *COMMON["round"]]
-        for label, call in (("the temporary write", "fdopen"), ("the replacement", "replace")):
+        real_fdopen = os.fdopen
+
+        class FullDisk:
+            """The temporary file opened for real, whose write stores a little and then fails."""
+            def __init__(self, handle):
+                self.handle = handle
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                self.handle.close()
+                return False
+
+            def write(self, text):
+                self.handle.write(text[:20])
+                self.handle.flush()
+                raise full()
+
+        def full():
+            return OSError(28, "No space left on device")
+
+        for label, call, effect in (("opening the temporary file", "fdopen", full()),
+                                    ("writing the temporary file", "fdopen",
+                                     lambda *a, **k: FullDisk(real_fdopen(*a, **k))),
+                                    ("the replacement", "replace", full())):
             with self.subTest(label):
                 self.out.write_bytes(b"EARLIER OUTPUT\n")
                 errors, printed = io.StringIO(), io.StringIO()
-                with unittest.mock.patch.object(module.os, call, side_effect=OSError(28, "No space left on device")), \
+                with unittest.mock.patch.object(module.os, call, side_effect=effect), \
                         contextlib.redirect_stderr(errors), contextlib.redirect_stdout(printed), \
                         unittest.mock.patch.object(module.os, "getcwd", return_value=str(self.root)):
                     code = module.main(args)
