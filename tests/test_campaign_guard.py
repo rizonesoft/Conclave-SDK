@@ -393,7 +393,9 @@ class AntigravityPayload(Workspace):
         """The Stop payload agy 1.5.5 sent to a probe hook (tests/fixtures/agy-stop-payload.json), paths filled in."""
         recorded = json.loads((REPO / "tests/fixtures/agy-stop-payload.json").read_text(encoding="utf-8"))
         forward = self.root.replace("\\", "/")  # agy sends workspacePaths with forward slashes
-        payload = {**recorded, "cwd": self.root, "workspacePaths": [forward]}
+        unguarded = os.path.join(self._tmp.name, "agent-cwd")  # only workspacePaths leads to the guard
+        os.makedirs(unguarded)
+        payload = {**recorded, "cwd": unguarded, "workspacePaths": [forward]}
         guard.acquire(self.root, recorded["conversationId"], 0, RUN_FILE, "job-1")
         self.assertEqual(json.loads(self.raw(payload))["decision"], "continue")
         self.assertEqual(self.raw({**payload, "workspacePaths": [], "cwd": ""}), "", "no workspace was held")
