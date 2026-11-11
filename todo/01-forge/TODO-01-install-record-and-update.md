@@ -72,6 +72,8 @@ title: "TODO-01 -- Install record, diff and update"
 
 ## 2. Install record in `.conclave/kits.json`
 
+> **Started:** 2026-11-11T17:57:49Z
+
 `kit` and `init` write a record of what they installed: the SDK commit and, for every file written, its kit and a digest of the bytes as installed (roadmap recommendation 1, owner decision 2026-11-11). The record is a note, not a link: the project owns every file and deleting the record breaks nothing.
 
 **Phase:** 1
