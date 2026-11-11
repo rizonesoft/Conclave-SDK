@@ -1182,9 +1182,118 @@ class InstallRecordTests(unittest.TestCase):
         self.assertEqual((self.target / "AGENTS.md").read_text(encoding="utf-8"), "the earlier template\n")
         self.assertEqual(self.record()["files"]["AGENTS.md"]["sha256"], self.template_digest("base", "AGENTS.md"))
         self.assertEqual(self.staged_files(), ["AGENTS.md" + forge.STAGED])
-        # An ordinary init, with no --force, finishes it.
+        self.assertTrue((self.target / forge.PENDING).is_file())
+        # An ordinary init, with no --force, finishes it: nothing moved since.
         forge.provision(self.target)
         self.assert_agents_md_is_the_kits()
+        self.assertFalse((self.target / forge.PENDING).exists())
+
+    def held_open(self, name):
+        """os.replace that fails for a destination called `name`, as when another program holds the file open."""
+        real = os.replace
+
+        def replace(source, destination):
+            if pathlib.Path(destination).name == name:
+                raise PermissionError("the file is in use")
+            real(source, destination)
+
+        return unittest.mock.patch.object(forge.os, "replace", replace)
+
+    def test_a_replacement_the_project_edited_since_is_rolled_back_not_applied(self):
+        # The rename failed, and before any retry the project saved its own edits to the doc. A later run, of any
+        # kit, must keep those edits and put the record entry back to what the doc was installed with.
+        self.earlier_agents_md()
+        with self.held_open("AGENTS.md"):
+            with self.assertRaises(PermissionError):
+                forge.provision(self.target, overwrite_existing_docs=True)
+        (self.target / "AGENTS.md").write_text("the project's edits, saved since\n", encoding="utf-8")
+        forge.apply_kit(self.target, "reviewer")
+        self.assertEqual((self.target / "AGENTS.md").read_text(encoding="utf-8"), "the project's edits, saved since\n")
+        self.assertEqual(self.record()["files"]["AGENTS.md"], {"kit": "base", "sha256": "c" * 64})
+        self.assertEqual(self.staged_files(), [])
+        self.assertFalse((self.target / forge.PENDING).exists())
+        self.assertIn("scripts/review-dispatch.py", self.record()["files"])
+
+    def test_a_replacement_of_a_doc_that_was_never_recorded_rolls_back_to_no_entry(self):
+        own = self.target / "CLAUDE.md"
+        own.write_text("the project's own entry doc\n", encoding="utf-8")
+        forge.provision(self.target)
+        self.assertNotIn("CLAUDE.md", self.record()["files"])
+        with self.held_open("CLAUDE.md"):
+            with self.assertRaises(PermissionError):
+                forge.provision(self.target, overwrite_existing_docs=True)
+        own.write_text("edited again by the project\n", encoding="utf-8")
+        forge.provision(self.target)
+        self.assertEqual(own.read_text(encoding="utf-8"), "edited again by the project\n")
+        self.assertNotIn("CLAUDE.md", self.record()["files"])
+        self.assertEqual(self.staged_files(), [])
+        self.assertFalse((self.target / forge.PENDING).exists())
+
+    def test_a_journal_left_after_the_rename_happened_is_only_removed(self):
+        self.earlier_agents_md()
+        real_remove = forge._remove
+
+        def cannot_remove_the_journal(path):
+            if pathlib.Path(path).name == pathlib.Path(forge.PENDING).name:
+                raise OSError("read-only")
+            real_remove(path)
+
+        with unittest.mock.patch.object(forge, "_remove", cannot_remove_the_journal):
+            with self.assertRaisesRegex(OSError, "read-only"):
+                forge.provision(self.target, overwrite_existing_docs=True)
+        self.assertTrue((self.target / forge.PENDING).is_file())
+        forge.provision(self.target)
+        self.assert_agents_md_is_the_kits()
+        self.assertFalse((self.target / forge.PENDING).exists())
+
+    def test_a_new_file_recorded_but_not_renamed_is_finished_or_given_up(self):
+        rel = ".claude/skills/create-todo/SKILL.md"
+        for label, project_made_its_own in (("finished", False), ("given-up", True)):
+            with self.subTest(case=label):
+                project = pathlib.Path(self.tmp.name) / label
+                project.mkdir()
+                with self.held_open("SKILL.md"):
+                    with self.assertRaises(PermissionError):
+                        forge.apply_kit(project, "todo", agent="claude")
+                failed = sorted(self.record(project)["files"])[-1]
+                self.assertFalse((project / failed).exists())
+                self.assertTrue((project / (failed + forge.STAGED)).is_file())
+                self.assertFalse((project / forge.PENDING).exists(), "a new file needs no journal")
+                if project_made_its_own:
+                    (project / failed).write_text("the project's own skill\n", encoding="utf-8")
+                forge.apply_kit(project, "todo", agent="claude")
+                self.assertEqual([r for r in self.files_under(project) if r.endswith(forge.STAGED)], [])
+                if project_made_its_own:
+                    self.assertEqual((project / failed).read_text(encoding="utf-8"), "the project's own skill\n")
+                    self.assertNotIn(failed, self.record(project)["files"])
+                else:
+                    self.assertEqual(self.record(project)["files"][failed]["sha256"], self.template_digest("todo", failed))
+                    self.assertEqual(forge.file_digest((project / failed).read_bytes()), self.template_digest("todo", failed))
+                self.assertIn(rel, self.record(project)["files"])
+
+    def test_a_journal_that_cannot_be_read_refuses_before_any_file_is_written(self):
+        forge.provision(self.target)
+        valid = {"schema_version": 1, "path": "AGENTS.md", "kit": "base", "new": "a" * 64, "earlier": None,
+                 "destination": None}
+        faults = {
+            "not JSON": "{nope",
+            "not an object": "[1]",
+            "missing key": json.dumps({k: v for k, v in valid.items() if k != "kit"}),
+            "unknown key": json.dumps({**valid, "extra": 1}),
+            "bad digest": json.dumps({**valid, "new": "xyz"}),
+            "bad earlier": json.dumps({**valid, "earlier": {"kit": "base"}}),
+        }
+        for name, text in faults.items():
+            with self.subTest(fault=name):
+                (self.target / forge.PENDING).write_text(text, encoding="utf-8")
+                before = {rel: (self.target / rel).read_bytes() for rel in self.files_under(self.target)}
+                with self.assertRaisesRegex(ValueError, r"\.conclave/kits\.pending\.json"):
+                    forge.apply_kit(self.target, "todo")
+                self.assertEqual({rel: (self.target / rel).read_bytes() for rel in self.files_under(self.target)}, before)
+        (self.target / forge.PENDING).unlink()
+        (self.target / forge.PENDING).mkdir()
+        with self.assertRaisesRegex(ValueError, r"\.conclave/kits\.pending\.json"):
+            forge.apply_kit(self.target, "todo")
 
     def test_a_staged_file_the_record_does_not_name_is_removed_not_applied(self):
         forge.provision(self.target)

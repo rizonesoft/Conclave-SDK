@@ -393,35 +393,113 @@ def _record_install(record: dict, kit_name: str, agent: str, host: str | None, d
 
 
 STAGED = ".forge-new"
+PENDING = ".conclave/kits.pending.json"
+_PENDING_KEYS = {"schema_version", "path", "kit", "new", "earlier", "destination"}
 
 
-def _finish_staged(target_root: Path, record: dict) -> list[str]:
-    """Finish what an interrupted run left: a staged file beside a recorded path. One whose bytes are what the record
-    names is moved into place (the record was written, only the rename was missing); any other is stale and removed.
-    Returns the paths finished."""
-    finished: list[str] = []
-    for rel, entry in record["files"].items():
+def _digest_of(path: Path) -> str | None:
+    """The digest of a file's bytes, or None when there is no file there."""
+    return file_digest(path.read_bytes()) if path.is_file() else None
+
+
+def _remove(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _load_pending(target_root: Path) -> dict | None:
+    """The journal of a replacement that was interrupted, or None. It names the file, the digest being installed,
+    the record entry the file had before (or null) and the digest of what was at the destination before (or null)."""
+    path = target_root / PENDING
+    if _is_link(path) or path.is_dir():
+        raise ValueError(f"{PENDING}: refusing a journal that is a link or a folder")
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_bytes().decode("utf-8"))
+    except (OSError, ValueError, RecursionError) as exc:
+        raise ValueError(f"{PENDING}: not readable as UTF-8 JSON ({exc}); remove it after checking the file it names") from None
+    hexes = [data.get(key) for key in ("new", "destination")] if isinstance(data, dict) else []
+    earlier = data.get("earlier") if isinstance(data, dict) else None
+    if (not isinstance(data, dict) or set(data) != _PENDING_KEYS or data["schema_version"] != 1
+            or not isinstance(data["path"], str) or not isinstance(data["kit"], str)
+            or not isinstance(hexes[0], str) or not _HEX64.fullmatch(hexes[0])
+            or not (hexes[1] is None or (isinstance(hexes[1], str) and _HEX64.fullmatch(hexes[1])))
+            or not (earlier is None or (isinstance(earlier, dict) and set(earlier) == {"kit", "sha256"}))):
+        raise ValueError(f"{PENDING}: not a forge journal; remove it after checking the file it names")
+    return data
+
+
+def _recover(target_root: Path, record: dict) -> None:
+    """Settle what an interrupted run left, before anything else is written.
+
+    A journaled replacement is finished only when nothing moved since: the destination still holds what it held
+    then and the staged bytes are the ones recorded. If the project changed the file in between (or the staged file
+    is gone), it is rolled back: the record entry returns to what it was and the project's file is left alone. A
+    replacement whose rename did happen only has its journal removed.
+
+    A staged file with no journal belongs to a file that did not exist when it was staged. If the record names its
+    bytes and the destination is still missing, it is moved into place. If a file has appeared there since, that
+    file is the project's: the entry is dropped and the staged file removed. Any other staged file is stale.
+    """
+    changed = False
+    pending = _load_pending(target_root)
+    if pending is not None:
+        rel = pending["path"]
+        if _has_unsafe_parent(target_root, rel):
+            raise ValueError(f"{PENDING}: names a path with an unsafe parent: {rel}")
+        dst, staged = target_root / rel, target_root / (rel + STAGED)
+        now = _digest_of(dst)
+        new_entry = {"kit": pending["kit"], "sha256": pending["new"]}
+        if now == pending["new"]:
+            entry = new_entry
+        elif _digest_of(staged) == pending["new"] and now == pending["destination"] and pending["kit"] in record["kits"]:
+            os.replace(staged, dst)
+            entry = new_entry
+        else:
+            entry = pending["earlier"]
+        if entry is None or entry["kit"] not in record["kits"]:
+            changed = record["files"].pop(rel, None) is not None
+        elif record["files"].get(rel) != entry:
+            record["files"][rel] = entry
+            changed = True
+        if changed:
+            write_record(target_root, record)
+            changed = False
+        _remove(staged)
+        _remove(target_root / PENDING)
+    for rel, entry in list(record["files"].items()):
         staged = target_root / (rel + STAGED)
         if not staged.is_file() or _is_link(staged) or _has_unsafe_parent(target_root, rel):
             continue
+        dst = target_root / rel
         if file_digest(staged.read_bytes()) == entry["sha256"]:
-            os.replace(staged, target_root / rel)
-            finished.append(rel)
-        else:
-            staged.unlink()
-    return finished
+            if not dst.exists() and not dst.is_symlink():
+                os.replace(staged, dst)
+                continue
+            if _digest_of(dst) != entry["sha256"]:
+                del record["files"][rel]
+                changed = True
+        if changed:
+            write_record(target_root, record)
+            changed = False
+        _remove(staged)
 
 
 def _write_recorded(target_root: Path, record: dict, kit_name: str, agent: str, host: str | None,
                     copies: list[tuple[str, Path, bytes]]) -> None:
     """Write `(relative path, destination, bytes)` files and record each under its kit, one file at a time, so the
-    record and the files never disagree in a way a later run cannot repair. For each file:
+    record and the files never disagree in a way a later run cannot settle (`_recover`). For each file:
 
     1. Its bytes are staged beside the destination (`<name>.forge-new`). If that fails, nothing has changed.
-    2. The record is written with the file's digest. If that fails, the staged file is removed and nothing has
-       changed: a file being replaced still holds its earlier bytes under its earlier digest.
-    3. The staged file is renamed over the destination, which needs no space. If the rename fails, the staged file
-       stays, and the next run finishes it (`_finish_staged`), because the record already names its bytes.
+    2. When the file replaces something (a file is there, or the record has an entry for it), a journal is written
+       naming what the destination and the entry were. A new file needs none: there is nothing to go back to.
+    3. The record is written with the file's digest. If that fails, the staged file and the journal are removed and
+       nothing has changed: a file being replaced still holds its earlier bytes under its earlier digest.
+    4. The staged file is renamed over the destination, which needs no space, and the journal is removed. If the
+       rename fails, the staged file and the journal stay for the next run to settle.
 
     So a file is on disk only with its record entry, and a failure part way leaves the files before it written and
     recorded and the failing one neither.
@@ -429,19 +507,30 @@ def _write_recorded(target_root: Path, record: dict, kit_name: str, agent: str, 
     if not copies:
         return
     commit = sdk_commit()
+    journal = target_root / PENDING
     for rel, dst, data in copies:
         staged = dst.with_name(dst.name + STAGED)
+        earlier = record["files"].get(rel)
+        replaces = earlier is not None or dst.exists() or dst.is_symlink()
+        digest = file_digest(data)
         atomic_write(staged, data)
         try:
-            _record_install(record, kit_name, agent, host, {rel: file_digest(data)}, commit)
+            if replaces:
+                atomic_write(journal, json.dumps({
+                    "schema_version": 1, "path": rel, "kit": kit_name, "new": digest, "earlier": earlier,
+                    "destination": _digest_of(dst)}, indent=2, sort_keys=True) + "\n")
+            _record_install(record, kit_name, agent, host, {rel: digest}, commit)
             write_record(target_root, record)
         except BaseException:
-            try:
-                staged.unlink()
-            except OSError:
-                pass  # a stale staged file: the record does not name its bytes, so the next run removes it
+            for leftover in (staged, journal) if replaces else (staged,):
+                try:
+                    _remove(leftover)
+                except OSError:
+                    pass  # the next run settles it (_recover)
             raise
         os.replace(staged, dst)
+        if replaces:
+            _remove(journal)
 
 
 def apply_kit(
@@ -488,7 +577,7 @@ def apply_kit(
     # The record is read, and its folder checked, before the first copy: a refusal here leaves nothing written.
     record = load_record(target_root) or {"schema_version": 1, "kits": {}, "files": {}}
     if not dry_run:
-        _finish_staged(target_root, record)
+        _recover(target_root, record)
     copies: list[tuple[str, Path, bytes]] = []
     for src, dst, rel in plan:
         if dst.exists() or dst.is_symlink():
