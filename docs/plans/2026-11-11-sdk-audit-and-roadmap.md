@@ -39,6 +39,8 @@ Findings 16 and 17 are why it feels flaky: gates that are not run cannot be trus
 
 In order. Each is small on its own, and none forces a shape.
 
+Planned 2026-11-11: every open item below, the kits table and the retired repositories are owned by sections in `todo/` (phases 1 to 7 and 99 of `todo/implementation-plan.md`). Findings 11, 16, 17 and 18 were already closed and have no section.
+
 ### 1. Version what a project imported (owner decision 2026-11-11)
 
 `forge.py` writes `.conclave/kits.json` in the project: the SDK commit, and for every file it installed, the kit, the path and a digest of the bytes as installed. This reverses the 2026-10-25 decision that nothing records the source. The record is a note, not a link: the project still owns every file, and deleting the record breaks nothing.
@@ -57,7 +59,7 @@ A task for the automations kit that runs `forge.py diff` weekly and reports what
 
 ### 5. Upstream first, then down
 
-For each project in turn: read what it built, lift the generic parts into the SDK, then let the project take the SDK's version of only those parts. Order: RasterFold's review flow (in progress, `todo/00-reviewer/`), then its campaign guard and unattended runner, then Impossible OS's overnight supervisor.
+For each project in turn: read what it built, lift the generic parts into the SDK, then let the project take the SDK's version of only those parts. Order: RasterFold's review flow (done 2026-11-11, `todo/00-reviewer/TODO-01-three-pass-review.md`), then its campaign guard and unattended runner, then Impossible OS's overnight supervisor.
 
 ### 6. Make the todo graph take a project's shape
 

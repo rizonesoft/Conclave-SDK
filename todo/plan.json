@@ -1,8 +1,15 @@
 {
   "title": "Conclave-SDK implementation plan",
-  "acceptance": "`docs/plans/2026-11-11-three-pass-review.md` (requirements R1 to R15).",
+  "acceptance": "`docs/plans/2026-11-11-sdk-audit-and-roadmap.md` (recommendations 1 to 9, the kits table and the retired repositories); Phase 0 was held to `docs/plans/2026-11-11-three-pass-review.md` (requirements R1 to R15).",
   "phases": {
     "0": "Three-pass review",
+    "1": "Install record, diff and update",
+    "2": "Unattended running",
+    "3": "Todo graph that takes a project's shape",
+    "4": "Antigravity and Codex as writers",
+    "5": "One gate and one skill source",
+    "6": "Tooling kits",
+    "7": "Operating directive",
     "99": "Manual, operator only"
   }
 }

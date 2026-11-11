@@ -1,0 +1,113 @@
+---
+schema_version: 1
+id: three-writers
+domain: 00-reviewer
+status: active
+title: "TODO-02 -- Antigravity and Codex as first-class writers"
+---
+
+# TODO-02 -- Antigravity and Codex as first-class writers
+
+> **Goal:** Work written by any of the three agents can be reviewed from a fresh install: the template pin routes `codex` as well as `claude` and `agy`, the Antigravity command line the dispatcher builds is proven against the installed CLI, and Antigravity has the subagents the base kit gives Claude Code, or the limit is written down.
+
+> **Current state:** Measured 2026-11-11. `kits/reviewer/templates/scripts/review_pin.py` accepts the writers `claude`, `codex`, `agy` and `gemini` (`WRITERS`, `:47`). The template pin `kits/reviewer/templates/.conclave/reviewers.toml` defines one reviewer (`astra`, the Codex CLI) and routes `claude` and `agy` to it (`:31`, `:32`); it has no `codex` route, so a review of Codex work refuses (the pin's own comment, `:27`). Each agent's skill copies already name their own agent: `--writer agy` in `.agents`, `--writer codex` in `.codex` (roadmap finding 11 is closed). The dispatcher builds the Antigravity reviewer command as `agy --model <model> --mode plan --sandbox --print-timeout <n>s` (`kits/reviewer/templates/scripts/review-dispatch.py:210`); no test compares those flags with what the installed CLI accepts. The base kit ships five Claude subagents under `kits/base/templates/.claude/agents/` and nothing equivalent under `.agents/`.
+
+## Inputs
+
+- `docs/plans/2026-11-11-sdk-audit-and-roadmap.md`: findings 9, 10 and 11 and recommendation 7.
+- `kits/reviewer/templates/.conclave/reviewers.toml`, `kits/reviewer/templates/scripts/review_pin.py` and `kits/reviewer/templates/scripts/review-dispatch.py`, with their tests in `kits/reviewer/templates/scripts/tests/`.
+- The owner's rule that Claude writes and never reviews: the reviewer added for Codex work is therefore Antigravity, not Claude.
+- The pin rule in `AGENTS.md` (Review): a section keeps the pin committed at its plan review's candidate, so §1's pin change is committed before the next section starts.
+- -> XREF: D02 T01 §2 -- the run guard for Antigravity and Codex (the other half of recommendation 7) is wired there
+
+## Outcome
+
+- A fresh install's `python scripts/review-dispatch.py --check-pin` prints `ok` with routes for `claude`, `agy` and `codex`, and a review of Codex work reaches a reviewer of another family.
+- `python forge.py doctor <project> reviewer` fails a check when the installed `agy` no longer accepts a flag the dispatcher passes.
+- Antigravity sessions have read-only subagent definitions equal in purpose to the five Claude ones, or `kits/base/README.md` states that Antigravity has none and why.
+
+**Adjacency:** all=not-applicable (developer tooling: a reviewer pin, a command-line check and agent definition files, with no records a user lists, exports, is notified of or reverses)
+
+**Adjacency rationale:** The one setting this work adds is a route and a reviewer in the template pin, consumed by the pin loader and proven by the `--check-pin` contract tests.
+
+## Implementation Order
+
+| Order | Section | Deliverable | Depends On | Status |
+| ----- | ------- | ----------- | ---------- | ------ |
+| 1 | §1 | Codex route and an Antigravity reviewer in the template pin | -- | [ ] |
+| 2 | §2 | Antigravity flags checked against the installed CLI | -- | [ ] |
+| 3 | §3 | Antigravity counterparts of the base kit's subagents | §2 | [ ] |
+
+## 1. Codex route and an Antigravity reviewer in the template pin
+
+The template pin leaves Codex's work with no reviewer (roadmap finding 10). It gains a second reviewer of another family and a `codex` route to it.
+
+**Phase:** 4
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add the reviewer and the route to `kits/reviewer/templates/.conclave/reviewers.toml`. Done when: the pin loads with three routes.
+2. Update the fixtures, the skill tables and the SDK's own pin. Done when: the checkpoint passes.
+
+- [ ] Add a reviewer run through the Antigravity CLI to `kits/reviewer/templates/.conclave/reviewers.toml`, with a model name the installed `agy` lists and, under the three-pass schedule, ending in the effort the schedule sets (the loader refuses one that disagrees, `review_pin.py:136`). Done when: `python kits/reviewer/templates/scripts/review_pin.py --check --pin kits/reviewer/templates/.conclave/reviewers.toml` prints `ok`. Cheaper substitute: a model name not checked against the CLI's own list must fail review.
+- [ ] Add `codex = ["<that reviewer>"]` under `[routes]` in the template pin and rewrite the comment at `:27` to say all three writers are routed. Done when: a test loads the template pin and finds routes for `claude`, `agy` and `codex`, each to a reviewer of another family.
+- [ ] Add a dispatcher test in `kits/reviewer/templates/scripts/tests/test_review_dispatch.py`: with the template pin and a stub `agy`, `--writer codex` reaches the stub and records its review. Done when: the test fails when the `codex` route is removed.
+- [ ] Add a `--check-pin` fixture for the three-route pin under `tests/fixtures/check-pin/` and extend `tests/test_check_pin_contract.py`. Done when: the contract test passes and the fixture's expected JSON names three routes.
+- [ ] Replace the "none yet" row for Codex in the route table of `independent-review` in the three agent folders (`kits/reviewer/templates/.claude/skills/independent-review/SKILL.md:14` and its two copies) and in `kits/reviewer/README.md`. Done when: `grep -rn "none yet" kits/reviewer` prints nothing.
+- [ ] Commit the SDK's own `.conclave/reviewers.toml` with the same reviewer and route as its own commit, before any other section starts, and run `python forge.py self-sync`. Done when: `python scripts/review-dispatch.py --check-pin` prints `ok` and `git log -1 --format=%s -- .conclave/reviewers.toml` is that commit.
+- [ ] Commit: `reviewer: route Codex work to an Antigravity reviewer`
+
+**Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests` and `python -m unittest discover -s tests` both end `OK`; removing the `codex` route makes the new dispatcher test fail.
+
+## 2. Antigravity flags checked against the installed CLI
+
+The roadmap says to check every `agy` flag against the current CLI before it ships. The dispatcher passes four; a CLI release that renames one would turn every Antigravity review into "no review" with nobody noticing.
+
+**Phase:** 4
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Name the flags the dispatcher passes to `agy` in one tuple in `kits/reviewer/templates/scripts/review-dispatch.py`. Done when: the command is built from it.
+2. Check them in `forge.py doctor`. Done when: the checkpoint passes.
+
+- [ ] Move the Antigravity flags (`--model`, `--mode`, `--sandbox`, `--print-timeout`) into a module constant `AGY_FLAGS` in `review-dispatch.py` and build the command at `:210` from it. Done when: the existing dispatcher tests pass unchanged and the command line is byte for byte what it was.
+- [ ] Add `agy_flags_missing(help_text)` to `review-dispatch.py`, returning the flags of `AGY_FLAGS` that the CLI's `--help` output does not list as whole words. Done when: tests with a captured help text find none missing, and with `--print-timeout` removed from the text find that one.
+- [ ] Add a `reviewer-flags:<name>` check to `_doctor_reviewer` in `forge.py` (`forge.py:452`) for each reviewer whose CLI is `agy` and installed: run `agy --help` with a 15 second limit and report `unexpected` naming the missing flags, or `ok` with the CLI's version. Done when: tests with a stub `agy` cover both results and a stub that hangs is reported `setup_required` and its process ended.
+- [ ] Run the check against the `agy` installed on this machine and record its version and the result in `kits/reviewer/README.md`. Done when: the README names the version, and any flag reported missing is fixed in `AGY_FLAGS` with the dispatcher test updated.
+- [ ] Run `python forge.py self-sync`. Done when: `scripts/review-dispatch.py` equals the kit file.
+- [ ] Commit: `reviewer: doctor checks the Antigravity flags the dispatcher passes`
+
+**Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` and `python -m unittest discover -s kits/reviewer/templates/scripts/tests` end `OK`; adding a flag to `AGY_FLAGS` that the captured help text lacks makes the missing-flag test fail.
+
+## 3. Antigravity counterparts of the base kit's subagents
+
+Claude Code gets five read-only subagents from the base kit (`code-explorer`, `debug-evidence`, `git-runner`, `mutation-tester`, `test-runner`). Antigravity gets none (roadmap finding 9). Whether it can is a fact about the installed CLI, so the section starts by establishing it.
+
+**Phase:** 4
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Establish from the installed Antigravity CLI and its documentation whether a project can define subagents, and in what file format. Done when: the answer and its source are in `kits/base/README.md`.
+2. Port the five agents, or record the limit. Done when: the checkpoint passes.
+
+- [ ] Write in `kits/base/README.md` what the installed `agy` supports for project-defined subagents: the folder, the file format, how a tool list is restricted and how a model is chosen, with the CLI version and the help or documentation text it came from. Done when: the README section exists and quotes its source. Cheaper substitute: a format written from memory must fail review.
+- [ ] When Antigravity supports them: create the five definitions under `kits/base/templates/.agents/` in that format, each read-only (no edit or write tool), with the same purpose text as its Claude counterpart. Done when: a fresh `--agent agy` install has all five and a test asserts none lists a write tool.
+- [ ] When Antigravity supports them: extend `kits/base/templates/scripts/verify-agent-tiers.mjs` or add a Python test in `tests/test_forge.py` that checks the Antigravity definitions the way `verify-agent-tiers.mjs` checks the Claude ones. Done when: a definition with a write tool fails the check.
+- [ ] When Antigravity does not support them: state in `kits/base/README.md` and in the Subagents section of `kits/base/templates/AGENTS.md` that Antigravity runs mechanical subtasks in the main session, and close this section with no template change. Done when: both documents carry the sentence and the README names the CLI version checked.
+- [ ] Run `python forge.py self-sync`. Done when: `python -m unittest discover -s tests` passes with the SDK's installed copies equal to the kits.
+- [ ] Commit: `base: Antigravity subagents, or the recorded limit`
+
+**Test checkpoint:** `python -m unittest discover -s tests` ends `OK`; when the agents were ported, adding a write tool to one Antigravity definition makes the new check fail, and when they were not, `grep -c "main session" kits/base/README.md` is at least 1.
+
+## Verification
+
+- A fresh `python forge.py init <scratch> --kit reviewer` prints `ok` for `python scripts/review-dispatch.py --check-pin` and lists three routes.
+- `python forge.py doctor . reviewer --strict` exits 0 on this machine with the `reviewer-flags` check shown.
+- `python -m unittest discover -s tests` passes.
+- `python scripts/todo-graph.py validate` and `python scripts/todo-graph.py plan --check` pass.

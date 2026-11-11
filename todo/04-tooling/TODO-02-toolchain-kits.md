@@ -1,0 +1,202 @@
+---
+schema_version: 1
+id: toolchain-kits
+domain: 04-tooling
+status: active
+title: "TODO-02 -- Toolchain kits"
+---
+
+# TODO-02 -- Toolchain kits
+
+> **Goal:** A C or C++ project, and a PHP or Node project, installs a stack kit that pins the build tools it wants, tells the operator which are missing or too old, and gives the agents a fast build and a language server that sees the real compile flags. The kits check and document; they never install a tool or choose a project's build system.
+
+> **Current state:** Measured 2026-11-11. No `kits/toolchain-cpp/` or `kits/toolchain-web/` exists, and Ninja, ccache, sccache, mold, lld and clangd appear nowhere in the kits or `forge.py`. The two C projects each built their own. RasterFold (`~/projects/RasterFold` in WSL, `b33493346141f96b6b304cd3e0c393595382f056`) pins its tools in `toolchain.json` (Ninja at `:29`), builds with Ninja directly (no CMake), links with lld through its pinned llvm-mingw, publishes `compile_commands.json` with `scripts/gen-compdb.py` (`--check` and `--rebuild-stale`, `:158` to `:190`), has a `.clangd` (19 lines), and checks all of it in `scripts/unattended-preflight.py:463` to `:483`; it does not use a compiler cache. Impossible OS (`~/projects/impossible-os` in WSL, `17a762d39ccd1958cbe711901f645fd9b042e939`) builds with a Makefile, `clang-19` and `ld.lld-19` (`Makefile:21`, `:32`), wraps the compiler with ccache (`scripts/build.sh:122` to `:142`, with `scripts/ci/check-compile-cache.py`), generates `compile_commands.json` through Bear (`scripts/build.sh:146` to `:151`) and has a `.clangd` (`:5` to `:24`); it does not use Ninja. For PHP and Node, the Laravel kit's doctor checks three language servers and the WordPress kit ships a PHPCS toolchain (`tools/phpcs/composer.json`); nothing checks PHP, Composer or Node themselves.
+
+## Inputs
+
+- `docs/plans/2026-11-11-sdk-audit-and-roadmap.md`: the `toolchain-cpp` and `toolchain-web` rows of the kits table and the paragraph on Ninja (stack tools belong in a kit a project chooses, not in `base`).
+- RasterFold `toolchain.json`, `scripts/gen-compdb.py` and `.clangd`, and Impossible OS `scripts/build.sh`, `scripts/ci/check-compile-cache.py` and `.clangd`, at the commits above.
+- `forge.py`: `doctor_repo` (`forge.py:550`), where each kit gains a branch.
+- Decision recorded here: the kits pin and check tools and never run a package manager, in line with the base rule that tools are installed at user level by the operator.
+- -> XREF: D04 T01 §2 -- the server table that §5 adds the clangd entry to
+
+## Outcome
+
+- `python forge.py doctor <project> toolchain-cpp` lists each pinned tool as `ok` with its version, or `setup_required` with the install hint, and the compile database as current or stale.
+- `python forge.py doctor <project> toolchain-web` does the same for PHP, Composer, Node and the project's package manager.
+- A C project that installs the kit has a compiler cache wrapper it can put in front of its compiler and a clangd that reads its compile database.
+
+**Adjacency:** all=not-applicable (developer tooling: tool pins, checks and a compiler wrapper, with no records a user lists, exports, is notified of or reverses)
+
+**Adjacency rationale:** The settings are the two pin files, each consumed by one check script and the doctor, with a refusal test for each malformed entry in §1.
+
+## Implementation Order
+
+| Order | Section | Deliverable | Depends On | Status |
+| ----- | ------- | ----------- | ---------- | ------ |
+| 1 | §1 | Tool pin file and the script that checks it | -- | [ ] |
+| 2 | §2 | `toolchain-cpp` kit with pins for the C and C++ tools | §1 | [ ] |
+| 3 | §3 | Compile database freshness check | §2 | [ ] |
+| 4 | §4 | Compiler cache wrapper | §2 | [ ] |
+| 5 | §5 | clangd seed and server table entry | §3, D04 T01 §2 | [ ] |
+| 6 | §6 | `toolchain-web` kit with pins for PHP and Node tools | §1 | [ ] |
+| 7 | §7 | Toolchain skills and documents for the three agents | §4, §5, §6 | [ ] |
+
+## 1. Tool pin file and the script that checks it
+
+Both kits need the same thing: a list of tools with the least version the project accepts, and a script that reads the installed versions and compares. It is written once and shipped by both.
+
+**Phase:** 6
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write `load_pins` and `check_tool` in a `toolchain-check.py` shared by both kits. Done when: a pin for a stub tool is checked.
+2. Cover the refusals and bound the version command. Done when: the checkpoint passes.
+
+- [ ] Define the pin file read by `toolchain-check.py`: `{"schema_version": 1, "tools": [{"name", "commands", "version_args", "version_pattern", "min_version", "install", "optional"}]}`, where `commands` lists the acceptable binaries in order (for example `ccache` then `sccache`) and `version_pattern` is a regular expression with one group. Done when: a test for each fault (an unknown key, an empty `commands`, a pattern with no group, a `min_version` that is not dotted numbers) reads a refusal naming the file, the tool and the key.
+- [ ] Add `check_tool(pin)` to `toolchain-check.py`: find the first of `commands` on `PATH`, run it with `version_args` (no shell, a 15 second limit, the process tree ended on timeout), read the version with the pattern and compare it number by number with `min_version`. Done when: tests with stub tools cover `ok` with the version, `setup_required` for none installed (with the `install` hint), `setup_required` for a version below the pin (with both versions) and `setup_required` for output the pattern does not match. Cheaper substitute: comparing versions as strings must fail the test where 1.10 is newer than 1.9.
+- [ ] Add the command line to `toolchain-check.py`: `--pins <file>` and `--json`, one line per tool, exit 3 when a tool that is not `optional` is not `ok`. Done when: a test parses the JSON and asserts exit 3 for a missing required tool and exit 0 for a missing optional one.
+- [ ] Keep one source for the script: `kits/toolchain-cpp/templates/scripts/toolchain-check.py` is the file, and a test asserts the copy under `kits/toolchain-web/templates/scripts/` is byte-identical. Done when: editing one copy makes that test fail.
+- [ ] Add `kits/toolchain-cpp/templates/scripts/tests/test_toolchain_check.py` and run it from `tests/test_forge.py`. Done when: the quick suite runs it.
+- [ ] Commit: `toolchain: tool pin file and its check`
+
+**Test checkpoint:** `python -m unittest discover -s kits/toolchain-cpp/templates/scripts/tests` ends `OK`; comparing versions as strings makes the 1.10 test fail.
+
+## 2. `toolchain-cpp` kit with pins for the C and C++ tools
+
+The kit, its seed pins for the tools the roadmap names (Ninja, ccache or sccache, a fast linker, clangd) and its doctor branch.
+
+**Phase:** 6
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Create `kits/toolchain-cpp/` with `README.md` and `templates/.conclave/toolchain-cpp.json`. Done when: `python forge.py kits` lists it.
+2. Teach `forge.py` the kit. Done when: the checkpoint passes.
+
+- [ ] Create `kits/toolchain-cpp/templates/.conclave/toolchain-cpp.json` with pins for `ninja`, a compiler cache (`ccache`, then `sccache`), a fast linker (`mold`, then `ld.lld`), `clangd` and a compiler (`clang`, then `gcc`), each with its version arguments, pattern and an install hint for apt and for Windows, and with the compiler cache, the linker and Ninja marked `optional` because a project may not use them (RasterFold uses no cache, Impossible OS uses no Ninja). Done when: `python scripts/toolchain-check.py --pins .conclave/toolchain-cpp.json` runs on this machine and prints one line per tool.
+- [ ] Add `toolchain-cpp` to `KIT_ORDER` in `forge.py` after `lsp`, and to the usage docstring and help texts. Done when: a test installs `init --kit toolchain-cpp` and finds the pin file and the script.
+- [ ] Detect the kit in `installed_kits` of `forge.py` by `.conclave/toolchain-cpp.json`. Done when: a test finds it in `check_repo(...)["kits"]` after an install and not before.
+- [ ] Add a `toolchain-cpp` branch to `doctor_repo` in `forge.py` that loads the kit's `toolchain-check.py` from the SDK (as `_doctor_reviewer` loads the dispatcher, `forge.py:454`) and reports each pinned tool. Done when: tests with stub tools on `PATH` find `ok` and `setup_required` checks named `tool:<name>`.
+- [ ] List the kit in `README.md`, `kits/README.md` and `AGENTS.md` (Purpose), stating that the SDK does not install it in itself. Done when: the three name it.
+- [ ] Commit: `toolchain-cpp: kit, pins and doctor`
+
+**Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; making the doctor report every tool `ok` makes the missing-tool test fail.
+
+## 3. Compile database freshness check
+
+clangd is only as good as `compile_commands.json`. A stale one gives agents wrong diagnostics. The check says whether the database exists, parses and is newer than the build files. Sources: RasterFold `scripts/gen-compdb.py:158` to `:190`; Impossible OS `scripts/build.sh:146` to `:151`.
+
+**Phase:** 6
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Create `kits/toolchain-cpp/templates/scripts/compdb-check.py`. Done when: it reports a fixture database as current or stale.
+2. Add it to the doctor. Done when: the checkpoint passes.
+
+- [ ] Create `compdb-check.py`: read `compile_commands.json` at the repository root or at `--path`, and report `missing`, `invalid` (not a JSON list of entries with `file` and `command` or `arguments`) or the entry count. Done when: tests cover a missing file, a file that is not JSON, an entry with no `file` and a valid two-entry file.
+- [ ] Report `stale` from `compdb-check.py` when any build file is newer than the database: the files named by `--build-file` (repeatable), defaulting to `build.ninja`, `Makefile` and `CMakeLists.txt` where they exist. Done when: a test touches a `Makefile` after writing the database and reads `stale` naming it, and reads `current` otherwise.
+- [ ] Report entries whose `file` no longer exists from `compdb-check.py`, at most 20 named, as `stale`. Done when: a test with one deleted source file finds it named.
+- [ ] Never regenerate from `compdb-check.py`: it prints the project's own regenerate command when the pin file gives one under `"compdb": {"regenerate": [...]}` and runs nothing. Done when: a test asserts no subprocess is started. Cheaper substitute: running the regenerate command from the check must fail, because a check that builds is not read-only.
+- [ ] Add a `compile-database` check to the `toolchain-cpp` branch of `doctor_repo` in `forge.py`. Done when: tests find `ok` with the entry count, and `setup_required` with the reason for missing, invalid and stale.
+- [ ] Commit: `toolchain-cpp: compile database freshness check`
+
+**Test checkpoint:** `python -m unittest discover -s kits/toolchain-cpp/templates/scripts/tests` ends `OK`; ignoring the build files' times makes the stale test fail.
+
+## 4. Compiler cache wrapper
+
+A compiler cache cuts rebuild time and memory for an unattended run that builds all night. Impossible OS puts ccache in front of its compiler with a small `PATH` wrapper; the kit ships that wrapper for any compiler. Source: Impossible OS `scripts/build.sh:122` to `:142`.
+
+**Phase:** 6
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Create `kits/toolchain-cpp/templates/scripts/cc-cache.sh`. Done when: sourcing it puts wrappers for the named compilers first on `PATH`.
+2. Cover the opt-out and the missing cache. Done when: the checkpoint passes.
+
+- [ ] Create `cc-cache.sh`, to be sourced by a project's build script with the compiler names as arguments: for each, write a two-line wrapper into a per-project folder under the user's cache folder that execs `ccache <real compiler> "$@"` (or `sccache`), and put that folder first on `PATH` (`build.sh:122` to `:142`). Done when: a test sources it with a stub compiler and a stub `ccache`, runs the compiler by name and finds the stub cache called with the real compiler's path. Cheaper substitute: a wrapper that calls the compiler by name must fail, because it would call itself.
+- [ ] Do nothing in `cc-cache.sh` when no cache is installed or when `BUILD_NO_CCACHE` is set, printing one line that says which. Done when: tests for each find `PATH` unchanged and the line printed.
+- [ ] Write each wrapper through a temporary file and `mv` in `cc-cache.sh`, and rewrite it only when its content would change. Done when: a test sourcing it twice finds the wrapper's modification time unchanged the second time.
+- [ ] Add `scripts/cache-stats.py` to the kit: print the cache's hit rate from `ccache -s` or `sccache --show-stats`, and exit 3 when it is below `--min-hit-rate` after a rebuild (Impossible OS `scripts/ci/check-compile-cache.py`). Done when: tests with captured statistics output for each cache find the rate and the exit.
+- [ ] Commit: `toolchain-cpp: compiler cache wrapper and its hit-rate check`
+
+**Test checkpoint:** `python -m unittest discover -s kits/toolchain-cpp/templates/scripts/tests` ends `OK` (the shell tests skip with a reason where `bash` is not installed); making the wrapper call the compiler by name makes the wrapper test fail.
+
+## 5. clangd seed and server table entry
+
+Both projects wrote a `.clangd` by hand. The kit seeds one that points at the compile database and adds clangd to the LSP kit's server table when that kit is installed.
+
+**Phase:** 6
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Create `kits/toolchain-cpp/templates/.clangd`. Done when: a fresh install has it.
+2. Add the clangd entry to the server table. Done when: the checkpoint passes.
+
+- [ ] Create `kits/toolchain-cpp/templates/.clangd` with `CompileFlags: CompilationDatabase: .` and the diagnostics block both projects share, and nothing specific to either (no target triple, no project include path). Done when: a test parses the seed as YAML-shaped text and finds no absolute path and no target flag.
+- [ ] Add the `cpp` preset to `.conclave/lsp.json` in `apply_kit` of `forge.py` when the project has the LSP kit's table and it holds no `clangd` entry, and report under `merge_needed` when the table exists and already has one that differs. Done when: tests cover a project with the LSP kit (entry added), without it (nothing written, and the result says to install `lsp`) and with its own `clangd` entry (untouched).
+- [ ] Report in the `toolchain-cpp` branch of `doctor_repo` whether `.clangd` exists and whether the server table has `clangd`. Done when: tests find `ok` for both on a project with both kits and `setup_required` for the table on one without the LSP kit.
+- [ ] Commit: `toolchain-cpp: clangd seed and server table entry`
+
+**Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; overwriting a project's own `clangd` entry makes the untouched-entry test fail.
+
+## 6. `toolchain-web` kit with pins for PHP and Node tools
+
+The PHP and Node equivalent for Laravel and WordPress projects: pins for the runtime, the package managers and the static tools those kits already rely on, checked by the same script.
+
+**Phase:** 6
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Create `kits/toolchain-web/` with `README.md`, the pin file and the shared check script. Done when: `python forge.py kits` lists it.
+2. Teach `forge.py` the kit. Done when: the checkpoint passes.
+
+- [ ] Create `kits/toolchain-web/templates/.conclave/toolchain-web.json` with pins for `php`, `composer`, `node` and a package manager (`pnpm`, then `npm`), and optional pins for `phpstan`, `pint`, `phpcs` and `intelephense`, each with an install hint. Done when: `python scripts/toolchain-check.py --pins .conclave/toolchain-web.json` runs on this machine and prints one line per tool.
+- [ ] Add `toolchain-web` to `KIT_ORDER` in `forge.py` after `toolchain-cpp`, detect it in `installed_kits` by `.conclave/toolchain-web.json`, and add its `doctor_repo` branch through the same code as §2. Done when: tests cover install, detection and a doctor run with stub tools.
+- [ ] Read the project's own version constraints where it states them, in the `toolchain-web` branch of `doctor_repo`: `require.php` in `composer.json` and `engines.node` in `package.json` are shown beside the pin, and a pin lower than the project's own constraint is reported `unexpected`. Done when: tests with a `composer.json` requiring a newer PHP than the pin find that check.
+- [ ] Add the `php` or `web` preset to the LSP kit's server table from `apply_kit` in `forge.py` on the same rules as D04 T02 §5 (only when the table exists and lacks the entries). Done when: tests cover the three cases.
+- [ ] List the kit in `README.md`, `kits/README.md` and `AGENTS.md` (Purpose), and name it in `kits/laravel/README.md` and `kits/wordpress/README.md` as the kit that checks their tools. Done when: the five documents name it.
+- [ ] Commit: `toolchain-web: kit, pins and doctor for PHP and Node`
+
+**Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; ignoring `composer.json`'s own PHP constraint makes its test fail.
+
+## 7. Toolchain skills and documents for the three agents
+
+Each kit gets a short document and a skill so an agent uses the pinned tools, the cache and the compile database, and does not install or upgrade a tool on its own.
+
+**Phase:** 6
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write `docs/toolchain-cpp.md` and `docs/toolchain-web.md` in their kits. Done when: every command in them exists.
+2. Add a skill per kit in the three agent folders. Done when: the checkpoint passes.
+
+- [ ] Write `kits/toolchain-cpp/templates/docs/toolchain-cpp.md`: the pin file, the doctor, sourcing `cc-cache.sh` from the project's build script, keeping the compile database current, and what the kit leaves to the project (its build system and its build commands). Done when: a test finds every script it names under the kit's templates.
+- [ ] Write `kits/toolchain-web/templates/docs/toolchain-web.md` in the same way for the PHP and Node pins. Done when: a test finds every script it names under the kit's templates.
+- [ ] Create the `cpp-toolchain` skill under `kits/toolchain-cpp/templates/.claude/skills/`, `.agents/skills/` and `.codex/skills/` (with `agents/openai.yaml`): check the doctor before a build fails mysteriously, never install or upgrade a pinned tool (tell the operator the command), regenerate the compile database after adding a source file. Done when: `python forge.py doctor <fresh install> toolchain-cpp` reports the skill `ok` in all three folders.
+- [ ] Create the `web-toolchain` skill for `kits/toolchain-web/` in the three agent folders on the same rules. Done when: the doctor reports it `ok` in all three folders.
+- [ ] Fill both kit READMEs with what each installs and what was taken from RasterFold and Impossible OS, with the commits. Done when: each lists every file under its `templates/`.
+- [ ] Add fresh-install tests for both kits to `tests/test_forge.py`: install, doctor, and the kit's own tests in the installed copy. Done when: each fails when a template file is removed from a scratch copy of its kit.
+- [ ] Commit: `toolchain: skills and documents for both kits`
+
+**Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; naming a script in `docs/toolchain-cpp.md` that the kit lacks makes the document test fail.
+
+## Verification
+
+- In WSL, `python forge.py init <scratch> --kit lsp --kit toolchain-cpp` followed by the doctor reports each pinned tool with its real version and a missing compile database as `setup_required`; after a build that writes one it reports `ok`.
+- A scratch Laravel project with `--kit toolchain-web` reports PHP, Composer and Node with their versions.
+- `python -m unittest discover -s tests` passes.
+- `python scripts/todo-graph.py validate` and `python scripts/todo-graph.py plan --check` pass.

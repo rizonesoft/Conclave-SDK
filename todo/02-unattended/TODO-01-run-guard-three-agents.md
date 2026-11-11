@@ -1,0 +1,183 @@
+---
+schema_version: 1
+id: run-guard-three-agents
+domain: 02-unattended
+status: active
+title: "TODO-01 -- Run guard for Antigravity and Codex"
+---
+
+# TODO-01 -- Run guard for Antigravity and Codex
+
+> **Goal:** A `process-plan` run is held open by the same campaign guard whichever agent drives it: Claude Code, Antigravity and Codex each have a wired hook that blocks the end of turn while the run is open, a stall breaker for a harness whose hook cannot hold it, and a self-test that drives the real wired hook.
+
+> **Current state:** Measured 2026-11-11. `kits/todo/templates/scripts/campaign_guard.py` (937 lines) is the Stop hook for Claude Code only: `stop_hook` (`:838`) reads `session_id` and prints a `block` decision (`:810`), the guard records `"runner": "claude"` (`:204`), and the kit seeds one hook file, `kits/todo/templates/.claude/settings.json`. There is no `.agents/hooks.json`, no `.codex/hooks.json`, no `heartbeat-still` command and no `--self-test`. The Antigravity and Codex copies of `process-plan` leave out the run guard section the Claude copy has (37 lines), and `kits/todo/README.md:33` titles it "The run guard (Claude Code)". RasterFold built all of this at `b33493346141f96b6b304cd3e0c393595382f056` (`~/projects/RasterFold` in WSL): its `scripts/campaign_guard.py` is 2,435 lines.
+
+## Inputs
+
+- `docs/plans/2026-11-11-sdk-audit-and-roadmap.md`: findings 8 and 9, recommendation 5 (RasterFold's campaign guard) and recommendation 7 (the run guard for Antigravity and Codex through their own hook files).
+- RasterFold at `b33493346141f96b6b304cd3e0c393595382f056`: `scripts/campaign_guard.py` (`stop_hook` at `:988`, `heartbeat_still` at `:771`, `_self_test` at `:1320`), `scripts/codex-campaign-hook.py` (38 lines), `.agents/hooks.json` and `.codex/hooks.json`.
+- `kits/todo/templates/scripts/campaign_guard.py` and `tests/test_campaign_guard.py` (582 lines): the guard every section changes and its tests.
+- Not lifted, on purpose: RasterFold's `repair` ledger (`:1090`, CI repair attempts). The kit's guard was ported without Isotone's CI repair ledger (its docstring says so) and that stays true.
+- -> XREF: D02 T02 §6 -- the unattended launcher starts Codex and Antigravity runs, which only hold because of the hooks wired here
+- -> XREF: D00 T02 §2 -- the Antigravity command-line flags are checked against the installed CLI there
+
+## Outcome
+
+- A run acquired from an Antigravity or a Codex session is held at the end of turn by its own wired hook, and released on closeout, park, an empty ready list or the stall breaker, as a Claude Code run is.
+- `python scripts/campaign_guard.py --self-test` drives each wired hook file against a throwaway workspace and fails when one is miswired.
+- `python forge.py doctor <project> todo` reports the hook wiring of each agent the project has.
+
+**Adjacency:** all=not-applicable (developer tooling: a hook script and its wiring files, with no records a user lists, exports, is notified of or reverses)
+
+**Adjacency rationale:** The guard's own audit trail is unchanged: the run file's closeout and park lines and the recorded hook errors. The reverse of an acquired guard is the existing `end` command.
+
+## Implementation Order
+
+| Order | Section | Deliverable | Depends On | Status |
+| ----- | ------- | ----------- | ---------- | ------ |
+| 1 | §1 | Antigravity payload handled by the Stop hook | -- | [ ] |
+| 2 | §2 | Antigravity hook file seeded by the todo kit | §1 | [ ] |
+| 3 | §3 | Codex hook script and hook file | -- | [ ] |
+| 4 | §4 | Heartbeat stall breaker for a harness with no Stop hook | -- | [ ] |
+| 5 | §5 | Guard self-test through each wired hook | §2, §3 | [ ] |
+| 6 | §6 | Run guard steps in the Antigravity and Codex skill copies | §2, §3, §4 | [ ] |
+
+## 1. Antigravity payload handled by the Stop hook
+
+Antigravity sends a different stop payload from Claude Code and expects a different answer. The hook reads both and answers each in its own format. Source: RasterFold `scripts/campaign_guard.py:988` to `:1025`.
+
+**Phase:** 2
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Teach `stop_hook` in `kits/todo/templates/scripts/campaign_guard.py` the Antigravity payload. Done when: an Antigravity payload for the guard's session is answered with `continue`.
+2. Cover it in `tests/test_campaign_guard.py`, then `python forge.py self-sync`. Done when: the checkpoint passes.
+
+- [ ] Read the session from `conversationId` in `stop_hook` of `campaign_guard.py` when the payload has no `session_id`, and the workspace from `workspacePaths` when `project_dir` is not given (RasterFold `:988`). Done when: a test passes an Antigravity payload for a guarded session and the hook finds that guard. Cheaper substitute: treating a missing `session_id` as "no guard" must fail this test.
+- [ ] Answer an Antigravity session with `{"decision": "continue", "reason": "<the same reason text>"}` in `stop_hook` where a Claude Code session gets `block` (RasterFold `:1025`). Done when: tests assert `continue` for an Antigravity payload and `block` for a Claude Code payload on the same guard.
+- [ ] Allow the stop in `stop_hook` when an Antigravity payload carries `terminationReason` equal to `USER_CANCELED` or `fullyIdle` equal to `false`, without counting a block. Done when: tests for each find an empty answer and the block counter unchanged.
+- [ ] Keep failing open in `stop_hook`: a payload that is neither shape, or a `workspacePaths` that is not a list of strings, allows the stop and records the error through the existing hook-error path. Done when: a test with a malformed Antigravity payload finds exit 0, an empty answer and one recorded error.
+- [ ] Run `python forge.py self-sync`. Done when: `scripts/campaign_guard.py` equals the kit file.
+- [ ] Commit: `todo: the Stop hook answers an Antigravity session`
+
+**Test checkpoint:** `python -m unittest discover -s tests -p test_campaign_guard.py` ends `OK`; answering `block` to an Antigravity payload makes the new test fail.
+
+## 2. Antigravity hook file seeded by the todo kit
+
+The todo kit seeds `.claude/settings.json` with the Stop hook and nothing for Antigravity. It seeds `.agents/hooks.json` the same way, and the doctor reports it. Source: RasterFold `.agents/hooks.json`.
+
+**Phase:** 2
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add `kits/todo/templates/.agents/hooks.json`. Done when: a fresh `--agent all` install has it.
+2. Report it in `doctor_repo` of `forge.py`. Done when: the checkpoint passes.
+
+- [ ] Create `kits/todo/templates/.agents/hooks.json` with one `Stop` entry running `scripts/campaign_guard.py stop-hook` through the same `python3 -c` and `runpy` command the Claude seed uses, `timeout` 60, resolving the project folder from the hook's working folder when `CLAUDE_PROJECT_DIR` is unset (RasterFold `.agents/hooks.json`). Done when: a test parses the file and finds `campaign_guard.py` and `stop-hook` in the one command. Cheaper substitute: pointing the hook at a wrapper script that does not exist in the kit must fail the self-test in §5.
+- [ ] Confirm the file name, the event name and the payload fields against the Antigravity CLI installed on this machine before the file ships, and record the CLI version in `kits/todo/README.md`. Done when: the README names the version checked, or the section stops with `Needs: third-party` recorded because the CLI is not installed here.
+- [ ] Generalise `_stop_hook_wiring` in `forge.py` (`forge.py:514`) to take the hook file and the seed, and add a `stop-hook:.agents` check to the `todo` branch of `doctor_repo` when the project has an `.agents/` folder. Done when: tests find `ok` for a fresh install, `setup_required` with the seed's path for a project whose own `.agents/hooks.json` lacks the hook, and no check for a project with no `.agents/` folder.
+- [ ] Extend `test_the_todo_kit_wires_the_stop_hook_and_never_overwrites_a_projects_settings` in `tests/test_forge.py` (`:466`) to the Antigravity file. Done when: a project's own `.agents/hooks.json` is byte for byte unchanged after the kit runs.
+- [ ] Commit: `todo: seed the Antigravity Stop hook`
+
+**Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; removing the hook command from the seed makes the doctor test fail.
+
+## 3. Codex hook script and hook file
+
+Codex needs the `block` answer and must never be stopped by a broken hook. A small wrapper calls the guard and prints `{}` on any failure. Source: RasterFold `scripts/codex-campaign-hook.py` (38 lines) and `.codex/hooks.json`.
+
+**Phase:** 2
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add `kits/todo/templates/scripts/codex-campaign-hook.py` and `kits/todo/templates/.codex/hooks.json`. Done when: a Codex payload for a guarded session is answered with `block`.
+2. Test the wrapper and report the wiring in `forge.py doctor`. Done when: the checkpoint passes.
+
+- [ ] Create `kits/todo/templates/scripts/codex-campaign-hook.py`: read the payload from stdin up to 2,000,000 characters, remove `conversationId` so the guard answers in the `block` format, call `campaign_guard.stop_hook`, and print its answer or `{}` (RasterFold `:7`, `:16`, `:24`). Done when: a test pipes a guarded session's payload and reads back a `block` decision. Cheaper substitute: importing the guard by module name must fail when the hook runs from another working folder; it is loaded by file path.
+- [ ] Print `{}` and exit 0 from `codex-campaign-hook.py` on every failure: a payload over the limit, bytes that are not JSON, a missing `campaign_guard.py`, an exception in the guard (RasterFold `:33`). Done when: a test for each finds `{}` on stdout and exit 0.
+- [ ] Create `kits/todo/templates/.codex/hooks.json` with `command` and `commandWindows` that find the git top level, check the hook script exists there, and run it, printing `{}` when either is missing (RasterFold `.codex/hooks.json`). Done when: a test parses the file and finds both keys naming `codex-campaign-hook.py`.
+- [ ] Confirm the hook file's name, keys and event against the Codex CLI installed on this machine and record the CLI version in `kits/todo/README.md`. Done when: the README names the version checked.
+- [ ] Add `kits/todo/templates/scripts/tests/test_codex_campaign_hook.py` or extend `tests/test_campaign_guard.py` with the wrapper's tests, and add a `stop-hook:.codex` check to `doctor_repo` in `forge.py` through the generalised `_stop_hook_wiring`. Done when: the doctor reports `ok` on a fresh install and the tests run in the quick suite.
+- [ ] Run `python forge.py self-sync`. Done when: `scripts/codex-campaign-hook.py` equals the kit file.
+- [ ] Commit: `todo: Codex Stop hook that never blocks on its own failure`
+
+**Test checkpoint:** `python -m unittest discover -s tests` ends `OK`; making the wrapper raise on a payload that is not JSON makes its test fail.
+
+## 4. Heartbeat stall breaker for a harness with no Stop hook
+
+When a harness has no Stop hook that can hold a run, the heartbeat is the only thing that sees it. `heartbeat-still` counts heartbeat resumptions that found nothing changed and ends a run that is going nowhere. Source: RasterFold `scripts/campaign_guard.py:771` and `:89`.
+
+**Phase:** 2
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add `heartbeat-still` to `kits/todo/templates/scripts/campaign_guard.py`. Done when: six stills count one stall trip.
+2. Cover the counter and its reset. Done when: the checkpoint passes.
+
+- [ ] Add `heartbeat_still(root, session)` and the `heartbeat-still --session S` command to `campaign_guard.py`: compare the tree fingerprint the stall breaker already computes with the one stored as `hb_fingerprint` in the state file, and count `hb_still` up when they match (RasterFold `:771`). Done when: a test calling it twice on an unchanged tree reads `hb_still` as 2. Cheaper substitute: counting every call must fail the reset test below.
+- [ ] Reset `hb_still` to 0 and store the new fingerprint in `heartbeat_still` when the tree changed. Done when: a test commits a file between two calls and reads `hb_still` as 0.
+- [ ] Count one stall trip in `heartbeat_still` at `MAX_HEARTBEAT_STILLS = 6` stills, and end the run with reason `stall` on the second trip, through the same path the Stop hook's breaker uses (RasterFold `:89`). Done when: a test with twelve stills finds the guard released with reason `stall`, and one with six finds it still held with one trip recorded.
+- [ ] Refuse `heartbeat-still` for a session that does not hold the guard, with exit 2 and the guard untouched. Done when: a test with another session id finds the refusal and the state file unchanged.
+- [ ] Run `python forge.py self-sync` and name the command in the guard's docstring. Done when: `scripts/campaign_guard.py` equals the kit file.
+- [ ] Commit: `todo: heartbeat-still ends a run that changes nothing`
+
+**Test checkpoint:** `python -m unittest discover -s tests -p test_campaign_guard.py` ends `OK`; never resetting `hb_still` makes the reset test fail.
+
+## 5. Guard self-test through each wired hook
+
+Unit tests call `stop_hook` directly, so a hook file with a wrong command passes them. `--self-test` runs the command each hook file holds, as the harness would, against a throwaway workspace. Source: RasterFold `scripts/campaign_guard.py:1320`.
+
+**Phase:** 2
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add `--self-test` to `kits/todo/templates/scripts/campaign_guard.py`. Done when: it passes on a fresh install and fails on a broken hook file.
+2. Run it from the suite. Done when: the checkpoint passes.
+
+- [ ] Add `_self_test()` and `--self-test` to `campaign_guard.py`: build a throwaway git workspace under the system temporary folder with a stub `scripts/todo-graph.py` that answers `query ready`, acquire a guard in it, and remove the workspace afterwards even on failure (RasterFold `:1320`). Done when: running it leaves no folder behind and exits 0 on a fresh install. Cheaper substitute: calling `stop_hook` in process must fail review, because it does not run the wired command.
+- [ ] Run, in `_self_test`, the command from each hook file the project has (`.claude/settings.json`, `.agents/hooks.json`, `.codex/hooks.json`) as a subprocess with the matching payload on stdin, with a 60 second limit and the whole process tree ended on timeout. Done when: a test with a seeded install sees three hooks run and each answer its own format (`block`, `continue`, `block`).
+- [ ] Fail `_self_test` naming the hook file when its command exits non-zero, times out, or answers nothing for a guarded session. Done when: tests that break each seed in turn (a wrong script name) find exit 1 and that file's path in the output.
+- [ ] Run `--self-test` from `tests/test_campaign_guard.py` against the SDK's own checkout and from `tests/test_three_pass_install.py`'s fresh install. Done when: both tests pass and the first fails when `.claude/settings.json` in a scratch copy names a missing script.
+- [ ] Run `python forge.py self-sync`. Done when: `scripts/campaign_guard.py` equals the kit file.
+- [ ] Commit: `todo: campaign guard self-test drives each wired hook`
+
+**Test checkpoint:** `python scripts/campaign_guard.py --self-test` exits 0; renaming `stop-hook` in a scratch copy of `.agents/hooks.json` makes it exit 1 naming that file.
+
+## 6. Run guard steps in the Antigravity and Codex skill copies
+
+The Claude copy of `process-plan` tells the session how to start and end the run guard. The other two copies leave it out, so an Antigravity or Codex run starts with no guard. Each copy gets the steps for its own harness.
+
+**Phase:** 2
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add the run guard section to `kits/todo/templates/.agents/skills/process-plan/SKILL.md` and `kits/todo/templates/.codex/skills/process-plan/SKILL.md`. Done when: each names its own hook file and heartbeat.
+2. Update `kits/todo/README.md` and `self-sync`. Done when: the checkpoint passes.
+
+- [ ] Write the run guard section in the Antigravity copy of `process-plan`: the hook wired in `.agents/hooks.json`, `acquire` with the conversation id as the session, and `heartbeat-still` on each heartbeat resumption, with the heartbeat mechanism Antigravity offers named after checking it against the installed CLI. Done when: the section names no Claude Code tool (`CronCreate`, `CronList`) and every command in it exists in `campaign_guard.py`.
+- [ ] Write the run guard section in the Codex copy of `process-plan` in the same way, naming `.codex/hooks.json` and `scripts/codex-campaign-hook.py`. Done when: the section names no Claude Code tool and every command in it exists.
+- [ ] State in both copies what happens when the harness offers no scheduled resume: the run is held by the hook alone, and the unattended kit's heartbeat (when installed) restarts and nudges it from outside. Done when: both copies carry that sentence and name `scripts/unattended-run.py`.
+- [ ] Retitle "The run guard (Claude Code)" in `kits/todo/README.md` (`:31`) to cover the three agents, with one line per agent naming its hook file. Done when: the README names all three hook files.
+- [ ] Extend `test_micro_todo_and_complete_plan_rules_present_across_all_agents` or add a test in `tests/test_forge.py` asserting that each agent's `process-plan` copy names its own hook file. Done when: removing the section from the Codex copy makes it fail.
+- [ ] Run `python forge.py self-sync`. Done when: the SDK's three `process-plan` copies equal the kit's.
+- [ ] Commit: `todo: process-plan starts the run guard in every agent`
+
+**Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; deleting the run guard section from the Antigravity copy makes the new test fail.
+
+## Verification
+
+- A fresh `python forge.py init <scratch> --kit todo` passes `python scripts/campaign_guard.py --self-test` with three hooks run, on Windows and in WSL.
+- `python forge.py doctor <scratch> todo --strict` exits 0 and lists `stop-hook`, `stop-hook:.agents` and `stop-hook:.codex`.
+- `python -m unittest discover -s tests` passes.
+- `python scripts/todo-graph.py validate` and `python scripts/todo-graph.py plan --check` pass.
