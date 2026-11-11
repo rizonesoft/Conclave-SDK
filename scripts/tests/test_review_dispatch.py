@@ -695,8 +695,28 @@ class Dispatch(Harness):
         for cli in ("codex", "claude"):
             argv, _ = module.command({"cli": cli, "model": "m"}, cli, "p", "p.md", "o.md", 60)
             self.assertFalse([a for a in argv if "effort" in a], argv)
-            argv, _ = module.command({"cli": cli, "model": "m", "effort": "low"}, cli, "p", "p.md", "o.md", 60)
+            argv, _ = module.command({"cli": cli, "model": "m"}, cli, "p", "p.md", "o.md", 60, "low")
             self.assertTrue([a for a in argv if "effort" in a], argv)
+
+    def test_a_scheduled_step_without_an_effort_passes_none_whatever_the_reviewers(self):
+        # Round 1 of D00 T01 §1: the record must show what the schedule says, or the stamp's replay refuses it. A step
+        # that sets no effort therefore runs with none, even when the reviewer has one of its own.
+        pin = self.repo / ".conclave/reviewers.toml"
+        pin.write_text(SCHEDULED_PIN.replace('[schedule.plan]\neffort = "medium"', "[schedule.plan]"),
+                       encoding="utf-8")
+        module = self.module()
+        schedule = module.load_pin(pin)["schedule"]
+        self.assertNotIn("effort", schedule["plan"])
+        record = self.repo / "docs/reviews/plan-no-effort.md"
+        result, summary = self.dispatch("--kind", "plan", "--candidate", "a" * 40, "--writer", "claude",
+                                        "--prompt", str(self.prompt), "--record", str(record))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        (call,) = self.calls()
+        self.assertFalse([a for a in call["argv"] if "effort" in a], call["argv"])
+        (entry,) = module.read_plans(record.read_text(encoding="utf-8"))
+        expected = module.scheduled(schedule, "plan", [], False)
+        self.assertEqual((entry["effort"], entry["lenses"]), (expected["effort"], expected["lenses"]))
+        self.assertIsNone(summary["effort"])
 
     def test_a_non_integer_schema_version_is_refused(self):
         # TOML true is Python True and 1.0 == 1, so both passed a `!= 1` check and loaded.

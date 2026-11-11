@@ -130,7 +130,7 @@ def command(reviewer, executable, prompt, prompt_path, output_path, timeout, eff
     """The argv and stdin for one read-only review. The model comes only from the pin, and the effort from the pin's
     reviewer or, when the pin has a [schedule], from the step it schedules for this pass (Antigravity takes none).
     When neither sets one, no effort argument is passed and the CLI's own configuration decides."""
-    cli, model, effort = reviewer["cli"], reviewer["model"], effort or reviewer.get("effort")
+    cli, model = reviewer["cli"], reviewer["model"]
     if cli == "codex":
         return [executable, "exec", "-m", model, *(["-c", f"model_reasoning_effort={effort}"] if effort else []),
                 "--sandbox", "read-only", "--ephemeral", "--skip-git-repo-check", "-o", str(output_path), "-"], prompt
@@ -235,8 +235,10 @@ def review(pin, writer, prompt_path, timeout, plan=None):
         raise Refused("the review prompt contains a NUL byte; no reviewer can be given it")
     (name,) = pin["routes"][writer]
     reviewer = pin["reviewers"][name]
-    # The step's effort, else the reviewer's, else none: the CLI's own configuration then decides.
-    effort = None if reviewer["cli"] == "agy" else ((plan or {}).get("effort") or reviewer.get("effort"))
+    # With a schedule the step alone decides, so the record always shows what the schedule says and the stamp can
+    # replay it: a step without an effort passes none, whatever the reviewer's own. Without a schedule the reviewer's
+    # effort runs. With neither, no effort is passed and the CLI's own configuration decides.
+    effort = None if reviewer["cli"] == "agy" else (plan["effort"] if plan else reviewer.get("effort"))
     lenses = plan["lenses"] if plan else []
     if lenses:
         prompt = prompt.rstrip("\n") + lens_block(plan)

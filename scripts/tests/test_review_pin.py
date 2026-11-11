@@ -218,6 +218,18 @@ class ThreePass(Cases):
         self.refuses(both, "the lens plan-delivery is listed in both round and completion")
         self.refuses(THREE_PASS.replace('lenses = ["plan-delivery", "record"]', 'lenses = ["plan", "record"]'),
                      "the lens plan is listed in both plan and completion")
+        # A conditional entry cannot hand an owned lens to another of the three passes (round 1 of D00 T01 §1).
+        entry = '[[schedule.conditional]]\nlenses = ["design"]\npasses = ["plan", "round"]\npaths = ["src/ui/"]\n'
+        self.assertIn(entry, THREE_PASS)
+        for lens, passes, owner in (("plan", '["round"]', "plan"), ("quality", '["plan"]', "round"),
+                                    ("record", '["round"]', "completion"), ("adversarial", '["completion"]', "round")):
+            with self.subTest(lens=lens, passes=passes):
+                moved = entry.replace('["design"]', f'["{lens}"]').replace('["plan", "round"]', passes)
+                self.refuses(THREE_PASS.replace(entry, moved), f"the lens {lens}, which belongs to {owner}")
+        # Reconciliation may be given an owned lens by path, as it may list one outright.
+        given = entry.replace('["design"]', '["quality"]').replace('["plan", "round"]', '["reconciliation"]')
+        schedule = load(THREE_PASS.replace(entry, given))["schedule"]
+        self.assertIn("quality", review_pin.lenses_for(schedule, "reconciliation", ["src/ui/a.c"]))
         # Reconciliation repeats the round's and the completion's lenses in the fixture, and loads.
         reconciliation = load(THREE_PASS)["schedule"]["reconciliation"]["lenses"]
         self.assertEqual(reconciliation, ["adversarial", "plan-delivery", "record"])

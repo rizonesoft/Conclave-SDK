@@ -26,10 +26,12 @@ Three-pass (`policy = "three-pass"`): `plan`, exactly one `[[schedule.rounds]]` 
     [[schedule.conditional]]       lenses, passes, paths: the lenses join those passes only for a section whose
                                    changed files fall under one of the repository-relative path prefixes
 
-Under three-pass a lens belongs to one of plan, the round and completion (reconciliation may repeat lenses), and an
-Antigravity reviewer's model name must end with every effort the schedule sets. `effort` is optional everywhere: a
-step without one runs at the reviewer's, and a reviewer without one leaves the choice to its CLI's own configuration.
-Standard library only.
+Under three-pass a lens belongs to one of plan, the round and completion (reconciliation may repeat lenses). A
+conditional entry may not hand one of those owned lenses to another of the three; a lens that exists only in a
+conditional entry joins exactly the passes that entry names. An Antigravity reviewer's model name must end with
+every effort the schedule sets. `effort` is optional everywhere: with a schedule, the step alone decides, and a step
+without one passes no effort to the reviewer's CLI, whose own configuration then decides; without a schedule the
+reviewer's `effort` does, or the CLI's configuration when it has none. Standard library only.
 """
 import argparse
 from pathlib import Path
@@ -109,7 +111,7 @@ def load_pin(path=PIN, data=None):
         if cli == "agy":
             if "effort" in entry:
                 raise Refused(f"reviewer {name!r}: Antigravity carries the effort in the model name, so set no effort")
-        # Optional: a reviewer without an effort leaves it to the step, and then to its CLI's own configuration.
+        # Optional: the reviewer's effort is what a pin without a [schedule] runs at; without one, its CLI decides.
         elif "effort" in entry and not _one_of(entry["effort"], EFFORTS[cli]):
             raise Refused(f"reviewer {name!r} needs effort = one of {', '.join(EFFORTS[cli])}")
     routes = pin["routes"]
@@ -308,6 +310,12 @@ def check_three_pass(schedule, efforts):
             repeated = [name for name in entry["lenses"] if name in always.get("lenses", [])]
             if repeated:
                 raise Refused(f"{where} repeats the lens {repeated[0]}, which the {kind} pass always has")
+            # The one-owner rule holds for conditional lenses too: a lens plan, the round or completion always has
+            # cannot be handed to another of them by path. Reconciliation may repeat lenses, here as in its own list.
+            taken = [name for name in entry["lenses"] if kind != "reconciliation" and name in seen]
+            if taken:
+                raise Refused(f"{where} gives the {kind} pass the lens {taken[0]}, which belongs to {seen[taken[0]]}; "
+                              f"a lens belongs to one of plan, the round and completion")
 
 
 def _relative_prefix(path):
