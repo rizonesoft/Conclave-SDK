@@ -39,12 +39,12 @@ Sections: 9 | Checklist items: 79
 
 ### Phase 2: Unattended running
 
-Sections: 17 | Checklist items: 105
+Sections: 17 | Checklist items: 107
 
 | Status | Reference   | Deliverable                                               | Needs        | Items |
 | ------ | ----------- | --------------------------------------------------------- | ------------ | ----- |
 | [x]    | D02 T01 §1  | Antigravity payload handled by the Stop hook              | none         | 6     |
-| [ ]    | D02 T01 §2  | Antigravity hook file seeded by the todo kit              | none         | 5     |
+| [ ]    | D02 T01 §2  | Antigravity hook file seeded by the todo kit              | none         | 7     |
 | [ ]    | D02 T01 §3  | Codex hook script and hook file                           | none         | 7     |
 | [ ]    | D02 T01 §4  | Heartbeat stall breaker for a harness with no Stop hook   | none         | 6     |
 | [ ]    | D02 T01 §5  | Guard self-test through each wired hook                   | none         | 6     |
@@ -141,4 +141,4 @@ Sections: 3 | Checklist items: 16
 
 Progress: 18/70 verified sections, 13 ready to run now.
 
-Checklist: 183/497 items completed (includes Commit items).
+Checklist: 183/499 items completed (includes Commit items).
