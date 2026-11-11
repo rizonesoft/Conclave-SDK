@@ -44,6 +44,7 @@ returned round past `severity_stop_after` reads `HIGHEST: P3`: the loop may stop
 import argparse
 from datetime import datetime, timezone
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -55,19 +56,29 @@ import sys
 import tempfile
 import threading
 import time
-import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
-PIN = ROOT / ".conclave" / "reviewers.toml"
-WRITERS = ("claude", "codex", "gemini")
-CLIS = ("codex", "agy", "claude")
-# A reviewer is never of the writer's own model family: its CLI names the family, and so does the writer.
-FAMILY = {"codex": "openai", "agy": "google", "claude": "anthropic"}
-WRITER_FAMILY = {"claude": "anthropic", "codex": "openai", "gemini": "google"}
-# Antigravity carries the effort in its model name, so it takes none, and a schedule's efforts do not reach it.
-EFFORTS = {"codex": ("low", "medium", "high", "xhigh"), "claude": ("low", "medium", "high", "xhigh", "max")}
-MODEL = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
-NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+def _load_review_pin():
+    """scripts/review_pin.py, the one place the pin's rules live, loaded from this file's own folder by path: the
+    dispatcher is itself loaded by path (its name is not importable), and nothing on sys.path decides which copy runs."""
+    path = Path(__file__).resolve().with_name("review_pin.py")
+    if not path.is_file():
+        sys.exit(f"review-dispatch: {path} is missing; the reviewer kit installs it beside this script")
+    spec = importlib.util.spec_from_file_location("review_pin", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+review_pin = _load_review_pin()
+# The pin's rules, under the names this module has always offered them by (the todo kit's stamp reads them here).
+Refused, load_pin, PIN = review_pin.Refused, review_pin.load_pin, review_pin.PIN
+WRITERS, CLIS, FAMILY, WRITER_FAMILY = review_pin.WRITERS, review_pin.CLIS, review_pin.FAMILY, review_pin.WRITER_FAMILY
+EFFORTS, LENSES, THREE_PASS = review_pin.EFFORTS, review_pin.LENSES, review_pin.THREE_PASS
+highest, returned_review, scheduled = review_pin.highest, review_pin.returned_review, review_pin.scheduled
+lens_block, check_schedule, check_step = review_pin.lens_block, review_pin.check_schedule, review_pin.check_step
 # Antigravity takes the prompt only as the -p value. Past this size it gets a pointer to the prompt file instead.
 # Windows caps a whole command line at 32,767 characters; Linux caps one argument at 128 KiB.
 ARGV_PROMPT_LIMIT = 24_000 if os.name == "nt" else 100_000
@@ -77,193 +88,6 @@ MAX_OUTPUT_BYTES = 2_000_000
 BLOCKED = re.compile(r"^\s*(?:OVERALL|COMPLETION):\s*blocked\b", re.IGNORECASE)
 POLL_SECONDS = 0.2
 CLEANUP_SECONDS = 10
-
-
-class Refused(Exception):
-    """The pin or the arguments are wrong; nothing ran."""
-
-
-def load_pin(path=PIN, data=None):
-    """The checked pin at `path`, or, given `data`, the pin in those bytes (a committed pin read with `git show`), so
-    a read-only caller needs no temporary file."""
-    try:
-        if data is None:
-            with open(path, "rb") as handle:
-                data = handle.read()
-        pin = tomllib.loads(data.decode("utf-8"))
-    except FileNotFoundError:
-        raise Refused(f"no reviewer pin at {path}") from None
-    except tomllib.TOMLDecodeError as exc:
-        raise Refused(f"unreadable reviewer pin: {exc}") from None
-    # A directory, a file it may not read, bytes that are not UTF-8, an integer past Python's digit limit, or nesting
-    # deep enough to exhaust the parser's recursion: each is a pin that cannot be read, so it is a refusal (exit 2,
-    # one JSON object), never a traceback. ValueError comes after its subclasses TOMLDecodeError and UnicodeDecodeError.
-    except OSError as exc:
-        raise Refused(f"unreadable reviewer pin: {exc.strerror or exc}: {path}") from None
-    except UnicodeDecodeError:
-        raise Refused("unreadable reviewer pin: not UTF-8 text") from None
-    except ValueError as exc:
-        raise Refused(f"unreadable reviewer pin: {exc}") from None
-    except RecursionError:
-        raise Refused("unreadable reviewer pin: nested too deeply to read") from None
-    # `type(...) is int`: TOML true is Python True (an int subclass) and 1.0 == 1, so `!= 1` alone let both load.
-    # The optional [schedule] is checked below; the refusal text is part of the --check-pin contract.
-    if not {"schema_version", "reviewers", "routes"} <= set(pin) <= {"schema_version", "reviewers", "routes",
-                                                                     "schedule"} \
-            or type(pin["schema_version"]) is not int or pin["schema_version"] != 1:
-        raise Refused("the reviewer pin needs exactly schema_version = 1, [reviewers.*] and [routes]")
-    reviewers = pin["reviewers"]
-    if not isinstance(reviewers, dict) or not reviewers:
-        raise Refused("the reviewer pin defines no reviewers")
-    for name, entry in reviewers.items():
-        # fullmatch: `$` alone also matches before a trailing newline, which would then break the round heading.
-        if not NAME.fullmatch(name) or not isinstance(entry, dict):
-            raise Refused(f"invalid reviewer {name!r}")
-        unknown = set(entry) - {"cli", "model", "effort"}
-        if unknown:
-            raise Refused(f"reviewer {name!r} has unknown keys: {', '.join(sorted(unknown))}")
-        cli, model, effort = entry.get("cli"), entry.get("model"), entry.get("effort")
-        if cli not in CLIS:
-            raise Refused(f"reviewer {name!r} needs cli = one of {', '.join(CLIS)}")
-        if not isinstance(model, str) or not MODEL.fullmatch(model):
-            raise Refused(f"reviewer {name!r} has a malformed model")
-        if cli == "agy":
-            if effort is not None:
-                raise Refused(f"reviewer {name!r}: Antigravity carries the effort in the model name, so set no effort")
-        elif effort not in EFFORTS[cli]:
-            raise Refused(f"reviewer {name!r} needs effort = one of {', '.join(EFFORTS[cli])}")
-    routes = pin["routes"]
-    if not isinstance(routes, dict) or set(routes) - set(WRITERS):
-        raise Refused(f"[routes] may only name the writers {', '.join(WRITERS)}")
-    for writer, chain in routes.items():
-        if not isinstance(chain, list) or len(chain) != 1 or not isinstance(chain[0], str):
-            raise Refused(f"route {writer!r} must list exactly one reviewer")
-        if chain[0] not in reviewers:
-            raise Refused(f"route {writer!r} must list a defined reviewer")
-        if FAMILY[reviewers[chain[0]]["cli"]] == WRITER_FAMILY[writer]:
-            raise Refused(f"route {writer!r} names {chain[0]}, of the writer's own family; "
-                          f"a review comes from a different family")
-    if "schedule" in pin:
-        check_schedule(pin["schedule"], {reviewers[chain[0]]["cli"] for chain in routes.values()})
-    return pin
-
-
-# The lenses a schedule may name, each with the question the reviewer is given for it. `plan` and `plan-delivery`
-# read the section's plan: before the build (is it a complete feature?) and after it (did the build deliver it?).
-LENSES = {
-    "plan": "Will this section, built exactly as written, produce a 100% complete feature? Name every missing "
-            "control, state, setting consumer, error or refusal path, undo or reverse path, Ctrl+K reach, persistence "
-            "read-back and test, and every `Done when:` that cannot fail.",
-    "plan-delivery": "Did the build deliver every checklist item and `Done when:` of the section, with nothing "
-                     "partial, stubbed or quietly narrowed?",
-    "adversarial": "How does this fail on hostile input, races, aborts, cancellation, automation or links?",
-    "integration": "Do callers and consumers still hold, with every contract (threads, ownership, errors) kept?",
-    "source-defect": "Is the upstream specification or design/SPEC.md read accurately, with deviations noted?",
-    "consistency": "Does it match the module rules, naming, shared components, settings and sibling code?",
-    "quality": "Is the code clear, minimal and maintainable: dead code, duplication, misleading names or comments, "
-               "tests that pass without exercising the behaviour?",
-    "design": "Does the rendered UI match design/SPEC.md and its tokens: roles, radii, icons, states, accessibility?",
-    "optimization": "Where does it waste time, memory, allocations, I/O or redraws on the paths users hit, and what "
-                    "measured target does it miss?",
-    "record": "Does the evidence match what ran, with owned deferrals and an earned flip of every item?",
-}
-STEP_KEYS = {"effort", "lenses"}
-
-
-def check_step(where, step, efforts, lenses=True):
-    if not isinstance(step, dict) or set(step) - STEP_KEYS or "effort" not in step \
-            or (lenses and "lenses" not in step) or (not lenses and "lenses" in step):
-        need = "effort and lenses" if lenses else "only effort"
-        raise Refused(f"[schedule] {where} needs {need}")
-    if step["effort"] not in efforts:
-        raise Refused(f"[schedule] {where} needs effort = one of {', '.join(efforts)}")
-    if lenses:
-        names = step["lenses"]
-        if not isinstance(names, list) or not names or not all(isinstance(n, str) and n in LENSES for n in names) \
-                or len(set(names)) != len(names):
-            raise Refused(f"[schedule] {where} needs lenses = a list of distinct lenses from "
-                          f"{', '.join(LENSES)}")
-
-
-def check_schedule(schedule, clis):
-    """The review schedule, as strictly as the reviewers: every effort valid for every routed CLI that takes one (an
-    Antigravity reviewer keeps the effort its model name carries), every lens known."""
-    efforts = [e for e in EFFORTS["claude"] if all(e in EFFORTS[cli] for cli in clis if cli in EFFORTS)]
-    keys = {"plan", "completion", "rounds", "rotation", "escalation", "severity_stop_after"}
-    if not isinstance(schedule, dict) or set(schedule) != keys:
-        raise Refused(f"[schedule] needs exactly {', '.join(sorted(keys))}")
-    check_step("plan", schedule["plan"], efforts)
-    check_step("completion", schedule["completion"], efforts, lenses=False)
-    check_step("escalation", schedule["escalation"], efforts)
-    check_step("rotation", schedule["rotation"], efforts)
-    rounds = schedule["rounds"]
-    if not isinstance(rounds, list) or not rounds:
-        raise Refused("[schedule] rounds needs at least one round")
-    for n, step in enumerate(rounds, 1):
-        check_step(f"round {n}", step, efforts)
-    stop = schedule["severity_stop_after"]
-    if type(stop) is not int or not 0 <= stop <= 33:
-        raise Refused("[schedule] severity_stop_after needs a whole number of rounds from 0 to 33")
-
-
-HIGHEST = re.compile(r"^\s*HIGHEST:\s*(P[123])\b", re.IGNORECASE | re.MULTILINE)
-
-
-def highest(review):
-    """The `HIGHEST:` severity a review declares (`P1`, `P2`, `P3`), or None."""
-    found = HIGHEST.findall(review or "")
-    return found[-1].upper() if found else None
-
-
-def returned_review(entry):
-    """A recorded round that is a review: a reviewer of another model family than the writer ran and replied with the
-    prompt's final `OVERALL: approve` or `OVERALL: needs-attention` line. An outage, a self-review (a reviewer of the
-    writer's own family, or of no known family) and a reply without that line are recorded rounds, not reviews.
-    scripts/lib/todo_graph.py `stamp` uses this same predicate, so the schedule and the receipt count the same rounds."""
-    lines = [x.strip() for x in (entry.get("review") or "").splitlines() if x.strip()]
-    return bool(entry.get("reviewer")) and entry.get("writer") in WRITER_FAMILY \
-        and FAMILY.get(entry.get("cli")) not in (None, WRITER_FAMILY[entry["writer"]]) \
-        and bool(lines) and lines[-1] in ("OVERALL: approve", "OVERALL: needs-attention")
-
-
-def scheduled(schedule, kind, rounds, surface):
-    """The effort and lenses for the next pass, from the pin's schedule and the rounds already recorded.
-
-    The position counts returned reviews only (`returned_review`): an outage, a self-review and a reply without the
-    final OVERALL line do not move it. Rounds past the fixed list rotate through `rotation`'s lenses, one per round,
-    skipping `design` when the section has no surface. After a low-effort round that declared `HIGHEST: P1`, the next
-    round is the `escalation` step instead. scripts/lib/todo_graph.py `stamp` replays this to check every recorded
-    pass, so it is the one copy of the schedule rule."""
-    if kind in ("plan", "completion"):
-        step = schedule[kind]
-        return {"position": None, "effort": step["effort"], "lenses": list(step.get("lenses", [])),
-                "escalated": False}
-    returned = [r for r in rounds if returned_review(r)]
-    position = len(returned) + 1
-    last = returned[-1] if returned else None
-    if last is not None and last.get("effort") == "low" and highest(last.get("review")) == "P1":
-        step, escalated = schedule["escalation"], True
-    elif position <= len(schedule["rounds"]):
-        step, escalated = schedule["rounds"][position - 1], False
-    else:
-        rotation = [n for n in schedule["rotation"]["lenses"] if surface or n != "design"] \
-            or schedule["rotation"]["lenses"]
-        step = {"effort": schedule["rotation"]["effort"],
-                "lenses": [rotation[(position - len(schedule["rounds"]) - 1) % len(rotation)]]}
-        escalated = False
-    return {"position": position, "effort": step["effort"], "lenses": list(step["lenses"]), "escalated": escalated}
-
-
-def lens_block(plan):
-    """The prompt section naming this pass's scheduled lenses and effort, appended after the writer's prompt."""
-    where = f"Round {plan['position']}" if plan["position"] else "This pass"
-    lines = ["", "", "## Lenses for this pass (scheduled by scripts/review-dispatch.py)", "",
-             f"{where} runs at {plan['effort']} reasoning effort"
-             + (", escalated after a low-effort round found a P1" if plan["escalated"] else "")
-             + ". Review through these lenses only, each as its own verdict, and ignore any other lens list above:",
-             ""]
-    lines += [f"- `{name}`: {LENSES[name]}" for name in plan["lenses"]]
-    return "\n".join(lines) + "\n"
 
 
 EXTENSION = re.compile(r"\.[A-Za-z0-9]+")
@@ -304,13 +128,15 @@ def fully_qualified(directory):
 
 def command(reviewer, executable, prompt, prompt_path, output_path, timeout, effort=None):
     """The argv and stdin for one read-only review. The model comes only from the pin, and the effort from the pin's
-    reviewer or, when the pin has a [schedule], from the step it schedules for this pass (Antigravity takes none)."""
+    reviewer or, when the pin has a [schedule], from the step it schedules for this pass (Antigravity takes none).
+    When neither sets one, no effort argument is passed and the CLI's own configuration decides."""
     cli, model, effort = reviewer["cli"], reviewer["model"], effort or reviewer.get("effort")
     if cli == "codex":
-        return [executable, "exec", "-m", model, "-c", f"model_reasoning_effort={effort}", "--sandbox", "read-only",
-                "--ephemeral", "--skip-git-repo-check", "-o", str(output_path), "-"], prompt
+        return [executable, "exec", "-m", model, *(["-c", f"model_reasoning_effort={effort}"] if effort else []),
+                "--sandbox", "read-only", "--ephemeral", "--skip-git-repo-check", "-o", str(output_path), "-"], prompt
     if cli == "claude":
-        return [executable, "-p", "--model", model, "--effort", effort, "--permission-mode", "plan"], prompt
+        return [executable, "-p", "--model", model, *(["--effort", effort] if effort else []),
+                "--permission-mode", "plan"], prompt
     text = prompt
     # A Windows .cmd or .bat shim re-parses its arguments through cmd.exe, so prose there could become commands:
     # it only ever gets a pointer to the prompt file. So does a prompt too long for a command line.
@@ -409,7 +235,8 @@ def review(pin, writer, prompt_path, timeout, plan=None):
         raise Refused("the review prompt contains a NUL byte; no reviewer can be given it")
     (name,) = pin["routes"][writer]
     reviewer = pin["reviewers"][name]
-    effort = None if reviewer["cli"] == "agy" else (plan["effort"] if plan else reviewer.get("effort"))
+    # The step's effort, else the reviewer's, else none: the CLI's own configuration then decides.
+    effort = None if reviewer["cli"] == "agy" else ((plan or {}).get("effort") or reviewer.get("effort"))
     lenses = plan["lenses"] if plan else []
     if lenses:
         prompt = prompt.rstrip("\n") + lens_block(plan)

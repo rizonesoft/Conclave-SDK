@@ -38,6 +38,8 @@ The design lens joins the rotation only with `--surface`. Each review tags its f
 | ---- | ---- |
 | `.conclave/reviewers.toml` | The reviewers and the route for each writer |
 | `scripts/review-dispatch.py` | Runs a round and records it |
+| `scripts/review_pin.py` | Loads and checks the pin; the one copy of its rules |
+| `scripts/tests/test_review_pin.py` | Pin key, schedule, cap and lens verdict tests |
 | `scripts/tests/test_review_dispatch.py` | Routing, schedule, failed-review and record tests |
 | `docs/review-round-prompt.md` | The round prompt: candidate, lenses, severities, reply format |
 | `docs/plan-review-prompt.md` | The one-pass plan review before the build |

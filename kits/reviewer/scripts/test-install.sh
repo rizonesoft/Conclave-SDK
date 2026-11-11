@@ -28,12 +28,17 @@ done
 [ -f "$target/docs/review-round-prompt.md" ]
 [ "$(stat -c %a "$target/scripts/review-dispatch.py")" = 755 ]
 (cd "$target" && python3 -B scripts/review-dispatch.py --help >/dev/null)
+# The dispatcher loads the pin's rules from review_pin.py beside it, so both land, with the loader's own tests.
+[ -f "$target/scripts/review_pin.py" ]
+[ -f "$target/scripts/tests/test_review_pin.py" ]
 
 fresh="$work/fresh"
 mkdir -p "$fresh"
 "$installer" "$fresh" >/dev/null
-grep -q 'model = "gpt-6.1-sol"' "$fresh/.conclave/reviewers.toml"
-grep -q 'claude = \["sol"\]' "$fresh/.conclave/reviewers.toml"
+(cd "$fresh" && python3 -B scripts/review_pin.py --check >/dev/null)
+(cd "$fresh" && python3 -B scripts/review-dispatch.py --check-pin >/dev/null)
+grep -q 'model = "gpt-6-astra"' "$fresh/.conclave/reviewers.toml"
+grep -q 'claude = \["astra"\]' "$fresh/.conclave/reviewers.toml"
 ! grep -q -e '^codex = ' -e '^gemini = ' -e 'sonnet' "$fresh/.conclave/reviewers.toml"
 
 tree_after_first=$(cd "$target" && find . -type f -print0 | sort -z | xargs -0 -r sha256sum)

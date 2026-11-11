@@ -109,7 +109,8 @@ class Harness(unittest.TestCase):
         self.repo = Path(self._tmp.name) / "repo"
         (self.repo / "scripts").mkdir(parents=True)
         (self.repo / ".conclave").mkdir()
-        shutil.copy(SCRIPTS / "review-dispatch.py", self.repo / "scripts/review-dispatch.py")
+        for name in ("review-dispatch.py", "review_pin.py"):
+            shutil.copy(SCRIPTS / name, self.repo / "scripts" / name)
         (self.repo / ".conclave/reviewers.toml").write_text(FIXTURE_PIN, encoding="utf-8")
         self.bin = Path(self._tmp.name) / "bin"
         self.bin.mkdir()
@@ -679,6 +680,24 @@ class Dispatch(Harness):
         self.assertEqual(result.returncode, 1)
         self.assertTrue(summary["failover"][0]["reason"].startswith("could not start"), summary["failover"])
 
+    def test_a_reviewer_without_an_effort_runs_with_no_effort_argument(self):
+        # plan R10: effort is optional; the CLI's own configuration then decides, and nothing is recorded as run.
+        pin = self.repo / ".conclave/reviewers.toml"
+        pin.write_text(pin.read_text().replace('effort = "xhigh"\n', ''), encoding="utf-8")
+        record = self.repo / "docs/reviews/no-effort.md"
+        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        (call,) = self.calls()
+        self.assertFalse([a for a in call["argv"] if "effort" in a], call["argv"])
+        self.assertIsNone(summary["effort"])
+        self.assertNotIn("- Effort:", record.read_text(encoding="utf-8"))
+        module = self.module()
+        for cli in ("codex", "claude"):
+            argv, _ = module.command({"cli": cli, "model": "m"}, cli, "p", "p.md", "o.md", 60)
+            self.assertFalse([a for a in argv if "effort" in a], argv)
+            argv, _ = module.command({"cli": cli, "model": "m", "effort": "low"}, cli, "p", "p.md", "o.md", 60)
+            self.assertTrue([a for a in argv if "effort" in a], argv)
+
     def test_a_non_integer_schema_version_is_refused(self):
         # TOML true is Python True and 1.0 == 1, so both passed a `!= 1` check and loaded.
         pin = self.repo / ".conclave/reviewers.toml"
@@ -796,7 +815,6 @@ def bad_pins(good):
     """Every rule a parsable pin can break, each as one edit of the fixture, shared by the review and check tests."""
     mini = '\n[reviewers.mini]\ncli = "codex"\nmodel = "gpt-6-mini"\neffort = "low"\n'
     return (good.replace('effort = "xhigh"', 'effort = "extreme"'),
-            good.replace('effort = "xhigh"\n', ''),
             good.replace('cli = "codex"', 'cli = "bash"'),
             # Antigravity takes no effort, and Claude Code cannot review its own family's work.
             good.replace('cli = "codex"', 'cli = "agy"'),
@@ -1128,10 +1146,12 @@ class RepositoryPin(unittest.TestCase):
         # two numbers must agree, or the dispatcher would stop a loop the stamp then refuses. todo_graph ships in the
         # todo kit: installed beside this script in a project, or in the sibling kit inside Conclave-SDK.
         with open(REPO_PIN, "rb") as handle:
-            if "schedule" not in tomllib.load(handle):
-                self.skipTest("the repository pin has no [schedule]")
+            if "severity_stop_after" not in tomllib.load(handle).get("schedule", {}):
+                self.skipTest("the repository pin has no rotation [schedule]")
+        # The sibling kit only exists when this file sits in Conclave-SDK's kits/reviewer/templates/scripts/tests.
+        kits = SCRIPTS.parents[2] if len(SCRIPTS.parents) > 2 else SCRIPTS
         found = [path for path in (SCRIPTS / "lib" / "todo_graph.py",
-                                   SCRIPTS.parents[2] / "todo" / "templates" / "scripts" / "lib" / "todo_graph.py")
+                                   kits / "todo" / "templates" / "scripts" / "lib" / "todo_graph.py")
                  if path.is_file()]
         if not found:
             self.skipTest("the todo kit is not installed")
