@@ -178,14 +178,19 @@ def fill(body: str, args: argparse.Namespace, todo: str | None, gates: str | Non
 def atomic_write(path: Path, text: str) -> None:
     fd, temp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+        try:
+            handle = os.fdopen(fd, "w", encoding="utf-8", newline="\n")
+        except BaseException:
+            os.close(fd)  # the descriptor is still ours: left open, Windows could not remove the temporary file
+            raise
+        with handle:
             handle.write(text)
         os.replace(temp, path)
     except BaseException:
         try:
             os.unlink(temp)
-        except OSError:
-            pass
+        except FileNotFoundError:
+            pass  # the replace already moved it
         raise
 
 

@@ -1,5 +1,8 @@
 """scripts/review-prompt.py: fills the four prompt templates in docs/, refuses what it cannot fill, and writes
 atomically. Every test runs the script from a scratch project that holds copies of it and of the templates."""
+import contextlib
+import importlib.util
+import io
 import os
 from pathlib import Path
 import re
@@ -9,6 +12,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+import unittest.mock
 
 # The scratch repository, the dispatcher and the fake reviewer CLIs; unittest discovery puts this folder on sys.path.
 from test_review_dispatch import Harness
@@ -239,6 +243,39 @@ class Refusals(Filler):
         self.assertIn("nope.txt", message)
         self.gates.write_text("\n", encoding="utf-8")
         self.refused("reconciliation", "is empty", "--ref", REF)
+
+    def test_an_unknown_placeholder_in_a_template_is_refused_by_name(self):
+        # Completion review of D00 T01 §7: only known placeholders with missing values were tested.
+        template = self.root / "docs" / "review-round-prompt.md"
+        template.write_text(template.read_text(encoding="utf-8") + "\n- A new field: `<SOMETHING_NEW>`.\n",
+                            encoding="utf-8")
+        self.refused("round", "<SOMETHING_NEW>")
+
+    def test_a_failed_temporary_write_or_replacement_leaves_the_earlier_output(self):
+        # Completion review of D00 T01 §7: the earlier tests never reached the write or the replace of an existing
+        # prompt. The script is loaded in this process so that one call of its own can be made to fail.
+        spec = importlib.util.spec_from_file_location("review_prompt_under_test", self.root / "scripts/review-prompt.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        args = ["--kind", "round", "--candidate", CAND, "--out", str(self.out), *COMMON["round"]]
+        for label, call in (("the temporary write", "fdopen"), ("the replacement", "replace")):
+            with self.subTest(label):
+                self.out.write_bytes(b"EARLIER OUTPUT\n")
+                errors, printed = io.StringIO(), io.StringIO()
+                with unittest.mock.patch.object(module.os, call, side_effect=OSError(28, "No space left on device")), \
+                        contextlib.redirect_stderr(errors), contextlib.redirect_stdout(printed), \
+                        unittest.mock.patch.object(module.os, "getcwd", return_value=str(self.root)):
+                    code = module.main(args)
+                self.assertEqual(code, 2, errors.getvalue())
+                self.assertIn("cannot be written", errors.getvalue())
+                self.assertIn("No space left on device", errors.getvalue())
+                self.assertEqual(printed.getvalue(), "")
+                self.assertEqual(self.out.read_bytes(), b"EARLIER OUTPUT\n")
+                self.assertEqual([p.name for p in self.out.parent.iterdir()], [self.out.name], "a temp file was left")
+        # With nothing failing the same call writes the prompt.
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(module.main(args), 0)
+        self.assertIn(CAND, self.out.read_text(encoding="utf-8"))
 
     def test_output_whose_parent_is_a_file(self):
         blocker = self.out.parent / "blocker"

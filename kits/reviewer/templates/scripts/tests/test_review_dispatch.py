@@ -1,5 +1,7 @@
 """scripts/review-dispatch.py: the one route, read-only invocation, refusals and records, with fake reviewer CLIs."""
+import contextlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -788,6 +790,28 @@ class Dispatch(Harness):
     def test_a_reviewer_that_cannot_be_resumed_is_no_review(self):
         self.assertEqual(self.start_failure("resume_windows_process"),
                          "could not start: resume: injected failure")
+
+    @unittest.skipUnless(os.name == "nt", "job objects are Windows only; POSIX uses a process group")
+    def test_each_job_step_that_fails_is_exit_1_through_the_dispatchers_entry_point(self):
+        # Completion review of D00 T01 §6: the tests above call run() itself. The same four failures through main(),
+        # as a writer meets them: exit 1, a summary with no reviewer, the step named in the reason.
+        module = self.module()
+        environment = {"PATH": f"{self.bin}{os.pathsep}{Path(sys.executable).parent}", "FAKE_LOG": str(self.log),
+                       "PATHEXT": ".CMD;.EXE", **{var: str(self.scratch) for var in ("TMP", "TEMP", "TMPDIR")}}
+        for function, step in (("create_windows_job", "create job"), ("configure_windows_job", "configure job"),
+                               ("assign_windows_job", "assign to job"), ("resume_windows_process", "resume")):
+            with self.subTest(step=step):
+                printed = io.StringIO()
+                with unittest.mock.patch.object(module, function, side_effect=OSError("injected failure")), \
+                        unittest.mock.patch.dict(os.environ, environment), contextlib.redirect_stdout(printed):
+                    code = module.main(["--writer", "claude", "--prompt", str(self.prompt), "--pin",
+                                        str(self.repo / ".conclave/reviewers.toml")])
+                summary = json.loads(printed.getvalue())
+                self.assertEqual(code, 1)
+                self.assertIsNone(summary["reviewer"])
+                self.assertEqual(summary["failover"],
+                                 [{"reviewer": "sol", "reason": f"could not start: {step}: injected failure"}])
+        self.assertEqual(self.calls(), [], "no reviewer may have run")
 
     def test_the_prompt_never_reaches_the_command_line(self):
         # A Windows .cmd shim re-parses its arguments through cmd.exe, so prose there could become commands.
