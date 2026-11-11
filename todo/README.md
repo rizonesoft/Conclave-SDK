@@ -109,6 +109,8 @@ python scripts/todo-graph.py stamp 'D01 T01 §1' --sha <full 40-char tip commit>
 
 `<N>` is the number of the one round that returned a review: 1, or the `## Round N` the dispatcher recorded it under when an earlier attempt returned none.
 
+A stamp writes the receipt, then the TODO file, then the plan. If it was cut short between those writes (the process was killed), run the same `stamp` command again: it replaces the leftover receipt, stamps the TODO file and regenerates a stale plan. A request that differs (another commit, review, plan review or completion review) is refused, naming what differs, and writes nothing.
+
 Under a rotation pin (no `policy` key) the completion review comes before the rounds, there is one `--review` per round, and the completion verdicts are `complete`, `completed` and `filed`. `review-todo-section` has the whole flow for both.
 
 ## Commands

@@ -1310,6 +1310,20 @@ def review_rounds(root=ROOT):
                         "stopped_low_severity": sum("stopped-low-severity" in s["verdicts"] for s in sections)}}
 
 
+def same_request(persisted, data):
+    """What a receipt on disk (its bytes, or None) records differently from the receipt a stamp request builds: the
+    implementation commit, the reviews, the plan review and the completion review. Empty when it is the same request."""
+    try:
+        held = json.loads(persisted.decode("utf-8"))
+    except (AttributeError, ValueError):
+        return ["content (it is not readable)"]
+    held = held if isinstance(held, dict) else {}
+    names = {"implementation_sha": "commit", "reviews": "reviews", "plan": "plan review",
+             "completion": "completion review"}
+    return [label for key, label in names.items()
+            if held.get(key) != json.loads(json.dumps(data.get(key)))]
+
+
 def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=None, completion=None, plan=None):
     """Close a section: write its receipt, tick its row and checklist, add the Verified and Review lines. The receipt
     records the plan review (`plan`: its findings file, required), the completion review (`completion`: {"report",
@@ -1319,11 +1333,14 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=No
     rows = graph(root)
     require(ref in rows, "unresolved section: " + ref)
     row = rows[ref]
-    require(not row.done, f"already verified: {ref}")
-    require(all(settled(d, rows) for d in row.depends),
-            f"open prerequisite, or one resting on a reopened section: {ref}")
-    require(not set(row.needs) & WAITING,
-            f"still waiting on {', '.join(sorted(set(row.needs) & WAITING))}: {ref}")
+    # A stamped section is only ever a retry (a stamp cut short before the plan was written): the request is compared
+    # with its persisted receipt below, before anything is written.
+    stamped = row.done
+    if not stamped:
+        require(all(settled(d, rows) for d in row.depends),
+                f"open prerequisite, or one resting on a reopened section: {ref}")
+        require(not set(row.needs) & WAITING,
+                f"still waiting on {', '.join(sorted(set(row.needs) & WAITING))}: {ref}")
     require(re.fullmatch(r"[0-9a-f]{40}", sha) is not None,
             "the implementation SHA must be a full 40-character commit")
     commit_ok(root, sha)
@@ -1367,7 +1384,22 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=No
         data["pass_cap"] = dispatch.review_pin.pass_cap(data["schedule"])
     receipt_data_ok(data, ref, sha, root=root, surface=field(row.body, "Surface") == "yes")
     receipt_path = root / receipt
-    require(not receipt_path.exists(), f"receipt already exists: {receipt}")
+    plan_path = root / PLAN
+    # A receipt already on disk is what a stamp killed between its writes leaves. It is replaced (or, once the TODO
+    # file carries the stamp, accepted) only when it records this same request; any other is refused untouched.
+    receipt_before = receipt_path.read_bytes() if receipt_path.is_file() else None
+    if stamped or receipt_before is not None:
+        differs = same_request(receipt_before, data)
+        if stamped:
+            require(receipt_before is not None and not differs, f"already verified: {ref}"
+                    + (f" (receipt {receipt} " + ("is missing)" if receipt_before is None
+                                                  else "records a different " + ", ".join(differs) + ")")))
+            fresh = plan_path.is_file() and read_text(plan_path) == projection(root)
+            if (sync_plan or plan_path.is_file()) and not fresh:
+                projections(root, sync=True)  # the retry of a stamp that was cut short before its plan write
+            return receipt
+        require(not differs, f"receipt already exists: {receipt} (a leftover that records a different "
+                             + ", ".join(differs) + "); nothing was written")
     path = root / row.path
     original_bytes = path.read_bytes()
     original = read_text(path)
@@ -1384,7 +1416,6 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=No
     if all(r.done for r in siblings):
         text, n = re.subn(r"\A(---\n(?:.*\n)*?)status: [a-z]+\n", r"\1status: done\n", text, count=1)
         require(n == 1, f"frontmatter status not found: {row.path}")
-    plan_path = root / PLAN
     original_plan_bytes = plan_path.read_bytes() if plan_path.is_file() else None
     try:
         atomic(receipt_path, json.dumps(data, indent=2) + "\n")
@@ -1393,7 +1424,10 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=No
         if sync_plan or original_plan_bytes is not None:
             projections(root, sync=True)
     except BaseException:  # an interrupt between writes must roll back as an error does
-        receipt_path.unlink(missing_ok=True)
+        if receipt_before is None:
+            receipt_path.unlink(missing_ok=True)
+        elif not receipt_path.is_file() or receipt_path.read_bytes() != receipt_before:
+            atomic(receipt_path, receipt_before)  # the leftover this call replaced goes back as it was
         try:
             if not path.is_file() or path.read_bytes() != original_bytes:
                 atomic(path, original_bytes)

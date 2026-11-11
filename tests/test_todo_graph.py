@@ -1166,6 +1166,124 @@ class Stamp(Tree):
         self.assertEqual(self.snapshot(), before)
         self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-13", sync_plan=True)
 
+    TODO_A = "todo/00-workspace/TODO-01-a.md"
+
+    def two_rounds(self):
+        """The findings file holds a needs-attention round 2 and a clean round 3; returns the two-round claim."""
+        report = "docs/reviews/00-workspace/D00-T01-s1.md"
+        (self.root / report).write_text("# Review findings\n\n" + envelope(1, "none") + envelope(2, overall="needs-attention")
+                                        + envelope(3), encoding="utf-8")
+        return [{"round": 2, "report": report, "verdict": "fixed"}, {"round": 3, "report": report, "verdict": "clean"}]
+
+    def cut_short(self, keep_todo, reviews=None):
+        """A real stamp, then the files put back as a process killed between its writes leaves them: the receipt kept
+        and the plan (and, unless keep_todo, the TODO file) as they were before. Returns the receipt path, its bytes
+        and the plan and TODO bytes before and after the stamp."""
+        self.tick_work()
+        self.ensure_plan()
+        tg.projections(self.root, sync=True)
+        todo, plan = self.root / self.TODO_A, self.root / tg.PLAN
+        todo_before, plan_before = todo.read_bytes(), plan.read_bytes()
+        receipt = self.stamp("D00 T01 §1", self.sha, reviews or self.reviews, ["true -> ok"], "2026-10-13", sync_plan=True)
+        held = (self.root / receipt).read_bytes()
+        todo_after = todo.read_bytes()
+        plan.write_bytes(plan_before)
+        if not keep_todo:
+            todo.write_bytes(todo_before)
+        return receipt, held, todo_before, todo_after, plan_before
+
+    def retry(self, **kwargs):
+        args = dict(sha=self.sha, reviews=self.reviews)
+        args.update(kwargs)
+        return self.stamp("D00 T01 §1", args["sha"], args["reviews"], ["true -> ok"], "2026-10-14", sync_plan=True)
+
+    def test_a_stamp_killed_after_its_receipt_is_completed_by_the_same_retry(self):
+        receipt, held, todo_before, todo_after, _ = self.cut_short(keep_todo=False)
+        self.assertEqual(self.retry(), receipt)
+        self.assertTrue(tg.graph(self.root)["D00 T01 §1"].done)
+        self.assertIn("> **Verified:** 2026-10-14 | §1 | " + self.sha,
+                      (self.root / self.TODO_A).read_text(encoding="utf-8"))
+        tg.projections(self.root)
+
+    def test_a_leftover_receipt_of_another_request_refuses_and_stays_as_it_was(self):
+        receipt, held, todo_before, _, plan_before = self.cut_short(keep_todo=False)
+        other = self.commit("later work")
+        before = self.snapshot()
+        with self.assertRaises(tg.Refused) as ctx:
+            self.retry(sha=other)
+        self.assertIn(receipt, str(ctx.exception))
+        self.assertIn("commit", str(ctx.exception))
+        self.assertEqual((self.root / receipt).read_bytes(), held)
+        self.assertEqual(self.snapshot(), before, "a refused retry wrote something")
+
+    def test_a_retry_whose_write_fails_puts_the_leftover_receipt_back(self):
+        receipt, held, *_ = self.cut_short(keep_todo=False)
+        before = self.snapshot()
+        real_atomic = tg.atomic
+        calls = []
+
+        def fail_on_todo_write(path, data):
+            calls.append(path)
+            if len(calls) == 2:
+                raise OSError("simulated disk write failure")
+            return real_atomic(path, data)
+
+        tg.atomic = fail_on_todo_write
+        try:
+            with self.assertRaises(OSError):
+                self.retry()
+        finally:
+            tg.atomic = real_atomic
+        self.assertEqual((self.root / receipt).read_bytes(), held)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.retry(), receipt)
+
+    def test_a_stamp_killed_before_its_plan_write_is_completed_by_the_same_retry(self):
+        receipt, held, _, todo_after, _ = self.cut_short(keep_todo=True)
+        with self.assertRaises(tg.Refused):
+            tg.projections(self.root)  # the state a kill leaves: plan --check fails
+        self.assertEqual(self.retry(), receipt)
+        tg.projections(self.root)
+        self.assertEqual((self.root / receipt).read_bytes(), held)
+        self.assertEqual((self.root / self.TODO_A).read_bytes(), todo_after)
+
+    def test_a_stamped_section_refuses_a_request_that_differs_from_its_receipt(self):
+        rounds = self.two_rounds()
+        receipt, held, _, todo_after, plan_before = self.cut_short(keep_todo=True, reviews=rounds)
+        other = self.commit("later work")
+        verdict = [dict(rounds[1], verdict="fixed")]  # round 3 is a clean round: "fixed" does not match it
+        for label, kwargs in (("commit", {"sha": other, "reviews": rounds}), ("reviews", {"reviews": rounds[1:]}),
+                              ("verdict", {"reviews": verdict})):
+            with self.subTest(label):
+                before = self.snapshot()
+                with self.assertRaises(tg.Refused) as ctx:
+                    self.retry(**kwargs)
+                if label != "verdict":  # a verdict the findings do not bear out is refused by its own check first
+                    self.assertIn("already verified", str(ctx.exception))
+                self.assertEqual(self.snapshot(), before, "a refused retry wrote something")
+        self.assertEqual((self.root / receipt).read_bytes(), held)
+        self.assertEqual((self.root / self.TODO_A).read_bytes(), todo_after)
+        self.assertEqual((self.root / tg.PLAN).read_bytes(), plan_before)
+
+    def test_a_failing_plan_write_on_the_retry_keeps_the_stamp_and_a_further_retry_succeeds(self):
+        receipt, held, _, todo_after, plan_before = self.cut_short(keep_todo=True)
+        real_atomic = tg.atomic
+
+        def fail(path, data):
+            raise OSError("simulated disk write failure")
+
+        tg.atomic = fail
+        try:
+            with self.assertRaises(OSError):
+                self.retry()
+        finally:
+            tg.atomic = real_atomic
+        self.assertEqual((self.root / receipt).read_bytes(), held)
+        self.assertEqual((self.root / self.TODO_A).read_bytes(), todo_after)
+        self.assertEqual((self.root / tg.PLAN).read_bytes(), plan_before)
+        self.assertEqual(self.retry(), receipt)
+        tg.projections(self.root)
+
     def test_unstamp_reopens_a_regressed_section_and_allows_a_restamp(self):
         self.tick_work()
         tg.projections(self.root, sync=True)
