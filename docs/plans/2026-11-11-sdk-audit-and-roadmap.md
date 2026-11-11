@@ -104,3 +104,7 @@ Status on 2026-11-11, end of day: both GitHub repositories can be deleted.
 1. The import is pushed to `origin/main`, and the live copies were compared with it file by file: the same content once line endings and the old folder names are set aside.
 2. The client site list and the brand permission drafts were dropped on the owner's decision; they were not imported.
 3. `global/deploy.py` now deploys the rules, skills and hook wiring from this checkout to the home folder, with no hard-coded path, and was run on Windows and in WSL: both run from `global/`. The copies in `R:/Bin/claude` and `R:/Bin/codex` are superseded. The MCP plugin registrations were not moved: a plugin registered from `R:/Bin` keeps running from there until it is registered again from `plugins/`.
+
+## Bosun guidance (owner decision 2026-11-12)
+
+Bosun is the owner's separate Windows and WSL tool that queues heavy jobs across both sides. The owner decided on 2026-11-12 that the global rules for every agent route full builds and full test suites through `bosun run`, falling back to running the command normally when `bosun` is not installed, and that this checkout carries the guidance behind that rule. The rule is in both `global/claude/rules/claude-code.md` and `global/codex/rules/codex.md` (section 11). The rest is `todo/06-global/TODO-02-bosun-guidance.md` (D06 T02): a reference page and a test that keeps the two rule files in step. It is a commitment of this plan: a run corrects a drifted fact in it, and never retires, merges away, defers or drops it without the owner.
