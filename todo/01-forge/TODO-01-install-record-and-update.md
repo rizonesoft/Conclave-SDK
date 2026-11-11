@@ -300,7 +300,11 @@ A scheduled task runs `diff` over the owner's projects once a week and reports w
 
 ## 9. Backup of the entry docs `init --force` replaces
 
+> **Started:** 2026-11-11T20:39:51Z
+
 `init --force` writes the kit's `AGENTS.md`, `GEMINI.md`, `CLAUDE.md` and `CODEX.md` over the project's (`forge.py:657`) and keeps no copy (roadmap finding 15). The replaced file is kept beside the new one.
+
+**Corrected 2026-11-11 (validation):** `provision` moved (§2 to §8); the docs are now written through `_write_recorded`, which records each with the kit's digest. With the `todo` kit, `init` appends the TODO pointer to `AGENTS.md`, so a doc "equal to the kit's bytes" would never match on a second `--force` and the run would refuse on its own backup: a doc is skipped when it already holds what `init` would leave (the kit's bytes, plus the pointer for `AGENTS.md` when `todo` is chosen).
 
 **Phase:** 1
 **Needs:** none
@@ -312,8 +316,8 @@ A scheduled task runs `diff` over the owner's projects once a week and reports w
 2. Cover the repeat and the no-op. Done when: the checkpoint passes.
 
 - [ ] Write the project's existing entry doc to `<name>.replaced` with `atomic_write` in `provision` of `forge.py` before the kit's version replaces it, and list the backups under `backups` in the result. Done when: a test finds `AGENTS.md.replaced` holding the old bytes and `AGENTS.md` holding the kit's. Cheaper substitute: printing the old content must fail, because the output is not kept.
-- [ ] Skip a doc whose bytes already equal the kit's in `provision`: no rewrite and no backup. Done when: a test running `init --force` twice finds one backup, not two, and the second run's `backups` empty.
-- [ ] Refuse `init --force` in `provision` when a `<name>.replaced` already exists for a doc that would be replaced, naming it, before any file is written. Done when: a test finds exit 2 and both the doc and the earlier backup unchanged. Cheaper substitute: overwriting the earlier backup must fail, because it is the only copy of the first version.
+- [ ] Skip a doc in `provision` that already holds what `init` would leave (the kit's bytes, plus the TODO pointer for `AGENTS.md` when `todo` is chosen): no rewrite, no backup, no record change. Done when: tests running `init --force` twice, with and without `--with-todo`, find one backup per replaced doc, not two, and the second run's `backups` empty and exit 0. **Corrected 2026-11-11 (validation):** compared with the kit's bytes alone, which a pointed `AGENTS.md` never equals.
+- [ ] Refuse `init --force` in `provision` when a `<name>.replaced` already exists for a doc that would be replaced, naming it, before any file is written, including the kits' own files, and a `.replaced` that is a link or a folder refuses the same way. Done when: a test finds exit 2 and the doc, the earlier backup and every other file under the target unchanged. **Corrected 2026-11-11 (validation):** "before any file is written" now includes the kits' files, since §8 plans them first. Cheaper substitute: overwriting the earlier backup must fail, because it is the only copy of the first version.
 - [ ] State the backup in the `--force` help text in `main` of `forge.py` and in `README.md`. Done when: `python forge.py init --help` names `.replaced`.
 - [ ] Commit: `forge: init --force keeps the entry docs it replaces`
 
