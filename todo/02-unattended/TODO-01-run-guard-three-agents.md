@@ -44,7 +44,11 @@ title: "TODO-01 -- Run guard for Antigravity and Codex"
 
 ## 1. Antigravity payload handled by the Stop hook
 
+> **Started:** 2026-11-11T21:02:26Z
+
 Antigravity sends a different stop payload from Claude Code and expects a different answer. The hook reads both and answers each in its own format. Source: RasterFold `scripts/campaign_guard.py:988` to `:1025`.
+
+**Corrected 2026-11-11 (validation):** RasterFold moved on (its HEAD is now `77b3ef3`); the source stays the pinned `b334933`, whose `stop_hook` is at `:988` as cited. Two choices the section left open, taken here: the workspace is read from `workspacePaths` only when it is a list of strings, else the payload is a recorded error (RasterFold ignored a bad value silently); and a payload with no session is an error only while a run is open in that workspace, so a project with no guard never collects hook errors. The guard file is read before the session is checked for that reason.
 
 **Phase:** 2
 **Needs:** none
