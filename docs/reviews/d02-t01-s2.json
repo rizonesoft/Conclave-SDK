@@ -1,0 +1,84 @@
+{
+  "ref": "D02 T01 \u00a72",
+  "title": "Antigravity hook file seeded by the todo kit",
+  "implementation_sha": "c084295e6daccd6aff9fc36b38dcc22453fe0172",
+  "date": "2026-11-11",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-unattended/D02-T01-s2.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s tests -p test_forge.py -> Ran 138 tests, OK (skipped=1)",
+    "agy 1.5.5 live: guarded conversation held for 3 pushes, released one stopped at its first Stop"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-unattended/D02-T01-s2.md",
+    "verdict": "reconciled",
+    "candidate": "c084295e6daccd6aff9fc36b38dcc22453fe0172",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/02-unattended/D02-T01-s2.md",
+    "candidate": "fc13ba9c397390c8a4be04cc9545b463075f3164",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "fc13ba9c397390c8a4be04cc9545b463075f3164",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

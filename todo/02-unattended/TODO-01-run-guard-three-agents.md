@@ -36,7 +36,7 @@ title: "TODO-01 -- Run guard for Antigravity and Codex"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Antigravity payload handled by the Stop hook | -- | [x] |
-| 2 | §2 | Antigravity hook file seeded by the todo kit | §1 | [ ] |
+| 2 | §2 | Antigravity hook file seeded by the todo kit | §1 | [x] |
 | 3 | §3 | Codex hook script and hook file | -- | [ ] |
 | 4 | §4 | Heartbeat stall breaker for a harness with no Stop hook | -- | [ ] |
 | 5 | §5 | Guard self-test through each wired hook | §2, §3 | [ ] |
@@ -95,9 +95,12 @@ The todo kit seeds `.claude/settings.json` with the Stop hook and nothing for An
 - [x] Extend `test_the_todo_kit_wires_the_stop_hook_and_never_overwrites_a_projects_settings` in `tests/test_forge.py` to the Antigravity file. Done when: a project's own `.agents/hooks.json` is byte for byte unchanged after the kit runs.
 - [x] Prove the seed live: in a scratch `init --kit todo` project run `agy -p` once to mint a conversation, acquire a guard for its `conversationId`, resume it with `agy --conversation <id> -p` and read from the CLI log (`--log-file`) and the guard's state that the hook answered `continue` and the CLI ran another invocation in the same turn (a second Stop hook call, `blocks` at least 2), until the stall breaker let it stop; then end the guard and resume once more, finding the turn ends at its first Stop. Done when: the run file quotes the log lines and the state for both runs. Without `agy` on the machine the item stays open and the section is not stamped. **Corrected 2026-11-11 (plan review):** a hook answer alone did not show the CLI honoured `continue`. **Corrected 2026-11-11 (validation):** added; only a live run shows the CLI runs the file.
 - [x] Install the seed in the SDK itself: add `.agents/hooks.json` to the files `self_sync` keeps current (`SELF_PREFIXES` in `forge.py`), run `python forge.py self-sync`, and check the SDK's copy. Done when: the SDK's `.agents/hooks.json` equals the kit's, the self-sync parity test covers it, and `python forge.py doctor . todo` reports `stop-hook:.agents` `ok`. **Corrected 2026-11-11 (plan review):** `self_sync` filtered the file out, so the SDK would never get its own seed.
-- [ ] Commit: `todo: seed the Antigravity Stop hook`
+- [x] Commit: `todo: seed the Antigravity Stop hook`
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; removing the hook command from the seed makes the doctor test fail.
+
+> **Verified:** 2026-11-11 | §2 | c084295e6daccd6aff9fc36b38dcc22453fe0172
+> **Review:** `docs/reviews/d02-t01-s2.json`
 
 ## 3. Codex hook script and hook file
 
