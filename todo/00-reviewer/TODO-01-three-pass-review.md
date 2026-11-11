@@ -2,7 +2,7 @@
 schema_version: 1
 id: three-pass-review
 domain: 00-reviewer
-status: active
+status: done
 title: "TODO-01 -- Three-pass review"
 ---
 
@@ -38,7 +38,7 @@ title: "TODO-01 -- Three-pass review"
 | 4 | §4 | Template pin, prompts, skills and READMEs on three-pass | §3 | [x] |
 | 5 | §5 | Pin check that reports every fault at once | §1 | [x] |
 | 6 | §6 | Reviewer process tree ended on Windows by a job object | §2 | [x] |
-| 7 | §7 | Review prompt filler | §2 | [ ] |
+| 7 | §7 | Review prompt filler | §2 | [x] |
 | 8 | §8 | Stamp that recovers from a write cut short | §3 | [x] |
 
 ## 1. Pin loader module with the three-pass keys
@@ -277,9 +277,12 @@ Filed 2026-11-11 from the completion review of §2 (an out-of-scope excellence i
 - [x] Refuse in `review-prompt.py` when a placeholder has no value, a template is missing or `--candidate` is not a 40-character SHA, naming what is missing. Done when: tests assert each refusal and that nothing is written.
 - [x] Name `review-prompt.py` in `kits/reviewer/README.md` and in the `independent-review`, `review-todo-section` and `process-todo-section` skills of the three agent folders, in place of "write the prompt to a scratch file from" the template. Done when: each skill shows the command.
 - [x] Add install assertions for `review-prompt.py` to `kits/reviewer/scripts/test-install.sh` and run `python forge.py self-sync`. Done when: `bash kits/reviewer/scripts/test-install.sh` passes and `scripts/review-prompt.py` equals the kit file.
-- [ ] Commit: `reviewer: fill review prompts with review-prompt.py`
+- [x] Commit: `reviewer: fill review prompts with review-prompt.py`
 
 **Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests -p test_review_prompt.py` ends `OK`; removing the unfilled-placeholder refusal makes its test fail.
+
+> **Verified:** 2026-11-11 | §7 | b9a87e42dbcc9eb0a7a23966e77b2244753cd984
+> **Review:** `docs/reviews/d00-t01-s7.json`
 
 ## 8. Stamp that recovers from a write cut short
 

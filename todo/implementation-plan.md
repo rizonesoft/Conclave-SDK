@@ -18,9 +18,9 @@ Sections: 8 | Checklist items: 98
 | [x]    | D00 T01 §4 | Template pin, prompts, skills and READMEs on three-pass | none         | 17    |
 | [x]    | D00 T01 §5 | Pin check that reports every fault at once              | none         | 7     |
 | [x]    | D00 T01 §6 | Reviewer process tree ended on Windows by a job object  | windows-host | 8     |
-| [ ]    | D00 T01 §7 | Review prompt filler                                    | none         | 8     |
+| [x]    | D00 T01 §7 | Review prompt filler                                    | none         | 8     |
 | [x]    | D00 T01 §8 | Stamp that recovers from a write cut short              | none         | 6     |
 
-Progress: 7/8 verified sections, 1 ready to run now.
+Progress: 8/8 verified sections, 0 ready to run now.
 
-Checklist: 97/98 items completed (includes Commit items).
+Checklist: 98/98 items completed (includes Commit items).
