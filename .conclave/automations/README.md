@@ -7,6 +7,9 @@ Every scheduled job for this project lives here: the task list in `tasks.json`, 
 | Task | When (local time) | Runs | Fails when |
 | --- | --- | --- | --- |
 | `conclave-sdk-reviewers` | Monday 07:00 | `forge.py doctor . reviewer --strict` | Reviewer gone |
+| `conclave-sdk-drift` | Monday 07:30 | `forge.py drift` | A listed project drifted |
+
+`conclave-sdk-drift` is a report, not a check: its exit 3 means at least one project in `.conclave/projects.json` has kit files it can update, merge, adopt (`record`) or that are missing, retired or unreadable, and the failure email carries the report's tail. Nothing is written to any project. To cover another project, add an entry to `.conclave/projects.json` with its `windows` path (a WSL project through `\\wsl.localhost\<distro>\...`) and its `posix` path (`~` is expanded); a project with no path for the machine the task runs on is listed as `not on this machine`.
 
 The folder is `\Conclave-SDK\`: every task name starts with `conclave-sdk-`, so no other project shares the folder or a unit name.
 

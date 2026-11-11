@@ -8,6 +8,13 @@
       "command": ["python", "forge.py", "doctor", ".", "reviewer", "--strict"],
       "trigger": {"weekly": "Monday", "at": "07:00"},
       "timeout_minutes": 5
+    },
+    {
+      "name": "conclave-sdk-drift",
+      "description": "Report which listed projects have kit files to update or merge (.conclave/projects.json)",
+      "command": ["python", "forge.py", "drift"],
+      "trigger": {"weekly": "Monday", "at": "07:30"},
+      "timeout_minutes": 10
     }
   ]
 }

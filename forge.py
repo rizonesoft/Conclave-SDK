@@ -6,6 +6,7 @@
     python forge.py diff <target> [kit] [--patch]
     python forge.py update <target> [kit] [--only <path>]... [--no-scripts] [--kit-new] [--dry-run]
     python forge.py record <target> [kit] [--merged <path>]... [--dry-run]
+    python forge.py drift [--projects <file>]
     python forge.py doctor <target> [laravel|wordpress|reviewer|automations|todo|base] [--strict]
     python forge.py kits
     python forge.py check <target>
@@ -1006,6 +1007,106 @@ def record_project(target_root: Path, kit_name: str | None = None, *, dry_run: b
     return {"target": target.as_posix(), "dry_run": dry_run, "recorded": recorded, "skipped": skipped}
 
 
+PROJECTS = ".conclave/projects.json"
+# What the weekly drift report counts, in its line's order: (label, the diff states it counts). Any of them fails it.
+DRIFT_COUNTS = (
+    ("can update", ("kit-newer",)),
+    ("need a merge", ("both-changed",)),
+    ("unrecorded", ("differs",)),
+    ("missing", ("missing",)),
+    ("retired", ("project-only",)),
+    ("incomplete", ("unsafe", "unreadable")),
+)
+DRIFT_SHOWN = 20
+
+
+def load_projects(path: Path) -> list[dict]:
+    """The projects the drift report covers, from `{"schema_version": 1, "projects": [{"name", "windows", "posix"}]}`:
+    each with a name and a path for at least one system. Refuses with a ValueError naming the file and the entry."""
+    path = Path(path)
+
+    def fault(what: str) -> ValueError:
+        return ValueError(f"{path}: {what}")
+
+    try:
+        data = json.loads(path.read_bytes().decode("utf-8"))
+    except (OSError, ValueError, RecursionError) as exc:
+        raise fault(f"not readable as UTF-8 JSON ({exc})") from None
+    if not isinstance(data, dict) or set(data) != {"schema_version", "projects"}:
+        raise fault("needs exactly the keys projects and schema_version")
+    if data["schema_version"] != 1 or isinstance(data["schema_version"], bool):
+        raise fault(f"schema_version must be 1, not {data['schema_version']!r}")
+    if not isinstance(data["projects"], list):
+        raise fault("projects must be a list")
+    seen: set[str] = set()
+    for index, entry in enumerate(data["projects"]):
+        where = f"projects[{index}]"
+        if not isinstance(entry, dict) or set(entry) != {"name", "windows", "posix"}:
+            raise fault(f"{where} needs exactly the keys name, posix and windows")
+        if not isinstance(entry["name"], str) or not entry["name"].strip():
+            raise fault(f"{where}.name must be a non-empty string")
+        where = f"{where} ({entry['name']})"
+        if entry["name"] in seen:
+            raise fault(f"{where}: the name appears twice")
+        seen.add(entry["name"])
+        for key in ("windows", "posix"):
+            if entry[key] is not None and (not isinstance(entry[key], str) or not entry[key]):
+                raise fault(f"{where}.{key} must be null or a non-empty path")
+        if entry["windows"] is None and entry["posix"] is None:
+            raise fault(f"{where}: needs a windows or a posix path")
+    return data["projects"]
+
+
+def drift_report(projects: list[dict], *, system: str | None = None) -> list[dict]:
+    """For each project, its path on this system and the files `diff` puts in each DRIFT_COUNTS state. A project with
+    no path here, or whose path is not a folder here, is `not on this machine` and fails nothing; one whose diff
+    refuses carries the error."""
+    system = system or os.name
+    report = []
+    for project in projects:
+        raw = project["windows"] if system == "nt" else project["posix"]
+        path = Path(os.path.expanduser(raw)) if raw else None
+        row: dict = {"name": project["name"], "path": None if path is None else str(path)}
+        if path is None or not path.is_dir():
+            row["state"] = "not on this machine"
+        else:
+            try:
+                diff = diff_project(path)
+            except (ValueError, OSError) as exc:
+                row.update(state="error", error=str(exc))
+            else:
+                files = [item for kit in diff["kits"].values() for item in kit["files"]]
+                row["state"] = "checked"
+                row["counts"] = {label: sorted(i["path"] + (f" ({i['reason']})" if "reason" in i else "")
+                                               for i in files if i["state"] in states)
+                                 for label, states in DRIFT_COUNTS}
+        report.append(row)
+    return report
+
+
+def drift_lines(report: list[dict]) -> tuple[list[str], bool]:
+    """The report as text, one line per project and its files under each count; and whether any project drifted."""
+    lines: list[str] = []
+    drifted = False
+    for row in report:
+        if row["state"] == "not on this machine":
+            lines.append(f"{row['name']}: not on this machine")
+            continue
+        if row["state"] == "error":
+            drifted = True
+            lines.append(f"{row['name']}: diff refused: {row['error']}")
+            continue
+        counts = row["counts"]
+        drifted = drifted or any(counts.values())
+        lines.append(f"{row['name']}: " + ", ".join(f"{len(counts[label])} {label}" for label, _ in DRIFT_COUNTS))
+        for label, _ in DRIFT_COUNTS:
+            shown = counts[label][:DRIFT_SHOWN]
+            lines.extend(f"  {label}: {rel}" for rel in shown)
+            if len(counts[label]) > DRIFT_SHOWN:
+                lines.append(f"  {label}: ... and {len(counts[label]) - DRIFT_SHOWN} more")
+    return lines, drifted
+
+
 def _wordpress_pin_module() -> types.ModuleType:
     """The kit's own wp_site.py (what the helpers ship with), compiled from source so no bytecode lands in the kit."""
     validator = FORGE_ROOT / "kits/wordpress/templates/scripts/lib/wp_site.py"
@@ -1457,6 +1558,9 @@ def main(argv: list[str] | None = None) -> int:
     p_rec.add_argument("--merged", action="append", default=[], metavar="PATH",
                        help="Record a hand merge from PATH.kit-new (relative to the project; repeatable), then remove the copy")
 
+    p_drift = sub.add_parser("drift", help="Report which listed projects have kit files to update or merge (exit 3 if any)")
+    p_drift.add_argument("--projects", default=None, help=f"The project list (default: the SDK's {PROJECTS})")
+
     sub.add_parser("kits", help="List available overlay kits")
     p_self = sub.add_parser("self-sync", help="Refresh the SDK's own installed copy of base, todo, reviewer and automations")
     p_self.add_argument("--dry-run", action="store_true", help="List the files that would change without writing")
@@ -1484,6 +1588,12 @@ def _run(args: argparse.Namespace) -> int:
     if args.command == "self-sync":
         print(json.dumps(self_sync(dry_run=args.dry_run), indent=2))
         return 0
+
+    if args.command == "drift":
+        lines, drifted = drift_lines(drift_report(load_projects(Path(args.projects or FORGE_ROOT / PROJECTS))))
+        print("\n".join(lines))
+        # Exit 3 is the report: the automations runner emails a non-zero exit with the tail of this output.
+        return 3 if drifted else 0
 
     target = Path(args.target)
 

@@ -1,5 +1,6 @@
 """Tests for forge.py template provisioning, 3-agent isolation, stack kits, and prose hygiene."""
 import contextlib
+import importlib.util
 import io
 import json
 import os
@@ -2431,6 +2432,149 @@ class KitNewTests(KitFixture, unittest.TestCase):
         args[1] = str(self.target)
         self.assertEqual(self.run_main(*args)[0], 0)
         self.assertEqual(self.states(forge.diff_project(self.target))[rel], "project-changed")
+
+
+class DriftTests(KitFixture, unittest.TestCase):
+    """`forge.py drift`: the weekly report of which listed projects have kit files to update, merge or adopt."""
+
+    def projects_file(self, projects):
+        path = pathlib.Path(self.tmp.name) / "projects.json"
+        path.write_text(json.dumps({"schema_version": 1, "projects": projects}), encoding="utf-8")
+        return path
+
+    def entry(self, name, path):
+        return {"name": name, "windows": str(path) if path else None, "posix": str(path) if path else None}
+
+    def run_drift(self, projects_path):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = forge.main(["drift", "--projects", str(projects_path)])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_a_valid_list_reads_back_and_every_fault_refuses_by_name(self):
+        good = [self.entry("One", self.target), {"name": "Two", "windows": None, "posix": "~/two"}]
+        self.assertEqual(forge.load_projects(self.projects_file(good)), good)
+        bad = {
+            "a missing name": [{"windows": "x", "posix": None}],
+            "the name appears twice": [self.entry("One", "a"), self.entry("One", "b")],
+            "needs a windows or a posix path": [{"name": "One", "windows": None, "posix": None}],
+            "needs exactly the keys name": [{"name": "One", "windows": "a", "posix": None, "extra": 1}],
+            "name must be a non-empty string": [{"name": 7, "windows": "a", "posix": None}],
+            "posix must be null or a non-empty path": [{"name": "One", "windows": None, "posix": 3}],
+        }
+        for why, projects in bad.items():
+            with self.assertRaises(ValueError, msg=why) as caught:
+                forge.load_projects(self.projects_file(projects))
+            self.assertIn("projects.json", str(caught.exception), why)
+        path = pathlib.Path(self.tmp.name) / "projects.json"
+        path.write_text(json.dumps({"schema_version": 2, "projects": []}), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "schema_version must be 1"):
+            forge.load_projects(path)
+        with self.assertRaisesRegex(ValueError, r"projects\[0\] \(One\)\.windows"):
+            forge.load_projects(self.projects_file([{"name": "One", "windows": "", "posix": "a"}]))
+
+    def test_the_path_for_this_system_is_used_with_home_expanded(self):
+        home = pathlib.Path(self.tmp.name) / "home"
+        (home / "proj").mkdir(parents=True)
+        projects = [{"name": "Posix", "windows": None, "posix": "~/proj"},
+                    {"name": "Windows", "windows": str(home / "proj"), "posix": None}]
+        with unittest.mock.patch.dict(os.environ, {"HOME": str(home), "USERPROFILE": str(home)}):
+            posix = {r["name"]: r for r in forge.drift_report(projects, system="posix")}
+            nt = {r["name"]: r for r in forge.drift_report(projects, system="nt")}
+        self.assertEqual(posix["Posix"]["path"], str(home / "proj"))
+        self.assertEqual(posix["Posix"]["state"], "checked")
+        self.assertEqual(posix["Windows"]["state"], "not on this machine")
+        self.assertEqual(nt["Windows"]["state"], "checked")
+        self.assertEqual(nt["Posix"]["state"], "not on this machine")
+
+    def fake_diff(self, states):
+        files = [{"path": f"{state}/{i}", "state": state, **({"reason": "denied"} if state == "unreadable" else {})}
+                 for state, n in states.items() for i in range(n)]
+        return {"kits": {"todo": {"files": files}}}
+
+    def test_each_state_is_counted_exactly(self):
+        known = {"kit-newer": 2, "both-changed": 3, "differs": 4, "missing": 5, "project-only": 6, "unsafe": 1,
+                 "unreadable": 1, "identical": 9, "project-changed": 7, "project-removed": 2, "generated": 1}
+        with unittest.mock.patch.object(forge, "diff_project", return_value=self.fake_diff(known)):
+            row = forge.drift_report([self.entry("P", self.target)])[0]
+        counts = {label: len(paths) for label, paths in row["counts"].items()}
+        self.assertEqual(counts, {"can update": 2, "need a merge": 3, "unrecorded": 4, "missing": 5, "retired": 6,
+                                  "incomplete": 2})
+        self.assertIn("unreadable/0 (denied)", row["counts"]["incomplete"])
+        lines, drifted = forge.drift_lines([row])
+        self.assertTrue(drifted)
+        self.assertEqual(lines[0], "P: 2 can update, 3 need a merge, 4 unrecorded, 5 missing, 6 retired, 2 incomplete")
+
+    def test_a_count_past_twenty_shows_twenty_paths_and_the_rest_as_a_number(self):
+        with unittest.mock.patch.object(forge, "diff_project", return_value=self.fake_diff({"missing": 25})):
+            lines, _ = forge.drift_lines(forge.drift_report([self.entry("P", self.target)]))
+        self.assertEqual(len([l for l in lines if l.startswith("  missing: missing/")]), 20)
+        self.assertIn("  missing: ... and 5 more", lines)
+
+    def test_only_unrecorded_or_only_unreadable_still_fails_the_report(self):
+        for state in ("differs", "unreadable", "unsafe", "project-only"):
+            with unittest.mock.patch.object(forge, "diff_project", return_value=self.fake_diff({state: 1})):
+                code, out, err = self.run_drift(self.projects_file([self.entry("P", self.target)]))
+            self.assertEqual(code, 3, (state, out, err))
+
+    def test_drifted_current_absent_and_refused_projects_are_all_reported(self):
+        self.six_state_fixture()  # drifted: one kit-newer, one both-changed, one missing
+        current = pathlib.Path(self.tmp.name) / "current"
+        current.mkdir()
+        forge.apply_kit(current, "todo", agent="claude")
+        broken = pathlib.Path(self.tmp.name) / "broken"
+        (broken / ".conclave").mkdir(parents=True)
+        (broken / forge.RECORD).write_text("{ not json", encoding="utf-8")
+        projects = [self.entry("Broken", broken), self.entry("Drifted", self.target),
+                    self.entry("Current", current), self.entry("Absent", pathlib.Path(self.tmp.name) / "nowhere"),
+                    # A path only for the other system.
+                    {"name": "Elsewhere", "windows": None if os.name == "nt" else "C:/x",
+                     "posix": "/x" if os.name == "nt" else None}]
+        code, out, err = self.run_drift(self.projects_file(projects))
+        self.assertEqual(code, 3, err)
+        lines = out.splitlines()
+        self.assertTrue(lines[0].startswith("Broken: diff refused: "), lines[0])
+        self.assertIn("Drifted: 1 can update, 1 need a merge, 0 unrecorded, 1 missing, 0 retired, 0 incomplete", lines)
+        self.assertIn("Current: 0 can update, 0 need a merge, 0 unrecorded, 0 missing, 0 retired, 0 incomplete", lines)
+        self.assertIn("Absent: not on this machine", lines)
+        self.assertIn("Elsewhere: not on this machine", lines)
+        self.assertIn(f"  can update: {self.SIX['kit-newer']}", lines)
+
+        code, out, _ = self.run_drift(self.projects_file([self.entry("Current", current),
+                                                          self.entry("Absent", pathlib.Path(self.tmp.name) / "no")]))
+        self.assertEqual(code, 0, out)
+
+    def test_a_scheduled_run_reaches_the_alert_with_the_report(self):
+        sdk = pathlib.Path(self.tmp.name) / "sdk"
+        shutil.copytree(FORGE_ROOT / "kits", sdk / "kits", ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copyfile(FORGE_ROOT / "forge.py", sdk / "forge.py")
+        shutil.copytree(FORGE_ROOT / ".conclave/automations", sdk / ".conclave/automations",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        self.six_state_fixture()
+        (sdk / forge.PROJECTS).write_text(json.dumps({"schema_version": 1, "projects": [
+            self.entry("Drifted", self.target)]}), encoding="utf-8")
+        spec = importlib.util.spec_from_file_location("sdk_run", sdk / ".conclave/automations/run.py")
+        assert spec is not None and spec.loader is not None
+        run = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(run)
+        alerts = []
+        code = run.main(["conclave-sdk-drift"], root=str(sdk), alerter=lambda *a: alerts.append(a))
+        self.assertEqual(code, 3)
+        self.assertEqual(len(alerts), 1)
+        name, task, outcome, tail, folder = alerts[0]
+        self.assertEqual((name, task["command"], outcome["exit"], folder),
+                         ("conclave-sdk-drift", ["python", "forge.py", "drift"], 3, "\\Conclave-SDK\\"))
+        self.assertIn("Drifted: 1 can update, 1 need a merge", tail)
+
+    def test_the_sdks_own_list_and_task_are_in_place(self):
+        projects = forge.load_projects(FORGE_ROOT / forge.PROJECTS)
+        self.assertEqual([p["name"] for p in projects], ["RasterFold", "Impossible OS"])
+        tasks = json.loads((FORGE_ROOT / ".conclave/automations/tasks.json").read_text(encoding="utf-8"))["tasks"]
+        drift = next(t for t in tasks if t["name"] == "conclave-sdk-drift")
+        self.assertEqual((drift["command"], drift["trigger"], drift["timeout_minutes"]),
+                         (["python", "forge.py", "drift"], {"weekly": "Monday", "at": "07:30"}, 10))
+        for readme in ("README.md", ".conclave/automations/README.md"):
+            self.assertIn(".conclave/projects.json", (FORGE_ROOT / readme).read_text(encoding="utf-8"), readme)
 
 
 class ProcessPlanAuditTests(unittest.TestCase):

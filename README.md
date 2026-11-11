@@ -83,6 +83,7 @@ Then open the project in Claude Code, Codex or Antigravity. Each agent finds its
 | `python forge.py diff <project> [kit]` | Report each kit file's state against the kit, writing nothing |
 | `python forge.py update <project> [kit]` | Write only the kit files the project lacks or never changed |
 | `python forge.py record <project> [kit]` | Adopt an older install: record the files still identical to the kit |
+| `python forge.py drift` | Report which projects in `.conclave/projects.json` drifted (exit 3 if any) |
 | `python forge.py doctor <project> [kit]` | Read-only checks of a kit's files and the tools it needs |
 | `python forge.py check <project>` | List the kits and skills a project has |
 | `python forge.py kits` | List the kits this SDK ships |
@@ -175,6 +176,10 @@ A file both sides changed (`both-changed`, or `differs` with no record entry) is
 python forge.py update ..\ExistingRepo --kit-new
 python forge.py record ..\ExistingRepo --merged .claude/skills/process-plan/SKILL.md
 ```
+
+### `drift`: which projects need an update
+
+`python forge.py drift` runs `diff` over every project in the SDK's `.conclave/projects.json` (the SDK keeps the list, because a project holds no path back to it) and prints one line per project: how many files can update, need a merge, are unrecorded (run `record`), missing, retired or incomplete, with up to 20 paths under each. It writes nothing and exits 3 when any project has one. The SDK's own scheduled task `conclave-sdk-drift` runs it every Monday at 07:30, and an exit of 3 sends the automations failure email, which is the report. Add a project by adding an entry with its `windows` and `posix` paths; see `.conclave/automations/README.md`.
 
 ## Isolation
 
