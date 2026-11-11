@@ -33,6 +33,10 @@ done
 # The dispatcher loads the pin's rules from review_pin.py beside it, so both land, with the loader's own tests.
 [ -f "$target/scripts/review_pin.py" ]
 [ -f "$target/scripts/tests/test_review_pin.py" ]
+# The prompt filler fills the templates that land in docs/, so it and its tests land too.
+[ -f "$target/scripts/review-prompt.py" ]
+[ -f "$target/scripts/tests/test_review_prompt.py" ]
+(cd "$target" && python3 -B scripts/review-prompt.py --help >/dev/null)
 
 fresh="$work/fresh"
 mkdir -p "$fresh"
@@ -71,4 +75,4 @@ if "$installer" "$symlink_target" >/dev/null 2>&1; then
 fi
 [ "$(cat "$outside/sentinel")" = "outside sentinel" ]
 
-printf 'reviewer kit installer: existing pin preserved, skills for 3 agents, dispatcher runnable, file modes, idempotency, dry-run, force rejection, and symlink containment passed\n'
+printf 'reviewer kit installer: existing pin preserved, skills for 3 agents, dispatcher and prompt filler runnable, file modes, idempotency, dry-run, force rejection, and symlink containment passed\n'

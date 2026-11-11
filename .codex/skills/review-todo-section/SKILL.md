@@ -59,23 +59,26 @@ Work the three questions across the diff and its blast radius. Fix what you find
 The passes run in this order for the section's findings file (`docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md`). Each pass is on a commit descending from the one before, the dispatcher refuses a pass out of order before a reviewer runs, and it refuses a second pass while one is running. Commit the pin before the section's plan review: the section runs under the pin committed at that review's candidate.
 
 1. **Plan review**, before the build (`process-todo-section` step 3a): `--kind plan --candidate <commit holding the section>`.
-2. **The round**, after the build, its gates and its commit. Write the prompt to a scratch file from `docs/review-round-prompt.md` (candidate SHA, section contract, governing documents), then run it with the candidate (required) and your own agent as the writer, adding `--surface` on a `Surface: yes` section so the `design` lens joins:
+2. **The round**, after the build, its gates and its commit. Fill the prompt into a scratch file from `docs/review-round-prompt.md` with `review-prompt.py` (the candidate, the section through `--ref`, what the change is for and the governing documents), then run it with the candidate (required) and your own agent as the writer, adding `--surface` on a `Surface: yes` section so the `design` lens joins:
 
 ```bash
+python3 scripts/review-prompt.py --kind round --candidate <full tip SHA> --ref "D<NN> T<NN> §<N>" --purpose "<one or two sentences>" --governing <the spec or plan> --out <scratch-round-prompt.md>
 python3 scripts/review-dispatch.py --kind round --candidate <full tip SHA> --writer <claude|codex|agy> [--surface] --prompt <scratch-round-prompt.md> --record docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md
 ```
 
    The dispatcher appends a `## Round 1` section and the pin's lenses (the lens table below is the vocabulary). Verify every finding against the code, fix what is real in new commits appended to the candidate, record why anything else is not real under a `## Writer note:` heading, and re-run the gates (step 5). There is no second round: the dispatcher refuses one.
-3. **The completion review** of the final candidate: prompt from `docs/completion-review-prompt.md` (the candidate SHA, the section contract, the TODO file's Goal and Outcome, the SPEC sections and design source named in Fidelity, the delivered diff, and what the round found and how it was handled):
+3. **The completion review** of the final candidate: prompt from `docs/completion-review-prompt.md`, filled by `review-prompt.py` (the candidate SHA, the section and its TODO file's Goal and Outcome through `--ref`, the design source named in Fidelity as `--fidelity` (leave it out on `Surface: no`), what the feature is for and the governing documents):
 
 ```bash
+python3 scripts/review-prompt.py --kind completion --candidate <full tip SHA> --ref "D<NN> T<NN> §<N>" [--fidelity <design source>] --purpose "<one or two sentences>" --governing <the spec or plan> --out <scratch-completion-prompt.md>
 python3 scripts/review-dispatch.py --kind completion --candidate <full tip SHA> --writer <claude|codex|agy> --prompt <scratch-completion-prompt.md> --record docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md
 ```
 
    It judges the built feature as a user meets it and against the strongest competitor or alternative: part 1 lists every control, state, error path and read-back the feature needs, each `present`, `missing-in-scope` or `missing-out-of-scope`, and part 2 lists where it falls short of beating the alternative, each `in-scope` or `out-of-scope`. It ends `COMPLETION: complete` or `COMPLETION: gaps`. A findings file takes one returned completion review.
-4. **Reconciliation after gaps.** On `COMPLETION: gaps` the stamp is blocked and the failed review stays on record. Implement every in-scope gap in new commits without changing what the section promises (its checklist text: the stamp compares it between the failed completion and each reconciliation), add one line per gap under the review (`- Implemented: <gap> in <commit>`), re-run the gates, then run a reconciliation on the new tip with a prompt from `docs/reconciliation-review-prompt.md`:
+4. **Reconciliation after gaps.** On `COMPLETION: gaps` the stamp is blocked and the failed review stays on record. Implement every in-scope gap in new commits without changing what the section promises (its checklist text: the stamp compares it between the failed completion and each reconciliation), add one line per gap under the review (`- Implemented: <gap> in <commit>`), re-run the gates, then run a reconciliation on the new tip with a prompt filled from `docs/reconciliation-review-prompt.md` (put the gate output in a file for `--gates`; after a reconciliation that returned gaps add `--last <the SHA that reconciliation reviewed>`, otherwise `--last` defaults to `--failed`):
 
 ```bash
+python3 scripts/review-prompt.py --kind reconciliation --candidate <full new tip SHA> --ref "D<NN> T<NN> §<N>" --failed <the failed completion's SHA> --findings docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md --gates <scratch-gates.txt> --governing <the spec or plan> --out <scratch-reconciliation-prompt.md>
 python3 scripts/review-dispatch.py --kind reconciliation --candidate <full new tip SHA> --writer <claude|codex|agy> --prompt <scratch-reconciliation-prompt.md> --record docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md
 ```
 
@@ -96,9 +99,10 @@ Skip this step on a three-pass pin. Under rotation the completion review comes b
 
 #### Completion and excellence review (one pass, first)
 
-Before the regular rounds, once per section, the pinned reviewer reviews the built feature as a user meets it and against the strongest competitor or alternative. Write the prompt to a scratch file from `docs/completion-review-prompt.md` (the candidate SHA, the section contract, the TODO file's Goal and Outcome, the SPEC sections and design source named in Fidelity, the delivered diff), then run it, naming your own agent as the writer (`claude`, `codex` or `agy`):
+Before the regular rounds, once per section, the pinned reviewer reviews the built feature as a user meets it and against the strongest competitor or alternative. Fill the prompt into a scratch file from `docs/completion-review-prompt.md` with `review-prompt.py` (the candidate SHA, the section and its TODO file's Goal and Outcome through `--ref`, the design source named in Fidelity as `--fidelity`), then run it, naming your own agent as the writer (`claude`, `codex` or `agy`):
 
 ```bash
+python3 scripts/review-prompt.py --kind completion --candidate <full candidate SHA> --ref "D<NN> T<NN> §<N>" [--fidelity <design source>] --purpose "<one or two sentences>" --governing <the spec or plan> --out <scratch-completion-prompt.md>
 python3 scripts/review-dispatch.py --kind completion --candidate <full candidate SHA> --writer <claude|codex|agy> --prompt <scratch-completion-prompt.md> --record docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md
 ```
 
@@ -108,9 +112,10 @@ Then, before any regular round, implement every `missing-in-scope` gap and every
 
 #### Independent review rounds (the pinned reviewer)
 
-The dispatcher picks each round's lenses and effort from the pin's schedule (the lens table below is the vocabulary), at least one round by the pinned independent reviewer. Write the prompt to a scratch file from `docs/review-round-prompt.md` (candidate SHA, section contract, governing documents, lenses), then run it, naming your own agent as the writer:
+The dispatcher picks each round's lenses and effort from the pin's schedule (the lens table below is the vocabulary), at least one round by the pinned independent reviewer. Fill the prompt into a scratch file from `docs/review-round-prompt.md` with `review-prompt.py` (the commit under review as `--candidate`, which the filler needs although a rotation round passes none to the dispatcher; the section through `--ref`), then run it, naming your own agent as the writer:
 
 ```bash
+python3 scripts/review-prompt.py --kind round --candidate <full SHA under review> --ref "D<NN> T<NN> §<N>" --purpose "<one or two sentences>" --governing <the spec or plan> --out <scratch-review-prompt.md>
 python3 scripts/review-dispatch.py --writer <claude|codex|agy> --prompt <scratch-review-prompt.md> --record docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md
 ```
 

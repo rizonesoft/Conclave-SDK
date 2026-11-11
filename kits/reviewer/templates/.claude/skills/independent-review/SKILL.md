@@ -25,7 +25,13 @@ Proportionality: only a failure that can happen in real operation with real inpu
 ## Steps
 
 1. Review your own change first and fix what you find.
-2. Write the review prompt to a scratch file, not the repository, from `docs/review-round-prompt.md`: name the candidate commit or range, the governing documents, and the lenses that apply.
+2. Fill the review prompt into a scratch file, not the repository, from `docs/review-round-prompt.md` with `review-prompt.py`, which names the candidate commit or range and the governing documents (the dispatcher adds the lenses). A review outside a TODO section has no `--ref`, so the prompt drops its TODO line:
+
+   ```bash
+   python3 scripts/review-prompt.py --kind round --candidate <full SHA> [--base <first SHA of the range>] --purpose "<one or two sentences>" --governing <the spec or plan> --out <scratch>/review-prompt.md
+   ```
+
+   It refuses (exit 2, nothing written) a placeholder it has no value for. Fill the template by hand only if the script is missing.
 3. Run the pass naming the agent that wrote the change as the writer, never another: a writer the pin does not route refuses, which is no review. Pass `--surface` when the change ships a user-facing surface (`Surface: yes`), so the `design` lens joins:
 
    ```bash
@@ -34,7 +40,7 @@ Proportionality: only a failure that can happen in real operation with real inpu
 
    On Windows use `python` instead of `python3`; the command is otherwise the same.
 4. For planned work in a TODO section (`review-todo-section` runs it), the passes and their order depend on the schedule:
-   - Three-pass: `--kind plan` (prompt from `docs/plan-review-prompt.md`) before the build, one `--kind round` after it, `--kind completion` (prompt from `docs/completion-review-prompt.md`) on the final candidate, and `--kind reconciliation` (prompt from `docs/reconciliation-review-prompt.md`) after gaps. Every one takes `--candidate <40-character commit SHA>`. There is no second round, and a pass out of order is refused.
+   - Three-pass: `--kind plan` (prompt from `docs/plan-review-prompt.md`, filled by `review-prompt.py --kind plan --ref "D<NN> T<NN> §<N>"`) before the build, one `--kind round` after it, `--kind completion` (prompt from `docs/completion-review-prompt.md`, filled by `review-prompt.py --kind completion --ref "D<NN> T<NN> §<N>"`) on the final candidate, and `--kind reconciliation` (prompt from `docs/reconciliation-review-prompt.md`, filled by `review-prompt.py --kind reconciliation --ref "D<NN> T<NN> §<N>"`) after gaps. Every one takes `--candidate <40-character commit SHA>`. There is no second round, and a pass out of order is refused.
    - Rotation: `--kind plan` before the build, `--kind completion` after it and before the rounds, then the rounds. A round needs no `--candidate`.
 5. Read the review. Every finding carries `P1`, `P2` or `P3` (an untagged one counts as `P1`), and the review ends with a `HIGHEST:` line. Under three-pass it also carries one line `LENS <name>: clean` or `LENS <name>: findings` per scheduled lens; a reply missing one, or its final verdict lines, is recorded as no review (exit 1) and did not count: run the pass again. Verify every finding against the code before acting: fix what is real, and record why anything else is not.
 6. Commit fixes as new commits. What happens next depends on the schedule:

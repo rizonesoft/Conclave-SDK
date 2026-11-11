@@ -83,9 +83,10 @@ Correct the plan, never the goalpost: narrowing a section so the code you were a
 
 ### 3a. Plan review by the pinned reviewer (one pass, before any code)
 
-Once the section is corrected, commit it (with `plan --sync`) so the reviewer reads the exact contract you will build. Check the pin first (`python scripts/review_pin.py --check`; its `[schedule] policy` says whether the project is on `three-pass` or rotation, which `review-todo-section` explains), and make sure the pin is committed: under a three-pass pin the section runs under the pin committed at this review's candidate, and a later pin change does not move it. Then have the pinned reviewer judge whether that contract produces a 100% complete feature. Write the prompt to a scratch file from `docs/plan-review-prompt.md`, then run:
+Once the section is corrected, commit it (with `plan --sync`) so the reviewer reads the exact contract you will build. Check the pin first (`python scripts/review_pin.py --check`; its `[schedule] policy` says whether the project is on `three-pass` or rotation, which `review-todo-section` explains), and make sure the pin is committed: under a three-pass pin the section runs under the pin committed at this review's candidate, and a later pin change does not move it. Then have the pinned reviewer judge whether that contract produces a 100% complete feature. Fill the prompt into a scratch file from `docs/plan-review-prompt.md` with `review-prompt.py` (the section through `--ref`, which also finds its TODO file), then run:
 
 ```powershell
+python scripts/review-prompt.py --kind plan --candidate <full SHA of that commit> --ref "D<NN> T<NN> §<N>" [--fidelity <design source>] --governing <the spec or plan> --out <scratch-plan-prompt.md>
 python scripts/review-dispatch.py --kind plan --candidate <full SHA of that commit> --writer claude --prompt <scratch-plan-prompt.md> --record docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md
 ```
 

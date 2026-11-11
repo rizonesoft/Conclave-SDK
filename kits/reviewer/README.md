@@ -103,9 +103,11 @@ lenses = ["adversarial"]
 | `.conclave/reviewers.toml` | The reviewers, the route for each writer and the schedule |
 | `scripts/review-dispatch.py` | Runs a pass and records it |
 | `scripts/review_pin.py` | Loads and checks the pin; the one copy of its rules, copyable on its own |
+| `scripts/review-prompt.py` | Fills a prompt template in `docs/` and writes the prompt to send |
 | `scripts/tests/test_review_dispatch.py` | Routing, rotation schedule, failed-review and record tests |
 | `scripts/tests/test_three_pass.py` | Three-pass order, pin, caps, blocking, lens verdict and path tests |
 | `scripts/tests/test_review_pin.py` | Pin key, schedule, cap and lens verdict tests |
+| `scripts/tests/test_review_prompt.py` | Prompt filling, its refusals and a dispatcher round trip |
 | `docs/plan-review-prompt.md` | The plan review before the build |
 | `docs/review-round-prompt.md` | The round prompt: candidate, lenses, severities, reply format |
 | `docs/completion-review-prompt.md` | The completion and excellence review |
@@ -127,7 +129,16 @@ The doctor loads the pin under the dispatcher's own rules and reports any review
 
 ## Running a pass
 
-Name your own agent as the writer (`claude`, `codex` or `agy`):
+Fill the prompt first. `scripts/review-prompt.py` reads the template for `--kind` from `docs/`, replaces every placeholder and writes the prompt with an atomic write; a placeholder it has no value for, a malformed SHA, a missing template or an unwritable `--out` is a refusal (exit 2, nothing written, an existing `--out` untouched). `--ref` names the TODO section and, when `scripts/todo-graph.py` is beside it, finds the TODO file (pass `--todo` otherwise); without `--ref` the TODO lines are dropped, which is right for a review outside a section. `--base` makes the candidate a range, `--fidelity` names a design source (default `none (Surface: no)`):
+
+```bash
+python3 scripts/review-prompt.py --kind round --candidate <40-char SHA> --ref "D<NN> T<NN> §<N>" --purpose "<one or two sentences>" --governing <the spec or plan> --out <scratch>/round.md
+python3 scripts/review-prompt.py --kind reconciliation --candidate <repaired SHA> --ref "D<NN> T<NN> §<N>" --failed <completion SHA> [--last <last reviewed SHA>] --findings docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md --gates <scratch>/gates.txt --governing <the spec or plan> --out <scratch>/reconciliation.md
+```
+
+`plan` and `completion` fill the same way (`--purpose` is for `round` and `completion`; `--gates`, `--findings`, `--failed` and `--last` are for `reconciliation`). Each template's header still says how to fill it by hand.
+
+Then run the pass, naming your own agent as the writer (`claude`, `codex` or `agy`):
 
 ```bash
 python3 scripts/review-dispatch.py --kind plan --candidate <40-char SHA> --writer <writer> --prompt <scratch>/plan.md --record docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md
