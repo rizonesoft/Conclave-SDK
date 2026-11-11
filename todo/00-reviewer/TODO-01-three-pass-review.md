@@ -37,6 +37,8 @@ title: "TODO-01 -- Three-pass review"
 | 3 | §3 | Three-pass stamp rules in the todo kit | §2 | [ ] |
 | 4 | §4 | Template pin, prompts, skills and READMEs on three-pass | §3 | [ ] |
 | 5 | §5 | Pin check that reports every fault at once | §1 | [ ] |
+| 6 | §6 | Reviewer process tree ended on Windows by a job object | §2 | [ ] |
+| 7 | §7 | Review prompt filler | §2 | [ ] |
 
 ## 1. Pin loader module with the three-pass keys
 
@@ -188,6 +190,48 @@ Filed 2026-11-11 from the completion review of §1 (an out-of-scope excellence i
 - [ ] Commit: `reviewer: report every pin fault in one check`
 
 **Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests -p test_review_pin.py` ends `OK`; making `faults` return only its first message makes the three-fault test fail.
+
+## 6. Reviewer process tree ended on Windows by a job object
+
+Filed 2026-11-11 from the completion review of §2 (an out-of-scope gap). `kill_tree` in `review-dispatch.py` ends a reviewer's children on Windows with `taskkill /T`, which reaches them only while the reviewer itself is alive (the line carries a `WORKAROUND` comment). RasterFold's dispatcher starts the reviewer suspended inside a Win32 job object with kill-on-close, so every descendant ends with the job. Source: RasterFold `scripts/review-dispatch.py` at `b334933`, `create_windows_job`, `bind_and_resume_windows_job`, `close_windows_job` and its `run`.
+
+**Phase:** 0
+**Needs:** windows-host
+**Surface:** no
+
+**Build order:**
+
+1. Port the job object functions into `kits/reviewer/templates/scripts/review-dispatch.py` and use them in `run` and `kill_tree` on Windows. Done when: a reviewer that exits leaving a child running has no surviving child.
+2. Cover it in `kits/reviewer/templates/scripts/tests/test_review_dispatch.py`, then `python forge.py self-sync`. Done when: the checkpoint passes.
+
+- [ ] Add `create_windows_job`, `bind_and_resume_windows_job` and `close_windows_job` to `review-dispatch.py` with `ctypes` (standard library), from RasterFold's dispatcher. Done when: on Windows a process started suspended is assigned to a kill-on-close job before it runs. Cheaper substitute: keeping `taskkill /T` as the only mechanism must fail the orphan test.
+- [ ] Start the reviewer suspended in the job in `run` and end the job in `kill_tree` of `review-dispatch.py`, leaving the Linux process group path as it is. Done when: the orphan test that skips Windows today (`test_review_dispatch.py`, the child survival test) runs on Windows and passes, and the Linux run is unchanged.
+- [ ] Remove the `WORKAROUND` comment and the note about a child outliving its reviewer from `kill_tree` and `remove_scratch` in `review-dispatch.py`. Done when: neither function describes a child that cannot be reached.
+- [ ] Run `python forge.py self-sync`. Done when: `scripts/review-dispatch.py` equals the kit file.
+- [ ] Commit: `reviewer: end the reviewer's whole process tree on Windows with a job object`
+
+**Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests` ends `OK` on Windows with the child survival test run, not skipped; removing the job assignment makes that test fail.
+
+## 7. Review prompt filler
+
+Filed 2026-11-11 from the completion review of §2 (an out-of-scope excellence item). A writer fills each prompt template by hand today. RasterFold has `scripts/review-prompt.py`, which writes the filled prompt for a section, a kind and a candidate. Source: RasterFold `scripts/review-prompt.py` at `b334933` (265 lines), with its project paths removed.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add `kits/reviewer/templates/scripts/review-prompt.py` that fills a template in `docs/` for `--kind`, `--ref` and `--candidate`. Done when: its output has no unfilled placeholder.
+2. Cover it in `kits/reviewer/templates/scripts/tests/test_review_prompt.py`, name it in the skills and README, then `python forge.py self-sync`. Done when: the checkpoint passes.
+
+- [ ] Add `review-prompt.py` under `kits/reviewer/templates/scripts/`: `--kind plan|round|completion|reconciliation`, `--ref`, `--candidate`, `--base`, `--purpose`, `--gates <file>` and `--out`, reading the template after its `---` line and writing the filled prompt with an atomic write. Done when: a test fills each of the four templates and finds no `<...>` placeholder left. Cheaper substitute: a filler that leaves an unknown placeholder in place without refusing must fail.
+- [ ] Refuse in `review-prompt.py` when a placeholder has no value, a template is missing or `--candidate` is not a 40-character SHA, naming what is missing. Done when: tests assert each refusal and that nothing is written.
+- [ ] Name `review-prompt.py` in `kits/reviewer/README.md` and in the `independent-review`, `review-todo-section` and `process-todo-section` skills of the three agent folders, in place of "write the prompt to a scratch file from" the template. Done when: each skill shows the command.
+- [ ] Add install assertions for `review-prompt.py` to `kits/reviewer/scripts/test-install.sh` and run `python forge.py self-sync`. Done when: `bash kits/reviewer/scripts/test-install.sh` passes and `scripts/review-prompt.py` equals the kit file.
+- [ ] Commit: `reviewer: fill review prompts with review-prompt.py`
+
+**Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests -p test_review_prompt.py` ends `OK`; removing the unfilled-placeholder refusal makes its test fail.
 
 ## Verification
 

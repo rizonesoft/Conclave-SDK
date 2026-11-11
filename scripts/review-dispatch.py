@@ -291,7 +291,10 @@ def review(pin, writer, prompt_path, timeout, plan=None, kind="round"):
     name = review_pin.route_for(pin, writer)
     if name is None:
         raise Refused(f"the reviewer pin has no route for writer {writer!r}")
-    prompt = Path(prompt_path).read_text(encoding="utf-8")
+    try:
+        prompt = Path(prompt_path).read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        raise Refused(f"the review prompt {prompt_path} is not UTF-8 text; save it as UTF-8 and run again") from None
     if not prompt.strip():
         raise Refused("the review prompt is empty")
     if "\0" in prompt:
@@ -920,11 +923,15 @@ def main(argv=None):
                 result["recorded"] = True
             else:
                 result["round"] = record(Path(args.record), result, when, args.candidate)
-        except Unrecorded as exc:
-            # The review still reaches stdout; only the findings file is left as it was.
+        except (Unrecorded, OSError) as exc:
+            # The review still reaches stdout; only the findings file is left as it was. A write that fails (a full
+            # disk, a folder that may not be written) is the same: the writes are atomic, so the file is whole, and a
+            # review that was paid for is never lost with it.
             unrecorded = {"recorded": False} if one_pass else {"round": None}
             print(json.dumps({**result, **unrecorded, "run": when}, indent=2))
-            print("review-dispatch refused: " + str(exc), file=sys.stderr)
+            why = str(exc) if isinstance(exc, Unrecorded) else \
+                f"{args.record} could not be written ({exc.strerror or exc}), so the review was not recorded"
+            print("review-dispatch refused: " + why, file=sys.stderr)
             return 2
     print(json.dumps({**result, "run": when}, indent=2))
     return 0 if result["reviewer"] else 1

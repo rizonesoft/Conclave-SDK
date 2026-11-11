@@ -698,6 +698,32 @@ class Dispatch(Harness):
             argv, _ = module.command({"cli": cli, "model": "m"}, cli, "p", "p.md", "o.md", 60, "low")
             self.assertTrue([a for a in argv if "effort" in a], argv)
 
+    def test_a_review_that_cannot_be_saved_still_reaches_stdout(self):
+        # Completion review of D00 T01 §2: a failed write lost the review. The findings folder is a file here, so the
+        # write fails as a full disk or a read-only folder would.
+        blocker = self.repo / "docs"
+        blocker.write_text("not a folder\n", encoding="utf-8")
+        for extra in ((), ("--kind", "completion", "--candidate", "a" * 40)):
+            with self.subTest(kind=extra[:2]):
+                result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record",
+                                                str(blocker / "reviews" / "x.md"), *extra,
+                                                **({"codex": "completion"} if extra else {}))
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertIn("could not be written", result.stderr)
+                self.assertEqual(summary["reviewer"], "sol")
+                self.assertTrue(summary["review"])
+                self.assertIn(summary.get("recorded", summary.get("round")), (False, None))
+        self.assertEqual(blocker.read_text(encoding="utf-8"), "not a folder\n")
+
+    def test_a_prompt_that_is_not_utf8_is_refused_before_a_reviewer_runs(self):
+        self.prompt.write_bytes(b"Review this \xff\xfe file.\n")
+        result, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt))
+        self.assertEqual(result.returncode, 2)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn("is not UTF-8 text", result.stderr)
+        self.assertEqual(self.calls(), [])
+
     def test_a_scheduled_step_without_an_effort_passes_none_whatever_the_reviewers(self):
         # Round 1 of D00 T01 §1: the record must show what the schedule says, or the stamp's replay refuses it. A step
         # that sets no effort therefore runs with none, even when the reviewer has one of its own.

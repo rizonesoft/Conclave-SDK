@@ -8,16 +8,18 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Three-pass review
 
-Sections: 5 | Checklist items: 60
+Sections: 7 | Checklist items: 70
 
-| Status | Reference  | Deliverable                                             | Needs | Items |
-| ------ | ---------- | ------------------------------------------------------- | ----- | ----- |
-| [x]    | D00 T01 §1 | Pin loader module with the three-pass keys              | none  | 14    |
-| [ ]    | D00 T01 §2 | Three-pass dispatcher                                   | none  | 23    |
-| [ ]    | D00 T01 §3 | Three-pass stamp rules in the todo kit                  | none  | 10    |
-| [ ]    | D00 T01 §4 | Template pin, prompts, skills and READMEs on three-pass | none  | 9     |
-| [ ]    | D00 T01 §5 | Pin check that reports every fault at once              | none  | 4     |
+| Status | Reference  | Deliverable                                             | Needs        | Items |
+| ------ | ---------- | ------------------------------------------------------- | ------------ | ----- |
+| [x]    | D00 T01 §1 | Pin loader module with the three-pass keys              | none         | 14    |
+| [ ]    | D00 T01 §2 | Three-pass dispatcher                                   | none         | 23    |
+| [ ]    | D00 T01 §3 | Three-pass stamp rules in the todo kit                  | none         | 10    |
+| [ ]    | D00 T01 §4 | Template pin, prompts, skills and READMEs on three-pass | none         | 9     |
+| [ ]    | D00 T01 §5 | Pin check that reports every fault at once              | none         | 4     |
+| [ ]    | D00 T01 §6 | Reviewer process tree ended on Windows by a job object  | windows-host | 5     |
+| [ ]    | D00 T01 §7 | Review prompt filler                                    | none         | 5     |
 
-Progress: 1/5 verified sections, 2 ready to run now.
+Progress: 1/7 verified sections, 2 ready to run now.
 
-Checklist: 36/60 items completed (includes Commit items).
+Checklist: 36/70 items completed (includes Commit items).
