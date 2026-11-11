@@ -37,7 +37,7 @@ title: "TODO-01 -- Three-pass review"
 | 3 | §3 | Three-pass stamp rules in the todo kit | §2 | [x] |
 | 4 | §4 | Template pin, prompts, skills and READMEs on three-pass | §3 | [x] |
 | 5 | §5 | Pin check that reports every fault at once | §1 | [x] |
-| 6 | §6 | Reviewer process tree ended on Windows by a job object | §2 | [ ] |
+| 6 | §6 | Reviewer process tree ended on Windows by a job object | §2 | [x] |
 | 7 | §7 | Review prompt filler | §2 | [ ] |
 | 8 | §8 | Stamp that recovers from a write cut short | §3 | [x] |
 
@@ -248,9 +248,12 @@ Filed 2026-11-11 from the completion review of §2 (an out-of-scope gap). `kill_
 - [x] Check child survival on Windows without `os.kill(pid, 0)`, which terminates the process there: open the process with `OpenProcess` and read `GetExitCodeProcess` (still active or not), in `test_review_dispatch.py`. Done when: the survival test passes on Windows with the job in place and fails when the job assignment is disabled, and the same check is used after a timeout and after an output flood, where the descendants must be gone too. **Corrected 2026-11-11 (plan review):** added; the existing liveness check would have killed the child it was looking for, and only a normal exit was covered.
 - [x] Remove the `WORKAROUND` comment and the note about a child outliving its reviewer from `kill_tree` and `remove_scratch` in `review-dispatch.py`. Done when: neither function describes a child that cannot be reached.
 - [x] Run `python forge.py self-sync`. Done when: `scripts/review-dispatch.py` equals the kit file.
-- [ ] Commit: `reviewer: end the reviewer's whole process tree on Windows with a job object`
+- [x] Commit: `reviewer: end the reviewer's whole process tree on Windows with a job object`
 
 **Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests` ends `OK` on Windows with the child survival test run, not skipped, and with `CONCLAVE_FULL_TESTS=1` set `python -m unittest discover -s tests` ends `OK`; removing the job assignment makes the survival test fail.
+
+> **Verified:** 2026-11-11 | §6 | 305209d965b5ce4bd767efe8c3aced5a1de13a5b
+> **Review:** `docs/reviews/d00-t01-s6.json`
 
 ## 7. Review prompt filler
 
