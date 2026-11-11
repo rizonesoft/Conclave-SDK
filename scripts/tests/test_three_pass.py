@@ -9,6 +9,7 @@ import subprocess
 import sys
 import textwrap
 import unittest
+import unittest.mock
 
 # The scratch repository and the fake reviewer CLIs; unittest discovery puts this folder on sys.path.
 from test_review_dispatch import Harness
@@ -190,6 +191,28 @@ class Chain(ThreePass):
         repaired = self.commit("repair", {"src/app/a.py": "x = 2\n"})
         self.ok("reconciliation", repaired)
         self.refused("reconciliation", repaired, "already returned complete")
+
+    def test_a_second_launch_of_a_sections_pass_is_refused_while_the_first_runs(self):
+        # Round 2 of D00 T01 §2: two launches both passed the order check and both spent a review.
+        self.ok("plan", self.base)
+        built = self.commit("build", {"src/app/a.py": "x = 1\n"})
+        module = self.module()
+        with unittest.mock.patch.object(module.tempfile, "gettempdir", return_value=str(self.scratch)):
+            lock = module.section_lock_path(str(self.record))
+        lock.write_text("12345", encoding="ascii")
+        self.refused("round", built, "is already running")
+        self.assertTrue(lock.exists(), "a refused launch must not take the running one's lock away")
+        # A lock older than a reviewer can run belongs to a dead run: it is replaced, and released afterwards.
+        old = lock.stat().st_mtime - 10 * 3600
+        os.utime(lock, (old, old))
+        self.ok("round", built)
+        self.assertFalse(lock.exists())
+        # A review outside a section takes no lock.
+        self.record = self.repo / "docs/reviews/topic.md"
+        with unittest.mock.patch.object(module.tempfile, "gettempdir", return_value=str(self.scratch)):
+            other = module.section_lock_path(str(self.record))
+        other.write_text("12345", encoding="ascii")
+        self.ok("round", None)
 
     def test_a_completion_that_is_complete_takes_no_reconciliation(self):
         built = self.to_completion(top="none", gaps=False)

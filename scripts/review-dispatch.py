@@ -62,6 +62,7 @@ a review outside a section, take the files from `--paths`. The summary of a retu
 `highest` and `blocking` (whether that severity holds the stamp).
 """
 import argparse
+import atexit
 from datetime import datetime, timezone
 import hashlib
 import importlib.util
@@ -701,6 +702,40 @@ def changed_paths(base, candidate):
 
 
 SEVERITY_RANK = {"P1": 3, "P2": 2, "P3": 1, "none": 0, None: 3}
+# How long past a reviewer's own timeout a section lock is believed: a run that was killed cannot hold it for ever.
+LOCK_GRACE_SECONDS = 300
+
+
+def section_lock_path(record_path):
+    """Where the lock of one section's findings file lives: the system's temporary folder, never the repository, so
+    a run that is killed leaves nothing in the working tree."""
+    name = os.path.normcase(os.path.abspath(record_path)).encode("utf-8")
+    return Path(tempfile.gettempdir()) / f"review-dispatch-{hashlib.sha256(name).hexdigest()[:16]}.lock"
+
+
+def lock_section(record_path, timeout):
+    """Take a three-pass section's lock for the rest of this run: the order check, the review and the record happen
+    under it, so a second launch of the same pass sees the first one's record instead of spending another review. A
+    lock older than a reviewer can run is a dead run's and is replaced. Released when the process exits."""
+    path = section_lock_path(record_path)
+    for _ in range(2):
+        try:
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                age = time.time() - path.stat().st_mtime
+            except FileNotFoundError:
+                continue
+            if age <= timeout + LOCK_GRACE_SECONDS:
+                raise Refused(f"another review of {record_path} is already running (lock {path}); a section takes "
+                              f"one pass at a time") from None
+            path.unlink(missing_ok=True)
+            continue
+        os.write(fd, str(os.getpid()).encode("ascii"))
+        os.close(fd)
+        atexit.register(path.unlink, missing_ok=True)
+        return
+    raise Refused(f"cannot take the review lock {path}")
 
 
 def check_three_pass_order(kind, record_path, candidate, schedule):
@@ -881,6 +916,8 @@ def main(argv=None):
         three_pass = schedule.get("policy") == THREE_PASS
         paths = [p.replace("\\", "/") for p in args.paths]
         if three_pass:
+            if section_record(args.record):
+                lock_section(args.record, args.timeout)
             check_three_pass_order(args.kind, args.record, args.candidate, schedule)
             if args.kind != "plan" and section_record(args.record):
                 if paths:
