@@ -1460,25 +1460,22 @@ def provision(
     docs = {doc: ((base_templates / doc).read_bytes(), (base_templates / doc).read_bytes() + (pointer if doc == "AGENTS.md" else b""))
             for doc in ENTRY_DOCS if overwrite_existing_docs and _rel_allowed_for_agent(doc, agent)
             and not (target_root / doc).is_symlink()}
-    for doc, (kit_bytes, final) in docs.items():
-        _check_backup(target_root, doc, kit_bytes, final)
+    for doc, (_kit_bytes, final) in docs.items():
+        _check_backup(target_root, doc, final)
 
     kit_results = [apply_kit(target_root, kit_name, agent=agent, host=wordpress_host, include=include)
                    for kit_name in selected]
 
     forced: list[str] = []
     backups: list[str] = []
-    needs_pointer = False
     if docs:
         record = load_record(target_root) or {"schema_version": 1, "kits": {}, "files": {}}
+        fresh = set(kit_results[0]["installed"])  # installed by this run: the kit's bytes, the pointer still to come
         # Anything an interrupted run staged was finished by the kits' own install above.
-        for doc, (kit_bytes, final) in docs.items():
+        for doc, (_kit_bytes, final) in docs.items():
             path = target_root / doc
             current = path.read_bytes() if path.is_file() else None
-            if current == final:
-                continue
-            if current == kit_bytes:  # the kit's bytes, still without the pointer init appends below
-                needs_pointer = needs_pointer or doc == "AGENTS.md"
+            if doc in fresh or current == final:
                 continue
             backup = target_root / (doc + REPLACED)
             # The project's doc is kept before anything replaces it; a backup already holding it is from a run that
@@ -1492,7 +1489,7 @@ def provision(
                         [(doc, target_root / doc, docs[doc][0]) for doc in forced])
 
     agents_md = target_root / "AGENTS.md"
-    fresh_agents = "AGENTS.md" in kit_results[0]["installed"] or "AGENTS.md" in forced or needs_pointer
+    fresh_agents = "AGENTS.md" in kit_results[0]["installed"] or "AGENTS.md" in forced
     if "todo" in selected and fresh_agents and agents_md.is_file():
         atomic_write(agents_md, agents_md.read_bytes() + TODO_POINTER.encode("utf-8"))
 
@@ -1511,7 +1508,7 @@ def provision(
 REPLACED = ".replaced"
 
 
-def _check_backup(target_root: Path, doc: str, kit_bytes: bytes, final: bytes) -> None:
+def _check_backup(target_root: Path, doc: str, final: bytes) -> None:
     """Refuse `init --force` before any file is written when the doc it would replace cannot be kept: its
     `<doc>.replaced` is a link, a folder, or a file holding other bytes (the only copy of an earlier version). A
     backup holding the doc's own bytes is the one an interrupted run made, so the run may go on."""
@@ -1519,7 +1516,7 @@ def _check_backup(target_root: Path, doc: str, kit_bytes: bytes, final: bytes) -
     if path.exists() and not path.is_file():
         raise ValueError(f"{doc} is not a file; refusing to replace it")
     current = path.read_bytes() if path.is_file() else None
-    if current is None or current in (kit_bytes, final):
+    if current is None or current == final:
         return
     backup = target_root / (doc + REPLACED)
     if _is_link(backup) or (backup.exists() and not backup.is_file()):

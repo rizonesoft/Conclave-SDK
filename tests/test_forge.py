@@ -2729,6 +2729,16 @@ class ForceBackupTests(KitFixture, unittest.TestCase):
                 self.assertEqual(sorted(p.name for p in self.target.glob("*" + forge.REPLACED)),
                                  sorted(d + forge.REPLACED for d in self.DOCS))
 
+    def test_a_doc_the_project_had_is_backed_up_even_when_it_is_the_kits_bytes(self):
+        self.assertEqual(self.init()[0], 0)  # AGENTS.md: the kit's bytes, no TODO pointer
+        code, out, err = self.init("--force", "--with-todo")
+        self.assertEqual(code, 0, err)
+        self.assertEqual((self.target / "AGENTS.md.replaced").read_bytes(), self.kit_doc("AGENTS.md"))
+        self.assertIn(b"TODO workflow", (self.target / "AGENTS.md").read_bytes())
+        self.assertIn("AGENTS.md", out["written"])
+        self.assertNotIn("AGENTS.md", out["skipped"])
+        self.assertEqual(out["backups"], ["AGENTS.md.replaced"])
+
     def test_a_backup_that_cannot_be_kept_refuses_before_any_write(self):
         dangling = pathlib.Path(self.tmp.name) / "gone"
         for kind in ("file", "folder", "dangling link"):
