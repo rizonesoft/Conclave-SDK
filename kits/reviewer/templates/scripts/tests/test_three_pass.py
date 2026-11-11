@@ -299,6 +299,13 @@ class Blocking(ThreePass):
         self.refused("reconciliation", repaired, "worst finding is P3, below the pin's blocking levels (P1, P2)")
         del built
 
+    def test_a_pin_without_blocking_never_ends_the_loop_on_severity(self):
+        # Round 1 of D00 T01 §2: a reply ending HIGHEST: none then COMPLETION: gaps crashed on the missing key.
+        self.base = self.commit("no blocking", {".conclave/reviewers.toml": PIN})
+        self.to_completion(top="none")
+        repaired = self.commit("repair", {"src/app/a.py": "x = 2\n"})
+        self.ok("reconciliation", repaired)
+
     def test_a_blocking_pass_is_followed_by_a_reconciliation(self):
         self.to_completion(top="P2")
         repaired = self.commit("repair", {"src/app/a.py": "x = 2\n"})
@@ -339,9 +346,27 @@ class SectionPin(ThreePass):
     def test_a_plan_candidate_without_a_loadable_pin_is_refused_naming_the_commit(self):
         self.git("rm", "-q", ".conclave/reviewers.toml")
         bare = self.commit("no pin")
-        self.refused("plan", bare, f"no reviewer pin .conclave/reviewers.toml at {bare}")
+        self.refused("plan", bare, "no reviewer pin at")
         broken = self.commit("broken pin", {".conclave/reviewers.toml": PIN.replace("pass_cap = 5", "pass_cap = 2")})
         self.refused("plan", broken, f"the reviewer pin at {broken} does not load: [schedule] pass_cap")
+
+    def test_a_rotation_section_follows_the_working_tree_pin_as_it_always_did(self):
+        # Round 1 of D00 T01 §2: keeping the plan review's pin is the three-pass rule; a rotation section is not bound.
+        rotation = PIN.partition("[schedule]")[0]
+        base = self.commit("rotation", {".conclave/reviewers.toml": rotation})
+        self.ok("plan", base, say="x\nPLAN: complete\nOVERALL: approve")
+        self.commit("new model", {".conclave/reviewers.toml": rotation.replace("gpt-6.1-sol", "gpt-9-other")})
+        summary = self.ok("round", None, say="fine\nOVERALL: approve")
+        self.assertEqual(summary["model"], "gpt-9-other")
+
+    def test_a_respelled_findings_path_is_still_the_sections_on_windows(self):
+        self.ok("plan", self.base)
+        built = self.commit("build", {"src/app/a.py": "x = 1\n"})
+        self.ok("round", built)
+        if os.name != "nt":
+            self.skipTest("only Windows opens a differently cased path as the same file")
+        self.record = self.repo / RECORD.replace("docs/reviews", "DOCS/Reviews")
+        self.refused("round", built, "allows one round")
 
     def test_a_review_outside_a_section_uses_the_working_tree_pin(self):
         self.record = self.repo / "docs/reviews/topic.md"
@@ -377,6 +402,15 @@ class Conditional(ThreePass):
         self.assertIn("review-dispatch refused", result.stderr)
         self.assertEqual(len(self.calls()), before)
         self.assertEqual(len(self.findings()["rounds"]), 0)
+
+    def test_a_file_moved_out_of_a_watched_folder_still_counts(self):
+        self.base = self.commit("kernel file", {"src/kernel/a.c": "int x;\nint y;\nint z;\n"})
+        self.ok("plan", self.base)
+        (self.repo / "src/app").mkdir(parents=True, exist_ok=True)
+        self.git("mv", "src/kernel/a.c", "src/app/a.c")
+        moved = self.commit("moved out")
+        both = LENSES["round"] + ["concurrency"]
+        self.assertEqual(self.ok("round", moved, say=reply("round", both))["lenses"], both)
 
     def test_no_matching_file_means_no_conditional_lens(self):
         self.ok("plan", self.base)

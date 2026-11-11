@@ -49,8 +49,9 @@ that returned gaps. For a findings file named for a section (`docs/reviews/<NN-d
 order is checked before a reviewer runs, each candidate must be a commit descending from the pass before, and a
 reconciliation is refused once the section has spent its `pass_cap` returned passes, after `no_progress_cap`
 reconciliations in a row with no less severe a worst finding, and after a pass whose worst finding is below the
-pin's `blocking` levels. A section runs under the pin committed at its plan review's candidate, schedule and route
-both; when that pin is missing or does not load the pass is refused, never run under the working tree's.
+pin's `blocking` levels. A three-pass section runs under the pin committed at its plan review's candidate, schedule
+and route both; when that three-pass pin no longer loads the pass is refused, never run under the working tree's. A
+section whose plan candidate holds a rotation pin, or none, follows the working tree's pin as it always did.
 
 Under three-pass every scheduled lens is appended with its question and owes one line `LENS <name>: clean` or
 `LENS <name>: findings`. A reply missing a lens line, or the final verdict lines of its kind, is recorded with no
@@ -637,7 +638,10 @@ def descends(older, newer):
     return git("merge-base", "--is-ancestor", older, newer).returncode == 0
 
 
-SECTION_FINDINGS = re.compile(r"(?:^|/)docs/reviews/[0-9]{2}-[A-Za-z0-9_-]+/D[0-9]{2}-T[0-9]{2}-s[1-9][0-9]*\.md$")
+# Windows opens `DOCS/Reviews/...` as the same file, so there the name is matched without regard to case: a section's
+# rules cannot be stepped around by respelling its findings file.
+SECTION_FINDINGS = re.compile(r"(?:^|/)docs/reviews/[0-9]{2}-[A-Za-z0-9_-]+/D[0-9]{2}-T[0-9]{2}-s[1-9][0-9]*\.md$",
+                              re.IGNORECASE if os.name == "nt" else 0)
 
 
 def section_record(record_path):
@@ -656,36 +660,41 @@ def returned_plan(record_path):
 
 
 def committed_pin(sha):
-    """The pin committed at `sha`, loaded under today's rules, or a refusal naming the commit."""
+    """The pin committed at `sha` when it is a three-pass pin, else None: no pin there, or a rotation pin, which
+    never binds a section. A three-pass pin that no longer loads is a refusal naming the commit, never a fallback."""
     shown = git("show", f"{sha}:.conclave/reviewers.toml")
     if shown.returncode != 0:
-        raise Refused(f"no reviewer pin .conclave/reviewers.toml at {sha}: a section runs under the pin committed at "
-                      f"its plan review's candidate")
+        return None
     try:
-        return load_pin(data=shown.stdout)
+        pin = load_pin(data=shown.stdout)
     except Refused as exc:
+        if THREE_PASS.encode() not in shown.stdout:
+            return None
         raise Refused(f"the reviewer pin at {sha} does not load: {exc}") from None
+    return pin if pin.get("schedule", {}).get("policy") == THREE_PASS else None
 
 
 def section_pin(pin_path, record_path, kind, candidate):
-    """The pin a pass runs under. A section's plan review runs under the pin committed at its own candidate, and
-    every later pass of that section under the pin at its returned plan review's candidate, schedule and route both,
-    so a pin change (or a broken working-tree pin) never moves a section already under review. That pin is never
-    replaced by the working tree's when it is missing or does not load: the pass is refused, naming the commit. A
-    findings file not named for a section, and a section with no returned plan review, take the pin at `pin_path`.
-    The todo kit's stamp replays the same rule."""
+    """The pin a pass runs under. Under the three-pass policy a section keeps the pin its plan review read: the plan
+    review runs under the three-pass pin committed at its own candidate, and every later pass of that section under
+    the one at its returned plan review's candidate, schedule and route both, so a pin change (or a broken
+    working-tree pin) never moves a section already under review. A three-pass pin there that does not load is a
+    refusal naming the commit, never replaced by the working tree's. Everything else takes the pin at `pin_path`, as
+    it always did: a findings file not named for a section, a section with no returned plan review, and a section
+    whose plan candidate holds a rotation pin or none. The todo kit's stamp replays the same rule."""
     if section_record(record_path):
-        if kind == "plan":
-            return committed_pin(candidate)
         plan = returned_plan(record_path)
-        if plan is not None:
-            return committed_pin(plan["candidate"])
+        sha = candidate if kind == "plan" else plan["candidate"] if plan else None
+        pin = committed_pin(sha) if sha else None
+        if pin is not None:
+            return pin
     return load_pin(pin_path)
 
 
 def changed_paths(base, candidate):
-    """The files that differ between two commits, as repository-relative paths with forward slashes."""
-    shown = git("-c", "core.quotepath=false", "diff", "--name-only", "-z", base, candidate)
+    """The files that differ between two commits, as repository-relative paths with forward slashes. Renames are
+    listed as the file removed and the file added, so a file moved out of a watched folder still counts for it."""
+    shown = git("-c", "core.quotepath=false", "diff", "--name-only", "--no-renames", "-z", base, candidate)
     if shown.returncode != 0:
         raise Refused(f"cannot list the files changed between {base} and {candidate}")
     return [name for name in shown.stdout.decode("utf-8", errors="replace").split("\0") if name]
@@ -738,7 +747,8 @@ def check_three_pass_order(kind, record_path, candidate, schedule):
         if not ended_gaps(chain[-1]):
             raise Refused("the section's reconciliation already returned complete; it needs no further pass")
         worst = [declared_highest(e["review"]) for e in chain]
-        if not review_pin.blocks(schedule, worst[-1]):
+        # Only a pin that names its blocking levels ends the loop this way; without the key every gap is repaired.
+        if "blocking" in schedule and not review_pin.blocks(schedule, worst[-1]):
             raise Refused(f"the last pass's worst finding is {worst[-1]}, below the pin's blocking levels "
                           f"({', '.join(schedule['blocking'])}): file its findings and stamp; it takes no further pass")
         cap = pass_cap(schedule)
