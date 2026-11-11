@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Three-pass review
 
-Sections: 8 | Checklist items: 87
+Sections: 8 | Checklist items: 98
 
 | Status | Reference  | Deliverable                                             | Needs        | Items |
 | ------ | ---------- | ------------------------------------------------------- | ------------ | ----- |
@@ -16,11 +16,11 @@ Sections: 8 | Checklist items: 87
 | [x]    | D00 T01 §2 | Three-pass dispatcher                                   | none         | 23    |
 | [x]    | D00 T01 §3 | Three-pass stamp rules in the todo kit                  | none         | 15    |
 | [x]    | D00 T01 §4 | Template pin, prompts, skills and READMEs on three-pass | none         | 17    |
-| [ ]    | D00 T01 §5 | Pin check that reports every fault at once              | none         | 4     |
-| [ ]    | D00 T01 §6 | Reviewer process tree ended on Windows by a job object  | windows-host | 5     |
-| [ ]    | D00 T01 §7 | Review prompt filler                                    | none         | 5     |
-| [ ]    | D00 T01 §8 | Stamp that recovers from a write cut short              | none         | 4     |
+| [ ]    | D00 T01 §5 | Pin check that reports every fault at once              | none         | 7     |
+| [ ]    | D00 T01 §6 | Reviewer process tree ended on Windows by a job object  | windows-host | 8     |
+| [ ]    | D00 T01 §7 | Review prompt filler                                    | none         | 8     |
+| [ ]    | D00 T01 §8 | Stamp that recovers from a write cut short              | none         | 6     |
 
 Progress: 4/8 verified sections, 4 ready to run now.
 
-Checklist: 69/87 items completed (includes Commit items).
+Checklist: 69/98 items completed (includes Commit items).
