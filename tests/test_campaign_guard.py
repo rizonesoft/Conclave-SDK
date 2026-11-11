@@ -280,6 +280,102 @@ class StopHook(Workspace):
         self.assertGreater(ran, 0, "no shell could run the configured hook")
 
 
+class AntigravityPayload(Workspace):
+    """Antigravity's Stop payload: `conversationId` and `workspacePaths`, answered `continue`. These call the hook with
+    no `project_dir`, as Antigravity's wiring does, so the workspace comes from the payload."""
+
+    def agy(self, session=SESSION, workspace=None, **extra):
+        payload = {"conversationId": session, "workspacePaths": [workspace or self.root], **extra}
+        code, out = guard.stop_hook(json.dumps(payload), None)
+        self.assertEqual(code, 0, "the hook always exits 0")
+        return json.loads(out) if out else None
+
+    def raw(self, payload, project_dir=None):
+        code, out = guard.stop_hook(json.dumps(payload), project_dir)
+        self.assertEqual(code, 0, "the hook always exits 0")
+        return out
+
+    def test_a_guarded_conversation_is_found_through_its_workspace(self):
+        self.acquire()
+        here = os.getcwd()
+        self.assertNotEqual(os.path.normcase(os.path.abspath(here)), os.path.normcase(os.path.abspath(self.root)))
+        decision = self.agy()
+        self.assertIsNotNone(decision, "an Antigravity payload for the guarded session was let through")
+        self.assertEqual(self.state()["blocks"], 1)
+
+    def test_an_explicit_project_dir_comes_before_the_payloads_workspace(self):
+        self.acquire()
+        elsewhere = os.path.join(self._tmp.name, "elsewhere")
+        os.makedirs(elsewhere)
+        out = self.raw({"conversationId": SESSION, "workspacePaths": [elsewhere]}, self.root)
+        self.assertEqual(json.loads(out)["decision"], "continue")
+        self.assertEqual(self.agy(workspace=elsewhere), None, "a workspace with no guard held the stop")
+
+    def test_antigravity_is_answered_continue_and_claude_code_block(self):
+        self.acquire()
+        agy = self.agy()
+        claude = self.hook()
+        self.assertEqual(agy["decision"], "continue")
+        self.assertEqual(claude["decision"], "block")
+        self.assertEqual(agy["reason"].split(" (this is push")[0], claude["reason"].split(" (this is push")[0])
+        self.assertEqual(self.state()["blocks"], 2)
+
+    def test_the_guards_lifecycle_holds_for_antigravity(self):
+        self.assertIsNone(self.agy(), "no guard held the stop")
+        self.acquire()
+        self.assertIsNone(self.agy(session=OTHER), "another conversation was held")
+        for push in (1, 2, 3):
+            self.assertEqual(self.agy()["decision"], "continue", push)
+            self.assertEqual(self.state()["blocks"], push)
+        self.assertIsNone(self.agy(), "the breaker did not let the fourth stop through")
+        self.assertEqual((self.state()["trips"], self.state()["stalled"]), (1, True))
+        self.ready(0)
+        self.assertIsNone(self.agy(), "a run with nothing ready was held")
+        self.ready(3)
+        self.write("notes.txt", "progress\n")
+        self.assertEqual(self.agy()["decision"], "continue")
+        self.write(RUN_FILE, f"PARKED 2099-01-02T00:00:00Z run={self.run_id()} blocked here\n", "a")
+        self.assertIsNone(self.agy(), "a parked run was held")
+
+    def test_this_runs_closeout_releases_an_antigravity_session(self):
+        self.acquire()
+        self.write(RUN_FILE, f"\n## Closeout run={self.run_id()}\n", "a")
+        self.assertIsNone(self.agy())
+
+    def test_a_cancel_or_a_busy_agent_ends_the_turn_without_a_block(self):
+        self.acquire()
+        for extra in ({"terminationReason": "USER_CANCELED"}, {"fullyIdle": False}):
+            self.assertIsNone(self.agy(**extra), extra)
+            self.assertEqual(self.state().get("blocks", 0), 0, extra)
+        self.assertEqual(self.agy(fullyIdle=True)["decision"], "continue")
+
+    def recorded(self):
+        line = guard.hook_error(self.root, SESSION)
+        self.assertTrue(line.startswith("campaign-stop hook failed at "), line)
+        guard.hook_error(self.root, SESSION, ack=line)
+        return line
+
+    def test_a_missing_session_is_an_error_only_while_a_run_is_open(self):
+        self.assertEqual(self.raw({"cwd": self.root, "hook_event_name": "Stop"}), "")
+        self.assertFalse(os.path.exists(os.path.join(self.root, "build", "claude-campaign-hook-errors")))
+        self.assertEqual(self.state(), {})
+        self.acquire()
+        self.assertEqual(self.raw({"cwd": self.root, "hook_event_name": "Stop"}), "")
+        self.assertIn("names no session", self.recorded())
+
+    def test_a_workspace_that_is_not_a_list_of_paths_is_recorded_in_the_cwd_workspace(self):
+        self.acquire()
+        for paths in ("not a list", [7]):
+            self.assertEqual(self.raw({"conversationId": SESSION, "workspacePaths": paths, "cwd": self.root}), "")
+            self.assertIn("workspacePaths is not a list of paths", self.recorded())
+        self.assertEqual(self.raw({"conversationId": SESSION, "workspacePaths": "x"}), "", "no workspace at all")
+
+    def test_a_payload_that_is_not_an_object_fails_open(self):
+        self.acquire()
+        self.assertEqual(self.raw([1, 2], self.root), "")
+        self.assertIn("not a JSON object", self.recorded())
+
+
 class Lifecycle(Workspace):
     def test_acquire_is_exclusive_and_a_handover_is_recorded(self):
         self.assertIn("guard created", self.acquire())

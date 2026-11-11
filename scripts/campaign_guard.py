@@ -836,17 +836,41 @@ def _record_hook_error(root: str, guard: dict | None, reason: str) -> None:
 
 
 def stop_hook(stdin: str, project_dir: str | None) -> tuple[int, str]:
-    """Run the hook on one Stop payload; returns (exit, stdout). Always exits 0: a failure allows the stop."""
+    """Run the hook on one Stop payload; returns (exit, stdout). Always exits 0: a failure allows the stop.
+
+    Two payload shapes. Claude Code (and Codex, through its wrapper) sends `session_id` and `cwd` and is held with
+    `{"decision": "block"}`. Antigravity sends `conversationId` and `workspacePaths` and is held with
+    `{"decision": "continue"}`; it also says when the operator cancelled (`terminationReason: USER_CANCELED`) or the
+    agent is not idle yet (`fullyIdle: false`), and both let the turn end without counting a block. A payload in
+    neither shape, while a run is open, is recorded as a hook error for the heartbeat."""
     root, guard = None, None
     try:
         if not stdin.strip():
             return 0, ""
+        root = project_dir or None  # where a fault is recorded, until the payload names a workspace
         event = json.loads(stdin)
-        root = project_dir or str(event.get("cwd") or "")
+        if not isinstance(event, dict):
+            raise GuardError("the Stop payload is not a JSON object")
+        root = project_dir or str(event.get("cwd") or "") or None
+        antigravity = "conversationId" in event
+        if antigravity and (event.get("terminationReason") == "USER_CANCELED" or event.get("fullyIdle") is False):
+            return 0, ""
+        if "workspacePaths" in event:
+            paths = event["workspacePaths"]
+            if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
+                raise GuardError("the Stop payload's workspacePaths is not a list of paths")
+            root = project_dir or (paths[0] if paths else "") or root
         if not root:
             return 0, ""
         guard = read_guard(root)
-        decision = stop_decision(root, str(event.get("session_id") or ""))
+        if guard is None:
+            return 0, ""  # no run is open here, so there is nothing to hold and nothing to report
+        session = str(event.get("conversationId") or event.get("session_id") or "")
+        if not session:
+            raise GuardError("the Stop payload names no session (neither session_id nor conversationId)")
+        decision = stop_decision(root, session)
+        if decision and antigravity:
+            decision = {"decision": "continue", "reason": decision["reason"]}
         return 0, json.dumps(decision) if decision else ""
     except Exception as error:  # fail open, but never silently: the heartbeat reports what is recorded here
         reason = f"{type(error).__name__}: {error}"
@@ -855,7 +879,7 @@ def stop_hook(stdin: str, project_dir: str | None) -> tuple[int, str]:
             try:
                 _record_hook_error(root, guard, reason)
             except OSError:
-                pass
+                pass  # the hook has failed open already and said why on stderr: there is nowhere left to record it
         return 0, ""
 
 
