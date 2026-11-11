@@ -9,15 +9,19 @@
     python forge.py self-sync
 
 Stdlib only. Uses atomic temp-file-then-replace writes. The SDK is a template, not a master copy: init and kit copy
-files once and never overwrite one that exists, and nothing records which SDK a project came from or points back
-at it, so a project owns its copy from then on. self-sync refreshes the SDK's own installed copy of its kits.
+files once and never overwrite one that exists, so a project owns its copy from then on. They note what they
+installed in the project's `.conclave/kits.json` (the SDK commit, and each file's kit and a digest of its bytes as
+installed): a note the project may delete, holding no path back to the SDK. self-sync refreshes the SDK's own
+installed copy of its kits.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import subprocess
@@ -82,12 +86,17 @@ def list_kits() -> list[str]:
     )
 
 
+def _is_link(path: Path) -> bool:
+    """A symlink, or on Windows a junction: either leads a write somewhere other than where its path says."""
+    return path.is_symlink() or getattr(path, "is_junction", lambda: False)()
+
+
 def _has_unsafe_parent(target_root: Path, rel_path: str) -> bool:
     parts = Path(rel_path).parts[:-1]
     current = target_root
     for part in parts:
         current = current / part
-        if current.is_symlink() or (current.exists() and not current.is_dir()):
+        if _is_link(current) or (current.exists() and not current.is_dir()):
             return True
     return False
 
@@ -197,7 +206,7 @@ def kit_plan(target_root: Path, kit_name: str, *, agent: str = "all", host: str 
         raise ValueError(f"Unknown kit '{kit_name}'. Available kits: {', '.join(available)}")
 
     template_root = FORGE_ROOT / "kits" / kit_name / "templates"
-    extra: dict[str, str] = {}
+    extra: dict[str, str | None] = {}
     plan: list[tuple[Path | None, Path, str, bool]] = []
 
     def add_tree(root: Path) -> None:
@@ -253,6 +262,124 @@ def kit_plan(target_root: Path, kit_name: str, *, agent: str = "all", host: str 
     return plan, extra
 
 
+RECORD = ".conclave/kits.json"
+RECORD_AGENTS = ("agy", "claude", "codex")
+_HEX40 = re.compile(r"[0-9a-f]{40}")
+_HEX64 = re.compile(r"[0-9a-f]{64}")
+
+
+def file_digest(data: bytes) -> str:
+    """SHA-256 of a file's bytes with CRLF read as LF (as self-sync compares), so a checkout whose line endings were
+    converted does not look changed."""
+    return hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()
+
+
+def sdk_commit(run=subprocess.run) -> str | None:
+    """The commit this SDK checkout is at, or None when it is not a git checkout of its own, git is missing, the
+    command fails or it does not answer in 15 seconds. The install record notes it; nothing depends on it."""
+    if not (FORGE_ROOT / ".git").exists():
+        return None
+    try:
+        proc = run(["git", "-C", str(FORGE_ROOT), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    value = (proc.stdout or "").strip()
+    return value if proc.returncode == 0 and _HEX40.fullmatch(value) else None
+
+
+def _check_record(data) -> dict:
+    """The install record, or a ValueError naming the first fault. Every level is closed: an unknown or missing key
+    refuses, so a record edited or merged by hand is never half-read."""
+    def fault(what: str) -> ValueError:
+        return ValueError(f"{RECORD}: {what}")
+
+    def keys(obj, expected: set, where: str) -> None:
+        if not isinstance(obj, dict):
+            raise fault(f"{where} must be an object")
+        if set(obj) != expected:
+            odd = sorted(set(obj) ^ expected)
+            raise fault(f"{where} needs exactly the keys {', '.join(sorted(expected))} (see {', '.join(map(str, odd))})")
+
+    keys(data, {"schema_version", "kits", "files"}, "the record")
+    if data["schema_version"] != 1 or isinstance(data["schema_version"], bool):
+        raise fault(f"schema_version must be 1, not {data['schema_version']!r}")
+    if not isinstance(data["kits"], dict):
+        raise fault("kits must be an object")
+    if not isinstance(data["files"], dict):
+        raise fault("files must be an object")
+    known = list_kits()
+    for name, kit in data["kits"].items():
+        if name not in known:
+            raise fault(f"kits names '{name}', which is not a kit")
+        keys(kit, {"sdk_commit", "agents", "host"}, f"kits.{name}")
+        commit = kit["sdk_commit"]
+        if commit is not None and not (isinstance(commit, str) and _HEX40.fullmatch(commit)):
+            raise fault(f"kits.{name}.sdk_commit must be null or a 40-character lowercase commit")
+        agents = kit["agents"]
+        if (not isinstance(agents, list) or not agents or not all(isinstance(a, str) and a in RECORD_AGENTS for a in agents)
+                or agents != sorted(set(agents))):
+            raise fault(f"kits.{name}.agents must be a non-empty sorted list of distinct names from "
+                        f"{', '.join(RECORD_AGENTS)}")
+        host = kit["host"]
+        if host is not None and not (isinstance(host, str) and host in WORDPRESS_HOSTS):
+            raise fault(f"kits.{name}.host must be null or one of {', '.join(WORDPRESS_HOSTS)}")
+    for rel, entry in data["files"].items():
+        parts = rel.split("/")
+        if (not rel or rel.startswith("/") or "\\" in rel or ":" in parts[0]
+                or any(part in ("", ".", "..") for part in parts)):
+            raise fault(f"files names '{rel}', which is not a relative path inside the project")
+        keys(entry, {"kit", "sha256"}, f"files.{rel}")
+        if not isinstance(entry["kit"], str) or entry["kit"] not in data["kits"]:
+            raise fault(f"files.{rel}.kit names {entry['kit']!r}, which kits does not hold")
+        if not isinstance(entry["sha256"], str) or not _HEX64.fullmatch(entry["sha256"]):
+            raise fault(f"files.{rel}.sha256 must be 64 lowercase hex characters")
+    return data
+
+
+def _record_refusal(target_root: Path) -> None:
+    """Refuse a record that cannot be written safely: `.conclave` as a link or a file, or the record as a link or a
+    folder. Checked before any template is copied, so a refusal never leaves files with no record."""
+    path = target_root / RECORD
+    if _has_unsafe_parent(target_root, RECORD) or _is_link(path) or path.is_dir():
+        raise ValueError(f"{RECORD}: refusing a record that is a link or a folder, or a .conclave that is not a folder")
+
+
+def load_record(target_root: Path) -> dict | None:
+    """What forge installed in this project, from `.conclave/kits.json`; None when the project has no record. A
+    record that does not load refuses with a ValueError: it is never read as empty, since that would forget which
+    files are still as installed."""
+    target_root = Path(target_root)
+    _record_refusal(target_root)
+    path = target_root / RECORD
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_bytes().decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{RECORD}: not readable as UTF-8 JSON ({exc})") from None
+    return _check_record(data)
+
+
+def write_record(target_root: Path, record: dict) -> None:
+    """Write the install record with sorted keys, so two identical installs leave identical files."""
+    target_root = Path(target_root)
+    _record_refusal(target_root)
+    _check_record(record)
+    atomic_write(target_root / RECORD, json.dumps(record, indent=2, sort_keys=True) + "\n")
+
+
+def _record_install(record: dict, kit_name: str, agent: str, host: str | None, digests: dict[str, str]) -> None:
+    """Merge one run's written files into the record under their kit. The kit's agents accumulate (an install for
+    Claude and a later one for Codex record both; `all` records all three) and its commit is the latest install's."""
+    agents = set(RECORD_AGENTS) if agent == "all" else {agent}
+    kit = record["kits"].setdefault(kit_name, {"sdk_commit": None, "agents": [], "host": None})
+    kit["agents"] = sorted(agents | set(kit["agents"]))
+    kit["sdk_commit"] = sdk_commit()
+    kit["host"] = host if host is not None else kit["host"]
+    for rel, digest in digests.items():
+        record["files"][rel] = {"kit": kit_name, "sha256": digest}
+
+
 def apply_kit(
     target_root: Path,
     kit_name: str,
@@ -294,13 +421,25 @@ def apply_kit(
         if _has_unsafe_parent(target_root, rel):
             raise ValueError(f"Refusing destination with unsafe parent: {rel}")
 
-    for src, dst, rel in plan:
-        if dst.exists() or dst.is_symlink():
-            preserved.append(rel)
-            continue
-        if not dry_run:
-            atomic_write(dst, src.read_bytes())
-        installed.append(rel)
+    # The record is read, and its folder checked, before the first copy: a refusal here leaves nothing written.
+    record = load_record(target_root) or {"schema_version": 1, "kits": {}, "files": {}}
+    digests: dict[str, str] = {}
+    try:
+        for src, dst, rel in plan:
+            if dst.exists() or dst.is_symlink():
+                preserved.append(rel)
+                continue
+            if not dry_run:
+                data = src.read_bytes()
+                atomic_write(dst, data)
+                digests[rel] = file_digest(data)
+            installed.append(rel)
+    finally:
+        # Also when a copy failed part way: the files already written are recorded before the error goes on. Only
+        # files this run wrote are recorded, with the template's digest; a preserved file stays the project's.
+        if digests:
+            _record_install(record, kit_name, agent, extra.get("host"), digests)
+            write_record(target_root, record)
 
     if kit_name == "laravel":
         mcp_path = target_root / ".mcp.json"
@@ -643,7 +782,8 @@ def provision(
 ) -> dict:
     """`init`: copy the base kit plus only the kits asked for, never the whole SDK, and never over a file the project
     already has. `with_todo` is shorthand for the `todo` kit; `overwrite_existing_docs` (`init --force`) rewrites only
-    the four entry docs. Nothing written points back at the SDK, so the project owns everything init copied.
+    the four entry docs. The install record notes what was written and holds no path back to the SDK, so the
+    project owns everything init copied.
     """
     agent = normalize_agent(agent)
     target_root = Path(target_root).resolve()
@@ -667,10 +807,20 @@ def provision(
     forced: list[str] = []
     if overwrite_existing_docs:
         base_templates = FORGE_ROOT / "kits/base/templates"
-        for doc in ENTRY_DOCS:
-            if _rel_allowed_for_agent(doc, agent) and not (target_root / doc).is_symlink():
-                atomic_write(target_root / doc, (base_templates / doc).read_bytes())
-                forced.append(doc)
+        record = load_record(target_root) or {"schema_version": 1, "kits": {}, "files": {}}
+        digests: dict[str, str] = {}
+        try:
+            for doc in ENTRY_DOCS:
+                if _rel_allowed_for_agent(doc, agent) and not (target_root / doc).is_symlink():
+                    data = (base_templates / doc).read_bytes()
+                    atomic_write(target_root / doc, data)
+                    digests[doc] = file_digest(data)
+                    forced.append(doc)
+        finally:
+            # A doc --force replaced holds the kit's bytes now, so it is recorded as installed, as a fresh one is.
+            if digests:
+                _record_install(record, "base", agent, None, digests)
+                write_record(target_root, record)
 
     agents_md = target_root / "AGENTS.md"
     fresh_agents = "AGENTS.md" in kit_results[0]["installed"] or "AGENTS.md" in forced

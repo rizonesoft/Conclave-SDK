@@ -4,7 +4,7 @@ Shared instructions for agents working in `Conclave-SDK`. Each agent loads this 
 
 ## Purpose
 
-`Conclave-SDK` holds the overlay kits (`kits/base`, `kits/todo`, `kits/reviewer`, `kits/automations`, `kits/laravel`, `kits/wordpress`) that carry every agent skill, rule, subagent, script and template, plus prompts and the stdlib-only CLI `forge.py`, used to bootstrap projects under `R:\GitHub`. The SDK is a template: a project takes a copy once and owns it, and nothing links it back to the SDK.
+`Conclave-SDK` holds the overlay kits (`kits/base`, `kits/todo`, `kits/reviewer`, `kits/automations`, `kits/laravel`, `kits/wordpress`) that carry every agent skill, rule, subagent, script and template, plus prompts and the stdlib-only CLI `forge.py`, used to bootstrap projects under `R:\GitHub`. The SDK is a template: a project takes a copy once and owns it, and nothing links it back to the SDK. `forge.py` notes what it installed in the project's `.conclave/kits.json` (the SDK commit, each file's kit and a digest of its bytes as installed), a record with no path to the SDK that the project may delete.
 
 ## Architecture and Working Rules
 

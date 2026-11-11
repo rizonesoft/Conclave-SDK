@@ -25,6 +25,8 @@ kits/wordpress/scripts/install.sh /path/to/wordpress-project --host wpcom
 
 Dry-run any of them with `--dry-run`. There is no `--force`.
 
+`forge.py` notes what it installed in the project's `.conclave/kits.json`: the SDK commit, and for each file it wrote its kit and a digest of its bytes as installed. A file the project already had is never recorded. The record holds no path to the SDK and the project may delete it. The bash installers write no record.
+
 ## Layout
 
 | Kit | What it is | Install when |

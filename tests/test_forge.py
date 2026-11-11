@@ -86,7 +86,7 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertTrue(status["has_codex_md"])
         self.assertFalse((self.target / ".agents/skills.json").exists())
         self.assertFalse((self.target / ".agents/plugins.json").exists())
-        self.assertFalse((self.target / ".conclave/kits.json").exists(), "a template copy records no link to the SDK")
+        self.assertEqual(sorted((forge.load_record(self.target) or {})["kits"]), ["base", "todo"])
         self.assertEqual(status["kits"], ["base", "todo"])
         self.assertTrue(status["has_todo_graph"])
         self.assertTrue(status["has_verify_agent_tiers"])
@@ -180,7 +180,14 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertEqual(skill.read_text(encoding="utf-8"), "adapted\n")
         self.assertEqual(graph.read_text(encoding="utf-8"), "our script\n")
         self.assertEqual(forge.apply_kit(self.target, "todo")["installed"], [])
-        self.assertFalse((self.target / ".conclave/kits.json").exists())
+        # The record names only files forge wrote, each as its template: never the project's own edit or script.
+        record = forge.load_record(self.target) or {}
+        templates = FORGE_ROOT / "kits/todo/templates"
+        for rel in (".codex/skills/create-todo/SKILL.md", ".claude/skills/create-todo/SKILL.md", "scripts/todo-graph.py"):
+            self.assertEqual(record["files"][rel],
+                             {"kit": "todo", "sha256": forge.file_digest((templates / rel).read_bytes())}, rel)
+        on_disk = {p.relative_to(self.target).as_posix() for p in self.target.rglob("*") if p.is_file()}
+        self.assertEqual(set(record["files"]), on_disk - {forge.RECORD})
 
     def test_the_cli_has_no_sync_or_mode_that_links_a_project_to_the_sdk(self):
         for argv in (["sync", str(self.target)], ["digest"], ["init", str(self.target), "--mode", "inherit"]):
@@ -189,6 +196,34 @@ class ForgeProvisionTests(unittest.TestCase):
                                       capture_output=True, text=True)
                 self.assertEqual(proc.returncode, 2, proc.stderr)
         self.assertEqual(list(self.target.iterdir()), [])
+
+    def record_strings(self, value):
+        if isinstance(value, dict):
+            for key, inner in value.items():
+                yield key
+                yield from self.record_strings(inner)
+        elif isinstance(value, list):
+            for inner in value:
+                yield from self.record_strings(inner)
+        elif isinstance(value, str):
+            yield value
+
+    def paths_to_the_sdk(self, record):
+        """Every string in a record that is an absolute path or names the SDK's folder."""
+        sdk = FORGE_ROOT.as_posix().lower()
+        return [text for text in self.record_strings(record)
+                if sdk in text.replace("\\", "/").lower()
+                or pathlib.PurePosixPath(text).is_absolute() or pathlib.PureWindowsPath(text).is_absolute()]
+
+    def test_the_install_record_holds_no_path_to_the_sdk(self):
+        forge.provision(self.target, kits=["todo", "reviewer", "automations"])
+        record = json.loads((self.target / forge.RECORD).read_text(encoding="utf-8"))
+        self.assertEqual(self.paths_to_the_sdk(record), [])
+        # A record that did name the SDK is caught by the same check, and refused by the loader as an unknown key.
+        self.assertEqual(self.paths_to_the_sdk({**record, "source": str(FORGE_ROOT)}), [str(FORGE_ROOT)])
+        (self.target / forge.RECORD).write_text(json.dumps({**record, "source": str(FORGE_ROOT)}), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "kits.json"):
+            forge.load_record(self.target)
 
     def test_self_sync_refreshes_only_the_sdks_own_installed_copy(self):
         stand_in = self.target / "sdk"
@@ -332,7 +367,7 @@ class ForgeProvisionTests(unittest.TestCase):
                 before = {p for p in project.rglob("*") if p.is_file()}
                 res = forge.apply_kit(project, kit, host=host)
                 self.assertEqual(sorted(res["installed"]), sorted(rel for _src, _dst, rel, _generated in entries))
-                written = {p for p in project.rglob("*") if p.is_file()} - before
+                written = {p for p in project.rglob("*") if p.is_file()} - before - {project / forge.RECORD}
                 self.assertEqual(written, {dst for _src, dst, _rel, _generated in entries})
                 for src, dst, rel, generated in entries:
                     if not generated:
@@ -730,6 +765,304 @@ class ForgeProvisionTests(unittest.TestCase):
                         120,
                         f"Table row wraps raw md ({len(line)} > 120 chars) at {md}:{lineno}",
                     )
+
+
+class InstallRecordTests(unittest.TestCase):
+    """`.conclave/kits.json`: what forge installed, as a note the project owns."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.target = pathlib.Path(self.tmp.name) / "project"
+        self.target.mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def record(self, target=None):
+        record = forge.load_record(target or self.target)
+        self.assertIsNotNone(record)
+        return record or {}
+
+    def files_under(self, root):
+        return sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
+
+    def template_digest(self, kit, rel):
+        return forge.file_digest((FORGE_ROOT / "kits" / kit / "templates" / rel).read_bytes())
+
+    def valid_record(self):
+        return {"schema_version": 1,
+                "kits": {"todo": {"sdk_commit": "a" * 40, "agents": ["claude", "codex"], "host": None}},
+                "files": {"scripts/todo-graph.py": {"kit": "todo", "sha256": "b" * 64}}}
+
+    def write_raw(self, data):
+        path = self.target / forge.RECORD
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data if isinstance(data, bytes) else json.dumps(data).encode("utf-8"))
+
+    def test_the_digest_reads_crlf_as_lf(self):
+        self.assertEqual(forge.file_digest(b"one\ntwo\n"), forge.file_digest(b"one\r\ntwo\r\n"))
+        self.assertNotEqual(forge.file_digest(b"one\ntwo\n"), forge.file_digest(b"one\ntwo!\n"))
+        self.assertRegex(forge.file_digest(b""), r"^[0-9a-f]{64}$")
+
+    def test_a_missing_record_is_none_and_a_valid_one_reads_back(self):
+        self.assertIsNone(forge.load_record(self.target))
+        forge.write_record(self.target, self.valid_record())
+        self.assertEqual(forge.load_record(self.target), self.valid_record())
+        text = (self.target / forge.RECORD).read_text(encoding="utf-8")
+        self.assertEqual(text, json.dumps(self.valid_record(), indent=2, sort_keys=True) + "\n")
+
+    def test_every_malformed_record_refuses_by_name(self):
+        def changed(**parts):
+            record = self.valid_record()
+            for dotted, value in parts.items():
+                at = record
+                *path, last = dotted.split("__")
+                for key in path:
+                    at = at[key]
+                if value is KeyError:
+                    del at[last]
+                else:
+                    at[last] = value
+            return record
+
+        file_entry = {"kit": "todo", "sha256": "b" * 64}
+        faults = {
+            "not UTF-8": b"\xff\xfe{",
+            "not JSON": b"{nope",
+            "not an object": [1],
+            "missing top key": changed(files=KeyError),
+            "unknown top key": changed(source="x"),
+            "another schema_version": changed(schema_version=2),
+            "boolean schema_version": changed(schema_version=True),
+            "kits not an object": changed(kits=[]),
+            "files not an object": {**self.valid_record(), "files": []},
+            "unknown kit": {"schema_version": 1, "kits": {"nope": self.valid_record()["kits"]["todo"]}, "files": {}},
+            "kit missing key": changed(kits__todo__host=KeyError),
+            "kit unknown key": changed(kits__todo__path="x"),
+            "commit not hex": changed(kits__todo__sdk_commit="HEAD"),
+            "commit upper case": changed(kits__todo__sdk_commit="A" * 40),
+            "agents empty": changed(kits__todo__agents=[]),
+            "agents unsorted": changed(kits__todo__agents=["codex", "claude"]),
+            "agents repeated": changed(kits__todo__agents=["claude", "claude"]),
+            "agents unknown": changed(kits__todo__agents=["all"]),
+            "agents not a list": changed(kits__todo__agents="claude"),
+            "host unknown": changed(kits__todo__host="kinsta"),
+            "absolute path": changed(files={"/etc/passwd": file_entry}),
+            "drive path": changed(files={"C:/x": file_entry}),
+            "backslash path": changed(files={"scripts\\x.py": file_entry}),
+            "parent path": changed(files={"scripts/../x": file_entry}),
+            "empty segment": changed(files={"scripts//x": file_entry}),
+            "file not an object": changed(files={"a": "b"}),
+            "file unknown key": changed(files={"a": {**file_entry, "size": 1}}),
+            "digest short": changed(files={"a": {"kit": "todo", "sha256": "b" * 63}}),
+            "digest upper case": changed(files={"a": {"kit": "todo", "sha256": "B" * 64}}),
+            "file of an unrecorded kit": changed(files={"a": {"kit": "base", "sha256": "b" * 64}}),
+        }
+        for name, data in faults.items():
+            with self.subTest(fault=name):
+                self.write_raw(data)
+                with self.assertRaisesRegex(ValueError, r"\.conclave/kits\.json: .+"):
+                    forge.load_record(self.target)
+        # The command line reports it as forge's other refusals are: one line, exit 2, nothing written.
+        self.write_raw(changed(kits__todo__agents=["all"]))
+        before = self.files_under(self.target)
+        proc = subprocess.run([sys.executable, str(pathlib.Path(forge.__file__)), "kit", str(self.target), "todo"],
+                              capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        self.assertEqual(len(proc.stderr.strip().splitlines()), 1, proc.stderr)
+        self.assertIn(".conclave/kits.json: kits.todo.agents", proc.stderr)
+        self.assertEqual(self.files_under(self.target), before)
+
+    def test_two_identical_installs_leave_identical_records(self):
+        other = pathlib.Path(self.tmp.name) / "other"
+        other.mkdir()
+        for project in (self.target, other):
+            forge.apply_kit(project, "todo")
+        self.assertEqual((self.target / forge.RECORD).read_bytes(), (other / forge.RECORD).read_bytes())
+
+    def test_the_sdk_commit_is_exact_or_null(self):
+        head = subprocess.run(["git", "-C", str(FORGE_ROOT), "rev-parse", "HEAD"], capture_output=True, text=True)
+        if head.returncode == 0:
+            self.assertEqual(forge.sdk_commit(), head.stdout.strip())
+            forge.apply_kit(self.target, "base")
+            self.assertEqual(self.record()["kits"]["base"]["sdk_commit"], head.stdout.strip())
+
+        def missing(*_args, **_kwargs):
+            raise FileNotFoundError("git")
+
+        def slow(*args, **kwargs):
+            raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
+
+        def failed(*args, **_kwargs):
+            return subprocess.CompletedProcess(args[0], 128, "", "fatal: not a git repository")
+
+        for name, run in (("no git", missing), ("timeout", slow), ("git fails", failed)):
+            with self.subTest(case=name):
+                self.assertIsNone(forge.sdk_commit(run=run))
+        outside = pathlib.Path(self.tmp.name) / "copy"
+        outside.mkdir()
+        with unittest.mock.patch.object(forge, "FORGE_ROOT", outside):
+            self.assertIsNone(forge.sdk_commit())
+        # In the record an unknown commit is JSON null, not a string.
+        fresh = pathlib.Path(self.tmp.name) / "fresh"
+        fresh.mkdir()
+        with unittest.mock.patch.object(forge, "sdk_commit", lambda: None):
+            forge.apply_kit(fresh, "base")
+        self.assertIn('"sdk_commit": null', (fresh / forge.RECORD).read_text(encoding="utf-8"))
+        self.assertIsNone(self.record(fresh)["kits"]["base"]["sdk_commit"])
+
+    def test_a_record_that_cannot_be_used_refuses_before_any_file_is_written(self):
+        def refused(prepare, label):
+            project = pathlib.Path(self.tmp.name) / label
+            project.mkdir()
+            prepare(project)
+            before = self.files_under(project)
+            with self.assertRaisesRegex(ValueError, r"\.conclave/kits\.json"):
+                forge.apply_kit(project, "todo")
+            self.assertEqual(self.files_under(project), before)
+
+        def malformed(project):
+            (project / ".conclave").mkdir()
+            (project / forge.RECORD).write_text("{nope", encoding="utf-8")
+
+        def conclave_is_a_file(project):
+            (project / ".conclave").write_text("not a folder\n", encoding="utf-8")
+
+        def record_is_a_folder(project):
+            (project / forge.RECORD).mkdir(parents=True)
+
+        def conclave_is_a_link(project):
+            elsewhere = pathlib.Path(self.tmp.name) / f"elsewhere-{project.name}"
+            elsewhere.mkdir()
+            if os.name == "nt":
+                import _winapi
+
+                _winapi.CreateJunction(str(elsewhere), str(project / ".conclave"))
+            else:
+                os.symlink(elsewhere, project / ".conclave")
+
+        refused(malformed, "malformed")
+        refused(conclave_is_a_file, "file")
+        refused(record_is_a_folder, "folder")
+        refused(conclave_is_a_link, "link")
+
+        def record_is_a_link(project):
+            (project / ".conclave").mkdir()
+            real = pathlib.Path(self.tmp.name) / "real.json"
+            real.write_text(json.dumps(self.valid_record()), encoding="utf-8")
+            os.symlink(real, project / forge.RECORD)
+
+        try:
+            refused(record_is_a_link, "record-link")
+        except OSError as error:  # Windows without the right to create a file symlink
+            self.skipTest(f"cannot create a file symlink here: {error}")
+
+    def test_only_files_forge_wrote_are_recorded_as_their_templates(self):
+        own = self.target / "scripts/todo-graph.py"
+        own.parent.mkdir()
+        own.write_text("the project's own graph\n", encoding="utf-8")
+        forge.apply_kit(self.target, "todo")
+        edited = ".claude/skills/create-todo/SKILL.md"
+        removed = ".codex/skills/create-todo/SKILL.md"
+        as_installed = self.record()["files"][edited]
+        (self.target / edited).write_text("adapted\n", encoding="utf-8")
+        (self.target / removed).unlink()
+
+        before_dry = (self.target / forge.RECORD).read_bytes()
+        dry = forge.apply_kit(self.target, "todo", dry_run=True)
+        self.assertEqual(dry["installed"], [removed])
+        self.assertFalse((self.target / removed).exists())
+        self.assertEqual((self.target / forge.RECORD).read_bytes(), before_dry)
+
+        forge.apply_kit(self.target, "todo")
+        forge.apply_kit(self.target, "reviewer")
+        files = self.record()["files"]
+        self.assertEqual(files[edited], as_installed)
+        self.assertEqual(files[edited]["sha256"], self.template_digest("todo", edited))
+        self.assertNotEqual(files[edited]["sha256"], forge.file_digest(b"adapted\n"))
+        self.assertEqual(files[removed], {"kit": "todo", "sha256": self.template_digest("todo", removed)})
+        self.assertEqual(files["scripts/review-dispatch.py"]["kit"], "reviewer")
+        self.assertNotIn("scripts/todo-graph.py", files)
+        self.assertEqual(own.read_text(encoding="utf-8"), "the project's own graph\n")
+        self.assertEqual(sorted(self.record()["kits"]), ["reviewer", "todo"])
+
+    def test_a_dry_run_writes_no_record(self):
+        forge.apply_kit(self.target, "todo", dry_run=True)
+        self.assertEqual(self.files_under(self.target), [])
+
+    def test_generated_files_are_not_recorded(self):
+        (self.target / "artisan").write_text("<?php\n", encoding="utf-8")
+        forge.apply_kit(self.target, "laravel")
+        files = self.record()["files"]
+        self.assertTrue((self.target / ".mcp.json").is_file())
+        self.assertNotIn(".mcp.json", files)
+        self.assertEqual(files["boost.json"]["kit"], "laravel")
+
+    def test_a_copy_that_fails_part_way_leaves_a_true_record(self):
+        real = forge.atomic_write
+        calls = []
+
+        def failing(path, data):
+            calls.append(pathlib.Path(path))
+            if len(calls) == 3:
+                raise OSError("disk full")
+            real(path, data)
+
+        with unittest.mock.patch.object(forge, "atomic_write", failing):
+            with self.assertRaisesRegex(OSError, "disk full"):
+                forge.apply_kit(self.target, "todo")
+        first, second, third = (path.relative_to(self.target.resolve()).as_posix() for path in calls[:3])
+        self.assertEqual(sorted(self.record()["files"]), sorted([first, second]))
+        self.assertTrue((self.target / first).is_file() and (self.target / second).is_file())
+        self.assertFalse((self.target / third).exists())
+        # A later run finishes the install and records the rest.
+        forge.apply_kit(self.target, "todo")
+        self.assertIn(third, self.record()["files"])
+
+    def test_agents_accumulate_per_kit(self):
+        forge.apply_kit(self.target, "todo", agent="claude")
+        self.assertEqual(self.record()["kits"]["todo"]["agents"], ["claude"])
+        forge.apply_kit(self.target, "todo", agent="codex")
+        self.assertEqual(self.record()["kits"]["todo"]["agents"], ["claude", "codex"])
+        forge.apply_kit(self.target, "reviewer", agent="gemini")
+        self.assertEqual(self.record()["kits"]["reviewer"]["agents"], ["agy"])
+        self.assertEqual(self.record()["kits"]["todo"]["agents"], ["claude", "codex"])
+
+        other = pathlib.Path(self.tmp.name) / "other"
+        other.mkdir()
+        forge.apply_kit(other, "todo")
+        self.assertEqual(self.record(other)["kits"]["todo"]["agents"], ["agy", "claude", "codex"])
+        (other / ".claude/skills/add-todo/SKILL.md").unlink()
+        forge.apply_kit(other, "todo", agent="claude")
+        self.assertEqual(self.record(other)["kits"]["todo"]["agents"], ["agy", "claude", "codex"])
+
+    def test_the_wordpress_host_is_recorded(self):
+        forge.apply_kit(self.target, "wordpress", host="wpcom")
+        self.assertEqual(self.record()["kits"]["wordpress"]["host"], "wpcom")
+
+    def test_entry_docs_are_recorded_as_the_kits_bytes(self):
+        own = self.target / "CLAUDE.md"
+        own.write_text("the project's own entry doc\n", encoding="utf-8")
+        forge.provision(self.target, with_todo=True)
+        files = self.record()["files"]
+        agents_md = (self.target / "AGENTS.md").read_bytes()
+        self.assertIn(b"TODO workflow", agents_md)
+        self.assertEqual(files["AGENTS.md"], {"kit": "base", "sha256": self.template_digest("base", "AGENTS.md")})
+        self.assertNotEqual(files["AGENTS.md"]["sha256"], forge.file_digest(agents_md))
+        self.assertNotIn("CLAUDE.md", files)
+
+        # A second init writes nothing, so nothing in the record moves.
+        before = (self.target / forge.RECORD).read_bytes()
+        forge.provision(self.target, with_todo=True)
+        self.assertEqual((self.target / forge.RECORD).read_bytes(), before)
+
+        # --force replaces the four docs: each now holds the kit's bytes and is recorded so, the one never recorded too.
+        (self.target / "GEMINI.md").write_text("edited\n", encoding="utf-8")
+        forge.provision(self.target, with_todo=True, overwrite_existing_docs=True)
+        files = self.record()["files"]
+        for doc in ("AGENTS.md", "GEMINI.md", "CLAUDE.md", "CODEX.md"):
+            self.assertEqual(files[doc], {"kit": "base", "sha256": self.template_digest("base", doc)}, doc)
+        self.assertEqual(own.read_bytes(), (FORGE_ROOT / "kits/base/templates/CLAUDE.md").read_bytes())
 
 
 class ProcessPlanAuditTests(unittest.TestCase):

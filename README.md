@@ -31,7 +31,7 @@ Each agent reads only its own isolated folder and entrypoint alongside the share
 
 ## Importing into a New or Existing Project (Gemini, Claude, or Codex)
 
-Conclave-SDK is a template, not a master copy. `init` and `kit` copy files into the project once and never overwrite a file that is already there, and nothing they write records which SDK the project came from or points back at it. From then on the project owns its copy: adapt the skills, scripts and pins to the project, and they never drift against the SDK because they are not tied to it. To pick up a later SDK improvement, read the kit's change and port it by hand, like any other code you borrow.
+Conclave-SDK is a template, not a master copy. `init` and `kit` copy files into the project once and never overwrite a file that is already there, and they note what they installed in the project's `.conclave/kits.json`: the SDK commit, and for each file its kit and a digest of its bytes as installed. The record holds no path back to the SDK and the project may delete it: nothing breaks, and forge then only knows less about which files are still as installed. From then on the project owns its copy: adapt the skills, scripts and pins to the project, and they never drift against the SDK because they are not tied to it. To pick up a later SDK improvement, read the kit's change and port it by hand, like any other code you borrow.
 
 Nothing is installed unless you ask for it: `init` always installs the `base` kit and adds only the kits you name. Run from Windows PowerShell (or pass `/mnt/r/GitHub/Conclave-SDK/forge.py` inside WSL).
 
