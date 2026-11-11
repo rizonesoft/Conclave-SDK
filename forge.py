@@ -5,6 +5,7 @@
     python forge.py kit <target> <kit> [--agent all|agy|gemini|claude|codex] [--host pressable|wpcom] [--dry-run]
     python forge.py diff <target> [kit] [--patch]
     python forge.py update <target> [kit] [--only <path>]... [--no-scripts] [--dry-run]
+    python forge.py record <target> [kit] [--dry-run]
     python forge.py doctor <target> [laravel|wordpress|reviewer|automations|todo|base] [--strict]
     python forge.py kits
     python forge.py check <target>
@@ -891,6 +892,46 @@ def update_project(target_root: Path, kit_name: str | None = None, *, only=(), d
     return result
 
 
+def record_project(target_root: Path, kit_name: str | None = None, *, dry_run: bool = False) -> dict:
+    """`record`: adopt an install made before the record existed. Each kit file whose bytes are the kit's
+    (`identical`) and that has no entry gains one, since only then are the installed bytes known; every other file
+    is skipped with its state as the reason, or `recorded` when it already has an entry, which is never replaced. A
+    kit the record does not name gains an entry with the current SDK commit, the agents `diff` compared and the
+    plan's host; one it names is left as it is. The refusals come from a read-only diff before an interrupted run is
+    settled, and the record is written once, through `write_record`."""
+    _diff_kits(target_root, kit_name, patch=False)  # every refusal, before anything is written
+    target = Path(target_root).resolve()
+    if not dry_run:
+        _recover(target, load_record(target) or {"schema_version": 1, "kits": {}, "files": {}})
+    report, sources = _diff_kits(target, kit_name, patch=False)
+    record = load_record(target) or {"schema_version": 1, "kits": {}, "files": {}}
+    commit = sdk_commit()
+    recorded: list[str] = []
+    skipped: list[dict] = []
+    for name, kit in report["kits"].items():
+        adopt: dict[str, str] = {}
+        for item in kit["files"]:
+            rel, state = item["path"], item["state"]
+            if rel in record["files"]:
+                skipped.append({"path": rel, "reason": "recorded"})
+            elif state == "identical":
+                adopt[rel] = file_digest(sources[name]["plan"][rel].read_bytes())
+            else:
+                skipped.append({"path": rel, "reason": state})
+        if not adopt:
+            continue
+        if name not in record["kits"]:
+            agents = sources[name]["agents"]
+            _record_install(record, name, "all" if set(agents) == set(RECORD_AGENTS) else agents,
+                            sources[name]["host"], {}, commit)
+        for rel, digest in adopt.items():
+            record["files"][rel] = {"kit": name, "sha256": digest}
+        recorded.extend(adopt)
+    if recorded and not dry_run:
+        write_record(target, record)
+    return {"target": target.as_posix(), "dry_run": dry_run, "recorded": recorded, "skipped": skipped}
+
+
 def _wordpress_pin_module() -> types.ModuleType:
     """The kit's own wp_site.py (what the helpers ship with), compiled from source so no bytecode lands in the kit."""
     validator = FORGE_ROOT / "kits/wordpress/templates/scripts/lib/wp_site.py"
@@ -1333,6 +1374,11 @@ def main(argv: list[str] | None = None) -> int:
     p_up.add_argument("--no-scripts", action="store_true", help="Leave out the kits' scripts/ files, as init --no-scripts does")
     p_up.add_argument("--dry-run", action="store_true", help="List what would be written without writing")
 
+    p_rec = sub.add_parser("record", help="Adopt an install made before the record: record the files identical to the kit")
+    p_rec.add_argument("target", help="Target repository path")
+    p_rec.add_argument("kit_name", nargs="?", default=None, help="Only this kit (default: every kit the project has)")
+    p_rec.add_argument("--dry-run", action="store_true", help="List what would be recorded without writing")
+
     sub.add_parser("kits", help="List available overlay kits")
     p_self = sub.add_parser("self-sync", help="Refresh the SDK's own installed copy of base, todo, reviewer and automations")
     p_self.add_argument("--dry-run", action="store_true", help="List the files that would change without writing")
@@ -1347,6 +1393,10 @@ def main(argv: list[str] | None = None) -> int:
         # forge's own refusals (bad target, no app root, a pinned host) end like argparse's: one line, exit 2.
         print(f"forge.py: error: {exc}", file=sys.stderr)
         return 2
+    except OSError as exc:
+        # A failed read or write (a full disk, a file held open): one line and exit 1, never reported as done.
+        print(f"forge.py: error: {exc}", file=sys.stderr)
+        return 1
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -1371,6 +1421,10 @@ def _run(args: argparse.Namespace) -> int:
     if args.command == "update":
         print(json.dumps(update_project(target, args.kit_name, only=args.only, dry_run=args.dry_run,
                                         no_scripts=args.no_scripts), indent=2))
+        return 0
+
+    if args.command == "record":
+        print(json.dumps(record_project(target, args.kit_name, dry_run=args.dry_run), indent=2))
         return 0
 
     if args.command == "doctor":

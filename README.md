@@ -82,6 +82,7 @@ Then open the project in Claude Code, Codex or Antigravity. Each agent finds its
 | `python forge.py kit <project> <kit>` | Add one kit to an existing project, copying only missing files |
 | `python forge.py diff <project> [kit]` | Report each kit file's state against the kit, writing nothing |
 | `python forge.py update <project> [kit]` | Write only the kit files the project lacks or never changed |
+| `python forge.py record <project> [kit]` | Adopt an older install: record the files still identical to the kit |
 | `python forge.py doctor <project> [kit]` | Read-only checks of a kit's files and the tools it needs |
 | `python forge.py check <project>` | List the kits and skills a project has |
 | `python forge.py kits` | List the kits this SDK ships |
@@ -118,6 +119,15 @@ python forge.py kit ..\ExistingRepo todo
 # Read-only health and setup checks
 python forge.py check ..\ExistingRepo
 python forge.py doctor ..\ExistingRepo
+```
+
+A project installed before forge kept a record has no `.conclave/kits.json`, so `diff` cannot tell a file the kit has since changed from one the project edited. Adopt it first: `record` notes each file still exactly as the kit ships it (the only files whose installed bytes are known), leaves every entry already recorded alone, and lists the rest under `skipped` with the reason. Then see what changed, and take what is safe:
+
+```powershell
+python forge.py record ..\ExistingRepo --dry-run
+python forge.py record ..\ExistingRepo
+python forge.py diff ..\ExistingRepo
+python forge.py update ..\ExistingRepo
 ```
 
 ### 3. Prompting Gemini, Claude, or Codex to Import Conclave-SDK

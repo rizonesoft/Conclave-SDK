@@ -2080,6 +2080,153 @@ class UpdateTests(KitFixture, unittest.TestCase):
         self.assertIn("never writes over", section)
 
 
+class RecordTests(KitFixture, unittest.TestCase):
+    """`forge.py record`: an install made before the record gains entries for the files still as the kit ships them."""
+
+    def legacy(self, kit="todo", **kw):
+        """An install made before the record existed: the kit's files, and no `.conclave/kits.json`."""
+        forge.apply_kit(self.target, kit, **kw)
+        (self.target / forge.RECORD).unlink()
+
+    def run_main(self, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = forge.main([str(a) for a in args])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_only_files_identical_to_the_kit_are_recorded(self):
+        self.legacy(agent="claude")
+        edited = ".claude/skills/process-plan/SKILL.md"
+        (self.target / edited).write_bytes(b"the project's own edit\n")
+        result = forge.record_project(self.target)
+        files = self.loaded()["files"]
+        self.assertNotIn(edited, files)
+        self.assertIn({"path": edited, "reason": "differs"}, result["skipped"])
+        planned = [e[2] for e in forge.kit_plan(self.target, "todo", agent="claude")[0]]
+        self.assertEqual(sorted(files), sorted(p for p in planned if p != edited))
+        for rel in files:
+            self.assertEqual(files[rel]["sha256"], forge.file_digest((self.target / rel).read_bytes()))
+        kit = self.loaded()["kits"]["todo"]
+        self.assertEqual(kit["agents"], ["claude"])
+        self.assertEqual(kit["sdk_commit"], forge.sdk_commit())
+        self.assertEqual(forge.diff_project(self.target)["kits"]["todo"]["agents"], ["claude"])
+        self.assertEqual(self.states(forge.diff_project(self.target))[edited], "differs")
+
+    def test_a_wordpress_host_is_adopted_and_a_recorded_kit_is_left_alone(self):
+        self.legacy("wordpress", host="wpcom")
+        forge.record_project(self.target)
+        self.assertEqual(self.loaded()["kits"]["wordpress"]["host"], "wpcom")
+        (self.target / forge.WORDPRESS_PIN).unlink()
+        self.assertEqual(self.states(forge.diff_project(self.target), "wordpress")[forge.WORDPRESS_PIN],
+                         "project-removed")
+
+        other = pathlib.Path(self.tmp.name) / "other"
+        other.mkdir()
+        forge.apply_kit(other, "todo", agent="claude")
+        record = forge.load_record(other)
+        assert record is not None
+        record["kits"]["todo"]["sdk_commit"] = "a" * 40
+        dropped = ".claude/skills/add-todo/SKILL.md"
+        del record["files"][dropped]
+        forge.write_record(other, record)
+        forge.record_project(other)
+        after = forge.load_record(other)
+        assert after is not None
+        self.assertEqual(after["kits"]["todo"], record["kits"]["todo"])
+        self.assertIn(dropped, after["files"])
+
+    def test_an_entry_already_recorded_is_never_replaced(self):
+        sdk = pathlib.Path(self.tmp.name) / "sdk"
+        shutil.copytree(FORGE_ROOT / "kits/todo", sdk / "kits/todo")
+        rel = ".claude/skills/add-todo/SKILL.md"
+        with unittest.mock.patch.object(forge, "FORGE_ROOT", sdk):
+            self.legacy(agent="claude")
+            forge.record_project(self.target)
+            first = self.loaded()["files"][rel]
+            template = sdk / "kits/todo/templates" / rel
+            template.write_bytes(template.read_bytes() + b"\nA later kit's line.\n")
+            result = forge.record_project(self.target)
+            self.assertEqual(self.loaded()["files"][rel], first)
+            self.assertIn({"path": rel, "reason": "recorded"}, result["skipped"])
+            self.assertEqual(self.states(forge.diff_project(self.target))[rel], "kit-newer")
+
+    def test_refusals_come_before_settling_an_interrupted_run(self):
+        self.six_state_fixture()
+        staged = self.target / (self.SIX["project-removed"] + forge.STAGED)
+        staged.write_bytes((FORGE_ROOT / "kits/todo/templates" / self.SIX["project-removed"]).read_bytes())
+        before = self.snapshot(self.target)
+        for args in (["record", self.target, "nope"], ["record", self.target, "reviewer"]):
+            code, _out, err = self.run_main(*args)
+            self.assertEqual(code, 2, err)
+            self.assertEqual(self.snapshot(self.target), before, args)
+        result = forge.record_project(self.target, dry_run=True)
+        self.assertEqual(self.snapshot(self.target), before)
+        self.assertTrue(result["dry_run"])
+        forge.record_project(self.target)
+        self.assertFalse(staged.exists())
+        self.assertTrue((self.target / self.SIX["project-removed"]).is_file())
+
+    def test_a_dry_run_lists_what_it_would_record(self):
+        self.legacy(agent="claude")
+        before = self.snapshot(self.target)
+        result = forge.record_project(self.target, dry_run=True)
+        self.assertEqual(self.snapshot(self.target), before)
+        self.assertFalse((self.target / forge.RECORD).exists())
+        self.assertTrue(result["recorded"])
+
+    def test_a_failed_record_write_keeps_the_earlier_record_and_fails(self):
+        self.legacy(agent="claude")
+        forge.record_project(self.target, "todo")
+        record_bytes = (self.target / forge.RECORD).read_bytes()
+        record = self.loaded()
+        del record["files"][".claude/skills/add-todo/SKILL.md"]
+        forge.write_record(self.target, record)
+        record_bytes = (self.target / forge.RECORD).read_bytes()
+        before = self.snapshot(self.target)
+        with unittest.mock.patch.object(forge, "atomic_write", side_effect=OSError(28, "No space left on device")):
+            code, out, err = self.run_main("record", self.target)
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertNotIn("Traceback", err)
+        self.assertIn("No space left on device", err)
+        self.assertEqual((self.target / forge.RECORD).read_bytes(), record_bytes)
+        self.assertEqual(self.snapshot(self.target), before)
+
+    def test_every_skip_reason_is_named(self):
+        (self.target / "artisan").write_text("<?php\n", encoding="utf-8")
+        forge.apply_kit(self.target, "laravel", agent="claude")
+        forge.apply_kit(self.target, "todo", agent="claude")
+        (self.target / forge.RECORD).unlink()
+        (self.target / ".claude/skills/process-plan/SKILL.md").write_bytes(b"edited\n")
+        (self.target / ".claude/skills/groom-plan/SKILL.md").unlink()
+        skill = self.target / ".claude/skills/add-todo"
+        shutil.rmtree(skill)
+        outside = pathlib.Path(self.tmp.name) / "outside"
+        outside.mkdir()
+        make_link(outside, skill)
+        blocked = (self.target / ".claude/skills/create-todo/SKILL.md").resolve()
+        real_read = pathlib.Path.read_bytes
+
+        def deny(path):
+            if pathlib.Path(path).resolve() == blocked:
+                raise PermissionError(13, "Permission denied", str(path))
+            return real_read(path)
+
+        with unittest.mock.patch.object(pathlib.Path, "read_bytes", deny):
+            code, out, err = self.run_main("record", self.target)
+        self.assertEqual(code, 0, err)
+        reasons = {item["reason"] for item in json.loads(out)["skipped"]}
+        self.assertEqual(reasons, {"differs", "missing", "unsafe", "unreadable", "generated"})
+        code, out, err = self.run_main("record", self.target)
+        self.assertIn("recorded", {item["reason"] for item in json.loads(out)["skipped"]})
+
+    def test_the_readme_orders_record_diff_update(self):
+        readme = (FORGE_ROOT / "README.md").read_text(encoding="utf-8")
+        section = readme.split("### 2. Existing Project", 1)[1].split("\n### ", 1)[0]
+        steps = [section.index(f"python forge.py {cmd} ..\\ExistingRepo") for cmd in ("record", "diff", "update")]
+        self.assertEqual(steps, sorted(steps))
+
+
 class ProcessPlanAuditTests(unittest.TestCase):
     """process-plan's audit runs the kits' tests and the project's own: neither replaces the other (a project such as
     a project may keep its script tests in tests/scripts, where kits install theirs under scripts/tests)."""
