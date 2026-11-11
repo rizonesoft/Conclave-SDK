@@ -52,6 +52,49 @@ def _server_command() -> list[str]:
     return [codex, "app-server"]
 
 
+def _kill_on_close_job(proc: subprocess.Popen):
+    """A Windows job object holding `proc`, set to end every process in it when the job is closed or terminated;
+    None when the job cannot be made (the caller then falls back to `taskkill /T`)."""
+    import ctypes
+    from ctypes import wintypes
+
+    class IoCounters(ctypes.Structure):
+        _fields_ = [(name, ctypes.c_ulonglong) for name in (
+            "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+            "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
+
+    class BasicLimits(ctypes.Structure):
+        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_longlong), ("PerJobUserTimeLimit", ctypes.c_longlong),
+                    ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
+                    ("SchedulingClass", wintypes.DWORD)]
+
+    class ExtendedLimits(ctypes.Structure):
+        _fields_ = [("BasicLimitInformation", BasicLimits), ("IoInfo", IoCounters),
+                    ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        return None
+    limits = ExtendedLimits()
+    limits.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    handle = kernel32.OpenProcess(0x0100 | 0x0001, False, proc.pid)  # PROCESS_SET_QUOTA | PROCESS_TERMINATE
+    assigned = bool(handle) and bool(
+        kernel32.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits))  # extended limits
+        and kernel32.AssignProcessToJobObject(job, handle))
+    if handle:
+        kernel32.CloseHandle(handle)
+    if not assigned:
+        kernel32.CloseHandle(job)
+        return None
+    return job
+
+
 class AppServer:
     """`codex app-server` over stdio: one JSON-RPC object a line. Its whole process tree ends when it closes."""
 
@@ -59,6 +102,9 @@ class AppServer:
         group: dict = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
         self.proc = subprocess.Popen(command, cwd=str(cwd), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                      stderr=subprocess.DEVNULL, text=True, encoding="utf-8", **group)
+        # On Windows the server (codex.cmd, then node, then codex.exe) runs in a job that ends every process in it
+        # when the job closes, even after the first one has exited; elsewhere the session's process group does that.
+        self.job = _kill_on_close_job(self.proc) if os.name == "nt" else None
         self.replies: queue.Queue = queue.Queue()
         threading.Thread(target=self._read, daemon=True).start()
         self.next_id = 0
@@ -95,14 +141,22 @@ class AppServer:
         self.proc.stdin.flush()
 
     def close(self) -> None:
-        if self.proc.poll() is None:
-            if os.name == "nt":
+        """End the server's whole tree whether or not its first process is still running: a descendant can outlive
+        a launcher that exited or crashed."""
+        if os.name == "nt":
+            if self.job is not None:
+                import ctypes
+
+                ctypes.windll.kernel32.TerminateJobObject(self.job, 1)
+                ctypes.windll.kernel32.CloseHandle(self.job)
+                self.job = None
+            if self.proc.poll() is None:  # not in a job (assignment failed): end it and the tree it still links
                 subprocess.run(["taskkill", "/T", "/F", "/PID", str(self.proc.pid)], capture_output=True)
-            else:
-                try:
-                    os.killpg(self.proc.pid, signal.SIGKILL)
-                except ProcessLookupError:  # the group has ended already: nothing is left to stop
-                    pass
+        else:
+            try:
+                os.killpg(self.proc.pid, signal.SIGKILL)  # the group outlives its leader while any member runs
+            except ProcessLookupError:  # every process in the group has ended already: nothing is left to stop
+                pass
         try:
             self.proc.wait(timeout=10)
         except subprocess.TimeoutExpired:

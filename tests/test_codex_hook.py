@@ -56,6 +56,18 @@ def run_tree(args, *, input, cwd, shell=False, timeout=120, env=None):
     return subprocess.CompletedProcess(args, proc.returncode, out, err)
 
 
+def alive(pid):
+    """Whether a process id is still running (tasklist on Windows, signal 0 elsewhere)."""
+    if os.name == "nt":
+        out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True).stdout
+        return str(pid) in out
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
 guard = load("codex_test_guard", TEMPLATES / "scripts" / "campaign_guard.py")
 trust_tool = load("codex_test_trust", TEMPLATES / "scripts" / "codex-hook-trust.py")
 
@@ -266,6 +278,16 @@ class Trust(Project):
         with env, mock.patch.object(trust_tool, "TIMEOUT", 2.0), \
                 self.assertRaisesRegex(trust_tool.TrustError, "did not answer"):
             trust_tool.trust(self.root)
+
+    def test_a_server_whose_launcher_exits_leaves_no_descendant_running(self):
+        path = Path(self._tmp.name) / f"scenario-{next(self._scenarios)}.json"
+        path.write_text(json.dumps({"spawn_and_exit": True}), encoding="utf-8")
+        env = {"CODEX_HOOK_TRUST_SERVER": json.dumps([sys.executable, str(STUB)]), "CODEX_STUB_SCENARIO": str(path)}
+        with mock.patch.dict(os.environ, env), mock.patch.object(trust_tool, "TIMEOUT", 3.0), \
+                self.assertRaisesRegex(trust_tool.TrustError, "did not answer"):
+            trust_tool.trust(self.root)
+        child = int((path.parent / (path.name + ".child")).read_text())
+        self.assertFalse(alive(child), f"the server's grandchild {child} outlived close()")
 
     def test_the_command_line_prints_one_line_and_exits_2_on_a_refusal(self):
         path, env = self.scenario([hook_entry(self.root)], silent=True)
