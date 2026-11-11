@@ -94,6 +94,9 @@ Every article, including a small rewrite, also:
 
 ## 11. Codex specifics
 
+- **Heavy jobs queue.** Run full builds and full test suites through `bosun run -- <command>` on Windows and WSL, so repos on both sides take turns for memory and a runaway job is stopped at its write budget. Do not wrap quick commands, or anything that keeps running, such as dev servers and watchers, because those would hold a slot. If `bosun` is not installed, run the command normally.
+- **A child process never outlives its test.** A test or harness that starts a process stops its whole tree on timeout and teardown (a job object or `taskkill /T` on Windows, a process group on Linux), never only the direct child: Python's `subprocess.run(timeout=...)` kills one process and leaves its children running. A fake or fixture that writes in a loop has a bound on what it writes. On 2026-11-08 an orphaned fake CLI flooding stderr wrote 287 GB, filled C: and crashed WSL.
+
 ### Windows only
 
 - Run `exec_command` with `tty: true` so commands use the embedded pseudoterminal and open no desktop console windows. Start background helpers with `Start-Process -WindowStyle Hidden` or the equivalent no-window flags. Open a visible terminal only when asked. Never close a console by killing an active Codex helper process.
