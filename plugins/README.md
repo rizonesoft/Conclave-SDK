@@ -37,3 +37,5 @@ In the plugin READMEs, `<SDK>` means the Conclave-SDK checkout.
 ## Account identifiers
 
 The Codex cloud plugins carry mail addresses, hostnames and connector identifiers (`CLOUD.md` in `codex/conclave`, `codex/pressable` and `codex/website-router`, and the `codex/cloud-access` README and `linux/` scripts). Review those before any change of ownership.
+
+The Codex plugins are listed in one private catalogue, `codex/.agents/plugins/marketplace.json`, with paths relative to `codex/`: register it with `codex plugin marketplace add <SDK>\plugins\codex` and install a plugin by name.

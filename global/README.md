@@ -14,7 +14,6 @@ The owner's machine-level configuration for Claude Code and Codex: global rules,
 | `codex/hooks/` | Codex hooks and their tests |
 | `codex/skills/<name>/` | Global Codex skills: `file-to-ticktick`, `process-ticktick-task` |
 | `deploy.py`, `tests/` | The one deploy script and its tests |
-| `codex/marketplace.json` | Codex plugin marketplace definition |
 | `codex/scripts/` | `check-approval-policy.mjs` |
 
 The two agents are maintained independently. Nothing here is shared between `claude/` and `codex/`.
