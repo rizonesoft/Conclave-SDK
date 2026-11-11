@@ -1003,14 +1003,23 @@ class InstallRecordTests(unittest.TestCase):
         self.assertNotIn(".mcp.json", files)
         self.assertEqual(files["boost.json"]["kit"], "laravel")
 
+    def kit_path(self, path):
+        """The project file a write is for: a staged `<name>.forge-new` file counts as its destination."""
+        path = pathlib.Path(path)
+        name = path.name[:-len(forge.STAGED)] if path.name.endswith(forge.STAGED) else path.name
+        return path.with_name(name).resolve().relative_to(self.target.resolve()).as_posix()
+
+    def staged_files(self):
+        return [rel for rel in self.files_under(self.target) if rel.endswith(forge.STAGED)]
+
     def test_a_copy_that_fails_part_way_leaves_a_true_record(self):
         real = forge.atomic_write
-        record_path = (self.target / forge.RECORD).resolve()
         calls = []
 
         def failing(path, data):
-            if pathlib.Path(path).resolve() != record_path:
-                calls.append(pathlib.Path(path))
+            rel = self.kit_path(path)
+            if rel != forge.RECORD:
+                calls.append(rel)
                 if len(calls) == 3:
                     raise OSError("disk full")
             real(path, data)
@@ -1018,22 +1027,21 @@ class InstallRecordTests(unittest.TestCase):
         with unittest.mock.patch.object(forge, "atomic_write", failing):
             with self.assertRaisesRegex(OSError, "disk full"):
                 forge.apply_kit(self.target, "todo")
-        first, second, third = (path.relative_to(self.target.resolve()).as_posix() for path in calls[:3])
+        first, second, third = calls[:3]
         self.assertEqual(sorted(self.record()["files"]), sorted([first, second]))
-        self.assertTrue((self.target / first).is_file() and (self.target / second).is_file())
+        self.assertEqual(sorted(set(self.files_under(self.target)) - {forge.RECORD}), sorted([first, second]))
         self.assertFalse((self.target / third).exists())
         # A later run finishes the install and records the rest.
         forge.apply_kit(self.target, "todo")
         self.assertIn(third, self.record()["files"])
 
-    def test_a_failure_that_also_stops_the_record_being_rewritten_heals_on_the_next_run(self):
-        # A disk that fills: the third file fails, and so does every write after it, the record's rewrite included.
+    def test_a_disk_that_fills_leaves_no_file_without_its_record_and_heals_on_the_next_run(self):
+        # The third file fails, and so does every write after it, the record included.
         real = forge.atomic_write
-        record_path = (self.target / forge.RECORD).resolve()
         state = {"files": 0, "full": False}
 
         def filling(path, data):
-            if pathlib.Path(path).resolve() != record_path:
+            if self.kit_path(path) != forge.RECORD:
                 state["files"] += 1
                 state["full"] = state["full"] or state["files"] == 3
             if state["full"]:
@@ -1043,10 +1051,9 @@ class InstallRecordTests(unittest.TestCase):
         with unittest.mock.patch.object(forge, "atomic_write", filling):
             with self.assertRaisesRegex(OSError, "disk full"):
                 forge.apply_kit(self.target, "todo")
-        on_disk = set(self.files_under(self.target)) - {forge.RECORD}
+        on_disk = sorted(set(self.files_under(self.target)) - {forge.RECORD})
         self.assertEqual(len(on_disk), 2)
-        # No written file is without a record, which is what a later run could never repair.
-        self.assertTrue(on_disk <= set(self.record()["files"]))
+        self.assertEqual(sorted(self.record()["files"]), on_disk)
         # With space again, the same command writes what is missing and the record is exact.
         forge.apply_kit(self.target, "todo")
         entries, _extra = forge.kit_plan(self.target.resolve(), "todo")
@@ -1055,6 +1062,27 @@ class InstallRecordTests(unittest.TestCase):
         self.assertEqual(sorted(set(self.files_under(self.target)) - {forge.RECORD}), planned)
         for rel in planned:
             self.assertEqual(self.record()["files"][rel]["sha256"], self.template_digest("todo", rel), rel)
+
+    def test_a_record_write_that_fails_leaves_the_file_unwritten(self):
+        # The file's bytes are staged, then the record cannot be written: the file must not appear without its entry.
+        real = forge.atomic_write
+        seen = []
+
+        def failing(path, data):
+            rel = self.kit_path(path)
+            if rel == forge.RECORD and len(seen) == 2:
+                raise OSError("disk full")
+            if rel != forge.RECORD:
+                seen.append(rel)
+            real(path, data)
+
+        with unittest.mock.patch.object(forge, "atomic_write", failing):
+            with self.assertRaisesRegex(OSError, "disk full"):
+                forge.apply_kit(self.target, "todo")
+        first, second = seen
+        self.assertEqual(sorted(self.record()["files"]), [first])
+        self.assertEqual(sorted(set(self.files_under(self.target)) - {forge.RECORD}), [first])
+        self.assertEqual(self.staged_files(), [])
 
     def test_a_restored_file_that_fails_keeps_the_digest_it_was_installed_with(self):
         # Installed from an earlier kit version (another digest), deleted by the project, and the reinstall fails:
@@ -1068,7 +1096,7 @@ class InstallRecordTests(unittest.TestCase):
         real = forge.atomic_write
 
         def failing(path, data):
-            if pathlib.Path(path).resolve() == (self.target / rel).resolve():
+            if self.kit_path(path) == rel:
                 raise OSError("read-only")
             real(path, data)
 
@@ -1078,55 +1106,98 @@ class InstallRecordTests(unittest.TestCase):
         self.assertEqual(self.record()["files"][rel]["sha256"], "c" * 64)
         self.assertFalse((self.target / rel).exists())
 
-    def test_a_forced_replacement_on_a_full_disk_keeps_the_baseline_and_recovers(self):
-        # The doc was installed from an earlier kit version (another digest) and is still that version on disk.
-        # --force on a disk that is full from the first doc on: the doc is not replaced and the record cannot be
-        # rewritten either, so the record must still hold the digest the doc was installed with.
+    def earlier_agents_md(self):
+        """A project whose AGENTS.md was installed from an earlier kit version and is still that version on disk."""
         forge.provision(self.target)
         record = self.record()
         record["files"]["AGENTS.md"]["sha256"] = "c" * 64
         forge.write_record(self.target, record)
         (self.target / "AGENTS.md").write_text("the earlier template\n", encoding="utf-8")
+
+    def assert_agents_md_is_the_kits(self):
+        template = FORGE_ROOT / "kits/base/templates/AGENTS.md"
+        self.assertEqual((self.target / "AGENTS.md").read_bytes(), template.read_bytes())
+        self.assertEqual(self.record()["files"]["AGENTS.md"]["sha256"], self.template_digest("base", "AGENTS.md"))
+        self.assertEqual(self.staged_files(), [])
+
+    def test_a_forced_replacement_on_a_full_disk_keeps_the_doc_and_its_baseline(self):
+        # --force with the disk full from the record write on: the new bytes were staged, the record could not be
+        # written, so the doc must still be the earlier one under the digest it was installed with.
+        self.earlier_agents_md()
         real = forge.atomic_write
-        record_path = (self.target / forge.RECORD).resolve()
-        state = {"full": False, "record_writes_refused": 0}
+        state = {"record_writes_refused": 0}
 
         def filling(path, data):
-            if pathlib.Path(path).name == "AGENTS.md":
-                state["full"] = True
-            if state["full"]:
-                if pathlib.Path(path).resolve() == record_path:
-                    state["record_writes_refused"] += 1
+            if self.kit_path(path) == forge.RECORD:
+                state["record_writes_refused"] += 1
                 raise OSError("disk full")
             real(path, data)
 
         with unittest.mock.patch.object(forge, "atomic_write", filling):
             with self.assertRaisesRegex(OSError, "disk full"):
                 forge.provision(self.target, overwrite_existing_docs=True)
-        self.assertGreaterEqual(state["record_writes_refused"], 1, "the rollback write must have been the one refused")
+        self.assertEqual(state["record_writes_refused"], 1)
         self.assertEqual((self.target / "AGENTS.md").read_text(encoding="utf-8"), "the earlier template\n")
         self.assertEqual(self.record()["files"]["AGENTS.md"]["sha256"], "c" * 64)
+        self.assertEqual(self.staged_files(), [])
+        # An ordinary init afterwards is not destructive: the doc and its baseline stay as they were.
+        before = (self.target / forge.RECORD).read_bytes()
+        forge.provision(self.target)
+        self.assertEqual((self.target / "AGENTS.md").read_text(encoding="utf-8"), "the earlier template\n")
+        self.assertEqual((self.target / forge.RECORD).read_bytes(), before)
         # With space again, --force replaces the doc and the record follows it.
         forge.provision(self.target, overwrite_existing_docs=True)
-        self.assertEqual((self.target / "AGENTS.md").read_bytes(), (FORGE_ROOT / "kits/base/templates/AGENTS.md").read_bytes())
-        self.assertEqual(self.record()["files"]["AGENTS.md"]["sha256"], self.template_digest("base", "AGENTS.md"))
+        self.assert_agents_md_is_the_kits()
 
-    def test_a_forced_entry_doc_that_fails_keeps_its_earlier_record(self):
-        forge.provision(self.target)
-        earlier = self.record()["files"]["AGENTS.md"]
-        (self.target / "AGENTS.md").write_text("the project's own\n", encoding="utf-8")
+    def test_a_forced_replacement_that_cannot_stage_keeps_the_doc_and_its_baseline(self):
+        self.earlier_agents_md()
         real = forge.atomic_write
 
         def failing(path, data):
-            if pathlib.Path(path).name == "AGENTS.md":
+            if self.kit_path(path) == "AGENTS.md":
                 raise OSError("read-only")
             real(path, data)
 
         with unittest.mock.patch.object(forge, "atomic_write", failing):
             with self.assertRaisesRegex(OSError, "read-only"):
                 forge.provision(self.target, overwrite_existing_docs=True)
-        self.assertEqual(self.record()["files"]["AGENTS.md"], earlier)
-        self.assertEqual((self.target / "AGENTS.md").read_text(encoding="utf-8"), "the project's own\n")
+        self.assertEqual(self.record()["files"]["AGENTS.md"]["sha256"], "c" * 64)
+        self.assertEqual((self.target / "AGENTS.md").read_text(encoding="utf-8"), "the earlier template\n")
+        self.assertEqual(self.staged_files(), [])
+
+    def test_a_replacement_recorded_but_not_renamed_is_finished_by_the_next_run(self):
+        # The record was written with the new digest and the rename then failed (the doc was held open): the staged
+        # bytes are what the record names, so any later run moves them into place.
+        self.earlier_agents_md()
+        real = os.replace
+
+        def held_open(source, destination):
+            if pathlib.Path(destination).name == "AGENTS.md":
+                raise PermissionError("the file is in use")
+            real(source, destination)
+
+        with unittest.mock.patch.object(forge.os, "replace", held_open):
+            with self.assertRaisesRegex(PermissionError, "in use"):
+                forge.provision(self.target, overwrite_existing_docs=True)
+        self.assertEqual((self.target / "AGENTS.md").read_text(encoding="utf-8"), "the earlier template\n")
+        self.assertEqual(self.record()["files"]["AGENTS.md"]["sha256"], self.template_digest("base", "AGENTS.md"))
+        self.assertEqual(self.staged_files(), ["AGENTS.md" + forge.STAGED])
+        # An ordinary init, with no --force, finishes it.
+        forge.provision(self.target)
+        self.assert_agents_md_is_the_kits()
+
+    def test_a_staged_file_the_record_does_not_name_is_removed_not_applied(self):
+        forge.provision(self.target)
+        before = (self.target / "AGENTS.md").read_bytes()
+        stale = self.target / ("AGENTS.md" + forge.STAGED)
+        stale.write_text("left by a run that never recorded it\n", encoding="utf-8")
+        forge.provision(self.target)
+        self.assertFalse(stale.exists())
+        self.assertEqual((self.target / "AGENTS.md").read_bytes(), before)
+        # A dry run changes nothing, a staged file included.
+        stale.write_text("left again\n", encoding="utf-8")
+        forge.apply_kit(self.target, "base", dry_run=True)
+        self.assertTrue(stale.exists())
 
     def test_agents_accumulate_per_kit(self):
         forge.apply_kit(self.target, "todo", agent="claude")

@@ -379,62 +379,69 @@ def write_record(target_root: Path, record: dict) -> None:
     atomic_write(target_root / RECORD, json.dumps(record, indent=2, sort_keys=True) + "\n")
 
 
-def _record_install(record: dict, kit_name: str, agent: str, host: str | None, digests: dict[str, str]) -> None:
-    """Merge one run's written files into the record under their kit. The kit's agents accumulate (an install for
-    Claude and a later one for Codex record both; `all` records all three) and its commit is the latest install's."""
+def _record_install(record: dict, kit_name: str, agent: str, host: str | None, digests: dict[str, str],
+                    commit: str | None) -> None:
+    """Merge written files into the record under their kit. The kit's agents accumulate (an install for Claude and
+    a later one for Codex record both; `all` records all three) and its commit is the latest install's."""
     agents = set(RECORD_AGENTS) if agent == "all" else {agent}
     kit = record["kits"].setdefault(kit_name, {"sdk_commit": None, "agents": [], "host": None})
     kit["agents"] = sorted(agents | set(kit["agents"]))
-    kit["sdk_commit"] = sdk_commit()
+    kit["sdk_commit"] = commit
     kit["host"] = host if host is not None else kit["host"]
     for rel, digest in digests.items():
         record["files"][rel] = {"kit": kit_name, "sha256": digest}
 
 
+STAGED = ".forge-new"
+
+
+def _finish_staged(target_root: Path, record: dict) -> list[str]:
+    """Finish what an interrupted run left: a staged file beside a recorded path. One whose bytes are what the record
+    names is moved into place (the record was written, only the rename was missing); any other is stale and removed.
+    Returns the paths finished."""
+    finished: list[str] = []
+    for rel, entry in record["files"].items():
+        staged = target_root / (rel + STAGED)
+        if not staged.is_file() or _is_link(staged) or _has_unsafe_parent(target_root, rel):
+            continue
+        if file_digest(staged.read_bytes()) == entry["sha256"]:
+            os.replace(staged, target_root / rel)
+            finished.append(rel)
+        else:
+            staged.unlink()
+    return finished
+
+
 def _write_recorded(target_root: Path, record: dict, kit_name: str, agent: str, host: str | None,
                     copies: list[tuple[str, Path, bytes]]) -> None:
-    """Write `(relative path, destination, bytes)` files and record them under their kit, so that no failure leaves
-    a record that is wrong in a way a later run cannot repair.
+    """Write `(relative path, destination, bytes)` files and record each under its kit, one file at a time, so the
+    record and the files never disagree in a way a later run cannot repair. For each file:
 
-    A file that is not there yet is recorded before it is written, and the entry is taken out again when its write
-    fails. If that rewrite of the record fails too (a full disk), the record names a file that is missing, and the
-    next run of the same command writes it, so the record becomes true. Recording it afterwards would risk a written
-    file with no record, which no later run repairs, because a later run skips a file that exists.
+    1. Its bytes are staged beside the destination (`<name>.forge-new`). If that fails, nothing has changed.
+    2. The record is written with the file's digest. If that fails, the staged file is removed and nothing has
+       changed: a file being replaced still holds its earlier bytes under its earlier digest.
+    3. The staged file is renamed over the destination, which needs no space. If the rename fails, the staged file
+       stays, and the next run finishes it (`_finish_staged`), because the record already names its bytes.
 
-    A file being replaced (an entry doc under `init --force`) is the other way round: its entry changes only after
-    its bytes did. Until then the record keeps the digest the file was installed with, which is still what is on
-    disk if the replacement fails. If the record cannot be rewritten after a successful replacement, the file holds
-    the kit's bytes under its earlier digest, which a comparison with the kit still reads as identical.
+    So a file is on disk only with its record entry, and a failure part way leaves the files before it written and
+    recorded and the failing one neither.
     """
     if not copies:
         return
-    replacing = {rel for rel, dst, _data in copies if dst.exists() or dst.is_symlink()}
-    digests = {rel: file_digest(data) for rel, _dst, data in copies}
-    earlier = {rel: record["files"].get(rel) for rel in digests}
-    _record_install(record, kit_name, agent, host, {rel: d for rel, d in digests.items() if rel not in replacing})
-    write_record(target_root, record)
-    written: set[str] = set()
-    try:
-        for rel, dst, data in copies:
-            atomic_write(dst, data)
-            written.add(rel)
-    except BaseException:
-        for rel in digests:
-            if rel in written or rel in replacing:
-                continue
-            if earlier[rel] is None:
-                record["files"].pop(rel, None)
-            else:
-                record["files"][rel] = earlier[rel]
-        _record_install(record, kit_name, agent, host, {rel: digests[rel] for rel in replacing & written})
+    commit = sdk_commit()
+    for rel, dst, data in copies:
+        staged = dst.with_name(dst.name + STAGED)
+        atomic_write(staged, data)
         try:
+            _record_install(record, kit_name, agent, host, {rel: file_digest(data)}, commit)
             write_record(target_root, record)
-        except OSError:
-            pass  # see the docstring: what the record now says is repaired by the next run
-        raise
-    if replacing:
-        _record_install(record, kit_name, agent, host, {rel: digests[rel] for rel in replacing})
-        write_record(target_root, record)
+        except BaseException:
+            try:
+                staged.unlink()
+            except OSError:
+                pass  # a stale staged file: the record does not name its bytes, so the next run removes it
+            raise
+        os.replace(staged, dst)
 
 
 def apply_kit(
@@ -480,6 +487,8 @@ def apply_kit(
 
     # The record is read, and its folder checked, before the first copy: a refusal here leaves nothing written.
     record = load_record(target_root) or {"schema_version": 1, "kits": {}, "files": {}}
+    if not dry_run:
+        _finish_staged(target_root, record)
     copies: list[tuple[str, Path, bytes]] = []
     for src, dst, rel in plan:
         if dst.exists() or dst.is_symlink():
@@ -858,6 +867,7 @@ def provision(
     if overwrite_existing_docs:
         base_templates = FORGE_ROOT / "kits/base/templates"
         record = load_record(target_root) or {"schema_version": 1, "kits": {}, "files": {}}
+        # Anything an interrupted run staged was finished by the kits' own install above.
         forced = [doc for doc in ENTRY_DOCS
                   if _rel_allowed_for_agent(doc, agent) and not (target_root / doc).is_symlink()]
         # A doc --force replaces holds the kit's bytes afterwards, so it is recorded as installed, as a fresh one is.
