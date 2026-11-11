@@ -369,6 +369,19 @@ class AntigravityPayload(Workspace):
             self.assertEqual(self.raw({"conversationId": SESSION, "workspacePaths": paths, "cwd": self.root}), "")
             self.assertIn("workspacePaths is not a list of paths", self.recorded())
         self.assertEqual(self.raw({"conversationId": SESSION, "workspacePaths": "x"}), "", "no workspace at all")
+        self.assertEqual(self.raw({"conversationId": SESSION, "workspacePaths": ["\0"], "cwd": self.root}), "")
+        self.assertIn("workspacePaths is not a list of paths", self.recorded())
+
+    def test_a_workspace_no_path_can_use_still_fails_open_through_the_command(self):
+        payload = json.dumps({"conversationId": SESSION, "workspacePaths": ["\0"]})
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
+        proc = subprocess.run([sys.executable, str(GUARD_PY), "stop-hook"], input=payload, capture_output=True,
+                              text=True, env=env, timeout=60)
+        self.assertEqual((proc.returncode, proc.stdout), (0, ""), proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+        # A root that cannot be used to record in: the recording fails, and the hook still fails open.
+        with mock.patch.object(guard, "_record_hook_error", side_effect=ValueError("embedded null byte")):
+            self.assertEqual(self.raw([1], self.root), "")
 
     def test_a_payload_that_is_not_an_object_fails_open(self):
         self.acquire()

@@ -857,7 +857,7 @@ def stop_hook(stdin: str, project_dir: str | None) -> tuple[int, str]:
             return 0, ""
         if "workspacePaths" in event:
             paths = event["workspacePaths"]
-            if not isinstance(paths, list) or not all(isinstance(p, str) for p in paths):
+            if not isinstance(paths, list) or not all(isinstance(p, str) and "\0" not in p for p in paths):
                 raise GuardError("the Stop payload's workspacePaths is not a list of paths")
             root = project_dir or (paths[0] if paths else "") or root
         if not root:
@@ -878,8 +878,8 @@ def stop_hook(stdin: str, project_dir: str | None) -> tuple[int, str]:
         if root:
             try:
                 _record_hook_error(root, guard, reason)
-            except OSError:
-                pass  # the hook has failed open already and said why on stderr: there is nowhere left to record it
+            except Exception as unrecorded:  # a root no path can use (a NUL byte), a full disk: still fail open
+                print(f"campaign-stop: the error could not be recorded: {unrecorded}", file=sys.stderr)
         return 0, ""
 
 
