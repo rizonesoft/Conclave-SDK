@@ -35,7 +35,7 @@ title: "TODO-01 -- Three-pass review"
 | 1 | §1 | Pin loader module with the three-pass keys | -- | [x] |
 | 2 | §2 | Three-pass dispatcher | §1 | [x] |
 | 3 | §3 | Three-pass stamp rules in the todo kit | §2 | [x] |
-| 4 | §4 | Template pin, prompts, skills and READMEs on three-pass | §3 | [ ] |
+| 4 | §4 | Template pin, prompts, skills and READMEs on three-pass | §3 | [x] |
 | 5 | §5 | Pin check that reports every fault at once | §1 | [ ] |
 | 6 | §6 | Reviewer process tree ended on Windows by a job object | §2 | [ ] |
 | 7 | §7 | Review prompt filler | §2 | [ ] |
@@ -191,9 +191,12 @@ Everything a project reads when it installs the kits describes the three-pass sh
 - [x] Add `tests/test_three_pass_install.py`: install the reviewer and todo kits into a scratch git repository with `forge.py`, assert the installed pin's `policy`, completion lenses, `pass_cap` and `blocking`, write one TODO section, and run plan, round, completion with gaps and reconciliation through the installed `scripts/review-dispatch.py` with a stub Codex on `PATH`, then `scripts/todo-graph.py stamp` with `reconciled` and read the receipt back through `validate`. Done when: the test passes, asserts `passes_spent` 4 and the pin's `pass_cap` in the receipt, and fails when the template pin is put back to rotation. **Corrected 2026-11-11 (plan review):** added; `--check-pin` also prints `ok` for a rotation pin, and equal copies can be equally wrong.
 - [x] Refresh the SDK's own `todo/README.md` from `kits/todo/templates/todo/README.md` by hand (`self-sync` does not cover `todo/`) and compare the two. Done when: `git diff --no-index kits/todo/templates/todo/README.md todo/README.md` is empty or shows only the SDK's own first paragraph. **Corrected 2026-11-11 (plan review):** added.
 - [x] Run `python forge.py self-sync` and copy the kits' `docs/` prompts and the template pin into the SDK's own `docs/` and `.conclave/reviewers.toml` (plan R15). Done when: `python -m unittest discover -s tests` passes and `git diff --no-index` between each kit file and its installed copy is empty.
-- [ ] Commit: `reviewer, todo: template pin, prompts, skills and READMEs on three-pass`
+- [x] Commit: `reviewer, todo: template pin, prompts, skills and READMEs on three-pass`
 
 **Test checkpoint:** `python -m unittest discover -s tests` ends `OK` and `python scripts/review-dispatch.py --check-pin` prints `ok`; a prompt or skill left unsynced makes the self-sync test fail.
+
+> **Verified:** 2026-11-11 | §4 | a741c81183efb6f2fbc550d7a6590000998c245f
+> **Review:** `docs/reviews/d00-t01-s4.json`
 
 ## 5. Pin check that reports every fault at once
 

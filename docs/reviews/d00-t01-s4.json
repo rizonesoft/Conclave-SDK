@@ -1,0 +1,100 @@
+{
+  "ref": "D00 T01 \u00a74",
+  "title": "Template pin, prompts, skills and READMEs on three-pass",
+  "implementation_sha": "a741c81183efb6f2fbc550d7a6590000998c245f",
+  "date": "2026-11-11",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-reviewer/D00-T01-s4.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-reviewer/D00-T01-s4.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s tests -> Ran 294 tests, OK (at 2 commits before the tip; the commits since changed only prompt and skill text and one test)",
+    "python -m unittest tests.test_forge -> Ran 30 tests, OK (at the tip)",
+    "python -m unittest tests.test_three_pass_install -> Ran 2 tests, OK",
+    "bash kits/reviewer/scripts/test-install.sh -> passed"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-reviewer/D00-T01-s4.md",
+    "verdict": "filed",
+    "candidate": "d0b1175fa36dec43c61727aba36136bbbc0c8951",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": [
+      "D00 T01 \u00a76",
+      "D00 T01 \u00a78",
+      "D00 T01 \u00a77"
+    ]
+  },
+  "rounds_spent": 2,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/00-reviewer/D00-T01-s4.md",
+    "candidate": "5398d1e69a62980553b162e44ff3b1a6d417468f",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "5398d1e69a62980553b162e44ff3b1a6d417468f",
+  "schedule": {
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    },
+    "rounds": [
+      {
+        "effort": "high",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "plan-delivery"
+        ]
+      },
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      },
+      {
+        "effort": "low",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "design",
+        "optimization",
+        "record"
+      ]
+    },
+    "escalation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial"
+      ]
+    }
+  }
+}
