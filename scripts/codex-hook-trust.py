@@ -143,7 +143,17 @@ class AppServer:
         self.job = None
         if os.name == "nt":
             self.job = _kill_on_close_job(self.proc)
-            _resume(self.proc.pid)
+            if self.job is None:
+                # Never run a launcher whose tree could not be contained: it is still suspended, so ending it now
+                # leaves nothing behind.
+                self.proc.kill()
+                self.proc.wait(timeout=10)
+                raise TrustError("could not put the Codex app-server in a job object; refusing to start it")
+            try:
+                _resume(self.proc.pid)
+            except BaseException:
+                self.close()  # the job ends the suspended process; nothing outlives a failed start
+                raise
         self.replies: queue.Queue = queue.Queue()
         threading.Thread(target=self._read, daemon=True).start()
         self.next_id = 0

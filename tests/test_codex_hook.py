@@ -331,6 +331,32 @@ class Trust(Project):
         with mock.patch.object(trust_tool, "_kill_on_close_job", late):
             self.test_a_server_whose_launcher_exits_leaves_no_descendant_running()
 
+    @unittest.skipUnless(os.name == "nt", "the job object and the suspended start are Windows-only")
+    def test_a_server_that_cannot_be_contained_or_resumed_is_never_left_running(self):
+        started = []
+        real_popen = trust_tool.subprocess.Popen
+
+        def recording_popen(*args, **kwargs):
+            proc = real_popen(*args, **kwargs)
+            if str(STUB) in [str(part) for part in (args[0] if args else [])]:  # the server, not a taskkill
+                started.append(proc)
+            return proc
+
+        path, env = self.scenario([hook_entry(self.root)])
+        with env, mock.patch.object(trust_tool.subprocess, "Popen", recording_popen):
+            with mock.patch.object(trust_tool, "_kill_on_close_job", return_value=None), \
+                    self.assertRaisesRegex(trust_tool.TrustError, "job object"):
+                trust_tool.trust(self.root)
+            with mock.patch.object(trust_tool, "_resume", side_effect=OSError(5, "Access is denied")), \
+                    self.assertRaisesRegex(OSError, "Access is denied"):
+                trust_tool.trust(self.root)
+        self.assertEqual(len(started), 2)
+        for proc in started:
+            self.addCleanup(end, proc.pid)
+            self.assertIsNotNone(proc.poll(), f"server {proc.pid} was left running after a failed start")
+            self.assertFalse(alive(proc.pid))
+        self.assertEqual(self.writes(path), [])
+
     def test_the_command_line_prints_one_line_and_exits_2_on_a_refusal(self):
         path, env = self.scenario([hook_entry(self.root)], silent=True)
         script = self.root / "scripts/codex-hook-trust.py"
