@@ -1,0 +1,84 @@
+{
+  "ref": "D02 T01 \u00a73",
+  "title": "Codex hook script and hook file",
+  "implementation_sha": "94061244db2b1994121bff71be66179b32efe276",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-unattended/D02-T01-s3.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "bosun run -- python -m unittest discover -s tests -> Ran 456 tests, OK (skipped=95)",
+    "python scripts/codex-hook-trust.py --check -> trusted: D:\\Conclave-SDK\\.codex\\hooks.json:stop:0:0"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-unattended/D02-T01-s3.md",
+    "verdict": "reconciled",
+    "candidate": "94061244db2b1994121bff71be66179b32efe276",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/02-unattended/D02-T01-s3.md",
+    "candidate": "85cdbfa7a123f4e6770945f60da29719848a2b9e",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "85cdbfa7a123f4e6770945f60da29719848a2b9e",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 7,
+  "pass_cap": 33
+}

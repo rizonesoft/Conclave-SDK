@@ -38,7 +38,7 @@ title: "TODO-01 -- Run guard for Antigravity and Codex"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Antigravity payload handled by the Stop hook | -- | [x] |
 | 2 | §2 | Antigravity hook file seeded by the todo kit | §1 | [x] |
-| 3 | §3 | Codex hook script and hook file | -- | [ ] |
+| 3 | §3 | Codex hook script and hook file | -- | [x] |
 | 4 | §4 | Heartbeat stall breaker for a harness with no Stop hook | -- | [ ] |
 | 5 | §5 | Guard self-test through each wired hook | §2, §3 | [ ] |
 | 6 | §6 | Run guard steps in the Antigravity and Codex skill copies | §2, §3, §4 | [ ] |
@@ -130,9 +130,12 @@ Codex needs the `block` answer and must never be stopped by a broken hook. A sma
 - [x] Add a `stop-hook-approved:.codex` check to `doctor_repo` in `forge.py` through `codex-hook-trust.py --check`: `ok` when the campaign Stop hook reads `trusted` against its current hash, `setup_required` naming `python scripts/codex-hook-trust.py` when it is `untrusted` or `modified`, and when `codex` is not installed. Done when: tests with the stub find `ok`, `setup_required` for `untrusted`, for `modified` (a changed hook) and for a campaign handler that follows another Stop handler (key `stop:0:1`), and no check for a project with no `.codex/` folder. Cheaper substitute: reading `config.toml` for a key's presence must fail the `modified` test. **Corrected 2026-11-11 (validation, plan review):** added, then read from `hooks/list` so a stale approval and a handler at another index are caught.
 - [x] Approve the Codex hook at install in `apply_kit` of `forge.py`: when the todo kit has just installed `.codex/hooks.json`, run `codex-hook-trust.py`'s `trust` and report the outcome as `codex_hook` in the result (`approved`, `trusted`, or `not approved` with the reason), never failing the install. Done when: a test with a stub Codex finds `codex_hook` and the doctor clean after a fresh install, and every test module that installs the todo kit answers from the stub (none records an approval in the user's `config.toml`). **Corrected 2026-11-12 (validation):** added; an install the doctor then reports `setup_required` is not done.
 - [x] Install the Codex seed in the SDK itself: add `.codex/hooks.json` to `SELF_PREFIXES` in `forge.py`, run `python forge.py self-sync`, and approve it with `python scripts/codex-hook-trust.py`. Done when: `scripts/codex-campaign-hook.py`, `scripts/codex-hook-trust.py` and `.codex/hooks.json` equal the kit's, the parity test covers them, and `python forge.py doctor . todo` reports `stop-hook:.codex` and `stop-hook-approved:.codex` `ok`. **Corrected 2026-11-11 (plan review):** `self_sync` left out the hook file.
-- [ ] Commit: `todo: Codex Stop hook that never blocks on its own failure`
+- [x] Commit: `todo: Codex Stop hook that never blocks on its own failure`
 
 **Test checkpoint:** `python -m unittest discover -s tests` ends `OK`; making the wrapper raise on a payload that is not JSON makes its test fail.
+
+> **Verified:** 2026-11-12 | §3 | 94061244db2b1994121bff71be66179b32efe276
+> **Review:** `docs/reviews/d02-t01-s3.json`
 
 ## 4. Heartbeat stall breaker for a harness with no Stop hook
 
