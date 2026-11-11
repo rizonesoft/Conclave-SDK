@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><title>Conclave-SDK</title><defs>
+<linearGradient id="t" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#111c2e"/><stop offset="1" stop-color="#060a12"/></linearGradient>
+<radialGradient id="g" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#00beff" stop-opacity="0.55"/><stop offset="1" stop-color="#00beff" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="512" height="512" rx="112" fill="url(#t)"/>
+<rect x="6" y="6" width="500" height="500" rx="106" fill="none" stroke="#1e3554" stroke-width="4"/>
+<polygon points="256,106 385.9,181 385.9,331 256,406 126.1,331 126.1,181" fill="none" stroke="#00beff" stroke-opacity="0.45" stroke-width="8" stroke-linejoin="round"/>
+<line x1="256" y1="256" x2="256" y2="106" stroke="#00beff" stroke-opacity="0.28" stroke-width="6"/><line x1="256" y1="256" x2="385.9" y2="331" stroke="#00beff" stroke-opacity="0.28" stroke-width="6"/><line x1="256" y1="256" x2="126.1" y2="331" stroke="#00beff" stroke-opacity="0.28" stroke-width="6"/>
+<circle cx="256" cy="256" r="120" fill="url(#g)"/>
+<circle cx="385.9" cy="181" r="11" fill="#00beff" fill-opacity="0.7"/><circle cx="256" cy="406" r="11" fill="#00beff" fill-opacity="0.7"/><circle cx="126.1" cy="181" r="11" fill="#00beff" fill-opacity="0.7"/>
+<circle cx="256" cy="106" r="30" fill="#060a12" stroke="#00beff" stroke-width="12"/><circle cx="385.9" cy="331" r="30" fill="#060a12" stroke="#00beff" stroke-width="12"/><circle cx="126.1" cy="331" r="30" fill="#060a12" stroke="#00beff" stroke-width="12"/>
+<circle cx="256" cy="256" r="46" fill="#91edff"/>
+<circle cx="256" cy="256" r="24" fill="#ffffff"/>
+</svg>

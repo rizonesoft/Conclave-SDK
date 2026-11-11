@@ -1,0 +1,41 @@
+name: Feature request
+description: Something the SDK or a kit should do and does not
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: Check todo/implementation-plan.md first. Work that is already planned has a section you can name here.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you were doing and what got in the way.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What done looks like
+      description: The command, file or behaviour that would exist, and how you would check it.
+    validations:
+      required: true
+  - type: dropdown
+    id: agents
+    attributes:
+      label: Agents it concerns
+      multiple: true
+      options:
+        - Claude Code
+        - Codex
+        - Antigravity
+        - all three
+  - type: input
+    id: section
+    attributes:
+      label: Planned section, if any
+      placeholder: D01 T01 §3
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do today
+      description: The workaround in use, or the project that already built this.

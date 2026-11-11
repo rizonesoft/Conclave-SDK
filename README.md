@@ -1,4 +1,31 @@
-# Conclave-SDK
+<p align="center">
+  <img src="assets/brand/conclave-sdk-icon.svg" width="128" height="128" alt="Conclave-SDK icon">
+</p>
+
+<h1 align="center">Conclave-SDK</h1>
+
+<p align="center">
+  <strong>Agent kits for Claude Code, Codex and Antigravity.</strong><br>
+  Skills, rules, independent review and a TODO system, copied into a project once and owned by it from then on.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.11%2B-00beff?style=flat-square&labelColor=0b1220" alt="Python 3.11 or later">
+  <img src="https://img.shields.io/badge/dependencies-none-00beff?style=flat-square&labelColor=0b1220" alt="No dependencies">
+  <img src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20Antigravity-00beff?style=flat-square&labelColor=0b1220" alt="Three agents">
+  <img src="https://img.shields.io/badge/kits-6-00beff?style=flat-square&labelColor=0b1220" alt="Six kits">
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20WSL-00beff?style=flat-square&labelColor=0b1220" alt="Windows, Linux and WSL">
+  <img src="https://img.shields.io/badge/license-proprietary-8fa6c4?style=flat-square&labelColor=0b1220" alt="Proprietary">
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#overlay-kits-kits">Kits</a> ·
+  <a href="#commands">Commands</a> ·
+  <a href="#todo-workflow-discipline">TODO workflow</a> ·
+  <a href="#roadmap">Roadmap</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a>
+</p>
 
 Conclave-SDK is the central repository of overlay kits that carry agent skills, rules and subagent definitions (`base`, `todo`, `reviewer`, `automations`, `laravel`, `wordpress`), prompts, plugins, templates, and the canonical TODO graph tooling (`todo-graph.py`).
 
@@ -9,6 +36,126 @@ It is designed to be imported into any **new** or **existing** repository by **G
 - **OpenAI Codex (`codex`):** `.codex/skills/` (with `agents/openai.yaml`), `.codex/rules/`, and `CODEX.md`
 
 Each agent reads only its own isolated folder and entrypoint alongside the shared project rules in `AGENTS.md`.
+
+## Why it exists
+
+- **One source for three agents.** A skill is written once per agent folder and installed the same way for Claude Code, Codex and Antigravity, so a project does not keep three setups by hand.
+- **Copied once, owned by the project.** Nothing links a project back to the SDK. The project adapts its copy, and `forge.py` never overwrites a file the project already has.
+- **Review by another model family.** The `reviewer` kit pins a reviewer that is never the writer's own model family, and the `todo` kit will not mark a section done without that review on record.
+- **A plan that finishes.** The `todo` kit turns a plan into small sections with checkable steps, a generated plan file and a run guard that keeps an unattended run going.
+- **Nothing to install.** Every script is Python 3 standard library only, with atomic writes, on Windows, Linux and WSL.
+
+## Quick start
+
+Clone the repository, then run `forge.py` from the clone against the project you want to set up.
+
+```powershell
+git clone https://github.com/rizonetech/Conclave-SDK.git
+cd Conclave-SDK
+
+# A new project: the base kit, plus the TODO system and independent review
+python forge.py init ..\MyProject --kit todo --kit reviewer
+
+# See what a project has and what its machine still needs
+python forge.py check ..\MyProject
+python forge.py doctor ..\MyProject
+```
+
+Then open the project in Claude Code, Codex or Antigravity. Each agent finds its own skills in its own folder.
+
+## Overlay Kits (`kits/`)
+
+| Kit | What it installs (for `.agents`, `.claude` and `.codex`) | Install when |
+| --- | --- | --- |
+| `base` | Entry docs, safety and authoring skills, subagents, rules | Every repository |
+| `todo` | 8 TODO skills, `todo-graph.py`, starter `todo/` tree | Work planned in TODO files |
+| `reviewer` | Reviewer pin, `review-dispatch.py`, review skill | Independent review |
+| `automations` | `tasks.json`, runner, failure email, installers, skill | Scheduled checks |
+| `laravel` | `boost.json`, `.mcp.json`, LSP diagnostics, `laravel-boost` | `artisan` exists |
+| `wordpress` | Site pin, SSH/SFTP, WordPress MCP, DDEV, PHPCS | A WordPress site |
+
+## Commands
+
+| Command | What it does |
+| ------- | ------------ |
+| `python forge.py init <project> [--kit <kit>]` | Install the base kit plus the kits you name |
+| `python forge.py kit <project> <kit>` | Add one kit to an existing project, copying only missing files |
+| `python forge.py doctor <project> [kit]` | Read-only checks of a kit's files and the tools it needs |
+| `python forge.py check <project>` | List the kits and skills a project has |
+| `python forge.py kits` | List the kits this SDK ships |
+| `python forge.py self-sync` | Refresh the SDK's own installed copy of its kits |
+
+`kit` and `init` take `--agent all|gemini|agy|claude|codex`, and `kit` takes `--dry-run` to preview.
+
+## Importing into a New or Existing Project (Gemini, Claude, or Codex)
+
+Conclave-SDK is a template, not a master copy. `init` and `kit` copy files into the project once and never overwrite a file that is already there, and they note what they installed in the project's `.conclave/kits.json`: the SDK commit, and for each file its kit and a digest of its bytes as installed. The record holds no path back to the SDK and the project may delete it: nothing breaks, and forge then only knows less about which files are still as installed. From then on the project owns its copy: adapt the skills, scripts and pins to the project, and they never drift against the SDK because they are not tied to it. To pick up a later SDK improvement, read the kit's change and port it by hand, like any other code you borrow.
+
+Nothing is installed unless you ask for it: `init` always installs the `base` kit and adds only the kits you name. Run it from the clone, in Windows PowerShell or inside WSL.
+
+### 1. New Project
+
+```powershell
+# Base only: AGENTS.md and the entry docs, safety and authoring skills, subagents, rules, verify-agent-tiers.mjs
+python forge.py init ..\MyProject
+
+# Add the TODO system (--with-todo is shorthand for --kit todo), or a stack kit
+python forge.py init ..\MyProject --kit todo
+python forge.py init ..\MyWordPressSite --kit wordpress --wp-host wpcom
+python forge.py init ..\MyLaravelApp --kit todo --kit laravel
+```
+
+### 2. Existing Project
+
+`kit` adds one kit and only copies missing files: every file the project already has, its own or one an earlier copy left, is listed under `preserved` and left exactly as it is. It takes `--agent all|gemini|claude|codex` and `--dry-run` to preview. `check` lists the kits a repository appears to have, judged by their files alone.
+
+```powershell
+python forge.py kit ..\ExistingRepo base
+python forge.py kit ..\ExistingRepo todo
+
+# Read-only health and setup checks
+python forge.py check ..\ExistingRepo
+python forge.py doctor ..\ExistingRepo
+```
+
+### 3. Prompting Gemini, Claude, or Codex to Import Conclave-SDK
+
+Paste the prompt from [`prompts/bootstrap-project-prompt.md`](prompts/bootstrap-project-prompt.md) into any Gemini, Claude, or Codex session open in your target repository.
+
+## Isolation
+
+`forge.py` copies tracked skills and rules into `.agents/`, `.claude/` and `.codex/` inside the target repository with zero external path dependencies: no link or stamp points at the SDK, and the install record names files and digests only. Every repository is 100% self-contained and each agent is isolated in its own directory.
+
+The SDK itself is the one exception: it plans, reviews and schedules its own work with the `base`, `todo`, `reviewer` and `automations` kits, so it keeps an installed copy of them that `python forge.py self-sync` refreshes from the kits (`tests/test_forge.py` fails until the two match).
+
+## TODO Workflow Discipline
+
+The `todo` kit's eight skills (`add-todo`, `create-todo`, `groom-plan`, `process-phase`, `process-plan`, `process-todo-file`, `process-todo-section`, `review-todo-section`), its starter `todo/` tree and `docs/todo-workflow.md` enforce the canonical Conclave-SDK execution contract:
+
+* **Small, single-responsibility sections:** Multi-subsystem, multi-dialog, or multi-workflow work is split into small, single-responsibility sections rather than coarse umbrella sections.
+* **Readable table descriptions (`<= 88` chars):** Every section heading (`## N. <Title>`), `Deliverable` cell in `Implementation Order`, and `Scope` cell in index tables is a clear noun phrase of at most 88 characters (enforced by `todo-graph.py validate`) so raw Markdown table rows stay under 140 characters and do not wrap in raw `.md` editors.
+* **Granular five-part micro-steps:** Every section carries 1 to 30 concrete micro-step items (typically 4 to 15 micro-steps, never a 1-bullet summary stub), ending with `- [ ] Commit: <message>`. Each non-Commit item names: (1) one action, (2) a concrete path/symbol/command in backticks, (3) `Done when:` observable end state in the same bullet, (4) `Cheaper substitute:` on UI and write items, and (5) a source citation when copying behavior.
+* **100% complete development plan:** Running `process-plan` from start to finish leaves a 100% complete, shippable product with zero unowned SPEC controls, settings, refusal/error paths, undo/reverse paths, or persistence read-backs, and zero silent scope drops.
+* **Logical step commits:** Commits follow logical steps within a section; review fix-loop commits append to the candidate range without amending.
+
+## Roadmap
+
+The SDK plans its own work with its own `todo` kit. The live plan is [`todo/implementation-plan.md`](todo/implementation-plan.md), generated from the TODO files, and the reasoning behind it is in [`docs/plans/2026-11-11-sdk-audit-and-roadmap.md`](docs/plans/2026-11-11-sdk-audit-and-roadmap.md).
+
+| Phase | What it delivers |
+| ----- | ---------------- |
+| 0 | Three-pass review: a plan review, one round, a completion review (done) |
+| 1 | An install record, `diff`, `update` and a weekly drift report |
+| 2 | Unattended running: run guard for all three agents and an `unattended` kit |
+| 3 | A todo graph that takes a project's own phases, Needs and caps |
+| 4 | Antigravity and Codex as first-class writers |
+| 5 | One command that runs every test, and generated skill copies |
+| 6 | Tooling kits: language servers and build toolchains |
+| 7 | The operating directive in the base kit |
+
+## Running the SDK's own plan unattended
+
+On Windows, `pwsh scripts/start-run.ps1` starts a Claude Code session in this checkout on the latest Opus, with permission prompts off and a `/goal` to finish the plan through the `process-plan` skill. `pwsh scripts/start-run.ps1 -InstallShortcut` puts "Conclave-SDK unattended run" on the desktop, and `-DryRun` prints what would run and changes nothing. The session signs in with the long-lived token in the user variable `CLAUDE_CODE_OAUTH_TOKEN` when one is stored, and with the claude.ai sign-in otherwise. The token is never printed.
 
 ## Repository Layout
 
@@ -23,70 +170,29 @@ Each agent reads only its own isolated folder and entrypoint alongside the share
 | `prompts/` | Copy-pasteable prompts to import Conclave-SDK from Gemini, Claude, or Codex. |
 | `plugins/` | Account-bound Codex and Claude plugins that belong to no kit (never installed). |
 | `global/` | The owner's machine-level Claude and Codex rules, hooks, skills (never installed). |
+| `assets/brand/` | The icon, its PNG and ICO renders, and the social preview. |
 | `tests/fixtures/check-pin/` | Pins and dispatchers freezing the `--check-pin` contract. |
 | `todo/` | The SDK's own TODO plan. |
 | `.agents/`, `.claude/`, `.codex/` | The SDK's own `base`, `todo`, `reviewer`, `automations`. |
 | `scripts/`, `.conclave/` | The SDK's own todo, reviewer and automations scripts and pins. |
 | `tests/` | Suites for `todo_graph.py`, `forge.py`, kits, `test_check_pin_contract.py`. |
+| `.github/` | Issue and pull request templates. |
 
-## Importing into a New or Existing Project (Gemini, Claude, or Codex)
-
-Conclave-SDK is a template, not a master copy. `init` and `kit` copy files into the project once and never overwrite a file that is already there, and they note what they installed in the project's `.conclave/kits.json`: the SDK commit, and for each file its kit and a digest of its bytes as installed. The record holds no path back to the SDK and the project may delete it: nothing breaks, and forge then only knows less about which files are still as installed. From then on the project owns its copy: adapt the skills, scripts and pins to the project, and they never drift against the SDK because they are not tied to it. To pick up a later SDK improvement, read the kit's change and port it by hand, like any other code you borrow.
-
-Nothing is installed unless you ask for it: `init` always installs the `base` kit and adds only the kits you name. Run from Windows PowerShell (or pass `/mnt/r/GitHub/Conclave-SDK/forge.py` inside WSL).
-
-### 1. New Project
+## Development
 
 ```powershell
-# Base only: AGENTS.md and the entry docs, safety and authoring skills, subagents, rules, verify-agent-tiers.mjs
-python R:\GitHub\Conclave-SDK\forge.py init R:\GitHub\MyProject
-
-# Add the TODO system (--with-todo is shorthand for --kit todo), or a stack kit
-python R:\GitHub\Conclave-SDK\forge.py init R:\GitHub\MyProject --kit todo
-python R:\GitHub\Conclave-SDK\forge.py init R:\GitHub\MyWordPressSite --kit wordpress --wp-host wpcom
-python R:\GitHub\Conclave-SDK\forge.py init R:\GitHub\MyLaravelApp --kit todo --kit laravel
+python -m unittest discover -s tests                                     # the quick suite, about a minute
+$env:CONCLAVE_FULL_TESTS = '1'; python -m unittest discover -s tests     # the full suite, several minutes
+python scripts/todo-graph.py validate                                    # the SDK's own TODO tree
+python forge.py self-sync                                                # after changing a kit file
 ```
 
-### 2. Existing Project
+Change a kit file in the kit, never in the SDK's installed copy. The working rules are in [`AGENTS.md`](AGENTS.md), and how to propose a change is in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-`kit` adds one kit and only copies missing files: every file the project already has, its own or one an earlier copy left, is listed under `preserved` and left exactly as it is. It takes `--agent all|gemini|claude|codex` and `--dry-run` to preview. `check` lists the kits a repository appears to have, judged by their files alone.
+## Security
 
-```powershell
-python R:\GitHub\Conclave-SDK\forge.py kit R:\GitHub\ExistingRepo base
-python R:\GitHub\Conclave-SDK\forge.py kit R:\GitHub\ExistingRepo todo
+Report a vulnerability privately, as [`SECURITY.md`](SECURITY.md) describes. The repository holds no secret: credentials stay in a vault and are never printed, logged or committed.
 
-# Read-only health and setup checks
-python R:\GitHub\Conclave-SDK\forge.py check R:\GitHub\ExistingRepo
-python R:\GitHub\Conclave-SDK\forge.py doctor R:\GitHub\ExistingRepo
-```
+## License
 
-### 3. Prompting Gemini, Claude, or Codex to Import Conclave-SDK
-
-Paste the prompt from [`prompts/bootstrap-project-prompt.md`](file:///R:/GitHub/Conclave-SDK/prompts/bootstrap-project-prompt.md) into any Gemini, Claude, or Codex session open in your target repository.
-
-## Overlay Kits (`kits/`)
-
-| Kit | What it installs (for `.agents`, `.claude` and `.codex`) | Install when |
-| --- | --- | --- |
-| `base` | Entry docs, safety and authoring skills, subagents, rules | Every repository |
-| `todo` | 8 TODO skills, `todo-graph.py`, starter `todo/` tree | Work planned in TODO files |
-| `reviewer` | Reviewer pin, `review-dispatch.py`, review skill | Independent review |
-| `automations` | `tasks.json`, runner, failure email, installers, skill | Scheduled checks |
-| `laravel` | `boost.json`, `.mcp.json`, LSP diagnostics, `laravel-boost` | `artisan` exists |
-| `wordpress` | Site pin, SSH/SFTP, WordPress MCP, DDEV, PHPCS | A WordPress site |
-
-## Isolation
-
-`forge.py` copies tracked skills and rules into `.agents/`, `.claude/` and `.codex/` inside the target repository with zero external path dependencies: no manifest, link or stamp points at the SDK. Every repository is 100% self-contained and each agent is isolated in its own directory.
-
-The SDK itself is the one exception: it plans, reviews and schedules its own work with the `base`, `todo`, `reviewer` and `automations` kits, so it keeps an installed copy of them that `python forge.py self-sync` refreshes from the kits (`tests/test_forge.py` fails until the two match).
-
-## TODO Workflow Discipline
-
-The `todo` kit's eight skills (`add-todo`, `create-todo`, `groom-plan`, `process-phase`, `process-plan`, `process-todo-file`, `process-todo-section`, `review-todo-section`), its starter `todo/` tree and `docs/todo-workflow.md` enforce the canonical Conclave-SDK execution contract:
-
-* **Small, single-responsibility sections:** Multi-subsystem, multi-dialog, or multi-workflow work is split into small, single-responsibility sections rather than coarse umbrella sections.
-* **Readable table descriptions (`<= 88` chars):** Every section heading (`## N. <Title>`), `Deliverable` cell in `Implementation Order`, and `Scope` cell in index tables is a clear noun phrase of at most 88 characters (enforced by `todo-graph.py validate`) so raw Markdown table rows stay under 140 characters and do not wrap in raw `.md` editors.
-* **Granular five-part micro-steps:** Every section carries 1 to 30 concrete micro-step items (typically 4 to 15 micro-steps, never a 1-bullet summary stub), ending with `- [ ] Commit: <message>`. Each non-Commit item names: (1) one action, (2) a concrete path/symbol/command in backticks, (3) `Done when:` observable end state in the same bullet, (4) `Cheaper substitute:` on UI and write items, and (5) a source citation when copying behavior.
-* **100% complete development plan:** Running `process-plan` from start to finish leaves a 100% complete, shippable product with zero unowned SPEC controls, settings, refusal/error paths, undo/reverse paths, or persistence read-backs, and zero silent scope drops.
-* **Logical step commits:** Commits follow logical steps within a section; review fix-loop commits append to the candidate range without amending.
+Copyright Rizonetech. All rights reserved. This repository is internal and carries no open-source license: no right to use, copy or distribute it is granted without written permission.
