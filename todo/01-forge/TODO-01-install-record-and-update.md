@@ -46,6 +46,8 @@ title: "TODO-01 -- Install record, diff and update"
 
 ## 1. Kit file plan shared by install, diff and update
 
+> **Started:** 2026-11-11T17:48:24Z
+
 `apply_kit` decides which template file goes to which project path inside its own body (`forge.py:222` to `forge.py:277`), including the Laravel app root and the WordPress host overlay. `diff` and `update` need the same list, so it moves into one function they all call. Behaviour of `kit` and `init` must not change.
 
 **Phase:** 1
