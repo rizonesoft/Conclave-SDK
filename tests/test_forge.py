@@ -2503,7 +2503,7 @@ class DriftTests(KitFixture, unittest.TestCase):
         self.assertIn("unreadable/0 (denied)", row["counts"]["incomplete"])
         lines, drifted = forge.drift_lines([row])
         self.assertTrue(drifted)
-        self.assertEqual(lines[0], "P: 2 can update, 3 need a merge, 4 unrecorded, 5 missing, 6 retired, 2 incomplete")
+        self.assertEqual(lines[-1], "P: 2 can update, 3 need a merge, 4 unrecorded, 5 missing, 6 retired, 2 incomplete")
 
     def test_a_count_past_twenty_shows_twenty_paths_and_the_rest_as_a_number(self):
         with unittest.mock.patch.object(forge, "diff_project", return_value=self.fake_diff({"missing": 25})):
@@ -2533,7 +2533,9 @@ class DriftTests(KitFixture, unittest.TestCase):
         code, out, err = self.run_drift(self.projects_file(projects))
         self.assertEqual(code, 3, err)
         lines = out.splitlines()
-        self.assertTrue(lines[0].startswith("Broken: diff refused: "), lines[0])
+        summary = lines[lines.index("Summary:") + 1:]
+        self.assertEqual([line.split(":")[0] for line in summary], ["Broken", "Drifted", "Current", "Absent", "Elsewhere"])
+        self.assertTrue(summary[0].startswith("Broken: diff refused: "), summary[0])
         self.assertIn("Drifted: 1 can update, 1 need a merge, 0 unrecorded, 1 missing, 0 retired, 0 incomplete", lines)
         self.assertIn("Current: 0 can update, 0 need a merge, 0 unrecorded, 0 missing, 0 retired, 0 incomplete", lines)
         self.assertIn("Absent: not on this machine", lines)
@@ -2565,6 +2567,28 @@ class DriftTests(KitFixture, unittest.TestCase):
         self.assertEqual((name, task["command"], outcome["exit"], folder),
                          ("conclave-sdk-drift", ["python", "forge.py", "drift"], 3, "\\Conclave-SDK\\"))
         self.assertIn("Drifted: 1 can update, 1 need a merge", tail)
+
+    def test_every_summary_survives_the_alerts_tail(self):
+        (self.target.parent / "RasterFold").mkdir()
+        (self.target.parent / "Impossible OS").mkdir()
+        """The failure email carries the last lines of the output; with the real projects first counts (2026-11-11)
+        the summaries must still all be in it."""
+        spec = importlib.util.spec_from_file_location("sdk_alert", FORGE_ROOT / ".conclave/automations/alert.py")
+        assert spec is not None and spec.loader is not None
+        alert = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(alert)
+        diffs = {"RasterFold": self.fake_diff({"differs": 45, "missing": 50}),
+                 "Impossible OS": self.fake_diff({"differs": 8, "missing": 27})}
+        log = pathlib.Path(self.tmp.name) / "run.log"
+        with unittest.mock.patch.object(forge, "diff_project", side_effect=lambda path: diffs[pathlib.Path(path).name]):
+            lines, drifted = forge.drift_lines(forge.drift_report(
+                [self.entry("RasterFold", self.target.parent / "RasterFold"),
+                 self.entry("Impossible OS", self.target.parent / "Impossible OS")]))
+        self.assertTrue(drifted)
+        log.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        tail = alert.tail_of(str(log))
+        self.assertIn("RasterFold: 0 can update, 0 need a merge, 45 unrecorded, 50 missing", tail)
+        self.assertIn("Impossible OS: 0 can update, 0 need a merge, 8 unrecorded, 27 missing", tail)
 
     def test_the_sdks_own_list_and_task_are_in_place(self):
         projects = forge.load_projects(FORGE_ROOT / forge.PROJECTS)

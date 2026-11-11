@@ -1085,26 +1085,30 @@ def drift_report(projects: list[dict], *, system: str | None = None) -> list[dic
 
 
 def drift_lines(report: list[dict]) -> tuple[list[str], bool]:
-    """The report as text, one line per project and its files under each count; and whether any project drifted."""
-    lines: list[str] = []
+    """The report as text and whether any project drifted. Each drifted project's files come first, then one summary
+    line per project last: the failure email carries only the tail of the output, so the summary must end it."""
+    details: list[str] = []
+    summary: list[str] = []
     drifted = False
     for row in report:
         if row["state"] == "not on this machine":
-            lines.append(f"{row['name']}: not on this machine")
+            summary.append(f"{row['name']}: not on this machine")
             continue
         if row["state"] == "error":
             drifted = True
-            lines.append(f"{row['name']}: diff refused: {row['error']}")
+            summary.append(f"{row['name']}: diff refused: {row['error']}")
             continue
         counts = row["counts"]
         drifted = drifted or any(counts.values())
-        lines.append(f"{row['name']}: " + ", ".join(f"{len(counts[label])} {label}" for label, _ in DRIFT_COUNTS))
+        summary.append(f"{row['name']}: " + ", ".join(f"{len(counts[label])} {label}" for label, _ in DRIFT_COUNTS))
+        if not any(counts.values()):
+            continue
+        details.append(f"{row['name']} files:")
         for label, _ in DRIFT_COUNTS:
-            shown = counts[label][:DRIFT_SHOWN]
-            lines.extend(f"  {label}: {rel}" for rel in shown)
+            details.extend(f"  {label}: {rel}" for rel in counts[label][:DRIFT_SHOWN])
             if len(counts[label]) > DRIFT_SHOWN:
-                lines.append(f"  {label}: ... and {len(counts[label]) - DRIFT_SHOWN} more")
-    return lines, drifted
+                details.append(f"  {label}: ... and {len(counts[label]) - DRIFT_SHOWN} more")
+    return details + ([""] if details else []) + ["Summary:"] + summary, drifted
 
 
 def _wordpress_pin_module() -> types.ModuleType:
