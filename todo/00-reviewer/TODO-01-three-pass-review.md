@@ -36,7 +36,7 @@ title: "TODO-01 -- Three-pass review"
 | 2 | §2 | Three-pass dispatcher | §1 | [x] |
 | 3 | §3 | Three-pass stamp rules in the todo kit | §2 | [x] |
 | 4 | §4 | Template pin, prompts, skills and READMEs on three-pass | §3 | [x] |
-| 5 | §5 | Pin check that reports every fault at once | §1 | [ ] |
+| 5 | §5 | Pin check that reports every fault at once | §1 | [x] |
 | 6 | §6 | Reviewer process tree ended on Windows by a job object | §2 | [ ] |
 | 7 | §7 | Review prompt filler | §2 | [ ] |
 | 8 | §8 | Stamp that recovers from a write cut short | §3 | [ ] |
@@ -219,9 +219,12 @@ Filed 2026-11-11 from the completion review of §1 (an out-of-scope excellence i
 - [x] Report a pin that cannot be read as its one fault in `faults` and `--check --all`: a missing file, a directory, bytes that are not UTF-8, TOML that does not parse. Done when: tests assert exit 2, the same message `--check` gives and no traceback for each, exit 0 and `ok` for a valid pin, and that `--all` without `--check` is refused by the argument parser. **Corrected 2026-11-11 (plan review):** added.
 - [x] Add `--all` to `--check` in `review_pin.py`: one `review-pin refused:` line per fault and exit 2, or `ok`. Done when: a test asserts the three lines for the pin above and `ok` for a valid pin.
 - [x] Name `--check --all` in `kits/reviewer/README.md` and run `python forge.py self-sync`. Done when: `scripts/review_pin.py` equals the kit file.
-- [ ] Commit: `reviewer: report every pin fault in one check`
+- [x] Commit: `reviewer: report every pin fault in one check`
 
 **Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests -p test_review_pin.py` ends `OK`; making `faults` return only its first message makes the three-fault test fail.
+
+> **Verified:** 2026-11-11 | §5 | 761b8749b2bd1264d27c5bb482ba279e066c00cc
+> **Review:** `docs/reviews/d00-t01-s5.json`
 
 ## 6. Reviewer process tree ended on Windows by a job object
 
