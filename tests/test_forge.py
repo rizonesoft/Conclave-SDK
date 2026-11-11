@@ -2427,7 +2427,7 @@ class KitNewTests(KitFixture, unittest.TestCase):
         self.set_recorded(rel, b"an older kit's version\n")
         forge.update_project(self.target, kit_new=True)
         (self.target / rel).write_bytes(self.kit_bytes(rel) + b"\nThe project's line.\n")
-        args = documented.split()[2:]
+        args: list[str] = [str(part) for part in documented.split()[2:]]
         args[1] = str(self.target)
         self.assertEqual(self.run_main(*args)[0], 0)
         self.assertEqual(self.states(forge.diff_project(self.target))[rel], "project-changed")
