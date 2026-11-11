@@ -35,7 +35,7 @@ title: "TODO-01 -- Run guard for Antigravity and Codex"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Antigravity payload handled by the Stop hook | -- | [ ] |
+| 1 | §1 | Antigravity payload handled by the Stop hook | -- | [x] |
 | 2 | §2 | Antigravity hook file seeded by the todo kit | §1 | [ ] |
 | 3 | §3 | Codex hook script and hook file | -- | [ ] |
 | 4 | §4 | Heartbeat stall breaker for a harness with no Stop hook | -- | [ ] |
@@ -64,9 +64,12 @@ Antigravity sends a different stop payload from Claude Code and expects a differ
 - [x] Allow the stop in `stop_hook` when an Antigravity payload carries `terminationReason` equal to `USER_CANCELED` or `fullyIdle` equal to `false`, without counting a block. Done when: tests for each find an empty answer and the block counter unchanged.
 - [x] Keep failing open in `stop_hook`: a payload that is neither shape, or a `workspacePaths` that is not a list of strings, allows the stop and records the error through the existing hook-error path, in the workspace named by `project_dir` or the payload's `cwd` (with neither, nothing can be recorded and nothing is). A missing session is an error only while a guard is held there. Done when: separate tests for a missing session with a guard held (exit 0, empty answer, one readable hook error), a missing session with no guard (exit 0, empty answer, no hook-error file), a `workspacePaths` that is a string and one holding a number (each a recorded error under the `cwd` workspace), and a payload that is not an object. **Corrected 2026-11-11 (plan review):** one unspecified test, and no workspace to record in when `workspacePaths` was unusable.
 - [x] Run `python forge.py self-sync`. Done when: `scripts/campaign_guard.py` equals the kit file.
-- [ ] Commit: `todo: the Stop hook answers an Antigravity session`
+- [x] Commit: `todo: the Stop hook answers an Antigravity session`
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_campaign_guard.py` ends `OK`; answering `block` to an Antigravity payload makes the new test fail.
+
+> **Verified:** 2026-11-11 | §1 | 71b4113f270d3ef4924898ca1e0861b63eb4fed8
+> **Review:** `docs/reviews/d02-t01-s1.json`
 
 ## 2. Antigravity hook file seeded by the todo kit
 

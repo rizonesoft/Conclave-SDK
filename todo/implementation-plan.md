@@ -43,7 +43,7 @@ Sections: 17 | Checklist items: 105
 
 | Status | Reference   | Deliverable                                               | Needs        | Items |
 | ------ | ----------- | --------------------------------------------------------- | ------------ | ----- |
-| [ ]    | D02 T01 §1  | Antigravity payload handled by the Stop hook              | none         | 6     |
+| [x]    | D02 T01 §1  | Antigravity payload handled by the Stop hook              | none         | 6     |
 | [ ]    | D02 T01 §2  | Antigravity hook file seeded by the todo kit              | none         | 5     |
 | [ ]    | D02 T01 §3  | Codex hook script and hook file                           | none         | 7     |
 | [ ]    | D02 T01 §4  | Heartbeat stall breaker for a harness with no Stop hook   | none         | 6     |
@@ -139,6 +139,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 17/70 verified sections, 13 ready to run now.
+Progress: 18/70 verified sections, 13 ready to run now.
 
-Checklist: 182/497 items completed (includes Commit items).
+Checklist: 183/497 items completed (includes Commit items).
