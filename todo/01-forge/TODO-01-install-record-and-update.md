@@ -21,7 +21,7 @@ title: "TODO-01 -- Install record, diff and update"
 
 ## Outcome
 
-- `python forge.py diff <project>` prints, for every kit file, one of `missing`, `identical`, `kit-newer`, `project-changed`, `both-changed`, `project-removed` or `project-only`, and writes nothing.
+- `python forge.py diff <project>` prints, for every kit file, one of `missing`, `identical`, `kit-newer`, `project-changed`, `both-changed`, `project-removed` or `project-only` (and, where no record entry or no readable file exists, `differs`, `unsafe` or `generated`), and writes nothing.
 - `python forge.py update <project>` writes only `missing` and `kit-newer` files and leaves every other file byte for byte as the project had it.
 - A project installed before the record existed gains the upgrade path through `python forge.py record <project>`.
 - `init` writes nothing when any chosen kit refuses, and `init --force` keeps the entry docs it replaces.
@@ -106,7 +106,11 @@ title: "TODO-01 -- Install record, diff and update"
 
 ## 3. Read-only `forge.py diff`
 
+> **Started:** 2026-11-11T19:14:00Z
+
 `forge.py diff <project> [kit]` answers "what does the SDK have that I lack" (recommendation 2). It reads the project, the kits and the record, and writes nothing.
+
+**Corrected 2026-11-11 (validation):** the six recorded states assumed every planned file has a record entry. Three cases had no state: a file the project had before any install (preserved, so never recorded), a kit installed before the record existed while a later kit is recorded, and a destination that is a link, a folder or under an unsafe parent (which `update` must refuse, §4). They are covered by the items marked below. The generated Laravel `.mcp.json` has no template to compare with, so it is reported as `generated`, not classified; `diff` never runs `_recover`, which writes.
 
 **Phase:** 1
 **Needs:** none
@@ -119,11 +123,13 @@ title: "TODO-01 -- Install record, diff and update"
 
 - [ ] Add `diff_project` to `forge.py`, classifying every `kit_plan` entry with a record: `missing` (not in the project, not in the record), `project-removed` (in the record, not in the project), `identical` (project digest equals the kit's), `kit-newer` (project digest equals the recorded one and the kit's differs), `project-changed` (kit digest equals the recorded one and the project's differs) and `both-changed` (all three differ). Done when: one test builds a fixture holding all six and asserts each path's state. Cheaper substitute: comparing only project against kit must fail, because it cannot tell `kit-newer` from `project-changed`.
 - [ ] Report `project-only` in `diff_project` for a path the record names that the kit no longer ships. Done when: a test removes a template file from a scratch copy of a kit and the installed copy is reported `project-only`, not dropped from the output.
-- [ ] Classify without a record in `diff_project` as `missing`, `identical` or `differs`, and say `"record": false` in the result. Done when: a test deletes `.conclave/kits.json` from the six-state fixture and finds only those three states.
-- [ ] Choose the kits and the agent in `diff_project`: the kits the record names, else `installed_kits(target_root)`, narrowed to one by the optional `kit` argument; the agent and host the record holds for each kit, else every agent whose folder exists in the project. Done when: tests show a Claude-only project reports no `.agents/` or `.codex/` file as `missing`, and naming a kit the project does not have refuses with exit 2.
+- [ ] Classify without a record entry in `diff_project` as `missing`, `identical` or `differs`: for every file of a kit the record does not name (`"record": false` on that kit), and for a planned file with no entry under a recorded kit (one the project had before the install). Done when: a test deletes `.conclave/kits.json` from the six-state fixture and finds only those three states, and a test with a recorded `reviewer` and an unrecorded `todo` finds `todo` reported with `"record": false`. **Corrected 2026-11-11 (validation):** the no-entry cases had no state.
+- [ ] Choose the kits and the agents in `diff_project`: the kits the record names together with `installed_kits(target_root)`, narrowed to one by the optional `kit` argument; for each kit the agents the record holds, else every agent whose folder (`.agents`, `.claude`, `.codex`) exists in the project, else all three, planning each agent and taking the union. Done when: tests show a Claude-only project reports no `.agents/` or `.codex/` file as `missing`, and naming a kit the project does not have refuses with exit 2. **Corrected 2026-11-11 (validation):** the record alone hid a kit installed before the record existed.
+- [ ] Report an unsafe destination in `diff_project` as `unsafe` without reading it: a link, a folder, or a path under a parent that is a link or not a folder. Done when: a test with a symlinked skill file and a skill folder that is a link finds both `unsafe` and the link targets unread. Cheaper substitute: reading through the link must fail, since it compares bytes outside the project. **Corrected 2026-11-11 (validation):** added.
+- [ ] Report the generated Laravel `.mcp.json` in `diff_project` as `generated` when present and `missing` when not, with no digest comparison. Done when: a Laravel fixture test finds `.mcp.json` `generated`, and `missing` after it is deleted. **Corrected 2026-11-11 (validation):** added; the generated entry has no source to compare.
 - [ ] Add the `diff` subcommand to `main` and `_run` in `forge.py`, printing JSON like the other commands (`target`, `record`, `sdk_commit`, and per kit a list of `{"path", "state"}`), with `--patch` adding a unified diff from `difflib` for each `project-changed`, `both-changed` and `differs` text file. Done when: a test runs the command line and parses the output, and `--patch` on a binary or non-UTF-8 file prints `binary` in place of a diff.
 - [ ] Prove `diff` writes nothing in `tests/test_forge.py`: digest every file under the fixture before and after, including `.conclave/kits.json`. Done when: the test fails if `diff_project` is made to write the record. Cheaper substitute: asserting only that the record's bytes are unchanged must fail review, since a created file elsewhere would pass it.
-- [ ] Add a `diff` section to `README.md` with the seven states and what each means for the project. Done when: every state name in `forge.py` appears in the README table and its rows are within 120 characters.
+- [ ] Add a `diff` section to `README.md` with every state and what each means for the project. Done when: every state name in `forge.py` (`DIFF_STATES`) appears in the README table, a test asserts it, and its rows are within 120 characters. **Corrected 2026-11-11 (validation):** the states are ten, not seven.
 - [ ] Commit: `forge: diff reports each kit file's state without writing`
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; making `diff_project` ignore the record makes the six-state test fail.
