@@ -149,6 +149,19 @@ class FillEachKind(Filler):
         self.assertIn("- Gate results on the repaired candidate:\n\n```\nran 3 checks\nOK `<not a placeholder>`\n```\n\n"
                       "- Governing", text)
 
+    def test_supplied_text_is_never_taken_for_the_gate_placeholder(self):
+        # Round of D00 T01 §7: a purpose holding the filler's own gate marker crashed it, and with gate output present
+        # the supplied text was replaced by that output.
+        text = self.ok("round", "--purpose", "Handle @@GATES@@ in supplied text", common=False,
+                       *(["--governing", "docs/plan.md"]))
+        self.assertIn("Handle @@GATES@@ in supplied text", text)
+        self.gates.write_text("true -> exit 0\n", encoding="utf-8")
+        text = self.ok("reconciliation", "--ref", REF, "--governing", "docs/@@GATES@@.md", common=False,
+                       *(["--failed", CAND, "--findings", "docs/reviews/x.md", "--gates", str(self.gates)]))
+        self.assertIn("docs/@@GATES@@.md", text)
+        self.assertEqual(text.count("true -> exit 0"), 1)
+        self.assertNotIn("\0", text)
+
     def test_lens_verdict_text_is_left_alone(self):
         self.assertIn("`LENS <name>: clean`", self.ok("reconciliation", "--ref", REF))
 

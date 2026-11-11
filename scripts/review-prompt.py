@@ -34,7 +34,6 @@ SECTION_TOKEN = "<DNN TNN §N>"
 TODO_FILE = "<path to the TODO file>"
 FIDELITY_SPAN = "`<the design source the section names>`, or `none (Surface: no)`"
 CANDIDATE_SPAN = "`<FULL_SHA>` or `<BASE_SHA>..<TIP_SHA>`"
-GATES_MARK = "@@GATES@@"
 DEFAULT_FIDELITY = "none (Surface: no)"
 
 
@@ -137,7 +136,8 @@ def fill(body: str, args: argparse.Namespace, todo: str | None, gates: str | Non
         if inner == "<quoted output>":
             if gates:
                 used.add("--gates")
-                return GATES_MARK
+                gate_hit[0] = True
+                return gate_mark
             unresolved.append(f"`{inner}` (give --gates)")
             return text
         if f"`{inner}`" not in unresolved:
@@ -145,6 +145,8 @@ def fill(body: str, args: argparse.Namespace, todo: str | None, gates: str | Non
         return text
 
     out_lines: list[str] = []
+    gate_mark = "\0" + os.urandom(8).hex() + "\0"   # NUL cannot arrive in an argument or a template line
+    gate_hit = [False]
     for line in body.splitlines():
         if not args.ref and SECTION_TOKEN in line:
             continue
@@ -160,12 +162,15 @@ def fill(body: str, args: argparse.Namespace, todo: str | None, gates: str | Non
         if FIDELITY_SPAN in line:
             used.add("--fidelity")
             line = line.replace(FIDELITY_SPAN, ticked(fidelity or DEFAULT_FIDELITY))
+        gate_hit[0] = False
         line = SPAN.sub(span, line)
-        if GATES_MARK in line:
+        # Only where the template's own gate placeholder was just replaced, by a mark made for this run: a value the
+        # writer supplied is never rescanned for it, whatever text it holds.
+        if gate_hit[0]:
             if "\n" in gates or "`" in gates:
-                line = line.replace(GATES_MARK, "").rstrip().rstrip(".").rstrip() + "\n\n" + fence(gates) + "\n"
+                line = line.replace(gate_mark, "").rstrip().rstrip(".").rstrip() + "\n\n" + fence(gates) + "\n"
             else:
-                line = line.replace(GATES_MARK, f"`{gates}`")
+                line = line.replace(gate_mark, f"`{gates}`")
         out_lines.append(line)
     return "\n".join(out_lines).rstrip("\n") + "\n", used, unresolved
 
