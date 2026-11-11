@@ -1,4 +1,6 @@
 """Tests for forge.py template provisioning, 3-agent isolation, stack kits, and prose hygiene."""
+import contextlib
+import io
 import json
 import os
 import pathlib
@@ -1621,6 +1623,38 @@ class DiffTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "link"):
                 forge.diff_project(self.target, "wordpress")
 
+    def test_a_bad_pin_under_a_recorded_host_is_reported_not_fatal(self):
+        forge.apply_kit(self.target, "wordpress", host="wpcom")
+        pin = self.target / forge.WORDPRESS_PIN
+        clean = self.states(forge.diff_project(self.target), "wordpress")
+
+        pin.write_bytes(b"{ not json\n")
+        states = self.states(forge.diff_project(self.target), "wordpress")
+        self.assertEqual(states.pop(forge.WORDPRESS_PIN), "project-changed")
+        self.assertEqual(states, {k: v for k, v in clean.items() if k != forge.WORDPRESS_PIN})
+
+        pin.unlink()
+        pin.mkdir()
+        with unittest.mock.patch.object(forge, "_load_wordpress_pin", side_effect=AssertionError("pin read")):
+            states = self.states(forge.diff_project(self.target), "wordpress")
+        self.assertEqual(states.pop(forge.WORDPRESS_PIN), "unsafe")
+        self.assertEqual(states, {k: v for k, v in clean.items() if k != forge.WORDPRESS_PIN})
+
+        pin.rmdir()
+        shutil.copyfile(FORGE_ROOT / "kits/wordpress/hosts/wpcom/templates" / forge.WORDPRESS_PIN, pin)
+        real_read = pathlib.Path.read_bytes
+
+        def deny(path):
+            if pathlib.Path(path).resolve() == pin.resolve():
+                raise PermissionError(13, "Permission denied", str(path))
+            return real_read(path)
+
+        with unittest.mock.patch.object(pathlib.Path, "read_bytes", deny), \
+                unittest.mock.patch.object(forge, "_load_wordpress_pin", return_value=(None, "invalid: denied")):
+            states = self.states(forge.diff_project(self.target), "wordpress")
+        self.assertEqual(states.pop(forge.WORDPRESS_PIN), "unreadable")
+        self.assertEqual(states, {k: v for k, v in clean.items() if k != forge.WORDPRESS_PIN})
+
     def test_a_patch_marks_a_last_line_with_no_newline(self):
         patch = forge._text_patch("SKILL.md", b"project edit", b"kit text\n")
         self.assertEqual(patch.splitlines()[2:], [
@@ -1675,12 +1709,20 @@ class DiffTests(unittest.TestCase):
                 raise PermissionError(13, "Permission denied", str(path))
             return real_read(path)
 
-        with unittest.mock.patch.object(pathlib.Path, "read_bytes", deny):
-            result = forge.diff_project(self.target)
-        items = {item["path"]: item for item in result["kits"]["todo"]["files"]}
+        clean = self.states(forge.diff_project(self.target))
+        before = self.snapshot(self.target)
+        out, err = io.StringIO(), io.StringIO()
+        with unittest.mock.patch.object(pathlib.Path, "read_bytes", deny), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = forge.main(["diff", str(self.target)])
+        self.assertEqual(code, 0, err.getvalue())
+        self.assertNotIn("Traceback", err.getvalue())
+        items = {item["path"]: item for item in json.loads(out.getvalue())["kits"]["todo"]["files"]}
         self.assertEqual(items[self.SIX["project-changed"]]["state"], "unreadable")
         self.assertIn("Permission denied", items[self.SIX["project-changed"]]["reason"])
-        self.assertEqual(items[self.SIX["kit-newer"]]["state"], "kit-newer")
+        rest = {rel: item["state"] for rel, item in items.items() if rel != self.SIX["project-changed"]}
+        self.assertEqual(rest, {rel: s for rel, s in clean.items() if rel != self.SIX["project-changed"]})
+        self.assertEqual(self.snapshot(self.target), before)
 
     def test_patch_shows_the_project_side_then_the_kits(self):
         self.six_state_fixture()

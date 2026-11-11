@@ -196,11 +196,14 @@ def _rel_allowed_for_agent(rel: str, agent: str) -> bool:
     return True
 
 
-def kit_plan(target_root: Path, kit_name: str, *, agent: str = "all", host: str | None = None) -> tuple[list, dict]:
+def kit_plan(target_root: Path, kit_name: str, *, agent: str = "all", host: str | None = None,
+             read_pin: bool = True) -> tuple[list, dict]:
     """The files a kit puts in a project, and where: `(source, destination, relative path, generated)` entries and the
     kit's `extra` result fields. Install, diff and update all read this one list. A template copy has its source file;
     a generated entry (the Laravel `.mcp.json`, which `apply_kit` builds itself) has `source` None. Reads only: the
     refusals (an unknown kit, no artisan, an unknown or wrongly pinned WordPress host) are raised here.
+    `read_pin=False` plans WordPress for `host` without reading the site pin (diff, when the record knows the host
+    and the pin is a link or does not load).
     """
     agent = normalize_agent(agent)
     available = list_kits()
@@ -246,9 +249,9 @@ def kit_plan(target_root: Path, kit_name: str, *, agent: str = "all", host: str 
             raise ValueError(f"Unknown WordPress host '{host}'. Available hosts: {', '.join(WORDPRESS_HOSTS)}")
         pin_path = target_root / WORDPRESS_PIN
         # The pin decides which host's files are planned, so it is read only from inside the project.
-        if _has_unsafe_parent(target_root, WORDPRESS_PIN) or _is_link(pin_path):
+        if read_pin and (_has_unsafe_parent(target_root, WORDPRESS_PIN) or _is_link(pin_path)):
             raise ValueError(f"{WORDPRESS_PIN} is a link or under one; refusing to read a site pin from outside the project")
-        if pin_path.exists():
+        if read_pin and pin_path.exists():
             pin, state = _load_wordpress_pin(target_root)
             if pin is None:
                 raise ValueError(f"{WORDPRESS_PIN} is {state}; fix it before re-applying the kit")
@@ -662,10 +665,16 @@ def _diff_agents(target_root: Path, recorded_kit: dict | None) -> list[str]:
 
 
 def _diff_plan(target_root: Path, kit_name: str, agents: list[str], host: str | None) -> list[tuple]:
-    """The union of the kit's plans for each agent, one entry per relative path, sorted by path."""
+    """The union of the kit's plans for each agent, one entry per relative path, sorted by path. When the record
+    knows the WordPress host and the pin is a link or does not load, the plan uses the recorded host without
+    reading the pin, so the pin is reported (unsafe, unreadable, changed) beside every other file."""
+    read_pin = True
+    if kit_name == "wordpress" and host is not None:
+        read_pin = not _unsafe_destination(target_root, WORDPRESS_PIN) and (
+            not (target_root / WORDPRESS_PIN).exists() or _load_wordpress_pin(target_root)[0] is not None)
     entries: dict[str, tuple] = {}
     for agent in (["all"] if set(agents) == set(RECORD_AGENTS) else agents):
-        for entry in kit_plan(target_root, kit_name, agent=agent, host=host)[0]:
+        for entry in kit_plan(target_root, kit_name, agent=agent, host=host, read_pin=read_pin)[0]:
             entries.setdefault(entry[2], entry)
     return [entries[rel] for rel in sorted(entries)]
 
