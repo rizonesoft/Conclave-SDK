@@ -11,7 +11,8 @@ beyond the pin's conventional place beside this file's folder, so a project can 
     python3 scripts/review_pin.py --caps [--pin <path>]             pass_cap and no_progress_cap
 
 The pin (`schema_version = 1`) holds `[reviewers.<name>]` (`cli`, `model`, optional `effort`), `[routes]` (one reviewer
-per writer, never of the writer's own model family) and an optional `[schedule]` in one of two shapes.
+per writer, never of the writer's own model family; the writers are `claude`, `codex` and `agy`, with `gemini` as
+another name for `agy`) and an optional `[schedule]` in one of two shapes.
 
 Rotation (no `policy` key): `plan`, `completion`, `rounds`, `rotation`, `escalation` and `severity_stop_after`. Fixed
 rounds, then one lens per round in rotation, until a round has no P1 or P2 finding.
@@ -40,11 +41,14 @@ import sys
 import tomllib
 
 PIN = Path(__file__).resolve().parents[1] / ".conclave" / "reviewers.toml"
-WRITERS = ("claude", "codex", "gemini")
+# `agy` is the Antigravity CLI and `gemini` the model family it runs: one writer under two names. A pin routes it
+# under either name, never both, and a review asked for under one name finds the route under the other.
+WRITERS = ("claude", "codex", "agy", "gemini")
+ALIASES = {"agy": "gemini", "gemini": "agy"}
 CLIS = ("codex", "agy", "claude")
 # A reviewer is never of the writer's own model family: its CLI names the family, and so does the writer.
 FAMILY = {"codex": "openai", "agy": "google", "claude": "anthropic"}
-WRITER_FAMILY = {"claude": "anthropic", "codex": "openai", "gemini": "google"}
+WRITER_FAMILY = {"claude": "anthropic", "codex": "openai", "agy": "google", "gemini": "google"}
 # Antigravity carries the effort in its model name, so it takes none.
 EFFORTS = {"codex": ("low", "medium", "high", "xhigh"), "claude": ("low", "medium", "high", "xhigh", "max")}
 MODEL = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
@@ -117,6 +121,9 @@ def load_pin(path=PIN, data=None):
     routes = pin["routes"]
     if not isinstance(routes, dict) or set(routes) - set(WRITERS):
         raise Refused(f"[routes] may only name the writers {', '.join(WRITERS)}")
+    doubled = sorted(name for name in routes if ALIASES.get(name) in routes)
+    if doubled:
+        raise Refused(f"[routes] names both {' and '.join(doubled)}, which are one writer; keep one of them")
     for writer, chain in routes.items():
         if not isinstance(chain, list) or len(chain) != 1 or not isinstance(chain[0], str):
             raise Refused(f"route {writer!r} must list exactly one reviewer")
@@ -133,6 +140,12 @@ def load_pin(path=PIN, data=None):
                 if reviewers[name]["cli"] == "agy":
                     check_agy_effort(name, reviewers[name]["model"], pin["schedule"])
     return pin
+
+
+def route_for(pin, writer):
+    """The one reviewer name the pin routes `writer` to, under that name or its alias, or None."""
+    chain = pin["routes"].get(writer) or pin["routes"].get(ALIASES.get(writer))
+    return chain[0] if chain else None
 
 
 def _one_of(value, allowed):

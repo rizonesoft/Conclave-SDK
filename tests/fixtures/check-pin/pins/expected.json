@@ -68,7 +68,7 @@
   "refused-route-writer.toml": {
     "exit": 2,
     "ok": false,
-    "error": "[routes] may only name the writers claude, codex, gemini"
+    "error": "[routes] may only name the writers claude, codex, agy, gemini"
   },
   "refused-empty-route.toml": {
     "exit": 2,
@@ -111,5 +111,68 @@
     "exit": 2,
     "ok": false,
     "error": "unreadable reviewer pin: nested too deeply to read"
+  },
+  "valid-three-pass.toml": {
+    "exit": 0,
+    "ok": true
+  },
+  "valid-three-pass-no-effort.toml": {
+    "exit": 0,
+    "ok": true
+  },
+  "refused-policy.toml": {
+    "exit": 2,
+    "ok": false,
+    "error_prefix": "[schedule] policy must be"
+  },
+  "refused-pass-cap.toml": {
+    "exit": 2,
+    "ok": false,
+    "error_prefix": "[schedule] pass_cap needs"
+  },
+  "refused-no-progress-cap.toml": {
+    "exit": 2,
+    "ok": false,
+    "error_prefix": "[schedule] no_progress_cap needs"
+  },
+  "refused-blocking.toml": {
+    "exit": 2,
+    "ok": false,
+    "error_prefix": "[schedule] blocking needs"
+  },
+  "refused-extra-lens.toml": {
+    "exit": 2,
+    "ok": false,
+    "error_prefix": "[schedule.lenses] 'quality' is already a built-in lens"
+  },
+  "refused-conditional-path.toml": {
+    "exit": 2,
+    "ok": false,
+    "error_prefix": "[[schedule.conditional]] entry 1 needs paths"
+  },
+  "refused-conditional-pass.toml": {
+    "exit": 2,
+    "ok": false,
+    "error_prefix": "[[schedule.conditional]] entry 1 needs passes"
+  },
+  "refused-lens-owner.toml": {
+    "exit": 2,
+    "ok": false,
+    "error_prefix": "[schedule] the lens quality is listed in both round and completion"
+  },
+  "refused-second-round.toml": {
+    "exit": 2,
+    "ok": false,
+    "error_prefix": "[schedule] with policy = \"three-pass\" needs exactly one round"
+  },
+  "refused-three-pass-key.toml": {
+    "exit": 2,
+    "ok": false,
+    "error_prefix": "[schedule] with policy = \"three-pass\" needs exactly"
+  },
+  "refused-agy-and-gemini.toml": {
+    "exit": 2,
+    "ok": false,
+    "error_prefix": "[routes] names both agy and gemini"
   }
 }

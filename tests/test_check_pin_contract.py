@@ -48,13 +48,19 @@ class CheckPinContract(unittest.TestCase):
                 self.assertEqual(run.returncode, want["exit"], f"{name}: exit code")
                 self.assertIs(report["ok"], want["ok"], f"{name}: ok")
                 if want["ok"]:
-                    self.assertEqual(set(report), {"ok", "schema_version", "reviewers", "routes", "clis"}, name)
+                    pin = tomllib.loads((PINS / name).read_text(encoding="utf-8"))
+                    # `schedule` is reported exactly when the pin has one, and is the pin's own table, key for key:
+                    # a reader of the earlier contract sees the same five keys for a pin without a schedule.
+                    keys = {"ok", "schema_version", "reviewers", "routes", "clis"} | ({"schedule"} & set(pin))
+                    self.assertEqual(set(report), keys, name)
+                    if "schedule" in pin:
+                        self.assertEqual(report["schedule"], pin["schedule"], f"{name}: schedule")
+                        self.assertEqual(list(report["schedule"]), list(pin["schedule"]), f"{name}: schedule order")
                     # An int, not JSON true, which Python would also call equal to 1.
                     self.assertIs(type(report["schema_version"]), int, name)
                     self.assertEqual(report["schema_version"], 1, name)
                     # The reviewers and routes are the pin's own, in its order: what a pin editor lists and edits.
                     # Dict equality ignores order, so the keys are compared as lists too.
-                    pin = tomllib.loads((PINS / name).read_text(encoding="utf-8"))
                     self.assertEqual(report["reviewers"], pin["reviewers"], f"{name}: reviewers")
                     self.assertEqual(list(report["reviewers"]), list(pin["reviewers"]), f"{name}: reviewer order")
                     self.assertEqual(report["routes"], pin["routes"], f"{name}: routes")

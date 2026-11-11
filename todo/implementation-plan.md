@@ -20,4 +20,4 @@ Sections: 5 | Checklist items: 60
 
 Progress: 1/5 verified sections, 2 ready to run now.
 
-Checklist: 15/60 items completed (includes Commit items).
+Checklist: 36/60 items completed (includes Commit items).

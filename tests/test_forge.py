@@ -525,8 +525,10 @@ class ForgeProvisionTests(unittest.TestCase):
 
     def test_reviewer_kit_dispatcher_tests_pass(self):
         tests = FORGE_ROOT / "kits/reviewer/templates/scripts/tests"
+        # The suite drives a fake reviewer through real git repositories for the three-pass order (about five
+        # minutes on Windows, where each reviewer process tree is ended with taskkill); the limit only catches a hang.
         result = subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "-s", str(tests)],
-                                capture_output=True, text=True, timeout=300)
+                                capture_output=True, text=True, timeout=900)
         self.assertEqual(result.returncode, 0, result.stderr[-2000:])
 
     def test_automations_kit_install_doctor_and_detection(self):

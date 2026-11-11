@@ -793,16 +793,25 @@ class Dispatch(Harness):
         self.assertFalse(summary["recorded"])
         self.assertEqual(record.read_bytes(), before, "a second completion review was appended")
 
-    def test_a_completion_review_needs_a_full_candidate_and_a_round_takes_none(self):
+    def test_a_completion_review_needs_a_full_candidate_and_a_round_may_name_one(self):
         for candidate in (None, "abc1234", self.CANDIDATE.upper(), self.CANDIDATE + "0"):
             with self.subTest(candidate=candidate):
                 args = ["--kind", "completion", "--writer", "claude", "--prompt", str(self.prompt)]
                 result, _ = self.dispatch(*args, *(["--candidate", candidate] if candidate else []))
                 self.assertEqual(result.returncode, 2)
                 self.assertIn("--kind completion needs --candidate", result.stderr)
-        result, _ = self.dispatch("--candidate", self.CANDIDATE, "--writer", "claude", "--prompt", str(self.prompt))
+        # A round may name the commit it reviewed, recorded as its Candidate line; a malformed one is refused.
+        result, _ = self.dispatch("--candidate", "abc1234", "--writer", "claude", "--prompt", str(self.prompt))
         self.assertEqual(result.returncode, 2)
+        self.assertIn("--candidate must be the full 40-character commit", result.stderr)
         self.assertEqual(self.calls(), [])
+        record = self.repo / "docs/reviews/with-candidate.md"
+        result, summary = self.dispatch("--candidate", self.CANDIDATE, "--writer", "claude", "--prompt",
+                                        str(self.prompt), "--record", str(record))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(summary["candidate"], self.CANDIDATE)
+        (entry,) = self.module().read_rounds(record.read_text(encoding="utf-8"))
+        self.assertEqual(entry["candidate"], self.CANDIDATE)
 
     def test_a_completion_review_edited_by_hand_is_unreadable(self):
         record = self.repo / "docs/reviews/c.md"

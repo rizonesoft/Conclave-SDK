@@ -7,7 +7,8 @@
     python3 scripts/review-dispatch.py --check-pin [--json] [--pin <path>]     the pin's verdict; runs no reviewer
     python3 scripts/review-dispatch.py --list-rounds [--json] [--records <dir>]  recorded rounds; runs no reviewer
 
-`--writer` is the agent whose work is under review (claude, codex or gemini); its route in the pin names exactly one
+`--writer` is the agent whose work is under review (claude, codex or agy, with gemini as another name for agy, so a
+route under either name serves both); its route in the pin names exactly one
 reviewer, of a different model family, with no fallback. A reviewer that is not installed, exits non-zero, times out,
 returns nothing, or ends its reply `OVERALL: blocked` (it could not reach the candidate, for example a sandbox that
 cannot read the repository) returned no review, and the reason is recorded under `failover`: exit 1, which never
@@ -40,6 +41,24 @@ through `[schedule.rotation]` (the design lens only with `--surface`), and a low
 `HIGHEST: P1` is followed by the `[schedule.escalation]` step. The scheduled lenses are appended to the prompt and
 recorded on an `- Lenses:` line. The JSON summary carries `position`, `escalated` and `severity_stop` (true when a
 returned round past `severity_stop_after` reads `HIGHEST: P3`: the loop may stop there; with 0, from round 1).
+
+With `policy = "three-pass"` in the pin's `[schedule]` a section takes one plan review before the build, one round
+after it, one completion review of the final candidate, and then `--kind reconciliation`
+(`docs/reconciliation-review-prompt.md`) only after a completion that returned gaps, again after each reconciliation
+that returned gaps. For a findings file named for a section (`docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md`) that
+order is checked before a reviewer runs, each candidate must be a commit descending from the pass before, and a
+reconciliation is refused once the section has spent its `pass_cap` returned passes, after `no_progress_cap`
+reconciliations in a row with no less severe a worst finding, and after a pass whose worst finding is below the
+pin's `blocking` levels. A section runs under the pin committed at its plan review's candidate, schedule and route
+both; when that pin is missing or does not load the pass is refused, never run under the working tree's.
+
+Under three-pass every scheduled lens is appended with its question and owes one line `LENS <name>: clean` or
+`LENS <name>: findings`. A reply missing a lens line, or the final verdict lines of its kind, is recorded with no
+reviewer (`## Round N: none`, the reason on its `- Skipped:` line, its text kept), exits 1 and never counts as a pass;
+the JSON summary names the lenses in `incomplete`. A `[[schedule.conditional]]` entry's lenses join a pass when a file
+changed between the plan review's candidate and the pass's candidate starts with one of its paths; a plan review, and
+a review outside a section, take the files from `--paths`. The summary of a returned three-pass review carries
+`highest` and `blocking` (whether that severity holds the stamp).
 """
 import argparse
 from datetime import datetime, timezone
@@ -79,6 +98,7 @@ WRITERS, CLIS, FAMILY, WRITER_FAMILY = review_pin.WRITERS, review_pin.CLIS, revi
 EFFORTS, LENSES, THREE_PASS = review_pin.EFFORTS, review_pin.LENSES, review_pin.THREE_PASS
 highest, returned_review, scheduled = review_pin.highest, review_pin.returned_review, review_pin.scheduled
 lens_block, check_schedule, check_step = review_pin.lens_block, review_pin.check_schedule, review_pin.check_step
+declared_highest, pass_cap = review_pin.declared_highest, review_pin.pass_cap
 # Antigravity takes the prompt only as the -p value. Past this size it gets a pointer to the prompt file instead.
 # Windows caps a whole command line at 32,767 characters; Linux caps one argument at 128 KiB.
 ARGV_PROMPT_LIMIT = 24_000 if os.name == "nt" else 100_000
@@ -88,6 +108,43 @@ MAX_OUTPUT_BYTES = 2_000_000
 BLOCKED = re.compile(r"^\s*(?:OVERALL|COMPLETION):\s*blocked\b", re.IGNORECASE)
 POLL_SECONDS = 0.2
 CLEANUP_SECONDS = 10
+# The last lines each one-pass review owes, by --kind: what makes a reply a returned review of that kind.
+FOOTERS = {"completion": ("COMPLETION: complete", "COMPLETION: gaps"),
+           "reconciliation": ("RECONCILIATION: complete", "RECONCILIATION: gaps")}
+OVERALL = ("OVERALL: approve", "OVERALL: needs-attention")
+
+
+def valid_one_pass_footer(text, kind):
+    """True when a one-pass reply (`completion`, `reconciliation` or `plan`) ends with the verdict lines its prompt
+    asks for. The todo kit's stamp requires the same lines."""
+    lines = [x.strip() for x in (text or "").splitlines() if x.strip()]
+    if kind == "plan":
+        return len(lines) >= 2 and lines[-2] in ("PLAN: complete", "PLAN: gaps") and lines[-1] in OVERALL
+    return bool(lines) and lines[-1] in FOOTERS.get(kind, ())
+
+
+def returned_one_pass(entry, kind):
+    """A recorded completion, reconciliation or plan pass that is a review: returned by a reviewer of another model
+    family than the writer and ending in that kind's verdict lines. The todo kit's stamp uses this same predicate."""
+    return bool(entry.get("reviewer")) and entry.get("writer") in WRITER_FAMILY \
+        and FAMILY.get(entry.get("cli")) not in (None, WRITER_FAMILY[entry["writer"]]) \
+        and valid_one_pass_footer(entry.get("review"), kind)
+
+
+def ended_gaps(entry):
+    """True for a completion or reconciliation whose final line is its `gaps` verdict."""
+    lines = [x.strip() for x in (entry.get("review") or "").splitlines() if x.strip()]
+    return bool(lines) and lines[-1] in ("COMPLETION: gaps", "RECONCILIATION: gaps")
+
+
+def decode_reply(data):
+    """A reviewer's reply as text: strict UTF-8 when it is, otherwise Windows-1252, the code page a CLI on Windows
+    may write its file in, so a curly quote is kept instead of becoming a replacement character. The same on every
+    platform, and it never raises: the five bytes Windows-1252 leaves undefined become replacement characters."""
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data.decode("cp1252", errors="replace")
 
 
 EXTENSION = re.compile(r"\.[A-Za-z0-9]+")
@@ -222,26 +279,33 @@ def run(argv, stdin_text, timeout, watched):
     return process.returncode, None
 
 
-def review(pin, writer, prompt_path, timeout, plan=None):
+def review(pin, writer, prompt_path, timeout, plan=None, kind="round"):
     """Run the writer's one reviewer. Returns the summary dict: `reviewer` is None when no review came back, and
     `failover` then names the reviewer and why (there is no fallback). `plan` is the scheduled step (see `scheduled`):
-    its effort replaces the reviewer's, and its lenses are appended to the prompt and recorded."""
-    if writer not in pin["routes"]:
+    its effort replaces the reviewer's, and its lenses are appended to the prompt and recorded.
+
+    Under the three-pass policy a reply is a review only when it is complete: it ends with the verdict lines of its
+    kind and carries one `LENS <name>:` line per scheduled lens. An incomplete reply is returned with `reviewer` None
+    like an outage, the reason in `failover`, the missing lenses in `incomplete` and its text kept in `review`, so it
+    is recorded and can be read but never counts as a pass."""
+    name = review_pin.route_for(pin, writer)
+    if name is None:
         raise Refused(f"the reviewer pin has no route for writer {writer!r}")
     prompt = Path(prompt_path).read_text(encoding="utf-8")
     if not prompt.strip():
         raise Refused("the review prompt is empty")
     if "\0" in prompt:
         raise Refused("the review prompt contains a NUL byte; no reviewer can be given it")
-    (name,) = pin["routes"][writer]
     reviewer = pin["reviewers"][name]
     # With a schedule the step alone decides, so the record always shows what the schedule says and the stamp can
     # replay it: a step without an effort passes none, whatever the reviewer's own. Without a schedule the reviewer's
     # effort runs. With neither, no effort is passed and the CLI's own configuration decides.
     effort = None if reviewer["cli"] == "agy" else (plan["effort"] if plan else reviewer.get("effort"))
     lenses = plan["lenses"] if plan else []
+    schedule = pin.get("schedule", {})
+    three_pass = schedule.get("policy") == THREE_PASS
     if lenses:
-        prompt = prompt.rstrip("\n") + lens_block(plan)
+        prompt = prompt.rstrip("\n") + lens_block(plan, schedule)
     scheduled_fields = {"effort": effort, "lenses": lenses} if plan else {}
 
     def none(reason):
@@ -266,7 +330,7 @@ def review(pin, writer, prompt_path, timeout, plan=None):
         if problem is None:
             # Codex writes its final message to the -o file; stdout carries its progress, not the review.
             source = message_path if reviewer["cli"] == "codex" else stdout_path
-            text = source.read_text(encoding="utf-8", errors="replace") if source.is_file() else ""
+            text = decode_reply(source.read_bytes()) if source.is_file() else ""
     finally:
         remove_scratch(tmp)
     if problem is None and not (text or "").strip():
@@ -275,6 +339,14 @@ def review(pin, writer, prompt_path, timeout, plan=None):
         problem = blocked(text)
     if problem:
         return none(problem)
+    if three_pass:
+        final = valid_one_pass_footer(text, kind) if kind in PASSES else \
+            ([x.strip() for x in text.splitlines() if x.strip()] or [""])[-1] in OVERALL
+        missing = review_pin.missing_lens_verdicts(lenses, text)
+        if not final or missing:
+            why = ([f"no final {kind} verdict line"] if not final else []) \
+                + ([f"no LENS verdict line for {', '.join(missing)}"] if missing else [])
+            return {**none(f"incomplete: {' and '.join(why)}"), "review": text.strip(), "incomplete": missing}
     return {"writer": writer, "reviewer": name, "cli": reviewer["cli"], "model": reviewer["model"],
             "effort": effort, "failover": [], "review": text.strip(), **({"lenses": lenses} if plan else {})}
 
@@ -314,17 +386,22 @@ def atomic_write(path, text):
 # past Python's digit limit raises). A review is at most MAX_OUTPUT_BYTES, so it has at most MAX_OUTPUT_BYTES + 1 lines,
 # and the count's width follows from that: whatever `record` writes, the reader reads.
 ROUND_HEADING = re.compile(r"^## Round ([0-9]{1,6}): (none|([a-z0-9][a-z0-9-]*) \(`([^`]+)` via `([a-z]+)`\))$")
-ROUND_LINE = re.compile(r"^- (Writer|Run|Effort|Lenses|Lines|Digest|Skipped): (\S.*)$")
+ROUND_LINE = re.compile(r"^- (Writer|Run|Candidate|Effort|Lenses|Lines|Digest|Skipped): (\S.*)$")
 # The one-pass completion review, recorded beside the rounds and never counted as one. It always carries Lines, Digest
 # and the Candidate commit it reviewed; the writer's notes after it (its `- Filed:` lines) run to the next `## ` line.
 COMPLETION_HEADING = re.compile(r"^## Completion review: (none|([a-z0-9][a-z0-9-]*) \(`([^`]+)` via `([a-z]+)`\))$")
 PLAN_HEADING = re.compile(r"^## Plan review: (none|([a-z0-9][a-z0-9-]*) \(`([^`]+)` via `([a-z]+)`\))$")
+RECONCILIATION_HEADING = re.compile(
+    r"^## Reconciliation review: (none|([a-z0-9][a-z0-9-]*) \(`([^`]+)` via `([a-z]+)`\))$")
 COMPLETION_LINE = re.compile(r"^- (Writer|Run|Candidate|Effort|Lenses|Lines|Digest|Skipped): (\S.*)$")
 # The one-pass reviews, by --kind: the heading each is recorded under and the key read_findings lists them under.
 PASSES = {"completion": ("## Completion review", COMPLETION_HEADING, "completions"),
-          "plan": ("## Plan review", PLAN_HEADING, "plans")}
+          "plan": ("## Plan review", PLAN_HEADING, "plans"),
+          "reconciliation": ("## Reconciliation review", RECONCILIATION_HEADING, "reconciliations")}
 RESERVED = ("## Round", *(prefix for prefix, _, _ in PASSES.values()))
-RESERVED_NAMES = "headings starting `## Round`, `## Completion review` or `## Plan review` are reserved for --record"
+RESERVED_NAMES = ("headings starting `## Round`, `## Completion review`, `## Plan review` or "
+                  "`## Reconciliation review` are reserved for --record")
+LENS_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 CANDIDATE = re.compile(r"[0-9a-f]{40}")
 SKIPPED = re.compile(r"^([a-z0-9][a-z0-9-]*) \((.*)\)$")
 COUNT = re.compile(r"[0-9]{1,%d}" % len(str(MAX_OUTPUT_BYTES + 1)))
@@ -355,11 +432,12 @@ def _read_findings(text):
     Digest only with Lines). With Lines, the next N lines are the review, skipped unread, and a blank line or the end of
     the file must follow them; with Digest, they must also hash to it, so a hand edit inside a review shows as
     unreadable even when it keeps the count. Without Lines (a round recorded before the count), the round runs to the
-    next reserved heading. A completion review, and a plan review (`## Plan review`), is read the same way, with
+    next reserved heading. A round may carry the Candidate commit it reviewed. A completion review, a plan review
+    (`## Plan review`) and a reconciliation review (`## Reconciliation review`) are read the same way, with
     Writer, Run, Candidate, Lines and Digest required; the lines after it up to the next `## ` line are its `notes`,
     the writer's own record of what was done with each gap. Lenses, when present, is the comma-separated list the
     schedule gave the pass. Anything else makes the file unreadable rather than losing a field."""
-    found = {"rounds": [], "completions": [], "plans": []}
+    found = {"rounds": [], "completions": [], "plans": [], "reconciliations": []}
     raw = raw_lines(text)
     lines = [canonical(line) for line in raw]
     i = 0
@@ -378,8 +456,8 @@ def _read_findings(text):
                      "run": None, "candidate": None, "effort": None, "lenses": None, "skipped": []}
         else:
             entry = {"number": int(heading.group(1)), "reviewer": heading.group(3), "model": heading.group(4),
-                     "cli": heading.group(5), "writer": None, "run": None, "effort": None, "lenses": None,
-                     "skipped": []}
+                     "cli": heading.group(5), "writer": None, "run": None, "candidate": None, "effort": None,
+                     "lenses": None, "skipped": []}
         count = sealed = None
         i += 2
         while i < len(lines) and lines[i] != "":
@@ -405,7 +483,9 @@ def _read_findings(text):
                 return None, head
             elif key == "lenses":
                 names = value.split(", ")
-                if not all(name in LENSES for name in names) or len(set(names)) != len(names):
+                # Any well-formed name: a pin may declare lenses of its own, and the reader has no pin. Whether
+                # the names are the scheduled ones is the stamp's check.
+                if not all(LENS_NAME.fullmatch(name) for name in names) or len(set(names)) != len(names):
                     return None, head
                 entry[key] = names
             else:
@@ -493,8 +573,8 @@ def append_findings(path, existing, lines):
     atomic_write(path, existing + separator + "\n".join(lines))
 
 
-def record(path, result, when):
-    """Append one round and return its number. A findings file the reader cannot read back gets nothing appended:
+def record(path, result, when, candidate=None):
+    """Append one round and return its number, with the `candidate` commit it reviewed when one was named. A findings file the reader cannot read back gets nothing appended:
     numbering it would have to guess (counting headings counts quoted ones), so `Unrecorded` is raised instead."""
     existing = existing_findings(path, "round")
     known = read_rounds(existing)
@@ -508,6 +588,7 @@ def record(path, result, when):
         raise Unrecorded(f"the review or the round number is past what {path} can be read back with, "
                          f"so the round was not recorded")
     lines = [f"## Round {number}: {who}", "", f"- Writer: {result['writer']}", f"- Run: {when}"]
+    lines += [f"- Candidate: {candidate}"] if candidate else []
     lines += metadata(result)
     lines += [f"- Lines: {len(review)}", f"- Digest: {digest(review)}", "", *review, ""]
     append_findings(path, existing, lines)
@@ -522,8 +603,9 @@ def metadata(result):
 
 
 def record_completion(path, result, when, candidate, kind="completion"):
-    """Append the completion review (or, with kind "plan", the plan review). Each is one pass: a findings file that
-    already holds a returned one gets nothing appended (`Unrecorded`), and neither does one the reader cannot read."""
+    """Append the completion review (or, by kind, the plan or a reconciliation review). The plan and completion
+    reviews are one pass each: a findings file that already holds a returned one gets nothing appended (`Unrecorded`),
+    and neither does one the reader cannot read. Reconciliations repeat; `check_three_pass_order` bounds them."""
     prefix, _, key = PASSES[kind]
     what = f"{kind} review"
     existing = existing_findings(path, what)
@@ -531,7 +613,7 @@ def record_completion(path, result, when, candidate, kind="completion"):
     if found is None:
         raise Unrecorded(f"{path} cannot be read back (a heading or line is not in the format --record writes"
                          f"{unreadable_heading(existing)}; {RESERVED_NAMES}), so the {what} was not recorded")
-    if any(entry["reviewer"] for entry in found[key]):
+    if kind != "reconciliation" and any(returned_one_pass(entry, kind) for entry in found[key]):
         raise Unrecorded(f"{path} already holds a {what}; it is one pass, so this one was not recorded")
     who = f"{result['reviewer']} (`{result['model']}` via `{result['cli']}`)" if result["reviewer"] else "none"
     review = raw_lines(result["review"] or f"No reviewer returned a {what}. This pass is not an approval.")
@@ -541,6 +623,137 @@ def record_completion(path, result, when, candidate, kind="completion"):
     lines += metadata(result)
     lines += [f"- Lines: {len(review)}", f"- Digest: {digest(review)}", "", *review, ""]
     append_findings(path, existing, lines)
+
+
+def git(*args):
+    return subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, timeout=60)
+
+
+def descends(older, newer):
+    """True when commit `older` is `newer` or an ancestor of it."""
+    return git("merge-base", "--is-ancestor", older, newer).returncode == 0
+
+
+SECTION_FINDINGS = re.compile(r"(?:^|/)docs/reviews/[0-9]{2}-[A-Za-z0-9_-]+/D[0-9]{2}-T[0-9]{2}-s[1-9][0-9]*\.md$")
+
+
+def section_record(record_path):
+    """True for a findings file named for a TODO section, `docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md`: the file
+    whose passes have an order. Any other findings file is a standalone review."""
+    return bool(record_path) and bool(SECTION_FINDINGS.search(Path(os.path.abspath(record_path)).as_posix()))
+
+
+def returned_plan(record_path):
+    """The one returned plan review recorded in a findings file, or None."""
+    if not record_path or not Path(record_path).exists():
+        return None
+    found = read_findings(existing_findings(Path(record_path), "review"))
+    plans = [e for e in (found or {"plans": []})["plans"] if returned_one_pass(e, "plan")]
+    return plans[0] if len(plans) == 1 else None
+
+
+def committed_pin(sha):
+    """The pin committed at `sha`, loaded under today's rules, or a refusal naming the commit."""
+    shown = git("show", f"{sha}:.conclave/reviewers.toml")
+    if shown.returncode != 0:
+        raise Refused(f"no reviewer pin .conclave/reviewers.toml at {sha}: a section runs under the pin committed at "
+                      f"its plan review's candidate")
+    try:
+        return load_pin(data=shown.stdout)
+    except Refused as exc:
+        raise Refused(f"the reviewer pin at {sha} does not load: {exc}") from None
+
+
+def section_pin(pin_path, record_path, kind, candidate):
+    """The pin a pass runs under. A section's plan review runs under the pin committed at its own candidate, and
+    every later pass of that section under the pin at its returned plan review's candidate, schedule and route both,
+    so a pin change (or a broken working-tree pin) never moves a section already under review. That pin is never
+    replaced by the working tree's when it is missing or does not load: the pass is refused, naming the commit. A
+    findings file not named for a section, and a section with no returned plan review, take the pin at `pin_path`.
+    The todo kit's stamp replays the same rule."""
+    if section_record(record_path):
+        if kind == "plan":
+            return committed_pin(candidate)
+        plan = returned_plan(record_path)
+        if plan is not None:
+            return committed_pin(plan["candidate"])
+    return load_pin(pin_path)
+
+
+def changed_paths(base, candidate):
+    """The files that differ between two commits, as repository-relative paths with forward slashes."""
+    shown = git("-c", "core.quotepath=false", "diff", "--name-only", "-z", base, candidate)
+    if shown.returncode != 0:
+        raise Refused(f"cannot list the files changed between {base} and {candidate}")
+    return [name for name in shown.stdout.decode("utf-8", errors="replace").split("\0") if name]
+
+
+SEVERITY_RANK = {"P1": 3, "P2": 2, "P3": 1, "none": 0, None: 3}
+
+
+def check_three_pass_order(kind, record_path, candidate, schedule):
+    """The order of a three-pass section's passes: the plan review, one round on a candidate descending from it, one
+    completion review, then reconciliations only after a completion that returned gaps, each on a candidate
+    descending from the pass before, until one returns complete. A reconciliation is also refused once the section
+    has spent its `pass_cap` returned passes, after `no_progress_cap` reconciliations in a row whose worst finding is
+    no less severe than the pass before, and after a pass whose worst finding is below the pin's `blocking` levels
+    (those findings are filed, not reviewed again). Refused here so that a pass out of order never spends a review;
+    the stamp holds the receipt to the same order. A findings file not named for a section has no order."""
+    if not section_record(record_path):
+        return
+    found = read_findings(existing_findings(Path(record_path), f"{kind} review"))
+    if found is None:
+        raise Unrecorded(f"{record_path} cannot be read back ({RESERVED_NAMES}), so no {kind} review was run")
+    plans = [e for e in found["plans"] if returned_one_pass(e, "plan")]
+    rounds = [e for e in found["rounds"] if returned_review(e)]
+    completions = [e for e in found["completions"] if returned_one_pass(e, "completion")]
+    reconciled = [e for e in found["reconciliations"] if returned_one_pass(e, "reconciliation")]
+    if candidate and git("cat-file", "-e", f"{candidate}^{{commit}}").returncode != 0:
+        raise Refused(f"--candidate {candidate} is not a commit in this repository")
+    if kind == "plan":
+        if plans or rounds or completions:
+            raise Refused("the plan review runs once, before the build and every other pass")
+        return
+    if len(plans) != 1:
+        raise Refused(f"the {kind} pass needs the section's returned plan review first")
+    if kind == "round":
+        if rounds or completions:
+            raise Refused("the three-pass policy allows one round, before the completion review")
+        if not candidate:
+            raise Refused("a section's round needs --candidate, the commit under review")
+        if not descends(plans[0]["candidate"], candidate):
+            raise Refused(f"the round's candidate does not descend from the plan review's {plans[0]['candidate']}")
+    elif kind == "completion":
+        if len(rounds) != 1 or completions:
+            raise Refused("the completion review runs once, after the section's returned round")
+        if rounds[0]["candidate"] is None or not descends(rounds[0]["candidate"], candidate):
+            raise Refused(f"the completion's candidate does not descend from the round's {rounds[0]['candidate']}")
+    elif kind == "reconciliation":
+        if len(rounds) != 1 or len(completions) != 1 or not ended_gaps(completions[0]):
+            raise Refused("a reconciliation follows one round and a completion review that returned gaps")
+        chain = [completions[0], *reconciled]
+        if not ended_gaps(chain[-1]):
+            raise Refused("the section's reconciliation already returned complete; it needs no further pass")
+        worst = [declared_highest(e["review"]) for e in chain]
+        if not review_pin.blocks(schedule, worst[-1]):
+            raise Refused(f"the last pass's worst finding is {worst[-1]}, below the pin's blocking levels "
+                          f"({', '.join(schedule['blocking'])}): file its findings and stamp; it takes no further pass")
+        cap = pass_cap(schedule)
+        if len(plans) + len(rounds) + len(chain) >= cap:
+            raise Refused(f"the section has spent its {cap} review passes (pass_cap); it stays blocked")
+        stall = review_pin.no_progress_cap(schedule)
+        if stall is not None:
+            run = 0
+            for before, after in reversed(list(zip(worst, worst[1:]))):
+                if SEVERITY_RANK[after] < SEVERITY_RANK[before]:
+                    break
+                run += 1
+            if run >= stall:
+                raise Refused(f"the section's last {run} reconciliations made no progress (no_progress_cap {stall}); "
+                              f"it stays blocked")
+        if not descends(chain[-1]["candidate"], candidate):
+            raise Refused(f"the reconciliation's candidate does not descend from the last pass's "
+                          f"{chain[-1]['candidate']}")
 
 
 def list_rounds(records_dir):
@@ -568,10 +781,11 @@ def list_rounds(records_dir):
             found = None
         if found is None:
             unreadable.append(shown(path))
-        elif found["rounds"] or found["completions"] or found["plans"]:
+        elif found["rounds"] or found["completions"] or found["plans"] or found["reconciliations"]:
             records.append({"path": shown(path), "rounds": found["rounds"],
                             **({"completions": found["completions"]} if found["completions"] else {}),
-                            **({"plans": found["plans"]} if found["plans"] else {})})
+                            **({"plans": found["plans"]} if found["plans"] else {}),
+                            **({"reconciliations": found["reconciliations"]} if found["reconciliations"] else {})})
     return {"records": records, **({"unreadable": unreadable} if unreadable else {})}
 
 
@@ -580,12 +794,19 @@ def main(argv=None):
     parser.add_argument("--writer", choices=WRITERS, help="The agent whose work is under review")
     parser.add_argument("--prompt", help="File holding the review prompt")
     parser.add_argument("--record", help="Findings file to append this round (or completion review) to")
-    parser.add_argument("--kind", choices=("round", "completion", "plan"), default="round",
+    parser.add_argument("--kind", choices=("round", "completion", "plan", "reconciliation"), default="round",
                         help="round (default): one review round; completion: the one-pass completion and excellence "
                              "review, recorded as a ## Completion review section and not counted as a round; plan: "
-                             "the one-pass plan review before the build, recorded as a ## Plan review section")
-    parser.add_argument("--candidate", help="With --kind completion or plan: the full 40-character commit under "
-                                            "review (for a plan review, the commit holding the section as reviewed)")
+                             "the one-pass plan review before the build, recorded as a ## Plan review section; "
+                             "reconciliation (three-pass pins): the pass after a completion that returned gaps")
+    parser.add_argument("--candidate", help="The full 40-character commit under review: required with --kind "
+                                            "completion, plan or reconciliation (for a plan review, the commit "
+                                            "holding the section as reviewed) and for a three-pass section's round; "
+                                            "optional for any other round, recorded as its Candidate line")
+    parser.add_argument("--paths", nargs="*", default=[], metavar="FILE",
+                        help="Three-pass pins with [[schedule.conditional]]: the files the section changes, for a "
+                             "plan review or a review outside a section. A section's later passes take their changed "
+                             "files from the candidate instead")
     parser.add_argument("--surface", action="store_true",
                         help="The section has Surface: yes, so the schedule's rotation includes the design lens")
     parser.add_argument("--timeout", type=int, default=1800,
@@ -624,6 +845,9 @@ def main(argv=None):
                 for c in entry.get("completions", []):
                     who = f"{c['reviewer']} ({c['model']} via {c['cli']})" if c["reviewer"] else "no review"
                     print(f"{entry['path']}  Completion review: {who}, candidate {c['candidate']}, {c['run']}")
+                for c in entry.get("reconciliations", []):
+                    who = f"{c['reviewer']} ({c['model']} via {c['cli']})" if c["reviewer"] else "no review"
+                    print(f"{entry['path']}  Reconciliation review: {who}, candidate {c['candidate']}, {c['run']}")
                 for r in entry["rounds"]:
                     who = f"{r['reviewer']} ({r['model']} via {r['cli']})" if r["reviewer"] else "no review"
                     print(f"{entry['path']}  Round {r['number']}: {who}, writer {r['writer']}, {r['run']}")
@@ -635,10 +859,25 @@ def main(argv=None):
     one_pass = args.kind in PASSES
     if one_pass and not (args.candidate and CANDIDATE.fullmatch(args.candidate)):
         parser.error(f"--kind {args.kind} needs --candidate, the full 40-character commit under review")
-    if args.kind == "round" and args.candidate:
-        parser.error("--candidate goes with --kind completion or plan; a round names its candidate in its prompt")
+    if args.kind == "round" and args.candidate and not CANDIDATE.fullmatch(args.candidate):
+        parser.error("--candidate must be the full 40-character commit under review")
     try:
-        pin = load_pin(args.pin)
+        # A section keeps the pin its plan review read, schedule and route both.
+        pin = section_pin(args.pin, args.record, args.kind, args.candidate)
+        schedule = pin.get("schedule", {})
+        three_pass = schedule.get("policy") == THREE_PASS
+        paths = [p.replace("\\", "/") for p in args.paths]
+        if three_pass:
+            check_three_pass_order(args.kind, args.record, args.candidate, schedule)
+            if args.kind != "plan" and section_record(args.record):
+                if paths:
+                    raise Refused("--paths goes with a plan review or a review outside a section; this pass takes "
+                                  "its changed files from its candidate")
+                paths = changed_paths(returned_plan(args.record)["candidate"], args.candidate)
+        elif args.kind == "reconciliation":
+            raise Refused("this section's pin has no reconciliation pass; only policy = \"three-pass\" takes one")
+        elif paths:
+            raise Refused("--paths goes with a three-pass pin; this pin's schedule has no conditional lenses")
         plan = None
         if "schedule" in pin:
             rounds = []
@@ -651,15 +890,22 @@ def main(argv=None):
                     raise Unrecorded(f"{args.record} cannot be read back (a round heading or line is not in the "
                                      f"format --record writes{unreadable_heading(existing)}; {RESERVED_NAMES}), so "
                                      f"no round was run")
-            plan = scheduled(pin["schedule"], args.kind, rounds, args.surface)
-        result = review(pin, args.writer, args.prompt, args.timeout, plan)
+            plan = scheduled(schedule, args.kind, rounds, args.surface, paths)
+        result = review(pin, args.writer, args.prompt, args.timeout, plan, args.kind)
     except (Refused, Unrecorded, OSError) as exc:
         print("review-dispatch refused: " + str(exc), file=sys.stderr)
         return 2
     when = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    if one_pass:
+    if one_pass or args.candidate:
         result.update(kind=args.kind, candidate=args.candidate)
-    if plan and plan["position"]:
+    if three_pass and result["reviewer"]:
+        # What the review's worst finding means under the pin: only a blocking level holds the stamp or earns
+        # another pass.
+        worst = declared_highest(result["review"])
+        result.update(highest=worst, blocking=review_pin.blocks(schedule, worst))
+    if plan and plan["position"] and three_pass:
+        result.update(position=plan["position"], escalated=False, severity_stop=False)
+    elif plan and plan["position"]:
         result.update(position=plan["position"], escalated=plan["escalated"])
         stop_after = pin["schedule"]["severity_stop_after"]
         # The severity stop: a returned round past `severity_stop_after` whose worst finding is P3 ends the loop (0:
@@ -673,7 +919,7 @@ def main(argv=None):
                 record_completion(Path(args.record), result, when, args.candidate, args.kind)
                 result["recorded"] = True
             else:
-                result["round"] = record(Path(args.record), result, when)
+                result["round"] = record(Path(args.record), result, when, args.candidate)
         except Unrecorded as exc:
             # The review still reaches stdout; only the findings file is left as it was.
             unrecorded = {"recorded": False} if one_pass else {"round": None}

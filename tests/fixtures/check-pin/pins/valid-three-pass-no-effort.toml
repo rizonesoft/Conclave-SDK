@@ -1,0 +1,40 @@
+schema_version = 1
+
+[reviewers.astra]
+cli = "codex"
+model = "gpt-6-astra"
+
+[routes]
+claude = ["astra"]
+agy = ["astra"]
+
+[schedule]
+policy = "three-pass"
+pass_cap = 33
+no_progress_cap = 3
+blocking = ["P1", "P2"]
+
+[schedule.lenses]
+concurrency = "Which lock or teardown order is wrong on two CPUs?"
+
+[schedule.plan]
+lenses = ["plan"]
+
+[[schedule.rounds]]
+lenses = ["adversarial", "integration", "source-defect", "consistency", "quality", "optimization"]
+
+[schedule.completion]
+lenses = ["plan-delivery", "record"]
+
+[schedule.reconciliation]
+lenses = ["adversarial", "integration", "plan-delivery", "record"]
+
+[[schedule.conditional]]
+lenses = ["design"]
+passes = ["plan", "round"]
+paths = ["src/ui/"]
+
+[[schedule.conditional]]
+lenses = ["concurrency"]
+passes = ["round", "reconciliation"]
+paths = ["src/kernel/"]
