@@ -272,7 +272,11 @@ A scheduled task runs `diff` over the owner's projects once a week and reports w
 
 ## 8. `init` that writes nothing when a kit refuses
 
+> **Started:** 2026-11-11T20:26:16Z
+
 `provision` applies the chosen kits in order (`forge.py:653`), so `init --kit todo --kit laravel` on a folder with no `artisan` writes the base and todo kits and then refuses (roadmap finding 14). Every kit is planned before any file is written.
+
+**Corrected 2026-11-11 (validation):** `provision` is now at `forge.py` `def provision` (line numbers moved with §2 to §7). Planning a target that does not exist yet needs the Laravel and WordPress root finders (`_find_laravel_app_root`, `_find_wordpress_root`) to read a missing folder as empty, since both call `iterdir` and would raise `FileNotFoundError`; the item for the absent path covers it.
 
 **Phase:** 1
 **Needs:** none
@@ -285,7 +289,8 @@ A scheduled task runs `diff` over the owner's projects once a week and reports w
 
 - [ ] Call `kit_plan` for every selected kit in `provision` of `forge.py` before the first `apply_kit`, and run the unsafe-parent check (`forge.py:280`) over the combined plan. Done when: a test runs `init --kit todo --kit laravel` on an empty folder, gets exit 2 naming `artisan`, and finds the folder still empty. Cheaper substitute: deleting the written files after a refusal must fail review, since a file the project already had could be among them.
 - [ ] Refuse an unknown kit name in `provision` before any write, naming the available kits. Done when: a test with `--kit nope` finds exit 2 and an empty target.
-- [ ] Create the target folder in `provision` only after the plans succeed, so a refused `init` on a new path leaves no folder behind. Done when: a test with a path that does not exist and a refusing kit finds the path still absent.
+- [ ] Create the target folder in `provision` only after the plans succeed, so a refused `init` on a new path leaves no folder behind, with `_find_laravel_app_root` and `_find_wordpress_root` returning `None` for a folder that does not exist. Done when: a test with a path that does not exist and a refusing kit finds the path still absent, and `init --kit todo` on a new path still installs. **Corrected 2026-11-11 (validation):** the root finders raised on a missing folder.
+- [ ] Apply `--no-scripts` to the combined plan in `provision` as `apply_kit` does, so the preflight checks only what will be written. Done when: a test with `scripts` as a file (an unsafe parent for every `scripts/` path) and `--no-scripts` installs, and without `--no-scripts` refuses with the target unchanged. **Corrected 2026-11-11 (validation):** added; the preflight over the combined plan must use the same filter.
 - [ ] Commit: `forge: init plans every kit before it writes one`
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; moving the plan loop after the first `apply_kit` makes the empty-folder test fail.
