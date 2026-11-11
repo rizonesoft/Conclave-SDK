@@ -15,6 +15,7 @@ Governing plans: [docs/plans/2026-11-11-sdk-audit-and-roadmap.md](../docs/plans/
 | 04 | 04-tooling/TODO-02-toolchain-kits.md | Tool pins and doctor for C, C++, PHP and Node |
 | 05 | 05-base/TODO-01-operating-directive.md | Operating directive, git rules, init --goal |
 | 06 | 06-global/TODO-01-imported-material.md | Plugins from plugins/, retired copies removed |
+| 06 | 06-global/TODO-02-bosun-guidance.md | Bosun reference page and queue rule parity |
 
 ## Completed TODOs
 

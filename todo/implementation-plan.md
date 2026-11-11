@@ -122,7 +122,7 @@ Sections: 14 | Checklist items: 84
 
 ### Phase 7: Operating directive
 
-Sections: 4 | Checklist items: 25
+Sections: 6 | Checklist items: 31
 
 | Status | Reference  | Deliverable                                          | Needs | Items |
 | ------ | ---------- | ---------------------------------------------------- | ----- | ----- |
@@ -130,6 +130,8 @@ Sections: 4 | Checklist items: 25
 | [ ]    | D05 T01 §2 | Git hygiene rules in the base kit                    | none  | 5     |
 | [ ]    | D05 T01 §3 | `forge.py init --goal`                               | none  | 7     |
 | [ ]    | D05 T01 §4 | `forge.py init --acceptance` for the todo kit's plan | none  | 6     |
+| [ ]    | D06 T02 §1 | Bosun reference page                                 | none  | 3     |
+| [ ]    | D06 T02 §2 | Queue rule parity test                               | none  | 3     |
 
 ### Phase 99: Manual, operator only
 
@@ -141,6 +143,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 19/72 verified sections, 12 ready to run now.
+Progress: 19/74 verified sections, 14 ready to run now.
 
-Checklist: 191/510 items completed (includes Commit items).
+Checklist: 191/516 items completed (includes Commit items).
