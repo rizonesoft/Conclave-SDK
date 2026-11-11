@@ -1,0 +1,84 @@
+{
+  "ref": "D01 T01 \u00a77",
+  "title": "Weekly drift report across projects",
+  "implementation_sha": "9124bf3cf719bf153932d7bc0a0ceee311a8238b",
+  "date": "2026-11-11",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/01-forge/D01-T01-s7.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s tests -p test_forge.py -> Ran 122 tests, OK (skipped=1)",
+    "python forge.py doctor . automations --strict -> exit 0"
+  ],
+  "completion": {
+    "report": "docs/reviews/01-forge/D01-T01-s7.md",
+    "verdict": "reconciled",
+    "candidate": "9124bf3cf719bf153932d7bc0a0ceee311a8238b",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/01-forge/D01-T01-s7.md",
+    "candidate": "0e2ae84f7732e5f9603ecf1925bda5bcbe6345f7",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "0e2ae84f7732e5f9603ecf1925bda5bcbe6345f7",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

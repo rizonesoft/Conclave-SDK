@@ -40,7 +40,7 @@ title: "TODO-01 -- Install record, diff and update"
 | 4 | §4 | `forge.py update` for missing and kit-newer files | §3 | [x] |
 | 5 | §5 | `forge.py record` for projects installed before the record | §3 | [x] |
 | 6 | §6 | `.kit-new` copies for a hand merge | §4 | [x] |
-| 7 | §7 | Weekly drift report across projects | §3 | [ ] |
+| 7 | §7 | Weekly drift report across projects | §3 | [x] |
 | 8 | §8 | `init` that writes nothing when a kit refuses | §1 | [ ] |
 | 9 | §9 | Backup of the entry docs `init --force` replaces | -- | [ ] |
 
@@ -263,9 +263,12 @@ A scheduled task runs `diff` over the owner's projects once a week and reports w
 - [x] Register the task on this machine with `pwsh .conclave/automations/install.ps1` and read it back. Done when: `Get-ScheduledTask -TaskPath '\Conclave-SDK\' -TaskName conclave-sdk-drift` shows an action running `run.py conclave-sdk-drift` and a weekly Monday 07:30 trigger, quoted in the run file. **Corrected 2026-11-11 (plan review):** editing `tasks.json` does not schedule anything.
 - [x] Prove a run reaches the alert in `tests/test_forge.py`: in a scratch copy of the SDK (`forge.py`, `kits/`, the real `tasks.json` and a `projects.json` naming one drifted scratch project), `run.main(["conclave-sdk-drift"], root=..., alerter=...)` runs the real command and calls the alerter with the task, exit 3 and a log tail holding the project's line. Done when: the test passes and fails when `drift` exits 0 for that project. **Corrected 2026-11-11 (plan review):** added; no test sends a real email.
 - [x] Describe the report in `README.md` and in `.conclave/automations/README.md`: what an exit of 3 means, that the email is the report, and how to add a project. Done when: both name `.conclave/projects.json`.
-- [ ] Commit: `forge: weekly drift report over the listed projects`
+- [x] Commit: `forge: weekly drift report over the listed projects`
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK` and `python forge.py doctor . automations --strict` exits 0; making `drift` exit 0 for a drifted project makes its test fail.
+
+> **Verified:** 2026-11-11 | §7 | 9124bf3cf719bf153932d7bc0a0ceee311a8238b
+> **Review:** `docs/reviews/d01-t01-s7.json`
 
 ## 8. `init` that writes nothing when a kit refuses
 
