@@ -2671,6 +2671,141 @@ class InitPlanningTests(KitFixture, unittest.TestCase):
         self.assertTrue((self.target / ".claude/skills/add-todo/SKILL.md").is_file())
 
 
+class ForceBackupTests(KitFixture, unittest.TestCase):
+    """`init --force` keeps each entry doc it replaces as `<name>.replaced`."""
+
+    DOCS = ("AGENTS.md", "GEMINI.md", "CLAUDE.md", "CODEX.md")
+
+    def init(self, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = forge.main(["init", str(self.target), *args])
+        return code, (json.loads(out.getvalue()) if code == 0 else {}), err.getvalue()
+
+    def edit_docs(self, docs=DOCS):
+        for doc in docs:
+            (self.target / doc).write_bytes(f"the project's own {doc}\n".encode("utf-8"))
+
+    def kit_doc(self, doc):
+        return (FORGE_ROOT / "kits/base/templates" / doc).read_bytes()
+
+    def test_each_replaced_doc_is_kept_beside_the_kits(self):
+        self.edit_docs()
+        code, out, err = self.init("--force")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(sorted(out["backups"]), sorted(d + forge.REPLACED for d in self.DOCS))
+        for doc in self.DOCS:
+            self.assertEqual((self.target / (doc + forge.REPLACED)).read_bytes(), f"the project's own {doc}\n".encode())
+            self.assertEqual((self.target / doc).read_bytes(), self.kit_doc(doc))
+
+    def test_one_agent_replaces_only_its_docs(self):
+        self.edit_docs()
+        code, out, err = self.init("--force", "--agent", "claude")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(sorted(out["backups"]), ["AGENTS.md.replaced", "CLAUDE.md.replaced"])
+        self.assertEqual((self.target / "CODEX.md").read_bytes(), b"the project's own CODEX.md\n")
+
+    def test_a_second_force_writes_nothing(self):
+        for todo in ([], ["--with-todo"]):
+            with self.subTest(todo=todo):
+                shutil.rmtree(self.target)
+                self.target.mkdir()
+                self.edit_docs()
+                self.assertEqual(self.init("--force", *todo)[0], 0)
+                record = (self.target / forge.RECORD).read_bytes()
+                real = forge.atomic_write
+                writes = []
+
+                def spy(path, data):
+                    writes.append(pathlib.Path(path).name)
+                    return real(path, data)
+
+                with unittest.mock.patch.object(forge, "atomic_write", spy):
+                    code, out, err = self.init("--force", *todo)
+                self.assertEqual(code, 0, err)
+                self.assertEqual(out["backups"], [])
+                self.assertFalse([w for w in writes if w.split(".")[0] in ("AGENTS", "GEMINI", "CLAUDE", "CODEX")], writes)
+                self.assertEqual((self.target / forge.RECORD).read_bytes(), record)
+                self.assertEqual(sorted(p.name for p in self.target.glob("*" + forge.REPLACED)),
+                                 sorted(d + forge.REPLACED for d in self.DOCS))
+
+    def test_a_backup_that_cannot_be_kept_refuses_before_any_write(self):
+        dangling = pathlib.Path(self.tmp.name) / "gone"
+        for kind in ("file", "folder", "dangling link"):
+            with self.subTest(kind=kind):
+                shutil.rmtree(self.target)
+                self.target.mkdir()
+                self.edit_docs()
+                backup = self.target / ("CODEX.md" + forge.REPLACED)
+                if kind == "file":
+                    backup.write_bytes(b"an earlier CODEX.md\n")
+                elif kind == "folder":
+                    backup.mkdir()
+                else:
+                    dangling.mkdir()
+                    make_link(dangling, backup)
+                    dangling.rmdir()
+                before = self.snapshot(self.target)
+                code, _out, err = self.init("--force", "--with-todo")
+                self.assertEqual(code, 2, err)
+                self.assertIn("CODEX.md", err)
+                self.assertEqual(self.snapshot(self.target), before, kind)
+                self.assertFalse((self.target / ".claude").exists(), kind)
+
+    def test_a_failed_backup_leaves_the_doc_and_its_record(self):
+        self.edit_docs(["GEMINI.md"])
+        self.assertEqual(self.init()[0], 0)
+        record = (self.target / forge.RECORD).read_bytes()
+        real = forge.atomic_write
+
+        def failing(path, data):
+            if pathlib.Path(path).name == "GEMINI.md" + forge.REPLACED:
+                raise OSError(28, "No space left on device")
+            return real(path, data)
+
+        with unittest.mock.patch.object(forge, "atomic_write", failing):
+            code, _out, err = self.init("--force")
+        self.assertEqual(code, 1, err)
+        self.assertEqual((self.target / "GEMINI.md").read_bytes(), b"the project's own GEMINI.md\n")
+        self.assertEqual((self.target / forge.RECORD).read_bytes(), record)
+
+    def test_a_replacement_that_fails_after_the_backup_can_be_retried(self):
+        self.edit_docs(["GEMINI.md"])
+        real = os.replace
+
+        def failing(src, dst):
+            if pathlib.Path(dst).name == "GEMINI.md":
+                raise OSError(13, "Permission denied")
+            return real(src, dst)
+
+        with unittest.mock.patch.object(forge.os, "replace", failing):
+            code, _out, err = self.init("--force")
+        self.assertEqual(code, 1, err)
+        self.assertEqual((self.target / "GEMINI.md").read_bytes(), b"the project's own GEMINI.md\n")
+        self.assertEqual((self.target / "GEMINI.md.replaced").read_bytes(), b"the project's own GEMINI.md\n")
+        code, out, err = self.init("--force")
+        self.assertEqual(code, 0, err)
+        self.assertEqual((self.target / "GEMINI.md").read_bytes(), self.kit_doc("GEMINI.md"))
+        self.assertEqual((self.target / "GEMINI.md.replaced").read_bytes(), b"the project's own GEMINI.md\n")
+
+    def test_the_readmes_restore_and_retry_steps_work(self):
+        self.edit_docs(["AGENTS.md"])
+        self.assertEqual(self.init("--force")[0], 0)
+        # Restore: copy the backup back.
+        shutil.copyfile(self.target / "AGENTS.md.replaced", self.target / "AGENTS.md")
+        self.assertEqual((self.target / "AGENTS.md").read_bytes(), b"the project's own AGENTS.md\n")
+        (self.target / "AGENTS.md").write_bytes(b"a second version\n")
+        self.assertEqual(self.init("--force")[0], 2)
+        # Move the earlier backup aside, then replace again.
+        (self.target / "AGENTS.md.replaced").rename(self.target / "AGENTS.md.replaced-1")
+        self.assertEqual(self.init("--force")[0], 0)
+        self.assertEqual((self.target / "AGENTS.md.replaced").read_bytes(), b"a second version\n")
+        self.assertEqual((self.target / "AGENTS.md.replaced-1").read_bytes(), b"the project's own AGENTS.md\n")
+        readme = (FORGE_ROOT / "README.md").read_text(encoding="utf-8")
+        for step in ("Copy-Item AGENTS.md.replaced AGENTS.md", "Rename-Item AGENTS.md.replaced AGENTS.md.replaced-1"):
+            self.assertIn(step, readme)
+
+
 class ProcessPlanAuditTests(unittest.TestCase):
     """process-plan's audit runs the kits' tests and the project's own: neither replaces the other (a project such as
     a project may keep its script tests in tests/scripts, where kits install theirs under scripts/tests)."""

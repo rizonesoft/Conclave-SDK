@@ -109,6 +109,8 @@ python forge.py init ..\MyWordPressSite --kit wordpress --wp-host wpcom
 python forge.py init ..\MyLaravelApp --kit todo --kit laravel
 ```
 
+`init` plans every kit you name before it writes a file, so a kit that refuses (no `artisan` for `laravel`, an unknown name) leaves the folder as it was. `init --force` replaces the four entry docs (`AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, or only those for `--agent`) with the kit's, and first keeps each one it replaces as `<name>.replaced`; a doc that already holds what `init` would leave is not touched. To undo, copy the backup back (`Copy-Item AGENTS.md.replaced AGENTS.md`). `--force` refuses, before writing anything, to replace a doc whose `.replaced` holds an earlier version, since that is the only copy of it: move the old backup aside (`Rename-Item AGENTS.md.replaced AGENTS.md.replaced-1`) and run it again. A run cut short after backing a doc up can simply be run again.
+
 ### 2. Existing Project
 
 `kit` adds one kit and only copies missing files: every file the project already has, its own or one an earlier copy left, is listed under `preserved` and left exactly as it is. It takes `--agent all|gemini|claude|codex` and `--dry-run` to preview. `check` lists the kits a repository appears to have, judged by their files alone.

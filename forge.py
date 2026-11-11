@@ -1453,22 +1453,46 @@ def provision(
         load_record(target_root)  # a record that cannot be used refuses here too, before any kit writes
     target_root.mkdir(parents=True, exist_ok=True)
 
+    # --force: the docs it may replace, what each holds from the kit, and what init leaves in it (AGENTS.md gains the
+    # TODO pointer with the todo kit). A doc already holding that is left alone.
+    base_templates = FORGE_ROOT / "kits/base/templates"
+    pointer = TODO_POINTER.encode("utf-8") if "todo" in selected else b""
+    docs = {doc: ((base_templates / doc).read_bytes(), (base_templates / doc).read_bytes() + (pointer if doc == "AGENTS.md" else b""))
+            for doc in ENTRY_DOCS if overwrite_existing_docs and _rel_allowed_for_agent(doc, agent)
+            and not (target_root / doc).is_symlink()}
+    for doc, (kit_bytes, final) in docs.items():
+        _check_backup(target_root, doc, kit_bytes, final)
+
     kit_results = [apply_kit(target_root, kit_name, agent=agent, host=wordpress_host, include=include)
                    for kit_name in selected]
 
     forced: list[str] = []
-    if overwrite_existing_docs:
-        base_templates = FORGE_ROOT / "kits/base/templates"
+    backups: list[str] = []
+    needs_pointer = False
+    if docs:
         record = load_record(target_root) or {"schema_version": 1, "kits": {}, "files": {}}
         # Anything an interrupted run staged was finished by the kits' own install above.
-        forced = [doc for doc in ENTRY_DOCS
-                  if _rel_allowed_for_agent(doc, agent) and not (target_root / doc).is_symlink()]
+        for doc, (kit_bytes, final) in docs.items():
+            path = target_root / doc
+            current = path.read_bytes() if path.is_file() else None
+            if current == final:
+                continue
+            if current == kit_bytes:  # the kit's bytes, still without the pointer init appends below
+                needs_pointer = needs_pointer or doc == "AGENTS.md"
+                continue
+            backup = target_root / (doc + REPLACED)
+            # The project's doc is kept before anything replaces it; a backup already holding it is from a run that
+            # failed after backing it up, and stays as it is.
+            if current is not None and not (backup.is_file() and backup.read_bytes() == current):
+                atomic_write(backup, current)
+                backups.append(doc + REPLACED)
+            forced.append(doc)
         # A doc --force replaces holds the kit's bytes afterwards, so it is recorded as installed, as a fresh one is.
         _write_recorded(target_root, record, "base", agent, None,
-                        [(doc, target_root / doc, (base_templates / doc).read_bytes()) for doc in forced])
+                        [(doc, target_root / doc, docs[doc][0]) for doc in forced])
 
     agents_md = target_root / "AGENTS.md"
-    fresh_agents = "AGENTS.md" in kit_results[0]["installed"] or "AGENTS.md" in forced
+    fresh_agents = "AGENTS.md" in kit_results[0]["installed"] or "AGENTS.md" in forced or needs_pointer
     if "todo" in selected and fresh_agents and agents_md.is_file():
         atomic_write(agents_md, agents_md.read_bytes() + TODO_POINTER.encode("utf-8"))
 
@@ -1479,8 +1503,30 @@ def provision(
         "agent": agent,
         "written": written,
         "skipped": skipped,
+        "backups": backups,
         "kits": kit_results,
     }
+
+
+REPLACED = ".replaced"
+
+
+def _check_backup(target_root: Path, doc: str, kit_bytes: bytes, final: bytes) -> None:
+    """Refuse `init --force` before any file is written when the doc it would replace cannot be kept: its
+    `<doc>.replaced` is a link, a folder, or a file holding other bytes (the only copy of an earlier version). A
+    backup holding the doc's own bytes is the one an interrupted run made, so the run may go on."""
+    path = target_root / doc
+    if path.exists() and not path.is_file():
+        raise ValueError(f"{doc} is not a file; refusing to replace it")
+    current = path.read_bytes() if path.is_file() else None
+    if current is None or current in (kit_bytes, final):
+        return
+    backup = target_root / (doc + REPLACED)
+    if _is_link(backup) or (backup.exists() and not backup.is_file()):
+        raise ValueError(f"{doc + REPLACED} is a link or a folder; refusing to replace {doc}")
+    if backup.is_file() and backup.read_bytes() != current:
+        raise ValueError(f"{doc + REPLACED} already holds an earlier {doc}; move it aside before init --force "
+                         f"replaces {doc} again")
 
 
 def self_sync(dry_run: bool = False) -> dict:
@@ -1541,7 +1587,8 @@ def main(argv: list[str] | None = None) -> int:
     p_init.add_argument("--wp-host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
     p_init.add_argument("--no-scripts", action="store_true", help="Leave out the kits' scripts/ files")
     p_init.add_argument("--with-todo", action="store_true", help="Shorthand for --kit todo")
-    p_init.add_argument("--force", action="store_true", help="Overwrite existing AGENTS.md, GEMINI.md, CLAUDE.md, CODEX.md")
+    p_init.add_argument("--force", action="store_true",
+                        help="Replace AGENTS.md, GEMINI.md, CLAUDE.md and CODEX.md with the kit's, keeping each replaced one as <name>.replaced")
 
     p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, todo, reviewer, automations, laravel, wordpress) to a target repo")
     p_kit.add_argument("target", help="Target repository path")
