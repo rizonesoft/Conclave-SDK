@@ -39,6 +39,8 @@ title: "TODO-01 -- Three-pass review"
 
 ## 1. Pin loader module with the three-pass keys
 
+> **Started:** 2026-11-11T08:45:37Z
+
 Pin handling moves out of the dispatcher into `review_pin.py` and learns the three-pass policy and the new keys (R4 to R11). The dispatcher imports it and its behaviour on a rotation pin does not change. The module names no project path or rule beyond the conventional pin location beside its own folder.
 
 **Phase:** 0
