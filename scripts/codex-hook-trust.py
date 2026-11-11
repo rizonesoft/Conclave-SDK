@@ -52,6 +52,40 @@ def _server_command() -> list[str]:
     return [codex, "app-server"]
 
 
+CREATE_SUSPENDED = 0x00000004
+
+
+def _resume(pid: int) -> None:
+    """Resume every thread of a process started with CREATE_SUSPENDED (Toolhelp32 snapshot, then ResumeThread)."""
+    import ctypes
+    from ctypes import wintypes
+
+    class ThreadEntry(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ThreadID", wintypes.DWORD),
+                    ("th32OwnerProcessID", wintypes.DWORD), ("tpBasePri", ctypes.c_long),
+                    ("tpDeltaPri", ctypes.c_long), ("dwFlags", wintypes.DWORD)]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.OpenThread.restype = wintypes.HANDLE
+    snapshot = kernel32.CreateToolhelp32Snapshot(0x00000004, 0)  # TH32CS_SNAPTHREAD
+    if snapshot in (None, wintypes.HANDLE(-1).value):
+        raise OSError(ctypes.get_last_error(), "cannot list the app-server's threads to resume it")
+    try:
+        entry = ThreadEntry()
+        entry.dwSize = ctypes.sizeof(ThreadEntry)
+        more = kernel32.Thread32First(snapshot, ctypes.byref(entry))
+        while more:
+            if entry.th32OwnerProcessID == pid:
+                thread = kernel32.OpenThread(0x0002, False, entry.th32ThreadID)  # THREAD_SUSPEND_RESUME
+                if thread:
+                    kernel32.ResumeThread(thread)
+                    kernel32.CloseHandle(thread)
+            more = kernel32.Thread32Next(snapshot, ctypes.byref(entry))
+    finally:
+        kernel32.CloseHandle(snapshot)
+
+
 def _kill_on_close_job(proc: subprocess.Popen):
     """A Windows job object holding `proc`, set to end every process in it when the job is closed or terminated;
     None when the job cannot be made (the caller then falls back to `taskkill /T`)."""
@@ -99,12 +133,17 @@ class AppServer:
     """`codex app-server` over stdio: one JSON-RPC object a line. Its whole process tree ends when it closes."""
 
     def __init__(self, command: list[str], cwd: Path):
-        group: dict = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+        # On Windows the server (codex.cmd, then node, then codex.exe) starts suspended, joins a job that ends every
+        # process in it when the job closes, and only then runs, so no descendant can start outside the job; elsewhere
+        # the session's process group holds the tree.
+        group: dict = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED} if os.name == "nt"
+                       else {"start_new_session": True})
         self.proc = subprocess.Popen(command, cwd=str(cwd), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                      stderr=subprocess.DEVNULL, text=True, encoding="utf-8", **group)
-        # On Windows the server (codex.cmd, then node, then codex.exe) runs in a job that ends every process in it
-        # when the job closes, even after the first one has exited; elsewhere the session's process group does that.
-        self.job = _kill_on_close_job(self.proc) if os.name == "nt" else None
+        self.job = None
+        if os.name == "nt":
+            self.job = _kill_on_close_job(self.proc)
+            _resume(self.proc.pid)
         self.replies: queue.Queue = queue.Queue()
         threading.Thread(target=self._read, daemon=True).start()
         self.next_id = 0

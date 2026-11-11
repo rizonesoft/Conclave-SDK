@@ -10,6 +10,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -57,15 +58,43 @@ def run_tree(args, *, input, cwd, shell=False, timeout=120, env=None):
 
 
 def alive(pid):
-    """Whether a process id is still running (tasklist on Windows, signal 0 elsewhere)."""
+    """Whether a process id is still running, from the OS itself: OpenProcess and GetExitCodeProcess on Windows,
+    signal 0 elsewhere. A process the call cannot inspect raises rather than reading as gone."""
     if os.name == "nt":
-        out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True).stdout
-        return str(pid) in out
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            error = ctypes.get_last_error()
+            if error == 87:  # ERROR_INVALID_PARAMETER: no process has this id
+                return False
+            raise OSError(error, f"cannot inspect process {pid}")
+        try:
+            code = wintypes.DWORD()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                raise OSError(ctypes.get_last_error(), f"cannot read the exit code of process {pid}")
+            return code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
     return True
+
+
+def end(pid):
+    """Stop a process the test started, whatever its state (cleanup after a failed assertion)."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
+    else:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
 
 guard = load("codex_test_guard", TEMPLATES / "scripts" / "campaign_guard.py")
@@ -287,7 +316,20 @@ class Trust(Project):
                 self.assertRaisesRegex(trust_tool.TrustError, "did not answer"):
             trust_tool.trust(self.root)
         child = int((path.parent / (path.name + ".child")).read_text())
+        self.addCleanup(end, child)
         self.assertFalse(alive(child), f"the server's grandchild {child} outlived close()")
+
+    @unittest.skipUnless(os.name == "nt", "the job object and the suspended start are Windows-only")
+    def test_a_launcher_cannot_run_before_it_is_in_the_job(self):
+        """The job is assigned a second late: a launcher started running would spawn and exit in that second."""
+        real = trust_tool._kill_on_close_job
+
+        def late(proc):
+            time.sleep(1.0)
+            return real(proc)
+
+        with mock.patch.object(trust_tool, "_kill_on_close_job", late):
+            self.test_a_server_whose_launcher_exits_leaves_no_descendant_running()
 
     def test_the_command_line_prints_one_line_and_exits_2_on_a_refusal(self):
         path, env = self.scenario([hook_entry(self.root)], silent=True)
