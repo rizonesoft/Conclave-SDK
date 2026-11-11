@@ -107,6 +107,8 @@ def _has_unsafe_parent(target_root: Path, rel_path: str) -> bool:
 
 
 def _find_laravel_app_root(target_root: Path) -> Path | None:
+    if not target_root.is_dir():  # a target init has not created yet holds no app
+        return None
     if (target_root / "artisan").is_file():
         return target_root
     if (target_root / "platform/artisan").is_file():
@@ -126,6 +128,8 @@ def _is_wp_root(candidate: Path) -> bool:
 
 
 def _find_wordpress_root(target_root: Path) -> Path | None:
+    if not target_root.is_dir():  # a target init has not created yet holds no site
+        return None
     if _is_wp_root(target_root):
         return target_root
     for name in ("website", "wordpress", "wp"):
@@ -1430,13 +1434,24 @@ def provision(
         raise ValueError(f"Target is inside a .git folder: {target_root}")
     if os.path.normcase(str(target_root)) == os.path.normcase(str(FORGE_ROOT)):
         raise ValueError(f"Target is the Conclave-SDK source folder itself (use self-sync): {target_root}")
-    target_root.mkdir(parents=True, exist_ok=True)
+    if target_root.exists() and (not target_root.is_dir() or _is_link(target_root)):
+        raise ValueError(f"Target must be a folder, or a path that does not exist yet: {target_root}")
 
     chosen = ["base", *(["todo"] if with_todo else []), *(kits or [])]
     selected = [k for k in KIT_ORDER if k in chosen] + [k for k in dict.fromkeys(chosen) if k not in KIT_ORDER]
 
     def include(rel: str) -> bool:
         return include_scripts or not rel.startswith("scripts/")
+
+    # Every kit is planned, and every destination it will write checked, before the first file is written, so a
+    # kit that refuses (an unknown name, no artisan, a pinned host) or a path one cannot write leaves nothing behind.
+    for kit_name in selected:
+        for _src, dst, rel, _generated in kit_plan(target_root, kit_name, agent=agent, host=wordpress_host)[0]:
+            if include(rel) and not (dst.exists() or dst.is_symlink()) and _has_unsafe_parent(target_root, rel):
+                raise ValueError(f"Refusing destination with unsafe parent: {rel}")
+    if target_root.is_dir():
+        load_record(target_root)  # a record that cannot be used refuses here too, before any kit writes
+    target_root.mkdir(parents=True, exist_ok=True)
 
     kit_results = [apply_kit(target_root, kit_name, agent=agent, host=wordpress_host, include=include)
                    for kit_name in selected]

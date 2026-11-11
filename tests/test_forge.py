@@ -2601,6 +2601,64 @@ class DriftTests(KitFixture, unittest.TestCase):
             self.assertIn(".conclave/projects.json", (FORGE_ROOT / readme).read_text(encoding="utf-8"), readme)
 
 
+class InitPlanningTests(KitFixture, unittest.TestCase):
+    """`init` plans every chosen kit, and checks every destination, before it writes a file."""
+
+    def init(self, target, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = forge.main(["init", str(target), *args])
+        return code, err.getvalue()
+
+    def test_a_kit_that_refuses_leaves_the_folder_empty(self):
+        code, err = self.init(self.target, "--kit", "todo", "--kit", "laravel")
+        self.assertEqual(code, 2, err)
+        self.assertIn("artisan", err)
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_an_unknown_kit_refuses_naming_the_kits(self):
+        code, err = self.init(self.target, "--kit", "nope")
+        self.assertEqual(code, 2, err)
+        self.assertIn("Available kits: ", err)
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_a_path_only_a_later_kit_writes_refuses_before_the_first_kit(self):
+        forge.apply_kit(self.target, "reviewer", agent="claude")
+        (self.target / ".claude/skills").mkdir(parents=True, exist_ok=True)
+        (self.target / ".claude/skills/add-todo").write_bytes(b"a file where the todo kit needs a folder\n")
+        before = self.snapshot(self.target)
+        code, err = self.init(self.target, "--kit", "todo")
+        self.assertEqual(code, 2, err)
+        self.assertIn(".claude/skills/add-todo", err)
+        self.assertEqual(self.snapshot(self.target), before)
+
+    def test_a_new_path_is_created_only_when_every_kit_plans(self):
+        new = pathlib.Path(self.tmp.name) / "new" / "project"
+        code, err = self.init(new, "--kit", "laravel")
+        self.assertEqual(code, 2, err)
+        self.assertFalse(new.exists())
+        self.assertFalse(new.parent.exists())
+        self.assertEqual(self.init(new, "--kit", "todo")[0], 0)
+        self.assertTrue((new / "scripts/todo-graph.py").is_file())
+        site = pathlib.Path(self.tmp.name) / "site"
+        code, err = self.init(site, "--kit", "wordpress", "--wp-host", "wpcom")
+        self.assertEqual(code, 0, err)
+        self.assertTrue((site / forge.WORDPRESS_PIN).is_file())
+        record = forge.load_record(site)
+        assert record is not None
+        self.assertEqual(record["kits"]["wordpress"]["host"], "wpcom")
+
+    def test_no_scripts_is_applied_to_the_preflight(self):
+        (self.target / "scripts").write_bytes(b"a file where scripts/ would go\n")
+        before = self.snapshot(self.target)
+        code, err = self.init(self.target, "--kit", "todo")
+        self.assertEqual(code, 2, err)
+        self.assertEqual(self.snapshot(self.target), before)
+        code, err = self.init(self.target, "--kit", "todo", "--no-scripts")
+        self.assertEqual(code, 0, err)
+        self.assertTrue((self.target / ".claude/skills/add-todo/SKILL.md").is_file())
+
+
 class ProcessPlanAuditTests(unittest.TestCase):
     """process-plan's audit runs the kits' tests and the project's own: neither replaces the other (a project such as
     a project may keep its script tests in tests/scripts, where kits install theirs under scripts/tests)."""
