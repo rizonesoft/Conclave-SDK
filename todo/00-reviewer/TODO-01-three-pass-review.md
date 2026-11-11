@@ -200,6 +200,8 @@ Everything a project reads when it installs the kits describes the three-pass sh
 
 ## 5. Pin check that reports every fault at once
 
+> **Started:** 2026-11-11T15:11:40Z
+
 Filed 2026-11-11 from the completion review of §1 (an out-of-scope excellence item): `load_pin` stops at the first fault, so a pin with three independent mistakes takes three runs of `--check` to correct. A diagnostic mode lists them together, and the fail-fast `load_pin` every caller relies on does not change.
 
 **Phase:** 0
@@ -219,6 +221,8 @@ Filed 2026-11-11 from the completion review of §1 (an out-of-scope excellence i
 **Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests -p test_review_pin.py` ends `OK`; making `faults` return only its first message makes the three-fault test fail.
 
 ## 6. Reviewer process tree ended on Windows by a job object
+
+> **Started:** 2026-11-11T15:11:40Z
 
 Filed 2026-11-11 from the completion review of §2 (an out-of-scope gap). `kill_tree` in `review-dispatch.py` ends a reviewer's children on Windows with `taskkill /T`, which reaches them only while the reviewer itself is alive (the line carries a `WORKAROUND` comment). RasterFold's dispatcher starts the reviewer suspended inside a Win32 job object with kill-on-close, so every descendant ends with the job. Source: RasterFold `scripts/review-dispatch.py` at `b334933`, `create_windows_job`, `bind_and_resume_windows_job`, `close_windows_job` and its `run`.
 
@@ -241,6 +245,8 @@ Filed 2026-11-11 from the completion review of §2 (an out-of-scope gap). `kill_
 
 ## 7. Review prompt filler
 
+> **Started:** 2026-11-11T15:11:40Z
+
 Filed 2026-11-11 from the completion review of §2 (an out-of-scope excellence item). A writer fills each prompt template by hand today. RasterFold has `scripts/review-prompt.py`, which writes the filled prompt for a section, a kind and a candidate. Source: RasterFold `scripts/review-prompt.py` at `b334933` (265 lines), with its project paths removed.
 
 **Phase:** 0
@@ -261,6 +267,8 @@ Filed 2026-11-11 from the completion review of §2 (an out-of-scope excellence i
 **Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests -p test_review_prompt.py` ends `OK`; removing the unfilled-placeholder refusal makes its test fail.
 
 ## 8. Stamp that recovers from a write cut short
+
+> **Started:** 2026-11-11T15:11:40Z
 
 Filed 2026-11-11 from the completion review of §3 (an out-of-scope gap). `stamp` in `lib/todo_graph.py` writes the receipt, then the TODO file, then the plan, and rolls back when one of them raises. A process killed between the writes cannot roll back: the receipt exists, the TODO file is unstamped, and the next `stamp` refuses with "receipt already exists" until someone deletes the receipt by hand.
 
