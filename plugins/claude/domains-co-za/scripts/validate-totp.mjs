@@ -1,0 +1,1 @@
+import {totp} from '../src/totp.js';let value='';for await(const chunk of process.stdin)value+=chunk;try{totp(value.trim());}catch{process.stderr.write('Invalid authenticator setup secret.');process.exitCode=1;}

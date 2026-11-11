@@ -1,0 +1,28 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "outlook-graph",
+  "version": "0.1.7",
+  "description": "Read complete Outlook identity and thread context, update existing HTML reply drafts safely, prepare unsent drafts, and verify evidenced Inbox filing.",
+  "author": {
+    "name": "Rizonetech",
+    "url": "https://github.com/rizonetech/Codex"
+  },
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Outlook Graph by Rizonetech",
+        "shortDescription": "Email context, drafts, filing",
+        "longDescription": "A separate Microsoft Graph connector for durable email references, folder and conversation reads, draft-only replies, existing HTML draft updates and verified TickTick filing. HTML updates preserve recipients and quoted history through conditional body-only writes and readback. Changes require exact expiring previews. Uses existing delegated Microsoft sign-in and encrypted local storage; no sending, deletion or runtime 1Password access. Windows and native WSL desktop support; Ubuntu packaging is provided separately. Independently developed by Rizonetech, not endorsed by Microsoft.",
+        "developerName": "Rizonetech",
+        "category": "Productivity",
+        "logo": "./assets/icon.png",
+        "composerIcon": "./assets/icon.png",
+        "defaultPrompt": [
+          "Read this email and confirm its permanent message ID and conversation.",
+          "Preview updating this existing HTML reply draft without sending it.",
+          "Preview filing this Inbox email with the TickTick category."
+        ]
+      }
+    }
+  }
+}

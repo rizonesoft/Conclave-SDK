@@ -1,0 +1,29 @@
+{
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Website Router by Rizonetech",
+        "developerName": "Rizonetech",
+        "longDescription": "Manage registered production and staging websites through WordPress MCP, pinned SSH and SFTP. Inspect files, upload or edit individual files, restore encrypted backups, run PHP diagnostics and flush object cache. Changes use site-specific expiring previews and explicit confirmation. Credentials remain encrypted on Windows and the always-on Ubuntu server; runtime never reads 1Password.",
+        "shortDescription": "WordPress, SSH and SFTP",
+        "category": "Developer tools",
+        "logo": "./assets/icon.png",
+        "composerIcon": "./assets/icon.png",
+        "defaultPrompt": [
+          "Show my connected websites and their environments.",
+          "Check which WordPress operations are available for a specific website.",
+          "Prepare a content change on the staging site and show its exact preview.",
+          "Inspect a staging theme file and prepare a backed-up file edit."
+        ]
+      }
+    }
+  },
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "author": {
+    "url": "https://github.com/rizonetech/Codex",
+    "name": "Rizonetech"
+  },
+  "description": "Manage registered WordPress websites through MCP, pinned SSH and SFTP, with encrypted credentials and confirmed changes.",
+  "version": "0.2.2",
+  "name": "website-router"
+}

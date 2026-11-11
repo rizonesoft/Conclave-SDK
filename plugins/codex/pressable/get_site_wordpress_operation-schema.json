@@ -1,0 +1,33 @@
+{
+  "name": "get_site_wordpress_operation",
+  "title": "Get Site WordPress Operation",
+  "description": "Retrieves one WordPress operation on a Pressable WordPress site (one entry from the History feed shown in the control panel), including its captured log — the operation's record of the command, not raw unabridged stdout. A command that SUCCEEDED holds its output inside a \"Command [ <command> ] :::: <output>\" line with that output trimmed to 500 characters; a command that FAILED may instead hold an untrimmed error message in that line, or — when it failed before running at all — a bare line such as \"Site is not active.\" with no \"Command [ ... ]\" wrapper to parse. Identify the operation either by job_id (the background job id returned by run_site_wpcli_commands) or by operation_id (from list_site_wordpress_operations); pass exactly one of the two. Returns the job type, the status (pending, running, complete, or failed), who ran it, the queue name and scheduled time, the log (at most the 200 most recent entries, each capped at 10101 bytes — the writers' own per-entry ceiling with their truncation marker included, so an entry a writer already truncated passes through untouched; an entry that still exceeds that (writers can compose two truncated values into one line) keeps its head AND its tail, so the writer's own marker and the size it records survive the cut — with log_message_count and log_messages_truncated reporting what was cut), and timestamps. Poll this after run_site_wpcli_commands to read a command's result. Commands scheduled with run_site_bash_commands do not create an operation record; their output is recorded in the site activity log instead (call get_site_activity_logs with the action filter \"ssh.command\").",
+  "inputSchema": {
+    "properties": {
+      "site_id": {
+        "type": "integer",
+        "description": "The numeric ID of the Pressable site"
+      },
+      "job_id": {
+        "type": "string",
+        "maxLength": 255,
+        "description": "The background job id returned by run_site_wpcli_commands. Pass either this or operation_id, not both."
+      },
+      "operation_id": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "The numeric operation ID from list_site_wordpress_operations. Pass either this or job_id, not both."
+      }
+    },
+    "required": [
+      "site_id"
+    ],
+    "type": "object"
+  },
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  }
+}

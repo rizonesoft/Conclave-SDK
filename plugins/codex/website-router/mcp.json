@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "website-router": {
+      "cwd": "${PLUGIN_ROOT}",
+      "args": [
+        "${PLUGIN_ROOT}/dist/server.mjs"
+      ],
+      "command": "node",
+      "type": "stdio"
+    }
+  },
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"
+}
+

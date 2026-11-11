@@ -1,0 +1,25 @@
+{
+  "name": "rizonetech-outlook-graph",
+  "version": "0.1.7",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/*.test.js",
+    "start": "node dist/server.mjs",
+    "setup": "node dist/setup.mjs"
+  },
+  "dependencies": {
+    "@azure/msal-node": "7.0.1",
+    "@modelcontextprotocol/sdk": "1.32.0",
+    "parse5": "8.0.0",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
+    "esbuild": "0.25.12"
+  }
+}

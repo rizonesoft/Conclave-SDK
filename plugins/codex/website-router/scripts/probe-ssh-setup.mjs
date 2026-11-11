@@ -1,0 +1,2 @@
+import {Router} from '../src/router.js';import {loadToken} from '../src/credentials.js';
+try{const router=new Router(JSON.parse(await loadToken()));const id=process.argv[2];if(!id)throw Error('Supply an exact site ID.');for(const [name,parameters] of [['ssh/diagnostics',{check:'php-version'}],['sftp/stat-file',{path:'wp-content'}]])console.log(JSON.stringify(await router.read(id,name,parameters)));}catch{console.error('SSH/SFTP verification failed. Credentials and raw parser errors are suppressed.');process.exitCode=1;}

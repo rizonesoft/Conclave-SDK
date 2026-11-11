@@ -1,0 +1,31 @@
+{
+  "name": "run_site_wpcli_commands",
+  "title": "Run Site WP-CLI Commands",
+  "description": "Schedules one or more WP-CLI commands to run on a Pressable WordPress site. Each command runs asynchronously on the site's SSH host; the tool returns a list of background job ids that correspond to each queued command.\n\nThe \"wp \" prefix is added automatically — pass just the rest of the command (e.g. \"plugin list\", \"core version\", \"option get blogname\"). The commands argument must be an array, even for a single command. Execution is asynchronous: call get_site_wordpress_operation with a returned job_id to read that command's status and captured output, or list_site_wordpress_operations for the whole history. Output and errors are also recorded in the site's activity log under action \"ssh.command\".\n",
+  "inputSchema": {
+    "properties": {
+      "site_id": {
+        "type": "integer",
+        "description": "The numeric ID of the Pressable site"
+      },
+      "commands": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "WP-CLI commands to run, without the leading \"wp \" prefix (e.g. [\"plugin list\", \"core version\"])"
+      }
+    },
+    "required": [
+      "site_id",
+      "commands"
+    ],
+    "type": "object"
+  },
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  }
+}

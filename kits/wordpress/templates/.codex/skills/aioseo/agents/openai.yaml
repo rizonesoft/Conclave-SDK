@@ -1,0 +1,4 @@
+interface:
+  display_name: "AIOSEO"
+  short_description: "Audit, configure and troubleshoot All in One SEO (Elite) on a WordPress site."
+  default_prompt: "Audit, configure or troubleshoot the All in One SEO (AIOSEO) plugin on this WordPress site. Read first, ask before every write to the live site, and never print a secret."

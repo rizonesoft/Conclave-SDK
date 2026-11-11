@@ -1,0 +1,28 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "conclave",
+  "version": "0.1.3",
+  "description": "Connect Codex and private ChatGPT cloud access to the existing Conclave WSL MCP server for memory, project context, plans, health and policy-routed proposals.",
+  "author": {
+    "name": "Rizonetech",
+    "url": "https://github.com/rizonetech/Codex"
+  },
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Conclave by Rizonetech",
+        "shortDescription": "Memory and project context",
+        "longDescription": "Use your Conclave workspace from Codex, with optional private ChatGPT access through a dedicated OpenAI tunnel. Search and read memory, resolve project context, inspect plans and health, request approvals and propose policy-routed memory updates. The existing WSL server owns its credentials and policy. Approval requests never authorize execution; eligible memory proposals may commit automatically.",
+        "developerName": "Rizonetech",
+        "category": "Developer tools",
+        "logo": "./assets/icon.png",
+        "composerIcon": "./assets/icon.png",
+        "defaultPrompt": [
+          "Check Conclave health and summarize the current plan.",
+          "Find Conclave memory relevant to this task and cite the records.",
+          "Resolve Conclave project context before planning my next change."
+        ]
+      }
+    }
+  }
+}

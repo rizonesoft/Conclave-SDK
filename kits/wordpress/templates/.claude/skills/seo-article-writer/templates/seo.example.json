@@ -1,0 +1,63 @@
+{
+  "site_url": "https://example.com",
+  "site_title": "Example",
+  "post": {
+    "title": "How to choose a web host for a small WordPress site",
+    "slug": "how-to-choose-a-web-host",
+    "excerpt": "Test three things before you pay for hosting: server response from your readers' country, how fast a backup restores, and the renewal price after year one.",
+    "status": "draft",
+    "categories": [
+      "Hosting"
+    ],
+    "primary_category": "Hosting",
+    "tags": [
+      "web hosting",
+      "wordpress"
+    ],
+    "author": "Jane Author",
+    "featured_image": {
+      "file": "images/web-host-ttfb-comparison.webp",
+      "alt": "Bar chart comparing time to first byte of two hosts measured from Johannesburg",
+      "title": "Web host TTFB comparison",
+      "caption": "Measured with WebPageTest from Johannesburg, March 2026."
+    }
+  },
+  "aioseo": {
+    "title": "How to Choose a Web Host for WordPress #separator_sa #site_title",
+    "description": "To choose a web host, test server speed from your readers’ country, time a backup restore and compare the year-two price. Here is how we did it.",
+    "focus_keyphrase": "choose a web host",
+    "additional_keyphrases": [
+      "wordpress hosting",
+      "web host renewal price"
+    ],
+    "cornerstone": false,
+    "social": {
+      "og_title": "How to choose a web host (we timed restores and TTFB)",
+      "og_description": "Three tests that separated two hosts that looked identical on the sales page.",
+      "og_image": "featured",
+      "og_object_type": "article",
+      "article_section": "Hosting",
+      "article_tags": [
+        "web hosting",
+        "wordpress"
+      ],
+      "twitter_use_og": true,
+      "twitter_card": "summary_large_image"
+    },
+    "schema": {
+      "article_type": "BlogPosting",
+      "faq": [
+        {
+          "question": "How much does WordPress hosting cost after the first year?",
+          "answer": "Expect the renewal price to be higher than the launch price; compare hosts on the year-two price shown in their terms."
+        }
+      ]
+    },
+    "robots": "default",
+    "canonical_url": ""
+  },
+  "manual": {
+    "reviewer": "Name of the expert reviewer to select in the AIOSEO sidebar, or empty",
+    "notes": "Anything the publisher must do by hand in wp-admin"
+  }
+}

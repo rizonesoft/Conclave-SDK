@@ -21,7 +21,8 @@ Each agent reads only its own isolated folder and entrypoint alongside the share
 | `kits/automations/` | Scheduled tasks for Task Scheduler and systemd, with a failure email. |
 | `kits/laravel/`, `kits/wordpress/` | Stack kits. |
 | `prompts/` | Copy-pasteable prompts to import Conclave-SDK from Gemini, Claude, or Codex. |
-| `plugins/` | Standalone agent plugins that belong to no kit (never installed by `forge.py`). |
+| `plugins/` | Account-bound Codex and Claude plugins that belong to no kit (never installed). |
+| `global/` | The owner's machine-level Claude and Codex rules, hooks, skills (never installed). |
 | `tests/fixtures/check-pin/` | Pins and dispatchers freezing the `--check-pin` contract. |
 | `todo/` | The SDK's own TODO plan. |
 | `.agents/`, `.claude/`, `.codex/` | The SDK's own `base`, `todo`, `reviewer`, `automations`. |

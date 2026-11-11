@@ -1,0 +1,28 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "atera",
+  "version": "0.1.5",
+  "description": "Read Atera device inventory, monitor status, patch availability, and alerts through Rizonetech's local MCP integration.",
+  "author": {
+    "name": "Rizonetech",
+    "url": "https://github.com/rizonetech/Codex"
+  },
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Atera by Rizonetech",
+        "shortDescription": "Devices, monitoring and alerts",
+        "longDescription": "Inspect endpoint agents and SNMP, TCP, HTTP, and generic monitors. Review open alerts, investigate individual devices, read installed or available patches, and summarize endpoint health with explicit pagination coverage. Read-only tools use your Atera API token from a Windows account-encrypted local credential, with optional 1Password reference mode. Independently developed by Rizonetech; not an official Atera product.",
+        "developerName": "Rizonetech",
+        "category": "Developer tools",
+        "logo": "./assets/icon.png",
+        "composerIcon": "./assets/icon.png",
+        "defaultPrompt": [
+          "Summarize endpoint health and open alerts in Atera, showing scan coverage.",
+          "Find this device in Atera and inspect its monitoring status.",
+          "Review available patches for an Atera device."
+        ]
+      }
+    }
+  }
+}

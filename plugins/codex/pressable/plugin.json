@@ -1,0 +1,28 @@
+{
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Pressable by Rizonetech",
+        "developerName": "Rizonetech",
+        "longDescription": "Inspect sites, staging environments, backups, PHP versions, logs, performance, plugins and themes. Prepare and explicitly confirm hosting changes with expiring, single-use previews. Uses Pressable official MCP, Windows DPAPI locally and an always-on Ubuntu adapter with encrypted credentials for private ChatGPT access. Independent Rizonetech integration; not endorsed by Pressable. Includes reviewed WP-CLI media import, content and footer updates, plus job-status and output reads. Commands require exact previews; submission is asynchronous and does not prove completion.",
+        "shortDescription": "Hosting and reviewed WP-CLI",
+        "category": "Developer tools",
+        "logo": "./assets/icon.png",
+        "composerIcon": "./assets/icon.png",
+        "defaultPrompt": [
+          "List my Pressable sites and identify production and staging environments.",
+          "Review hosting health, PHP versions and plugin security alerts.",
+          "Prepare a cache purge for a specific site and show me the preview."
+        ]
+      }
+    }
+  },
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "author": {
+    "url": "https://github.com/rizonetech/Codex",
+    "name": "Rizonetech"
+  },
+  "description": "Manage Pressable hosting and reviewed WP-CLI commands, with encrypted credentials, explicit change previews and asynchronous result checks.",
+  "version": "0.2.2",
+  "name": "pressable"
+}

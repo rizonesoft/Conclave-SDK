@@ -1,0 +1,29 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "bunny-net",
+  "version": "0.1.1",
+  "description": "Manage Bunny.net CDN, DNS and Storage through private Rizonetech MCP services.",
+  "author": {
+    "name": "Rizonetech",
+    "url": "https://github.com/rizonetech/Codex"
+  },
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Bunny.net by Rizonetech",
+        "shortDescription": "CDN, DNS and Storage",
+        "longDescription": "Inspect CDN zones and traffic, manage standard DNS records, browse storage and preview cache purges or small text-file changes. Changes use expiring, single-use previews and explicit confirmation. Private Ubuntu cloud hosting and Windows desktop support use encrypted credentials without recurring 1Password access. Independently developed by Rizonetech; not an official Bunny.net product.",
+        "developerName": "Rizonetech",
+        "category": "Developer tools",
+        "logo": "./assets/icon.png",
+        "composerIcon": "./assets/icon.png",
+        "defaultPrompt": [
+          "List my Bunny.net CDN, DNS and storage zones with coverage.",
+          "Review DNS records for this Bunny.net zone.",
+          "Preview purging this CDN URL.",
+          "Browse this storage zone and preview uploading a text file."
+        ]
+      }
+    }
+  }
+}

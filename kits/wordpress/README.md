@@ -1,6 +1,6 @@
 # WordPress kit
 
-Additive overlay that connects a WordPress project to its one live site on Pressable or WordPress.com: a site pin, SSH/SFTP through a pinned Conclave credential, the WordPress MCP and, on Pressable (or a WordPress.com Atomic site that asks for one), a pull-only DDEV mirror. It also brings PHPCS WordPress-Extra wiring and the `wordpress-site-safety` and `wordpress-connect` skills for Gemini (`.agents/`), Claude (`.claude/`) and Codex (`.codex/`). rizonetech-com is the reference site.
+Additive overlay that connects a WordPress project to its one live site on Pressable or WordPress.com: a site pin, SSH/SFTP through a pinned Conclave credential, the WordPress MCP and, on Pressable (or a WordPress.com Atomic site that asks for one), a pull-only DDEV mirror. It also brings PHPCS WordPress-Extra wiring and the `wordpress-site-safety`, `wordpress-connect`, `seo-article-writer` and `aioseo` skills for Gemini (`.agents/`), Claude (`.claude/`) and Codex (`.codex/`). rizonetech-com is the reference site.
 
 The kit copies files and never installs WordPress, WP-CLI, PHPCS, DDEV or a plugin. A local WordPress tree is optional: on Pressable the `wordpress-connect` skill creates it with DDEV, and a WordPress.com site has none unless the owner asks for the mirror on an Atomic site (SSH), as road-diamond-com did. Install `kits/base` (or `python forge.py init`) first when the repo should speak the full agent contract.
 
@@ -17,6 +17,8 @@ Every host (`templates/`):
 | `scripts/tests/test_site_access.py` | Pin and identity refusal tests (no network) |
 | `.{agents,claude,codex}/skills/wordpress-site-safety/` | Site-safety rules |
 | `.{agents,claude,codex}/skills/wordpress-connect/` | The setup runbook |
+| `.{agents,claude,codex}/skills/seo-article-writer/` | Article pipeline: research to AIOSEO setup |
+| `.{agents,claude,codex}/skills/aioseo/` | AIOSEO (Elite) audit, setup and troubleshooting |
 | `docs/wordpress-agent-tooling.md` | How the pieces fit |
 | `phpcs.xml.dist`, `tools/phpcs/composer.json` | WordPress-Extra ruleset and isolated toolchain |
 | `scripts/hooks/wordpress-phpcs-pre-push.sh` | Pre-push PHPCS run over the whole tree |

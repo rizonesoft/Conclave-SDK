@@ -1,0 +1,1687 @@
+[
+  {
+    "mode": "read",
+    "name": "get_account_site_counts",
+    "title": "Get Account Site Counts",
+    "description": "Returns the authenticated account identifiers and site count data including current billable sites, maximum allowed sites, and a human-readable usage message. For hybrid plans the response also includes signature and premium tier breakdowns. Use this to check remaining capacity before creating a new site.",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_account_details",
+    "title": "Get Account Details",
+    "description": "Returns the authenticated account's full overview: contact details (name, organization, email, phone number), affiliate status, the name of the product the account is subscribed to, the default PHP version and datacenter applied to new sites, how many sites the account owner is a collaborator on, and site capacity broken down into billable and staging allowances. product_name is the plan the account pays for, resolved for hybrid plans as well as single-tier ones, and is NOT the plan_type returned by get_account_site_counts, which only says whether the plan is single-tier or hybrid. It is null when the account has no subscription, and when a hybrid plan has no product attached. Use get_account_site_counts when all you need is billable capacity before creating a site; use this tool for the full account overview, including staging capacity.\n",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_site_creation_options",
+    "title": "Get Site Creation Options",
+    "description": "Returns the available PHP versions, WordPress versions, install options, and datacenter regions for creating a new site. Call this BEFORE create_site or search_sites to discover valid values for php_version, wordpress_version, install, and datacenter_code parameters.",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "validate_site_name",
+    "title": "Validate Site Name",
+    "description": "Checks whether a proposed site name is valid and available for use. Call this BEFORE create_site to verify the name meets formatting rules and is not already taken. Returns { valid: true } on success or { valid: false, message: \"...\" } explaining the problem.",
+    "inputSchema": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The proposed site name to validate. Must be 3\u00e2\u20ac\u201c50 characters using only lowercase letters, numbers, and hyphens. Must start and end with a letter or number (not a hyphen). Names are automatically lowercased. The following reserved names cannot be used: www, bin, dev, etc, htdocs, lib, lib64, logs, memcached, scripts, tmp, usr, wordpress, sat, pressablecdn, fusion."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "list_sites",
+    "title": "List Sites",
+    "description": "Lists the WordPress sites on your Pressable account \u00e2\u20ac\u201d the sites you own plus the sites you collaborate on. No filter is required, so this is the tool for \"what sites do I have?\".\n\nUse search_sites instead to narrow by domain, name, state, WordPress version, PHP version or datacenter; it requires at least one of those filters and cannot list a whole account.\n\nFavorited sites come first, then the rest, each group in ascending site ID order.\n\nResults are always paginated. The response reports total_items, current_page, last_page and next_page \u00e2\u20ac\u201d pass page to walk the remaining pages. Do not conclude an account has only the sites in one response without checking last_page.\n\nIf you ask for a page past the end, page_out_of_range comes back true and total_items and last_page describe the empty slice rather than the account \u00e2\u20ac\u201d do not read total_items as 0 in that case. Retry at page 1.\n\nOptional filters:\n- tag_name: Only sites carrying this tag. Exact match, case-insensitive (\"Client A\" matches \"client a\"), not a partial match. At most 255 characters, the tag name limit. Manage tags with add_site_tags and remove_site_tags.\n- favorites_only: Only favorited sites (default false). list_site_favorites is the dedicated shortcut for this.\n- page: 1-based page number (default 1, maximum 10000)\n- per_page: Sites per page (default 20; a value above 50 is clamped to 50, and a value of 0 or less becomes 20 \u00e2\u20ac\u201d neither is rejected)\n\nEach site includes: id, name, custom_name, display_name, state, account_id, cloned_from_id, created, collaborators_count, datacenter_code, datacenter_name, duplikit, ecommerce, edge_cache, edge_cache_defensive_mode, edge_cache_defensive_mode_until, favorite, ip_address, ip_address_one, ip_address_two, light_weight_404, multisite_support, php_version, php_fs_permission, sandbox, staging, sftp_domain, tags, wordpress_version, woo_cart_caching_enabled, wp_environment_type, and the filesystem/database usage and limit byte counts.\n\nThis tool mirrors the GET /v1/sites REST endpoint. Where it deliberately differs:\n\n- It is ALWAYS paginated. The REST endpoint returns every site unpaginated unless asked to page, which would both exhaust an agent's context and contradict the per_page/last_page this response always reports.\n- It does NOT return a site's url, wordpress_login_url or domains_count. Each needs a per-site domain lookup that would be dozens of extra queries for one page. Call get_site_details for a single site's URL and full detail, and list_site_domains for the domains attached to it.\n- wordpress_version is the raw version track (\"latest\", \"previous\", \"beta\"), matching search_sites and get_site_details. The REST endpoint returns a display label such as \"Current Stable Version (7.1)\", which cannot be passed back to update_site_wordpress_version.\n- staging is true only for a staging site that is NOT a sandbox, and sandbox is reported separately \u00e2\u20ac\u201d matching search_sites and list_site_favorites. The REST endpoint reports its staging flag raw, which is true for both kinds.\n- custom_name is included here and is not in the REST response; display_name already reflects it, so it is additive.\n- Tags are read from their own query, so every tag name is returned exactly as stored and in a stable order, and tag ids are integers. The REST endpoint reads them from a packed string instead: it returns ids as strings, truncates a name at its first comma, and mangles a name containing a double pipe. Tag names are stored lowercased.\n- page is capped at 10000 and a per_page of 0 or less becomes 20. The REST endpoint has no page cap; a very large page there is unbounded work for a page that cannot hold results.\n",
+    "inputSchema": {
+      "properties": {
+        "tag_name": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Only sites carrying this tag (exact match, case-insensitive). At most 255 characters \u00e2\u20ac\u201d the tag name limit."
+        },
+        "favorites_only": {
+          "type": "boolean",
+          "description": "Only sites marked as favorites (default false)"
+        },
+        "page": {
+          "type": "integer",
+          "maximum": 10000,
+          "description": "1-based page number (default 1, maximum 10000)"
+        },
+        "per_page": {
+          "type": "integer",
+          "description": "Sites per page (default 20). A value above 50 is clamped to 50, and a value of 0 or less becomes 20; neither is rejected."
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "search_sites",
+    "title": "Search Sites",
+    "description": "Search for sites on your Pressable account using one or more filters.\nReturns up to 50 matching sites per request. You MUST provide at least one filter.\n\nFavorited sites are returned first (in ascending site ID order), followed by remaining matches\n(also in ascending site ID order). Each result includes a `favorite` flag indicating whether\nthe site is marked as a favorite for the authenticated account.\n\nIMPORTANT: The domain_url for newly created sites can take up to 15 seconds to be populated\nafter site creation. If a recently created site does not appear in domain-based search results,\nwait 15 seconds and try again, or search by name instead.\n\nSupported filters (provide at least one):\n- domain: Partial match against the site's domain URL (e.g. \"example.com\", \"mystagingwebsite\")\n- name: Partial match against the site name or custom name\n- state: Exact match on site state (e.g. \"live\", \"deploying\", \"disabled\", \"pending\")\n- wordpress_version: Exact match on WordPress version track (e.g. \"latest\", \"previous\", \"beta\")\n- php_version: Exact match on PHP version (e.g. \"8.1\", \"8.2\", \"8.3\", \"8.4\")\n- datacenter_code: Exact match on datacenter region code (e.g. \"DFW\", \"BUR\", \"DCA\", \"AMS\")\n\nThe response includes:\n- sites: Array of up to 50 matching sites with summary details\n- total_matches: Total number of sites matching the filters (may exceed 50)\n- returned: Number of sites included in this response (at most 50)\n- max_results: The hard cap per request (50)\n\nIf total_matches exceeds returned, narrow your filters to find specific sites.\nUse get_site_details with a site's ID to retrieve full information about a specific site.\n\nTo discover valid wordpress_version, php_version, and datacenter_code values,\ncall get_site_creation_options first.\n",
+    "inputSchema": {
+      "properties": {
+        "domain": {
+          "type": "string",
+          "description": "Partial match against the site domain URL (e.g. \"example.com\", \"mysite\")"
+        },
+        "name": {
+          "type": "string",
+          "description": "Partial match against the site name or custom name"
+        },
+        "state": {
+          "type": "string",
+          "description": "Exact match on site state (e.g. \"live\", \"deploying\", \"disabled\", \"pending\")"
+        },
+        "wordpress_version": {
+          "type": "string",
+          "description": "Exact match on WordPress version track (e.g. \"latest\", \"previous\", \"beta\")"
+        },
+        "php_version": {
+          "type": "string",
+          "description": "Exact match on PHP version (e.g. \"8.1\", \"8.2\", \"8.3\", \"8.4\")"
+        },
+        "datacenter_code": {
+          "type": "string",
+          "description": "Exact match on datacenter region code (e.g. \"DFW\", \"BUR\", \"DCA\", \"AMS\")"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_site_status",
+    "title": "Get Site Status",
+    "description": "Retrieves the current status and details of a Pressable WordPress site by its ID.\n\nUse this tool to:\n- Check whether a site has finished being created or provisioned. A site is fully ready when `state` is \"active\".\n- Poll site status after triggering site creation to determine when it becomes ready to use.\n- Retrieve site details including URL, PHP version, WordPress version, datacenter, and edge cache status.\n\nNewly created sites start in \"deploying\" state and typically become \"active\" within 30\u00e2\u20ac\u201c60 seconds.\nWait at least 30 seconds after site creation before the first status check. If still \"deploying\",\nwait another 30 seconds before checking again. Do not poll more frequently to avoid hitting rate limits.\n",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site to retrieve status for"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_site_details",
+    "title": "Get Site Details",
+    "description": "Retrieves comprehensive details of a Pressable WordPress site by its ID.\n\nUse this tool to:\n- Get full site information including storage usage, WordPress login URL, and multisite status.\n- Check storage limits for file system and database usage.\n- Determine the site environment (production, staging, or sandbox) and WP environment type.\n\nFor a lighter status check (e.g. polling after site creation), prefer get_site_status instead.\n",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site to retrieve details for"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_site_activity_logs",
+    "title": "Get Site Activity Logs",
+    "description": "            Retrieves recent activity logs for a Pressable WordPress site.\n\n            Returns up to 50 activity log entries from the last 30 days, ordered by most recent first.\n            Use filters to narrow results when the site has many activity logs.\n\n            Supported filters:\n            - action: Partial match (contains) against the action name (e.g. \"wordpress\", \"backup\", \"cdn\")\n            - account_email: Partial match (contains) against the email of who performed the action\n            - ip_address: Partial match (contains) against the client IP address\n            - source: Exact match on the activity source. Valid sources: \"ui\", \"api.v1\", \"mcp.v1\", \"systems\"\n\n            The response includes:\n            - activities: Array of up to 50 log entries with timestamp, action, email, IP, and message\n            - total_available: Total number of matching logs (may exceed 50)\n            - returned: Number of logs included in this response (at most 50)\n            - max_results: The hard cap per request (50)\n\n            Call get_site_activity_actions to discover all available action names for filtering.\n",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site to retrieve activity logs for"
+        },
+        "action": {
+          "type": "string",
+          "description": "Filter by action name (partial match, e.g. \"wordpress\", \"backup.downloaded\")"
+        },
+        "account_email": {
+          "type": "string",
+          "description": "Filter by the email of who performed the action (partial match)"
+        },
+        "ip_address": {
+          "type": "string",
+          "description": "Filter by client IP address (partial match)"
+        },
+        "source": {
+          "type": "string",
+          "description": "Filter by activity source (exact match). Valid values: \"ui\", \"api.v1\", \"mcp.v1\", \"systems\""
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_account_activity_logs",
+    "title": "Get Account Activity Logs",
+    "description": "          Retrieves recent activity logs for your Pressable account.\n\n          Returns up to 50 account-level activity log entries from the last 60 days, ordered by most recent first.\n          Use filters to narrow results when the account has many activity logs.\n\n          Supported filters:\n          - action: Partial match (contains) against the action name (e.g. \"site.created\", \"subscription\", \"settings\")\n          - account_email: Partial match (contains) against the email of who performed the action\n          - ip_address: Partial match (contains) against the client IP address\n          - source: Exact match on the activity source. Valid sources: \"ui\", \"api.v1\", \"mcp.v1\", \"systems\", \"scim.v2\"\n\n          The response includes:\n          - activities: Array of up to 50 log entries with timestamp, action, email, IP, and message\n          - total_available: Total number of matching logs (may exceed 50)\n          - returned: Number of logs included in this response (at most 50)\n          - max_results: The hard cap per request (50)\n\n          Call get_account_activity_actions to discover all available action names for filtering.\n",
+    "inputSchema": {
+      "properties": {
+        "action": {
+          "type": "string",
+          "description": "Filter by action name (partial match, e.g. \"site.created\", \"subscription\")"
+        },
+        "account_email": {
+          "type": "string",
+          "description": "Filter by the email of who performed the action (partial match)"
+        },
+        "ip_address": {
+          "type": "string",
+          "description": "Filter by client IP address (partial match)"
+        },
+        "source": {
+          "type": "string",
+          "description": "Filter by activity source (exact match). Valid values: \"ui\", \"api.v1\", \"mcp.v1\", \"systems\", \"scim.v2\""
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "list_site_domains",
+    "title": "List Site Domains",
+    "description": "Lists all domains attached to a Pressable WordPress site, including the default staging URL (domain_id: -1). Returns site metadata and a domains array where each entry includes id, domain_name, primary status, and health. Use get_domain_details with a specific domain_id for full information including DNS confirmation, provisioning status, zone details, and IP addresses.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_domain_details",
+    "title": "Get Domain Details",
+    "description": "Retrieves detailed information about a specific domain attached to a Pressable WordPress site. Use list_site_domains first to discover domain IDs. The staging URL has a domain_id of -1. Returns the domain name, primary status, health, DNS confirmation, provisioning status, zone information, and associated IP addresses.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        },
+        "domain_id": {
+          "type": "integer",
+          "description": "The numeric ID of the domain (use -1 for the staging URL)"
+        }
+      },
+      "required": [
+        "site_id",
+        "domain_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_site_edge_cache_status",
+    "title": "Get Site Edge Cache Status",
+    "description": "Retrieves the current edge cache status for a Pressable WordPress site. Returns whether edge cache is enabled or disabled, and whether defensive mode is active.\n",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_site_php_logs",
+    "title": "Get Site PHP Logs",
+    "description": "Retrieves PHP error logs for a Pressable WordPress site. Returns log entries from the last 7 days, ordered by most recent first.\n\nEach log entry includes: message, severity, kind (themes/plugins/core), name, file, line, and timestamp.\n\nUse the severity filter to narrow results by error type. Valid severity values: User, Warning, Deprecated, Fatal error, Parse error.\n\nSupports cursor-based pagination via scroll_id. If the response includes a scroll_id, pass it in a subsequent call to retrieve the next page of results.\n",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        },
+        "severity": {
+          "type": "string",
+          "description": "Filter by PHP error severity. Valid values: User, Warning, Deprecated, Fatal error, Parse error"
+        },
+        "scroll_id": {
+          "type": "string",
+          "description": "Pagination cursor from a previous response. Pass this to retrieve the next page of results."
+        },
+        "page_size": {
+          "type": "integer",
+          "description": "Number of log entries to return per page (default: 200, max: 200)"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_site_webserver_logs",
+    "title": "Get Site Webserver Logs",
+    "description": "Retrieves webserver (NGINX) access logs for a Pressable WordPress site. Returns log entries from the last 7 days, ordered by most recent first.\n\nEach log entry includes: status code, request URL, request type (GET/POST/etc), user IP, user agent, response time, body bytes sent, caching status, and timestamp.\n\nSupports filtering by HTTP status code, request type, and user IP address. Multiple status codes or IPs can be comma-separated.\n\nSupports cursor-based pagination via scroll_id. If the response includes a scroll_id, pass it in a subsequent call to retrieve the next page of results.\n",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        },
+        "status": {
+          "type": "string",
+          "description": "Filter by HTTP status code (e.g., \"200\", \"404\", \"500\"). Comma-separated for multiple."
+        },
+        "request_type": {
+          "type": "string",
+          "description": "Filter by HTTP method (e.g., \"GET\", \"POST\", \"PUT\", \"DELETE\")"
+        },
+        "user_ip": {
+          "type": "string",
+          "description": "Filter by client IP address. Comma-separated for multiple IPs."
+        },
+        "scroll_id": {
+          "type": "string",
+          "description": "Pagination cursor from a previous response. Pass this to retrieve the next page of results."
+        },
+        "page_size": {
+          "type": "integer",
+          "description": "Number of log entries to return per page (default: 100, max: 200)"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "list_site_plugins",
+    "title": "List Site Plugins",
+    "description": "Lists all installed WordPress plugins on a Pressable site including active, inactive, drop-in, and must-use plugins. Returns each plugin's name, title, status, version, and update availability. The site must be in an active state.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_site_plugin_security_alerts",
+    "title": "Get Site Plugin Security Alerts",
+    "description": "Retrieves plugins with known security vulnerabilities installed on a Pressable WordPress site. Returns each vulnerable plugin's name, version, status, and a list of associated vulnerabilities including severity, title, description, fix version, and published date. Only plugins with at least one known vulnerability are included. Requires MANAGE_WORDPRESS permission.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "list_site_themes",
+    "title": "List Site Themes",
+    "description": "Lists all installed WordPress themes on a Pressable site including active and inactive themes. Returns each theme's name, title, status, version, and update availability. The site must be in an active state.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_site_theme_security_alerts",
+    "title": "Get Site Theme Security Alerts",
+    "description": "Retrieves themes with known security vulnerabilities installed on a Pressable WordPress site. Returns each vulnerable theme's name, version, status, and a list of associated vulnerabilities including severity, title, description, fix version, published date, and reference URLs. Only themes with at least one known vulnerability are included. Requires MANAGE_WORDPRESS permission.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "list_site_backups",
+    "title": "List Site Backups",
+    "description": "Lists scheduled filesystem and database backups for a Pressable WordPress site. Returns each backup point's date, time, and the associated filesystem and database backup IDs. Backups are ordered by most recent first.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_site_backup_details",
+    "title": "Get Site Backup Details",
+    "description": "Retrieves details for a specific filesystem or database backup on a Pressable WordPress site. Returns the backup's type (filesystem or database), date, time, and identifiers. Use list_site_backups to discover available backup IDs.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        },
+        "backup_id": {
+          "type": "string",
+          "description": "The backup ID to retrieve details for (from list_site_backups)"
+        }
+      },
+      "required": [
+        "site_id",
+        "backup_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "list_site_ondemand_backups",
+    "title": "List On-Demand Backups",
+    "description": "Lists active on-demand backups for a Pressable WordPress site. Returns each backup's ID, type (filesystem or database), status, size, creation date, and expiration info. Only customer-created backups are included. Backups are ordered by most recent first.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_site_ondemand_backup_details",
+    "title": "Get On-Demand Backup Details",
+    "description": "Retrieves details for a specific on-demand backup on a Pressable WordPress site. Returns the backup's ID, type, status, size, creation date, completion date, creator, and expiration info. Use list_site_ondemand_backups to discover available backup IDs.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        },
+        "backup_id": {
+          "type": "string",
+          "description": "The on-demand backup ID (from list_site_ondemand_backups)"
+        }
+      },
+      "required": [
+        "site_id",
+        "backup_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_site_statistics",
+    "title": "Get Site Statistics",
+    "description": "Retrieves storage usage and page view statistics for a Pressable WordPress site.\n\nUse this tool to:\n- Check how much disk space and database storage a site is using.\n- View page view counts for today, yesterday, current month, last month, and historical periods.\n- Get a quick overview of a site's traffic and resource consumption.\n\nReturns file system usage (bytes), database usage (bytes), and page views broken down by today, yesterday, current month, last month, two months ago, last year, and last two years.\n",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site to retrieve statistics for"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_site_performance_report",
+    "title": "Get Site Performance Report",
+    "description": "Retrieves the latest Lighthouse performance report for a Pressable WordPress site.\n\nUse this tool to:\n- Check the site's performance, accessibility, best practices, and SEO scores.\n- Compare desktop vs mobile performance results.\n- View Core Web Vitals like First Contentful Paint, Largest Contentful Paint, Cumulative Layout Shift, and Total Blocking Time.\n\nReturns separate desktop and mobile reports with overall scores and detailed metric breakdowns. Reports are generated periodically by Pressable and may not reflect the absolute latest state of the site.\n",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site to retrieve the performance report for"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_site_usage_report",
+    "title": "Get Site Usage Report",
+    "description": "Retrieves billing-cycle usage data for a Pressable WordPress site.\n\nUse this tool to:\n- View storage usage and visit counts per billing cycle.\n- Check daily average storage consumption in gigabytes.\n- Review total and daily average visit counts over time.\n- Compare usage trends across up to 13 months of billing history.\n\nReturns an array of billing cycle records, each containing the cycle dates, total account-level storage and visits, and site-specific daily averages.\n",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site to retrieve usage data for"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_site_metrics",
+    "title": "Get Site Metrics",
+    "description": "Retrieves real-time performance metrics for a Pressable WordPress site from WP Cloud.\n\nUse this tool to:\n- Monitor response times, request rates, and bandwidth consumption.\n- Analyze PHP request rates and MySQL CPU usage.\n- Segment metrics by HTTP status code, country, request method, cache status, and more.\n\nAvailable metrics (grouped by source):\nEdge Logs: response_time_average (default), requests, requests_persec, response_bytes, response_bytes_persec, response_bytes_average.\nPHP Logs: php_cpu_time, php_cpu_time_persec, php_response_time, php_requests, php_requests_persec, php_workers_average, php_workers_min, php_workers_max, php_request_burst_percentage, php_request_limited_percentage, php_request_normal_percentage.\nUniques & Views (daily aggregates): uniques, views.\nCGroup: cgroup_cpu_usage, cgroup_cpu_usage_persec.\nMySQL: mysql_total_connections, mysql_concurrent_connections, mysql_connected_time, mysql_busy_time, mysql_cpu_time, mysql_cpu_time_persec, mysql_bytes_received, mysql_bytes_sent, mysql_rows_read, mysql_rows_sent, mysql_rows_deleted, mysql_rows_inserted, mysql_rows_updated, mysql_select_commands, mysql_update_commands, mysql_other_commands, mysql_commit_transactions, mysql_rollback_transactions, mysql_denied_connections, mysql_lost_connections, mysql_access_denied, mysql_empty_queries, mysql_total_connections_persec, mysql_concurrent_connections_persec, mysql_bytes_received_persec, mysql_bytes_sent_persec, mysql_rows_read_persec, mysql_rows_sent_persec, mysql_rows_deleted_persec, mysql_rows_inserted_persec, mysql_rows_updated_persec, mysql_select_commands_persec, mysql_update_commands_persec, mysql_other_commands_persec, mysql_commit_transactions_persec, mysql_rollback_transactions_persec, mysql_denied_connections_persec, mysql_lost_connections_persec.\n\nAvailable dimensions (grouped by source):\nEdge Logs: http_host (default), http_version, http_verb, http_status, page_renderer, page_is_cached, wp_admin_ajax_action, visitor_asn, visitor_country_code, visitor_is_crawler, atomic_site_id, visitor_device_type, visitor_browser, visitor_os, visitor_is_logged_in, edge_cache_status, is_rate_limited, rate_limit_reason, datacenter, path, remote_address, proxy_type, server_protocol, http_user_agent, referer_domain.\nPHP Logs: burst_status.\nUniques & Views: hostname.\nMySQL / CGroup: pool, server.\n\nAvailable time ranges: \"Past 1 hour\" (default), \"Past 4 hours\", \"Past 1 day\", \"Past 2 days\", \"Past 3 days\", \"Past 1 week\", \"Past 15 days\", \"Past 1 month\".\n\nYou can request multiple metrics with a single dimension, or up to 5 dimensions with a single metric, but not multiple of both.\n",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site to retrieve metrics for"
+        },
+        "metrics": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Metrics to retrieve, grouped by source. Edge Logs: response_time_average (default), requests, requests_persec, response_bytes, response_bytes_persec, response_bytes_average. PHP Logs: php_cpu_time, php_cpu_time_persec, php_response_time, php_requests, php_requests_persec, php_workers_average, php_workers_min, php_workers_max, php_request_burst_percentage, php_request_limited_percentage, php_request_normal_percentage. Uniques & Views (daily aggregates): uniques, views. CGroup: cgroup_cpu_usage, cgroup_cpu_usage_persec. MySQL: mysql_total_connections, mysql_concurrent_connections, mysql_connected_time, mysql_busy_time, mysql_cpu_time, mysql_cpu_time_persec, mysql_bytes_received, mysql_bytes_sent, mysql_rows_read, mysql_rows_sent, mysql_rows_deleted, mysql_rows_inserted, mysql_rows_updated, mysql_select_commands, mysql_update_commands, mysql_other_commands, mysql_commit_transactions, mysql_rollback_transactions, mysql_denied_connections, mysql_lost_connections, mysql_access_denied, mysql_empty_queries, mysql_total_connections_persec, mysql_concurrent_connections_persec, mysql_bytes_received_persec, mysql_bytes_sent_persec, mysql_rows_read_persec, mysql_rows_sent_persec, mysql_rows_deleted_persec, mysql_rows_inserted_persec, mysql_rows_updated_persec, mysql_select_commands_persec, mysql_update_commands_persec, mysql_other_commands_persec, mysql_commit_transactions_persec, mysql_rollback_transactions_persec, mysql_denied_connections_persec, mysql_lost_connections_persec. Defaults to [\"response_time_average\"]"
+        },
+        "dimensions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Dimensions to segment data by, grouped by source. Edge Logs: http_host, http_version, http_verb, http_status, page_renderer, page_is_cached, wp_admin_ajax_action, visitor_asn, visitor_country_code, visitor_is_crawler, atomic_site_id, visitor_device_type, visitor_browser, visitor_os, visitor_is_logged_in, edge_cache_status, is_rate_limited, rate_limit_reason, datacenter, path, remote_address, proxy_type, server_protocol, http_user_agent, referer_domain. PHP Logs: burst_status. Uniques & Views: hostname. MySQL / CGroup: pool, server. Defaults to [\"http_host\"]"
+        },
+        "start_at": {
+          "type": "string",
+          "description": "Time range start. Options: \"Past 1 hour\", \"Past 4 hours\", \"Past 1 day\", \"Past 2 days\", \"Past 3 days\", \"Past 1 week\", \"Past 15 days\", \"Past 1 month\". Defaults to \"Past 1 hour\""
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "list_site_restores",
+    "title": "List Site Restores",
+    "description": "Lists recent restore requests for a Pressable WordPress site, newest first, so a restore started with restore_site_backup can be followed to its outcome. Each entry includes the status (in_progress, completed, or failed), the progress log lines, the filesystem and database backup IDs being restored, per-part completion flags, any error, and timestamps. Results are paginated (default 20 per page, max 50). Use get_site_restore_status to poll a single restore by ID.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        },
+        "page": {
+          "type": "integer",
+          "description": "Page number for pagination (default: 1)"
+        },
+        "per_page": {
+          "type": "integer",
+          "description": "Number of restores per page (default: 20, max: 50)"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_site_restore_status",
+    "title": "Get Site Restore Status",
+    "description": "Retrieves the current status and progress of a single restore on a Pressable WordPress site. Returns the status (in_progress, completed, or failed), the progress log lines, the filesystem and database backup IDs being restored, per-part completion flags, any error message, and timestamps. Poll this after restore_site_backup to follow a restore to its outcome. Use list_site_restores to discover restore IDs.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        },
+        "restore_id": {
+          "type": "integer",
+          "description": "The numeric ID of the restore (from list_site_restores)"
+        }
+      },
+      "required": [
+        "site_id",
+        "restore_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "list_alerts",
+    "title": "List Activity Hub Alerts",
+    "description": "Lists the Activity Hub alerts visible to your account \u00e2\u20ac\u201d account-level alerts plus alerts on\nsites you own or collaborate on \u00e2\u20ac\u201d newest first, with per-alert read/dismissed state.\n\nReturns at most 500 alerts per call. The response reports `total` and `last_page`; pass\n`page` to reach the rest.\n\nOptional filters:\n- category: One of in_progress, failure, completed, purchases, take_action (omit or \"all\" for every category). Any other value returns no alerts.\n- search: Case-insensitive match against the alert title, message, or site name\n- show_dismissed: Include dismissed alerts (default false)\n- page: 1-based page number (default 1)\n- per_page: Alerts per page, up to 500 (default 500)\n\nEach alert includes: id, type, category, severity, title, message, site (id, name,\ndisplay_name) or null, icon, actions (label, url, style), read, dismissed, and created_at.\n",
+    "inputSchema": {
+      "properties": {
+        "category": {
+          "type": "string",
+          "description": "Filter by category: in_progress, failure, completed, purchases, take_action (or \"all\")"
+        },
+        "search": {
+          "type": "string",
+          "description": "Match against alert title, message, or site name (case-insensitive)"
+        },
+        "show_dismissed": {
+          "type": "boolean",
+          "description": "Include dismissed alerts (default false)"
+        },
+        "page": {
+          "type": "integer",
+          "description": "1-based page number (default 1)"
+        },
+        "per_page": {
+          "type": "integer",
+          "description": "Alerts per page, up to 500 (default 500)"
+        }
+      },
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_alert",
+    "title": "Get Activity Hub Alert",
+    "description": "Retrieves a single Activity Hub alert by its numeric ID, in the same shape as a list_alerts\nrow. Only an alert visible to your account \u00e2\u20ac\u201d an account-level alert targeting you, or an\nalert on a site you own or collaborate on \u00e2\u20ac\u201d can be retrieved.\n\nRequires:\n- alert_id: The numeric ID of the alert to retrieve (from list_alerts)\n\nReturns: id, type, category, severity, title, message, site (id, name, display_name) or\nnull, icon, actions (label, url, style), read, dismissed, and created_at.\n",
+    "inputSchema": {
+      "properties": {
+        "alert_id": {
+          "type": "integer",
+          "description": "The numeric ID of the alert to retrieve"
+        }
+      },
+      "required": [
+        "alert_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_alert_counts",
+    "title": "Get Activity Hub Alert Counts",
+    "description": "Returns the number of unread, not-dismissed, unexpired Activity Hub alerts visible to your\naccount, broken down by category, plus an \"all\" total \u00e2\u20ac\u201d the numbers behind the category tab\nbadges.\n\nNo parameters. Returns a hash keyed by category (in_progress, failure, completed,\npurchases, take_action) plus \"all\".\n",
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "get_site_git_configuration",
+    "title": "Get Site Git Configuration",
+    "description": "Reads the GitHub deployment configuration for a Pressable site. Returns the connected repository URL, the deploy branch, the destination path under htdocs, the repository subdirectory that path is deployed from, whether the site is connected to git, and whether a GitHub access token is stored. The token itself is never returned. The site must be opted in to the new GitHub integration.\n",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "read",
+    "name": "list_site_git_history",
+    "title": "List Site Git History",
+    "description": "Lists the git deploy history for a Pressable site, newest first \u00e2\u20ac\u201d one record per deploy, whether it was triggered by a GitHub push or requested directly. Each record gives the state, the branch and repository it deployed from, the commit SHAs it moved between, the commit author and message, and when it started and last changed. Current code writes processing, deployed, and failed, but the state is a free-text column rather than an enum and older rows carry other values, so treat it as an open set. A record in the processing state has not reached a terminal state \u00e2\u20ac\u201d usually still running, but a deploy whose job died is retired to failed by an hourly cleanup, normally on the first sweep after the record is two hours old. That cleanup has no lower age bound, so an old processing record is retired the same way once its job is gone, rather than lingering forever \u00e2\u20ac\u201d judge by its age, not by the state alone. A failed one usually carries the reason in its per-record message, though that can be empty. History is kept per site and survives disconnecting from GitHub, so records can name a repository the site no longer deploys from \u00e2\u20ac\u201d compare against get_site_git_configuration for the current target. Results are paginated, newest first (default 20 per page, max 50). An empty list means the site has never deployed, not that a deploy failed. The site must be opted in to the new GitHub integration.\n",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        },
+        "page": {
+          "type": "integer",
+          "description": "Page number for pagination (default: 1). A page past the last one returns the last page rather than an error"
+        },
+        "per_page": {
+          "type": "integer",
+          "description": "Number of deploy records per page (default: 20). Values above 50 are clamped to 50; zero uses the default 20, and a negative value clamps to 1"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    }
+  },
+  {
+    "mode": "change",
+    "name": "create_site",
+    "title": "Create Site",
+    "description": "Creates a new WordPress site on Pressable. Call get_site_creation_options first to discover valid PHP versions, install options, and datacenter codes, and call validate_site_name to check name availability. Provide a unique site name to generate the WordPress URL (e.g., my-new-site.mystagingwebsite.com). Optionally configure PHP version, datacenter region, custom WordPress admin credentials, and site type (live, staging, or sandbox). The site will initially be in \"deploying\" state and typically becomes \"active\" within 30\u00e2\u20ac\u201c60 seconds. After creation, wait at least 30 seconds then call get_site_status to poll until state is \"active\".",
+    "inputSchema": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique site name used to generate the WordPress URL. Must be 3\u00e2\u20ac\u201c50 characters using only lowercase letters, numbers, and hyphens. Must start and end with a letter or number (not a hyphen). Names are automatically lowercased. Reserved names (www, bin, dev, etc, htdocs, lib, lib64, logs, memcached, scripts, tmp, usr, wordpress, sat, pressablecdn, fusion) cannot be used. Example: \"my-new-site\" becomes my-new-site.mystagingwebsite.com."
+        },
+        "php_version": {
+          "type": "string",
+          "description": "PHP version for the site. Use get_site_creation_options to discover valid values. Omit to use the account default version."
+        },
+        "install": {
+          "type": "string",
+          "description": "Plugin or software preset key to install at creation time. Use get_site_creation_options to discover valid keys. Omit if no preset is needed."
+        },
+        "staging": {
+          "type": "boolean",
+          "description": "Set to true to create a staging site for testing. Staging sites do not count against the live site limit. Defaults to false."
+        },
+        "sandbox": {
+          "type": "boolean",
+          "description": "Set to true to create a sandbox (development) site. Setting sandbox to true also implies staging is true. Defaults to false."
+        },
+        "datacenter_code": {
+          "type": "string",
+          "description": "Datacenter region code where the site will be hosted. Use get_site_creation_options to discover valid codes. Omit to use the account default datacenter."
+        },
+        "wp_admin_username": {
+          "type": "string",
+          "description": "Custom WordPress admin username (1\u00e2\u20ac\u201c60 characters; letters, numbers, underscores, and dashes only). Must be provided together with wp_admin_email."
+        },
+        "wp_admin_email": {
+          "type": "string",
+          "description": "Custom WordPress admin email address. Must be a valid email address and must be provided together with wp_admin_username."
+        },
+        "multisite_support": {
+          "type": "boolean",
+          "description": "Set to true to enable WordPress domain-based multisite network support. Requires a High Traffic, Hybrid, or Premium plan, or a plan with 5 or more sites. Defaults to false."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "mode": "change",
+    "name": "clone_site",
+    "title": "Clone Site",
+    "description": "Creates a copy of an existing Pressable WordPress site. The source site's files, database, and configuration are cloned to a new site with the specified name. Call validate_site_name first to check name availability. The cloned site will initially be in \"cloning\" state and typically becomes \"active\" within a few minutes depending on site size. After cloning, use get_site_status to poll until state is \"active\".",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the source Pressable site to clone"
+        },
+        "name": {
+          "type": "string",
+          "description": "Unique name for the cloned site. Must be 3\u00e2\u20ac\u201c50 characters using only lowercase letters, numbers, and hyphens. Must start and end with a letter or number (not a hyphen)."
+        },
+        "datacenter_code": {
+          "type": "string",
+          "description": "Datacenter region code for the cloned site. Use get_site_creation_options to discover valid codes. Omit to use the account default datacenter."
+        },
+        "staging": {
+          "type": "boolean",
+          "description": "Set to true to create the clone as a staging site. Defaults to false."
+        },
+        "sandbox": {
+          "type": "boolean",
+          "description": "Set to true to create the clone as a sandbox (development) site. Setting sandbox to true also implies staging is true. Defaults to false."
+        }
+      },
+      "required": [
+        "site_id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "mode": "change",
+    "name": "update_site_display_name",
+    "title": "Update Site Display Name",
+    "description": "Updates the cosmetic display name of a Pressable WordPress site. This changes only the human-friendly label shown in the dashboard \u00e2\u20ac\u201d it does not affect the site URL or subdomain.\n\nSpecial characters and emojis are automatically stripped from the name. Pass an empty string to remove the display name and revert to the default site name.\n",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site to update"
+        },
+        "name": {
+          "type": "string",
+          "description": "The new display name for the site. Pass an empty string to remove the display name."
+        }
+      },
+      "required": [
+        "site_id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "mode": "change",
+    "name": "update_site_php_version",
+    "title": "Update Site PHP Version",
+    "description": "Updates the PHP version of a Pressable WordPress site. Valid PHP versions are: 8.3, 8.4, and 8.5. The site must be in a live state.\n",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site to update"
+        },
+        "php_version": {
+          "type": "string",
+          "enum": [
+            "8.3",
+            "8.4",
+            "8.5"
+          ],
+          "description": "The PHP version to set"
+        }
+      },
+      "required": [
+        "site_id",
+        "php_version"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "mode": "change",
+    "name": "update_site_wordpress_version",
+    "title": "Update Site WordPress Version",
+    "description": "Updates the WordPress version track of a Pressable WordPress site. Valid version tracks can be discovered by calling get_site_creation_options. The site must be in a live state.\n",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site to update"
+        },
+        "version": {
+          "type": "string",
+          "description": "The WordPress version track to set. Use get_site_creation_options to discover current valid values (e.g. \"latest\")"
+        }
+      },
+      "required": [
+        "site_id",
+        "version"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "mode": "change",
+    "name": "update_site_wp_environment_type",
+    "title": "Update Site WP Environment Type",
+    "description": "Sets the WP_ENVIRONMENT_TYPE constant in the site's wp-config.php file. Valid values are: local, staging, development, and production. The site must be in an active state.\n",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site to update"
+        },
+        "wp_environment_type": {
+          "type": "string",
+          "description": "The WordPress environment type to set. Valid values: local, staging, development, production"
+        }
+      },
+      "required": [
+        "site_id",
+        "wp_environment_type"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "mode": "change",
+    "name": "enable_site",
+    "title": "Enable Site",
+    "description": "Re-enables a disabled Pressable WordPress site, restoring it to a live state. The site must be in a disabled state. The account's subscription must be active, and the site must not be marked as hacked.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site to enable"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "mode": "change",
+    "name": "disable_site",
+    "title": "Disable Site",
+    "description": "Disables a live Pressable WordPress site, making it temporarily unavailable. The site must be in a live state. Commonly used for maintenance or incident response. A disabled site remains billable and can be re-enabled with enable_site.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site to disable"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "mode": "change",
+    "name": "delete_site",
+    "title": "Delete Site",
+    "description": "Permanently deletes a Pressable WordPress site. This action is irreversible and removes all site files, database, and configuration. The deletion is blocked when it would destroy a domain that has an active email order \u00e2\u20ac\u201d that is, when this site owns every A record on the domain, or the domain has no A records and this site owns some other record on it. Use search_sites or get_site_status to look up the site_id first.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site to delete"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "mode": "change",
+    "name": "add_site_domain",
+    "title": "Add Site Domain",
+    "description": "Attaches a domain to a Pressable WordPress site. Provide the full domain name (e.g., \"example.com\" or \"blog.example.com\"). The domain must not already be attached to another account. If this is the site's first custom domain, it is automatically set as primary. Adding a root domain (e.g., \"example.com\") also creates a \"www\" subdomain record automatically. Use list_site_domains to see all domains currently attached to a site.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        },
+        "domain_name": {
+          "type": "string",
+          "description": "The domain name to attach (e.g., \"example.com\" or \"blog.example.com\")"
+        }
+      },
+      "required": [
+        "site_id",
+        "domain_name"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "mode": "change",
+    "name": "remove_site_domain",
+    "title": "Remove Site Domain",
+    "description": "Removes a domain from a Pressable WordPress site. Requires the domain_id from list_site_domains. The staging URL (domain_id: -1) cannot be removed. If the removed domain was the primary, a new primary is automatically selected. Removing a domain also removes its associated DNS records.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        },
+        "domain_id": {
+          "type": "integer",
+          "description": "The numeric ID of the domain to remove (from list_site_domains). Cannot be -1 (staging URL)."
+        }
+      },
+      "required": [
+        "site_id",
+        "domain_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "mode": "change",
+    "name": "set_primary_domain",
+    "title": "Set Primary Domain",
+    "description": "Sets the primary domain for a Pressable WordPress site. Requires the domain_id from list_site_domains. Use domain_id -1 to reset the primary to the default staging URL. The domain must be an A Record and already attached to the site. If any A record on the site is still being provisioned, the request is rejected with the code domains.primary.provisioning_in_progress and can be retried once provisioning finishes. Do not assume the retry window is short: a record that has already failed a step may be on a multi-hour retry ladder, and a stranded record does not retry at all until an operator re-drives it. Provisioning CNAME, TXT or other non-A records do not block the request.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        },
+        "domain_id": {
+          "type": "integer",
+          "description": "The numeric ID of the domain to set as primary (use -1 to reset to staging URL)"
+        }
+      },
+      "required": [
+        "site_id",
+        "domain_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "mode": "change",
+    "name": "purge_site_edge_cache",
+    "title": "Purge Site Edge Cache",
+    "description": "Purges (clears) the edge cache for a Pressable WordPress site. Use this after content updates to force visitors to receive the latest version of the site instead of cached responses.\n\nThe site must be active and have edge cache enabled. Toggle edge cache on via toggle_site_edge_cache if it is currently disabled.\n",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site whose edge cache should be purged"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "mode": "change",
+    "name": "flush_site_object_cache",
+    "title": "Flush Site Object Cache",
+    "description": "Flushes the WordPress object cache for a Pressable WordPress site. Useful after data updates that bypass the WordPress write path (direct database writes, restored backups, certain admin tasks).\n\nThe flush runs asynchronously and takes a few seconds to complete. The site must be active; flushes against non-active sites are silently dropped.\n",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site whose object cache should be flushed"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "mode": "change",
+    "name": "purge_site_cdn_cache",
+    "title": "Purge Site CDN Cache",
+    "description": "Purges (clears) the Content Delivery Network (CDN) cache for a Pressable WordPress site. Use this after content updates to force the CDN edge nodes to fetch the latest version of the site instead of serving cached responses.\n\nThe site must have the CDN enabled. The CDN can only be purged once per minute.\n",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site whose CDN cache should be purged"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "mode": "change",
+    "name": "create_site_ondemand_backup",
+    "title": "Create On-Demand Backup",
+    "description": "Creates a new on-demand filesystem or database backup for a Pressable WordPress site. Each site can have up to 3 customer-created filesystem backups and 3 database backups. The backup is created asynchronously and may take several minutes to complete. Use list_site_ondemand_backups to check status.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        },
+        "backup_type": {
+          "type": "string",
+          "description": "The type of backup to create: 'fs' (filesystem) or 'db' (database)",
+          "enum": [
+            "fs",
+            "db"
+          ]
+        }
+      },
+      "required": [
+        "site_id",
+        "backup_type"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "mode": "change",
+    "name": "delete_site_ondemand_backup",
+    "title": "Delete On-Demand Backup",
+    "description": "Deletes an on-demand backup from a Pressable WordPress site. The deletion is processed asynchronously in the background. Use list_site_ondemand_backups to discover available backup IDs.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        },
+        "backup_id": {
+          "type": "string",
+          "description": "The on-demand backup ID to delete (from list_site_ondemand_backups)"
+        }
+      },
+      "required": [
+        "site_id",
+        "backup_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "mode": "change",
+    "name": "restore_site_backup",
+    "title": "Restore Site Backup",
+    "description": "Initiates a restore of a Pressable WordPress site from a filesystem and/or database backup. At least one of filesystem_id or database_id must be provided. There are two modes: omit restore_on_site_id to restore site_id's backup back onto site_id itself, or pass restore_on_site_id to run a cross-site restore, where site_id supplies the backup and restore_on_site_id is the site that gets overwritten. Sites must be in a live state and must not exceed the maximum restorable size; a cross-site restore additionally requires both sites to belong to the same account and to be two different sites. Use list_site_backups to discover available backup IDs. The restore runs asynchronously in the background. Poll get_site_restore_status (or list_site_restores) for its progress and outcome.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site that owns the backup"
+        },
+        "filesystem_id": {
+          "type": "string",
+          "description": "The filesystem backup ID to restore (from list_site_backups)"
+        },
+        "database_id": {
+          "type": "string",
+          "description": "The database backup ID to restore (from list_site_backups)"
+        },
+        "restore_on_site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the site to restore site_id's backup onto, for a cross-site restore. That site is the one overwritten, and it must belong to the same account and be a different site. Must be a positive integer no greater than 2147483647. Omit to restore the backup back onto site_id itself."
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "mode": "change",
+    "name": "update_site_plugins",
+    "title": "Update Site Plugins",
+    "description": "Updates WordPress plugins on a Pressable site. Each plugin requires a path (plugin slug). Optionally specify a version to update to a specific release; omit for the latest version. The operation runs asynchronously in the background. Use list_site_plugins to verify the result. The site must be in an active state.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        },
+        "plugins": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Plugin slug (e.g. \"akismet\")"
+              },
+              "version": {
+                "type": "string",
+                "description": "Specific version to update to (omit for latest)"
+              }
+            },
+            "required": [
+              "path"
+            ]
+          },
+          "description": "List of plugins to update"
+        }
+      },
+      "required": [
+        "site_id",
+        "plugins"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "mode": "change",
+    "name": "update_site_themes",
+    "title": "Update Site Themes",
+    "description": "Updates WordPress themes on a Pressable site. Each theme requires a path (theme slug). Optionally specify a version to update to a specific release; omit for the latest version. The operation runs asynchronously in the background. Use list_site_themes to verify the result. The site must be in an active state.",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        },
+        "themes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "description": "Theme slug (e.g. \"astra\")"
+              },
+              "version": {
+                "type": "string",
+                "description": "Specific version to update to (omit for latest)"
+              }
+            },
+            "required": [
+              "path"
+            ]
+          },
+          "description": "List of themes to update"
+        }
+      },
+      "required": [
+        "site_id",
+        "themes"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    }
+  },
+  {
+    "name": "run_site_wpcli_commands",
+    "title": "Run Site WP-CLI Commands",
+    "description": "Schedules one or more WP-CLI commands to run on a Pressable WordPress site. Each command runs asynchronously on the site's SSH host; the tool returns a list of background job ids that correspond to each queued command.\n\nThe \"wp \" prefix is added automatically \u00e2\u20ac\u201d pass just the rest of the command (e.g. \"plugin list\", \"core version\", \"option get blogname\"). The commands argument must be an array, even for a single command. Execution is asynchronous: call get_site_wordpress_operation with a returned job_id to read that command's status and captured output, or list_site_wordpress_operations for the whole history. Output and errors are also recorded in the site's activity log under action \"ssh.command\".\n",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "WP-CLI commands to run, without the leading \"wp \" prefix (e.g. [\"plugin list\", \"core version\"])"
+        }
+      },
+      "required": [
+        "site_id",
+        "commands"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "mode": "change"
+  },
+  {
+    "name": "get_site_wordpress_operation",
+    "title": "Get Site WordPress Operation",
+    "description": "Retrieves one WordPress operation on a Pressable WordPress site (one entry from the History feed shown in the control panel), including its captured log \u00e2\u20ac\u201d the operation's record of the command, not raw unabridged stdout. A command that SUCCEEDED holds its output inside a \"Command [ <command> ] :::: <output>\" line with that output trimmed to 500 characters; a command that FAILED may instead hold an untrimmed error message in that line, or \u00e2\u20ac\u201d when it failed before running at all \u00e2\u20ac\u201d a bare line such as \"Site is not active.\" with no \"Command [ ... ]\" wrapper to parse. Identify the operation either by job_id (the background job id returned by run_site_wpcli_commands) or by operation_id (from list_site_wordpress_operations); pass exactly one of the two. Returns the job type, the status (pending, running, complete, or failed), who ran it, the queue name and scheduled time, the log (at most the 200 most recent entries, each capped at 10101 bytes \u00e2\u20ac\u201d the writers' own per-entry ceiling with their truncation marker included, so an entry a writer already truncated passes through untouched; an entry that still exceeds that (writers can compose two truncated values into one line) keeps its head AND its tail, so the writer's own marker and the size it records survive the cut \u00e2\u20ac\u201d with log_message_count and log_messages_truncated reporting what was cut), and timestamps. Poll this after run_site_wpcli_commands to read a command's result. Commands scheduled with run_site_bash_commands do not create an operation record; their output is recorded in the site activity log instead (call get_site_activity_logs with the action filter \"ssh.command\").",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        },
+        "job_id": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "The background job id returned by run_site_wpcli_commands. Pass either this or operation_id, not both."
+        },
+        "operation_id": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The numeric operation ID from list_site_wordpress_operations. Pass either this or job_id, not both."
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    },
+    "mode": "read"
+  },
+  {
+    "name": "list_site_wordpress_operations",
+    "title": "List Site WordPress Operations",
+    "description": "Lists the WordPress operation history for a Pressable WordPress site (the History feed shown in the control panel), newest first, so a command scheduled with run_site_wpcli_commands can be read back. Covers WP-CLI commands, control-panel bash commands, plugin and theme refreshes and updates, and search-replace runs. Each entry includes the operation id, the background job id, the job type, the status (pending, running, complete, or failed), who ran it, and the operation's captured log, which for a command that SUCCEEDED holds its output inside a \"Command [ <command> ] :::: <output>\" line with that output trimmed to 500 characters, while one that FAILED may instead hold an untrimmed error message in that line, or a bare line such as \"Site is not active.\" with no \"Command [ ... ]\" wrapper. The log is abbreviated here: at most the 20 most recent entries, each capped at 500 bytes taken from the START of the entry (so a long command's echo can crowd out its output), with log_message_count giving the true total and log_messages_truncated saying whether anything was cut \u00e2\u20ac\u201d call get_site_wordpress_operation for the fuller log of one operation. Results are paginated (default 20 per page, max 50) and can be filtered by job_type and status; the response also lists the job types present on the site. Commands scheduled with run_site_bash_commands do not create an operation record; their output is recorded in the site activity log instead (call get_site_activity_logs with the action filter \"ssh.command\").",
+    "inputSchema": {
+      "properties": {
+        "site_id": {
+          "type": "integer",
+          "description": "The numeric ID of the Pressable site"
+        },
+        "job_type": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Filter by job type (exact match, e.g. \"wpcli\", \"command\", \"search_replace\"). The response lists the job types present on the site."
+        },
+        "status": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Filter by status (exact match). Valid values: \"pending\", \"running\", \"complete\", \"failed\""
+        },
+        "page": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000,
+          "description": "Page number for pagination (default: 1)"
+        },
+        "per_page": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "description": "Number of operations per page (default: 20, max: 50)"
+        }
+      },
+      "required": [
+        "site_id"
+      ],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": true,
+      "readOnlyHint": true
+    },
+    "mode": "read"
+  }
+]

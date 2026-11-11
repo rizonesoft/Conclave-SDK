@@ -1,0 +1,4539 @@
+[
+  {
+    "name": "aioseo-audit/homepage-get",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": []
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-audit/site-get",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": []
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-link-assistant/domains-list",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "search": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "default": []
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-link-assistant/overview-get",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": []
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-link-assistant/posts-links-get",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "postId": {
+              "type": "integer",
+              "description": "The post ID."
+            }
+          },
+          "required": [
+            "postId"
+          ],
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-link-assistant/posts-list",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "search": {
+              "type": "string"
+            },
+            "filter": {
+              "type": "string",
+              "enum": [
+                "all",
+                "linking-opportunities",
+                "orphaned-posts"
+              ],
+              "default": "all"
+            }
+          },
+          "additionalProperties": false,
+          "default": []
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-notifications/list",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "include_dismissed": {
+              "type": "boolean",
+              "default": false
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          "additionalProperties": false,
+          "default": []
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-posts/list-missing-seo",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "missing_fields": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "title",
+                  "description",
+                  "focus_keyphrase"
+                ]
+              },
+              "default": [
+                "focus_keyphrase"
+              ]
+            },
+            "post_type": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "status": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [
+                "publish"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          "additionalProperties": false,
+          "default": []
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-posts/list-truseo-score",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "min_score": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100,
+              "default": 0
+            },
+            "max_score": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100,
+              "default": 100
+            },
+            "order": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "asc"
+            },
+            "post_type": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "status": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [
+                "publish"
+              ]
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          "additionalProperties": false,
+          "default": []
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-posts/seo-data-get",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "postId": {
+              "type": "integer",
+              "description": "The post ID."
+            },
+            "include": {
+              "type": "array",
+              "description": "Optional list of additional sections. Currently supports: \"analysis\" (full TruSEO breakdown).",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "analysis"
+                ]
+              },
+              "default": []
+            }
+          },
+          "required": [
+            "postId"
+          ],
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-posts/seo-data-update",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "postId": {
+              "type": "integer",
+              "description": "The post ID."
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "SEO title; pass null to clear and inherit the default."
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "canonical_url": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "focus_keyphrase": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "additional_keyphrases": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "pillar_content": {
+              "type": "boolean"
+            },
+            "robots": {
+              "type": "object",
+              "properties": {
+                "use_default": {
+                  "type": "boolean"
+                },
+                "noindex": {
+                  "type": "boolean"
+                },
+                "nofollow": {
+                  "type": "boolean"
+                },
+                "noarchive": {
+                  "type": "boolean"
+                },
+                "nosnippet": {
+                  "type": "boolean"
+                },
+                "noimageindex": {
+                  "type": "boolean"
+                },
+                "notranslate": {
+                  "type": "boolean"
+                },
+                "noodp": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            "social": {
+              "type": "object",
+              "properties": {
+                "og_title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "og_description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "twitter_title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "twitter_description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "postId"
+          ],
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-redirects/create",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "sourceUrl": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Source path or URL. Must be a relative path starting with \"/\" or an absolute URL."
+            },
+            "targetUrl": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "type": "integer",
+              "enum": [
+                301,
+                302,
+                307,
+                308
+              ],
+              "default": 301
+            }
+          },
+          "required": [
+            "sourceUrl",
+            "targetUrl"
+          ],
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-redirects/delete",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "integer",
+              "description": "The redirect id (from aioseo-redirects/list)."
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": true,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-redirects/list",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "default": 20,
+              "minimum": 1,
+              "maximum": 100
+            },
+            "offset": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            },
+            "enabled": {
+              "type": "boolean",
+              "description": "When set, filters to only enabled or only disabled redirects."
+            }
+          },
+          "additionalProperties": false,
+          "default": []
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-redirects/logs-404s-list",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "search": {
+              "type": "string",
+              "description": "Substring filter applied to the URL column."
+            }
+          },
+          "additionalProperties": false,
+          "default": []
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-redirects/logs-hits-list",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "search": {
+              "type": "string",
+              "description": "Substring filter applied to the URL column."
+            }
+          },
+          "additionalProperties": false,
+          "default": []
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-redirects/update",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "integer",
+              "description": "The redirect id (from aioseo-redirects/list)."
+            },
+            "sourceUrl": {
+              "type": "string",
+              "minLength": 1
+            },
+            "targetUrl": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "type": "integer",
+              "enum": [
+                301,
+                302,
+                307,
+                308
+              ]
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-robots/output-get",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": []
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-robots/rules-add",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "user_agent": {
+              "type": "string",
+              "description": "User-agent the rule applies to (e.g. \"*\", \"Googlebot\")."
+            },
+            "directive": {
+              "type": "string",
+              "enum": [
+                "allow",
+                "disallow"
+              ]
+            },
+            "field_value": {
+              "type": "string",
+              "description": "Path or pattern the directive applies to (e.g. \"/private/\")."
+            }
+          },
+          "required": [
+            "user_agent",
+            "directive",
+            "field_value"
+          ],
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-robots/rules-delete",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Rule id from robots/rules/list."
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": true,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-robots/rules-list",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": []
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-robots/rules-update",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "Rule id from robots/rules/list."
+            },
+            "user_agent": {
+              "type": "string"
+            },
+            "directive": {
+              "type": "string",
+              "enum": [
+                "allow",
+                "disallow"
+              ]
+            },
+            "field_value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-search-statistics/content-decay-get",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "startDate": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "endDate": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          "required": [
+            "startDate",
+            "endDate"
+          ],
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-search-statistics/overview-get",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "startDate": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "endDate": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          "required": [
+            "startDate",
+            "endDate"
+          ],
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-search-statistics/page-performance-get",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "startDate": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "endDate": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "page": {
+              "type": "string",
+              "description": "The page URL or path on this site."
+            }
+          },
+          "required": [
+            "page",
+            "startDate",
+            "endDate"
+          ],
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-search-statistics/quick-wins-get",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "startDate": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "endDate": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            },
+            "min_impressions": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 50
+            },
+            "max_ctr": {
+              "type": "number",
+              "minimum": 0,
+              "default": 2
+            },
+            "position_min": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 4
+            },
+            "position_max": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 10
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          "required": [
+            "startDate",
+            "endDate"
+          ],
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-settings/get",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "default": []
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-terms/list-missing-seo",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "missing_fields": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "title",
+                  "description"
+                ]
+              },
+              "default": [
+                "description"
+              ]
+            },
+            "taxonomy": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "offset": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          "additionalProperties": false,
+          "default": []
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-terms/seo-data-get",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "termId": {
+              "type": "integer",
+              "description": "The term ID."
+            }
+          },
+          "required": [
+            "termId"
+          ],
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "aioseo-terms/seo-data-update",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "termId": {
+              "type": "integer"
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "description": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "canonical_url": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "robots": {
+              "type": "object",
+              "properties": {
+                "use_default": {
+                  "type": "boolean"
+                },
+                "noindex": {
+                  "type": "boolean"
+                },
+                "nofollow": {
+                  "type": "boolean"
+                },
+                "noarchive": {
+                  "type": "boolean"
+                },
+                "nosnippet": {
+                  "type": "boolean"
+                },
+                "noimageindex": {
+                  "type": "boolean"
+                },
+                "notranslate": {
+                  "type": "boolean"
+                },
+                "noodp": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            "social": {
+              "type": "object",
+              "properties": {
+                "og_title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "og_description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "twitter_title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "twitter_description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "termId"
+          ],
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": null,
+          "idempotent": null
+        }
+      }
+    ]
+  },
+  {
+    "name": "core/get-environment-info",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "environment",
+                  "php_version",
+                  "db_server_info",
+                  "wp_version"
+                ]
+              },
+              "description": "Optional: Limit response to specific fields. If omitted, all fields are returned."
+            }
+          },
+          "additionalProperties": false,
+          "default": []
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "core/get-site-info",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "name",
+                  "description",
+                  "url",
+                  "wpurl",
+                  "admin_email",
+                  "charset",
+                  "language",
+                  "version"
+                ]
+              },
+              "description": "Optional: Limit response to specific fields. If omitted, all fields are returned."
+            }
+          },
+          "additionalProperties": false,
+          "default": []
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "core/get-user-info",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "id",
+                  "display_name",
+                  "user_nicename",
+                  "user_login",
+                  "roles",
+                  "locale",
+                  "first_name",
+                  "last_name",
+                  "nickname",
+                  "description",
+                  "user_url"
+                ]
+              },
+              "description": "Optional: Limit response to specific fields. If omitted, all fields are returned."
+            }
+          },
+          "additionalProperties": false,
+          "default": []
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/build-composition",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "post_id",
+            "xml_structure"
+          ],
+          "properties": {
+            "post_id": {
+              "type": "integer",
+              "description": "WordPress post ID of the document to mutate."
+            },
+            "xml_structure": {
+              "type": "string",
+              "description": "Valid XML structure with custom Elementor widget tags. Every element MUST have a unique configuration-id attribute (e.g. <e-heading configuration-id=\"hero-title\"></e-heading>). No attributes, classes, IDs, or text nodes in XML."
+            },
+            "element_config": {
+              "type": "object",
+              "default": {},
+              "description": "Record mapping configuration-id → plain widget settings matching elementor://widgets/schema/{type}. Keys MUST match configuration-id attributes in xml_structure. For <e-component> configuration-ids, the value is { component_id: int, overrides?: {<override_key>: <plain value>} } — see elementor/list-components."
+            },
+            "style": {
+              "type": "object",
+              "default": {},
+              "description": "Record mapping configuration-id → plain CSS string. Supports &:hover/&:focus/&:active nesting and @media(--breakpoint) blocks. Keys MUST match configuration-id attributes in xml_structure.",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "classes": {
+              "type": "object",
+              "default": {},
+              "description": "Record mapping configuration-id → list of existing global class labels to attach to that element. Create classes first via elementor/manage-classes.",
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "interactions": {
+              "type": "object",
+              "default": {},
+              "description": "Record mapping configuration-id → array of interaction items in the native shape. Read elementor://interactions/schema for the full shape and allowed enum values. Send [] for a configuration-id to clear its interactions.",
+              "additionalProperties": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            },
+            "parent_id": {
+              "type": "string",
+              "default": "document",
+              "description": "ID of the parent container. Omit to insert at document root."
+            },
+            "dry_run": {
+              "type": "boolean",
+              "default": false,
+              "description": "If true, validate and return resolved tree without persisting."
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "append",
+                "replace_children"
+              ],
+              "default": "append",
+              "description": "append (default) inserts under parent_id; replace_children removes existing direct children of parent_id first, then inserts."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": true,
+          "idempotent": false
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/create-page",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "Optional title for the new post."
+            },
+            "post_type": {
+              "type": "string",
+              "description": "Post type slug; must support Elementor. Defaults to page.",
+              "default": "page"
+            }
+          }
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": false,
+          "idempotent": false
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/create-preview-link",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "post_id"
+          ],
+          "properties": {
+            "post_id": {
+              "type": "integer",
+              "description": "Post ID to snapshot and share."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": false,
+          "idempotent": false
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/get-default-styles",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "tag"
+          ],
+          "properties": {
+            "tag": {
+              "type": "string",
+              "description": "HTML wrapper tag to look up (e.g. h2, p, a, button, section). Must be one of Elementor's allowed wrapper tags."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/get-page-structure",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "post_id"
+          ],
+          "properties": {
+            "post_id": {
+              "type": "integer",
+              "description": "WordPress post ID of the Elementor document."
+            },
+            "element_id": {
+              "type": "string",
+              "description": "Optional. If provided, returns only the subtree rooted at that element id."
+            },
+            "include_content": {
+              "type": "boolean",
+              "default": false,
+              "description": "If true, includes each V4 node's settings (plain shape, writable as-is), styles (as { __style_id, css } — raw CSS string), interactions, rendered tag, and default_styles (raw CSS string: base layer + kit default for that tag). The styles.css value is round-trippable to build-composition.style / manage-elements.update.style in replace mode. Requires element_id."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      },
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "post_id"
+          ],
+          "properties": {
+            "post_id": {
+              "type": "integer",
+              "description": "WordPress post ID of the Elementor document."
+            },
+            "element_id": {
+              "type": "string",
+              "description": "Optional. If provided, returns only the subtree rooted at that element id."
+            },
+            "include_content": {
+              "type": "boolean",
+              "default": false,
+              "description": "If true, includes each V4 node's settings, styles (as { __style_id, css } — raw CSS string), interactions, rendered tag, and default_styles (raw CSS string: base layer + kit default for that tag). The styles.css value is round-trippable to build-composition.style / manage-elements.update.style in replace mode. Requires element_id."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/get-widget-schema",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "widget_type"
+          ],
+          "properties": {
+            "widget_type": {
+              "type": "string",
+              "description": "Registry identifier of the widget, e.g. \"e-heading\"."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/list-assets",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "search": {
+              "type": "string",
+              "description": "Optional keyword matched against attachment title and filename."
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "all",
+                "image",
+                "svg",
+                "video"
+              ],
+              "default": "all",
+              "description": "Filter by asset kind. \"svg\" returns only SVG assets, which are required to reference from an e-svg widget. \"video\" returns only uploaded videos for e-self-hosted-video and e-background-video."
+            },
+            "page": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "per_page": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/list-components",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "component_ids": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "description": "Post IDs of the components you intend to place. Omit to list every component without its overridable props, then call again with the ids you need."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/list-posts",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "search": {
+              "type": "string",
+              "description": "Optional keyword matched against post title and content."
+            },
+            "post_type": {
+              "type": "string",
+              "enum": [
+                "all",
+                "post",
+                "page",
+                "product"
+              ],
+              "default": "all",
+              "description": "Filter by post type. \"all\" returns posts, pages and products (when available)."
+            },
+            "page": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "per_page": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 25,
+              "default": 10
+            }
+          }
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/list-resources",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object"
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/list-site-parts",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "active": {
+              "type": "boolean",
+              "description": "When true, return only site parts that are currently rendered on the front end (published and matching a Theme Builder location)."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/list-widget-schemas",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "summary": {
+              "type": "boolean",
+              "default": false,
+              "description": "When true, returns an array of { type, description } for discovery instead of full schemas."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/manage-classes",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "operations"
+          ],
+          "properties": {
+            "operations": {
+              "type": "array",
+              "description": "Bulk operations (1–50). Each item requires action. create needs label and css. update/delete need id or label (both unique identifiers; label is also updated if provided on update). Use mode to control merge behaviour on update (patch = upsert, replace = overwrite breakpoint).",
+              "items": {
+                "type": "object",
+                "required": [
+                  "action"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "create",
+                      "update",
+                      "delete"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "css": {
+                    "type": "string",
+                    "description": "Plain CSS string. Supports &:hover/&:focus/&:active nesting and @media(--breakpoint) blocks. In patch mode: \"prop: null\" removes that prop; \"all: null\" wipes the variant."
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "patch",
+                      "replace"
+                    ],
+                    "default": "patch",
+                    "description": "patch (default): upsert variants, preserving untouched ones; null/all:null deletions apply. replace: discard all variants for the affected breakpoints, then store new ones; null values have no effect."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": false,
+          "idempotent": false
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/manage-component",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "action"
+          ],
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "create",
+                "update",
+                "rename",
+                "archive",
+                "publish"
+              ]
+            },
+            "title": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 200,
+              "description": "create: component title. rename: the new title."
+            },
+            "source_post_id": {
+              "type": "integer",
+              "description": "create: WordPress post id to copy an existing element subtree from. Requires element_id. Mutually exclusive with xml_structure."
+            },
+            "element_id": {
+              "type": "string",
+              "description": "create: id of the element (within source_post_id, from elementor/get-page-structure) to copy as the component root."
+            },
+            "xml_structure": {
+              "type": "string",
+              "description": "create/update: same tag language as elementor/build-composition, with exactly one root element. Mutually exclusive with source_post_id/element_id."
+            },
+            "element_config": {
+              "type": "object",
+              "default": {},
+              "description": "Same shape as elementor/build-composition element_config. Only used with xml_structure."
+            },
+            "classes": {
+              "type": "object",
+              "default": {},
+              "description": "Same shape as elementor/build-composition classes. Only used with xml_structure."
+            },
+            "style": {
+              "type": "object",
+              "default": {},
+              "description": "Same shape as elementor/build-composition style. Only used with xml_structure."
+            },
+            "interactions": {
+              "type": "object",
+              "default": {},
+              "description": "Same shape as elementor/build-composition interactions. Only used with xml_structure."
+            },
+            "overridable_props": {
+              "type": "object",
+              "description": "Caller-supplied record mapping override-key → { target, prop_key, label, group? }. target identifies the element to expose: for xml_structure, use the same configuration-id you set on that element; for source_post_id/element_id (create) or an update without xml_structure, use the real element id (from elementor/get-page-structure). Group IDs and origin values are generated server-side."
+            },
+            "publish_status": {
+              "type": "string",
+              "enum": [
+                "publish",
+                "draft"
+              ],
+              "default": "publish",
+              "description": "create: initial document status. update/rename/archive: \"draft\" edits an autosave copy instead of the live document; the change is not visible on pages using this component until you publish it."
+            },
+            "component_id": {
+              "type": "integer",
+              "description": "update/rename/publish target component id."
+            },
+            "component_ids": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "description": "archive targets."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": true,
+          "idempotent": false
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/manage-default-styles",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "operations"
+          ],
+          "properties": {
+            "operations": {
+              "type": "array",
+              "description": "Bulk operations (1–20). Each item requires action and tag. update needs css (raw CSS string, same format as manage-classes) and applies site-wide to that HTML tag. Use mode to control merge behaviour on update (patch = upsert variants, replace = overwrite variants for the affected breakpoints). delete removes the tag's default style entirely.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "action",
+                  "tag"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "update",
+                      "delete"
+                    ]
+                  },
+                  "tag": {
+                    "type": "string",
+                    "description": "HTML wrapper tag to target (e.g. h1, h2, p, a). Must be one of Elementor's allowed wrapper tags."
+                  },
+                  "css": {
+                    "type": "string",
+                    "description": "Plain CSS string. Supports &:hover/&:focus/&:active nesting and @media(--breakpoint) blocks. In patch mode: \"prop: null\" removes that prop; \"all: null\" wipes the variant."
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "patch",
+                      "replace"
+                    ],
+                    "default": "patch",
+                    "description": "patch (default): upsert variants, preserving untouched ones; null/all:null deletions apply. replace: discard all variants for the affected breakpoints, then store new ones; null values have no effect."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": true,
+          "idempotent": false
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/manage-elements",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "post_id",
+            "operations"
+          ],
+          "properties": {
+            "post_id": {
+              "type": "integer"
+            },
+            "operations": {
+              "type": "array",
+              "description": "Bulk operations (1–50) applied in order to a single document tree, saved once at the end. Partial success is supported: failed ops return per-op errors while sibling valid ops still apply.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "action",
+                  "element_id"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "update",
+                      "delete",
+                      "move",
+                      "duplicate"
+                    ]
+                  },
+                  "element_id": {
+                    "type": "string"
+                  },
+                  "settings": {
+                    "type": "object",
+                    "description": "update only: partial plain settings map merged onto existing settings. Set a top-level key to null to remove it from the element's settings (subject to widget schema validation)."
+                  },
+                  "style": {
+                    "type": "string",
+                    "description": "update only: plain CSS string. Supports &:hover/&:focus/&:active nesting and @media(--breakpoint) blocks (e.g. @media(--mobile)). Merged with existing local style variants. Use style_apply_mode to control merge behaviour."
+                  },
+                  "style_apply_mode": {
+                    "type": "string",
+                    "enum": [
+                      "patch",
+                      "replace"
+                    ],
+                    "default": "patch",
+                    "description": "patch (default): merge incoming style variants with existing. replace: discard existing variants for the affected breakpoints before writing new ones. Pass an empty string with replace to wipe all local style variants."
+                  },
+                  "classes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "update only: global class labels to attach (prepended to existing). Pass an empty array [] to remove all global classes from the element (local styles are preserved)."
+                  },
+                  "interactions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    },
+                    "description": "update only: array of interaction items in the native shape. Replaces existing interactions on the element; send [] to clear. Read elementor://interactions/schema for the full shape."
+                  },
+                  "new_parent_id": {
+                    "type": "string",
+                    "description": "move only: target parent id or 'document' for root."
+                  },
+                  "index": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "description": "move only: insertion index within new_parent_id (null = append)."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": true,
+          "idempotent": false
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/manage-global-variable",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "operations"
+          ],
+          "properties": {
+            "operations": {
+              "type": "array",
+              "description": "Bulk operations (1–50). Each item requires action; create needs type/label/value, update needs id/label/value, delete needs id.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "action"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "create",
+                      "update",
+                      "delete"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "global-color-variable",
+                      "global-font-variable",
+                      "global-size-variable",
+                      "global-custom-size-variable"
+                    ]
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": false,
+          "idempotent": false
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/manage-site-parts",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "operations"
+          ],
+          "properties": {
+            "operations": {
+              "type": "array",
+              "description": "Bulk operations (1-50). Each item requires action; create needs type (optional title, optional conditions); update needs post_id plus at least one mutable field (currently only conditions); delete needs post_id.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "action"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "create",
+                      "update",
+                      "delete"
+                    ]
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "section",
+                      "popup",
+                      "header",
+                      "footer",
+                      "single",
+                      "single-post",
+                      "single-page",
+                      "archive",
+                      "search-results",
+                      "error-404",
+                      "code_snippet",
+                      "product",
+                      "product-archive",
+                      "loop-item"
+                    ],
+                    "description": "Site part type slug (create only)."
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "post_id": {
+                    "type": "integer"
+                  },
+                  "conditions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Slash-separated condition strings. On create: defaults to [ \"include/general\" ] (site-wide) when the key is present with an empty array; omit the key entirely to leave the new site part unassigned. On update: only replaces conditions when the key is present; omit the key to leave existing conditions untouched."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": true,
+          "idempotent": false
+        }
+      },
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "operations"
+          ],
+          "properties": {
+            "operations": {
+              "type": "array",
+              "description": "Bulk operations (1-50). Each item requires action; create needs type (optional title, optional conditions); update needs post_id plus at least one mutable field (currently only conditions); delete needs post_id.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "action"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "create",
+                      "update",
+                      "delete"
+                    ]
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "section",
+                      "floating-buttons",
+                      "popup",
+                      "header",
+                      "footer",
+                      "single",
+                      "single-post",
+                      "single-page",
+                      "archive",
+                      "search-results",
+                      "error-404",
+                      "code_snippet",
+                      "loop-item"
+                    ],
+                    "description": "Site part type slug (create only)."
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "post_id": {
+                    "type": "integer"
+                  },
+                  "conditions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Slash-separated condition strings. On create: defaults to [ \"include/general\" ] (site-wide) when the key is present with an empty array; omit the key entirely to leave the new site part unassigned. On update: only replaces conditions when the key is present; omit the key to leave existing conditions untouched."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": true,
+          "idempotent": false
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/publish-document",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "post_id"
+          ],
+          "properties": {
+            "post_id": {
+              "type": "integer",
+              "description": "WordPress post ID of the Elementor document to publish."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": true,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/read-resource",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "uri"
+          ],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "description": "The resource URI to read. Use list-resources to discover available URIs."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/reorder-classes",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "moves": {
+              "type": "array",
+              "description": "One to fifty sequential moves. Each move is applied to the result of the preceding move.",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "position"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "Global class ID from the global-classes resource."
+                  },
+                  "position": {
+                    "type": "string",
+                    "enum": [
+                      "before",
+                      "after",
+                      "start",
+                      "end"
+                    ]
+                  },
+                  "ref": {
+                    "type": "string",
+                    "description": "Reference class ID. Required when position is before or after."
+                  }
+                }
+              }
+            },
+            "order": {
+              "type": "array",
+              "description": "Optional complete or partial priority order. Omitted existing class IDs are appended in their current relative order.",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "elementor/update-page-settings",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "post_id",
+            "settings"
+          ],
+          "properties": {
+            "post_id": {
+              "type": "integer",
+              "description": "WordPress post ID of the Elementor document."
+            },
+            "settings": {
+              "type": "object",
+              "description": "Partial document settings object; merged into existing settings. Schema enforcement is delegated to document->save().",
+              "additionalProperties": true
+            }
+          }
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": true,
+          "idempotent": false
+        }
+      }
+    ]
+  },
+  {
+    "name": "jetpack-forms/bulk-update-responses",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "action",
+            "ids"
+          ],
+          "properties": {
+            "action": {
+              "type": "string",
+              "description": "The bulk action to perform.",
+              "enum": [
+                "mark_as_spam",
+                "mark_as_not_spam"
+              ]
+            },
+            "ids": {
+              "type": "array",
+              "description": "Response IDs to update.",
+              "items": {
+                "type": "integer"
+              },
+              "minItems": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "jetpack-forms/create-form",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "title"
+          ],
+          "properties": {
+            "title": {
+              "type": "string",
+              "description": "The form title/name."
+            },
+            "content": {
+              "type": "string",
+              "description": "Block content for the form structure. If omitted, creates an empty form with a submit button."
+            },
+            "status": {
+              "type": "string",
+              "description": "Initial form status.",
+              "enum": [
+                "publish",
+                "draft"
+              ],
+              "default": "publish"
+            }
+          },
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": false,
+          "idempotent": false
+        }
+      }
+    ]
+  },
+  {
+    "name": "jetpack-forms/delete-form",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "description": "The form ID to delete."
+            }
+          },
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": true,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "jetpack-forms/get-form",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "description": "The form ID."
+            }
+          },
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "jetpack-forms/get-responses",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "default": [],
+          "properties": {
+            "ids": {
+              "type": "array",
+              "description": "Fetch specific responses by their IDs.",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "page": {
+              "type": "integer",
+              "description": "Page number for paginated results.",
+              "default": 1,
+              "minimum": 1
+            },
+            "per_page": {
+              "type": "integer",
+              "description": "Number of responses to return per page.",
+              "default": 10,
+              "minimum": 1,
+              "maximum": 100
+            },
+            "parent": {
+              "type": "array",
+              "description": "Filter by the page or post ID where the form is embedded.",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "status": {
+              "type": "string",
+              "description": "Filter by response status.",
+              "enum": [
+                "publish",
+                "draft",
+                "spam",
+                "trash"
+              ]
+            },
+            "is_unread": {
+              "type": "boolean",
+              "description": "Set true for unread only, false for read only."
+            },
+            "search": {
+              "type": "string",
+              "description": "Search within response content and sender info."
+            },
+            "before": {
+              "type": "string",
+              "description": "Only responses before this date (ISO8601 format).",
+              "format": "date-time"
+            },
+            "after": {
+              "type": "string",
+              "description": "Only responses after this date (ISO8601 format).",
+              "format": "date-time"
+            }
+          },
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "jetpack-forms/get-status-counts",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "default": [],
+          "properties": {
+            "search": {
+              "type": "string",
+              "description": "Only count responses matching this search term."
+            },
+            "parent": {
+              "type": "integer",
+              "description": "Only count responses from a specific page or post."
+            },
+            "before": {
+              "type": "string",
+              "description": "Only count responses before this date (ISO8601 format).",
+              "format": "date-time"
+            },
+            "after": {
+              "type": "string",
+              "description": "Only count responses after this date (ISO8601 format).",
+              "format": "date-time"
+            },
+            "is_unread": {
+              "type": "boolean",
+              "description": "Set true to count only unread, false for only read."
+            }
+          },
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "jetpack-forms/list-forms",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "default": [],
+          "properties": {
+            "page": {
+              "type": "integer",
+              "description": "Page number for paginated results.",
+              "default": 1,
+              "minimum": 1
+            },
+            "per_page": {
+              "type": "integer",
+              "description": "Number of forms per page.",
+              "default": 10,
+              "minimum": 1,
+              "maximum": 100
+            },
+            "search": {
+              "type": "string",
+              "description": "Search forms by title."
+            },
+            "status": {
+              "type": "string",
+              "description": "Filter by form status.",
+              "enum": [
+                "publish",
+                "draft",
+                "trash"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "jetpack-forms/update-response",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "description": "The response ID to update."
+            },
+            "status": {
+              "type": "string",
+              "description": "New status: \"publish\" (restore), \"spam\" (mark spam), \"trash\" (soft delete).",
+              "enum": [
+                "publish",
+                "draft",
+                "spam",
+                "trash"
+              ]
+            },
+            "is_unread": {
+              "type": "boolean",
+              "description": "Set false to mark as read, true to mark as unread."
+            }
+          },
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "suremails/delete-connection",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The connection ID to delete. Obtain this from list-connections."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": null,
+          "idempotent": null,
+          "priority": 3,
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "instructions": "DESTRUCTIVE — always ask the user to confirm before running this. Show them the connection title and email so they know exactly what will be deleted. Warn them that this cannot be undone and that deleting the only connection will stop all outgoing emails from the site."
+        }
+      }
+    ]
+  },
+  {
+    "name": "suremails/delete-email-logs",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "log_ids"
+          ],
+          "properties": {
+            "log_ids": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "description": "Array of log IDs to permanently delete. Obtain IDs from list-email-logs."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": null,
+          "idempotent": null,
+          "priority": 3,
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "instructions": "DESTRUCTIVE — always ask the user to confirm before running this. Show them the number of logs and their subjects so they understand what will be permanently removed. Once deleted, these email records cannot be recovered. If the user wants to delete all logs, use list-email-logs first to get the IDs — there is no \"delete all\" shortcut."
+        }
+      }
+    ]
+  },
+  {
+    "name": "suremails/get-connection",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The connection ID. Obtain this from list-connections."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": null,
+          "idempotent": null,
+          "priority": 1,
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "instructions": "Safe to call at any time. Read-only lookup. If the user asks about a specific connection, call list-connections first to find the ID, then use this for details."
+        }
+      }
+    ]
+  },
+  {
+    "name": "suremails/get-default-connection",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": []
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": null,
+          "idempotent": null,
+          "priority": 1,
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "instructions": "Safe to call at any time. Read-only. Use this as a quick health-check to see which connection is actively sending emails. If the result has empty fields, no connections are configured and the user should add one."
+        }
+      }
+    ]
+  },
+  {
+    "name": "suremails/get-email-log",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "description": "The email log ID. Obtain this from list-email-logs."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": null,
+          "idempotent": null,
+          "priority": 1,
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "instructions": "Safe to call at any time. Read-only. Be aware the response may be large if the email body contains full HTML. When debugging a failed email, check the \"response\" field for the provider error message."
+        }
+      }
+    ]
+  },
+  {
+    "name": "suremails/get-email-stats",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "start_date"
+          ],
+          "properties": {
+            "start_date": {
+              "type": "string",
+              "format": "date",
+              "description": "Start date for the range (YYYY-MM-DD). Required."
+            },
+            "end_date": {
+              "type": "string",
+              "format": "date",
+              "description": "End date for the range (YYYY-MM-DD). If omitted, defaults to the same day as start_date."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": null,
+          "idempotent": null,
+          "priority": 1,
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "instructions": "Safe to call at any time. Read-only aggregate query. Use this when the user asks about email delivery health, success rates, or failure trends. For the last 7 days, set start_date to 7 days ago and end_date to today."
+        }
+      }
+    ]
+  },
+  {
+    "name": "suremails/get-settings",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": []
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": null,
+          "idempotent": null,
+          "priority": 1,
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "instructions": "Safe to call at any time. Read-only. Call this before update-settings so you can show the user their current values and only change what they ask for. Pay attention to email_simulation — if it is \"yes\", no emails are actually being delivered."
+        }
+      }
+    ]
+  },
+  {
+    "name": "suremails/list-connections",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "description": "Filter by provider type (e.g., SMTP, SENDGRID, GMAIL)."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": null,
+          "idempotent": null,
+          "priority": 1,
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "instructions": "Safe to call at any time. This is a read-only operation that returns no sensitive data. Use this first when the user asks about their email setup, before performing any connection modifications."
+        }
+      }
+    ]
+  },
+  {
+    "name": "suremails/list-email-logs",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "sent",
+                "failed",
+                "pending",
+                "blocked"
+              ],
+              "description": "Filter by delivery status."
+            },
+            "start_date": {
+              "type": "string",
+              "format": "date",
+              "description": "Include only logs on or after this date (YYYY-MM-DD)."
+            },
+            "end_date": {
+              "type": "string",
+              "format": "date",
+              "description": "Include only logs on or before this date (YYYY-MM-DD). Defaults to start_date if omitted."
+            },
+            "search": {
+              "type": "string",
+              "description": "Free-text search across subject line and recipient email address."
+            },
+            "page": {
+              "type": "integer",
+              "description": "Page number, 1-based. Defaults to 1.",
+              "default": 1
+            },
+            "per_page": {
+              "type": "integer",
+              "description": "Number of results per page. Minimum 1, maximum 100. Defaults to 20.",
+              "default": 20
+            }
+          }
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": null,
+          "idempotent": null,
+          "priority": 1,
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "instructions": "Safe to call at any time. Read-only database query. Start with a small per_page (e.g. 5) to keep responses concise. Use status=\"failed\" to quickly find delivery issues. Use this to obtain log IDs before calling resend-email or delete-email-logs."
+        }
+      }
+    ]
+  },
+  {
+    "name": "suremails/resend-email",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "log_ids"
+          ],
+          "properties": {
+            "log_ids": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "description": "Array of email log IDs to resend. Obtain IDs from list-email-logs."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": null,
+          "idempotent": null,
+          "priority": 2,
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": true,
+          "instructions": "This sends REAL emails to real recipients — always confirm with the user before resending. Show them the subject and recipient from the log so they know exactly what will be re-delivered. Each call sends new emails, so never call this repeatedly for the same log IDs without the user explicitly asking. If resending a failed email, let the user know the underlying issue (bad connection, etc.) may still exist."
+        }
+      }
+    ]
+  },
+  {
+    "name": "suremails/send-test-email",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "connection_id",
+            "to_email"
+          ],
+          "properties": {
+            "connection_id": {
+              "type": "string",
+              "description": "The connection ID to send through. Obtain this from list-connections."
+            },
+            "to_email": {
+              "type": "string",
+              "description": "Recipient email address that will receive the test email.",
+              "format": "email"
+            }
+          }
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": null,
+          "idempotent": null,
+          "priority": 2,
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": true,
+          "instructions": "This sends a REAL email to a real inbox — always confirm the recipient address with the user before sending. Do not send test emails to addresses the user has not explicitly provided. Each call sends a new email, so avoid calling this repeatedly. If the send fails, the connection credentials may be invalid or the provider may be unreachable."
+        }
+      }
+    ]
+  },
+  {
+    "name": "suremails/update-connection",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The connection ID to update. Obtain this from list-connections."
+            },
+            "from_email": {
+              "type": "string",
+              "format": "email",
+              "description": "New sender email address."
+            },
+            "from_name": {
+              "type": "string",
+              "description": "New sender display name."
+            },
+            "connection_title": {
+              "type": "string",
+              "description": "New connection title shown in the dashboard."
+            },
+            "force_from_email": {
+              "type": "boolean",
+              "description": "When true, all outgoing emails will use this connection's from_email, overriding any from address set by other plugins or themes."
+            },
+            "force_from_name": {
+              "type": "boolean",
+              "description": "When true, all outgoing emails will use this connection's from_name, overriding any sender name set by other plugins or themes."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": null,
+          "idempotent": null,
+          "priority": 2,
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "instructions": "Confirm the changes with the user before applying. This does not change credentials — if the user wants to update an API key or password, they must delete and re-create the connection. Changing the from_email on the default connection affects all outgoing site emails immediately. Safe to run multiple times with the same values (idempotent)."
+        }
+      }
+    ]
+  },
+  {
+    "name": "suremails/update-settings",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "log_emails": {
+              "type": "string",
+              "enum": [
+                "yes",
+                "no"
+              ],
+              "description": "Enable (\"yes\") or disable (\"no\") email logging. When disabled, no email records are saved."
+            },
+            "email_simulation": {
+              "type": "string",
+              "enum": [
+                "yes",
+                "no"
+              ],
+              "description": "Enable (\"yes\") or disable (\"no\") email simulation mode. WARNING: When enabled, NO emails will actually be delivered — they are only logged."
+            },
+            "delete_email_logs_after": {
+              "type": "string",
+              "enum": [
+                "none",
+                "1_day",
+                "7_days",
+                "30_days",
+                "365_days",
+                "730_days"
+              ],
+              "description": "Automatically delete email logs older than this period. \"none\" keeps logs indefinitely."
+            },
+            "email_summary_active": {
+              "type": "string",
+              "enum": [
+                "yes",
+                "no"
+              ],
+              "description": "Enable (\"yes\") or disable (\"no\") the weekly email delivery summary report."
+            },
+            "email_summary_day": {
+              "type": "string",
+              "enum": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday"
+              ],
+              "description": "Day of the week to send the weekly summary report."
+            }
+          }
+        },
+        "annotations": {
+          "readonly": null,
+          "destructive": null,
+          "idempotent": null,
+          "priority": 2,
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false,
+          "instructions": "Confirm changes with the user before applying. Be especially careful with email_simulation — enabling it will STOP all real email delivery from the site (emails are logged but never sent). Disabling log_emails means delivery failures won't be recorded. Always call get-settings first to show the user their current values. Safe to run multiple times with the same values (idempotent)."
+        }
+      }
+    ]
+  },
+  {
+    "name": "woocommerce/order-add-note",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "note": {
+              "type": "string",
+              "description": "Order note content. Safe HTML is allowed.",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            "customer_note": {
+              "type": "boolean",
+              "description": "Whether the note is visible to the customer. Defaults to false for a private/admin note.",
+              "default": false
+            }
+          },
+          "required": [
+            "id",
+            "note"
+          ],
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": false,
+          "idempotent": false
+        }
+      }
+    ]
+  },
+  {
+    "name": "woocommerce/order-update-status",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "status": {
+              "type": "string",
+              "description": "Order status slug without the wc- prefix.",
+              "enum": [
+                "pending",
+                "processing",
+                "on-hold",
+                "completed",
+                "cancelled",
+                "refunded",
+                "failed"
+              ]
+            },
+            "note": {
+              "type": "string",
+              "description": "Optional status change note. Safe HTML is allowed. Use the woocommerce/order-add-note ability for notes without a status change."
+            }
+          },
+          "required": [
+            "id",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": true,
+          "idempotent": false
+        }
+      }
+    ]
+  },
+  {
+    "name": "woocommerce/orders-query",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "status": {
+              "type": "string",
+              "description": "Filter by order status slug without the wc- prefix.",
+              "enum": [
+                "pending",
+                "processing",
+                "on-hold",
+                "completed",
+                "cancelled",
+                "refunded",
+                "failed"
+              ]
+            },
+            "customer_id": {
+              "type": "integer",
+              "description": "Filter by customer ID. Use 0 to filter guest orders.",
+              "minimum": 0
+            },
+            "billing_email": {
+              "type": "string",
+              "format": "email"
+            },
+            "parent": {
+              "type": "integer",
+              "description": "Filter by parent order ID.",
+              "minimum": 1
+            },
+            "exclude": {
+              "type": "array",
+              "description": "Order IDs to exclude from the results.",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "date_after": {
+              "type": "string",
+              "description": "Filter orders created after this date/time.",
+              "format": "date-time"
+            },
+            "date_before": {
+              "type": "string",
+              "description": "Filter orders created before this date/time.",
+              "format": "date-time"
+            },
+            "modified_after": {
+              "type": "string",
+              "description": "Filter orders modified after this date/time.",
+              "format": "date-time"
+            },
+            "modified_before": {
+              "type": "string",
+              "description": "Filter orders modified before this date/time.",
+              "format": "date-time"
+            },
+            "orderby": {
+              "type": "string",
+              "enum": [
+                "id",
+                "date",
+                "date_modified",
+                "total"
+              ]
+            },
+            "order": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            },
+            "include_line_items": {
+              "type": "boolean",
+              "description": "Whether to include order line items in each returned order. Defaults to false.",
+              "default": false
+            },
+            "page": {
+              "type": "integer",
+              "default": 1,
+              "minimum": 1
+            },
+            "per_page": {
+              "type": "integer",
+              "default": 10,
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          "additionalProperties": false,
+          "default": []
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "woocommerce/product-create",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "product_type_alias": {
+                  "type": "string",
+                  "description": "Supported agent-facing product type alias. physical maps to a simple shippable, non-downloadable product; virtual maps to a simple non-shipping, non-downloadable product; digital maps to a simple virtual/downloadable product; affiliate maps to the external product type; grouped maps to grouped.",
+                  "enum": [
+                    "physical"
+                  ],
+                  "default": "physical"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "regular_price": {
+                  "type": "string",
+                  "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+                  "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$"
+                },
+                "sale_price": {
+                  "type": "string",
+                  "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+                  "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Product description content. Safe HTML is allowed."
+                },
+                "short_description": {
+                  "type": "string",
+                  "description": "Short product description content. Safe HTML is allowed."
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "pending",
+                    "private",
+                    "publish",
+                    "future"
+                  ]
+                },
+                "manage_stock": {
+                  "type": "boolean"
+                },
+                "stock_quantity": {
+                  "type": "integer",
+                  "description": "Available stock quantity when product-level stock management is used."
+                },
+                "stock_status": {
+                  "type": "string",
+                  "enum": [
+                    "instock",
+                    "outofstock",
+                    "onbackorder"
+                  ]
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "product_type_alias": {
+                  "type": "string",
+                  "description": "Supported agent-facing product type alias. physical maps to a simple shippable, non-downloadable product; virtual maps to a simple non-shipping, non-downloadable product; digital maps to a simple virtual/downloadable product; affiliate maps to the external product type; grouped maps to grouped.",
+                  "enum": [
+                    "virtual"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "regular_price": {
+                  "type": "string",
+                  "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+                  "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$"
+                },
+                "sale_price": {
+                  "type": "string",
+                  "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+                  "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Product description content. Safe HTML is allowed."
+                },
+                "short_description": {
+                  "type": "string",
+                  "description": "Short product description content. Safe HTML is allowed."
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "pending",
+                    "private",
+                    "publish",
+                    "future"
+                  ]
+                },
+                "manage_stock": {
+                  "type": "boolean"
+                },
+                "stock_quantity": {
+                  "type": "integer",
+                  "description": "Available stock quantity when product-level stock management is used."
+                },
+                "stock_status": {
+                  "type": "string",
+                  "enum": [
+                    "instock",
+                    "outofstock",
+                    "onbackorder"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "product_type_alias"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "product_type_alias": {
+                  "type": "string",
+                  "description": "Supported agent-facing product type alias. physical maps to a simple shippable, non-downloadable product; virtual maps to a simple non-shipping, non-downloadable product; digital maps to a simple virtual/downloadable product; affiliate maps to the external product type; grouped maps to grouped.",
+                  "enum": [
+                    "digital"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "regular_price": {
+                  "type": "string",
+                  "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+                  "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$"
+                },
+                "sale_price": {
+                  "type": "string",
+                  "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+                  "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Product description content. Safe HTML is allowed."
+                },
+                "short_description": {
+                  "type": "string",
+                  "description": "Short product description content. Safe HTML is allowed."
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "pending",
+                    "private",
+                    "publish",
+                    "future"
+                  ]
+                },
+                "manage_stock": {
+                  "type": "boolean"
+                },
+                "stock_quantity": {
+                  "type": "integer",
+                  "description": "Available stock quantity when product-level stock management is used."
+                },
+                "stock_status": {
+                  "type": "string",
+                  "enum": [
+                    "instock",
+                    "outofstock",
+                    "onbackorder"
+                  ]
+                }
+              },
+              "required": [
+                "name",
+                "product_type_alias"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "product_type_alias": {
+                  "type": "string",
+                  "description": "Supported agent-facing product type alias. physical maps to a simple shippable, non-downloadable product; virtual maps to a simple non-shipping, non-downloadable product; digital maps to a simple virtual/downloadable product; affiliate maps to the external product type; grouped maps to grouped.",
+                  "enum": [
+                    "affiliate"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "regular_price": {
+                  "type": "string",
+                  "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+                  "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$"
+                },
+                "sale_price": {
+                  "type": "string",
+                  "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+                  "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Product description content. Safe HTML is allowed."
+                },
+                "short_description": {
+                  "type": "string",
+                  "description": "Short product description content. Safe HTML is allowed."
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "pending",
+                    "private",
+                    "publish",
+                    "future"
+                  ]
+                },
+                "external_url": {
+                  "type": "string",
+                  "description": "External destination URL for affiliate products.",
+                  "format": "uri"
+                },
+                "button_text": {
+                  "type": "string",
+                  "description": "Button text for affiliate products."
+                }
+              },
+              "required": [
+                "name",
+                "product_type_alias"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "product_type_alias": {
+                  "type": "string",
+                  "description": "Supported agent-facing product type alias. physical maps to a simple shippable, non-downloadable product; virtual maps to a simple non-shipping, non-downloadable product; digital maps to a simple virtual/downloadable product; affiliate maps to the external product type; grouped maps to grouped.",
+                  "enum": [
+                    "grouped"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Product description content. Safe HTML is allowed."
+                },
+                "short_description": {
+                  "type": "string",
+                  "description": "Short product description content. Safe HTML is allowed."
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "pending",
+                    "private",
+                    "publish",
+                    "future"
+                  ]
+                },
+                "grouped_products": {
+                  "type": "array",
+                  "description": "Product IDs to include as children of a grouped product.",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              },
+              "required": [
+                "name",
+                "product_type_alias"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": false,
+          "idempotent": false
+        }
+      }
+    ]
+  },
+  {
+    "name": "woocommerce/product-delete",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "force": {
+              "type": "boolean",
+              "description": "Permanently delete the product. Defaults to false, which moves the product to trash.",
+              "default": false
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": true,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "woocommerce/product-update",
+    "mode": "change",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "name": {
+                  "type": "string"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Product description content. Safe HTML is allowed."
+                },
+                "short_description": {
+                  "type": "string",
+                  "description": "Short product description content. Safe HTML is allowed."
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "pending",
+                    "private",
+                    "publish",
+                    "future"
+                  ]
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "product_type_alias": {
+                  "type": "string",
+                  "description": "Supported agent-facing product type alias. physical maps to a simple shippable, non-downloadable product; virtual maps to a simple non-shipping, non-downloadable product; digital maps to a simple virtual/downloadable product; affiliate maps to the external product type; grouped maps to grouped.",
+                  "enum": [
+                    "physical"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "regular_price": {
+                  "type": "string",
+                  "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+                  "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$"
+                },
+                "sale_price": {
+                  "type": "string",
+                  "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+                  "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Product description content. Safe HTML is allowed."
+                },
+                "short_description": {
+                  "type": "string",
+                  "description": "Short product description content. Safe HTML is allowed."
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "pending",
+                    "private",
+                    "publish",
+                    "future"
+                  ]
+                },
+                "manage_stock": {
+                  "type": "boolean"
+                },
+                "stock_quantity": {
+                  "type": "integer",
+                  "description": "Available stock quantity when product-level stock management is used."
+                },
+                "stock_status": {
+                  "type": "string",
+                  "enum": [
+                    "instock",
+                    "outofstock",
+                    "onbackorder"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "product_type_alias"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "product_type_alias": {
+                  "type": "string",
+                  "description": "Supported agent-facing product type alias. physical maps to a simple shippable, non-downloadable product; virtual maps to a simple non-shipping, non-downloadable product; digital maps to a simple virtual/downloadable product; affiliate maps to the external product type; grouped maps to grouped.",
+                  "enum": [
+                    "virtual"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "regular_price": {
+                  "type": "string",
+                  "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+                  "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$"
+                },
+                "sale_price": {
+                  "type": "string",
+                  "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+                  "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Product description content. Safe HTML is allowed."
+                },
+                "short_description": {
+                  "type": "string",
+                  "description": "Short product description content. Safe HTML is allowed."
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "pending",
+                    "private",
+                    "publish",
+                    "future"
+                  ]
+                },
+                "manage_stock": {
+                  "type": "boolean"
+                },
+                "stock_quantity": {
+                  "type": "integer",
+                  "description": "Available stock quantity when product-level stock management is used."
+                },
+                "stock_status": {
+                  "type": "string",
+                  "enum": [
+                    "instock",
+                    "outofstock",
+                    "onbackorder"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "product_type_alias"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "product_type_alias": {
+                  "type": "string",
+                  "description": "Supported agent-facing product type alias. physical maps to a simple shippable, non-downloadable product; virtual maps to a simple non-shipping, non-downloadable product; digital maps to a simple virtual/downloadable product; affiliate maps to the external product type; grouped maps to grouped.",
+                  "enum": [
+                    "digital"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "regular_price": {
+                  "type": "string",
+                  "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+                  "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$"
+                },
+                "sale_price": {
+                  "type": "string",
+                  "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+                  "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Product description content. Safe HTML is allowed."
+                },
+                "short_description": {
+                  "type": "string",
+                  "description": "Short product description content. Safe HTML is allowed."
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "pending",
+                    "private",
+                    "publish",
+                    "future"
+                  ]
+                },
+                "manage_stock": {
+                  "type": "boolean"
+                },
+                "stock_quantity": {
+                  "type": "integer",
+                  "description": "Available stock quantity when product-level stock management is used."
+                },
+                "stock_status": {
+                  "type": "string",
+                  "enum": [
+                    "instock",
+                    "outofstock",
+                    "onbackorder"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "product_type_alias"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "product_type_alias": {
+                  "type": "string",
+                  "description": "Supported agent-facing product type alias. physical maps to a simple shippable, non-downloadable product; virtual maps to a simple non-shipping, non-downloadable product; digital maps to a simple virtual/downloadable product; affiliate maps to the external product type; grouped maps to grouped.",
+                  "enum": [
+                    "affiliate"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "regular_price": {
+                  "type": "string",
+                  "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+                  "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$"
+                },
+                "sale_price": {
+                  "type": "string",
+                  "description": "Decimal price as a string, without a currency symbol or thousand separators.",
+                  "pattern": "^(?:-?(?:[0-9]+(?:[\\.][0-9]+)?|[\\.][0-9]+)|)$"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Product description content. Safe HTML is allowed."
+                },
+                "short_description": {
+                  "type": "string",
+                  "description": "Short product description content. Safe HTML is allowed."
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "pending",
+                    "private",
+                    "publish",
+                    "future"
+                  ]
+                },
+                "external_url": {
+                  "type": "string",
+                  "description": "External destination URL for affiliate products.",
+                  "format": "uri"
+                },
+                "button_text": {
+                  "type": "string",
+                  "description": "Button text for affiliate products."
+                }
+              },
+              "required": [
+                "id",
+                "product_type_alias"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "product_type_alias": {
+                  "type": "string",
+                  "description": "Supported agent-facing product type alias. physical maps to a simple shippable, non-downloadable product; virtual maps to a simple non-shipping, non-downloadable product; digital maps to a simple virtual/downloadable product; affiliate maps to the external product type; grouped maps to grouped.",
+                  "enum": [
+                    "grouped"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "sku": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Product description content. Safe HTML is allowed."
+                },
+                "short_description": {
+                  "type": "string",
+                  "description": "Short product description content. Safe HTML is allowed."
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "pending",
+                    "private",
+                    "publish",
+                    "future"
+                  ]
+                },
+                "grouped_products": {
+                  "type": "array",
+                  "description": "Product IDs to include as children of a grouped product.",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "product_type_alias"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "annotations": {
+          "readonly": false,
+          "destructive": true,
+          "idempotent": false
+        }
+      }
+    ]
+  },
+  {
+    "name": "woocommerce/products-query",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "search": {
+              "type": "string"
+            },
+            "sku": {
+              "type": "string",
+              "description": "Limit results to products with SKUs that partially match this string. Use * to match products with any non-empty SKU."
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "future",
+                "trash",
+                "draft",
+                "pending",
+                "private",
+                "publish"
+              ]
+            },
+            "product_type_alias": {
+              "type": "string",
+              "description": "Filter by supported agent-facing product type alias. physical maps to simple shippable, non-downloadable products; virtual maps to simple non-shipping, non-downloadable products; digital maps to simple virtual/downloadable products; affiliate maps to the external product type; grouped maps to grouped.",
+              "enum": [
+                "physical",
+                "virtual",
+                "digital",
+                "affiliate",
+                "grouped"
+              ]
+            },
+            "stock_status": {
+              "type": "string",
+              "enum": [
+                "instock",
+                "outofstock",
+                "onbackorder"
+              ]
+            },
+            "page": {
+              "type": "integer",
+              "default": 1,
+              "minimum": 1
+            },
+            "per_page": {
+              "type": "integer",
+              "default": 10,
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          "additionalProperties": false,
+          "default": []
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "wp-mail-smtp/get-debug-events",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "description": "Maximum number of events to return.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "offset": {
+              "description": "Number of events to skip.",
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "severity": {
+              "description": "Filter events by severity.",
+              "type": "string",
+              "enum": [
+                "error",
+                "debug"
+              ]
+            }
+          }
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "wpforms/get-entry",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "entry_id": {
+              "description": "The ID of the entry to retrieve.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "include_fields": {
+              "description": "Whether to include entry field values.",
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "required": [
+            "entry_id"
+          ]
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "wpforms/get-entry-summaries",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "form_id": {
+              "description": "The ID of the form to get entries for.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "limit": {
+              "description": "Maximum number of entries to return.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "offset": {
+              "description": "Number of entries to skip.",
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "type": {
+              "description": "Filter entries by type: read, unread, starred.",
+              "type": "string",
+              "enum": [
+                "",
+                "read",
+                "unread",
+                "starred"
+              ],
+              "default": ""
+            },
+            "status": {
+              "description": "Filter entries by status: partial, abandoned, spam, trash.",
+              "type": "string",
+              "enum": [
+                "",
+                "partial",
+                "abandoned",
+                "spam",
+                "trash"
+              ],
+              "default": ""
+            },
+            "include_fields": {
+              "description": "Whether to include entry field values.",
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "required": [
+            "form_id"
+          ]
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "wpforms/get-form",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "form_id": {
+              "description": "The ID of the form to retrieve.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "include_fields": {
+              "description": "Whether to include field configuration.",
+              "type": "boolean",
+              "default": true
+            }
+          },
+          "required": [
+            "form_id"
+          ]
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "wpforms/get-form-stats",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "form_id": {
+              "description": "The ID of the form to get stats for.",
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "form_id"
+          ]
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "wpforms/list-forms",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "description": "Filter forms by status.",
+              "type": "string",
+              "enum": [
+                "publish",
+                "draft",
+                "trash"
+              ],
+              "default": "publish"
+            },
+            "limit": {
+              "description": "Maximum number of forms to return.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "offset": {
+              "description": "Number of forms to skip.",
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "wpforms/search-entries",
+    "mode": "read",
+    "variants": [
+      {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "form_id": {
+              "description": "The ID of the form to search entries for. If not specified, searches across all forms.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "search": {
+              "description": "Full-text search query across all entry fields.",
+              "type": "string"
+            },
+            "field_id": {
+              "description": "Specific field ID to search in.",
+              "type": "integer",
+              "minimum": 1
+            },
+            "field_value": {
+              "description": "Value to search for in the specified field.",
+              "type": "string"
+            },
+            "date_from": {
+              "description": "Start date for date range filter (Y-m-d format).",
+              "type": "string",
+              "format": "date"
+            },
+            "date_to": {
+              "description": "End date for date range filter (Y-m-d format).",
+              "type": "string",
+              "format": "date"
+            },
+            "type": {
+              "description": "Filter entries by type: read, unread, starred.",
+              "type": "string",
+              "enum": [
+                "",
+                "read",
+                "unread",
+                "starred"
+              ],
+              "default": ""
+            },
+            "status": {
+              "description": "Filter entries by status: partial, abandoned, spam, trash.",
+              "type": "string",
+              "enum": [
+                "",
+                "partial",
+                "abandoned",
+                "spam",
+                "trash"
+              ],
+              "default": ""
+            },
+            "limit": {
+              "description": "Maximum number of entries to return.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "page": {
+              "description": "Page number for pagination.",
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "orderby": {
+              "description": "Sort by: entry_id, date, status.",
+              "type": "string",
+              "enum": [
+                "entry_id",
+                "date",
+                "status"
+              ],
+              "default": "date"
+            },
+            "order": {
+              "description": "Sort order: ASC, DESC.",
+              "type": "string",
+              "enum": [
+                "ASC",
+                "DESC"
+              ],
+              "default": "DESC"
+            },
+            "include_fields": {
+              "description": "Whether to include entry field values.",
+              "type": "boolean",
+              "default": true
+            }
+          }
+        },
+        "annotations": {
+          "readonly": true,
+          "destructive": false,
+          "idempotent": true
+        }
+      }
+    ]
+  }
+]

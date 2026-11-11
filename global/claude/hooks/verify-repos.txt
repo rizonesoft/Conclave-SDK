@@ -1,0 +1,3 @@
+# Repositories verify_install.py checks when run without arguments. One path per line; ~ expands. Paths that do not
+# exist in the current environment (Windows or WSL) are skipped.
+~/www/rizonetech-com

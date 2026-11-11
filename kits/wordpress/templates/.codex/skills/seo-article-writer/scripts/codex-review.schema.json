@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "summary", "findings", "strengths", "claims_checked"],
+  "properties": {
+    "verdict": { "type": "string", "enum": ["pass", "revise", "block"] },
+    "summary": { "type": "string" },
+    "claims_checked": { "type": "integer" },
+    "strengths": { "type": "array", "items": { "type": "string" } },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "category", "location", "problem", "evidence", "fix"],
+        "properties": {
+          "severity": { "type": "string", "enum": ["critical", "major", "minor"] },
+          "category": { "type": "string", "enum": ["factual", "citation", "outdated", "experience", "intent", "missing-content", "ai-voice", "clarity", "structure", "seo", "geo", "other"] },
+          "location": { "type": "string" },
+          "problem": { "type": "string" },
+          "evidence": { "type": "string" },
+          "fix": { "type": "string" }
+        }
+      }
+    }
+  }
+}

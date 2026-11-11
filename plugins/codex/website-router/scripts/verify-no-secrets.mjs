@@ -1,0 +1,4 @@
+import {readFile,readdir} from 'node:fs/promises';import {loadToken} from '../src/credentials.js';
+const registry=JSON.parse(await loadToken());const secrets=registry.connections.flatMap(s=>[s.files?.ssh?.password,s.files?.ssh?.privateKey,s.files?.sftp?.password,s.files?.sftp?.privateKey,registry.backupKey,s.password,Buffer.from(s.username+':'+s.password).toString('base64')]);
+async function files(dir){const all=[];for(const e of await readdir(dir,{withFileTypes:true})){if(['node_modules','.local'].includes(e.name))continue;const p=dir+'/'+e.name;if(e.isDirectory())all.push(...await files(p));else all.push(p);}return all;}
+const found=[];for(const path of await files('.')){const content=await readFile(path,'utf8');if(secrets.some(s=>s&&content.includes(s)))found.push(path);}if(found.length){console.error(JSON.stringify({credentialMatches:found}));process.exitCode=1;}else console.log('No saved website credentials found in plugin source, assets or bundles.');

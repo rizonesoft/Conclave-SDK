@@ -1,0 +1,28 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "domains-co-za",
+  "version": "0.1.2",
+  "description": "Manage Domains.co.za reseller domains, DNS, nameservers, renewals and registration through a local Windows-encrypted connection.",
+  "author": {
+    "name": "Rizonetech",
+    "url": "https://github.com/rizonetech/Codex"
+  },
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Domains.co.za by Rizonetech",
+        "shortDescription": "Reseller domain management",
+        "longDescription": "Inspect domains, expiry dates, availability, pricing, DNS and transfer status. Preview and execute individual DNS, nameserver, lock, auto-renewal, renewal and template-based registration changes. Credentials stay in Windows DPAPI storage; 1Password Conclave is used only for explicit setup or refresh. Independently developed by Rizonetech.",
+        "developerName": "Rizonetech",
+        "category": "Developer tools",
+        "logo": "./assets/icon.png",
+        "composerIcon": "./assets/icon.png",
+        "defaultPrompt": [
+          "List my domains and identify upcoming expirations.",
+          "Inspect the DNS and nameservers for this domain.",
+          "Prepare a domain renewal and show me its details."
+        ]
+      }
+    }
+  }
+}

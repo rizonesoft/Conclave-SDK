@@ -1,0 +1,45 @@
+{
+  "name": "list_site_wordpress_operations",
+  "title": "List Site WordPress Operations",
+  "description": "Lists the WordPress operation history for a Pressable WordPress site (the History feed shown in the control panel), newest first, so a command scheduled with run_site_wpcli_commands can be read back. Covers WP-CLI commands, control-panel bash commands, plugin and theme refreshes and updates, and search-replace runs. Each entry includes the operation id, the background job id, the job type, the status (pending, running, complete, or failed), who ran it, and the operation's captured log, which for a command that SUCCEEDED holds its output inside a \"Command [ <command> ] :::: <output>\" line with that output trimmed to 500 characters, while one that FAILED may instead hold an untrimmed error message in that line, or a bare line such as \"Site is not active.\" with no \"Command [ ... ]\" wrapper. The log is abbreviated here: at most the 20 most recent entries, each capped at 500 bytes taken from the START of the entry (so a long command's echo can crowd out its output), with log_message_count giving the true total and log_messages_truncated saying whether anything was cut — call get_site_wordpress_operation for the fuller log of one operation. Results are paginated (default 20 per page, max 50) and can be filtered by job_type and status; the response also lists the job types present on the site. Commands scheduled with run_site_bash_commands do not create an operation record; their output is recorded in the site activity log instead (call get_site_activity_logs with the action filter \"ssh.command\").",
+  "inputSchema": {
+    "properties": {
+      "site_id": {
+        "type": "integer",
+        "description": "The numeric ID of the Pressable site"
+      },
+      "job_type": {
+        "type": "string",
+        "maxLength": 255,
+        "description": "Filter by job type (exact match, e.g. \"wpcli\", \"command\", \"search_replace\"). The response lists the job types present on the site."
+      },
+      "status": {
+        "type": "string",
+        "maxLength": 255,
+        "description": "Filter by status (exact match). Valid values: \"pending\", \"running\", \"complete\", \"failed\""
+      },
+      "page": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100000,
+        "description": "Page number for pagination (default: 1)"
+      },
+      "per_page": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50,
+        "description": "Number of operations per page (default: 20, max: 50)"
+      }
+    },
+    "required": [
+      "site_id"
+    ],
+    "type": "object"
+  },
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  }
+}
