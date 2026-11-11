@@ -2119,6 +2119,16 @@ class RecordTests(KitFixture, unittest.TestCase):
         (self.target / forge.WORDPRESS_PIN).unlink()
         self.assertEqual(self.states(forge.diff_project(self.target), "wordpress")[forge.WORDPRESS_PIN],
                          "project-removed")
+        # Adopting a further file under the recorded wpcom kit leaves its whole entry, host included, as it was.
+        record = self.loaded()
+        dropped = next(rel for rel in record["files"] if rel != forge.WORDPRESS_PIN)
+        del record["files"][dropped]
+        record["kits"]["wordpress"]["sdk_commit"] = "b" * 40
+        forge.write_record(self.target, record)
+        kit_before = dict(record["kits"]["wordpress"])
+        self.assertIn(dropped, forge.record_project(self.target)["recorded"])
+        self.assertEqual(self.loaded()["kits"]["wordpress"], kit_before)
+        self.assertEqual(kit_before["host"], "wpcom")
 
         other = pathlib.Path(self.tmp.name) / "other"
         other.mkdir()
