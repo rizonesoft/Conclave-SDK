@@ -315,12 +315,20 @@ def faults(path=PIN, data=None):
             per["no_progress_cap"].append("[schedule] no_progress_cap needs a whole number of passes from 1 to pass_cap")
     if "blocking" in schedule:
         into(per["blocking"], check_blocking, schedule)
+    # The one-owner rule and a conditional entry's overlap read the steps' lens lists, not their efforts: a step
+    # whose effort is at fault still has lenses to hold to the rule.
+
+    def lenses_sound(step, required):
+        return isinstance(step, dict) and (("lenses" in step and _lens_list(step["lenses"], table))
+                                           or ("lenses" not in step and not required))
+    rounds = schedule["rounds"]
+    listed = {"plan": lenses_sound(schedule["plan"], True), "completion": lenses_sound(schedule["completion"], False),
+              "reconciliation": lenses_sound(schedule["reconciliation"], True),
+              "round": isinstance(rounds, list) and len(rounds) == 1 and lenses_sound(rounds[0], True)}
     owners = None
-    if all(sound[kind] for kind in ("plan", "round", "completion")):
-        try:
-            owners = lens_owners(schedule)
-        except Refused as exc:
-            late.append(str(exc))
+    if all(listed[kind] for kind in ("plan", "round", "completion")):
+        owners, conflicts = lens_ownership(schedule)
+        late.extend(conflicts)
     if "conditional" in schedule and into(per["conditional"], check_conditional_table, schedule["conditional"]):
         for n, entry in enumerate(schedule["conditional"], 1):
             if not into(per["conditional"], check_conditional_keys, n, entry):
@@ -328,7 +336,7 @@ def faults(path=PIN, data=None):
             fields = [into(per["conditional"], check_conditional_lenses, n, entry, table),
                       into(per["conditional"], check_conditional_passes, n, entry),
                       into(per["conditional"], check_conditional_paths, n, entry)]
-            if all(fields) and owners is not None and sound["reconciliation"]:
+            if all(fields) and owners is not None and listed["reconciliation"]:
                 into(per["conditional"], check_conditional_overlap, n, entry, schedule, owners)
     if all(sound.values()):
         for name in routed:
@@ -492,16 +500,26 @@ def check_one_round(rounds):
 def lens_owners(schedule):
     """lens -> the one of plan, round and completion that always has it. One owner per lens: plan, the round and
     completion each ask their own questions. Reconciliation rechecks a repaired candidate, so it may repeat lenses."""
+    seen, conflicts = lens_ownership(schedule)
+    if conflicts:
+        raise Refused(conflicts[0])
+    return seen
+
+
+def lens_ownership(schedule):
+    """(lens -> its first owner among plan, round and completion, every conflict as its refusal message): what
+    `lens_owners` raises the first of and `faults` lists all of."""
     owned = {"plan": schedule["plan"]["lenses"], "round": schedule["rounds"][0]["lenses"],
              "completion": schedule["completion"].get("lenses", [])}
-    seen = {}
+    seen, conflicts = {}, []
     for kind, names in owned.items():
         for name in names:
             if name in seen:
-                raise Refused(f"[schedule] the lens {name} is listed in both {seen[name]} and {kind}; a lens belongs "
-                              f"to one of plan, the round and completion")
-            seen[name] = kind
-    return seen
+                conflicts.append(f"[schedule] the lens {name} is listed in both {seen[name]} and {kind}; a lens "
+                                 f"belongs to one of plan, the round and completion")
+            else:
+                seen[name] = kind
+    return seen, conflicts
 
 
 def check_pass_cap(schedule):

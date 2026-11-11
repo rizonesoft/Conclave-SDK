@@ -531,6 +531,25 @@ class Faults(unittest.TestCase):
         self.assertIn("'Bad_Name' is not a lens name", lens[0])
         self.assertIn("'Bad_Name' needs its question", lens[1])
 
+    def test_the_one_owner_rule_reads_lenses_not_efforts_and_reports_every_conflict(self):
+        # Completion review of D00 T01 §5: a bad effort hid an ownership conflict, and only the first conflict showed.
+        hidden = self.found(THREE_PASS.replace('[schedule.plan]\neffort = "medium"', '[schedule.plan]\neffort = "bogus"')
+                            .replace('lenses = ["plan-delivery", "record"]', 'lenses = ["plan", "record"]'))
+        self.assertEqual(len(hidden), 2, hidden)
+        self.assertIn("[schedule] plan needs effort", hidden[0])
+        self.assertIn("the lens plan is listed in both plan and completion", hidden[1])
+        two = self.found(THREE_PASS.replace('lenses = ["plan-delivery", "record"]', 'lenses = ["plan", "quality"]'))
+        self.assertEqual(len(two), 2, two)
+        self.assertIn("the lens plan is listed in both plan and completion", two[0])
+        self.assertIn("the lens quality is listed in both round and completion", two[1])
+        # Correcting either one leaves exactly the other.
+        one = self.found(THREE_PASS.replace('lenses = ["plan-delivery", "record"]', 'lenses = ["record", "quality"]'))
+        self.assertEqual(len(one), 1, one)
+        self.assertIn("the lens quality", one[0])
+        # load_pin still refuses with the first.
+        self.assertEqual(self.first(THREE_PASS.replace('lenses = ["plan-delivery", "record"]',
+                                                       'lenses = ["plan", "quality"]')), two[0])
+
     def test_a_check_that_rests_on_a_reported_part_is_skipped(self):
         # The round's lenses are at fault, so the one-owner rule and a conditional overlap that read them are not run.
         bad = THREE_PASS.replace('lenses = ["adversarial", "integration", "quality"]',
@@ -628,10 +647,26 @@ class CommandLine(unittest.TestCase):
         alone = self.run_cli(THREE_PASS, "--caps", "--all")
         self.assertEqual(alone.returncode, 2)
         self.assertIn("--all goes with --check", alone.stderr)
-        missing = subprocess.run([sys.executable, str(SCRIPTS / "review_pin.py"), "--check", "--all", "--pin",
-                                  str(SCRIPTS / "no-such-pin.toml")], capture_output=True, text=True, timeout=60)
-        self.assertEqual(missing.returncode, 2)
-        self.assertIn("review-pin refused: no reviewer pin at", missing.stderr)
+        # A pin that cannot be read: one line, the same message --check gives, exit 2 and no traceback.
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            (folder / "a-folder.toml").mkdir()
+            (folder / "not-utf8.toml").write_bytes(b"schema_version = 1\n\xff\xfe")
+            (folder / "not-toml.toml").write_text("not toml [", encoding="utf-8")
+            for name, needle in (("missing.toml", "no reviewer pin at"), ("a-folder.toml", "unreadable reviewer pin"),
+                                 ("not-utf8.toml", "not UTF-8 text"), ("not-toml.toml", "unreadable reviewer pin")):
+                with self.subTest(pin=name):
+                    runs = [subprocess.run([sys.executable, str(SCRIPTS / "review_pin.py"), "--check", *extra, "--pin",
+                                            str(folder / name)], capture_output=True, text=True, encoding="utf-8",
+                                           timeout=60) for extra in ((), ("--all",))]
+                    for run in runs:
+                        self.assertEqual(run.returncode, 2, run.stderr)
+                        self.assertNotIn("Traceback", run.stderr)
+                        self.assertEqual(run.stdout, "")
+                        self.assertEqual(len(run.stderr.splitlines()), 1, run.stderr)
+                        self.assertIn("review-pin refused: ", run.stderr)
+                        self.assertIn(needle, run.stderr)
+                    self.assertEqual(runs[0].stderr, runs[1].stderr)
 
     def test_lenses_prints_each_lens_with_its_question(self):
         table = review_pin.lens_table(tomllib.loads(THREE_PASS)["schedule"])
