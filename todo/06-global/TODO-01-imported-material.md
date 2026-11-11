@@ -17,7 +17,8 @@ title: "TODO-01 -- Imported material: plugins and retired repositories"
 - `docs/plans/2026-11-11-sdk-audit-and-roadmap.md`: "The two retired repositories" and its end-of-day status.
 - `plugins/README.md` and each plugin folder's own `README.md`: which agent loads each plugin and how.
 - `global/README.md` and `global/deploy.py`: what is already deployed from this checkout.
-- `AGENTS.md` (Imported material): `global/` and `plugins/` are changed only on purpose, never to satisfy a formatter. Nothing in this file edits a file under either folder.
+- `AGENTS.md` (Imported material): `global/` and `plugins/` are changed only on purpose, never to satisfy a formatter. §1 to §3 edit no file under either folder; §4 changes `global/deploy.py` on purpose, because the hooks it deploys do not run.
+- -> XREF: D02 T01 §3 -- Codex's hook trust through its own app-server, which §4 applies to the global hooks
 
 ## Outcome
 
@@ -36,6 +37,7 @@ title: "TODO-01 -- Imported material: plugins and retired repositories"
 | 1 | §1 | Plugins registered from `plugins/` | -- | [ ] |
 | 2 | §2 | Superseded copies under `R:/Bin` removed | §1 | [ ] |
 | 3 | §3 | Retired GitHub repositories deleted | §2 | [ ] |
+| 4 | §4 | Codex approval of the global hooks `deploy.py` writes | D02 T01 §3 | [ ] |
 
 ## 1. Plugins registered from `plugins/`
 
@@ -101,6 +103,25 @@ The roadmap's end-of-day status says both repositories can be deleted. Deleting 
 
 **Test checkpoint:** `gh repo view rizonetech/Claude` and `gh repo view rizonetech/Codex` each exit non-zero with "Could not resolve to a Repository".
 
+## 4. Codex approval of the global hooks `deploy.py` writes
+
+Filed 2026-11-12 from `D02 T01 §3`. Codex's `hooks/list` reports every hook in the owner's `~/.codex/hooks.json` (`layer_rules.py` and `article_rules.py` from `global/codex/hooks`) as `modified`: their approvals are for earlier versions, so Codex skips them and the layer and writing rules do not run in Codex sessions. `deploy.py` writes that file, so it also approves what it wrote, through the same Codex interface the todo kit's `codex-hook-trust.py` uses.
+
+**Phase:** 2
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Approve the deployed hooks from `deploy_codex` in `global/deploy.py`. Done when: `hooks/list` reports them `trusted`.
+2. Cover it and document it. Done when: the checkpoint passes.
+
+- [ ] Add a `trust_codex_hooks(home)` step to `deploy_codex` in `global/deploy.py`: after `hooks.json` is written, start `codex app-server` (with `CODEX_HOME` set from `--home`), call `hooks/list`, and write `trusted_hash` through `config/value/write` for each `user`-source hook whose `sourcePath` is the deployed `hooks.json` and whose command names a script under `global/codex/hooks`; skipped with one line under `--dry-run`, when `codex` is not installed, or when the server does not answer in 30 seconds. Done when: a run on this machine leaves those hooks `trusted` in `hooks/list` and no other hook's state changed. Cheaper substitute: computing the hash must fail review; Codex computes it.
+- [ ] Test `trust_codex_hooks` in `global/tests` with a stub app-server answering recorded responses. Done when: the stub sees `config/value/write` only for the deployed hooks, none for a plugin hook or another file's hook, and none for one already `trusted`.
+- [ ] State the step in `global/README.md`. Done when: the README says that a deploy approves the hooks it wrote and how to check them (`hooks/list` through `codex app-server`, or a Codex session's hook list).
+- [ ] Commit: `global: deploy.py approves the Codex hooks it writes`
+
+**Test checkpoint:** `python global/deploy.py --agent codex` ends with the deployed hooks `trusted` in Codex's `hooks/list`; making `trust_codex_hooks` skip the write leaves them `modified` and its test fails.
 ## Verification
 
 - Each plugin in `plugins/README.md` loads from this checkout on Windows and in WSL.

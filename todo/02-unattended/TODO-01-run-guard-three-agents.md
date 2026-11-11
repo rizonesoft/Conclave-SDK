@@ -20,6 +20,7 @@ title: "TODO-01 -- Run guard for Antigravity and Codex"
 - Not lifted, on purpose: RasterFold's `repair` ledger (`:1090`, CI repair attempts). The kit's guard was ported without Isotone's CI repair ledger (its docstring says so) and that stays true.
 - -> XREF: D02 T02 §6 -- the unattended launcher starts Codex and Antigravity runs, which only hold because of the hooks wired here
 - -> XREF: D00 T02 §2 -- the Antigravity command-line flags are checked against the installed CLI there
+- -> XREF: D06 T01 §4 -- `global/deploy.py` approves the owner's global Codex hooks through the same interface as §3
 
 ## Outcome
 
