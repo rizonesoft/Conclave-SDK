@@ -340,6 +340,7 @@ class Trust(Project):
             proc = real_popen(*args, **kwargs)
             if str(STUB) in [str(part) for part in (args[0] if args else [])]:  # the server, not a taskkill
                 started.append(proc)
+                self.addCleanup(end, proc.pid)  # at once, so a failed assertion later still ends every server
             return proc
 
         path, env = self.scenario([hook_entry(self.root)])
@@ -352,7 +353,6 @@ class Trust(Project):
                 trust_tool.trust(self.root)
         self.assertEqual(len(started), 2)
         for proc in started:
-            self.addCleanup(end, proc.pid)
             self.assertIsNotNone(proc.poll(), f"server {proc.pid} was left running after a failed start")
             self.assertFalse(alive(proc.pid))
         self.assertEqual(self.writes(path), [])
