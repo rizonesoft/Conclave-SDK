@@ -1006,11 +1006,13 @@ class InstallRecordTests(unittest.TestCase):
     def kit_path(self, path):
         """The project file a write is for: a staged `<name>.forge-new` file counts as its destination."""
         path = pathlib.Path(path)
-        name = path.name[:-len(forge.STAGED)] if path.name.endswith(forge.STAGED) else path.name
+        name = path.name
+        for suffix in (forge.STAGED, forge.STAGED_REPLACE):
+            name = name[:-len(suffix)] if name.endswith(suffix) else name
         return path.with_name(name).resolve().relative_to(self.target.resolve()).as_posix()
 
     def staged_files(self):
-        return [rel for rel in self.files_under(self.target) if rel.endswith(forge.STAGED)]
+        return [rel for rel in self.files_under(self.target) if rel.endswith((forge.STAGED, forge.STAGED_REPLACE))]
 
     def test_a_copy_that_fails_part_way_leaves_a_true_record(self):
         real = forge.atomic_write
@@ -1181,7 +1183,7 @@ class InstallRecordTests(unittest.TestCase):
                 forge.provision(self.target, overwrite_existing_docs=True)
         self.assertEqual((self.target / "AGENTS.md").read_text(encoding="utf-8"), "the earlier template\n")
         self.assertEqual(self.record()["files"]["AGENTS.md"]["sha256"], self.template_digest("base", "AGENTS.md"))
-        self.assertEqual(self.staged_files(), ["AGENTS.md" + forge.STAGED])
+        self.assertEqual(self.staged_files(), ["AGENTS.md" + forge.STAGED_REPLACE])
         self.assertTrue((self.target / forge.PENDING).is_file())
         # An ordinary init, with no --force, finishes it: nothing moved since.
         forge.provision(self.target)
@@ -1245,6 +1247,99 @@ class InstallRecordTests(unittest.TestCase):
         forge.provision(self.target)
         self.assert_agents_md_is_the_kits()
         self.assertFalse((self.target / forge.PENDING).exists())
+
+    def journal_that_cannot_be_removed(self, doc="AGENTS.md"):
+        """Removing the journal fails while it is the journal of `doc`; every other removal works."""
+        real_remove = forge._remove
+
+        def remove(path):
+            path = pathlib.Path(path)
+            if path.name == pathlib.Path(forge.PENDING).name and path.is_file():
+                if json.loads(path.read_text(encoding="utf-8"))["path"] == doc:
+                    raise OSError("read-only")
+            real_remove(path)
+
+        return unittest.mock.patch.object(forge, "_remove", remove)
+
+    def test_an_installed_replacement_keeps_its_new_baseline_when_the_project_edits_it_before_cleanup(self):
+        # The doc was replaced, the journal could not be removed, and the project then edited the doc. The doc was
+        # installed, so its entry is the kit's digest: the edit must read as the project's change to those bytes.
+        self.earlier_agents_md()
+        with self.journal_that_cannot_be_removed():
+            with self.assertRaisesRegex(OSError, "read-only"):
+                forge.provision(self.target, overwrite_existing_docs=True)
+        self.assertTrue((self.target / forge.PENDING).is_file())
+        self.assertEqual(self.staged_files(), [])
+        (self.target / "AGENTS.md").write_text("edited after the install\n", encoding="utf-8")
+        forge.apply_kit(self.target, "reviewer")
+        self.assertEqual((self.target / "AGENTS.md").read_text(encoding="utf-8"), "edited after the install\n")
+        self.assertEqual(self.record()["files"]["AGENTS.md"],
+                         {"kit": "base", "sha256": self.template_digest("base", "AGENTS.md")})
+        self.assertFalse((self.target / forge.PENDING).exists())
+
+    def test_a_doc_never_recorded_keeps_its_entry_when_edited_before_cleanup(self):
+        own = self.target / "CLAUDE.md"
+        own.write_text("the project's own entry doc\n", encoding="utf-8")
+        forge.provision(self.target)
+        with self.journal_that_cannot_be_removed("CLAUDE.md"):
+            with self.assertRaisesRegex(OSError, "read-only"):
+                forge.provision(self.target, overwrite_existing_docs=True)
+        own.write_text("edited after the install\n", encoding="utf-8")
+        forge.provision(self.target)
+        self.assertEqual(own.read_text(encoding="utf-8"), "edited after the install\n")
+        self.assertEqual(self.record()["files"]["CLAUDE.md"],
+                         {"kit": "base", "sha256": self.template_digest("base", "CLAUDE.md")})
+        self.assertFalse((self.target / forge.PENDING).exists())
+
+    def test_a_failed_record_write_whose_journal_cannot_be_removed_is_settled_by_the_next_run(self):
+        # The record write fails and so does removing the journal: the journal and its staged file stay together,
+        # never the journal alone, and the next run settles the pair by what the destination holds.
+        for label, edit in (("unchanged", None), ("edited", "the project's edits, saved since\n")):
+            with self.subTest(case=label):
+                project = pathlib.Path(self.tmp.name) / label
+                project.mkdir()
+                forge.provision(project)
+                record = self.record(project)
+                record["files"]["AGENTS.md"]["sha256"] = "c" * 64
+                forge.write_record(project, record)
+                (project / "AGENTS.md").write_text("the earlier template\n", encoding="utf-8")
+                real = forge.atomic_write
+
+                def failing(path, data, project=project, real=real):
+                    if pathlib.Path(path).resolve() == (project / forge.RECORD).resolve():
+                        raise OSError("disk full")
+                    real(path, data)
+
+                with unittest.mock.patch.object(forge, "atomic_write", failing), self.journal_that_cannot_be_removed():
+                    with self.assertRaises(OSError):
+                        forge.provision(project, overwrite_existing_docs=True)
+                self.assertTrue((project / forge.PENDING).is_file())
+                self.assertTrue((project / ("AGENTS.md" + forge.STAGED_REPLACE)).is_file())
+                self.assertEqual(self.record(project)["files"]["AGENTS.md"]["sha256"], "c" * 64)
+                if edit:
+                    (project / "AGENTS.md").write_bytes(edit.encode("utf-8"))
+                forge.provision(project)
+                doc = (project / "AGENTS.md").read_bytes()
+                entry = self.record(project)["files"]["AGENTS.md"]["sha256"]
+                if edit:
+                    self.assertEqual(doc, edit.encode("utf-8"))
+                    self.assertEqual(entry, "c" * 64)
+                else:
+                    self.assertEqual(doc, (FORGE_ROOT / "kits/base/templates/AGENTS.md").read_bytes())
+                    self.assertEqual(entry, self.template_digest("base", "AGENTS.md"))
+                self.assertFalse((project / forge.PENDING).exists())
+                self.assertFalse((project / ("AGENTS.md" + forge.STAGED_REPLACE)).exists())
+
+    def test_a_replacements_staged_file_with_no_journal_is_removed_not_applied(self):
+        forge.provision(self.target)
+        template = (FORGE_ROOT / "kits/base/templates/AGENTS.md").read_bytes()
+        (self.target / "AGENTS.md").write_text("the project's edits\n", encoding="utf-8")
+        for doc in ("AGENTS.md", "CLAUDE.md"):
+            (self.target / (doc + forge.STAGED_REPLACE)).write_bytes(template)
+        forge.apply_kit(self.target, "reviewer")
+        self.assertEqual(self.staged_files(), [])
+        self.assertEqual((self.target / "AGENTS.md").read_text(encoding="utf-8"), "the project's edits\n")
+        self.assertEqual(self.record()["files"]["AGENTS.md"]["sha256"], self.template_digest("base", "AGENTS.md"))
 
     def test_a_new_file_recorded_but_not_renamed_is_finished_or_given_up(self):
         rel = ".claude/skills/create-todo/SKILL.md"

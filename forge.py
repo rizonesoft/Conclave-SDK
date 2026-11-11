@@ -393,6 +393,7 @@ def _record_install(record: dict, kit_name: str, agent: str, host: str | None, d
 
 
 STAGED = ".forge-new"
+STAGED_REPLACE = ".forge-replace"
 PENDING = ".conclave/kits.pending.json"
 _PENDING_KEYS = {"schema_version", "path", "kit", "new", "earlier", "destination"}
 
@@ -435,56 +436,67 @@ def _load_pending(target_root: Path) -> dict | None:
 def _recover(target_root: Path, record: dict) -> None:
     """Settle what an interrupted run left, before anything else is written.
 
-    A journaled replacement is finished only when nothing moved since: the destination still holds what it held
-    then and the staged bytes are the ones recorded. If the project changed the file in between (or the staged file
-    is gone), it is rolled back: the record entry returns to what it was and the project's file is left alone. A
-    replacement whose rename did happen only has its journal removed.
+    A journal means a replacement was under way. Its staged file (`<name>.forge-replace`) says how far it got, since
+    the only step that takes that file away while the journal stays is the rename over the destination:
 
-    A staged file with no journal belongs to a file that did not exist when it was staged. If the record names its
-    bytes and the destination is still missing, it is moved into place. If a file has appeared there since, that
-    file is the project's: the entry is dropped and the staged file removed. Any other staged file is stale.
+    - The staged file is gone: the rename happened. The file was installed, so its entry is the new digest, whatever
+      the project has done to the file since.
+    - The staged file is there and the destination still holds what it held then: nothing moved, so the replacement
+      is finished (record, then rename).
+    - The staged file is there and the destination changed: the project edited the file in between. It is rolled
+      back: the entry returns to what it was and the project's file is left alone.
+
+    A `<name>.forge-new` file belongs to a file that did not exist when it was staged, and has no journal. If the
+    record names its bytes and the destination is still missing, it is moved into place. If a file has appeared
+    there since, that file is the project's: the entry is dropped and the staged file removed. Any other staged
+    file is stale and removed.
     """
-    changed = False
     pending = _load_pending(target_root)
     if pending is not None:
         rel = pending["path"]
         if _has_unsafe_parent(target_root, rel):
             raise ValueError(f"{PENDING}: names a path with an unsafe parent: {rel}")
-        dst, staged = target_root / rel, target_root / (rel + STAGED)
-        now = _digest_of(dst)
+        dst, staged = target_root / rel, target_root / (rel + STAGED_REPLACE)
         new_entry = {"kit": pending["kit"], "sha256": pending["new"]}
-        if now == pending["new"]:
-            entry = new_entry
-        elif _digest_of(staged) == pending["new"] and now == pending["destination"] and pending["kit"] in record["kits"]:
-            os.replace(staged, dst)
-            entry = new_entry
+        known_kit = pending["kit"] in record["kits"]
+        finish = False
+        if not staged.exists():
+            entry = new_entry if known_kit else pending["earlier"]
+        elif _digest_of(staged) == pending["new"] and _digest_of(dst) == pending["destination"] and known_kit:
+            entry, finish = new_entry, True
         else:
             entry = pending["earlier"]
         if entry is None or entry["kit"] not in record["kits"]:
             changed = record["files"].pop(rel, None) is not None
-        elif record["files"].get(rel) != entry:
+        else:
+            changed = record["files"].get(rel) != entry
             record["files"][rel] = entry
-            changed = True
         if changed:
             write_record(target_root, record)
-            changed = False
-        _remove(staged)
+        if finish:
+            os.replace(staged, dst)
+        # The journal goes before a staged file that was not used, so no failure here can leave a journal without
+        # its staged file, which would read as a rename that happened.
         _remove(target_root / PENDING)
-    for rel, entry in list(record["files"].items()):
+        _remove(staged)
+    for rel in sorted(set(record["files"]) | set(ENTRY_DOCS)):
+        if _has_unsafe_parent(target_root, rel):
+            continue
+        stale = target_root / (rel + STAGED_REPLACE)
+        if stale.is_file() and not _is_link(stale):
+            _remove(stale)  # a replacement's staged file with no journal was never recorded: it is not applied
         staged = target_root / (rel + STAGED)
-        if not staged.is_file() or _is_link(staged) or _has_unsafe_parent(target_root, rel):
+        entry = record["files"].get(rel)
+        if not staged.is_file() or _is_link(staged):
             continue
         dst = target_root / rel
-        if file_digest(staged.read_bytes()) == entry["sha256"]:
+        if entry is not None and file_digest(staged.read_bytes()) == entry["sha256"]:
             if not dst.exists() and not dst.is_symlink():
                 os.replace(staged, dst)
                 continue
             if _digest_of(dst) != entry["sha256"]:
                 del record["files"][rel]
-                changed = True
-        if changed:
-            write_record(target_root, record)
-            changed = False
+                write_record(target_root, record)
         _remove(staged)
 
 
@@ -493,11 +505,12 @@ def _write_recorded(target_root: Path, record: dict, kit_name: str, agent: str, 
     """Write `(relative path, destination, bytes)` files and record each under its kit, one file at a time, so the
     record and the files never disagree in a way a later run cannot settle (`_recover`). For each file:
 
-    1. Its bytes are staged beside the destination (`<name>.forge-new`). If that fails, nothing has changed.
-    2. When the file replaces something (a file is there, or the record has an entry for it), a journal is written
-       naming what the destination and the entry were. A new file needs none: there is nothing to go back to.
-    3. The record is written with the file's digest. If that fails, the staged file and the journal are removed and
-       nothing has changed: a file being replaced still holds its earlier bytes under its earlier digest.
+    1. Its bytes are staged beside the destination: `<name>.forge-new` for a file that is not there and has no
+       record entry, `<name>.forge-replace` for one that replaces something. If that fails, nothing has changed.
+    2. A replacement writes a journal naming what the destination and the entry were. A new file needs none: there
+       is nothing to go back to.
+    3. The record is written with the file's digest. If that fails, the journal and then the staged file are removed
+       and nothing has changed: a file being replaced still holds its earlier bytes under its earlier digest.
     4. The staged file is renamed over the destination, which needs no space, and the journal is removed. If the
        rename fails, the staged file and the journal stay for the next run to settle.
 
@@ -509,9 +522,9 @@ def _write_recorded(target_root: Path, record: dict, kit_name: str, agent: str, 
     commit = sdk_commit()
     journal = target_root / PENDING
     for rel, dst, data in copies:
-        staged = dst.with_name(dst.name + STAGED)
         earlier = record["files"].get(rel)
         replaces = earlier is not None or dst.exists() or dst.is_symlink()
+        staged = dst.with_name(dst.name + (STAGED_REPLACE if replaces else STAGED))
         digest = file_digest(data)
         atomic_write(staged, data)
         try:
@@ -522,11 +535,14 @@ def _write_recorded(target_root: Path, record: dict, kit_name: str, agent: str, 
             _record_install(record, kit_name, agent, host, {rel: digest}, commit)
             write_record(target_root, record)
         except BaseException:
-            for leftover in (staged, journal) if replaces else (staged,):
-                try:
-                    _remove(leftover)
-                except OSError:
-                    pass  # the next run settles it (_recover)
+            # The journal first: a journal left without its staged file would read as a rename that happened. If it
+            # cannot be removed, the staged file stays with it and the next run settles the pair (_recover).
+            try:
+                if replaces:
+                    _remove(journal)
+                _remove(staged)
+            except OSError:
+                pass
             raise
         os.replace(staged, dst)
         if replaces:
