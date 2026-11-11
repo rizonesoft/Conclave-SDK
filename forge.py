@@ -165,7 +165,7 @@ FORGE_SUFFIXES = (KIT_NEW, ".forge-new", ".forge-replace")
 # rules, subagents, scripts and the automations runner. The SDK's own docs, plan and pins are its project files.
 SELF_KITS = ("base", "todo", "reviewer", "automations")
 SELF_PREFIXES = tuple(f"{d}/{kind}/" for d in AGENT_DIRS for kind in ("skills", "rules")) + (
-    ".claude/agents/", "scripts/", "bin/", "docs/") + AUTOMATIONS_SCRIPTS
+    ".claude/agents/", "scripts/", "bin/", "docs/", ".agents/hooks.json") + AUTOMATIONS_SCRIPTS
 
 
 def installed_kits(target_root: Path) -> list[str]:
@@ -1302,23 +1302,53 @@ def _doctor_automations(target_root: Path, add_check) -> None:
         add_check("scheduler:systemctl", *_systemd_user_manager())
 
 
-def _stop_hook_wiring(target_root: Path) -> tuple[str, str]:
-    """Whether .claude/settings.json runs the campaign guard's Stop hook. The todo kit seeds the file when a project
-    has none; a project's own settings file is never overwritten, so there the hook is added by hand."""
-    settings = target_root / ".claude/settings.json"
-    seed = FORGE_ROOT / "kits/todo/templates/.claude/settings.json"
+def _claude_stop_commands(doc) -> list:
+    """Stop hook commands in Claude Code's shape: `{"hooks": {"Stop": [{"hooks": [{"command"}]}]}}`."""
+    return [h.get("command") for entry in doc.get("hooks", {}).get("Stop", []) for h in entry.get("hooks", [])]
+
+
+def _antigravity_stop_commands(doc) -> tuple[list, list]:
+    """Stop hook commands in Antigravity's shape, each top-level key a named hook with a flat `Stop` list of handlers
+    (the CLI's `hooks.md`): the enabled hooks' commands, and the disabled ones' (`"enabled": false`)."""
+    enabled, disabled = [], []
+    for hook in doc.values():
+        if not isinstance(hook, dict) or not isinstance(hook.get("Stop", []), list):
+            continue
+        commands = [h.get("command") for h in hook.get("Stop", []) if isinstance(h, dict)]
+        (disabled if hook.get("enabled", True) is False else enabled).extend(commands)
+    return enabled, disabled
+
+
+def _stop_hook_wiring(target_root: Path, hook_file: str = ".claude/settings.json") -> tuple[str, str]:
+    """Whether an agent's hook file runs the campaign guard's Stop hook: `.claude/settings.json` (Claude Code's shape)
+    or `.agents/hooks.json` (Antigravity's). The todo kit seeds the file when a project has none; a project's own
+    file is never overwritten, so there the hook is added by hand."""
+    settings = target_root / hook_file
+    seed = FORGE_ROOT / "kits/todo/templates" / hook_file
     hint = f"add the Stop hook from {seed.as_posix()} to {settings.as_posix()}"
+    antigravity = hook_file == ".agents/hooks.json"
+    disabled: list = []
     try:
         doc = json.loads(settings.read_text(encoding="utf-8"))
-        commands = [h.get("command") for entry in doc.get("hooks", {}).get("Stop", [])
-                    for h in entry.get("hooks", [])]
-        commands = [c for c in commands if isinstance(c, str)]
+        if antigravity:
+            commands, disabled = _antigravity_stop_commands(doc)
+        else:
+            commands = _claude_stop_commands(doc)
     except FileNotFoundError:
         return "setup_required", hint
     except (OSError, ValueError, AttributeError, TypeError) as exc:
-        return "setup_required", f"{settings.as_posix()} does not parse as Claude Code settings: {exc}; {hint}"
-    if any("campaign_guard.py" in c and "stop-hook" in c for c in commands):
+        return "setup_required", f"{settings.as_posix()} does not parse as a hook file: {exc}; {hint}"
+
+    def guarded(found) -> bool:
+        return any(isinstance(c, str) and "campaign_guard.py" in c and "stop-hook" in c for c in found)
+
+    if guarded(commands):
         return "ok", settings.as_posix()
+    if guarded(disabled):
+        return "setup_required", f"the Stop hook in {settings.as_posix()} is disabled (\"enabled\": false); {hint}"
+    if antigravity and isinstance(doc, dict) and isinstance(doc.get("hooks"), dict) and "Stop" in doc["hooks"]:
+        return "setup_required", (f"{settings.as_posix()} is in Claude Code's shape, which Antigravity loads as one "
+                                  f"hook named 'hooks'; {hint}")
     return "setup_required", hint
 
 
@@ -1390,6 +1420,8 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
             path = target_root / rel
             add_check(rel, "ok" if path.is_file() else "missing", path.as_posix())
         add_check("stop-hook", *_stop_hook_wiring(target_root))
+        if (target_root / ".agents").is_dir():
+            add_check("stop-hook:.agents", *_stop_hook_wiring(target_root, ".agents/hooks.json"))
     else:
         for entry in ("AGENTS.md", "GEMINI.md", "CLAUDE.md", "CODEX.md"):
             p = target_root / entry

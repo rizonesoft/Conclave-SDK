@@ -389,6 +389,15 @@ class AntigravityPayload(Workspace):
         with mock.patch.object(guard, "_record_hook_error", side_effect=ValueError("embedded null byte")):
             self.assertEqual(self.raw([1], self.root), "")
 
+    def test_the_payload_antigravity_really_sends_is_held(self):
+        """The Stop payload agy 1.5.5 sent to a probe hook (tests/fixtures/agy-stop-payload.json), paths filled in."""
+        recorded = json.loads((REPO / "tests/fixtures/agy-stop-payload.json").read_text(encoding="utf-8"))
+        forward = self.root.replace("\\", "/")  # agy sends workspacePaths with forward slashes
+        payload = {**recorded, "cwd": self.root, "workspacePaths": [forward]}
+        guard.acquire(self.root, recorded["conversationId"], 0, RUN_FILE, "job-1")
+        self.assertEqual(json.loads(self.raw(payload))["decision"], "continue")
+        self.assertEqual(self.raw({**payload, "workspacePaths": [], "cwd": ""}), "", "no workspace was held")
+
     def test_a_payload_that_is_not_an_object_fails_open(self):
         self.acquire()
         self.assertEqual(self.raw([1, 2], self.root), "")

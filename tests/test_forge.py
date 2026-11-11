@@ -617,8 +617,62 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertEqual(checks["stop-hook"], "ok")
         self.assertNotIn(".claude/settings.json", forge.apply_kit(project, "todo", agent="codex")["installed"])
 
+    def test_the_antigravity_seed_is_in_antigravitys_own_shape(self):
+        doc = json.loads((FORGE_ROOT / "kits/todo/templates/.agents/hooks.json").read_text(encoding="utf-8"))
+        self.assertEqual(list(doc), ["campaign-guard"])
+        self.assertNotIn("hooks", doc, "Claude Code's shape loads in Antigravity as one hook named 'hooks'")
+        stop = doc["campaign-guard"]["Stop"]
+        self.assertEqual(len(stop), 1)
+        self.assertEqual(set(stop[0]), {"type", "command", "timeout"}, "Stop handlers are flat, with no matcher")
+        command = stop[0]["command"]
+        self.assertIn("campaign_guard.py stop-hook", command)
+        self.assertNotIn('"', command, "cmd /c escapes inner double quotes, so a quoted program arrives broken")
+        self.assertIn("../scripts/", command, "the hook runs from .agents/, the folder holding hooks.json")
+
+    def test_the_todo_kit_seeds_antigravitys_hook_and_never_overwrites_a_projects_own(self):
+        project = self.target / "agy"
+        (project / ".agents").mkdir(parents=True)
+        own = '{"lint": {"PostToolUse": [{"matcher": "run_command", "hooks": [{"command": "./lint.sh"}]}]}}\n'
+        (project / ".agents/hooks.json").write_text(own, encoding="utf-8")
+        res = forge.apply_kit(project, "todo")
+        self.assertIn(".agents/hooks.json", res["preserved"])
+        self.assertEqual((project / ".agents/hooks.json").read_text(encoding="utf-8"), own)
+
+        def check():
+            return {c["name"]: c for c in forge.doctor_repo(project, "todo")["checks"]}["stop-hook:.agents"]
+
+        self.assertEqual(check()["status"], "setup_required")
+        self.assertIn("kits/todo/templates/.agents/hooks.json", check()["detail"])
+        seed = json.loads((FORGE_ROOT / "kits/todo/templates/.agents/hooks.json").read_text(encoding="utf-8"))
+        guard_hook = seed["campaign-guard"]
+        cases = {
+            "claude shape": ({"hooks": {"Stop": [{"hooks": [dict(guard_hook["Stop"][0])]}]}}, "setup_required",
+                             "Claude Code's shape"),
+            "disabled": ({"campaign-guard": {**guard_hook, "enabled": False}}, "setup_required", "disabled"),
+            "disabled beside enabled": ({"off": {**guard_hook, "enabled": False}, "on": guard_hook}, "ok", ""),
+            "enabled true": ({"campaign-guard": {**guard_hook, "enabled": True}}, "ok", ""),
+        }
+        for name, (doc, status, detail) in cases.items():
+            with self.subTest(name):
+                (project / ".agents/hooks.json").write_text(json.dumps(doc), encoding="utf-8")
+                self.assertEqual(check()["status"], status, check())
+                self.assertIn(detail, check()["detail"])
+        (project / ".agents/hooks.json").unlink()
+        self.assertIn(".agents/hooks.json", forge.apply_kit(project, "todo")["installed"])
+        self.assertEqual(check()["status"], "ok")
+
+        bare = self.target / "no-agents"
+        bare.mkdir()
+        forge.apply_kit(bare, "todo", agent="claude")
+        names = [c["name"] for c in forge.doctor_repo(bare, "todo")["checks"]]
+        self.assertIn("stop-hook", names)
+        self.assertNotIn("stop-hook:.agents", names)
+
     def test_the_sdk_runs_the_stop_hook_its_todo_kit_ships(self):
         self.assertEqual(forge._stop_hook_wiring(FORGE_ROOT)[0], "ok")
+        self.assertEqual(forge._stop_hook_wiring(FORGE_ROOT, ".agents/hooks.json")[0], "ok")
+        self.assertEqual((FORGE_ROOT / ".agents/hooks.json").read_bytes().replace(b"\r\n", b"\n"),
+                         (FORGE_ROOT / "kits/todo/templates/.agents/hooks.json").read_bytes().replace(b"\r\n", b"\n"))
 
     def test_the_sdk_uses_the_agent_setup_its_kits_ship(self):
         # The kits are the only source. The SDK's own .agents/.claude/.codex and scripts/ are an installed copy of

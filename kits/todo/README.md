@@ -12,6 +12,7 @@ Additive overlay that brings the Conclave TODO system into a project for Gemini 
 | `docs/todo-workflow.md` | How the TODO system works; link it from `AGENTS.md` |
 | `scripts/campaign_guard.py` | The `process-plan` run guard: Stop hook, guard file, heartbeat |
 | `.claude/settings.json` | Wires the Stop hook (seeded only when the project has none) |
+| `.agents/hooks.json` | Wires the Stop hook for Antigravity (seeded only when the project has none) |
 | `scripts/ci_status.py` | The CI state of main: each watched workflow's latest verdict |
 | `scripts/merge_prs.py` | Merges dependency pull requests that pass every safety rule |
 | `scripts/hooks/pre-commit` | Runs `todo-graph.py validate` and `plan --check` on TODO commits |
@@ -30,7 +31,9 @@ The pre-commit hook checks a commit that touches `todo/` or `docs/reviews/`. Ena
 
 ## The run guard (Claude Code)
 
-`process-plan` keeps a campaign alive with two parts: the Stop hook, which blocks the campaign session's end of turn while its run is open and trips a stall breaker after 3 pushes with no change, and a `CronCreate` heartbeat inside the session that resumes it when idle. There is no keep-alive outside the session. `campaign_guard.py` owns the guard file and the hook, runs the same on Windows and WSL (`python3` in the hook command, an OS file lock on both), and is tested by `tests/test_campaign_guard.py`. A project that already has `.claude/settings.json` keeps it: `forge.py doctor <repo> todo` reports `stop-hook` as `setup_required` until the Stop hook from `templates/.claude/settings.json` is added by hand. Gemini and Codex have no Stop hook or `CronCreate`, so their skills carry no guard.
+`process-plan` keeps a campaign alive with two parts: the Stop hook, which blocks the campaign session's end of turn while its run is open and trips a stall breaker after 3 pushes with no change, and a `CronCreate` heartbeat inside the session that resumes it when idle. There is no keep-alive outside the session. `campaign_guard.py` owns the guard file and the hook, runs the same on Windows and WSL (`python3` in the hook command, an OS file lock on both), and is tested by `tests/test_campaign_guard.py`. A project that already has `.claude/settings.json` keeps it: `forge.py doctor <repo> todo` reports `stop-hook` as `setup_required` until the Stop hook from `templates/.claude/settings.json` is added by hand. Codex has no Stop hook wired yet, so its skills carry no guard.
+
+Antigravity runs `.agents/hooks.json`, checked against `agy` 1.5.5 and its own `hooks.md` (`~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/hooks.md`) with a live run on 2026-11-11. Three facts shape the seed. Each top-level key is a named hook and its `Stop` list holds the handlers directly: Claude Code's shape (a top-level `hooks` key) loads as one hook named `hooks`. A hook runs with its working folder set to the folder holding `hooks.json`, so the command reaches the guard as `../scripts/campaign_guard.py`. On Windows it runs through `cmd /c` with its inner double quotes escaped, so the command holds no quotes: `python3 ../scripts/campaign_guard.py stop-hook || python ../scripts/campaign_guard.py stop-hook`. The Stop payload carries `conversationId` (the session the guard is acquired for), `workspacePaths`, `cwd`, `fullyIdle`, `terminationReason` and `continuationActive`, and no `CLAUDE_PROJECT_DIR`; the guard answers `{"decision": "continue"}`, which re-enters the loop. `forge.py doctor <repo> todo` reports it as `stop-hook:.agents`, and only an enabled hook (`enabled` absent or `true`) counts.
 
 Skills: `add-todo`, `create-todo`, `groom-plan`, `process-phase`, `process-plan`, `process-todo-file`, `process-todo-section`, `review-todo-section`.
 
