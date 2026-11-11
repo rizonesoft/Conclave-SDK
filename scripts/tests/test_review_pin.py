@@ -260,6 +260,31 @@ class ThreePass(Cases):
         self.assertEqual(review_pin.scheduled(schedule, "round", [], False, ["src/kernel/sched.c"])["lenses"],
                          base + ["concurrency"])
 
+    def test_a_hidden_folder_is_a_path_prefix_like_any_other(self):
+        hidden = THREE_PASS.replace('paths = ["src/ui/"]', 'paths = [".github/", ".conclave/reviewers.toml"]')
+        schedule = load(hidden)["schedule"]
+        self.assertIn("design", review_pin.lenses_for(schedule, "round", [".github/workflows/ci.yml"]))
+        self.assertIn("design", review_pin.lenses_for(schedule, "plan", [".conclave/reviewers.toml"]))
+        self.assertNotIn("design", review_pin.lenses_for(schedule, "round", ["github/x", "src/.github/x"]))
+
+    def test_a_key_refusal_names_the_offending_key(self):
+        self.refuses(THREE_PASS.replace("pass_cap = 45", "pass_cpa = 45"), "(unknown: pass_cpa)")
+        head, _, tail = THREE_PASS.partition("[schedule.reconciliation]")
+        self.refuses(head + "[[schedule.conditional]]" + tail.partition("[[schedule.conditional]]")[2],
+                     "(missing: reconciliation)")
+        self.refuses(ROTATION.replace("severity_stop_after = 0", "severity_stop = 0"),
+                     "[schedule] needs exactly", "(unknown: severity_stop; missing: severity_stop_after)")
+        self.refuses(THREE_PASS.replace('paths = ["src/ui/"]', 'path = ["src/ui/"]'),
+                     "[[schedule.conditional]] entry 2", "(unknown: path; missing: paths)")
+        self.refuses(THREE_PASS.replace('[schedule.plan]\neffort = "medium"', '[schedule.plan]\nefort = "medium"'),
+                     "[schedule] plan needs", "(unknown: efort)")
+        self.refuses(ROTATION.replace('[schedule.completion]\neffort = "medium"',
+                                      '[schedule.completion]\neffort = "medium"\nlenses = ["record"]'),
+                     "[schedule] completion needs only effort", "(unknown: lenses)")
+        self.refuses(ROTATION.replace('[schedule.plan]\neffort = "medium"\nlenses = ["plan"]',
+                                      '[schedule.plan]\neffort = "medium"'),
+                     "[schedule] plan needs", "(missing: lenses)")
+
     def test_a_conditional_entry_refuses_each_wrong_value(self):
         entry = '[[schedule.conditional]]\nlenses = ["concurrency"]\npasses = ["round", "reconciliation"]\n' \
                 'paths = ["src/kernel/", "include/kernel/"]\n'
@@ -285,6 +310,11 @@ class ThreePass(Cases):
             with self.subTest(new=new):
                 self.refuses(THREE_PASS.replace(entry, entry.replace(old, new)), "[[schedule.conditional]] entry 1",
                              needle)
+        # A prefix that could never match a changed file is refused rather than silently ignored.
+        for bad in ('paths = ["src//x/"]', 'paths = ["src/./"]', 'paths = ["/"]', 'paths = [" src/"]'):
+            with self.subTest(bad=bad):
+                self.refuses(THREE_PASS.replace(entry, entry.replace(
+                    'paths = ["src/kernel/", "include/kernel/"]', bad)), "needs paths")
         self.refuses(THREE_PASS.partition("[[schedule.conditional]]")[0].replace(
             "pass_cap = 45", "pass_cap = 45\nconditional = 3"), "[[schedule.conditional]] must be an array")
 

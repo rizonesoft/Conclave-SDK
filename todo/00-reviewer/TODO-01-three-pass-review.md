@@ -36,6 +36,7 @@ title: "TODO-01 -- Three-pass review"
 | 2 | §2 | Three-pass dispatcher | §1 | [ ] |
 | 3 | §3 | Three-pass stamp rules in the todo kit | §2 | [ ] |
 | 4 | §4 | Template pin, prompts, skills and READMEs on three-pass | §3 | [ ] |
+| 5 | §5 | Pin check that reports every fault at once | §1 | [ ] |
 
 ## 1. Pin loader module with the three-pass keys
 
@@ -153,6 +154,26 @@ Everything a project reads when it installs the kits describes the three-pass sh
 - [ ] Commit: `reviewer, todo: template pin, prompts, skills and READMEs on three-pass`
 
 **Test checkpoint:** `python -m unittest discover -s tests` ends `OK` and `python scripts/review-dispatch.py --check-pin` prints `ok`; a prompt or skill left unsynced makes the self-sync test fail.
+
+## 5. Pin check that reports every fault at once
+
+Filed 2026-11-11 from the completion review of §1 (an out-of-scope excellence item): `load_pin` stops at the first fault, so a pin with three independent mistakes takes three runs of `--check` to correct. A diagnostic mode lists them together, and the fail-fast `load_pin` every caller relies on does not change.
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add a fault-collecting pass to `kits/reviewer/templates/scripts/review_pin.py` behind `--check --all`. Done when: a pin with three independent faults prints three refusals.
+2. Cover it in `kits/reviewer/templates/scripts/tests/test_review_pin.py` and run `python forge.py self-sync`. Done when: the checkpoint passes.
+
+- [ ] Add `faults(pin_bytes)` to `review_pin.py`, returning every independent refusal message of a pin in file order, with `load_pin` still raising the first. Done when: a test pin with a bad `pass_cap`, an unknown lens and a bad `blocking` yields those three messages, and `load_pin` on it raises the first. Cheaper substitute: catching one exception and returning a one-item list must fail.
+- [ ] Add `--all` to `--check` in `review_pin.py`: one `review-pin refused:` line per fault and exit 2, or `ok`. Done when: a test asserts the three lines for the pin above and `ok` for a valid pin.
+- [ ] Name `--check --all` in `kits/reviewer/README.md` and run `python forge.py self-sync`. Done when: `scripts/review_pin.py` equals the kit file.
+- [ ] Commit: `reviewer: report every pin fault in one check`
+
+**Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests -p test_review_pin.py` ends `OK`; making `faults` return only its first message makes the three-fault test fail.
 
 ## Verification
 

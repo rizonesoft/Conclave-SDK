@@ -8,7 +8,7 @@ Format and rules: `todo/README.md`. Run sections with the `process-plan`, `proce
 
 ### Phase 0: Three-pass review
 
-Sections: 4 | Checklist items: 47
+Sections: 5 | Checklist items: 51
 
 | Status | Reference  | Deliverable                                             | Needs | Items |
 | ------ | ---------- | ------------------------------------------------------- | ----- | ----- |
@@ -16,7 +16,8 @@ Sections: 4 | Checklist items: 47
 | [ ]    | D00 T01 §2 | Three-pass dispatcher                                   | none  | 14    |
 | [ ]    | D00 T01 §3 | Three-pass stamp rules in the todo kit                  | none  | 10    |
 | [ ]    | D00 T01 §4 | Template pin, prompts, skills and READMEs on three-pass | none  | 9     |
+| [ ]    | D00 T01 §5 | Pin check that reports every fault at once              | none  | 4     |
 
-Progress: 0/4 verified sections, 1 ready to run now.
+Progress: 0/5 verified sections, 1 ready to run now.
 
-Checklist: 13/47 items completed (includes Commit items).
+Checklist: 13/51 items completed (includes Commit items).

@@ -182,7 +182,10 @@ def check_step(where, step, efforts, table=LENSES, lenses="required"):
             "none": "only effort"}[lenses]
     if not isinstance(step, dict) or set(step) - STEP_KEYS or (lenses == "required" and "lenses" not in step) \
             or (lenses == "none" and "lenses" in step):
-        raise Refused(f"[schedule] {where} needs {need}")
+        allowed = STEP_KEYS - ({"lenses"} if lenses == "none" else set())
+        raise Refused(f"[schedule] {where} needs {need}"
+                      + (_keys(step, {"lenses"} if lenses == "required" else (), allowed)
+                         if isinstance(step, dict) else ""))
     if "effort" in step and not _one_of(step["effort"], efforts):
         raise Refused(f"[schedule] {where} needs effort = one of {', '.join(efforts)}")
     if "lenses" in step and not _lens_list(step["lenses"], table):
@@ -213,7 +216,8 @@ def check_schedule(schedule, clis):
     # The rotation schedule, as it has always loaded: the three-pass keys are refused here, so a rotation pin means
     # what it meant.
     if set(schedule) != ROTATION_KEYS:
-        raise Refused(f"[schedule] needs exactly {', '.join(sorted(ROTATION_KEYS))}")
+        raise Refused(f"[schedule] needs exactly {', '.join(sorted(ROTATION_KEYS))}"
+                      + _keys(schedule, ROTATION_KEYS))
     check_step("plan", schedule["plan"], efforts)
     check_step("completion", schedule["completion"], efforts, lenses="none")
     check_step("escalation", schedule["escalation"], efforts)
@@ -231,7 +235,8 @@ def check_schedule(schedule, clis):
 def check_three_pass(schedule, efforts):
     if not THREE_PASS_KEYS <= set(schedule) <= THREE_PASS_KEYS | THREE_PASS_OPTIONAL:
         raise Refused(f"[schedule] with policy = \"{THREE_PASS}\" needs exactly {', '.join(sorted(THREE_PASS_KEYS))}, "
-                      f"and may add {', '.join(sorted(THREE_PASS_OPTIONAL))}")
+                      f"and may add {', '.join(sorted(THREE_PASS_OPTIONAL))}"
+                      + _keys(schedule, THREE_PASS_KEYS, THREE_PASS_OPTIONAL))
     extra = schedule.get("lenses", {})
     if not isinstance(extra, dict):
         raise Refused("[schedule.lenses] must be a table of lens name = \"question\"")
@@ -285,7 +290,8 @@ def check_three_pass(schedule, efforts):
     for n, entry in enumerate(entries, 1):
         where = f"[[schedule.conditional]] entry {n}"
         if not isinstance(entry, dict) or set(entry) != CONDITIONAL_KEYS:
-            raise Refused(f"{where} needs exactly {', '.join(sorted(CONDITIONAL_KEYS))}")
+            raise Refused(f"{where} needs exactly {', '.join(sorted(CONDITIONAL_KEYS))}"
+                          + (_keys(entry, CONDITIONAL_KEYS) if isinstance(entry, dict) else ""))
         if not _lens_list(entry["lenses"], table):
             raise Refused(f"{where} needs lenses = a list of distinct lenses from {', '.join(table)}")
         passes = entry["passes"]
@@ -296,7 +302,7 @@ def check_three_pass(schedule, efforts):
         if not isinstance(paths, list) or not paths or not all(_relative_prefix(p) for p in paths) \
                 or len(set(paths)) != len(paths):
             raise Refused(f"{where} needs paths = a list of distinct repository-relative path prefixes with forward "
-                          f"slashes (no leading / or ., no .. part, no drive)")
+                          f"slashes (no leading /, no empty, . or .. part, no drive)")
         for kind in passes:
             always = schedule["rounds"][0] if kind == "round" else schedule[kind]
             repeated = [name for name in entry["lenses"] if name in always.get("lenses", [])]
@@ -305,8 +311,22 @@ def check_three_pass(schedule, efforts):
 
 
 def _relative_prefix(path):
-    return isinstance(path, str) and bool(path) and not path.startswith(("/", ".")) and "\\" not in path \
-        and ":" not in path and ".." not in path.split("/") and path == path.strip()
+    """A path prefix as `git diff --name-only` spells paths: forward slashes, no drive, no leading slash, and no
+    empty, `.` or `..` part (a trailing slash aside), so a prefix that loads is one a changed file can start with.
+    A hidden folder such as `.github/` is an ordinary part."""
+    if not isinstance(path, str) or not path or path != path.strip() or "\\" in path or ":" in path:
+        return False
+    parts = path.split("/")
+    return all(part not in ("", ".", "..") for part in (parts[:-1] if parts[-1] == "" else parts)) and parts != [""]
+
+
+def _keys(found, required, optional=()):
+    """What is wrong with a table's keys, for a refusal: ` (unknown: a, b; missing: c)`."""
+    unknown = sorted(str(k) for k in set(found) - set(required) - set(optional))
+    missing = sorted(set(required) - set(found))
+    said = [f"unknown: {', '.join(unknown)}"] if unknown else []
+    said += [f"missing: {', '.join(missing)}"] if missing else []
+    return f" ({'; '.join(said)})" if said else ""
 
 
 def pass_cap(schedule):
