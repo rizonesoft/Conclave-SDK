@@ -101,11 +101,13 @@ When adopting or grooming this system on a repository where code is already part
 
 ## Stamps and receipts
 
-A section closes only through `stamp`:
+A section closes only through `stamp`, after the review passes the project's pin (`.conclave/reviewers.toml`) schedules. Under a three-pass pin (`[schedule] policy = "three-pass"`, what a new install starts on) those are a plan review, one round, a completion review and reconciliations after gaps:
 
 ```powershell
-python scripts/todo-graph.py stamp 'D01 T01 §1' --sha <full 40-char implementation commit> --review '1:docs/reviews/01-engine/D01-T01-s1.md:clean' --check '<command> -> <quoted result>'
+python scripts/todo-graph.py stamp 'D01 T01 §1' --sha <full 40-char tip commit> --plan docs/reviews/01-engine/D01-T01-s1.md --completion 'docs/reviews/01-engine/D01-T01-s1.md:<complete|reconciled|filed>' --review '1:docs/reviews/01-engine/D01-T01-s1.md:<clean|fixed>' --check '<command> -> <quoted result>'
 ```
+
+Under a rotation pin (no `policy` key) the completion review comes before the rounds, there is one `--review` per round, and the completion verdicts are `complete`, `completed` and `filed`. `review-todo-section` has the whole flow for both.
 
 ## Commands
 
@@ -118,7 +120,7 @@ python scripts/todo-graph.py plan --check        # fail if the generated plan is
 python scripts/todo-graph.py query ready         # sections that can run now (also: blocked, stats, deferred, adjacency, plan)
 python scripts/todo-graph.py resolve 'D01 T01 §1'  # 0 ready, 1 no such section, 2 no reference, 3 verified, 4 waiting
 python scripts/todo-graph.py classify 'D01 T01 §1' 'D02 T01 §1'   # dispositions as JSON
-python scripts/todo-graph.py stamp 'D01 T01 §1' --sha <commit> --review '1:<report>:clean' --check '<cmd> -> <result>'
+python scripts/todo-graph.py stamp 'D01 T01 §1' --sha <commit> --plan <report> --completion '<report>:complete' --review '1:<report>:clean' --check '<cmd> -> <result>'
 python -m unittest tests.scripts.test_todo_graph   # the tooling's own tests
 ```
 
