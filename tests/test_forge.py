@@ -588,18 +588,25 @@ class ForgeProvisionTests(unittest.TestCase):
     def test_todo_kit_install_and_doctor(self):
         project = self.target / "planned"
         project.mkdir()
-        # The stub Codex lists this project's campaign Stop hook as trusted, as a real one does once init approved it.
+        # The stub Codex lists the campaign Stop hook untrusted at install, takes the write, then lists it trusted.
         key = str(project.resolve() / ".codex" / "hooks.json")
         scenario = self.target / "codex-scenario.json"
-        scenario.write_text(json.dumps({"listings": [{"data": [{"hooks": [{
-            "key": key + ":stop:0:0", "eventName": "stop", "source": "project", "sourcePath": key,
-            "command": "python -c scripts/codex-campaign-hook.py", "currentHash": "sha256:" + "a" * 64,
-            "trustStatus": "trusted"}]}]}]}), encoding="utf-8")
+        def listing(status):
+            return {"data": [{"hooks": [{
+                "key": key + ":stop:0:0", "eventName": "stop", "source": "project", "sourcePath": key,
+                "command": "python -c scripts/codex-campaign-hook.py", "currentHash": "sha256:" + "a" * 64,
+                "trustStatus": status}]}]}
+
+        # Server starts: the install lists, then writes; the doctor lists.
+        scenario.write_text(json.dumps({"listings": [listing("untrusted"), listing("untrusted"), listing("trusted")]}),
+                            encoding="utf-8")
         stub = unittest.mock.patch.dict(os.environ, {"CODEX_STUB_SCENARIO": str(scenario)})
         stub.start()
         self.addCleanup(stub.stop)
         res = forge.apply_kit(project, "todo")
-        self.assertEqual(res["codex_hook"], "trusted")
+        self.assertEqual(res["codex_hook"], "approved")
+        writes = (scenario.parent / (scenario.name + ".writes.jsonl")).read_text(encoding="utf-8").splitlines()
+        self.assertEqual([json.loads(w)["value"] for w in writes], [{key + ":stop:0:0": {"trusted_hash": "sha256:" + "a" * 64}}])
         self.assertIn("scripts/todo-graph.py", res["installed"])
         self.assertIn("todo/README.md", res["installed"])
         self.assertEqual((project / "scripts/todo-graph.py").stat().st_mode & 0o777, provisioned_mode(0o755))

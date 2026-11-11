@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -35,6 +36,24 @@ def load(name, path):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def run_tree(args, *, input, cwd, shell=False, timeout=120, env=None):
+    """Run a command whose own children (the hook, its graph call) must not outlive it: a new process group or
+    session, and on a timeout the whole tree is ended (taskkill /T on Windows, the process group elsewhere)."""
+    group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+    proc = subprocess.Popen(args, shell=shell, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, **group)
+    try:
+        out, err = proc.communicate(input, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+        else:
+            os.killpg(proc.pid, signal.SIGKILL)
+        proc.communicate()
+        raise
+    return subprocess.CompletedProcess(args, proc.returncode, out, err)
 
 
 guard = load("codex_test_guard", TEMPLATES / "scripts" / "campaign_guard.py")
@@ -83,8 +102,8 @@ class Wrapper(Project):
     """`scripts/codex-campaign-hook.py` run as Codex runs it: a process with the payload on stdin."""
 
     def run_hook(self, payload, script=None, cwd=None):
-        proc = subprocess.run([sys.executable, str(script or self.root / "scripts/codex-campaign-hook.py")],
-                              input=payload, capture_output=True, text=True, cwd=cwd or self.root, timeout=120)
+        proc = run_tree([sys.executable, str(script or self.root / "scripts/codex-campaign-hook.py")],
+                        input=payload, cwd=cwd or self.root)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertNotIn("Traceback", proc.stderr)
         return json.loads(proc.stdout)
@@ -151,8 +170,7 @@ class HookFile(Project):
         return hook["commandWindows"] if os.name == "nt" else hook["command"]
 
     def shell(self, cwd, payload=None):
-        proc = subprocess.run(self.command(), shell=True, input=payload or self.payload(), capture_output=True,
-                              text=True, cwd=cwd, timeout=120)
+        proc = run_tree(self.command(), shell=True, input=payload or self.payload(), cwd=cwd)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         return json.loads(proc.stdout.strip().splitlines()[-1])
 
@@ -222,7 +240,7 @@ class Trust(Project):
         path, env = self.scenario([hook_entry(self.root, "modified")])
         with env:
             self.assertEqual(trust_tool.trust(self.root, check=True)[0], {
-                "key": hook_entry(self.root)["key"], "status": "modified", "approved": False})
+                "key": hook_entry(self.root)["key"], "status": "modified", "enabled": True, "approved": False})
         self.assertEqual(self.writes(path), [])
 
     def test_a_project_codex_does_not_list_yet_is_trusted_then_its_hook(self):
@@ -255,8 +273,7 @@ class Trust(Project):
         environ = {**os.environ, "CODEX_HOOK_TRUST_SERVER": json.dumps([sys.executable, str(STUB)]),
                    "CODEX_STUB_SCENARIO": str(path)}
         path.write_text(json.dumps({"listings": [{"data": []}]}), encoding="utf-8")
-        proc = subprocess.run([sys.executable, str(script), "--check"], capture_output=True, text=True, env=environ,
-                              timeout=120)
+        proc = run_tree([sys.executable, str(script), "--check"], input="", cwd=self.root, env=environ)
         self.assertEqual(proc.returncode, 2, proc.stderr)
         self.assertEqual(len(proc.stderr.strip().splitlines()), 1, proc.stderr)
         self.assertNotIn("Traceback", proc.stderr)
@@ -281,6 +298,18 @@ class Doctor(Trust):
         with env:
             self.assertEqual(self.checks()["stop-hook-approved:.codex"]["status"], "ok")
         self.assertEqual(self.checks()["stop-hook:.codex"]["status"], "ok")
+
+    def test_a_disabled_hook_is_reported_and_never_re_enabled_or_approved(self):
+        path, env = self.scenario([{**hook_entry(self.root, "trusted"), "enabled": False}])
+        with env:
+            check = self.checks()["stop-hook-approved:.codex"]
+        self.assertEqual(check["status"], "setup_required")
+        self.assertIn("disabled in Codex", check["detail"])
+        path, env = self.scenario([{**hook_entry(self.root, "untrusted"), "enabled": False}])
+        with env:
+            results = trust_tool.trust(self.root)
+        self.assertEqual((results[0]["enabled"], results[0]["approved"]), (False, False))
+        self.assertEqual(self.writes(path), [])
 
     def test_no_codex_folder_means_no_codex_check(self):
         shutil.rmtree(self.root / ".codex")

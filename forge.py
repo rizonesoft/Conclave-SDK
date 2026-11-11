@@ -1389,6 +1389,9 @@ def _codex_hook_approval(target_root: Path) -> tuple[str, str]:
         results = trust.trust(Path(target_root), check=True)
     except (trust.TrustError, OSError) as exc:
         return "setup_required", f"{exc}; {fix}"
+    disabled = [r["key"] for r in results if not r.get("enabled", True)]
+    if disabled:
+        return "setup_required", f"the Stop hook is disabled in Codex ({', '.join(disabled)}); enable it in Codex's hook list"
     stale = [f"{r['key']} is {r['status']}" for r in results if r["status"] != "trusted"]
     if stale:
         return "setup_required", f"Codex skips the Stop hook until it is approved ({'; '.join(stale)}); {fix}"

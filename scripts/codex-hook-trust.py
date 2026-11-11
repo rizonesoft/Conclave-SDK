@@ -174,11 +174,14 @@ def trust(root: Path = ROOT, check: bool = False) -> list[dict]:
     results = []
     for hook in hooks:
         status = str(hook.get("trustStatus"))
+        enabled = hook.get("enabled", True) is not False
         approved = False
-        if status != "trusted" and not check:
+        # A hook the operator disabled in Codex stays disabled: an approval would not make Codex run it, and the
+        # choice is theirs. It is reported, never re-enabled.
+        if status != "trusted" and enabled and not check:
             _write(root, "hooks.state", {hook["key"]: {"trusted_hash": hook["currentHash"]}})
             approved = True
-        results.append({"key": hook["key"], "status": status, "approved": approved})
+        results.append({"key": hook["key"], "status": status, "enabled": enabled, "approved": approved})
     return results
 
 
@@ -194,8 +197,10 @@ def main(argv: list[str]) -> int:
         return 2
     for result in results:
         word = "approved" if result["approved"] else result["status"]
+        if not result["enabled"]:
+            word += ", disabled in Codex"
         print(f"codex-hook-trust: {word}: {result['key']}")
-    if check and any(r["status"] != "trusted" for r in results):
+    if any(not r["enabled"] for r in results) or (check and any(r["status"] != "trusted" for r in results)):
         return 1
     return 0
 
