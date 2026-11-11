@@ -1455,8 +1455,10 @@ class InstallRecordTests(unittest.TestCase):
         self.assertEqual(own.read_bytes(), (FORGE_ROOT / "kits/base/templates/CLAUDE.md").read_bytes())
 
 
-class DiffTests(unittest.TestCase):
-    """`forge.py diff`: each kit file's state from the project's bytes, the kit's and the record's, written nowhere."""
+class KitFixture:
+    """A scratch project and the six recorded states, shared by the diff and update tests."""
+
+    target: pathlib.Path
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -1468,10 +1470,6 @@ class DiffTests(unittest.TestCase):
 
     def states(self, result, kit="todo"):
         return {item["path"]: item["state"] for item in result["kits"][kit]["files"]}
-
-    def cli(self, *args):
-        return subprocess.run([sys.executable, str(FORGE_ROOT / "forge.py"), "diff", *map(str, args)],
-                              capture_output=True, text=True)
 
     def loaded(self):
         record = forge.load_record(self.target)
@@ -1505,6 +1503,18 @@ class DiffTests(unittest.TestCase):
         (self.target / six["project-changed"]).write_bytes(b"the project's own edit\n")
         (self.target / six["both-changed"]).write_bytes(b"the project's own edit\n")
         self.set_recorded(six["both-changed"], b"what an older kit installed\n")
+
+    def snapshot(self, root):
+        return {p.relative_to(root).as_posix(): forge.file_digest(p.read_bytes())
+                for p in sorted(root.rglob("*")) if p.is_file()}
+
+
+class DiffTests(KitFixture, unittest.TestCase):
+    """`forge.py diff`: each kit file's state from the project's bytes, the kit's and the record's, written nowhere."""
+
+    def cli(self, *args):
+        return subprocess.run([sys.executable, str(FORGE_ROOT / "forge.py"), "diff", *map(str, args)],
+                              capture_output=True, text=True)
 
     def test_every_recorded_state_is_told_apart(self):
         self.six_state_fixture()
@@ -1758,10 +1768,6 @@ class DiffTests(unittest.TestCase):
         self.target.mkdir()
         self.six_state_fixture()
 
-    def snapshot(self, root):
-        return {p.relative_to(root).as_posix(): forge.file_digest(p.read_bytes())
-                for p in sorted(root.rglob("*")) if p.is_file()}
-
     def test_diff_writes_nothing(self):
         self.six_state_fixture()
         # An interrupted run's staged file stays for the next install to settle: diff must not settle it.
@@ -1780,6 +1786,266 @@ class DiffTests(unittest.TestCase):
         section = readme.split("### `diff`", 1)[1].split("\n## ", 1)[0].split("\n### ", 1)[0]
         for state in forge.DIFF_STATES:
             self.assertIn(f"| `{state}` |", section, state)
+
+
+class UpdateTests(KitFixture, unittest.TestCase):
+    """`forge.py update`: only `missing` and `kit-newer` files are written; every other file stays the project's."""
+
+
+    def kit_bytes(self, rel, kit="todo"):
+        return (FORGE_ROOT / "kits" / kit / "templates" / rel).read_bytes()
+
+    def cli(self, *args):
+        result = subprocess.run([sys.executable, str(FORGE_ROOT / "forge.py"), "update", *map(str, args)],
+                                capture_output=True, text=True)
+        return result
+
+    def test_only_missing_and_kit_newer_files_are_written(self):
+        self.six_state_fixture()
+        before = self.snapshot(self.target)
+        result = forge.update_project(self.target)
+        self.assertEqual(sorted(result["written"]), sorted([self.SIX["missing"], self.SIX["kit-newer"]]))
+        for state in ("missing", "kit-newer"):
+            self.assertEqual((self.target / self.SIX[state]).read_bytes(), self.kit_bytes(self.SIX[state]))
+        after = self.snapshot(self.target)
+        for state in ("project-changed", "both-changed", "identical"):
+            self.assertEqual(after[self.SIX[state]], before[self.SIX[state]], state)
+        self.assertNotIn(self.SIX["project-removed"], after)
+        left = {item["path"]: item for item in result["left"]}
+        self.assertEqual({rel: item["state"] for rel, item in left.items()},
+                         {self.SIX[s]: s for s in ("project-changed", "both-changed", "project-removed")})
+        self.assertIn("\n-the project's own edit\n", left[self.SIX["project-changed"]]["patch"])
+
+    def test_a_path_the_kit_no_longer_ships_is_left(self):
+        sdk = pathlib.Path(self.tmp.name) / "sdk"
+        shutil.copytree(FORGE_ROOT / "kits/todo", sdk / "kits/todo")
+        rel = ".claude/skills/groom-plan/SKILL.md"
+        with unittest.mock.patch.object(forge, "FORGE_ROOT", sdk):
+            forge.apply_kit(self.target, "todo", agent="claude")
+            (sdk / "kits/todo/templates" / rel).unlink()
+            before = (self.target / rel).read_bytes()
+            result = forge.update_project(self.target)
+        self.assertEqual(result["left"], [{"path": rel, "state": "project-only"}])
+        self.assertEqual((self.target / rel).read_bytes(), before)
+
+    def test_only_narrows_to_a_file_or_a_folder(self):
+        self.six_state_fixture()
+        result = forge.update_project(self.target, only=[self.SIX["missing"]])
+        self.assertEqual(result["written"], [self.SIX["missing"]])
+        self.assertNotEqual((self.target / self.SIX["kit-newer"]).read_bytes(), self.kit_bytes(self.SIX["kit-newer"]))
+        folder = str(pathlib.PurePosixPath(self.SIX["kit-newer"]).parent).replace("/", "\\")  # a Windows spelling
+        self.assertEqual(forge.update_project(self.target, only=[folder])["written"], [self.SIX["kit-newer"]])
+        # A removed file comes back only when named.
+        self.assertFalse((self.target / self.SIX["project-removed"]).exists())
+        self.assertEqual(forge.update_project(self.target)["written"], [])
+        restored = forge.update_project(self.target, only=[self.SIX["project-removed"]])
+        self.assertEqual(restored["written"], [self.SIX["project-removed"]])
+        self.assertEqual((self.target / self.SIX["project-removed"]).read_bytes(),
+                         self.kit_bytes(self.SIX["project-removed"]))
+        self.assertEqual(self.loaded()["files"][self.SIX["project-removed"]]["sha256"],
+                         forge.file_digest(self.kit_bytes(self.SIX["project-removed"])))
+        for bad in ("../outside", str(pathlib.Path(self.tmp.name) / "x"), "/etc/passwd", "C:/x", "", "docs/nothing-here"):
+            before = self.snapshot(self.target)
+            with self.assertRaises(ValueError, msg=bad):
+                forge.update_project(self.target, only=[bad])
+            self.assertEqual(self.snapshot(self.target), before, bad)
+
+    def test_each_failure_point_leaves_a_state_the_next_run_settles(self):
+        three = [self.SIX["missing"], self.SIX["kit-newer"], ".claude/skills/review-todo-section/SKILL.md"]
+        for point in ("stage", "record", "rename"):
+            with self.subTest(point=point):
+                shutil.rmtree(self.target)
+                self.target.mkdir()
+                self.six_state_fixture()
+                third = self.target / three[2]
+                third.write_bytes(b"older\n")
+                self.set_recorded(three[2], b"older\n")
+                second = self.target / three[1]
+                second_before = second.read_bytes()
+                second_entry = self.loaded()["files"][three[1]]
+                real_write, real_replace = forge.atomic_write, os.replace
+                record_writes = []
+
+                def failing_write(path, data, real=real_write):
+                    path = pathlib.Path(path)
+                    if point == "stage" and path.parent == second.parent and path.name.startswith(second.name + "."):
+                        raise OSError(28, "No space left on device")
+                    if path.name == "kits.json":
+                        record_writes.append(path)
+                        if point == "record" and len(record_writes) == 2:  # the second file's record write
+                            raise OSError(28, "No space left on device")
+                    return real(path, data)
+
+                def failing_replace(src, dst, real=real_replace):
+                    if point == "rename" and pathlib.Path(dst) == second:
+                        raise OSError(13, "Permission denied")
+                    return real(src, dst)
+
+                with unittest.mock.patch.object(forge, "atomic_write", failing_write), \
+                        unittest.mock.patch.object(forge.os, "replace", failing_replace):
+                    with self.assertRaises(OSError):
+                        forge.update_project(self.target, only=three)
+                files = self.loaded()["files"]
+                self.assertEqual((self.target / three[0]).read_bytes(), self.kit_bytes(three[0]), point)
+                self.assertEqual(files[three[0]]["sha256"], forge.file_digest(self.kit_bytes(three[0])), point)
+                self.assertEqual(second.read_bytes(), second_before, point)
+                self.assertEqual(third.read_bytes(), b"older\n", point)
+                if point == "rename":
+                    self.assertEqual(files[three[1]]["sha256"], forge.file_digest(self.kit_bytes(three[1])))
+                    self.assertTrue((self.target / forge.PENDING).is_file())
+                else:
+                    self.assertEqual(files[three[1]], second_entry, point)
+                # The next run settles what was left and finishes the work.
+                forge.update_project(self.target, only=three)
+                for rel in three:
+                    self.assertEqual((self.target / rel).read_bytes(), self.kit_bytes(rel), (point, rel))
+                self.assertFalse((self.target / forge.PENDING).exists())
+                self.assertEqual([p for p in self.snapshot(self.target) if p.endswith((forge.STAGED, forge.STAGED_REPLACE))], [])
+
+    def test_an_edit_made_after_a_failed_rename_is_kept(self):
+        self.six_state_fixture()
+        second = self.target / self.SIX["kit-newer"]
+        real_replace = os.replace
+
+        def failing_replace(src, dst):
+            if pathlib.Path(dst) == second:
+                raise OSError(13, "Permission denied")
+            return real_replace(src, dst)
+
+        with unittest.mock.patch.object(forge.os, "replace", failing_replace):
+            with self.assertRaises(OSError):
+                forge.update_project(self.target, only=[self.SIX["kit-newer"]])
+        second.write_bytes(b"edited in between\n")
+        forge.update_project(self.target)
+        self.assertEqual(second.read_bytes(), b"edited in between\n")
+        # Rolled back to the entry it had (an older kit's bytes), so both sides now differ from it.
+        self.assertEqual(self.states(forge.diff_project(self.target))[self.SIX["kit-newer"]], "both-changed")
+
+    def interrupted(self):
+        """A six-state project an earlier run left part way: a staged new file for a recorded, deleted file."""
+        self.six_state_fixture()
+        staged = self.target / (self.SIX["project-removed"] + forge.STAGED)
+        staged.write_bytes(self.kit_bytes(self.SIX["project-removed"]))
+        return staged
+
+    def test_every_refusal_comes_before_any_write(self):
+        staged = self.interrupted()
+        skill = self.target / ".claude/skills/add-todo"
+        outside = pathlib.Path(self.tmp.name) / "outside"
+        outside.mkdir()
+        shutil.rmtree(skill)
+        make_link(outside, skill)
+        before = self.snapshot(self.target)
+        for only in (["docs/nothing-here"], [".claude/skills/add-todo"], []):
+            result = self.cli(self.target, *[a for o in only for a in ("--only", o)])
+            self.assertEqual(result.returncode, 2, (only, result.stderr))
+            self.assertNotIn("Traceback", result.stderr)
+            self.assertEqual(self.snapshot(self.target), before, only)
+        self.assertTrue(staged.is_file())
+        # Outside the linked folder the update runs, and settles the interrupted file first.
+        result = forge.update_project(self.target, only=[".claude/skills/process-phase", ".claude/skills/groom-plan"])
+        self.assertFalse(staged.exists())
+        self.assertEqual((self.target / self.SIX["project-removed"]).read_bytes(),
+                         self.kit_bytes(self.SIX["project-removed"]))
+        self.assertEqual(result["written"], [self.SIX["kit-newer"]])
+
+    def test_a_file_edited_between_the_diff_and_its_write_is_kept(self):
+        self.six_state_fixture()
+        rel = self.SIX["kit-newer"]
+        real = forge._write_recorded
+
+        def edit_first(target_root, record, kit_name, agent, host, copies, expect=None):
+            (self.target / rel).write_bytes(b"edited during the update\n")
+            return real(target_root, record, kit_name, agent, host, copies, expect)
+
+        with unittest.mock.patch.object(forge, "_write_recorded", edit_first):
+            result = forge.update_project(self.target)
+        self.assertEqual((self.target / rel).read_bytes(), b"edited during the update\n")
+        self.assertIn({"path": rel, "state": "changed-since-diff"}, result["left"])
+        self.assertNotIn(rel, result["written"])
+        self.assertIn(self.SIX["missing"], result["written"])
+
+    def test_a_dry_run_writes_nothing_and_settles_nothing(self):
+        for fixture in (self.six_state_fixture, self.interrupted):
+            with self.subTest(fixture=fixture.__name__):
+                shutil.rmtree(self.target)
+                self.target.mkdir()
+                fixture()
+                before = self.snapshot(self.target)
+                result = forge.update_project(self.target, dry_run=True)
+                self.assertEqual(self.snapshot(self.target), before)
+                self.assertEqual(sorted(result["written"]), sorted([self.SIX["missing"], self.SIX["kit-newer"]]))
+                self.assertTrue(result["dry_run"])
+
+    def test_agents_compared_without_a_record_are_all_recorded(self):
+        forge.apply_kit(self.target, "todo", agent="claude")
+        forge.apply_kit(self.target, "todo", agent="codex")
+        (self.target / forge.RECORD).unlink()
+        (self.target / ".codex/skills/add-todo/SKILL.md").unlink()
+        result = forge.update_project(self.target)
+        self.assertEqual(result["written"], [".codex/skills/add-todo/SKILL.md"])
+        self.assertEqual(self.loaded()["kits"]["todo"]["agents"], ["claude", "codex"])
+
+    def test_no_scripts_leaves_scripts_out(self):
+        forge.provision(self.target, with_todo=True, include_scripts=False)
+        self.assertFalse((self.target / "scripts").exists())
+        result = self.cli(self.target, "--no-scripts")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["written"], [])
+        self.assertFalse((self.target / "scripts").exists())
+        self.assertTrue([p for p in forge.update_project(self.target, dry_run=True)["written"] if p.startswith("scripts/")])
+
+    def test_without_a_record_only_missing_files_are_written(self):
+        self.six_state_fixture()
+        (self.target / forge.RECORD).unlink()
+        changed = (self.target / self.SIX["kit-newer"]).read_bytes()
+        result = forge.update_project(self.target)
+        self.assertEqual(sorted(result["written"]), sorted([self.SIX["missing"], self.SIX["project-removed"]]))
+        self.assertEqual((self.target / self.SIX["kit-newer"]).read_bytes(), changed)
+        self.assertIn({"path": self.SIX["kit-newer"], "state": "differs"},
+                      [{k: i[k] for k in ("path", "state")} for i in result["left"]])
+        self.assertIn("forge.py record", result["hint"])
+        self.assertIn("--kit-new", result["hint"])
+
+    def test_the_generated_mcp_json_is_never_copied(self):
+        (self.target / "artisan").write_text("<?php\n", encoding="utf-8")
+        forge.apply_kit(self.target, "laravel", agent="claude")
+        mcp = self.target / ".mcp.json"
+        mcp.write_text('{"mcpServers": {}}\n', encoding="utf-8")
+        result = forge.update_project(self.target)
+        self.assertEqual(mcp.read_text(encoding="utf-8"), '{"mcpServers": {}}\n')
+        self.assertIn({"path": ".mcp.json", "state": "generated", "hint": forge.UPDATE_HINT_GENERATED}, result["left"])
+        mcp.unlink()
+        result = forge.update_project(self.target)
+        self.assertFalse(mcp.exists())
+        self.assertIn({"path": ".mcp.json", "state": "missing", "hint": forge.UPDATE_HINT_GENERATED}, result["left"])
+
+    def test_the_command_line_updates_once_then_has_nothing_to_do(self):
+        self.six_state_fixture()
+        first = self.cli(self.target)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        out = json.loads(first.stdout)
+        self.assertEqual(sorted(out["written"]), sorted([self.SIX["missing"], self.SIX["kit-newer"]]))
+        self.assertTrue(out["record"])
+        files = self.loaded()["files"]
+        for state in ("missing", "kit-newer"):
+            self.assertEqual(files[self.SIX[state]]["sha256"], forge.file_digest(self.kit_bytes(self.SIX[state])))
+        second = self.cli(self.target)
+        self.assertEqual(json.loads(second.stdout)["written"], [])
+        states = self.states(forge.diff_project(self.target))
+        self.assertEqual(states[self.SIX["missing"]], "identical")
+        self.assertEqual(states[self.SIX["kit-newer"]], "identical")
+        both = self.cli(self.target, "--only", self.SIX["project-removed"], "--only", self.SIX["both-changed"])
+        self.assertEqual(json.loads(both.stdout)["written"], [self.SIX["project-removed"]])
+        dry = self.cli(self.target, "--dry-run")
+        self.assertTrue(json.loads(dry.stdout)["dry_run"])
+
+    def test_the_readme_describes_update(self):
+        readme = (FORGE_ROOT / "README.md").read_text(encoding="utf-8")
+        section = readme.split("### `update`", 1)[1].split("\n## ", 1)[0].split("\n### ", 1)[0]
+        for flag in ("--only", "--dry-run", "--no-scripts"):
+            self.assertIn(f"python forge.py update ..\\ExistingRepo {flag}", section, flag)
+        self.assertIn("never writes over", section)
 
 
 class ProcessPlanAuditTests(unittest.TestCase):

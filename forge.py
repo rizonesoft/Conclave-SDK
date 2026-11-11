@@ -4,6 +4,7 @@
     python forge.py init <target> [--agent all|agy|gemini|claude|codex] [--kit <kit>] [--with-todo] [--force]
     python forge.py kit <target> <kit> [--agent all|agy|gemini|claude|codex] [--host pressable|wpcom] [--dry-run]
     python forge.py diff <target> [kit] [--patch]
+    python forge.py update <target> [kit] [--only <path>]... [--no-scripts] [--dry-run]
     python forge.py doctor <target> [laravel|wordpress|reviewer|automations|todo|base] [--strict]
     python forge.py kits
     python forge.py check <target>
@@ -388,11 +389,12 @@ def write_record(target_root: Path, record: dict) -> None:
     atomic_write(target_root / RECORD, json.dumps(record, indent=2, sort_keys=True) + "\n")
 
 
-def _record_install(record: dict, kit_name: str, agent: str, host: str | None, digests: dict[str, str],
+def _record_install(record: dict, kit_name: str, agent: str | list[str], host: str | None, digests: dict[str, str],
                     commit: str | None) -> None:
     """Merge written files into the record under their kit. The kit's agents accumulate (an install for Claude and
-    a later one for Codex record both; `all` records all three) and its commit is the latest install's."""
-    agents = set(RECORD_AGENTS) if agent == "all" else {agent}
+    a later one for Codex record both; `all` records all three, a list each it names) and its commit is the latest
+    install's."""
+    agents = set(RECORD_AGENTS) if agent == "all" else ({agent} if isinstance(agent, str) else set(agent))
     kit = record["kits"].setdefault(kit_name, {"sdk_commit": None, "agents": [], "host": None})
     kit["agents"] = sorted(agents | set(kit["agents"]))
     kit["sdk_commit"] = commit
@@ -509,8 +511,8 @@ def _recover(target_root: Path, record: dict) -> None:
         _remove(staged)
 
 
-def _write_recorded(target_root: Path, record: dict, kit_name: str, agent: str, host: str | None,
-                    copies: list[tuple[str, Path, bytes]]) -> None:
+def _write_recorded(target_root: Path, record: dict, kit_name: str, agent: str | list[str], host: str | None,
+                    copies: list[tuple[str, Path, bytes]], expect: dict[str, str | None] | None = None) -> list[str]:
     """Write `(relative path, destination, bytes)` files and record each under its kit, one file at a time, so the
     record and the files never disagree in a way a later run cannot settle (`_recover`). For each file:
 
@@ -525,12 +527,21 @@ def _write_recorded(target_root: Path, record: dict, kit_name: str, agent: str, 
 
     So a file is on disk only with its record entry, and a failure part way leaves the files before it written and
     recorded and the failing one neither.
+
+    `expect` maps a path to the digest its destination must still have (None: still absent) just before the file
+    is staged; a file that no longer matches was changed since it was classified, is left alone, and is returned.
     """
+    changed: list[str] = []
     if not copies:
-        return
+        return changed
     commit = sdk_commit()
     journal = target_root / PENDING
     for rel, dst, data in copies:
+        if expect is not None and rel in expect:
+            now = None if not (dst.exists() or dst.is_symlink()) else (_digest_of(dst) if not _is_link(dst) else "link")
+            if now != expect[rel]:
+                changed.append(rel)
+                continue
         earlier = record["files"].get(rel)
         replaces = earlier is not None or dst.exists() or dst.is_symlink()
         staged = dst.with_name(dst.name + (STAGED_REPLACE if replaces else STAGED))
@@ -556,6 +567,7 @@ def _write_recorded(target_root: Path, record: dict, kit_name: str, agent: str, 
         os.replace(staged, dst)
         if replaces:
             _remove(journal)
+    return changed
 
 
 def apply_kit(
@@ -664,7 +676,7 @@ def _diff_agents(target_root: Path, recorded_kit: dict | None) -> list[str]:
     return found or list(RECORD_AGENTS)
 
 
-def _diff_plan(target_root: Path, kit_name: str, agents: list[str], host: str | None) -> list[tuple]:
+def _diff_plan(target_root: Path, kit_name: str, agents: list[str], host: str | None) -> tuple[list[tuple], dict]:
     """The union of the kit's plans for each agent, one entry per relative path, sorted by path. When the record
     knows the WordPress host and the pin is a link or does not load, the plan uses the recorded host without
     reading the pin, so the pin is reported (unsafe, unreadable, changed) beside every other file."""
@@ -673,10 +685,12 @@ def _diff_plan(target_root: Path, kit_name: str, agents: list[str], host: str | 
         read_pin = not _unsafe_destination(target_root, WORDPRESS_PIN) and (
             not (target_root / WORDPRESS_PIN).exists() or _load_wordpress_pin(target_root)[0] is not None)
     entries: dict[str, tuple] = {}
+    extra: dict = {}
     for agent in (["all"] if set(agents) == set(RECORD_AGENTS) else agents):
-        for entry in kit_plan(target_root, kit_name, agent=agent, host=host, read_pin=read_pin)[0]:
+        plan, extra = kit_plan(target_root, kit_name, agent=agent, host=host, read_pin=read_pin)
+        for entry in plan:
             entries.setdefault(entry[2], entry)
-    return [entries[rel] for rel in sorted(entries)]
+    return [entries[rel] for rel in sorted(entries)], extra
 
 
 def _unsafe_destination(target_root: Path, rel: str) -> bool:
@@ -720,6 +734,12 @@ def _text_patch(rel: str, project: bytes, kit: bytes) -> str:
 def diff_project(target_root: Path, kit_name: str | None = None, *, patch: bool = False) -> dict:
     """`diff`: the state of every kit file in a project (DIFF_STATES), from the project's bytes, the kit's and the
     record's digest. Reads only: it never settles an interrupted run (`_recover`) or writes the record."""
+    return _diff_kits(target_root, kit_name, patch=patch)[0]
+
+
+def _diff_kits(target_root: Path, kit_name: str | None, *, patch: bool) -> tuple[dict, dict]:
+    """`diff_project`'s report, and for each kit what `update` needs to act on it: the plan's source by path (None
+    for a generated entry), the agents compared and the host."""
     target_root = Path(target_root)
     if not target_root.is_dir() or _is_link(target_root):
         raise ValueError(f"Target must be an existing non-symlink directory: {target_root}")
@@ -735,10 +755,13 @@ def diff_project(target_root: Path, kit_name: str | None = None, *, patch: bool 
         present = {kit_name}
     files = record["files"] if record else {}
     kits: dict[str, dict] = {}
+    sources: dict[str, dict] = {}
     for name in [k for k in KIT_ORDER if k in present] + sorted(present - set(KIT_ORDER)):
         recorded_kit = recorded_kits.get(name)
         agents = _diff_agents(target_root, recorded_kit)
-        plan = _diff_plan(target_root, name, agents, recorded_kit["host"] if recorded_kit else None)
+        plan, extra = _diff_plan(target_root, name, agents, recorded_kit["host"] if recorded_kit else None)
+        sources[name] = {"agents": sorted(agents), "host": extra.get("host"),
+                         "plan": {rel: (None if generated else src) for src, _dst, rel, generated in plan}}
         report = []
         for src, _dst, rel, generated in plan:
             if _unsafe_destination(target_root, rel):
@@ -768,7 +791,92 @@ def diff_project(target_root: Path, kit_name: str | None = None, *, patch: bool 
             elif (target_root / rel).is_file():
                 report.append({"path": rel, "state": "project-only"})
         kits[name] = {"record": recorded_kit is not None, "agents": sorted(agents), "files": report}
-    return {"target": target_root.as_posix(), "record": record is not None, "sdk_commit": sdk_commit(), "kits": kits}
+    result = {"target": target_root.as_posix(), "record": record is not None, "sdk_commit": sdk_commit(), "kits": kits}
+    return result, sources
+
+
+UPDATE_HINT_NO_RECORD = (
+    "Without a record entry a differing file's installed bytes are unknown, so it is left. `forge.py record` adopts "
+    "the files identical to the kit as installed; a differing file is merged by hand (`update --kit-new` helps).")
+UPDATE_HINT_GENERATED = "Generated by the kit, never copied: `forge.py kit <project> laravel` builds it."
+
+
+def _only_paths(only) -> list[str]:
+    """`--only` values as project-relative paths: an absolute path, a drive, `..` or nothing at all refuses."""
+    paths = []
+    for value in only:
+        text = str(value).replace("\\", "/")
+        parts = [part for part in text.split("/") if part not in ("", ".")]
+        if os.path.isabs(str(value)) or text.startswith("/") or re.match(r"^[A-Za-z]:", text) or ".." in parts or not parts:
+            raise ValueError(f"--only takes a file or folder inside the project, not {value!r}")
+        paths.append("/".join(parts))
+    return paths
+
+
+def _under(rel: str, paths: list[str]) -> bool:
+    return any(rel == path or rel.startswith(path + "/") for path in paths)
+
+
+def update_project(target_root: Path, kit_name: str | None = None, *, only=(), dry_run: bool = False,
+                   no_scripts: bool = False) -> dict:
+    """`update`: write the kit files that are `missing` or `kit-newer` (and a `project-removed` one only when `only`
+    names it or its folder), never one the project changed, and list every other differing file under `left` with
+    its state and patch. Every refusal (a bad `only`, an unsafe destination in the selection) comes from a read-only
+    diff before anything is written; then an interrupted run is settled, the project is diffed again and the writes
+    go through `_write_recorded`, one file recorded at a time, each re-checked just before it is written."""
+    paths = _only_paths(only)
+
+    def chosen(rel: str) -> bool:
+        return (not paths or _under(rel, paths)) and not (no_scripts and rel.startswith("scripts/"))
+
+    first, _ = _diff_kits(target_root, kit_name, patch=False)
+    target = Path(first["target"])
+    known = [item for kit in first["kits"].values() for item in kit["files"]]
+    for path in paths:
+        if not any(_under(item["path"], [path]) for item in known):
+            raise ValueError(f"--only {path}: no kit file the project has is there")
+    for item in known:
+        if item["state"] == "unsafe" and chosen(item["path"]):
+            raise ValueError(f"Refusing destination that is a link or under one: {item['path']}")
+
+    if not dry_run:
+        _recover(target, load_record(target) or {"schema_version": 1, "kits": {}, "files": {}})
+    report, sources = _diff_kits(target, kit_name, patch=True)
+    record = load_record(target) or {"schema_version": 1, "kits": {}, "files": {}}
+    written: list[str] = []
+    left: list[dict] = []
+    for name, kit in report["kits"].items():
+        plan = sources[name]["plan"]
+        copies: list[tuple[str, Path, bytes]] = []
+        expect: dict[str, str | None] = {}
+        for item in kit["files"]:
+            rel, state = item["path"], item["state"]
+            if state == "identical" or not chosen(rel):
+                continue
+            if plan.get(rel, False) is None:  # a generated entry has no source
+                left.append({"path": rel, "state": state, "hint": UPDATE_HINT_GENERATED})
+                continue
+            take = state in ("missing", "kit-newer") or (state == "project-removed" and bool(paths))
+            if not take:
+                left.append(item)
+                continue
+            data = plan[rel].read_bytes()
+            entry = record["files"].get(rel)
+            expect[rel] = entry["sha256"] if state == "kit-newer" and entry else None
+            copies.append((rel, target / rel, data))
+        if dry_run:
+            written.extend(rel for rel, _dst, _data in copies)
+            continue
+        agents = sources[name]["agents"]
+        agent = "all" if set(agents) == set(RECORD_AGENTS) else agents
+        changed = _write_recorded(target, record, name, agent, sources[name]["host"], copies, expect)
+        written.extend(rel for rel, _dst, _data in copies if rel not in changed)
+        left.extend({"path": rel, "state": "changed-since-diff"} for rel in changed)
+    result = {"target": target.as_posix(), "dry_run": dry_run, "record": (target / RECORD).is_file(),
+              "written": written, "left": left}
+    if not all(kit["record"] for kit in report["kits"].values()) or any(i["state"] == "differs" for i in left):
+        result["hint"] = UPDATE_HINT_NO_RECORD
+    return result
 
 
 def _wordpress_pin_module() -> types.ModuleType:
@@ -1205,6 +1313,14 @@ def main(argv: list[str] | None = None) -> int:
     p_diff.add_argument("kit_name", nargs="?", default=None, help="Only this kit (default: every kit the project has)")
     p_diff.add_argument("--patch", action="store_true", help="Add a unified diff for each changed text file")
 
+    p_up = sub.add_parser("update", help="Write only the kit files a project lacks or never changed; list the rest")
+    p_up.add_argument("target", help="Target repository path")
+    p_up.add_argument("kit_name", nargs="?", default=None, help="Only this kit (default: every kit the project has)")
+    p_up.add_argument("--only", action="append", default=[], metavar="PATH",
+                      help="Only this file or folder, relative to the project (repeatable)")
+    p_up.add_argument("--no-scripts", action="store_true", help="Leave out the kits' scripts/ files, as init --no-scripts does")
+    p_up.add_argument("--dry-run", action="store_true", help="List what would be written without writing")
+
     sub.add_parser("kits", help="List available overlay kits")
     p_self = sub.add_parser("self-sync", help="Refresh the SDK's own installed copy of base, todo, reviewer and automations")
     p_self.add_argument("--dry-run", action="store_true", help="List the files that would change without writing")
@@ -1238,6 +1354,11 @@ def _run(args: argparse.Namespace) -> int:
 
     if args.command == "diff":
         print(json.dumps(diff_project(target, args.kit_name, patch=args.patch), indent=2))
+        return 0
+
+    if args.command == "update":
+        print(json.dumps(update_project(target, args.kit_name, only=args.only, dry_run=args.dry_run,
+                                        no_scripts=args.no_scripts), indent=2))
         return 0
 
     if args.command == "doctor":

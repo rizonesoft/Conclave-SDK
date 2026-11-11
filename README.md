@@ -81,6 +81,7 @@ Then open the project in Claude Code, Codex or Antigravity. Each agent finds its
 | `python forge.py init <project> [--kit <kit>]` | Install the base kit plus the kits you name |
 | `python forge.py kit <project> <kit>` | Add one kit to an existing project, copying only missing files |
 | `python forge.py diff <project> [kit]` | Report each kit file's state against the kit, writing nothing |
+| `python forge.py update <project> [kit]` | Write only the kit files the project lacks or never changed |
 | `python forge.py doctor <project> [kit]` | Read-only checks of a kit's files and the tools it needs |
 | `python forge.py check <project>` | List the kits and skills a project has |
 | `python forge.py kits` | List the kits this SDK ships |
@@ -145,6 +146,18 @@ Paste the prompt from [`prompts/bootstrap-project-prompt.md`](prompts/bootstrap-
 python forge.py diff ..\ExistingRepo
 python forge.py diff ..\ExistingRepo todo --patch
 ```
+
+### `update`: take what is safe to take
+
+`python forge.py update <project> [kit]` writes only the files `diff` calls `missing` or `kit-newer`, and never writes over a file the project changed: every other differing file is listed under `left` with its state and patch, for you to merge by hand. A file the project deleted (`project-removed`) comes back only when `--only` names it or its folder. Each file is recorded as it is written, so an update cut short is settled by the next `kit` or `update`. The generated Laravel `.mcp.json` is never copied (`kit` builds it). Without a record entry a differing file's installed bytes are unknown, so it is left.
+
+```powershell
+python forge.py update ..\ExistingRepo --dry-run
+python forge.py update ..\ExistingRepo --only scripts/todo-graph.py --only .claude/skills/process-plan
+python forge.py update ..\ExistingRepo --no-scripts
+```
+
+`--dry-run` lists what would be written and writes nothing. `--only` (repeatable) takes a file or folder relative to the project. `--no-scripts` leaves the kits' `scripts/` out, as `init --no-scripts` does.
 
 ## Isolation
 
