@@ -660,36 +660,54 @@ def returned_plan(record_path):
     return plans[0] if len(plans) == 1 else None
 
 
+def is_three_pass(pin):
+    return pin is not None and pin.get("schedule", {}).get("policy") == THREE_PASS
+
+
 def committed_pin(sha):
-    """The pin committed at `sha` when it is a three-pass pin, else None: no pin there, or a rotation pin, which
-    never binds a section. A three-pass pin that no longer loads is a refusal naming the commit, never a fallback."""
+    """The pin committed at `sha`, or None when that commit holds none (or holds an earlier pin that no longer loads
+    and was never three-pass). A three-pass pin there that does not load is a refusal naming the commit."""
     shown = git("show", f"{sha}:.conclave/reviewers.toml")
     if shown.returncode != 0:
         return None
     try:
-        pin = load_pin(data=shown.stdout)
+        return load_pin(data=shown.stdout)
     except Refused as exc:
         if THREE_PASS.encode() not in shown.stdout:
             return None
         raise Refused(f"the reviewer pin at {sha} does not load: {exc}") from None
-    return pin if pin.get("schedule", {}).get("policy") == THREE_PASS else None
 
 
 def section_pin(pin_path, record_path, kind, candidate):
-    """The pin a pass runs under. Under the three-pass policy a section keeps the pin its plan review read: the plan
-    review runs under the three-pass pin committed at its own candidate, and every later pass of that section under
-    the one at its returned plan review's candidate, schedule and route both, so a pin change (or a broken
-    working-tree pin) never moves a section already under review. A three-pass pin there that does not load is a
-    refusal naming the commit, never replaced by the working tree's. Everything else takes the pin at `pin_path`, as
-    it always did: a findings file not named for a section, a section with no returned plan review, and a section
-    whose plan candidate holds a rotation pin or none. The todo kit's stamp replays the same rule."""
-    if section_record(record_path):
-        plan = returned_plan(record_path)
-        sha = candidate if kind == "plan" else plan["candidate"] if plan else None
-        pin = committed_pin(sha) if sha else None
-        if pin is not None:
-            return pin
-    return load_pin(pin_path)
+    """The pin a pass runs under.
+
+    A three-pass section keeps the pin its plan review read: the plan review runs under the three-pass pin committed
+    at its own candidate, and every later pass under the one at its returned plan review's candidate, schedule and
+    route both, so a pin change (or a broken working-tree pin) never moves a section already under review. That pin
+    is never replaced by the working tree's: when the working tree's pin is three-pass but the plan review's
+    candidate does not hold it, the plan review is refused until the pin is committed, so no section starts unfrozen.
+
+    Everything else takes the pin at `pin_path`, as it always did: a findings file not named for a section, a section
+    with no returned plan review, and a rotation section. One exception keeps a section on the rules it began under:
+    when the working tree's pin has since become three-pass, a section whose plan candidate holds a rotation pin
+    finishes under that committed pin. The todo kit's stamp replays the same rule."""
+    if not section_record(record_path):
+        return load_pin(pin_path)
+    plan = returned_plan(record_path)
+    sha = candidate if kind == "plan" else plan["candidate"] if plan else None
+    held = committed_pin(sha) if sha else None
+    if is_three_pass(held):
+        return held
+    working = load_pin(pin_path)
+    if not is_three_pass(working) or sha is None:
+        return working
+    if kind == "plan":
+        raise Refused(f"the pin is three-pass, but the plan review's candidate {sha} does not hold it: commit "
+                      f".conclave/reviewers.toml first, so the section keeps the pin its plan review read")
+    if held is None:
+        raise Refused(f"this section's plan review ran at {sha}, which holds no reviewer pin, and the pin has since "
+                      f"become three-pass: there is no pin for the section to finish under")
+    return held
 
 
 def changed_paths(base, candidate):

@@ -411,6 +411,32 @@ class SectionPin(ThreePass):
         summary = self.ok("round", None, say="fine\nOVERALL: approve")
         self.assertEqual(summary["model"], "gpt-9-other")
 
+    def test_a_three_pass_plan_review_needs_its_pin_committed_at_the_candidate(self):
+        # Round 4 of D00 T01 §2: a pin that exists only in the working tree froze nothing for the section.
+        rotation = PIN.partition("[schedule]")[0]
+        for label, text in (("rotation pin committed", rotation), ("no pin committed", None)):
+            with self.subTest(case=label):
+                if text is None:
+                    self.git("rm", "-q", "-f", ".conclave/reviewers.toml")
+                    candidate = self.commit("no pin")
+                else:
+                    candidate = self.commit("rotation", {".conclave/reviewers.toml": text})
+                (self.repo / ".conclave").mkdir(exist_ok=True)
+                (self.repo / ".conclave/reviewers.toml").write_text(PIN, encoding="utf-8")
+                self.refused("plan", candidate, f"the plan review's candidate {candidate} does not hold it")
+                self.git("add", "-A")
+
+    def test_a_section_that_began_under_rotation_finishes_under_it_after_the_switch(self):
+        rotation = PIN.partition("[schedule]")[0]
+        base = self.commit("rotation", {".conclave/reviewers.toml": rotation})
+        self.ok("plan", base, say="x\nPLAN: complete\nOVERALL: approve")
+        self.commit("switch to three-pass", {".conclave/reviewers.toml": PIN.replace("gpt-6.1-sol", "gpt-9-other")})
+        # Under the three-pass pin this second round would be refused and the model would be the new one.
+        for number in (1, 2):
+            summary = self.ok("round", None, say="fine\nOVERALL: approve")
+            self.assertEqual((summary["round"], summary["model"]), (number, "gpt-6.1-sol"))
+            self.assertNotIn("blocking", summary)
+
     def test_a_respelled_findings_path_is_still_the_sections_on_windows(self):
         self.ok("plan", self.base)
         built = self.commit("build", {"src/app/a.py": "x = 1\n"})
