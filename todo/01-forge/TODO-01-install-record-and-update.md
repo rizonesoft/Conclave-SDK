@@ -36,7 +36,7 @@ title: "TODO-01 -- Install record, diff and update"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Kit file plan shared by install, diff and update | -- | [x] |
 | 2 | §2 | Install record in `.conclave/kits.json` | §1 | [x] |
-| 3 | §3 | Read-only `forge.py diff` | §2 | [ ] |
+| 3 | §3 | Read-only `forge.py diff` | §2 | [x] |
 | 4 | §4 | `forge.py update` for missing and kit-newer files | §3 | [ ] |
 | 5 | §5 | `forge.py record` for projects installed before the record | §3 | [ ] |
 | 6 | §6 | `.kit-new` copies for a hand merge | §4 | [ ] |
@@ -133,9 +133,12 @@ title: "TODO-01 -- Install record, diff and update"
 - [x] Add the `diff` subcommand to `main` and `_run` in `forge.py`, printing JSON like the other commands (`target`, `record`, `sdk_commit`, and per kit a list of `{"path", "state"}`), with `--patch` adding a unified diff from `difflib` for each `project-changed`, `both-changed` and `differs` text file. Done when: a test runs the command line and parses the output; `--patch` on a `project-changed`, a `both-changed` and a `differs` file gives a unified diff headed `--- project/<path>` and `+++ kit/<path>` whose `-` line is the project's and `+` line the kit's; and on a binary or non-UTF-8 file it prints `binary` in place of a diff. **Corrected 2026-11-11 (plan review):** a stub returning no patch passed.
 - [x] Prove `diff` writes nothing in `tests/test_forge.py`: digest every file under the fixture before and after, including `.conclave/kits.json`. Done when: the test fails if `diff_project` is made to write the record. Cheaper substitute: asserting only that the record's bytes are unchanged must fail review, since a created file elsewhere would pass it.
 - [x] Add a `diff` section to `README.md` with every state and what each means for the project. Done when: every state name in `forge.py` (`DIFF_STATES`) appears in the README table, a test asserts it, and its rows are within 120 characters. **Corrected 2026-11-11 (validation):** the states are eleven, not seven.
-- [ ] Commit: `forge: diff reports each kit file's state without writing`
+- [x] Commit: `forge: diff reports each kit file's state without writing`
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; making `diff_project` ignore the record makes the six-state test fail.
+
+> **Verified:** 2026-11-11 | §3 | ea657586cfeb869daefa9ea35f7eb3a977ef9c59
+> **Review:** `docs/reviews/d01-t01-s3.json`
 
 ## 4. `forge.py update` for missing and kit-newer files
 
