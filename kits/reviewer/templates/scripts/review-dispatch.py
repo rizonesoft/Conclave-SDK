@@ -57,7 +57,8 @@ under: once the working tree's pin has become three-pass, it finishes under the 
 review's candidate, and is refused when that commit holds no pin.
 
 Under three-pass every scheduled lens is appended with its question and owes one line `LENS <name>: clean` or
-`LENS <name>: findings`. A reply missing a lens line, or the final verdict lines of its kind, is recorded with no
+`LENS <name>: findings`. A reply missing a lens line, its `HIGHEST:` line or the final verdict lines of its kind, or
+one that ends complete while declaring a severity that holds the stamp, is recorded with no
 reviewer (`## Round N: none`, the reason on its `- Skipped:` line, its text kept), exits 1 and never counts as a pass;
 the JSON summary names the lenses in `incomplete`. A `[[schedule.conditional]]` entry's lenses join a pass when a file
 changed between the plan review's candidate and the pass's candidate starts with one of its paths; a plan review, and
@@ -361,9 +362,13 @@ def review(pin, writer, prompt_path, timeout, plan=None, kind="round"):
         worst = declared_highest(text)
         contradicts = kind in FOOTERS and final and not ended_gaps({"review": text}) \
             and worst in review_pin.SEVERITIES and review_pin.blocks(schedule, worst)
-        if not final or missing or contradicts:
+        # The severity line is what blocking levels, the no-progress count and the stamp read: without it the reply
+        # says nothing they can act on.
+        undeclared = worst is None
+        if not final or missing or contradicts or undeclared:
             why = ([f"no final {kind} verdict line"] if not final else []) \
                 + ([f"no LENS verdict line for {', '.join(missing)}"] if missing else []) \
+                + (["no HIGHEST line"] if undeclared else []) \
                 + ([f"it ends {kind.upper()}: complete but declares HIGHEST: {worst}, which holds the stamp"]
                    if contradicts else [])
             return {**none(f"incomplete: {' and '.join(why)}"), "review": text.strip(), "incomplete": missing}

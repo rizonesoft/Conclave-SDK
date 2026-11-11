@@ -382,10 +382,12 @@ class Blocking(ThreePass):
             with self.subTest(top=top):
                 summary = self.ok("plan", self.base, top=top, gaps=top != "none", record=False)
                 self.assertEqual((summary["highest"], summary["blocking"]), want)
-        # A reply that declares no HIGHEST line counts as P1.
+        # Round 2 of D00 T01 §3: a reply with no HIGHEST line gave the blocking rule nothing to read. It is incomplete.
         silent = "LENS plan: findings\nPLAN: gaps\nOVERALL: needs-attention"
-        summary = self.ok("plan", self.base, say=silent, record=False)
-        self.assertEqual((summary["highest"], summary["blocking"]), (None, True))
+        result, summary = self.run_pass("plan", self.base, say=silent, record=False)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("no HIGHEST line", summary["failover"][0]["reason"])
+        self.assertNotIn("blocking", summary)
 
 
 class SectionPin(ThreePass):

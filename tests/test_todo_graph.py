@@ -1834,6 +1834,16 @@ class ThreePassStamp(Stamp):
             self.setUp()
             with self.subTest("a finding below the blocking levels does not hold a complete verdict"):
                 self.stamp3(self.chain(completion=("P3", False)))
+            self.setUp_again()
+            with self.subTest("no HIGHEST line counts as P1 under a pin that names blocking levels"):
+                # Round 2 of D00 T01 §3.
+                self.passed("plan", self.start)
+                self.tick_work()
+                sha = self.build()
+                self.passed("round", sha)
+                self.passed("completion", sha, review="1. [P1] open.\nLENS plan-delivery: findings\n"
+                                                      "LENS record: clean\nCOMPLETION: complete")
+                self.stamp3_refuses(sha, "declares no HIGHEST line, which counts as P1")
         finally:
             type(self).PIN_TEXT = THREE_PASS_PIN
 

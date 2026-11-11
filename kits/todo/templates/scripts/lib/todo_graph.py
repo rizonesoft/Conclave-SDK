@@ -656,10 +656,13 @@ def three_pass_ok(root, data, ref, found):
             f"worst finding ({worst}) is below the pin's blocking levels, not {verdict}: {ref}")
     # A last pass that ends complete while declaring a finding that holds the stamp contradicts itself: the severity
     # it declared decides, so a `complete` footer never overrides a blocking level.
-    require(verdict == "filed" or worst not in dispatch.review_pin.SEVERITIES
-            or not dispatch.review_pin.blocks(schedule, worst),
-            f"the last review ({chain[-1][0]}) ends complete but declares HIGHEST: {worst}, which holds the stamp "
-            f"under the section's pin: {ref}")
+    # A reply with no HIGHEST line counts as P1 under a pin that names blocking levels (the dispatcher that reads
+    # such a pin records no reply without the line); a pin without the key predates the line and is not held to it.
+    holds = dispatch.review_pin.blocks(schedule, worst) if worst is not None else "blocking" in schedule
+    require(verdict == "filed" or worst == "none" or not holds,
+            f"the last review ({chain[-1][0]}) ends complete but "
+            f"{'declares HIGHEST: ' + worst if worst else 'declares no HIGHEST line, which counts as P1'}, which holds "
+            f"the stamp under the section's pin: {ref}")
     for (older_name, older), (newer_name, newer) in zip(chain, chain[1:]):
         require(older["run"] <= newer["run"] and is_ancestor(root, older["candidate"], newer["candidate"]),
                 f"the {newer_name} must run after the {older_name}, on a candidate at or after it: {ref}")
