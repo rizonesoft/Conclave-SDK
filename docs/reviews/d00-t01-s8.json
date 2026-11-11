@@ -1,0 +1,84 @@
+{
+  "ref": "D00 T01 \u00a78",
+  "title": "Stamp that recovers from a write cut short",
+  "implementation_sha": "89ff448ffb36806b77593755e3021c3145783e3a",
+  "date": "2026-11-11",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-reviewer/D00-T01-s8.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "CONCLAVE_FULL_TESTS=1 python -m unittest discover -s tests -> Ran 300 tests, OK, stamp tests run (at 761b874, which holds this section; the commits since touch only review-prompt.py)",
+    "leftover-receipt check disabled -> its test fails with Refused not raised (run by the builder)"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-reviewer/D00-T01-s8.md",
+    "verdict": "complete",
+    "candidate": "89ff448ffb36806b77593755e3021c3145783e3a",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/00-reviewer/D00-T01-s8.md",
+    "candidate": "d1036c38020c05d81ccc29878db899b1f1c7157f",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "d1036c38020c05d81ccc29878db899b1f1c7157f",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}

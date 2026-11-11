@@ -39,7 +39,7 @@ title: "TODO-01 -- Three-pass review"
 | 5 | §5 | Pin check that reports every fault at once | §1 | [x] |
 | 6 | §6 | Reviewer process tree ended on Windows by a job object | §2 | [ ] |
 | 7 | §7 | Review prompt filler | §2 | [ ] |
-| 8 | §8 | Stamp that recovers from a write cut short | §3 | [ ] |
+| 8 | §8 | Stamp that recovers from a write cut short | §3 | [x] |
 
 ## 1. Pin loader module with the three-pass keys
 
@@ -298,9 +298,12 @@ Filed 2026-11-11 from the completion review of §3 (an out-of-scope gap). `stamp
 - [x] Check a retry against the persisted receipt before anything is written, in `stamp` of `todo_graph.py`: on a section already stamped in the TODO file, a retry whose commit, reviews, plan and completion match the receipt regenerates a stale plan and reports success; any other is refused as already verified, with the receipt, the TODO file and the plan untouched. Done when: tests cover a matching retry and one with another commit and one with another review verdict. **Corrected 2026-11-11 (plan review):** added; regenerating the plan for any retry would have reported success for a different request.
 - [x] Leave a retryable state when the retry itself fails, in `stamp` of `todo_graph.py`: a receipt that was already on disk before this call is never deleted by its rollback, and a plan write that fails after the TODO file is stamped leaves receipt and TODO as they are. Done when: a test injects a failing plan write on the retry, finds the receipt and the stamped TODO still there, and a further retry succeeds. **Corrected 2026-11-11 (plan review):** added; the rollback deleted the receipt unconditionally.
 - [x] Name the recovery in `kits/todo/templates/todo/README.md` under stamps and receipts, copy that file over the SDK's own `todo/README.md` (`self-sync` does not cover `todo/`), and run `python forge.py self-sync`. Done when: `scripts/lib/todo_graph.py` equals the kit file and the two READMEs are identical. **Corrected 2026-11-11 (plan review):** added the SDK's own README.
-- [ ] Commit: `todo: a stamp cut short between its writes can be retried`
+- [x] Commit: `todo: a stamp cut short between its writes can be retried`
 
 **Test checkpoint:** with `CONCLAVE_FULL_TESTS=1` set, `python -m unittest discover -s tests` ends `OK` with the stamp tests run, not skipped; removing the leftover-receipt check makes its test fail. **Corrected 2026-11-11 (plan review):** the stamp tests are skipped without that variable, so the earlier command could pass without running them.
+
+> **Verified:** 2026-11-11 | §8 | 89ff448ffb36806b77593755e3021c3145783e3a
+> **Review:** `docs/reviews/d00-t01-s8.json`
 
 ## Verification
 
