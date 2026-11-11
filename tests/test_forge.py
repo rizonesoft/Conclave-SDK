@@ -250,6 +250,94 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertTrue((self.target / ".codex/skills/authoring-skills/SKILL.md").is_file())
         self.assertTrue((self.target / "scripts/verify-agent-tiers.mjs").is_file())
 
+    # What each agent choice leaves out, written here and not read from forge: the other agents' folders and entry docs.
+    AGENT_FILES = {"agy": (".agents/", "GEMINI.md"), "claude": (".claude/", "CLAUDE.md"), "codex": (".codex/", "CODEX.md")}
+    LARAVEL_FILES = (
+        "scripts/lsp-diagnostics.py", "scripts/hooks/laravel-lsp-pre-push.sh", "docs/laravel-agent-tooling.md",
+        ".agents/skills/laravel-boost/SKILL.md", ".claude/skills/laravel-boost/SKILL.md",
+        ".codex/skills/laravel-boost/SKILL.md", ".codex/skills/laravel-boost/agents/openai.yaml",
+    )
+
+    def kept_for(self, rel, agent):
+        """The test's own agent rule: a path in another agent's folder, or another agent's entry doc, is left out."""
+        if agent == "all":
+            return True
+        return not any(rel == doc or rel.startswith(folder)
+                       for other, (folder, doc) in self.AGENT_FILES.items() if other != agent)
+
+    def expected_plan(self, kit, agent, host=None):
+        """relative path -> template file, derived by walking the kit's folders: never from forge's own list."""
+        kits = FORGE_ROOT / "kits"
+        if kit == "laravel":
+            expected: dict[str, pathlib.Path | None] = {
+                rel: kits / "laravel/templates" / rel for rel in self.LARAVEL_FILES if self.kept_for(rel, agent)}
+            expected["platform/boost.json"] = kits / "laravel/templates/boost.json"
+            expected[".mcp.json"] = None
+            return expected
+        roots = [kits / kit / "templates"] + ([kits / kit / "hosts" / host / "templates"] if host else [])
+        expected = {}
+        for root in roots:
+            for path in root.rglob("*"):
+                rel = path.relative_to(root).as_posix()
+                if path.is_file() and "__pycache__" not in path.parts and self.kept_for(rel, agent):
+                    expected[rel] = path
+        return expected
+
+    def kit_fixtures(self):
+        """(kit, host, an empty project the kit can be planned for) for every kit and every WordPress host."""
+        cases = [(kit, None) for kit in forge.list_kits() if kit != "wordpress"]
+        cases += [("wordpress", host) for host in forge.WORDPRESS_HOSTS]
+        for index, (kit, host) in enumerate(cases):
+            project = self.target / f"project-{index}"
+            project.mkdir()
+            if kit == "laravel":
+                (project / "platform").mkdir()
+                (project / "platform/artisan").write_text("<?php\n", encoding="utf-8")
+            yield kit, host, project.resolve()
+
+    def test_kit_plan_lists_each_kits_files_for_each_agent(self):
+        for kit, host, project in self.kit_fixtures():
+            for agent in ("all", "claude", "codex", "agy"):
+                with self.subTest(kit=kit, host=host, agent=agent):
+                    entries, _extra = forge.kit_plan(project, kit, agent=agent, host=host)
+                    expected = self.expected_plan(kit, agent, host)
+                    self.assertEqual(sorted(rel for _src, _dst, rel, _generated in entries), sorted(expected))
+                    for src, dst, rel, generated in entries:
+                        self.assertEqual(dst, project / rel)
+                        self.assertEqual(generated, expected[rel] is None, rel)
+                        if generated:
+                            self.assertIsNone(src)
+                        else:
+                            self.assertEqual(src, expected[rel])
+                            self.assertTrue(src.is_file(), src)
+                        for other, (folder, doc) in self.AGENT_FILES.items():
+                            if agent not in ("all", other):
+                                self.assertFalse(rel.startswith(folder) or rel == doc, rel)
+
+    def test_kit_plan_refuses_what_the_kit_cannot_be_planned_for(self):
+        with self.assertRaisesRegex(ValueError, "No artisan"):
+            forge.kit_plan(self.target, "laravel")
+        with self.assertRaisesRegex(ValueError, "Unknown WordPress host"):
+            forge.kit_plan(self.target, "wordpress", host="kinsta")
+        with self.assertRaisesRegex(ValueError, "Unknown kit"):
+            forge.kit_plan(self.target, "nope")
+        forge.apply_kit(self.target, "wordpress", host="wpcom")
+        with self.assertRaisesRegex(ValueError, "pins host 'wpcom'"):
+            forge.kit_plan(self.target, "wordpress", host="pressable")
+
+    def test_a_fresh_install_writes_exactly_the_planned_files(self):
+        for kit, host, project in self.kit_fixtures():
+            with self.subTest(kit=kit, host=host):
+                entries, _extra = forge.kit_plan(project, kit, host=host)
+                before = {p for p in project.rglob("*") if p.is_file()}
+                res = forge.apply_kit(project, kit, host=host)
+                self.assertEqual(sorted(res["installed"]), sorted(rel for _src, _dst, rel, _generated in entries))
+                written = {p for p in project.rglob("*") if p.is_file()} - before
+                self.assertEqual(written, {dst for _src, dst, _rel, _generated in entries})
+                for src, dst, rel, generated in entries:
+                    if not generated:
+                        self.assertEqual(dst.read_bytes(), src.read_bytes(), rel)
+
     def test_laravel_kit_root_and_nested_platform_discovery_and_doctor(self):
         with self.assertRaises(ValueError):
             forge.apply_kit(self.target, "laravel")

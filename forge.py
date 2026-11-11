@@ -185,41 +185,27 @@ def _rel_allowed_for_agent(rel: str, agent: str) -> bool:
     return True
 
 
-def apply_kit(
-    target_root: Path,
-    kit_name: str,
-    *,
-    agent: str = "all",
-    dry_run: bool = False,
-    host: str | None = None,
-    include=None,
-) -> dict:
-    """Apply an additive overlay kit ('base', 'todo', 'reviewer', 'automations', 'laravel', 'wordpress') for all or one agent without overwriting existing files.
-
-    A file that already exists is the project's and is never replaced: the kit is a template copied once, and the
-    project adapts its copy from then on. `include(rel)` can leave paths out entirely.
-
-    `host` picks the WordPress kit's host overlay (kits/wordpress/hosts/<host>/templates); other kits ignore it. An
-    existing site pin decides the host, so re-running the kit can never add another host's files; without a pin the
-    default is `pressable`.
+def kit_plan(target_root: Path, kit_name: str, *, agent: str = "all", host: str | None = None) -> tuple[list, dict]:
+    """The files a kit puts in a project, and where: `(source, destination, relative path, generated)` entries and the
+    kit's `extra` result fields. Install, diff and update all read this one list. A template copy has its source file;
+    a generated entry (the Laravel `.mcp.json`, which `apply_kit` builds itself) has `source` None. Reads only: the
+    refusals (an unknown kit, no artisan, an unknown or wrongly pinned WordPress host) are raised here.
     """
     agent = normalize_agent(agent)
-    target_root = Path(target_root)
-    if not target_root.exists() or not target_root.is_dir() or target_root.is_symlink():
-        raise ValueError(f"Target must be an existing non-symlink directory: {target_root}")
-    target_root = target_root.resolve()
-
     available = list_kits()
     if kit_name not in available:
         raise ValueError(f"Unknown kit '{kit_name}'. Available kits: {', '.join(available)}")
 
     template_root = FORGE_ROOT / "kits" / kit_name / "templates"
-    installed: list[str] = []
-    preserved: list[str] = []
-    merge_needed: list[str] = []
     extra: dict[str, str] = {}
+    plan: list[tuple[Path | None, Path, str, bool]] = []
 
-    plan: list[tuple[Path, Path, str]] = []
+    def add_tree(root: Path) -> None:
+        for src in sorted(root.rglob("*")):
+            if src.is_file():
+                rel = src.relative_to(root).as_posix()
+                if _rel_allowed_for_agent(rel, agent):
+                    plan.append((src, target_root / rel, rel, False))
 
     if kit_name == "laravel":
         app_root = _find_laravel_app_root(target_root)
@@ -241,8 +227,9 @@ def apply_kit(
         ]
         for rel in rel_items:
             if _rel_allowed_for_agent(rel, agent):
-                plan.append((template_root / rel, target_root / rel, rel))
-        plan.append((template_root / "boost.json", app_root / "boost.json", boost_rel))
+                plan.append((template_root / rel, target_root / rel, rel, False))
+        plan.append((template_root / "boost.json", app_root / "boost.json", boost_rel, False))
+        plan.append((None, target_root / ".mcp.json", ".mcp.json", True))
     elif kit_name == "wordpress":
         if host is not None and host not in WORDPRESS_HOSTS:
             raise ValueError(f"Unknown WordPress host '{host}'. Available hosts: {', '.join(WORDPRESS_HOSTS)}")
@@ -259,19 +246,43 @@ def apply_kit(
         wp_root = _find_wordpress_root(target_root)
         extra["host"] = host
         extra["wordpress"] = None if wp_root is None else (wp_root.relative_to(target_root).as_posix() if wp_root != target_root else ".")
-        host_root = FORGE_ROOT / "kits" / kit_name / "hosts" / host / "templates"
-        for root in (template_root, host_root):
-            for src in sorted(root.rglob("*")):
-                if src.is_file():
-                    rel = src.relative_to(root).as_posix()
-                    if _rel_allowed_for_agent(rel, agent):
-                        plan.append((src, target_root / rel, rel))
+        add_tree(template_root)
+        add_tree(FORGE_ROOT / "kits" / kit_name / "hosts" / host / "templates")
     else:
-        for src in sorted(template_root.rglob("*")):
-            if src.is_file():
-                rel = src.relative_to(template_root).as_posix()
-                if _rel_allowed_for_agent(rel, agent):
-                    plan.append((src, target_root / rel, rel))
+        add_tree(template_root)
+    return plan, extra
+
+
+def apply_kit(
+    target_root: Path,
+    kit_name: str,
+    *,
+    agent: str = "all",
+    dry_run: bool = False,
+    host: str | None = None,
+    include=None,
+) -> dict:
+    """Apply an additive overlay kit ('base', 'todo', 'reviewer', 'automations', 'laravel', 'wordpress') for all or one agent without overwriting existing files.
+
+    A file that already exists is the project's and is never replaced: the kit is a template copied once, and the
+    project adapts its copy from then on. `include(rel)` can leave paths out entirely.
+
+    `host` picks the WordPress kit's host overlay (kits/wordpress/hosts/<host>/templates); other kits ignore it. An
+    existing site pin decides the host, so re-running the kit can never add another host's files; without a pin the
+    default is `pressable`. The file list is `kit_plan`'s.
+    """
+    agent = normalize_agent(agent)
+    target_root = Path(target_root)
+    if not target_root.exists() or not target_root.is_dir() or target_root.is_symlink():
+        raise ValueError(f"Target must be an existing non-symlink directory: {target_root}")
+    target_root = target_root.resolve()
+
+    entries, extra = kit_plan(target_root, kit_name, agent=agent, host=host)
+    installed: list[str] = []
+    preserved: list[str] = []
+    merge_needed: list[str] = []
+    # The generated entry (the Laravel .mcp.json) is written by its own step below, never copied.
+    plan = [(src, dst, rel) for src, dst, rel, generated in entries if not generated]
 
     if include is not None:
         plan = [(src, dst, rel) for src, dst, rel in plan if include(rel)]
