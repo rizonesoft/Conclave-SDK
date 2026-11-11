@@ -318,7 +318,9 @@ def review(pin, writer, prompt_path, timeout, plan=None, kind="round"):
     lenses = plan["lenses"] if plan else []
     schedule = pin.get("schedule", {})
     three_pass = schedule.get("policy") == THREE_PASS
-    if lenses:
+    # Under three-pass every scheduled pass gets the block, also one with no lenses: it asks for the HIGHEST line.
+    appended = bool(lenses) or (three_pass and plan is not None)
+    if appended:
         prompt = prompt.rstrip("\n") + lens_block(plan, schedule)
     scheduled_fields = {"effort": effort, "lenses": lenses} if plan else {}
 
@@ -335,8 +337,8 @@ def review(pin, writer, prompt_path, timeout, plan=None, kind="round"):
     try:
         stdout_path, message_path = tmp / "stdout.txt", tmp / "last-message.md"
         prompt_file = Path(prompt_path).resolve()
-        if lenses:
-            # The pointer an Antigravity shim gets must name the prompt with its scheduled lenses.
+        if appended:
+            # The pointer an Antigravity shim gets must name the prompt with what the dispatcher appended to it.
             prompt_file = tmp / "prompt.md"
             prompt_file.write_text(prompt, encoding="utf-8", newline="\n")
         argv, stdin_text = command(reviewer, executable, prompt, prompt_file, message_path, timeout, effort)
@@ -949,7 +951,8 @@ def main(argv=None):
                              "plan review or a review outside a section. A section's later passes take their changed "
                              "files from the candidate instead")
     parser.add_argument("--surface", action="store_true",
-                        help="The section has Surface: yes, so the schedule's rotation includes the design lens")
+                        help="The section has Surface: yes, so the design lens applies: a rotation schedule includes "
+                             "it in its rotation, and a three-pass round keeps it")
     parser.add_argument("--timeout", type=int, default=1800,
                         help="Seconds before the reviewer is stopped and the round records no review")
     parser.add_argument("--pin", default=str(PIN), help=argparse.SUPPRESS)

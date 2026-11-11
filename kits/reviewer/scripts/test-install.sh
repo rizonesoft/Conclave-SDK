@@ -25,7 +25,9 @@ for agent_dir in .agents .claude .codex; do
   [ -f "$target/$agent_dir/skills/independent-review/SKILL.md" ]
 done
 [ -f "$target/.codex/skills/independent-review/agents/openai.yaml" ]
-[ -f "$target/docs/review-round-prompt.md" ]
+for prompt in plan-review review-round completion-review reconciliation-review; do
+  [ -f "$target/docs/$prompt-prompt.md" ]
+done
 [ "$(stat -c %a "$target/scripts/review-dispatch.py")" = 755 ]
 (cd "$target" && python3 -B scripts/review-dispatch.py --help >/dev/null)
 # The dispatcher loads the pin's rules from review_pin.py beside it, so both land, with the loader's own tests.
@@ -39,6 +41,11 @@ mkdir -p "$fresh"
 (cd "$fresh" && python3 -B scripts/review-dispatch.py --check-pin >/dev/null)
 grep -q 'model = "gpt-6-astra"' "$fresh/.conclave/reviewers.toml"
 grep -q 'claude = \["astra"\]' "$fresh/.conclave/reviewers.toml"
+# A new install starts on three-pass, with Antigravity routed beside Claude Code.
+grep -q 'agy = \["astra"\]' "$fresh/.conclave/reviewers.toml"
+grep -q '^policy = "three-pass"' "$fresh/.conclave/reviewers.toml"
+(cd "$fresh" && python3 -B scripts/review_pin.py --caps | grep -q '^pass_cap 33$')
+(cd "$fresh" && python3 -B scripts/review_pin.py --lenses completion | grep -q '^plan-delivery: ')
 ! grep -q -e '^codex = ' -e '^gemini = ' -e 'sonnet' "$fresh/.conclave/reviewers.toml"
 
 tree_after_first=$(cd "$target" && find . -type f -print0 | sort -z | xargs -0 -r sha256sum)

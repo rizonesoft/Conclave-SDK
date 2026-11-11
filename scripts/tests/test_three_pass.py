@@ -567,6 +567,26 @@ class Writers(ThreePass):
         self.assertTrue(module.returned_review(entry))
 
 
+class NoLenses(ThreePass):
+    def test_a_pass_with_no_lenses_is_still_asked_for_its_highest_line(self):
+        # D00 T01 §4: a completion step without lenses (a pin from before completion had its own) got no appended
+        # request, so its reply had no HIGHEST line and was recorded as incomplete.
+        earlier = PIN.replace('[schedule.completion]\neffort = "medium"\nlenses = ["plan-delivery", "record"]',
+                              '[schedule.completion]\neffort = "medium"')
+        self.assertNotEqual(earlier, PIN)
+        self.base = self.commit("completion without lenses", {".conclave/reviewers.toml": earlier})
+        self.ok("plan", self.base)
+        built = self.commit("build", {"src/app/a.py": "x = 1\n"})
+        self.ok("round", built)
+        summary = self.ok("completion", built, say="Nothing missing.\nHIGHEST: none\nCOMPLETION: complete")
+        self.assertEqual(summary["lenses"], [])
+        prompt = self.calls()[-1]["stdin"]
+        self.assertIn("write one line `HIGHEST: P1`", prompt)
+        self.assertNotIn("LENS ", prompt)
+        (entry,) = self.findings()["completions"]
+        self.assertEqual(entry["reviewer"], "sol")
+
+
 class Antigravity(ThreePass):
     def test_a_pass_reviewed_through_antigravity_records_the_scheduled_effort(self):
         # Completion review of D00 T01 §3: the record held no effort, so the stamp's replay of the schedule refused it.

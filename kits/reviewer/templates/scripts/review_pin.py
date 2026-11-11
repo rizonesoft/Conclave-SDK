@@ -452,6 +452,13 @@ def lens_block(plan, schedule=None):
     three-pass it also asks for one `LENS <name>:` verdict line per lens and a `HIGHEST:` line, which the dispatcher
     checks (`missing_lens_verdicts`) before it records the reply as a review."""
     table = lens_table(schedule or {})
+    if not plan["lenses"]:
+        # A three-pass pass with no lenses of its own (a completion step in a pin written before completion had any)
+        # still owes the severity line the blocking levels and the stamp read.
+        return "\n".join(["", "", "## Verdict line for this pass (asked for by scripts/review-dispatch.py)", "",
+                          "Before the final verdict line the prompt above asks for, write one line `HIGHEST: P1`, "
+                          "`HIGHEST: P2`, `HIGHEST: P3` or `HIGHEST: none` for the worst finding of the whole review. "
+                          "A reply without it is recorded as incomplete, not as a review."]) + "\n"
     where = f"Round {plan['position']}" if plan["position"] else "This pass"
     ran = f"{where} runs at {plan['effort']} reasoning effort" if plan["effort"] else f"{where} has these lenses"
     lines = ["", "", "## Lenses for this pass (scheduled by scripts/review-dispatch.py)", "",
