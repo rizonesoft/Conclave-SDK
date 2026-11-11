@@ -702,8 +702,10 @@ def changed_paths(base, candidate):
 
 
 SEVERITY_RANK = {"P1": 3, "P2": 2, "P3": 1, "none": 0, None: 3}
-# How long past a reviewer's own timeout a section lock is believed: a run that was killed cannot hold it for ever.
+# How long past its owner's own timeout a section lock is believed: a run that was killed cannot hold it for ever.
 LOCK_GRACE_SECONDS = 300
+# How long a takeover of an expired lock may itself take before it is treated as abandoned.
+TAKEOVER_SECONDS = 60
 
 
 def section_lock_path(record_path):
@@ -713,29 +715,82 @@ def section_lock_path(record_path):
     return Path(tempfile.gettempdir()) / f"review-dispatch-{hashlib.sha256(name).hexdigest()[:16]}.lock"
 
 
+def _create_exclusive(path, text):
+    """Create `path` holding `text` only if it does not exist: True when this process created it."""
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False
+    try:
+        os.write(fd, text.encode("ascii"))
+    finally:
+        os.close(fd)
+    return True
+
+
+def _lock_expiry(path):
+    """When the lock at `path` stops being believed, from what its owner wrote in it (`<pid> <expiry> <token>`), or
+    None when there is no lock. A lock that cannot be read (half written, or not ours) is believed for the grace
+    period from its last change."""
+    try:
+        return float(path.read_text(encoding="ascii", errors="replace").split()[1])
+    except FileNotFoundError:
+        return None
+    except (IndexError, ValueError, OSError):
+        try:
+            return path.stat().st_mtime + LOCK_GRACE_SECONDS
+        except OSError:
+            return None
+
+
+def release_section(path, owned):
+    """Remove the lock at `path` only while it still holds what this process wrote: never another run's lock."""
+    try:
+        if path.read_text(encoding="ascii", errors="replace") == owned:
+            path.unlink()
+    except FileNotFoundError:
+        return  # already gone: there is nothing of ours left to release
+    except OSError as exc:
+        # The lock then stands until the expiry written in it; say so rather than leave it unexplained.
+        print(f"review-dispatch: left the lock {path} behind ({exc.strerror or type(exc).__name__})", file=sys.stderr)
+
+
 def lock_section(record_path, timeout):
     """Take a three-pass section's lock for the rest of this run: the order check, the review and the record happen
-    under it, so a second launch of the same pass sees the first one's record instead of spending another review. A
-    lock older than a reviewer can run is a dead run's and is replaced. Released when the process exits."""
+    under it, so a second launch of the same pass sees the first one's record instead of spending another review.
+
+    The owner writes its own expiry into the lock (its start, its own `--timeout` and a grace period), so a later
+    launch with a shorter timeout cannot decide a live review is dead. Only a lock past the expiry its owner wrote
+    is taken over, by one process at a time (a second, exclusive takeover file), and a process releases only the
+    lock it wrote, when it exits."""
     path = section_lock_path(record_path)
-    for _ in range(2):
-        try:
-            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
+    owned = f"{os.getpid()} {time.time() + timeout + LOCK_GRACE_SECONDS:.0f} {os.urandom(8).hex()}"
+    busy = Refused(f"another review of {record_path} is already running (lock {path}); a section takes one pass at "
+                   f"a time")
+    if not _create_exclusive(path, owned):
+        expiry = _lock_expiry(path)
+        if expiry is not None and time.time() <= expiry:
+            raise busy
+        takeover = path.with_name(path.name + ".takeover")
+        if not _create_exclusive(takeover, owned):
+            # Someone else is taking the expired lock over; an abandoned takeover is cleared for the next launch.
             try:
-                age = time.time() - path.stat().st_mtime
+                if time.time() - takeover.stat().st_mtime > TAKEOVER_SECONDS:
+                    takeover.unlink()
             except FileNotFoundError:
-                continue
-            if age <= timeout + LOCK_GRACE_SECONDS:
-                raise Refused(f"another review of {record_path} is already running (lock {path}); a section takes "
-                              f"one pass at a time") from None
+                raise busy from None  # the other launch finished its takeover just now
+            raise busy
+        try:
+            # Looked at again under the takeover: the lock may have been replaced since it was first read.
+            expiry = _lock_expiry(path)
+            if expiry is not None and time.time() <= expiry:
+                raise busy
             path.unlink(missing_ok=True)
-            continue
-        os.write(fd, str(os.getpid()).encode("ascii"))
-        os.close(fd)
-        atexit.register(path.unlink, missing_ok=True)
-        return
-    raise Refused(f"cannot take the review lock {path}")
+            if not _create_exclusive(path, owned):
+                raise busy
+        finally:
+            release_section(takeover, owned)
+    atexit.register(release_section, path, owned)
 
 
 def check_three_pass_order(kind, record_path, candidate, schedule):

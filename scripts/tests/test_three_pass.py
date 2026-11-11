@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import textwrap
+import time
 import unittest
 import unittest.mock
 
@@ -192,26 +193,54 @@ class Chain(ThreePass):
         self.ok("reconciliation", repaired)
         self.refused("reconciliation", repaired, "already returned complete")
 
-    def test_a_second_launch_of_a_sections_pass_is_refused_while_the_first_runs(self):
-        # Round 2 of D00 T01 §2: two launches both passed the order check and both spent a review.
-        self.ok("plan", self.base)
-        built = self.commit("build", {"src/app/a.py": "x = 1\n"})
+    def lock_path(self, record):
         module = self.module()
         with unittest.mock.patch.object(module.tempfile, "gettempdir", return_value=str(self.scratch)):
-            lock = module.section_lock_path(str(self.record))
-        lock.write_text("12345", encoding="ascii")
-        self.refused("round", built, "is already running")
-        self.assertTrue(lock.exists(), "a refused launch must not take the running one's lock away")
-        # A lock older than a reviewer can run belongs to a dead run: it is replaced, and released afterwards.
-        old = lock.stat().st_mtime - 10 * 3600
-        os.utime(lock, (old, old))
+            return module.section_lock_path(str(record))
+
+    def test_a_second_launch_of_a_sections_pass_is_refused_while_the_first_runs(self):
+        # Rounds 2 and 3 of D00 T01 §2: two launches both passed the order check and both spent a review, and a
+        # launch with a shorter timeout took a live review's lock.
+        self.ok("plan", self.base)
+        built = self.commit("build", {"src/app/a.py": "x = 1\n"})
+        lock = self.lock_path(self.record)
+        live = f"12345 {time.time() + 1800:.0f} feedfeedfeedfeed"
+        lock.write_text(live, encoding="ascii")
+        # The running review's own expiry decides, not this launch's timeout.
+        self.refused("round", built, "is already running", extra=("--timeout", "1"))
+        self.assertEqual(lock.read_text(encoding="ascii"), live, "a refused launch must leave the other run's lock")
+        # A lock past the expiry its owner wrote belongs to a dead run: it is taken over, and released afterwards.
+        lock.write_text(f"12345 {time.time() - 5:.0f} feedfeedfeedfeed", encoding="ascii")
         self.ok("round", built)
         self.assertFalse(lock.exists())
-        # A review outside a section takes no lock.
+        self.assertFalse(lock.with_name(lock.name + ".takeover").exists())
+
+    def test_an_expired_lock_is_taken_over_by_one_launch_at_a_time(self):
+        self.ok("plan", self.base)
+        built = self.commit("build", {"src/app/a.py": "x = 1\n"})
+        lock = self.lock_path(self.record)
+        expired = f"12345 {time.time() - 5:.0f} feedfeedfeedfeed"
+        lock.write_text(expired, encoding="ascii")
+        takeover = lock.with_name(lock.name + ".takeover")
+        takeover.write_text("another launch", encoding="ascii")
+        self.refused("round", built, "is already running")
+        self.assertEqual(lock.read_text(encoding="ascii"), expired)
+        # An abandoned takeover is cleared, so the launch after it goes through.
+        old = time.time() - 3600
+        os.utime(takeover, (old, old))
+        self.refused("round", built, "is already running")
+        self.assertFalse(takeover.exists())
+        self.ok("round", built)
+        # A lock that cannot be read is believed for the grace period, then taken over.
+        lock.write_text("garbage", encoding="ascii")
+        self.refused("completion", built, "is already running")
+        os.utime(lock, (old, old))
+        self.ok("completion", built)
+
+    def test_a_review_outside_a_section_takes_no_lock(self):
         self.record = self.repo / "docs/reviews/topic.md"
-        with unittest.mock.patch.object(module.tempfile, "gettempdir", return_value=str(self.scratch)):
-            other = module.section_lock_path(str(self.record))
-        other.write_text("12345", encoding="ascii")
+        other = self.lock_path(self.record)
+        other.write_text(f"12345 {time.time() + 1800:.0f} feedfeedfeedfeed", encoding="ascii")
         self.ok("round", None)
 
     def test_a_completion_that_is_complete_takes_no_reconciliation(self):
