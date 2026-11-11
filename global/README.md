@@ -10,6 +10,7 @@ The owner's machine-level configuration for Claude Code and Codex: global rules,
 | `claude/hooks/` | Claude hooks, their tests, `verify_install.py` and `verify-repos.txt` |
 | `claude/skills/<name>/` | Skills: `file-to-ticktick`, `process-email`, `process-ticktick-task` |
 | `claude/scripts/` | Shell helpers that deploy and register the Claude configuration |
+| `claude/project-skills/` | `seo-article-writer` and `aioseo`: WordPress skills, not yet in a kit |
 | `codex/rules/` | `codex.md` (master Codex rules), `deploy.py`, `hooks.json`, `test_deploy.py` |
 | `codex/hooks/` | Codex hooks and their tests |
 | `codex/skills/<name>/` | Global Codex skills: `file-to-ticktick`, `process-ticktick-task` |

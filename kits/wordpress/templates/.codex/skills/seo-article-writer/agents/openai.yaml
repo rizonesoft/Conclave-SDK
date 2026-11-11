@@ -1,4 +1,0 @@
-interface:
-  display_name: "SEO article writer"
-  short_description: "Research, write, fact-check and audit one blog article, then set it up in WordPress with AIOSEO."
-  default_prompt: "Write one blog article through the seo-article-writer pipeline: research and brief, draft, fact-check, independent review, SEO and GEO audit, then set it up in WordPress with AIOSEO. Each stage writes a file. Ask before any write to the live site and never print a secret."

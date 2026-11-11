@@ -24,6 +24,19 @@ def repository_files():
     return [FORGE_ROOT / name for name in listed.stdout.decode("utf-8").split("\0") if name]
 
 
+# Imported material, copied byte for byte from the owner's retired configuration repositories: account-bound
+# plugins and machine-level rules, hooks and skills. forge.py never installs it, and it is not held to the SDK's
+# writing rules (its rules files quote the very characters those rules forbid).
+IMPORTED = ("global/", "plugins/")
+
+
+def written_files():
+    """`repository_files` without the imported folders: what the SDK's writing rules apply to."""
+    return [path for path in repository_files()
+            if not path.relative_to(FORGE_ROOT).as_posix().startswith(IMPORTED)
+            or path.relative_to(FORGE_ROOT).as_posix() in ("global/README.md", "plugins/README.md")]
+
+
 def provisioned_mode(posix_mode):
     """The mode atomic_write leaves on a file: exact on POSIX. Windows has no execute or group bits and keeps only
     the read-only flag, so a file forge wrote (always owner-writable) reads back as 0o666 there."""
@@ -569,7 +582,7 @@ class ForgeProvisionTests(unittest.TestCase):
 
     def test_no_em_or_en_dashes_anywhere(self):
         # Every text file the SDK ships or provisions: prose, code, comments, templates and config alike.
-        for path in repository_files():
+        for path in written_files():
             if not path.is_file():
                 continue
             try:
@@ -602,7 +615,7 @@ class ForgeProvisionTests(unittest.TestCase):
             self.assertIn("five-part rule", groom_text)
 
     def test_markdown_table_descriptions_within_88_chars_and_rows_do_not_wrap(self):
-        for md in repository_files():
+        for md in written_files():
             if md.suffix != ".md" or not md.is_file():
                 continue
             for lineno, line in enumerate(md.read_text(encoding="utf-8").splitlines(), 1):
