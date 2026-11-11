@@ -34,7 +34,7 @@ title: "TODO-01 -- Install record, diff and update"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Kit file plan shared by install, diff and update | -- | [ ] |
+| 1 | §1 | Kit file plan shared by install, diff and update | -- | [x] |
 | 2 | §2 | Install record in `.conclave/kits.json` | §1 | [ ] |
 | 3 | §3 | Read-only `forge.py diff` | §2 | [ ] |
 | 4 | §4 | `forge.py update` for missing and kit-newer files | §3 | [ ] |
@@ -66,6 +66,9 @@ title: "TODO-01 -- Install record, diff and update"
 - [x] Commit: `forge: one kit file plan for install, diff and update`
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; removing the agent filter from `kit_plan` makes the new test fail, because its expected paths are derived by the test and not by `apply_kit`. **Corrected 2026-11-11 (plan review):** the reason was not stated and the earlier test could not fail.
+
+> **Verified:** 2026-11-11 | §1 | 6721fcc8a5b28c69026ed8d4e4f135e9cefdb9ac
+> **Review:** `docs/reviews/d01-t01-s1.json`
 
 ## 2. Install record in `.conclave/kits.json`
 

@@ -27,7 +27,7 @@ Sections: 9 | Checklist items: 57
 
 | Status | Reference  | Deliverable                                                | Needs | Items |
 | ------ | ---------- | ---------------------------------------------------------- | ----- | ----- |
-| [ ]    | D01 T01 §1 | Kit file plan shared by install, diff and update           | none  | 5     |
+| [x]    | D01 T01 §1 | Kit file plan shared by install, diff and update           | none  | 5     |
 | [ ]    | D01 T01 §2 | Install record in `.conclave/kits.json`                    | none  | 9     |
 | [ ]    | D01 T01 §3 | Read-only `forge.py diff`                                  | none  | 8     |
 | [ ]    | D01 T01 §4 | `forge.py update` for missing and kit-newer files          | none  | 8     |
@@ -139,6 +139,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 8/70 verified sections, 15 ready to run now.
+Progress: 9/70 verified sections, 16 ready to run now.
 
 Checklist: 103/475 items completed (includes Commit items).

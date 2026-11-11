@@ -1,0 +1,83 @@
+{
+  "ref": "D01 T01 \u00a71",
+  "title": "Kit file plan shared by install, diff and update",
+  "implementation_sha": "6721fcc8a5b28c69026ed8d4e4f135e9cefdb9ac",
+  "date": "2026-11-11",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/01-forge/D01-T01-s1.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s tests -p test_forge.py -> Ran 33 tests in 7.120s, OK (skipped=1)"
+  ],
+  "completion": {
+    "report": "docs/reviews/01-forge/D01-T01-s1.md",
+    "verdict": "complete",
+    "candidate": "6721fcc8a5b28c69026ed8d4e4f135e9cefdb9ac",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/01-forge/D01-T01-s1.md",
+    "candidate": "b45a6b46e1138472df7e4244fc3938e37081d7e6",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "b45a6b46e1138472df7e4244fc3938e37081d7e6",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}
