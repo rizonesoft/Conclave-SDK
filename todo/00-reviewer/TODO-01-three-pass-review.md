@@ -34,7 +34,7 @@ title: "TODO-01 -- Three-pass review"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Pin loader module with the three-pass keys | -- | [x] |
 | 2 | §2 | Three-pass dispatcher | §1 | [x] |
-| 3 | §3 | Three-pass stamp rules in the todo kit | §2 | [ ] |
+| 3 | §3 | Three-pass stamp rules in the todo kit | §2 | [x] |
 | 4 | §4 | Template pin, prompts, skills and READMEs on three-pass | §3 | [ ] |
 | 5 | §5 | Pin check that reports every fault at once | §1 | [ ] |
 | 6 | §6 | Reviewer process tree ended on Windows by a job object | §2 | [ ] |
@@ -152,9 +152,12 @@ The dispatcher runs the three-pass kinds from the pin §1 loads: order, the sect
 - [x] Keep every rotation receipt valid: run the existing stamp tests unchanged in `tests/test_todo_graph.py` (plan R4). Done when: they pass with no edit to their expectations. Cheaper substitute: loosening an existing assertion must fail review.
 - [x] Read `kits/todo/templates/scripts/campaign_guard.py` for anything that names the round cap or the schedule and correct it. Done when: `tests/test_campaign_guard.py` passes and the file states no cap of its own.
 - [x] Run `python forge.py self-sync`. Done when: `scripts/lib/todo_graph.py` equals the kit file.
-- [ ] Commit: `todo: stamp the three-pass chain against the section's own pin`
+- [x] Commit: `todo: stamp the three-pass chain against the section's own pin`
 
 **Test checkpoint:** `python -m unittest discover -s tests` ends `OK`; removing the cap check from `three_pass_ok` makes its test fail.
+
+> **Verified:** 2026-11-11 | §3 | b7351fc348bad9c42c1abb4744c4234714641f98
+> **Review:** `docs/reviews/d00-t01-s3.json`
 
 ## 4. Template pin, prompts, skills and READMEs on three-pass
 

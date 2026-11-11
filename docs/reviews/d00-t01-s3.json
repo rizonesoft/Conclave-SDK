@@ -1,0 +1,102 @@
+{
+  "ref": "D00 T01 \u00a73",
+  "title": "Three-pass stamp rules in the todo kit",
+  "implementation_sha": "b7351fc348bad9c42c1abb4744c4234714641f98",
+  "date": "2026-11-11",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-reviewer/D00-T01-s3.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-reviewer/D00-T01-s3.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-reviewer/D00-T01-s3.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s tests -> Ran 292 tests in 561.832s, OK",
+    "cap check disabled -> test_the_cap_is_the_sections_pins FAIL"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-reviewer/D00-T01-s3.md",
+    "verdict": "filed",
+    "candidate": "10878792d030e9ce0f4d62cb99efe0c426a39f9c",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": [
+      "D00 T01 \u00a78",
+      "D00 T01 \u00a74"
+    ]
+  },
+  "rounds_spent": 3,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/00-reviewer/D00-T01-s3.md",
+    "candidate": "0414c49d740936aa0c04b0182feafb7764b0a5fa",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "b7351fc348bad9c42c1abb4744c4234714641f98",
+  "schedule": {
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    },
+    "rounds": [
+      {
+        "effort": "high",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "plan-delivery"
+        ]
+      },
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      },
+      {
+        "effort": "low",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "design",
+        "optimization",
+        "record"
+      ]
+    },
+    "escalation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial"
+      ]
+    }
+  }
+}
