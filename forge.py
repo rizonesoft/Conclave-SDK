@@ -661,7 +661,7 @@ def apply_kit(
                 else:
                     preserved.append(".mcp.json")
                     merge_needed.append(".mcp.json")
-            except (OSError, json.JSONDecodeError):
+            except (OSError, ValueError):  # unreadable, not UTF-8 (UnicodeDecodeError) or not JSON: the project's to merge
                 preserved.append(".mcp.json")
                 merge_needed.append(".mcp.json")
         else:

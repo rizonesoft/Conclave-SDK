@@ -2648,6 +2648,18 @@ class InitPlanningTests(KitFixture, unittest.TestCase):
         assert record is not None
         self.assertEqual(record["kits"]["wordpress"]["host"], "wpcom")
 
+    def test_an_mcp_json_that_is_not_utf8_is_kept_for_a_merge(self):
+        (self.target / "artisan").write_text("<?php\n", encoding="utf-8")
+        mcp = self.target / ".mcp.json"
+        mcp.write_bytes('{"mcpServers": {}}\n'.encode("utf-16"))
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = forge.main(["init", str(self.target), "--kit", "laravel"])
+        self.assertEqual(code, 0, err.getvalue())
+        self.assertEqual(mcp.read_bytes(), '{"mcpServers": {}}\n'.encode("utf-16"))
+        laravel = next(k for k in json.loads(out.getvalue())["kits"] if k["kit"] == "laravel")
+        self.assertIn(".mcp.json", laravel["merge_needed"])
+
     def test_no_scripts_is_applied_to_the_preflight(self):
         (self.target / "scripts").write_bytes(b"a file where scripts/ would go\n")
         before = self.snapshot(self.target)
