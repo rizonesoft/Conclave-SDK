@@ -353,9 +353,20 @@ def load_record(target_root: Path) -> dict | None:
     path = target_root / RECORD
     if not path.exists():
         return None
+    def no_duplicates(pairs):
+        # json keeps the last of two equal keys, which would silently drop a whole "files" object.
+        found: dict = {}
+        for key, value in pairs:
+            if key in found:
+                raise ValueError(f"the key {key!r} appears twice")
+            found[key] = value
+        return found
+
     try:
-        data = json.loads(path.read_bytes().decode("utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        data = json.loads(path.read_bytes().decode("utf-8"), object_pairs_hook=no_duplicates)
+    except RecursionError:
+        raise ValueError(f"{RECORD}: nested too deeply to be an install record") from None
+    except (OSError, ValueError) as exc:  # a decoding error and a JSON error are both ValueErrors
         raise ValueError(f"{RECORD}: not readable as UTF-8 JSON ({exc})") from None
     return _check_record(data)
 
@@ -378,6 +389,41 @@ def _record_install(record: dict, kit_name: str, agent: str, host: str | None, d
     kit["host"] = host if host is not None else kit["host"]
     for rel, digest in digests.items():
         record["files"][rel] = {"kit": kit_name, "sha256": digest}
+
+
+def _write_recorded(target_root: Path, record: dict, kit_name: str, agent: str, host: str | None,
+                    copies: list[tuple[str, Path, bytes]]) -> None:
+    """Write `(relative path, destination, bytes)` files and record them under their kit.
+
+    The record is written first, naming every file about to be written, and trimmed back to what was written when
+    a write fails. So a failure that also stops the record being rewritten (a full disk) leaves a record that names
+    files not yet there, never files with no record: the next run of the same command writes those files, since they
+    are missing, and the record is then true. The other order would leave written files unrecorded for good, because
+    a later run skips a file that exists.
+    """
+    if not copies:
+        return
+    earlier = {rel: record["files"].get(rel) for rel, _dst, _data in copies}
+    _record_install(record, kit_name, agent, host, {rel: file_digest(data) for rel, _dst, data in copies})
+    write_record(target_root, record)
+    written: set[str] = set()
+    try:
+        for rel, dst, data in copies:
+            atomic_write(dst, data)
+            written.add(rel)
+    except BaseException:
+        for rel, entry in earlier.items():
+            if rel in written:
+                continue
+            if entry is None:
+                record["files"].pop(rel, None)
+            else:
+                record["files"][rel] = entry
+        try:
+            write_record(target_root, record)
+        except OSError:
+            pass  # the record still names the unwritten files; the next run writes them (see the docstring)
+        raise
 
 
 def apply_kit(
@@ -423,23 +469,16 @@ def apply_kit(
 
     # The record is read, and its folder checked, before the first copy: a refusal here leaves nothing written.
     record = load_record(target_root) or {"schema_version": 1, "kits": {}, "files": {}}
-    digests: dict[str, str] = {}
-    try:
-        for src, dst, rel in plan:
-            if dst.exists() or dst.is_symlink():
-                preserved.append(rel)
-                continue
-            if not dry_run:
-                data = src.read_bytes()
-                atomic_write(dst, data)
-                digests[rel] = file_digest(data)
-            installed.append(rel)
-    finally:
-        # Also when a copy failed part way: the files already written are recorded before the error goes on. Only
-        # files this run wrote are recorded, with the template's digest; a preserved file stays the project's.
-        if digests:
-            _record_install(record, kit_name, agent, extra.get("host"), digests)
-            write_record(target_root, record)
+    copies: list[tuple[str, Path, bytes]] = []
+    for src, dst, rel in plan:
+        if dst.exists() or dst.is_symlink():
+            preserved.append(rel)
+            continue
+        installed.append(rel)
+        if not dry_run:
+            copies.append((rel, dst, src.read_bytes()))
+    # Only files this run writes are recorded, with the template's digest; a preserved file stays the project's.
+    _write_recorded(target_root, record, kit_name, agent, extra.get("host"), copies)
 
     if kit_name == "laravel":
         mcp_path = target_root / ".mcp.json"
@@ -808,19 +847,11 @@ def provision(
     if overwrite_existing_docs:
         base_templates = FORGE_ROOT / "kits/base/templates"
         record = load_record(target_root) or {"schema_version": 1, "kits": {}, "files": {}}
-        digests: dict[str, str] = {}
-        try:
-            for doc in ENTRY_DOCS:
-                if _rel_allowed_for_agent(doc, agent) and not (target_root / doc).is_symlink():
-                    data = (base_templates / doc).read_bytes()
-                    atomic_write(target_root / doc, data)
-                    digests[doc] = file_digest(data)
-                    forced.append(doc)
-        finally:
-            # A doc --force replaced holds the kit's bytes now, so it is recorded as installed, as a fresh one is.
-            if digests:
-                _record_install(record, "base", agent, None, digests)
-                write_record(target_root, record)
+        forced = [doc for doc in ENTRY_DOCS
+                  if _rel_allowed_for_agent(doc, agent) and not (target_root / doc).is_symlink()]
+        # A doc --force replaces holds the kit's bytes afterwards, so it is recorded as installed, as a fresh one is.
+        _write_recorded(target_root, record, "base", agent, None,
+                        [(doc, target_root / doc, (base_templates / doc).read_bytes()) for doc in forced])
 
     agents_md = target_root / "AGENTS.md"
     fresh_agents = "AGENTS.md" in kit_results[0]["installed"] or "AGENTS.md" in forced
