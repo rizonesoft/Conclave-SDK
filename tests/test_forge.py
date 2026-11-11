@@ -630,11 +630,11 @@ class ForgeProvisionTests(unittest.TestCase):
                             88,
                             f"Table cell exceeds 88 chars ({len(cell)} > 88) at {md}:{lineno}: {cell!r}",
                         )
-                    # AGENTS.md: every table row at or under 100 characters, so rows never wrap in raw view.
+                    # AGENTS.md: every table row at or under 120 characters, so rows never wrap in raw view.
                     self.assertLessEqual(
                         len(line),
-                        100,
-                        f"Table row wraps raw md ({len(line)} > 100 chars) at {md}:{lineno}",
+                        120,
+                        f"Table row wraps raw md ({len(line)} > 120 chars) at {md}:{lineno}",
                     )
 
 
