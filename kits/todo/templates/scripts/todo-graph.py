@@ -132,7 +132,7 @@ def main():
             result = review_rounds()
         elif args.kind == "plan":
             # The plan's names come from plan_config and every section from the graph, so a reader such as the
-            # editor extension never parses todo/ itself (plan R34). graph() has already loaded todo/plan.json
+            # program showing the plan never parses todo/ itself. graph() has already loaded todo/plan.json
             # strictly, so an unreadable one refused before this point.
             config = plan_config()
             result = {"title": config["title"], "acceptance": config["acceptance"],

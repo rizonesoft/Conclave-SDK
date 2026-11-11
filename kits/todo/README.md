@@ -18,7 +18,7 @@ Additive overlay that brings the Conclave TODO system into a project for Gemini 
 
 ## Reading the plan from another program
 
-`python scripts/todo-graph.py query plan` prints the plan as JSON: `title`, `acceptance` and `phases` (number to name) from `todo/plan.json`, and `sections`, every section in plan order with its `ref`, `path`, `title`, `phase`, `depends` and `status` (`verified`, `ready`, `blocked`, or `deferred` when its file is not active). A program that shows the plan, such as the editor extension's Plan section, reads this instead of parsing `todo/`; an unreadable `todo/plan.json` is refused with exit 2, as every other query.
+`python scripts/todo-graph.py query plan` prints the plan as JSON: `title`, `acceptance` and `phases` (number to name) from `todo/plan.json`, and `sections`, every section in plan order with its `ref`, `path`, `title`, `phase`, `depends` and `status` (`verified`, `ready`, `blocked`, or `deferred` when its file is not active). A program that shows the plan reads this instead of parsing `todo/`; an unreadable `todo/plan.json` is refused with exit 2, as every other query.
 
 ## CI status and dependency merges
 

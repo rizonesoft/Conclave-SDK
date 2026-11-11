@@ -107,7 +107,7 @@ def load_pin(path=PIN, data=None):
     except RecursionError:
         raise Refused("unreadable reviewer pin: nested too deeply to read") from None
     # `type(...) is int`: TOML true is Python True (an int subclass) and 1.0 == 1, so `!= 1` alone let both load.
-    # The optional [schedule] is checked below; the refusal text stays the one the VS Code extension matches.
+    # The optional [schedule] is checked below; the refusal text is part of the --check-pin contract.
     if not {"schema_version", "reviewers", "routes"} <= set(pin) <= {"schema_version", "reviewers", "routes",
                                                                      "schedule"} \
             or type(pin["schema_version"]) is not int or pin["schema_version"] != 1:

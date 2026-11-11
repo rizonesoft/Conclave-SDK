@@ -1603,7 +1603,7 @@ class QueryPlan(Tree):
 
 
 class CliOutput(Tree):
-    """The CLI's output is a contract other programs parse (the editor extension, process-plan): always UTF-8."""
+    """The CLI's output is a contract other programs parse (process-plan, any program showing the plan): always UTF-8."""
 
     def test_query_output_is_utf8_whatever_the_console_code_page(self):
         self.write(todo_file([(1, "Only", 0, "none", "--")]))

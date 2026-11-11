@@ -1,8 +1,8 @@
-"""The `review-dispatch.py --check-pin --json` contract the VS Code extension reads (D01 T01 §3).
+"""The `review-dispatch.py --check-pin --json` contract a pin editor or script reads.
 
-Every fixture pin under extensions/vscode/test/fixtures/pins/ runs through the reviewer kit's dispatcher and must give
+Every fixture pin under tests/fixtures/check-pin/pins/ runs through the reviewer kit's dispatcher and must give
 the exit code, `ok` value and error text recorded in expected.json, so a dispatcher change that breaks the contract fails
-here before it reaches the extension. The extension's own tests reuse the same fixtures.
+here before it reaches a reader.
 """
 import json
 import os
@@ -15,7 +15,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DISPATCHER = ROOT / "kits/reviewer/templates/scripts/review-dispatch.py"
-FIXTURES = ROOT / "extensions/vscode/test/fixtures"
+FIXTURES = ROOT / "tests/fixtures/check-pin"
 PINS = FIXTURES / "pins"
 EXPECTED = json.loads((PINS / "expected.json").read_text(encoding="utf-8"))
 
@@ -26,7 +26,7 @@ def check_pin(dispatcher, pin, env=None, cwd=None):
 
 
 def json_object(stdout):
-    """The one JSON object with an `ok` key the contract promises, or None (the extension's old-dispatcher rule)."""
+    """The one JSON object with an `ok` key the contract promises, or None (how a reader tells an old dispatcher)."""
     try:
         report = json.loads(stdout)
     except ValueError:
@@ -52,7 +52,7 @@ class CheckPinContract(unittest.TestCase):
                     # An int, not JSON true, which Python would also call equal to 1.
                     self.assertIs(type(report["schema_version"]), int, name)
                     self.assertEqual(report["schema_version"], 1, name)
-                    # The reviewers and routes are the pin's own, in its order: what the extension lists and edits.
+                    # The reviewers and routes are the pin's own, in its order: what a pin editor lists and edits.
                     # Dict equality ignores order, so the keys are compared as lists too.
                     pin = tomllib.loads((PINS / name).read_text(encoding="utf-8"))
                     self.assertEqual(report["reviewers"], pin["reviewers"], f"{name}: reviewers")
@@ -69,8 +69,8 @@ class CheckPinContract(unittest.TestCase):
                     self.assertEqual(report["error"], want["error"], f"{name}: error text")
 
     def test_clis_says_which_reviewer_cli_is_on_path(self):
-        # plan R10: the extension's PATH badges come from `clis`, so it must follow PATH. Each CLI alone and none at
-        # all, so a dispatcher that looked one CLI up under another's name fails here (D01 T01 §4).
+        # A reader's installed-CLI display comes from `clis`, so it must follow PATH. Each CLI alone and none at
+        # all, so a dispatcher that looked one CLI up under another's name fails here.
         for present in ("codex", "agy", "claude", None):
             with self.subTest(on_path=present), tempfile.TemporaryDirectory() as tmp:
                 if present:
@@ -85,7 +85,7 @@ class CheckPinContract(unittest.TestCase):
                 self.assertEqual(json.loads(run.stdout)["clis"], {cli: cli == present for cli in ("codex", "agy", "claude")})
 
     def test_a_dispatcher_without_check_pin_prints_no_contract_object(self):
-        # plan R18: a dispatcher from before --check-pin (b7c649b) exits 2 like a refusal, so the extension tells them
+        # A dispatcher from before --check-pin (b7c649b) exits 2 like a refusal, so a reader tells them
         # apart by stdout, which holds no JSON object with an `ok` key, never by the exit code.
         run = check_pin(FIXTURES / "dispatchers/review-dispatch-b7c649b.py", PINS / "valid-shipped.toml")
         self.assertEqual(run.returncode, 2)

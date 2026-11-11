@@ -22,9 +22,8 @@ Each agent reads only its own isolated folder and entrypoint alongside the share
 | `kits/laravel/`, `kits/wordpress/` | Stack kits. |
 | `prompts/` | Copy-pasteable prompts to import Conclave-SDK from Gemini, Claude, or Codex. |
 | `plugins/` | Standalone agent plugins that belong to no kit (never installed by `forge.py`). |
-| `extensions/` | Editor extensions (`vscode/`), never installed by `forge.py`. |
-| `extensions/vscode/test/fixtures/` | Pins and dispatchers freezing the `--check-pin` contract. |
-| `todo/`, `design/` | The SDK's own TODO plan and interface design (the VS Code extension). |
+| `tests/fixtures/check-pin/` | Pins and dispatchers freezing the `--check-pin` contract. |
+| `todo/` | The SDK's own TODO plan. |
 | `.agents/`, `.claude/`, `.codex/` | The SDK's own `base`, `todo`, `reviewer`, `automations`. |
 | `scripts/`, `.conclave/` | The SDK's own todo, reviewer and automations scripts and pins. |
 | `tests/` | Suites for `todo_graph.py`, `forge.py`, kits, `test_check_pin_contract.py`. |

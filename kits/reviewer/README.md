@@ -70,7 +70,7 @@ python3 scripts/review-dispatch.py --kind plan --candidate <40-char SHA> --write
 python3 scripts/review-dispatch.py --kind completion --candidate <40-char SHA> --writer claude --prompt <scratch>/completion-prompt.md --record docs/reviews/<topic>.md
 ```
 
-To read the recorded rounds back (the editor extension's Review rounds section does), without running a reviewer:
+To read the recorded rounds back, without running a reviewer:
 
 ```bash
 python3 scripts/review-dispatch.py --list-rounds --json [--records docs/reviews]
@@ -78,7 +78,7 @@ python3 scripts/review-dispatch.py --list-rounds --json [--records docs/reviews]
 
 It prints `{"records": [{"path", "rounds": [{"number", "reviewer", "model", "cli", "writer", "run", "effort", "skipped": [{"reviewer", "reason"}]}]}]}`, with `reviewer`, `model` and `cli` null for a round no reviewer returned, and adds `"unreadable": [path]` for a findings file whose round headings or lines are not in the format `--record` writes, never dropping it, or a file that cannot be read or is not UTF-8. Without `--json` it prints one line per round. Each round `--record` writes states how many lines its review has (`- Lines: N`, lines split on newline only) and a digest of them (`- Digest:`, the first 16 hex digits of their SHA-256), and the reader skips exactly that many lines and checks the digest, so a review quoting `## Round ...` lines can never pass for a round, and a hand edit inside a review, even one that keeps its line count, makes the file unreadable. The review is stored byte for byte, carriage returns included; a CRLF checkout reads the same. Text after a round's review belongs to no round: notes such as `## Response to round N` sit there and are not read. Rounds recorded before the count run to the next round heading, and rounds recorded before the digest are read by their count alone. `--record` never appends to a findings file it cannot read back: the review still prints, nothing is written, and the exit is 2.
 
-To ask whether the pin loads, the same way a review run would load it, without running a reviewer (the editor extension validates every edit this way):
+To ask whether the pin loads, the same way a review run would load it, without running a reviewer (an editor or a script can validate an edit this way):
 
 ```bash
 python3 scripts/review-dispatch.py --check-pin --json [--pin .conclave/reviewers.toml]

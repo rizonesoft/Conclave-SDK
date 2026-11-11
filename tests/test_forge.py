@@ -15,7 +15,7 @@ import forge  # noqa: E402
 
 
 def repository_files():
-    """The SDK's own files: those git tracks or would track, so ignored output (an extension's node_modules, a build)
+    """The SDK's own files: those git tracks or would track, so ignored output (a build, a cache)
     is never held to the SDK's writing rules. Outside a git checkout, every file under the root but .git."""
     listed = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=FORGE_ROOT,
                             capture_output=True)
@@ -477,7 +477,7 @@ class ForgeProvisionTests(unittest.TestCase):
     def test_the_sdk_uses_the_agent_setup_its_kits_ship(self):
         # The kits are the only source. The SDK's own .agents/.claude/.codex and scripts/ are an installed copy of
         # base, todo, reviewer and automations (the SDK plans, reviews and schedules its own work with them; the
-        # owner chose on 2026-10-17 to keep base's scripts too, design/decisions.md), refreshed from the kits by
+        # owner chose on 2026-10-17 to keep base's scripts too), refreshed from the kits by
         # `forge.py self-sync`, so they must match them.
         def text(path):
             return path.read_bytes().replace(b"\r\n", b"\n")
