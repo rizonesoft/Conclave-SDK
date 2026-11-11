@@ -2347,12 +2347,28 @@ class KitNewTests(KitFixture, unittest.TestCase):
         self.assertEqual(self.loaded()["files"][both]["sha256"], forge.file_digest(self.kit_bytes(both)))
         self.assertEqual(self.states(forge.diff_project(self.target))[both], "project-changed")
 
-        # A merge that took the kit's version whole is accepted; a later kit change then reads kit-newer.
+        # A merge that took the kit's version whole is accepted.
         (self.target / differs).write_bytes(self.kit_bytes(differs))
         code, out, err = self.run_main("record", self.target, "--merged", differs)
         self.assertEqual(code, 0, err)
         self.assertEqual(self.loaded()["files"][differs], {"kit": "todo", "sha256": forge.file_digest(self.kit_bytes(differs))})
         self.assertEqual(self.states(forge.diff_project(self.target))[differs], "identical")
+
+    def test_a_merge_that_took_the_kit_whole_then_reads_kit_newer_on_the_next_kit_change(self):
+        sdk = pathlib.Path(self.tmp.name) / "sdk"
+        shutil.copytree(FORGE_ROOT / "kits/todo", sdk / "kits/todo")
+        rel = ".claude/skills/add-todo/SKILL.md"
+        template = sdk / "kits/todo/templates" / rel
+        with unittest.mock.patch.object(forge, "FORGE_ROOT", sdk):
+            forge.apply_kit(self.target, "todo", agent="claude")
+            (self.target / rel).write_bytes(b"own\n")
+            template.write_bytes(template.read_bytes() + b"\nkit change one\n")
+            forge.update_project(self.target, kit_new=True, only=[rel])
+            (self.target / rel).write_bytes(template.read_bytes())
+            self.assertEqual(self.run_main("record", self.target, "--merged", rel)[0], 0)
+            self.assertEqual(self.states(forge.diff_project(self.target))[rel], "identical")
+            template.write_bytes(template.read_bytes() + b"\nkit change two\n")
+            self.assertEqual(self.states(forge.diff_project(self.target))[rel], "kit-newer")
 
     def test_a_differs_file_with_no_kit_entry_gains_both(self):
         forge.apply_kit(self.target, "todo", agent="claude")
@@ -2402,11 +2418,19 @@ class KitNewTests(KitFixture, unittest.TestCase):
         readme = (FORGE_ROOT / "README.md").read_text(encoding="utf-8")
         section = readme.split("### `update`", 1)[1].split("\n## ", 1)[0].split("\n### ", 1)[0]
         self.assertIn("python forge.py update ..\\ExistingRepo --kit-new", section)
-        self.assertIn("python forge.py record ..\\ExistingRepo --merged .claude/skills/process-plan/SKILL.md", section)
-        self.differs_fixture()
+        documented = "python forge.py record ..\\ExistingRepo --merged .claude/skills/process-plan/SKILL.md"
+        self.assertIn(documented, section)
+        # The documented file, made both-changed, merged and recorded by that exact command on a scratch project.
+        forge.apply_kit(self.target, "todo", agent="claude")
+        rel = ".claude/skills/process-plan/SKILL.md"
+        (self.target / rel).write_bytes(b"own\n")
+        self.set_recorded(rel, b"an older kit's version\n")
         forge.update_project(self.target, kit_new=True)
-        rel = self.SIX["both-changed"]
-        self.assertEqual(self.run_main("record", self.target, "--merged", rel)[0], 0)
+        (self.target / rel).write_bytes(self.kit_bytes(rel) + b"\nThe project's line.\n")
+        args = documented.split()[2:]
+        args[1] = str(self.target)
+        self.assertEqual(self.run_main(*args)[0], 0)
+        self.assertEqual(self.states(forge.diff_project(self.target))[rel], "project-changed")
 
 
 class ProcessPlanAuditTests(unittest.TestCase):
