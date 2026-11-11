@@ -244,7 +244,11 @@ def kit_plan(target_root: Path, kit_name: str, *, agent: str = "all", host: str 
     elif kit_name == "wordpress":
         if host is not None and host not in WORDPRESS_HOSTS:
             raise ValueError(f"Unknown WordPress host '{host}'. Available hosts: {', '.join(WORDPRESS_HOSTS)}")
-        if (target_root / WORDPRESS_PIN).exists():
+        pin_path = target_root / WORDPRESS_PIN
+        # The pin decides which host's files are planned, so it is read only from inside the project.
+        if _has_unsafe_parent(target_root, WORDPRESS_PIN) or _is_link(pin_path):
+            raise ValueError(f"{WORDPRESS_PIN} is a link or under one; refusing to read a site pin from outside the project")
+        if pin_path.exists():
             pin, state = _load_wordpress_pin(target_root)
             if pin is None:
                 raise ValueError(f"{WORDPRESS_PIN} is {state}; fix it before re-applying the kit")
@@ -697,9 +701,11 @@ def _text_patch(rel: str, project: bytes, kit: bytes) -> str:
         ours, theirs = project.decode("utf-8"), kit.decode("utf-8")
     except UnicodeDecodeError:
         return "binary"
-    return "".join(difflib.unified_diff(
+    lines = difflib.unified_diff(
         ours.replace("\r\n", "\n").splitlines(keepends=True), theirs.replace("\r\n", "\n").splitlines(keepends=True),
-        fromfile=f"project/{rel}", tofile=f"kit/{rel}"))
+        fromfile=f"project/{rel}", tofile=f"kit/{rel}")
+    # A last line with no newline ends its line in the patch and is marked, as diff(1) and git do.
+    return "".join(line if line.endswith("\n") else line + "\n\\ No newline at end of file\n" for line in lines)
 
 
 def diff_project(target_root: Path, kit_name: str | None = None, *, patch: bool = False) -> dict:

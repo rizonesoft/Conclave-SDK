@@ -1605,6 +1605,28 @@ class DiffTests(unittest.TestCase):
     def _link(self, target, link):
         make_link(target, link)
 
+    def test_a_site_pin_behind_a_link_is_never_read(self):
+        outside = pathlib.Path(self.tmp.name) / "outside"
+        (outside / ".conclave").mkdir(parents=True)
+        shutil.copyfile(FORGE_ROOT / "kits/wordpress/hosts/wpcom/templates" / forge.WORDPRESS_PIN,
+                        outside / forge.WORDPRESS_PIN)
+        if os.name == "nt":
+            make_link(outside / ".conclave", self.target / ".conclave")  # a junction links folders only
+        else:
+            (self.target / ".conclave").mkdir()
+            os.symlink(outside / forge.WORDPRESS_PIN, self.target / forge.WORDPRESS_PIN)
+        with unittest.mock.patch.object(forge, "_load_wordpress_pin", side_effect=AssertionError("pin read")):
+            with self.assertRaisesRegex(ValueError, "refusing to read a site pin from outside the project"):
+                forge.kit_plan(self.target, "wordpress")
+            with self.assertRaisesRegex(ValueError, "link"):
+                forge.diff_project(self.target, "wordpress")
+
+    def test_a_patch_marks_a_last_line_with_no_newline(self):
+        patch = forge._text_patch("SKILL.md", b"project edit", b"kit text\n")
+        self.assertEqual(patch.splitlines()[2:], [
+            "@@ -1 +1 @@", "-project edit", "\\ No newline at end of file", "+kit text"])
+        self.assertTrue(patch.endswith("\n"))
+
     def test_an_unsafe_destination_is_never_read(self):
         forge.apply_kit(self.target, "todo", agent="claude")
         outside = pathlib.Path(self.tmp.name) / "outside"
