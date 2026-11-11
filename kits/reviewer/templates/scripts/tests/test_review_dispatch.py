@@ -46,6 +46,15 @@ FAKE_CLI = textwrap.dedent('''\
         from_file = open(path).read() if os.path.isfile(path) else None
     with open(os.environ["FAKE_LOG"], "a") as log:
         log.write(json.dumps({"cli": name, "argv": args, "stdin": stdin, "cwd": os.getcwd(), "from_file": from_file}) + "\\n")
+    if mode in ("sleepchild", "floodchild"):
+        # The reviewer starts a child that sleeps 60 s, then hangs (sleepchild) or floods stdout (floodchild).
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        open(os.environ["FAKE_CHILD_PID"], "w").write(str(child.pid))
+        while True:
+            if mode == "floodchild":
+                sys.stdout.write("x" * 65536)
+                sys.stdout.flush()
+            time.sleep(0.01)
     if mode == "fail":
         sys.exit(3)
     if mode == "sleep":
@@ -101,6 +110,47 @@ def write_launcher(directory, name, fake):
     return path
 
 
+def pid_alive(pid):
+    """True while process `pid` is running, without touching it. Never os.kill(pid, 0) on Windows: there it
+    terminates the process."""
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+    import ctypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+    kernel32.GetExitCodeProcess.restype = ctypes.c_int
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return ctypes.get_last_error() == 5  # access denied: it exists; invalid parameter: it is gone
+    try:
+        code = ctypes.c_uint32()
+        return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259  # STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def kill_pid(pid):
+    """End a process a test started, if it is still running, so a failed test leaves no sleeper behind."""
+    if not pid_alive(pid):
+        return
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True)
+    else:
+        try:
+            os.kill(pid, 9)
+        except ProcessLookupError:
+            pass
+
+
 class Harness(unittest.TestCase):
     """A scratch repository with the dispatcher, a pin and a fake CLI on PATH; holds no tests itself."""
 
@@ -126,7 +176,15 @@ class Harness(unittest.TestCase):
         self.prompt.write_text("Review calc.py. Do not modify any file.\n", encoding="utf-8")
 
     def tearDown(self):
-        self._tmp.cleanup()
+        # On Windows a killed process releases its files a moment after it is reaped, so removal is retried briefly.
+        for attempt in range(50):
+            try:
+                self._tmp.cleanup()
+                return
+            except PermissionError:
+                if attempt == 49:
+                    raise
+                time.sleep(0.1)
 
     def dispatch(self, *args, cwd=None, **modes):
         system_root = {"SYSTEMROOT": os.environ["SYSTEMROOT"]} if os.name == "nt" else {}
@@ -642,19 +700,94 @@ class Dispatch(Harness):
         self.assertIn("NUL byte", result.stderr)
         self.assertEqual(self.calls(), [])
 
-    @unittest.skipIf(os.name == "nt", "Windows cannot reach a child once its reviewer has exited (see kill_tree)")
+    def assert_child_gone(self):
+        """The child the fake reviewer recorded in FAKE_CHILD_PID is not running, within a short bounded wait. The
+        child is ended at cleanup whatever the assertions did, so a failing run never leaves its sleeper behind."""
+        pid_file = Path(self._tmp.name) / "child.pid"
+        for _ in range(50):  # the file is written once the fake reviewer has started its child
+            if pid_file.exists() and pid_file.read_text():
+                break
+            time.sleep(0.1)
+        self.assertTrue(pid_file.exists(), "the fake reviewer never started its child")
+        pid = int(pid_file.read_text())
+        self.addCleanup(kill_pid, pid)
+        for _ in range(50):
+            if not pid_alive(pid):
+                return
+            time.sleep(0.1)
+        self.fail("the reviewer's child process was still running")
+
     def test_a_reviewers_children_do_not_outlive_it(self):
         _, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), codex="orphan")
         self.assertEqual(summary["reviewer"], "sol")
-        pid = int((Path(self._tmp.name) / "child.pid").read_text())
-        for _ in range(50):
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                return
-            time.sleep(0.1)
-        os.kill(pid, 9)
-        self.fail("the reviewer's child process was still running")
+        self.assert_child_gone()
+
+    def test_a_reviewers_children_do_not_outlive_its_timeout(self):
+        _, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--timeout", "5",
+                                   codex="sleepchild")
+        self.assertEqual(summary["failover"], [{"reviewer": "sol", "reason": "timed out"}])
+        self.assert_child_gone()
+
+    def test_a_reviewers_children_do_not_outlive_an_output_flood(self):
+        _, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--timeout", "40",
+                                   codex="floodchild")
+        self.assertEqual(summary["failover"], [{"reviewer": "sol", "reason": "returned more than 2000000 bytes"}])
+        self.assert_child_gone()
+
+    def start_failure(self, step_function):
+        """Run a reviewer that would start a child and hang, with `step_function` of the dispatcher failing: the
+        reason names the step, the suspended reviewer is dead and reaped, no child exists, the job handle was ended
+        exactly once, and the call returned promptly."""
+        module = self.module()
+        child_pid = Path(self._tmp.name) / "child.pid"
+        code = ("import subprocess, sys, time; c = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+                f"open({str(child_pid)!r}, 'w').write(str(c.pid)); time.sleep(60)")
+        started, closed, processes = [], [], []
+        real_popen, real_close = module.subprocess.Popen, module.close_windows_job
+
+        def popen(*args, **kwargs):
+            processes.append(real_popen(*args, **kwargs))
+            self.addCleanup(kill_pid, processes[-1].pid)
+            return processes[-1]
+
+        def close(job):
+            closed.append(job)
+            real_close(job)
+
+        with unittest.mock.patch.object(module, step_function, side_effect=OSError("injected failure")), \
+                unittest.mock.patch.object(module.subprocess, "Popen", popen), \
+                unittest.mock.patch.object(module, "close_windows_job", close):
+            began = time.monotonic()
+            result = module.run([sys.executable, "-c", code], None, 30, [Path(self._tmp.name) / "out.txt"])
+            elapsed = time.monotonic() - began
+        self.assertLess(elapsed, 10)
+        self.assertEqual(result[0], None)
+        self.assertEqual(len(closed), 0 if step_function == "create_windows_job" else 1, "the job is closed once")
+        for process in processes:
+            self.assertIsNotNone(process.returncode, "the suspended reviewer was not killed and reaped")
+            self.assertFalse(pid_alive(process.pid))
+        self.assertFalse(child_pid.exists(), "the reviewer ran far enough to start a child")
+        return result[1]
+
+    @unittest.skipUnless(os.name == "nt", "job objects are Windows only; POSIX uses a process group")
+    def test_a_job_that_cannot_be_created_is_no_review(self):
+        self.assertEqual(self.start_failure("create_windows_job"),
+                         "could not start: create job: injected failure")
+
+    @unittest.skipUnless(os.name == "nt", "job objects are Windows only; POSIX uses a process group")
+    def test_a_job_that_cannot_be_configured_is_no_review(self):
+        self.assertEqual(self.start_failure("configure_windows_job"),
+                         "could not start: configure job: injected failure")
+
+    @unittest.skipUnless(os.name == "nt", "job objects are Windows only; POSIX uses a process group")
+    def test_a_reviewer_that_cannot_be_assigned_to_the_job_is_no_review(self):
+        self.assertEqual(self.start_failure("assign_windows_job"),
+                         "could not start: assign to job: injected failure")
+
+    @unittest.skipUnless(os.name == "nt", "job objects are Windows only; POSIX uses a process group")
+    def test_a_reviewer_that_cannot_be_resumed_is_no_review(self):
+        self.assertEqual(self.start_failure("resume_windows_process"),
+                         "could not start: resume: injected failure")
 
     def test_the_prompt_never_reaches_the_command_line(self):
         # A Windows .cmd shim re-parses its arguments through cmd.exe, so prose there could become commands.
