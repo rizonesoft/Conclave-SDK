@@ -2,7 +2,7 @@
 schema_version: 1
 id: install-record-and-update
 domain: 01-forge
-status: active
+status: done
 title: "TODO-01 -- Install record, diff and update"
 ---
 
@@ -42,7 +42,7 @@ title: "TODO-01 -- Install record, diff and update"
 | 6 | §6 | `.kit-new` copies for a hand merge | §4 | [x] |
 | 7 | §7 | Weekly drift report across projects | §3 | [x] |
 | 8 | §8 | `init` that writes nothing when a kit refuses | §1 | [x] |
-| 9 | §9 | Backup of the entry docs `init --force` replaces | -- | [ ] |
+| 9 | §9 | Backup of the entry docs `init --force` replaces | -- | [x] |
 
 ## 1. Kit file plan shared by install, diff and update
 
@@ -319,9 +319,12 @@ A scheduled task runs `diff` over the owner's projects once a week and reports w
 - [x] Skip a doc in `provision` that already holds what `init` would leave (the kit's bytes, plus the TODO pointer for `AGENTS.md` when `todo` is chosen): no rewrite, no backup, no record change. Done when: tests running `init --force` twice, with and without `--with-todo`, find one backup per replaced doc, not two, the second run's `backups` empty, exit 0, no write to any entry doc (an `atomic_write` spy) and the record byte for byte as before. **Corrected 2026-11-11 (plan review):** an identical rewrite passed. **Corrected 2026-11-11 (validation):** compared with the kit's bytes alone, which a pointed `AGENTS.md` never equals.
 - [x] Refuse `init --force` in `provision` when a `<name>.replaced` already exists for a doc that would be replaced, naming it, before any file is written, including the kits' own files, and a `.replaced` that is a link or a folder refuses the same way. A `<name>.replaced` whose bytes equal the doc's current bytes is already that doc's backup (a run that backed it up and then failed to replace it), so it is kept and the run goes on. Done when: tests with the collision on `CODEX.md` (a later doc) as a file holding other bytes, a folder and a dangling link, on a target missing the kits' files, each find exit 2 and every file under the target unchanged; and a retry after a failed replacement succeeds with the backup intact. **Corrected 2026-11-11 (plan review):** the collision kinds were unstated, an obstruction on the first doc could not catch an early write, and a retry after a failed replacement was blocked by its own backup. **Corrected 2026-11-11 (validation):** "before any file is written" now includes the kits' files, since §8 plans them first. Cheaper substitute: overwriting the earlier backup must fail, because it is the only copy of the first version.
 - [x] State the backup in the `--force` help text in `main` of `forge.py` and in `README.md`, with the reverse: restore a doc by copying its `.replaced` back, and before a later `--force` that would replace it again, move the earlier backup aside (rename or delete it). Done when: `python forge.py init --help` names `.replaced`, and a test follows the README's steps: restore, then move the backup aside and run `--force` again, finding a new backup and the moved one intact. **Corrected 2026-11-11 (plan review):** the refusal had no reverse or retry path.
-- [ ] Commit: `forge: init --force keeps the entry docs it replaces`
+- [x] Commit: `forge: init --force keeps the entry docs it replaces`
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; removing the backup write makes the old-bytes test fail.
+
+> **Verified:** 2026-11-11 | §9 | 19473ebcaacff18e3e8bc0dd8ce9d5595b411b20
+> **Review:** `docs/reviews/d01-t01-s9.json`
 
 ## Verification
 

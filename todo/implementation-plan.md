@@ -35,7 +35,7 @@ Sections: 9 | Checklist items: 79
 | [x]    | D01 T01 §6 | `.kit-new` copies for a hand merge                         | none  | 8     |
 | [x]    | D01 T01 §7 | Weekly drift report across projects                        | none  | 9     |
 | [x]    | D01 T01 §8 | `init` that writes nothing when a kit refuses              | none  | 5     |
-| [ ]    | D01 T01 §9 | Backup of the entry docs `init --force` replaces           | none  | 5     |
+| [x]    | D01 T01 §9 | Backup of the entry docs `init --force` replaces           | none  | 5     |
 
 ### Phase 2: Unattended running
 
@@ -139,6 +139,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 16/70 verified sections, 14 ready to run now.
+Progress: 17/70 verified sections, 13 ready to run now.
 
-Checklist: 176/497 items completed (includes Commit items).
+Checklist: 177/497 items completed (includes Commit items).
