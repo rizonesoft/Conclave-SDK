@@ -107,24 +107,46 @@ def check_reviewers_table(reviewers):
         raise Refused("the reviewer pin defines no reviewers")
 
 
-def check_reviewer(name, entry):
+def check_reviewer_entry(name, entry):
     # fullmatch: `$` alone also matches before a trailing newline, which would then break the round heading.
     if not NAME.fullmatch(name) or not isinstance(entry, dict):
         raise Refused(f"invalid reviewer {name!r}")
+
+
+def check_reviewer_keys(name, entry):
     unknown = set(entry) - {"cli", "model", "effort"}
     if unknown:
         raise Refused(f"reviewer {name!r} has unknown keys: {', '.join(sorted(unknown))}")
-    cli, model = entry.get("cli"), entry.get("model")
-    if cli not in CLIS:
+
+
+def check_reviewer_cli(name, entry):
+    if not _one_of(entry.get("cli"), CLIS):
         raise Refused(f"reviewer {name!r} needs cli = one of {', '.join(CLIS)}")
+
+
+def check_reviewer_model(name, entry):
+    model = entry.get("model")
     if not isinstance(model, str) or not MODEL.fullmatch(model):
         raise Refused(f"reviewer {name!r} has a malformed model")
+
+
+def check_reviewer_effort(name, entry):
+    """Rests on a sound `cli`: which efforts it takes, and whether it takes one at all."""
+    cli = entry["cli"]
     if cli == "agy":
         if "effort" in entry:
             raise Refused(f"reviewer {name!r}: Antigravity carries the effort in the model name, so set no effort")
     # Optional: the reviewer's effort is what a pin without a [schedule] runs at; without one, its CLI decides.
     elif "effort" in entry and not _one_of(entry["effort"], EFFORTS[cli]):
         raise Refused(f"reviewer {name!r} needs effort = one of {', '.join(EFFORTS[cli])}")
+
+
+def check_reviewer(name, entry):
+    check_reviewer_entry(name, entry)
+    check_reviewer_keys(name, entry)
+    check_reviewer_cli(name, entry)
+    check_reviewer_model(name, entry)
+    check_reviewer_effort(name, entry)
 
 
 def check_writers(routes):
@@ -169,6 +191,17 @@ def load_pin(path=PIN, data=None):
     return pin
 
 
+def step_holds(holds, where, step, efforts, table, lenses):
+    """One step's checks run one by one through `holds`, so its effort and its lenses are each reported: True when
+    the step is sound. A step whose keys are wrong is still looked at for the fields it does have."""
+    keys = holds(check_step_keys, where, step, lenses)
+    if not isinstance(step, dict):
+        return False
+    effort = holds(check_step_effort, where, step, efforts)
+    names = holds(check_step_lenses, where, step, table)
+    return keys and effort and names
+
+
 def faults(path=PIN, data=None):
     """Every independent fault of the pin, as the messages `load_pin` would refuse with one at a time, in the order of
     the pin's tables: the reviewers, the routes, then the schedule's keys as the file gives them. Empty for a pin
@@ -199,7 +232,16 @@ def faults(path=PIN, data=None):
     reviewers = pin.get("reviewers")
     good = {}
     if "reviewers" in pin and holds(check_reviewers_table, reviewers):
-        good = {name: entry for name, entry in reviewers.items() if holds(check_reviewer, name, entry)}
+        for name, entry in reviewers.items():
+            if not holds(check_reviewer_entry, name, entry):
+                continue
+            # Each field on its own; the effort only when the cli it depends on is sound.
+            sound_fields = [holds(check_reviewer_keys, name, entry), holds(check_reviewer_cli, name, entry),
+                            holds(check_reviewer_model, name, entry)]
+            if sound_fields[1]:
+                sound_fields.append(holds(check_reviewer_effort, name, entry))
+            if all(sound_fields):
+                good[name] = entry
     routes = pin.get("routes")
     routed = []
     if "routes" in pin and holds(check_writers, routes):
@@ -222,14 +264,14 @@ def faults(path=PIN, data=None):
             if key == "rounds":
                 if isinstance(step, list) and step:
                     for n, entry in enumerate(step, 1):
-                        holds(check_step, f"round {n}", entry, efforts)
+                        step_holds(holds, f"round {n}", entry, efforts, LENSES, "required")
                 else:
                     found.append("[schedule] rounds needs at least one round")
             elif key == "severity_stop_after":
                 if type(step) is not int or not 0 <= step <= 33:
                     found.append("[schedule] severity_stop_after needs a whole number of rounds from 0 to 33")
             else:
-                holds(check_step, key, step, efforts, LENSES, "none" if key == "completion" else "required")
+                step_holds(holds, key, step, efforts, LENSES, "none" if key == "completion" else "required")
         return found
     if schedule["policy"] != THREE_PASS or not holds(check_three_pass_keys, schedule):
         if schedule["policy"] != THREE_PASS:
@@ -251,12 +293,18 @@ def faults(path=PIN, data=None):
     extra = schedule.get("lenses", {})
     table = dict(LENSES)
     if into(per.get("lenses", late), check_extra_lenses_table, extra):
-        table.update({name: q for name, q in extra.items() if into(per["lenses"], check_extra_lens, name, q)})
-    sound = {kind: into(per[kind], check_step, kind, schedule[kind], efforts, table,
-                        "optional" if kind == "completion" else "required")
+        for name, question in extra.items():
+            into(per["lenses"], check_extra_lens_name, name)
+            into(per["lenses"], check_extra_lens_question, name, question)
+            # Declared, whatever is wrong with its entry: a step or a conditional entry that names it is not at
+            # fault for that, so the fault is reported once, where the lens is declared.
+            table.setdefault(name, "")
+    sound = {kind: step_holds(lambda check, *args, k=kind: into(per[k], check, *args), kind, schedule[kind],
+                              efforts, table, "optional" if kind == "completion" else "required")
              for kind in ("plan", "completion", "reconciliation")}
     sound["round"] = into(per["rounds"], check_one_round, schedule["rounds"]) \
-        and into(per["rounds"], check_step, "round 1", schedule["rounds"][0], efforts, table)
+        and step_holds(lambda check, *args: into(per["rounds"], check, *args), "round 1", schedule["rounds"][0],
+                       efforts, table, "required")
     cap_sound = "pass_cap" not in schedule or into(per["pass_cap"], check_pass_cap, schedule)
     if "no_progress_cap" in schedule:
         stall = schedule["no_progress_cap"]
@@ -275,8 +323,12 @@ def faults(path=PIN, data=None):
             late.append(str(exc))
     if "conditional" in schedule and into(per["conditional"], check_conditional_table, schedule["conditional"]):
         for n, entry in enumerate(schedule["conditional"], 1):
-            if into(per["conditional"], check_conditional_entry, n, entry, table) \
-                    and owners is not None and sound["reconciliation"]:
+            if not into(per["conditional"], check_conditional_keys, n, entry):
+                continue
+            fields = [into(per["conditional"], check_conditional_lenses, n, entry, table),
+                      into(per["conditional"], check_conditional_passes, n, entry),
+                      into(per["conditional"], check_conditional_paths, n, entry)]
+            if all(fields) and owners is not None and sound["reconciliation"]:
                 into(per["conditional"], check_conditional_overlap, n, entry, schedule, owners)
     if all(sound.values()):
         for name in routed:
@@ -334,8 +386,7 @@ def _lens_list(names, table):
         and len(set(names)) == len(names)
 
 
-def check_step(where, step, efforts, table=LENSES, lenses="required"):
-    """One schedule step. `lenses` is "required", "optional" or "none"; `effort` is always optional."""
+def check_step_keys(where, step, lenses="required"):
     need = {"required": "lenses, and may set effort", "optional": "only effort and lenses",
             "none": "only effort"}[lenses]
     if not isinstance(step, dict) or set(step) - STEP_KEYS or (lenses == "required" and "lenses" not in step) \
@@ -344,10 +395,23 @@ def check_step(where, step, efforts, table=LENSES, lenses="required"):
         raise Refused(f"[schedule] {where} needs {need}"
                       + (_keys(step, {"lenses"} if lenses == "required" else (), allowed)
                          if isinstance(step, dict) else ""))
+
+
+def check_step_effort(where, step, efforts):
     if "effort" in step and not _one_of(step["effort"], efforts):
         raise Refused(f"[schedule] {where} needs effort = one of {', '.join(efforts)}")
+
+
+def check_step_lenses(where, step, table):
     if "lenses" in step and not _lens_list(step["lenses"], table):
         raise Refused(f"[schedule] {where} needs lenses = a list of distinct lenses from {', '.join(table)}")
+
+
+def check_step(where, step, efforts, table=LENSES, lenses="required"):
+    """One schedule step. `lenses` is "required", "optional" or "none"; `effort` is always optional."""
+    check_step_keys(where, step, lenses)
+    check_step_effort(where, step, efforts)
+    check_step_lenses(where, step, table)
 
 
 def check_agy_effort(name, model, schedule):
@@ -402,14 +466,22 @@ def check_extra_lenses_table(extra):
         raise Refused("[schedule.lenses] must be a table of lens name = \"question\"")
 
 
-def check_extra_lens(name, question):
+def check_extra_lens_name(name):
     if not NAME.fullmatch(name):
         raise Refused(f"[schedule.lenses] {name!r} is not a lens name (lowercase letters, digits and dashes)")
     if name in LENSES:
         raise Refused(f"[schedule.lenses] {name!r} is already a built-in lens; a pin adds lenses, it does not "
                       f"redefine them")
+
+
+def check_extra_lens_question(name, question):
     if not isinstance(question, str) or not question.strip() or "\n" in question or "\r" in question:
         raise Refused(f"[schedule.lenses] {name!r} needs its question as one line of text")
+
+
+def check_extra_lens(name, question):
+    check_extra_lens_name(name)
+    check_extra_lens_question(name, question)
 
 
 def check_one_round(rounds):
@@ -459,22 +531,39 @@ def check_conditional_table(entries):
         raise Refused("[[schedule.conditional]] must be an array of tables")
 
 
-def check_conditional_entry(n, entry, table):
-    where = f"[[schedule.conditional]] entry {n}"
+def check_conditional_keys(n, entry):
     if not isinstance(entry, dict) or set(entry) != CONDITIONAL_KEYS:
-        raise Refused(f"{where} needs exactly {', '.join(sorted(CONDITIONAL_KEYS))}"
+        raise Refused(f"[[schedule.conditional]] entry {n} needs exactly {', '.join(sorted(CONDITIONAL_KEYS))}"
                       + (_keys(entry, CONDITIONAL_KEYS) if isinstance(entry, dict) else ""))
+
+
+def check_conditional_lenses(n, entry, table):
     if not _lens_list(entry["lenses"], table):
-        raise Refused(f"{where} needs lenses = a list of distinct lenses from {', '.join(table)}")
+        raise Refused(f"[[schedule.conditional]] entry {n} needs lenses = a list of distinct lenses from "
+                      f"{', '.join(table)}")
+
+
+def check_conditional_passes(n, entry):
     passes = entry["passes"]
     if not isinstance(passes, list) or not passes or not all(_one_of(p, SECTION_KINDS) for p in passes) \
             or len(set(passes)) != len(passes):
-        raise Refused(f"{where} needs passes = a list of distinct passes from {', '.join(SECTION_KINDS)}")
+        raise Refused(f"[[schedule.conditional]] entry {n} needs passes = a list of distinct passes from "
+                      f"{', '.join(SECTION_KINDS)}")
+
+
+def check_conditional_paths(n, entry):
     paths = entry["paths"]
     if not isinstance(paths, list) or not paths or not all(_relative_prefix(p) for p in paths) \
             or len(set(paths)) != len(paths):
-        raise Refused(f"{where} needs paths = a list of distinct repository-relative path prefixes with forward "
-                      f"slashes (no leading /, no empty, . or .. part, no drive)")
+        raise Refused(f"[[schedule.conditional]] entry {n} needs paths = a list of distinct repository-relative path "
+                      f"prefixes with forward slashes (no leading /, no empty, . or .. part, no drive)")
+
+
+def check_conditional_entry(n, entry, table):
+    check_conditional_keys(n, entry)
+    check_conditional_lenses(n, entry, table)
+    check_conditional_passes(n, entry)
+    check_conditional_paths(n, entry)
 
 
 def check_conditional_overlap(n, entry, schedule, owners):

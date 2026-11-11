@@ -497,6 +497,40 @@ class Faults(unittest.TestCase):
         self.assertIn("[[schedule.conditional]] entry 1 needs paths", found[2])
         self.assertIn("[[schedule.conditional]] entry 2 needs passes", found[3])
 
+    def test_a_bad_lens_declaration_is_reported_once_where_it_is_declared(self):
+        # Round of D00 T01 §5: an empty question also made every entry naming that lens look at fault.
+        line = 'concurrency = "On two or more CPUs, which lock or teardown order is wrong?"'
+        found = self.found(THREE_PASS.replace(line, 'concurrency = ""'))
+        self.assertEqual(len(found), 1, found)
+        self.assertIn("'concurrency' needs its question", found[0])
+
+    def test_independent_faults_inside_one_table_are_each_reported(self):
+        # Round of D00 T01 §5: only the first fault of a step was reported.
+        step = self.found(THREE_PASS.replace('[schedule.plan]\neffort = "medium"\nlenses = ["plan"]',
+                                             '[schedule.plan]\neffort = "bogus"\nlenses = ["unknown"]'))
+        self.assertEqual(len(step), 2, step)
+        self.assertIn("[schedule] plan needs effort", step[0])
+        self.assertIn("[schedule] plan needs lenses", step[1])
+        rotation = self.found(ROTATION.replace('[schedule.escalation]\neffort = "medium"\nlenses = ["adversarial"]',
+                                               '[schedule.escalation]\neffort = "max"\nlenses = []'))
+        self.assertEqual(len(rotation), 2, rotation)
+        reviewer = self.found(HEAD.replace('model = "gpt-6-astra"\neffort = "medium"',
+                                           'model = "bad model"\neffort = "extreme"\nsandbox = "x"'))
+        self.assertEqual(len(reviewer), 3, reviewer)
+        self.assertIn("unknown keys: sandbox", reviewer[0])
+        self.assertIn("malformed model", reviewer[1])
+        self.assertIn("needs effort", reviewer[2])
+        # The effort rests on the cli: with a bad cli only the cli is reported.
+        cli = self.found(HEAD.replace('cli = "codex"', 'cli = "bash"').replace('effort = "medium"', 'effort = "extreme"'))
+        self.assertEqual(len(cli), 1, cli)
+        entry = self.found(THREE_PASS.replace('lenses = ["design"]\npasses = ["plan", "round"]\npaths = ["src/ui/"]',
+                                              'lenses = ["nope"]\npasses = ["rounds"]\npaths = ["/abs/"]'))
+        self.assertEqual(len(entry), 3, entry)
+        lens = self.found(THREE_PASS.replace('concurrency = "On two or more CPUs, which lock or teardown order is wrong?"',
+                                             'Bad_Name = 7'))
+        self.assertIn("'Bad_Name' is not a lens name", lens[0])
+        self.assertIn("'Bad_Name' needs its question", lens[1])
+
     def test_a_check_that_rests_on_a_reported_part_is_skipped(self):
         # The round's lenses are at fault, so the one-owner rule and a conditional overlap that read them are not run.
         bad = THREE_PASS.replace('lenses = ["adversarial", "integration", "quality"]',
