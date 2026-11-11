@@ -41,7 +41,7 @@ title: "TODO-01 -- Install record, diff and update"
 | 5 | §5 | `forge.py record` for projects installed before the record | §3 | [x] |
 | 6 | §6 | `.kit-new` copies for a hand merge | §4 | [x] |
 | 7 | §7 | Weekly drift report across projects | §3 | [x] |
-| 8 | §8 | `init` that writes nothing when a kit refuses | §1 | [ ] |
+| 8 | §8 | `init` that writes nothing when a kit refuses | §1 | [x] |
 | 9 | §9 | Backup of the entry docs `init --force` replaces | -- | [ ] |
 
 ## 1. Kit file plan shared by install, diff and update
@@ -291,9 +291,12 @@ A scheduled task runs `diff` over the owner's projects once a week and reports w
 - [x] Refuse an unknown kit name in `provision` before any write, naming the available kits. Done when: a test with `--kit nope` finds exit 2 and an empty target.
 - [x] Create the target folder in `provision` only after the plans succeed, so a refused `init` on a new path leaves no folder behind, with `_find_laravel_app_root` and `_find_wordpress_root` returning `None` for a folder that does not exist. Done when: a test with a path that does not exist and a refusing kit finds the path still absent, and `init --kit todo` and `init --kit wordpress` on new paths still install, the latter with the host's files and its record read back. **Corrected 2026-11-11 (validation, plan review):** the root finders raised on a missing folder, and no test reached the WordPress finder.
 - [x] Apply `--no-scripts` to the combined plan in `provision` as `apply_kit` does, so the preflight checks only what will be written. Done when: a test with `scripts` as a file (an unsafe parent for every `scripts/` path) and `--no-scripts` installs, and without `--no-scripts` refuses with the target unchanged. **Corrected 2026-11-11 (validation):** added; the preflight over the combined plan must use the same filter.
-- [ ] Commit: `forge: init plans every kit before it writes one`
+- [x] Commit: `forge: init plans every kit before it writes one`
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; moving the plan loop after the first `apply_kit` makes the empty-folder test fail.
+
+> **Verified:** 2026-11-11 | §8 | 4267907b6fdddb30b260c000d7032f3123f6288a
+> **Review:** `docs/reviews/d01-t01-s8.json`
 
 ## 9. Backup of the entry docs `init --force` replaces
 
