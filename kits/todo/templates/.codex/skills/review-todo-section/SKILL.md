@@ -79,7 +79,7 @@ python3 scripts/review-dispatch.py --kind completion --candidate <full tip SHA> 
 python3 scripts/review-dispatch.py --kind reconciliation --candidate <full new tip SHA> --writer <claude|codex|agy> --prompt <scratch-reconciliation-prompt.md> --record docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md
 ```
 
-   It ends `RECONCILIATION: complete` or `RECONCILIATION: gaps`. After gaps, repair and run another. File each out-of-scope gap through `add-todo` as a new section and add a `- Filed: DNN TNN §N (<gap>)` line under the review.
+   It ends `RECONCILIATION: complete` or `RECONCILIATION: gaps`. After gaps, repair and run another. File each out-of-scope gap through `add-todo` as a new section and add a `- Filed: DNN TNN §N (<gap>)` line under the review that raised it. Under a last pass that ended complete write no `- Filed:` line: the stamp reads those lines under the last returned pass and takes them only with the `filed` verdict.
 
 Every reply must carry one line `LENS <name>: clean` or `LENS <name>: findings` for each lens the dispatcher scheduled (it appends them to your prompt) and a `HIGHEST: P1|P2|P3|none` line before the final verdict lines. A `[[schedule.conditional]]` entry in the pin adds its lenses when the section changed a file under its paths, and a plan review takes those files from `--paths <file> ...`. Headings that start `## Round`, `## Completion review`, `## Plan review` or `## Reconciliation review` are reserved for what `--record` writes: a writer's own note uses another heading (for example `## Writer note: ...`), or the file stops being readable and the next review is refused with the offending line named.
 
