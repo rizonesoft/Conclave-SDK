@@ -3,6 +3,7 @@
 
     python forge.py init <target> [--agent all|agy|gemini|claude|codex] [--kit <kit>] [--with-todo] [--force]
     python forge.py kit <target> <kit> [--agent all|agy|gemini|claude|codex] [--host pressable|wpcom] [--dry-run]
+    python forge.py diff <target> [kit] [--patch]
     python forge.py doctor <target> [laravel|wordpress|reviewer|automations|todo|base] [--strict]
     python forge.py kits
     python forge.py check <target>
@@ -17,6 +18,7 @@ installed copy of its kits.
 from __future__ import annotations
 
 import argparse
+import difflib
 import hashlib
 import json
 import os
@@ -638,6 +640,122 @@ def apply_kit(
     }
 
 
+# What `diff` says of each kit file. With a record entry: the first six. Without one (a kit installed before the
+# record existed, or a file the project had before the install): missing, identical or differs. Never read: unsafe.
+# A read that fails: unreadable. The generated Laravel .mcp.json has no template to compare: generated.
+DIFF_STATES = ("missing", "identical", "kit-newer", "project-changed", "both-changed", "project-removed",
+               "project-only", "differs", "unsafe", "unreadable", "generated")
+DIFF_PATCHED = ("project-changed", "both-changed", "differs")
+
+
+def _diff_agents(target_root: Path, recorded_kit: dict | None) -> list[str]:
+    """The agents a kit is compared for: those the record holds, else each agent whose folder the project has, else
+    all three."""
+    if recorded_kit is not None:
+        return list(recorded_kit["agents"])
+    found = [agent for agent, folder in zip(RECORD_AGENTS, AGENT_DIRS) if (target_root / folder).is_dir()]
+    return found or list(RECORD_AGENTS)
+
+
+def _diff_plan(target_root: Path, kit_name: str, agents: list[str], host: str | None) -> list[tuple]:
+    """The union of the kit's plans for each agent, one entry per relative path, sorted by path."""
+    entries: dict[str, tuple] = {}
+    for agent in (["all"] if set(agents) == set(RECORD_AGENTS) else agents):
+        for entry in kit_plan(target_root, kit_name, agent=agent, host=host)[0]:
+            entries.setdefault(entry[2], entry)
+    return [entries[rel] for rel in sorted(entries)]
+
+
+def _unsafe_destination(target_root: Path, rel: str) -> bool:
+    """A destination diff must not read and update must not write: a link, a folder, or one under a parent that is
+    a link or not a folder."""
+    path = target_root / rel
+    return _has_unsafe_parent(target_root, rel) or _is_link(path) or (path.exists() and not path.is_file())
+
+
+def _diff_state(project: str | None, kit: str, recorded: str | None) -> str:
+    if recorded is None:
+        if project is None:
+            return "missing"
+        return "identical" if project == kit else "differs"
+    if project is None:
+        return "project-removed"
+    if project == kit:
+        return "identical"
+    if project == recorded:
+        return "kit-newer"
+    if kit == recorded:
+        return "project-changed"
+    return "both-changed"
+
+
+def _text_patch(rel: str, project: bytes, kit: bytes) -> str:
+    """A unified diff from the project's file to the kit's, or `binary` when either side is not UTF-8 text."""
+    if b"\0" in project or b"\0" in kit:
+        return "binary"
+    try:
+        ours, theirs = project.decode("utf-8"), kit.decode("utf-8")
+    except UnicodeDecodeError:
+        return "binary"
+    return "".join(difflib.unified_diff(
+        ours.replace("\r\n", "\n").splitlines(keepends=True), theirs.replace("\r\n", "\n").splitlines(keepends=True),
+        fromfile=f"project/{rel}", tofile=f"kit/{rel}"))
+
+
+def diff_project(target_root: Path, kit_name: str | None = None, *, patch: bool = False) -> dict:
+    """`diff`: the state of every kit file in a project (DIFF_STATES), from the project's bytes, the kit's and the
+    record's digest. Reads only: it never settles an interrupted run (`_recover`) or writes the record."""
+    target_root = Path(target_root)
+    if not target_root.is_dir() or _is_link(target_root):
+        raise ValueError(f"Target must be an existing non-symlink directory: {target_root}")
+    target_root = target_root.resolve()
+    record = load_record(target_root)
+    recorded_kits = record["kits"] if record else {}
+    present = set(recorded_kits) | set(installed_kits(target_root))
+    if kit_name is not None:
+        if kit_name not in list_kits():
+            raise ValueError(f"Unknown kit '{kit_name}'. Available kits: {', '.join(list_kits())}")
+        if kit_name not in present:
+            raise ValueError(f"The project has no '{kit_name}' kit (it has: {', '.join(sorted(present)) or 'none'})")
+        present = {kit_name}
+    files = record["files"] if record else {}
+    kits: dict[str, dict] = {}
+    for name in [k for k in KIT_ORDER if k in present] + sorted(present - set(KIT_ORDER)):
+        recorded_kit = recorded_kits.get(name)
+        agents = _diff_agents(target_root, recorded_kit)
+        plan = _diff_plan(target_root, name, agents, recorded_kit["host"] if recorded_kit else None)
+        report = []
+        for src, _dst, rel, generated in plan:
+            if _unsafe_destination(target_root, rel):
+                report.append({"path": rel, "state": "unsafe"})
+                continue
+            path = target_root / rel
+            if generated:
+                report.append({"path": rel, "state": "generated" if path.is_file() else "missing"})
+                continue
+            try:
+                kit_bytes = src.read_bytes()
+                project_bytes = path.read_bytes() if path.is_file() else None
+            except OSError as exc:
+                report.append({"path": rel, "state": "unreadable", "reason": f"{type(exc).__name__}: {exc.strerror or exc}"})
+                continue
+            entry = files.get(rel) if recorded_kit is not None else None
+            state = _diff_state(None if project_bytes is None else file_digest(project_bytes), file_digest(kit_bytes),
+                                None if entry is None else entry["sha256"])
+            item = {"path": rel, "state": state}
+            if patch and state in DIFF_PATCHED and project_bytes is not None:
+                item["patch"] = _text_patch(rel, project_bytes, kit_bytes)
+            report.append(item)
+        planned = {entry[2] for entry in plan}
+        for rel in sorted(r for r, e in files.items() if e["kit"] == name and r not in planned):
+            if _unsafe_destination(target_root, rel):
+                report.append({"path": rel, "state": "unsafe"})
+            elif (target_root / rel).is_file():
+                report.append({"path": rel, "state": "project-only"})
+        kits[name] = {"record": recorded_kit is not None, "agents": sorted(agents), "files": report}
+    return {"target": target_root.as_posix(), "record": record is not None, "sdk_commit": sdk_commit(), "kits": kits}
+
+
 def _wordpress_pin_module() -> types.ModuleType:
     """The kit's own wp_site.py (what the helpers ship with), compiled from source so no bytecode lands in the kit."""
     validator = FORGE_ROOT / "kits/wordpress/templates/scripts/lib/wp_site.py"
@@ -1067,6 +1185,11 @@ def main(argv: list[str] | None = None) -> int:
     p_doc.add_argument("kit_name", nargs="?", choices=list_kits(), default=None, help="Optional kit name (auto-detects if omitted)")
     p_doc.add_argument("--strict", action="store_true", help="Exit 3 if any check is missing or setup_required")
 
+    p_diff = sub.add_parser("diff", help="Report each kit file's state in a project (missing, kit-newer, ...) without writing")
+    p_diff.add_argument("target", help="Target repository path")
+    p_diff.add_argument("kit_name", nargs="?", default=None, help="Only this kit (default: every kit the project has)")
+    p_diff.add_argument("--patch", action="store_true", help="Add a unified diff for each changed text file")
+
     sub.add_parser("kits", help="List available overlay kits")
     p_self = sub.add_parser("self-sync", help="Refresh the SDK's own installed copy of base, todo, reviewer and automations")
     p_self.add_argument("--dry-run", action="store_true", help="List the files that would change without writing")
@@ -1096,6 +1219,10 @@ def _run(args: argparse.Namespace) -> int:
     if args.command == "kit":
         res = apply_kit(target, args.kit_name, agent=args.agent, dry_run=args.dry_run, host=args.host)
         print(json.dumps(res, indent=2))
+        return 0
+
+    if args.command == "diff":
+        print(json.dumps(diff_project(target, args.kit_name, patch=args.patch), indent=2))
         return 0
 
     if args.command == "doctor":

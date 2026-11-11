@@ -80,6 +80,7 @@ Then open the project in Claude Code, Codex or Antigravity. Each agent finds its
 | ------- | ------------ |
 | `python forge.py init <project> [--kit <kit>]` | Install the base kit plus the kits you name |
 | `python forge.py kit <project> <kit>` | Add one kit to an existing project, copying only missing files |
+| `python forge.py diff <project> [kit]` | Report each kit file's state against the kit, writing nothing |
 | `python forge.py doctor <project> [kit]` | Read-only checks of a kit's files and the tools it needs |
 | `python forge.py check <project>` | List the kits and skills a project has |
 | `python forge.py kits` | List the kits this SDK ships |
@@ -121,6 +122,29 @@ python forge.py doctor ..\ExistingRepo
 ### 3. Prompting Gemini, Claude, or Codex to Import Conclave-SDK
 
 Paste the prompt from [`prompts/bootstrap-project-prompt.md`](prompts/bootstrap-project-prompt.md) into any Gemini, Claude, or Codex session open in your target repository.
+
+### `diff`: what the SDK has that the project lacks
+
+`python forge.py diff <project> [kit]` reads the project, the kits and `.conclave/kits.json`, and writes nothing. It prints JSON with each kit the project has (those the record names and those its files show), the agents compared for it, and a state for every kit file. `--patch` adds a unified diff, project side first, for each changed text file, or `binary`.
+
+| State | What it means for the project |
+| ----- | ----------------------------- |
+| `missing` | The kit ships it and the project does not have it |
+| `identical` | The project's bytes are the kit's (line endings aside) |
+| `kit-newer` | Untouched since installed, and the kit has changed it since: safe to take |
+| `project-changed` | The project edited it and the kit has not changed: the edit is the project's |
+| `both-changed` | The project edited it and the kit changed it too: a hand merge |
+| `project-removed` | Installed, then deleted by the project |
+| `project-only` | Installed, and the kit no longer ships it |
+| `differs` | No record entry (a kit installed before the record, or a file the project had first) |
+| `unsafe` | A link, a folder, or under one: never read |
+| `unreadable` | The read failed; `reason` says why |
+| `generated` | Built by the kit (the Laravel `.mcp.json`), so there is no template to compare |
+
+```powershell
+python forge.py diff ..\ExistingRepo
+python forge.py diff ..\ExistingRepo todo --patch
+```
 
 ## Isolation
 

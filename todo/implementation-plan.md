@@ -23,13 +23,13 @@ Sections: 8 | Checklist items: 98
 
 ### Phase 1: Install record, diff and update
 
-Sections: 9 | Checklist items: 63
+Sections: 9 | Checklist items: 66
 
 | Status | Reference  | Deliverable                                                | Needs | Items |
 | ------ | ---------- | ---------------------------------------------------------- | ----- | ----- |
 | [x]    | D01 T01 §1 | Kit file plan shared by install, diff and update           | none  | 5     |
 | [x]    | D01 T01 §2 | Install record in `.conclave/kits.json`                    | none  | 13    |
-| [ ]    | D01 T01 §3 | Read-only `forge.py diff`                                  | none  | 10    |
+| [ ]    | D01 T01 §3 | Read-only `forge.py diff`                                  | none  | 13    |
 | [ ]    | D01 T01 §4 | `forge.py update` for missing and kit-newer files          | none  | 8     |
 | [ ]    | D01 T01 §5 | `forge.py record` for projects installed before the record | none  | 5     |
 | [ ]    | D01 T01 §6 | `.kit-new` copies for a hand merge                         | none  | 6     |
@@ -141,4 +141,4 @@ Sections: 3 | Checklist items: 16
 
 Progress: 10/70 verified sections, 16 ready to run now.
 
-Checklist: 116/481 items completed (includes Commit items).
+Checklist: 128/484 items completed (includes Commit items).

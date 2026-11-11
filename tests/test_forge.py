@@ -69,6 +69,16 @@ EXPECTED_CLAUDE_AGENTS = [
 ]
 
 
+def make_link(target, link):
+    # A junction on Windows (no rights needed, and it may dangle), a symlink elsewhere.
+    if os.name == "nt":
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        os.symlink(target, link)
+
+
 class ForgeProvisionTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -115,13 +125,7 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertNotIn("todo-workflow", (self.target / "AGENTS.md").read_text(encoding="utf-8"))
 
     def _link(self, target, link):
-        # A junction on Windows (no rights needed, and it may dangle), a symlink elsewhere. Both stay under self.target.
-        if os.name == "nt":
-            import _winapi
-
-            _winapi.CreateJunction(str(target), str(link))
-        else:
-            os.symlink(target, link)
+        make_link(target, link)
 
     def test_init_refuses_a_target_inside_a_git_folder_even_through_a_dangling_link(self):
         git = self.target / "repo" / ".git"
@@ -1447,6 +1451,271 @@ class InstallRecordTests(unittest.TestCase):
         for doc in ("AGENTS.md", "GEMINI.md", "CLAUDE.md", "CODEX.md"):
             self.assertEqual(files[doc], {"kit": "base", "sha256": self.template_digest("base", doc)}, doc)
         self.assertEqual(own.read_bytes(), (FORGE_ROOT / "kits/base/templates/CLAUDE.md").read_bytes())
+
+
+class DiffTests(unittest.TestCase):
+    """`forge.py diff`: each kit file's state from the project's bytes, the kit's and the record's, written nowhere."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.target = pathlib.Path(self.tmp.name) / "project"
+        self.target.mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def states(self, result, kit="todo"):
+        return {item["path"]: item["state"] for item in result["kits"][kit]["files"]}
+
+    def cli(self, *args):
+        return subprocess.run([sys.executable, str(FORGE_ROOT / "forge.py"), "diff", *map(str, args)],
+                              capture_output=True, text=True)
+
+    def loaded(self):
+        record = forge.load_record(self.target)
+        assert record is not None
+        return record
+
+    def set_recorded(self, rel, data):
+        record = self.loaded()
+        record["files"][rel]["sha256"] = forge.file_digest(data)
+        forge.write_record(self.target, record)
+
+    SIX = {
+        "identical": ".claude/skills/add-todo/SKILL.md",
+        "missing": ".claude/skills/create-todo/SKILL.md",
+        "project-removed": ".claude/skills/groom-plan/SKILL.md",
+        "kit-newer": ".claude/skills/process-phase/SKILL.md",
+        "project-changed": ".claude/skills/process-plan/SKILL.md",
+        "both-changed": ".claude/skills/process-todo-file/SKILL.md",
+    }
+
+    def six_state_fixture(self):
+        forge.apply_kit(self.target, "todo", agent="claude")
+        six = self.SIX
+        (self.target / six["missing"]).unlink()
+        record = self.loaded()
+        del record["files"][six["missing"]]
+        forge.write_record(self.target, record)
+        (self.target / six["project-removed"]).unlink()
+        (self.target / six["kit-newer"]).write_bytes(b"what the project was given by an older kit\n")
+        self.set_recorded(six["kit-newer"], b"what the project was given by an older kit\n")
+        (self.target / six["project-changed"]).write_bytes(b"the project's own edit\n")
+        (self.target / six["both-changed"]).write_bytes(b"the project's own edit\n")
+        self.set_recorded(six["both-changed"], b"what an older kit installed\n")
+
+    def test_every_recorded_state_is_told_apart(self):
+        self.six_state_fixture()
+        result = forge.diff_project(self.target)
+        self.assertTrue(result["record"])
+        self.assertTrue(result["kits"]["todo"]["record"])
+        states = self.states(result)
+        for state, rel in self.SIX.items():
+            self.assertEqual(states[rel], state, rel)
+        self.assertTrue(set(states.values()) <= set(forge.DIFF_STATES))
+
+    def test_without_a_record_only_missing_identical_and_differs_are_known(self):
+        self.six_state_fixture()
+        (self.target / forge.RECORD).unlink()
+        result = forge.diff_project(self.target)
+        self.assertFalse(result["record"])
+        self.assertFalse(result["kits"]["todo"]["record"])
+        states = self.states(result)
+        self.assertEqual(set(states.values()), {"missing", "identical", "differs"})
+        self.assertEqual(states[self.SIX["kit-newer"]], "differs")
+        self.assertEqual(states[self.SIX["project-removed"]], "missing")
+
+    def test_a_kit_installed_before_the_record_is_still_reported(self):
+        forge.apply_kit(self.target, "todo", agent="claude")
+        forge.apply_kit(self.target, "reviewer", agent="claude")
+        record = self.loaded()
+        del record["kits"]["todo"]
+        record["files"] = {rel: e for rel, e in record["files"].items() if e["kit"] != "todo"}
+        forge.write_record(self.target, record)
+        result = forge.diff_project(self.target)
+        self.assertEqual(list(result["kits"]), ["todo", "reviewer"])
+        self.assertFalse(result["kits"]["todo"]["record"])
+        self.assertTrue(result["kits"]["reviewer"]["record"])
+        self.assertEqual(set(self.states(result).values()), {"identical"})
+
+    def test_a_file_the_project_had_before_the_install_has_no_recorded_state(self):
+        own = self.target / ".claude/skills/add-todo/SKILL.md"
+        own.parent.mkdir(parents=True)
+        own.write_bytes(b"the project's own skill\n")
+        forge.apply_kit(self.target, "todo", agent="claude")
+        self.assertEqual(self.states(forge.diff_project(self.target))[".claude/skills/add-todo/SKILL.md"], "differs")
+
+    def test_a_path_the_kit_no_longer_ships_is_project_only(self):
+        sdk = pathlib.Path(self.tmp.name) / "sdk"
+        shutil.copytree(FORGE_ROOT / "kits/todo", sdk / "kits/todo")
+        with unittest.mock.patch.object(forge, "FORGE_ROOT", sdk):
+            forge.apply_kit(self.target, "todo", agent="claude")
+            (sdk / "kits/todo/templates/.claude/skills/groom-plan/SKILL.md").unlink()
+            states = self.states(forge.diff_project(self.target))
+        self.assertEqual(states[".claude/skills/groom-plan/SKILL.md"], "project-only")
+
+    def test_only_the_agents_the_project_has_are_compared(self):
+        forge.apply_kit(self.target, "todo", agent="claude")
+        for drop_record in (False, True):
+            if drop_record:
+                (self.target / forge.RECORD).unlink()
+            result = forge.diff_project(self.target)
+            self.assertEqual(result["kits"]["todo"]["agents"], ["claude"])
+            paths = list(self.states(result))
+            self.assertTrue(paths)
+            self.assertFalse([p for p in paths if p.startswith((".agents/", ".codex/", "GEMINI", "CODEX"))], paths)
+        empty = pathlib.Path(self.tmp.name) / "bare"
+        (empty / "scripts").mkdir(parents=True)
+        (empty / "scripts/todo-graph.py").write_bytes(b"# the project's own\n")
+        self.assertEqual(forge.diff_project(empty)["kits"]["todo"]["agents"], ["agy", "claude", "codex"])
+
+    def test_a_kit_the_project_does_not_have_or_no_kit_at_all(self):
+        forge.apply_kit(self.target, "todo", agent="claude")
+        for kit in ("reviewer", "nope"):
+            result = self.cli(self.target, kit)
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertTrue(result.stderr.startswith("forge.py: error: "), result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(list(forge.diff_project(self.target, "todo")["kits"]), ["todo"])
+        a_file = pathlib.Path(self.tmp.name) / "a-file"
+        a_file.write_bytes(b"x")
+        for target in (pathlib.Path(self.tmp.name) / "absent", a_file):
+            result = self.cli(target)
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIn("existing non-symlink directory", result.stderr)
+        empty = pathlib.Path(self.tmp.name) / "empty"
+        empty.mkdir()
+        result = self.cli(empty)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["kits"], {})
+
+    def test_the_wordpress_host_comes_from_the_record(self):
+        forge.apply_kit(self.target, "wordpress", host="wpcom")
+        (self.target / forge.WORDPRESS_PIN).unlink()
+        states = self.states(forge.diff_project(self.target), "wordpress")
+        self.assertEqual(states[forge.WORDPRESS_PIN], "project-removed")
+        self.assertNotIn("bin/ddev", states)
+        shutil.copyfile(FORGE_ROOT / "kits/wordpress/hosts/pressable/templates" / forge.WORDPRESS_PIN,
+                        self.target / forge.WORDPRESS_PIN)
+        result = self.cli(self.target)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("'pressable'", result.stderr)
+        self.assertIn("'wpcom'", result.stderr)
+
+    def _link(self, target, link):
+        make_link(target, link)
+
+    def test_an_unsafe_destination_is_never_read(self):
+        forge.apply_kit(self.target, "todo", agent="claude")
+        outside = pathlib.Path(self.tmp.name) / "outside"
+        outside.mkdir()
+        (outside / "SKILL.md").write_bytes(b"outside the project\n")
+        skill = self.target / ".claude/skills/add-todo"
+        shutil.rmtree(skill)
+        self._link(outside, skill)
+        (self.target / ".claude/skills/create-todo/SKILL.md").unlink()
+        (self.target / ".claude/skills/create-todo/SKILL.md").mkdir()
+        real_read = pathlib.Path.read_bytes
+
+        def guarded(path):
+            self.assertNotEqual(path.resolve().parent, outside.resolve(), f"read through a link: {path}")
+            return real_read(path)
+
+        with unittest.mock.patch.object(pathlib.Path, "read_bytes", guarded):
+            states = self.states(forge.diff_project(self.target))
+        self.assertEqual(states[".claude/skills/add-todo/SKILL.md"], "unsafe")
+        self.assertEqual(states[".claude/skills/create-todo/SKILL.md"], "unsafe")
+
+    def test_the_generated_mcp_json_is_reported_not_compared(self):
+        (self.target / "artisan").write_text("<?php\n", encoding="utf-8")
+        forge.apply_kit(self.target, "laravel", agent="claude")
+        mcp = self.target / ".mcp.json"
+        self.assertEqual(self.states(forge.diff_project(self.target), "laravel")[".mcp.json"], "generated")
+        mcp.unlink()
+        self.assertEqual(self.states(forge.diff_project(self.target), "laravel")[".mcp.json"], "missing")
+        mcp.mkdir()
+        self.assertEqual(self.states(forge.diff_project(self.target), "laravel")[".mcp.json"], "unsafe")
+        mcp.rmdir()
+        elsewhere = pathlib.Path(self.tmp.name) / "elsewhere"
+        elsewhere.mkdir()
+        self._link(elsewhere, mcp)
+        self.assertEqual(self.states(forge.diff_project(self.target), "laravel")[".mcp.json"], "unsafe")
+        elsewhere.rmdir()
+        self.assertEqual(self.states(forge.diff_project(self.target), "laravel")[".mcp.json"], "unsafe")
+
+    def test_an_unreadable_file_is_reported_and_the_rest_still_classified(self):
+        self.six_state_fixture()
+        blocked = (self.target / self.SIX["project-changed"]).resolve()
+        real_read = pathlib.Path.read_bytes
+
+        def deny(path):
+            if pathlib.Path(path).resolve() == blocked:
+                raise PermissionError(13, "Permission denied", str(path))
+            return real_read(path)
+
+        with unittest.mock.patch.object(pathlib.Path, "read_bytes", deny):
+            result = forge.diff_project(self.target)
+        items = {item["path"]: item for item in result["kits"]["todo"]["files"]}
+        self.assertEqual(items[self.SIX["project-changed"]]["state"], "unreadable")
+        self.assertIn("Permission denied", items[self.SIX["project-changed"]]["reason"])
+        self.assertEqual(items[self.SIX["kit-newer"]]["state"], "kit-newer")
+
+    def test_patch_shows_the_project_side_then_the_kits(self):
+        self.six_state_fixture()
+        own = self.target / ".claude/skills/review-todo-section/SKILL.md"
+        own.write_bytes(own.read_bytes() + b"\x00binary tail\n")
+        (self.target / forge.RECORD).unlink()  # leaves every differing file as `differs`
+        forge.apply_kit(self.target, "todo", agent="claude")  # restores the record for the deleted files only
+        result = self.cli(self.target, "--patch")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        items = {item["path"]: item for item in json.loads(result.stdout)["kits"]["todo"]["files"]}
+        self.assertEqual(items[own.relative_to(self.target).as_posix()]["patch"], "binary")
+        rel = self.SIX["project-changed"]
+        patch = items[rel]["patch"]
+        self.assertEqual(items[rel]["state"], "differs")
+        self.assertIn(f"--- project/{rel}\n+++ kit/{rel}\n", patch)
+        self.assertIn("\n-the project's own edit\n", patch)
+        kit_first = (FORGE_ROOT / "kits/todo/templates" / rel).read_text(encoding="utf-8").splitlines()[0]
+        self.assertIn(f"\n+{kit_first}\n", patch)
+
+        # With the record back, the recorded states carry the same patch.
+        self.six_state_fixture_again()
+        items = {i["path"]: i for i in forge.diff_project(self.target, patch=True)["kits"]["todo"]["files"]}
+        for state in ("project-changed", "both-changed"):
+            rel = self.SIX[state]
+            self.assertEqual(items[rel]["state"], state)
+            self.assertIn(f"--- project/{rel}\n+++ kit/{rel}\n", items[rel]["patch"])
+            self.assertIn("\n-the project's own edit\n", items[rel]["patch"])
+        self.assertNotIn("patch", items[self.SIX["identical"]])
+        self.assertNotIn("patch", items[self.SIX["kit-newer"]])
+
+    def six_state_fixture_again(self):
+        shutil.rmtree(self.target)
+        self.target.mkdir()
+        self.six_state_fixture()
+
+    def snapshot(self, root):
+        return {p.relative_to(root).as_posix(): forge.file_digest(p.read_bytes())
+                for p in sorted(root.rglob("*")) if p.is_file()}
+
+    def test_diff_writes_nothing(self):
+        self.six_state_fixture()
+        # An interrupted run's staged file stays for the next install to settle: diff must not settle it.
+        # The record names this file and it is gone, so the next install would move the staged copy into place.
+        staged = self.target / (self.SIX["project-removed"] + forge.STAGED)
+        staged.write_bytes((FORGE_ROOT / "kits/todo/templates" / self.SIX["project-removed"]).read_bytes())
+        before = self.snapshot(self.target)
+        dirs = sorted(p for p in self.target.rglob("*") if p.is_dir())
+        self.assertEqual(self.cli(self.target, "--patch").returncode, 0)
+        forge.diff_project(self.target, patch=True)
+        self.assertEqual(self.snapshot(self.target), before)
+        self.assertEqual(sorted(p for p in self.target.rglob("*") if p.is_dir()), dirs)
+
+    def test_the_readme_names_every_state(self):
+        readme = (FORGE_ROOT / "README.md").read_text(encoding="utf-8")
+        section = readme.split("### `diff`", 1)[1].split("\n## ", 1)[0].split("\n### ", 1)[0]
+        for state in forge.DIFF_STATES:
+            self.assertIn(f"| `{state}` |", section, state)
 
 
 class ProcessPlanAuditTests(unittest.TestCase):
