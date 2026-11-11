@@ -524,8 +524,22 @@ def schedule_ok(root, data, ref, surface):
     plan_optional = [name for entry in schedule.get("conditional", []) if "plan" in entry["passes"]
                      for name in entry["lenses"]] if three_pass else []
     for entry in dispatch.read_plans((Path(root) / plan_report).read_bytes().decode("utf-8")):
-        check(f"the plan review in {plan_report}", entry, dispatch.scheduled(schedule, "plan", [], surface),
-              plan_optional)
+        attempt, optional = schedule, plan_optional
+        if three_pass and entry["candidate"] != base:
+            # An attempt that returned no review, on another candidate than the plan review that did: the dispatcher
+            # ran it under the three-pass pin at its own candidate, so that is the schedule it is held to. One whose
+            # candidate holds no such pin ran under a working tree's, which is not on record.
+            shown = _git(root, "show", f"{entry['candidate']}:{PIN}")
+            try:
+                own = dispatch.load_pin(PIN, data=shown.stdout) if shown.returncode == 0 else None
+            except dispatch.Refused:
+                own = None
+            if own is None or own.get("schedule", {}).get("policy") != dispatch.THREE_PASS:
+                continue
+            attempt = own["schedule"]
+            optional = [name for item in attempt.get("conditional", []) if "plan" in item["passes"]
+                        for name in item["lenses"]]
+        check(f"the plan review in {plan_report}", entry, dispatch.scheduled(attempt, "plan", [], surface), optional)
     completion = data["completion"]["report"]
     found = dispatch.read_findings((Path(root) / completion).read_bytes().decode("utf-8"))
     final_kind = "reconciliation" if any(dispatch.returned_one_pass(e, "reconciliation")
@@ -640,6 +654,12 @@ def three_pass_ok(root, data, ref, found):
     require(verdict in ("complete", "reconciled") or (verdict == "filed" and below),
             f"the three-pass policy takes completion verdict complete or reconciled, or filed when the last pass's "
             f"worst finding ({worst}) is below the pin's blocking levels, not {verdict}: {ref}")
+    # A last pass that ends complete while declaring a finding that holds the stamp contradicts itself: the severity
+    # it declared decides, so a `complete` footer never overrides a blocking level.
+    require(verdict == "filed" or worst not in dispatch.review_pin.SEVERITIES
+            or not dispatch.review_pin.blocks(schedule, worst),
+            f"the last review ({chain[-1][0]}) ends complete but declares HIGHEST: {worst}, which holds the stamp "
+            f"under the section's pin: {ref}")
     for (older_name, older), (newer_name, newer) in zip(chain, chain[1:]):
         require(older["run"] <= newer["run"] and is_ancestor(root, older["candidate"], newer["candidate"]),
                 f"the {newer_name} must run after the {older_name}, on a candidate at or after it: {ref}")

@@ -276,6 +276,18 @@ class Incomplete(ThreePass):
         self.assertEqual((again["round"], again["position"]), (2, 1))
         self.ok("completion", built)
 
+    def test_a_complete_verdict_that_declares_a_blocking_finding_is_not_a_review(self):
+        # Round 1 of D00 T01 §3: HIGHEST: P1 then COMPLETION: complete was recorded as a complete completion.
+        built = self.commit("build", {"src/app/a.py": "x = 1\n"})
+        self.ok("plan", self.base)
+        self.ok("round", built)
+        result, summary = self.run_pass("completion", built, top="P1", gaps=False)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("ends COMPLETION: complete but declares HIGHEST: P1", summary["failover"][0]["reason"])
+        self.assertIn("COMPLETION: complete", summary["review"])
+        # It did not count: the completion review runs again.
+        self.ok("completion", built)
+
     def test_a_reply_without_its_final_verdict_lines_is_incomplete_for_every_kind(self):
         no_footer = "LENS plan: clean\nHIGHEST: none\nLooks fine."
         result, summary = self.run_pass("plan", self.base, say=no_footer)

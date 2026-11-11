@@ -1819,6 +1819,40 @@ class ThreePassStamp(Stamp):
         self.passed("reconciliation", narrowed)
         self.stamp3_refuses(narrowed, "the section's contract changed", verdict="reconciled")
 
+    def test_a_complete_footer_never_overrides_a_blocking_finding(self):
+        # Round 1 of D00 T01 §3: HIGHEST: P1 then COMPLETION: complete stamped as complete.
+        with self.subTest("completion"):
+            sha = self.chain(completion=("P1", False))
+            self.stamp3_refuses(sha, "ends complete but declares HIGHEST: P1")
+        self.setUp_again()
+        with self.subTest("reconciliation"):
+            sha = self.chain(completion=("P2", True), reconciliations=[("P2", False)])
+            self.stamp3_refuses(sha, "ends complete but declares HIGHEST: P2", verdict="reconciled")
+        self.tearDown()
+        type(self).PIN_TEXT = THREE_PASS_PIN.replace("pass_cap = 45", 'pass_cap = 45\nblocking = ["P1", "P2"]')
+        try:
+            self.setUp()
+            with self.subTest("a finding below the blocking levels does not hold a complete verdict"):
+                self.stamp3(self.chain(completion=("P3", False)))
+        finally:
+            type(self).PIN_TEXT = THREE_PASS_PIN
+
+    def test_a_failed_plan_attempt_is_held_to_the_pin_at_its_own_candidate(self):
+        # Round 1 of D00 T01 §3: an attempt that returned no review, made under another pin on another candidate,
+        # was judged against the pin of the plan review that later returned.
+        dispatch = tg.review_dispatch()
+        (self.root / tg.PIN).write_text(THREE_PASS_PIN.replace('plan = { effort = "medium"', 'plan = { effort = "high"'),
+                                        encoding="utf-8")
+        other = self.commit("another pin, on another candidate")
+        failed = {"writer": "claude", "reviewer": None, "effort": "high", "lenses": ["plan"], "review": None,
+                  "failover": [{"reviewer": "astra", "reason": "timed out"}]}
+        dispatch.record_completion(self.root / self.FILE, failed, "2026-10-22T00:00:00Z", other, kind="plan")
+        self.stamp3(self.chain())
+        # The same failed attempt on the returned plan review's own candidate is held to that pin, and refuses.
+        self.setUp_again()
+        dispatch.record_completion(self.root / self.FILE, failed, "2026-10-22T00:00:00Z", self.start, kind="plan")
+        self.stamp3_refuses(self.chain(), "ran at high")
+
     def test_a_chain_reviewed_through_antigravity_stamps(self):
         # Completion review of D00 T01 §3: the dispatcher recorded no effort for Antigravity, and the replay refused.
         self.tearDown()

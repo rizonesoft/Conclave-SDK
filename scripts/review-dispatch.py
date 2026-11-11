@@ -356,9 +356,16 @@ def review(pin, writer, prompt_path, timeout, plan=None, kind="round"):
         final = valid_one_pass_footer(text, kind) if kind in PASSES else \
             ([x.strip() for x in text.splitlines() if x.strip()] or [""])[-1] in OVERALL
         missing = review_pin.missing_lens_verdicts(lenses, text)
-        if not final or missing:
+        # A completion or reconciliation that ends complete while declaring a finding that holds the stamp
+        # contradicts itself: it is not a verdict the section can be closed on.
+        worst = declared_highest(text)
+        contradicts = kind in FOOTERS and final and not ended_gaps({"review": text}) \
+            and worst in review_pin.SEVERITIES and review_pin.blocks(schedule, worst)
+        if not final or missing or contradicts:
             why = ([f"no final {kind} verdict line"] if not final else []) \
-                + ([f"no LENS verdict line for {', '.join(missing)}"] if missing else [])
+                + ([f"no LENS verdict line for {', '.join(missing)}"] if missing else []) \
+                + ([f"it ends {kind.upper()}: complete but declares HIGHEST: {worst}, which holds the stamp"]
+                   if contradicts else [])
             return {**none(f"incomplete: {' and '.join(why)}"), "review": text.strip(), "incomplete": missing}
     return {"writer": writer, "reviewer": name, "cli": reviewer["cli"], "model": reviewer["model"],
             "effort": effort, "failover": [], "review": text.strip(), **({"lenses": lenses} if plan else {})}
