@@ -23,7 +23,7 @@ Sections: 8 | Checklist items: 98
 
 ### Phase 1: Install record, diff and update
 
-Sections: 9 | Checklist items: 74
+Sections: 9 | Checklist items: 76
 
 | Status | Reference  | Deliverable                                                | Needs | Items |
 | ------ | ---------- | ---------------------------------------------------------- | ----- | ----- |
@@ -32,7 +32,7 @@ Sections: 9 | Checklist items: 74
 | [x]    | D01 T01 §3 | Read-only `forge.py diff`                                  | none  | 13    |
 | [x]    | D01 T01 §4 | `forge.py update` for missing and kit-newer files          | none  | 14    |
 | [x]    | D01 T01 §5 | `forge.py record` for projects installed before the record | none  | 7     |
-| [ ]    | D01 T01 §6 | `.kit-new` copies for a hand merge                         | none  | 6     |
+| [ ]    | D01 T01 §6 | `.kit-new` copies for a hand merge                         | none  | 8     |
 | [ ]    | D01 T01 §7 | Weekly drift report across projects                        | none  | 7     |
 | [ ]    | D01 T01 §8 | `init` that writes nothing when a kit refuses              | none  | 4     |
 | [ ]    | D01 T01 §9 | Backup of the entry docs `init --force` replaces           | none  | 5     |
@@ -141,4 +141,4 @@ Sections: 3 | Checklist items: 16
 
 Progress: 13/70 verified sections, 17 ready to run now.
 
-Checklist: 150/492 items completed (includes Commit items).
+Checklist: 150/494 items completed (includes Commit items).

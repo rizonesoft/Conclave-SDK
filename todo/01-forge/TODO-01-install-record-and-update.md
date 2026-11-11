@@ -209,7 +209,11 @@ Every project installed so far has no record, so none of its files can be `kit-n
 
 ## 6. `.kit-new` copies for a hand merge
 
+> **Started:** 2026-11-11T19:54:30Z
+
 A file both sides changed cannot be updated safely. `update --kit-new` writes the kit's version beside the project's as `<name>.kit-new`, never over it, so the project merges by hand (recommendation 3).
+
+**Corrected 2026-11-11 (validation):** two drifts. A `project-changed` file has, by §3's definition, kit bytes equal to the recorded ones, so items 1 and 2 contradicted each other: siblings are for `both-changed` and `differs` only. And the merge's last step, `forge.py record`, never replaces an entry (§5), so a merged file would stay `both-changed` for ever: `record --merged <path>` is added to move its entry to the kit's digest, after which it reads `project-changed` (the project's own version of the current kit).
 
 **Phase:** 1
 **Needs:** none
@@ -220,11 +224,13 @@ A file both sides changed cannot be updated safely. `update --kit-new` writes th
 1. Add `kit_new` to `update_project` in `forge.py`. Done when: a `both-changed` file gains a sibling and is itself unchanged.
 2. Cover the leftovers. Done when: the checkpoint passes.
 
-- [ ] Add `kit_new=False` to `update_project` and `--kit-new` to the `update` subcommand in `forge.py`: for each `project-changed`, `both-changed` and `differs` file inside the `only` filter, write the kit's bytes to `<path>.kit-new`. Done when: a test finds the sibling equal to the kit, the project's file byte for byte as before and no record entry for the sibling.
-- [ ] Skip a `project-changed` file whose kit bytes equal the recorded ones in `update_project`, since the kit has nothing new to merge. Done when: a test finds no sibling for it and a sibling for the `both-changed` one.
+- [ ] Add `kit_new=False` to `update_project` and `--kit-new` to the `update` subcommand in `forge.py`: for each `both-changed` and `differs` file inside the `only` filter, write the kit's bytes to `<path>.kit-new` with `atomic_write`, list it under `kit_new`, and on `--dry-run` only list it. Done when: a test finds the sibling equal to the kit, the project's file byte for byte as before and no record entry for the sibling, and a dry run writes no sibling. Cheaper substitute: writing the kit's bytes over the project's file must fail this test. **Corrected 2026-11-11 (validation):** named `project-changed`, which item 2 excludes.
+- [ ] Skip a `project-changed` file in `update_project`, whose kit bytes equal the recorded ones, since the kit has nothing new to merge. Done when: a test finds no sibling for it and a sibling for the `both-changed` one.
+- [ ] Never replace an existing sibling in `update_project`: a `<path>.kit-new` already there (the project may be merging from it) or one that is a link or a folder is left and listed under `left` as `merge-pending`. Done when: a test edits a sibling, runs `--kit-new` again and finds the edit kept and the path listed. **Corrected 2026-11-11 (validation):** added.
 - [ ] Report leftover siblings in `diff_project`: a `<path>.kit-new` beside a kit file is listed under `merge_pending`. Done when: a test finds the sibling listed after `--kit-new` and gone from the list once the file is deleted.
-- [ ] Keep `.kit-new` files out of every kit plan in `kit_plan`, so a sibling left in a kit by mistake is never installed. Done when: a test with a `.kit-new` file in a scratch kit's templates finds it absent from the plan.
-- [ ] Document the merge in `README.md`: compare, edit the project's file, delete the sibling, then `forge.py record` to mark the merged file. Done when: the steps are in the `update` section.
+- [ ] Keep `.kit-new` files, and forge's own staged `.forge-new` and `.forge-replace` files, out of every kit plan in `kit_plan`, so one left in a kit by mistake is never installed. Done when: a test with each in a scratch kit's templates finds them absent from the plan. **Corrected 2026-11-11 (validation):** the staged suffixes are the same mistake.
+- [ ] Add `merged=()` to `record_project` and `--merged <path>` (repeatable) to `record` in `forge.py`: each named file that is `both-changed` or `differs` gets its entry set to the kit's digest (under its kit, created for `differs`), refusing before any write a path that is not in one of those states or whose `.kit-new` sibling is still there. Done when: a test merges a `both-changed` file by hand, deletes the sibling, runs `record --merged` and finds `diff` reporting it `project-changed`; and tests find exit 2 with the record unchanged for a sibling still present and for an `identical` path. Cheaper substitute: recording the merged file's own digest must fail, since `update` would then take the next kit version over the merge. **Corrected 2026-11-11 (validation):** added; plain `record` never replaces an entry.
+- [ ] Document the merge in `README.md`: compare, edit the project's file, delete the sibling, then `forge.py record --merged <path>` to mark the merged file. **Corrected 2026-11-11 (validation):** said plain `record`. Done when: the steps are in the `update` section.
 - [ ] Commit: `forge: update --kit-new writes a changed file's kit version beside it`
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; making `--kit-new` write to the project's own path makes the sibling test fail.
