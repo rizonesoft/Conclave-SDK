@@ -169,6 +169,13 @@ python forge.py update ..\ExistingRepo --no-scripts
 
 `--dry-run` lists what would be written and writes nothing. `--only` (repeatable) takes a file or folder relative to the project. `--no-scripts` leaves the kits' `scripts/` out, as `init --no-scripts` does.
 
+A file both sides changed (`both-changed`, or `differs` with no record entry) is merged by hand. `--kit-new` writes the kit's version beside it as `<name>.kit-new`, never over it and never over a copy already there. Compare the two, edit the project's file, then record the merge: `record --merged` checks that the copy is still the kit's current version, records that version as the one installed and removes the copy. The file then reads `project-changed`, and a later kit change to it reads `both-changed` again.
+
+```powershell
+python forge.py update ..\ExistingRepo --kit-new
+python forge.py record ..\ExistingRepo --merged .claude/skills/process-plan/SKILL.md
+```
+
 ## Isolation
 
 `forge.py` copies tracked skills and rules into `.agents/`, `.claude/` and `.codex/` inside the target repository with zero external path dependencies: no link or stamp points at the SDK, and the install record names files and digests only. Every repository is 100% self-contained and each agent is isolated in its own directory.

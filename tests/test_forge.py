@@ -2237,6 +2237,178 @@ class RecordTests(KitFixture, unittest.TestCase):
         self.assertEqual(steps, sorted(steps))
 
 
+class KitNewTests(KitFixture, unittest.TestCase):
+    """`update --kit-new` and `record --merged`: a hand merge of a file both sides changed, never written over it."""
+
+    def kit_bytes(self, rel, kit="todo"):
+        return (FORGE_ROOT / "kits" / kit / "templates" / rel).read_bytes()
+
+    def run_main(self, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = forge.main([str(a) for a in args])
+        return code, (json.loads(out.getvalue()) if code == 0 else {}), err.getvalue()
+
+    def differs_fixture(self):
+        """The six states, plus a `differs` file (one with no record entry) and a changed script."""
+        self.six_state_fixture()
+        differs = ".claude/skills/review-todo-section/SKILL.md"
+        (self.target / differs).write_bytes(b"the project's own, never recorded\n")
+        record = self.loaded()
+        del record["files"][differs]
+        record["files"]["scripts/todo-graph.py"]["sha256"] = "c" * 64
+        (self.target / "scripts/todo-graph.py").write_bytes(b"# the project's own script\n")
+        forge.write_record(self.target, record)
+        return differs
+
+    def test_kit_new_writes_the_kits_version_beside_each_file_both_sides_changed(self):
+        differs = self.differs_fixture()
+        both = self.SIX["both-changed"]
+        before = self.snapshot(self.target)
+        code, dry, err = self.run_main("update", self.target, "--kit-new", "--dry-run")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.snapshot(self.target), before)
+        self.assertIn(both + forge.KIT_NEW, dry["kit_new"])
+
+        code, out, err = self.run_main("update", self.target, "--kit-new", "--no-scripts")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(sorted(out["kit_new"]), sorted([both + forge.KIT_NEW, differs + forge.KIT_NEW]))
+        for rel in (both, differs):
+            self.assertEqual((self.target / (rel + forge.KIT_NEW)).read_bytes(), self.kit_bytes(rel))
+            self.assertEqual(forge.file_digest((self.target / rel).read_bytes()), before[rel], rel)
+        files = self.loaded()["files"]
+        self.assertFalse([p for p in files if p.endswith(forge.KIT_NEW)])
+        # project-changed has nothing new to merge, and --no-scripts kept scripts/ out.
+        self.assertFalse((self.target / (self.SIX["project-changed"] + forge.KIT_NEW)).exists())
+        self.assertFalse((self.target / ("scripts/todo-graph.py" + forge.KIT_NEW)).exists())
+        merge = forge.diff_project(self.target)["kits"]["todo"]["merge_pending"]
+        self.assertEqual(sorted(merge), sorted([both + forge.KIT_NEW, differs + forge.KIT_NEW]))
+        (self.target / (differs + forge.KIT_NEW)).unlink()
+        self.assertEqual(forge.diff_project(self.target)["kits"]["todo"]["merge_pending"], [both + forge.KIT_NEW])
+
+    def test_only_narrows_the_copies(self):
+        self.differs_fixture()
+        both = self.SIX["both-changed"]
+        code, out, err = self.run_main("update", self.target, "--kit-new", "--only", both)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out["kit_new"], [both + forge.KIT_NEW])
+        self.assertFalse((self.target / ("scripts/todo-graph.py" + forge.KIT_NEW)).exists())
+
+    def test_an_existing_sibling_is_never_replaced(self):
+        differs = self.differs_fixture()
+        both = self.SIX["both-changed"]
+        forge.update_project(self.target, kit_new=True)
+        edited = self.target / (both + forge.KIT_NEW)
+        edited.write_bytes(b"mid-merge\n")
+        folder = self.target / (differs + forge.KIT_NEW)
+        folder.unlink()
+        folder.mkdir()
+        dangling_target = pathlib.Path(self.tmp.name) / "gone"
+        script = self.target / ("scripts/todo-graph.py" + forge.KIT_NEW)
+        script.unlink()
+        dangling_target.mkdir()
+        make_link(dangling_target, script)
+        dangling_target.rmdir()
+        entries = self.loaded()["files"]
+        result = forge.update_project(self.target, kit_new=True)
+        self.assertEqual(edited.read_bytes(), b"mid-merge\n")
+        self.assertTrue(folder.is_dir())
+        self.assertFalse(dangling_target.exists())
+        pending = {i["path"] for i in result["left"] if i["state"] == "merge-pending"}
+        self.assertEqual(pending, {both + forge.KIT_NEW, differs + forge.KIT_NEW, "scripts/todo-graph.py" + forge.KIT_NEW})
+        self.assertEqual(result["kit_new"], [])
+        self.assertEqual(self.loaded()["files"], entries)
+
+    def test_forges_own_leftovers_are_never_planned(self):
+        sdk = pathlib.Path(self.tmp.name) / "sdk"
+        shutil.copytree(FORGE_ROOT / "kits/todo", sdk / "kits/todo")
+        for suffix in (forge.KIT_NEW, forge.STAGED, forge.STAGED_REPLACE):
+            (sdk / "kits/todo/templates/scripts" / ("todo-graph.py" + suffix)).write_bytes(b"left by mistake\n")
+        with unittest.mock.patch.object(forge, "FORGE_ROOT", sdk):
+            rels = [e[2] for e in forge.kit_plan(self.target, "todo")[0]]
+        self.assertIn("scripts/todo-graph.py", rels)
+        self.assertFalse([r for r in rels if r.endswith(forge.FORGE_SUFFIXES)])
+
+    def test_record_merged_marks_the_merge_and_removes_the_copy(self):
+        differs = self.differs_fixture()
+        both = self.SIX["both-changed"]
+        forge.update_project(self.target, kit_new=True)
+        (self.target / both).write_bytes(self.kit_bytes(both) + b"\nThe project's line, kept in the merge.\n")
+        before = self.snapshot(self.target)
+        code, out, err = self.run_main("record", self.target, "--merged", both, "--dry-run")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out["recorded"], [both])
+        self.assertEqual(self.snapshot(self.target), before)
+
+        code, out, err = self.run_main("record", self.target, "--merged", both, "--merged", both)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out["recorded"], [both])
+        self.assertFalse((self.target / (both + forge.KIT_NEW)).exists())
+        self.assertEqual(self.loaded()["files"][both]["sha256"], forge.file_digest(self.kit_bytes(both)))
+        self.assertEqual(self.states(forge.diff_project(self.target))[both], "project-changed")
+
+        # A merge that took the kit's version whole is accepted; a later kit change then reads kit-newer.
+        (self.target / differs).write_bytes(self.kit_bytes(differs))
+        code, out, err = self.run_main("record", self.target, "--merged", differs)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.loaded()["files"][differs], {"kit": "todo", "sha256": forge.file_digest(self.kit_bytes(differs))})
+        self.assertEqual(self.states(forge.diff_project(self.target))[differs], "identical")
+
+    def test_a_differs_file_with_no_kit_entry_gains_both(self):
+        forge.apply_kit(self.target, "todo", agent="claude")
+        (self.target / forge.RECORD).unlink()
+        rel = ".claude/skills/add-todo/SKILL.md"
+        (self.target / rel).write_bytes(b"own\n")
+        forge.update_project(self.target, kit_new=True, only=[rel])
+        forge.record_project(self.target, merged=[rel])
+        record = self.loaded()
+        self.assertEqual(record["kits"]["todo"]["agents"], ["claude"])
+        self.assertEqual(record["files"], {rel: {"kit": "todo", "sha256": forge.file_digest(self.kit_bytes(rel))}})
+
+    def test_a_merge_the_kit_has_moved_past_refuses(self):
+        sdk = pathlib.Path(self.tmp.name) / "sdk"
+        shutil.copytree(FORGE_ROOT / "kits/todo", sdk / "kits/todo")
+        rel = ".claude/skills/add-todo/SKILL.md"
+        with unittest.mock.patch.object(forge, "FORGE_ROOT", sdk):
+            forge.apply_kit(self.target, "todo", agent="claude")
+            (self.target / rel).write_bytes(b"own\n")
+            template = sdk / "kits/todo/templates" / rel
+            template.write_bytes(template.read_bytes() + b"\nkit change one\n")
+            forge.update_project(self.target, kit_new=True)
+            template.write_bytes(template.read_bytes() + b"\nkit change two\n")
+            record_bytes = (self.target / forge.RECORD).read_bytes()
+            code, _out, err = self.run_main("record", self.target, "--merged", rel)
+            self.assertEqual(code, 2)
+            self.assertIn("no longer the kit's version", err)
+            self.assertEqual((self.target / forge.RECORD).read_bytes(), record_bytes)
+            # The copy the project edited mid-merge refuses the same way.
+            (self.target / (rel + forge.KIT_NEW)).write_bytes(template.read_bytes() + b"edited\n")
+            self.assertEqual(self.run_main("record", self.target, "--merged", rel)[0], 2)
+
+    def test_one_bad_argument_refuses_the_batch_before_any_write(self):
+        self.differs_fixture()
+        both = self.SIX["both-changed"]
+        forge.update_project(self.target, kit_new=True)
+        staged = self.target / (self.SIX["project-removed"] + forge.STAGED)
+        staged.write_bytes(self.kit_bytes(self.SIX["project-removed"]))
+        before = self.snapshot(self.target)
+        for bad in (self.SIX["identical"], self.SIX["project-removed"], "docs/nothing-here", "../x"):
+            code, _out, err = self.run_main("record", self.target, "--merged", both, "--merged", bad)
+            self.assertEqual(code, 2, (bad, err))
+            self.assertEqual(self.snapshot(self.target), before, bad)
+        self.assertTrue(staged.is_file())
+
+    def test_the_readme_documents_the_merge(self):
+        readme = (FORGE_ROOT / "README.md").read_text(encoding="utf-8")
+        section = readme.split("### `update`", 1)[1].split("\n## ", 1)[0].split("\n### ", 1)[0]
+        self.assertIn("python forge.py update ..\\ExistingRepo --kit-new", section)
+        self.assertIn("python forge.py record ..\\ExistingRepo --merged .claude/skills/process-plan/SKILL.md", section)
+        self.differs_fixture()
+        forge.update_project(self.target, kit_new=True)
+        rel = self.SIX["both-changed"]
+        self.assertEqual(self.run_main("record", self.target, "--merged", rel)[0], 0)
+
+
 class ProcessPlanAuditTests(unittest.TestCase):
     """process-plan's audit runs the kits' tests and the project's own: neither replaces the other (a project such as
     a project may keep its script tests in tests/scripts, where kits install theirs under scripts/tests)."""

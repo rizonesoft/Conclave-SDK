@@ -4,8 +4,8 @@
     python forge.py init <target> [--agent all|agy|gemini|claude|codex] [--kit <kit>] [--with-todo] [--force]
     python forge.py kit <target> <kit> [--agent all|agy|gemini|claude|codex] [--host pressable|wpcom] [--dry-run]
     python forge.py diff <target> [kit] [--patch]
-    python forge.py update <target> [kit] [--only <path>]... [--no-scripts] [--dry-run]
-    python forge.py record <target> [kit] [--dry-run]
+    python forge.py update <target> [kit] [--only <path>]... [--no-scripts] [--kit-new] [--dry-run]
+    python forge.py record <target> [kit] [--merged <path>]... [--dry-run]
     python forge.py doctor <target> [laravel|wordpress|reviewer|automations|todo|base] [--strict]
     python forge.py kits
     python forge.py check <target>
@@ -152,6 +152,10 @@ AUTOMATIONS_SCRIPTS = tuple(f"{AUTOMATIONS_DIR}/{name}" for name in ("run.py", "
 KIT_ORDER = ("base", "todo", "reviewer", "automations", "laravel", "wordpress")
 BASE_SKILLS = ("authoring-skills", "local-tool-safety")
 AGENT_DIRS = (".agents", ".claude", ".codex")
+# A kit's version of a file the project changed, written beside it by `update --kit-new` for a hand merge, and the
+# files forge stages a write in. None is ever kit content.
+KIT_NEW = ".kit-new"
+FORGE_SUFFIXES = (KIT_NEW, ".forge-new", ".forge-replace")
 # The kits the SDK installs in itself (AGENTS.md), and the files of theirs `self-sync` keeps current there: skills,
 # rules, subagents, scripts and the automations runner. The SDK's own docs, plan and pins are its project files.
 SELF_KITS = ("base", "todo", "reviewer", "automations")
@@ -220,6 +224,9 @@ def kit_plan(target_root: Path, kit_name: str, *, agent: str = "all", host: str 
         for src in sorted(root.rglob("*")):
             if src.is_file():
                 rel = src.relative_to(root).as_posix()
+                # forge's own leftovers (a merge copy, a staged file) are never kit content, even inside a kit.
+                if rel.endswith(FORGE_SUFFIXES):
+                    continue
                 if _rel_allowed_for_agent(rel, agent):
                     plan.append((src, target_root / rel, rel, False))
 
@@ -801,7 +808,12 @@ def _diff_kits(target_root: Path, kit_name: str | None, *, patch: bool) -> tuple
                 report.append({"path": rel, "state": "unsafe"})
             elif (target_root / rel).is_file():
                 report.append({"path": rel, "state": "project-only"})
-        kits[name] = {"record": recorded_kit is not None, "agents": sorted(agents), "files": report}
+        # A merge copy left beside a kit file (`update --kit-new`) until the merge is recorded (`record --merged`).
+        pending = sorted(rel + KIT_NEW for rel in planned
+                         if not _has_unsafe_parent(target_root, rel + KIT_NEW)
+                         and ((target_root / (rel + KIT_NEW)).exists() or _is_link(target_root / (rel + KIT_NEW))))
+        kits[name] = {"record": recorded_kit is not None, "agents": sorted(agents), "files": report,
+                      "merge_pending": pending}
     result = {"target": target_root.as_posix(), "record": record is not None, "sdk_commit": sdk_commit(), "kits": kits}
     return result, sources
 
@@ -829,12 +841,17 @@ def _under(rel: str, paths: list[str]) -> bool:
 
 
 def update_project(target_root: Path, kit_name: str | None = None, *, only=(), dry_run: bool = False,
-                   no_scripts: bool = False) -> dict:
+                   no_scripts: bool = False, kit_new: bool = False) -> dict:
     """`update`: write the kit files that are `missing` or `kit-newer` (and a `project-removed` one only when `only`
     names it or its folder), never one the project changed, and list every other differing file under `left` with
     its state and patch. Every refusal (a bad `only`, an unsafe destination in the selection) comes from a read-only
     diff before anything is written; then an interrupted run is settled, the project is diffed again and the writes
-    go through `_write_recorded`, one file recorded at a time, each re-checked just before it is written."""
+    go through `_write_recorded`, one file recorded at a time, each re-checked just before it is written.
+
+    `kit_new` writes the kit's bytes beside each `both-changed` or `differs` file as `<path>.kit-new` (unrecorded)
+    for a hand merge; a sibling already there, or a link or folder by that name, is never replaced and is listed as
+    `merge-pending`. A `project-changed` file gets none: its kit bytes are the ones installed, so there is nothing
+    new to merge."""
     paths = _only_paths(only)
 
     def chosen(rel: str) -> bool:
@@ -858,6 +875,7 @@ def update_project(target_root: Path, kit_name: str | None = None, *, only=(), d
     record = load_record(target) or {"schema_version": 1, "kits": {}, "files": {}}
     written: list[str] = []
     left: list[dict] = []
+    siblings: list[str] = []
     for name, kit in report["kits"].items():
         plan = sources[name]["plan"]
         copies: list[tuple[str, Path, bytes]] = []
@@ -872,6 +890,14 @@ def update_project(target_root: Path, kit_name: str | None = None, *, only=(), d
             take = state in ("missing", "kit-newer") or (state == "project-removed" and bool(paths))
             if not take:
                 left.append(item)
+                if kit_new and state in ("both-changed", "differs"):
+                    sibling = target / (rel + KIT_NEW)
+                    if sibling.exists() or _is_link(sibling):
+                        left.append({"path": rel + KIT_NEW, "state": "merge-pending"})
+                    else:
+                        if not dry_run:
+                            atomic_write(sibling, plan[rel].read_bytes())
+                        siblings.append(rel + KIT_NEW)
                 continue
             data = plan[rel].read_bytes()
             entry = record["files"].get(rel)
@@ -887,18 +913,66 @@ def update_project(target_root: Path, kit_name: str | None = None, *, only=(), d
         left.extend({"path": rel, "state": "changed-since-diff"} for rel in changed)
     result = {"target": target.as_posix(), "dry_run": dry_run, "record": (target / RECORD).is_file(),
               "written": written, "left": left}
+    if kit_new:
+        result["kit_new"] = siblings
     if not all(kit["record"] for kit in report["kits"].values()) or any(i["state"] == "differs" for i in left):
         result["hint"] = UPDATE_HINT_NO_RECORD
     return result
 
 
-def record_project(target_root: Path, kit_name: str | None = None, *, dry_run: bool = False) -> dict:
+def _record_merged(target_root: Path, kit_name: str | None, merged, dry_run: bool) -> dict:
+    """`record --merged`: mark files the project merged by hand from their `.kit-new` copy. Each copy must still hold
+    the kit's current bytes, so the entry names exactly the version merged; the kit moving on since would otherwise
+    be hidden. All arguments are checked before anything is written; then the record is written once and the copies
+    are removed."""
+    paths = list(dict.fromkeys(_only_paths(merged)))
+    report, sources = _diff_kits(target_root, kit_name, patch=False)
+    target = Path(report["target"])
+    owner = {rel: name for name, source in sources.items() for rel, src in source["plan"].items() if src is not None}
+    states = {item["path"]: item["state"] for kit in report["kits"].values() for item in kit["files"]}
+    digests: dict[str, str] = {}
+    for rel in paths:
+        if rel not in owner:
+            raise ValueError(f"--merged {rel}: no file a kit ships is there")
+        if states.get(rel) in ("missing", "project-removed", "unsafe", "unreadable"):
+            raise ValueError(f"--merged {rel}: the file is {states.get(rel)}, so there is no merge to record")
+        sibling = target / (rel + KIT_NEW)
+        if _is_link(sibling) or not sibling.is_file():
+            raise ValueError(f"--merged {rel}: no {rel + KIT_NEW} to check the merge against (run update --kit-new)")
+        kit_digest = file_digest(sources[owner[rel]]["plan"][rel].read_bytes())
+        if file_digest(sibling.read_bytes()) != kit_digest:
+            raise ValueError(f"--merged {rel}: {rel + KIT_NEW} is no longer the kit's version (the kit or the copy "
+                             "changed); delete it and run update --kit-new again")
+        digests[rel] = kit_digest
+    result = {"target": target.as_posix(), "dry_run": dry_run, "recorded": paths, "skipped": []}
+    if dry_run:
+        return result
+    _recover(target, load_record(target) or {"schema_version": 1, "kits": {}, "files": {}})
+    record = load_record(target) or {"schema_version": 1, "kits": {}, "files": {}}
+    commit = sdk_commit()
+    for rel in paths:
+        name = owner[rel]
+        if name not in record["kits"]:
+            agents = sources[name]["agents"]
+            _record_install(record, name, "all" if set(agents) == set(RECORD_AGENTS) else agents,
+                            sources[name]["host"], {}, commit)
+        record["files"][rel] = {"kit": name, "sha256": digests[rel]}
+    write_record(target, record)
+    for rel in paths:
+        _remove(target / (rel + KIT_NEW))
+    return result
+
+
+def record_project(target_root: Path, kit_name: str | None = None, *, dry_run: bool = False, merged=()) -> dict:
     """`record`: adopt an install made before the record existed. Each kit file whose bytes are the kit's
     (`identical`) and that has no entry gains one, since only then are the installed bytes known; every other file
     is skipped with its state as the reason, or `recorded` when it already has an entry, which is never replaced. A
     kit the record does not name gains an entry with the current SDK commit, the agents `diff` compared and the
     plan's host; one it names is left as it is. The refusals come from a read-only diff before an interrupted run is
-    settled, and the record is written once, through `write_record`."""
+    settled, and the record is written once, through `write_record`. With `merged`, only the named hand merges are
+    recorded (`_record_merged`)."""
+    if merged:
+        return _record_merged(target_root, kit_name, merged, dry_run)
     _diff_kits(target_root, kit_name, patch=False)  # every refusal, before anything is written
     target = Path(target_root).resolve()
     if not dry_run:
@@ -1373,11 +1447,15 @@ def main(argv: list[str] | None = None) -> int:
                       help="Only this file or folder, relative to the project (repeatable)")
     p_up.add_argument("--no-scripts", action="store_true", help="Leave out the kits' scripts/ files, as init --no-scripts does")
     p_up.add_argument("--dry-run", action="store_true", help="List what would be written without writing")
+    p_up.add_argument("--kit-new", action="store_true",
+                      help="Write the kit's version of each file both sides changed beside it as <name>.kit-new")
 
     p_rec = sub.add_parser("record", help="Adopt an install made before the record: record the files identical to the kit")
     p_rec.add_argument("target", help="Target repository path")
     p_rec.add_argument("kit_name", nargs="?", default=None, help="Only this kit (default: every kit the project has)")
     p_rec.add_argument("--dry-run", action="store_true", help="List what would be recorded without writing")
+    p_rec.add_argument("--merged", action="append", default=[], metavar="PATH",
+                       help="Record a hand merge from PATH.kit-new (relative to the project; repeatable), then remove the copy")
 
     sub.add_parser("kits", help="List available overlay kits")
     p_self = sub.add_parser("self-sync", help="Refresh the SDK's own installed copy of base, todo, reviewer and automations")
@@ -1420,11 +1498,11 @@ def _run(args: argparse.Namespace) -> int:
 
     if args.command == "update":
         print(json.dumps(update_project(target, args.kit_name, only=args.only, dry_run=args.dry_run,
-                                        no_scripts=args.no_scripts), indent=2))
+                                        no_scripts=args.no_scripts, kit_new=args.kit_new), indent=2))
         return 0
 
     if args.command == "record":
-        print(json.dumps(record_project(target, args.kit_name, dry_run=args.dry_run), indent=2))
+        print(json.dumps(record_project(target, args.kit_name, dry_run=args.dry_run, merged=args.merged), indent=2))
         return 0
 
     if args.command == "doctor":
