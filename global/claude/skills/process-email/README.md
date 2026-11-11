@@ -19,7 +19,7 @@ Say "process the '<subject>' mail", "process this email", "handle this email", "
 
 ## Deploy
 
-From the Claude repository root: `bash scripts/deploy-skill.sh process-ticktick-task && bash scripts/deploy-skill.sh file-to-ticktick && bash scripts/deploy-skill.sh process-email`, then start a new Claude Code session. Never edit a deployed copy.
+Deploy with `python <SDK>/global/deploy.py --agent claude`, then start a new Claude Code session. Never edit a deployed copy.
 
 ## Safety
 

@@ -4,7 +4,7 @@ Accepted 2026-10-06. This is the default architecture for Rizonetech custom plug
 
 ## Ownership and packaging
 
-- The authoritative source is R:\Codex, backed by github.com/rizonetech/Codex. Each integration lives directly beneath the root. Do not restore a codex-plugins nesting layer or use Kami as the plugin source.
+- The authoritative source is <SDK>\plugins\codex. Each integration lives directly beneath the root. Do not restore a codex-plugins nesting layer or use Kami as the plugin source.
 - Group local marketplace listings under Rizonetech (catalog ID rizonetech). This is our private catalog, not a promise of a separate public store category.
 - Keep each provider's MCP server, skills, manifests, assets, tests and setup instructions together. Share deployment conventions without merging unrelated provider permissions.
 - Preserve plugin identities and existing connections when changing hosts.

@@ -1,18 +1,18 @@
 {
   "hooks": {
     "UserPromptSubmit": [{"hooks": [
-      {"type": "command", "command": "python3 \"/mnt/r/Codex/rules/hooks/article_rules.py\"", "commandWindows": "C:/Python314/python.exe \"R:/Codex/rules/hooks/article_rules.py\"", "timeout": 40},
-      {"type": "command", "command": "python3 \"/mnt/r/Codex/rules/hooks/layer_rules.py\"", "commandWindows": "C:/Python314/python.exe \"R:/Codex/rules/hooks/layer_rules.py\"", "timeout": 10}
+      {"type": "command", "command": "python3 \"{HOOKS}/article_rules.py\"", "commandWindows": "{PYTHON_WINDOWS} \"{HOOKS_WINDOWS}/article_rules.py\"", "timeout": 40},
+      {"type": "command", "command": "python3 \"{HOOKS}/layer_rules.py\"", "commandWindows": "{PYTHON_WINDOWS} \"{HOOKS_WINDOWS}/layer_rules.py\"", "timeout": 10}
     ]}],
     "PreToolUse": [{"matcher": "^(Bash|shell|exec_command|local_shell|PowerShell)$", "hooks": [
-      {"type": "command", "command": "python3 \"/mnt/r/Codex/rules/hooks/article_rules.py\"", "commandWindows": "C:/Python314/python.exe \"R:/Codex/rules/hooks/article_rules.py\"", "timeout": 40}
+      {"type": "command", "command": "python3 \"{HOOKS}/article_rules.py\"", "commandWindows": "{PYTHON_WINDOWS} \"{HOOKS_WINDOWS}/article_rules.py\"", "timeout": 40}
     ]}],
     "PostToolUse": [{"matcher": "^apply_patch$", "hooks": [
-      {"type": "command", "command": "python3 \"/mnt/r/Codex/rules/hooks/article_rules.py\"", "commandWindows": "C:/Python314/python.exe \"R:/Codex/rules/hooks/article_rules.py\"", "timeout": 40},
-      {"type": "command", "command": "python3 \"/mnt/r/Codex/rules/hooks/layer_rules.py\"", "commandWindows": "C:/Python314/python.exe \"R:/Codex/rules/hooks/layer_rules.py\"", "timeout": 10}
+      {"type": "command", "command": "python3 \"{HOOKS}/article_rules.py\"", "commandWindows": "{PYTHON_WINDOWS} \"{HOOKS_WINDOWS}/article_rules.py\"", "timeout": 40},
+      {"type": "command", "command": "python3 \"{HOOKS}/layer_rules.py\"", "commandWindows": "{PYTHON_WINDOWS} \"{HOOKS_WINDOWS}/layer_rules.py\"", "timeout": 10}
     ]}],
     "Stop": [{"hooks": [
-      {"type": "command", "command": "python3 \"/mnt/r/Codex/rules/hooks/layer_rules.py\"", "commandWindows": "C:/Python314/python.exe \"R:/Codex/rules/hooks/layer_rules.py\"", "timeout": 10}
+      {"type": "command", "command": "python3 \"{HOOKS}/layer_rules.py\"", "commandWindows": "{PYTHON_WINDOWS} \"{HOOKS_WINDOWS}/layer_rules.py\"", "timeout": 10}
     ]}]
   }
 }

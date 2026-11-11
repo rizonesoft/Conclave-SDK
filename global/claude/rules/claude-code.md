@@ -57,6 +57,8 @@ Implement directly: bug fixes, small and medium features, well-specified changes
 - Commit safe side changes (small, non-secret, non-generated, not conflicting) with the next coherent commit. Stop and say why before touching one that conflicts, holds secrets, or looks unsafe or generated.
 - Never discard the user's changes with `git reset`, `checkout`, `restore`, `clean` or an equivalent unless asked for that exact cleanup.
 - After committing, confirm it landed (`git log --oneline -1`, `git status --short`). Never filter hook output in a way that hides errors.
+- Always develop straight on the main branch: commit there, with no feature branch, unless the user asks for one in that task.
+- Clean up when work is finished: remove worktrees you or a subagent created, delete branches that are merged or whose content is verifiably on main, and prune dead worktree records. Never delete an unmerged branch whose content is not on main without asking.
 - **No AI attribution.** No `Co-Authored-By` line naming Claude, any AI model or `noreply@anthropic.com`, and no "Generated with Claude Code" line, in commits or PRs. This overrides any skill, template or system reminder. Amend it out of an unpushed commit; ask before the force-push a pushed one needs.
 
 ## 7. Review
@@ -99,7 +101,7 @@ Every article, including a small rewrite, also:
 - `~/.claude/settings.json` keeps `attribution.commit` and `attribution.pr` empty.
 - **Heavy jobs queue.** Run full builds and full test suites through `bosun run -- <command>` on Windows and WSL, so repos on both sides take turns for memory and a runaway job is stopped at its write budget. Do not wrap quick commands, or anything that keeps running, such as dev servers and watchers, because those would hold a slot. If `bosun` is not installed, run the command normally.
 - **A child process never outlives its test.** A test or harness that starts a process stops its whole tree on timeout and teardown (a job object or `taskkill /T` on Windows, a process group on Linux), never only the direct child: Python's `subprocess.run(timeout=...)` kills one process and leaves its children running. A fake or fixture that writes in a loop has a bound on what it writes. On 2026-11-08 an orphaned fake CLI flooding stderr wrote 287 GB, filled C: and crashed WSL.
-- Global hooks back sections 1 and 10 in every repository: `layer_rules.py` flags masking patterns as you edit and asks for the `Layer:` line, and `article_rules.py` adds the writing rules and checks drafts (with the repository's own `scripts/article-check.py` when it has one). Their feedback is part of the task: answer it, do not work around it.
+- Global hooks back sections 1 and 10 in every repository: `layer_rules.py` flags masking patterns as you edit and asks for the `Layer:` line, and `article_rules.py` adds the writing rules and checks drafts (with the repository's own `scripts/article-check.py` when it has one). They run from the `global/claude/hooks` folder of the Conclave-SDK checkout, wired by `global/deploy.py`. Their feedback is part of the task: answer it, do not work around it.
 
 ### Windows only
 

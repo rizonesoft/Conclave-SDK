@@ -2,7 +2,7 @@
 
 Private CDN, DNS and Storage management for Codex and ChatGPT.
 
-[Open the connected ChatGPT plugin](https://chatgpt.com/plugins/plugin_asdk_app_6ac48ced876c8191bdee42d5aaa0d42c) under derick@rizonetech.com. The source lives in R:\Codex\bunny-net and the private catalog is Rizonetech. This integration is independently maintained; Bunny.net does not endorse it.
+[Open the connected ChatGPT plugin](https://chatgpt.com/plugins/plugin_asdk_app_6ac48ced876c8191bdee42d5aaa0d42c) under derick@rizonetech.com. The source lives in <SDK>\plugins\codex\bunny-net and the private catalog is Rizonetech. This integration is independently maintained; Bunny.net does not endorse it.
 
 ## Capabilities
 

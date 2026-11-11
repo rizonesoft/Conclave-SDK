@@ -1,6 +1,6 @@
 # Conclave private cloud access
 
-The cloud runner uses a dedicated OpenAI Secure MCP Tunnel and the existing Windows-to-WSL stdio launcher. It serves the same live `~/conclave` checkout as local Codex. Source stays in `R:\Codex\conclave`.
+The cloud runner uses a dedicated OpenAI Secure MCP Tunnel and the existing Windows-to-WSL stdio launcher. It serves the same live `~/conclave` checkout as local Codex. Source stays in `<SDK>\plugins\codex\conclave`.
 
 This PC must remain on, connected and signed in. WSL, Conclave's database and its configured vault must be available. The other integrations continue running on `conclave-srv`; this runner neither starts their Windows standby task nor changes their tunnel IDs.
 
@@ -23,24 +23,24 @@ Dedicated tunnel: `tunnel_6ac540220efc819195db5fc2880226f3`. The Windows task is
 First create a dedicated tunnel in [Platform tunnel settings](https://platform.openai.com/settings/organization/tunnels), using the existing organization/workspace association. Then, from the Windows user account that owns the DPAPI credential:
 
 ```powershell
-node R:\Codex\conclave\scripts\check-connection.mjs
+node <SDK>\plugins\codex\conclave\scripts\check-connection.mjs
 # Substitute the actual tunnel ID from Platform:
-pwsh -NoProfile -File R:\Codex\conclave\scripts\Manage-Cloud.ps1 -Action Configure -TunnelId tunnel_REPLACE_WITH_ACTUAL_ID
-pwsh -NoProfile -File R:\Codex\conclave\scripts\Manage-Cloud.ps1 -Action Install
-pwsh -NoProfile -File R:\Codex\conclave\scripts\Manage-Cloud.ps1 -Action Start
-pwsh -NoProfile -File R:\Codex\conclave\scripts\Manage-Cloud.ps1 -Action Status
+pwsh -NoProfile -File <SDK>\plugins\codex\conclave\scripts\Manage-Cloud.ps1 -Action Configure -TunnelId tunnel_REPLACE_WITH_ACTUAL_ID
+pwsh -NoProfile -File <SDK>\plugins\codex\conclave\scripts\Manage-Cloud.ps1 -Action Install
+pwsh -NoProfile -File <SDK>\plugins\codex\conclave\scripts\Manage-Cloud.ps1 -Action Start
+pwsh -NoProfile -File <SDK>\plugins\codex\conclave\scripts\Manage-Cloud.ps1 -Action Status
 ```
 
 `Install` registers the separate **Rizonetech Conclave Cloud Access** scheduled task. It runs with no window at this user's sign-in with limited privileges, without VBS, through `scripts/run-hidden.py`, so `pythonw` must be on `PATH`. Run `Install` again to apply a change to the task's definition. `Start` also re-enables a previously stopped task. It supervises only `rizonetech-conclave`, checks every 30 seconds and starts a stopped runtime; the official client handles network reconnection. No business writes are queued.
 
-State lives in `%LOCALAPPDATA%\Rizonetech\Conclave\cloud.json`, `cloud-status.json` and `cloud-profiles`. The runner also resolves the existing packaged-Codex LocalAppData redirection. It reuses the approved tunnel-client installation at `R:\Codex\.local\tunnel-client\v0.0.15\tunnel-client.exe`; install/update the official client explicitly if that path is missing.
+State lives in `%LOCALAPPDATA%\Rizonetech\Conclave\cloud.json`, `cloud-status.json` and `cloud-profiles`. The runner also resolves the existing packaged-Codex LocalAppData redirection. It reuses the approved tunnel-client installation at `<SDK>\plugins\codex\.local\tunnel-client\v0.0.15\tunnel-client.exe`; install/update the official client explicitly if that path is missing.
 
 In ChatGPT's Plugins directory, choose **Add custom MCP server → Tunnel**, select the dedicated Conclave tunnel and create the private plugin with the Conclave icon and accurate description. Confirm discovery, then run a harmless health call from the intended account. A running local process alone does not prove the cloud account is connected.
 
 ## Stop, recovery and future tools
 
 ```powershell
-pwsh -NoProfile -File R:\Codex\conclave\scripts\Manage-Cloud.ps1 -Action Stop
+pwsh -NoProfile -File <SDK>\plugins\codex\conclave\scripts\Manage-Cloud.ps1 -Action Stop
 ```
 
 Stop disables the Conclave scheduled task and stops only its managed tunnel runtime. Local Codex access is unaffected. To resume, use Start. Stop before changing the configured tunnel ID.

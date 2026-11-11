@@ -21,7 +21,7 @@ Say "process TickTick task <title or link>", "process task <title>", or run `/pr
 
 ## Deploy
 
-This folder is the master copy. Deploy to both environments with `bash scripts/deploy-skill.sh process-ticktick-task` from the repository root (Git Bash or WSL), then start a new Claude Code session. Never edit a deployed copy.
+This folder is the master copy. Deploy with `python <SDK>/global/deploy.py --agent claude` (once on Windows and once in WSL), then start a new Claude Code session. Never edit a deployed copy.
 
 ## Safety
 

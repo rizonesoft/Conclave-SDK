@@ -2,7 +2,7 @@
 
 Global Codex skill by Rizonetech for turning actionable Outlook mail into one TickTick task per matter, preserving source identity and leaving emails in Inbox with the existing `TickTick` category. Invoke with `file to TickTick`, `TickTick this email`, `file my inbox to TickTick` or `$file-to-ticktick`.
 
-Deploy `process-ticktick-task` beside it first for shared local helpers and references. From the repository root use `python skills/deploy.py file-to-ticktick` to preview and add `--apply` to install; WSL uses `python3`.
+Deploy `process-ticktick-task` beside it first for shared local helpers and references. Deploy with `python <SDK>/global/deploy.py --agent codex` (add `--dry-run` to preview); WSL uses `python3`.
 
 The current Outlook plugin omits required source identity and thread metadata. The skill performs read-only triage and reports that blocker instead of creating incomplete tasks or tagging messages without verification. It sends, moves and deletes nothing.
 

@@ -29,8 +29,8 @@ Create/update an item in **1Password > Conclave** named `<Website> WordPress MCP
 Import one item (keeps its existing site ID when updating):
 
 ```powershell
-pwsh -File R:\Codex\website-router\scripts\configure.ps1 -ItemId '<item-id>'
-pwsh -File R:\Codex\website-router\scripts\sync-ubuntu.ps1
+pwsh -File <SDK>\plugins\codex\website-router\scripts\configure.ps1 -ItemId '<item-id>'
+pwsh -File <SDK>\plugins\codex\website-router\scripts\sync-ubuntu.ps1
 ```
 
 Or import every eligible WordPress item with `-ImportAllWordPress`. Entries without the required MCP fields are reported as skipped. Novamira is excluded. Imports merge; deleting a vault entry does not silently delete a runtime connection. Remove a connection explicitly with `-RemoveId '<site-id>'`, then sync. Removal affects the router registry only.
@@ -40,7 +40,7 @@ Restart the local Codex plugin after import. The sync command replaces the host-
 Manual setup is also supported:
 
 ```powershell
-pwsh -File R:\Codex\website-router\scripts\configure.ps1 -Id example -Name 'Example' -SiteUrl https://example.com -Endpoint https://example.com/wp-json/mcp/mcp-adapter-default-server -Environment staging -Username agent
+pwsh -File <SDK>\plugins\codex\website-router\scripts\configure.ps1 -Id example -Name 'Example' -SiteUrl https://example.com -Endpoint https://example.com/wp-json/mcp/mcp-adapter-default-server -Environment staging -Username agent
 ```
 
 The password prompt is hidden. Do not put passwords in command arguments. `-Status` reports non-secret store presence. All connections, endpoint metadata and credentials are kept together inside `%LOCALAPPDATA%\Rizonetech\WebsiteRouter\token.dpapi`; configuration contains no secrets. Normal plugin calls never access 1Password.
@@ -48,7 +48,7 @@ The password prompt is hidden. Do not put passwords in command arguments. `-Stat
 ## Build and verify
 
 ```powershell
-Set-Location R:\Codex\website-router
+Set-Location <SDK>\plugins\codex\website-router
 npm ci --ignore-scripts
 npm test
 npm run build

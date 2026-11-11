@@ -6,7 +6,7 @@
     python article_check.py --json draft.html   # machine-readable report
     cat draft.md | python article_check.py -    # standard input
 
-Owner rules (section 10 of the global rules in R:\\Claude\\rules), for every article written or rewritten:
+Owner rules (section 10 of the global rules in global/claude/rules/claude-code.md of the Conclave-SDK checkout), for every article written or rewritten:
 1. Natural language (NLP): written the way people speak and search: short, clear sentences in the
    active voice, the answer first, question-shaped headings, and no stock AI phrasing.
 2. Original value: unique insight, first-hand experience and accurate, specific facts that generic

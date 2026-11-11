@@ -1,6 +1,6 @@
 # bunny.net by Rizonetech
 
-Local Windows MCP integration for bunny.net CDN, DNS and storage administration. Claude Code copy; source lives in `R:\Claude\connections\bunny-net`. Registered for Claude by `scripts/register-claude.sh` at the repository root. It is not a Codex plugin and has its own credential store.
+Local Windows MCP integration for bunny.net CDN, DNS and storage administration. Claude Code copy; source lives in `<SDK>\plugins\claude\bunny-net`. Registered for Claude by `<SDK>/plugins/claude/scripts/register-claude.sh`. It is not a Codex plugin and has its own credential store.
 
 ## Capabilities
 
@@ -18,16 +18,16 @@ Prerequisites: Windows, Node.js 22+, PowerShell; 1Password CLI is needed only fo
 
 ```powershell
 # Import once after completing the Conclave placeholder:
-& R:\Claude\connections\bunny-net\scripts\configure.ps1 -ImportFrom1Password
+& <SDK>\plugins\claude\bunny-net\scripts\configure.ps1 -ImportFrom1Password
 # Or enter the key locally with a hidden prompt:
-& R:\Claude\connections\bunny-net\scripts\configure.ps1
+& <SDK>\plugins\claude\bunny-net\scripts\configure.ps1
 # Presence only, no decryption or 1Password:
-& R:\Claude\connections\bunny-net\scripts\configure.ps1 -Status
+& <SDK>\plugins\claude\bunny-net\scripts\configure.ps1 -Status
 # Harmless API check, no private account details returned:
-node R:\Claude\connections\bunny-net\scripts\check-connection.mjs
+node <SDK>\plugins\claude\bunny-net\scripts\check-connection.mjs
 ```
 
-From WSL, where the Conclave service account works without a desktop prompt, `bash scripts/import-bunny-net.sh` at the repository root streams the item straight into the encrypted store. The key never appears in an argument or on screen.
+From WSL, where the Conclave service account works without a desktop prompt, `bash <SDK>/plugins/claude/scripts/import-bunny-net.sh` streams the item straight into the encrypted store. The key never appears in an argument or on screen.
 
 The key is stored as a Windows DPAPI CurrentUser-encrypted file under `%LOCALAPPDATA%\Rizonetech\Claude\BunnyNet\token.dpapi`. The directory ACL allows only the current account and SYSTEM. Non-secret `config.json` has a schema version; updates preserve unrelated fields. Empty or malformed keys never overwrite a working credential. Every operation reloads the encrypted credential, so a rotation takes effect on the next call with no restart.
 
@@ -35,12 +35,12 @@ Rotation: reset the key in the bunny.net dashboard (the old key stops working im
 
 ## Claude Code (WSL)
 
-Claude Code (user scope, all projects) runs `dist/server.mjs` through Windows Node, so DPAPI decryption works unchanged. Register or refresh every connection in this repository with `bash scripts/register-claude.sh` from the repository root. Rebuild (`npm run build`) after source changes; Claude picks up the new bundle on its next session.
+Claude Code (user scope, all projects) runs `dist/server.mjs` through Windows Node, so DPAPI decryption works unchanged. Register or refresh every Claude connection plugin with `bash <SDK>/plugins/claude/scripts/register-claude.sh`. Rebuild (`npm run build`) after source changes; Claude picks up the new bundle on its next session.
 
 ## Build and verify
 
 ```powershell
-cd R:\Claude\connections\bunny-net
+cd <SDK>\plugins\claude\bunny-net
 npm ci
 npm test
 npm run build

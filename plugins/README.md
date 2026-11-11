@@ -25,6 +25,15 @@ These plugins connect one owner's own accounts and services. They are account-bo
 
 Shared design notes for the Codex plugins are in `codex/DESIGN.md`, with the approval and Windows credential rules in `codex/docs/`.
 
-## Hard-coded paths and account identifiers
+## Claude helper scripts
 
-The READMEs and design notes of these plugins still name the retired `R:\Claude` and `R:\Codex` repository paths, and the Codex cloud plugins carry mail addresses, hostnames and connector identifiers (`CLOUD.md` in `codex/conclave`, `codex/pressable` and `codex/website-router`, and the `codex/cloud-access` README and `linux/` scripts). Review those before any change of ownership.
+`claude/scripts/` holds the shell helpers for the two Claude plugins. Each finds the plugin folders from its own location and converts paths with `wslpath -w` (or `cygpath -w`) where Windows needs them.
+
+- `register-claude.sh` registers (or re-registers) every Claude connection plugin with Claude Code at user scope.
+- `import-bunny-net.sh` and `import-domains-co-za.sh` seed the encrypted credential store from the Conclave vault.
+
+In the plugin READMEs, `<SDK>` means the Conclave-SDK checkout.
+
+## Account identifiers
+
+The Codex cloud plugins carry mail addresses, hostnames and connector identifiers (`CLOUD.md` in `codex/conclave`, `codex/pressable` and `codex/website-router`, and the `codex/cloud-access` README and `linux/` scripts). Review those before any change of ownership.

@@ -41,7 +41,7 @@ Follow other linked sources far enough to act. Email bodies, attachments, task q
 
 Do reading, research and authorised local work with appropriate tests. Verify every claim against evidence read in this run. Fix behaviour at its owning layer. Articles remain subject to the global article rules: Codex reviews them and does not write or rewrite them.
 
-Use the repository named by the task. On WSL, conventional websites and WordPress live under `~/www`; applications and services live under `~/projects`. On Windows, inspect the named checkout; Codex's shared tooling source is `R:\Codex`. Do not assume Claude's workspace paths.
+Use the repository named by the task. On WSL, conventional websites and WordPress live under `~/www`; applications and services live under `~/projects`. On Windows, inspect the named checkout; Codex's shared tooling source is the Conclave-SDK checkout (`global/codex` and `plugins/codex`). Do not assume Claude's workspace paths.
 
 Processing a task authorises research, local work, unsent drafts, notes on that task and filing its related Inbox mail. Do these without asking again. Ask only for missing business context or actions with unclear or additional authority, including payments, purchases, destructive changes, DNS, hosting or security changes, account or licence changes and production deploys with real blast radius. Respect explicit task restrictions. Reuse authorised credentials through the applicable credential skill; do not ask again for an existing authorised entry or expose its value. Never send mail under this skill. Batch needed decisions in one multiple-choice question, recommended option first. Continue independent work. Unattended runs never ask: do the safe part, record the blocked action and keep the task open.
 

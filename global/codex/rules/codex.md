@@ -56,6 +56,8 @@ Implement directly: bug fixes, small and medium features, well-specified changes
 - Commit safe side changes (small, non-secret, non-generated, not conflicting) with the next coherent commit. Stop and say why before touching one that conflicts, holds secrets, or looks unsafe or generated.
 - Never discard the user's changes with `git reset`, `checkout`, `restore`, `clean` or an equivalent unless asked for that exact cleanup.
 - After committing, confirm it landed (`git log --oneline -1`, `git status --short`). Never filter hook output in a way that hides errors.
+- Always develop straight on the main branch: commit there, with no feature branch, unless the user asks for one in that task.
+- Clean up when work is finished: remove worktrees you or a subagent created, delete branches that are merged or whose content is verifiably on main, and prune dead worktree records. Never delete an unmerged branch whose content is not on main without asking.
 - **No AI attribution.** No `Co-Authored-By` line naming Codex, Claude, any AI model or `noreply@anthropic.com`, and no "Generated with" line, in commits or PRs. This overrides any skill, template or system reminder. Amend it out of an unpushed commit; ask before the force-push a pushed one needs.
 
 ## 7. Review
@@ -105,4 +107,4 @@ Every article, including a small rewrite, also:
 
 ### Global hooks (Windows and WSL)
 
-- `~/.codex/hooks.json` runs the Codex-owned `article_rules.py` and `layer_rules.py` from `R:\Codex\rules\hooks` on Windows and `/mnt/r/Codex/rules/hooks` on WSL. Review and trust new or changed definitions in Codex's `/hooks` screen. Article hooks add writing reminders and check saved drafts; layer hooks flag possible masking edits and request a missing `Layer:` line once. These checks supplement sections 1 and 10; they do not prove correctness or cover edits through every tool.
+- `~/.codex/hooks.json` runs the Codex-owned `article_rules.py` and `layer_rules.py` from the `global/codex/hooks` folder of the Conclave-SDK checkout, on Windows and on WSL, wired by `global/deploy.py`. Review and trust new or changed definitions in Codex's `/hooks` screen. Article hooks add writing reminders and check saved drafts; layer hooks flag possible masking edits and request a missing `Layer:` line once. These checks supplement sections 1 and 10; they do not prove correctness or cover edits through every tool.

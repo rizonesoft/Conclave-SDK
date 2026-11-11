@@ -7,8 +7,8 @@ SSH/SFTP is available in Website Router 0.2.1 on Windows and conclave-srv. It re
 First register the WordPress site using configure.ps1. Store the SSH/SFTP username and password (or private key) in Conclave. Obtain the provider server host-key fingerprint from a trusted prior connection or provider support; a user public-key fingerprint is different. Run:
 
 ```powershell
-pwsh -File R:\Codex\website-router\scripts\configure-files.ps1 -SiteId '<existing-site-id>' -ItemId '<Conclave-item-id>' -HostKey 'SHA256:<verified-server-fingerprint>'
-pwsh -File R:\Codex\website-router\scripts\sync-ubuntu.ps1
+pwsh -File <SDK>\plugins\codex\website-router\scripts\configure-files.ps1 -SiteId '<existing-site-id>' -ItemId '<Conclave-item-id>' -HostKey 'SHA256:<verified-server-fingerprint>'
+pwsh -File <SDK>\plugins\codex\website-router\scripts\sync-ubuntu.ps1
 codex plugin add website-router@rizonetech --json
 ```
 

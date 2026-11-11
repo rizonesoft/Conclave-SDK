@@ -20,7 +20,7 @@ In the Inbox, the `TickTick` category means "has an open task". In a folder, it 
 
 ## Deploy
 
-From the Claude repository root: `bash scripts/deploy-skill.sh process-ticktick-task && bash scripts/deploy-skill.sh file-to-ticktick`. Never edit a deployed copy.
+Deploy with `python <SDK>/global/deploy.py --agent claude`. Never edit a deployed copy.
 
 ## Safety
 

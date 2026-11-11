@@ -25,7 +25,7 @@ App registration instructions are based on [Microsoft's registration guide](http
 Build once from this source directory:
 
 ```powershell
-cd R:\Codex\outlook-graph
+cd <SDK>\plugins\codex\outlook-graph
 npm.cmd ci
 npm.cmd run build
 node dist/setup.mjs login
@@ -39,7 +39,7 @@ Windows stores the session under `%LOCALAPPDATA%/Rizonetech/OutlookGraph/session
 Native WSL uses the same Windows user's DPAPI store through `powershell.exe` and `wslpath`, with a shared cross-process lock. No token is written to the WSL filesystem. Windows interop and the Windows profile must be available. After Windows sign-in:
 
 ```sh
-cd /mnt/r/Codex/outlook-graph
+cd <SDK>/plugins/codex/outlook-graph
 . "$HOME/.nvm/nvm.sh"
 nvm use 22
 node dist/setup.mjs status
@@ -53,7 +53,7 @@ For another Windows account or computer, clone, build and run `login` again usin
 From the repository root, register the marketplace if needed, then install on each host:
 
 ```powershell
-codex plugin marketplace add R:\Codex
+codex plugin marketplace add <SDK>\plugins\codex
 codex plugin add outlook-graph@rizonetech --json
 wsl -d Ubuntu -- bash -lc 'codex plugin add outlook-graph@rizonetech --json'
 ```

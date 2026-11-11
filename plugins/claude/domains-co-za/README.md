@@ -1,6 +1,6 @@
 # Domains.co.za by Rizonetech
 
-Local Windows MCP integration for Domains.co.za reseller domain management. Claude Code copy; source lives in `R:\Claude\connections\domains-co-za`. Registered for Claude by `scripts/register-claude.sh` at the repository root. It shares no code, build or credential store with the Codex plugin of the same name.
+Local Windows MCP integration for Domains.co.za reseller domain management. Claude Code copy; source lives in `<SDK>\plugins\claude\domains-co-za`. Registered for Claude by `<SDK>/plugins/claude/scripts/register-claude.sh`. It shares no code, build or credential store with the Codex plugin of the same name.
 
 ## Capabilities
 
@@ -18,17 +18,17 @@ Prerequisites: Windows, Node.js 22+, PowerShell; 1Password CLI is needed only fo
 
 ```powershell
 # Import once after completing the Conclave placeholder:
-& R:\Claude\connections\domains-co-za\scripts\configure.ps1 -ImportFrom1Password
+& <SDK>\plugins\claude\domains-co-za\scripts\configure.ps1 -ImportFrom1Password
 # Or enter username/password locally with a hidden password prompt:
-& R:\Claude\connections\domains-co-za\scripts\configure.ps1
+& <SDK>\plugins\claude\domains-co-za\scripts\configure.ps1
 # Or store a provider-issued JWT using a hidden local prompt:
 $credential = Read-Host 'API bearer token' -AsSecureString
-& R:\Claude\connections\domains-co-za\scripts\configure.ps1 -Token $credential
+& <SDK>\plugins\claude\domains-co-za\scripts\configure.ps1 -Token $credential
 $credential.Dispose()
 # Presence only, no decryption or 1Password:
-& R:\Claude\connections\domains-co-za\scripts\configure.ps1 -Status
+& <SDK>\plugins\claude\domains-co-za\scripts\configure.ps1 -Status
 # Harmless API check, no private account details returned:
-node R:\Claude\connections\domains-co-za\scripts\check-connection.mjs
+node <SDK>\plugins\claude\domains-co-za\scripts\check-connection.mjs
 ```
 
 Credentials are bundled into a Windows DPAPI CurrentUser-encrypted file under `%LOCALAPPDATA%\Rizonetech\Claude\DomainsCoZa\token.dpapi`. The directory ACL allows only the current account and SYSTEM. Non-secret `config.json` has a schema version; updates preserve unrelated fields. Empty/invalid imports do not overwrite working credentials. Secrets are never accepted as plaintext command arguments. A SecureString `-Credential` JSON bundle is also supported for local automation and isolated tests.
@@ -39,16 +39,16 @@ Updating the Conclave entry alone does not refresh the encrypted copy: rerun the
 
 ## Claude Code (WSL)
 
-Claude Code (user scope, all projects) runs `dist/server.mjs` through Windows Node, so DPAPI decryption works unchanged. Register or refresh every connection in this repository with `bash scripts/register-claude.sh` from the repository root. From WSL, refresh the encrypted credential straight from Conclave without a desktop prompt:
+Claude Code (user scope, all projects) runs `dist/server.mjs` through Windows Node, so DPAPI decryption works unchanged. Register or refresh every Claude connection plugin with `bash <SDK>/plugins/claude/scripts/register-claude.sh`. From WSL, refresh the encrypted credential straight from Conclave without a desktop prompt:
 
 ```bash
-bash scripts/import-domains-co-za.sh
+bash <SDK>/plugins/claude/scripts/import-domains-co-za.sh
 ```
 
 ## Build and verify
 
 ```powershell
-cd R:\Claude\connections\domains-co-za
+cd <SDK>\plugins\claude\domains-co-za
 npm ci
 npm test
 npm run build

@@ -12,7 +12,7 @@ agents keep their own hooks in their own repositories.
 
 The checker is `article_check.py` beside this file, run with the same Python as the hook, so nothing needs to
 be on PATH. A repository with its own `scripts/article-check.py` at its root owns its article standard, so its
-drafts go through that checker instead, run from the repository root. The rules text is section 10 of the global rules (R:\\Claude\\rules); change both together.
+drafts go through that checker instead, run from the repository root. The rules text is section 10 of the global rules (global/claude/rules/claude-code.md of the Conclave-SDK checkout); change both together.
 """
 import fnmatch
 import json

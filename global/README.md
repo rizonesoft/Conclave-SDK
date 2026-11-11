@@ -1,6 +1,6 @@
 # Global agent configuration
 
-The owner's machine-level configuration for Claude Code and Codex: global rules, hooks, skills and helper scripts. It was imported from two retired personal repositories (`R:\Claude` and `R:\Codex`) so that both can be deleted. `forge.py` never installs anything from this folder into a project, and the kits do not read it.
+The owner's machine-level configuration for Claude Code and Codex: global rules, hooks, skills and helper scripts. It was imported from two retired personal repositories so that both can be deleted. `forge.py` never installs anything from this folder into a project, and the kits do not read it.
 
 ## What is where
 
@@ -9,39 +9,42 @@ The owner's machine-level configuration for Claude Code and Codex: global rules,
 | `claude/rules/claude-code.md` | Master copy of Claude Code's global rules |
 | `claude/hooks/` | Claude hooks, their tests, `verify_install.py` and `verify-repos.txt` |
 | `claude/skills/<name>/` | Skills: `file-to-ticktick`, `process-email`, `process-ticktick-task` |
-| `claude/scripts/` | Shell helpers that deploy and register the Claude configuration |
 | `claude/project-skills/` | `seo-article-writer` and `aioseo`: WordPress skills, not yet in a kit |
-| `codex/rules/` | `codex.md` (master Codex rules), `deploy.py`, `hooks.json`, `test_deploy.py` |
+| `codex/rules/` | `codex.md` (master Codex rules) and `hooks.json` (the template `deploy.py` fills in) |
 | `codex/hooks/` | Codex hooks and their tests |
 | `codex/skills/<name>/` | Global Codex skills: `file-to-ticktick`, `process-ticktick-task` |
-| `codex/skills/deploy.py`, `tests/` | Skill deployer with its tests, and the skills README |
+| `deploy.py`, `tests/` | The one deploy script and its tests |
 | `codex/marketplace.json` | Codex plugin marketplace definition |
 | `codex/scripts/` | `check-approval-policy.mjs` |
 
 The two agents are maintained independently. Nothing here is shared between `claude/` and `codex/`.
 
-## Where the live copies run
+## Deploying
 
-The live copies currently run from `R:\Bin\claude` and `R:\Bin\codex`. They are plain copies with no git history. The live hook wiring in `~/.claude/settings.json` and `~/.codex/hooks.json` points at those folders. Nothing in this folder is wired live from the SDK checkout yet, so editing a file here changes nothing on the machine until it is deployed or the wiring is repointed.
+`deploy.py` is the one place the live configuration is deployed from, wherever the SDK is checked out. It locates everything relative to its own file and deploys to the home directory of whoever runs it. Run it once on Windows and once in WSL:
 
-## Hard-coded paths that need a decision
+```text
+python <SDK>/global/deploy.py [--agent claude|codex|all] [--home DIR] [--dry-run]
+```
 
-Every file below was imported byte for byte and still names one of `R:\Claude`, `R:/Codex`, `R:\Bin\...` or `C:/Python314`. The old repositories were deployed from those paths, so a deployer or a hook run from this checkout would still act on the old locations.
+| Source | Target in the home directory |
+| ------ | ---------------------------- |
+| `claude/rules/claude-code.md` | `.claude/CLAUDE.md` |
+| `claude/skills/<name>/` | `.claude/skills/<name>/`, files copied, destination-only files kept |
+| `claude/hooks/` | not copied: the hook commands in `.claude/settings.json` are pointed at it |
+| `codex/rules/codex.md` | `.codex/AGENTS.md` |
+| `codex/rules/hooks.json` | `.codex/hooks.json`, generated from the template |
+| `codex/skills/<name>/` | `.agents/skills/<name>/`, folders that hold a `SKILL.md` |
 
-- `claude/hooks/verify_install.py`
-- `claude/scripts/import-bunny-net.sh`
-- `claude/scripts/import-domains-co-za.sh`
-- `claude/scripts/register-claude.sh`
-- `claude/skills/process-ticktick-task/SKILL.md`
-- `codex/rules/codex.md`
-- `codex/rules/deploy.py`
-- `codex/rules/hooks.json`
-- `codex/skills/README.md`
-- `codex/skills/process-ticktick-task/SKILL.md`
+- In `settings.json` only the quoted script path of a hook command that runs `article_rules.py`, `layer_rules.py` or `article_check.py` changes, to the absolute path under `claude/hooks/`. A missing file, or one with no such command, is reported and left alone. An invalid file is refused and nothing is written.
+- `codex/rules/hooks.json` is a template with `{HOOKS}` (POSIX path of `codex/hooks`), `{HOOKS_WINDOWS}` (the same with a drive letter and forward slashes) and `{PYTHON_WINDOWS}` (the Windows interpreter). A checkout on `X:` maps to `/mnt/x/...` and back. A pure Linux checkout uses its own path for both.
+- Every write is atomic. An identical file is reported `unchanged` and not rewritten. A differing file is first copied to `.conclave/global-backups/<UTC timestamp>/` under the home directory, keeping its relative path.
+- `--dry-run` reports and writes nothing. `--home DIR` deploys to `DIR` instead (the tests use it). The exit code is non-zero only on a refusal or error.
+- Tests: `python -m unittest discover -s global/tests -v`.
 
-The plugins under `../plugins/` carry the same kind of path in their READMEs and design notes, listed in `../plugins/README.md`.
+Hook tests live beside the hooks: `python -m unittest discover -s global/claude/hooks -p "test_*.py"` and the same in `global/codex/hooks`.
 
-`codex/skills/deploy.py` accepts only a folder directly beneath a `skills/global` directory. In this layout the skills sit directly under `codex/skills/`, so the deployer needs adjusting before it is used from here.
+The live copies in `R:\Bin` (themselves from the retired `R:\Claude` and `R:\Codex` repositories) are superseded once the owner has run `deploy.py` on both Windows and WSL.
 
 ## Account identifiers
 

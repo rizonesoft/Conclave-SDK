@@ -2,8 +2,8 @@
 """Prove the global hooks are installed and apply in the given repositories. Run after any change to the hooks, to
 ~/.claude/settings.json or to a repository's own hook settings, on Windows and on WSL:
 
-    python  R:/Claude/rules/hooks/verify_install.py R:/path/to/repo
-    python3 /mnt/r/Claude/rules/hooks/verify_install.py ~/www/rizonetech-com
+    python  <SDK>/global/claude/hooks/verify_install.py <path-to-repo>
+    python3 <SDK>/global/claude/hooks/verify_install.py ~/www/rizonetech-com
 
 With no arguments it checks the repositories listed in verify-repos.txt beside this file that exist in this
 environment. It never writes to a repository. Exit 1 on any FAIL.

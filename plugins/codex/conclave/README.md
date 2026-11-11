@@ -1,6 +1,6 @@
 # Conclave by Rizonetech
 
-A Windows Codex plugin for the existing [Conclave](https://github.com/rizonetech/Conclave) MCP server in WSL. The plugin source lives in `R:\Codex\conclave`; application source and data stay in `~/conclave` in Ubuntu.
+A Windows Codex plugin for the existing [Conclave](https://github.com/rizonetech/Conclave) MCP server in WSL. The plugin source lives in `<SDK>\plugins\codex\conclave`; application source and data stay in `~/conclave` in Ubuntu.
 
 ## Capabilities
 
@@ -23,9 +23,9 @@ Requires Windows Node.js 22+, WSL with an Ubuntu distribution, the Conclave chec
 Defaults work with Ubuntu and `~/conclave`. Inspect or update only the non-secret settings:
 
 ```powershell
-node R:\Codex\conclave\scripts\configure.mjs status
-node R:\Codex\conclave\scripts\configure.mjs set --distribution Ubuntu --repo-root /home/derickpayne/conclave
-node R:\Codex\conclave\scripts\check-connection.mjs
+node <SDK>\plugins\codex\conclave\scripts\configure.mjs status
+node <SDK>\plugins\codex\conclave\scripts\configure.mjs set --distribution Ubuntu --repo-root /home/derickpayne/conclave
+node <SDK>\plugins\codex\conclave\scripts\check-connection.mjs
 codex plugin add conclave@rizonetech --json
 ```
 
@@ -44,8 +44,8 @@ Then install this plugin, set its distribution/root, and run the connection chec
 ## Verification and troubleshooting
 
 ```powershell
-npm --prefix R:\Codex\conclave test
-node R:\Codex\conclave\scripts\check-connection.mjs
+npm --prefix <SDK>\plugins\codex\conclave test
+node <SDK>\plugins\codex\conclave\scripts\check-connection.mjs
 ```
 
 The bounded check initializes MCP, verifies the exact eight tools, calls authenticated health and reads one plan result. It prints identities/counts and outcomes, never recalled memory, provider credentials or raw server error output. It performs no proposal or approval writes and requires clean shutdown on stdin close.
