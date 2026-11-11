@@ -53,8 +53,11 @@ kits/<name>/
 
 ## Tests
 
+The quick suite takes about a minute and includes a fresh install that runs a section through every review pass to its stamp. The full suite adds the stamp tests and the reviewer kit's own suite (several minutes): run it when a change touches the stamp, the dispatcher or the pin loader, and before a release.
+
 ```powershell
 python -m unittest discover -s tests -v
+$env:CONCLAVE_FULL_TESTS = '1'; python -m unittest discover -s tests -v; Remove-Item Env:CONCLAVE_FULL_TESTS
 ```
 
 ```bash

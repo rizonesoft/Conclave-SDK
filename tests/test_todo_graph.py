@@ -423,6 +423,13 @@ class Graph(Tree):
         self.assertEqual(ordered_refs[-1], "D00 T01 §1")
 
 
+# The stamp tests build a git repository per test and make real commits: minutes, not seconds. They run in the full
+# suite (CONCLAVE_FULL_TESTS=1), which is for a change to the stamp, the dispatcher or the pin loader and for a
+# release. The quick suite still stamps a section end to end in tests/test_three_pass_install.py.
+slow = unittest.skipUnless(os.environ.get("CONCLAVE_FULL_TESTS"), "slow: set CONCLAVE_FULL_TESTS=1 for the full suite")
+
+
+@slow
 class Stamp(Tree):
     def setUp(self):
         super().setUp()

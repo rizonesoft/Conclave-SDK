@@ -526,6 +526,7 @@ class ForgeProvisionTests(unittest.TestCase):
         checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "reviewer")["checks"]}
         self.assertEqual(checks["reviewer-pin"], "missing")
 
+    @unittest.skipUnless(os.environ.get("CONCLAVE_FULL_TESTS"), "slow: set CONCLAVE_FULL_TESTS=1 for the full suite")
     def test_reviewer_kit_dispatcher_tests_pass(self):
         tests = FORGE_ROOT / "kits/reviewer/templates/scripts/tests"
         # The suite drives a fake reviewer through real git repositories for the three-pass order (about five

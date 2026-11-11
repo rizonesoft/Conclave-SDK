@@ -215,8 +215,10 @@ def kill_tree(process):
     if os.name == "nt":
         # WORKAROUND: Windows offers no process-group kill without job objects, so taskkill /T reaches the reviewer's
         # children only while the reviewer itself is alive. A child that outlives a reviewer which exited by itself
-        # is not reached on Windows; on Linux and WSL the whole session is killed below.
-        subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True)
+        # is not reached on Windows; on Linux and WSL the whole session is killed below. A reviewer that has already
+        # exited is therefore not passed to taskkill at all: it would find no such process and reach nothing.
+        if process.poll() is None:
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True)
     else:
         try:
             os.killpg(process.pid, signal.SIGKILL)
@@ -274,7 +276,11 @@ def run(argv, stdin_text, timeout, watched):
                     return None, f"returned more than {MAX_OUTPUT_BYTES} bytes"
                 if time.monotonic() > deadline:
                     return None, "timed out"
-                time.sleep(POLL_SECONDS)
+                try:
+                    # Wakes the moment the reviewer exits, and otherwise after one poll interval.
+                    process.wait(timeout=POLL_SECONDS)
+                except subprocess.TimeoutExpired:
+                    continue
         finally:
             kill_tree(process)
             process.wait()

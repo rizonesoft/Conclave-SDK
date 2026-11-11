@@ -97,10 +97,8 @@ On Ninja and similar tools: yes for the C and C++ projects (RasterFold, Impossib
 
 Imported on 2026-11-11 into `global/` (rules, hooks, personal skills) and `plugins/` (ten plugin folders: eight for Codex, two for Claude), 378 files, byte for byte. Left out: each repository's own glue, verification and deployment logs, the brand permission drafts and the client site list.
 
-`rizonetech/Claude` and `rizonetech/Codex` can be deleted when these are true:
+Status on 2026-11-11, end of day: both GitHub repositories can be deleted.
 
-1. This import is pushed to `origin/main` (the only other git history is those two repositories).
-2. `website-router/CONNECTIONS.md` (the client site list) and `docs/brand-permissions/` are either saved somewhere deliberately or confirmed not needed. They were not imported.
-3. The live copies in `R:\Bin\claude` and `R:\Bin\codex` are deployed from `global/` and `plugins/` instead of from the old paths. Ten files still hard-code `R:\Claude`, `R:/Codex` or `C:/Python314` (`global/README.md` lists them). Until a deploy script here replaces them, the live hooks keep running from `R:\Bin`, which works, but a change made here would not reach them.
-
-Condition 3 is the one that takes work. Deleting before it is done loses nothing that runs today, since `R:\Bin` is independent of GitHub, but it leaves the SDK copy and the live copy to drift apart.
+1. The import is pushed to `origin/main`, and the live copies were compared with it file by file: the same content once line endings and the old folder names are set aside.
+2. The client site list and the brand permission drafts were dropped on the owner's decision; they were not imported.
+3. `global/deploy.py` now deploys the rules, skills and hook wiring from this checkout to the home folder, with no hard-coded path, and was run on Windows and in WSL: both run from `global/`. The copies in `R:/Bin/claude` and `R:/Bin/codex` are superseded. The MCP plugin registrations were not moved: a plugin registered from `R:/Bin` keeps running from there until it is registered again from `plugins/`.
