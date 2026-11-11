@@ -39,13 +39,13 @@ Sections: 9 | Checklist items: 79
 
 ### Phase 2: Unattended running
 
-Sections: 17 | Checklist items: 108
+Sections: 17 | Checklist items: 109
 
 | Status | Reference   | Deliverable                                               | Needs        | Items |
 | ------ | ----------- | --------------------------------------------------------- | ------------ | ----- |
 | [x]    | D02 T01 §1  | Antigravity payload handled by the Stop hook              | none         | 6     |
 | [x]    | D02 T01 §2  | Antigravity hook file seeded by the todo kit              | none         | 8     |
-| [ ]    | D02 T01 §3  | Codex hook script and hook file                           | none         | 7     |
+| [ ]    | D02 T01 §3  | Codex hook script and hook file                           | none         | 8     |
 | [ ]    | D02 T01 §4  | Heartbeat stall breaker for a harness with no Stop hook   | none         | 6     |
 | [ ]    | D02 T01 §5  | Guard self-test through each wired hook                   | none         | 6     |
 | [ ]    | D02 T01 §6  | Run guard steps in the Antigravity and Codex skill copies | none         | 7     |
@@ -131,14 +131,15 @@ Sections: 4 | Checklist items: 25
 
 ### Phase 99: Manual, operator only
 
-Sections: 3 | Checklist items: 16
+Sections: 4 | Checklist items: 20
 
-| Status | Reference  | Deliverable                              | Needs    | Items |
-| ------ | ---------- | ---------------------------------------- | -------- | ----- |
-| [ ]    | D06 T01 §1 | Plugins registered from `plugins/`       | attended | 6     |
-| [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
-| [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
+| Status | Reference  | Deliverable                                   | Needs              | Items |
+| ------ | ---------- | --------------------------------------------- | ------------------ | ----- |
+| [ ]    | D02 T01 §7 | Live Codex run held by its approved Stop hook | operator, attended | 4     |
+| [ ]    | D06 T01 §1 | Plugins registered from `plugins/`            | attended           | 6     |
+| [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed      | operator           | 5     |
+| [ ]    | D06 T01 §3 | Retired GitHub repositories deleted           | operator           | 5     |
 
-Progress: 19/70 verified sections, 12 ready to run now.
+Progress: 19/71 verified sections, 12 ready to run now.
 
-Checklist: 191/500 items completed (includes Commit items).
+Checklist: 191/505 items completed (includes Commit items).

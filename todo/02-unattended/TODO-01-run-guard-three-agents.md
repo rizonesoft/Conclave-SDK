@@ -41,6 +41,7 @@ title: "TODO-01 -- Run guard for Antigravity and Codex"
 | 4 | §4 | Heartbeat stall breaker for a harness with no Stop hook | -- | [ ] |
 | 5 | §5 | Guard self-test through each wired hook | §2, §3 | [ ] |
 | 6 | §6 | Run guard steps in the Antigravity and Codex skill copies | §2, §3, §4 | [ ] |
+| 7 | §7 | Live Codex run held by its approved Stop hook | §3 | [ ] |
 
 ## 1. Antigravity payload handled by the Stop hook
 
@@ -104,7 +105,11 @@ The todo kit seeds `.claude/settings.json` with the Stop hook and nothing for An
 
 ## 3. Codex hook script and hook file
 
+> **Started:** 2026-11-11T21:55:50Z
+
 Codex needs the `block` answer and must never be stopped by a broken hook. A small wrapper calls the guard and prints `{}` on any failure. Source: RasterFold `scripts/codex-campaign-hook.py` (38 lines) and `.codex/hooks.json`.
+
+**Corrected 2026-11-11 (validation):** Codex runs a project's `.codex/hooks.json` only after the operator approves each hook once: checked on this machine (Codex 0.167.0 on Windows, 0.166.0 in WSL), a probe hook in a scratch repository did not run under `codex exec` even with the project trusted, `-c bypass_hook_trust=true` is reported as `session-flags: bypass_hook_trust is ignored`, and the approvals live in the user's `config.toml` as `[hooks.state.'<project>/.codex/hooks.json:stop:0:0']` entries holding a `trusted_hash` the interactive client writes. That trust is Codex's own safety boundary and the kit does not write or forge it. RasterFold's Stop hook carries such an approval in WSL, which is the evidence for its command shape. The doctor therefore reports the approval as well as the wiring, and the live proof of a Codex run held by the hook moves to `D02 T01 §7`, which waits for that one-time approval.
 
 **Phase:** 2
 **Needs:** none
@@ -118,8 +123,9 @@ Codex needs the `block` answer and must never be stopped by a broken hook. A sma
 - [ ] Create `kits/todo/templates/scripts/codex-campaign-hook.py`: read the payload from stdin up to 2,000,000 characters, remove `conversationId` so the guard answers in the `block` format, call `campaign_guard.stop_hook`, and print its answer or `{}` (RasterFold `:7`, `:16`, `:24`). Done when: a test pipes a guarded session's payload and reads back a `block` decision. Cheaper substitute: importing the guard by module name must fail when the hook runs from another working folder; it is loaded by file path.
 - [ ] Print `{}` and exit 0 from `codex-campaign-hook.py` on every failure: a payload over the limit, bytes that are not JSON, a missing `campaign_guard.py`, an exception in the guard (RasterFold `:33`). Done when: a test for each finds `{}` on stdout and exit 0.
 - [ ] Create `kits/todo/templates/.codex/hooks.json` with `command` and `commandWindows` that find the git top level, check the hook script exists there, and run it, printing `{}` when either is missing (RasterFold `.codex/hooks.json`). Done when: a test parses the file and finds both keys naming `codex-campaign-hook.py`.
-- [ ] Confirm the hook file's name, keys and event against the Codex CLI installed on this machine and record the CLI version in `kits/todo/README.md`. Done when: the README names the version checked.
+- [ ] Confirm the hook file's name, keys and event against the Codex CLI installed on this machine and record the CLI version in `kits/todo/README.md`, with the approval Codex requires. Done when: the README names the version checked, the `hooks.state` key format and how the operator approves the hook. **Corrected 2026-11-11 (validation):** the approval was not mentioned.
 - [ ] Add `kits/todo/templates/scripts/tests/test_codex_campaign_hook.py` or extend `tests/test_campaign_guard.py` with the wrapper's tests, and add a `stop-hook:.codex` check to `doctor_repo` in `forge.py` through the generalised `_stop_hook_wiring`. Done when: the doctor reports `ok` on a fresh install and the tests run in the quick suite.
+- [ ] Add a `stop-hook-approved:.codex` check to `doctor_repo` in `forge.py`: read `config.toml` under `CODEX_HOME` (default `~/.codex`) with `tomllib` and report `ok` when `hooks.state` holds a `trusted_hash` for `<project>/.codex/hooks.json:stop:0:0` (the path compared case-insensitively on Windows, with either slash), else `setup_required` saying to open `codex` in the project once and approve its Stop hook, and that Codex asks again when the hook changes. Done when: tests with a scratch `CODEX_HOME` find `ok` for an entry, `setup_required` for none, for another project's entry and for a `config.toml` that does not parse, and no check for a project with no `.codex/` folder. Cheaper substitute: reporting `ok` from the hook file alone must fail the no-entry test, because Codex skips an unapproved hook. **Corrected 2026-11-11 (validation):** added.
 - [ ] Run `python forge.py self-sync`. Done when: `scripts/codex-campaign-hook.py` equals the kit file.
 - [ ] Commit: `todo: Codex Stop hook that never blocks on its own failure`
 
@@ -192,6 +198,25 @@ The Claude copy of `process-plan` tells the session how to start and end the run
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; deleting the run guard section from the Antigravity copy makes the new test fail.
 
+## 7. Live Codex run held by its approved Stop hook
+
+Filed 2026-11-11 from `D02 T01 §3`: Codex runs a project's `.codex/hooks.json` only after the operator approves it once in the interactive client, and that approval is Codex's safety boundary, which no tool here writes. Once the operator has approved the Stop hook of a scratch project, a live run proves the wrapper and the hook file hold a Codex run the way §2 proved it for Antigravity.
+
+**Phase:** 99
+**Needs:** operator, attended
+**Surface:** no
+
+**Build order:**
+
+1. The operator approves the scratch project's Stop hook in `codex`. Done when: `python forge.py doctor <scratch> todo` reports `stop-hook-approved:.codex` `ok`.
+2. Run the live proof. Done when: the checkpoint passes.
+
+- [ ] Create a scratch `init --kit todo` project with a stub graph holding one ready row and ask the operator to open `codex` in it and approve its Stop hook. Done when: the doctor reports `stop-hook-approved:.codex` `ok` for it. Cheaper substitute: writing a `hooks.state` entry by hand must fail review; the approval is the operator's.
+- [ ] Mint a session with `codex exec --json`, acquire a guard for its session id, resume it with `codex exec resume <id>`, and read from the output and the guard's state that the hook answered `block` and Codex ran further turns until the stall breaker let it stop. Done when: the run file quotes the output and the state.
+- [ ] End the guard and resume once more. Done when: the run file quotes a turn that ends at its first Stop.
+- [ ] Commit: `todo: a live Codex run held by its Stop hook`
+
+**Test checkpoint:** `python forge.py doctor <scratch> todo --strict` exits 0 with `stop-hook-approved:.codex` `ok`; the run file quotes a guarded Codex run that the breaker released and a released run that stopped at its first Stop.
 ## Verification
 
 - A fresh `python forge.py init <scratch> --kit todo` passes `python scripts/campaign_guard.py --self-test` with three hooks run, on Windows and in WSL.
