@@ -1,0 +1,115 @@
+{
+  "ref": "D00 T01 \u00a72",
+  "title": "Three-pass dispatcher",
+  "implementation_sha": "bc43402e48e8e7080ca3aef270722a666d07391a",
+  "date": "2026-11-11",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-reviewer/D00-T01-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 2,
+      "report": "docs/reviews/00-reviewer/D00-T01-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 3,
+      "report": "docs/reviews/00-reviewer/D00-T01-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 4,
+      "report": "docs/reviews/00-reviewer/D00-T01-s2.md",
+      "verdict": "fixed"
+    },
+    {
+      "round": 5,
+      "report": "docs/reviews/00-reviewer/D00-T01-s2.md",
+      "verdict": "stopped-low-severity"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s tests -> Ran 274 tests, OK",
+    "python -m unittest discover -s kits/reviewer/templates/scripts/tests -> Ran 129 tests, OK (skipped=2), run inside the full suite",
+    "bash kits/reviewer/scripts/test-install.sh -> passed"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-reviewer/D00-T01-s2.md",
+    "verdict": "filed",
+    "candidate": "ff57cb8cbe0f318f15488a5ad3929099bfa50be2",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": [
+      "D00 T01 \u00a76",
+      "D00 T01 \u00a73",
+      "D00 T01 \u00a74",
+      "D00 T01 \u00a77"
+    ]
+  },
+  "rounds_spent": 5,
+  "round_cap": 33,
+  "cap_outcome": "Round 5 stopped the loop on severity with two P3 findings; both were fixed in bc43402 (a test of the changed-file lookup failure, and the module documentation of the rotation exception) and the gates rerun, so nothing was filed",
+  "plan": {
+    "report": "docs/reviews/00-reviewer/D00-T01-s2.md",
+    "candidate": "7dae338c5c9a58d1ecbceace93f35df68c895ae7",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule": {
+    "severity_stop_after": 0,
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "completion": {
+      "effort": "medium"
+    },
+    "rounds": [
+      {
+        "effort": "high",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "plan-delivery"
+        ]
+      },
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial"
+        ]
+      },
+      {
+        "effort": "low",
+        "lenses": [
+          "adversarial"
+        ]
+      }
+    ],
+    "rotation": {
+      "effort": "low",
+      "lenses": [
+        "consistency",
+        "quality",
+        "design",
+        "optimization",
+        "record"
+      ]
+    },
+    "escalation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial"
+      ]
+    }
+  }
+}

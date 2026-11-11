@@ -33,7 +33,7 @@ title: "TODO-01 -- Three-pass review"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Pin loader module with the three-pass keys | -- | [x] |
-| 2 | §2 | Three-pass dispatcher | §1 | [ ] |
+| 2 | §2 | Three-pass dispatcher | §1 | [x] |
 | 3 | §3 | Three-pass stamp rules in the todo kit | §2 | [ ] |
 | 4 | §4 | Template pin, prompts, skills and READMEs on three-pass | §3 | [ ] |
 | 5 | §5 | Pin check that reports every fault at once | §1 | [ ] |
@@ -114,9 +114,12 @@ The dispatcher runs the three-pass kinds from the pin §1 loads: order, the sect
 - [x] Prove the promised outputs in `test_review_dispatch.py`. Done when: tests assert the `highest` and `blocking` JSON values for `HIGHEST: P2`, `P3`, `none` and a reply with no `HIGHEST` line (which blocks), the kept text of an incomplete reply in the JSON and the findings file, and a pin-declared lens's question in the prompt the stub reviewer received. **Corrected 2026-11-11 (plan review):** added.
 - [x] Extend `tests/test_check_pin_contract.py` and `tests/fixtures/check-pin/pins/` with a valid three-pass pin and one refused pin per new key, with `schedule` reported when the pin has one (plan R12). Done when: every existing fixture keeps its verdict, the new ones give theirs, and the test compares the reported `schedule` with the pin's own table, key for key. **Corrected 2026-11-11 (plan review):** added the content comparison. Cheaper substitute: editing an existing fixture's expected verdict must fail review.
 - [x] Update the module docstring of `review-dispatch.py` and run `python forge.py self-sync`. Done when: `scripts/review-dispatch.py` equals the kit file.
-- [ ] Commit: `reviewer: three-pass kinds, order, caps and lens verdicts in the dispatcher`
+- [x] Commit: `reviewer: three-pass kinds, order, caps and lens verdicts in the dispatcher`
 
 **Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests` and `python -m unittest discover -s tests` both end `OK`; removing the cap check from `check_three_pass_order` makes the cap test fail.
+
+> **Verified:** 2026-11-11 | §2 | bc43402e48e8e7080ca3aef270722a666d07391a
+> **Review:** `docs/reviews/d00-t01-s2.json`
 
 ## 3. Three-pass stamp rules in the todo kit
 
