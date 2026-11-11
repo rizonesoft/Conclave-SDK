@@ -179,7 +179,11 @@ title: "TODO-01 -- Install record, diff and update"
 
 ## 5. `forge.py record` for projects installed before the record
 
+> **Started:** 2026-11-11T19:43:13Z
+
 Every project installed so far has no record, so none of its files can be `kit-newer`. `forge.py record <project>` writes a record for the files that are byte-identical to the current kit, which is the only state where the installed bytes are known.
+
+**Corrected 2026-11-11 (validation):** §3 reports more states than `differs` and `missing` (`unsafe`, `unreadable`, `generated`, `project-only`), and §2 leaves an interrupted run for the next writer to settle; the items below say what `record` does with each and that it settles first, as `kit` and `update` do. A kit the record already names keeps its `sdk_commit`, `agents` and `host`: adopting a file is not an install.
 
 **Phase:** 1
 **Needs:** none
@@ -190,9 +194,10 @@ Every project installed so far has no record, so none of its files can be `kit-n
 1. Add `record_project` and the `record` subcommand to `forge.py`. Done when: an old install gains entries for its identical files only.
 2. Cover it and document it. Done when: the checkpoint passes.
 
-- [ ] Add `record_project(target_root, kit_name=None, dry_run=False)` to `forge.py`: for every kit the project has, add a record entry for each file whose digest equals the kit's, with the current SDK commit. Done when: a test on a project with one edited skill finds every other file recorded and the edited one absent. Cheaper substitute: recording every file the project has must fail, because a later `update` would overwrite the edit.
+- [ ] Add `record_project(target_root, kit_name=None, dry_run=False)` to `forge.py`: for every kit the project has, add a record entry for each file whose digest equals the kit's, with the current SDK commit for a kit the record does not yet name (its agents the ones `diff_project` compared, its host the plan's), and the kit's own entry left as it is for one it does. Done when: a test on a project with one edited skill finds every other file recorded and the edited one absent, and a test with a recorded kit finds its `sdk_commit` and `agents` unchanged after `record`. **Corrected 2026-11-11 (validation):** the kit entry rules were unstated. Cheaper substitute: recording every file the project has must fail, because a later `update` would overwrite the edit.
 - [ ] Keep existing entries in `record_project`: an entry already in the record is never replaced, so running it after an `update` changes nothing. Done when: a test records, edits a kit template in a scratch SDK copy, records again and finds the first digest still there and the file reported `kit-newer` by `diff_project`.
-- [ ] Add the `record` subcommand to `main` and `_run` in `forge.py` with `--dry-run`, printing `recorded` and `skipped` with the reason for each skipped file (`differs` or `missing`). Done when: a test parses the output of the command line.
+- [ ] Settle an interrupted run in `record_project` with `_recover` before it reads the states, except on `--dry-run`, which writes nothing at all. Done when: a test with a staged `.forge-new` for a recorded, deleted file finds it moved into place by `record`, and a dry run on the same fixture leaves every file under the target byte for byte as before while listing what it would record. **Corrected 2026-11-11 (validation):** added.
+- [ ] Add the `record` subcommand to `main` and `_run` in `forge.py` with `--dry-run`, printing `recorded` and `skipped` with the reason for each skipped file: its `diff` state (`differs`, `missing`, `unsafe`, `unreadable`, `generated`) or `recorded` for a file that already has an entry. Done when: a test parses the output of the command line and finds each of those reasons on a fixture holding it. **Corrected 2026-11-11 (validation):** the reasons were only `differs` and `missing`.
 - [ ] Describe `record` in `README.md` under the existing-project steps: run `record`, then `diff`, then `update`. Done when: the three commands appear in that order with the SDK's path spelled as the rest of the README spells it.
 - [ ] Commit: `forge: record adopts an install made before the record existed`
 
