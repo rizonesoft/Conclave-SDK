@@ -35,7 +35,7 @@ title: "TODO-02 -- Unattended kit"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Unattended kit known to `forge.py` | -- | [ ] |
+| 1 | §1 | Unattended kit known to `forge.py` | -- | [x] |
 | 2 | §2 | Run profile `.conclave/unattended.json` and its loader | §1 | [ ] |
 | 3 | §3 | Preflight with a PASS or FAIL line per precondition | §2 | [ ] |
 | 4 | §4 | Launch lock and claim | §2 | [ ] |
@@ -69,9 +69,12 @@ The kit folder, its place in the install order, its detection and its doctor bra
 - [x] Detect the kit in `installed_kits` of `forge.py` by `scripts/lib/unattended.py`, the file this section installs (`scripts/unattended-run.py` arrives with §5). Done when: a test finds `unattended` in `check_repo(...)["kits"]` after a real `kit <project> unattended` and not before. **Corrected 2026-11-12 (plan review):** the launcher is not installed until §5.
 - [x] Add an `unattended` branch to `doctor_repo` in `forge.py`: each kit file present, the todo kit present (`scripts/campaign_guard.py`), and `tmux` on `PATH` (`setup_required` with the install hint when it is not, and on Windows the hint to run the kit in WSL). Done when: tests find `ok` for the files on a fresh install, `missing` naming a kit file removed from it, `setup_required` for a project without the todo kit, `ok` and `setup_required` for `tmux` found and not found on `PATH` (`shutil.which` controlled), and on Windows (`os.name` patched to `nt`) `setup_required` with the WSL hint. **Corrected 2026-11-12 (plan review):** missing files, the tmux cases and the Windows hint were untested.
 - [x] List the kit in `README.md`, `kits/README.md` and `AGENTS.md` (Purpose), and state that the SDK does not install it in itself (`SELF_KITS` unchanged). Done when: the three documents name it and their table rows are within 120 characters.
-- [ ] Commit: `unattended: kit skeleton known to forge.py`
+- [x] Commit: `unattended: kit skeleton known to forge.py`
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; removing `unattended` from `KIT_ORDER` makes the order test fail.
+
+> **Verified:** 2026-11-12 | §1 | 8d42b130b87d19edad556c6101a28ae15a89d722
+> **Review:** `docs/reviews/d02-t02-s1.json`
 
 ## 2. Run profile `.conclave/unattended.json` and its loader
 

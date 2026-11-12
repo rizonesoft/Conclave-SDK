@@ -1,0 +1,84 @@
+{
+  "ref": "D02 T02 \u00a71",
+  "title": "Unattended kit known to `forge.py`",
+  "implementation_sha": "8d42b130b87d19edad556c6101a28ae15a89d722",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-unattended/D02-T02-s1.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s tests -p test_forge.py -> OK (144 tests)",
+    "python -m unittest discover -s tests -> OK (489 tests)"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-unattended/D02-T02-s1.md",
+    "verdict": "reconciled",
+    "candidate": "8d42b130b87d19edad556c6101a28ae15a89d722",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/02-unattended/D02-T02-s1.md",
+    "candidate": "0f28204244742de5efb73a6b511f6b66dd386464",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "0f28204244742de5efb73a6b511f6b66dd386464",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 5,
+  "pass_cap": 33
+}
