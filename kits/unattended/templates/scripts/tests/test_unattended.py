@@ -239,7 +239,10 @@ class LoadProfileTest(unittest.TestCase):
             self.assertNotIn(name, text)
 
 
-@unittest.skipUnless(os.name == "posix", "the launch lock is fcntl.flock: Linux and WSL")
+posix_only = unittest.skipUnless(os.name == "posix", "the launch lock is fcntl.flock: Linux and WSL")
+
+
+@posix_only
 class LaunchLockTest(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -332,6 +335,7 @@ class ClaimTest(unittest.TestCase):
                 self.assertIn(why, reason)
                 self.assertIn("stale", reason)
 
+    @posix_only
     def test_a_live_claim_of_another_session_is_never_cleared(self):
         self.claim()
         self.live_sessions.add("demo-run")
@@ -340,19 +344,23 @@ class ClaimTest(unittest.TestCase):
         self.assertIn("session-a", str(caught.exception))
         self.assertTrue(self.claim_path().exists())
 
+    @posix_only
     def test_the_owners_own_live_claim_is_cleared(self):
         self.claim()
         self.live_sessions.add("demo-run")
         self.assertIn("stopped", unattended.clear_claim(self.root, "session-a", self.exists))
         self.assertFalse(self.claim_path().exists())
-        self.assertEqual(list(self.claim_path().parent.iterdir()), [], "the clear left a file behind")
+        # Only the launch lock stays: flock locks the open file, so the file itself is kept for the next launch.
+        self.assertEqual([p.name for p in self.claim_path().parent.iterdir()], ["unattended-launch.lock"])
 
+    @posix_only
     def test_a_stale_claim_is_cleared_by_anyone_and_a_second_clear_is_a_no_op(self):
         self.claim()
         self.assertIn("stale", unattended.clear_claim(self.root, "session-b", self.exists))
         self.assertFalse(self.claim_path().exists())
         self.assertEqual(unattended.clear_claim(self.root, "session-b", self.exists), "no launch claim")
 
+    @posix_only
     def test_a_claim_whose_liveness_is_unknown_is_never_cleared(self):
         self.claim()
         self.unknown = True
@@ -361,6 +369,7 @@ class ClaimTest(unittest.TestCase):
         self.assertIn("cannot be told", str(caught.exception))
         self.assertTrue(self.claim_path().exists())
 
+    @posix_only
     def test_a_claim_replaced_after_it_was_read_is_left_in_place(self):
         self.claim()
         real = unattended.read_claim
@@ -372,9 +381,49 @@ class ClaimTest(unittest.TestCase):
         with unittest.mock.patch.object(unattended, "read_claim", read_then_replace):
             with self.assertRaises(unattended.LaunchError) as caught:
                 unattended.clear_claim(self.root, "session-b", self.exists)
-        self.assertIn("replaced after it was read", str(caught.exception))
+        self.assertIn("changed after it was read", str(caught.exception))
         self.assertEqual(json.loads(self.claim_path().read_text(encoding="utf-8"))["session"], "session-new")
-        self.assertEqual([p.name for p in self.claim_path().parent.iterdir()], ["unattended-launch.json"])
+        names = sorted(p.name for p in self.claim_path().parent.iterdir())
+        self.assertEqual(names, ["unattended-launch.json", "unattended-launch.lock"], "the claim was ever moved")
+
+    def test_a_claim_that_exists_but_cannot_be_read_is_unknown(self):
+        # Round 1 of D02 T02 §4: a permission or I/O error read as stale, which let a launch in.
+        self.claim()
+        real = Path.read_bytes
+
+        def denied(p):
+            if p.name == "unattended-launch.json":
+                raise PermissionError(13, "Permission denied", str(p))
+            return real(p)
+        with unittest.mock.patch.object(Path, "read_bytes", denied):
+            claim, live, reason = unattended.read_claim(self.root, self.exists)
+        self.assertIsNone(live)
+        self.assertIn("cannot be read", reason)
+        self.assertIn("Permission denied", reason)
+
+    @posix_only
+    def test_a_clear_is_refused_while_a_launch_holds_the_lock(self):
+        # Round 1 of D02 T02 §4: a clear that ran beside a launch could hide the claim it was writing.
+        self.claim()
+        holder = subprocess.Popen([sys.executable, "-c", (
+            "import importlib.util, time\n"
+            f"spec = importlib.util.spec_from_file_location('u', {str(SCRIPTS / 'lib' / 'unattended.py')!r})\n"
+            "u = importlib.util.module_from_spec(spec); spec.loader.exec_module(u)\n"
+            f"with u.launch_lock({str(self.root)!r}):\n"
+            "    print('held', flush=True); time.sleep(60)\n")], stdout=subprocess.PIPE, text=True)
+        self.addCleanup(lambda: (holder.kill(), holder.wait(), holder.stdout.close()))
+        self.assertEqual(holder.stdout.readline().strip(), "held")
+        with self.assertRaises(unattended.LaunchError) as caught:
+            unattended.clear_claim(self.root, "session-a", self.exists)
+        self.assertIn("unattended-launch.lock", str(caught.exception))
+        self.assertTrue(self.claim_path().exists())
+
+    @posix_only
+    def test_a_launcher_holding_the_lock_clears_with_lock_held(self):
+        self.claim()
+        with unattended.launch_lock(self.root):
+            self.assertIn("stale", unattended.clear_claim(self.root, "session-b", self.exists, lock_held=True))
+        self.assertFalse(self.claim_path().exists())
 
     def test_tmux_lookup_failures_are_unknown_and_its_own_answers_are_not(self):
         def answer(code, stderr):

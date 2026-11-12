@@ -224,6 +224,11 @@ class ClaimCheckTest(Fixture):
         self.assertTrue(own[0].startswith("PASS launch-claim:") and "the run being resumed" in own[0], own)
         stale = self.check(set())
         self.assertTrue(stale[0].startswith("PASS launch-claim: tmux session demo-run is gone: stale"), stale)
+        real = Path.read_bytes
+        with unittest.mock.patch.object(Path, "read_bytes", lambda p: (_ for _ in ()).throw(OSError(5, "I/O error"))
+                                        if p.name == "unattended-launch.json" else real(p)):
+            unreadable = self.check({"demo-run"})
+        self.assertTrue(unreadable[0].startswith("FAIL launch-claim:") and "cannot be read" in unreadable[0], unreadable)
         unknown = self.check({"demo-run"}, unknown=True)
         self.assertTrue(unknown[0].startswith("FAIL launch-claim: whether tmux session demo-run"), unknown)
 

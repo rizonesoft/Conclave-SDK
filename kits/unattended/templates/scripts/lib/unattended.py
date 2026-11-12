@@ -167,8 +167,8 @@ def _write_atomic(path: Path, text: str) -> None:
 
 def write_claim(root, session: str, pid: int, agent: str, tmux_session: str, started: str | None = None) -> dict:
     """Write `build/unattended-launch.json` naming the run this launch started (the agent's session id, the tmux
-    session, which is the profile's `name`, the pid, the agent and the UTC start), through a temporary file and
-    os.replace, and return it."""
+    session the launcher started it in, `<name>-run` in §5, the pid, the agent and the UTC start), through a
+    temporary file and os.replace, and return it. A launch writes it while holding `launch_lock`."""
     claim = {"session": session, "tmux_session": tmux_session, "pid": pid, "agent": agent,
              "started": started or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
     _write_atomic(Path(root) / CLAIM, json.dumps(claim, indent=2) + "\n")
@@ -193,10 +193,15 @@ def read_claim(root, session_exists=tmux_session_exists) -> tuple[dict | None, b
     is gone, or the file is not JSON or lacks a key) and None when tmux could not say. No claim is (None, False)."""
     path = Path(root) / CLAIM
     try:
-        claim = json.loads(path.read_text(encoding="utf-8"))
+        raw = path.read_bytes()
     except FileNotFoundError:
         return None, False, "no launch claim"
-    except (OSError, ValueError) as exc:
+    except OSError as exc:  # it exists but cannot be read: a live run's claim may be behind it
+        return None, None, f"{CLAIM} exists but cannot be read ({exc.strerror or exc}): whether its run is live " \
+                           "cannot be told"
+    try:
+        claim = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
         return None, False, f"{CLAIM} is not readable JSON ({exc}): stale"
     if not isinstance(claim, dict):
         return None, False, f"{CLAIM} is not a JSON object: stale"
@@ -214,14 +219,21 @@ def read_claim(root, session_exists=tmux_session_exists) -> tuple[dict | None, b
     return claim, False, f"tmux session {claim['tmux_session']} is gone: stale"
 
 
-def clear_claim(root, session: str, session_exists=tmux_session_exists) -> str:
-    """Remove the claim when it is stale or belongs to `session`, the run being stopped. A live claim of another
-    session, one whose liveness is unknown, and one replaced after it was read are left in place and refused."""
+def clear_claim(root, session: str, session_exists=tmux_session_exists, lock_held: bool = False) -> str:
+    """Remove the claim when it is stale or belongs to `session`, the run being stopped. It runs under the launch lock
+    every launch holds while it writes its claim (`lock_held` when the caller already holds it), so no claim can be
+    written while one is being cleared. A live claim of another session, one whose liveness is unknown, and one that
+    changed after it was read are left in place and refused."""
+    if not lock_held:
+        with launch_lock(root):
+            return clear_claim(root, session, session_exists, lock_held=True)
     path = Path(root) / CLAIM
     try:
         seen = path.read_bytes()
     except FileNotFoundError:
         return "no launch claim"
+    except OSError as exc:
+        raise LaunchError(f"{CLAIM} is left in place: it cannot be read ({exc.strerror or exc})") from None
     claim, live, reason = read_claim(root, session_exists)
     owner = claim.get("session") if isinstance(claim, dict) else None
     if live is None:
@@ -229,17 +241,10 @@ def clear_claim(root, session: str, session_exists=tmux_session_exists) -> str:
     if live and owner != session:
         raise LaunchError(f"{CLAIM} belongs to live session {owner} (tmux session {claim.get('tmux_session')}); "
                           f"it is not {session}'s to clear")
-    moved = path.with_name(f"{path.name}.clearing-{os.getpid()}")
     try:
-        os.replace(path, moved)  # taken atomically: a claim written after this lands at `path` untouched
+        if path.read_bytes() != seen:
+            raise LaunchError(f"{CLAIM} changed after it was read; the new claim is left in place")
+        path.unlink()
     except FileNotFoundError:
         return "no launch claim"
-    if moved.read_bytes() == seen:
-        moved.unlink()
-        return f"cleared ({reason})" if not live else f"cleared (session {session} stopped)"
-    try:
-        os.link(moved, path)  # a replacement written after the read: put back, unless a newer one is there
-    except FileExistsError:
-        pass  # a newer claim already stands at the path, and it is kept
-    moved.unlink()
-    raise LaunchError(f"{CLAIM} was replaced after it was read; the new claim is left in place")
+    return f"cleared ({reason})" if not live else f"cleared (session {session} stopped)"
