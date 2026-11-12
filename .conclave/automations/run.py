@@ -68,45 +68,98 @@ def _launcher_script(script: str, args: list[str]) -> bool:
     return True
 
 
-def _launcher_in_text(text: str, shell: str) -> str | None:
-    r"""The launcher the first command of any command in a shell command string invokes, or None. The text is read
-    with its quotes kept, so a launcher or a `;` inside a quoted string is data; an unquoted `;`, `&&`, `||`, `|`, `&`
-    or line break ends a command. Backslashes stay as written, so `.\scripts\start-run.ps1` keeps them."""
-    import shlex
+def _shell_commands(text: str, shell: str) -> list[list[tuple[str, bool]]]:
+    r"""The commands of a shell command string, each its words as (text, began quoted), read by the shell's own
+    rules: for "posix" (bash, sh) a backslash escapes, single quotes are literal and double quotes keep `\"`, `\\`,
+    `\$` and `` \` `` escapes; for "powershell" a backtick escapes and `''` is a quote inside single quotes. Only an
+    unquoted `;`, `&`, `|` or line break ends a command; in PowerShell a lone `&` that starts one is its call operator,
+    kept as a word."""
+    esc = "`" if shell == "powershell" else "\\"
+    commands: list[list[tuple[str, bool]]] = []
+    words: list[tuple[str, bool]] = []
+    word: list[str] = []
+    in_word = quoted = False
+    i, n = 0, len(text)
 
-    lexer = shlex.shlex(text, posix=False, punctuation_chars=";&|\n")
-    lexer.whitespace, lexer.whitespace_split, lexer.commenters = " \t\r", True, ""
-    try:
-        tokens = list(lexer)
-    except ValueError:  # an unclosed quote: read it as plain words
-        tokens = re.split(r"([;&|\n]+)|\s+", text)
-    command: list[str] = []
-    for token in [*filter(None, tokens), ";"]:
-        if token == "&" and not command:
-            command.append(token)  # at a command's start, `&` is PowerShell's call operator
-        elif set(token) <= set(";&|\n"):
-            found = launcher_in(command, shell)
-            if found:
-                return found
-            command = []
-        else:
-            command.append(token)
+    def flush():
+        nonlocal word, in_word, quoted
+        if in_word:
+            words.append(("".join(word), quoted))
+        word, in_word, quoted = [], False, False
+
+    while i < n:
+        ch = text[i]
+        if ch == "'" or ch == '"':
+            if not in_word:
+                in_word, quoted = True, True
+            i += 1
+            while i < n:
+                c = text[i]
+                if c == ch and ch == "'" and shell == "powershell" and text[i + 1:i + 2] == "'":
+                    word.append("'")
+                    i += 2
+                    continue
+                if c == ch:
+                    i += 1
+                    break
+                if ch == '"' and c == esc and i + 1 < n and (shell == "powershell" or text[i + 1] in '"\\$`\n'):
+                    word.append(text[i + 1])
+                    i += 2
+                    continue
+                word.append(c)
+                i += 1
+            continue
+        if ch == esc and i + 1 < n:
+            in_word = True
+            word.append(text[i + 1])
+            i += 2
+            continue
+        if ch in ";&|\n":
+            flush()
+            if ch == "&" and shell == "powershell" and not words and text[i + 1:i + 2] != "&":
+                words.append(("&", False))
+                i += 1
+                continue
+            if words:
+                commands.append(words)
+            words = []
+            while i < n and text[i] in ";&|\n":
+                i += 1
+            continue
+        if ch in " \t\r":
+            flush()
+            i += 1
+            continue
+        in_word = True
+        word.append(ch)
+        i += 1
+    flush()
+    if words:
+        commands.append(words)
+    return commands
+
+
+def _launcher_in_text(text: str, shell: str) -> str | None:
+    """The launcher the first command of any command in a shell command string invokes, or None."""
+    for command in _shell_commands(text, shell):
+        found = launcher_in([w for w, _ in command], shell, [q for _, q in command])
+        if found:
+            return found
     return None
 
-
-def launcher_in(command: list[str], shell: str | None = None) -> str | None:
+def launcher_in(command: list[str], shell: str | None = None, quoted: list[bool] | None = None) -> str | None:
     """The run launcher `command` invokes, as its program or as the script an interpreter runs (inside a shell's
     `-c` or `-Command` string too), or None. A launcher named only as data, such as an argument to `git diff`, is not
     an invocation."""
-    words, call = [w for w in command if w], False
-    while words and words[0] in ("&", ".", "exec", "env", "nohup"):
-        call, words = call or words[0] in ("&", "."), words[1:]
-    if not words:
+    quoted = quoted or [False] * len(command)
+    pairs, call = [(w, q) for w, q in zip(command, quoted) if w], False
+    while pairs and pairs[0][0] in ("&", ".", "exec", "env", "nohup") and not pairs[0][1]:
+        call, pairs = call or pairs[0][0] in ("&", "."), pairs[1:]
+    if not pairs:
         return None
-    if shell == "powershell" and not call and words[0][:1] in "'\"":
+    if shell == "powershell" and not call and pairs[0][1]:
         return None  # a quoted first word in PowerShell is a string, invoked only after `&` or `.`
-    if shell:  # shell text keeps its quotes: a word wrapped in a matching pair is that word (argv words are literal)
-        words = [w[1:-1] if len(w) >= 2 and w[0] == w[-1] and w[0] in "'\"" else w for w in words]
+    words = [w for w, _ in pairs]
     program = re.split(r"[\\/]", words[0])[-1].lower().removesuffix(".exe")
     if _launcher_script(words[0], words[1:]):
         return words[0]

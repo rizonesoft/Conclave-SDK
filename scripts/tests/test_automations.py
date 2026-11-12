@@ -144,6 +144,10 @@ LAUNCHED = {  # D02 T02 §9: a run starts only when its operator starts it, neve
     "an abbreviated --root": ["python3", "scripts/unattended-run.py", "--ro", "/repo", "start"],
     "a quoted script bash runs": ["bash", "-c", "'scripts/start-run.ps1' -Runner claude"],
     "a quoted script PowerShell calls": ["pwsh", "-Command", "& 'scripts/start-run.ps1'"],
+    # Reconciliation 1 of D02 T02 §9: escapes are read as the shell reads them.
+    "an escaped space in a bash path": ["bash", "-c", "python3 /home/x/My\\ Project/scripts/unattended-run.py start"],
+    "a double-quoted bash path": ["bash", "-c", "python3 \"/home/x/My Project/scripts/unattended-run.py\" start"],
+    "a backtick-escaped PowerShell path": ["pwsh", "-Command", "& D:\\My` Repo\\scripts\\start-run.ps1"],
 }
 INSPECTED = {  # a launcher named only as data is no launch
     "git diff of the launcher": ["git", "diff", "--", "scripts/start-run.ps1"],
