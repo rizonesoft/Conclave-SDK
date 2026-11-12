@@ -1016,11 +1016,30 @@ class RunTest(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertTrue(self.marker()["resumed"])
         self.assertTrue(notice.exists(), "a resume removed its own run's notice")
+        old = self.marker()["session"]
         self.assertEqual(self.launcher("stop").returncode, 0)
+        self.assertFalse(notice.exists(), "stop left the stopped run's notice")
+        # A notice a failed removal left behind, as from a run that ended while the disk was failing.
+        notice.write_text(f"# Nothing has shipped\n\nRun: {old}\n", encoding="utf-8")
         done = self.launcher("start")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertFalse(notice.exists(), "a fresh run kept the previous run's notice")
         self.assertIn("stall notice is removed (a fresh run started)", done.stdout)
+
+    def test_stop_records_the_end_where_the_heartbeat_would_have(self):
+        # Round 1 of D02 T02 §8: stop ended the heartbeat first, so the health file said alive indefinitely.
+        self.assertEqual(self.launcher("start").returncode, 0)
+        tag = self.marker()["session"]
+        build = self.root / "build"
+        (build / "unattended-health.json").write_text(json.dumps({"alive": True, "run": tag}), encoding="utf-8")
+        (build / "unattended-needs-operator.md").write_text(f"# Nothing has shipped\n\nRun: {tag}\n", encoding="utf-8")
+        done = self.launcher("stop")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        health = json.loads((build / "unattended-health.json").read_text(encoding="utf-8"))
+        self.assertEqual((health["alive"], health["run"]), (False, tag))
+        state = json.loads((build / "unattended-heartbeat.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["ended"]["reason"], "stopped by the operator")
+        self.assertFalse((build / "unattended-needs-operator.md").exists(), "the stopped run's notice was left")
 
     def test_the_stall_nudge_reaches_the_runs_pane(self):
         echo = Path(self._tmp.name) / "typed.txt"
@@ -1506,6 +1525,16 @@ class HeartbeatShipsTest(unittest.TestCase):
     def notice(self):
         path = self.root / "build" / "unattended-needs-operator.md"
         return path.read_text(encoding="utf-8") if path.exists() else None
+
+    def test_a_run_ended_at_its_limit_leaves_no_stall_notice(self):
+        # Round 1 of D02 T02 §8: the limit's end returned before the notice could go, and status kept showing it.
+        self.write_marker(ship_limit=1)
+        state = self.state()
+        self.tick(T0 + 6 * 3600, state)
+        self.assertIsNotNone(self.notice())
+        self.commit("[x]", "[ ]", "stamp §1", T0 + 6 * 3600 + 30)
+        self.assertEqual(self.tick(T0 + 6 * 3600 + 60, state), self.run.FINISHED)
+        self.assertIsNone(self.notice(), "the ended run's stall notice was left")
 
     def test_the_stall_notice_is_written_once_per_stall_hours_and_the_stall_nudge_sent(self):
         state = self.state()

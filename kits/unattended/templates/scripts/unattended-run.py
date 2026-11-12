@@ -683,11 +683,38 @@ def tick(root: Path, now: float, state: dict, out=None) -> int:
 
 
 def _ended(root: Path, marker: dict, reason: str, state: dict, now: float, out, gone: bool = False) -> int:
-    """FINISHED once the run is ended (its last health then says it is not alive), 0 while the cleanup waits."""
+    """FINISHED once the run is ended (its last health then says it is not alive, and its stall notice, which says it
+    is alive, goes), 0 while the cleanup waits."""
     if end_run(root, marker, reason, state, now, out, gone=gone) != OVER:
         return 0
     state["alive"] = False
+    remove_own_notice(root, marker["session"], out)
     return FINISHED
+
+
+def remove_own_notice(root: Path, tag: str | None, out) -> None:
+    """Remove the stall notice when it is this run's: an ended run is no longer the live run it describes. A notice
+    of another run is left alone; a removal that fails is said and left for the next start."""
+    notice = root / NEEDS_OPERATOR
+    try:
+        if tag and notice.exists() and f"Run: {tag}\n" in notice.read_text(encoding="utf-8"):
+            notice.unlink()
+            print(f"unattended-run: run {tag} ended; its stall notice is removed", file=out)
+    except OSError as exc:
+        print(f"unattended-run: the stall notice of run {tag} could not be removed ({exc})", file=out)
+
+
+def record_stop(root: Path, tag: str, now: float, out) -> None:
+    """The operator's stop, recorded where the heartbeat would have: the run's state says it ended and its health says
+    it is not alive (the heartbeat was stopped first, so it cannot). A write that fails is said; the stop stands."""
+    state = read_state(root, tag)
+    state.update(ended={"reason": "stopped by the operator", "at": _iso(now)}, alive=False)
+    try:
+        lib.write_atomic(root / HEARTBEAT_STATE, json.dumps(state, indent=2) + "\n")
+        lib.write_atomic(root / HEALTH, json.dumps(health_of(state, now), indent=2) + "\n")
+    except OSError as exc:
+        print(f"stop: the run's health could not be written ({exc}); `status` may still show it alive", file=out)
+    remove_own_notice(root, tag, out)
 
 
 def heartbeat(root: Path, once: bool = False, clock=time.time, sleep=time.sleep, out=None) -> int:
@@ -859,6 +886,8 @@ def stop(root: Path, out=None) -> int:
         if session:
             print(f"stop: claim {lib.clear_claim(root, session, lock_held=True)}", file=out)
         (root / MARKER).unlink(missing_ok=True)
+        if session:
+            record_stop(root, session, time.time(), out)
     print(f"stop: run {session or 'with no marker'} stopped", file=out)
     return 0
 

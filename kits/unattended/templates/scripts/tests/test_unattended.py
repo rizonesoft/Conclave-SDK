@@ -539,6 +539,30 @@ class ShipCountTest(unittest.TestCase):
         tip = self.commit("[x]", "[ ]", "stamp §1 with a note", extra="\n++ note\n")
         self.assertEqual(self.lib.ships_between(self.root, self.base, tip), 1)
 
+    def test_a_todo_file_whose_path_git_would_quote_is_counted(self):
+        # Round 1 of D02 T02 §8: git quotes a non-ASCII path (`+++ "b/todo/02-caf\303\251/..."`), and it counted 0.
+        self.todo = self.root / "todo" / "02-café" / "TODO-01-demo.md"
+        self.todo.parent.mkdir(parents=True)
+        base = self.commit("[ ]", "[ ]", "a domain with a non-ASCII name")
+        tip = self.commit("[x]", "[ ]", "stamp its §1")
+        self.assertEqual(self.lib.ships_between(self.root, base, tip), 1)
+        quoted = ('diff --git "a/todo/02-caf\\303\\251/TODO-01-demo.md" "b/todo/02-caf\\303\\251/TODO-01-demo.md"\n'
+                  '--- "a/todo/02-caf\\303\\251/TODO-01-demo.md"\n+++ "b/todo/02-caf\\303\\251/TODO-01-demo.md"\n'
+                  "@@ -9 +9 @@\n-| 2 | §1 | First | none | [ ] |\n+| 2 | §1 | First | none | [x] |\n")
+        self.assertEqual(self.lib.shipped_rows(quoted), [("todo/02-café/TODO-01-demo.md", 1)])
+
+    def test_rows_outside_a_todo_files_order_table_ship_nothing(self):
+        # Round 1 of D02 T02 §8: an example row in todo/README.md, or in a section's body, read as a ship.
+        readme = self.root / "todo" / "README.md"
+        example = "\n## 1. First\n\nAn example row: \n\n| 3 | §3 | Example | none | {s} |\n"
+        readme.write_text("# TODO system\n\n| 1 | §1 | Example | none | [ ] |\n", encoding="utf-8")
+        base = self.commit("[ ]", "[ ]", "a README and an example", extra=example.format(s="[ ]"))
+        readme.write_text("# TODO system\n\n| 1 | §1 | Example | none | [x] |\n", encoding="utf-8")
+        tip = self.commit("[ ]", "[ ]", "tick the examples", extra=example.format(s="[x]"))
+        self.assertEqual(self.lib.ships_between(self.root, base, tip), 0)
+        shipped = self.commit("[x]", "[ ]", "a real stamp", extra=example.format(s="[x]"))
+        self.assertEqual(self.lib.ships_between(self.root, tip, shipped), 1)
+
     def test_a_project_without_the_todo_kit_is_refused_by_name(self):
         (self.root / "scripts" / "lib" / "todo_graph.py").unlink()
         spec = importlib.util.spec_from_file_location("ships_lib_bare", self.root / "scripts" / "lib" / "unattended.py")

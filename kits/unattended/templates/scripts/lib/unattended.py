@@ -159,9 +159,29 @@ def _row_pattern():
     return _ROW
 
 
-def ships_in_diff(diff: str) -> int:
-    """Rows one commit's diff turns from `[ ]` to `[x]`, per file and section (Impossible OS `ship_count.py`). A row
-    that only appears, already `[x]` (a file added or moved), is not a ship."""
+# A TODO file, by the todo kit's tree shape (todo/README.md, "Tree shape"): `todo/<NN-domain>/TODO-NN-<name>.md`. Its
+# README, index, plan and templates hold rows of the same shape that ship nothing.
+TODO_FILE = re.compile(r"todo/[0-9]{2}-[^/]+/TODO-[0-9]{2}-[^/]+\.md")
+ORDER_TABLE = re.compile(r"^## Implementation Order[ \t]*\r?\n(.*?)(?=^## |\Z)", re.M | re.S)
+
+
+def _diff_path(header: str) -> str | None:
+    """The new side's path from a `+++` header, unquoting git's C-style quoting (`+++ "b/todo/02-caf\303\251/..."`)
+    for a name git would otherwise quote; None for `/dev/null`."""
+    name = header[4:]
+    if name.startswith('"') and name.endswith('"'):
+        import codecs
+
+        try:
+            name = codecs.escape_decode(name[1:-1].encode("ascii", "backslashreplace"))[0].decode("utf-8")
+        except (UnicodeDecodeError, ValueError):
+            return None
+    return name[2:] if name.startswith("b/") else None
+
+
+def shipped_rows(diff: str) -> list[tuple[str, int]]:
+    """(path, section) of each row of a TODO file that one commit's diff turns from `[ ]` to `[x]` (Impossible OS
+    `ship_count.py`). A row that only appears, already `[x]` (a file added or moved), is not a ship."""
     row = _row_pattern()
     before, after, current, header = {}, {}, None, False
     for line in diff.splitlines():
@@ -172,7 +192,8 @@ def ships_in_diff(diff: str) -> int:
             continue
         if header:
             if line.startswith("+++ "):
-                current = line[6:] if line.startswith("+++ b/") else None
+                path = _diff_path(line)
+                current = path if path and TODO_FILE.fullmatch(path) else None
             elif line.startswith("@@"):
                 header = False
             continue
@@ -181,8 +202,27 @@ def ships_in_diff(diff: str) -> int:
         found = row.match(line[1:].rstrip("\r"))
         if found:
             (before if line[0] == "-" else after)[(current, int(found.group(2)))] = found.group(5)
-    return sum(1 for key, status in after.items() if status == "x" and before.get(key, "x") != "x")
+    return [key for key, status in after.items() if status == "x" and before.get(key, "x") != "x"]
 
+
+def in_order_table(text: str, number: int) -> bool:
+    """Whether the TODO file's own Implementation Order table holds section `number`'s row as `[x]`: a row of the
+    same shape in a section's body is an example, not the section."""
+    table = ORDER_TABLE.search(text or "")
+    row = _row_pattern()
+    return bool(table) and any((found := row.match(line.rstrip("\r"))) and int(found.group(2)) == number
+                               and found.group(5) == "x" for line in table.group(1).splitlines())
+
+
+def ships_in_diff(diff: str, file_at=None) -> int:
+    """Rows one commit's diff ships; with `file_at(path)` (the file's text at that commit) only rows in the file's
+    Implementation Order table count."""
+    rows = shipped_rows(diff)
+    if file_at is not None:
+        texts = {}
+        rows = [(path, number) for path, number in rows
+                if in_order_table(texts.setdefault(path, file_at(path)), number)]
+    return len(rows)
 
 def _git(root, *args: str, timeout: int = 60) -> str:
     try:
@@ -200,13 +240,14 @@ def ships_along(root, old: str, new: str) -> list[tuple[str, int, int]]:
     a row, in order, each read from the commit's own diff against its first parent: never the working tree, and
     never the two endpoints alone, which miss a section reopened and shipped again inside the range."""
     _row_pattern()  # a project without the todo kit is refused even over a range with nothing in it
-    out = _git(root, "log", "--first-parent", "--reverse", "--no-color", "--no-ext-diff", "--unified=0",
-               "--diff-merges=first-parent", "--format=%x00%H %ct", "-p", f"{old}..{new}", "--", "todo")
+    # core.quotePath off: a non-ASCII TODO path arrives as itself (a path git still quotes is unquoted below).
+    out = _git(root, "-c", "core.quotePath=false", "log", "--first-parent", "--reverse", "--no-color", "--no-ext-diff",
+               "--unified=0", "--diff-merges=first-parent", "--format=%x00%H %ct", "-p", f"{old}..{new}", "--", "todo")
     found = []
     for chunk in out.split("\0")[1:]:
         head, _, diff = chunk.partition("\n")
         sha, _, when = head.partition(" ")
-        shipped = ships_in_diff(diff)
+        shipped = ships_in_diff(diff, lambda path, sha=sha: _git(root, "show", f"{sha}:{path}"))
         if shipped:
             found.append((sha, int(when), shipped))
     return found
