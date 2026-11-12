@@ -105,7 +105,11 @@ The roadmap's end-of-day status says both repositories can be deleted. Deleting 
 
 ## 4. Codex approval of the global hooks `deploy.py` writes
 
+> **Started:** 2026-11-12T03:59:17Z
+
 Filed 2026-11-12 from `D02 T01 §3`. Codex's `hooks/list` reports every hook in the owner's `~/.codex/hooks.json` (`layer_rules.py` and `article_rules.py` from `global/codex/hooks`) as `modified`: their approvals are for earlier versions, so Codex skips them and the layer and writing rules do not run in Codex sessions. `deploy.py` writes that file, so it also approves what it wrote, through the same Codex interface the todo kit's `codex-hook-trust.py` uses.
+
+**Corrected 2026-11-12 (validation):** `codex-hook-trust.py` (D02 T01 §3) already holds the app-server client: its stdio JSON-RPC, the job object and suspended start on Windows, the process group elsewhere. `deploy.py` loads it by path from this checkout (`kits/todo/templates/scripts/codex-hook-trust.py`) rather than carrying a second copy, through two functions the script gains: `list_hooks(cwd, codex_home)` and `approve_hooks(cwd, hooks, codex_home)`. `--home DIR` deploys to `DIR/.codex`, so the app-server is started with `CODEX_HOME` set to that folder, and the approval lands in that home's `config.toml`, never the real one. User hooks need no project trust, only the hook approval.
 
 **Phase:** 2
 **Needs:** none
@@ -116,7 +120,7 @@ Filed 2026-11-12 from `D02 T01 §3`. Codex's `hooks/list` reports every hook in 
 1. Approve the deployed hooks from `deploy_codex` in `global/deploy.py`. Done when: `hooks/list` reports them `trusted`.
 2. Cover it and document it. Done when: the checkpoint passes.
 
-- [ ] Add a `trust_codex_hooks(home)` step to `deploy_codex` in `global/deploy.py`: after `hooks.json` is written, start `codex app-server` (with `CODEX_HOME` set from `--home`), call `hooks/list`, and write `trusted_hash` through `config/value/write` for each `user`-source hook whose `sourcePath` is the deployed `hooks.json` and whose command names a script under `global/codex/hooks`; skipped with one line under `--dry-run`, when `codex` is not installed, or when the server does not answer in 30 seconds. Done when: a run on this machine leaves those hooks `trusted` in `hooks/list` and no other hook's state changed. Cheaper substitute: computing the hash must fail review; Codex computes it.
+- [ ] Add a `trust_codex_hooks(home)` step to `deploy_codex` in `global/deploy.py`: after `hooks.json` is written, call `list_hooks` of the todo kit's `codex-hook-trust.py` (with `CODEX_HOME` set from `--home`) and write `trusted_hash` through its `approve_hooks` for each `user`-source hook whose `sourcePath` is the deployed `hooks.json` and whose command names a script under `global/codex/hooks`; skipped with one line under `--dry-run`, when `codex` is not installed, or when the server does not answer in 30 seconds. Done when: a run on this machine leaves those hooks `trusted` in `hooks/list` and no other hook's state changed. Cheaper substitute: computing the hash must fail review; Codex computes it.
 - [ ] Test `trust_codex_hooks` in `global/tests` with a stub app-server answering recorded responses. Done when: the stub sees `config/value/write` only for the deployed hooks, none for a plugin hook or another file's hook, and none for one already `trusted`.
 - [ ] State the step in `global/README.md`. Done when: the README says that a deploy approves the hooks it wrote and how to check them (`hooks/list` through `codex app-server`, or a Codex session's hook list).
 - [ ] Commit: `global: deploy.py approves the Codex hooks it writes`
