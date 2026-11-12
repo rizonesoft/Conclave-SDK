@@ -15,8 +15,8 @@ process group. A run never restarts itself (owner decision 2026-11-12): only the
 `stop`, a crash or a reboot ends it. The heartbeat nudges a live run and records a dead one as ended, stopping all it
 started. An operator's `start` that finds a marker left without a heartbeat continues that agent session.
 The heartbeat also counts the sections the run ships (rows turned `[x]`, commit by commit), writes
-`build/unattended-health.json` every tick, ends a bounded run at its limit, and writes `build/unattended-needs-operator.md`
-when nothing has shipped for `stall_hours`.
+`build/unattended-health.json` every tick, ends a bounded run at its limit, and writes
+`build/unattended-needs-operator.md` when nothing has shipped for `stall_hours`.
 `status` and `stop` follow the marker, so a profile changed during a run cannot strand it. Linux and WSL only (tmux).
 Standard library only.
 """
@@ -74,8 +74,12 @@ STOP_GRACE_SECONDS = 10
 # How long a process sent SIGKILL is waited for: it dies only once it leaves uninterruptible I/O, which on WSL's /mnt
 # under load took longer than STOP_GRACE_SECONDS (2026-11-12, a resume refused with the crashed run's child dying).
 KILL_WAIT_SECONDS = 30
-# How long `stop` keeps trying to record the run's end (state, health, notice) when the disk refuses it.
-STOP_RECORD_SECONDS = 60
+# How long `stop` tries to record the run's end (state, health, notice) itself before handing it to the heartbeat.
+STOP_RECORD_SECONDS = 10
+# The run `stop` ended, kept in the heartbeat's tmux session environment (memory, no disk): the heartbeat records
+# that end when `stop` could not, and keeps trying until the disk takes it.
+STOPPED = "CONCLAVE_UNATTENDED_STOPPED"
+STOP_REASON = "stopped by the operator"
 # How long a started or resumed agent must stay up to count as started.
 STARTUP_SECONDS = float(os.environ.get("CONCLAVE_STARTUP_GRACE") or 10)
 CLAUDE_DISALLOWED = "AskUserQuestion,EnterPlanMode,ExitPlanMode"
@@ -430,13 +434,24 @@ def start(root: Path, out=None, supervise: bool = True, ships: int | None = None
     return 0
 
 
-def _launch_heartbeat(root: Path, heartbeat: str, out) -> None:
-    """The heartbeat runs in its own detached tmux session, one per run: a second start leaves a live one alone."""
+def _launch_heartbeat(root: Path, heartbeat: str, out, stopped: str | None = None) -> None:
+    """The heartbeat runs in its own detached tmux session, one per run: a second start leaves a live one alone.
+    `stopped` names a run `stop` ended without recording it, for the heartbeat to record."""
     if _alive(heartbeat) is not False:
         return
     command = shlex.join([sys.executable, str(HERE / "unattended-run.py"), "--root", str(root), "heartbeat"])
-    tmux("new-session", "-d", "-s", heartbeat, "-c", str(root), "exec " + command, check=True)
-    print(f"start: heartbeat running in tmux session {heartbeat}", file=out)
+    extra = ["-e", f"{STOPPED}={stopped}"] if stopped else []
+    tmux("new-session", "-d", "-s", heartbeat, *extra, "-c", str(root), "exec " + command, check=True)
+    print(f"{'stop' if stopped else 'start'}: heartbeat running in tmux session {heartbeat}", file=out)
+
+
+def stopped_run() -> str | None:
+    """The run `stop` ended and left for this heartbeat to record, from its own tmux session's environment."""
+    if not os.environ.get("TMUX"):
+        return None
+    shown = tmux("show-environment", STOPPED)
+    value = shown.stdout.strip().partition("=")[2] if shown.returncode == 0 else ""
+    return value or None
 
 
 def read_state(root: Path, tag: str | None) -> dict:
@@ -453,8 +468,8 @@ def read_state(root: Path, tag: str | None) -> dict:
 STATE_KEYS = ("last_nudge", "last_error", "ended", "base", "ships", "counted", "last_ship", "run_started",
               "ship_limit", "stall_notice_at", "alive")
 STALL_PROMPT = ("Nothing has shipped for hours. Before more section work, find out why from git log, the gate log and "
-                "the test artifacts. Fix the cause in the layer that owns it, or record it and move to another section. "
-                "Never ask the operator a question.")
+                "the test artifacts. Fix the cause in the layer that owns it, or record it and move to another "
+                "section. Never ask the operator a question.")
 
 
 def _iso(epoch: float) -> str:
@@ -523,7 +538,8 @@ def _stall(root: Path, state: dict, profile: dict, now: float, out) -> bool:
     last = state.get("last_ship")
     shipped = f"the last ship was {last['commit']} at {last['at']}" if last else \
         f"nothing has shipped since the run started at {state.get('run_started')}"
-    text = (f"# Nothing has shipped for {hours:.1f} hours\n\nRun: {state['session']}\n\nThe unattended run is alive, but "
+    text = (f"# Nothing has shipped for {hours:.1f} hours\n\nRun: {state['session']}\n\n"
+            "The unattended run is alive, but "
             f"no section has shipped for {hours:.1f} hours (stall_hours is {limit}): {shipped}. Read the run file, "
             "git log and the gate logs, then attach (`python3 scripts/unattended-run.py attach`) or stop the run.\n")
     try:
@@ -677,7 +693,8 @@ def tick(root: Path, now: float, state: dict, out=None) -> int:
         state["last_error"] = "tmux could not be asked whether the run is alive"
         return 0
     if not live:
-        return _ended(root, marker, "its session is gone", state, now, out, gone=True)
+        reason = STOP_REASON if stopped_run() == marker["session"] else "its session is gone"
+        return _ended(root, marker, reason, state, now, out, gone=True)
     state["alive"] = True
     stalled = _stall(root, state, profile, now, out)
     _nudge(root, marker["tmux_session"], profile, state, now, out, STALL_PROMPT if stalled else NUDGE_PROMPT)
@@ -714,10 +731,11 @@ def record_stop(root: Path, tag: str, now: float, out) -> None:
     is not alive and its stall notice goes (the heartbeat was stopped first, so it cannot). Raises OSError when any of
     it fails, so `stop` keeps the run's marker and a second stop records it."""
     state = read_state(root, tag)
-    state.update(ended={"reason": "stopped by the operator", "at": _iso(now)}, alive=False)
-    lib.write_atomic(root / HEARTBEAT_STATE, json.dumps(state, indent=2) + "\n")
+    state.update(ended={"reason": STOP_REASON, "at": _iso(now)}, alive=False)
+    # The state last: its end record says the whole record landed, which is what a heartbeat left to finish it reads.
     lib.write_atomic(root / HEALTH, json.dumps(health_of(state, now), indent=2) + "\n")
     remove_own_notice(root, tag, out, strict=True)
+    lib.write_atomic(root / HEARTBEAT_STATE, json.dumps(state, indent=2) + "\n")
 
 
 def heartbeat(root: Path, once: bool = False, clock=time.time, sleep=time.sleep, out=None) -> int:
@@ -738,8 +756,16 @@ def heartbeat(root: Path, once: bool = False, clock=time.time, sleep=time.sleep,
                   "be written; the operator's new run is supervised now", file=out)
             unsaved, pending = None, False
         if marker is None and not problem and not pending:
-            print("heartbeat: no run marker; the heartbeat stops", file=out)
-            return FINISHED
+            stopped = stopped_run()
+            last = read_json(root / HEARTBEAT_STATE) or {}
+            recorded = last.get("session") == stopped and (last.get("ended") or {}).get("reason") == STOP_REASON
+            if not stopped or recorded:
+                print("heartbeat: no run marker; the heartbeat stops", file=out)
+                return FINISHED
+            # `stop` ended this run but could not record it: the heartbeat does, until it lands.
+            unsaved, pending, tag = read_state(root, stopped), True, stopped
+            unsaved.update(ended={"reason": STOP_REASON, "at": _iso(clock())}, alive=False)
+            print(f"heartbeat: run {stopped} was stopped by the operator; recording its end", file=out)
         written = None
         if pending:
             # The run is over and its record is still in memory: only the write is left. While the marker cannot be
@@ -879,8 +905,12 @@ def stop(root: Path, out=None) -> int:
         elif guard:
             print(f"stop: the guard belongs to session {guard.get('session_id')}, not this run's; left in place",
                   file=out)
-        for name in (heartbeat, run_session):
-            tmux("kill-session", "-t", f"={name}")
+        if session and _alive(heartbeat):
+            # Said first, in tmux's memory: if this stop cannot record the end, the heartbeat that stays records it.
+            tmux("set-environment", "-t", f"={heartbeat}", STOPPED, session)
+        tmux("kill-session", "-t", f"={run_session}")
+        if not session:
+            tmux("kill-session", "-t", f"={heartbeat}")
         left = end_run_processes(session, marker["pgid"]) if marker else []
         if left:
             print(f"stop: processes {left} are still running after SIGKILL; {MARKER} and the claim are kept",
@@ -890,21 +920,28 @@ def stop(root: Path, out=None) -> int:
             print(f"stop: the run's guard was not ended; {MARKER} and the claim are kept, so a second stop can "
                   "end it", file=out)
             return 1
+        recorded = True
         if session:
             deadline = time.monotonic() + STOP_RECORD_SECONDS
-            while True:  # the heartbeat is gone, so stop retries its record itself until the disk takes it
+            while True:
                 try:
                     record_stop(root, session, time.time(), out)
                     break
                 except OSError as exc:
                     if time.monotonic() >= deadline:
-                        print(f"stop: the run is stopped, but its end could not be recorded in "
-                              f"{STOP_RECORD_SECONDS}s ({exc}); {MARKER} and the claim are kept, so a second stop "
-                              "records it", file=out)
-                        return 1
+                        recorded, failure = False, exc
+                        break
                     time.sleep(1)
             print(f"stop: claim {lib.clear_claim(root, session, lock_held=True)}", file=out)
+        # The marker goes either way: the run is stopped, and a later start must start fresh, not resume it.
         (root / MARKER).unlink(missing_ok=True)
+        if recorded:
+            tmux("kill-session", "-t", f"={heartbeat}")
+        else:
+            # The heartbeat owns the end it could not record: it keeps trying until the disk takes it, then stops.
+            _launch_heartbeat(root, heartbeat, out, stopped=session)
+            print(f"stop: the run's end could not be recorded in {STOP_RECORD_SECONDS}s ({failure}); the heartbeat "
+                  f"(tmux session {heartbeat}) records it once the disk takes it", file=out)
     print(f"stop: run {session or 'with no marker'} stopped", file=out)
     return 0
 

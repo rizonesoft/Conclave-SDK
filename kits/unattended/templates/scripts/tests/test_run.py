@@ -1041,29 +1041,41 @@ class RunTest(unittest.TestCase):
         self.assertEqual(state["ended"]["reason"], "stopped by the operator")
         self.assertFalse((build / "unattended-needs-operator.md").exists(), "the stopped run's notice was left")
 
-    def test_a_stop_whose_record_fails_keeps_the_run_marked_and_a_second_stop_records_it(self):
-        # Completion review of D02 T02 §8: a failed write only printed a warning, and health said alive for good.
-        self.assertEqual(self.launcher("start").returncode, 0)
-        build = self.root / "build"
-        (build / "unattended-health.json").write_text(json.dumps({"alive": True}), encoding="utf-8")
-        run = self.run_module()
-        real = run.lib.write_atomic
+    def test_a_stop_that_cannot_record_its_end_hands_it_to_the_heartbeat(self):
+        # Completion review and reconciliations of D02 T02 §8: a stop on a full disk left health saying alive, and
+        # only another command could fix it. The heartbeat now owns the end: it records it once the disk takes it.
+        self.write_profile(tick_seconds=1)  # a running heartbeat looks again on its next tick
+        git(self.root, "commit", "-qam", "a one-second tick")
+        for running in (True, False):
+            with self.subTest(heartbeat_running=running):
+                self.end_everything()
+                self.log.unlink(missing_ok=True)
+                build = self.root / "build"
+                for name in ("unattended-heartbeat.json", "unattended-health.json"):
+                    (build / name).unlink(missing_ok=True)
+                self.assertEqual(self.launcher("start", heartbeat=running).returncode, 0)
+                tag = self.marker()["session"]
+                (build / "unattended-health.json").write_text(json.dumps({"alive": True, "run": tag}), encoding="utf-8")
+                run = self.run_module()
+                real = run.lib.write_atomic
 
-        def health_fails(path, text):
-            if path.name == "unattended-health.json":
-                raise OSError(28, "No space left on device")
-            return real(path, text)
-        out = __import__("io").StringIO()
-        with unittest.mock.patch.object(run.lib, "write_atomic", health_fails), \
-                unittest.mock.patch.object(run, "STOP_RECORD_SECONDS", 2):
-            self.assertEqual(run.stop(self.root, out), 1, out.getvalue())
-        self.assertIn("a second stop records it", out.getvalue())
-        self.assertTrue((build / "unattended-run.json").exists(), "the marker went with the end unrecorded")
-        self.assertFalse(self.tmux_has("demo-run"), "the run itself was not stopped")
-        done = self.launcher("stop")
-        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertIs(json.loads((build / "unattended-health.json").read_text(encoding="utf-8"))["alive"], False)
-        self.assertFalse((build / "unattended-run.json").exists())
+                def health_fails(path, text):
+                    if path.name == "unattended-health.json":
+                        raise OSError(28, "No space left on device")
+                    return real(path, text)
+                out = __import__("io").StringIO()
+                # Only this process's writes fail; the heartbeat's own process writes once it gets the end.
+                with unittest.mock.patch.object(run.lib, "write_atomic", health_fails), \
+                        unittest.mock.patch.object(run, "STOP_RECORD_SECONDS", 1):
+                    self.assertEqual(run.stop(self.root, out), 0, out.getvalue())
+                self.assertIn("records it once the disk takes it", out.getvalue())
+                self.assertFalse((build / "unattended-run.json").exists(), "a later start would resume a stopped run")
+                self.assertFalse(self.tmux_has("demo-run"))
+                self.assertTrue(self.wait_session_gone("demo-heartbeat"), "the heartbeat never finished the end")
+                health = json.loads((build / "unattended-health.json").read_text(encoding="utf-8"))
+                self.assertEqual((health["alive"], health["run"]), (False, tag))
+                state = json.loads((build / "unattended-heartbeat.json").read_text(encoding="utf-8"))
+                self.assertEqual(state["ended"]["reason"], "stopped by the operator")
 
     def test_a_stop_records_its_end_once_the_disk_takes_it(self):
         # Reconciliation 1 of D02 T02 §8: recovery needed a second stop; stop now retries its own record.
