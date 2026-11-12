@@ -203,9 +203,6 @@ class DeployTest(unittest.TestCase):
         self.assertTrue((self.home / ".codex" / "AGENTS.md").is_file())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class CodexHookApprovalTest(unittest.TestCase):
     """A deploy approves in Codex the hooks it wrote, through Codex's app-server, against the deploy's own home."""
@@ -286,6 +283,21 @@ class CodexHookApprovalTest(unittest.TestCase):
         self.assertEqual(len(self.writes(path)), 2, "the rerun did not approve only what was left")
         self.assertEqual(set(self.relisted(path).values()), {"trusted"})
 
+    def test_a_server_that_stops_answering_after_one_approval_reports_and_a_rerun_finishes(self):
+        ours = [self.hook("stop", 0), self.hook("user_prompt_submit", 1)]
+        path = self.scenario(ours, silent_after=1)
+        with unittest.mock.patch.dict(os.environ, {"CODEX_HOOK_TRUST_TIMEOUT": "2"}):
+            code, out, _ = run("--home", str(self.home), "--agent", "codex")
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.writes(path)), 1)
+        self.assertIn("did not answer", out)
+        self.assertEqual(sorted(self.relisted(path).values()), ["modified", "trusted"])
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data.pop("silent_after")
+        path.write_text(json.dumps(data), encoding="utf-8")
+        run("--home", str(self.home), "--agent", "codex")
+        self.assertEqual(set(self.relisted(path).values()), {"trusted"})
+
     def test_no_listed_hook_dry_run_and_missing_codex_each_report(self):
         self.scenario([])
         code, out, _ = run("--home", str(self.home), "--agent", "codex")
@@ -319,3 +331,7 @@ class CodexHookApprovalTest(unittest.TestCase):
             self.assertEqual(os.path.normcase(os.path.realpath(home)),
                              os.path.normcase(os.path.realpath(str(self.hooks.parent))), homes)
         self.assertEqual((ambient / "config.toml").read_text(encoding="utf-8"), "# the operator's own\n")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -29,7 +29,8 @@ import threading
 
 ROOT = Path(__file__).resolve().parents[1]
 HOOK_SCRIPT = "codex-campaign-hook.py"
-TIMEOUT = 30.0
+# Seconds to wait for each answer; CODEX_HOOK_TRUST_TIMEOUT overrides it (a slow machine, or a test of a silent server).
+TIMEOUT = float(os.environ.get("CODEX_HOOK_TRUST_TIMEOUT") or 30.0)
 
 
 class TrustError(Exception):
