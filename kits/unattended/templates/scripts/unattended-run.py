@@ -45,6 +45,10 @@ HEALTH = "build/unattended-health.json"  # written by the heartbeat (D02 T02 §8
 HEARTBEAT_STATE = "build/unattended-heartbeat.json"
 ENDED = "build/claude-campaign-ended.json"  # written by campaign_guard.py end: how the last run ended
 FINISHED = 10  # the heartbeat's exit status when the run is over: stopped, ended by its agent, or dead
+# What one attempt to end a run came to: over; not yet (kept for the next tick); or the marker now names the run the
+# operator started or resumed since, which the heartbeat goes on supervising.
+OVER, RETRY, REPLACED = "over", "retry", "replaced"
+FALLBACK_TICK_SECONDS = 300  # the template's tick, used while the profile cannot be read mid-run
 NUDGE_PROMPT = ("The unattended run looks idle. Continue with process-plan: pick up the open section in the run file "
                 "and keep going. Never ask the operator a question.")
 HISTORY_LIMIT = 50000
@@ -211,24 +215,6 @@ def _group_alive(pgid: int) -> bool:
     return True
 
 
-def _end_group(pgid: int | None, grace: float = STOP_GRACE_SECONDS) -> bool:
-    """Wait up to `grace` for process group `pgid` to end, then SIGKILL it; True once it is gone."""
-    if not isinstance(pgid, int) or pgid <= 1:
-        return True
-    deadline = time.monotonic() + grace
-    while _group_alive(pgid) and time.monotonic() < deadline:
-        time.sleep(0.2)
-    if _group_alive(pgid):
-        try:
-            os.killpg(pgid, signal.SIGKILL)
-        except ProcessLookupError:
-            return True  # it ended at the last moment
-        deadline = time.monotonic() + grace
-        while _group_alive(pgid) and time.monotonic() < deadline:
-            time.sleep(0.2)
-    return not _group_alive(pgid)
-
-
 def tagged(session: str) -> list[int]:
     """The processes whose environment carries this run's tag, read from /proc (empty where /proc cannot say)."""
     needle = f"{TAG}={session}".encode()
@@ -268,7 +254,7 @@ def end_run_processes(session: str, pgid: int | None, grace: float = STOP_GRACE_
     # SIGKILL lands only once a process leaves uninterruptible I/O (slow under load, as on WSL's /mnt), so the wait
     # after it is the full stop grace whatever the polite wait was.
     deadline = time.monotonic() + max(grace, STOP_GRACE_SECONDS)
-    while (left := tagged(session)) and time.monotonic() < deadline:
+    while tagged(session) and time.monotonic() < deadline:
         time.sleep(0.2)
     return tagged(session) + ([pgid] if pgid and _group_alive(pgid) else [])
 
@@ -460,38 +446,50 @@ def note_resumption(root: Path, out) -> None:
     print(f"heartbeat: {said[-1][-200:] if said else f'heartbeat-still exited {done.returncode}'}", file=out)
 
 
-def end_run(root: Path, observed: dict, reason: str, state: dict, now: float, out) -> bool:
-    """Record the run `observed` as ended, under the launch lock and only while the marker still names it: stop its
-    tmux sessions, every process tagged with it and its group, end its own guard, and only then remove the marker
-    and the run's claim. True when the run is over (or was replaced by the operator's next one, which is left
-    alone); False when the cleanup failed, keeping the marker and claim for the next tick to try again."""
-    with lib.launch_lock(root):
-        marker, _ = read_marker(root)
-        if marker is None or marker["session"] != observed["session"]:
-            print(f"heartbeat: run {observed['session']} is no longer the marked run; nothing of the current one is "
-                  "touched", file=out)
-            return True
-        tmux("kill-session", "-t", f"={marker['tmux_session']}")
-        left = end_run_processes(marker["session"], marker["pgid"])
-        guard = owned_guard(root, marker)
-        failed = None
-        if guard:
-            done = _end_guard(root, str(guard.get("session_id")))
-            if done.returncode != 0:
-                failed = f"its guard did not end ({(done.stdout or done.stderr).strip()[-200:]})"
-        if left:
-            failed = f"processes {left} outlived SIGKILL" + (f"; {failed}" if failed else "")
-        if failed:
-            state["last_error"] = f"run {marker['session']} could not be ended: {failed}; tried again next tick"
-            print(f"heartbeat: {state['last_error']}", file=out)
-            return False
-        (root / MARKER).unlink(missing_ok=True)
-        lib.clear_claim(root, marker["session"], lock_held=True)
+def end_run(root: Path, observed: dict, reason: str, state: dict, now: float, out, gone: bool = False) -> str:
+    """Record the run `observed` as ended, under the launch lock and only while the marker still is `observed` (its
+    whole record: a resume keeps the tag but starts a new process group, so the tag alone cannot tell the runs apart),
+    and, for a run seen dead (`gone`), only while tmux still says its session is gone. Stop its tmux session, every
+    process tagged with it and its group, end its own guard, then clear the run's claim and only then its marker.
+    OVER when the run is over; REPLACED when the marker names the operator's newer run, which is left alone; RETRY
+    when any step failed or the lock is held, keeping the marker for the next tick to try again."""
+    try:
+        with lib.launch_lock(root):
+            marker, _ = read_marker(root)
+            if marker != observed:
+                print(f"heartbeat: run {observed['session']} (process group {observed['pgid']}) is no longer the "
+                      "marked run; the operator's current run is not touched", file=out)
+                return REPLACED
+            if gone and _alive(marker["tmux_session"]) is not False:
+                state["last_error"] = (f"tmux session {marker['tmux_session']} is not confirmed gone under the launch "
+                                       "lock; nothing ended, looked at again next tick")
+                print(f"heartbeat: {state['last_error']}", file=out)
+                return RETRY
+            tmux("kill-session", "-t", f"={marker['tmux_session']}")
+            left = end_run_processes(marker["session"], marker["pgid"])
+            guard = owned_guard(root, marker)
+            failed = None
+            if guard:
+                done = _end_guard(root, str(guard.get("session_id")))
+                if done.returncode != 0:
+                    failed = f"its guard did not end ({(done.stdout or done.stderr).strip()[-200:]})"
+            if left:
+                failed = f"processes {left} outlived SIGKILL" + (f"; {failed}" if failed else "")
+            if failed:
+                raise RunError(failed)
+            # The claim before the marker: while the marker stays, the next tick finds the run and finishes this.
+            lib.clear_claim(root, marker["session"], lock_held=True)
+            (root / MARKER).unlink(missing_ok=True)
+    except (RunError, lib.LaunchError, OSError, subprocess.SubprocessError) as exc:
+        why = str(exc) if isinstance(exc, RunError) else f"{type(exc).__name__}: {exc}"
+        state["last_error"] = f"run {observed['session']} could not be ended: {why}; tried again next tick"
+        print(f"heartbeat: {state['last_error']}", file=out)
+        return RETRY
     state["ended"] = {"reason": reason, "at": datetime.fromtimestamp(now, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
     state["last_error"] = None
     print(f"heartbeat: run {observed['session']} ended ({reason}); nothing restarts it, and the heartbeat stops",
           file=out)
-    return True
+    return OVER
 
 
 def tick(root: Path, now: float, state: dict, out=None) -> int:
@@ -504,26 +502,33 @@ def tick(root: Path, now: float, state: dict, out=None) -> int:
         print(f"heartbeat: {problem or 'no run marker'}; the heartbeat stops", file=out)
         return FINISHED
     if run_finished(root, marker):
-        return FINISHED if end_run(root, marker, "the run ended itself", state, now, out) else 0
+        return FINISHED if end_run(root, marker, "the run ended itself", state, now, out) == OVER else 0
     live = _alive(marker["tmux_session"])
     if live is None:
         state["last_error"] = "tmux could not be asked whether the run is alive"
         return 0
     if not live:
-        return FINISHED if end_run(root, marker, "its session is gone", state, now, out) else 0
+        return FINISHED if end_run(root, marker, "its session is gone", state, now, out, gone=True) == OVER else 0
     _nudge(root, marker["tmux_session"], profile, state, now, out)
     return 0
 
 
 def heartbeat(root: Path, once: bool = False, clock=time.time, sleep=time.sleep, out=None) -> int:
     """Tick every tick_seconds until the run is over. The state is read back from its file on every tick (a heartbeat
-    started again carries it on) and kept in memory while a write fails; it writes that file and nothing else."""
-    unsaved = None
+    started again carries it on) and kept in memory while a write fails; it writes that file and nothing else. A tick
+    that fails (tmux, the guard, the disk, a profile edited mid-run) is recorded and tried again: supervision of a live
+    run never ends on an error. `--once` exits 1 on such a failure."""
+    unsaved, seconds = None, FALLBACK_TICK_SECONDS
     while True:
         marker, _ = read_marker(root)
         tag = marker["session"] if marker else None
         state = unsaved if unsaved and unsaved.get("session") == tag else read_state(root, tag)
-        code = tick(root, clock(), state, out)
+        try:
+            code = tick(root, clock(), state, out)
+        except (RunError, lib.ProfileError, lib.LaunchError, OSError, subprocess.SubprocessError) as exc:
+            code = 1 if once else 0
+            state["last_error"] = f"the tick failed ({type(exc).__name__}: {exc}); tried again next tick"
+            print(f"heartbeat: {state['last_error']}", file=out or sys.stdout)
         try:
             lib.write_atomic(root / HEARTBEAT_STATE, json.dumps(state, indent=2) + "\n")
             unsaved = None
@@ -533,7 +538,11 @@ def heartbeat(root: Path, once: bool = False, clock=time.time, sleep=time.sleep,
                   file=out or sys.stdout)
         if code == FINISHED or once:
             return code
-        sleep(lib.load_profile(root)["tick_seconds"])
+        try:
+            seconds = lib.load_profile(root)["tick_seconds"]
+        except lib.ProfileError as exc:
+            print(f"heartbeat: {exc}; the last tick of {seconds}s is kept", file=out or sys.stdout)
+        sleep(seconds)
 
 
 def _end_old_guard(root: Path, old: dict, out) -> None:

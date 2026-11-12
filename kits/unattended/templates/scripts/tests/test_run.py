@@ -791,12 +791,45 @@ class RunTest(unittest.TestCase):
         self.acquire(new["session"], tag=new["session"])
         run = self.run_module()
         out, state = __import__("io").StringIO(), run.read_state(self.root, old["session"])
-        self.assertTrue(run.end_run(self.root, old, "its session is gone", state, 0.0, out))
+        self.assertEqual(run.end_run(self.root, old, "its session is gone", state, 0.0, out, gone=True), run.REPLACED)
         self.assertIn("is no longer the marked run", out.getvalue())
         self.assertTrue(self.tmux_has("demo-run"))
         self.assertEqual(self.marker()["session"], new["session"])
         self.assertTrue((self.root / "build" / "unattended-launch.json").exists())
         self.assertEqual(self.guard()["launch_tag"], new["session"])
+
+    def test_a_cleanup_never_touches_the_operators_resume_of_the_same_run(self):
+        # Round 1 of D02 T02 §7: a resume keeps the run's tag, so the tag alone named the resumed run as the dead one.
+        self.assertEqual(self.launcher("start").returncode, 0)
+        self.calls(1)
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)  # the agent crashes
+        dead = self.marker()  # what the heartbeat saw before the operator's start
+        done = self.launcher("start")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        resumed = self.marker()
+        self.assertEqual((resumed["session"], resumed["resumed"]), (dead["session"], True))
+        self.assertNotEqual(resumed["pgid"], dead["pgid"])
+        run = self.run_module()
+        out, state = __import__("io").StringIO(), run.read_state(self.root, dead["session"])
+        self.assertEqual(run.end_run(self.root, dead, "its session is gone", state, 0.0, out, gone=True), run.REPLACED)
+        self.assertTrue(self.tmux_has("demo-run"), "the resumed run's session was ended")
+        self.assertTrue(run._group_alive(resumed["pgid"]), "the resumed run's process group was ended")
+        self.assertEqual(self.marker(), resumed)
+        self.assertTrue((self.root / "build" / "unattended-launch.json").exists())
+
+    def test_a_session_seen_dead_but_not_confirmed_gone_under_the_lock_is_not_ended(self):
+        self.assertEqual(self.launcher("start").returncode, 0)
+        marker = self.marker()
+        run = self.run_module()
+        for answer in (True, None):  # back again, or tmux cannot say
+            with self.subTest(alive=answer):
+                out, state = __import__("io").StringIO(), run.read_state(self.root, marker["session"])
+                with unittest.mock.patch.object(run, "_alive", return_value=answer):
+                    self.assertEqual(run.end_run(self.root, marker, "its session is gone", state, 0.0, out, gone=True),
+                                     run.RETRY)
+                self.assertIn("not confirmed gone", state["last_error"])
+                self.assertTrue(self.tmux_has("demo-run"))
+                self.assertEqual(self.marker(), marker)
 
     def test_a_cleanup_that_fails_keeps_the_run_recorded_for_the_next_tick(self):
         self.assertEqual(self.launcher("start").returncode, 0)
@@ -804,18 +837,31 @@ class RunTest(unittest.TestCase):
         self.acquire(marker["session"], tag=marker["session"])
         run = self.run_module()
         refused = subprocess.CompletedProcess([], 2, stdout="", stderr="campaign-guard: the guard lock timed out")
-        for patch, why in ((unittest.mock.patch.object(run, "_end_guard", return_value=refused), "its guard did not end"),
-                           (unittest.mock.patch.object(run, "end_run_processes", return_value=[4242]),
-                            "outlived SIGKILL")):
+        # In this order: the guard is still held for the first three, and the fourth really ends it. The third is an
+        # operator's start holding the launch lock (round 1, P2).
+        cases = ((unittest.mock.patch.object(run, "_end_guard", return_value=refused), "its guard did not end", True),
+                 (unittest.mock.patch.object(run, "_end_guard", side_effect=subprocess.TimeoutExpired("end", 120)),
+                  "TimeoutExpired", True),
+                 (run.lib.launch_lock(self.root), "is held: another launch is under way", True),
+                 (unittest.mock.patch.object(run, "end_run_processes", return_value=[4242]), "outlived SIGKILL", True),
+                 # The claim cannot be cleared (round 1, P2): the marker stays, so the next tick finds the run again.
+                 (unittest.mock.patch.object(run.lib, "clear_claim",
+                                             side_effect=run.lib.LaunchError("tmux could not be asked")),
+                  "tmux could not be asked", True))
+        for patch, why, claim_kept in cases:
             with self.subTest(why=why):
                 out, state = __import__("io").StringIO(), run.read_state(self.root, marker["session"])
                 with patch:
-                    self.assertFalse(run.end_run(self.root, marker, "its session is gone", state, 0.0, out))
+                    self.assertEqual(run.end_run(self.root, marker, "its session is gone", state, 0.0, out), run.RETRY)
                 self.assertIn(why, state["last_error"])
+                self.assertIsNone(state["ended"])
                 self.assertTrue((self.root / "build" / "unattended-run.json").exists(), "the marker was dropped")
-                self.assertTrue((self.root / "build" / "unattended-launch.json").exists(), "the claim was dropped")
-        self.assertTrue(run.end_run(self.root, marker, "its session is gone", state, 0.0, out))  # the retry works
+                self.assertEqual((self.root / "build" / "unattended-launch.json").exists(), claim_kept)
+        out, state = __import__("io").StringIO(), run.read_state(self.root, marker["session"])
+        self.assertEqual(run.end_run(self.root, marker, "its session is gone", state, 0.0, out), run.OVER)  # retried
         self.assertIsNone(self.guard())
+        for rel in ("build/unattended-run.json", "build/unattended-launch.json"):
+            self.assertFalse((self.root / rel).exists(), rel)
 
     def test_a_nudge_reaches_the_runs_pane(self):
         echo = Path(self._tmp.name) / "typed.txt"
@@ -910,8 +956,8 @@ class HeartbeatTickTest(unittest.TestCase):
         self.ended = []
         self.out = __import__("io").StringIO()
         for name, value in (("_alive", lambda name: self.alive),
-                            ("end_run", lambda root, observed, reason, state, now, out: self.ended.append(reason) or
-                             True)):
+                            ("end_run", lambda root, observed, reason, state, now, out, gone=False:
+                             self.ended.append(reason) or self.run.OVER)):
             patch = unittest.mock.patch.object(self.run, name, value)
             patch.start()
             self.addCleanup(patch.stop)
@@ -930,8 +976,41 @@ class HeartbeatTickTest(unittest.TestCase):
 
     def test_a_cleanup_that_fails_is_tried_again_on_the_next_tick(self):
         self.alive = False
-        with unittest.mock.patch.object(self.run, "end_run", return_value=False):
-            self.assertEqual(self.tick(0.0, self.state()), 0)
+        for outcome in (self.run.RETRY, self.run.REPLACED):  # a replaced run is supervised on, not finished
+            with self.subTest(outcome=outcome), unittest.mock.patch.object(self.run, "end_run", return_value=outcome):
+                self.assertEqual(self.tick(0.0, self.state()), 0)
+
+    def test_a_tick_that_fails_is_recorded_and_supervision_goes_on(self):
+        # Round 1 of D02 T02 §7: a held launch lock or a guard timeout ended the heartbeat with the run still marked.
+        failures = [self.run.lib.LaunchError("build/unattended-launch.lock is held"),
+                    subprocess.TimeoutExpired("campaign_guard.py", 120), OSError(5, "Input/output error")]
+        sleeps = []
+
+        def stop_after(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) == len(failures):
+                raise StopIteration
+        with unittest.mock.patch.object(self.run, "tick", side_effect=failures):
+            with self.assertRaises(StopIteration):
+                self.run.heartbeat(self.root, clock=lambda: 0.0, sleep=stop_after, out=self.out)
+        self.assertEqual(self.out.getvalue().count("the tick failed"), 3)
+        self.assertIn("Input/output error", self.state()["last_error"])
+        with unittest.mock.patch.object(self.run, "tick", side_effect=failures[0]):
+            self.assertEqual(self.run.heartbeat(self.root, once=True, out=self.out), 1)
+
+    def test_a_profile_broken_mid_run_keeps_the_last_tick(self):
+        sleeps = []
+
+        def stop_after_two(seconds):
+            sleeps.append(seconds)
+            (self.root / ".conclave" / "unattended.json").write_text("{not json", encoding="utf-8")
+            if len(sleeps) == 2:
+                raise StopIteration
+        with unittest.mock.patch.object(self.run, "_nudge"):
+            with self.assertRaises(StopIteration):
+                self.run.heartbeat(self.root, clock=lambda: 0.0, sleep=stop_after_two, out=self.out)
+        self.assertEqual(sleeps, [PROFILE["tick_seconds"]] * 2)
+        self.assertIn("the last tick of", self.out.getvalue())
 
     def test_a_run_its_agent_ended_is_finished_and_another_runs_end_is_not(self):
         (self.root / "build" / "claude-campaign-ended.json").write_text(
