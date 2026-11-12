@@ -2966,6 +2966,7 @@ class UnattendedKitTests(unittest.TestCase):
         self.assertIn("OK", result.stderr)
 
     def test_the_installed_tests_pass_in_a_project_that_set_its_profile(self):
+        forge.apply_kit(self.target, "todo")  # the kit runs under the todo kit's guard, as the doctor requires
         forge.apply_kit(self.target, "unattended")
         path = self.target / ".conclave/unattended.json"
         profile = json.loads(path.read_text(encoding="utf-8"))
