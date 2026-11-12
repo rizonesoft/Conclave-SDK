@@ -13,7 +13,7 @@ This skill does not ship a section and does not write a stamp. It audits, then c
 
 One continuous loop. You do not stop between sections or phases:
 
-1. Audit (below), then start `process-phase` on the first phase with a ready row, in this same turn.
+1. Audit (below), start the run guard (below), then start `process-phase` on the first phase with a ready row, in this same turn.
 2. After that phase's closeout or park, re-run `python scripts/todo-graph.py query ready` and start the next phase with a ready row this session can run: `query ready` does not know which hosts are reachable, so a row whose Needs name an unreachable host is a leftover here even when listed.
 3. Stop only when no phase has a ready row: every remaining `[ ]` row is blocked or waiting in this context, or the plan is done. That, and an operator stop, are the only halts.
 
@@ -60,16 +60,69 @@ Ready means runnable now in this context: `query ready` already excludes rows wa
 
 If no phase has a ready row, report the leftovers with their blockers and stop. That is a genuine halt.
 
+### Run guard
+
+A run without a guard dies silently when the session stalls, so starting the first phase also starts the run guard, always. In Codex it is the Stop hook; Codex has no scheduled resume inside a session (checked against Codex 0.167.0: `codex queue` and `codex exec resume` act from outside a session).
+
+- **Stop hook** (`.codex/hooks.json`, running `scripts/codex-campaign-hook.py`): while the run is open it answers Codex's Stop event with `{"decision": "block"}` and names the next ready row. It lets the turn end when the guard file is gone, the run file has a `## Closeout run=<run id>` heading or a column-0 `PARKED <UTC> run=<run id>` line, or `query ready` has nothing runnable, and it never blocks on its own failure (it answers `{}`). Its stall breaker lets a turn end after 3 pushes with no change to the tree and counts a trip: a turn let end is not a released run. Only `end` releases it, or the second trip counted through `heartbeat-still`. Codex runs the hook only once it is approved: `forge.py kit` approves it at install, and `python scripts/codex-hook-trust.py` approves it again after the hook changes. `python forge.py doctor . todo` reports `stop-hook:.codex` and `stop-hook-approved:.codex`.
+- **No heartbeat in the session.** The run is held by the Stop hook alone. Only a run started through the unattended kit's launcher (`scripts/unattended-run.py start`, D02 T02 §5 to §7) is restarted and nudged from outside, and its heartbeat runs `heartbeat-still` on each resumption; installing that kit does not supervise a `process-plan` session started by hand.
+
+The session is this Codex thread's id, `$CODEX_THREAD_ID` in a POSIX shell and `$env:CODEX_THREAD_ID` in PowerShell (the `session_id` the Stop hook receives). Never use another agent's variable such as `CLAUDE_CODE_SESSION_ID`: a Codex run started from a Claude Code session inherits it, and a guard acquired for it would hold the wrong session. Commands are written `python`; on Linux and WSL run them with `python3`. In PowerShell write each `$VAR` as `$env:VAR`.
+
+#### Startup
+
+Check that no other session owns the tree. It prints `NO GUARD`, or this session as the owner; any other owner means another run is live: start nothing and report it.
+
+```sh
+python scripts/campaign_guard.py whoami --session "$CODEX_THREAD_ID"
+```
+
+Mint a generation, then acquire. Codex keeps no timer, so the job id is `none`. A refused `acquire` means another session owns the run: start nothing and report the owner.
+
+```sh
+python scripts/campaign_guard.py mint-generation
+python scripts/campaign_guard.py acquire --session "$CODEX_THREAD_ID" --phase <N> --run-file <run file> --cron-id none --generation <generation> --scope plan
+```
+
+Read the guard back, then record the session, generation and run id in the run file's Critical events.
+
+```sh
+python scripts/campaign_guard.py whoami --session "$CODEX_THREAD_ID" --generation <generation>
+```
+
+#### Phase change
+
+At each phase change (section 2), write the new phase's run file, then re-point the guard to it with a fresh generation, for the same session, and read it back:
+
+```sh
+python scripts/campaign_guard.py mint-generation
+python scripts/campaign_guard.py acquire --session "$CODEX_THREAD_ID" --phase <N> --run-file <run file> --cron-id none --generation <generation> --scope plan
+python scripts/campaign_guard.py whoami --session "$CODEX_THREAD_ID" --generation <generation>
+```
+
+#### End
+
+Every way a run ends goes through `end`, never a direct delete. The reason needs its marker in the run file first: `closeout` a `## Closeout run=<run id>` heading, `park` a column-0 `PARKED <UTC> run=<run id> <reason>` line, `escalation` a `PARKED ... escalation: <cause>` line; `plan-done` needs every row stamped, `stall` two trips, and `operator-stop` nothing. Then confirm the (empty) job cancellation and that the guard is gone:
+
+```sh
+python scripts/campaign_guard.py end --session "$CODEX_THREAD_ID" --reason <reason>
+python scripts/campaign_guard.py cancel-confirmed --cron-id none
+python scripts/campaign_guard.py whoami --session "$CODEX_THREAD_ID"
+```
+
+The last command prints `NO GUARD` once the run is released.
+
 ## 2. After a phase closeout or park
 
 `process-phase` ends in exactly one of three ways: the phase table is all `[x]` with a written closeout; every leftover is blocked here and it parked (a `PARKED` line and park record in its run file); or the operator paused it. A parked phase is not complete and not a stall. Do not call it either.
 
-Re-run `python scripts/todo-graph.py query ready`. If another phase has a ready row this session can run (Needs within reach, as in the loop above), start `process-phase` on it in the same turn, same session, same rules. If none does, report which: plan done, or the leftovers and their blockers, with the run files named.
+Re-run `python scripts/todo-graph.py query ready`. If another phase has a ready row this session can run (Needs within reach, as in the loop above), re-point the guard to it first (Run guard, Phase change), then start `process-phase` on it in the same turn, same session, same rules. If none does, end the run (Run guard, End): `plan-done` only when `query stats` shows `verified` equal to `total`; otherwise write a column-0 `PARKED <UTC> run=<run id> <one-line reason>` line and the park record (each leftover and what blocks it) in the current run file, commit it, then end with `park`. Then report which: plan done, or the leftovers and their blockers, with the run files named.
 
 ## Deny
 
 - Do not invent a side loop that ships rows outside `process-todo-section` plus `review-todo-section`.
 - Do not start a second run, and do not resume a paused run unless the operator said resume.
+- Do not start a run without its guard, and do not end, stop or pause one without releasing it through `end`.
 - Do not tick `implementation-plan.md` by hand, and do not edit it at all: it is generated.
 - Do not claim a phase complete while its table has `[ ]` rows.
 - Do not treat a named phase as the whole plan. Chaining is this skill's job, and only this skill's.

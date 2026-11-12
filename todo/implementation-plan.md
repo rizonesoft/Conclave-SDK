@@ -39,7 +39,7 @@ Sections: 9 | Checklist items: 79
 
 ### Phase 2: Unattended running
 
-Sections: 19 | Checklist items: 121
+Sections: 19 | Checklist items: 123
 
 | Status | Reference   | Deliverable                                               | Needs        | Items |
 | ------ | ----------- | --------------------------------------------------------- | ------------ | ----- |
@@ -48,7 +48,7 @@ Sections: 19 | Checklist items: 121
 | [x]    | D02 T01 §3  | Codex hook script and hook file                           | none         | 10    |
 | [x]    | D02 T01 §4  | Heartbeat stall breaker for a harness with no Stop hook   | none         | 7     |
 | [x]    | D02 T01 §5  | Guard self-test through each wired hook                   | none         | 6     |
-| [ ]    | D02 T01 §6  | Run guard steps in the Antigravity and Codex skill copies | none         | 8     |
+| [ ]    | D02 T01 §6  | Run guard steps in the Antigravity and Codex skill copies | none         | 10    |
 | [x]    | D02 T01 §7  | Live Codex run held by its approved Stop hook             | none         | 4     |
 | [ ]    | D02 T02 §1  | Unattended kit known to `forge.py`                        | none         | 6     |
 | [ ]    | D02 T02 §2  | Run profile `.conclave/unattended.json` and its loader    | none         | 6     |
@@ -145,4 +145,4 @@ Sections: 3 | Checklist items: 16
 
 Progress: 23/74 verified sections, 14 ready to run now.
 
-Checklist: 218/519 items completed (includes Commit items).
+Checklist: 227/521 items completed (includes Commit items).
