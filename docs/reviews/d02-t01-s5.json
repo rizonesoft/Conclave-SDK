@@ -1,0 +1,84 @@
+{
+  "ref": "D02 T01 \u00a75",
+  "title": "Guard self-test through each wired hook",
+  "implementation_sha": "e747490a091796a97e401e82a6884d9de4c1678d",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-unattended/D02-T01-s5.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python scripts/campaign_guard.py --self-test -> three hooks ok (block, continue, block), exit 0",
+    "bosun run -- python -m unittest discover -s tests -> Ran 475 tests, OK (skipped=95)"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-unattended/D02-T01-s5.md",
+    "verdict": "reconciled",
+    "candidate": "e747490a091796a97e401e82a6884d9de4c1678d",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/02-unattended/D02-T01-s5.md",
+    "candidate": "f77e8927f93ee43795fc155bf31add9b391a34ef",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "f77e8927f93ee43795fc155bf31add9b391a34ef",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

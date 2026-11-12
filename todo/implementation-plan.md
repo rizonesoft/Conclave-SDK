@@ -47,7 +47,7 @@ Sections: 19 | Checklist items: 121
 | [x]    | D02 T01 §2  | Antigravity hook file seeded by the todo kit              | none         | 8     |
 | [x]    | D02 T01 §3  | Codex hook script and hook file                           | none         | 10    |
 | [x]    | D02 T01 §4  | Heartbeat stall breaker for a harness with no Stop hook   | none         | 7     |
-| [ ]    | D02 T01 §5  | Guard self-test through each wired hook                   | none         | 6     |
+| [x]    | D02 T01 §5  | Guard self-test through each wired hook                   | none         | 6     |
 | [ ]    | D02 T01 §6  | Run guard steps in the Antigravity and Codex skill copies | none         | 8     |
 | [x]    | D02 T01 §7  | Live Codex run held by its approved Stop hook             | none         | 4     |
 | [ ]    | D02 T02 §1  | Unattended kit known to `forge.py`                        | none         | 6     |
@@ -143,6 +143,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 22/74 verified sections, 15 ready to run now.
+Progress: 23/74 verified sections, 14 ready to run now.
 
-Checklist: 217/519 items completed (includes Commit items).
+Checklist: 218/519 items completed (includes Commit items).

@@ -40,7 +40,7 @@ title: "TODO-01 -- Run guard for Antigravity and Codex"
 | 2 | §2 | Antigravity hook file seeded by the todo kit | §1 | [x] |
 | 3 | §3 | Codex hook script and hook file | -- | [x] |
 | 4 | §4 | Heartbeat stall breaker for a harness with no Stop hook | -- | [x] |
-| 5 | §5 | Guard self-test through each wired hook | §2, §3 | [ ] |
+| 5 | §5 | Guard self-test through each wired hook | §2, §3 | [x] |
 | 6 | §6 | Run guard steps in the Antigravity and Codex skill copies | §2, §3, §4 | [ ] |
 | 7 | §7 | Live Codex run held by its approved Stop hook | §3 | [x] |
 
@@ -189,9 +189,12 @@ Unit tests call `stop_hook` directly, so a hook file with a wrong command passes
 - [x] Fail `_self_test` naming the hook file when its command exits non-zero, times out, or answers anything but a JSON object holding that agent's decision (`block`, `continue`, `block`) and a non-empty `reason`: `{}` (the Codex wrapper's fail-open answer), malformed JSON and the wrong decision all fail. Done when: tests that break each seed in turn (a wrong script name) find exit 1 and that file's path in the output; tests with a command printing `{}`, text that is not JSON and the other agent's decision each fail; tests with a disabled-only hook, a file with no campaign command and a file that does not parse each fail with their reason, and a disabled hook beside an enabled one passes; a test with a command that starts a child and sleeps past a shortened limit finds exit 1, the file named, both processes gone and the workspace removed; and a test finds the workspace removed after an ordinary failure. **Corrected 2026-11-12 (plan review):** `{}` with exit 0 passed, and the timeout and cleanup were untested.
 - [x] Run `--self-test` from `tests/test_campaign_guard.py` against the SDK's own checkout and from `tests/test_three_pass_install.py`'s fresh install. Done when: both tests pass and the first fails when `.claude/settings.json` in a scratch copy names a missing script.
 - [x] Run `python forge.py self-sync`. Done when: `scripts/campaign_guard.py` equals the kit file.
-- [ ] Commit: `todo: campaign guard self-test drives each wired hook`
+- [x] Commit: `todo: campaign guard self-test drives each wired hook`
 
 **Test checkpoint:** `python scripts/campaign_guard.py --self-test` exits 0; renaming `stop-hook` in a scratch copy of `.agents/hooks.json` makes it exit 1 naming that file.
+
+> **Verified:** 2026-11-12 | §5 | e747490a091796a97e401e82a6884d9de4c1678d
+> **Review:** `docs/reviews/d02-t01-s5.json`
 
 ## 6. Run guard steps in the Antigravity and Codex skill copies
 
