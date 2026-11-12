@@ -148,6 +148,10 @@ LAUNCHED = {  # D02 T02 §9: a run starts only when its operator starts it, neve
     "an escaped space in a bash path": ["bash", "-c", "python3 /home/x/My\\ Project/scripts/unattended-run.py start"],
     "a double-quoted bash path": ["bash", "-c", "python3 \"/home/x/My Project/scripts/unattended-run.py\" start"],
     "a backtick-escaped PowerShell path": ["pwsh", "-Command", "& D:\\My` Repo\\scripts\\start-run.ps1"],
+    # Reconciliation 2 of D02 T02 §9:
+    "a bash line continuation": ["bash", "-c", "python3 \\\n scripts/unattended-run.py start"],
+    "a PowerShell line continuation": ["pwsh", "-Command", "python3 `\n scripts/unattended-run.py start"],
+    "a call right after a separator": ["pwsh", "-Command", "Write-Output ready;& 'scripts/start-run.ps1'"],
 }
 INSPECTED = {  # a launcher named only as data is no launch
     "git diff of the launcher": ["git", "diff", "--", "scripts/start-run.ps1"],
@@ -205,6 +209,16 @@ class LauncherRule(unittest.TestCase):
                 self.assertEqual(run.main(["--check", "--removal"], root=str(root)), 0)
                 self.assertEqual(run.main(["--units", str(units), "--removal"], root=str(root)), 0)
             self.assertIn("a run starts only when its operator starts it", err.getvalue())
+
+
+class MarkedTasks(unittest.TestCase):
+    def test_every_process_a_task_runs_carries_its_name(self):
+        # D02 T02 §9: a run launcher reached by any spelling refuses to start a run under this mark.
+        with tempfile.TemporaryDirectory() as tmp:
+            task = fixture_task("demo-mark", code="import os; print(os.environ['CONCLAVE_AUTOMATION'])")
+            outcome = run.execute("demo-mark", task, tmp)
+            self.assertEqual(outcome["exit"], 0)
+            self.assertEqual((Path(tmp) / outcome["log"]).read_text(encoding="utf-8").strip(), "demo-mark")
 
 
 @unittest.skipUnless(os.name == "nt" and shutil.which("pwsh") and shutil.which("pythonw"),

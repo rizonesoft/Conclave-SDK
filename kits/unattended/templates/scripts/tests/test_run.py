@@ -1799,6 +1799,17 @@ class KillWaitTest(unittest.TestCase):
             self.assertEqual(run.end_run_processes("tag-1", 4242, grace=2), [])
 
 
+class ScheduledStartTest(unittest.TestCase):
+    def test_a_start_from_a_scheduled_task_is_refused_however_it_was_reached(self):
+        # D02 T02 §9: the automations kit marks every process a scheduled task runs; the launcher owns the refusal.
+        run = load_run_module()
+        with tempfile.TemporaryDirectory() as tmp, \
+                unittest.mock.patch.dict(os.environ, {"CONCLAVE_AUTOMATION": "demo-nightly"}), \
+                unittest.mock.patch.object(run.lib, "load_profile", side_effect=AssertionError("it went on")):
+            with self.assertRaisesRegex(run.UsageError, "scheduled task demo-nightly .*operator starts it"):
+                run.start(Path(tmp))
+
+
 class DescribeTest(unittest.TestCase):
     @unittest.skipUnless(os.path.isdir("/proc/self"), "/proc is Linux's")
     def test_a_surviving_process_is_named_with_its_command_state_and_parent(self):

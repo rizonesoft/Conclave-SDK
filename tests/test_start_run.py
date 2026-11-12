@@ -133,6 +133,13 @@ class StartRunTests(unittest.TestCase):
                 self.assertNotIn("acquire --handover", goal)
                 self.assertNotIn("Ignore the rules", goal)
 
+    def test_a_start_from_a_scheduled_task_is_refused(self):
+        # D02 T02 §9: the automations kit marks every process a scheduled task runs.
+        proc = self.launch(environment={"CONCLAVE_AUTOMATION": "sdk-nightly"})
+        self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
+        self.assertIn("scheduled task sdk-nightly", proc.stdout)
+        self.assertFalse(self.report.exists(), "claude was started from a scheduled task")
+
     def test_another_model_and_goal_can_be_named(self):
         self.launch("-Model", "sonnet", "-Goal", "ship the importer")
         arguments = self.received()["arguments"]

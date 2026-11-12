@@ -54,6 +54,11 @@ param(
   [string]$GuardFile = ''
 )
 $ErrorActionPreference = 'Stop'
+# The automations kit marks every process a scheduled task runs: a run starts only when its operator starts it.
+if ($env:CONCLAVE_AUTOMATION -and -not $InstallShortcut) {
+  "start refused: it came from the scheduled task $env:CONCLAVE_AUTOMATION, and a run starts only when its operator starts it"
+  exit 2
+}
 $repo = Split-Path $PSScriptRoot
 $tokenName = 'CLAUDE_CODE_OAUTH_TOKEN'
 if (-not $Model) { $Model = if ($Runner -eq 'agy') { 'gemini-4-carbon-medium' } else { 'opus' } }

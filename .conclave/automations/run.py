@@ -48,6 +48,8 @@ def _whole(value) -> bool:
 # `unattended-run.py` launches only with `start` (its `status` and `stop` are ordinary checks).
 LAUNCHER = re.compile(r"(?:^|[\\/])(start-run\.ps1|start-campaign[^\\/]*|start-unattended-run[^\\/]*|run-desktop\.sh|"
                       r"unattended-run\.py)$", re.I)
+# Set for every process a scheduled task runs; a run launcher refuses to start a run under it.
+AUTOMATION = "CONCLAVE_AUTOMATION"
 INTERPRETERS = {"python", "python3", "pythonw", "py", "pwsh", "powershell", "bash", "sh", "wsl"}
 # Each interpreter's options that take a value, so the value is not read as its script.
 _PWSH = {"-executionpolicy", "-ep", "-ex", "-workingdirectory", "-wd", "-windowstyle", "-w", "-configurationname",
@@ -103,13 +105,17 @@ def _shell_commands(text: str, shell: str) -> list[list[tuple[str, bool]]]:
                     i += 1
                     break
                 if ch == '"' and c == esc and i + 1 < n and (shell == "powershell" or text[i + 1] in '"\\$`\n'):
-                    word.append(text[i + 1])
+                    if text[i + 1] != "\n":  # an escaped line break inside double quotes is a continuation
+                        word.append(text[i + 1])
                     i += 2
                     continue
                 word.append(c)
                 i += 1
             continue
         if ch == esc and i + 1 < n:
+            if text[i + 1] == "\n":  # a line continuation: the command goes on on the next line
+                i += 2
+                continue
             in_word = True
             word.append(text[i + 1])
             i += 2
@@ -123,8 +129,7 @@ def _shell_commands(text: str, shell: str) -> list[list[tuple[str, bool]]]:
             if words:
                 commands.append(words)
             words = []
-            while i < n and text[i] in ";&|\n":
-                i += 1
+            i += 2 if text[i:i + 2] in ("&&", "||") else 1
             continue
         if ch in " \t\r":
             flush()
@@ -296,7 +301,9 @@ def execute(name: str, task: dict, root: str, popen=subprocess.Popen, killer=_ki
     log = os.path.join(folder, _utc(stamp=True) + ".log")
     outcome = {"name": name, "started": _utc(), "log": os.path.relpath(log, root).replace("\\", "/"),
                "timed_out": False}
-    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    # Every process a task starts carries the task's name, so a run launcher it reaches by any spelling (a variable,
+    # an eval, a script that calls it) refuses to start a run: the launcher owns that refusal (D02 T02 §9).
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8", AUTOMATION: name}
     with open(log, "wb") as out:
         try:
             proc = popen(resolve(task["command"]), cwd=root, stdout=out, stderr=subprocess.STDOUT,

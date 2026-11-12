@@ -65,6 +65,7 @@ NUDGE_PROMPT = ("The unattended run looks idle. Continue with process-plan: pick
                 "and keep going. Never ask the operator a question.")
 HISTORY_LIMIT = 50000
 INSIDE = "CONCLAVE_UNATTENDED_RUN"  # set inside the run, so a run cannot stop itself
+AUTOMATION = "CONCLAVE_AUTOMATION"  # set by the automations kit for a scheduled task: no run starts under it
 # Every process of a run carries this in its environment (inherited even by one that starts its own session, such as
 # a reviewer the dispatcher detaches), so a stop or a resume finds and ends the whole run, not only its group.
 TAG = "CONCLAVE_UNATTENDED_TAG"
@@ -360,6 +361,12 @@ def start(root: Path, out=None, supervise: bool = True, ships: int | None = None
     running. `ships` bounds a fresh run to that many sections shipped; a resume keeps the run's own bound. Nothing
     calls this but the operator: no heartbeat, unit or task restarts a run."""
     out = out or sys.stdout
+    task = os.environ.get(AUTOMATION)
+    if task:
+        # The automations kit marks every process a scheduled task runs; however the task reached this launcher, a
+        # run starts only when its operator starts it (owner decision 2026-11-12, D02 T02 §9).
+        raise UsageError(f"start refused: it came from the scheduled task {task} ({AUTOMATION} is set), and a run "
+                         "starts only when its operator starts it")
     profile = lib.load_profile(root)
     run_session, heartbeat = names(profile)
     with lib.launch_lock(root):
