@@ -758,6 +758,31 @@ class RunTest(unittest.TestCase):
         self.assertNotEqual(self.marker()["session"], marker["session"])
         self.assertIn("--session-id", self.calls(2)[-1]["argv"])
 
+    def test_nothing_resumes_a_dead_session_or_a_crashed_agent_over_twenty_ticks(self):
+        # D02 T02 §9: a run never restarts itself (owner decision 2026-11-12).
+        for how in ("its tmux session is killed", "its agent crashes"):
+            with self.subTest(how):
+                self.end_everything()
+                self.log.unlink(missing_ok=True)
+                self.assertEqual(self.launcher("start").returncode, 0)
+                marker = self.marker()
+                self.calls(1)
+                if how == "its agent crashes":
+                    os.killpg(marker["pgid"], signal.SIGKILL)  # the pane closes with it, and so does the session
+                else:
+                    subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30, creationflags=windowless())
+                self.assertTrue(self.wait_session_gone("demo-run"))
+                run = self.run_module()
+                codes = []
+                for i in range(20):
+                    state = run.read_state(self.root, marker["session"])
+                    codes.append(run.tick(self.root, 1_000_000.0 + i * 300, state, __import__("io").StringIO()))
+                time.sleep(2)
+                self.assertEqual(len(self.calls(1)), 1, "the dead run was started again")
+                self.assertEqual(codes, [run.FINISHED] * 20)
+                self.assertFalse(self.tmux_has("demo-run"))
+                self.assertFalse((self.root / "build" / "unattended-run.json").exists())
+
     def test_heartbeat_once_on_a_killed_run_records_it_ended_with_10(self):
         self.assertEqual(self.launcher("start").returncode, 0)
         self.calls(1)

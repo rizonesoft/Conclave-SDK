@@ -28,7 +28,10 @@ unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 
-marker=$(python3 "$here/run.py" --units "$work")
+# An uninstall checks the manifest's shape only: a schedule a newer rule refuses (a run launcher) must still go.
+removal=()
+if [ "$uninstall" -eq 1 ]; then removal=(--removal); fi
+marker=$(python3 "$here/run.py" --units "$work" "${removal[@]}")
 mkdir -p -- "$unit_dir"
 
 # Ownership first, before anything changes: a unit of the same name that this repository did not write (a

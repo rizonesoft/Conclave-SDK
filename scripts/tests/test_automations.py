@@ -11,6 +11,7 @@ import sys
 import tempfile
 import time
 import unittest
+import unittest.mock
 
 REPO = Path(__file__).resolve().parents[2]
 AUTO = REPO / ".conclave" / "automations"
@@ -120,6 +121,99 @@ class Manifest(unittest.TestCase):
                            "schema 2": {**good, "schema_version": 2}}.items():
             with self.subTest(label), self.assertRaises(run.TaskError):
                 self.check(doc)
+
+
+LAUNCHED = {  # D02 T02 §9: a run starts only when its operator starts it, never on a schedule
+    "the launcher script itself": ["scripts/start-run.ps1"],
+    "python and the unattended launcher's start": ["python3", "scripts/unattended-run.py", "start"],
+    "python with options first": ["python", "-B", "scripts/unattended-run.py", "start", "--ships", "3"],
+    "pwsh -File": ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts\\start-run.ps1"],
+    "pwsh with the file positional": ["pwsh.exe", "-NoLogo", "D:\\repo\\scripts\\start-run.ps1", "-Runner", "agy"],
+    "pwsh -Command": ["pwsh", "-Command", "Set-Location D:\\repo; & .\\scripts\\start-run.ps1 -Runner claude"],
+    "bash -c": ["bash", "-c", "cd /repo && python3 scripts/unattended-run.py start"],
+    "bash -lc": ["bash", "-lc", "python3 scripts/unattended-run.py start --no-heartbeat"],
+    "a campaign script": ["bash", "scripts/start-campaign.sh"],
+    "the desktop runner": ["sh", "scripts/run-desktop.sh"],
+    "wsl": ["wsl.exe", "-d", "Ubuntu", "--cd", "/home/x/repo", "--", "python3", "scripts/unattended-run.py", "start"],
+    "an unattended-run script": ["/repo/scripts/start-unattended-run.sh"],
+}
+INSPECTED = {  # a launcher named only as data is no launch
+    "git diff of the launcher": ["git", "diff", "--", "scripts/start-run.ps1"],
+    "the run's status": ["python3", "scripts/unattended-run.py", "status"],
+    "a check that names it": ["python", "scripts/check.py", "scripts/start-run.ps1"],
+    "grep in a shell": ["bash", "-c", "grep -n start-run.ps1 README.md"],
+    "a module run": ["python", "-m", "unittest", "scripts/unattended-run.py"],
+}
+
+
+def launcher_manifest(command):
+    return {"schema_version": 1, "folder": "\\Demo\\", "tasks": [{**fixture_task("demo-run"), "command": command}]}
+
+
+class LauncherRule(unittest.TestCase):
+    def check(self, doc, **kwargs):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "tasks.json"
+            path.write_text(json.dumps(doc), encoding="utf-8")
+            return run.load_manifest(str(path), **kwargs)
+
+    def test_a_task_that_starts_a_run_is_refused_in_every_form(self):
+        for label, command in LAUNCHED.items():
+            with self.subTest(label):
+                with self.assertRaisesRegex(run.TaskError, "demo-run: command starts the run launcher .*operator"):
+                    self.check(launcher_manifest(command))
+                self.assertIn("demo-run", self.check(launcher_manifest(command), launchers=False)["tasks"])
+
+    def test_a_launcher_named_only_as_data_is_accepted(self):
+        for label, command in INSPECTED.items():
+            with self.subTest(label):
+                self.assertIsNone(run.launcher_in(command))
+                self.assertIn("demo-run", self.check(launcher_manifest(command))["tasks"])
+
+    def test_both_installer_entry_points_refuse_it_with_2_and_removal_reads_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".conclave" / "automations").mkdir(parents=True)
+            (root / ".conclave" / "automations" / "tasks.json").write_text(
+                json.dumps(launcher_manifest(LAUNCHED["bash -c"])), encoding="utf-8")
+            units = root / "units"
+            units.mkdir()
+            err = io.StringIO()
+            with unittest.mock.patch.object(sys, "stderr", err), unittest.mock.patch.object(sys, "stdout", io.StringIO()):
+                self.assertEqual(run.main(["--check"], root=str(root)), 2)
+                self.assertEqual(run.main(["--units", str(units)], root=str(root)), 2)
+                self.assertEqual(list(units.iterdir()), [], "a unit was written for a refused manifest")
+                self.assertEqual(run.main(["--check", "--removal"], root=str(root)), 0)
+                self.assertEqual(run.main(["--units", str(units), "--removal"], root=str(root)), 0)
+            self.assertIn("a run starts only when its operator starts it", err.getvalue())
+
+
+@unittest.skipUnless(os.name == "nt" and shutil.which("pwsh") and shutil.which("pythonw"),
+                     "install.ps1 registers Windows Task Scheduler tasks (PowerShell 7 and pythonw on Windows)")
+class InstallPs1(unittest.TestCase):
+    """install.ps1 with a manifest the launcher rule refuses, in a Task Scheduler folder nothing uses: the install is
+    refused before anything is registered, and the uninstall still runs (it removes the folder's tasks: none)."""
+
+    def test_a_launcher_schedule_is_never_installed_and_can_still_be_uninstalled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            auto = Path(tmp) / ".conclave" / "automations"
+            auto.mkdir(parents=True)
+            for name in ("run.py", "alert.py", "install.ps1"):
+                shutil.copy(AUTO / name, auto / name)
+            folder = f"\\ConclaveTest{os.getpid()}x{int(time.time())}\\"
+            doc = {**launcher_manifest(LAUNCHED["python and the unattended launcher's start"]), "folder": folder}
+            doc["tasks"][0]["name"] = folder.strip("\\").lower() + "-run"
+            (auto / "tasks.json").write_text(json.dumps(doc), encoding="utf-8")
+
+            def installer(*args):
+                return subprocess.run(["pwsh", "-NoProfile", "-NonInteractive", "-File", str(auto / "install.ps1"), *args],
+                                      capture_output=True, text=True, timeout=120, creationflags=0x08000000)
+            refused = installer()
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn("a run starts only when its operator starts it", refused.stdout + refused.stderr)
+            removed = installer("-Uninstall")
+            self.assertEqual(removed.returncode, 0, removed.stdout + removed.stderr)
+            self.assertIn(f"Removed 0 task(s) from {folder}", removed.stdout)
 
 
 class Runner(unittest.TestCase):
@@ -466,6 +560,20 @@ class InstallSh(unittest.TestCase):
                 result = self.install("--uninstall", tasks=[])
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual((units / "demo-one.service").read_text(encoding="utf-8"), text)
+
+    def test_a_launcher_schedule_is_never_installed_and_an_uninstall_still_removes_it(self):
+        # D02 T02 §9 (plan review): a schedule written before the launcher rule must still be removable.
+        units = self.config / "systemd" / "user"
+        result = self.install(tasks=[fixture_task("demo-one")])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        launcher = {**fixture_task("demo-one"), "command": LAUNCHED["bash -c"]}
+        result = self.install(tasks=[launcher])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("a run starts only when its operator starts it", result.stderr)
+        self.assertEqual(sorted(p.name for p in units.iterdir()), ["demo-one.service", "demo-one.timer"])
+        result = self.install("--uninstall", tasks=[launcher])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(list(units.iterdir()), [])
 
     def test_a_refused_manifest_installs_nothing(self):
         result = self.install(tasks=[fixture_task("other-name")])

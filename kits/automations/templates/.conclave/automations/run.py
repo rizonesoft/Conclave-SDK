@@ -43,12 +43,91 @@ def _whole(value) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
-def load_manifest(path: str) -> dict:
+# A run starts only when its operator starts it (owner decision 2026-11-12), so no scheduled task may invoke a run
+# launcher. The names are the ones the owner's launcher-test hook knows (global/claude/hooks/launcher_tests.py:17);
+# `unattended-run.py` launches only with `start` (its `status` and `stop` are ordinary checks).
+LAUNCHER = re.compile(r"(?:^|[\\/])(start-run\.ps1|start-campaign[^\\/]*|start-unattended-run[^\\/]*|run-desktop\.sh|"
+                      r"unattended-run\.py)$", re.I)
+INTERPRETERS = {"python", "python3", "pythonw", "py", "pwsh", "powershell", "bash", "sh", "wsl"}
+# Each interpreter's options that take a value, so the value is not read as its script.
+_PWSH = {"-executionpolicy", "-ep", "-ex", "-workingdirectory", "-wd", "-windowstyle", "-w", "-configurationname",
+         "-settingsfile", "-inputformat", "-if", "-outputformat", "-of", "-o"}
+VALUED = {"python": {"-w", "-x"}, "python3": {"-w", "-x"}, "pythonw": {"-w", "-x"}, "py": {"-w", "-x"},
+          "pwsh": _PWSH, "powershell": _PWSH, "bash": {"-o"}, "sh": {"-o"},
+          "wsl": {"-d", "--distribution", "-u", "--user", "--cd"}}
+
+
+def _launcher_script(script: str, args: list[str]) -> bool:
+    found = LAUNCHER.search(script.strip("'\""))
+    if not found:
+        return False
+    if found.group(1).lower() == "unattended-run.py":
+        first = next((a for a in args if not a.startswith("-")), None)
+        return first == "start"
+    return True
+
+
+def _launcher_in_text(text: str, posix: bool) -> str | None:
+    """The launcher the first command of any segment of a shell command string invokes, or None. PowerShell text is
+    split without POSIX escapes, so `.\scripts\start-run.ps1` keeps its backslashes."""
+    import shlex
+
+    for segment in re.split(r"&&|\|\||[;|\n]|(?<![\w.])&(?!&)", text):
+        try:
+            words = shlex.split(segment, posix=posix)
+        except ValueError:
+            words = segment.split()
+        found = launcher_in(words)
+        if found:
+            return found
+    return None
+
+
+def launcher_in(command: list[str]) -> str | None:
+    """The run launcher `command` invokes, as its program or as the script an interpreter runs (inside a shell's
+    `-c` or `-Command` string too), or None. A launcher named only as data, such as an argument to `git diff`, is not
+    an invocation."""
+    words = [w for w in command if w]
+    while words and words[0] in ("&", ".", "exec", "env", "nohup"):
+        words = words[1:]
+    if not words:
+        return None
+    program = re.split(r"[\\/]", words[0])[-1].lower().removesuffix(".exe")
+    if _launcher_script(words[0], words[1:]):
+        return words[0]
+    if program not in INTERPRETERS:
+        return None
+    rest, i = words[1:], 0
+    while i < len(rest):
+        word, low = rest[i], rest[i].lower()
+        if program == "wsl" and low in ("--", "-e", "--exec"):
+            return launcher_in(rest[i + 1:])
+        if low in ("-c", "-command", "/c") or (program in ("bash", "sh") and re.fullmatch(r"-[a-z]*c[a-z]*", low)):
+            return _launcher_in_text(" ".join(rest[i + 1:]), posix=program not in ("pwsh", "powershell"))
+        if low in ("-file", "-f"):
+            i += 1
+            continue
+        if low == "-m" and program in ("python", "python3", "pythonw", "py"):
+            return None  # a module, not a script
+        if low in VALUED[program]:
+            i += 2
+            continue
+        if word.startswith("-"):
+            i += 1
+            continue
+        if program == "wsl":
+            return launcher_in(rest[i:])
+        return word if _launcher_script(word, rest[i + 1:]) else None
+    return None
+
+
+def load_manifest(path: str, launchers: bool = True) -> dict:
     """tasks.json as {"folder", "prefix", "tasks" by name}, refused unless every entry is well formed.
 
     `folder` is the project's Task Scheduler folder (`\\Isotone\\`), and every task name starts with the folder's
     name in lower case and a hyphen (`isotone-`), so two projects never share a folder or a unit name. A freshly
-    installed kit has `folder: null` and no tasks until the project names its folder.
+    installed kit has `folder: null` and no tasks until the project names its folder. A task that invokes a run
+    launcher is refused, unless `launchers` is False: an installer removing a schedule only needs its shape.
     """
     with open(path, encoding="utf-8") as fh:
         doc = json.load(fh)
@@ -79,6 +158,10 @@ def load_manifest(path: str) -> dict:
         command = task["command"]
         if not isinstance(command, list) or not command or not all(isinstance(c, str) and c for c in command):
             raise TaskError(f"{name}: command must be a non-empty list of strings")
+        launcher = launcher_in(command) if launchers else None
+        if launcher:
+            raise TaskError(f"{name}: command starts the run launcher {launcher}; a run starts only when its operator "
+                            "starts it, never on a schedule (owner decision 2026-11-12)")
         if not _whole(task["timeout_minutes"]):
             raise TaskError(f"{name}: timeout_minutes must be a positive whole number")
         trigger = task["trigger"]
@@ -210,10 +293,11 @@ def systemd_units(manifest: dict, root: str, python: str) -> dict[str, str]:
     return units
 
 
-def write_units(out_dir: str, root: str = REPO, python: str | None = None) -> str:
-    """Write every task's units into out_dir (refused without a folder); returns the marker line."""
-    installable_folder(root)
-    manifest = load_manifest(os.path.join(root, ".conclave", "automations", "tasks.json"))
+def write_units(out_dir: str, root: str = REPO, python: str | None = None, removal: bool = False) -> str:
+    """Write every task's units into out_dir (refused without a folder); returns the marker line. `removal`: for an
+    uninstall, which writes none of them, so the launcher rule is left out."""
+    installable_folder(root, removal)
+    manifest = load_manifest(os.path.join(root, ".conclave", "automations", "tasks.json"), launchers=not removal)
     for filename, text in systemd_units(manifest, root, python or sys.executable).items():
         tmp = os.path.join(out_dir, filename + ".tmp")
         with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
@@ -229,18 +313,22 @@ def _alert_module():
     return module
 
 
-def installable_folder(root: str = REPO) -> str:
-    """The folder an installer registers into, refused when tasks.json is malformed or names no folder yet."""
-    manifest = load_manifest(os.path.join(root, ".conclave", "automations", "tasks.json"))
+def installable_folder(root: str = REPO, removal: bool = False) -> str:
+    """The folder an installer registers into, refused when tasks.json is malformed or names no folder yet. `removal`
+    (an uninstall) leaves the launcher rule out, so a schedule written before it can still be removed."""
+    manifest = load_manifest(os.path.join(root, ".conclave", "automations", "tasks.json"), launchers=not removal)
     if manifest["folder"] is None:
         raise TaskError("tasks.json has no folder yet: set it to \\<Project>\\ before installing")
     return manifest["folder"]
 
 
 def main(argv: list[str], root: str = REPO, popen=subprocess.Popen, alerter=None, killer=_kill_tree) -> int:
-    if argv == ["--check"] or (len(argv) == 2 and argv[0] == "--units"):
+    removal = argv[-1:] == ["--removal"]
+    check = argv[:-1] if removal else argv
+    if check == ["--check"] or (len(check) == 2 and check[0] == "--units"):
         try:
-            print(installable_folder(root) if argv[0] == "--check" else write_units(argv[1], root))
+            print(installable_folder(root, removal) if check[0] == "--check" else
+                  write_units(check[1], root, removal=removal))
         except (TaskError, OSError, ValueError) as error:
             print(f"run: {error}", file=sys.stderr)
             return 2

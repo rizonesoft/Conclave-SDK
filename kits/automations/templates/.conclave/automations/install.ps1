@@ -27,7 +27,10 @@ if (-not $pythonw) { throw 'pythonw.exe is not on PATH; install Python 3 for Win
 $runner = Join-Path $here 'run.py'
 
 # run.py's own loader checks tasks.json, so nothing is registered that the runner would refuse.
-$folder = & (Join-Path (Split-Path $pythonw) 'python.exe') $runner --check
+# An uninstall checks the manifest's shape only: a schedule a newer rule refuses (a run launcher) must still go.
+$checkArgs = @('--check')
+if ($Uninstall) { $checkArgs += '--removal' }
+$folder = & (Join-Path (Split-Path $pythonw) 'python.exe') $runner @checkArgs
 if ($LASTEXITCODE -ne 0) { throw 'tasks.json was refused (above); nothing was registered' }
 $manifest = Get-Content -Raw -Path (Join-Path $here 'tasks.json') | ConvertFrom-Json
 $existing = @(Get-ScheduledTask | Where-Object TaskPath -eq $folder)

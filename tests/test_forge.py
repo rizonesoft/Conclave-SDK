@@ -5,6 +5,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -3019,6 +3020,68 @@ class ForgeCliErrorTests(unittest.TestCase):
         self.assertNotIn("Traceback", result.stderr)
         self.assertTrue(result.stderr.startswith("forge.py: error: No artisan found under "), result.stderr)
         self.assertEqual(len(result.stderr.strip().splitlines()), 1, result.stderr)
+
+
+# D02 T02 §9: a run never restarts itself (owner decision 2026-11-12), so nothing the SDK ships may start one on its
+# own. Each pattern is a way something starts at boot, at logon or on a timer.
+RESUME_PATHS = {
+    "a systemd unit's [Install] section": re.compile(r"^\[Install\]", re.M),
+    "a systemd WantedBy=": re.compile(r"WantedBy="),
+    "systemctl enable": re.compile(r"systemctl\s+(?:--user\s+)?(?:--now\s+)?enable"),
+    "an @reboot line": re.compile(r"@reboot"),
+    "crontab": re.compile(r"\bcrontab\b"),
+    "Register-ScheduledTask": re.compile(r"Register-ScheduledTask", re.I),
+    "New-ScheduledTask": re.compile(r"New-ScheduledTask", re.I),
+    "schtasks": re.compile(r"\bschtasks\b", re.I),
+    "a Windows Run key": re.compile(r"CurrentVersion\\+Run\b", re.I),
+    "an autostart entry": re.compile(r"\bautostart\b", re.I),
+}
+# The one allowed scheduler: the automations kit's, whose loader refuses a task that starts a run launcher (§9), and
+# the SDK's installed copy of it.
+ALLOWED_SCHEDULER = ("kits/automations/templates/.conclave/automations/", "kits/automations/templates/scripts/tests/",
+                     ".conclave/automations/", "scripts/tests/test_automations.py")
+
+
+def resume_paths(root):
+    """(file, what) for each resume path in the kit templates, the SDK's own scripts/ and forge.py under `root`."""
+    root = pathlib.Path(root)
+    files = [p for p in (root / "kits").glob("*/templates/**/*") if p.is_file()]
+    files += [p for p in (root / "scripts").rglob("*") if p.is_file()] + [root / "forge.py"]
+    found = []
+    for path in files:
+        rel = path.relative_to(root).as_posix()
+        if "__pycache__" in rel or rel.startswith(ALLOWED_SCHEDULER) or not path.exists():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue  # a binary file (an icon) starts nothing
+        found += [(rel, what) for what, pattern in RESUME_PATHS.items() if pattern.search(text)]
+    return found
+
+
+class NothingResumesARunTests(unittest.TestCase):
+    def test_nothing_the_sdk_ships_starts_a_run_on_its_own(self):
+        self.assertEqual(resume_paths(FORGE_ROOT), [])
+
+    def test_the_scan_finds_each_resume_path_in_a_kit_template(self):
+        samples = {"a systemd unit's [Install] section": "[Install]\n", "a systemd WantedBy=": "WantedBy=default.target",
+                   "systemctl enable": "systemctl --user enable --now demo.timer", "an @reboot line": "@reboot run",
+                   "crontab": "crontab -l", "Register-ScheduledTask": "Register-ScheduledTask -TaskName x",
+                   "New-ScheduledTask": "New-ScheduledTaskTrigger -AtLogOn", "schtasks": "schtasks /create",
+                   "a Windows Run key": r"HKCU:\Software\Microsoft\Windows\CurrentVersion\Run",
+                   "an autostart entry": "~/.config/autostart/run.desktop"}
+        self.assertEqual(set(samples), set(RESUME_PATHS))
+        with tempfile.TemporaryDirectory() as tmp:
+            kit = pathlib.Path(tmp) / "kits" / "unattended" / "templates" / "scripts"
+            kit.mkdir(parents=True)
+            (pathlib.Path(tmp) / "forge.py").write_text("", encoding="utf-8")
+            for what, line in samples.items():
+                with self.subTest(what):
+                    (kit / "resume.ps1").write_text(f"# a launcher\n{line}\n", encoding="utf-8")
+                    self.assertIn(("kits/unattended/templates/scripts/resume.ps1", what), resume_paths(tmp))
+            (kit / "resume.ps1").write_text("python3 scripts/unattended-run.py status\n", encoding="utf-8")
+            self.assertEqual(resume_paths(tmp), [])
 
 
 if __name__ == "__main__":
