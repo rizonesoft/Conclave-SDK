@@ -1,0 +1,85 @@
+{
+  "ref": "D02 T02 \u00a78",
+  "title": "Ship counter, ship limit and stall marker",
+  "implementation_sha": "d73a972b004fb324d061e90ddf435f8fb39c2601",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-unattended/D02-T02-s8.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "CI tests.yml run 43326055462 on d73a972 -> quick suite (Windows) success, full suite (Linux) success, kit suites (Linux, tmux) success",
+    "python -m unittest discover -s kits/unattended/templates/scripts/tests on Windows at d73a972 -> Ran 198 tests OK (skipped=68)",
+    "ships_between comparing the endpoints / reading the working tree (mutations) -> test_a_row_reopened_and_stamped_again_counts_both_ships and test_the_working_tree_is_never_read FAILED (failures=1) each"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-unattended/D02-T02-s8.md",
+    "verdict": "reconciled",
+    "candidate": "d73a972b004fb324d061e90ddf435f8fb39c2601",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/02-unattended/D02-T02-s8.md",
+    "candidate": "ed466daaaca9385e5dc3b75c6681cafa1fcf6b38",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "ed466daaaca9385e5dc3b75c6681cafa1fcf6b38",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 8,
+  "pass_cap": 33
+}

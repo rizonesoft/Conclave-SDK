@@ -42,7 +42,7 @@ title: "TODO-02 -- Unattended kit"
 | 5 | §5 | Launcher for a Claude Code run under tmux | §3, §4 | [x] |
 | 6 | §6 | Launch commands for Codex and Antigravity | §5, T01 §2, T01 §3 | [x] |
 | 7 | §7 | Heartbeat that nudges an idle run and records a dead one as ended | §5 | [x] |
-| 8 | §8 | Ship counter, ship limit and stall marker | §7 | [ ] |
+| 8 | §8 | Ship counter, ship limit and stall marker | §7 | [x] |
 | 9 | §9 | Nothing resumes a run without its operator | §7 | [ ] |
 | 10 | §10 | Desktop shortcut that starts the run | §5 | [ ] |
 | 11 | §11 | Operator document and `unattended-run` skill | §8, §9, §10 | [ ] |
@@ -281,13 +281,16 @@ A run that is alive but ships nothing for hours needs the operator. The heartbea
 - [x] Add `--ships N` to `start` in `unattended-run.py`: a whole number above 0 (`0`, a negative or a non-number exits 2), recorded as `ship_limit` in the marker and kept across a resume; a resume naming another limit is refused naming the run's own (stop the run to change it), and `--ships` or a resume of a bounded run with `--no-heartbeat` is refused, since only the heartbeat enforces it (`run.sh:91`). Have `heartbeat` end the run through `end_run` (reason `the ship limit was reached`) once the count reaches `ship_limit`. Done when: a test with `--ships 1` and one stamped row finds the run ended, the marker and claim gone and the heartbeat exited 10; tests find each refusal exits 2 with no agent started, and a resume without `--ships` keeps the bound.
 - [x] Write the stall notice `build/unattended-needs-operator.md` from `heartbeat` when nothing has shipped for `stall_hours`, at most once per `stall_hours` (its time kept in the heartbeat's state, which is the run's own), naming the run, the last ship's commit and time (or the run's start) and the hours, and send an idle run the stall nudge in place of the plain one, saying nothing has shipped and to find out why before more section work (`supervisor.py:189`, `heartbeat.sh:86`); a write or removal that fails is recorded in `last_error`, leaves the throttle where it was and is tried again next tick. Done when: tests with an injected clock find one notice at 6 hours, none rewritten at 7, one at 3 hours with `stall_hours` 3, the throttle kept across a heartbeat reload, a failed write written on the next tick, and the stall nudge's text sent to the pane.
 - [x] Show the stall notice in `status` of `unattended-run.py`, remove it on the run's next ship, and have a fresh `start` remove a notice that names another run. Done when: tests find it in the `status` output, gone after a stamped row, and gone after a fresh start while a resume keeps it.
-- [ ] Commit: `unattended: count ships, stop at a limit and mark a stall`
+- [x] Commit: `unattended: count ships, stop at a limit and mark a stall`
 
 **Corrected 2026-11-12 (validation):** the first item compared the endpoints (`[ ]` at `old`, `[x]` at `new`) and said a row unstamped again returns 0; the source counts commit by commit because endpoints miss a section reopened and shipped again in the range (`ship_count.py:51`), and its own row reader takes the first numeric cell, which in this layout is `Order`, so rows are read with the todo kit's `ROW`. The limit ended the run "with `stop`", which also kills the heartbeat's own tmux session mid-stop; it ends through `end_run`, the heartbeat's verified cleanup (§7). The incremental count, the health file's atomic write and the marker's new keys were unstated.
 
 **Corrected 2026-11-12 (plan review):** one count in the heartbeat's state now serves the health file, the limit and the stall clock (the limit had recounted from `start_commit` every tick, against the incremental count); the last ship's time is its commit's committer time and the stall clock before the first ship runs from `run_started`, which a resume keeps (`started` is reset by a resume); `--ships` refuses a negative, another limit on resume and `--no-heartbeat`, since only the heartbeat enforces it; the stall notice is the run's own, its throttle in the run's state, removed by a fresh start, and every failed write of the notice or the health file is tried again without moving the throttle; the ended run's health says `alive: false`.
 
 **Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` ends `OK`; making `ships_between` compare the endpoints makes the reopened-row test fail, and making it read the working tree makes the uncommitted-row test fail.
+
+> **Verified:** 2026-11-13 | §8 | d73a972b004fb324d061e90ddf435f8fb39c2601
+> **Review:** `docs/reviews/d02-t02-s8.json`
 
 ## 9. Nothing resumes a run without its operator
 

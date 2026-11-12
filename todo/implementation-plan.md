@@ -57,7 +57,7 @@ Sections: 19 | Checklist items: 127
 | [x]    | D02 T02 §5  | Launcher for a Claude Code run under tmux                         | none         | 8     |
 | [x]    | D02 T02 §6  | Launch commands for Codex and Antigravity                         | none         | 6     |
 | [x]    | D02 T02 §7  | Heartbeat that nudges an idle run and records a dead one as ended | none         | 6     |
-| [ ]    | D02 T02 §8  | Ship counter, ship limit and stall marker                         | none         | 8     |
+| [x]    | D02 T02 §8  | Ship counter, ship limit and stall marker                         | none         | 8     |
 | [ ]    | D02 T02 §9  | Nothing resumes a run without its operator                        | none         | 6     |
 | [ ]    | D02 T02 §10 | Desktop shortcut that starts the run                              | windows-host | 5     |
 | [ ]    | D02 T02 §11 | Operator document and `unattended-run` skill                      | none         | 6     |
@@ -143,6 +143,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 32/74 verified sections, 14 ready to run now.
+Progress: 33/74 verified sections, 13 ready to run now.
 
-Checklist: 291/525 items completed (includes Commit items).
+Checklist: 292/525 items completed (includes Commit items).
