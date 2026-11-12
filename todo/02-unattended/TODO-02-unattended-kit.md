@@ -164,7 +164,11 @@ Two launches at once would start two agents on one tree. A lock held for the lau
 
 ## 5. Launcher for a Claude Code run under tmux
 
+> **Started:** 2026-11-12T11:24:37Z
+
 `scripts/unattended-run.py` is the operator's entry point: `start`, `status`, `attach` and `stop`. `start` takes the lock, runs the preflight and starts Claude Code in a tmux session that outlives the terminal. Sources: RasterFold `scripts/unattended-run.sh:66`; Impossible OS `scripts/run.sh:4` and `scripts/overnight/run-common.sh:42`.
+
+**Corrected 2026-11-12 (validation):** every Claude Code flag named below exists in the installed CLI (`claude --help`, 2.1.322); `--disallowedTools` takes a list (`<tools...>`), so the command ends its options with `--` before the prompt. tmux applies `history-limit` to new windows only, so the session starts with a placeholder window, sets the option, opens the agent's window and closes the placeholder; session-scoped commands target `=<name>-run:`. The agent runs through `exec` in its pane, so the pane's pid leads the process group `stop` kills. The marker and claim are written once the agent's pid is known, still under the launch lock. The heartbeat's session is `<name>-heartbeat` (§7); `stop` kills it when it exists. Codex and Antigravity are refused with a pointer to §6, which adds them.
 
 **Phase:** 2
 **Needs:** none
