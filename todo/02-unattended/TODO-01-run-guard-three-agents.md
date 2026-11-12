@@ -214,7 +214,11 @@ The Claude copy of `process-plan` tells the session how to start and end the run
 
 ## 7. Live Codex run held by its approved Stop hook
 
+> **Started:** 2026-11-12T00:36:03Z
+
 Filed 2026-11-11 from `D02 T01 §3`. With the Stop hook approved through `scripts/codex-hook-trust.py`, a live run proves the wrapper and the hook file hold a Codex run, as §2 proved it for Antigravity. **Corrected 2026-11-12:** first filed in Phase 99 waiting on the operator to approve the hook; Codex's own app-server grants the approval, so it needs no person and runs in Phase 2.
+
+**Corrected 2026-11-12 (validation):** `forge.py init --kit todo` now approves the hook itself (§3), so the first item's `codex-hook-trust.py` run is expected to print `trusted`; the item stands as the check that it did. `codex exec` (0.167.0) has `--json`, `--skip-git-repo-check`, `-C` and the `resume` subcommand the items name, read from its help today.
 
 **Phase:** 2
 **Needs:** none
