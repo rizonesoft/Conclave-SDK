@@ -49,7 +49,11 @@ title: "TODO-02 -- Unattended kit"
 
 ## 1. Unattended kit known to `forge.py`
 
+> **Started:** 2026-11-12T04:37:56Z
+
 The kit folder, its place in the install order, its detection and its doctor branch, so the later sections have somewhere to put files and a way to prove an install.
+
+**Corrected 2026-11-12 (validation):** `forge.py` grew through D01 T01 and D02 T01, so the line numbers below no longer hold; the items name `KIT_ORDER`, the usage docstring and the `--kit` help texts of `init` and `kit` instead. tmux runs only on Linux and in WSL, so on Windows the doctor's `tmux` check reads `setup_required` with the hint to run the kit in WSL, which is the true state there (the Outcome's stated limit).
 
 **Phase:** 2
 **Needs:** none
@@ -61,9 +65,9 @@ The kit folder, its place in the install order, its detection and its doctor bra
 2. Teach `forge.py` the kit. Done when: the checkpoint passes.
 
 - [ ] Create `kits/unattended/README.md` and `kits/unattended/templates/scripts/lib/unattended.py` (a module with a docstring and `SCHEMA_VERSION = 1`, filled by §2). Done when: `python forge.py kits` prints `unattended` in its list.
-- [ ] Add `unattended` to `KIT_ORDER` in `forge.py` after `automations`, and to the kit names in the usage docstring (`forge.py:6`) and the `--kit` help texts (`forge.py:734`, `:740`). Done when: a test installs `init --kit unattended --kit todo` and finds the todo files written first.
+- [ ] Add `unattended` to `KIT_ORDER` in `forge.py` after `automations`, and to the kit names in the usage docstring and the `--kit` help texts of `init` and `kit`. Done when: a test installs `init --kit unattended --kit todo` and finds the todo files written first.
 - [ ] Detect the kit in `installed_kits` of `forge.py` by `scripts/unattended-run.py`. Done when: a test finds `unattended` in `check_repo(...)["kits"]` after an install and not before.
-- [ ] Add an `unattended` branch to `doctor_repo` in `forge.py`: each kit file present, the todo kit present (`scripts/campaign_guard.py`), and `tmux` on `PATH` (`setup_required` with the install hint when it is not). Done when: tests find `ok` for the files on a fresh install and `setup_required` for a project without the todo kit.
+- [ ] Add an `unattended` branch to `doctor_repo` in `forge.py`: each kit file present, the todo kit present (`scripts/campaign_guard.py`), and `tmux` on `PATH` (`setup_required` with the install hint when it is not, and on Windows the hint to run the kit in WSL). Done when: tests find `ok` for the files on a fresh install and `setup_required` for a project without the todo kit.
 - [ ] List the kit in `README.md`, `kits/README.md` and `AGENTS.md` (Purpose), and state that the SDK does not install it in itself (`SELF_KITS` unchanged). Done when: the three documents name it and their table rows are within 120 characters.
 - [ ] Commit: `unattended: kit skeleton known to forge.py`
 
