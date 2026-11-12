@@ -4,6 +4,7 @@ out of order or short of an argument fails here, not in an unattended run."""
 import json
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -60,7 +61,7 @@ class Walkthrough(unittest.TestCase):
         return command
 
     def run_guard(self, command):
-        args = command.split()[2:]  # after `python scripts/campaign_guard.py`
+        args = shlex.split(command)[2:]  # after `python scripts/campaign_guard.py`, quotes kept as one argument
         args = args[:1] + ["--root", str(self.ws)] + args[1:] if args[0] not in ("--self-test",) else args
         proc = subprocess.run([sys.executable, str(self.ws / "scripts" / "campaign_guard.py"), *args],
                               capture_output=True, text=True, timeout=120)
@@ -159,36 +160,57 @@ class Walkthrough(unittest.TestCase):
         return [(int(n), re.findall(r"`(python scripts/campaign_guard\.py [^`]+)`", text), text) for n, text in steps]
 
     def run_heartbeat(self, generation):
-        """Walk the prompt as the agent would: step 1's answer chooses the branch; returns the commands run."""
-        variable, ran = COPIES[".agents"], []
+        """Walk the prompt as an agent following it would: each step's conditions are read from its own wording, so
+        removing an instruction from the prompt changes the walk. Returns the (command, output) pairs run."""
+        variable, ran, answer = COPIES[".agents"], [], None
         steps = self.heartbeat_steps()
-        first_number, first_commands, _ = steps[0]
-        self.assertEqual(first_number, 1)
-        self.assertTrue(first_commands[0].split()[2] == "whoami", "the heartbeat does not check ownership first")
-        answer = self.run_guard(self.fill(first_commands[0], variable, generation=generation))[1]
-        ran.append(("whoami", answer))
-        if answer in ("NOT THE OWNER", "NOT THE CURRENT JOB"):
-            return ran  # the prompt: cancel this timer, change nothing else
-        for number, found, text in steps[1:]:
+        self.assertEqual(steps[0][1][0].split()[2], "whoami", "the heartbeat does not check ownership first")
+        for number, found, text in steps:
+            if "If step 1 printed NO GUARD" in text and answer != "NO GUARD":
+                continue
+            if number > 1 and answer == "NO GUARD" and "If step 1 printed NO GUARD" not in text \
+                    and not re.search(r"campaign_guard\.py (hook-error|pending-cancel)", text):
+                continue
+            previous = ""
             for command in found:
                 name = command.split()[2]
-                if name == "reset-state" and answer != "NO GUARD":
-                    continue  # step 4 is for a released run only
-                if name in ("heartbeat-still",) and answer == "NO GUARD":
-                    continue  # a released run stops at step 4
-                if name == "cancel-confirmed":
-                    continue  # needs a timer the pending-cancel step named
                 if "--ack" in command:
-                    continue  # only after hook-error printed a line
-                code, out = self.run_guard(self.fill(command, variable, generation=generation))
-                ran.append((name, out))
+                    if not previous:
+                        continue  # the prompt acknowledges only a line hook-error printed
+                    command = command.replace("<that line>", previous)
+                if name == "cancel-confirmed":
+                    for timer in re.findall(r"CronDelete (\S+)", previous):  # each job pending-cancel named
+                        out = self.run_guard(self.fill(command.replace("<timer>", timer), variable, generation=generation))[1]
+                        ran.append((name, out))
+                    continue
+                out = self.run_guard(self.fill(command, variable, generation=generation))[1]
+                ran.append((name if "--ack" not in command else "hook-error --ack", out))
+                previous = out
+                # "run the same command with `--ack "<that line>"`": the acknowledgement of a line it printed
+                if out and "--ack" not in command and re.search(r"the same command with `--ack \"<that line>\"`", text):
+                    acked = self.run_guard(self.fill(command, variable, generation=generation) + f' --ack "{out}"')[1]
+                    ran.append(("hook-error --ack", acked))
+                if number == 1:
+                    answer = out
+            if number == 1 and answer in ("NOT THE OWNER", "NOT THE CURRENT JOB") and "change nothing else" in text:
+                return ran
+            if "If step 1 printed NO GUARD" in text and answer == "NO GUARD" and "reply RUN FINISHED" in text:
+                return ran
         return ran
 
     def test_the_heartbeat_steps_run_in_order_for_an_owner_a_stale_timer_and_a_released_run(self):
         generation, _ = self.start(".agents", COPIES[".agents"])
         state = self.ws / "build/claude-campaign-state.json"
+        sys.path.insert(0, str(self.ws / "scripts"))
+        import importlib
+        guard_module = importlib.import_module("campaign_guard")
+        sys.path.pop(0)
+        guard_module._record_hook_error(str(self.ws), guard_module.read_guard(str(self.ws)), "probe: a hook failed")
         ran = self.run_heartbeat(generation)
-        self.assertEqual([name for name, _ in ran], ["whoami", "hook-error", "pending-cancel", "heartbeat-still"])
+        self.assertEqual([name for name, _ in ran], ["whoami", "hook-error", "hook-error --ack", "pending-cancel",
+                                                     "heartbeat-still"], ran)
+        self.assertIn("probe: a hook failed", ran[1][1])
+        self.assertIn("acknowledged and cleared", ran[2][1])
         self.assertIn("progress", ran[-1][1])
         before = state.read_bytes()
         stale = self.run_heartbeat("0" * 12)
@@ -196,9 +218,12 @@ class Walkthrough(unittest.TestCase):
         self.assertEqual(state.read_bytes(), before, "a stale timer wrote the run's state")
         self.run_guard(self.fill(commands(".agents", "End")[0], COPIES[".agents"], reason="operator-stop"))
         released = self.run_heartbeat(generation)
-        self.assertEqual([name for name, _ in released], ["whoami", "hook-error", "pending-cancel", "reset-state"])
+        self.assertEqual([name for name, _ in released],
+                         ["whoami", "hook-error", "pending-cancel", "cancel-confirmed", "reset-state"], released)
         self.assertEqual(released[0][1], "NO GUARD")
-
+        self.assertIn("timer-1", released[2][1], "the ended run's timer was not named for cancellation")
+        pending = self.ws / "build/claude-campaign-pending-cancel.json"
+        self.assertFalse(pending.exists() and json.loads(pending.read_text(encoding="utf-8")), "a cancellation was left")
     def test_the_antigravity_heartbeat_prompt_runs_for_an_owner_a_stale_timer_and_a_released_run(self):
         steps = heartbeat_commands(".agents")
         for needed in ("whoami", "hook-error", "pending-cancel", "reset-state", "heartbeat-still"):
