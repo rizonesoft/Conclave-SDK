@@ -19,10 +19,10 @@ import tempfile
 SCHEMA_VERSION = 1
 PROFILE = ".conclave/unattended.json"
 AGENTS = ("claude", "codex", "agy")
-# Each agent's own effort values (Claude Code `--effort`, Codex `model_reasoning_effort`). Antigravity has no effort
-# flag the launcher passes, so any non-empty string is kept for it as a note.
+# Each agent's own effort values: Claude Code `--effort`, Codex `model_reasoning_effort`, Antigravity `--effort`
+# (`agy --help`, 1.5.5: low|medium|high|xhigh|max; D02 T02 §6).
 EFFORTS = {"claude": ("low", "medium", "high", "xhigh", "max"), "codex": ("minimal", "low", "medium", "high", "xhigh"),
-           "agy": None}
+           "agy": ("low", "medium", "high", "xhigh", "max")}
 NAME = re.compile(r"[a-z0-9][a-z0-9-]{1,40}")
 WHOLE = ("min_disk_gb", "min_ram_gb", "tick_seconds", "idle_minutes", "stall_hours")
 KEYS = {"schema_version", "name", "agent", "model", "effort", "prompt_file", "branch", "skip_permissions", "tools",
@@ -73,7 +73,7 @@ def load_profile(root) -> dict:
         if not isinstance(data[key], str) or not data[key].strip():
             raise fault(key, "must be a non-empty string")
     efforts = EFFORTS[data["agent"]]
-    if efforts is not None and data["effort"] not in efforts:
+    if data["effort"] not in efforts:
         raise fault("effort", f"must be one of {', '.join(efforts)} for {data['agent']}")
     if not isinstance(data["skip_permissions"], bool):
         raise fault("skip_permissions", "must be true or false")

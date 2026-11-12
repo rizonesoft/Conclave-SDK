@@ -170,7 +170,8 @@ class LoadProfileTest(unittest.TestCase):
     def test_the_effort_must_be_one_the_agent_takes(self):
         self.assertIn("for claude", self.refused("effort", self.with_(effort="minimal")))
         self.refused("effort", self.with_(agent="codex", effort="max"))
-        for agent, effort in (("claude", "max"), ("codex", "minimal"), ("agy", "anything")):
+        self.refused("effort", self.with_(agent="agy", effort="minimal"))  # agy --help: low|medium|high|xhigh|max
+        for agent, effort in (("claude", "max"), ("codex", "minimal"), ("agy", "xhigh")):
             self.write(self.with_(agent=agent, effort=effort))
             self.assertEqual(unattended.load_profile(self.root)["effort"], effort)
 

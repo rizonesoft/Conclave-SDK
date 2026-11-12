@@ -18,6 +18,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -119,11 +120,14 @@ def check_run(root: Path, report: Report, resume_session: str | None = None) -> 
         report.line(True, "campaign-guard", "no run guard held")
         return
     try:
-        session = str(json.loads(guard.read_text(encoding="utf-8")).get("session_id", ""))
+        held = json.loads(guard.read_text(encoding="utf-8"))
+        session, tag = str(held.get("session_id", "")), str(held.get("launch_tag", ""))
     except (OSError, ValueError, AttributeError) as exc:
         report.line(False, "campaign-guard", f"{GUARD} is held and cannot be read ({exc}); another run may be live")
         return
-    if resume_session and session == resume_session:
+    # The run being resumed owns the guard by its agent session or, for an agent that chose its own id (Codex,
+    # Antigravity), by the run's tag the guard recorded (D02 T02 §6).
+    if resume_session and resume_session in (session, tag):
         report.line(True, "campaign-guard", f"{GUARD} is held by session {session}, the run being resumed")
     else:
         report.line(False, "campaign-guard", f"{GUARD} is held by session {session or 'unknown'}: another run is "
@@ -140,6 +144,35 @@ def check_claim(root: Path, report: Report, lib, resume_session: str | None = No
         report.line(False, "launch-claim", f"{reason}: another run is live (resume it with --resume-session)")
     else:
         report.line(True, "launch-claim", reason + (", the run being resumed" if live else ""))
+
+
+# The CLI versions whose flags the launcher's commands were built from (kits/unattended/README.md); older ones may lack
+# a flag, so they fail the preflight (D02 T02 §6).
+MIN_VERSIONS = {"claude": "2.1.322", "codex": "0.166.0", "agy": "1.5.5"}
+
+
+def _version(text: str) -> tuple[int, ...] | None:
+    found = re.search(r"\b(\d+(?:\.\d+)+)\b", text or "")
+    return tuple(int(part) for part in found.group(1).split(".")) if found else None
+
+
+def check_agent_version(profile: dict, report: Report) -> None:
+    cli, minimum = AGENT_CLI[profile["agent"]], MIN_VERSIONS[profile["agent"]]
+    try:
+        done = subprocess.run([cli, "--version"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as exc:
+        report.line(False, f"version {cli}", f"'{cli} --version' could not run ({exc}); {minimum} or newer is needed")
+        return
+    said = (done.stdout or done.stderr).strip()
+    found = _version(said) if done.returncode == 0 else None
+    if found is None:
+        report.line(False, f"version {cli}", f"'{cli} --version' gave no version ({_last_line(said) or 'no output'}, "
+                                             f"exit {done.returncode}); {minimum} or newer is needed")
+        return
+    shown = ".".join(map(str, found))
+    ok = found >= _version(minimum)
+    report.line(ok, f"version {cli}", f"{shown}" + ("" if ok else f", older than {minimum}, whose flags the launcher "
+                                                              "uses: update it"))
 
 
 def check_tools(profile: dict, report: Report) -> None:
@@ -301,6 +334,7 @@ def preflight(root: Path, out=None, system: str | None = None, resume_session: s
               ("campaign-guard", lambda: check_run(root, report, resume_session)),
               ("launch-claim", lambda: check_claim(root, report, unattended, resume_session)),
               ("tools", lambda: check_tools(profile, report)),
+              ("version", lambda: check_agent_version(profile, report)),
               ("stop-hook", lambda: check_hook(root, profile, report)),
               ("headroom", lambda: check_headroom(root, profile, report)),
               ("profile checks", lambda: check_profile_commands(root, profile, report)))

@@ -32,7 +32,10 @@ HERE = Path(__file__).resolve().parent
 # checks, and a launch would refuse itself.
 sys.dont_write_bytecode = True
 MARKER = "build/unattended-run.json"
-MARKER_KEYS = ("session", "tmux_session", "heartbeat_session", "agent", "pgid", "started", "resumed")
+# `session` is the run's tag (CONCLAVE_UNATTENDED_TAG, the claim's session, and Claude Code's own --session-id);
+# `agent_session` is the agent's own session id: the tag for Claude Code, and for Codex and Antigravity, which choose
+# their own, the id the run's guard records (None until then).
+MARKER_KEYS = ("session", "agent_session", "tmux_session", "heartbeat_session", "agent", "pgid", "started", "resumed")
 GUARD = "build/claude-campaign-guard.json"
 HEALTH = "build/unattended-health.json"  # written by the heartbeat (D02 T02 §8) when it runs
 HISTORY_LIMIT = 50000
@@ -107,22 +110,55 @@ def read_marker(root: Path) -> tuple[dict | None, str | None]:
         return None, f"{MARKER} names no session"
     if not isinstance(data["pgid"], int) or isinstance(data["pgid"], bool) or data["pgid"] <= 1:
         return None, f"{MARKER} holds no process group"
+    if data["agent_session"] is not None and not (isinstance(data["agent_session"], str) and data["agent_session"]):
+        return None, f"{MARKER} holds an agent session that is not a session id"
     return data, None
 
 
-def agent_command(root: Path, profile: dict, session: str, resume: bool) -> list[str]:
-    """The agent's command line, built from the profile. Claude Code: a fresh session with its own id, or
-    `--resume <id>` with a short resume prompt; the options end with `--` because `--disallowedTools` takes a list
-    that would otherwise swallow the prompt."""
-    if profile["agent"] != "claude":
-        raise RunError(f"agent {profile['agent']!r}: its launch command is added in D02 T02 §6; only claude starts")
-    argv = ["claude", "--model", profile["model"], "--effort", profile["effort"]]
-    argv += ["--resume", session] if resume else ["--session-id", session]
-    argv += ["--disallowedTools", CLAUDE_DISALLOWED]
-    if profile["skip_permissions"]:
-        argv.append("--dangerously-skip-permissions")
-    prompt = RESUME_PROMPT if resume else (root / profile["prompt_file"]).read_text(encoding="utf-8")
-    return argv + ["--", prompt]
+def owned_guard(root: Path, marker: dict | None) -> dict | None:
+    """The guard when it is this run's: it carries the run's tag, or names the run's agent session."""
+    guard = read_json(root / GUARD)
+    if not guard or not marker:
+        return None
+    if guard.get("launch_tag") == marker["session"]:
+        return guard
+    if marker.get("agent_session") and str(guard.get("session_id")) == marker["agent_session"]:
+        return guard
+    return None
+
+
+def agent_command(root: Path, profile: dict, tag: str, resume_id: str | None) -> list[str]:
+    """The agent's command line, built from the profile and the flags each installed CLI's own help confirms
+    (kits/unattended/README.md). A fresh start gets the seed prompt; a resume (`resume_id`, the agent's own session)
+    gets a short resume prompt."""
+    agent, model, effort, skip = profile["agent"], profile["model"], profile["effort"], profile["skip_permissions"]
+    prompt = RESUME_PROMPT if resume_id else (root / profile["prompt_file"]).read_text(encoding="utf-8")
+    if agent == "claude":
+        # --disallowedTools takes a list, which would swallow the prompt: the options end with `--`.
+        argv = ["claude", "--model", model, "--effort", effort]
+        argv += ["--resume", resume_id] if resume_id else ["--session-id", tag]
+        argv += ["--disallowedTools", CLAUDE_DISALLOWED]
+        if skip:
+            argv.append("--dangerously-skip-permissions")
+        return argv + ["--", prompt]
+    if agent == "codex":
+        # Codex has no --effort: -c overrides config.toml's model_reasoning_effort (a TOML string). It chooses its own
+        # session id, so a fresh start names none; `codex resume [SESSION_ID] [PROMPT]` continues one.
+        options = ["-m", model, "-c", f'model_reasoning_effort="{effort}"']
+        if skip:
+            options.append("--dangerously-bypass-approvals-and-sandbox")
+        if resume_id:
+            return ["codex", "resume", *options, "--", resume_id, prompt]
+        return ["codex", *options, "--", prompt]
+    if agent == "agy":
+        # Antigravity's flags take `--name=value`; --prompt-interactive runs the prompt and keeps the session open.
+        argv = ["agy", f"--model={model}", f"--effort={effort}"]
+        if resume_id:
+            argv.append(f"--conversation={resume_id}")
+        if skip:
+            argv.append("--dangerously-skip-permissions")
+        return argv + [f"--prompt-interactive={prompt}"]
+    raise RunError(f"agent {agent!r} has no launch command")
 
 
 def run_preflight(root: Path, resume_session: str | None, profile: dict) -> tuple[int, str]:
@@ -277,33 +313,39 @@ def start(root: Path, out=None) -> int:
         if live:
             raise RunError(f"tmux session {run_session} is already running: attach with "
                            "'python3 scripts/unattended-run.py attach', or stop it first")
-        resume = marker["session"] if marker else None
+        old = marker
         if marker:
             # The tmux session is gone, but that does not prove its processes are: a crashed run's leftovers are
             # ended before anything starts in its place.
             left = end_run_processes(marker["session"], marker["pgid"], grace=2)
             if left:
                 raise RunError(f"the previous run's processes {left} are still running after SIGKILL")
-        code, report = run_preflight(root, resume, profile)
+        # The agent session to resume: Claude Code's is the tag; Codex's and Antigravity's is what the run's guard
+        # records, and without one (the agent died before it took the guard) the run starts fresh.
+        guard = owned_guard(root, old)
+        resume = (old["agent_session"] or (str(guard["session_id"]) if guard else None)) if old else None
+        code, report = run_preflight(root, old["session"] if old else None, profile)
         print(report, file=out)
         if code != 0:
             print("start: the preflight refused the run (FAIL lines above); nothing was started", file=out)
             return 1
         started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        session = pid = None
+        session = agent_session = pid = None
         if resume:
             try:
-                pid = _launch(root, run_session, agent_command(root, profile, resume, resume=True), resume)
-                session = resume
+                pid = _launch(root, run_session, agent_command(root, profile, old["session"], resume), old["session"])
+                session, agent_session = old["session"], resume
             except RunError as exc:
                 print(f"start: the resume of session {resume} did not stay up ({exc}); starting a fresh session",
                       file=out)
-                _end_old_guard(root, resume, out)
+                _end_old_guard(root, old, out)
         if session is None:
             session = str(uuid.uuid4())
-            pid = _launch(root, run_session, agent_command(root, profile, session, resume=False), session)
-        marker = {"session": session, "tmux_session": run_session, "heartbeat_session": heartbeat,
-                  "agent": profile["agent"], "pgid": pid, "started": started, "resumed": session == resume}
+            agent_session = session if profile["agent"] == "claude" else None
+            pid = _launch(root, run_session, agent_command(root, profile, session, None), session)
+        marker = {"session": session, "agent_session": agent_session, "tmux_session": run_session,
+                  "heartbeat_session": heartbeat, "agent": profile["agent"], "pgid": pid, "started": started,
+                  "resumed": session == (old["session"] if old else None)}
         try:
             lib.write_atomic(root / MARKER, json.dumps(marker, indent=2) + "\n")
             lib.write_claim(root, session, pid, profile["agent"], run_session, started=started)
@@ -320,17 +362,18 @@ def start(root: Path, out=None) -> int:
     return 0
 
 
-def _end_old_guard(root: Path, session: str, out) -> None:
-    """A fresh session cannot take the crashed session's guard, so the launcher ends it, as the operator would. If it
-    cannot, nothing fresh starts: the marker still names the crashed session, which owns the guard."""
-    guard = read_json(root / GUARD)
-    if guard and str(guard.get("session_id")) == session:
-        done = _end_guard(root, session)
+def _end_old_guard(root: Path, old: dict, out) -> None:
+    """A fresh session cannot take the crashed run's guard, so the launcher ends it, as the operator would, with the
+    guard's own session id. If it cannot, nothing fresh starts: the marker still names the crashed run."""
+    guard = owned_guard(root, old)
+    if guard:
+        owner = str(guard.get("session_id"))
+        done = _end_guard(root, owner)
         said = (done.stdout or done.stderr).strip()[-300:]
         if done.returncode != 0:
-            raise RunError(f"the crashed session {session}'s guard could not be ended ({said}); nothing was started, "
-                           f"and {MARKER} still names that session")
-        print(f"start: the crashed session's guard ended: {said}", file=out)
+            raise RunError(f"the crashed run's guard (session {owner}) could not be ended ({said}); nothing was "
+                           f"started, and {MARKER} still names that run")
+        print(f"start: the crashed run's guard ended: {said}", file=out)
 
 
 def _end_guard(root: Path, session: str) -> subprocess.CompletedProcess:
@@ -389,9 +432,10 @@ def stop(root: Path, out=None) -> int:
         run_session, heartbeat = (marker["tmux_session"], marker["heartbeat_session"]) if marker else names(profile)
         session = marker["session"] if marker else None
         guard = read_json(root / GUARD)
+        mine = owned_guard(root, marker)
         guard_failed = False
-        if guard and session and str(guard.get("session_id")) == session:
-            done = _end_guard(root, session)
+        if mine:
+            done = _end_guard(root, str(mine.get("session_id")))
             guard_failed = done.returncode != 0
             print(f"stop: guard {'not ended' if guard_failed else 'ended'}: "
                   f"{(done.stdout or done.stderr).strip()[-300:]}", file=out)

@@ -779,6 +779,15 @@ class Lifecycle(Workspace):
         self.assertIn("re-pointed", self.acquire(session=OTHER, cron_id="job-3"))
         self.assertEqual(self.run_id(), rid, "a re-point of the same run keeps its id")
 
+    def test_the_guard_keeps_the_unattended_runs_tag(self):
+        # D02 T02 §6: Codex and Antigravity choose their own session ids, so the launcher knows its run's guard by tag.
+        with mock.patch.dict(os.environ, {"CONCLAVE_UNATTENDED_TAG": "tag-1"}):
+            self.acquire()
+        self.assertEqual(guard.read_guard(self.root)["launch_tag"], "tag-1")
+        env = {k: v for k, v in os.environ.items() if k != "CONCLAVE_UNATTENDED_TAG"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            self.acquire(session=OTHER, cron_id="job-2", handover="restart")
+        self.assertNotIn("launch_tag", guard.read_guard(self.root), "an untagged acquire kept another run's tag")
     def test_a_torn_guard_needs_a_handover_and_the_scope_is_kept(self):
         self.write("build/claude-campaign-guard.json", "")
         with self.assertRaises(guard.GuardError):

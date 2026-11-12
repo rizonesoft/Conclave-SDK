@@ -34,9 +34,15 @@ PROMPT = "Run the plan to the end.\n"
 # process-group kill ends it), then waits. With STUB_RESUME_FAILS set, a --resume exits at once.
 STUB = '''#!/usr/bin/env python3
 import json, os, signal, subprocess, sys, time
+NAME = os.path.basename(sys.argv[0])
+if sys.argv[1:] == ["--version"]:
+    print({"claude": "2.1.322 (Claude Code)", "codex": "codex-cli 0.166.0", "agy": "1.5.5"}[NAME])
+    sys.exit(0)
 with open(os.environ["STUB_LOG"], "a") as log:
-    log.write(json.dumps({"argv": sys.argv[1:], "inside": os.environ.get("CONCLAVE_UNATTENDED_RUN")}) + "\\n")
-if os.environ.get("STUB_RESUME_FAILS") and "--resume" in sys.argv:
+    log.write(json.dumps({"cli": NAME, "argv": sys.argv[1:], "inside": os.environ.get("CONCLAVE_UNATTENDED_RUN"),
+                          "tag": os.environ.get("CONCLAVE_UNATTENDED_TAG")}) + "\\n")
+RESUMING = any(a in ("--resume", "resume") or a.startswith("--conversation=") for a in sys.argv[1:])
+if os.environ.get("STUB_RESUME_FAILS") and RESUMING:
     sys.exit(1)
 if os.environ.get("STUB_EXIT"):
     print("stub agent: cannot start", flush=True)
@@ -96,22 +102,50 @@ class CommandTest(unittest.TestCase):
         run = load_run_module()
         for skip in (True, False):
             with self.subTest(skip_permissions=skip):
-                argv = run.agent_command(self.root, {**PROFILE, "skip_permissions": skip}, "sid-1", resume=False)
+                argv = run.agent_command(self.root, {**PROFILE, "skip_permissions": skip}, "sid-1", None)
                 expected = ["claude", "--model", "claude-opus-5-5", "--effort", "high", "--session-id", "sid-1",
                             "--disallowedTools", "AskUserQuestion,EnterPlanMode,ExitPlanMode",
                             *(["--dangerously-skip-permissions"] if skip else []), "--", PROMPT]
                 self.assertEqual(argv, expected)
-        resumed = run.agent_command(self.root, PROFILE, "sid-1", resume=True)
+        resumed = run.agent_command(self.root, PROFILE, "sid-1", "sid-1")
         self.assertEqual(resumed[:7], ["claude", "--model", "claude-opus-5-5", "--effort", "high", "--resume",
                                        "sid-1"])
         self.assertEqual(resumed[-2:], ["--", run.RESUME_PROMPT])
         self.assertNotIn("--session-id", resumed)
 
-    def test_another_agent_is_refused_until_its_command_exists(self):
+    CLAUDE_ONLY = ("--session-id", "--resume", "--disallowedTools", "--effort", "--dangerously-skip-permissions")
+
+    def test_the_codex_command_from_the_profile(self):
         run = load_run_module()
-        with self.assertRaises(run.RunError) as caught:
-            run.agent_command(self.root, {**PROFILE, "agent": "codex"}, "sid", resume=False)
-        self.assertIn("§6", str(caught.exception))
+        codex = {**PROFILE, "agent": "codex", "model": "gpt-6-astra", "effort": "xhigh"}
+        for skip in (True, False):
+            with self.subTest(skip_permissions=skip):
+                profile = {**codex, "skip_permissions": skip}
+                bypass = ["--dangerously-bypass-approvals-and-sandbox"] if skip else []
+                options = ["-m", "gpt-6-astra", "-c", 'model_reasoning_effort="xhigh"', *bypass]
+                self.assertEqual(run.agent_command(self.root, profile, "tag-1", None), ["codex", *options, "--", PROMPT])
+                self.assertEqual(run.agent_command(self.root, profile, "tag-1", "thread-9"),
+                                 ["codex", "resume", *options, "--", "thread-9", run.RESUME_PROMPT])
+                for argv in (run.agent_command(self.root, profile, "tag-1", None),
+                             run.agent_command(self.root, profile, "tag-1", "thread-9")):
+                    self.assertFalse([a for a in argv if a in self.CLAUDE_ONLY], argv)
+                    self.assertNotIn("tag-1", argv, "Codex chooses its own session id")
+
+    def test_the_antigravity_command_from_the_profile(self):
+        run = load_run_module()
+        agy = {**PROFILE, "agent": "agy", "model": "gemini-4-argon", "effort": "max"}
+        for skip in (True, False):
+            with self.subTest(skip_permissions=skip):
+                profile = {**agy, "skip_permissions": skip}
+                bypass = ["--dangerously-skip-permissions"] if skip else []
+                self.assertEqual(run.agent_command(self.root, profile, "tag-1", None),
+                                 ["agy", "--model=gemini-4-argon", "--effort=max", *bypass,
+                                  f"--prompt-interactive={PROMPT}"])
+                self.assertEqual(run.agent_command(self.root, profile, "tag-1", "conv-7"),
+                                 ["agy", "--model=gemini-4-argon", "--effort=max", "--conversation=conv-7", *bypass,
+                                  f"--prompt-interactive={run.RESUME_PROMPT}"])
+                argv = run.agent_command(self.root, profile, "tag-1", None)
+                self.assertFalse([a for a in argv if a in ("--session-id", "--resume", "--disallowedTools")], argv)
 
 
 @needs_tmux
@@ -123,9 +157,10 @@ class RunTest(unittest.TestCase):
         self.root = base / "repo"
         self.bin = base / "bin"
         self.bin.mkdir()
-        stub = self.bin / "claude"
-        stub.write_text(STUB, encoding="utf-8")
-        stub.chmod(0o755)
+        for cli in ("claude", "codex", "agy"):
+            stub = self.bin / cli
+            stub.write_text(STUB, encoding="utf-8")
+            stub.chmod(0o755)
         self.log = base / "stub.jsonl"
         self.child_file = base / "child.pid"
         tmux_dir = base / "tmux"
@@ -184,7 +219,7 @@ class RunTest(unittest.TestCase):
             time.sleep(0.1)
         return [json.loads(line) for line in lines]
 
-    def acquire(self, session):
+    def acquire(self, session, tag=None):
         (self.root / "docs" / "phase-runs").mkdir(parents=True, exist_ok=True)
         run_file = self.root / "docs" / "phase-runs" / "run.md"
         if not run_file.exists():  # a run file is committed, as process-plan commits it
@@ -194,7 +229,8 @@ class RunTest(unittest.TestCase):
         done = subprocess.run([sys.executable, str(self.root / "scripts" / "campaign_guard.py"), "acquire",
                                "--session", session, "--phase", "2", "--run-file", "docs/phase-runs/run.md",
                                "--cron-id", "job-1", "--generation", "g1", "--root", str(self.root)],
-                              capture_output=True, text=True, timeout=60)
+                              capture_output=True, text=True, timeout=60,
+                              env={**self.env, **({"CONCLAVE_UNATTENDED_TAG": tag} if tag else {})})
         self.assertEqual(done.returncode, 0, done.stderr)
 
     def guard(self):
@@ -448,7 +484,7 @@ class RunTest(unittest.TestCase):
         subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
         done = self.launcher("start", env={**self.env, "STUB_RESUME_FAILS": "1"})
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertIn("the crashed session's guard ended", done.stdout)
+        self.assertIn("the crashed run's guard ended", done.stdout)
         self.assertIsNone(self.guard(), "a fresh session cannot take the crashed one's guard, so it was ended")
         self.assertNotEqual(self.marker()["session"], first)
 
@@ -502,6 +538,68 @@ class RunTest(unittest.TestCase):
         done = self.launcher("attach", "--watch")
         self.assertEqual(done.returncode, 1)
         self.assertIn("is not running", done.stderr)
+
+    def use_codex(self):
+        self.write_profile(agent="codex", model="gpt-6-astra", effort="xhigh")
+        (self.root / ".codex").mkdir(exist_ok=True)
+        shutil.copyfile(TODO / ".codex/hooks.json", self.root / ".codex/hooks.json")
+        # Codex's approval of the hook goes through its app-server, which test_codex_hook.py drives against a stub
+        # server; here the trust script reports the hook trusted, as it does once Codex has approved it.
+        (self.root / "scripts" / "codex-hook-trust.py").write_text(
+            "print('codex-hook-trust: trusted: .codex/hooks.json:stop:0:0')\n", encoding="utf-8")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "a codex run")
+
+    def test_a_codex_run_is_tagged_resumed_by_its_guards_session_and_stopped(self):
+        # D02 T02 §6: Codex chooses its own session id; the guard it acquires carries the run's tag.
+        self.use_codex()
+        self.assertEqual(self.launcher("start").returncode, 0)
+        marker = self.marker()
+        self.assertIsNone(marker["agent_session"])
+        first = self.calls(1)[0]
+        self.assertEqual((first["cli"], first["tag"]), ("codex", marker["session"]))
+        self.acquire("codex-thread-1", tag=marker["session"])  # the hook inside the run, with Codex's own id
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+        done = self.launcher("start")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        resumed = self.calls(2)[-1]["argv"]
+        self.assertEqual(resumed[:2], ["resume", "-m"])
+        self.assertEqual(resumed[resumed.index("--") + 1], "codex-thread-1")
+        self.assertEqual((self.marker()["session"], self.marker()["agent_session"]), (marker["session"],
+                                                                                       "codex-thread-1"))
+        done = self.launcher("stop")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("guard ended", done.stdout)
+        self.assertIsNone(self.guard())
+
+    def test_a_codex_run_without_a_guard_starts_fresh_and_leaves_another_runs_guard(self):
+        self.use_codex()
+        self.assertEqual(self.launcher("start").returncode, 0)
+        tag = self.marker()["session"]
+        self.calls(1)
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+        done = self.launcher("start")  # the agent died before it took a guard: nothing to resume
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        fresh = self.calls(2)[-1]["argv"]
+        self.assertNotEqual(fresh[0], "resume")
+        self.assertNotEqual(self.marker()["session"], tag)
+        self.acquire("someone-else", tag="another-run")
+        done = self.launcher("stop")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.guard()["session_id"], "someone-else", "stop ended another run's guard")
+
+    def test_an_antigravity_run_starts_with_its_prompt(self):
+        self.write_profile(agent="agy", model="gemini-4-argon", effort="high")
+        git(self.root, "commit", "-qam", "an antigravity run")
+        (self.root / ".agents").mkdir(exist_ok=True)
+        shutil.copyfile(TODO / ".agents/hooks.json", self.root / ".agents/hooks.json")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "the antigravity hook")
+        done = self.launcher("start")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        call = self.calls(1)[0]
+        self.assertEqual(call["cli"], "agy")
+        self.assertEqual(call["argv"][-1], f"--prompt-interactive={PROMPT}")
 
     def test_a_run_cannot_stop_itself(self):
         self.assertEqual(self.launcher("start").returncode, 0)

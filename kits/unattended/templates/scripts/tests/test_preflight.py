@@ -185,6 +185,14 @@ class RunCheckTest(Fixture):
         self.assertEqual(len(fails), 1)
         self.assertIn("held by session session-a", fails[0])
 
+    def test_a_guard_whose_tag_is_the_resumed_runs_passes(self):
+        # D02 T02 §6: Codex and Antigravity choose their own session id, so the run owns its guard by tag.
+        (self.root / "build").mkdir(exist_ok=True)
+        (self.root / "build" / "claude-campaign-guard.json").write_text(
+            json.dumps({"session_id": "codex-thread-1", "launch_tag": "tag-a"}), encoding="utf-8")
+        self.assertEqual(self.fails(self.check("tag-a")), [])
+        self.assertIn("held by session codex-thread-1", self.fails(self.check("tag-b"))[0])
+
     def test_the_resumed_runs_own_guard_passes_and_another_still_fails(self):
         self.hold("session-a")
         self.assertEqual(self.fails(self.check("session-a")), [])
@@ -195,6 +203,33 @@ class RunCheckTest(Fixture):
         (self.root / "build").mkdir()
         (self.root / "build" / "claude-campaign-guard.json").write_text("{not json", encoding="utf-8")
         self.assertIn("cannot be read", self.fails(self.check("anything"))[0])
+
+
+class VersionCheckTest(Fixture):
+    def check(self, agent, stdout="", code=0, error=None):
+        report = self.report()
+        done = subprocess.CompletedProcess([], code, stdout=stdout, stderr="")
+        patch = unittest.mock.patch.object(pre.subprocess, "run", side_effect=error) if error else \
+            unittest.mock.patch.object(pre.subprocess, "run", return_value=done)
+        with patch:
+            pre.check_agent_version({**PROFILE, "agent": agent}, report)
+        return self.lines(report)
+
+    def test_the_recorded_version_and_a_newer_one_pass(self):
+        self.assertEqual(self.check("codex", "codex-cli 0.166.0\n"), ["PASS version codex: 0.166.0"])
+        self.assertEqual(self.check("codex", "codex-cli 0.170.2\n"), ["PASS version codex: 0.170.2"])
+        self.assertEqual(self.check("agy", "1.5.5\n"), ["PASS version agy: 1.5.5"])
+        self.assertEqual(self.check("claude", "2.1.322 (Claude Code)\n"), ["PASS version claude: 2.1.322"])
+
+    def test_an_older_version_fails_naming_both(self):
+        line = self.check("agy", "1.4.9\n")[0]
+        self.assertTrue(line.startswith("FAIL version agy: 1.4.9, older than 1.5.5"), line)
+
+    def test_no_version_fails(self):
+        self.assertIn("gave no version (garbled", self.check("codex", "garbled\n")[0])
+        self.assertIn("exit 2", self.check("codex", "", code=2)[0])
+        self.assertIn("could not run", self.check("codex", error=FileNotFoundError(2, "No such file"))[0])
+        self.assertTrue(all(line.startswith("FAIL") for line in self.check("codex", "", code=2)))
 
 
 class ClaimCheckTest(Fixture):
@@ -543,7 +578,9 @@ class ProfileCommandsTest(Fixture):
         self.write_profile(preflight=[{"name": "true", "command": ["true"], "timeout_seconds": 30}])
         git(self.root, "add", "-A")
         git(self.root, "commit", "-qm", "seed")
+        version = lambda profile, report: report.line(True, "version claude", "checked by VersionCheckTest")
         with unittest.mock.patch.object(pre.shutil, "which", lambda name: f"/usr/bin/{name}"), \
+                unittest.mock.patch.object(pre, "check_agent_version", version), \
                 unittest.mock.patch.object(pre, "available_gb", return_value=64.0), \
                 unittest.mock.patch.object(pre, "disk_free_gb", return_value=500.0):
             code, lines = self.run_preflight()

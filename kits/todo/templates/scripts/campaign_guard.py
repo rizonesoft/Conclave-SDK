@@ -223,6 +223,12 @@ def _acquire_locked(root: str, session: str, phase: int | None, run_file: str, c
            # this run however the file is edited.
            "run_id": (previous.get("run_id") if (same_run or (handover and previous.get("run_file") == run_file))
                       and previous.get("run_id") else mint_generation())}
+    # The unattended kit's launcher tags every process of a run (CONCLAVE_UNATTENDED_TAG); the guard keeps the tag of
+    # the run that acquired it, so the launcher can tell its own run's guard for agents whose session id it cannot
+    # choose (Codex, Antigravity).
+    tag = os.environ.get("CONCLAVE_UNATTENDED_TAG")
+    if tag:
+        doc["launch_tag"] = tag
     what = "created"
     if exists:
         owner = str(previous.get("session_id", ""))
