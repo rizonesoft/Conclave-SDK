@@ -156,6 +156,14 @@ class FreshInstall(unittest.TestCase):
         self.git("commit", "-q", "--allow-empty", "-m", message)
         return self.git("rev-parse", "HEAD")
 
+    def test_the_installed_guard_passes_its_self_test_through_every_wired_hook(self):
+        done = subprocess.run([sys.executable, "-B", "scripts/campaign_guard.py", "--self-test"], cwd=str(self.repo),
+                              capture_output=True, text=True, encoding="utf-8", timeout=300)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        for hook_file, decision in ((".claude/settings.json", "block"), (".agents/hooks.json", "continue"),
+                                    (".codex/hooks.json", "block")):
+            self.assertIn(f"self-test: {hook_file}: ok ({decision})", done.stdout)
+
     def run_script(self, *args, say=None):
         git_dir = str(pathlib.Path(shutil.which("git")).parent)
         env = {"PATH": os.pathsep.join([str(self.bin), str(pathlib.Path(sys.executable).parent), git_dir]),

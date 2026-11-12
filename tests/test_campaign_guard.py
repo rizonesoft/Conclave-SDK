@@ -526,6 +526,177 @@ class HeartbeatStill(Workspace):
         self.assertIsNone(guard.read_guard(self.root))
 
 
+TEMPLATES = REPO / "kits" / "todo" / "templates"
+FAKE_HOOK = """import subprocess, sys, time
+mode, pid_file = sys.argv[1], sys.argv[2]
+if mode == "empty":
+    print("{}")
+elif mode == "text":
+    print("not json at all")
+elif mode in ("block", "continue"):
+    print('{"decision": "%s", "reason": "a reason"}' % mode)
+elif mode == "sleep":  # a hook that starts a child and outlives its limit
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    open(pid_file, "w").write(str(child.pid))
+    time.sleep(120)
+"""
+
+
+def process_alive(pid):
+    """Whether a process id is still running, asked of the OS; a process that cannot be inspected raises."""
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            if ctypes.get_last_error() == 87:  # no process has this id
+                return False
+            raise OSError(ctypes.get_last_error(), f"cannot inspect process {pid}")
+        try:
+            code = wintypes.DWORD()
+            kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+            return code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def end_process(pid):
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
+    else:
+        try:
+            os.kill(pid, 9)
+        except ProcessLookupError:
+            pass
+
+
+class SelfTest(unittest.TestCase):
+    """`--self-test`: each hook file's own command, run as its harness runs it, against a throwaway guarded run."""
+
+    FILES = (".claude/settings.json", ".agents/hooks.json", ".codex/hooks.json")
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.project = Path(self._tmp.name) / "project"
+        for rel in ("scripts/campaign_guard.py", "scripts/codex-campaign-hook.py", *self.FILES):
+            (self.project / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(TEMPLATES / rel, self.project / rel)
+        self.fake = Path(self._tmp.name) / "fake_hook.py"
+        self.fake.write_text(FAKE_HOOK, encoding="utf-8")
+        self.pid_file = Path(self._tmp.name) / "child.pid"
+
+    def run_self_test(self, limit=60):
+        code, lines = guard._self_test(str(self.project), limit)
+        workspace = lines[0].split("workspace ", 1)[1]
+        self.assertFalse(os.path.exists(workspace), "the self-test left its workspace behind")
+        return code, lines
+
+    def fake_command(self, mode, markers="campaign_guard.py stop-hook"):
+        return f"{Path(sys.executable).as_posix()} {self.fake.as_posix()} {mode} {self.pid_file.as_posix()} {markers}"
+
+    def set_command(self, hook_file, command):
+        path = self.project / hook_file
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        if hook_file.startswith(".agents"):
+            doc["campaign-guard"]["Stop"][0]["command"] = command
+        else:
+            handler = doc["hooks"]["Stop"][0]["hooks"][0]
+            handler["command"] = command
+            if "commandWindows" in handler:
+                handler["commandWindows"] = command
+        path.write_text(json.dumps(doc), encoding="utf-8")
+
+    def test_a_seeded_install_runs_three_hooks_each_in_its_own_format(self):
+        code, lines = self.run_self_test()
+        self.assertEqual(code, 0, lines)
+        self.assertEqual(lines[1:], ["self-test: .claude/settings.json: ok (block)",
+                                     "self-test: .agents/hooks.json: ok (continue)",
+                                     "self-test: .codex/hooks.json: ok (block)"])
+
+    def test_the_sdks_own_checkout_passes_through_the_command_line(self):
+        proc = subprocess.run([sys.executable, str(REPO / "scripts" / "campaign_guard.py"), "--self-test"],
+                              capture_output=True, text=True, timeout=300)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout.count(": ok ("), 3, proc.stdout)
+
+    def test_a_hook_file_the_project_lacks_is_absent_not_a_failure(self):
+        (self.project / ".codex/hooks.json").unlink()
+        code, lines = self.run_self_test()
+        self.assertEqual(code, 0, lines)
+        self.assertIn("self-test: .codex/hooks.json: absent", lines)
+
+    def test_each_broken_seed_fails_naming_its_file(self):
+        for hook_file in self.FILES:
+            with self.subTest(hook_file):
+                original = (self.project / hook_file).read_text(encoding="utf-8")
+                broken = original.replace("campaign_guard.py", "campaign_guard.py.missing") if "codex" not in hook_file \
+                    else original.replace("codex-campaign-hook.py", "codex-campaign-hook.py.missing")
+                # The marker still names the campaign command; the script it points at does not exist.
+                (self.project / hook_file).write_text(broken, encoding="utf-8")
+                code, lines = self.run_self_test()
+                (self.project / hook_file).write_text(original, encoding="utf-8")
+                self.assertEqual(code, 1, lines)
+                failures = [line for line in lines if "FAIL" in line]
+                self.assertEqual(len(failures), 1, lines)
+                self.assertIn(hook_file, failures[0])
+
+    def test_an_answer_that_is_not_this_agents_decision_fails(self):
+        for mode in ("empty", "text", "block"):  # {} (the Codex wrapper's fail-open), not JSON, Claude Code's decision
+            with self.subTest(mode):
+                self.set_command(".agents/hooks.json", self.fake_command(mode))
+                code, lines = self.run_self_test()
+                self.assertEqual(code, 1, lines)
+                self.assertTrue([line for line in lines if "FAIL .agents/hooks.json" in line and "continue" in line], lines)
+        self.set_command(".codex/hooks.json", self.fake_command("empty", "codex-campaign-hook.py"))
+        self.set_command(".agents/hooks.json", self.fake_command("continue"))
+        code, lines = self.run_self_test()
+        self.assertEqual(code, 1, lines)
+        self.assertTrue([line for line in lines if "FAIL .codex/hooks.json" in line], lines)
+        self.assertIn("self-test: .agents/hooks.json: ok (continue)", lines)
+
+    def test_a_file_with_no_enabled_campaign_command_fails_with_its_reason(self):
+        seed = json.loads((self.project / ".agents/hooks.json").read_text(encoding="utf-8"))
+        hook = seed["campaign-guard"]
+        cases = {
+            "only disabled": ({"campaign-guard": {**hook, "enabled": False}}, 1, "only disabled"),
+            "no campaign command": ({"lint": {"Stop": [{"command": "./lint.sh"}]}}, 1, "no campaign Stop command"),
+            "disabled beside enabled": ({"off": {**hook, "enabled": False}, "on": hook}, 0, "ok (continue)"),
+        }
+        for name, (doc, expected, text) in cases.items():
+            with self.subTest(name):
+                (self.project / ".agents/hooks.json").write_text(json.dumps(doc), encoding="utf-8")
+                code, lines = self.run_self_test()
+                self.assertEqual(code, expected, lines)
+                self.assertTrue([line for line in lines if ".agents/hooks.json" in line and text in line], lines)
+        (self.project / ".agents/hooks.json").write_text("{not json", encoding="utf-8")
+        code, lines = self.run_self_test()
+        self.assertEqual(code, 1)
+        self.assertTrue([line for line in lines if "FAIL .agents/hooks.json" in line and "does not parse" in line], lines)
+
+    def test_a_hook_that_outlives_its_limit_is_ended_with_its_child(self):
+        self.set_command(".agents/hooks.json", self.fake_command("sleep"))
+        began = time.monotonic()
+        code, lines = self.run_self_test(limit=5)
+        elapsed = time.monotonic() - began
+        if self.pid_file.exists():
+            self.addCleanup(end_process, int(self.pid_file.read_text()))
+        self.assertEqual(code, 1, lines)
+        self.assertTrue([line for line in lines if "FAIL .agents/hooks.json" in line and "ran past 5 seconds" in line], lines)
+        self.assertTrue(self.pid_file.exists(), "the fake hook never started its child")
+        self.assertFalse(process_alive(int(self.pid_file.read_text())), "the hook's child outlived the self-test")
+        # Ending only the direct child leaves the rest holding the pipes until their own 120 second sleep ends.
+        self.assertLess(elapsed, 90, "the self-test waited on a process tree it should have ended")
+
+
 class Lifecycle(Workspace):
     def test_acquire_is_exclusive_and_a_handover_is_recorded(self):
         self.assertIn("guard created", self.acquire())

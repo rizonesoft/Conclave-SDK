@@ -13,6 +13,7 @@
     python scripts/campaign_guard.py health --session S --jobs J1,J2
     python scripts/campaign_guard.py expiry --session S [--now ISO]
     python scripts/campaign_guard.py heartbeat-still --session S     (a heartbeat resumption: counts a still, trips, ends a stall)
+    python scripts/campaign_guard.py --self-test                     (run each wired hook file's command against a scratch run)
 
 A campaign run has three parts. The guard file (`build/claude-campaign-guard.json`) names the session that owns the
 run, its phase, run file, heartbeat job and run id; it is written and deleted only through this module, under an
@@ -37,9 +38,12 @@ import json
 import os
 import queue
 import re
+import shutil
+import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -937,6 +941,162 @@ def stop_hook(stdin: str, project_dir: str | None) -> tuple[int, str]:
         return 0, ""
 
 
+SELF_TEST_SECONDS = 60
+SELF_TEST_SESSION = "5e1f7e57-0000-4000-8000-000000000001"
+SELF_TEST_RUN_FILE = "docs/phase-runs/2099-01-01-self-test.md"
+# Each agent's hook file, the decision that holds its session, and what marks the campaign command in it.
+HOOK_FILES = (
+    (".claude/settings.json", "block", ("campaign_guard.py", "stop-hook")),
+    (".agents/hooks.json", "continue", ("campaign_guard.py", "stop-hook")),
+    (".codex/hooks.json", "block", ("codex-campaign-hook.py",)),
+)
+
+
+def _campaign_command(path: str, hook_file: str, markers: tuple) -> str:
+    """The enabled campaign Stop command a hook file holds, as its harness would pick it; a GuardError says why
+    there is none (the file does not parse, holds no campaign command, or holds only a disabled one)."""
+    try:
+        with open(path, encoding="utf-8-sig") as fh:
+            doc = json.load(fh)
+    except (OSError, ValueError) as error:
+        raise GuardError(f"does not parse as a hook file ({error})") from None
+    key = "commandWindows" if hook_file.startswith(".codex") and os.name == "nt" else "command"
+    enabled, disabled = [], []
+    try:
+        if hook_file.startswith(".agents"):  # Antigravity: named hooks, each with a flat Stop list of handlers
+            for hook in doc.values():
+                if isinstance(hook, dict) and isinstance(hook.get("Stop"), list):
+                    found = [h.get("command") for h in hook["Stop"] if isinstance(h, dict)]
+                    (disabled if hook.get("enabled", True) is False else enabled).extend(found)
+        else:  # Claude Code and Codex: hooks.Stop[].hooks[]
+            for entry in doc.get("hooks", {}).get("Stop", []):
+                enabled.extend(h.get(key) or h.get("command") for h in entry.get("hooks", []))
+    except (AttributeError, TypeError) as error:
+        raise GuardError(f"is not in its agent's hook file shape ({error})") from None
+
+    def campaign(commands):
+        return [c for c in commands if isinstance(c, str) and all(m in c for m in markers)]
+
+    if campaign(enabled):
+        return campaign(enabled)[0]
+    if campaign(disabled):
+        raise GuardError("holds the campaign Stop hook only disabled (\"enabled\": false)")
+    raise GuardError("holds no campaign Stop command")
+
+
+def _run_wired(command: str, hook_file: str, workspace: str, payload: str, limit: float) -> tuple[int | None, str]:
+    """Run one hook command the way its harness does and return (exit, stdout); exit None means it ran past `limit`
+    and its whole process tree was ended. Claude Code: Git Bash on Windows (`sh` elsewhere) with CLAUDE_PROJECT_DIR
+    set. Antigravity: the system shell (`cmd /c` on Windows) from `.agents/`, no CLAUDE_PROJECT_DIR. Codex: the
+    system shell from the project root."""
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PROJECT_DIR"}
+    cwd, args, shell = workspace, command, True
+    if hook_file.startswith(".claude"):
+        env["CLAUDE_PROJECT_DIR"] = workspace
+        bash = "/bin/sh"
+        if os.name == "nt":
+            git = shutil.which("git")
+            candidate = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(git))), "bin", "bash.exe") if git else ""
+            bash = candidate if os.path.isfile(candidate) else ""
+        if bash:
+            args, shell = [bash, "-c", command], False
+        elif os.name == "nt":
+            args, shell = ["powershell.exe", "-NoProfile", "-Command", command], False
+    elif hook_file.startswith(".agents"):
+        cwd = os.path.join(workspace, ".agents")
+    group: dict = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
+    proc = subprocess.Popen(args, shell=shell, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", **group)
+    try:
+        out, _err = proc.communicate(payload, timeout=limit)
+    except subprocess.TimeoutExpired:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+        else:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:  # the group ended between the timeout and the kill
+                pass
+        proc.communicate()
+        return None, ""
+    return proc.returncode, out
+
+
+def _self_test(project: str = REPO, limit: float = SELF_TEST_SECONDS) -> tuple[int, list[str]]:
+    """Drive each hook file this project has through its own wired command, as its harness would, against a
+    throwaway workspace with a guard held: `(exit, report lines)`. Unit tests call `stop_hook` directly, so a hook
+    file with a wrong command passes them; this fails naming the file. It tests the wiring only, needs no agent
+    installed, and removes its workspace whatever happens."""
+    lines: list[str] = []
+    failed = False
+    with tempfile.TemporaryDirectory(prefix="campaign-self-test-") as tmp:
+        workspace = os.path.join(tmp, "ws")
+        lines.append(f"self-test: workspace {workspace}")
+        for folder in ("scripts", "build", os.path.dirname(SELF_TEST_RUN_FILE)):
+            os.makedirs(os.path.join(workspace, folder))
+        for script in ("campaign_guard.py", "codex-campaign-hook.py"):
+            if os.path.isfile(os.path.join(project, "scripts", script)):
+                shutil.copyfile(os.path.join(project, "scripts", script), os.path.join(workspace, "scripts", script))
+        with open(os.path.join(workspace, "scripts", "todo-graph.py"), "w", encoding="utf-8") as fh:
+            fh.write("import json\nprint(json.dumps([{'ref': 'D00 T01 \\u00a71', 'title': 'Self-test row', 'phase': 0}]))\n")
+        with open(os.path.join(workspace, SELF_TEST_RUN_FILE), "w", encoding="utf-8") as fh:
+            fh.write("# Phase run: self-test\n")
+        with open(os.path.join(workspace, ".gitignore"), "w", encoding="utf-8") as fh:
+            fh.write("build/\n")
+        present = []
+        for hook_file, decision, markers in HOOK_FILES:
+            source = os.path.join(project, hook_file)
+            if not os.path.isfile(source):
+                lines.append(f"self-test: {hook_file}: absent")
+                continue
+            os.makedirs(os.path.dirname(os.path.join(workspace, hook_file)), exist_ok=True)
+            shutil.copyfile(source, os.path.join(workspace, hook_file))
+            present.append((hook_file, decision, markers))
+        for args in (["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"],
+                     ["config", "commit.gpgsign", "false"], ["add", "-A"], ["commit", "-qm", "self-test"]):
+            subprocess.run(["git", *args], cwd=workspace, capture_output=True, check=True, timeout=60)
+        acquire(workspace, SELF_TEST_SESSION, 0, SELF_TEST_RUN_FILE, "self-test")
+        forward = workspace.replace("\\", "/")
+        for hook_file, decision, markers in present:
+            try:
+                command = _campaign_command(os.path.join(workspace, hook_file), hook_file, markers)
+            except GuardError as error:
+                failed = True
+                lines.append(f"self-test: FAIL {hook_file}: {error}")
+                continue
+            if hook_file.startswith(".agents"):
+                payload = {"conversationId": SELF_TEST_SESSION, "workspacePaths": [forward], "cwd": workspace,
+                           "hookEventName": "Stop", "fullyIdle": True, "terminationReason": "NO_TOOL_CALL"}
+            else:
+                payload = {"session_id": SELF_TEST_SESSION, "cwd": workspace, "hook_event_name": "Stop"}
+            _remove_state(workspace)  # each hook is the run's first push, so none meets the stall breaker
+            code, out = _run_wired(command, hook_file, workspace, json.dumps(payload), limit)
+            try:
+                answer = json.loads(out.strip().splitlines()[-1]) if out.strip() else None
+            except ValueError:
+                answer = "not JSON"
+            if code is None:
+                problem = f"ran past {limit:g} seconds; its process tree was ended"
+            elif code != 0:
+                problem = f"exited {code}"
+            elif not (isinstance(answer, dict) and answer.get("decision") == decision and answer.get("reason")):
+                shown = out.strip()[:120] or "nothing"
+                problem = f"answered {shown} for a guarded session, not a \"{decision}\" decision with a reason"
+            else:
+                lines.append(f"self-test: {hook_file}: ok ({decision})")
+                continue
+            failed = True
+            lines.append(f"self-test: FAIL {hook_file}: its Stop command {problem}")
+    return (1 if failed else 0), lines
+
+
+def _remove_state(root: str) -> None:
+    try:
+        os.unlink(_paths(root)[1])
+    except FileNotFoundError:  # no state yet: there is nothing to remove
+        pass
+
+
 def _opts(argv: list[str]) -> dict:
     out: dict = {}
     i = 0
@@ -953,6 +1113,10 @@ def main(argv: list[str]) -> int:
         code, out = stop_hook(sys.stdin.read(), os.environ.get("CLAUDE_PROJECT_DIR"))
         if out:
             print(out)
+        return code
+    if argv == ["--self-test"]:
+        code, lines = _self_test()
+        print("\n".join(lines))
         return code
     if not argv:
         print(__doc__.split("\n\n")[1], file=sys.stderr)
