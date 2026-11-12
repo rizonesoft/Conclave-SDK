@@ -2960,6 +2960,9 @@ class UnattendedKitTests(unittest.TestCase):
 
     def test_the_documents_name_the_kit_and_the_sdk_does_not_install_it(self):
         self.assertNotIn("unattended", forge.SELF_KITS)
+        doctor = next(line for line in forge.__doc__.splitlines() if "forge.py doctor" in line)
+        for kit in forge.KIT_ORDER:
+            self.assertIn(kit, doctor, "the doctor usage line omits a kit")
         for doc in ("README.md", "kits/README.md", "AGENTS.md"):
             text = (FORGE_ROOT / doc).read_text(encoding="utf-8")
             self.assertIn("unattended", text, doc)

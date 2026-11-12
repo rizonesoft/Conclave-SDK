@@ -7,7 +7,7 @@
     python forge.py update <target> [kit] [--only <path>]... [--no-scripts] [--kit-new] [--dry-run]
     python forge.py record <target> [kit] [--merged <path>]... [--dry-run]
     python forge.py drift [--projects <file>]
-    python forge.py doctor <target> [laravel|wordpress|reviewer|automations|todo|base] [--strict]
+    python forge.py doctor <target> [base|todo|reviewer|automations|unattended|laravel|wordpress] [--strict]
     python forge.py kits
     python forge.py check <target>
     python forge.py self-sync
