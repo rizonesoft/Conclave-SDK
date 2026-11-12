@@ -1,0 +1,86 @@
+# The SDK's test suites, run in CI so the local loop stays fast (AGENTS.md, "Test cadence"): the quick suite on
+# Windows, the full suite (the quick suite plus the stamp tests and the reviewer kit's suite) on Linux, and every
+# kit's own suite on Linux, where tmux lets the unattended kit's run tests run. A newer push cancels an older run of
+# the same branch. scripts/ci_status.py reads these runs at every section boundary; a red main comes first.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quick-windows:
+    name: quick suite (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Git identity for the tests' own repositories
+        run: |
+          git config --global user.email ci@example.invalid
+          git config --global user.name ci
+      - name: Quick suite
+        run: python -m unittest discover -s tests
+
+  full-linux:
+    name: full suite (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CONCLAVE_FULL_TESTS: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: tmux and a Git identity
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q tmux
+          git config --global user.email ci@example.invalid
+          git config --global user.name ci
+      - name: Full suite
+        run: python -m unittest discover -s tests
+
+  kits-linux:
+    name: kit suites (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: tmux and a Git identity
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q tmux
+          git config --global user.email ci@example.invalid
+          git config --global user.name ci
+      - name: Each kit's own tests, and the SDK's installed copy of them
+        run: |
+          status=0
+          for suite in kits/*/templates/scripts/tests scripts/tests; do
+            echo "::group::$suite"
+            python -B -m unittest discover -s "$suite" || status=1
+            echo "::endgroup::"
+          done
+          exit $status
