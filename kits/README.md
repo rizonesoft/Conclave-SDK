@@ -2,13 +2,14 @@
 
 Reusable stack and agent overlays that Conclave-SDK copies into a new or existing repository for **Gemini / Antigravity (`.agents/`)**, **Claude Code (`.claude/`)**, and **OpenAI Codex (`.codex/`)**. They do not scaffold an application. They do not install global binaries. Each kit is additive: existing files stay byte-for-byte.
 
-Install **base** on every project (or run `python forge.py init <target>`). Add **todo** where work is planned in TODO files and **reviewer** where work gets independent review. Then install the stack kit that matches the app.
+Install **base** on every project (or run `python forge.py init <target>`). Add **todo** where work is planned in TODO files and **reviewer** where work gets independent review. Add **unattended** (after **todo**) where a `process-plan` run should keep going with nobody at the keyboard: it is being built in `todo/02-unattended/TODO-02-unattended-kit.md`, and the SDK does not install it in itself. Then install the stack kit that matches the app.
 
 ```powershell
 # Cross-platform via forge.py (supports --agent all|gemini|agy|claude|codex)
 python forge.py kit /path/to/project base
 python forge.py kit /path/to/project todo
 python forge.py kit /path/to/project reviewer
+python forge.py kit /path/to/project unattended   # after todo; runs in Linux or WSL (tmux)
 python forge.py kit /path/to/laravel-project laravel
 python forge.py kit /path/to/wordpress-project wordpress --host pressable   # or --host wpcom
 python forge.py doctor /path/to/project

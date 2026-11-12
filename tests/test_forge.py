@@ -2893,6 +2893,81 @@ class ForceBackupTests(KitFixture, unittest.TestCase):
             self.assertIn(step, readme)
 
 
+class UnattendedKitTests(unittest.TestCase):
+    """The unattended kit's skeleton: known to forge.py, installed, detected and doctored (D02 T02 §1)."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.target = pathlib.Path(self._tmp.name) / "project"
+        self.target.mkdir()
+
+    def checks(self, target=None):
+        return {c["name"]: c for c in forge.doctor_repo(target or self.target, "unattended")["checks"]}
+
+    def test_the_kit_is_listed_installs_its_module_and_imports_schema_1(self):
+        self.assertIn("unattended", forge.list_kits())
+        result = forge.apply_kit(self.target, "unattended")
+        self.assertIn("scripts/lib/unattended.py", result["installed"])
+        spec = importlib.util.spec_from_file_location("installed_unattended", self.target / "scripts/lib/unattended.py")
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertEqual(module.SCHEMA_VERSION, 1)
+
+    def test_it_sits_after_automations_and_init_writes_todo_first(self):
+        order = list(forge.KIT_ORDER)
+        self.assertEqual(order.index("unattended"), order.index("automations") + 1)
+        written = forge.provision(self.target, kits=["unattended", "todo"])["written"]
+        self.assertLess(written.index("scripts/todo-graph.py"), written.index("scripts/lib/unattended.py"))
+
+    def test_it_is_detected_after_a_real_install_and_not_before(self):
+        self.assertNotIn("unattended", forge.check_repo(self.target)["kits"])
+        code = forge.main(["kit", str(self.target), "unattended"])
+        self.assertEqual(code, 0)
+        self.assertIn("unattended", forge.check_repo(self.target)["kits"])
+
+    def doctor(self, system):
+        found = []
+        forge._doctor_unattended(self.target, lambda name, status, detail: found.append(
+            {"name": name, "status": status, "detail": detail}), system=system)
+        return {c["name"]: c for c in found}
+
+    def test_the_doctor_reads_files_the_todo_kit_and_tmux(self):
+        forge.apply_kit(self.target, "todo")
+        forge.apply_kit(self.target, "unattended")
+        with unittest.mock.patch.object(forge.shutil, "which", return_value="/usr/bin/tmux"):
+            checks = self.doctor("posix")
+        self.assertEqual(checks["scripts/lib/unattended.py"]["status"], "ok")
+        self.assertEqual(checks["todo-kit"]["status"], "ok")
+        self.assertEqual(checks["tmux"], {"name": "tmux", "status": "ok", "detail": "/usr/bin/tmux"})
+        with unittest.mock.patch.object(forge.shutil, "which", return_value=None):
+            tmux = self.doctor("posix")["tmux"]
+        self.assertEqual(tmux["status"], "setup_required")
+        self.assertIn("apt install tmux", tmux["detail"])
+        tmux = self.doctor("nt")["tmux"]
+        self.assertEqual(tmux["status"], "setup_required")
+        self.assertIn("WSL", tmux["detail"])
+        self.assertIn("tmux", self.checks())  # doctor_repo reaches the branch on this machine too
+        (self.target / "scripts/lib/unattended.py").unlink()
+        self.assertEqual(self.checks()["scripts/lib/unattended.py"]["status"], "missing")
+    def test_a_project_without_the_todo_kit_needs_it(self):
+        forge.apply_kit(self.target, "unattended")
+        todo = self.checks()["todo-kit"]
+        self.assertEqual(todo["status"], "setup_required")
+        self.assertIn("kit", todo["detail"])
+        self.assertIn("todo", todo["detail"])
+
+    def test_the_documents_name_the_kit_and_the_sdk_does_not_install_it(self):
+        self.assertNotIn("unattended", forge.SELF_KITS)
+        for doc in ("README.md", "kits/README.md", "AGENTS.md"):
+            text = (FORGE_ROOT / doc).read_text(encoding="utf-8")
+            self.assertIn("unattended", text, doc)
+            for line in text.splitlines():
+                if line.startswith("|") and "unattended" in line:
+                    self.assertLessEqual(len(line), 120, (doc, line))
+
+
 class ProcessPlanAuditTests(unittest.TestCase):
     """process-plan's audit runs the kits' tests and the project's own: neither replaces the other (a project such as
     a project may keep its script tests in tests/scripts, where kits install theirs under scripts/tests)."""

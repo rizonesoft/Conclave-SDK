@@ -154,7 +154,8 @@ AUTOMATIONS_DIR = ".conclave/automations"
 AUTOMATIONS_SCRIPTS = tuple(f"{AUTOMATIONS_DIR}/{name}" for name in ("run.py", "alert.py", "install.ps1", "install.sh"))
 
 
-KIT_ORDER = ("base", "todo", "reviewer", "automations", "laravel", "wordpress")
+UNATTENDED_MODULE = "scripts/lib/unattended.py"
+KIT_ORDER = ("base", "todo", "reviewer", "automations", "unattended", "laravel", "wordpress")
 BASE_SKILLS = ("authoring-skills", "local-tool-safety")
 AGENT_DIRS = (".agents", ".claude", ".codex")
 # A kit's version of a file the project changed, written beside it by `update --kit-new` for a hand merge, and the
@@ -184,6 +185,8 @@ def installed_kits(target_root: Path) -> list[str]:
         found.append("reviewer")
     if any_skill(("scheduled-automations",)) or (target_root / AUTOMATIONS_DIR / "run.py").is_file():
         found.append("automations")
+    if (target_root / UNATTENDED_MODULE).is_file() or (target_root / "scripts/unattended-run.py").is_file():
+        found.append("unattended")
     if any_skill(("laravel-boost",)) or (target_root / "scripts/lsp-diagnostics.py").is_file():
         found.append("laravel")
     if (target_root / WORDPRESS_PIN).is_file() or any_skill(("wordpress-site-safety", "wordpress-connect")):
@@ -1281,6 +1284,24 @@ def _doctor_reviewer(target_root: Path, add_check) -> None:
                       f"{reviewer['model']} via {found}" if found else f"{reviewer['cli']} CLI not installed; a round routed to this reviewer has no review")
 
 
+def _doctor_unattended(target_root: Path, add_check, system: str | None = None) -> None:
+    """The unattended kit's files, the todo kit it runs under (the run guard), and tmux, which holds the run: it
+    exists on Linux and in WSL only, so on Windows the kit runs in WSL."""
+    templates = FORGE_ROOT / "kits/unattended/templates"
+    for src in sorted(p for p in templates.rglob("*") if p.is_file() and "__pycache__" not in p.parts):
+        rel = src.relative_to(templates).as_posix()
+        path = target_root / rel
+        add_check(rel, "ok" if path.is_file() else "missing", path.as_posix())
+    guard = target_root / "scripts/campaign_guard.py"
+    add_check("todo-kit", "ok" if guard.is_file() else "setup_required",
+              guard.as_posix() if guard.is_file() else f"install the todo kit first: python forge.py kit {target_root.as_posix()} todo")
+    if (system or os.name) == "nt":
+        add_check("tmux", "setup_required", "tmux runs on Linux and in WSL only: run the unattended kit in WSL (wsl.exe)")
+        return
+    tmux = shutil.which("tmux")
+    add_check("tmux", "ok" if tmux else "setup_required", tmux or "install tmux (sudo apt install tmux)")
+
+
 def _doctor_automations(target_root: Path, add_check) -> None:
     """Read-only automations checks: the task list loads under the runner's own rules, names its folder and only
     scripts that exist, and this machine has the scheduler the installers drive."""
@@ -1456,6 +1477,8 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
         _doctor_reviewer(target_root, add_check)
     elif kit_name == "automations":
         _doctor_automations(target_root, add_check)
+    elif kit_name == "unattended":
+        _doctor_unattended(target_root, add_check)
     elif kit_name == "todo":
         for agent_dir in (".agents", ".claude", ".codex"):
             for skill in TODO_SKILLS:
@@ -1661,14 +1684,14 @@ def main(argv: list[str] | None = None) -> int:
     p_init = sub.add_parser("init", help="Install the base kit plus only the kits named with --kit")
     p_init.add_argument("target", help="Target repository path")
     p_init.add_argument("--agent", choices=AGENT_CHOICES, default="all")
-    p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, reviewer, automations, laravel, wordpress)")
+    p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, reviewer, automations, unattended, laravel, wordpress)")
     p_init.add_argument("--wp-host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
     p_init.add_argument("--no-scripts", action="store_true", help="Leave out the kits' scripts/ files")
     p_init.add_argument("--with-todo", action="store_true", help="Shorthand for --kit todo")
     p_init.add_argument("--force", action="store_true",
                         help="Replace AGENTS.md, GEMINI.md, CLAUDE.md and CODEX.md with the kit's, keeping each replaced one as <name>.replaced")
 
-    p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, todo, reviewer, automations, laravel, wordpress) to a target repo")
+    p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, todo, reviewer, automations, unattended, laravel, wordpress) to a target repo")
     p_kit.add_argument("target", help="Target repository path")
     p_kit.add_argument("kit_name", choices=list_kits(), help="Kit name to apply")
     p_kit.add_argument("--agent", choices=AGENT_CHOICES, default="all", help="Install kit files for all agents or one agent")
