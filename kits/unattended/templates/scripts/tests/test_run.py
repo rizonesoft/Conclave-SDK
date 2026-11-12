@@ -1736,6 +1736,25 @@ class KillWaitTest(unittest.TestCase):
             self.assertEqual(run.end_run_processes("tag-1", None, grace=2), [])
         self.assertIn("at", killed, "the process was never sent SIGKILL")
 
+    @unittest.skipUnless(hasattr(signal, "SIGKILL"), "SIGKILL is POSIX")
+    def test_a_killed_group_leader_not_yet_reaped_is_waited_for(self):
+        # 2026-11-13, CI and WSL: the group was read once, right after SIGKILL, while its killed leader waited to be
+        # reaped, so a clean stop or resume reported a survivor. Simulated clock: the group goes 2 s after the kill.
+        run = load_run_module()
+        clock, killed = {"now": 0.0}, {}
+
+        def group_alive(_pgid):
+            return not ("at" in killed and clock["now"] - killed["at"] >= 2)
+
+        def sleep(seconds):
+            clock["now"] += seconds
+        with unittest.mock.patch.object(run, "tagged", lambda _session: []), \
+                unittest.mock.patch.object(run, "_group_alive", group_alive), \
+                unittest.mock.patch.object(run.os, "killpg", lambda pgid, sig: killed.setdefault("at", clock["now"])), \
+                unittest.mock.patch.object(run.time, "monotonic", lambda: clock["now"]), \
+                unittest.mock.patch.object(run.time, "sleep", sleep):
+            self.assertEqual(run.end_run_processes("tag-1", 4242, grace=2), [])
+
 
 class DescribeTest(unittest.TestCase):
     @unittest.skipUnless(os.path.isdir("/proc/self"), "/proc is Linux's")

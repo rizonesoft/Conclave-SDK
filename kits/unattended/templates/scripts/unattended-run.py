@@ -71,8 +71,9 @@ TAG = "CONCLAVE_UNATTENDED_TAG"
 # The preflight's own checks (git, the guard self-test, Codex trust), on top of the profile's checks' own timeouts.
 PREFLIGHT_SLACK_SECONDS = 900
 STOP_GRACE_SECONDS = 10
-# How long a process sent SIGKILL is waited for: it dies only once it leaves uninterruptible I/O, which on WSL's /mnt
-# under load took longer than STOP_GRACE_SECONDS (2026-11-12, a resume refused with the crashed run's child dying).
+# How long a process or group sent SIGKILL is waited for: a process dies only once it leaves uninterruptible I/O, and
+# a killed group leader stays in its group until tmux reaps it. (The resume refused on 2026-11-12 was the second: the
+# group was not waited for at all; see end_run_processes.)
 KILL_WAIT_SECONDS = 30
 # How long `stop` tries to record the run's end (state, health, notice) itself before handing it to the heartbeat.
 STOP_RECORD_SECONDS = 10
@@ -306,7 +307,9 @@ def end_run_processes(session: str, pgid: int | None, grace: float = STOP_GRACE_
     # SIGKILL lands only once a process leaves uninterruptible I/O (slow under load, as on WSL's /mnt), so the wait
     # after it is KILL_WAIT_SECONDS whatever the polite wait was; a killed process cannot do more work meanwhile.
     deadline = time.monotonic() + max(grace, KILL_WAIT_SECONDS)
-    while tagged(session) and time.monotonic() < deadline:
+    # The group too: a killed leader stays in it until its parent (tmux) reaps it, a moment after the kill; read as
+    # alive at once, it made a clean stop or resume report a survivor (CI and WSL, 2026-11-13).
+    while (tagged(session) or (pgid and _group_alive(pgid))) and time.monotonic() < deadline:
         time.sleep(0.2)
     return tagged(session) + ([pgid] if pgid and _group_alive(pgid) else [])
 
