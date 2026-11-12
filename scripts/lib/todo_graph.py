@@ -668,10 +668,12 @@ def three_pass_ok(root, data, ref, found):
                 f"the {newer_name} must run after the {older_name}, on a candidate at or after it: {ref}")
     require(chain[-1][1]["candidate"] == sha,
             f"the last review ({chain[-1][0]}) reviewed {chain[-1][1]['candidate']}, not the stamped commit {sha}: {ref}")
+    # The promise the stamp holds is the stamped candidate's: it must be the one the failed completion reviewed. A
+    # reconciliation whose candidate changed it returns gaps for that and a later one may restore it, so the
+    # candidates in between are not held to it (D02 T02 §5, 2026-11-12).
     promised = section_contract(root, completion["candidate"], ref)
-    for entry in passed:
-        require(section_contract(root, entry["candidate"], ref) == promised,
-                f"the section's contract changed between the failed completion and its reconciliation: {ref}")
+    require(not passed or section_contract(root, sha, ref) == promised,
+            f"the section's contract changed between the failed completion and its reconciliation: {ref}")
 
 
 def receipt_data_ok(data, ref, stamp_sha, root=None, building=False, commits=None, surface=None):

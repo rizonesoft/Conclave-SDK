@@ -1944,6 +1944,23 @@ class ThreePassStamp(Stamp):
         self.passed("reconciliation", narrowed)
         self.stamp3_refuses(narrowed, "the section's contract changed", verdict="reconciled")
 
+    def test_a_promise_narrowed_in_one_reconciliation_and_restored_in_the_next_stamps(self):
+        # D02 T02 §5 (2026-11-12): reconciliation 1 restated a checkpoint, returned gaps for it, and reconciliation 2
+        # restored it byte for byte; the stamp still refused, checking every reconciliation's candidate.
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        self.passed("plan", self.start)
+        self.tick_work()
+        sha = self.build()
+        self.passed("round", sha)
+        self.passed("completion", sha, "P2", True)
+        text = todo.read_text(encoding="utf-8")
+        todo.write_text(text.replace("- [x] Work.", "- [x] Work, but less of it.", 1), encoding="utf-8")
+        narrowed = self.commit("narrow the section")
+        self.passed("reconciliation", narrowed, "P1", True)
+        todo.write_text(text, encoding="utf-8")
+        restored = self.commit("restore the promise")
+        self.passed("reconciliation", restored)
+        self.stamp3(restored, verdict="reconciled")
     def test_a_complete_footer_never_overrides_a_blocking_finding(self):
         # Round 1 of D00 T01 §3: HIGHEST: P1 then COMPLETION: complete stamped as complete.
         with self.subTest("completion"):
