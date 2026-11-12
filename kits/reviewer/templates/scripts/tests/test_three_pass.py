@@ -204,7 +204,7 @@ class Chain(ThreePass):
         self.ok("plan", self.base)
         built = self.commit("build", {"src/app/a.py": "x = 1\n"})
         lock = self.lock_path(self.record)
-        live = f"12345 {time.time() + 1800:.0f} feedfeedfeedfeed"
+        live = f"{os.getpid()} {time.time() + 1800:.0f} feedfeedfeedfeed"  # a live owner: this test process
         lock.write_text(live, encoding="ascii")
         # The running review's own expiry decides, not this launch's timeout.
         self.refused("round", built, "is already running", extra=("--timeout", "1"))
@@ -237,10 +237,25 @@ class Chain(ThreePass):
         os.utime(lock, (old, old))
         self.ok("completion", built)
 
+    def test_a_lock_whose_owner_was_killed_is_taken_over_before_its_expiry(self):
+        # 2026-11-12: a dispatch ended with taskkill /F never released its lock, and the section's next pass was
+        # refused for the rest of the dead run's half-hour expiry.
+        self.ok("plan", self.base)
+        built = self.commit("build", {"src/app/a.py": "x = 1\n"})
+        gone = subprocess.Popen([sys.executable, "-c", "pass"])
+        gone.wait()
+        lock = self.lock_path(self.record)
+        lock.write_text(f"{gone.pid} {time.time() + 1800:.0f} feedfeedfeedfeed", encoding="ascii")
+        self.ok("round", built)
+        self.assertFalse(lock.exists())
+        # A lock that cannot be read is still believed: no owner can be checked.
+        lock.write_text("garbage", encoding="ascii")
+        self.refused("completion", built, "is already running")
+
     def test_a_review_outside_a_section_takes_no_lock(self):
         self.record = self.repo / "docs/reviews/topic.md"
         other = self.lock_path(self.record)
-        other.write_text(f"12345 {time.time() + 1800:.0f} feedfeedfeedfeed", encoding="ascii")
+        other.write_text(f"{os.getpid()} {time.time() + 1800:.0f} feedfeedfeedfeed", encoding="ascii")
         self.ok("round", None)
 
     def test_a_completion_that_is_complete_takes_no_reconciliation(self):

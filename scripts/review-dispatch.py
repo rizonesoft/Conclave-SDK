@@ -910,6 +910,43 @@ def _lock_expiry(path):
             return None
 
 
+def _lock_owner_dead(path):
+    """True only when the lock at `path` names a process that is certainly gone: a run killed outright (taskkill /F,
+    SIGKILL) never releases its lock, and its section would otherwise wait out the whole expiry. A lock that cannot
+    be read, or a process id that is alive or reused, is believed (the expiry still frees it)."""
+    try:
+        pid = int(path.read_text(encoding="ascii", errors="replace").split()[0])
+    except (IndexError, ValueError, OSError):
+        return False
+    if pid <= 0 or pid == os.getpid():
+        return False
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ctypes.get_last_error() == 87  # ERROR_INVALID_PARAMETER: no process has this id
+        try:
+            code = wintypes.DWORD()
+            kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return False
+            return code.value != 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False  # alive, owned by another user
+    return False
+
+
 def release_section(path, owned):
     """Remove the lock at `path` only while it still holds what this process wrote: never another run's lock."""
     try:
@@ -927,16 +964,17 @@ def lock_section(record_path, timeout):
     under it, so a second launch of the same pass sees the first one's record instead of spending another review.
 
     The owner writes its own expiry into the lock (its start, its own `--timeout` and a grace period), so a later
-    launch with a shorter timeout cannot decide a live review is dead. Only a lock past the expiry its owner wrote
-    is taken over, by one process at a time (a second, exclusive takeover file), and a process releases only the
-    lock it wrote, when it exits."""
+    launch with a shorter timeout cannot decide a live review is dead; a lock whose owner process is certainly gone
+    (killed outright, so it never released) is taken over at once. Only such a lock, or one past the expiry its
+    owner wrote, is taken over, by one process at a time (a second, exclusive takeover file), and a process
+    releases only the lock it wrote, when it exits."""
     path = section_lock_path(record_path)
     owned = f"{os.getpid()} {time.time() + timeout + LOCK_GRACE_SECONDS:.0f} {os.urandom(8).hex()}"
     busy = Refused(f"another review of {record_path} is already running (lock {path}); a section takes one pass at "
                    f"a time")
     if not _create_exclusive(path, owned):
         expiry = _lock_expiry(path)
-        if expiry is not None and time.time() <= expiry:
+        if expiry is not None and time.time() <= expiry and not _lock_owner_dead(path):
             raise busy
         takeover = path.with_name(path.name + ".takeover")
         if not _create_exclusive(takeover, owned):
@@ -950,7 +988,7 @@ def lock_section(record_path, timeout):
         try:
             # Looked at again under the takeover: the lock may have been replaced since it was first read.
             expiry = _lock_expiry(path)
-            if expiry is not None and time.time() <= expiry:
+            if expiry is not None and time.time() <= expiry and not _lock_owner_dead(path):
                 raise busy
             path.unlink(missing_ok=True)
             if not _create_exclusive(path, owned):
