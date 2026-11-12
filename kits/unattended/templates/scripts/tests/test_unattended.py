@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import unittest
+import unittest.mock
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 TEMPLATES = SCRIPTS.parent
@@ -183,6 +184,30 @@ class LoadProfileTest(unittest.TestCase):
         for key in ("model", "effort", "branch", "prompt_file"):
             with self.subTest(key=key):
                 self.assertIn("NUL", self.refused(key, self.with_(**{key: self.profile[key] + "\0x"})))
+
+    def denied(self, name):
+        """Path.read_bytes raising PermissionError for one file, as an unreadable file does on any system."""
+        real = Path.read_bytes
+
+        def read_bytes(path):
+            if path.name == name:
+                raise PermissionError(13, "Permission denied", str(path))
+            return real(path)
+        return unittest.mock.patch.object(Path, "read_bytes", read_bytes)
+
+    def test_a_profile_that_cannot_be_read_is_refused(self):
+        self.write(self.profile)
+        with self.denied("unattended.json"):
+            with self.assertRaises(unattended.ProfileError) as caught:
+                unattended.load_profile(self.root)
+        self.assertIn("not readable", str(caught.exception))
+        self.assertIn("Permission denied", str(caught.exception))
+
+    def test_a_prompt_that_cannot_be_read_is_refused(self):
+        self.write(self.profile)
+        with self.denied("run-prompt.md"):
+            message = self.refused("prompt_file")
+        self.assertIn("Permission denied", message)
 
     def test_the_prompt_file_must_be_a_readable_text_file(self):
         (self.root / "docs" / "folder.md").mkdir()
