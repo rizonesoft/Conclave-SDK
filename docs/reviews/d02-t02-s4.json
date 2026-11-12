@@ -1,0 +1,84 @@
+{
+  "ref": "D02 T02 \u00a74",
+  "title": "Launch lock and claim",
+  "implementation_sha": "70bcee7677c393ac9767ed0122c18796aeea51a7",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-unattended/D02-T02-s4.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s kits/unattended/templates/scripts/tests -> OK (77; all run in WSL)",
+    "python -m unittest discover -s tests -> OK"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-unattended/D02-T02-s4.md",
+    "verdict": "complete",
+    "candidate": "70bcee7677c393ac9767ed0122c18796aeea51a7",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/02-unattended/D02-T02-s4.md",
+    "candidate": "0807d6f92edd38c243da1129b403d54ee66d8394",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "0807d6f92edd38c243da1129b403d54ee66d8394",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}

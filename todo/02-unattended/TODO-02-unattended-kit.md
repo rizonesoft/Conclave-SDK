@@ -38,7 +38,7 @@ title: "TODO-02 -- Unattended kit"
 | 1 | §1 | Unattended kit known to `forge.py` | -- | [x] |
 | 2 | §2 | Run profile `.conclave/unattended.json` and its loader | §1 | [x] |
 | 3 | §3 | Preflight with a PASS or FAIL line per precondition | §2 | [x] |
-| 4 | §4 | Launch lock and claim | §2 | [ ] |
+| 4 | §4 | Launch lock and claim | §2 | [x] |
 | 5 | §5 | Launcher for a Claude Code run under tmux | §3, §4 | [ ] |
 | 6 | §6 | Launch commands for Codex and Antigravity | §5, T01 §2, T01 §3 | [ ] |
 | 7 | §7 | Heartbeat that restarts a dead run and nudges an idle one | §5 | [ ] |
@@ -155,9 +155,12 @@ Two launches at once would start two agents on one tree. A lock held for the lau
 - [x] Add `read_claim(root)` to `lib/unattended.py`, returning the claim, whether it is live and why: live means its tmux session exists, stale means tmux itself says it does not (`can't find session`, `no server running`), and unknown means tmux could not be asked (missing, timed out, a socket it cannot reach), which is never read as stale. A claim that is not JSON or lacks a key reads as stale with the reason. Done when: tests cover no claim, a live claim, a claim whose session is gone, a malformed file and a lookup that fails (unknown), and a real tmux session in WSL. **Corrected 2026-11-12 (plan review):** a failed lookup must not let another launch in.
 - [x] Add `clear_claim(root, session)` to `lib/unattended.py`, removing the claim only when it is stale or belongs to `session`, the run being stopped, and never one whose liveness is unknown or that was replaced after it was read. Done when: tests find a live claim of another session untouched and a refusal naming it, an unknown one refused, the owner's own and a stale claim removed (read back from the disk), a claim replaced between the read and the removal left in place, and a second clear of an absent claim a no-op. **Corrected 2026-11-12 (plan review):** the owner is passed explicitly.
 - [x] Add the claim check to `unattended-preflight.py`: no other live launch claim, read with `read_claim`. Done when: tests find PASS with no claim, FAIL naming the session for a live claim of another session, PASS with the reason for a stale claim, PASS for the resumed run's own live claim (`--resume-session`), and FAIL for a claim whose liveness is unknown. **Corrected 2026-11-12:** moved here from §3, which runs before the claim exists.
-- [ ] Commit: `unattended: launch lock and claim`
+- [x] Commit: `unattended: launch lock and claim`
 
 **Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` ends `OK`; making `read_claim` call every claim live makes the stale-claim test fail.
+
+> **Verified:** 2026-11-12 | §4 | 70bcee7677c393ac9767ed0122c18796aeea51a7
+> **Review:** `docs/reviews/d02-t02-s4.json`
 
 ## 5. Launcher for a Claude Code run under tmux
 

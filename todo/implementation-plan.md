@@ -53,7 +53,7 @@ Sections: 19 | Checklist items: 125
 | [x]    | D02 T02 §1  | Unattended kit known to `forge.py`                        | none         | 6     |
 | [x]    | D02 T02 §2  | Run profile `.conclave/unattended.json` and its loader    | none         | 6     |
 | [x]    | D02 T02 §3  | Preflight with a PASS or FAIL line per precondition       | none         | 9     |
-| [ ]    | D02 T02 §4  | Launch lock and claim                                     | none         | 6     |
+| [x]    | D02 T02 §4  | Launch lock and claim                                     | none         | 6     |
 | [ ]    | D02 T02 §5  | Launcher for a Claude Code run under tmux                 | none         | 8     |
 | [ ]    | D02 T02 §6  | Launch commands for Codex and Antigravity                 | none         | 6     |
 | [ ]    | D02 T02 §7  | Heartbeat that restarts a dead run and nudges an idle one | none         | 6     |
@@ -143,6 +143,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 28/74 verified sections, 12 ready to run now.
+Progress: 29/74 verified sections, 12 ready to run now.
 
-Checklist: 258/523 items completed (includes Commit items).
+Checklist: 259/523 items completed (includes Commit items).
