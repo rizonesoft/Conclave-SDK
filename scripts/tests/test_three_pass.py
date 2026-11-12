@@ -279,7 +279,7 @@ class Chain(ThreePass):
             lock = self.lock_path(self.record)
             fields = lock.read_text(encoding="ascii").split()
             self.assertEqual(len(fields), 4, "the lock does not name the reviewer's process group")
-            group = int(fields[3])
+            group = int(fields[3].partition(":")[0])
             self.refused("round", built, "is already running")  # its reviewer is still running
             os.killpg(group, signal.SIGKILL)
             child = int(child_pid.read_text())
@@ -304,6 +304,103 @@ class Chain(ThreePass):
                     os.killpg(group, signal.SIGKILL)
                 except ProcessLookupError:
                     pass  # the group ended already
+
+    def start_killed_review(self):
+        """A round whose dispatcher was killed with SIGKILL while its reviewer (and the reviewer's child) runs on:
+        returns (built, lock path, reviewer group, child pid)."""
+        import signal
+        self.ok("plan", self.base)
+        built = self.commit("build", {"src/app/a.py": "x = 1\n"})
+        child_pid = Path(self._tmp.name) / "child.pid"
+        args = ["--kind", "round", "--writer", "claude", "--prompt", str(self.prompt), "--candidate", built,
+                "--record", str(self.record), "--timeout", "120"]
+        dispatcher = subprocess.Popen([sys.executable, "-B", str(self.repo / "scripts/review-dispatch.py"), *args],
+                                      env=self.dispatch_env(codex="sleepchild"), cwd=str(self.repo),
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        deadline = time.monotonic() + 30
+        while not child_pid.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        os.kill(dispatcher.pid, signal.SIGKILL)
+        dispatcher.wait(timeout=30)
+        self.assertTrue(child_pid.exists(), "the fake reviewer never started its child")
+        lock = self.lock_path(self.record)
+        group = int(lock.read_text(encoding="ascii").split()[3].partition(":")[0])
+        self.addCleanup(self.end_group, group)
+        return built, lock, group, int(child_pid.read_text())
+
+    def end_group(self, group):
+        import signal
+        try:
+            os.killpg(group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass  # already ended by the test
+
+    def expire(self, lock, started=None):
+        fields = lock.read_text(encoding="ascii").split()
+        fields[1] = f"{time.time() - 5:.0f}"
+        if started is not None:
+            fields[3] = f"{fields[3].partition(':')[0]}:{started}"
+        lock.write_text(" ".join(fields), encoding="ascii")
+
+    @unittest.skipUnless(os.name == "posix", "the reviewer group is recorded on Linux and WSL")
+    def test_an_overdue_reviewer_of_a_killed_dispatcher_is_ended_before_the_takeover(self):
+        # Review of the dead-owner takeover: past its expiry the killed dispatcher's reviewer still ran, and the
+        # expiry alone admitted a second review beside it.
+        built, lock, group, child = self.start_killed_review()
+        self.expire(lock)
+        self.ok("round", built)  # the overdue group is ended, then the pass runs
+        with self.assertRaises(ProcessLookupError):
+            os.killpg(group, 0)
+        with self.assertRaises(ProcessLookupError):
+            os.kill(child, 0)
+
+    @unittest.skipUnless(os.name == "posix", "the reviewer group is recorded on Linux and WSL")
+    def test_a_group_whose_start_time_differs_is_never_ended_and_keeps_the_lock(self):
+        built, lock, group, child = self.start_killed_review()
+        self.expire(lock, started="1")  # as if the id now named another process
+        self.refused("round", built, "is already running")
+        os.killpg(group, 0)  # untouched: still alive
+
+    @unittest.skipUnless(os.name == "posix", "the gate is the POSIX launcher")
+    def test_the_gate_runs_the_reviewer_only_after_go(self):
+        module = self.module()
+        for say, ran in ((b"go", True), (b"", False)):
+            with self.subTest(say=say):
+                marker = Path(self._tmp.name) / f"ran-{ran}"
+                read, write = os.pipe()
+                status, status_write = os.pipe()
+                launcher = subprocess.Popen([sys.executable, "-c", module.REVIEWER_GATE, str(read), str(status_write),
+                                             sys.executable, "-c", f"open({str(marker)!r}, 'w').close()"],
+                                            pass_fds=(read, status_write))
+                os.close(read)
+                os.close(status_write)
+                os.write(write, say) if say else None
+                os.close(write)
+                self.assertEqual(launcher.wait(timeout=30), 0 if ran else 125)
+                self.assertEqual(marker.exists(), ran)
+                if ran:
+                    self.assertEqual(module.read_exec_status(status), "", "a successful exec closes the status pipe")
+                os.close(status)
+
+    @unittest.skipUnless(os.name == "posix", "the reviewer group is recorded on Linux and WSL")
+    def test_a_group_that_cannot_be_recorded_runs_no_reviewer(self):
+        module = self.module()
+        lock = Path(self._tmp.name) / "held.lock"
+        lock.write_text("someone else's lock", encoding="ascii")
+        marker = Path(self._tmp.name) / "reviewer-ran"
+        out = Path(self._tmp.name) / "out.txt"
+        real = module.note_reviewer_group
+
+        def slow_refusal(group):
+            time.sleep(1.5)  # long enough for a reviewer let through without the gate to have run
+            real(group)
+        with unittest.mock.patch.dict(module._HELD, {"path": lock, "owned": "this run's text"}), \
+                unittest.mock.patch.object(module, "note_reviewer_group", slow_refusal):
+            code, why = module.run([sys.executable, "-c", f"open({str(marker)!r}, 'w').close()"], None, 30, [out])
+        self.assertIsNone(code)
+        self.assertIn("could not start: record the reviewer's group", why)
+        time.sleep(0.5)
+        self.assertFalse(marker.exists(), "the reviewer ran although its group was not recorded")
 
     @unittest.skipUnless(os.name == "nt", "the kill-on-close job is Windows only")
     def test_a_dispatcher_killed_on_windows_takes_its_reviewer_down_and_frees_the_lock(self):

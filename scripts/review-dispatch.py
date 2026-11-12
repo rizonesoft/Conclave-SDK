@@ -75,6 +75,7 @@ import json
 import os
 from pathlib import Path
 import re
+import select
 import shutil
 import signal
 import subprocess
@@ -352,6 +353,36 @@ def feed(pipe, text):
         pass  # the reviewer stopped reading or exited; its exit code and output decide the round
 
 
+# The launcher a POSIX reviewer starts as: it waits for "go" on its gate pipe, then becomes the reviewer. Its status
+# pipe closes when the exec succeeds and carries the error when it fails, as subprocess does for its own children.
+REVIEWER_GATE = ("import os, sys\n"
+                 "gate, status = int(sys.argv[1]), int(sys.argv[2])\n"
+                 "go = os.read(gate, 2) == b'go'\n"
+                 "os.close(gate)\n"
+                 "if not go:\n"
+                 "    sys.exit(125)\n"
+                 "os.set_inheritable(status, False)\n"
+                 "try:\n"
+                 "    os.execvp(sys.argv[3], sys.argv[3:])\n"
+                 "except OSError as exc:\n"
+                 "    os.write(status, (exc.strerror or str(exc)).encode('utf-8', 'replace'))\n"
+                 "    sys.exit(127)\n")
+
+
+def read_exec_status(fd, limit=CLEANUP_SECONDS):
+    """What the gate wrote on its status pipe: empty once the reviewer's exec succeeded (the pipe closed on exec),
+    the error text when it failed. A launcher that neither execs nor writes within `limit` reads as a failure."""
+    chunks, deadline = [], time.monotonic() + limit
+    while True:
+        left = deadline - time.monotonic()
+        if left <= 0 or not select.select([fd], [], [], left)[0]:
+            return "the reviewer's launcher did not start it in time"
+        chunk = os.read(fd, 4096)
+        if not chunk:
+            return b"".join(chunks).decode("utf-8", "replace")
+        chunks.append(chunk)
+
+
 def run(argv, stdin_text, timeout, watched):
     """Run one reviewer in its own process group (on Windows, suspended inside a kill-on-close job object and resumed
     once it is in the job), watching the size of every file it writes while it runs, so neither a hang nor a flood of
@@ -361,7 +392,7 @@ def run(argv, stdin_text, timeout, watched):
     group = {"creationflags": CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED} if windows else {"start_new_session": True}
     stdout_path = watched[0]
     with open(stdout_path, "wb") as output:
-        job = process = None
+        job = process = gate = status = None
         step = "create job"
         try:
             try:
@@ -370,11 +401,34 @@ def run(argv, stdin_text, timeout, watched):
                     step = "configure job"
                     configure_windows_job(job)
                 step = "start"
-                process = subprocess.Popen(argv, cwd=ROOT,
-                                           stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
-                                           stdout=output, stderr=subprocess.DEVNULL, **group)
+                launch, passed = argv, ()
                 if not windows:
+                    # The reviewer starts behind a gate: a launcher that waits on a pipe and runs the reviewer only
+                    # once its group is in the section lock. A dispatcher killed before then closes the pipe, and the
+                    # launcher exits without running a reviewer nobody would account for.
+                    if shutil.which(argv[0]) is None:
+                        raise FileNotFoundError(2, "No such file or directory", argv[0])
+                    gate_read, gate = os.pipe()
+                    status, status_write = os.pipe()
+                    launch = [sys.executable, "-c", REVIEWER_GATE, str(gate_read), str(status_write), *argv]
+                    passed = (gate_read, status_write)
+                try:
+                    process = subprocess.Popen(launch, cwd=ROOT,
+                                               stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
+                                               stdout=output, stderr=subprocess.DEVNULL, pass_fds=passed, **group)
+                finally:
+                    for fd in passed:
+                        os.close(fd)
+                if not windows:
+                    step = "record the reviewer's group"
                     note_reviewer_group(process.pid)  # start_new_session: its process group id is its pid
+                    os.write(gate, b"go")
+                    os.close(gate)
+                    gate = None
+                    step = "start"
+                    failure = read_exec_status(status)
+                    if failure:
+                        raise OSError(failure)
                 if windows:
                     step = "assign to job"
                     assign_windows_job(job, process)
@@ -398,6 +452,10 @@ def run(argv, stdin_text, timeout, watched):
                 except subprocess.TimeoutExpired:
                     continue
         finally:
+            if gate is not None:
+                os.close(gate)  # the launcher reads no "go" and exits without running the reviewer
+            if status is not None:
+                os.close(status)
             # The job is ended and closed here exactly once, on every path, then the reviewer itself is reaped.
             kill_tree(process, job)
             if process is not None:
@@ -912,29 +970,72 @@ def _lock_expiry(path):
             return None
 
 
-def _lock_owner_dead(path):
-    """True only when the lock at `path` names a process that is certainly gone: a run killed outright (taskkill /F,
-    SIGKILL) never releases its lock, and its section would otherwise wait out the whole expiry. A lock that cannot
-    be read, or a process id that is alive or reused, is believed (the expiry still frees it)."""
+def _start_time(pid):
+    """The kernel's start time of process `pid` (field 22 of /proc/<pid>/stat), or "0" where /proc cannot say: with
+    the process id it names one process, so a reused id is never mistaken for the reviewer."""
+    try:
+        with open(f"/proc/{pid}/stat", encoding="ascii", errors="replace") as handle:
+            return handle.read().rpartition(")")[2].split()[19]
+    except (OSError, IndexError):
+        return "0"
+
+
+def _group_alive(group):
+    try:
+        os.killpg(group, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # alive, another user's
+    return True
+
+
+def _end_overdue_group(group, started):
+    """End a reviewer group whose dispatcher was killed and whose deadline has passed, as that dispatcher would have:
+    only when the group's leader still has the start time the lock recorded. True when the group is gone."""
+    if started == "0" or _start_time(group) != started:
+        return False
+    try:
+        os.killpg(group, signal.SIGKILL)
+    except ProcessLookupError:
+        return True
+    deadline = time.monotonic() + CLEANUP_SECONDS
+    while _group_alive(group) and time.monotonic() < deadline:
+        time.sleep(POLL_SECONDS)
+    return not _group_alive(group)
+
+
+def _lock_free(path):
+    """Whether the lock at `path` may be taken over now. A lock past the expiry its owner wrote is free, and so is one
+    whose owner process is certainly gone (killed outright, so it never released). On Linux and WSL the lock also
+    names the reviewer's process group, which outlives a killed dispatcher in its own session: while that group
+    lives the lock is never free, and once its dispatcher is dead and its deadline past, the group is ended first. A
+    lock that cannot be read is believed for the grace period from its last change."""
+    expiry = _lock_expiry(path)
+    if expiry is None:
+        return True
     try:
         fields = path.read_text(encoding="ascii", errors="replace").split()
+    except FileNotFoundError:
+        return True
+    except OSError:
+        fields = []
+    try:
         pid = int(fields[0])
-    except (IndexError, ValueError, OSError):
-        return False
-    if pid <= 0 or pid == os.getpid() or not _process_gone(pid):
-        return False
-    # On Linux and WSL the reviewer runs in its own session and outlives a dispatcher killed outright: the lock then
-    # holds the reviewer's process group as a fourth field, and the lock is free only once that group is gone too.
-    # On Windows the reviewer is in a kill-on-close job, which ends with the dispatcher, so no group is recorded.
+        owner_gone = pid > 0 and pid != os.getpid() and _process_gone(pid)
+    except (IndexError, ValueError):
+        owner_gone = False
+    group = started = None
     if len(fields) >= 4 and os.name != "nt":
         try:
-            os.killpg(int(fields[3]), 0)
-        except ProcessLookupError:
-            return True
-        except (PermissionError, ValueError, OSError):
-            return False  # alive (another user's), or not a group id this check can read: believed
-        return False
-    return True
+            group_text, _, started = fields[3].partition(":")
+            group = int(group_text)
+        except ValueError:
+            return False  # a group this check cannot read is believed
+    past = time.time() > expiry
+    if group is not None and _group_alive(group):
+        return owner_gone and past and _end_overdue_group(group, started or "0")
+    return past or owner_gone
 
 
 def _process_gone(pid):
@@ -976,17 +1077,17 @@ def note_reviewer_group(group):
     path, owned = _HELD.get("path"), _HELD.get("owned")
     if path is None or os.name == "nt":
         return
-    noted = f"{owned} {group}"
+    # A failure here raises: the reviewer is not let through its gate unless the lock accounts for it.
+    noted = f"{owned} {group}:{_start_time(group)}"
+    if path.read_text(encoding="ascii", errors="replace") != owned:
+        raise OSError(f"the section lock {path} is no longer this run's")
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     try:
-        if path.read_text(encoding="ascii", errors="replace") != owned:
-            return  # no longer ours: a later launch took it over, and its text stands
-        temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
         temporary.write_text(noted, encoding="ascii")
         os.replace(temporary, path)
-    except OSError as exc:
-        print(f"review-dispatch: could not note the reviewer's group in {path} ({exc.strerror or exc})",
-              file=sys.stderr)
-        return
+    except OSError:
+        temporary.unlink(missing_ok=True)
+        raise
     _HELD["owned"] = noted
 
 
@@ -1021,8 +1122,7 @@ def lock_section(record_path, timeout):
     busy = Refused(f"another review of {record_path} is already running (lock {path}); a section takes one pass at "
                    f"a time")
     if not _create_exclusive(path, owned):
-        expiry = _lock_expiry(path)
-        if expiry is not None and time.time() <= expiry and not _lock_owner_dead(path):
+        if not _lock_free(path):
             raise busy
         takeover = path.with_name(path.name + ".takeover")
         if not _create_exclusive(takeover, owned):
@@ -1035,8 +1135,7 @@ def lock_section(record_path, timeout):
             raise busy
         try:
             # Looked at again under the takeover: the lock may have been replaced since it was first read.
-            expiry = _lock_expiry(path)
-            if expiry is not None and time.time() <= expiry and not _lock_owner_dead(path):
+            if not _lock_free(path):
                 raise busy
             path.unlink(missing_ok=True)
             if not _create_exclusive(path, owned):
