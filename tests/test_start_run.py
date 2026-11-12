@@ -168,30 +168,79 @@ class StartRunTests(unittest.TestCase):
             winreg.DeleteKey(winreg.HKEY_CURRENT_USER, f"Software\\{name}")
 
     @unittest.skipUnless(os.name == "nt", "a .lnk shortcut is a Windows file")
-    def test_the_shortcut_starts_this_script_with_the_sdk_icon(self):
-        link = self.folder / "Conclave-SDK unattended run.lnk"
-        dry = run("-InstallShortcut", "-DryRun", "-ShortcutDir", str(self.folder))
+    def test_the_two_campaign_shortcuts_start_this_script_for_their_runner_with_a_badged_icon(self):
+        # The owner's shape (2026-11-12), as Office's and Isotone's launchers have it: "<project> Claude campaign" and
+        # "<project> Carbon campaign", each with the project's mark and its runner's badge.
+        icons = self.folder / "icons"
+        retired = self.folder / "Conclave-SDK unattended run.lnk"
+        retired.write_bytes(b"the shortcut written before the runners split")
+        dry = run("-InstallShortcut", "-DryRun", "-ShortcutDir", str(self.folder), "-IconDir", str(icons))
         self.assertEqual(dry.returncode, 0, dry.stderr)
-        self.assertIn(f"would write: {link}", dry.stdout)
-        self.assertFalse(link.exists(), "a dry run must not write the shortcut")
+        self.assertIn(f"would remove: {retired}", dry.stdout)
+        self.assertFalse(icons.exists(), "a dry run must not render an icon")
 
-        proc = run("-InstallShortcut", "-ShortcutDir", str(self.folder))
+        proc = run("-InstallShortcut", "-ShortcutDir", str(self.folder), "-IconDir", str(icons))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertFalse(retired.exists(), "the old shortcut was left on the desktop")
+        for name, runner, ico in (("Conclave-SDK Claude campaign", "claude", "conclave-sdk-campaign-claude.ico"),
+                                  ("Conclave-SDK Carbon campaign", "agy", "conclave-sdk-campaign-carbon.ico")):
+            with self.subTest(runner=runner):
+                link = self.folder / f"{name}.lnk"
+                self.assertTrue(link.is_file(), proc.stdout)
+                quoted = str(link).replace("'", "''")
+                read = subprocess.run(
+                    [PWSH or "pwsh", "-NoProfile", "-NonInteractive", "-Command",
+                     f"$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{quoted}'); "
+                     "$s.TargetPath; $s.Arguments; $s.WorkingDirectory; $s.IconLocation"],
+                    capture_output=True, text=True, timeout=120, creationflags=windowless())
+                self.assertEqual(read.returncode, 0, read.stderr)
+                target, arguments, folder_set, icon = read.stdout.strip().splitlines()
+                self.assertEqual(pathlib.Path(target).name.lower(), "pwsh.exe")
+                self.assertEqual(arguments, f'-NoLogo -NoExit -NoProfile -File "{SCRIPT}" -Runner {runner}')
+                self.assertEqual(pathlib.Path(folder_set).resolve(), ROOT)
+                self.assertEqual(pathlib.Path(icon.rsplit(",", 1)[0]).resolve(), (icons / ico).resolve())
+                data = (icons / ico).read_bytes()
+                self.assertEqual(data[:4], b"\x00\x00\x01\x00", "not a Windows icon")
+                self.assertEqual(int.from_bytes(data[4:6], "little"), 10, "the icon lacks a size")
+        self.assertNotIn(str(ROOT / "assets"), str(list(icons.iterdir())), "an icon was written into the repository")
+
+
+@unittest.skipUnless(PWSH, "PowerShell 7 (pwsh) is not installed")
+class CarbonRunnerTests(unittest.TestCase):
+    """-Runner agy starts the run in Antigravity on Gemini 4 Carbon, with the same goal."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.folder = pathlib.Path(self.tmp.name)
+        self.stub = self.folder / "agy-stub.ps1"
+        self.stub.write_text(STUB, encoding="utf-8")
+        self.report = self.folder / "report.json"
+
+    def launch(self, *arguments):
+        env = {"STUB_REPORT": str(self.report), "EXPECTED_TOKEN": SENTINEL}
+        return run("-Runner", "agy", "-AgyPath", str(self.stub), "-GuardFile", str(self.folder / "no-guard.json"),
+                   *arguments, environment=env)
+
+    def test_a_dry_run_names_agy_on_carbon(self):
+        proc = self.launch("-DryRun")
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertTrue(link.is_file(), proc.stdout)
-        quoted = str(link).replace("'", "''")
-        read = subprocess.run(
-            [PWSH or "pwsh", "-NoProfile", "-NonInteractive", "-Command",
-             f"$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{quoted}'); "
-             "$s.TargetPath; $s.Arguments; $s.WorkingDirectory; $s.IconLocation"],
-            capture_output=True, text=True, timeout=120, creationflags=windowless())
-        self.assertEqual(read.returncode, 0, read.stderr)
-        target, arguments, folder_set, icon = read.stdout.strip().splitlines()
-        self.assertEqual(pathlib.Path(target).name.lower(), "pwsh.exe")
-        self.assertEqual(arguments, f'-NoExit -NoProfile -File "{SCRIPT}"')
-        self.assertEqual(pathlib.Path(folder_set).resolve(), ROOT)
-        self.assertEqual(pathlib.Path(icon.rsplit(",", 1)[0]).resolve(), ROOT / "assets/brand/conclave-sdk.ico")
-        self.assertTrue((ROOT / "assets/brand/conclave-sdk.ico").is_file())
+        command = proc.stdout.strip().splitlines()[-1]
+        self.assertTrue(command.startswith('agy --model=gemini-4-carbon-medium --dangerously-skip-permissions '
+                                           '"--prompt-interactive=Finish the Conclave-SDK implementation plan'), command)
+        self.assertFalse(self.report.exists())
 
+    def test_agy_is_started_with_the_goal_as_its_interactive_prompt(self):
+        proc = self.launch()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        got = json.loads(self.report.read_text(encoding="utf-8-sig"))
+        model, skip, prompt = got["arguments"]
+        self.assertEqual((model, skip), ("--model=gemini-4-carbon-medium", "--dangerously-skip-permissions"))
+        self.assertTrue(prompt.startswith("--prompt-interactive=Finish the Conclave-SDK implementation plan"), prompt)
+        self.assertIn("No run guard was held when this session was launched", prompt)
+        self.assertNotIn("/goal", prompt)
+        self.assertIn("sign-in: Antigravity uses its own Google sign-in", proc.stdout)
+        self.assertEqual(pathlib.Path(got["folder"]).resolve(), ROOT)
 
 class WindowlessTests(unittest.TestCase):
     def test_every_process_this_file_starts_gets_no_window(self):

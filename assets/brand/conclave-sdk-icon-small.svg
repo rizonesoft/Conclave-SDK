@@ -1,8 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><title>Conclave-SDK</title>
-<defs><linearGradient id="t" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#111c2e"/><stop offset="1" stop-color="#060a12"/></linearGradient></defs>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><title>Conclave-SDK</title><defs>
+<linearGradient id="t" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#10221a"/><stop offset="1" stop-color="#050c09"/></linearGradient>
+</defs>
 <rect width="512" height="512" rx="112" fill="url(#t)"/>
-<polygon points="256,98 392.8,177 392.8,335 256,414 119.2,335 119.2,177" fill="none" stroke="#00beff" stroke-opacity="0.5" stroke-width="22" stroke-linejoin="round"/>
-<circle cx="256" cy="98" r="46" fill="#00beff"/><circle cx="392.8" cy="335" r="46" fill="#00beff"/><circle cx="119.2" cy="335" r="46" fill="#00beff"/>
-<circle cx="256" cy="256" r="74" fill="#91edff"/>
-<circle cx="256" cy="256" r="40" fill="#ffffff"/>
+<circle cx="256" cy="256" r="158" fill="none" stroke="#1ee08a" stroke-opacity="0.45" stroke-width="16"/>
+<circle cx="256.0" cy="98.0" r="38" fill="#1ee08a"/>
+<circle cx="379.5" cy="157.5" r="38" fill="#1ee08a"/>
+<circle cx="410.0" cy="291.2" r="38" fill="#1ee08a"/>
+<circle cx="324.6" cy="398.4" r="38" fill="#1ee08a"/>
+<circle cx="187.4" cy="398.4" r="38" fill="#1ee08a"/>
+<circle cx="102.0" cy="291.2" r="38" fill="#1ee08a"/>
+<circle cx="132.5" cy="157.5" r="38" fill="#1ee08a"/>
+<circle cx="256" cy="256" r="70" fill="#9ef5c8"/><circle cx="256" cy="256" r="38" fill="#ffffff"/>
 </svg>

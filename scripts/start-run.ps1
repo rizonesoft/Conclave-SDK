@@ -1,11 +1,18 @@
-# Starts the SDK's own unattended run: an interactive Claude Code session in this checkout, on the latest Opus, with
-# every permission prompt off and its goal set.
+# Starts the SDK's own campaign run: an interactive agent session in this checkout, in this window, with every
+# permission prompt off and its goal set. The run starts only when the operator starts it, and ends when its window
+# closes, it crashes or the machine restarts: nothing here, or anywhere in the SDK, starts or resumes it on its own.
 #
-#   pwsh scripts/start-run.ps1                    start the run in this window
-#   pwsh scripts/start-run.ps1 -InstallShortcut   put "Conclave-SDK unattended run" on the desktop, which runs the line above
+#   pwsh scripts/start-run.ps1                    start the run in Claude Code (the latest Opus)
+#   pwsh scripts/start-run.ps1 -Runner agy        start it in Antigravity on Gemini 4 Carbon (the Carbon runner)
+#   pwsh scripts/start-run.ps1 -InstallShortcut   put "Conclave-SDK Claude campaign" and "Conclave-SDK Carbon campaign"
+#                                                 on the desktop, each running the line above for its runner
 #   pwsh scripts/start-run.ps1 -DryRun            print what would run or be written, and change nothing
 #   pwsh scripts/start-run.ps1 -Model sonnet      start on another model
 #   pwsh scripts/start-run.ps1 -TakeOver          take over a held run guard without being asked
+#
+# Each shortcut's icon is the SDK's mark (assets/brand/conclave-sdk.ico) with its runner's badge in the corner, as
+# Office's and Isotone's campaign launchers carry it: rendered on this machine into %LOCALAPPDATA%\Conclave-SDK by the
+# unattended kit's stdlib renderer (kits/unattended/templates/scripts/campaign-icon.py), never into the repository.
 #
 # The goal is a Claude Code /goal, which is checked after every turn: the plan finished through the process-plan
 # skill. That skill starts the run guard itself (scripts/campaign_guard.py and a heartbeat inside the session), so this
@@ -16,8 +23,8 @@
 # the run over from that one session. When no guard is held, the new session is told the opposite: a guard it then
 # finds belongs to another live run, and it must start nothing. So two launches at once cannot both take the run.
 #
-# The model is the alias `opus`, which Claude Code resolves to the newest Opus, so the shortcut never needs editing
-# when a new one ships.
+# The Claude runner's model is the alias `opus`, which Claude Code resolves to the newest Opus, so the shortcut never
+# needs editing when a new one ships. The Carbon runner's is gemini-4-carbon-medium, the writer Isotone runs on.
 #
 # The session signs in with the long-lived token (`claude setup-token`, valid one year) kept in the user variable
 # CLAUDE_CODE_OAUTH_TOKEN. A window opened before the token was stored does not have it yet, so it is read from the
@@ -26,40 +33,66 @@
 #
 # This file belongs to the SDK alone: it is not part of a kit and is never installed in a project.
 param(
+  [ValidateSet('claude', 'agy')]
+  [string]$Runner = 'claude',
   [switch]$InstallShortcut,
   [switch]$DryRun,
   [switch]$TakeOver,
   [string]$ShortcutDir = [Environment]::GetFolderPath('Desktop'),
-  [string]$Model = 'opus',
+  [string]$Model = '',
+  [string]$IconDir = (Join-Path $env:LOCALAPPDATA 'Conclave-SDK'),
   [string]$UserEnvKey = 'HKCU:\Environment',
   [string]$Goal = '',
-  # The two below exist for the tests: a stand-in for claude, and a guard file outside the real build folder.
+  # The three below exist for the tests: stand-ins for claude and agy, and a guard file outside the real build folder.
   [string]$ClaudePath = '',
+  [string]$AgyPath = '',
   [string]$GuardFile = ''
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot
 $tokenName = 'CLAUDE_CODE_OAUTH_TOKEN'
-$shortcutName = 'Conclave-SDK unattended run.lnk'
+if (-not $Model) { $Model = if ($Runner -eq 'agy') { 'gemini-4-carbon-medium' } else { 'opus' } }
 if (-not $GuardFile) { $GuardFile = Join-Path $repo 'build\claude-campaign-guard.json' }
 
 if ($InstallShortcut) {
   $pwsh = (Get-Process -Id $PID).Path
-  $link = Join-Path $ShortcutDir $shortcutName
-  $icon = Join-Path $repo 'assets\brand\conclave-sdk.ico'
+  $brand = Join-Path $repo 'assets\brand\conclave-sdk.ico'
+  $renderer = Join-Path $repo 'kits\unattended\templates\scripts\campaign-icon.py'
+  $shortcuts = @(
+    @{ Runner = 'claude'; Name = 'Conclave-SDK Claude campaign'; Icon = 'conclave-sdk-campaign-claude.ico'
+       Description = 'Start the Conclave-SDK campaign in Claude Code (the latest Opus)' },
+    @{ Runner = 'agy'; Name = 'Conclave-SDK Carbon campaign'; Icon = 'conclave-sdk-campaign-carbon.ico'
+       Description = 'Start the Conclave-SDK campaign in Google Antigravity on Gemini 4 Carbon' }
+  )
+  # The one shortcut this file wrote before the runners split (2026-11-12), named for neither runner.
+  $retired = Join-Path $ShortcutDir 'Conclave-SDK unattended run.lnk'
   if ($DryRun) {
-    "would write: $link"
-    "  target: $pwsh -NoExit -NoProfile -File `"$PSCommandPath`""
+    foreach ($s in $shortcuts) {
+      "would write: $(Join-Path $ShortcutDir "$($s.Name).lnk")"
+      "  target: $pwsh -NoLogo -NoExit -NoProfile -File `"$PSCommandPath`" -Runner $($s.Runner)"
+      "  icon: $(Join-Path $IconDir $s.Icon)"
+    }
+    if (Test-Path -LiteralPath $retired) { "would remove: $retired" }
     exit 0
   }
-  $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($link)
-  $shortcut.TargetPath = $pwsh
-  $shortcut.Arguments = "-NoExit -NoProfile -File `"$PSCommandPath`""
-  $shortcut.WorkingDirectory = $repo
-  $shortcut.Description = 'Start the unattended Conclave-SDK run in Claude Code'
-  if (Test-Path -LiteralPath $icon) { $shortcut.IconLocation = "$icon,0" }
-  $shortcut.Save()
-  "shortcut written: $link"
+  $python = (Get-Command python -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
+  if (-not $python) { 'python is not on PATH: install Python 3, then write the shortcuts again'; exit 1 }
+  New-Item -ItemType Directory -Force $IconDir | Out-Null
+  foreach ($s in $shortcuts) {
+    $icon = Join-Path $IconDir $s.Icon
+    & $python $renderer badge $brand $s.Runner $icon
+    if ($LASTEXITCODE -ne 0) { "the icon for $($s.Name) could not be rendered"; exit 1 }
+    $link = Join-Path $ShortcutDir "$($s.Name).lnk"
+    $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($link)
+    $shortcut.TargetPath = $pwsh
+    $shortcut.Arguments = "-NoLogo -NoExit -NoProfile -File `"$PSCommandPath`" -Runner $($s.Runner)"
+    $shortcut.WorkingDirectory = $repo
+    $shortcut.Description = $s.Description
+    $shortcut.IconLocation = "$icon,0"
+    $shortcut.Save()
+    "shortcut written: $link"
+  }
+  if (Test-Path -LiteralPath $retired) { Remove-Item -LiteralPath $retired; "shortcut removed: $retired" }
   exit 0
 }
 
@@ -82,24 +115,36 @@ if ($null -eq $held) {
 } else {
   $Goal += ' A run guard file was present at launch but named no session: do not take it over. Report what the guard file holds and end the turn.'
 }
-# One line with no double quote: it is passed to claude as a single argument. Claude Code allows 4,000 characters.
+# One line with no double quote: it is passed to the agent as a single argument. Claude Code allows 4,000 characters.
 if ($Goal.Contains('"') -or $Goal.Contains("`n")) { 'the goal must be one line with no double quote'; exit 1 }
 if ($Goal.Length -gt 4000) { "the goal is $($Goal.Length) characters; Claude Code allows 4,000"; exit 1 }
 
-$session = [guid]::NewGuid().ToString()
-$arguments = @('--session-id', $session, '--dangerously-skip-permissions', '--model', $Model, "/goal $Goal")
+if ($Runner -eq 'agy') {
+  # Antigravity takes its flags as --name=value; --prompt-interactive runs the goal and keeps the session open. It
+  # chooses its own conversation id, which the run guard records (agy --help, 1.5.6).
+  $agent = 'agy'
+  $arguments = @("--model=$Model", '--dangerously-skip-permissions', "--prompt-interactive=$Goal")
+} else {
+  $agent = 'claude'
+  $session = [guid]::NewGuid().ToString()
+  $arguments = @('--session-id', $session, '--dangerously-skip-permissions', '--model', $Model, "/goal $Goal")
+}
 if ($DryRun) {
   "in $repo"
   if ($null -ne $held) { "a run guard is held by session $(if ($held) { $held } else { '(the guard file names none)' }): a real start asks before taking it over" }
-  "claude $($arguments[0..4] -join ' ') `"$($arguments[5])`""
+  "$agent $($arguments[0..($arguments.Count - 2)] -join ' ') `"$($arguments[-1])`""
   exit 0
 }
 
 # Looked up, not assumed: a missing tool is named with its fix instead of failing as a bare "not recognized".
 $python = (Get-Command python -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
-$claude = if ($ClaudePath) { $ClaudePath } else { (Get-Command claude -ErrorAction Ignore | Select-Object -First 1).Source }
+$stand_in = if ($agent -eq 'agy') { $AgyPath } else { $ClaudePath }
+$program = if ($stand_in) { $stand_in } else { (Get-Command $agent -ErrorAction Ignore | Select-Object -First 1).Source }
 if (-not $python) { 'python is not on PATH: install Python 3, then start again'; exit 1 }
-if (-not $claude) { 'claude is not on PATH: install Claude Code, then start again'; exit 1 }
+if (-not $program) {
+  if ($agent -eq 'agy') { 'agy is not on PATH: install Google Antigravity, then start again' } else { 'claude is not on PATH: install Claude Code, then start again' }
+  exit 1
+}
 
 if ($null -ne $held) {
   "a run guard is held by session $(if ($held) { $held } else { '(the guard file names none)' })"
@@ -107,8 +152,10 @@ if ($null -ne $held) {
   if (-not $TakeOver) { [void](Read-Host 'Press Enter to start a new session that takes the run over') }
 }
 
-# The sign-in. Each line says where it came from, never the token itself.
-if ([Environment]::GetEnvironmentVariable($tokenName)) {
+# The sign-in (Claude Code's; Antigravity signs in itself). Each line says where it came from, never the token itself.
+if ($agent -eq 'agy') {
+  'sign-in: Antigravity uses its own Google sign-in'
+} elseif ([Environment]::GetEnvironmentVariable($tokenName)) {
   'sign-in: the long-lived token this window already has'
 } else {
   $token = if (Test-Path -LiteralPath $UserEnvKey) { (Get-Item -LiteralPath $UserEnvKey).GetValue($tokenName, $null) }
@@ -123,4 +170,4 @@ if ([Environment]::GetEnvironmentVariable($tokenName)) {
 }
 
 Set-Location -LiteralPath $repo
-& $claude @arguments
+& $program @arguments

@@ -1,14 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><title>Conclave-SDK</title><defs>
-<linearGradient id="t" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#111c2e"/><stop offset="1" stop-color="#060a12"/></linearGradient>
-<radialGradient id="g" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#00beff" stop-opacity="0.55"/><stop offset="1" stop-color="#00beff" stop-opacity="0"/></radialGradient>
+<linearGradient id="t" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#10221a"/><stop offset="1" stop-color="#050c09"/></linearGradient>
+<radialGradient id="g" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#1ee08a" stop-opacity="0.55"/><stop offset="1" stop-color="#1ee08a" stop-opacity="0"/></radialGradient>
 </defs>
 <rect width="512" height="512" rx="112" fill="url(#t)"/>
-<rect x="6" y="6" width="500" height="500" rx="106" fill="none" stroke="#1e3554" stroke-width="4"/>
-<polygon points="256,106 385.9,181 385.9,331 256,406 126.1,331 126.1,181" fill="none" stroke="#00beff" stroke-opacity="0.45" stroke-width="8" stroke-linejoin="round"/>
-<line x1="256" y1="256" x2="256" y2="106" stroke="#00beff" stroke-opacity="0.28" stroke-width="6"/><line x1="256" y1="256" x2="385.9" y2="331" stroke="#00beff" stroke-opacity="0.28" stroke-width="6"/><line x1="256" y1="256" x2="126.1" y2="331" stroke="#00beff" stroke-opacity="0.28" stroke-width="6"/>
+<rect x="6" y="6" width="500" height="500" rx="106" fill="none" stroke="#1d4532" stroke-width="4"/>
+<circle cx="256" cy="256" r="150" fill="none" stroke="#1ee08a" stroke-opacity="0.32" stroke-width="6"/>
+<line x1="256" y1="256" x2="256.0" y2="106.0" stroke="#1ee08a" stroke-opacity="0.26" stroke-width="5"/>
+<line x1="256" y1="256" x2="373.3" y2="162.5" stroke="#1ee08a" stroke-opacity="0.26" stroke-width="5"/>
+<line x1="256" y1="256" x2="402.2" y2="289.4" stroke="#1ee08a" stroke-opacity="0.26" stroke-width="5"/>
+<line x1="256" y1="256" x2="321.1" y2="391.1" stroke="#1ee08a" stroke-opacity="0.26" stroke-width="5"/>
+<line x1="256" y1="256" x2="190.9" y2="391.1" stroke="#1ee08a" stroke-opacity="0.26" stroke-width="5"/>
+<line x1="256" y1="256" x2="109.8" y2="289.4" stroke="#1ee08a" stroke-opacity="0.26" stroke-width="5"/>
+<line x1="256" y1="256" x2="138.7" y2="162.5" stroke="#1ee08a" stroke-opacity="0.26" stroke-width="5"/>
 <circle cx="256" cy="256" r="120" fill="url(#g)"/>
-<circle cx="385.9" cy="181" r="11" fill="#00beff" fill-opacity="0.7"/><circle cx="256" cy="406" r="11" fill="#00beff" fill-opacity="0.7"/><circle cx="126.1" cy="181" r="11" fill="#00beff" fill-opacity="0.7"/>
-<circle cx="256" cy="106" r="30" fill="#060a12" stroke="#00beff" stroke-width="12"/><circle cx="385.9" cy="331" r="30" fill="#060a12" stroke="#00beff" stroke-width="12"/><circle cx="126.1" cy="331" r="30" fill="#060a12" stroke="#00beff" stroke-width="12"/>
-<circle cx="256" cy="256" r="46" fill="#91edff"/>
-<circle cx="256" cy="256" r="24" fill="#ffffff"/>
+<circle cx="256.0" cy="106.0" r="27" fill="#050c09" stroke="#1ee08a" stroke-width="11"/>
+<circle cx="373.3" cy="162.5" r="27" fill="#050c09" stroke="#1ee08a" stroke-width="11"/>
+<circle cx="402.2" cy="289.4" r="27" fill="#050c09" stroke="#1ee08a" stroke-width="11"/>
+<circle cx="321.1" cy="391.1" r="27" fill="#050c09" stroke="#1ee08a" stroke-width="11"/>
+<circle cx="190.9" cy="391.1" r="27" fill="#050c09" stroke="#1ee08a" stroke-width="11"/>
+<circle cx="109.8" cy="289.4" r="27" fill="#050c09" stroke="#1ee08a" stroke-width="11"/>
+<circle cx="138.7" cy="162.5" r="27" fill="#050c09" stroke="#1ee08a" stroke-width="11"/>
+<circle cx="256" cy="256" r="44" fill="#9ef5c8"/><circle cx="256" cy="256" r="23" fill="#ffffff"/>
 </svg>
