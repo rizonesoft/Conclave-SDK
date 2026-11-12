@@ -1,0 +1,85 @@
+{
+  "ref": "D02 T02 \u00a77",
+  "title": "Heartbeat that nudges an idle run and records a dead one as ended",
+  "implementation_sha": "3f81c42269e125420a3076aac02a50c4382fd893",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-unattended/D02-T02-s7.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python3 -m unittest discover -s kits/unattended/templates/scripts/tests (WSL, tmux 3.6) -> Ran 159 tests OK; on Windows Ran 159 tests OK (skipped=57)",
+    "heartbeat restarting a dead run through start (mutation) -> test_a_killed_run_is_recorded_as_ended_and_never_restarted and test_a_dead_run_is_ended_not_restarted FAILED (failures=2)",
+    "python -m unittest discover -s tests at db70bd6 (completion candidate) -> Ran 504 tests OK (skipped=96)"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-unattended/D02-T02-s7.md",
+    "verdict": "reconciled",
+    "candidate": "3f81c42269e125420a3076aac02a50c4382fd893",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/02-unattended/D02-T02-s7.md",
+    "candidate": "b141bea06ea5c5a28d35060d14fb19323b3a2f35",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "b141bea06ea5c5a28d35060d14fb19323b3a2f35",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 5,
+  "pass_cap": 33
+}

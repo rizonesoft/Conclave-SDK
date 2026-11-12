@@ -41,7 +41,7 @@ title: "TODO-02 -- Unattended kit"
 | 4 | §4 | Launch lock and claim | §2 | [x] |
 | 5 | §5 | Launcher for a Claude Code run under tmux | §3, §4 | [x] |
 | 6 | §6 | Launch commands for Codex and Antigravity | §5, T01 §2, T01 §3 | [x] |
-| 7 | §7 | Heartbeat that nudges an idle run and records a dead one as ended | §5 | [ ] |
+| 7 | §7 | Heartbeat that nudges an idle run and records a dead one as ended | §5 | [x] |
 | 8 | §8 | Ship counter, ship limit and stall marker | §7 | [ ] |
 | 9 | §9 | Nothing resumes a run without its operator | §7 | [ ] |
 | 10 | §10 | Desktop shortcut that starts the run | §5 | [ ] |
@@ -250,11 +250,14 @@ A run nobody watches can go quiet, and one can die. The heartbeat, a loop outsid
 - [x] Nudge an idle run in `heartbeat`: when the run's tmux window has shown no activity for `idle_minutes` (tmux `window_activity`), send a one-line prompt with `tmux send-keys`, at most once per `idle_minutes`, skipped when a client that can type is attached (a read-only watcher does not count), and count it with `campaign_guard.py heartbeat-still` for the run's guard (process-plan's heartbeat contract). Done when: tests find the nudge sent for an idle run, not for an active one, not with an operator attached, sent with a watcher, not twice within `idle_minutes`, and `heartbeat-still` run for each nudge.
 - [x] End the heartbeat loop in `heartbeat` when the run marker is gone, or when the guard's end record (`build/claude-campaign-ended.json`, written by `campaign_guard.py end`) names the run's tag or agent session; a run whose guard was never taken is not treated as finished. Done when: tests for each find exit 10, the heartbeat session gone, and for the run's own end the marker and claim removed.
 - [x] Keep the heartbeat's state in `build/unattended-heartbeat.json` (`last_nudge`, `last_error`, `ended`), read back on every tick and kept in memory when a write fails. Done when: a test running 50 ticks with nudges writes no new file under `build/` beyond it, and one with a failing write keeps supervising.
-- [ ] Commit: `unattended: heartbeat nudges an idle run and records a dead one as ended`
+- [x] Commit: `unattended: heartbeat nudges an idle run and records a dead one as ended`
 
 **Corrected 2026-11-12 (plan review):** ending a run is one verified cleanup, done under the launch lock after re-reading the marker and finding it still names the run the tick observed (an operator's new run is never touched): the run's tmux session, every process tagged with the run and its process group are stopped, its own guard is ended, and only once all of that is confirmed are the marker and the run's claim removed; a cleanup that fails keeps both, records `last_error` and is retried on the next tick, never by a restart. This applies as well when the run ends itself (the guard's end record, a stall): nothing it started keeps running. A nudge counts (`last_nudge`, `heartbeat-still`) only when tmux answered the client query and accepted the prompt; a query that fails sends nothing and is recorded. The heartbeat's state names its run's tag: a tick whose marker names another run starts from fresh state, and `ended` holds the reason and time. Tests cover an operator start between observation and cleanup, a failed guard end, processes that outlive SIGKILL, failed tmux queries and sends, the prompt reaching a real pane, and state reloaded by a new heartbeat with the throttle kept and a fresh run's state fresh.
 
 **Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` ends `OK`; making the heartbeat restart a dead run through `start` makes the no-agent-started test fail.
+
+> **Verified:** 2026-11-12 | §7 | 3f81c42269e125420a3076aac02a50c4382fd893
+> **Review:** `docs/reviews/d02-t02-s7.json`
 
 ## 8. Ship counter, ship limit and stall marker
 
