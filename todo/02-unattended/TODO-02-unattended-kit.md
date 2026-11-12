@@ -228,7 +228,11 @@ The launcher starts whichever agent the profile names. The Codex and Antigravity
 
 ## 7. Heartbeat that restarts a dead run and nudges an idle one
 
+> **Started:** 2026-11-12T14:04:33Z
+
 Nothing restarts RasterFold's run when it dies. Impossible OS's heartbeat does: a loop outside the agent that restarts a dead session with backoff and nudges one that has gone quiet. Source: Impossible OS `scripts/overnight/heartbeat.sh` (105 lines).
+
+**Corrected 2026-11-12 (validation):** "returning 10" is the heartbeat's exit status 10, which means the run is over, told apart from an error. A restart is `start` itself, called in the heartbeat's process, so it takes the launch lock, runs the preflight and goes through §5's resume path; a launch already under way is retried on the next tick. The heartbeat is not tagged with the run's tag, which a fresh start changes; `stop` ends its tmux session (§5). The waits 300, 600 and 1,200 seconds (with `tick_seconds` 300) are `tick_seconds * 2 ** deaths` with `deaths` counted before the restart they delay. A nudge is sent at most once per `idle_minutes`.
 
 **Phase:** 2
 **Needs:** none
