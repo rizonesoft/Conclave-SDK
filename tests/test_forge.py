@@ -275,7 +275,7 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertEqual(status["codex_skills"], [])
 
     def test_list_kits_and_base_kit_additive_preservation_and_per_agent_import(self):
-        self.assertEqual(forge.list_kits(), ["automations", "base", "laravel", "reviewer", "todo", "wordpress"])
+        self.assertEqual(forge.list_kits(), ["automations", "base", "laravel", "reviewer", "todo", "unattended", "wordpress"])
         (self.target / "AGENTS.md").write_text("locally tuned\n", encoding="utf-8")
         dry = forge.apply_kit(self.target, "base", dry_run=True)
         self.assertTrue(dry["dry_run"])
