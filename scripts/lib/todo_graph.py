@@ -593,7 +593,8 @@ def three_pass_ok(root, data, ref, found):
     then reconciliations up to the section pin's `pass_cap` returned passes in all, each run after the pass before on
     a candidate at or after it, the last on the stamped commit. The receipt's completion verdict is `complete`,
     `reconciled`, or, when the pin sets `blocking` and the last pass ended gaps below those levels, `filed`. The
-    section's promise is the same at every reconciliation as at the completion review that failed."""
+    section's promise at the stamped commit is the one the completion review that failed reviewed (a reconciliation
+    between may have changed it and returned gaps for that)."""
     dispatch = review_dispatch()
     schedule, sha = data["schedule"], data["implementation_sha"]
     pin = committed_pin(root, data.get("schedule_sha", sha), ref)
