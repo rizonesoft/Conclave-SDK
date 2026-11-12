@@ -83,9 +83,14 @@ def check_git(root: Path, profile: dict, report: Report) -> None:
     else:
         report.line(not dirty, "git-clean",
                     "clean tree" if not dirty else f"{len(dirty)} changed or untracked path(s), first {dirty[0][3:]}")
-    upstream = _git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
-    if upstream.returncode != 0:
+    configured = _git(root, "config", "--get", f"branch.{name}.merge")
+    if configured.returncode == 1:  # git's exit for a key that is not set: the branch tracks nothing
         report.line(True, "git-upstream", "no upstream set")
+        return
+    upstream = _git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    if configured.returncode != 0 or upstream.returncode != 0:
+        report.line(False, "git-upstream", f"{name} tracks {configured.stdout.strip() or 'an upstream'}, which "
+                                           f"cannot be resolved ({_last_line(upstream.stderr) or 'git config failed'})")
         return
     behind = _git(root, "rev-list", "--count", "HEAD..@{u}")
     if behind.returncode != 0 or not behind.stdout.strip().isdigit():

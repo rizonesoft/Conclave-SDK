@@ -134,6 +134,17 @@ class GitChecksTest(Fixture):
         self.assertEqual(self.names(fails), ["FAIL git-upstream"])
         self.assertIn("1 commit(s) behind", fails[0])
 
+    def test_an_upstream_that_no_longer_resolves_fails(self):
+        # Round 1 of D02 T02 §3: a tracked branch deleted on the remote and pruned passed as "no upstream set".
+        remote = Path(self._tmp.name) / "remote.git"
+        git(self._tmp.name, "init", "-q", "--bare", "-b", "main", str(remote))
+        git(self.root, "remote", "add", "origin", str(remote))
+        git(self.root, "push", "-q", "-u", "origin", "main")
+        git(remote, "update-ref", "-d", "refs/heads/main")
+        git(self.root, "fetch", "-q", "--prune")
+        fails = self.fails(self.check())
+        self.assertEqual(self.names(fails), ["FAIL git-upstream"])
+        self.assertIn("cannot be resolved", fails[0])
     def test_no_git_on_path_is_one_fail_saying_so(self):
         with unittest.mock.patch.object(pre.shutil, "which", return_value=None):
             fails = self.fails(self.check())
