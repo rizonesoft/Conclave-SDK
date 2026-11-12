@@ -1,6 +1,7 @@
 """Codex and the run guard: the Stop hook wrapper, the hook file's commands, and hook approval through Codex's own
 app-server (stubbed here; the live run is D02 T01 §7)."""
 import importlib.util
+import io
 import itertools
 import json
 import os
@@ -380,6 +381,48 @@ class Trust(Project):
         self.assertEqual(len(proc.stderr.strip().splitlines()), 1, proc.stderr)
         self.assertNotIn("Traceback", proc.stderr)
 
+
+class UnattendedPreflightTrust(Project):
+    """The unattended kit's preflight runs this trust script for a Codex run and reports what Codex says (D02 T02 §3)."""
+
+    _scenarios = itertools.count()
+    scenario = Trust.scenario
+    writes = Trust.writes
+
+    PREFLIGHT = REPO / "kits/unattended/templates/scripts/unattended-preflight.py"
+
+    def check(self):
+        spec = importlib.util.spec_from_file_location("unattended_preflight", self.PREFLIGHT)
+        assert spec is not None and spec.loader is not None
+        pre = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pre)
+        report = pre.Report(io.StringIO())
+        pre.check_codex_trust(self.root, report)
+        return report.out.getvalue().splitlines()
+
+    def test_a_trusted_hook_passes_and_a_modified_one_is_approved(self):
+        _path, env = self.scenario([hook_entry(self.root, "trusted")])
+        with env:
+            lines = self.check()
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith("PASS codex-hook-trust: exit 0: codex-hook-trust: trusted:"), lines)
+        path, env = self.scenario([hook_entry(self.root, "modified")])
+        with env:
+            lines = self.check()
+        self.assertTrue(lines[0].startswith("PASS codex-hook-trust: exit 0: codex-hook-trust: approved:"), lines)
+        self.assertEqual([w["keyPath"] for w in self.writes(path)], ["hooks.state"])
+
+    def test_a_refused_approval_or_a_server_that_does_not_start_fails(self):
+        path, env = self.scenario([hook_entry(self.root, "modified")])
+        data = json.loads(path.read_text(encoding="utf-8"))
+        path.write_text(json.dumps({**data, "refuse_after": 0}), encoding="utf-8")
+        with env:
+            lines = self.check()
+        self.assertTrue(lines[0].startswith("FAIL codex-hook-trust: exit 2: codex-hook-trust:"), lines)
+        dead = json.dumps([sys.executable, "-c", "import sys; sys.exit(1)"])
+        with mock.patch.dict(os.environ, {"CODEX_HOOK_TRUST_SERVER": dead}):
+            lines = self.check()
+        self.assertTrue(lines[0].startswith("FAIL codex-hook-trust: exit 2:"), lines)
 
 class Doctor(Trust):
     """`forge.py doctor <project> todo`: the Codex wiring and its approval, as Codex reports it."""

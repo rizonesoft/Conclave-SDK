@@ -8,6 +8,7 @@ The kit is being built section by section (`todo/02-unattended/TODO-02-unattende
 | ---- | ---------- |
 | `.conclave/unattended.json` | The run profile: agent, model, effort, prompt, branch, thresholds, preflight checks |
 | `docs/unattended-prompt.md` | The seed prompt the run starts with, naming no project |
+| `scripts/unattended-preflight.py` | One PASS or FAIL line per precondition; exit 1 on any FAIL (Linux, WSL) |
 | `scripts/lib/unattended.py` | `load_profile`, which refuses a profile it cannot run, naming the key |
 | `scripts/tests/test_unattended.py` | The kit's own tests |
 

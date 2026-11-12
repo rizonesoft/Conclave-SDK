@@ -1,0 +1,290 @@
+#!/usr/bin/env python3
+"""Refuse an unattended run that cannot work: one PASS or FAIL line per precondition, exit 1 on any FAIL.
+
+    python3 scripts/unattended-preflight.py [--root DIR] [--resume-session ID]
+
+Reads the run profile (`.conclave/unattended.json`, through `scripts/lib/unattended.py`) and checks, in order: the
+system (tmux runs on Linux and in WSL only), git (the profile's branch, a clean tree, not behind the upstream as last
+fetched), the run (no campaign guard, or only the one held by `--resume-session`, the run being resumed after a
+crash), the tools on PATH, the agent's Stop hook (wired, its own self-test, and for Codex approved in Codex), disk
+and memory headroom, then the profile's own `preflight` commands, each in its own process group with its own
+timeout. A check that cannot run is a FAIL saying why; the checks that do not depend on it still run.
+Standard library only.
+"""
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import json
+import os
+from pathlib import Path
+import shutil
+import signal
+import subprocess
+import sys
+import threading
+
+HERE = Path(__file__).resolve().parent
+TIMED_OUT = 124  # the status `timeout(1)` reports, given to a check that ran past its limit
+NOT_STARTED = 127  # the status a shell gives a program it could not start
+AGENT_CLI = {"claude": "claude", "codex": "codex", "agy": "agy"}
+# Each agent's Stop hook file; the markers and the parsing are the guard's own (`HOOK_FILES` in campaign_guard.py).
+AGENT_HOOK_FILE = {"claude": ".claude/settings.json", "codex": ".codex/hooks.json", "agy": ".agents/hooks.json"}
+GUARD = "build/claude-campaign-guard.json"
+SELF_TEST_SECONDS = 300
+TRUST_SECONDS = 120
+TAIL_BYTES = 4096  # what a profile check's output costs at most: its last 4 KiB, held in memory only
+MEMINFO = Path("/proc/meminfo")
+
+
+def _load(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class Report:
+    def __init__(self, out=None):
+        self.out = out or sys.stdout
+        self.failed = False
+
+    def line(self, ok: bool, name: str, detail: str) -> None:
+        self.failed |= not ok
+        print(f"{'PASS' if ok else 'FAIL'} {name}: {detail}", file=self.out, flush=True)
+
+
+def _last_line(text: str) -> str:
+    lines = text.strip().splitlines()
+    return lines[-1][-200:] if lines else ""
+
+
+def _git(root: Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=60)
+
+
+def check_git(root: Path, profile: dict, report: Report) -> None:
+    if shutil.which("git") is None:
+        report.line(False, "git", "git is not on PATH, so the branch, the tree and the upstream cannot be checked")
+        return
+    branch = _git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    if branch.returncode != 0:
+        report.line(False, "git-branch", f"not a git repository with a commit ({_last_line(branch.stderr)})")
+        return
+    name = branch.stdout.strip()
+    report.line(name == profile["branch"], "git-branch",
+                f"on {name}" + ("" if name == profile["branch"] else f", the profile runs on {profile['branch']}"))
+    status = _git(root, "status", "--porcelain", "--untracked-files=all")
+    dirty = [line for line in status.stdout.splitlines() if line.strip()]
+    if status.returncode != 0:
+        report.line(False, "git-clean", f"git status failed ({_last_line(status.stderr)})")
+    else:
+        report.line(not dirty, "git-clean",
+                    "clean tree" if not dirty else f"{len(dirty)} changed or untracked path(s), first {dirty[0][3:]}")
+    upstream = _git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    if upstream.returncode != 0:
+        report.line(True, "git-upstream", "no upstream set")
+        return
+    behind = _git(root, "rev-list", "--count", "HEAD..@{u}")
+    if behind.returncode != 0 or not behind.stdout.strip().isdigit():
+        report.line(False, "git-upstream", f"could not compare with {upstream.stdout.strip()} "
+                                           f"({_last_line(behind.stderr)})")
+        return
+    count = int(behind.stdout.strip())
+    report.line(count == 0, "git-upstream", f"{upstream.stdout.strip()} as last fetched: "
+                + ("up to date" if count == 0 else f"{count} commit(s) behind; pull first"))
+
+
+def check_run(root: Path, report: Report, resume_session: str | None = None) -> None:
+    guard = root / GUARD
+    if not guard.exists():
+        report.line(True, "campaign-guard", "no run guard held")
+        return
+    try:
+        session = str(json.loads(guard.read_text(encoding="utf-8")).get("session_id", ""))
+    except (OSError, ValueError, AttributeError) as exc:
+        report.line(False, "campaign-guard", f"{GUARD} is held and cannot be read ({exc}); another run may be live")
+        return
+    if resume_session and session == resume_session:
+        report.line(True, "campaign-guard", f"{GUARD} is held by session {session}, the run being resumed")
+    else:
+        report.line(False, "campaign-guard", f"{GUARD} is held by session {session or 'unknown'}: another run is "
+                                             "live (resume it with --resume-session, or end it)")
+
+
+def check_tools(profile: dict, report: Report) -> None:
+    names = ["git", "python3", "tmux", AGENT_CLI[profile["agent"]], *profile["tools"]]
+    for name in dict.fromkeys(names):
+        found = shutil.which(name)
+        report.line(bool(found), f"tool {name}", found or "not on PATH")
+
+
+def check_hook(root: Path, profile: dict, report: Report, self_test_seconds: int = SELF_TEST_SECONDS) -> None:
+    guard_script = root / "scripts" / "campaign_guard.py"
+    if not guard_script.is_file():
+        report.line(False, "stop-hook", "scripts/campaign_guard.py is missing: install the todo kit")
+        return
+    try:
+        guard = _load("project_campaign_guard", guard_script)
+        markers = {f: m for f, _, m in guard.HOOK_FILES}
+    except Exception as exc:  # the project's own script: any failure to load it is the finding, reported here
+        report.line(False, "stop-hook", f"scripts/campaign_guard.py does not load ({type(exc).__name__}: {exc})")
+        return
+    hook_file = AGENT_HOOK_FILE[profile["agent"]]
+    path = root / hook_file
+    if not path.is_file():
+        report.line(False, "stop-hook", f"{hook_file} is missing: install the todo kit for {profile['agent']}")
+        return
+    try:
+        guard._campaign_command(str(path), hook_file, markers[hook_file])
+        report.line(True, "stop-hook", f"{hook_file} runs the campaign Stop hook")
+    except guard.GuardError as exc:
+        report.line(False, "stop-hook", f"{hook_file}: {exc}")
+        return
+    try:
+        test = subprocess.run([sys.executable, str(guard_script), "--self-test", "--hook-file", hook_file], cwd=root,
+                              capture_output=True, text=True, timeout=self_test_seconds)
+        report.line(test.returncode == 0, "guard-self-test",
+                    f"exit {test.returncode}: {_last_line(test.stdout) or _last_line(test.stderr) or 'no output'}")
+    except subprocess.TimeoutExpired:
+        report.line(False, "guard-self-test", f"ran past {self_test_seconds}s")
+    if profile["agent"] == "codex":
+        check_codex_trust(root, report)
+
+
+def check_codex_trust(root: Path, report: Report) -> None:
+    """Codex runs a project hook only once it is approved; the todo kit's trust script approves it through Codex's
+    own app-server when it is not (the same step `forge.py` takes at install), and this reports what it did."""
+    script = root / "scripts" / "codex-hook-trust.py"
+    if not script.is_file():
+        report.line(False, "codex-hook-trust", "scripts/codex-hook-trust.py is missing: install the todo kit")
+        return
+    try:
+        done = subprocess.run([sys.executable, str(script)], cwd=root, capture_output=True, text=True,
+                              timeout=TRUST_SECONDS)
+    except subprocess.TimeoutExpired:
+        report.line(False, "codex-hook-trust", f"ran past {TRUST_SECONDS}s")
+        return
+    said = _last_line(done.stdout) if done.returncode == 0 else (_last_line(done.stderr) or _last_line(done.stdout))
+    report.line(done.returncode == 0, "codex-hook-trust", f"exit {done.returncode}: {said or 'no output'}")
+
+
+def disk_free_gb(root: Path) -> float:
+    return shutil.disk_usage(root).free / 1024 ** 3
+
+
+def available_gb(meminfo: Path | None = None) -> float | None:
+    try:
+        for line in (meminfo or MEMINFO).read_text(encoding="ascii").splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) / (1024 * 1024)
+    except (OSError, ValueError, IndexError):
+        return None
+    return None
+
+
+def check_headroom(root: Path, profile: dict, report: Report) -> None:
+    try:
+        free = disk_free_gb(root)
+    except OSError as exc:
+        report.line(False, "disk", f"free space on {root} cannot be read ({exc})")
+    else:
+        report.line(free >= profile["min_disk_gb"], "disk", f"{free:.1f} GB free, {profile['min_disk_gb']} GB needed")
+    memory = available_gb()
+    if memory is None:
+        report.line(False, "memory", f"MemAvailable cannot be read from {MEMINFO}")
+    else:
+        report.line(memory >= profile["min_ram_gb"], "memory",
+                    f"{memory:.1f} GB available, {profile['min_ram_gb']} GB needed")
+
+
+def _end_group(proc: subprocess.Popen) -> None:
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:  # every process of the group has already ended: there is nothing left to stop
+        pass
+    proc.wait()
+
+
+def _keep_tail(pipe, tail: bytearray) -> None:
+    """Read `pipe` to its end, keeping only its last TAIL_BYTES: a check that writes without end costs no more."""
+    while True:
+        chunk = pipe.read1(65536)
+        if not chunk:
+            break
+        tail.extend(chunk)
+        del tail[:-TAIL_BYTES]
+    pipe.close()
+
+
+def run_check(check: dict, root: Path) -> tuple[int, str]:
+    """Run one profile check from the repository root, its arguments as listed and no shell, in its own process
+    group, and end the whole group when it finishes, times out or is interrupted (a child left behind does not
+    outlive it): (status, last output line). A timeout reads as 124, a program that cannot start as 127."""
+    try:
+        proc = subprocess.Popen(check["command"], cwd=root, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, start_new_session=True)
+    except OSError as exc:
+        return NOT_STARTED, f"could not start {check['command'][0]}: {exc.strerror or exc}"
+    tail = bytearray()
+    reader = threading.Thread(target=_keep_tail, args=(proc.stdout, tail), daemon=True)
+    reader.start()
+    try:
+        code = proc.wait(timeout=check["timeout_seconds"])
+    except subprocess.TimeoutExpired:
+        _end_group(proc)
+        code = TIMED_OUT
+    except BaseException:
+        _end_group(proc)
+        raise
+    else:
+        _end_group(proc)
+    reader.join(timeout=10)
+    return code, _last_line(bytes(tail).decode("utf-8", "replace"))
+
+
+def check_profile_commands(root: Path, profile: dict, report: Report) -> None:
+    for check in profile["preflight"]:
+        code, last = run_check(check, root)
+        detail = f"exit {code}" + (f" after {check['timeout_seconds']}s" if code == TIMED_OUT else "")
+        report.line(code == 0, f"check {check['name']}", f"{detail}: {last or 'no output'}")
+
+
+def preflight(root: Path, out=None, system: str | None = None, resume_session: str | None = None) -> int:
+    report = Report(out)
+    if (system or os.name) == "nt":
+        report.line(False, "system", "the unattended run needs tmux, which runs on Linux and in WSL: run it in WSL")
+        return 1
+    try:
+        unattended = _load("unattended_lib", HERE / "lib" / "unattended.py")
+        profile = unattended.load_profile(root)
+    except Exception as exc:  # a ProfileError, or the module itself missing or broken: every check needs the profile
+        report.line(False, "profile", str(exc) or type(exc).__name__)
+        return 1
+    report.line(True, "profile", f"{unattended.PROFILE} loads: {profile['name']}, {profile['agent']}")
+    checks = (("git", lambda: check_git(root, profile, report)),
+              ("campaign-guard", lambda: check_run(root, report, resume_session)),
+              ("tools", lambda: check_tools(profile, report)),
+              ("stop-hook", lambda: check_hook(root, profile, report)),
+              ("headroom", lambda: check_headroom(root, profile, report)),
+              ("profile checks", lambda: check_profile_commands(root, profile, report)))
+    for name, run in checks:
+        try:
+            run()
+        except Exception as exc:  # a check that cannot run is a FAIL with the reason; the others still run
+            report.line(False, name, f"could not run ({type(exc).__name__}: {exc})")
+    return 1 if report.failed else 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Refuse an unattended run that cannot work.")
+    parser.add_argument("--root", default=str(HERE.parent), help="the repository (default: this script's)")
+    parser.add_argument("--resume-session", help="the session of the run being resumed, whose guard is allowed")
+    args = parser.parse_args(argv)
+    return preflight(Path(args.root).resolve(), resume_session=args.resume_session)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

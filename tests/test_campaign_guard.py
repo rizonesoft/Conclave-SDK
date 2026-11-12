@@ -597,12 +597,29 @@ class SelfTest(unittest.TestCase):
         self.fake.write_text(FAKE_HOOK, encoding="utf-8")
         self.pid_file = Path(self._tmp.name) / "child.pid"
 
-    def run_self_test(self, limit=60):
-        code, lines = guard._self_test(str(self.project), limit)
+    def run_self_test(self, limit=60, only=None):
+        code, lines = guard._self_test(str(self.project), limit, only)
         workspace = lines[0].split("workspace ", 1)[1]
         self.assertFalse(os.path.exists(workspace), "the self-test left its workspace behind")
         return code, lines
 
+    def test_one_hook_file_is_tested_alone_and_another_agents_broken_file_does_not_count(self):
+        # D02 T02 §3: the unattended preflight checks the one agent a run uses.
+        (self.project / ".agents/hooks.json").write_text("{not json", encoding="utf-8")
+        code, lines = self.run_self_test()
+        self.assertEqual(code, 1)
+        code, lines = self.run_self_test(only=".claude/settings.json")
+        self.assertEqual(code, 0, lines)
+        self.assertEqual([line for line in lines[1:]], ["self-test: .claude/settings.json: ok (block)"])
+        (self.project / ".codex/hooks.json").unlink()
+        code, lines = self.run_self_test(only=".codex/hooks.json")
+        self.assertEqual((code, lines[1:]), (1, ["self-test: FAIL .codex/hooks.json: absent"]))
+
+    def test_the_command_line_takes_one_known_hook_file(self):
+        for argv in (["--self-test", "--hook-file"], ["--self-test", "--hook-file", "other.json"],
+                     ["--self-test", "--root", "x"]):
+            with self.subTest(argv=argv):
+                self.assertEqual(guard.main(argv), 2)
     def fake_command(self, mode, markers="campaign_guard.py stop-hook"):
         return f"{Path(sys.executable).as_posix()} {self.fake.as_posix()} {mode} {self.pid_file.as_posix()} {markers}"
 

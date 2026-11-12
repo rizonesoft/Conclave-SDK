@@ -13,7 +13,7 @@
     python scripts/campaign_guard.py health --session S --jobs J1,J2
     python scripts/campaign_guard.py expiry --session S [--now ISO]
     python scripts/campaign_guard.py heartbeat-still --session S     (a heartbeat resumption: counts a still, trips, ends a stall)
-    python scripts/campaign_guard.py --self-test                     (run each wired hook file's command against a scratch run)
+    python scripts/campaign_guard.py --self-test [--hook-file F]     (run each wired hook file's command, or F's alone, against a scratch run)
 
 A campaign run has three parts. The guard file (`build/claude-campaign-guard.json`) names the session that owns the
 run, its phase, run file, heartbeat job and run id; it is written and deleted only through this module, under an
@@ -1041,9 +1041,11 @@ def git_bash() -> str:
                      "or set CLAUDE_CODE_GIT_BASH_PATH")
 
 
-def _self_test(project: str = REPO, limit: float = SELF_TEST_SECONDS) -> tuple[int, list[str]]:
-    """Drive each hook file this project has through its own wired command, as its harness would, against a
-    throwaway workspace with a guard held: `(exit, report lines)`. Unit tests call `stop_hook` directly, so a hook
+def _self_test(project: str = REPO, limit: float = SELF_TEST_SECONDS,
+               only: str | None = None) -> tuple[int, list[str]]:
+    """Drive each hook file this project has (or only the hook file `only`, which must then exist: the one agent a
+    run uses, so another agent's broken file does not block it) through its own wired command, as its harness would,
+    against a throwaway workspace with a guard held: `(exit, report lines)`. Unit tests call `stop_hook` directly, so a hook
     file with a wrong command passes them; this fails naming the file. It tests the wiring only, needs no agent
     installed, and removes its workspace whatever happens."""
     lines: list[str] = []
@@ -1064,9 +1066,12 @@ def _self_test(project: str = REPO, limit: float = SELF_TEST_SECONDS) -> tuple[i
             fh.write("build/\n")
         present = []
         for hook_file, decision, markers in HOOK_FILES:
+            if only is not None and hook_file != only:
+                continue
             source = os.path.join(project, hook_file)
             if not os.path.isfile(source):
-                lines.append(f"self-test: {hook_file}: absent")
+                failed = failed or only is not None
+                lines.append(f"self-test: {'FAIL ' if only else ''}{hook_file}: absent")
                 continue
             os.makedirs(os.path.dirname(os.path.join(workspace, hook_file)), exist_ok=True)
             shutil.copyfile(source, os.path.join(workspace, hook_file))
@@ -1138,8 +1143,13 @@ def main(argv: list[str]) -> int:
         if out:
             print(out)
         return code
-    if argv == ["--self-test"]:
-        code, lines = _self_test()
+    if argv[:1] == ["--self-test"]:
+        names = [name for name, _, _ in HOOK_FILES]
+        if argv[1:] and (len(argv) != 3 or argv[1] != "--hook-file" or argv[2] not in names):
+            print(f"campaign-guard: --self-test takes nothing or --hook-file with one of {', '.join(names)}",
+                  file=sys.stderr)
+            return 2
+        code, lines = _self_test(only=argv[2] if argv[1:] else None)
         print("\n".join(lines))
         return code
     if not argv:

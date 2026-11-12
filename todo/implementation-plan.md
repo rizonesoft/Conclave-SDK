@@ -39,7 +39,7 @@ Sections: 9 | Checklist items: 79
 
 ### Phase 2: Unattended running
 
-Sections: 19 | Checklist items: 124
+Sections: 19 | Checklist items: 125
 
 | Status | Reference   | Deliverable                                               | Needs        | Items |
 | ------ | ----------- | --------------------------------------------------------- | ------------ | ----- |
@@ -52,7 +52,7 @@ Sections: 19 | Checklist items: 124
 | [x]    | D02 T01 §7  | Live Codex run held by its approved Stop hook             | none         | 4     |
 | [x]    | D02 T02 §1  | Unattended kit known to `forge.py`                        | none         | 6     |
 | [x]    | D02 T02 §2  | Run profile `.conclave/unattended.json` and its loader    | none         | 6     |
-| [ ]    | D02 T02 §3  | Preflight with a PASS or FAIL line per precondition       | none         | 8     |
+| [ ]    | D02 T02 §3  | Preflight with a PASS or FAIL line per precondition       | none         | 9     |
 | [ ]    | D02 T02 §4  | Launch lock and claim                                     | none         | 6     |
 | [ ]    | D02 T02 §5  | Launcher for a Claude Code run under tmux                 | none         | 8     |
 | [ ]    | D02 T02 §6  | Launch commands for Codex and Antigravity                 | none         | 6     |
@@ -145,4 +145,4 @@ Sections: 3 | Checklist items: 16
 
 Progress: 27/74 verified sections, 13 ready to run now.
 
-Checklist: 244/522 items completed (includes Commit items).
+Checklist: 252/523 items completed (includes Commit items).
