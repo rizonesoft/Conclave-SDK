@@ -169,7 +169,11 @@ When a harness has no Stop hook that can hold a run, the heartbeat is the only t
 
 ## 5. Guard self-test through each wired hook
 
+> **Started:** 2026-11-12T00:48:58Z
+
 Unit tests call `stop_hook` directly, so a hook file with a wrong command passes them. `--self-test` runs the command each hook file holds, as the harness would, against a throwaway workspace. Source: RasterFold `scripts/campaign_guard.py:1320`.
+
+**Corrected 2026-11-12 (validation):** §2 and §3 established how each harness runs its hook, and the self-test must run each the same way or it proves nothing: Claude Code runs its command through Git Bash on Windows (`sh` elsewhere) with `CLAUDE_PROJECT_DIR` set to the project; Antigravity runs its command through `cmd /c` on Windows (`sh -c` elsewhere) with the working folder at `.agents/` and no `CLAUDE_PROJECT_DIR`; Codex runs `commandWindows` on Windows (`command` elsewhere) from the project root. RasterFold's self-test (1,000 lines) also re-tests the guard's logic, which the unit tests own here; this one tests only the wiring. It runs each command directly, so it needs neither agent installed, and Codex's approval is the doctor's check (§3), not this one's.
 
 **Phase:** 2
 **Needs:** none
@@ -180,8 +184,8 @@ Unit tests call `stop_hook` directly, so a hook file with a wrong command passes
 1. Add `--self-test` to `kits/todo/templates/scripts/campaign_guard.py`. Done when: it passes on a fresh install and fails on a broken hook file.
 2. Run it from the suite. Done when: the checkpoint passes.
 
-- [ ] Add `_self_test()` and `--self-test` to `campaign_guard.py`: build a throwaway git workspace under the system temporary folder with a stub `scripts/todo-graph.py` that answers `query ready`, acquire a guard in it, and remove the workspace afterwards even on failure (RasterFold `:1320`). Done when: running it leaves no folder behind and exits 0 on a fresh install. Cheaper substitute: calling `stop_hook` in process must fail review, because it does not run the wired command.
-- [ ] Run, in `_self_test`, the command from each hook file the project has (`.claude/settings.json`, `.agents/hooks.json`, `.codex/hooks.json`) as a subprocess with the matching payload on stdin, with a 60 second limit and the whole process tree ended on timeout. Done when: a test with a seeded install sees three hooks run and each answer its own format (`block`, `continue`, `block`).
+- [ ] Add `_self_test()` and `--self-test` to `campaign_guard.py`: build a throwaway git workspace under the system temporary folder holding copies of this project's guard script, Codex wrapper and hook files, a stub `scripts/todo-graph.py` that answers `query ready` and a run file, acquire a guard in it, and remove the workspace afterwards even on failure (RasterFold `:1320`). Done when: running it leaves no folder behind and exits 0 on a fresh install. Cheaper substitute: calling `stop_hook` in process must fail review, because it does not run the wired command.
+- [ ] Run, in `_self_test`, the command from each hook file the project has (`.claude/settings.json`, `.agents/hooks.json`, `.codex/hooks.json`) as a subprocess the way its harness runs it (the shell, working folder and environment named above) with the matching payload on stdin, with a 60 second limit and the whole process tree ended on timeout. A hook file the project does not have is reported as `absent` and not counted as a failure. Done when: a test with a seeded install sees three hooks run and each answer its own format (`block`, `continue`, `block`).
 - [ ] Fail `_self_test` naming the hook file when its command exits non-zero, times out, or answers nothing for a guarded session. Done when: tests that break each seed in turn (a wrong script name) find exit 1 and that file's path in the output.
 - [ ] Run `--self-test` from `tests/test_campaign_guard.py` against the SDK's own checkout and from `tests/test_three_pass_install.py`'s fresh install. Done when: both tests pass and the first fails when `.claude/settings.json` in a scratch copy names a missing script.
 - [ ] Run `python forge.py self-sync`. Done when: `scripts/campaign_guard.py` equals the kit file.
