@@ -265,7 +265,9 @@ def end_run_processes(session: str, pgid: int | None, grace: float = STOP_GRACE_
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
             pass  # it ended at the last moment
-    deadline = time.monotonic() + max(grace, 2)
+    # SIGKILL lands only once a process leaves uninterruptible I/O (slow under load, as on WSL's /mnt), so the wait
+    # after it is the full stop grace whatever the polite wait was.
+    deadline = time.monotonic() + max(grace, STOP_GRACE_SECONDS)
     while (left := tagged(session)) and time.monotonic() < deadline:
         time.sleep(0.2)
     return tagged(session) + ([pgid] if pgid and _group_alive(pgid) else [])
