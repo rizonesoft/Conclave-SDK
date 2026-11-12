@@ -62,7 +62,12 @@ def _last_line(text: str) -> str:
 
 
 def _git(root: Path, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=60)
+    """One git query, never raising: a query that cannot run or runs past a minute reads as a failed query (exit -1)
+    whose stderr says why, so each git precondition reports on its own."""
+    try:
+        return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return subprocess.CompletedProcess(["git", *args], -1, stdout="", stderr=f"git {args[0]} could not run: {exc}")
 
 
 def check_git(root: Path, profile: dict, report: Report) -> None:
@@ -70,12 +75,12 @@ def check_git(root: Path, profile: dict, report: Report) -> None:
         report.line(False, "git", "git is not on PATH, so the branch, the tree and the upstream cannot be checked")
         return
     branch = _git(root, "rev-parse", "--abbrev-ref", "HEAD")
-    if branch.returncode != 0:
+    name = branch.stdout.strip() if branch.returncode == 0 else None
+    if name is None:
         report.line(False, "git-branch", f"not a git repository with a commit ({_last_line(branch.stderr)})")
-        return
-    name = branch.stdout.strip()
-    report.line(name == profile["branch"], "git-branch",
-                f"on {name}" + ("" if name == profile["branch"] else f", the profile runs on {profile['branch']}"))
+    else:
+        report.line(name == profile["branch"], "git-branch",
+                    f"on {name}" + ("" if name == profile["branch"] else f", the profile runs on {profile['branch']}"))
     status = _git(root, "status", "--porcelain", "--untracked-files=all")
     dirty = [line for line in status.stdout.splitlines() if line.strip()]
     if status.returncode != 0:
@@ -83,6 +88,9 @@ def check_git(root: Path, profile: dict, report: Report) -> None:
     else:
         report.line(not dirty, "git-clean",
                     "clean tree" if not dirty else f"{len(dirty)} changed or untracked path(s), first {dirty[0][3:]}")
+    if name is None:
+        report.line(False, "git-upstream", "cannot be checked: the branch is not known (see git-branch)")
+        return
     configured = _git(root, "config", "--get", f"branch.{name}.merge")
     if configured.returncode == 1:  # git's exit for a key that is not set: the branch tracks nothing
         report.line(True, "git-upstream", "no upstream set")
@@ -155,6 +163,8 @@ def check_hook(root: Path, profile: dict, report: Report, self_test_seconds: int
                     f"exit {test.returncode}: {_last_line(test.stdout) or _last_line(test.stderr) or 'no output'}")
     except subprocess.TimeoutExpired:
         report.line(False, "guard-self-test", f"ran past {self_test_seconds}s")
+    except (OSError, subprocess.SubprocessError) as exc:
+        report.line(False, "guard-self-test", f"could not run ({exc})")
     if profile["agent"] == "codex":
         check_codex_trust(root, report)
 
@@ -171,6 +181,9 @@ def check_codex_trust(root: Path, report: Report) -> None:
                               timeout=TRUST_SECONDS)
     except subprocess.TimeoutExpired:
         report.line(False, "codex-hook-trust", f"ran past {TRUST_SECONDS}s")
+        return
+    except (OSError, subprocess.SubprocessError) as exc:
+        report.line(False, "codex-hook-trust", f"could not run ({exc})")
         return
     said = _last_line(done.stdout) if done.returncode == 0 else (_last_line(done.stderr) or _last_line(done.stdout))
     report.line(done.returncode == 0, "codex-hook-trust", f"exit {done.returncode}: {said or 'no output'}")

@@ -1,6 +1,7 @@
 """Tests of `scripts/unattended-preflight.py`: one PASS or FAIL line per precondition, exit 1 on any FAIL."""
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import io
 import json
@@ -157,8 +158,11 @@ class GitChecksTest(Fixture):
         report = self.report()
         pre.check_git(plain, PROFILE, report)
         fails = self.fails(report)
-        self.assertEqual(self.names(fails), ["FAIL git-branch"])
+        # Each git precondition reports on its own (completion review of D02 T02 §3): all three fail, each saying why.
+        self.assertEqual(self.names(fails), ["FAIL git-branch", "FAIL git-clean", "FAIL git-upstream"])
         self.assertIn("not a git repository", fails[0])
+        self.assertIn("git status failed", fails[1])
+        self.assertIn("the branch is not known", fails[2])
 
 
 class RunCheckTest(Fixture):
@@ -346,6 +350,65 @@ class SystemAndProfileTest(Fixture):
         self.assertIn("FAIL stop-hook: could not run (OSError: hook file unreadable)", lines)
         self.assertTrue(any(line.startswith("PASS campaign-guard") for line in lines), lines)
         self.assertTrue(any(line.startswith(("PASS disk", "FAIL disk")) for line in lines), lines)
+
+
+class EntryPointFailuresTest(Fixture):
+    """Each operational failure the section lists, through `preflight()`: exit 1, its FAIL line, no traceback, and
+    the checks that do not depend on it still reported (completion review of D02 T02 §3)."""
+
+    def run_it(self, *patches):
+        self.seed(".claude/settings.json")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "seed")
+        with contextlib.ExitStack() as stack:
+            for patch in patches:
+                stack.enter_context(patch)
+            code, lines = self.run_preflight()
+        self.assertEqual(code, 1, lines)
+        self.assertTrue(all(line.startswith(("PASS ", "FAIL ")) for line in lines), lines)
+        names = self.names(lines)
+        for independent in ("campaign-guard", "tool python3", "disk"):
+            self.assertTrue(any(n.endswith(" " + independent) for n in names), (independent, lines))
+        return lines
+
+    def test_git_missing_from_path(self):
+        which = shutil.which
+        lines = self.run_it(unittest.mock.patch.object(pre.shutil, "which",
+                                                       lambda n: None if n == "git" else which(n)))
+        self.assertIn("FAIL git: git is not on PATH, so the branch, the tree and the upstream cannot be checked", lines)
+        self.assertIn("FAIL tool git: not on PATH", lines)
+
+    def test_a_git_query_that_times_out_fails_only_its_own_check(self):
+        real = subprocess.run
+
+        def run(args, *a, **k):
+            if list(args[:2]) == ["git", "status"]:
+                raise subprocess.TimeoutExpired(args, 60)
+            return real(args, *a, **k)
+        lines = self.run_it(unittest.mock.patch.object(pre.subprocess, "run", run))
+        clean = [x for x in lines if x.startswith("FAIL git-clean")]
+        self.assertEqual(len(clean), 1, lines)
+        self.assertIn("could not run", clean[0])
+        self.assertIn("PASS git-branch: on main", lines)
+        self.assertIn("PASS git-upstream: no upstream set", lines)
+
+    def test_a_guard_script_that_does_not_load(self):
+        self.seed(".claude/settings.json")
+        (self.root / "scripts" / "campaign_guard.py").write_text("raise SystemError('broken install')\n",
+                                                                 encoding="utf-8")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "broken guard")
+        code, lines = self.run_preflight()
+        self.assertEqual(code, 1)
+        self.assertTrue(any(x.startswith("FAIL stop-hook: scripts/campaign_guard.py does not load (SystemError")
+                            for x in lines), lines)
+        self.assertTrue(any(x.startswith(("PASS disk", "FAIL disk")) for x in lines), lines)
+
+    def test_unreadable_disk_and_memory_figures(self):
+        lines = self.run_it(unittest.mock.patch.object(pre, "disk_free_gb", side_effect=OSError("volume gone")),
+                            unittest.mock.patch.object(pre, "MEMINFO", Path(self._tmp.name) / "absent"))
+        self.assertTrue(any(x.startswith("FAIL disk: free space on") and "volume gone" in x for x in lines), lines)
+        self.assertTrue(any(x.startswith("FAIL memory: MemAvailable cannot be read") for x in lines), lines)
 
 
 @posix_only
