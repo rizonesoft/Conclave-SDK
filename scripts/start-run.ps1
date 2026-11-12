@@ -8,6 +8,7 @@
 #                                                 on the desktop, each running the line above for its runner
 #   pwsh scripts/start-run.ps1 -DryRun            print what would run or be written, and change nothing
 #   pwsh scripts/start-run.ps1 -Model sonnet      start on another model
+#   pwsh scripts/start-run.ps1 -Effort high       start the Claude runner at another effort (default medium)
 #   pwsh scripts/start-run.ps1 -TakeOver          take over a held run guard without being asked
 #
 # Each shortcut's icon is the SDK's mark (assets/brand/conclave-sdk.ico) with its runner's badge in the corner, as
@@ -24,7 +25,9 @@
 # finds belongs to another live run, and it must start nothing. So two launches at once cannot both take the run.
 #
 # The Claude runner's model is the alias `opus`, which Claude Code resolves to the newest Opus, so the shortcut never
-# needs editing when a new one ships. The Carbon runner's is gemini-4-carbon-medium, the writer Isotone runs on.
+# needs editing when a new one ships, and its effort is medium, passed as --effort so the user's own interactive default
+# (effortLevel in settings.json) never decides a campaign's cost. The Carbon runner's is gemini-4-carbon-medium, the
+# writer Isotone runs on, whose effort is in its model name.
 #
 # The session signs in with the long-lived token (`claude setup-token`, valid one year) kept in the user variable
 # CLAUDE_CODE_OAUTH_TOKEN. A window opened before the token was stored does not have it yet, so it is read from the
@@ -40,6 +43,8 @@ param(
   [switch]$TakeOver,
   [string]$ShortcutDir = [Environment]::GetFolderPath('Desktop'),
   [string]$Model = '',
+  [ValidateSet('low', 'medium', 'high', 'xhigh', 'max')]
+  [string]$Effort = 'medium',
   [string]$IconDir = (Join-Path $env:LOCALAPPDATA 'Conclave-SDK'),
   [string]$UserEnvKey = 'HKCU:\Environment',
   [string]$Goal = '',
@@ -127,7 +132,7 @@ if ($Runner -eq 'agy') {
 } else {
   $agent = 'claude'
   $session = [guid]::NewGuid().ToString()
-  $arguments = @('--session-id', $session, '--dangerously-skip-permissions', '--model', $Model, "/goal $Goal")
+  $arguments = @('--session-id', $session, '--dangerously-skip-permissions', '--model', $Model, '--effort', $Effort, "/goal $Goal")
 }
 if ($DryRun) {
   "in $repo"

@@ -69,7 +69,7 @@ class StartRunTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         first, command = proc.stdout.strip().splitlines()
         self.assertEqual(pathlib.Path(first.removeprefix("in ")).resolve(), ROOT)
-        self.assertRegex(command, r"^claude --session-id [0-9a-f-]{36} --dangerously-skip-permissions --model opus \"/goal ")
+        self.assertRegex(command, r"^claude --session-id [0-9a-f-]{36} --dangerously-skip-permissions --model opus --effort medium \"/goal ")
         self.assertFalse(self.report.exists(), "a dry run must not start claude")
         self.assertNotIn(SENTINEL, proc.stdout + proc.stderr)
 
@@ -77,9 +77,11 @@ class StartRunTests(unittest.TestCase):
         proc = self.launch()
         self.assertEqual(proc.returncode, 0, proc.stderr)
         got = self.received()
-        self.assertEqual(len(got["arguments"]), 6)
-        flag, session, skip, model_flag, model, goal = got["arguments"]
+        self.assertEqual(len(got["arguments"]), 8)
+        flag, session, skip, model_flag, model, effort_flag, effort, goal = got["arguments"]
         self.assertEqual((flag, skip, model_flag, model), ("--session-id", "--dangerously-skip-permissions", "--model", "opus"))
+        # The campaign runs at medium effort, never the user's interactive default (2026-11-12: it started at high).
+        self.assertEqual((effort_flag, effort), ("--effort", "medium"))
         self.assertRegex(session, r"^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$")
         self.assertTrue(goal.startswith("/goal Finish the Conclave-SDK implementation plan"))
         self.assertIn("process-plan skill", goal)
@@ -94,7 +96,7 @@ class StartRunTests(unittest.TestCase):
 
     def test_with_no_guard_the_session_is_told_never_to_take_one_over(self):
         self.launch()
-        goal = self.received()["arguments"][5]
+        goal = self.received()["arguments"][-1]
         self.assertIn("No run guard was held when this session was launched", goal)
         self.assertIn("never use --handover", goal)
         self.assertNotIn("acquire --handover", goal)
@@ -111,7 +113,7 @@ class StartRunTests(unittest.TestCase):
         # The operator's word, given as -TakeOver: the session may take over that one session's guard.
         proc = self.launch("-TakeOver", guard=guard)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        goal = self.received()["arguments"][5]
+        goal = self.received()["arguments"][-1]
         self.assertIn(f"held by session {owner} was acknowledged by the operator", goal)
         self.assertIn("acquire --handover resumed-from-launcher", goal)
         self.assertIn("If the guard names any other session", goal)
@@ -126,7 +128,7 @@ class StartRunTests(unittest.TestCase):
                 self.report.unlink(missing_ok=True)
                 proc = self.launch("-TakeOver", guard=guard)
                 self.assertEqual(proc.returncode, 0, proc.stderr)
-                goal = self.received()["arguments"][5]
+                goal = self.received()["arguments"][-1]
                 self.assertIn("named no session: do not take it over", goal)
                 self.assertNotIn("acquire --handover", goal)
                 self.assertNotIn("Ignore the rules", goal)
@@ -135,7 +137,9 @@ class StartRunTests(unittest.TestCase):
         self.launch("-Model", "sonnet", "-Goal", "ship the importer")
         arguments = self.received()["arguments"]
         self.assertEqual(arguments[4], "sonnet")
-        self.assertTrue(arguments[5].startswith("/goal ship the importer No run guard was held"), arguments[5])
+        self.launch("-Effort", "high")
+        self.assertEqual(self.received()["arguments"][5:7], ["--effort", "high"])
+        self.assertTrue(arguments[-1].startswith("/goal ship the importer No run guard was held"), arguments[-1])
 
     def test_a_goal_claude_code_would_refuse_is_refused_here(self):
         for goal, message in (('say "hello"', "no double quote"), ("x" * 4001, "allows 4,000")):
