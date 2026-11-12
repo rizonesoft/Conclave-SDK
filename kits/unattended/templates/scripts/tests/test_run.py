@@ -1231,6 +1231,27 @@ class HeartbeatTickTest(unittest.TestCase):
                 self.assertTrue(state["last_error"])
 
 
+class KillWaitTest(unittest.TestCase):
+    @unittest.skipUnless(hasattr(signal, "SIGKILL"), "SIGKILL is POSIX")
+    def test_a_killed_process_slow_to_die_is_waited_for(self):
+        # 2026-11-12, WSL under load: a crashed run's child took over 10 s to die after SIGKILL (its I/O on /mnt had
+        # to finish first), and the operator's resume was refused. A simulated clock: it dies 20 s after the kill.
+        run = load_run_module()
+        clock, killed = {"now": 0.0}, {}
+
+        def tagged(_session):
+            return [] if "at" in killed and clock["now"] - killed["at"] >= 20 else [4242]
+
+        def sleep(seconds):
+            clock["now"] += seconds
+        with unittest.mock.patch.object(run, "tagged", tagged), \
+                unittest.mock.patch.object(run.os, "kill", lambda pid, sig: killed.setdefault("at", clock["now"])), \
+                unittest.mock.patch.object(run.time, "monotonic", lambda: clock["now"]), \
+                unittest.mock.patch.object(run.time, "sleep", sleep):
+            self.assertEqual(run.end_run_processes("tag-1", None, grace=2), [])
+        self.assertIn("at", killed, "the process was never sent SIGKILL")
+
+
 class WindowsTest(unittest.TestCase):
     def test_windows_is_told_to_use_wsl(self):
         run = load_run_module()

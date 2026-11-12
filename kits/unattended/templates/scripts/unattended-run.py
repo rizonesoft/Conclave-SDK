@@ -59,6 +59,9 @@ TAG = "CONCLAVE_UNATTENDED_TAG"
 # The preflight's own checks (git, the guard self-test, Codex trust), on top of the profile's checks' own timeouts.
 PREFLIGHT_SLACK_SECONDS = 900
 STOP_GRACE_SECONDS = 10
+# How long a process sent SIGKILL is waited for: it dies only once it leaves uninterruptible I/O, which on WSL's /mnt
+# under load took longer than STOP_GRACE_SECONDS (2026-11-12, a resume refused with the crashed run's child dying).
+KILL_WAIT_SECONDS = 30
 # How long a started or resumed agent must stay up to count as started.
 STARTUP_SECONDS = float(os.environ.get("CONCLAVE_STARTUP_GRACE") or 10)
 CLAUDE_DISALLOWED = "AskUserQuestion,EnterPlanMode,ExitPlanMode"
@@ -253,8 +256,8 @@ def end_run_processes(session: str, pgid: int | None, grace: float = STOP_GRACE_
         except ProcessLookupError:
             pass  # it ended at the last moment
     # SIGKILL lands only once a process leaves uninterruptible I/O (slow under load, as on WSL's /mnt), so the wait
-    # after it is the full stop grace whatever the polite wait was.
-    deadline = time.monotonic() + max(grace, STOP_GRACE_SECONDS)
+    # after it is KILL_WAIT_SECONDS whatever the polite wait was; a killed process cannot do more work meanwhile.
+    deadline = time.monotonic() + max(grace, KILL_WAIT_SECONDS)
     while tagged(session) and time.monotonic() < deadline:
         time.sleep(0.2)
     return tagged(session) + ([pgid] if pgid and _group_alive(pgid) else [])
