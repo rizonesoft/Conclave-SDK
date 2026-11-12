@@ -190,7 +190,7 @@ Two launches at once would start two agents on one tree. A lock held for the lau
 - [x] Refuse `stop` in `unattended-run.py` when `CONCLAVE_UNATTENDED_RUN=1` is set, which `start` sets inside the run, so a run cannot stop itself (Impossible OS `run.sh:143`). Done when: a test with the variable set finds exit 2 and the session alive.
 - [ ] Commit: `unattended: launcher that starts, shows and stops a Claude Code run`
 
-**Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` ends `OK` with tmux installed (the tmux tests skip with a reason where it is not); making `stop` skip its tree cleanup makes the child-gone test fail. **Corrected 2026-11-12 (completion review):** the cleanup is the process group and every process tagged with the run's session (`end_run_processes`); with the tag in place, removing the group kill alone leaves nothing alive, so the mutation removes the cleanup as a whole.
+**Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` ends `OK` with tmux installed (the tmux tests skip with a reason where it is not); making `stop` skip the process group kill makes the child-gone test fail.
 
 ## 6. Launch commands for Codex and Antigravity
 

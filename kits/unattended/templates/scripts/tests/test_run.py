@@ -41,8 +41,11 @@ if os.environ.get("STUB_RESUME_FAILS") and "--resume" in sys.argv:
 if os.environ.get("STUB_EXIT"):
     print("stub agent: cannot start", flush=True)
     sys.exit(3)
+# The first child scrubs its environment, as some tools do, so it carries no run tag: only the process-group kill
+# reaches it. The second leaves the group by starting its own session: only the tag reaches it.
 child = subprocess.Popen([sys.executable, "-c",
-                          "import signal, time; signal.signal(signal.SIGHUP, signal.SIG_IGN); time.sleep(300)"])
+                          "import signal, time; signal.signal(signal.SIGHUP, signal.SIG_IGN); time.sleep(300)"],
+                         env={"PATH": os.environ.get("PATH", "")})
 open(os.environ["STUB_CHILD"], "w").write(str(child.pid))
 # A second child in its own session, as the review dispatcher detaches its reviewers: outside the agent's group.
 detached = subprocess.Popen([sys.executable, "-c",
