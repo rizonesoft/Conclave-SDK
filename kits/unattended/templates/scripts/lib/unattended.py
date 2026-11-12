@@ -56,6 +56,10 @@ def load_profile(root) -> dict:
     unset = [key for key in MUST_SET if data[key] is None]
     if unset:
         raise fault(unset[0], f"is null in the template; set {', '.join(unset)} for this project")
+    # A NUL cannot reach a program's arguments or a file name: refuse it here, not as a ValueError at launch.
+    for key in ("model", "effort", "branch", "prompt_file"):
+        if isinstance(data[key], str) and "\0" in data[key]:
+            raise fault(key, "must not contain a NUL character")
     if not isinstance(data["name"], str) or not NAME.fullmatch(data["name"]):
         raise fault("name", "must match [a-z0-9][a-z0-9-]{1,40}")
     if data["agent"] not in AGENTS:
@@ -72,7 +76,8 @@ def load_profile(root) -> dict:
         value = data[key]
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise fault(key, "must be a whole number above 0")
-    if not isinstance(data["tools"], list) or not all(isinstance(t, str) and t for t in data["tools"]):
+    tools = data["tools"]
+    if not isinstance(tools, list) or not all(isinstance(t, str) and t and "\0" not in t for t in tools):
         raise fault("tools", "must be a list of command names")
     prompt = data["prompt_file"]
     parts = prompt.replace("\\", "/").split("/") if isinstance(prompt, str) else []
@@ -98,7 +103,7 @@ def load_profile(root) -> dict:
             raise fault(f"{where}.name", "must be a non-empty string")
         command = check["command"]
         if (not isinstance(command, list) or not command or not all(isinstance(c, str) for c in command)
-                or not command[0].strip()):
+                or not command[0].strip() or any("\0" in c for c in command)):
             raise fault(f"{where}.command", "must be a list of strings that starts with a program")
         timeout = check["timeout_seconds"]
         if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout <= 0:

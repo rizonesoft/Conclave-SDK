@@ -2969,7 +2969,10 @@ class UnattendedKitTests(unittest.TestCase):
         forge.apply_kit(self.target, "unattended")
         path = self.target / ".conclave/unattended.json"
         profile = json.loads(path.read_text(encoding="utf-8"))
-        profile.update(name="demo-run", model="claude-opus-5-5", effort="max", idle_minutes=30, tick_seconds=120)
+        (self.target / "docs/unattended-prompt.md").rename(self.target / "docs/project-run.md")
+        profile.update(name="demo-run", model="claude-opus-5-5", effort="max", idle_minutes=30, tick_seconds=120,
+                       prompt_file="docs/project-run.md", preflight=[{"name": "suite", "command": ["python3", "-m", "unittest"],
+                                                                "timeout_seconds": 900}])
         path.write_text(json.dumps(profile), encoding="utf-8")
         result = subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "-s", str(self.target / "scripts/tests")],
                                 capture_output=True, text=True, timeout=300)

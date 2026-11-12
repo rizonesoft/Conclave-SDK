@@ -20,6 +20,11 @@ PROMPT = TEMPLATES / "docs" / "unattended-prompt.md"
 # In the SDK these files are the kit's templates; installed in a project they are the project's own, which it edits.
 IN_KIT = TEMPLATES.name == "templates" and TEMPLATES.parent.name == "unattended"
 in_kit_only = unittest.skipUnless(IN_KIT, "checks the shipped template; a project's profile is its own")
+# The loader tests use their own profile and prompt, so they hold whatever a project does with its copies.
+FIXTURE = {"schema_version": 1, "name": "impossible-os", "agent": "claude", "model": "claude-opus-5-5", "effort": "high",
+           "prompt_file": "docs/run-prompt.md", "branch": "main", "skip_permissions": True,
+           "tools": ["git", "python3", "tmux"], "min_disk_gb": 20, "min_ram_gb": 2, "tick_seconds": 300,
+           "idle_minutes": 45, "stall_hours": 6, "preflight": []}
 
 
 class LoadProfileTest(unittest.TestCase):
@@ -29,10 +34,8 @@ class LoadProfileTest(unittest.TestCase):
         self.root = Path(self._tmp.name)
         (self.root / ".conclave").mkdir()
         (self.root / "docs").mkdir()
-        shutil.copyfile(PROMPT, self.root / "docs" / "unattended-prompt.md")
-        self.profile = json.loads(TEMPLATE.read_text(encoding="utf-8"))
-        self.profile.update(name="impossible-os", model="claude-opus-5-5", effort="high", agent="claude",
-                            prompt_file="docs/unattended-prompt.md", preflight=[])
+        (self.root / "docs" / "run-prompt.md").write_text("Run the plan.\n", encoding="utf-8")
+        self.profile = json.loads(json.dumps(FIXTURE))
 
     def write(self, data):
         (self.root / ".conclave" / "unattended.json").write_text(
@@ -52,9 +55,12 @@ class LoadProfileTest(unittest.TestCase):
 
     @in_kit_only
     def test_the_template_set_for_a_project_loads(self):
-        self.write(self.profile)
+        shutil.copyfile(PROMPT, self.root / "docs" / "unattended-prompt.md")
+        configured = {**json.loads(TEMPLATE.read_text(encoding="utf-8")),
+                      "name": "impossible-os", "model": "claude-opus-5-5", "effort": "high"}
+        self.write(configured)
         loaded = unattended.load_profile(self.root)
-        self.assertEqual(loaded, self.profile)
+        self.assertEqual(loaded, configured)
         self.assertEqual((loaded["agent"], loaded["branch"], loaded["min_disk_gb"], loaded["min_ram_gb"],
                           loaded["tick_seconds"], loaded["idle_minutes"], loaded["stall_hours"]),
                          ("claude", "main", 20, 2, 300, 45, 6))
@@ -169,6 +175,14 @@ class LoadProfileTest(unittest.TestCase):
         for bad in ([""], ["  ", "-m"]):
             with self.subTest(bad=bad):
                 self.refused("preflight[0].command", self.with_(preflight=[{**good, "command": bad}]))
+
+    def test_a_nul_in_an_argument_or_a_path_is_refused(self):
+        good = {"name": "check", "command": ["python3"], "timeout_seconds": 60}
+        self.refused("preflight[0].command", self.with_(preflight=[{**good, "command": ["python3", "\0"]}]))
+        self.refused("tools", self.with_(tools=["git\0"]))
+        for key in ("model", "effort", "branch", "prompt_file"):
+            with self.subTest(key=key):
+                self.assertIn("NUL", self.refused(key, self.with_(**{key: self.profile[key] + "\0x"})))
 
     def test_the_prompt_file_must_be_a_readable_text_file(self):
         (self.root / "docs" / "folder.md").mkdir()
