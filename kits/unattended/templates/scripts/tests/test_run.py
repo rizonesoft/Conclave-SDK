@@ -1072,6 +1072,43 @@ class HeartbeatTickTest(unittest.TestCase):
         self.assertIn("the operator's new run is supervised now", self.out.getvalue())
         self.assertEqual((nudged.call_count, self.saved()["session"]), (1, "tag-2"))
 
+    def test_an_unreadable_marker_while_an_ended_record_waits_keeps_the_record(self):
+        # Reconciliation 1 of D02 T02 §7: an I/O error on the marker dropped the record still to be written.
+        self.alive = False
+        marker, sleeps = self.root / "build" / "unattended-run.json", []
+
+        def flaky_marker(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) == 1:
+                marker.write_text('{"session": ', encoding="utf-8")  # cannot be read for a moment
+            elif len(sleeps) == 2:
+                marker.unlink()  # reads again: no run
+            else:
+                raise StopIteration
+        with self.flaky_writes(2):
+            code = self.run.heartbeat(self.root, clock=lambda: 0.0, sleep=flaky_marker, out=self.out)
+        self.assertEqual((code, len(sleeps)), (self.run.FINISHED, 2))
+        self.assertEqual(self.saved()["ended"]["reason"], "its session is gone")
+        self.assertNotIn("the operator's new run is supervised now", self.out.getvalue())
+
+    def test_heartbeat_once_writes_an_ended_record_again_until_it_lands(self):
+        self.alive = False
+        sleeps = []
+        with self.flaky_writes(1):
+            self.assertEqual(self.run.heartbeat(self.root, once=True, clock=lambda: 0.0, sleep=sleeps.append,
+                                                out=self.out), self.run.FINISHED)
+        self.assertEqual((len(sleeps), self.saved()["ended"]["reason"]), (1, "its session is gone"))
+
+    def test_with_no_run_the_last_runs_record_is_left_as_it_was(self):
+        record = self.root / "build" / "unattended-heartbeat.json"
+        record.write_text(json.dumps({"session": "tag-1", "last_nudge": None, "last_error": None,
+                                      "ended": {"reason": "its session is gone", "at": "2026-11-12T00:00:00Z"}}),
+                          encoding="utf-8")
+        before = record.read_bytes()
+        (self.root / "build" / "unattended-run.json").unlink()
+        self.assertEqual(self.run.heartbeat(self.root, once=True, out=self.out), self.run.FINISHED)
+        self.assertEqual(record.read_bytes(), before, "a heartbeat with no run overwrote the last run's record")
+
     def test_an_unreadable_marker_is_looked_at_again_and_the_runs_state_kept(self):
         # Completion review of D02 T02 §7: a marker that could not be read ended supervision like an absent one.
         marker = self.root / "build" / "unattended-run.json"

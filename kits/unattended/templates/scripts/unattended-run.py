@@ -525,17 +525,24 @@ def heartbeat(root: Path, once: bool = False, clock=time.time, sleep=time.sleep,
     started again carries it on) and kept in memory while a write fails; it writes that file and nothing else. A tick
     that fails (tmux, the guard, the disk, a profile edited mid-run) is recorded and tried again: supervision of a live
     run never ends on an error. `--once` exits 1 on such a failure. A run's ended record whose write fails is kept and
-    written again every tick until it lands, unless the operator starts a run meanwhile, which is then supervised."""
+    written again every tick until it lands (under `--once` too), and the heartbeat stops only then and only once the
+    marker reads as absent; a run the operator starts meanwhile is supervised instead. With no run to supervise, the
+    heartbeat writes nothing, so the last run's record stays as it was."""
     out = out or sys.stdout
     unsaved, pending, seconds, tag = None, False, FALLBACK_TICK_SECONDS, None
     while True:
         marker, problem = read_marker(root)
-        if pending and (marker is not None or problem):
+        if pending and marker is not None:
             print(f"heartbeat: run {unsaved['session']} ended ({unsaved['ended']['reason']}) and its record could not "
                   "be written; the operator's new run is supervised now", file=out)
             unsaved, pending = None, False
+        if marker is None and not problem and not pending:
+            print("heartbeat: no run marker; the heartbeat stops", file=out)
+            return FINISHED
         if pending:
-            code = FINISHED  # the run is over and its record is still in memory: only the write is left
+            # The run is over and its record is still in memory: only the write is left. While the marker cannot be
+            # read, a run the operator started may be behind it, so the heartbeat does not stop yet.
+            code = 0 if problem else FINISHED
         else:
             # An unreadable marker keeps the run's own state (the last tag seen, or the one the state file names): it
             # is the same run until the marker says otherwise.
@@ -557,10 +564,10 @@ def heartbeat(root: Path, once: bool = False, clock=time.time, sleep=time.sleep,
             lib.write_atomic(root / HEARTBEAT_STATE, json.dumps(unsaved, indent=2) + "\n")
             unsaved, pending = None, False
         except OSError as exc:  # a full or failing disk must not end the supervision of the run, or lose its end
-            pending = code == FINISHED and bool(unsaved.get("ended")) and not once
+            pending = (pending or code == FINISHED) and bool(unsaved.get("ended"))
             print(f"heartbeat: {HEARTBEAT_STATE} could not be written ({exc.strerror or exc}); kept in memory"
                   + ("; written again next tick" if pending else ""), file=out)
-        if once or (code == FINISHED and not pending):
+        if not pending and (once or code == FINISHED):
             return code
         try:
             seconds = lib.load_profile(root)["tick_seconds"]
