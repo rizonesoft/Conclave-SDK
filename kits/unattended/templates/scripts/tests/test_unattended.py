@@ -485,9 +485,18 @@ class WindowlessTest(unittest.TestCase):
             elif isinstance(parent, (ast.Assign, ast.AnnAssign, ast.keyword, ast.Return)):
                 yield node.lineno, None
 
+    # The kit's own Python files: in an installed project scripts/ also holds the other kits' files, which are theirs.
+    KIT_FILES = ("campaign-icon.py", "lib/unattended.py", "tests/test_campaign_icon.py", "tests/test_preflight.py",
+                 "tests/test_run.py", "tests/test_unattended.py", "unattended-preflight.py", "unattended-run.py")
+
+    def test_the_kit_file_list_is_complete_in_the_kit_itself(self):
+        if SCRIPTS.parent.name != "templates":
+            self.skipTest("an installed copy: scripts/ holds other kits' files too")
+        found = sorted(p.relative_to(SCRIPTS).as_posix() for p in SCRIPTS.rglob("*.py") if "__pycache__" not in p.parts)
+        self.assertEqual(found, sorted(self.KIT_FILES), "a kit file is missing from WindowlessTest.KIT_FILES")
+
     def test_every_process_the_kit_starts_gets_no_window(self):
-        files = sorted(p for p in SCRIPTS.rglob("*.py") if "__pycache__" not in p.parts)
-        self.assertGreaterEqual(len(files), 7)
+        files = [SCRIPTS / name for name in self.KIT_FILES]
         seen = 0
         for path in files:
             text = path.read_text(encoding="utf-8")
