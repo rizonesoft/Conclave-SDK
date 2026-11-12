@@ -1,0 +1,84 @@
+{
+  "ref": "D02 T02 \u00a75",
+  "title": "Launcher for a Claude Code run under tmux",
+  "implementation_sha": "237aa237c2693d4cdb0b5ef7d5dcb16293515440",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-unattended/D02-T02-s5.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python3 -m unittest discover -s kits/unattended/templates/scripts/tests -> OK (100, WSL with tmux 3.6)",
+    "python -m unittest discover -s tests -> OK (495)"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-unattended/D02-T02-s5.md",
+    "verdict": "reconciled",
+    "candidate": "237aa237c2693d4cdb0b5ef7d5dcb16293515440",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/02-unattended/D02-T02-s5.md",
+    "candidate": "5fa51a5aa1b111ce0b7d2bbcd3bdd19daf0122cf",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "5fa51a5aa1b111ce0b7d2bbcd3bdd19daf0122cf",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 5,
+  "pass_cap": 33
+}

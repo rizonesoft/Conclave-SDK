@@ -39,7 +39,7 @@ title: "TODO-02 -- Unattended kit"
 | 2 | §2 | Run profile `.conclave/unattended.json` and its loader | §1 | [x] |
 | 3 | §3 | Preflight with a PASS or FAIL line per precondition | §2 | [x] |
 | 4 | §4 | Launch lock and claim | §2 | [x] |
-| 5 | §5 | Launcher for a Claude Code run under tmux | §3, §4 | [ ] |
+| 5 | §5 | Launcher for a Claude Code run under tmux | §3, §4 | [x] |
 | 6 | §6 | Launch commands for Codex and Antigravity | §5, T01 §2, T01 §3 | [ ] |
 | 7 | §7 | Heartbeat that restarts a dead run and nudges an idle one | §5 | [ ] |
 | 8 | §8 | Ship counter, ship limit and stall marker | §7 | [ ] |
@@ -188,9 +188,12 @@ Two launches at once would start two agents on one tree. A lock held for the lau
 - [x] Add `attach` to `unattended-run.py`: attach to the run's tmux session, read-only with `--watch`. Done when: a test asserts the tmux command line for each form.
 - [x] Add `stop` to `unattended-run.py`: remove the marker, end the guard with `campaign_guard.py end --reason operator-stop`, kill the heartbeat and run tmux sessions, then send `SIGKILL` to the recorded process group if any of it is still alive after 10 seconds, and clear the claim. Done when: a test with a stub agent that starts a child finds both gone and the guard, marker and claim removed. Cheaper substitute: `tmux kill-session` alone must fail the child-gone assertion.
 - [x] Refuse `stop` in `unattended-run.py` when `CONCLAVE_UNATTENDED_RUN=1` is set, which `start` sets inside the run, so a run cannot stop itself (Impossible OS `run.sh:143`). Done when: a test with the variable set finds exit 2 and the session alive.
-- [ ] Commit: `unattended: launcher that starts, shows and stops a Claude Code run`
+- [x] Commit: `unattended: launcher that starts, shows and stops a Claude Code run`
 
 **Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` ends `OK` with tmux installed (the tmux tests skip with a reason where it is not); making `stop` skip the process group kill makes the child-gone test fail.
+
+> **Verified:** 2026-11-12 | §5 | 237aa237c2693d4cdb0b5ef7d5dcb16293515440
+> **Review:** `docs/reviews/d02-t02-s5.json`
 
 ## 6. Launch commands for Codex and Antigravity
 
