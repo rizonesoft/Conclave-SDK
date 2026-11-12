@@ -805,13 +805,28 @@ def heartbeat(root: Path, once: bool = False, clock=time.time, sleep=time.sleep,
                 print(f"heartbeat: {state['last_error']}", file=out)
             unsaved = state
         try:
-            lib.write_atomic(root / HEARTBEAT_STATE, json.dumps(unsaved, indent=2) + "\n")
-            written = HEALTH
-            lib.write_atomic(root / HEALTH, json.dumps(health_of(unsaved, clock()), indent=2) + "\n")
-            if code == FINISHED and unsaved.get("ended"):
-                written = NEEDS_OPERATOR
-                remove_own_notice(root, unsaved["session"], out, strict=True)  # the end is whole only without it
+            # Under the launch lock, and only while the marker still names this state's run (or the state is the
+            # heartbeat's own ended run): a tick that saw the run alive must not write over the record `stop` made
+            # meanwhile (reconciliation 3 of D02 T02 §8).
+            with lib.launch_lock(root):
+                current, unreadable = read_marker(root)
+                own = bool(unsaved.get("ended")) or bool(current and current["session"] == unsaved.get("session"))
+                if unreadable and not own:
+                    raise lib.LaunchError(f"{unreadable}; written next tick")
+                if own:
+                    lib.write_atomic(root / HEARTBEAT_STATE, json.dumps(unsaved, indent=2) + "\n")
+                    written = HEALTH
+                    lib.write_atomic(root / HEALTH, json.dumps(health_of(unsaved, clock()), indent=2) + "\n")
+                    if code == FINISHED and unsaved.get("ended"):
+                        written = NEEDS_OPERATOR
+                        remove_own_notice(root, unsaved["session"], out, strict=True)  # the end is whole only then
+                else:
+                    print(f"heartbeat: run {unsaved.get('session')} is no longer the marked run; its records are "
+                          "the operator's now, and this tick's are not written", file=out)
             unsaved, pending = None, False
+        except lib.LaunchError as exc:  # another launch or a stop holds the lock: the state waits in memory
+            pending = (pending or code == FINISHED) and bool(unsaved.get("ended"))
+            print(f"heartbeat: {exc}; the state is written next tick", file=out)
         except OSError as exc:  # a full or failing disk must not end the supervision of the run, or lose its end
             failed = written or HEARTBEAT_STATE
             unsaved["last_error"] = f"{failed} could not be written or removed ({exc}); tried again next tick"

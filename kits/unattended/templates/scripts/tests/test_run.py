@@ -1652,6 +1652,39 @@ class HeartbeatShipsTest(unittest.TestCase):
         self.assertIsNone(self.notice(), "the ended run's notice outlived the retry")
         self.assertIs(self.file("build/unattended-health.json")["alive"], False)
 
+    def test_a_tick_that_saw_the_run_alive_never_writes_over_a_stop(self):
+        # Reconciliation 3 of D02 T02 §8: a heartbeat that observed the live run wrote its snapshot after `stop` had
+        # recorded the end, leaving health alive and no end record, with nothing left to retry.
+        real_tick, sleeps = self.run.tick, []
+
+        def tick_then_stop(root, now, state, out=None):
+            code = real_tick(root, now, state, out)  # the heartbeat sees the run alive
+            self.run.record_stop(root, "tag-1", now, self.out)  # the operator's stop lands before its write
+            (root / "build" / "unattended-run.json").unlink()
+            return code
+
+        def stop_after_one(seconds):
+            sleeps.append(seconds)
+            raise StopIteration
+        with unittest.mock.patch.object(self.run, "tick", tick_then_stop):
+            with self.assertRaises(StopIteration):
+                self.run.heartbeat(self.root, clock=lambda: T0 + 60, sleep=stop_after_one, out=self.out)
+        self.assertIs(self.file("build/unattended-health.json")["alive"], False, "a stale tick overwrote the stop")
+        self.assertEqual(self.file("build/unattended-heartbeat.json")["ended"]["reason"], "stopped by the operator")
+
+    def test_a_held_launch_lock_keeps_an_ended_runs_record_pending(self):
+        self.alive = False
+        held = self.run.lib.launch_lock(self.root)
+        sleeps = []
+
+        def release_after_one(seconds):
+            sleeps.append(seconds)
+            held.__exit__(None, None, None)
+        held.__enter__()
+        code = self.run.heartbeat(self.root, once=True, clock=lambda: T0 + 60, sleep=release_after_one, out=self.out)
+        self.assertEqual((code, len(sleeps)), (self.run.FINISHED, 1))
+        self.assertEqual(self.file("build/unattended-heartbeat.json")["ended"]["reason"], "its session is gone")
+
     def test_a_shorter_stall_hours_and_a_failed_notice_write(self):
         self.write_profile(stall_hours=3)
         state = self.state()

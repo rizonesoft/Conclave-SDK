@@ -283,19 +283,36 @@ class LaunchError(RuntimeError):
 @contextlib.contextmanager
 def launch_lock(root):
     """Hold `build/unattended-launch.lock` exclusively for the launch, without waiting: a second launch while the
-    first holds it is refused naming the lock. The kernel releases it when the launcher exits, however it exits."""
-    import fcntl  # POSIX only: the unattended run lives in tmux, on Linux and in WSL
-
+    first holds it is refused naming the lock. The kernel releases it when the launcher exits, however it exits.
+    The run lives in tmux, on Linux and in WSL (flock); on Windows, where the kit's tick tests run, its first byte is
+    locked instead (msvcrt.locking)."""
     path = Path(root) / LAUNCH_LOCK
     path.parent.mkdir(parents=True, exist_ok=True)
     handle = open(path, "a+b")
+    locked = False
     try:
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise LaunchError(f"{LAUNCH_LOCK} is held: another launch is under way") from None
+            if os.name == "nt":
+                import msvcrt
+
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            locked = True
+        except (BlockingIOError, PermissionError, OSError) as exc:
+            if isinstance(exc, (BlockingIOError, PermissionError)) or getattr(exc, "errno", None) in (13, 36):
+                raise LaunchError(f"{LAUNCH_LOCK} is held: another launch is under way") from None
+            raise
         yield path
     finally:
+        if locked and os.name == "nt":
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
         handle.close()
 
 
