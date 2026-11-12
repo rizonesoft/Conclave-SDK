@@ -291,6 +291,8 @@ A run that is alive but ships nothing for hours needs the operator. The heartbea
 
 ## 9. Nothing resumes a run without its operator
 
+> **Started:** 2026-11-12T23:11:34Z
+
 **Owner decision 2026-11-12:** a run never restarts itself. It starts only when the operator starts it; `stop`, a crash or a reboot ends it, and no heartbeat, watchdog, scheduled task or boot unit resumes it. Nudging a live run inside its session stays. This section proves it across the kits and the SDK: the boot resume the plan first held (a systemd user unit running `autostart`) is not built, and nothing else starts a run on its own.
 
 **Phase:** 2
@@ -301,11 +303,13 @@ A run that is alive but ships nothing for hours needs the operator. The heartbea
 
 1. Add the refusals and the tests. Done when: the checkpoint passes.
 
-- [ ] Refuse a run launcher as a scheduled command in the automations kit's task loader (`kits/automations/templates/.conclave/automations/run.py`): a task whose command runs `unattended-run.py start`, `start-run.ps1` or another run launcher is refused naming the rule, at load and at install. Done when: tests find the refusal for each launcher form and an ordinary check task accepted.
-- [ ] Scan every kit template and the SDK's own scripts for a resume path in `tests/test_forge.py`: a systemd unit, a cron or `@reboot` line, `Register-ScheduledTask`, `schtasks`, a Windows Run key, or an `autostart` command. Done when: the test passes on the tree and fails on a scratch copy that adds any one of them.
+- [ ] Refuse a run launcher as a scheduled command in `load_manifest` of the automations kit's task loader (`kits/automations/templates/.conclave/automations/run.py`): a task any of whose command's arguments names `unattended-run.py` with `start`, `start-run.ps1`, a `start-campaign` or `start-unattended-run` script, or `run-desktop.sh` (the launcher names the owner's launcher-test hook knows, `global/claude/hooks/launcher_tests.py:17`), directly or inside a shell's `-c` or `-Command` string, is refused naming the task and the rule; the installers refuse it too, since both load the manifest through `run.py --check` first. Done when: tests find the refusal for each launcher form, direct and wrapped in `bash -c` and `pwsh -Command`, `run.py --check` exit 1 on such a manifest, and an ordinary check task (and `unattended-run.py status`) accepted.
+- [ ] Scan in `tests/test_forge.py` every kit template, the SDK's own `scripts/` and `forge.py` for a resume path: a systemd unit's `[Install]` or `WantedBy=`, `systemctl enable`, an `@reboot` or `crontab` line, `Register-ScheduledTask`, `New-ScheduledTask`, `schtasks`, a Windows `CurrentVersion\Run` key, or an `autostart` entry; the automations kit's scheduler files (`.conclave/automations/` in the kit and the SDK's installed copy, and their tests) are the one allowed scheduler, because the first item refuses a run launcher in them. Done when: the test passes on the tree and fails on a scratch copy that adds any one of the patterns to a kit template outside the automations kit.
 - [ ] Prove in `kits/unattended/templates/scripts/tests/test_run.py` that a dead session is not resumed by the heartbeat and a crashed agent is not restarted, over 20 ticks. Done when: the test finds one agent start in all.
 - [ ] Record in `kits/unattended/README.md` and the roadmap that a run never restarts itself, and why. Done when: both say it and neither promises a boot resume.
 - [ ] Commit: `unattended: nothing resumes a run without its operator`
+
+**Corrected 2026-11-13 (validation):** the first item named no rule for spotting a launcher and missed one wrapped in a shell; it names the launchers the owner's launcher-test hook knows and reads a shell's `-c` or `-Command` string. The scan would have refused the automations kit's own scheduler, which is the one place a scheduled task is meant to be (its install scripts register Task Scheduler tasks and systemd timers); it is the one allowed scheduler, guarded by the first item, and the scan names the patterns exactly.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; adding `Register-ScheduledTask` to a scratch copy of a kit template makes the scan fail.
 
