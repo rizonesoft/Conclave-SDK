@@ -74,6 +74,8 @@ STOP_GRACE_SECONDS = 10
 # How long a process sent SIGKILL is waited for: it dies only once it leaves uninterruptible I/O, which on WSL's /mnt
 # under load took longer than STOP_GRACE_SECONDS (2026-11-12, a resume refused with the crashed run's child dying).
 KILL_WAIT_SECONDS = 30
+# How long `stop` keeps trying to record the run's end (state, health, notice) when the disk refuses it.
+STOP_RECORD_SECONDS = 60
 # How long a started or resumed agent must stay up to count as started.
 STARTUP_SECONDS = float(os.environ.get("CONCLAVE_STARTUP_GRACE") or 10)
 CLAUDE_DISALLOWED = "AskUserQuestion,EnterPlanMode,ExitPlanMode"
@@ -770,6 +772,7 @@ def heartbeat(root: Path, once: bool = False, clock=time.time, sleep=time.sleep,
             unsaved, pending = None, False
         except OSError as exc:  # a full or failing disk must not end the supervision of the run, or lose its end
             failed = written or HEARTBEAT_STATE
+            unsaved["last_error"] = f"{failed} could not be written or removed ({exc}); tried again next tick"
             pending = (pending or code == FINISHED) and bool(unsaved.get("ended"))
             print(f"heartbeat: {failed} could not be written ({exc.strerror or exc}); kept in memory"
                   + ("; written again next tick" if pending else ""), file=out)
@@ -888,12 +891,18 @@ def stop(root: Path, out=None) -> int:
                   "end it", file=out)
             return 1
         if session:
-            try:
-                record_stop(root, session, time.time(), out)
-            except OSError as exc:
-                print(f"stop: the run is stopped, but its end could not be recorded ({exc}); {MARKER} and the claim "
-                      "are kept, so a second stop records it", file=out)
-                return 1
+            deadline = time.monotonic() + STOP_RECORD_SECONDS
+            while True:  # the heartbeat is gone, so stop retries its record itself until the disk takes it
+                try:
+                    record_stop(root, session, time.time(), out)
+                    break
+                except OSError as exc:
+                    if time.monotonic() >= deadline:
+                        print(f"stop: the run is stopped, but its end could not be recorded in "
+                              f"{STOP_RECORD_SECONDS}s ({exc}); {MARKER} and the claim are kept, so a second stop "
+                              "records it", file=out)
+                        return 1
+                    time.sleep(1)
             print(f"stop: claim {lib.clear_claim(root, session, lock_held=True)}", file=out)
         (root / MARKER).unlink(missing_ok=True)
     print(f"stop: run {session or 'with no marker'} stopped", file=out)

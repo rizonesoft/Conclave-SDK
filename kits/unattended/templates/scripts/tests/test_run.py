@@ -1054,7 +1054,8 @@ class RunTest(unittest.TestCase):
                 raise OSError(28, "No space left on device")
             return real(path, text)
         out = __import__("io").StringIO()
-        with unittest.mock.patch.object(run.lib, "write_atomic", health_fails):
+        with unittest.mock.patch.object(run.lib, "write_atomic", health_fails), \
+                unittest.mock.patch.object(run, "STOP_RECORD_SECONDS", 2):
             self.assertEqual(run.stop(self.root, out), 1, out.getvalue())
         self.assertIn("a second stop records it", out.getvalue())
         self.assertTrue((build / "unattended-run.json").exists(), "the marker went with the end unrecorded")
@@ -1063,6 +1064,25 @@ class RunTest(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertIs(json.loads((build / "unattended-health.json").read_text(encoding="utf-8"))["alive"], False)
         self.assertFalse((build / "unattended-run.json").exists())
+
+    def test_a_stop_records_its_end_once_the_disk_takes_it(self):
+        # Reconciliation 1 of D02 T02 §8: recovery needed a second stop; stop now retries its own record.
+        self.assertEqual(self.launcher("start").returncode, 0)
+        run = self.run_module()
+        real, failures = run.lib.write_atomic, []
+
+        def full_twice(path, text):
+            if path.name == "unattended-health.json" and len(failures) < 2:
+                failures.append(path)
+                raise OSError(28, "No space left on device")
+            return real(path, text)
+        out = __import__("io").StringIO()
+        with unittest.mock.patch.object(run.lib, "write_atomic", full_twice):
+            self.assertEqual(run.stop(self.root, out), 0, out.getvalue())
+        self.assertEqual(len(failures), 2)
+        health = json.loads((self.root / "build" / "unattended-health.json").read_text(encoding="utf-8"))
+        self.assertIs(health["alive"], False)
+        self.assertFalse((self.root / "build" / "unattended-run.json").exists())
 
     def test_the_stall_nudge_reaches_the_runs_pane(self):
         echo = Path(self._tmp.name) / "typed.txt"
@@ -1468,6 +1488,25 @@ class HeartbeatShipsTest(unittest.TestCase):
         fresh = self.state()
         self.tick(T0 + 500, fresh)
         self.assertEqual(fresh["ships"], 2, "the count was not rebuilt from the run's start commit")
+
+    def test_a_git_read_that_fails_is_counted_again_not_read_as_absent(self):
+        # Reconciliation 1 of D02 T02 §8: a failed `git show` read as a missing file, and the ship was passed for good.
+        state = self.state()
+        self.tick(T0 + 10, state)
+        shipped = self.commit("[x]", "[ ]", "stamp §1", T0 + 100)
+        real, failed = self.run.lib._git, []
+
+        def flaky(root, *args, **kwargs):
+            if args[:1] == ("show",) and not failed:
+                failed.append(args)
+                raise self.run.lib.ShipCountError("git show failed: error: unable to read (I/O error)")
+            return real(root, *args, **kwargs)
+        with unittest.mock.patch.object(self.run.lib, "_git", flaky):
+            self.tick(T0 + 200, state)
+        self.assertEqual((state["ships"], state["counted"]), (0, self.base), "the unread commit was counted past")
+        self.assertIn("ships could not be counted", state["last_error"])
+        self.tick(T0 + 300, state)
+        self.assertEqual((state["ships"], state["counted"]), (1, shipped))
 
     def test_a_failed_state_write_counts_no_commit_twice(self):
         real, calls = self.run.lib.write_atomic, []

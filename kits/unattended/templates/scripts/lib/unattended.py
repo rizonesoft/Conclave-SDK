@@ -211,12 +211,15 @@ def _git(root, *args: str, timeout: int = 60) -> str:
     return done.stdout
 
 
-def _file_at(root, commit: str, path: str) -> str:
-    """The file's text at `commit`, or empty when it does not exist there (a file the commit added or removed)."""
-    try:
-        return _git(root, "show", f"{commit}:{path}")
-    except ShipCountError:
+def _file_at(root, commit: str | None, path: str) -> str:
+    """The file's text at `commit`, or empty when it is not in that commit (a file the commit added or removed, or no
+    commit: the parent of a root commit). A read that fails raises ShipCountError, so the count waits for the next
+    tick instead of reading the file as absent and moving past its ship."""
+    if commit is None:
         return ""
+    if not _git(root, "ls-tree", "--name-only", "-z", commit, "--", path).strip("\0"):
+        return ""
+    return _git(root, "show", f"{commit}:{path}")
 
 
 def ships_along(root, old: str, new: str) -> list[tuple[str, int, int]]:
@@ -227,16 +230,17 @@ def ships_along(root, old: str, new: str) -> list[tuple[str, int, int]]:
     _row_pattern()  # a project without the todo kit is refused even over a range with nothing in it
     # core.quotePath off: a non-ASCII TODO path arrives as itself (a path git still quotes is unquoted).
     out = _git(root, "-c", "core.quotePath=false", "log", "--first-parent", "--reverse", "--diff-merges=first-parent",
-               "--name-only", "--format=%x00%H %ct", f"{old}..{new}", "--", "todo")
+               "--name-only", "--format=%x00%H %ct %P", f"{old}..{new}", "--", "todo")
     found = []
     for chunk in out.split("\0")[1:]:
         head, _, names = chunk.partition("\n")
-        sha, _, when = head.partition(" ")
+        sha, when, *parents = head.split()
         shipped = 0
         for name in filter(None, names.splitlines()):
             path = _unquote(name)
             if path and TODO_FILE.fullmatch(path):
-                shipped += ships_in_commit(_file_at(root, f"{sha}^1", path), _file_at(root, sha, path))
+                shipped += ships_in_commit(_file_at(root, parents[0] if parents else None, path),
+                                           _file_at(root, sha, path))
         if shipped:
             found.append((sha, int(when), shipped))
     return found
