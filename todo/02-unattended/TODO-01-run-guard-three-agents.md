@@ -42,7 +42,7 @@ title: "TODO-01 -- Run guard for Antigravity and Codex"
 | 4 | §4 | Heartbeat stall breaker for a harness with no Stop hook | -- | [x] |
 | 5 | §5 | Guard self-test through each wired hook | §2, §3 | [ ] |
 | 6 | §6 | Run guard steps in the Antigravity and Codex skill copies | §2, §3, §4 | [ ] |
-| 7 | §7 | Live Codex run held by its approved Stop hook | §3 | [ ] |
+| 7 | §7 | Live Codex run held by its approved Stop hook | §3 | [x] |
 
 ## 1. Antigravity payload handled by the Stop hook
 
@@ -233,9 +233,12 @@ Filed 2026-11-11 from `D02 T01 §3`. With the Stop hook approved through `script
 - [x] Create a scratch `init --kit todo` git project with a stub graph holding one ready row and a run file (`docs/phase-runs/2099-01-01-phase-0.md`, which `stop_decision` needs: a missing run file lets the stop through), and run `python scripts/codex-hook-trust.py` in it. Done when: the doctor reports `stop-hook-approved:.codex` `ok` for it. **Corrected 2026-11-12 (plan review):** the run file was not named.
 - [x] Mint a session with `codex exec --json`, acquire a guard for its session id (`acquire --root <scratch> --session <id> --phase 0 --run-file docs/phase-runs/2099-01-01-phase-0.md --cron-id none --scope plan`, reading the guard back for that session and its run id), resume it with `codex exec resume <id>`, and read from the output and the guard's state that the hook answered `block` and Codex ran further turns until the stall breaker let it stop (`trips` 1, the guard still held: the breaker lets a turn end, it does not release the run). Every `codex` call runs under a 10 minute deadline with its whole process tree ended on a timeout, and a timeout fails the proof. Done when: the run file quotes the output and the state. **Corrected 2026-11-12 (plan review):** the acquire arguments, the difference between a stop let through and a released guard, and a deadline were missing.
 - [x] End the guard with `end --reason operator-stop` (the end path that needs no marker; `stall` needs two trips), read back that the guard and state files are gone, and resume once more under the same deadline. Done when: the run file quotes a turn that ends at its first Stop. **Corrected 2026-11-12 (plan review):** the end path was not named.
-- [ ] Commit: `todo: a live Codex run held by its Stop hook`
+- [x] Commit: `todo: a live Codex run held by its Stop hook`
 
 **Test checkpoint:** `python forge.py doctor <scratch> todo --strict` exits 0 with `stop-hook-approved:.codex` `ok`; the run file quotes a guarded Codex run that the breaker released and a released run that stopped at its first Stop.
+
+> **Verified:** 2026-11-12 | §7 | 67af0aad0391a245ab940079fcf3e13efbb5c33c
+> **Review:** `docs/reviews/d02-t01-s7.json`
 
 ## Verification
 
