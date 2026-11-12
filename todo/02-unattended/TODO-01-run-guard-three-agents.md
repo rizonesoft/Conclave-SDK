@@ -198,7 +198,11 @@ Unit tests call `stop_hook` directly, so a hook file with a wrong command passes
 
 ## 6. Run guard steps in the Antigravity and Codex skill copies
 
+> **Started:** 2026-11-12T01:53:18Z
+
 The Claude copy of `process-plan` tells the session how to start and end the run guard. The other two copies leave it out, so an Antigravity or Codex run starts with no guard. Each copy gets the steps for its own harness.
+
+**Corrected 2026-11-12 (validation):** checked against the installed CLIs. Antigravity (agy 1.5.6) gives its agent a `schedule` tool for timers and recurring cron jobs in the conversation (its changelog and built-in `automation` skill), so its copy names that as the heartbeat; Codex (0.167.0) has no scheduled resume inside a session (`codex queue` and `codex exec resume` act from outside), so its copy says the run is held by the hook alone and resumed by the unattended kit. Each agent's shell names its own session: `ANTIGRAVITY_CONVERSATION_ID` equals the `conversationId` Antigravity's hook receives, and `CODEX_THREAD_ID` (equal to `CODEX_SESSION_ID`) the `session_id` Codex's hook receives, both read live 2026-11-12. A Codex agent started from a Claude Code session also inherits `CLAUDE_CODE_SESSION_ID`, so each copy names its own variable and warns against the other.
 
 **Phase:** 2
 **Needs:** none
@@ -209,8 +213,8 @@ The Claude copy of `process-plan` tells the session how to start and end the run
 1. Add the run guard section to `kits/todo/templates/.agents/skills/process-plan/SKILL.md` and `kits/todo/templates/.codex/skills/process-plan/SKILL.md`. Done when: each names its own hook file and heartbeat.
 2. Update `kits/todo/README.md` and `self-sync`. Done when: the checkpoint passes.
 
-- [ ] Write the run guard section in the Antigravity copy of `process-plan`: the hook wired in `.agents/hooks.json`, `acquire` with the conversation id as the session, and `heartbeat-still` on each heartbeat resumption, with the heartbeat mechanism Antigravity offers named after checking it against the installed CLI. Done when: the section names no Claude Code tool (`CronCreate`, `CronList`) and every command in it exists in `campaign_guard.py`.
-- [ ] Write the run guard section in the Codex copy of `process-plan` in the same way, naming `.codex/hooks.json` and `scripts/codex-campaign-hook.py`. Done when: the section names no Claude Code tool and every command in it exists.
+- [ ] Write the run guard section in the Antigravity copy of `process-plan`: the hook wired in `.agents/hooks.json`, `acquire` with `ANTIGRAVITY_CONVERSATION_ID` as the session, the heartbeat as a recurring timer made with Antigravity's `schedule` tool, and `heartbeat-still` on each heartbeat resumption. Done when: the section names no Claude Code tool (`CronCreate`, `CronList`) and no other agent's session variable, and a test finds every `campaign_guard.py` command it names in the guard's command list. **Corrected 2026-11-12 (validation):** the heartbeat and the session variable are named from the live check.
+- [ ] Write the run guard section in the Codex copy of `process-plan` in the same way, naming `.codex/hooks.json`, `scripts/codex-campaign-hook.py`, `scripts/codex-hook-trust.py` and `CODEX_THREAD_ID`, with the warning against an inherited `CLAUDE_CODE_SESSION_ID`. Done when: the section names no Claude Code tool and every command in it exists in the guard's command list, by the same test. **Corrected 2026-11-12 (validation):** the trust step and the session variable added.
 - [ ] State in both copies what happens when the harness offers no scheduled resume: the run is held by the hook alone, and the unattended kit's heartbeat (when installed) restarts and nudges it from outside. Done when: both copies carry that sentence and name `scripts/unattended-run.py`.
 - [ ] State in both copies and in `kits/todo/README.md` that the stall breaker lets a turn end and keeps the guard held, and that only `end` (or the second trip through `heartbeat-still`) releases the run. Done when: the three texts carry that distinction and none says the breaker releases the run. Filed 2026-11-12 from `D02 T01 §7`'s completion review, whose Test checkpoint wording conflated the two.
 - [ ] Retitle "The run guard (Claude Code)" in `kits/todo/README.md` (`:31`) to cover the three agents, with one line per agent naming its hook file. Done when: the README names all three hook files.
