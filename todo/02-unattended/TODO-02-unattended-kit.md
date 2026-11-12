@@ -197,7 +197,11 @@ Two launches at once would start two agents on one tree. A lock held for the lau
 
 ## 6. Launch commands for Codex and Antigravity
 
+> **Started:** 2026-11-12T12:53:44Z
+
 The launcher starts whichever agent the profile names. The Codex and Antigravity command lines are built only from flags their installed CLIs confirm, and each run is held by its own hook (roadmap recommendation 7).
+
+**Corrected 2026-11-12 (validation):** read on this machine: `codex-cli 0.166.0` in WSL (0.167.0 on Windows) and `agy 1.5.5` in WSL (1.5.6 on Windows). Codex has no flag that sets a new session's id and no `--effort` (effort is `-c model_reasoning_effort=<value>`, a config override); it resumes with `codex resume [SESSION_ID] [PROMPT]`. Antigravity resumes with `--conversation <id>` and starts with an initial prompt through `--prompt-interactive`; it does take `--effort` (`low|medium|high|xhigh|max`), so §2's loader, which left Antigravity's effort free, now checks it against those values. Since neither CLI takes an id the launcher mints, the run is matched by its tag: `campaign_guard.py acquire` (todo kit) also records `CONCLAVE_UNATTENDED_TAG` from its environment as `launch_tag`, which every process of a run carries (§5), and the launcher and the preflight's `--resume-session` treat a guard as the run's when its session or its tag matches; a Codex or Antigravity resume uses the agent session id the run's guard holds, and starts fresh when there is none. With `skip_permissions` false neither gets a permission flag, as with Claude Code.
 
 **Phase:** 2
 **Needs:** none
