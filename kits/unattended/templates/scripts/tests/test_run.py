@@ -44,6 +44,11 @@ if os.environ.get("STUB_EXIT"):
 child = subprocess.Popen([sys.executable, "-c",
                           "import signal, time; signal.signal(signal.SIGHUP, signal.SIG_IGN); time.sleep(300)"])
 open(os.environ["STUB_CHILD"], "w").write(str(child.pid))
+# A second child in its own session, as the review dispatcher detaches its reviewers: outside the agent's group.
+detached = subprocess.Popen([sys.executable, "-c",
+                             "import signal, time; signal.signal(signal.SIGHUP, signal.SIG_IGN); time.sleep(300)"],
+                            start_new_session=True)
+open(os.environ["STUB_CHILD"] + ".detached", "w").write(str(detached.pid))
 signal.signal(signal.SIGHUP, signal.SIG_IGN)
 time.sleep(300)
 '''
@@ -151,11 +156,12 @@ class RunTest(unittest.TestCase):
 
     def end_everything(self):
         subprocess.run(["tmux", "kill-server"], capture_output=True, timeout=30)
-        if self.child_file.exists():
-            try:
-                os.kill(int(self.child_file.read_text()), signal.SIGKILL)
-            except (ProcessLookupError, ValueError):
-                pass  # already gone
+        for path in (self.child_file, Path(str(self.child_file) + ".detached")):
+            if path.exists():
+                try:
+                    os.kill(int(path.read_text()), signal.SIGKILL)
+                except (ProcessLookupError, ValueError):
+                    pass  # already gone
 
     def launcher(self, *args, env=None):
         return subprocess.run([sys.executable, str(self.root / "scripts" / "unattended-run.py"), *args],
@@ -202,11 +208,18 @@ class RunTest(unittest.TestCase):
     def marker(self):
         return json.loads((self.root / "build" / "unattended-run.json").read_text(encoding="utf-8"))
 
-    def wait_child(self):
+    def wait_child(self, detached=False):
+        path = Path(str(self.child_file) + ".detached") if detached else self.child_file
         deadline = time.monotonic() + 15
-        while not self.child_file.exists() and time.monotonic() < deadline:
+        while not path.exists() and time.monotonic() < deadline:
             time.sleep(0.1)
-        return int(self.child_file.read_text())
+        return int(path.read_text())
+
+    def wait_gone(self, pid, seconds=15):
+        deadline = time.monotonic() + seconds
+        while not gone(pid) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        return gone(pid)
 
     def test_start_runs_the_agent_in_tmux_that_outlives_the_launcher(self):
         done = self.launcher("start")
@@ -279,6 +292,7 @@ class RunTest(unittest.TestCase):
         self.assertEqual(self.launcher("start").returncode, 0)
         session = self.marker()["session"]
         child = self.wait_child()
+        detached = self.wait_child(detached=True)
         self.acquire(session)
         subprocess.run(["tmux", "new-session", "-d", "-s", "demo-heartbeat", "sleep 300"], check=True, timeout=30)
         done = self.launcher("stop")
@@ -290,8 +304,63 @@ class RunTest(unittest.TestCase):
         while not gone(child) and time.monotonic() < deadline:
             time.sleep(0.1)
         self.assertTrue(gone(child), "the agent's child outlived the stop")
+        self.assertTrue(self.wait_gone(detached), "a child in its own session outlived the stop")
         for rel in ("build/claude-campaign-guard.json", "build/unattended-run.json", "build/unattended-launch.json"):
             self.assertFalse((self.root / rel).exists(), rel)
+
+    def test_a_resume_ends_the_crashed_runs_leftovers_first(self):
+        # Round 1 of D02 T02 §5: the old processes survived a lost tmux session and ran beside the resumed agent.
+        self.assertEqual(self.launcher("start").returncode, 0)
+        old_child, old_detached = self.wait_child(), self.wait_child(detached=True)
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+        time.sleep(0.5)
+        self.assertFalse(gone(old_child), "the stub's child should outlive the tmux session (it ignores SIGHUP)")
+        self.child_file.unlink()
+        Path(str(self.child_file) + ".detached").unlink()
+        done = self.launcher("start")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertTrue(self.wait_gone(old_child), "the crashed run's child ran on beside the resumed run")
+        self.assertTrue(self.wait_gone(old_detached), "the crashed run's detached child ran on")
+
+    def test_a_guard_that_does_not_end_keeps_the_runs_state(self):
+        self.assertEqual(self.launcher("start").returncode, 0)
+        self.acquire(self.marker()["session"])
+        run = self.run_module()
+        refused = subprocess.CompletedProcess([], 2, stdout="", stderr="campaign-guard: the guard lock timed out")
+        out = __import__("io").StringIO()
+        with unittest.mock.patch.object(run, "_end_guard", return_value=refused):
+            self.assertEqual(run.stop(self.root, out), 1)
+        self.assertIn("guard not ended", out.getvalue())
+        self.assertTrue((self.root / "build" / "unattended-run.json").exists(), "the marker was dropped")
+        self.assertTrue((self.root / "build" / "unattended-launch.json").exists(), "the claim was dropped")
+        done = self.launcher("stop")  # the second stop finds the session again and ends the guard
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIsNone(self.guard())
+
+    def test_a_preflight_that_overruns_is_ended_with_its_children(self):
+        # Round 1 of D02 T02 §5: a fixed 900 s limit killed the preflight alone and raised TimeoutExpired.
+        run = self.run_module()
+        fake = Path(self._tmp.name) / "fake-scripts"
+        fake.mkdir()
+        pid_file = Path(self._tmp.name) / "preflight-child.pid"
+        (fake / "unattended-preflight.py").write_text(
+            "import subprocess, sys, time\n"
+            "c = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+            f"open({str(pid_file)!r}, 'w').write(str(c.pid))\n"
+            "print('PASS profile: slow', flush=True)\n"
+            "time.sleep(120)\n", encoding="utf-8")
+        with unittest.mock.patch.object(run, "HERE", fake), \
+                unittest.mock.patch.object(run, "PREFLIGHT_SLACK_SECONDS", 2):
+            code, report = run.run_preflight(self.root, None, PROFILE)
+        self.assertEqual(code, 1)
+        self.assertIn("PASS profile: slow", report)
+        self.assertIn("FAIL preflight: ran past 2s", report)
+        self.assertTrue(self.wait_gone(int(pid_file.read_text())), "the preflight's child outlived it")
+        limit_profile = {**PROFILE, "preflight": [{"name": "build", "command": ["true"], "timeout_seconds": 1800}]}
+        with unittest.mock.patch.object(run.subprocess, "Popen", side_effect=RuntimeError("stop here")) as popen:
+            with self.assertRaises(RuntimeError):
+                run.run_preflight(self.root, None, limit_profile)
+        self.assertEqual(popen.call_count, 1)
 
     def test_an_agent_that_exits_at_once_is_reported_and_leaves_nothing(self):
         done = self.launcher("start", env={**self.env, "STUB_EXIT": "1"})

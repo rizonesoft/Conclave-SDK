@@ -37,6 +37,11 @@ GUARD = "build/claude-campaign-guard.json"
 HEALTH = "build/unattended-health.json"  # written by the heartbeat (D02 T02 §8) when it runs
 HISTORY_LIMIT = 50000
 INSIDE = "CONCLAVE_UNATTENDED_RUN"  # set inside the run, so a run cannot stop itself
+# Every process of a run carries this in its environment (inherited even by one that starts its own session, such as
+# a reviewer the dispatcher detaches), so a stop or a resume finds and ends the whole run, not only its group.
+TAG = "CONCLAVE_UNATTENDED_TAG"
+# The preflight's own checks (git, the guard self-test, Codex trust), on top of the profile's checks' own timeouts.
+PREFLIGHT_SLACK_SECONDS = 900
 STOP_GRACE_SECONDS = 10
 # How long a started or resumed agent must stay up to count as started.
 STARTUP_SECONDS = float(os.environ.get("CONCLAVE_STARTUP_GRACE") or 10)
@@ -120,12 +125,26 @@ def agent_command(root: Path, profile: dict, session: str, resume: bool) -> list
     return argv + ["--", prompt]
 
 
-def run_preflight(root: Path, resume_session: str | None) -> tuple[int, str]:
+def run_preflight(root: Path, resume_session: str | None, profile: dict) -> tuple[int, str]:
+    """Run the preflight in its own process group, given as long as its profile checks may take plus its own checks,
+    and end the whole group when it overruns or the launcher is interrupted."""
     args = [sys.executable, str(HERE / "unattended-preflight.py"), "--root", str(root)]
     if resume_session:
         args += ["--resume-session", resume_session]
-    done = subprocess.run(args, capture_output=True, text=True, timeout=900)
-    return done.returncode, (done.stdout + done.stderr).rstrip()
+    limit = PREFLIGHT_SLACK_SECONDS + sum(check["timeout_seconds"] for check in profile["preflight"])
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                            start_new_session=True)
+    try:
+        report, _ = proc.communicate(timeout=limit)
+    except subprocess.TimeoutExpired:
+        _end_group(proc.pid, grace=0)
+        report, _ = proc.communicate()
+        return 1, (report or "").rstrip() + f"\nFAIL preflight: ran past {limit}s; its process group was ended"
+    except BaseException:
+        _end_group(proc.pid, grace=0)
+        proc.communicate()
+        raise
+    return proc.returncode, (report or "").rstrip()
 
 
 def _alive(name: str) -> bool | None:
@@ -160,7 +179,49 @@ def _end_group(pgid: int | None, grace: float = STOP_GRACE_SECONDS) -> bool:
     return not _group_alive(pgid)
 
 
-def _launch(root: Path, run_session: str, argv: list[str]) -> int:
+def tagged(session: str) -> list[int]:
+    """The processes whose environment carries this run's tag, read from /proc (empty where /proc cannot say)."""
+    needle = f"{TAG}={session}".encode()
+    found = []
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return found
+    for entry in entries:
+        if not entry.isdigit() or int(entry) == os.getpid():
+            continue
+        try:
+            with open(f"/proc/{entry}/environ", "rb") as handle:
+                if needle in handle.read().split(b"\0"):
+                    found.append(int(entry))
+        except OSError:
+            continue  # it ended while being read, or is not this user's
+    return found
+
+
+def end_run_processes(session: str, pgid: int | None, grace: float = STOP_GRACE_SECONDS) -> list[int]:
+    """End the run's process group and every process tagged with its session: wait up to `grace` for them to go
+    (tmux has already sent its hangup), then SIGKILL what is left. Returns the pids still alive afterwards."""
+    deadline = time.monotonic() + grace
+    while (tagged(session) or (pgid and _group_alive(pgid))) and time.monotonic() < deadline:
+        time.sleep(0.2)
+    if pgid and _group_alive(pgid):
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass  # the group ended at the last moment
+    for pid in tagged(session):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass  # it ended at the last moment
+    deadline = time.monotonic() + max(grace, 2)
+    while (left := tagged(session)) and time.monotonic() < deadline:
+        time.sleep(0.2)
+    return tagged(session) + ([pgid] if pgid and _group_alive(pgid) else [])
+
+
+def _launch(root: Path, run_session: str, argv: list[str], session: str) -> int:
     """Start `argv` as the only window of the detached tmux session `run_session`, with a 50,000-line history (tmux
     applies history-limit to new windows only, so a placeholder window is replaced), inside the repository and with
     the inside-the-run variable set, and see that it stays up for the startup check. Returns the agent's pid, which
@@ -172,7 +233,7 @@ def _launch(root: Path, run_session: str, argv: list[str]) -> int:
         # resolve -t through a pane, and a bare "=name" names no pane in tmux 3.6.
         tmux("set-option", "-t", f"={run_session}:", "history-limit", str(HISTORY_LIMIT), check=True)
         tmux("new-window", "-d", "-t", f"={run_session}:", "-n", "agent", "-c", str(root), "-e", f"{INSIDE}=1",
-             "exec " + shlex.join(argv), check=True)
+             "-e", f"{TAG}={session}", "exec " + shlex.join(argv), check=True)
         target = f"={run_session}:agent"
         tmux("set-option", "-w", "-t", target, "remain-on-exit", "on", check=True)  # for the startup check only
         tmux("kill-window", "-t", f"={run_session}:boot", check=True)
@@ -183,7 +244,8 @@ def _launch(root: Path, run_session: str, argv: list[str]) -> int:
             if dead and dead[0] == "1":
                 # The agent's own last words, from the pane's history (a dead pane's screen holds only tmux's own
                 # `Pane is dead (...)` line, which is left out).
-                shown = [line for line in tmux("capture-pane", "-p", "-J", "-S", "-200", "-t", target).stdout.strip().splitlines()
+                history = tmux("capture-pane", "-p", "-J", "-S", "-200", "-t", target).stdout
+                shown = [line for line in history.strip().splitlines()
                          if line.strip() and not line.startswith("Pane is dead")]
                 last = shown[-1][-200:] if shown else "no output"
                 raise RunError(f"the agent exited {dead[1] if len(dead) > 1 else '?'} within "
@@ -193,7 +255,7 @@ def _launch(root: Path, run_session: str, argv: list[str]) -> int:
         return pid
     except BaseException:
         tmux("kill-session", "-t", f"={run_session}")
-        _end_group(pid, grace=2)
+        end_run_processes(session, pid, grace=2)
         raise
 
 
@@ -214,7 +276,13 @@ def start(root: Path, out=None) -> int:
             raise RunError(f"tmux session {run_session} is already running: attach with "
                            "'python3 scripts/unattended-run.py attach', or stop it first")
         resume = marker["session"] if marker else None
-        code, report = run_preflight(root, resume)
+        if marker:
+            # The tmux session is gone, but that does not prove its processes are: a crashed run's leftovers are
+            # ended before anything starts in its place.
+            left = end_run_processes(marker["session"], marker["pgid"], grace=2)
+            if left:
+                raise RunError(f"the previous run's processes {left} are still running after SIGKILL")
+        code, report = run_preflight(root, resume, profile)
         print(report, file=out)
         if code != 0:
             print("start: the preflight refused the run (FAIL lines above); nothing was started", file=out)
@@ -223,7 +291,7 @@ def start(root: Path, out=None) -> int:
         session = pid = None
         if resume:
             try:
-                pid = _launch(root, run_session, agent_command(root, profile, resume, resume=True))
+                pid = _launch(root, run_session, agent_command(root, profile, resume, resume=True), resume)
                 session = resume
             except RunError as exc:
                 print(f"start: the resume of session {resume} did not stay up ({exc}); starting a fresh session",
@@ -231,7 +299,7 @@ def start(root: Path, out=None) -> int:
                 _end_old_guard(root, resume, out)
         if session is None:
             session = str(uuid.uuid4())
-            pid = _launch(root, run_session, agent_command(root, profile, session, resume=False))
+            pid = _launch(root, run_session, agent_command(root, profile, session, resume=False), session)
         marker = {"session": session, "tmux_session": run_session, "heartbeat_session": heartbeat,
                   "agent": profile["agent"], "pgid": pid, "started": started, "resumed": session == resume}
         try:
@@ -241,7 +309,7 @@ def start(root: Path, out=None) -> int:
                 raise OSError(f"{MARKER} did not read back as written")
         except OSError as exc:
             tmux("kill-session", "-t", f"={run_session}")
-            _end_group(pid, grace=2)
+            end_run_processes(session, pid, grace=2)
             (root / MARKER).unlink(missing_ok=True)
             lib.clear_claim(root, session, lock_held=True)
             raise RunError(f"the run's state could not be written ({exc}); the run was ended") from None
@@ -315,19 +383,25 @@ def stop(root: Path, out=None) -> int:
         run_session, heartbeat = (marker["tmux_session"], marker["heartbeat_session"]) if marker else names(profile)
         session = marker["session"] if marker else None
         guard = read_json(root / GUARD)
+        guard_failed = False
         if guard and session and str(guard.get("session_id")) == session:
             done = _end_guard(root, session)
-            print(f"stop: guard {'ended' if done.returncode == 0 else 'not ended'}: "
+            guard_failed = done.returncode != 0
+            print(f"stop: guard {'not ended' if guard_failed else 'ended'}: "
                   f"{(done.stdout or done.stderr).strip()[-300:]}", file=out)
         elif guard:
             print(f"stop: the guard belongs to session {guard.get('session_id')}, not this run's; left in place",
                   file=out)
         for name in (heartbeat, run_session):
             tmux("kill-session", "-t", f"={name}")
-        pgid = marker["pgid"] if marker else None
-        if not _end_group(pgid):
-            print(f"stop: process group {pgid} is still running after SIGKILL; {MARKER} and the claim are kept",
+        left = end_run_processes(session, marker["pgid"]) if marker else []
+        if left:
+            print(f"stop: processes {left} are still running after SIGKILL; {MARKER} and the claim are kept",
                   file=out)
+            return 1
+        if guard_failed:
+            print(f"stop: the run's guard was not ended; {MARKER} and the claim are kept, so a second stop can "
+                  "end it", file=out)
             return 1
         if session:
             print(f"stop: claim {lib.clear_claim(root, session, lock_held=True)}", file=out)
