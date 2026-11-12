@@ -228,7 +228,9 @@ The launcher starts whichever agent the profile names. The Codex and Antigravity
 
 ## 7. Heartbeat that nudges an idle run and records a dead one as ended
 
-> **Started:** 2026-11-12T14:04:33Z
+> **Started:** 2026-11-12T18:14:16Z
+
+**Corrected 2026-11-12 (stamp):** the Started line said 2026-11-12T14:04:33Z, the first build's start, which the re-plan (`b141bea`) superseded without restarting it; the re-planned build began after its plan review (run 2026-11-12T18:14:16Z on `b141bea`) and was committed at `acd040c`.
 
 A run nobody watches can go quiet, and one can die. The heartbeat, a loop outside the agent, nudges a live run that has gone quiet, and when the run has died it records the run as ended and stops everything it started; it never restarts it. Source: Impossible OS `scripts/overnight/heartbeat.sh` (105 lines), whose restart half is not lifted.
 
