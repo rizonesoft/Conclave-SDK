@@ -200,8 +200,9 @@ class LoadProfileTest(unittest.TestCase):
         with self.denied("unattended.json"):
             with self.assertRaises(unattended.ProfileError) as caught:
                 unattended.load_profile(self.root)
-        self.assertIn("not readable", str(caught.exception))
-        self.assertIn("Permission denied", str(caught.exception))
+        message = str(caught.exception)
+        self.assertTrue(message.startswith(".conclave/unattended.json: not readable"), message)
+        self.assertIn("Permission denied", message)
 
     def test_a_prompt_that_cannot_be_read_is_refused(self):
         self.write(self.profile)
