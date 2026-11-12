@@ -99,15 +99,18 @@ class ThreePass(Harness):
         self.git("commit", "-q", "--allow-empty", "-m", message)
         return self.git("rev-parse", "HEAD")
 
-    def dispatch(self, *args, **modes):
+    def dispatch_env(self, **modes):
         # The dispatcher asks git for the section's pin and changed files, so git is on the fake PATH here.
         system_root = {"SYSTEMROOT": os.environ["SYSTEMROOT"]} if os.name == "nt" else {}
-        env = {"PATH": os.pathsep.join([str(self.bin), str(Path(sys.executable).parent), self.git_dir]),
-               "FAKE_LOG": str(self.log), "FAKE_CHILD_PID": str(Path(self._tmp.name) / "child.pid"), **system_root,
-               **{var: str(self.scratch) for var in ("TMP", "TEMP", "TMPDIR")},
-               **{f"FAKE_{k.upper()}": v for k, v in modes.items()}}
+        return {"PATH": os.pathsep.join([str(self.bin), str(Path(sys.executable).parent), self.git_dir]),
+                "FAKE_LOG": str(self.log), "FAKE_CHILD_PID": str(Path(self._tmp.name) / "child.pid"), **system_root,
+                **{var: str(self.scratch) for var in ("TMP", "TEMP", "TMPDIR")},
+                **{f"FAKE_{k.upper()}": v for k, v in modes.items()}}
+
+    def dispatch(self, *args, **modes):
         result = subprocess.run([sys.executable, "-B", str(self.repo / "scripts/review-dispatch.py"), *args],
-                                capture_output=True, text=True, env=env, timeout=60, cwd=str(self.repo))
+                                capture_output=True, text=True, env=self.dispatch_env(**modes), timeout=60,
+                                cwd=str(self.repo))
         summary = json.loads(result.stdout) if result.stdout.strip().startswith("{") else None
         return result, summary
 
@@ -252,6 +255,86 @@ class Chain(ThreePass):
         lock.write_text("garbage", encoding="ascii")
         self.refused("completion", built, "is already running")
 
+    @unittest.skipUnless(os.name == "posix", "on Windows the reviewer's kill-on-close job ends with the dispatcher")
+    def test_a_killed_dispatchers_live_reviewer_keeps_the_lock_until_its_group_ends(self):
+        # Review of the dead-owner takeover: on Linux and WSL the reviewer runs in its own session, so a dispatcher
+        # killed with SIGKILL leaves it running, and a takeover then would pay for a second review alongside it.
+        import signal
+        self.ok("plan", self.base)
+        built = self.commit("build", {"src/app/a.py": "x = 1\n"})
+        child_pid = Path(self._tmp.name) / "child.pid"
+        args = ["--kind", "round", "--writer", "claude", "--prompt", str(self.prompt), "--candidate", built,
+                "--record", str(self.record), "--timeout", "120"]
+        dispatcher = subprocess.Popen([sys.executable, "-B", str(self.repo / "scripts/review-dispatch.py"), *args],
+                                      env=self.dispatch_env(codex="sleepchild"), cwd=str(self.repo),
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        group = None
+        try:
+            deadline = time.monotonic() + 30
+            while not child_pid.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertTrue(child_pid.exists(), "the fake reviewer never started its child")
+            os.kill(dispatcher.pid, signal.SIGKILL)
+            dispatcher.wait(timeout=30)
+            lock = self.lock_path(self.record)
+            fields = lock.read_text(encoding="ascii").split()
+            self.assertEqual(len(fields), 4, "the lock does not name the reviewer's process group")
+            group = int(fields[3])
+            self.refused("round", built, "is already running")  # its reviewer is still running
+            os.killpg(group, signal.SIGKILL)
+            child = int(child_pid.read_text())
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                try:
+                    os.killpg(group, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.05)
+            with self.assertRaises(ProcessLookupError):
+                os.kill(child, 0)
+            group = None
+            self.ok("round", built)  # the dispatcher and its reviewer are both gone: the lock is free
+            self.assertFalse(lock.exists())
+        finally:
+            if dispatcher.poll() is None:
+                dispatcher.kill()
+                dispatcher.wait()
+            if group is not None:
+                try:
+                    os.killpg(group, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass  # the group ended already
+
+    @unittest.skipUnless(os.name == "nt", "the kill-on-close job is Windows only")
+    def test_a_dispatcher_killed_on_windows_takes_its_reviewer_down_and_frees_the_lock(self):
+        # taskkill /F is TerminateProcess: no finally runs, so the job's kill-on-close limit must end the reviewer.
+        self.ok("plan", self.base)
+        built = self.commit("build", {"src/app/a.py": "x = 1\n"})
+        child_pid = Path(self._tmp.name) / "child.pid"
+        args = ["--kind", "round", "--writer", "claude", "--prompt", str(self.prompt), "--candidate", built,
+                "--record", str(self.record), "--timeout", "120"]
+        dispatcher = subprocess.Popen([sys.executable, "-B", str(self.repo / "scripts/review-dispatch.py"), *args],
+                                      env=self.dispatch_env(codex="sleepchild"), cwd=str(self.repo),
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            deadline = time.monotonic() + 30
+            while not child_pid.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertTrue(child_pid.exists(), "the fake reviewer never started its child")
+            dispatcher.kill()
+            dispatcher.wait(timeout=30)
+            child = int(child_pid.read_text())
+            module = self.module()
+            deadline = time.monotonic() + 30
+            while not module._process_gone(child) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertTrue(module._process_gone(child), "the reviewer's child outlived the killed dispatcher")
+            self.assertTrue(self.lock_path(self.record).exists(), "a killed dispatcher cannot release its lock")
+            self.ok("round", built)
+        finally:
+            if dispatcher.poll() is None:
+                dispatcher.kill()
+                dispatcher.wait()
     def test_a_review_outside_a_section_takes_no_lock(self):
         self.record = self.repo / "docs/reviews/topic.md"
         other = self.lock_path(self.record)

@@ -373,6 +373,8 @@ def run(argv, stdin_text, timeout, watched):
                 process = subprocess.Popen(argv, cwd=ROOT,
                                            stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
                                            stdout=output, stderr=subprocess.DEVNULL, **group)
+                if not windows:
+                    note_reviewer_group(process.pid)  # start_new_session: its process group id is its pid
                 if windows:
                     step = "assign to job"
                     assign_windows_job(job, process)
@@ -915,11 +917,28 @@ def _lock_owner_dead(path):
     SIGKILL) never releases its lock, and its section would otherwise wait out the whole expiry. A lock that cannot
     be read, or a process id that is alive or reused, is believed (the expiry still frees it)."""
     try:
-        pid = int(path.read_text(encoding="ascii", errors="replace").split()[0])
+        fields = path.read_text(encoding="ascii", errors="replace").split()
+        pid = int(fields[0])
     except (IndexError, ValueError, OSError):
         return False
-    if pid <= 0 or pid == os.getpid():
+    if pid <= 0 or pid == os.getpid() or not _process_gone(pid):
         return False
+    # On Linux and WSL the reviewer runs in its own session and outlives a dispatcher killed outright: the lock then
+    # holds the reviewer's process group as a fourth field, and the lock is free only once that group is gone too.
+    # On Windows the reviewer is in a kill-on-close job, which ends with the dispatcher, so no group is recorded.
+    if len(fields) >= 4 and os.name != "nt":
+        try:
+            os.killpg(int(fields[3]), 0)
+        except ProcessLookupError:
+            return True
+        except (PermissionError, ValueError, OSError):
+            return False  # alive (another user's), or not a group id this check can read: believed
+        return False
+    return True
+
+
+def _process_gone(pid):
+    """True only when no process has the id `pid`."""
     if os.name == "nt":
         import ctypes
         from ctypes import wintypes
@@ -945,6 +964,35 @@ def _lock_owner_dead(path):
     except PermissionError:
         return False  # alive, owned by another user
     return False
+
+
+# The section lock this run holds, so the reviewer's process group can be added to it once the reviewer starts.
+_HELD = {}
+
+
+def note_reviewer_group(group):
+    """Add the reviewer's process group to the lock this run holds (Linux and WSL), written through a temporary file
+    and os.replace, and only while the lock still holds what this run wrote."""
+    path, owned = _HELD.get("path"), _HELD.get("owned")
+    if path is None or os.name == "nt":
+        return
+    noted = f"{owned} {group}"
+    try:
+        if path.read_text(encoding="ascii", errors="replace") != owned:
+            return  # no longer ours: a later launch took it over, and its text stands
+        temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        temporary.write_text(noted, encoding="ascii")
+        os.replace(temporary, path)
+    except OSError as exc:
+        print(f"review-dispatch: could not note the reviewer's group in {path} ({exc.strerror or exc})",
+              file=sys.stderr)
+        return
+    _HELD["owned"] = noted
+
+
+def _release_held():
+    if _HELD.get("path") is not None:
+        release_section(_HELD["path"], _HELD["owned"])
 
 
 def release_section(path, owned):
@@ -995,7 +1043,8 @@ def lock_section(record_path, timeout):
                 raise busy
         finally:
             release_section(takeover, owned)
-    atexit.register(release_section, path, owned)
+    _HELD.update(path=path, owned=owned)
+    atexit.register(_release_held)
 
 
 def check_three_pass_order(kind, record_path, candidate, schedule):
