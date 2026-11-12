@@ -261,6 +261,8 @@ A run nobody watches can go quiet, and one can die. The heartbeat, a loop outsid
 
 ## 8. Ship counter, ship limit and stall marker
 
+> **Started:** 2026-11-12T21:05:31Z
+
 A run that is alive but ships nothing for hours needs the operator. The heartbeat counts sections shipped, stops at a limit the operator set, and leaves a marker when nothing has shipped. Sources: Impossible OS `scripts/overnight/ship_count.py` (66 lines), `supervisor.py:189` and `run.sh:91`.
 
 **Phase:** 2
@@ -269,17 +271,20 @@ A run that is alive but ships nothing for hours needs the operator. The heartbea
 
 **Build order:**
 
-1. Add `ships_between` to `kits/unattended/templates/scripts/lib/unattended.py`. Done when: it counts Implementation Order rows turned `[x]` between two commits.
+1. Add `ships_between` to `kits/unattended/templates/scripts/lib/unattended.py`. Done when: it counts Implementation Order rows turned `[x]` commit by commit between two commits.
 2. Add the health file, the limit and the marker to the heartbeat. Done when: the checkpoint passes.
 
-- [ ] Add `ships_between(root, old, new)` to `lib/unattended.py`: the number of Implementation Order rows under `todo/` that are `[ ]` at `old` and `[x]` at `new`, read with `git show` and never from the working tree (`ship_count.py`). Done when: a test repository with two rows stamped between two commits returns 2, and a row unstamped again returns 0 for it. Cheaper substitute: counting `[x]` at `new` alone must fail, because it counts rows that were already done.
-- [ ] Write `build/unattended-health.json` from `heartbeat` on every tick: alive, ships since the start, hours since the last ship, the last nudge. Done when: a test reads the file after a tick and finds each field.
-- [ ] Add `--ships N` to `start` in `unattended-run.py`: record `N` and the start commit in the run marker, and have `heartbeat` end the run with `stop` once `ships_between` reaches `N` (`run.sh:91`). Done when: a test with `--ships 1` and one stamped row finds the run stopped and the marker gone.
-- [ ] Write the marker `build/unattended-needs-operator.md` from `heartbeat` when no section has shipped for `stall_hours`, at most once per `stall_hours`, naming the last ship's commit and time, and send the run a second nudge that says nothing has shipped (`supervisor.py:189`, `heartbeat.sh:86`). Done when: tests with an injected clock find one marker at 6 hours and no second one at 7.
+- [ ] Add `ships_between(root, old, new)` to `lib/unattended.py`: along the first-parent commits from `old` to `new`, one commit at a time, the number of Implementation Order rows under `todo/` that the commit turns from `[ ]` to `[x]`, read with `git diff` and never from the working tree, each row recognised by the todo kit's own `ROW` pattern (`scripts/lib/todo_graph.py:23`) (`ship_count.py`). Done when: a test repository with two rows stamped in two commits returns 2, a row reopened and stamped again inside the range counts both ships, an unstamp or a stamped row's edit counts 0, and an uncommitted `[x]` in the working tree counts nothing. Cheaper substitute: comparing the two endpoints must fail the reopened-row case.
+- [ ] Count incrementally in `heartbeat`: the state keeps the ships so far and the last commit counted, and each tick counts only the commits after it. Done when: a test of 20 ticks over an unchanged `HEAD` runs `git diff` for no commit twice.
+- [ ] Write `build/unattended-health.json` from `heartbeat` on every tick, through `lib.write_atomic`: `alive`, `ships` since the start, `hours_since_ship` (from the run's start until the first ship), `last_ship` (commit and time), `last_nudge` and `updated`; a write that fails is recorded in `last_error` and never ends supervision. Done when: a test reads each field after a tick, and one with a failing write keeps ticking.
+- [ ] Add `--ships N` to `start` in `unattended-run.py`: record `ship_limit` and `start_commit` in the run marker (a marker without them, written before this section, reads as unbounded), keep both across the operator's resume of the same run (`run.sh:91`: a recovery keeps its bound), and refuse `0` or a non-number. Have `heartbeat` end the run through `end_run` (reason `the ship limit was reached`) once `ships_between(start_commit, HEAD)` reaches `ship_limit`. Done when: a test with `--ships 1` and one stamped row finds the run ended, the marker and claim gone and the heartbeat exited 10; a resumed run keeps its bound; `--ships 0` exits 2.
+- [ ] Write the marker `build/unattended-needs-operator.md` from `heartbeat` when no section has shipped for `stall_hours`, at most once per `stall_hours`, naming the last ship's commit and time (or the run's start), and send an idle run the stall nudge in place of the plain one, saying nothing has shipped and to find out why before more section work (`supervisor.py:189`, `heartbeat.sh:86`). Done when: tests with an injected clock find one marker at 6 hours, none rewritten at 7, and the stall nudge's text sent to the pane.
 - [ ] Show the marker's text in `status` of `unattended-run.py` and remove the marker on the next ship. Done when: a test finds it in the `status` output and gone after a stamped row.
 - [ ] Commit: `unattended: count ships, stop at a limit and mark a stall`
 
-**Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` ends `OK`; making `ships_between` read the working tree makes its test fail.
+**Corrected 2026-11-12 (validation):** the first item compared the endpoints (`[ ]` at `old`, `[x]` at `new`) and said a row unstamped again returns 0; the source counts commit by commit because endpoints miss a section reopened and shipped again in the range (`ship_count.py:51`), and its own row reader takes the first numeric cell, which in this layout is `Order`, so rows are read with the todo kit's `ROW`. The limit ended the run "with `stop`", which also kills the heartbeat's own tmux session mid-stop; it ends through `end_run`, the heartbeat's verified cleanup (§7). The incremental count, the health file's atomic write and the marker's new keys were unstated.
+
+**Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` ends `OK`; making `ships_between` compare the endpoints makes the reopened-row test fail, and making it read the working tree makes the uncommitted-row test fail.
 
 ## 9. Nothing resumes a run without its operator
 
