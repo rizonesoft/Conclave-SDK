@@ -1672,6 +1672,24 @@ class HeartbeatShipsTest(unittest.TestCase):
         self.assertIs(self.file("build/unattended-health.json")["alive"], False, "a stale tick overwrote the stop")
         self.assertEqual(self.file("build/unattended-heartbeat.json")["ended"]["reason"], "stopped by the operator")
 
+    def test_a_stop_handed_over_while_a_tick_ran_is_recorded_before_the_heartbeat_stops(self):
+        # Reconciliation 4 of D02 T02 §8: the loop read the marker, stop removed it and handed its end over, the tick
+        # found no marker, and the heartbeat exited without the record.
+        real_tick, handed = self.run.tick, []
+
+        def stop_hands_over_mid_tick(root, now, state, out=None):
+            if not handed:
+                handed.append(1)
+                (root / "build" / "unattended-run.json").unlink()  # the record failed; the marker went anyway
+            return real_tick(root, now, state, out)
+        sleeps = []
+        with unittest.mock.patch.object(self.run, "tick", stop_hands_over_mid_tick), \
+                unittest.mock.patch.object(self.run, "stopped_run", lambda: "tag-1"):
+            code = self.run.heartbeat(self.root, clock=lambda: T0 + 60, sleep=sleeps.append, out=self.out)
+        self.assertEqual((code, len(sleeps)), (self.run.FINISHED, 1))
+        self.assertIs(self.file("build/unattended-health.json")["alive"], False)
+        self.assertEqual(self.file("build/unattended-heartbeat.json")["ended"]["reason"], "stopped by the operator")
+
     def test_a_held_launch_lock_keeps_an_ended_runs_record_pending(self):
         self.alive = False
         held = self.run.lib.launch_lock(self.root)

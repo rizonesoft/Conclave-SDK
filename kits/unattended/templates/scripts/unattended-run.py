@@ -464,6 +464,15 @@ def _launch_heartbeat(root: Path, heartbeat: str, out, stopped: str | None = Non
     print(f"{'stop' if stopped else 'start'}: heartbeat running in tmux session {heartbeat}", file=out)
 
 
+def handoff_pending(root: Path) -> str | None:
+    """The run `stop` handed its unrecorded end to this heartbeat, while its state does not yet hold that end."""
+    stopped = stopped_run()
+    last = read_json(root / HEARTBEAT_STATE) or {}
+    if not stopped or (last.get("session") == stopped and (last.get("ended") or {}).get("reason") == STOP_REASON):
+        return None
+    return stopped
+
+
 def stopped_run() -> str | None:
     """The run `stop` ended and left for this heartbeat to record, from its own tmux session's environment."""
     if not os.environ.get("TMUX"):
@@ -775,10 +784,8 @@ def heartbeat(root: Path, once: bool = False, clock=time.time, sleep=time.sleep,
                   "be written; the operator's new run is supervised now", file=out)
             unsaved, pending = None, False
         if marker is None and not problem and not pending:
-            stopped = stopped_run()
-            last = read_json(root / HEARTBEAT_STATE) or {}
-            recorded = last.get("session") == stopped and (last.get("ended") or {}).get("reason") == STOP_REASON
-            if not stopped or recorded:
+            stopped = handoff_pending(root)
+            if not stopped:
                 print("heartbeat: no run marker; the heartbeat stops", file=out)
                 return FINISHED
             # `stop` ended this run but could not record it: the heartbeat does, until it lands.
@@ -837,7 +844,10 @@ def heartbeat(root: Path, once: bool = False, clock=time.time, sleep=time.sleep,
             print(f"heartbeat: {failed} could not be written ({exc.strerror or exc}); kept in memory"
                   + ("; written again next tick" if pending else ""), file=out)
         if not pending and (once or code == FINISHED):
-            return code
+            # A stop may have handed its end over while this tick ran (it found no marker): take it before stopping
+            # (reconciliation 4 of D02 T02 §8).
+            if code != FINISHED or not handoff_pending(root):
+                return code
         try:
             seconds = lib.load_profile(root)["tick_seconds"]
         except lib.ProfileError as exc:
