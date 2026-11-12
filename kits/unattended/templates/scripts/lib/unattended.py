@@ -1,8 +1,7 @@
-"""Shared code of the unattended kit: the run profile loader, and the launch lock and claim; the ship counter comes
-with D02 T02 §7.
+"""Shared code of the unattended kit: the run profile loader, the launch lock and claim, and the window flag every
+process the kit starts carries; the ship counter comes with D02 T02 §8.
 
-The preflight (`scripts/unattended-preflight.py`) imports it, and the launcher (`scripts/unattended-run.py`, §5)
-will.
+The preflight (`scripts/unattended-preflight.py`) and the launcher (`scripts/unattended-run.py`) import it.
 It holds no project name: the project's own settings live in `.conclave/unattended.json` (the run profile).
 """
 from __future__ import annotations
@@ -28,6 +27,12 @@ WHOLE = ("min_disk_gb", "min_ram_gb", "tick_seconds", "idle_minutes", "stall_hou
 KEYS = {"schema_version", "name", "agent", "model", "effort", "prompt_file", "branch", "skip_permissions", "tools",
         "preflight", *WHOLE}
 MUST_SET = ("name", "model", "effort")
+
+
+def windowless() -> int:
+    """The creation flag every process the kit starts carries: no console window of its own on Windows (a console
+    child of a parent with none opens one over the operator's work), and nothing elsewhere."""
+    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
 class ProfileError(ValueError):
@@ -182,7 +187,8 @@ def tmux_session_exists(name: str) -> bool | None:
     """True when tmux has a session called exactly `name`, False when tmux says it has none, and None when tmux
     could not be asked (not installed, timed out, a server it cannot reach): an unknown is never an absence."""
     try:
-        done = subprocess.run(["tmux", "has-session", "-t", f"={name}"], capture_output=True, text=True, timeout=30)
+        done = subprocess.run(["tmux", "has-session", "-t", f"={name}"], capture_output=True, text=True, timeout=30,
+                              creationflags=windowless())
     except (OSError, subprocess.SubprocessError):
         return None
     if done.returncode == 0:

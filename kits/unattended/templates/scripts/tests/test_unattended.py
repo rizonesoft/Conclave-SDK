@@ -1,6 +1,7 @@
 """Tests of the unattended kit's shared module (`scripts/lib/unattended.py`): the run profile loader."""
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import os
@@ -29,6 +30,12 @@ FIXTURE = {"schema_version": 1, "name": "impossible-os", "agent": "claude", "mod
            "prompt_file": "docs/run-prompt.md", "branch": "main", "skip_permissions": True,
            "tools": ["git", "python3", "tmux"], "min_disk_gb": 20, "min_ram_gb": 2, "tick_seconds": 300,
            "idle_minutes": 45, "stall_hours": 6, "preflight": []}
+
+
+def windowless():
+    """No console window of its own for any process a test starts on Windows (a console child of a parent with
+    none opens one over the owner's work: 2026-11-12, Office's launcher tests flashed 5 to 10); 0 elsewhere."""
+    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
 class LoadProfileTest(unittest.TestCase):
@@ -256,7 +263,8 @@ class LaunchLockTest(unittest.TestCase):
             f"spec = importlib.util.spec_from_file_location('u', {str(SCRIPTS / 'lib' / 'unattended.py')!r})\n"
             "u = importlib.util.module_from_spec(spec); spec.loader.exec_module(u)\n"
             f"with u.launch_lock({str(self.root)!r}):\n"
-            "    print('held', flush=True); time.sleep(60)\n")], stdout=subprocess.PIPE, text=True)
+            "    print('held', flush=True); time.sleep(60)\n")], stdout=subprocess.PIPE, text=True,
+            creationflags=windowless())
         self.addCleanup(lambda: (holder.kill(), holder.wait(), holder.stdout.close()))
         self.assertEqual(holder.stdout.readline().strip(), "held")
         with self.assertRaises(unattended.LaunchError) as caught:
@@ -411,7 +419,8 @@ class ClaimTest(unittest.TestCase):
             f"spec = importlib.util.spec_from_file_location('u', {str(SCRIPTS / 'lib' / 'unattended.py')!r})\n"
             "u = importlib.util.module_from_spec(spec); spec.loader.exec_module(u)\n"
             f"with u.launch_lock({str(self.root)!r}):\n"
-            "    print('held', flush=True); time.sleep(60)\n")], stdout=subprocess.PIPE, text=True)
+            "    print('held', flush=True); time.sleep(60)\n")], stdout=subprocess.PIPE, text=True,
+            creationflags=windowless())
         self.addCleanup(lambda: (holder.kill(), holder.wait(), holder.stdout.close()))
         self.assertEqual(holder.stdout.readline().strip(), "held")
         with self.assertRaises(unattended.LaunchError) as caught:
@@ -445,10 +454,69 @@ class ClaimTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which("tmux"), "tmux is not installed here (the WSL run has it)")
     def test_a_real_tmux_session_is_live_and_a_prefix_is_not(self):
         name = f"claim-test-{os.getpid()}"
-        subprocess.run(["tmux", "new-session", "-d", "-s", name, "sleep 60"], check=True, timeout=30)
-        self.addCleanup(subprocess.run, ["tmux", "kill-session", "-t", f"={name}"], capture_output=True, timeout=30)
+        subprocess.run(["tmux", "new-session", "-d", "-s", name, "sleep 60"], check=True, timeout=30,
+                       creationflags=windowless())
+        self.addCleanup(subprocess.run, ["tmux", "kill-session", "-t", f"={name}"], capture_output=True, timeout=30,
+                        creationflags=windowless())
         self.assertIs(unattended.tmux_session_exists(name), True)
         self.assertIs(unattended.tmux_session_exists(name[:-1]), False)
+
+
+class WindowlessTest(unittest.TestCase):
+    """Every process the kit starts, from its scripts and from its tests, opens no console window on Windows (the
+    owner's rule of 2026-11-12: a launcher test never opens a window)."""
+
+    def starts(self, tree):
+        """Each start through subprocess.run or subprocess.Popen, with the call whose keywords configure it: the call
+        itself, or the callback registration it is handed to (`addCleanup(subprocess.run, ...)`), or None for an alias
+        (`start = subprocess.run`), which hides its starts. A type annotation, an attribute of the class
+        (`subprocess.Popen.wait`) and a mock's target (`patch.object(subprocess.Popen, ...)`) start nothing."""
+        parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Attribute) and node.attr in ("run", "Popen")
+                    and isinstance(node.value, ast.Name) and node.value.id == "subprocess"):
+                continue
+            parent = parents.get(node)
+            if isinstance(parent, ast.Call) and parent.func is node:
+                yield node.lineno, parent
+            elif isinstance(parent, ast.Call) and node in parent.args:
+                if getattr(parent.func, "attr", "") in ("addCleanup", "callback", "submit"):
+                    yield node.lineno, parent
+            elif isinstance(parent, (ast.Assign, ast.AnnAssign, ast.keyword, ast.Return)):
+                yield node.lineno, None
+
+    def test_every_process_the_kit_starts_gets_no_window(self):
+        files = sorted(p for p in SCRIPTS.rglob("*.py") if "__pycache__" not in p.parts)
+        self.assertGreaterEqual(len(files), 7)
+        seen = 0
+        for path in files:
+            text = path.read_text(encoding="utf-8")
+            lines = text.splitlines()
+            for line, call in self.starts(ast.parse(text)):
+                if "window-exempt:" in lines[line - 1]:
+                    continue  # the reason is on the line, as the owner's launcher-test hook asks
+                seen += 1
+                with self.subTest(file=path.name, line=line):
+                    flags = [k.value for k in (call.keywords if call else []) if k.arg == "creationflags"]
+                    named = flags and isinstance(flags[0], ast.Call) and (
+                        getattr(flags[0].func, "id", "") == "windowless" or getattr(flags[0].func, "attr", "") ==
+                        "windowless")
+                    self.assertTrue(named, f"{path.name}:{line} starts a process without creationflags=windowless()")
+        self.assertGreaterEqual(seen, 40)
+
+    def test_the_check_refuses_a_start_without_the_flag(self):
+        for source in ("subprocess.run(['tmux'], timeout=30)\n", "x.addCleanup(subprocess.run, ['tmux'])\n",
+                       "subprocess.Popen(['tmux'], creationflags=0)\n", "start = subprocess.run\n"):
+            with self.subTest(source=source):
+                found = list(self.starts(ast.parse(source)))
+                self.assertTrue(found)
+                call = found[0][1]
+                self.assertFalse(call and any(k.arg == "creationflags" and isinstance(k.value, ast.Call)
+                                              for k in call.keywords))
+
+    def test_the_flag_is_create_no_window_on_windows_and_none_elsewhere(self):
+        expected = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        self.assertEqual((unattended.windowless(), windowless()), (expected, expected))
 
 
 if __name__ == "__main__":

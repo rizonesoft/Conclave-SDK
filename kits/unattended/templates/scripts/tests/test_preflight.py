@@ -33,8 +33,15 @@ PROFILE = {"schema_version": 1, "name": "fixture-run", "agent": "claude", "model
 posix_only = unittest.skipUnless(os.name == "posix", "process groups and tmux: run in Linux or WSL")
 
 
+def windowless():
+    """No console window of its own for any process a test starts on Windows (a console child of a parent with
+    none opens one over the owner's work: 2026-11-12, Office's launcher tests flashed 5 to 10); 0 elsewhere."""
+    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+
 def git(cwd, *args):
-    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True, timeout=60)
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True, timeout=60,
+                          creationflags=windowless())
 
 
 def gone(pid):
@@ -351,7 +358,7 @@ class HookCheckTest(Fixture):
         self.seed(".claude/settings.json")
         broken = subprocess.CompletedProcess([], 1, stdout="self-test: FAIL .claude/settings.json: exited 2\n",
                                              stderr="")
-        real = subprocess.run
+        real = subprocess.run  # window-exempt: a mock wrapper; the script under test passes its own flags
 
         def run(args, *a, **k):
             return broken if "--self-test" in args else real(args, *a, **k)
@@ -462,7 +469,7 @@ class EntryPointFailuresTest(Fixture):
         self.assertIn("FAIL tool git: not on PATH", lines)
 
     def test_a_git_query_that_times_out_fails_only_its_own_check(self):
-        real = subprocess.run
+        real = subprocess.run  # window-exempt: a mock wrapper; the script under test passes its own flags
 
         def run(args, *a, **k):
             if list(args[:2]) == ["git", "status"]:

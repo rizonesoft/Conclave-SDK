@@ -84,7 +84,8 @@ lib = _load("unattended_lib", HERE / "lib" / "unattended.py")
 
 def tmux(*args: str, check: bool = False) -> subprocess.CompletedProcess:
     try:
-        done = subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=30)
+        done = subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=30,
+                              creationflags=lib.windowless())
     except (OSError, subprocess.SubprocessError) as exc:
         if check:
             raise RunError(f"tmux {args[0]} could not run: {exc}") from None
@@ -187,7 +188,7 @@ def run_preflight(root: Path, resume_session: str | None, profile: dict) -> tupl
     # Its profile checks run in sessions of their own, outside its group: the tag reaches them all.
     tag = f"preflight-{uuid.uuid4()}"
     proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                            start_new_session=True, env={**os.environ, TAG: tag})
+                            start_new_session=True, env={**os.environ, TAG: tag}, creationflags=lib.windowless())
     try:
         report, _ = proc.communicate(timeout=limit)
     except subprocess.TimeoutExpired:
@@ -441,7 +442,7 @@ def note_resumption(root: Path, out) -> None:
         return
     done = subprocess.run([sys.executable, str(HERE / "campaign_guard.py"), "heartbeat-still", "--session",
                            str(guard.get("session_id")), "--root", str(root)], capture_output=True, text=True,
-                          timeout=120)
+                          timeout=120, creationflags=lib.windowless())
     said = (done.stdout or done.stderr).strip().splitlines()
     print(f"heartbeat: {said[-1][-200:] if said else f'heartbeat-still exited {done.returncode}'}", file=out)
 
@@ -567,7 +568,7 @@ def _end_old_guard(root: Path, old: dict, out) -> None:
 def _end_guard(root: Path, session: str) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, str(HERE / "campaign_guard.py"), "end", "--session", session,
                            "--reason", "operator-stop", "--root", str(root)],
-                          capture_output=True, text=True, timeout=120)
+                          capture_output=True, text=True, timeout=120, creationflags=lib.windowless())
 
 
 def status(root: Path, out=None) -> int:

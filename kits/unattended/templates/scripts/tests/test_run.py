@@ -67,8 +67,15 @@ time.sleep(300)
 '''
 
 
+def windowless():
+    """No console window of its own for any process a test starts on Windows (a console child of a parent with
+    none opens one over the owner's work: 2026-11-12, Office's launcher tests flashed 5 to 10); 0 elsewhere."""
+    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+
 def git(cwd, *args):
-    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True, timeout=60)
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True, timeout=60,
+                          creationflags=windowless())
 
 
 def gone(pid):
@@ -197,7 +204,7 @@ class RunTest(unittest.TestCase):
                                                                  encoding="utf-8")
 
     def end_everything(self):
-        subprocess.run(["tmux", "kill-server"], capture_output=True, timeout=30)
+        subprocess.run(["tmux", "kill-server"], capture_output=True, timeout=30, creationflags=windowless())
         for path in (self.child_file, Path(str(self.child_file) + ".detached")):
             if path.exists():
                 try:
@@ -210,11 +217,12 @@ class RunTest(unittest.TestCase):
         if args[:1] == ("start",) and not heartbeat:
             args = (*args, "--no-heartbeat")
         return subprocess.run([sys.executable, str(self.root / "scripts" / "unattended-run.py"), *args],
-                              capture_output=True, text=True, timeout=600, env=env or self.env)
+                              capture_output=True, text=True, timeout=600, env=env or self.env,
+                              creationflags=windowless())
 
     def tmux_has(self, name):
         return subprocess.run(["tmux", "has-session", "-t", f"={name}"], capture_output=True,
-                              timeout=30).returncode == 0
+                              timeout=30, creationflags=windowless()).returncode == 0
 
     def calls(self, at_least=1):
         """The stub's recorded calls, once it has made `at_least` of them: the agent starts after the launcher returns."""
@@ -237,7 +245,8 @@ class RunTest(unittest.TestCase):
                                "--session", session, "--phase", "2", "--run-file", "docs/phase-runs/run.md",
                                "--cron-id", "job-1", "--generation", "g1", "--root", str(self.root)],
                               capture_output=True, text=True, timeout=60,
-                              env={**self.env, **({"CONCLAVE_UNATTENDED_TAG": tag} if tag else {})})
+                              env={**self.env, **({"CONCLAVE_UNATTENDED_TAG": tag} if tag else {})},
+                              creationflags=windowless())
         self.assertEqual(done.returncode, 0, done.stderr)
 
     def guard(self):
@@ -283,7 +292,7 @@ class RunTest(unittest.TestCase):
         self.assertEqual(call["argv"][-1], PROMPT)
         self.assertEqual(call["inside"], "1")
         limit = subprocess.run(["tmux", "show-options", "-v", "-t", "=demo-run:", "history-limit"],
-                               capture_output=True, text=True, timeout=30).stdout.strip()
+                               capture_output=True, text=True, timeout=30, creationflags=windowless()).stdout.strip()
         self.assertEqual(limit, "50000")
         again = self.launcher("start")
         self.assertEqual(again.returncode, 1)
@@ -313,13 +322,13 @@ class RunTest(unittest.TestCase):
         self.assertEqual(self.launcher("start").returncode, 0)
         first = self.marker()["session"]
         self.calls(1)  # the agent has started before its session is killed
-        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30, creationflags=windowless())
         done = self.launcher("start")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual((self.marker()["session"], self.marker()["resumed"]), (first, True))
         resumed = self.calls(2)[-1]["argv"]
         self.assertEqual(resumed[resumed.index("--resume") + 1], first)
-        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30, creationflags=windowless())
         env = {**self.env, "STUB_RESUME_FAILS": "1"}
         done = self.launcher("start", env=env)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
@@ -351,7 +360,8 @@ class RunTest(unittest.TestCase):
         child = self.wait_child()
         detached = self.wait_child(detached=True)
         self.acquire(session)
-        subprocess.run(["tmux", "new-session", "-d", "-s", "demo-heartbeat", "sleep 300"], check=True, timeout=30)
+        subprocess.run(["tmux", "new-session", "-d", "-s", "demo-heartbeat", "sleep 300"], check=True, timeout=30,
+                       creationflags=windowless())
         done = self.launcher("stop")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertIn("guard ended", done.stdout)
@@ -369,7 +379,7 @@ class RunTest(unittest.TestCase):
         # Round 1 of D02 T02 §5: the old processes survived a lost tmux session and ran beside the resumed agent.
         self.assertEqual(self.launcher("start").returncode, 0)
         old_child, old_detached = self.wait_child(), self.wait_child(detached=True)
-        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30, creationflags=windowless())
         time.sleep(0.5)
         self.assertFalse(gone(old_child), "the stub's child should outlive the tmux session (it ignores SIGHUP)")
         self.child_file.unlink()
@@ -425,7 +435,7 @@ class RunTest(unittest.TestCase):
         first = self.marker()["session"]
         self.calls(1)
         self.acquire(first)
-        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30, creationflags=windowless())
         run = self.run_module()
         refused = subprocess.CompletedProcess([], 2, stdout="", stderr="campaign-guard: the guard lock timed out")
         with unittest.mock.patch.dict(os.environ, {"STUB_RESUME_FAILS": "1"}), \
@@ -493,13 +503,13 @@ class RunTest(unittest.TestCase):
         first = self.marker()["session"]
         self.calls(1)
         self.acquire(first)  # the crashed run held its guard
-        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30, creationflags=windowless())
         done = self.launcher("start")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertIn("PASS campaign-guard", done.stdout)
         self.assertEqual(self.guard()["session_id"], first, "the resumed run keeps its guard")
         self.calls(2)
-        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30, creationflags=windowless())
         done = self.launcher("start", env={**self.env, "STUB_RESUME_FAILS": "1"})
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertIn("the crashed run's guard ended", done.stdout)
@@ -513,7 +523,8 @@ class RunTest(unittest.TestCase):
             f"spec = importlib.util.spec_from_file_location('u', {str(self.root / 'scripts/lib/unattended.py')!r})\n"
             "u = importlib.util.module_from_spec(spec); spec.loader.exec_module(u)\n"
             f"with u.launch_lock({str(self.root)!r}):\n"
-            "    print('held', flush=True); time.sleep(60)\n")], stdout=subprocess.PIPE, text=True)
+            "    print('held', flush=True); time.sleep(60)\n")], stdout=subprocess.PIPE, text=True,
+            creationflags=windowless())
         self.assertEqual(holder.stdout.readline().strip(), "held")
         refused = self.launcher("stop")
         holder.kill()
@@ -577,7 +588,7 @@ class RunTest(unittest.TestCase):
         first = self.calls(1)[0]
         self.assertEqual((first["cli"], first["tag"]), ("codex", marker["session"]))
         self.acquire("codex-thread-1", tag=marker["session"])  # the hook inside the run, with Codex's own id
-        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30, creationflags=windowless())
         done = self.launcher("start")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         resumed = self.calls(2)[-1]["argv"]
@@ -595,7 +606,7 @@ class RunTest(unittest.TestCase):
         self.assertEqual(self.launcher("start").returncode, 0)
         tag = self.marker()["session"]
         self.calls(1)
-        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30, creationflags=windowless())
         done = self.launcher("start")  # the agent died before it took a guard: nothing to resume
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         fresh = self.calls(2)[-1]["argv"]
@@ -627,7 +638,7 @@ class RunTest(unittest.TestCase):
         first = self.marker()["session"]
         self.calls(1)
         self.acquire(first)
-        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30, creationflags=windowless())
         done = self.launcher("start", env={**self.env, "STUB_RESUME_FAILS": "1", "STUB_EXIT": "1"})
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)  # the resume and the fresh start both fail
         self.assertIn("the crashed run's guard ended", done.stdout)
@@ -641,7 +652,7 @@ class RunTest(unittest.TestCase):
         first = self.marker()["session"]
         self.calls(1)
         self.acquire(first)
-        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30, creationflags=windowless())
         self.use_codex()
         done = self.launcher("start")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
@@ -673,7 +684,7 @@ class RunTest(unittest.TestCase):
         self.calls(1)
         edited = self.root / "docs" / "unattended-prompt.md"
         edited.write_text(PROMPT + "An edit the run had not committed.\n", encoding="utf-8")
-        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30, creationflags=windowless())
         done = self.launcher("start")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertIn("kept for the resumed run", done.stdout)
@@ -682,7 +693,7 @@ class RunTest(unittest.TestCase):
 
     def heartbeat_cli(self, *args):
         return subprocess.run([sys.executable, str(self.root / "scripts" / "unattended-run.py"), "heartbeat", *args],
-                              capture_output=True, text=True, timeout=300, env=self.env)
+                              capture_output=True, text=True, timeout=300, env=self.env, creationflags=windowless())
 
 
     def wait_session_gone(self, name, seconds=30):
@@ -711,7 +722,7 @@ class RunTest(unittest.TestCase):
         self.assertIn("heartbeat running in tmux session demo-heartbeat", done.stdout)
         self.assertEqual(self.launcher("start", heartbeat=True).returncode, 1)  # already running: no second one
         sessions = subprocess.run(["tmux", "ls", "-F", "#{session_name}"], capture_output=True, text=True,
-                                  timeout=30).stdout.split()
+                                  timeout=30, creationflags=windowless()).stdout.split()
         self.assertEqual(sorted(sessions), ["demo-heartbeat", "demo-run"])
         self.assertEqual(self.launcher("stop").returncode, 0)
         self.assertFalse(self.tmux_has("demo-heartbeat"))
@@ -724,7 +735,7 @@ class RunTest(unittest.TestCase):
         marker = self.marker()
         child, detached = self.wait_child(), self.wait_child(detached=True)
         self.acquire(marker["session"], tag=marker["session"])
-        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30, creationflags=windowless())
         self.assertTrue(self.wait_session_gone("demo-heartbeat"), "the heartbeat did not end with its dead run")
         time.sleep(3)
         self.assertEqual(len(self.calls(1)), 1, "the dead run was started again")
@@ -743,7 +754,7 @@ class RunTest(unittest.TestCase):
     def test_heartbeat_once_on_a_killed_run_records_it_ended_with_10(self):
         self.assertEqual(self.launcher("start").returncode, 0)
         self.calls(1)
-        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30, creationflags=windowless())
         once = self.heartbeat_cli("--once")
         self.assertEqual(once.returncode, 10, once.stdout + once.stderr)
         self.assertIn("ended (its session is gone); nothing restarts it", once.stdout)
@@ -772,7 +783,7 @@ class RunTest(unittest.TestCase):
         run_file.write_text(f"# Run\n\nPARKED 2026-11-12T00:00:00Z run={rid} nothing runnable\n", encoding="utf-8")
         ended = subprocess.run([sys.executable, str(self.root / "scripts" / "campaign_guard.py"), "end", "--session",
                                 marker["session"], "--reason", "park", "--root", str(self.root)],
-                               capture_output=True, text=True, timeout=60, env=self.env)
+                               capture_output=True, text=True, timeout=60, env=self.env, creationflags=windowless())
         self.assertEqual(ended.returncode, 0, ended.stderr)  # the run's own agent ends it
         self.assertTrue(self.wait_session_gone("demo-heartbeat"), "the heartbeat outlived the run's own end")
         self.assertFalse(self.tmux_has("demo-run"), "the finished run's agent kept running")
@@ -802,7 +813,8 @@ class RunTest(unittest.TestCase):
         # Round 1 of D02 T02 §7: a resume keeps the run's tag, so the tag alone named the resumed run as the dead one.
         self.assertEqual(self.launcher("start").returncode, 0)
         self.calls(1)
-        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)  # the agent crashes
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30,
+                       creationflags=windowless())  # the agent crashes
         dead = self.marker()  # what the heartbeat saw before the operator's start
         done = self.launcher("start")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)

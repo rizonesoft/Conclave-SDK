@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -14,6 +15,12 @@ assert _spec is not None and _spec.loader is not None
 icon = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(icon)
 TILE = (16, 34, 26)  # a dark green tile, like the SDK's own
+
+
+def windowless():
+    """No console window of its own for any process a test starts on Windows (a console child of a parent with
+    none opens one over the owner's work: 2026-11-12, Office's launcher tests flashed 5 to 10); 0 elsewhere."""
+    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
 def solid(size, colour=TILE):
@@ -112,12 +119,12 @@ class BadgeTest(unittest.TestCase):
             base.write_bytes(icon.write_png(256, 256, solid(256)))
             target = Path(tmp) / "out" / "claude.ico"
             done = subprocess.run([sys.executable, "-B", str(SCRIPT), "badge", str(base), "claude", str(target)],
-                                  capture_output=True, text=True, timeout=600)
+                                  capture_output=True, text=True, timeout=600, creationflags=windowless())
             self.assertEqual(done.returncode, 0, done.stderr)
             self.assertEqual(sorted(icon.read_ico(target.read_bytes())), list(icon.SIZES))
             self.assertEqual([p.name for p in target.parent.iterdir()], ["claude.ico"], "a temporary file was left")
             bad = subprocess.run([sys.executable, "-B", str(SCRIPT), "badge", str(base), "gemini", str(target)],
-                                 capture_output=True, text=True, timeout=60)
+                                 capture_output=True, text=True, timeout=60, creationflags=windowless())
             self.assertEqual(bad.returncode, 2)
             self.assertIn("usage: campaign-icon.py", bad.stderr)
 

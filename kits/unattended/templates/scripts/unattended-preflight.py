@@ -41,6 +41,11 @@ TAIL_BYTES = 4096  # what a profile check's output costs at most: its last 4 KiB
 MEMINFO = Path("/proc/meminfo")
 
 
+def windowless() -> int:
+    """No console window of its own for any process this starts on Windows; nothing elsewhere (lib/unattended.py)."""
+    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+
 def _load(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
@@ -69,7 +74,8 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess:
     """One git query, never raising: a query that cannot run or runs past a minute reads as a failed query (exit -1)
     whose stderr says why, so each git precondition reports on its own."""
     try:
-        return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=60)
+        return subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, timeout=60,
+                              creationflags=windowless())
     except (OSError, subprocess.SubprocessError) as exc:
         return subprocess.CompletedProcess(["git", *args], -1, stdout="", stderr=f"git {args[0]} could not run: {exc}")
 
@@ -164,7 +170,8 @@ def _version(text: str) -> tuple[int, ...] | None:
 def check_agent_version(profile: dict, report: Report) -> None:
     cli, minimum = AGENT_CLI[profile["agent"]], MIN_VERSIONS[profile["agent"]]
     try:
-        done = subprocess.run([cli, "--version"], capture_output=True, text=True, timeout=30)
+        done = subprocess.run([cli, "--version"], capture_output=True, text=True, timeout=30,
+                              creationflags=windowless())
     except (OSError, subprocess.SubprocessError) as exc:
         report.line(False, f"version {cli}", f"'{cli} --version' could not run ({exc}); {minimum} or newer is needed")
         return
@@ -211,7 +218,7 @@ def check_hook(root: Path, profile: dict, report: Report, self_test_seconds: int
         return
     try:
         test = subprocess.run([sys.executable, str(guard_script), "--self-test", "--hook-file", hook_file], cwd=root,
-                              capture_output=True, text=True, timeout=self_test_seconds)
+                              capture_output=True, text=True, timeout=self_test_seconds, creationflags=windowless())
         report.line(test.returncode == 0, "guard-self-test",
                     f"exit {test.returncode}: {_last_line(test.stdout) or _last_line(test.stderr) or 'no output'}")
     except subprocess.TimeoutExpired:
@@ -231,7 +238,7 @@ def check_codex_trust(root: Path, report: Report) -> None:
         return
     try:
         done = subprocess.run([sys.executable, str(script)], cwd=root, capture_output=True, text=True,
-                              timeout=TRUST_SECONDS)
+                              timeout=TRUST_SECONDS, creationflags=windowless())
     except subprocess.TimeoutExpired:
         report.line(False, "codex-hook-trust", f"ran past {TRUST_SECONDS}s")
         return
@@ -296,7 +303,7 @@ def run_check(check: dict, root: Path) -> tuple[int, str]:
     outlive it): (status, last output line). A timeout reads as 124, a program that cannot start as 127."""
     try:
         proc = subprocess.Popen(check["command"], cwd=root, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, start_new_session=True)
+                                stderr=subprocess.STDOUT, start_new_session=True, creationflags=windowless())
     except OSError as exc:
         return NOT_STARTED, f"could not start {check['command'][0]}: {exc.strerror or exc}"
     tail = bytearray()
