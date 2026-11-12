@@ -993,15 +993,7 @@ def _run_wired(command: str, hook_file: str, workspace: str, payload: str, limit
     cwd, args, shell = workspace, command, True
     if hook_file.startswith(".claude"):
         env["CLAUDE_PROJECT_DIR"] = workspace
-        bash = "/bin/sh"
-        if os.name == "nt":
-            git = shutil.which("git")
-            candidate = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(git))), "bin", "bash.exe") if git else ""
-            bash = candidate if os.path.isfile(candidate) else ""
-        if bash:
-            args, shell = [bash, "-c", command], False
-        elif os.name == "nt":
-            args, shell = ["powershell.exe", "-NoProfile", "-Command", command], False
+        args, shell = [git_bash() if os.name == "nt" else "/bin/sh", "-c", command], False
     elif hook_file.startswith(".agents"):
         cwd = os.path.join(workspace, ".agents")
     group: dict = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
@@ -1026,6 +1018,27 @@ def _run_wired(command: str, hook_file: str, workspace: str, payload: str, limit
         end_tree()
         raise
     return proc.returncode, out
+
+
+def git_bash() -> str:
+    """The Git Bash Claude Code runs hooks through on Windows: `CLAUDE_CODE_GIT_BASH_PATH` when set, else the
+    `bin/bash.exe` of the Git on PATH. A GuardError when there is none, never another shell: a hook that works in
+    PowerShell can still fail in the shell the harness uses."""
+    configured = os.environ.get("CLAUDE_CODE_GIT_BASH_PATH")
+    if configured:
+        if os.path.isfile(configured):
+            return configured
+        raise GuardError(f"CLAUDE_CODE_GIT_BASH_PATH names {configured}, which is not a file")
+    git = shutil.which("git")
+    if git:
+        folder = os.path.dirname(os.path.realpath(git))
+        for _ in range(2):  # git.exe sits in cmd/ or bin/ (or mingw64/bin/) under the Git folder
+            folder = os.path.dirname(folder)
+            candidate = os.path.join(folder, "bin", "bash.exe")
+            if os.path.isfile(candidate):
+                return candidate
+    raise GuardError("no Git Bash found (Claude Code runs its hooks through it on Windows); install Git for Windows "
+                     "or set CLAUDE_CODE_GIT_BASH_PATH")
 
 
 def _self_test(project: str = REPO, limit: float = SELF_TEST_SECONDS) -> tuple[int, list[str]]:
@@ -1076,7 +1089,12 @@ def _self_test(project: str = REPO, limit: float = SELF_TEST_SECONDS) -> tuple[i
             else:
                 payload = {"session_id": SELF_TEST_SESSION, "cwd": workspace, "hook_event_name": "Stop"}
             _remove_state(workspace)  # each hook is the run's first push, so none meets the stall breaker
-            code, out = _run_wired(command, hook_file, workspace, json.dumps(payload), limit)
+            try:
+                code, out = _run_wired(command, hook_file, workspace, json.dumps(payload), limit)
+            except GuardError as error:  # the harness's own shell is missing: the hook cannot run as wired
+                failed = True
+                lines.append(f"self-test: FAIL {hook_file}: {error}")
+                continue
             try:  # the whole of stdout is the answer: a harness reads it as one JSON object, nothing before or after
                 answer = json.loads(out) if out.strip() else None
             except ValueError:

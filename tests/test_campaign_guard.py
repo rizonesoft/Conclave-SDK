@@ -631,6 +631,33 @@ class SelfTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertEqual(proc.stdout.count(": ok ("), 3, proc.stdout)
 
+    def test_a_broken_settings_file_in_a_scratch_sdk_copy_fails_through_the_command_line(self):
+        sdk = Path(self._tmp.name) / "sdk"
+        for rel in ("scripts/campaign_guard.py", "scripts/codex-campaign-hook.py", *self.FILES):
+            (sdk / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(REPO / rel, sdk / rel)
+        settings = sdk / ".claude" / "settings.json"
+        broken = settings.read_text(encoding="utf-8").replace("'campaign_guard.py'", "'campaign_guard_gone.py'")
+        self.assertNotEqual(broken, settings.read_text(encoding="utf-8"), "the settings file names no script to break")
+        settings.write_text(broken, encoding="utf-8")
+        proc = subprocess.run([sys.executable, str(sdk / "scripts" / "campaign_guard.py"), "--self-test"],
+                              capture_output=True, text=True, timeout=300)
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertTrue([line for line in proc.stdout.splitlines() if "FAIL .claude/settings.json" in line], proc.stdout)
+
+    @unittest.skipUnless(os.name == "nt", "Claude Code runs hooks through Git Bash on Windows only")
+    def test_no_git_bash_fails_the_claude_hook_rather_than_using_another_shell(self):
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_GIT_BASH_PATH": ""}), \
+                mock.patch.object(guard.shutil, "which", return_value=None):
+            code, lines = self.run_self_test()
+        self.assertEqual(code, 1, lines)
+        self.assertTrue([line for line in lines if "FAIL .claude/settings.json" in line and "Git Bash" in line], lines)
+        missing = str(Path(self._tmp.name) / "no-bash.exe")
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_GIT_BASH_PATH": missing}):
+            code, lines = self.run_self_test()
+        self.assertEqual(code, 1, lines)
+        self.assertTrue([line for line in lines if "FAIL .claude/settings.json" in line and "not a file" in line], lines)
+
     def test_a_hook_file_the_project_lacks_is_absent_not_a_failure(self):
         (self.project / ".codex/hooks.json").unlink()
         code, lines = self.run_self_test()
