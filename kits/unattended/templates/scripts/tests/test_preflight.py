@@ -552,11 +552,16 @@ class ProfileCommandsTest(Fixture):
 
     def test_output_is_a_bounded_tail_held_in_memory(self):
         flood = "import sys\nfor _ in range(800):\n    sys.stdout.write('x' * 65536)\nsys.stdout.write('\\nlast line')\n"
-        before = set(os.listdir(tempfile.gettempdir()))
-        code, last = pre.run_check({"name": "flood", "command": self.command(flood), "timeout_seconds": 120},
-                                   self.root)
+        # A temp folder of the test's own, for the preflight and its check alike: the machine's shared one gains files
+        # from every other process on it, which failed this test in WSL on 2026-11-12 with nothing of the preflight's.
+        private = Path(self._tmp.name) / "private-tmp"
+        private.mkdir()
+        with unittest.mock.patch.object(tempfile, "tempdir", str(private)), \
+                unittest.mock.patch.dict(os.environ, {"TMPDIR": str(private), "TEMP": str(private), "TMP": str(private)}):
+            code, last = pre.run_check({"name": "flood", "command": self.command(flood), "timeout_seconds": 120},
+                                       self.root)
         self.assertEqual((code, last), (0, "last line"))
-        self.assertEqual(set(os.listdir(tempfile.gettempdir())) - before, set(), "the output went to disk")
+        self.assertEqual(os.listdir(private), [], "the output went to disk")
         tail = bytearray()
         read, write = os.pipe()
         writer = threading.Thread(target=lambda: (os.write(write, b"y" * 100000), os.close(write)))
