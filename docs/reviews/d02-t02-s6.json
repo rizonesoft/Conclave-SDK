@@ -1,0 +1,84 @@
+{
+  "ref": "D02 T02 \u00a76",
+  "title": "Launch commands for Codex and Antigravity",
+  "implementation_sha": "d43ab1f44ad33c95029c2e2377bcc88d459a3b2a",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-unattended/D02-T02-s6.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python3 -m unittest discover -s kits/unattended/templates/scripts/tests -> OK (111, WSL with tmux 3.6)",
+    "live: real codex 0.166.0 and agy 1.5.6 started, resumed natively and stopped clean through unattended-run.py"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-unattended/D02-T02-s6.md",
+    "verdict": "reconciled",
+    "candidate": "d43ab1f44ad33c95029c2e2377bcc88d459a3b2a",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/02-unattended/D02-T02-s6.md",
+    "candidate": "ad2703a066fd12fce608218b1998260b7dd48928",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "ad2703a066fd12fce608218b1998260b7dd48928",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

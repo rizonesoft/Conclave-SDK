@@ -40,7 +40,7 @@ title: "TODO-02 -- Unattended kit"
 | 3 | §3 | Preflight with a PASS or FAIL line per precondition | §2 | [x] |
 | 4 | §4 | Launch lock and claim | §2 | [x] |
 | 5 | §5 | Launcher for a Claude Code run under tmux | §3, §4 | [x] |
-| 6 | §6 | Launch commands for Codex and Antigravity | §5, T01 §2, T01 §3 | [ ] |
+| 6 | §6 | Launch commands for Codex and Antigravity | §5, T01 §2, T01 §3 | [x] |
 | 7 | §7 | Heartbeat that restarts a dead run and nudges an idle one | §5 | [ ] |
 | 8 | §8 | Ship counter, ship limit and stall marker | §7 | [ ] |
 | 9 | §9 | Boot resume through a systemd user unit | §7 | [ ] |
@@ -219,9 +219,12 @@ The launcher starts whichever agent the profile names. The Codex and Antigravity
 - [x] Add the Codex command to `unattended-run.py` from the profile and the recorded flags, for `start` and for a resume. Done when: a test with a stub `codex` finds the recorded flags and no Claude Code flag.
 - [x] Add the Antigravity command to `unattended-run.py` in the same way. Done when: a test with a stub `agy` finds the recorded flags and no Claude Code flag.
 - [x] Check in `unattended-preflight.py` that the CLI's version is the one whose flags were recorded or newer, with a FAIL line naming both versions when it is older. Done when: a test with a stub CLI reporting an older version finds that line.
-- [ ] Commit: `unattended: start a Codex or an Antigravity run`
+- [x] Commit: `unattended: start a Codex or an Antigravity run`
 
 **Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` ends `OK`; passing `--disallowedTools` to the stub `codex` makes its test fail.
+
+> **Verified:** 2026-11-12 | §6 | d43ab1f44ad33c95029c2e2377bcc88d459a3b2a
+> **Review:** `docs/reviews/d02-t02-s6.json`
 
 ## 7. Heartbeat that restarts a dead run and nudges an idle one
 
