@@ -16,12 +16,28 @@ in their own repositories. Two parts:
   agent back once to add it; the second stop always succeeds.
 
 Prose files (Markdown, plain text) are neither scanned nor counted as code changes.
+
+A third, separate check rides on the same edit events (`launcher_tests.py`): in a launcher test only, a console
+child started without the windowless option is flagged, since it opens a window over the owner's work.
 """
 import json
 import os
 import re
 import sys
 import tempfile
+
+
+
+def _sibling(name):
+    """A module beside this file, loaded by path: this folder is not a package."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, os.path.join(os.path.dirname(os.path.abspath(__file__)), name + ".py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+launcher_tests = _sibling("launcher_tests")
 
 FILE_TOOLS = ("Write", "Edit", "MultiEdit")
 PROSE = (".md", ".mdx", ".markdown", ".txt", ".rst", ".adoc", ".csv", ".log")
@@ -145,7 +161,7 @@ def record(session, event, edits):
     another hook denies changes nothing."""
     edits = [e for e in edits if is_code(e[0])]
     if not edits:
-        return
+        return None
     flags = [f for path, new, added in edits for f in scan(path, new, added)]
     state = load_state(session)
     pending = state.setdefault("pending", {})
@@ -154,13 +170,18 @@ def record(session, event, edits):
     for f in flags:
         pending[f["file"]].append(f)
     save_state(session, state)
+    texts = []
     if flags:
         listed = "\n".join(f"- {f['file']}:{f['line']}: {f['pattern']}: `{f['code']}`" for f in flags[:10])
-        emit(event, "This edit adds code that often hides a problem instead of fixing it where it is owned "
+        texts.append("This edit adds code that often hides a problem instead of fixing it where it is owned "
                     "(section 1 of the global rules):\n" + listed + "\nIf this is the owning layer, or legitimate "
                     "business logic, carry on and say so in the Layer line. If it hides a problem, fix it in the layer "
                     f"that owns it. If that layer genuinely cannot express the fix, keep it and add a `{WORKAROUND} "
                     "<reason>` comment on or just above the line.")
+    windowed = [(path, line, code) for path, new, added in edits for line, code in launcher_tests.check(path, new, added)]
+    if launcher_tests.message(windowed):
+        texts.append(launcher_tests.message(windowed))
+    return "\n\n".join(texts) or None
 
 
 def confirm(session, path):
@@ -238,7 +259,9 @@ def main():
     if event == "UserPromptSubmit":
         clear_state(session)
     elif event == "PreToolUse" and tool_name in FILE_TOOLS and isinstance(tool_input, dict):
-        record(session, event, file_edits(tool_name, tool_input, cwd))
+        text = record(session, event, file_edits(tool_name, tool_input, cwd))
+        if text:
+            emit(event, text)
     elif event == "PostToolUse" and tool_name in FILE_TOOLS and isinstance(tool_input, dict):
         path = tool_input.get("file_path", "")
         confirm(session, path if os.path.isabs(path) else os.path.join(cwd, path))
