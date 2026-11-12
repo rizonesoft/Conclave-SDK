@@ -274,6 +274,18 @@ class Trust(Project):
         self.assertEqual(writes[0]["mergeStrategy"], "upsert")
         self.assertEqual(writes[0]["value"], {hook_entry(self.root)["key"]: {"trusted_hash": f"sha256:{'a' * 64}"}})
 
+    def test_the_server_is_reaped_and_its_pipes_closed(self):
+        import gc
+        import warnings
+
+        _path, env = self.scenario([hook_entry(self.root, "trusted")])
+        with env, warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", ResourceWarning)
+            trust_tool.trust(self.root, check=True)
+            gc.collect()  # an unclosed pipe or an unreaped server warns when it is collected
+        leaks = [str(w.message) for w in caught if issubclass(w.category, ResourceWarning)]
+        self.assertEqual(leaks, [])
+
     def test_a_trusted_hook_is_not_rewritten_and_check_never_writes(self):
         path, env = self.scenario([hook_entry(self.root, "trusted")])
         with env:

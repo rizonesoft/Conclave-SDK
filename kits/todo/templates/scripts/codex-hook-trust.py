@@ -206,6 +206,12 @@ class AppServer:
                 os.killpg(self.proc.pid, signal.SIGKILL)  # the group outlives its leader while any member runs
             except ProcessLookupError:  # every process in the group has ended already: nothing is left to stop
                 pass
+        for pipe in (self.proc.stdin, self.proc.stdout):  # the tree is ended: release our ends of its pipes
+            if pipe is not None:
+                try:
+                    pipe.close()
+                except OSError:  # a pipe whose far end died mid-write is closed all the same
+                    pass
         try:
             self.proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
