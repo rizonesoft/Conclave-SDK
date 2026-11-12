@@ -1,7 +1,6 @@
 # The SDK's test suites, run in CI so the local loop stays fast (AGENTS.md, "Test cadence"): the quick suite on
 # Windows, the full suite (the quick suite plus the stamp tests and the reviewer kit's suite) on Linux, and every
-# kit's own suite on Linux, where tmux lets the unattended kit's run tests run. A newer push cancels an older run of
-# the same branch. scripts/ci_status.py reads these runs at every section boundary; a red main comes first.
+# kit's own suite on Linux, where tmux lets the unattended kit's run tests run. scripts/ci_status.py reads these runs at every section boundary; a red main comes first.
 name: tests
 
 on:
@@ -13,9 +12,11 @@ on:
 permissions:
   contents: read
 
+# On main a run in progress always finishes (a red must be seen), and only the newest push waits behind it: GitHub
+# drops an older pending run of the same group. A pull request's newer push cancels its older run.
 concurrency:
   group: tests-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   quick-windows:
