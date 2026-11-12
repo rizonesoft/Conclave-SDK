@@ -849,6 +849,9 @@ def heartbeat_still(root: str, session: str) -> str:
             state.update(fingerprint=print_, blocks=0, hb_still=0, trips=0, stalled=False)
             _write_json(state_path, state)
             return "heartbeat-still: progress (still count and trips reset)"
+        if int(state.get("trips", 0) or 0) >= 2:
+            # The Stop hook counted the second trip since this heartbeat last looked: the run is stalled already.
+            return "heartbeat-still: second trip (recorded by the Stop hook); " + _end_locked(root, session, "stall", None)
         state["hb_still"] = int(state.get("hb_still", 0) or 0) + 1
         if state["hb_still"] < MAX_HEARTBEAT_STILLS:
             _write_json(state_path, state)

@@ -484,6 +484,21 @@ class HeartbeatStill(Workspace):
         self.hook(session=OTHER)
         self.assertEqual((self.state()["hb_still"], self.state()["trips"]), (0, 0))
 
+    def test_a_second_trip_the_stop_hook_counts_ends_the_run_at_the_next_heartbeat(self):
+        self.acquire()
+        self.still()  # the baseline
+        for _ in range(guard.MAX_HEARTBEAT_STILLS):
+            self.still()
+        self.assertEqual(self.state()["trips"], 1)
+        for _ in range(3):
+            self.hook()
+        self.assertIsNone(self.hook(), "the hook's breaker did not trip")
+        self.assertEqual(self.state()["trips"], 2)
+        self.assertIsNotNone(guard.read_guard(self.root))
+        line = self.still()
+        self.assertIn("end: stall", line)
+        self.assertIsNone(guard.read_guard(self.root), "two trips left the guard held")
+
     def run_cli(self, session):
         return subprocess.run([sys.executable, os.path.join(self.root, "scripts", "campaign_guard.py"),
                                "heartbeat-still", "--root", self.root, "--session", session],
