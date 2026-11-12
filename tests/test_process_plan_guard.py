@@ -154,6 +154,26 @@ class Walkthrough(unittest.TestCase):
         reset = next(s for s in steps if " reset-state " in s)
         self.assertEqual(self.run_guard(fill(reset, generation))[0], 0)
 
+    def test_the_heartbeat_reaches_a_stall_with_its_documented_notes_written(self):
+        """Two trips, with the prompt's own note written after the first: the note must not pass for progress."""
+        prompt = guard_section(".agents").split("#### Heartbeat", 1)[1]
+        template = re.search(r"If it printed `trip 1`, append `([^`]+)`", prompt)
+        self.assertIsNotNone(template, "the heartbeat does not say how it logs the first trip")
+        still = next(s for s in heartbeat_commands(".agents") if " heartbeat-still " in s)
+        generation, _ = self.start(".agents", COPIES[".agents"])
+        run_file = self.ws / "docs/phase-runs/2099-01-01-phase-1.md"
+        line = ""
+        for _ in range(1 + 6):  # the baseline, then six stills: the first trip
+            line = self.run_guard(self.fill(still, COPIES[".agents"], generation=generation))[1]
+        self.assertIn("trip 1", line)
+        note = template.group(1).replace("<that line>", line).replace("<UTC>", "2099-01-01T00:00:00Z")
+        with open(run_file, "a", encoding="utf-8") as fh:
+            fh.write(note + "\n")  # one line, as the agent appends it
+        for _ in range(6):
+            line = self.run_guard(self.fill(still, COPIES[".agents"], generation=generation))[1]
+        self.assertIn("end: stall", line, "the heartbeat's own note reset the breaker")
+        self.assertFalse((self.ws / "build/claude-campaign-guard.json").exists())
+
     def test_each_copy_names_its_own_session_and_no_claude_code_tool(self):
         for agent, variable in COPIES.items():
             section = guard_section(agent)

@@ -69,7 +69,7 @@ A run without a guard dies silently when the session stalls, so starting the fir
 
 The session is this conversation's id, `$ANTIGRAVITY_CONVERSATION_ID` in a POSIX shell and `$env:ANTIGRAVITY_CONVERSATION_ID` in PowerShell (the `conversationId` the Stop hook receives). Never use another agent's variable such as `CLAUDE_CODE_SESSION_ID`. Commands are written `python`; on Linux and WSL run them with `python3`. In PowerShell write each `$VAR` as `$env:VAR`.
 
-When Antigravity offers no scheduled resume (a headless `agy -p` run ends with its turn), the run is held by the Stop hook alone. Only a run started through the unattended kit's launcher (`scripts/unattended-run.py start`, D02 T02 §5 to §7) is restarted and nudged from outside; installing that kit does not supervise a `process-plan` session started by hand.
+When no scheduled resume is available (the `schedule` tool is not offered, or the timer could not be made), the run is held by the Stop hook alone. Only a run started through the unattended kit's launcher (`scripts/unattended-run.py start`, D02 T02 §5 to §7) is restarted and nudged from outside; installing that kit does not supervise a `process-plan` session started by hand.
 
 #### Startup
 
@@ -122,10 +122,10 @@ The timer's prompt, filled in:
 Run-guard heartbeat for Phase <N> (run file <run file>, generation <generation>). Check, then act, in this turn.
 
 1. Run `python scripts/campaign_guard.py whoami --session "$ANTIGRAVITY_CONVERSATION_ID" --generation <generation>`. If it prints NOT THE OWNER or NOT THE CURRENT JOB, cancel this timer with the schedule tool, change nothing else, and reply with that line. If it prints MALFORMED GUARD, do step 2, report it to the operator and stop.
-2. Run `python scripts/campaign_guard.py hook-error --session "$ANTIGRAVITY_CONVERSATION_ID"`. If it prints a line, append it to <run file>'s Critical events, then run the same command with `--ack "<that line>"`.
+2. Run `python scripts/campaign_guard.py hook-error --session "$ANTIGRAVITY_CONVERSATION_ID"`. If it prints a line, append `- bookkeeping: hook error: <that line>` to <run file>'s Critical events, then run the same command with `--ack "<that line>"`.
 3. Run `python scripts/campaign_guard.py pending-cancel`. For each timer it names, cancel it with the schedule tool, then run `python scripts/campaign_guard.py cancel-confirmed --cron-id <timer>`.
 4. If step 1 printed NO GUARD, the run is over: run `python scripts/campaign_guard.py reset-state --expect-no-guard yes`, cancel this timer, and reply RUN FINISHED.
-5. Run `python scripts/campaign_guard.py heartbeat-still --session "$ANTIGRAVITY_CONVERSATION_ID"`. If it printed `progress` or `still`, go on to step 6. If it printed `trip 1`, append that line to <run file>'s Critical events and go on to step 6. If it ended the run (`end: stall`), cancel this timer, run `cancel-confirmed` for it, append the stall to <run file>'s Critical events, and report it to the operator.
+5. Run `python scripts/campaign_guard.py heartbeat-still --session "$ANTIGRAVITY_CONVERSATION_ID"`. If it printed `progress` or `still`, go on to step 6. If it printed `trip 1`, append `- bookkeeping: <that line> <UTC>` to <run file>'s Critical events and go on to step 6. Every line the heartbeat writes starts `- bookkeeping:`: the stall breaker's fingerprint ignores those, so a heartbeat's own notes never pass for progress and reset the trips. If it ended the run (`end: stall`), cancel this timer, run `cancel-confirmed` for it, append the stall to <run file>'s Critical events, and report it to the operator.
 6. Append `- bookkeeping: heartbeat resumed <UTC>` to <run file>'s Critical events, re-run `python scripts/todo-graph.py query ready`, pick up the open section where it stopped, and keep shipping under process-plan. Stop only at closeout, park, or an operator stop.
 ```
 
