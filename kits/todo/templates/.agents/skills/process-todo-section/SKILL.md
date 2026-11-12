@@ -39,7 +39,7 @@ If the section carries `windows-host`, `arm64-host`, `display-session`, `office`
 
 Before the first edit in a session, read `todo/README.md` (the format every TODO edit must keep). Before any write, stop here if another writer holds the tree. Check `git status` for unfamiliar uncommitted work you do not understand, and ask before building over it.
 
-Write `Started:` now. If the section body carries no `> **Started:**` line, add one directly under its heading with the current UTC instant. Do not overwrite an existing one on resume.
+Write `Started:` now. If the section body carries no `> **Started:**` line, add one directly under its heading with the current UTC instant. Do not overwrite an existing one on resume. A re-plan of a section already built (its checklist rewritten by a later decision) restarts its build: the re-plan commit replaces the `Started:` line with the current instant and keeps the old one in a dated `**Corrected YYYY-MM-DD:**` note, or `stamp` refuses the new plan review as later than the build's start.
 
 ## Execution discipline
 
