@@ -980,6 +980,41 @@ def _start_time(pid):
         return "0"
 
 
+def _group_members(group):
+    """(session id, start time) of every process in process group `group`, read from /proc; empty where /proc cannot
+    say."""
+    members = []
+    try:
+        names = os.listdir("/proc")
+    except OSError:
+        return members
+    for name in names:
+        if not name.isdigit():
+            continue
+        try:
+            with open(f"/proc/{name}/stat", encoding="ascii", errors="replace") as handle:
+                fields = handle.read().rpartition(")")[2].split()
+            if int(fields[2]) == group:
+                members.append((int(fields[3]), int(fields[19])))
+        except (OSError, IndexError, ValueError):
+            continue  # it ended while being read, or is not ours to read
+    return members
+
+
+def _is_recorded_group(group, started):
+    """Whether process group `group` is still the reviewer's group the lock recorded. With its leader alive, the
+    leader's start time must be the one recorded. Once the leader has exited, Linux gives no new process its id while
+    the group lives, so the group is the reviewer's when every member is in the reviewer's own session (its id is the
+    group's) and started no earlier than the leader did."""
+    if started == "0":
+        return False
+    leader = _start_time(group)
+    if leader != "0":
+        return leader == started
+    members = _group_members(group)
+    return bool(members) and all(session == group and start >= int(started) for session, start in members)
+
+
 def _group_alive(group):
     try:
         os.killpg(group, 0)
@@ -992,8 +1027,8 @@ def _group_alive(group):
 
 def _end_overdue_group(group, started):
     """End a reviewer group whose dispatcher was killed and whose deadline has passed, as that dispatcher would have:
-    only when the group's leader still has the start time the lock recorded. True when the group is gone."""
-    if started == "0" or _start_time(group) != started:
+    only when the group is still the one the lock recorded (`_is_recorded_group`). True when the group is gone."""
+    if not _is_recorded_group(group, started):
         return False
     try:
         os.killpg(group, signal.SIGKILL)

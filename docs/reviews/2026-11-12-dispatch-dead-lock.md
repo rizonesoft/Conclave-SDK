@@ -79,3 +79,42 @@ OVERALL: needs-attention
 
 - Implemented: P2 1, on Linux and WSL the reviewer starts behind a gate (a launcher waiting on a pipe) that opens only after its group is in the lock; a dispatcher killed first closes the pipe and the launcher exits without running it, a failed record runs no reviewer, and exec failures still read `could not start` through a close-on-exec status pipe, in the commit after 9f1700b
 - Implemented: P2 2, a live recorded group keeps the lock past its expiry; once its dispatcher is dead and the deadline past, the next launch ends the group first, only when its leader's `/proc` start time matches the one recorded, in the commit after 9f1700b
+
+## Round 3: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-12T08:11:54Z
+- Candidate: 95b1fe4bb4f5f39a27175e3bbe8836d9abb12b95
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 26
+- Digest: 416c4153f13b6b3d
+
+### adversarial: needs-attention
+
+1. **P2** `kits/reviewer/templates/scripts/review-dispatch.py:997` (also `scripts/review-dispatch.py:997`): Recovery cannot terminate an overdue reviewer group after its leader exits. `_start_time(group)` returns `"0"` once the leader is reaped, so `_end_overdue_group()` refuses cleanup even while descendants remain alive. Every subsequent section pass remains blocked while those descendants run, regardless of expiry.
+
+   Reproduce on Linux/WSL: start a section review that launches a child, kill the dispatcher, then terminate the reviewer leader alone while leaving its child running. After the original timeout plus grace period, retry the section. The surviving group causes refusal, but its missing leader prevents cleanup. Recovery needs to account for surviving descendants without requiring the leader to remain alive.
+
+### integration: approve
+
+### source-defect: approve
+
+### consistency: approve
+
+### quality: approve
+
+### optimization: approve
+
+The finding is supported by code inspection and an in-memory probe: absent leader identity returns `False` without calling `killpg`. Live Linux reproduction was unavailable because WSL enumeration returned `E_ACCESSDENIED`. No files were modified or file-writing suites run.
+
+LENS adversarial: findings
+LENS integration: clean
+LENS source-defect: clean
+LENS consistency: clean
+LENS quality: clean
+LENS optimization: clean
+HIGHEST: P2
+OVERALL: needs-attention
+
+- Implemented: P2, with the leader exited the group is recognised by its members (every one in the reviewer's session, started no earlier than the recorded leader; Linux gives no process the id of a live group), and ended, with a test that kills the leader alone and fails under the leader-only check, in the commit after 95b1fe4

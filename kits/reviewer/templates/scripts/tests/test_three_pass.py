@@ -355,6 +355,21 @@ class Chain(ThreePass):
             os.kill(child, 0)
 
     @unittest.skipUnless(os.name == "posix", "the reviewer group is recorded on Linux and WSL")
+    def test_an_overdue_group_whose_leader_exited_is_still_ended_by_its_members(self):
+        # Third review of the takeover: with the leader gone, /proc had no start time for it, the cleanup refused, and
+        # the leader's surviving child blocked the section for ever.
+        import signal
+        built, lock, group, child = self.start_killed_review()
+        os.kill(group, signal.SIGKILL)  # the reviewer itself; its child, in the same group, runs on
+        deadline = time.monotonic() + 30
+        while self.module()._start_time(group) != "0" and time.monotonic() < deadline:
+            time.sleep(0.05)
+        os.killpg(group, 0)  # the group lives on in the child
+        self.expire(lock)
+        self.ok("round", built)
+        with self.assertRaises(ProcessLookupError):
+            os.kill(child, 0)
+    @unittest.skipUnless(os.name == "posix", "the reviewer group is recorded on Linux and WSL")
     def test_a_group_whose_start_time_differs_is_never_ended_and_keeps_the_lock(self):
         built, lock, group, child = self.start_killed_review()
         self.expire(lock, started="1")  # as if the id now named another process
