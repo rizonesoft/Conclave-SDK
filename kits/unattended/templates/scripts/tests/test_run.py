@@ -201,7 +201,10 @@ class RunTest(unittest.TestCase):
                 except (ProcessLookupError, ValueError):
                     pass  # already gone
 
-    def launcher(self, *args, env=None):
+    def launcher(self, *args, env=None, heartbeat=False):
+        # These tests drive one start at a time; the heartbeat's own tests (HeartbeatRunTest) leave it running.
+        if args[:1] == ("start",) and not heartbeat:
+            args = (*args, "--no-heartbeat")
         return subprocess.run([sys.executable, str(self.root / "scripts" / "unattended-run.py"), *args],
                               capture_output=True, text=True, timeout=600, env=env or self.env)
 
@@ -424,7 +427,7 @@ class RunTest(unittest.TestCase):
         with unittest.mock.patch.dict(os.environ, {"STUB_RESUME_FAILS": "1"}), \
                 unittest.mock.patch.object(run, "_end_guard", return_value=refused):
             with self.assertRaises(run.RunError) as caught:
-                run.start(self.root, out=open(os.devnull, "w"))
+                run.start(self.root, out=open(os.devnull, "w"), supervise=False)
         self.assertIn("could not be ended", str(caught.exception))
         self.assertFalse(self.tmux_has("demo-run"), "a fresh session started beside the crashed run's guard")
         self.assertEqual(self.marker()["session"], first, "the marker lost the crashed session")
@@ -461,7 +464,7 @@ class RunTest(unittest.TestCase):
         run = self.run_module()
         with unittest.mock.patch.object(run.lib, "write_claim", side_effect=OSError(28, "No space left on device")):
             with self.assertRaises(run.RunError) as caught:
-                run.start(self.root, out=open(os.devnull, "w"))
+                run.start(self.root, out=open(os.devnull, "w"), supervise=False)
         self.assertIn("could not be written", str(caught.exception))
         self.assertFalse(self.tmux_has("demo-run"))
         self.assertTrue(gone(self.wait_child()), "the started agent's child outlived the failed start")
@@ -477,7 +480,7 @@ class RunTest(unittest.TestCase):
             return real(*args, check=check)
         with unittest.mock.patch.object(run, "tmux", failing):
             with self.assertRaises(run.RunError):
-                run.start(self.root, out=open(os.devnull, "w"))
+                run.start(self.root, out=open(os.devnull, "w"), supervise=False)
         self.assertFalse(self.tmux_has("demo-run"))
         self.assertFalse((self.root / "build" / "unattended-run.json").exists())
 
@@ -644,6 +647,64 @@ class RunTest(unittest.TestCase):
         self.assertEqual(call["cli"], "agy")
         self.assertEqual(call["argv"][-1], f"--prompt-interactive={PROMPT}")
 
+    def test_start_leaves_one_heartbeat_that_restarts_a_killed_agent_and_stop_removes_it(self):
+        # Plan review of D02 T02 §7: an ordinary start must leave a detached heartbeat that recovers the run unaided.
+        self.write_profile(tick_seconds=1)
+        git(self.root, "commit", "-qam", "a one-second tick")
+        done = self.launcher("start", heartbeat=True)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("heartbeat running in tmux session demo-heartbeat", done.stdout)
+        self.calls(1)
+        for round_ in (1, 2):
+            pgid = self.marker()["pgid"]
+            subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline and len(self.calls(0)) < round_ + 1:
+                time.sleep(0.5)
+            self.assertEqual(len(self.calls(round_ + 1)), round_ + 1, "the heartbeat did not restart the run")
+            pane = subprocess.run(["tmux", "capture-pane", "-p", "-J", "-S", "-80", "-t", "=demo-heartbeat:"],
+                                  capture_output=True, text=True, timeout=30).stdout
+            self.assertIn("--resume", self.calls(round_ + 1)[-1]["argv"], pane[-3000:])
+            # The restart is done once the marker names the new agent; killing it sooner kills it inside its
+            # startup check, which (rightly) reads as a resume that did not stay up.
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline and self.marker()["pgid"] == pgid:
+                time.sleep(0.2)
+        deadline = time.monotonic() + 30
+        while not self.tmux_has("demo-run") and time.monotonic() < deadline:
+            time.sleep(0.2)
+        sessions = subprocess.run(["tmux", "ls", "-F", "#{session_name}"], capture_output=True, text=True,
+                                  timeout=30).stdout.split()
+        self.assertEqual(sorted(sessions), ["demo-heartbeat", "demo-run"], "exactly one heartbeat, one run")
+        self.assertEqual(self.launcher("stop").returncode, 0)
+        self.assertFalse(self.tmux_has("demo-heartbeat"))
+        self.assertFalse(self.tmux_has("demo-run"))
+
+    def test_a_restart_for_a_run_that_was_stopped_starts_nothing(self):
+        # Plan review of D02 T02 §7: a stop during the backoff must not be undone by the restart.
+        self.assertEqual(self.launcher("start").returncode, 0)
+        tag = self.marker()["session"]
+        self.assertEqual(self.launcher("stop").returncode, 0)
+        run = self.run_module()
+        out = __import__("io").StringIO()
+        self.assertEqual(run.start(self.root, out, expect=tag, supervise=False), run.FINISHED)
+        self.assertIn("was stopped or replaced", out.getvalue())
+        self.assertFalse(self.tmux_has("demo-run"))
+        self.assertFalse((self.root / "build" / "unattended-run.json").exists())
+
+    def test_a_crashed_runs_unfinished_edit_survives_its_resume(self):
+        # Plan review of D02 T02 §7: the clean-tree check refused to resume a run killed mid-edit.
+        self.assertEqual(self.launcher("start").returncode, 0)
+        self.calls(1)
+        edited = self.root / "docs" / "unattended-prompt.md"
+        edited.write_text(PROMPT + "An edit the run had not committed.\n", encoding="utf-8")
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+        done = self.launcher("start")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("kept for the resumed run", done.stdout)
+        self.assertTrue(self.marker()["resumed"])
+        self.assertIn("An edit the run had not committed.", edited.read_text(encoding="utf-8"))
+
     def test_a_run_cannot_stop_itself(self):
         self.assertEqual(self.launcher("start").returncode, 0)
         done = self.launcher("stop", env={**self.env, "CONCLAVE_UNATTENDED_RUN": "1"})
@@ -651,6 +712,158 @@ class RunTest(unittest.TestCase):
         self.assertIn("refused inside the run", done.stdout)
         self.assertTrue(self.tmux_has("demo-run"))
         self.assertTrue((self.root / "build" / "unattended-run.json").exists())
+
+
+class HeartbeatTickTest(unittest.TestCase):
+    """The heartbeat's decisions, with an injected clock, a fake restart and tmux answers, on any system."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        (self.root / ".conclave").mkdir()
+        (self.root / "docs").mkdir()
+        (self.root / "docs" / "unattended-prompt.md").write_text(PROMPT, encoding="utf-8")
+        (self.root / ".conclave" / "unattended.json").write_text(json.dumps(PROFILE), encoding="utf-8")
+        self.run = load_run_module()
+        self.marker = {"session": "tag-1", "agent_session": "tag-1", "tmux_session": "demo-run",
+                       "heartbeat_session": "demo-heartbeat", "agent": "claude", "pgid": 4242,
+                       "started": "2026-11-12T00:00:00Z", "resumed": False}
+        self.write_marker()
+        self.alive = False
+        self.restarts = []
+        self.out = __import__("io").StringIO()
+        patch = unittest.mock.patch.object(self.run, "_alive", lambda name: self.alive)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def write_marker(self):
+        (self.root / "build").mkdir(exist_ok=True)
+        (self.root / "build" / "unattended-run.json").write_text(json.dumps(self.marker), encoding="utf-8")
+
+    def restart(self, code=0, error=None):
+        def go():
+            self.restarts.append(1)
+            if error:
+                raise error
+            return code
+        return go
+
+    def tick(self, now, state, **kwargs):
+        return self.run.tick(self.root, now, state, self.out, **kwargs)
+
+    def test_restarts_wait_300_600_then_1200_seconds(self):
+        state = self.run.read_state(self.root)
+        waits, now = [], 0.0
+        for _ in range(3):
+            self.tick(now, state, restart=self.restart())
+            waits.append(state["wait_until"] - now)
+            self.assertEqual(self.restarts.count(1), len(waits) - 1, "restarted before the wait")
+            now = state["wait_until"]
+            self.tick(now, state, restart=self.restart())  # the wait is over: restart
+            now += 1
+        self.assertEqual(waits, [300, 600, 1200])
+        self.assertEqual((len(self.restarts), state["deaths"]), (3, 3))
+
+    def test_the_wait_is_capped_at_an_hour(self):
+        self.assertEqual([self.run.backoff(PROFILE, d) for d in range(4)], [300, 600, 1200, 2400])
+        self.assertEqual(self.run.backoff(PROFILE, 4), 3600, "300 * 16 = 4800 is over the hour, so it is capped")
+        self.assertEqual(self.run.backoff(PROFILE, 5), 3600)
+        self.assertEqual(self.run.backoff(PROFILE, 9), 3600)
+
+    def test_an_hour_alive_after_a_restart_resets_the_deaths(self):
+        self.alive = True
+        state = {**self.run.read_state(self.root), "deaths": 3, "last_restart": 1000.0}
+        self.tick(1000.0 + 3599, state)
+        self.assertEqual(state["deaths"], 3)
+        self.tick(1000.0 + 3600, state)
+        self.assertEqual(state["deaths"], 0)
+
+    def test_a_failed_restart_counts_as_a_death_keeps_supervising_and_is_recorded(self):
+        state = {**self.run.read_state(self.root), "wait_until": 0.0}
+        self.assertEqual(self.tick(10.0, state, restart=self.restart(error=self.run.RunError("preflight FAIL"))), 0)
+        self.assertEqual(state["deaths"], 1)
+        self.assertIn("preflight FAIL", state["last_error"])
+        self.assertEqual(state["wait_until"], 10.0 + 600)
+        self.assertEqual(self.tick(10.0 + 600, state, restart=self.restart(code=1)), 0)
+        self.assertEqual((state["deaths"], state["last_error"]), (2, "start exited 1"))
+        self.tick(10.0 + 600 + 1200, state, restart=self.restart())
+        self.assertEqual((state["deaths"], state["last_error"], state["wait_until"]), (3, None, None))
+
+    def test_a_run_its_agent_ended_is_finished_and_another_runs_end_is_not(self):
+        (self.root / "build" / "claude-campaign-ended.json").write_text(
+            json.dumps({"launch_tag": "other-run", "session_id": "other", "reason": "park"}), encoding="utf-8")
+        state = self.run.read_state(self.root)
+        self.assertEqual(self.tick(0.0, state, restart=self.restart()), 0, "another run's end ended this one")
+        (self.root / "build" / "claude-campaign-ended.json").write_text(
+            json.dumps({"launch_tag": "tag-1", "session_id": "tag-1", "reason": "closeout"}), encoding="utf-8")
+        with unittest.mock.patch.object(self.run.lib, "clear_claim", return_value="cleared"), \
+                unittest.mock.patch.object(self.run.lib, "launch_lock", return_value=__import__("contextlib").nullcontext()):
+            self.assertEqual(self.tick(1.0, state, restart=self.restart()), self.run.FINISHED)
+        self.assertFalse((self.root / "build" / "unattended-run.json").exists(), "a finished run kept its marker")
+
+    def test_a_run_that_never_took_its_guard_is_not_finished(self):
+        state = self.run.read_state(self.root)
+        self.assertEqual(self.tick(0.0, state, restart=self.restart()), 0)
+        self.assertNotIn("ended itself", self.out.getvalue())
+
+    def test_no_marker_ends_the_heartbeat(self):
+        (self.root / "build" / "unattended-run.json").unlink()
+        self.assertEqual(self.tick(0.0, self.run.read_state(self.root)), self.run.FINISHED)
+
+    def test_the_state_is_read_back_on_every_tick(self):
+        clock = iter([0.0, 100.0])
+        restart = unittest.mock.patch.object(self.run, "start", side_effect=AssertionError("restarted early"))
+        with restart:
+            self.run.heartbeat(self.root, once=True, clock=lambda: next(clock), out=self.out)
+            saved = json.loads((self.root / "build" / "unattended-heartbeat.json").read_text(encoding="utf-8"))
+            self.assertEqual(saved["wait_until"], 300.0)
+            self.run.heartbeat(self.root, once=True, clock=lambda: next(clock), out=self.out)  # a new heartbeat
+        self.assertEqual(json.loads((self.root / "build" / "unattended-heartbeat.json").read_text())["wait_until"],
+                         300.0, "a recreated heartbeat forgot its deadline")
+
+    def test_it_writes_its_state_file_and_nothing_else(self):
+        before = set(p.name for p in (self.root / "build").iterdir())
+        clock = iter(float(i) for i in range(50))
+        for _ in range(50):
+            self.run.heartbeat(self.root, once=True, clock=lambda: next(clock), out=self.out)
+        after = set(p.name for p in (self.root / "build").iterdir())
+        self.assertEqual(after - before, {"unattended-heartbeat.json"})
+
+    def nudge(self, activity_age, clients, state=None, now=10_000.0):
+        sent = []
+
+        def tmux(*args, check=False):
+            if args[0] == "display-message":
+                return subprocess.CompletedProcess(args, 0, stdout=f"{int(now - activity_age)}\n", stderr="")
+            if args[0] == "list-clients":
+                return subprocess.CompletedProcess(args, 0, stdout="".join(f"{c}\n" for c in clients), stderr="")
+            if args[0] == "send-keys":
+                sent.append(args)
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        self.alive = True
+        state = state if state is not None else self.run.read_state(self.root)
+        with unittest.mock.patch.object(self.run, "tmux", tmux):
+            self.tick(now, state)
+        return sent, state
+
+    def test_an_idle_run_is_nudged_and_an_active_one_is_not(self):
+        idle = PROFILE["idle_minutes"] * 60
+        sent, _ = self.nudge(idle, [])
+        self.assertEqual(sent[0][-1], self.run.NUDGE_PROMPT)
+        self.assertEqual(self.nudge(idle - 1, [])[0], [])
+
+    def test_an_operator_typing_suppresses_the_nudge_and_a_watcher_does_not(self):
+        idle = PROFILE["idle_minutes"] * 60
+        self.assertEqual(self.nudge(idle, ["0"])[0], [], "a nudge went to a run an operator is attached to")
+        self.assertTrue(self.nudge(idle, ["1"])[0], "a read-only watcher suppressed the nudge")
+
+    def test_a_nudge_is_sent_at_most_once_per_idle_minutes(self):
+        idle = PROFILE["idle_minutes"] * 60
+        sent, state = self.nudge(idle, [], now=10_000.0)
+        self.assertTrue(sent)
+        self.assertEqual(self.nudge(idle * 3, [], state=state, now=10_000.0 + idle - 1)[0], [])
+        self.assertTrue(self.nudge(idle * 3, [], state=state, now=10_000.0 + idle)[0])
 
 
 class WindowsTest(unittest.TestCase):

@@ -118,6 +118,13 @@ class GitChecksTest(Fixture):
         self.assertEqual(self.names(fails), ["FAIL git-clean"])
         self.assertIn("new.txt", fails[0])
 
+    def test_a_resume_keeps_the_crashed_runs_edits(self):
+        (self.root / "new.txt").write_text("x", encoding="utf-8")
+        report = self.report()
+        pre.check_git(self.root, PROFILE, report, resuming=True)
+        self.assertEqual(self.fails(report), [])
+        self.assertIn("kept for the resumed run", report.out.getvalue())
+
     def test_behind_the_upstream_is_one_fail(self):
         remote = Path(self._tmp.name) / "remote.git"
         git(self._tmp.name, "init", "-q", "--bare", "-b", "main", str(remote))

@@ -788,6 +788,16 @@ class Lifecycle(Workspace):
         with mock.patch.dict(os.environ, env, clear=True):
             self.acquire(session=OTHER, cron_id="job-2", handover="restart")
         self.assertNotIn("launch_tag", guard.read_guard(self.root), "an untagged acquire kept another run's tag")
+    def test_end_records_how_the_run_ended(self):
+        # D02 T02 §7: the heartbeat polls, so a run that ends between two ticks is known only by this record.
+        with mock.patch.dict(os.environ, {"CONCLAVE_UNATTENDED_TAG": "tag-7"}):
+            self.acquire()
+        rid = self.run_id()
+        self.write(RUN_FILE, f"# Run\n\nPARKED 2026-11-12T00:00:00Z run={rid} nothing runnable\n")
+        guard.end(self.root, SESSION, "park")
+        ended = json.loads(Path(self.root, "build", guard.ENDED_FILE).read_text(encoding="utf-8"))
+        self.assertEqual((ended["run_id"], ended["session_id"], ended["launch_tag"], ended["reason"]),
+                         (rid, SESSION, "tag-7", "park"))
     def test_a_torn_guard_needs_a_handover_and_the_scope_is_kept(self):
         self.write("build/claude-campaign-guard.json", "")
         with self.assertRaises(guard.GuardError):

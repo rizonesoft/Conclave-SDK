@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Start, show, attach to and stop an unattended agent run held in tmux.
 
-    python3 scripts/unattended-run.py start      take the launch lock, run the preflight, start (or resume) the run
+    python3 scripts/unattended-run.py start [--no-heartbeat]   take the launch lock, run the preflight, start (or
+                                                 resume) the run, and its heartbeat unless --no-heartbeat
     python3 scripts/unattended-run.py status     whether the run is live, its session, start, guard and health
     python3 scripts/unattended-run.py attach [--watch]   attach to the run's tmux session (--watch: read-only)
     python3 scripts/unattended-run.py stop       end the guard, the tmux sessions and the whole process group
+    python3 scripts/unattended-run.py heartbeat [--once]   restart a dead run, nudge an idle one (start runs it)
 
 The run lives in the detached tmux session `<name>-run` (the profile's `name`), so it outlives the terminal that
 started it. `build/unattended-run.json` (the run marker) names the run: its agent session, its tmux sessions and its
@@ -38,6 +40,13 @@ MARKER = "build/unattended-run.json"
 MARKER_KEYS = ("session", "agent_session", "tmux_session", "heartbeat_session", "agent", "pgid", "started", "resumed")
 GUARD = "build/claude-campaign-guard.json"
 HEALTH = "build/unattended-health.json"  # written by the heartbeat (D02 T02 §8) when it runs
+HEARTBEAT_STATE = "build/unattended-heartbeat.json"
+ENDED = "build/claude-campaign-ended.json"  # written by campaign_guard.py end: how the last run ended
+FINISHED = 10  # the heartbeat's exit status when the run is over (stopped, or ended by its own agent)
+MAX_WAIT_SECONDS = 3600
+RESET_SECONDS = 3600  # a run alive this long after its last restart has its death count reset
+NUDGE_PROMPT = ("The unattended run looks idle. Continue with process-plan: pick up the open section in the run file "
+                "and keep going. Never ask the operator a question.")
 HISTORY_LIMIT = 50000
 INSIDE = "CONCLAVE_UNATTENDED_RUN"  # set inside the run, so a run cannot stop itself
 # Every process of a run carries this in its environment (inherited even by one that starts its own session, such as
@@ -273,10 +282,13 @@ def _launch(root: Path, run_session: str, argv: list[str], session: str) -> int:
         # A session target ending in ":" (the exact name, then its current window): set-option and new-window
         # resolve -t through a pane, and a bare "=name" names no pane in tmux 3.6.
         tmux("set-option", "-t", f"={run_session}:", "history-limit", str(HISTORY_LIMIT), check=True)
-        tmux("new-window", "-d", "-t", f"={run_session}:", "-n", "agent", "-c", str(root), "-e", f"{INSIDE}=1",
-             "-e", f"{TAG}={session}", "exec " + shlex.join(argv), check=True)
+        # The agent's window opens on a placeholder, keeps its pane on exit, and only then is the agent respawned into
+        # it: an agent that exits at once is still there to read, not a window that vanished before the option was set.
+        tmux("new-window", "-d", "-t", f"={run_session}:", "-n", "agent", "-c", str(root), "sleep 30", check=True)
         target = f"={run_session}:agent"
         tmux("set-option", "-w", "-t", target, "remain-on-exit", "on", check=True)  # for the startup check only
+        tmux("respawn-pane", "-k", "-t", target, "-c", str(root), "-e", f"{INSIDE}=1", "-e", f"{TAG}={session}",
+             "exec " + shlex.join(argv), check=True)
         tmux("kill-window", "-t", f"={run_session}:boot", check=True)
         pid = int(tmux("display-message", "-p", "-t", target, "#{pane_pid}", check=True).stdout.strip())
         deadline = time.monotonic() + STARTUP_SECONDS
@@ -300,12 +312,18 @@ def _launch(root: Path, run_session: str, argv: list[str], session: str) -> int:
         raise
 
 
-def start(root: Path, out=None) -> int:
+def start(root: Path, out=None, expect: str | None = None, supervise: bool = True) -> int:
+    """Start or resume the run. `expect` (the heartbeat's restart) names the run it means: under the launch lock the
+    marker must still name it, or nothing starts and FINISHED is returned, so a stop during a restart's backoff never
+    resurrects the run. `supervise` launches the heartbeat in its own tmux session when it is not running."""
     out = out or sys.stdout
     profile = lib.load_profile(root)
     run_session, heartbeat = names(profile)
     with lib.launch_lock(root):
         marker, problem = read_marker(root)
+        if expect is not None and (marker is None or marker["session"] != expect):
+            print(f"start: run {expect} was stopped or replaced; nothing restarted", file=out)
+            return FINISHED
         if problem:
             raise RunError(f"{problem}: stop the run (or remove {MARKER}) before starting another")
         if marker:
@@ -369,7 +387,122 @@ def start(root: Path, out=None) -> int:
             raise RunError(f"the run's state could not be written ({exc}); the run was ended") from None
     print(f"start: {'resumed' if marker['resumed'] else 'started'} session {session} in tmux session "
           f"{run_session} (attach: python3 scripts/unattended-run.py attach)", file=out)
+    if supervise:
+        _launch_heartbeat(root, heartbeat, out)
     return 0
+
+
+def _launch_heartbeat(root: Path, heartbeat: str, out) -> None:
+    """The heartbeat runs in its own detached tmux session, one per run: a second start leaves a live one alone."""
+    if _alive(heartbeat) is not False:
+        return
+    command = shlex.join([sys.executable, str(HERE / "unattended-run.py"), "--root", str(root), "heartbeat"])
+    tmux("new-session", "-d", "-s", heartbeat, "-c", str(root), "exec " + command, check=True)
+    print(f"start: heartbeat running in tmux session {heartbeat}", file=out)
+
+
+def read_state(root: Path) -> dict:
+    state = read_json(root / HEARTBEAT_STATE) or {}
+    return {"deaths": state.get("deaths", 0) if isinstance(state.get("deaths"), int) else 0,
+            **{key: state.get(key) for key in ("wait_until", "last_restart", "last_nudge", "last_error")}}
+
+
+def run_finished(root: Path, marker: dict) -> bool:
+    """Whether the run's own agent ended it: the guard's end record names the run's tag or its agent session. A
+    guard that is merely absent proves nothing (the agent may not have taken it yet)."""
+    ended = read_json(root / ENDED)
+    if not ended:
+        return False
+    return ended.get("launch_tag") == marker["session"] or bool(
+        marker.get("agent_session") and ended.get("session_id") == marker["agent_session"])
+
+
+def backoff(profile: dict, deaths: int) -> int:
+    return min(profile["tick_seconds"] * 2 ** min(deaths, 5), MAX_WAIT_SECONDS)
+
+
+def _nudge(run_session: str, profile: dict, state: dict, now: float, out) -> None:
+    """Prompt a run whose window has shown nothing for idle_minutes, at most once per idle_minutes, unless an
+    operator is attached with a client that can type (a read-only watcher does not count)."""
+    idle = profile["idle_minutes"] * 60
+    target = f"={run_session}:agent"
+    shown = tmux("display-message", "-p", "-t", target, "#{window_activity}").stdout.strip()
+    if not shown.isdigit() or now - int(shown) < idle:
+        return
+    if state.get("last_nudge") and now - state["last_nudge"] < idle:
+        return
+    clients = tmux("list-clients", "-t", f"={run_session}", "-F", "#{client_readonly}").stdout.split()
+    if "0" in clients:
+        return  # an operator is attached and may be typing
+    tmux("send-keys", "-t", target, "-l", NUDGE_PROMPT)
+    tmux("send-keys", "-t", target, "Enter")
+    state["last_nudge"] = now
+    print(f"heartbeat: nudged {run_session} after {int(now - int(shown))}s without activity", file=out)
+
+
+def finish(root: Path, marker: dict, out) -> int:
+    """The run is over: its marker and its own claim go, so neither start nor a boot resume revives it."""
+    with lib.launch_lock(root):
+        (root / MARKER).unlink(missing_ok=True)
+        lib.clear_claim(root, marker["session"], lock_held=True)
+    print(f"heartbeat: run {marker['session']} ended itself; the heartbeat stops", file=out)
+    return FINISHED
+
+
+def tick(root: Path, now: float, state: dict, out=None, restart=None) -> int:
+    """One heartbeat tick: FINISHED when the run is over, 0 otherwise. `state` is updated in place."""
+    out = out or sys.stdout
+    profile = lib.load_profile(root)
+    marker, problem = read_marker(root)
+    if marker is None:
+        print(f"heartbeat: {problem or 'no run marker'}; the heartbeat stops", file=out)
+        return FINISHED
+    if run_finished(root, marker):
+        return finish(root, marker, out)
+    live = _alive(marker["tmux_session"])
+    if live is None:
+        state["last_error"] = "tmux could not be asked whether the run is alive"
+        return 0
+    if live:
+        if state["deaths"] and state.get("last_restart") and now - state["last_restart"] >= RESET_SECONDS:
+            state["deaths"] = 0
+        state["wait_until"] = None
+        _nudge(marker["tmux_session"], profile, state, now, out)
+        return 0
+    if state.get("wait_until") is None:
+        state["wait_until"] = now + backoff(profile, state["deaths"])
+        print(f"heartbeat: run {marker['session']} is not running; restart in "
+              f"{int(state['wait_until'] - now)}s", file=out)
+        return 0
+    if now < state["wait_until"]:
+        return 0
+    try:
+        code = (restart or (lambda: start(root, out, expect=marker["session"], supervise=False)))()
+        error = None if code == 0 else f"start exited {code}"
+    except (RunError, lib.ProfileError, lib.LaunchError, OSError, subprocess.SubprocessError) as exc:
+        code, error = 1, f"{type(exc).__name__}: {exc}"
+    if code == FINISHED:
+        return FINISHED
+    state["deaths"] += 1
+    state["last_error"] = error
+    if error:
+        state["wait_until"] = now + backoff(profile, state["deaths"])
+        print(f"heartbeat: restart failed ({error}); next try in {int(state['wait_until'] - now)}s", file=out)
+    else:
+        state["last_restart"], state["wait_until"] = now, None
+    return 0
+
+
+def heartbeat(root: Path, once: bool = False, clock=time.time, sleep=time.sleep, out=None) -> int:
+    """Tick every tick_seconds until the run is over. The state is read back from its file on every tick, so a
+    heartbeat started again carries on; it writes that file and nothing else."""
+    while True:
+        state = read_state(root)
+        code = tick(root, clock(), state, out)
+        lib.write_atomic(root / HEARTBEAT_STATE, json.dumps(state, indent=2) + "\n")
+        if code == FINISHED or once:
+            return code
+        sleep(lib.load_profile(root)["tick_seconds"])
 
 
 def _end_old_guard(root: Path, old: dict, out) -> None:
@@ -409,6 +542,8 @@ def status(root: Path, out=None) -> int:
     guard = read_json(root / GUARD)
     print(f"guard: phase {guard.get('phase')}, run {guard.get('run_id')}, session {guard.get('session_id')}"
           if guard else "guard: none", file=out)
+    beat = read_json(root / HEARTBEAT_STATE)
+    print(f"heartbeat state: {json.dumps(beat, sort_keys=True)}" if beat else "heartbeat state: none", file=out)
     health = read_json(root / HEALTH)
     print(f"health: {json.dumps(health, sort_keys=True)}" if health else "health: none", file=out)
     return 0
@@ -474,11 +609,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Start, show, attach to and stop an unattended agent run.")
     parser.add_argument("--root", default=str(HERE.parent), help="the repository (default: this script's)")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("start")
+    start_parser = sub.add_parser("start")
+    start_parser.add_argument("--no-heartbeat", action="store_true", help="start the run without its heartbeat")
     sub.add_parser("status")
     attach_parser = sub.add_parser("attach")
     attach_parser.add_argument("--watch", action="store_true", help="attach read-only")
     sub.add_parser("stop")
+    beat_parser = sub.add_parser("heartbeat")
+    beat_parser.add_argument("--once", action="store_true", help="one tick, then exit")
     args = parser.parse_args(argv)
     if os.name == "nt":
         print("unattended-run: the run lives in tmux, on Linux and in WSL: run this in WSL", file=sys.stderr)
@@ -486,11 +624,13 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(args.root).resolve()
     try:
         if args.command == "start":
-            return start(root)
+            return start(root, supervise=not args.no_heartbeat)
         if args.command == "status":
             return status(root)
         if args.command == "attach":
             return attach(root, args.watch)
+        if args.command == "heartbeat":
+            return heartbeat(root, once=args.once)
         return stop(root)
     except (RunError, lib.ProfileError, lib.LaunchError) as exc:
         print(f"unattended-run: {exc}", file=sys.stderr)

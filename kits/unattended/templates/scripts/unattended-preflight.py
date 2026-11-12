@@ -74,7 +74,9 @@ def _git(root: Path, *args: str) -> subprocess.CompletedProcess:
         return subprocess.CompletedProcess(["git", *args], -1, stdout="", stderr=f"git {args[0]} could not run: {exc}")
 
 
-def check_git(root: Path, profile: dict, report: Report) -> None:
+def check_git(root: Path, profile: dict, report: Report, resuming: bool = False) -> None:
+    """The branch, a clean tree and the upstream. A resume owns the crashed run's unfinished edits, so a tree it left
+    changed passes then, saying how much was kept (D02 T02 §7)."""
     if shutil.which("git") is None:
         report.line(False, "git", "git is not on PATH, so the branch, the tree and the upstream cannot be checked")
         return
@@ -89,6 +91,9 @@ def check_git(root: Path, profile: dict, report: Report) -> None:
     dirty = [line for line in status.stdout.splitlines() if line.strip()]
     if status.returncode != 0:
         report.line(False, "git-clean", f"git status failed ({_last_line(status.stderr)})")
+    elif dirty and resuming:
+        report.line(True, "git-clean", f"{len(dirty)} changed or untracked path(s) kept for the resumed run, first "
+                                         f"{dirty[0][3:]}")
     else:
         report.line(not dirty, "git-clean",
                     "clean tree" if not dirty else f"{len(dirty)} changed or untracked path(s), first {dirty[0][3:]}")
@@ -330,7 +335,7 @@ def preflight(root: Path, out=None, system: str | None = None, resume_session: s
         report.line(False, "profile", str(exc) or type(exc).__name__)
         return 1
     report.line(True, "profile", f"{unattended.PROFILE} loads: {profile['name']}, {profile['agent']}")
-    checks = (("git", lambda: check_git(root, profile, report)),
+    checks = (("git", lambda: check_git(root, profile, report, resuming=bool(resume_session))),
               ("campaign-guard", lambda: check_run(root, report, resume_session)),
               ("launch-claim", lambda: check_claim(root, report, unattended, resume_session)),
               ("tools", lambda: check_tools(profile, report)),

@@ -51,6 +51,7 @@ import uuid
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.normpath(os.path.join(HERE, ".."))
 END_REASONS = ("closeout", "park", "plan-done", "operator-stop", "escalation", "stall")
+ENDED_FILE = "claude-campaign-ended.json"  # beside the guard: how the last run ended
 LOCK_WAIT = 10.0
 MAX_BLOCKS_WITHOUT_PROGRESS = 3
 # Heartbeat resumptions in a row with no tree change that count one stall trip (`heartbeat-still`): at one heartbeat
@@ -366,6 +367,12 @@ def _end_locked(root: str, session: str, reason: str, ready: int | None, still_o
     # guard (the heartbeat finds none and deletes itself, the Stop hook lets the turn end), never a live guard that a
     # heartbeat would resume beside a recorded cancellation.
     jobs = [j for j in _pending_jobs(root) if j.get("cron_id") != guard.get("cron_id")]
+    # The durable record of how the run ended, for the unattended kit's heartbeat, which polls and so can miss a guard
+    # held and released between two ticks. Written before the guard goes, so an end interrupted here errs toward
+    # "this run is over", which never revives a run its agent ended.
+    _write_json(os.path.join(os.path.dirname(guard_path), ENDED_FILE),
+                {"run_id": guard.get("run_id"), "session_id": guard.get("session_id"),
+                 "launch_tag": guard.get("launch_tag"), "reason": reason, "at": _utc_now()})
     try:
         os.unlink(guard_path)
     except FileNotFoundError:
