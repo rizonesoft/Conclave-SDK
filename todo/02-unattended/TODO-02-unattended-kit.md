@@ -36,7 +36,7 @@ title: "TODO-02 -- Unattended kit"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Unattended kit known to `forge.py` | -- | [x] |
-| 2 | §2 | Run profile `.conclave/unattended.json` and its loader | §1 | [ ] |
+| 2 | §2 | Run profile `.conclave/unattended.json` and its loader | §1 | [x] |
 | 3 | §3 | Preflight with a PASS or FAIL line per precondition | §2 | [ ] |
 | 4 | §4 | Launch lock and claim | §2 | [ ] |
 | 5 | §5 | Launcher for a Claude Code run under tmux | §3, §4 | [ ] |
@@ -96,9 +96,12 @@ Everything the two projects hard-coded (agent, model, effort, prompt, branch, th
 - [x] Refuse a profile whose `name`, `model` or `effort` is still `null` in `load_profile`, saying which to set. Done when: a test loads the shipped template unchanged and reads that refusal, and loads it with the three set and gets the profile.
 - [x] Create `kits/unattended/templates/docs/unattended-prompt.md`: a seed prompt that tells the agent to run `process-plan` to completion, never to ask the operator, and to record every decision in the run file, with no project name in it. Done when: the template profile's `prompt_file` names it, `load_profile` accepts the template with `name`, `model` and `effort` set, and a test finds `process-plan`, the never-ask rule and the run file (`docs/phase-runs/`) as where decisions go, and no project name. **Corrected 2026-11-12 (plan review):** a path that loads proved nothing about the text.
 - [x] Add `kits/unattended/templates/scripts/tests/test_unattended.py` with the loader tests, run from `tests/test_forge.py` as the reviewer kit's tests are (`test_reviewer_kit_dispatcher_tests_pass`), but in the quick suite. Done when: `python -m unittest discover -s kits/unattended/templates/scripts/tests` passes and the quick suite runs it.
-- [ ] Commit: `unattended: run profile and its loader`
+- [x] Commit: `unattended: run profile and its loader`
 
 **Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` ends `OK`; accepting an unknown `agent` makes its test fail.
+
+> **Verified:** 2026-11-12 | §2 | ca056763b2555fadfb3a3e96feb3311b49284144
+> **Review:** `docs/reviews/d02-t02-s2.json`
 
 ## 3. Preflight with a PASS or FAIL line per precondition
 

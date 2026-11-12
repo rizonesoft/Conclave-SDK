@@ -1,0 +1,84 @@
+{
+  "ref": "D02 T02 \u00a72",
+  "title": "Run profile `.conclave/unattended.json` and its loader",
+  "implementation_sha": "ca056763b2555fadfb3a3e96feb3311b49284144",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-unattended/D02-T02-s2.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s kits/unattended/templates/scripts/tests -> OK (22 tests; also OK in WSL)",
+    "python -m unittest discover -s tests -> OK"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-unattended/D02-T02-s2.md",
+    "verdict": "reconciled",
+    "candidate": "ca056763b2555fadfb3a3e96feb3311b49284144",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/02-unattended/D02-T02-s2.md",
+    "candidate": "8993583106d28a5411370d759e5a4c489a336292",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "8993583106d28a5411370d759e5a4c489a336292",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 6,
+  "pass_cap": 33
+}
