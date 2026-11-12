@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fill one of the review prompt templates in docs/ and write the prompt to send to the reviewer.
 
-    python scripts/review-prompt.py --kind round --candidate <40-char SHA> --ref "D00 T01 §7" \
+    python scripts/review-prompt.py --kind round --candidate <commit> --ref "D00 T01 §7" \
         --purpose "what the change is for" --governing docs/plan.md --out <scratch>/round.md
     python scripts/review-prompt.py --kind reconciliation --candidate <repaired SHA> --failed <completion SHA> \
         --findings docs/reviews/00-core/D00-T01-s1.md --gates <scratch>/gates.txt --governing docs/plan.md \
@@ -194,11 +194,31 @@ def atomic_write(path: Path, text: str) -> None:
         raise
 
 
+def resolve_commit(name: str, value: str) -> str:
+    """The full SHA a commit name stands for: a full lowercase SHA as given, any other name (an abbreviated SHA, HEAD,
+    a branch) through `git rev-parse --verify <name>^{commit}` in this project. Only a name git cannot resolve to a
+    commit is refused: a short SHA once cost a whole rerun (D02 T01 §3)."""
+    if SHA.fullmatch(value):
+        return value
+    root = Path(__file__).resolve().parent.parent
+    try:
+        done = subprocess.run(["git", "-C", str(root), "rev-parse", "--verify", "--quiet", f"{value}^{{commit}}"],
+                              capture_output=True, text=True, timeout=60) if value and not value.startswith("-") else None
+    except (OSError, subprocess.SubprocessError) as error:
+        raise Refused(f"--{name} {value!r} is not a full 40-character commit SHA, and git could not be asked to "
+                      f"resolve it ({error})")
+    resolved = done.stdout.strip() if done is not None and done.returncode == 0 else ""
+    if not SHA.fullmatch(resolved):
+        raise Refused(f"--{name} must be a full 40-character commit SHA or a name git resolves to a commit in "
+                      f"{root}, got {value!r}")
+    return resolved
+
+
 def run(args: argparse.Namespace) -> Path:
     for name in ("candidate", "base", "failed", "last"):
         value = getattr(args, name)
-        if value is not None and not SHA.fullmatch(value):
-            raise Refused(f"--{name} must be a full 40-character lowercase commit SHA, got {value!r}")
+        if value is not None:
+            setattr(args, name, resolve_commit(name, value))
     if args.ref is not None and not REF.fullmatch(args.ref):
         raise Refused(f"--ref must look like 'D00 T01 §7', got {args.ref!r}")
     given_last = args.last
@@ -239,7 +259,8 @@ def run(args: argparse.Namespace) -> Path:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--kind", required=True, choices=sorted(TEMPLATES))
-    parser.add_argument("--candidate", required=True, help="the full 40-character commit under review")
+    parser.add_argument("--candidate", required=True,
+                        help="the commit under review: a full SHA, or any name git resolves (an abbreviated SHA, HEAD)")
     parser.add_argument("--out", required=True, help="the file the filled prompt is written to")
     parser.add_argument("--base", help="the first commit before the range: the prompt names <base>..<candidate>")
     parser.add_argument("--ref", help="the TODO section, 'D00 T01 §7'; without it the TODO lines are dropped")

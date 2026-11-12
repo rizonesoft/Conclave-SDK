@@ -236,6 +236,27 @@ class Refusals(Filler):
         self.refused("reconciliation", "--failed must be a full 40-character", "--failed", "abc")
         self.refused("round", "--ref must look like", "--ref", "section seven")
 
+    def test_a_commit_name_git_resolves_is_used_as_its_full_sha(self):
+        # todo/findings.md, 2026-11-12: an abbreviated SHA was refused and cost a rerun in D02 T01 §3.
+        for args in (["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"],
+                     ["config", "commit.gpgsign", "false"], ["commit", "-q", "--allow-empty", "-m", "base"],
+                     ["commit", "-q", "--allow-empty", "-m", "tip"]):
+            subprocess.run(["git", *args], cwd=self.root, capture_output=True, check=True, timeout=60)
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.root, capture_output=True, text=True,
+                              check=True, timeout=60).stdout.strip()
+        base = subprocess.run(["git", "rev-parse", "HEAD~1"], cwd=self.root, capture_output=True, text=True,
+                              check=True, timeout=60).stdout.strip()
+        for name in (head[:7], "HEAD"):
+            with self.subTest(name=name):
+                done = self.run_filler(["--kind", "round", "--candidate", name, "--base", base[:9],
+                                        "--purpose", "x", "--governing", "x", "--out", str(self.out)])
+                self.assertEqual(done.returncode, 0, done.stderr)
+                text = self.out.read_text(encoding="utf-8")
+                self.assertIn(f"`{base}..{head}`", text)
+                self.assertNotIn(f"`{head[:7]}`", text)
+        self.refused("round", "--base must be a full 40-character commit SHA or a name git resolves", "--base",
+                     "no-such-branch")
+        self.refused("round", "--base must be a full 40-character", "--base=--all")  # never read as a git option
     def test_unreadable_or_empty_gates_file(self):
         missing = self.gates.parent / "nope.txt"
         message = self.refused("reconciliation", "cannot be read", "--failed", FAILED, "--findings", "f.md",
