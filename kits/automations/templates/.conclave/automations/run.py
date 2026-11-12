@@ -62,32 +62,47 @@ def _launcher_script(script: str, args: list[str]) -> bool:
     if not found:
         return False
     if found.group(1).lower() == "unattended-run.py":
-        first = next((a for a in args if not a.startswith("-")), None)
-        return first == "start"
+        i = 0
+        while i < len(args):  # its subcommand comes after its own options, `--root <dir>` among them
+            if args[i] == "--root":
+                i += 2
+            elif args[i].startswith("-"):
+                i += 1
+            else:
+                return args[i] == "start"
+        return False
     return True
 
 
 def _launcher_in_text(text: str, posix: bool) -> str | None:
-    """The launcher the first command of any segment of a shell command string invokes, or None. PowerShell text is
-    split without POSIX escapes, so `.\scripts\start-run.ps1` keeps its backslashes."""
+    r"""The launcher the first command of any command in a shell command string invokes, or None. The text is read
+    with its quotes, so a launcher named inside a quoted string is data; `;`, `&&`, `||`, `|`, `&` and a line break
+    end a command. PowerShell text is read without POSIX escapes, so `.\scripts\start-run.ps1` keeps its backslashes."""
     import shlex
 
-    for segment in re.split(r"&&|\|\||[;|\n]|(?<![\w.])&(?!&)", text):
-        try:
-            words = shlex.split(segment, posix=posix)
-        except ValueError:
-            words = segment.split()
-        found = launcher_in(words)
-        if found:
-            return found
+    lexer = shlex.shlex(text, posix=posix, punctuation_chars=";&|\n")
+    lexer.whitespace, lexer.whitespace_split, lexer.commenters = " \t\r", True, ""
+    try:
+        tokens = list(lexer)
+    except ValueError:  # an unclosed quote: read it as plain words
+        tokens = re.split(r"([;&|\n]+)|\s+", text)
+    command: list[str] = []
+    for token in [*filter(None, tokens), ";"]:
+        if set(token) <= set(";&|\n"):
+            found = launcher_in(command)
+            if found:
+                return found
+            command = []
+        else:
+            command.append(token)
     return None
-
 
 def launcher_in(command: list[str]) -> str | None:
     """The run launcher `command` invokes, as its program or as the script an interpreter runs (inside a shell's
     `-c` or `-Command` string too), or None. A launcher named only as data, such as an argument to `git diff`, is not
     an invocation."""
-    words = [w for w in command if w]
+    # PowerShell text keeps its quotes: a word wrapped in a matching pair is that word.
+    words = [w[1:-1] if len(w) >= 2 and w[0] == w[-1] and w[0] in "'\"" else w for w in command if w]
     while words and words[0] in ("&", ".", "exec", "env", "nohup"):
         words = words[1:]
     if not words:

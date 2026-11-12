@@ -136,6 +136,10 @@ LAUNCHED = {  # D02 T02 §9: a run starts only when its operator starts it, neve
     "the desktop runner": ["sh", "scripts/run-desktop.sh"],
     "wsl": ["wsl.exe", "-d", "Ubuntu", "--cd", "/home/x/repo", "--", "python3", "scripts/unattended-run.py", "start"],
     "an unattended-run script": ["/repo/scripts/start-unattended-run.sh"],
+    # Round 1 of D02 T02 §9:
+    "a quoted program in PowerShell": ["pwsh", "-Command", "& \"python3\" scripts/unattended-run.py start"],
+    "the launcher's --root before start": ["python3", "scripts/unattended-run.py", "--root", "/home/x/demo", "start"],
+    "a second command on its own line": ["bash", "-c", "cd /repo\npython3 scripts/unattended-run.py start"],
 }
 INSPECTED = {  # a launcher named only as data is no launch
     "git diff of the launcher": ["git", "diff", "--", "scripts/start-run.ps1"],
@@ -143,6 +147,9 @@ INSPECTED = {  # a launcher named only as data is no launch
     "a check that names it": ["python", "scripts/check.py", "scripts/start-run.ps1"],
     "grep in a shell": ["bash", "-c", "grep -n start-run.ps1 README.md"],
     "a module run": ["python", "-m", "unittest", "scripts/unattended-run.py"],
+    # Round 1 of D02 T02 §9: a launcher inside a quoted string is data.
+    "a quoted string that names one": ["bash", "-c", "printf \"%s\\n\" \"note; scripts/start-run.ps1\""],
+    "PowerShell text that names one": ["pwsh", "-Command", "Write-Output 'see scripts/start-run.ps1; then go'"],
 }
 
 
