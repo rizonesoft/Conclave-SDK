@@ -137,6 +137,8 @@ A run that cannot work should not start. The preflight prints one line per preco
 
 ## 4. Launch lock and claim
 
+> **Started:** 2026-11-12T09:57:08Z
+
 Two launches at once would start two agents on one tree. A lock held for the launch and a claim file that names the run stop that, and the claim is the record of who started what. Source: RasterFold `scripts/unattended-run.sh:28` and `scripts/unattended-preflight.py:288`.
 
 **Phase:** 2
