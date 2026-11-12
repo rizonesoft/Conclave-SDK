@@ -1,0 +1,83 @@
+{
+  "ref": "D02 T01 \u00a74",
+  "title": "Heartbeat stall breaker for a harness with no Stop hook",
+  "implementation_sha": "1332025ca229ca7bd740638c50df24f7ca2d8855",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-unattended/D02-T01-s4.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "bosun run -- python -m unittest discover -s tests -> Ran 462 tests, OK (skipped=95)"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-unattended/D02-T01-s4.md",
+    "verdict": "complete",
+    "candidate": "1332025ca229ca7bd740638c50df24f7ca2d8855",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/02-unattended/D02-T01-s4.md",
+    "candidate": "57ef3bb610979be5a63180551acab90cd6522389",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "57ef3bb610979be5a63180551acab90cd6522389",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}

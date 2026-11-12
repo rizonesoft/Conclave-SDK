@@ -39,7 +39,7 @@ title: "TODO-01 -- Run guard for Antigravity and Codex"
 | 1 | §1 | Antigravity payload handled by the Stop hook | -- | [x] |
 | 2 | §2 | Antigravity hook file seeded by the todo kit | §1 | [x] |
 | 3 | §3 | Codex hook script and hook file | -- | [x] |
-| 4 | §4 | Heartbeat stall breaker for a harness with no Stop hook | -- | [ ] |
+| 4 | §4 | Heartbeat stall breaker for a harness with no Stop hook | -- | [x] |
 | 5 | §5 | Guard self-test through each wired hook | §2, §3 | [ ] |
 | 6 | §6 | Run guard steps in the Antigravity and Codex skill copies | §2, §3, §4 | [ ] |
 | 7 | §7 | Live Codex run held by its approved Stop hook | §3 | [ ] |
@@ -160,9 +160,12 @@ When a harness has no Stop hook that can hold a run, the heartbeat is the only t
 - [x] Share the state between the two observers in `stop_decision` of `campaign_guard.py`: it keeps `hb_still` when it writes, and a tree change either one sees resets `blocks`, `hb_still` and `trips`. Done when: interleaved tests (heartbeat stills, then Stop hook blocks, then stills, on an unchanged tree) read the one `fingerprint`, `blocks`, `hb_still` and `trips` after each call, a trip counted by either observer counts toward the other's release, and a change seen by the Stop hook resets the heartbeat's count. **Corrected 2026-11-12 (validation, plan review):** added, then the sharing defined and tested through release.
 - [x] Refuse `heartbeat-still` for a session that does not hold the guard, with exit 1 (a `GuardError`) and the guard untouched. Done when: command-line tests run `python scripts/campaign_guard.py heartbeat-still --root <workspace> --session S` and read the persisted counters after a still, find the release line at the twelfth, and find exit 1 with the state file byte for byte as before for another session and for no guard. **Corrected 2026-11-12 (plan review):** only the function was tested, never the command.
 - [x] Run `python forge.py self-sync` and name the command in the guard's docstring. Done when: `scripts/campaign_guard.py` equals the kit file.
-- [ ] Commit: `todo: heartbeat-still ends a run that changes nothing`
+- [x] Commit: `todo: heartbeat-still ends a run that changes nothing`
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_campaign_guard.py` ends `OK`; never resetting `hb_still` makes the reset test fail.
+
+> **Verified:** 2026-11-12 | §4 | 1332025ca229ca7bd740638c50df24f7ca2d8855
+> **Review:** `docs/reviews/d02-t01-s4.json`
 
 ## 5. Guard self-test through each wired hook
 
