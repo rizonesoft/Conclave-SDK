@@ -692,9 +692,10 @@ def _ended(root: Path, marker: dict, reason: str, state: dict, now: float, out, 
     return FINISHED
 
 
-def remove_own_notice(root: Path, tag: str | None, out) -> None:
+def remove_own_notice(root: Path, tag: str | None, out, strict: bool = False) -> None:
     """Remove the stall notice when it is this run's: an ended run is no longer the live run it describes. A notice
-    of another run is left alone; a removal that fails is said and left for the next start."""
+    of another run is left alone. A removal that fails is said, and with `strict` raised, so the caller keeps the
+    run's end pending and tries again."""
     notice = root / NEEDS_OPERATOR
     try:
         if tag and notice.exists() and f"Run: {tag}\n" in notice.read_text(encoding="utf-8"):
@@ -702,19 +703,19 @@ def remove_own_notice(root: Path, tag: str | None, out) -> None:
             print(f"unattended-run: run {tag} ended; its stall notice is removed", file=out)
     except OSError as exc:
         print(f"unattended-run: the stall notice of run {tag} could not be removed ({exc})", file=out)
+        if strict:
+            raise
 
 
 def record_stop(root: Path, tag: str, now: float, out) -> None:
-    """The operator's stop, recorded where the heartbeat would have: the run's state says it ended and its health says
-    it is not alive (the heartbeat was stopped first, so it cannot). A write that fails is said; the stop stands."""
+    """The operator's stop, recorded where the heartbeat would have: the run's state says it ended, its health says it
+    is not alive and its stall notice goes (the heartbeat was stopped first, so it cannot). Raises OSError when any of
+    it fails, so `stop` keeps the run's marker and a second stop records it."""
     state = read_state(root, tag)
     state.update(ended={"reason": "stopped by the operator", "at": _iso(now)}, alive=False)
-    try:
-        lib.write_atomic(root / HEARTBEAT_STATE, json.dumps(state, indent=2) + "\n")
-        lib.write_atomic(root / HEALTH, json.dumps(health_of(state, now), indent=2) + "\n")
-    except OSError as exc:
-        print(f"stop: the run's health could not be written ({exc}); `status` may still show it alive", file=out)
-    remove_own_notice(root, tag, out)
+    lib.write_atomic(root / HEARTBEAT_STATE, json.dumps(state, indent=2) + "\n")
+    lib.write_atomic(root / HEALTH, json.dumps(health_of(state, now), indent=2) + "\n")
+    remove_own_notice(root, tag, out, strict=True)
 
 
 def heartbeat(root: Path, once: bool = False, clock=time.time, sleep=time.sleep, out=None) -> int:
@@ -763,9 +764,12 @@ def heartbeat(root: Path, once: bool = False, clock=time.time, sleep=time.sleep,
             lib.write_atomic(root / HEARTBEAT_STATE, json.dumps(unsaved, indent=2) + "\n")
             written = HEALTH
             lib.write_atomic(root / HEALTH, json.dumps(health_of(unsaved, clock()), indent=2) + "\n")
+            if code == FINISHED and unsaved.get("ended"):
+                written = NEEDS_OPERATOR
+                remove_own_notice(root, unsaved["session"], out, strict=True)  # the end is whole only without it
             unsaved, pending = None, False
         except OSError as exc:  # a full or failing disk must not end the supervision of the run, or lose its end
-            failed = HEALTH if written == HEALTH else HEARTBEAT_STATE
+            failed = written or HEARTBEAT_STATE
             pending = (pending or code == FINISHED) and bool(unsaved.get("ended"))
             print(f"heartbeat: {failed} could not be written ({exc.strerror or exc}); kept in memory"
                   + ("; written again next tick" if pending else ""), file=out)
@@ -884,10 +888,14 @@ def stop(root: Path, out=None) -> int:
                   "end it", file=out)
             return 1
         if session:
+            try:
+                record_stop(root, session, time.time(), out)
+            except OSError as exc:
+                print(f"stop: the run is stopped, but its end could not be recorded ({exc}); {MARKER} and the claim "
+                      "are kept, so a second stop records it", file=out)
+                return 1
             print(f"stop: claim {lib.clear_claim(root, session, lock_held=True)}", file=out)
         (root / MARKER).unlink(missing_ok=True)
-        if session:
-            record_stop(root, session, time.time(), out)
     print(f"stop: run {session or 'with no marker'} stopped", file=out)
     return 0
 

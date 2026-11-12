@@ -1041,6 +1041,29 @@ class RunTest(unittest.TestCase):
         self.assertEqual(state["ended"]["reason"], "stopped by the operator")
         self.assertFalse((build / "unattended-needs-operator.md").exists(), "the stopped run's notice was left")
 
+    def test_a_stop_whose_record_fails_keeps_the_run_marked_and_a_second_stop_records_it(self):
+        # Completion review of D02 T02 §8: a failed write only printed a warning, and health said alive for good.
+        self.assertEqual(self.launcher("start").returncode, 0)
+        build = self.root / "build"
+        (build / "unattended-health.json").write_text(json.dumps({"alive": True}), encoding="utf-8")
+        run = self.run_module()
+        real = run.lib.write_atomic
+
+        def health_fails(path, text):
+            if path.name == "unattended-health.json":
+                raise OSError(28, "No space left on device")
+            return real(path, text)
+        out = __import__("io").StringIO()
+        with unittest.mock.patch.object(run.lib, "write_atomic", health_fails):
+            self.assertEqual(run.stop(self.root, out), 1, out.getvalue())
+        self.assertIn("a second stop records it", out.getvalue())
+        self.assertTrue((build / "unattended-run.json").exists(), "the marker went with the end unrecorded")
+        self.assertFalse(self.tmux_has("demo-run"), "the run itself was not stopped")
+        done = self.launcher("stop")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIs(json.loads((build / "unattended-health.json").read_text(encoding="utf-8"))["alive"], False)
+        self.assertFalse((build / "unattended-run.json").exists())
+
     def test_the_stall_nudge_reaches_the_runs_pane(self):
         echo = Path(self._tmp.name) / "typed.txt"
         self.assertEqual(self.launcher("start", env={**self.env, "STUB_ECHO": str(echo)}).returncode, 0)
@@ -1556,6 +1579,27 @@ class HeartbeatShipsTest(unittest.TestCase):
         self.tick(T0 + 8 * 3600 + 60, reloaded)
         self.assertIsNone(self.notice(), "the notice outlived the next ship")
         self.assertEqual(reloaded["last_ship"]["commit"], shipped)
+
+    def test_an_ended_runs_notice_whose_removal_fails_is_removed_on_the_next_tick(self):
+        # Completion review of D02 T02 §8: the removal failed once and nothing tried it again.
+        self.write_marker(ship_limit=1)
+        state = self.state()
+        self.tick(T0 + 6 * 3600, state)
+        self.run.lib.write_atomic(self.root / "build" / "unattended-heartbeat.json", json.dumps(state))
+        self.commit("[x]", "[ ]", "stamp §1", T0 + 6 * 3600 + 30)
+        real, failures = Path.unlink, []
+
+        def unlink(path, *args, **kwargs):
+            if path.name == "unattended-needs-operator.md" and len(failures) < 2:
+                failures.append(path)
+                raise OSError(5, "Input/output error")
+            return real(path, *args, **kwargs)
+        sleeps = []
+        with unittest.mock.patch.object(Path, "unlink", unlink):
+            code = self.run.heartbeat(self.root, clock=lambda: T0 + 6 * 3600 + 60, sleep=sleeps.append, out=self.out)
+        self.assertEqual((code, len(sleeps), len(failures)), (self.run.FINISHED, 1, 2))
+        self.assertIsNone(self.notice(), "the ended run's notice outlived the retry")
+        self.assertIs(self.file("build/unattended-health.json")["alive"], False)
 
     def test_a_shorter_stall_hours_and_a_failed_notice_write(self):
         self.write_profile(stall_hours=3)

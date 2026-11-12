@@ -165,64 +165,40 @@ TODO_FILE = re.compile(r"todo/[0-9]{2}-[^/]+/TODO-[0-9]{2}-[^/]+\.md")
 ORDER_TABLE = re.compile(r"^## Implementation Order[ \t]*\r?\n(.*?)(?=^## |\Z)", re.M | re.S)
 
 
-def _diff_path(header: str) -> str | None:
-    """The new side's path from a `+++` header, unquoting git's C-style quoting (`+++ "b/todo/02-caf\303\251/..."`)
-    for a name git would otherwise quote; None for `/dev/null`."""
-    name = header[4:]
-    if name.startswith('"') and name.endswith('"'):
-        import codecs
+def _unquote(name: str) -> str | None:
+    """A path as git prints it, unquoting git's C-style quoting (`"todo/02-caf\303\251/..."`), which it keeps for a
+    name with a control character even with core.quotePath off."""
+    if not (name.startswith('"') and name.endswith('"')):
+        return name
+    import codecs
 
-        try:
-            name = codecs.escape_decode(name[1:-1].encode("ascii", "backslashreplace"))[0].decode("utf-8")
-        except (UnicodeDecodeError, ValueError):
-            return None
-    return name[2:] if name.startswith("b/") else None
-
-
-def shipped_rows(diff: str) -> list[tuple[str, int]]:
-    """(path, section) of each row of a TODO file that one commit's diff turns from `[ ]` to `[x]` (Impossible OS
-    `ship_count.py`). A row that only appears, already `[x]` (a file added or moved), is not a ship."""
-    row = _row_pattern()
-    before, after, current, header = {}, {}, None, False
-    for line in diff.splitlines():
-        # File headers come only between `diff --git` and the first hunk: inside a hunk, an added line that starts
-        # with `++` is content, not a header.
-        if line.startswith("diff --git "):
-            current, header = None, True
-            continue
-        if header:
-            if line.startswith("+++ "):
-                path = _diff_path(line)
-                current = path if path and TODO_FILE.fullmatch(path) else None
-            elif line.startswith("@@"):
-                header = False
-            continue
-        if line[:1] not in ("+", "-") or current is None:
-            continue
-        found = row.match(line[1:].rstrip("\r"))
-        if found:
-            (before if line[0] == "-" else after)[(current, int(found.group(2)))] = found.group(5)
-    return [key for key, status in after.items() if status == "x" and before.get(key, "x") != "x"]
+    try:
+        return codecs.escape_decode(name[1:-1].encode("ascii", "backslashreplace"))[0].decode("utf-8")
+    except (UnicodeDecodeError, ValueError):
+        return None
 
 
-def in_order_table(text: str, number: int) -> bool:
-    """Whether the TODO file's own Implementation Order table holds section `number`'s row as `[x]`: a row of the
-    same shape in a section's body is an example, not the section."""
+def order_table(text: str) -> dict[int, str]:
+    """The rows of the file's own Implementation Order table, section number to status (`" "` or `"x"`). A row of
+    the same shape anywhere else (a section's body, an example) is not in it."""
     table = ORDER_TABLE.search(text or "")
     row = _row_pattern()
-    return bool(table) and any((found := row.match(line.rstrip("\r"))) and int(found.group(2)) == number
-                               and found.group(5) == "x" for line in table.group(1).splitlines())
+    found = {}
+    for line in table.group(1).splitlines() if table else ():
+        match = row.match(line.rstrip("\r"))
+        if match:
+            found[int(match.group(2))] = match.group(5)
+    return found
 
 
-def ships_in_diff(diff: str, file_at=None) -> int:
-    """Rows one commit's diff ships; with `file_at(path)` (the file's text at that commit) only rows in the file's
-    Implementation Order table count."""
-    rows = shipped_rows(diff)
-    if file_at is not None:
-        texts = {}
-        rows = [(path, number) for path, number in rows
-                if in_order_table(texts.setdefault(path, file_at(path)), number)]
-    return len(rows)
+def ships_in_commit(old_text: str, new_text: str) -> int:
+    """Rows a commit turns from `[ ]` to `[x]` in one TODO file's Implementation Order table, the table read whole
+    before and after the commit (Impossible OS `ship_count.py`, which read the diff: a diff pairs lines, not rows, so
+    an example line that becomes the table row hides the ship). A row that only appears, already `[x]` (a file added
+    or moved), is not a ship."""
+    before, after = order_table(old_text), order_table(new_text)
+    return sum(1 for number, status in after.items() if status == "x" and before.get(number, "x") != "x")
+
 
 def _git(root, *args: str, timeout: int = 60) -> str:
     try:
@@ -235,19 +211,32 @@ def _git(root, *args: str, timeout: int = 60) -> str:
     return done.stdout
 
 
+def _file_at(root, commit: str, path: str) -> str:
+    """The file's text at `commit`, or empty when it does not exist there (a file the commit added or removed)."""
+    try:
+        return _git(root, "show", f"{commit}:{path}")
+    except ShipCountError:
+        return ""
+
+
 def ships_along(root, old: str, new: str) -> list[tuple[str, int, int]]:
     """(commit, committer time, rows shipped) for each first-parent commit from `old` (excluded) to `new` that ships
-    a row, in order, each read from the commit's own diff against its first parent: never the working tree, and
-    never the two endpoints alone, which miss a section reopened and shipped again inside the range."""
+    a row, in order: each TODO file the commit changed, its table at the commit against its table at the first
+    parent. Never the working tree, and never the two endpoints alone, which miss a section reopened and shipped
+    again inside the range."""
     _row_pattern()  # a project without the todo kit is refused even over a range with nothing in it
-    # core.quotePath off: a non-ASCII TODO path arrives as itself (a path git still quotes is unquoted below).
-    out = _git(root, "-c", "core.quotePath=false", "log", "--first-parent", "--reverse", "--no-color", "--no-ext-diff",
-               "--unified=0", "--diff-merges=first-parent", "--format=%x00%H %ct", "-p", f"{old}..{new}", "--", "todo")
+    # core.quotePath off: a non-ASCII TODO path arrives as itself (a path git still quotes is unquoted).
+    out = _git(root, "-c", "core.quotePath=false", "log", "--first-parent", "--reverse", "--diff-merges=first-parent",
+               "--name-only", "--format=%x00%H %ct", f"{old}..{new}", "--", "todo")
     found = []
     for chunk in out.split("\0")[1:]:
-        head, _, diff = chunk.partition("\n")
+        head, _, names = chunk.partition("\n")
         sha, _, when = head.partition(" ")
-        shipped = ships_in_diff(diff, lambda path, sha=sha: _git(root, "show", f"{sha}:{path}"))
+        shipped = 0
+        for name in filter(None, names.splitlines()):
+            path = _unquote(name)
+            if path and TODO_FILE.fullmatch(path):
+                shipped += ships_in_commit(_file_at(root, f"{sha}^1", path), _file_at(root, sha, path))
         if shipped:
             found.append((sha, int(when), shipped))
     return found
@@ -256,7 +245,6 @@ def ships_along(root, old: str, new: str) -> list[tuple[str, int, int]]:
 def ships_between(root, old: str, new: str) -> int:
     """The sections shipped from `old` to `new`, commit by commit (`ships_along`)."""
     return sum(count for _sha, _when, count in ships_along(root, old, new))
-
 
 def head_commit(root) -> str:
     return _git(root, "rev-parse", "--verify", "HEAD^{commit}").strip()

@@ -546,10 +546,8 @@ class ShipCountTest(unittest.TestCase):
         base = self.commit("[ ]", "[ ]", "a domain with a non-ASCII name")
         tip = self.commit("[x]", "[ ]", "stamp its §1")
         self.assertEqual(self.lib.ships_between(self.root, base, tip), 1)
-        quoted = ('diff --git "a/todo/02-caf\\303\\251/TODO-01-demo.md" "b/todo/02-caf\\303\\251/TODO-01-demo.md"\n'
-                  '--- "a/todo/02-caf\\303\\251/TODO-01-demo.md"\n+++ "b/todo/02-caf\\303\\251/TODO-01-demo.md"\n'
-                  "@@ -9 +9 @@\n-| 2 | §1 | First | none | [ ] |\n+| 2 | §1 | First | none | [x] |\n")
-        self.assertEqual(self.lib.shipped_rows(quoted), [("todo/02-café/TODO-01-demo.md", 1)])
+        # git keeps quoting a name with a control character even with core.quotePath off.
+        self.assertEqual(self.lib._unquote('"todo/02-caf\\303\\251/TODO-01-demo.md"'), "todo/02-café/TODO-01-demo.md")
 
     def test_rows_outside_a_todo_files_order_table_ship_nothing(self):
         # Round 1 of D02 T02 §8: an example row in todo/README.md, or in a section's body, read as a ship.
@@ -562,6 +560,19 @@ class ShipCountTest(unittest.TestCase):
         self.assertEqual(self.lib.ships_between(self.root, base, tip), 0)
         shipped = self.commit("[x]", "[ ]", "a real stamp", extra=example.format(s="[x]"))
         self.assertEqual(self.lib.ships_between(self.root, tip, shipped), 1)
+
+    def test_an_example_of_a_section_already_shipped_is_no_ship(self):
+        # Completion review of D02 T02 §8: the example names §1, whose table row is already [x], and read as a ship.
+        example = "\n## 2. First\n\nAn example row:\n\n| 2 | §1 | First | none | {s} |\n"
+        base = self.commit("[x]", "[ ]", "§1 shipped, with an example", extra=example.format(s="[ ]"))
+        tip = self.commit("[x]", "[ ]", "tick the example", extra=example.format(s="[x]"))
+        self.assertEqual(self.lib.ships_between(self.root, base, tip), 0)
+
+    def test_a_real_ship_beside_a_removed_example_of_the_same_section_counts(self):
+        example = "\n## 2. First\n\nAn example row:\n\n| 2 | §1 | First | none | [x] |\n"
+        base = self.commit("[ ]", "[ ]", "an example of §1, already ticked", extra=example)
+        tip = self.commit("[x]", "[ ]", "ship §1 and drop the example")
+        self.assertEqual(self.lib.ships_between(self.root, base, tip), 1)
 
     def test_a_project_without_the_todo_kit_is_refused_by_name(self):
         (self.root / "scripts" / "lib" / "todo_graph.py").unlink()
