@@ -5,8 +5,8 @@
 
 Reads the run profile (`.conclave/unattended.json`, through `scripts/lib/unattended.py`) and checks, in order: the
 system (tmux runs on Linux and in WSL only), git (the profile's branch, a clean tree, not behind the upstream as last
-fetched), the run (no campaign guard, or only the one held by `--resume-session`, the run being resumed after a
-crash), the tools on PATH, the agent's Stop hook (wired, its own self-test, and for Codex approved in Codex), disk
+fetched), the run (no campaign guard and no live launch claim, or only those of `--resume-session`, the run being
+resumed after a crash), the tools on PATH, the agent's Stop hook (wired, its own self-test, and for Codex approved in Codex), disk
 and memory headroom, then the profile's own `preflight` commands, each in its own process group with its own
 timeout. A check that cannot run is a FAIL saying why; the checks that do not depend on it still run.
 Standard library only.
@@ -125,6 +125,18 @@ def check_run(root: Path, report: Report, resume_session: str | None = None) -> 
     else:
         report.line(False, "campaign-guard", f"{GUARD} is held by session {session or 'unknown'}: another run is "
                                              "live (resume it with --resume-session, or end it)")
+
+
+def check_claim(root: Path, report: Report, lib, resume_session: str | None = None, session_exists=None) -> None:
+    """No other live launch claim (`build/unattended-launch.json`, through `lib.read_claim`): a stale claim passes
+    with its reason, the resumed run's own live claim passes, and a claim whose liveness tmux cannot tell fails."""
+    claim, live, reason = lib.read_claim(root, session_exists or lib.tmux_session_exists)
+    if live is None:
+        report.line(False, "launch-claim", reason)
+    elif live and not (resume_session and claim.get("session") == resume_session):
+        report.line(False, "launch-claim", f"{reason}: another run is live (resume it with --resume-session)")
+    else:
+        report.line(True, "launch-claim", reason + (", the run being resumed" if live else ""))
 
 
 def check_tools(profile: dict, report: Report) -> None:
@@ -284,6 +296,7 @@ def preflight(root: Path, out=None, system: str | None = None, resume_session: s
     report.line(True, "profile", f"{unattended.PROFILE} loads: {profile['name']}, {profile['agent']}")
     checks = (("git", lambda: check_git(root, profile, report)),
               ("campaign-guard", lambda: check_run(root, report, resume_session)),
+              ("launch-claim", lambda: check_claim(root, report, unattended, resume_session)),
               ("tools", lambda: check_tools(profile, report)),
               ("stop-hook", lambda: check_hook(root, profile, report)),
               ("headroom", lambda: check_headroom(root, profile, report)),

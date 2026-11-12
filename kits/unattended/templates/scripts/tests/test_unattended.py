@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 import unittest.mock
@@ -234,6 +237,166 @@ class LoadProfileTest(unittest.TestCase):
             self.assertIn(phrase, text)
         for name in ("RasterFold", "Impossible OS", "Conclave-SDK"):
             self.assertNotIn(name, text)
+
+
+@unittest.skipUnless(os.name == "posix", "the launch lock is fcntl.flock: Linux and WSL")
+class LaunchLockTest(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+
+    def test_a_second_launch_is_refused_while_the_first_holds_the_lock(self):
+        holder = subprocess.Popen([sys.executable, "-c", (
+            "import importlib.util, sys, time\n"
+            f"spec = importlib.util.spec_from_file_location('u', {str(SCRIPTS / 'lib' / 'unattended.py')!r})\n"
+            "u = importlib.util.module_from_spec(spec); spec.loader.exec_module(u)\n"
+            f"with u.launch_lock({str(self.root)!r}):\n"
+            "    print('held', flush=True); time.sleep(60)\n")], stdout=subprocess.PIPE, text=True)
+        self.addCleanup(lambda: (holder.kill(), holder.wait(), holder.stdout.close()))
+        self.assertEqual(holder.stdout.readline().strip(), "held")
+        with self.assertRaises(unattended.LaunchError) as caught:
+            with unattended.launch_lock(self.root):
+                self.fail("a second launch took the lock")
+        self.assertIn("build/unattended-launch.lock", str(caught.exception))
+        holder.kill()
+        holder.wait()
+        with unattended.launch_lock(self.root) as path:  # the kernel let go when the holder died
+            self.assertEqual(path, self.root / "build" / "unattended-launch.lock")
+
+    def test_the_lock_is_released_when_the_block_ends(self):
+        with unattended.launch_lock(self.root):
+            pass
+        with unattended.launch_lock(self.root):
+            pass
+
+
+class ClaimTest(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.live_sessions = set()
+        self.unknown = False
+
+    def exists(self, name):
+        return None if self.unknown else name in self.live_sessions
+
+    def claim_path(self):
+        return self.root / "build" / "unattended-launch.json"
+
+    def claim(self, session="session-a", tmux="demo-run"):
+        return unattended.write_claim(self.root, session, 4242, "claude", tmux)
+
+    def test_a_written_claim_reads_back(self):
+        written = unattended.write_claim(self.root, "session-a", 4242, "claude", "demo-run",
+                                         started="2026-11-12T10:00:00Z")
+        self.assertEqual(json.loads(self.claim_path().read_text(encoding="utf-8")), written)
+        self.assertEqual(written, {"session": "session-a", "tmux_session": "demo-run", "pid": 4242,
+                                   "agent": "claude", "started": "2026-11-12T10:00:00Z"})
+        self.assertEqual([p.name for p in self.claim_path().parent.iterdir()], ["unattended-launch.json"],
+                         "the temporary file was left behind")
+
+    def test_a_failed_write_leaves_the_old_claim_whole(self):
+        self.claim()
+        before = self.claim_path().read_bytes()
+        with unittest.mock.patch.object(unattended.os, "replace", side_effect=OSError(28, "No space left")):
+            with self.assertRaises(OSError):
+                unattended.write_claim(self.root, "session-b", 2, "codex", "other-run")
+        self.assertEqual(self.claim_path().read_bytes(), before)
+        self.assertEqual(len(list(self.claim_path().parent.iterdir())), 1)
+
+    def test_no_live_gone_unknown_and_malformed_claims(self):
+        self.assertEqual(unattended.read_claim(self.root, self.exists), (None, False, "no launch claim"))
+        self.claim()
+        self.live_sessions.add("demo-run")
+        claim, live, reason = unattended.read_claim(self.root, self.exists)
+        self.assertIs(live, True, reason)
+        self.assertEqual(claim["session"], "session-a")
+        self.unknown = True
+        _claim, live, reason = unattended.read_claim(self.root, self.exists)
+        self.assertIsNone(live)
+        self.assertIn("cannot be told", reason)
+        self.unknown = False
+        self.live_sessions.clear()
+        _claim, live, reason = unattended.read_claim(self.root, self.exists)
+        self.assertIs(live, False)
+        self.assertIn("is gone: stale", reason)
+        for text, why in (("{not json", "not readable JSON"), ("[1]", "not a JSON object"),
+                          (json.dumps({"session": "s"}), "lacks tmux_session")):
+            with self.subTest(text=text):
+                self.claim_path().write_text(text, encoding="utf-8")
+                self.live_sessions.add("demo-run")
+                _claim, live, reason = unattended.read_claim(self.root, self.exists)
+                self.assertIs(live, False)
+                self.assertIn(why, reason)
+                self.assertIn("stale", reason)
+
+    def test_a_live_claim_of_another_session_is_never_cleared(self):
+        self.claim()
+        self.live_sessions.add("demo-run")
+        with self.assertRaises(unattended.LaunchError) as caught:
+            unattended.clear_claim(self.root, "session-b", self.exists)
+        self.assertIn("session-a", str(caught.exception))
+        self.assertTrue(self.claim_path().exists())
+
+    def test_the_owners_own_live_claim_is_cleared(self):
+        self.claim()
+        self.live_sessions.add("demo-run")
+        self.assertIn("stopped", unattended.clear_claim(self.root, "session-a", self.exists))
+        self.assertFalse(self.claim_path().exists())
+        self.assertEqual(list(self.claim_path().parent.iterdir()), [], "the clear left a file behind")
+
+    def test_a_stale_claim_is_cleared_by_anyone_and_a_second_clear_is_a_no_op(self):
+        self.claim()
+        self.assertIn("stale", unattended.clear_claim(self.root, "session-b", self.exists))
+        self.assertFalse(self.claim_path().exists())
+        self.assertEqual(unattended.clear_claim(self.root, "session-b", self.exists), "no launch claim")
+
+    def test_a_claim_whose_liveness_is_unknown_is_never_cleared(self):
+        self.claim()
+        self.unknown = True
+        with self.assertRaises(unattended.LaunchError) as caught:
+            unattended.clear_claim(self.root, "session-b", self.exists)
+        self.assertIn("cannot be told", str(caught.exception))
+        self.assertTrue(self.claim_path().exists())
+
+    def test_a_claim_replaced_after_it_was_read_is_left_in_place(self):
+        self.claim()
+        real = unattended.read_claim
+
+        def read_then_replace(root, session_exists):
+            result = real(root, session_exists)
+            unattended.write_claim(self.root, "session-new", 7, "codex", "new-run")  # a new launch, just now
+            return result
+        with unittest.mock.patch.object(unattended, "read_claim", read_then_replace):
+            with self.assertRaises(unattended.LaunchError) as caught:
+                unattended.clear_claim(self.root, "session-b", self.exists)
+        self.assertIn("replaced after it was read", str(caught.exception))
+        self.assertEqual(json.loads(self.claim_path().read_text(encoding="utf-8"))["session"], "session-new")
+        self.assertEqual([p.name for p in self.claim_path().parent.iterdir()], ["unattended-launch.json"])
+
+    def test_tmux_lookup_failures_are_unknown_and_its_own_answers_are_not(self):
+        def answer(code, stderr):
+            return unittest.mock.patch.object(unattended.subprocess, "run", return_value=subprocess.CompletedProcess(
+                [], code, stdout="", stderr=stderr))
+        for code, stderr, expected in ((0, "", True), (1, "can't find session: =demo-run\n", False),
+                                       (1, "no server running on /tmp/tmux-1000/default\n", False),
+                                       (1, "error connecting to /tmp/tmux-1000/default (Permission denied)\n", None)):
+            with self.subTest(stderr=stderr), answer(code, stderr):
+                self.assertIs(unattended.tmux_session_exists("demo-run"), expected)
+        for error in (FileNotFoundError(2, "No such file", "tmux"), subprocess.TimeoutExpired(["tmux"], 30)):
+            with self.subTest(error=error), unittest.mock.patch.object(unattended.subprocess, "run",
+                                                                       side_effect=error):
+                self.assertIsNone(unattended.tmux_session_exists("demo-run"))
+
+    @unittest.skipUnless(shutil.which("tmux"), "tmux is not installed here (the WSL run has it)")
+    def test_a_real_tmux_session_is_live_and_a_prefix_is_not(self):
+        name = f"claim-test-{os.getpid()}"
+        subprocess.run(["tmux", "new-session", "-d", "-s", name, "sleep 60"], check=True, timeout=30)
+        self.addCleanup(subprocess.run, ["tmux", "kill-session", "-t", f"={name}"], capture_output=True, timeout=30)
+        self.assertIs(unattended.tmux_session_exists(name), True)
+        self.assertIs(unattended.tmux_session_exists(name[:-1]), False)
 
 
 if __name__ == "__main__":

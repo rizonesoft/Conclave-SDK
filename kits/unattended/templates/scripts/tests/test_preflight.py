@@ -197,6 +197,42 @@ class RunCheckTest(Fixture):
         self.assertIn("cannot be read", self.fails(self.check("anything"))[0])
 
 
+class ClaimCheckTest(Fixture):
+    LIB = SCRIPTS / "lib" / "unattended.py"
+
+    def lib(self):
+        spec = importlib.util.spec_from_file_location("unattended_lib_for_claims", self.LIB)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def check(self, live_sessions, resume=None, unknown=False):
+        lib = self.lib()
+        report = self.report()
+        pre.check_claim(self.root, report, lib, resume,
+                        lambda name: None if unknown else name in live_sessions)
+        return self.lines(report)
+
+    def test_each_claim_state(self):
+        self.assertEqual(self.check(set()), ["PASS launch-claim: no launch claim"])
+        self.lib().write_claim(self.root, "session-a", 1, "claude", "demo-run")
+        other = self.check({"demo-run"})
+        self.assertEqual(len(other), 1)
+        self.assertTrue(other[0].startswith("FAIL launch-claim: session session-a is live"), other)
+        own = self.check({"demo-run"}, resume="session-a")
+        self.assertTrue(own[0].startswith("PASS launch-claim:") and "the run being resumed" in own[0], own)
+        stale = self.check(set())
+        self.assertTrue(stale[0].startswith("PASS launch-claim: tmux session demo-run is gone: stale"), stale)
+        unknown = self.check({"demo-run"}, unknown=True)
+        self.assertTrue(unknown[0].startswith("FAIL launch-claim: whether tmux session demo-run"), unknown)
+
+    def test_the_preflight_runs_the_claim_check(self):
+        self.lib().write_claim(self.root, "session-a", 1, "claude", "demo-run")
+        with unittest.mock.patch.object(pre, "check_claim", wraps=pre.check_claim) as called:
+            self.run_preflight(resume_session="session-a")
+        self.assertEqual(called.call_args.args[3], "session-a")
+
 class ToolChecksTest(Fixture):
     def check(self, profile, missing):
         report = self.report()
