@@ -1,0 +1,85 @@
+{
+  "ref": "D02 T01 \u00a76",
+  "title": "Run guard steps in the Antigravity and Codex skill copies",
+  "implementation_sha": "ead7ad537d8adb4f1aa1724253eb410c53ffed77",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-unattended/D02-T01-s6.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest tests.test_process_plan_guard -> Ran 8 tests, OK",
+    "bosun run -- python -m unittest discover -s tests -> OK",
+    "agy 1.5.6 live: the Antigravity copy made, was resumed by, and cancelled its schedule-tool timer"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-unattended/D02-T01-s6.md",
+    "verdict": "reconciled",
+    "candidate": "ead7ad537d8adb4f1aa1724253eb410c53ffed77",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/02-unattended/D02-T01-s6.md",
+    "candidate": "a795133f0f17410482feead9c52e55a87adf8397",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "a795133f0f17410482feead9c52e55a87adf8397",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 5,
+  "pass_cap": 33
+}

@@ -2,7 +2,7 @@
 schema_version: 1
 id: run-guard-three-agents
 domain: 02-unattended
-status: active
+status: done
 title: "TODO-01 -- Run guard for Antigravity and Codex"
 ---
 
@@ -41,7 +41,7 @@ title: "TODO-01 -- Run guard for Antigravity and Codex"
 | 3 | §3 | Codex hook script and hook file | -- | [x] |
 | 4 | §4 | Heartbeat stall breaker for a harness with no Stop hook | -- | [x] |
 | 5 | §5 | Guard self-test through each wired hook | §2, §3 | [x] |
-| 6 | §6 | Run guard steps in the Antigravity and Codex skill copies | §2, §3, §4 | [ ] |
+| 6 | §6 | Run guard steps in the Antigravity and Codex skill copies | §2, §3, §4 | [x] |
 | 7 | §7 | Live Codex run held by its approved Stop hook | §3 | [x] |
 
 ## 1. Antigravity payload handled by the Stop hook
@@ -222,9 +222,12 @@ The Claude copy of `process-plan` tells the session how to start and end the run
 - [x] Retitle "The run guard (Claude Code)" in `kits/todo/README.md` (`:31`) to cover the three agents, with one line per agent naming its hook file. Done when: the README names all three hook files.
 - [x] Extend `test_micro_todo_and_complete_plan_rules_present_across_all_agents` or add a test in `tests/test_forge.py` asserting that each agent's `process-plan` copy names its own hook file. Done when: removing the section from the Codex copy makes it fail.
 - [x] Run `python forge.py self-sync`. Done when: the SDK's three `process-plan` copies equal the kit's.
-- [ ] Commit: `todo: process-plan starts the run guard in every agent`
+- [x] Commit: `todo: process-plan starts the run guard in every agent`
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; deleting the run guard section from the Antigravity copy makes the new test fail.
+
+> **Verified:** 2026-11-12 | §6 | ead7ad537d8adb4f1aa1724253eb410c53ffed77
+> **Review:** `docs/reviews/d02-t01-s6.json`
 
 ## 7. Live Codex run held by its approved Stop hook
 
