@@ -967,9 +967,14 @@ class HeartbeatTickTest(unittest.TestCase):
         self.alive = True
         self.ended = []
         self.out = __import__("io").StringIO()
-        for name, value in (("_alive", lambda name: self.alive),
-                            ("end_run", lambda root, observed, reason, state, now, out, gone=False:
-                             self.ended.append(reason) or self.run.OVER)):
+
+        def end_run(root, observed, reason, state, now, out, gone=False):
+            # What the real end_run leaves behind once a run is over: its end in the state, no marker.
+            self.ended.append(reason)
+            state["ended"] = {"reason": reason, "at": "2026-11-12T00:00:00Z"}
+            (root / "build" / "unattended-run.json").unlink()
+            return self.run.OVER
+        for name, value in (("_alive", lambda name: self.alive), ("end_run", end_run)):
             patch = unittest.mock.patch.object(self.run, name, value)
             patch.start()
             self.addCleanup(patch.stop)
@@ -1023,6 +1028,74 @@ class HeartbeatTickTest(unittest.TestCase):
                 self.run.heartbeat(self.root, clock=lambda: 0.0, sleep=stop_after_two, out=self.out)
         self.assertEqual(sleeps, [PROFILE["tick_seconds"]] * 2)
         self.assertIn("the last tick of", self.out.getvalue())
+
+    def flaky_writes(self, failures):
+        """write_atomic failing its first `failures` calls with a full disk, then writing."""
+        real, calls = self.run.lib.write_atomic, []
+
+        def write(path, text):
+            calls.append(path)
+            if len(calls) <= failures:
+                raise OSError(28, "No space left on device")
+            return real(path, text)
+        return unittest.mock.patch.object(self.run.lib, "write_atomic", write)
+
+    def saved(self):
+        return json.loads((self.root / "build" / "unattended-heartbeat.json").read_text(encoding="utf-8"))
+
+    def test_an_ended_record_whose_write_fails_is_written_again_before_the_heartbeat_stops(self):
+        # Completion review of D02 T02 §7: the loop exited 10 with the record only in memory, and lost it.
+        self.alive = False
+        sleeps = []
+        with self.flaky_writes(2):
+            code = self.run.heartbeat(self.root, clock=lambda: 0.0, sleep=sleeps.append, out=self.out)
+        self.assertEqual((code, len(sleeps), self.ended), (self.run.FINISHED, 2, ["its session is gone"]))
+        self.assertEqual(self.saved()["ended"]["reason"], "its session is gone")
+        self.assertIn("written again next tick", self.out.getvalue())
+
+    def test_a_run_started_while_an_ended_record_waits_is_supervised(self):
+        self.alive = False
+        sleeps = []
+
+        def operator_starts(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) == 1:  # the operator starts a new run while the old record is unwritten
+                self.alive = True
+                (self.root / "build" / "unattended-run.json").write_text(
+                    json.dumps({**self.marker, "session": "tag-2", "agent_session": "tag-2", "pgid": 4343}),
+                    encoding="utf-8")
+            else:
+                raise StopIteration
+        with self.flaky_writes(1), unittest.mock.patch.object(self.run, "_nudge") as nudged:
+            with self.assertRaises(StopIteration):
+                self.run.heartbeat(self.root, clock=lambda: 0.0, sleep=operator_starts, out=self.out)
+        self.assertIn("the operator's new run is supervised now", self.out.getvalue())
+        self.assertEqual((nudged.call_count, self.saved()["session"]), (1, "tag-2"))
+
+    def test_an_unreadable_marker_is_looked_at_again_and_the_runs_state_kept(self):
+        # Completion review of D02 T02 §7: a marker that could not be read ended supervision like an absent one.
+        marker = self.root / "build" / "unattended-run.json"
+        good = marker.read_text(encoding="utf-8")
+        (self.root / "build" / "unattended-heartbeat.json").write_text(
+            json.dumps({"session": "tag-1", "last_nudge": 500.0, "last_error": None, "ended": None}), encoding="utf-8")
+        marker.write_text('{"session": "tag-1", "half": ', encoding="utf-8")  # a write in flight
+        with unittest.mock.patch.object(self.run, "_nudge", side_effect=AssertionError("nudged an unread run")):
+            self.assertEqual(self.tick(0.0, self.state()), 0)
+        self.assertEqual(self.ended, [])
+        sleeps = []
+
+        def readable_again(seconds):
+            sleeps.append(seconds)
+            marker.write_text(good, encoding="utf-8")
+            if len(sleeps) == 2:
+                raise StopIteration
+        marker.write_text('{"session": "tag-1", "half": ', encoding="utf-8")
+        with unittest.mock.patch.object(self.run, "_nudge") as nudged:
+            with self.assertRaises(StopIteration):
+                self.run.heartbeat(self.root, clock=lambda: 0.0, sleep=readable_again, out=self.out)
+        self.assertIn("the run is not touched, looked at again next tick", self.out.getvalue())
+        self.assertEqual(nudged.call_count, 1, "the run was not supervised once its marker read again")
+        self.assertEqual((self.saved()["session"], self.saved()["last_nudge"]), ("tag-1", 500.0))
 
     def test_a_run_its_agent_ended_is_finished_and_another_runs_end_is_not(self):
         (self.root / "build" / "claude-campaign-ended.json").write_text(

@@ -499,8 +499,14 @@ def tick(root: Path, now: float, state: dict, out=None) -> int:
     out = out or sys.stdout
     profile = lib.load_profile(root)
     marker, problem = read_marker(root)
+    if problem:
+        # A marker that is there but cannot be read (a failing disk, a write in flight) names a run this tick cannot
+        # identify: nothing is nudged or ended, and the next tick looks again (completion review of D02 T02 §7).
+        state["last_error"] = f"{problem}; the run is not touched, looked at again next tick"
+        print(f"heartbeat: {state['last_error']}", file=out)
+        return 0
     if marker is None:
-        print(f"heartbeat: {problem or 'no run marker'}; the heartbeat stops", file=out)
+        print("heartbeat: no run marker; the heartbeat stops", file=out)
         return FINISHED
     if run_finished(root, marker):
         return FINISHED if end_run(root, marker, "the run ended itself", state, now, out) == OVER else 0
@@ -518,26 +524,43 @@ def heartbeat(root: Path, once: bool = False, clock=time.time, sleep=time.sleep,
     """Tick every tick_seconds until the run is over. The state is read back from its file on every tick (a heartbeat
     started again carries it on) and kept in memory while a write fails; it writes that file and nothing else. A tick
     that fails (tmux, the guard, the disk, a profile edited mid-run) is recorded and tried again: supervision of a live
-    run never ends on an error. `--once` exits 1 on such a failure."""
-    unsaved, seconds = None, FALLBACK_TICK_SECONDS
+    run never ends on an error. `--once` exits 1 on such a failure. A run's ended record whose write fails is kept and
+    written again every tick until it lands, unless the operator starts a run meanwhile, which is then supervised."""
+    out = out or sys.stdout
+    unsaved, pending, seconds, tag = None, False, FALLBACK_TICK_SECONDS, None
     while True:
-        marker, _ = read_marker(root)
-        tag = marker["session"] if marker else None
-        state = unsaved if unsaved and unsaved.get("session") == tag else read_state(root, tag)
-        try:
-            code = tick(root, clock(), state, out)
-        except (RunError, lib.ProfileError, lib.LaunchError, OSError, subprocess.SubprocessError) as exc:
-            code = 1 if once else 0
-            state["last_error"] = f"the tick failed ({type(exc).__name__}: {exc}); tried again next tick"
-            print(f"heartbeat: {state['last_error']}", file=out or sys.stdout)
-        try:
-            lib.write_atomic(root / HEARTBEAT_STATE, json.dumps(state, indent=2) + "\n")
-            unsaved = None
-        except OSError as exc:  # a full or failing disk must not end the supervision of the run
+        marker, problem = read_marker(root)
+        if pending and (marker is not None or problem):
+            print(f"heartbeat: run {unsaved['session']} ended ({unsaved['ended']['reason']}) and its record could not "
+                  "be written; the operator's new run is supervised now", file=out)
+            unsaved, pending = None, False
+        if pending:
+            code = FINISHED  # the run is over and its record is still in memory: only the write is left
+        else:
+            # An unreadable marker keeps the run's own state (the last tag seen, or the one the state file names): it
+            # is the same run until the marker says otherwise.
+            if marker:
+                tag = marker["session"]
+            elif problem:
+                tag = tag or (read_json(root / HEARTBEAT_STATE) or {}).get("session")
+            else:
+                tag = None
+            state = unsaved if unsaved and unsaved.get("session") == tag else read_state(root, tag)
+            try:
+                code = tick(root, clock(), state, out)
+            except (RunError, lib.ProfileError, lib.LaunchError, OSError, subprocess.SubprocessError) as exc:
+                code = 1 if once else 0
+                state["last_error"] = f"the tick failed ({type(exc).__name__}: {exc}); tried again next tick"
+                print(f"heartbeat: {state['last_error']}", file=out)
             unsaved = state
-            print(f"heartbeat: {HEARTBEAT_STATE} could not be written ({exc.strerror or exc}); kept in memory",
-                  file=out or sys.stdout)
-        if code == FINISHED or once:
+        try:
+            lib.write_atomic(root / HEARTBEAT_STATE, json.dumps(unsaved, indent=2) + "\n")
+            unsaved, pending = None, False
+        except OSError as exc:  # a full or failing disk must not end the supervision of the run, or lose its end
+            pending = code == FINISHED and bool(unsaved.get("ended")) and not once
+            print(f"heartbeat: {HEARTBEAT_STATE} could not be written ({exc.strerror or exc}); kept in memory"
+                  + ("; written again next tick" if pending else ""), file=out)
+        if once or (code == FINISHED and not pending):
             return code
         try:
             seconds = lib.load_profile(root)["tick_seconds"]
