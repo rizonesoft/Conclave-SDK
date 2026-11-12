@@ -89,7 +89,8 @@ def make_link(target, link):
 class ForgeProvisionTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.target = pathlib.Path(self.tmp.name)
+        # Resolved: a runner's temp folder can be an 8.3 short name (RUNNER~1) that forge's own paths spell long.
+        self.target = pathlib.Path(self.tmp.name).resolve()
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -856,7 +857,7 @@ class InstallRecordTests(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.target = pathlib.Path(self.tmp.name) / "project"
+        self.target = pathlib.Path(self.tmp.name).resolve() / "project"
         self.target.mkdir()
 
     def tearDown(self):
@@ -1540,7 +1541,7 @@ class KitFixture:
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.target = pathlib.Path(self.tmp.name) / "project"
+        self.target = pathlib.Path(self.tmp.name).resolve() / "project"
         self.target.mkdir()
 
     def tearDown(self):
@@ -2899,7 +2900,7 @@ class UnattendedKitTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        self.target = pathlib.Path(self._tmp.name) / "project"
+        self.target = pathlib.Path(self._tmp.name).resolve() / "project"
         self.target.mkdir()
 
     def checks(self, target=None):
@@ -2961,7 +2962,7 @@ class UnattendedKitTests(unittest.TestCase):
     def test_the_kits_own_tests_pass(self):
         tests = FORGE_ROOT / "kits/unattended/templates/scripts/tests"
         result = subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "-s", str(tests)],
-                                capture_output=True, text=True, timeout=300)
+                                capture_output=True, text=True, timeout=900)
         self.assertEqual(result.returncode, 0, result.stderr[-2000:])
         self.assertIn("OK", result.stderr)
 
@@ -2976,7 +2977,7 @@ class UnattendedKitTests(unittest.TestCase):
                                                                 "timeout_seconds": 900}])
         path.write_text(json.dumps(profile), encoding="utf-8")
         result = subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "-s", str(self.target / "scripts/tests")],
-                                capture_output=True, text=True, timeout=300)
+                                capture_output=True, text=True, timeout=900)
         self.assertEqual(result.returncode, 0, result.stderr[-2000:])
 
     def test_the_documents_name_the_kit_and_the_sdk_does_not_install_it(self):

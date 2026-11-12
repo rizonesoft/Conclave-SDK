@@ -271,6 +271,22 @@ def tagged(session: str) -> list[int]:
     return found
 
 
+def describe(pids: list[int]) -> str:
+    """Each pid with its command, kernel state and parent, read from /proc, so a process that outlives SIGKILL is
+    named, not only numbered (a CI runner showed one, 2026-11-13)."""
+    parts = []
+    for pid in pids:
+        try:
+            command = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
+            fields = dict(line.split(":", 1) for line in Path(f"/proc/{pid}/status").read_text().splitlines()
+                          if ":" in line)
+            parts.append(f"{pid} ({command.strip()[:120] or '?'}; state {fields.get('State', '?').strip()}; "
+                         f"parent {fields.get('PPid', '?').strip()})")
+        except OSError:
+            parts.append(f"{pid} (ended since)")
+    return ", ".join(parts)
+
+
 def end_run_processes(session: str, pgid: int | None, grace: float = STOP_GRACE_SECONDS) -> list[int]:
     """End the run's process group and every process tagged with its session: wait up to `grace` for them to go
     (tmux has already sent its hangup), then SIGKILL what is left. Returns the pids still alive afterwards."""
@@ -371,7 +387,7 @@ def start(root: Path, out=None, supervise: bool = True, ships: int | None = None
             # ended before anything starts in its place.
             left = end_run_processes(marker["session"], marker["pgid"], grace=2)
             if left:
-                raise RunError(f"the previous run's processes {left} are still running after SIGKILL")
+                raise RunError(f"the previous run's processes {describe(left)} are still running after SIGKILL")
         # The agent session to resume: Claude Code's is the tag; Codex's and Antigravity's is what the run's guard
         # records, and without one (the agent died before it took the guard) the run starts fresh.
         guard = owned_guard(root, old)
@@ -644,7 +660,7 @@ def end_run(root: Path, observed: dict, reason: str, state: dict, now: float, ou
                 if done.returncode != 0:
                     failed = f"its guard did not end ({(done.stdout or done.stderr).strip()[-200:]})"
             if left:
-                failed = f"processes {left} outlived SIGKILL" + (f"; {failed}" if failed else "")
+                failed = f"processes {describe(left)} outlived SIGKILL" + (f"; {failed}" if failed else "")
             if failed:
                 raise RunError(failed)
             # The claim before the marker: while the marker stays, the next tick finds the run and finishes this.
@@ -913,7 +929,7 @@ def stop(root: Path, out=None) -> int:
             tmux("kill-session", "-t", f"={heartbeat}")
         left = end_run_processes(session, marker["pgid"]) if marker else []
         if left:
-            print(f"stop: processes {left} are still running after SIGKILL; {MARKER} and the claim are kept",
+            print(f"stop: processes {describe(left)} are still running after SIGKILL; {MARKER} and the claim are kept",
                   file=out)
             return 1
         if guard_failed:

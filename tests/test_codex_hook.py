@@ -287,6 +287,21 @@ class Trust(Project):
         leaks = [str(w.message) for w in caught if issubclass(w.category, ResourceWarning)]
         self.assertEqual(leaks, [])
 
+    @unittest.skipUnless(os.name == "nt", "the job object is Windows's")
+    def test_a_server_refused_for_want_of_a_job_leaves_no_pipe_open(self):
+        # 2026-11-13, a CI runner where the job could not be made: the refused server's two pipes leaked.
+        import gc
+        import warnings
+
+        _path, env = self.scenario([hook_entry(self.root, "trusted")])
+        with env, warnings.catch_warnings(record=True) as caught, \
+                mock.patch.object(trust_tool, "_kill_on_close_job", return_value=None):
+            warnings.simplefilter("always", ResourceWarning)
+            with self.assertRaises(trust_tool.TrustError):
+                trust_tool.AppServer([sys.executable, str(STUB)], self.root)
+            gc.collect()
+        self.assertEqual([str(w.message) for w in caught if issubclass(w.category, ResourceWarning)], [])
+
     def test_a_trusted_hook_is_not_rewritten_and_check_never_writes(self):
         path, env = self.scenario([hook_entry(self.root, "trusted")])
         with env:

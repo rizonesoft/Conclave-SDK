@@ -151,6 +151,7 @@ class AppServer:
                 # leaves nothing behind.
                 self.proc.kill()
                 self.proc.wait(timeout=10)
+                self._release_pipes()  # our ends of its pipes, or they leak (found on a CI runner, 2026-11-13)
                 raise TrustError("could not put the Codex app-server in a job object; refusing to start it")
             try:
                 _resume(self.proc.pid)
@@ -192,6 +193,14 @@ class AppServer:
         self.proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": method}) + "\n")
         self.proc.stdin.flush()
 
+    def _release_pipes(self) -> None:
+        for pipe in (self.proc.stdin, self.proc.stdout):
+            if pipe is not None:
+                try:
+                    pipe.close()
+                except OSError:  # a pipe whose far end died mid-write is closed all the same
+                    pass
+
     def close(self) -> None:
         """End the server's whole tree whether or not its first process is still running: a descendant can outlive
         a launcher that exited or crashed."""
@@ -209,12 +218,7 @@ class AppServer:
                 os.killpg(self.proc.pid, signal.SIGKILL)  # the group outlives its leader while any member runs
             except ProcessLookupError:  # every process in the group has ended already: nothing is left to stop
                 pass
-        for pipe in (self.proc.stdin, self.proc.stdout):  # the tree is ended: release our ends of its pipes
-            if pipe is not None:
-                try:
-                    pipe.close()
-                except OSError:  # a pipe whose far end died mid-write is closed all the same
-                    pass
+        self._release_pipes()  # the tree is ended: release our ends of its pipes
         try:
             self.proc.wait(timeout=10)
         except subprocess.TimeoutExpired:

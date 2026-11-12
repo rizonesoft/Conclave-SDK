@@ -43,7 +43,7 @@ def run(*arguments, environment=None, drop=()):
                           creationflags=windowless())
 
 
-@unittest.skipUnless(PWSH, "PowerShell 7 (pwsh) is not installed")
+@unittest.skipUnless(PWSH and os.name == "nt", "start-run.ps1 is the SDK's Windows launcher: PowerShell 7 on Windows")
 class StartRunTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -209,7 +209,7 @@ class StartRunTests(unittest.TestCase):
         self.assertNotIn(str(ROOT / "assets"), str(list(icons.iterdir())), "an icon was written into the repository")
 
 
-@unittest.skipUnless(PWSH, "PowerShell 7 (pwsh) is not installed")
+@unittest.skipUnless(PWSH and os.name == "nt", "start-run.ps1 is the SDK's Windows launcher: PowerShell 7 on Windows")
 class CarbonRunnerTests(unittest.TestCase):
     """-Runner agy starts the run in Antigravity on Gemini 4 Carbon, with the same goal."""
 

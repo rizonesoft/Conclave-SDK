@@ -1704,6 +1704,15 @@ class KillWaitTest(unittest.TestCase):
         self.assertIn("at", killed, "the process was never sent SIGKILL")
 
 
+class DescribeTest(unittest.TestCase):
+    @unittest.skipUnless(os.path.isdir("/proc/self"), "/proc is Linux's")
+    def test_a_surviving_process_is_named_with_its_command_state_and_parent(self):
+        run = load_run_module()
+        said = run.describe([os.getpid(), 2 ** 22 + 1])
+        self.assertRegex(said, rf"^{os.getpid()} \(.*python.*; state \S+ .*; parent {os.getppid()}\), ")
+        self.assertTrue(said.endswith(f"{2 ** 22 + 1} (ended since)"))
+
+
 class WindowsTest(unittest.TestCase):
     def test_windows_is_told_to_use_wsl(self):
         run = load_run_module()
