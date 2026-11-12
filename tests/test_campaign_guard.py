@@ -459,7 +459,7 @@ class HeartbeatStill(Workspace):
         self.assertIn("second trip", line)
         self.assertIn("end: stall", line)
         self.assertIsNone(guard.read_guard(self.root), "two trips left the guard held")
-        self.assertIn("job-1", open(os.path.join(self.root, "build", "claude-campaign-pending-cancel.json")).read())
+        self.assertIn("job-1", Path(self.root, "build", "claude-campaign-pending-cancel.json").read_text(encoding="utf-8"))
 
     def test_the_stop_hook_and_the_heartbeat_share_progress_and_trips(self):
         self.acquire()
@@ -513,11 +513,11 @@ class HeartbeatStill(Workspace):
         self.assertEqual(self.run_cli(SESSION).returncode, 0)
         self.assertIn("still 1 of", self.run_cli(SESSION).stdout)
         self.assertEqual(self.state()["hb_still"], 1)
-        before = open(state_path, "rb").read()
+        before = Path(state_path).read_bytes()
         result = self.run_cli(OTHER)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertNotIn("Traceback", result.stderr)
-        self.assertEqual(open(state_path, "rb").read(), before)
+        self.assertEqual(Path(state_path).read_bytes(), before)
         last = None
         for _ in range(2 * guard.MAX_HEARTBEAT_STILLS - 1):  # stills 2 to 12 after the baseline and still 1
             last = self.run_cli(SESSION)
