@@ -642,6 +642,7 @@ def _open_no_follow(path: str) -> int:
 
 
 FILE_SECONDS = 5.0  # the longest the fingerprint waits on one untracked path before counting the rest by name
+STALL_REASON = "the fingerprint could not read every untracked path in time (a path stalled)"
 
 
 def _untracked_line(full: str, path: str, hash_it: bool, stat_it: bool, max_bytes: int) -> bytes:
@@ -753,7 +754,7 @@ def fingerprint(root: str, run_rel: str, run_text: str, deadline: float | None =
         # An incomplete observation is neither progress nor its absence: it is an error, which the Stop hook handles
         # the way it handles every error (it fails open and records the error for the heartbeat), so the breaker's
         # counters are never moved by something nobody could see.
-        raise GuardError("the fingerprint could not read every untracked path in time (a path stalled)")
+        raise GuardError(STALL_REASON)
     jobs.put(None)
     digest.update(re.sub(r"(?m)^- bookkeeping:.*(\r?\n)?", "", run_text).encode("utf-8"))
     return digest.hexdigest()
@@ -1106,30 +1107,50 @@ def _self_test(project: str = REPO, limit: float = SELF_TEST_SECONDS,
                            "hookEventName": "Stop", "fullyIdle": True, "terminationReason": "NO_TOOL_CALL"}
             else:
                 payload = {"session_id": SELF_TEST_SESSION, "cwd": workspace, "hook_event_name": "Stop"}
-            _remove_state(workspace)  # each hook is the run's first push, so none meets the stall breaker
-            try:
-                code, out = _run_wired(command, hook_file, workspace, json.dumps(payload), limit)
-            except GuardError as error:  # the harness's own shell is missing: the hook cannot run as wired
-                failed = True
-                lines.append(f"self-test: FAIL {hook_file}: {error}")
-                continue
-            try:  # the whole of stdout is the answer: a harness reads it as one JSON object, nothing before or after
-                answer = json.loads(out) if out.strip() else None
-            except ValueError:
-                answer = "not JSON"
-            if code is None:
-                problem = f"ran past {limit:g} seconds; its process tree was ended"
-            elif code != 0:
-                problem = f"exited {code}"
-            elif not (isinstance(answer, dict) and answer.get("decision") == decision and answer.get("reason")):
-                shown = out.strip()[:120] or "nothing"
-                problem = f"answered {shown} for a guarded session, not a \"{decision}\" decision with a reason"
-            else:
+            for attempt in (1, 2):
+                _remove_state(workspace)  # each hook is the run's first push, so none meets the stall breaker
+                try:
+                    code, out = _run_wired(command, hook_file, workspace, json.dumps(payload), limit)
+                except GuardError as error:  # the harness's own shell is missing: the hook cannot run as wired
+                    problem, transient = f"cannot run: {error}", False
+                    break
+                try:  # the whole of stdout is the answer: a harness reads it as one JSON object, nothing around it
+                    answer = json.loads(out) if out.strip() else None
+                except ValueError:
+                    answer = "not JSON"
+                transient = False
+                if code is None:
+                    problem = f"ran past {limit:g} seconds; its process tree was ended"
+                elif code != 0:
+                    problem = f"exited {code}"
+                elif not (isinstance(answer, dict) and answer.get("decision") == decision and answer.get("reason")):
+                    shown = out.strip()[:120] or "nothing"
+                    problem = f"answered {shown} for a guarded session, not a \"{decision}\" decision with a reason"
+                    # A hook that fails open records why. A fingerprint that ran out of time on a loaded machine is
+                    # not a wiring defect, so that one reason earns a second try; any other is reported at once.
+                    recorded = _self_test_hook_error(workspace)
+                    if recorded:
+                        problem += f" (it failed open: {recorded})"
+                        transient = STALL_REASON in recorded
+                else:
+                    problem = None
+                if problem is None or not transient or attempt == 2:
+                    break
+            if problem is None:
                 lines.append(f"self-test: {hook_file}: ok ({decision})")
                 continue
             failed = True
             lines.append(f"self-test: FAIL {hook_file}: its Stop command {problem}")
     return (1 if failed else 0), lines
+
+
+def _self_test_hook_error(workspace: str) -> str:
+    """The error a hook recorded in the self-test's workspace when it failed open, or an empty string."""
+    try:
+        line = hook_error(workspace)
+    except GuardError:
+        return ""
+    return line.partition(": ")[2] if line.startswith("campaign-stop hook failed") else line
 
 
 def _remove_state(root: str) -> None:

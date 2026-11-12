@@ -615,6 +615,35 @@ class SelfTest(unittest.TestCase):
         code, lines = self.run_self_test(only=".codex/hooks.json")
         self.assertEqual((code, lines[1:]), (1, ["self-test: FAIL .codex/hooks.json: absent"]))
 
+    def test_a_hook_that_failed_open_on_a_stalled_fingerprint_gets_one_more_try(self):
+        # The quick suite on a loaded machine (2026-11-12): one untracked read in the self-test's workspace took over
+        # FILE_SECONDS, the hook failed open, and the self-test called a sound hook broken.
+        real = guard._run_wired
+        calls = []
+
+        def stalled_once(command, hook_file, workspace, payload, limit):
+            calls.append(hook_file)
+            if len(calls) == 1:
+                guard._record_hook_error(workspace, None, f"GuardError: {guard.STALL_REASON}")
+                return 0, ""
+            return real(command, hook_file, workspace, payload, limit)
+        with mock.patch.object(guard, "_run_wired", stalled_once):
+            code, lines = self.run_self_test(only=".claude/settings.json")
+        self.assertEqual(code, 0, lines)
+        self.assertEqual(calls, [".claude/settings.json"] * 2)
+
+    def test_a_hook_that_failed_open_for_another_reason_fails_at_once_naming_it(self):
+        calls = []
+
+        def broken(command, hook_file, workspace, payload, limit):
+            calls.append(hook_file)
+            guard._record_hook_error(workspace, None, "GuardError: the run file is unreadable")
+            return 0, ""
+        with mock.patch.object(guard, "_run_wired", broken):
+            code, lines = self.run_self_test(only=".claude/settings.json")
+        self.assertEqual(code, 1)
+        self.assertEqual(len(calls), 1, "a non-transient failure was retried")
+        self.assertIn("(it failed open: GuardError: the run file is unreadable", lines[-1])
     def test_the_command_line_takes_one_known_hook_file(self):
         for argv in (["--self-test", "--hook-file"], ["--self-test", "--hook-file", "other.json"],
                      ["--self-test", "--root", "x"]):
