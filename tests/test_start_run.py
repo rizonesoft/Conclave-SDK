@@ -1,4 +1,5 @@
 """Tests for scripts/start-run.ps1, the launcher of the SDK's own unattended run."""
+import ast
 import json
 import os
 import pathlib
@@ -25,13 +26,21 @@ $report | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $env:STUB_REPORT -E
 """
 
 
+def windowless():
+    """The creation flag that starts a console child with no window of its own: these tests start pwsh, and on
+    Windows a console child of a parent with no console (as some runners are) opens one that shows over the owner's
+    work. On 2026-11-12 Office's launcher tests flashed 5 to 10 console windows per run."""
+    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+
 def run(*arguments, environment=None, drop=()):
     """Run the launcher with PowerShell 7 and a time limit. The stand-in for claude exits at once."""
     env = dict(os.environ, CLAUDE_CODE_OAUTH_TOKEN=SENTINEL, **(environment or {}))
     for name in drop:
         env.pop(name, None)
     return subprocess.run([PWSH or "pwsh", "-NoProfile", "-NonInteractive", "-File", str(SCRIPT), *arguments],
-                          capture_output=True, text=True, timeout=120, env=env, stdin=subprocess.DEVNULL)
+                          capture_output=True, text=True, timeout=120, env=env, stdin=subprocess.DEVNULL,
+                          creationflags=windowless())
 
 
 @unittest.skipUnless(PWSH, "PowerShell 7 (pwsh) is not installed")
@@ -174,7 +183,7 @@ class StartRunTests(unittest.TestCase):
             [PWSH or "pwsh", "-NoProfile", "-NonInteractive", "-Command",
              f"$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{quoted}'); "
              "$s.TargetPath; $s.Arguments; $s.WorkingDirectory; $s.IconLocation"],
-            capture_output=True, text=True, timeout=120)
+            capture_output=True, text=True, timeout=120, creationflags=windowless())
         self.assertEqual(read.returncode, 0, read.stderr)
         target, arguments, folder_set, icon = read.stdout.strip().splitlines()
         self.assertEqual(pathlib.Path(target).name.lower(), "pwsh.exe")
@@ -182,6 +191,23 @@ class StartRunTests(unittest.TestCase):
         self.assertEqual(pathlib.Path(folder_set).resolve(), ROOT)
         self.assertEqual(pathlib.Path(icon.rsplit(",", 1)[0]).resolve(), ROOT / "assets/brand/conclave-sdk.ico")
         self.assertTrue((ROOT / "assets/brand/conclave-sdk.ico").is_file())
+
+
+class WindowlessTests(unittest.TestCase):
+    def test_every_process_this_file_starts_gets_no_window(self):
+        tree = ast.parse(pathlib.Path(__file__).read_text(encoding="utf-8"))
+        starts = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                  and isinstance(node.func, ast.Attribute) and node.func.attr in ("run", "Popen")
+                  and isinstance(node.func.value, ast.Name) and node.func.value.id == "subprocess"]
+        self.assertGreaterEqual(len(starts), 2)
+        for call in starts:
+            with self.subTest(line=call.lineno):
+                flags = [k.value for k in call.keywords if k.arg == "creationflags"]
+                self.assertTrue(flags and isinstance(flags[0], ast.Call) and getattr(flags[0].func, "id", "") ==
+                                "windowless", f"line {call.lineno} starts a process without creationflags=windowless()")
+
+    def test_the_flag_is_create_no_window_on_windows_and_none_elsewhere(self):
+        self.assertEqual(windowless(), subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
 
 
 if __name__ == "__main__":
