@@ -36,7 +36,7 @@ STUB = '''#!/usr/bin/env python3
 import json, os, signal, subprocess, sys, time
 NAME = os.path.basename(sys.argv[0])
 if sys.argv[1:] == ["--version"]:
-    print({"claude": "2.1.322 (Claude Code)", "codex": "codex-cli 0.166.0", "agy": "1.5.5"}[NAME])
+    print(os.environ.get("STUB_VERSION") or {"claude": "2.1.322 (Claude Code)", "codex": "codex-cli 0.166.0", "agy": "1.5.5"}[NAME])
     sys.exit(0)
 with open(os.environ["STUB_LOG"], "a") as log:
     log.write(json.dumps({"cli": NAME, "argv": sys.argv[1:], "inside": os.environ.get("CONCLAVE_UNATTENDED_RUN"),
@@ -281,6 +281,17 @@ class RunTest(unittest.TestCase):
         again = self.launcher("start")
         self.assertEqual(again.returncode, 1)
         self.assertIn("already running", again.stderr)
+
+    def test_an_agent_cli_older_than_the_recorded_flags_starts_nothing(self):
+        # Completion review of D02 T02 §6: the version refusal was tested in the preflight alone.
+        self.use_codex()
+        done = self.launcher("start", env={**self.env, "STUB_VERSION": "codex-cli 0.150.1"})
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("FAIL version codex: 0.150.1, older than 0.166.0", done.stdout)
+        self.assertIn("nothing was started", done.stdout)
+        self.assertFalse(self.log.exists(), "the agent was started")
+        self.assertFalse(self.tmux_has("demo-run"))
+        self.assertFalse((self.root / "build" / "unattended-run.json").exists())
 
     def test_a_failed_preflight_starts_nothing(self):
         (self.root / "dirty.txt").write_text("x", encoding="utf-8")
