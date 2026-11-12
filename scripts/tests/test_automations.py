@@ -140,6 +140,10 @@ LAUNCHED = {  # D02 T02 §9: a run starts only when its operator starts it, neve
     "a quoted program in PowerShell": ["pwsh", "-Command", "& \"python3\" scripts/unattended-run.py start"],
     "the launcher's --root before start": ["python3", "scripts/unattended-run.py", "--root", "/home/x/demo", "start"],
     "a second command on its own line": ["bash", "-c", "cd /repo\npython3 scripts/unattended-run.py start"],
+    # Completion review of D02 T02 §9:
+    "an abbreviated --root": ["python3", "scripts/unattended-run.py", "--ro", "/repo", "start"],
+    "a quoted script bash runs": ["bash", "-c", "'scripts/start-run.ps1' -Runner claude"],
+    "a quoted script PowerShell calls": ["pwsh", "-Command", "& 'scripts/start-run.ps1'"],
 }
 INSPECTED = {  # a launcher named only as data is no launch
     "git diff of the launcher": ["git", "diff", "--", "scripts/start-run.ps1"],
@@ -150,6 +154,10 @@ INSPECTED = {  # a launcher named only as data is no launch
     # Round 1 of D02 T02 §9: a launcher inside a quoted string is data.
     "a quoted string that names one": ["bash", "-c", "printf \"%s\\n\" \"note; scripts/start-run.ps1\""],
     "PowerShell text that names one": ["pwsh", "-Command", "Write-Output 'see scripts/start-run.ps1; then go'"],
+    # Completion review of D02 T02 §9:
+    "a quoted semicolon": ["bash", "-c", "printf \"%s\\n\" \";\" \"scripts/start-run.ps1\""],
+    "bash's positional words after -c": ["bash", "-c", "echo ok", "; scripts/start-run.ps1"],
+    "a PowerShell string expression": ["pwsh", "-Command", "'scripts/start-run.ps1'"],
 }
 
 

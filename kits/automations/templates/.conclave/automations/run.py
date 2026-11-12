@@ -62,25 +62,19 @@ def _launcher_script(script: str, args: list[str]) -> bool:
     if not found:
         return False
     if found.group(1).lower() == "unattended-run.py":
-        i = 0
-        while i < len(args):  # its subcommand comes after its own options, `--root <dir>` among them
-            if args[i] == "--root":
-                i += 2
-            elif args[i].startswith("-"):
-                i += 1
-            else:
-                return args[i] == "start"
-        return False
+        # Its subcommand follows options its parser also takes abbreviated (`--ro /repo start`), so `start` anywhere
+        # among its words is a start: no spelling of an option can hide one.
+        return "start" in args
     return True
 
 
-def _launcher_in_text(text: str, posix: bool) -> str | None:
+def _launcher_in_text(text: str, shell: str) -> str | None:
     r"""The launcher the first command of any command in a shell command string invokes, or None. The text is read
-    with its quotes, so a launcher named inside a quoted string is data; `;`, `&&`, `||`, `|`, `&` and a line break
-    end a command. PowerShell text is read without POSIX escapes, so `.\scripts\start-run.ps1` keeps its backslashes."""
+    with its quotes kept, so a launcher or a `;` inside a quoted string is data; an unquoted `;`, `&&`, `||`, `|`, `&`
+    or line break ends a command. Backslashes stay as written, so `.\scripts\start-run.ps1` keeps them."""
     import shlex
 
-    lexer = shlex.shlex(text, posix=posix, punctuation_chars=";&|\n")
+    lexer = shlex.shlex(text, posix=False, punctuation_chars=";&|\n")
     lexer.whitespace, lexer.whitespace_split, lexer.commenters = " \t\r", True, ""
     try:
         tokens = list(lexer)
@@ -88,8 +82,10 @@ def _launcher_in_text(text: str, posix: bool) -> str | None:
         tokens = re.split(r"([;&|\n]+)|\s+", text)
     command: list[str] = []
     for token in [*filter(None, tokens), ";"]:
-        if set(token) <= set(";&|\n"):
-            found = launcher_in(command)
+        if token == "&" and not command:
+            command.append(token)  # at a command's start, `&` is PowerShell's call operator
+        elif set(token) <= set(";&|\n"):
+            found = launcher_in(command, shell)
             if found:
                 return found
             command = []
@@ -97,16 +93,20 @@ def _launcher_in_text(text: str, posix: bool) -> str | None:
             command.append(token)
     return None
 
-def launcher_in(command: list[str]) -> str | None:
+
+def launcher_in(command: list[str], shell: str | None = None) -> str | None:
     """The run launcher `command` invokes, as its program or as the script an interpreter runs (inside a shell's
     `-c` or `-Command` string too), or None. A launcher named only as data, such as an argument to `git diff`, is not
     an invocation."""
-    # PowerShell text keeps its quotes: a word wrapped in a matching pair is that word.
-    words = [w[1:-1] if len(w) >= 2 and w[0] == w[-1] and w[0] in "'\"" else w for w in command if w]
+    words, call = [w for w in command if w], False
     while words and words[0] in ("&", ".", "exec", "env", "nohup"):
-        words = words[1:]
+        call, words = call or words[0] in ("&", "."), words[1:]
     if not words:
         return None
+    if shell == "powershell" and not call and words[0][:1] in "'\"":
+        return None  # a quoted first word in PowerShell is a string, invoked only after `&` or `.`
+    if shell:  # shell text keeps its quotes: a word wrapped in a matching pair is that word (argv words are literal)
+        words = [w[1:-1] if len(w) >= 2 and w[0] == w[-1] and w[0] in "'\"" else w for w in words]
     program = re.split(r"[\\/]", words[0])[-1].lower().removesuffix(".exe")
     if _launcher_script(words[0], words[1:]):
         return words[0]
@@ -117,8 +117,12 @@ def launcher_in(command: list[str]) -> str | None:
         word, low = rest[i], rest[i].lower()
         if program == "wsl" and low in ("--", "-e", "--exec"):
             return launcher_in(rest[i + 1:])
-        if low in ("-c", "-command", "/c") or (program in ("bash", "sh") and re.fullmatch(r"-[a-z]*c[a-z]*", low)):
-            return _launcher_in_text(" ".join(rest[i + 1:]), posix=program not in ("pwsh", "powershell"))
+        if program in ("pwsh", "powershell") and low in ("-c", "-command"):
+            # PowerShell runs the rest of its arguments as one command line.
+            return _launcher_in_text(" ".join(rest[i + 1:]), "powershell")
+        if program in ("bash", "sh") and re.fullmatch(r"-[a-z]*c[a-z]*", low):
+            # bash runs the one string after -c; the words after it are $0, $1 and on, data to that string.
+            return _launcher_in_text(rest[i + 1], "posix") if i + 1 < len(rest) else None
         if low in ("-file", "-f"):
             i += 1
             continue
