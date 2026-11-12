@@ -1,0 +1,84 @@
+{
+  "ref": "D02 T02 \u00a73",
+  "title": "Preflight with a PASS or FAIL line per precondition",
+  "implementation_sha": "d103f250801f07efa5cdee3f2bc10b0af0daed4c",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-unattended/D02-T02-s3.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s kits/unattended/templates/scripts/tests -> OK (Windows 7 POSIX-only skipped; WSL all run)",
+    "python -m unittest discover -s tests -> OK (495)"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-unattended/D02-T02-s3.md",
+    "verdict": "reconciled",
+    "candidate": "d103f250801f07efa5cdee3f2bc10b0af0daed4c",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/02-unattended/D02-T02-s3.md",
+    "candidate": "606545fe2c67b672d84e73b19be83b675ac7d2e3",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "606545fe2c67b672d84e73b19be83b675ac7d2e3",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

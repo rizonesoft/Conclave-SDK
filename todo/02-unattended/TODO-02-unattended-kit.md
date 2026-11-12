@@ -37,7 +37,7 @@ title: "TODO-02 -- Unattended kit"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Unattended kit known to `forge.py` | -- | [x] |
 | 2 | §2 | Run profile `.conclave/unattended.json` and its loader | §1 | [x] |
-| 3 | §3 | Preflight with a PASS or FAIL line per precondition | §2 | [ ] |
+| 3 | §3 | Preflight with a PASS or FAIL line per precondition | §2 | [x] |
 | 4 | §4 | Launch lock and claim | §2 | [ ] |
 | 5 | §5 | Launcher for a Claude Code run under tmux | §3, §4 | [ ] |
 | 6 | §6 | Launch commands for Codex and Antigravity | §5, T01 §2, T01 §3 | [ ] |
@@ -128,9 +128,12 @@ A run that cannot work should not start. The preflight prints one line per preco
 - [x] Run the profile's `preflight` commands from `unattended-preflight.py`: each with no shell, its own timeout, a new process group and the whole group killed on timeout or interrupt (RasterFold `:75`, `:135`), showing only the last line of its output. Done when: a test with a command that starts a child and sleeps past its timeout finds FAIL reporting exit 124 (the check's status; the preflight itself exits 1) and the child gone. Cheaper substitute: `subprocess.run(timeout=...)` must fail the child-gone assertion. **Corrected 2026-11-12 (plan review):** also each command runs from the repository root with its arguments exactly as listed; a nonzero exit is a FAIL with that exit; a program that cannot start is a FAIL saying why; empty output is reported as such; a child left behind by a command that exited is ended; an interrupt ends the group; and output is kept as a bounded in-memory tail of stdout and stderr together (4 KiB), never written to disk, so a check that writes 50 MB, or one long unterminated line, costs no more than that. Each has a test.
 - [x] Report every operational error in `unattended-preflight.py` as a FAIL line, never a traceback: a profile the loader refuses is one FAIL and stops (every check reads it); a missing `git`, a failed git query, a guard script that does not load, unreadable memory or disk figures each FAIL their own check with the reason while the independent checks still run. Done when: tests through `preflight()` find each FAIL line and exit 1 with no traceback. **Added 2026-11-12 (plan review).**
 - [x] Refuse to run on Windows without WSL in `unattended-preflight.py` with one line saying the run needs tmux. Done when: a test with `os.name` patched to `nt` finds exit 1 and that line.
-- [ ] Commit: `unattended: preflight that refuses a run that cannot work`
+- [x] Commit: `unattended: preflight that refuses a run that cannot work`
 
 **Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` ends `OK`; dropping the clean-tree check makes its test fail.
+
+> **Verified:** 2026-11-12 | §3 | d103f250801f07efa5cdee3f2bc10b0af0daed4c
+> **Review:** `docs/reviews/d02-t02-s3.json`
 
 ## 4. Launch lock and claim
 
