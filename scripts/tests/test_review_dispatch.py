@@ -188,9 +188,21 @@ class Harness(unittest.TestCase):
                     raise
                 time.sleep(0.1)
 
+    def python_dir(self):
+        """A folder that holds this Python and nothing else, for PATH: on Linux and WSL the interpreter's own folder is
+        /usr/bin, which also holds git and every other tool, so a test of a missing tool would find it there."""
+        if os.name == "nt":
+            return Path(sys.executable).parent
+        folder = Path(self._tmp.name) / "python-only"
+        if not folder.is_dir():
+            folder.mkdir()
+            for name in ("python3", "python"):
+                (folder / name).symlink_to(sys.executable)
+        return folder
+
     def dispatch(self, *args, cwd=None, **modes):
         system_root = {"SYSTEMROOT": os.environ["SYSTEMROOT"]} if os.name == "nt" else {}
-        env = {"PATH": f"{self.bin}{os.pathsep}{Path(sys.executable).parent}", "FAKE_LOG": str(self.log),
+        env = {"PATH": f"{self.bin}{os.pathsep}{self.python_dir()}", "FAKE_LOG": str(self.log),
                "FAKE_CHILD_PID": str(Path(self._tmp.name) / "child.pid"), **system_root,
                **{var: str(self.scratch) for var in ("TMP", "TEMP", "TMPDIR")},
                **{f"FAKE_{k.upper()}": v for k, v in modes.items()}}
