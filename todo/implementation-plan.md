@@ -61,7 +61,7 @@ Sections: 19 | Checklist items: 123
 | [ ]    | D02 T02 §9  | Boot resume through a systemd user unit                   | none         | 6     |
 | [ ]    | D02 T02 §10 | Desktop shortcut that starts the run                      | windows-host | 5     |
 | [ ]    | D02 T02 §11 | Operator document and `unattended-run` skill              | none         | 6     |
-| [ ]    | D06 T01 §4  | Codex approval of the global hooks `deploy.py` writes     | none         | 4     |
+| [x]    | D06 T01 §4  | Codex approval of the global hooks `deploy.py` writes     | none         | 4     |
 
 ### Phase 3: Todo graph that takes a project's shape
 
@@ -143,6 +143,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 24/74 verified sections, 13 ready to run now.
+Progress: 25/74 verified sections, 12 ready to run now.
 
-Checklist: 231/521 items completed (includes Commit items).
+Checklist: 232/521 items completed (includes Commit items).

@@ -1,0 +1,84 @@
+{
+  "ref": "D06 T01 \u00a74",
+  "title": "Codex approval of the global hooks `deploy.py` writes",
+  "implementation_sha": "0b65d86feaa6dc4f010c2475fd9d4b4f1d3dfac3",
+  "date": "2026-11-12",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/06-global/D06-T01-s4.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s global/tests -> OK",
+    "deploy.py --agent codex (Windows, WSL) -> six user hooks trusted in a fresh hooks/list on each"
+  ],
+  "completion": {
+    "report": "docs/reviews/06-global/D06-T01-s4.md",
+    "verdict": "complete",
+    "candidate": "0b65d86feaa6dc4f010c2475fd9d4b4f1d3dfac3",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/06-global/D06-T01-s4.md",
+    "candidate": "cc6ce66b0ff594492e1ce4e1fd9c07bb875d3288",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "cc6ce66b0ff594492e1ce4e1fd9c07bb875d3288",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}

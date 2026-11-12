@@ -37,7 +37,7 @@ title: "TODO-01 -- Imported material: plugins and retired repositories"
 | 1 | §1 | Plugins registered from `plugins/` | -- | [ ] |
 | 2 | §2 | Superseded copies under `R:/Bin` removed | §1 | [ ] |
 | 3 | §3 | Retired GitHub repositories deleted | §2 | [ ] |
-| 4 | §4 | Codex approval of the global hooks `deploy.py` writes | D02 T01 §3 | [ ] |
+| 4 | §4 | Codex approval of the global hooks `deploy.py` writes | D02 T01 §3 | [x] |
 
 ## 1. Plugins registered from `plugins/`
 
@@ -123,9 +123,12 @@ Filed 2026-11-12 from `D02 T01 §3`. Codex's `hooks/list` reports every hook in 
 - [x] Add a `trust_codex_hooks(home)` step to `deploy_codex` in `global/deploy.py`: after `hooks.json` is written, call `list_hooks` of the todo kit's `codex-hook-trust.py` (with `CODEX_HOME` set from `--home`) and write `trusted_hash` through its `approve_hooks` for each `user`-source hook whose `sourcePath` is the deployed `hooks.json` and whose command names a script under `global/codex/hooks`; skipped with one line under `--dry-run`, when `codex` is not installed, or when the server does not answer in 30 seconds. A hook the operator disabled (`enabled` false) is left disabled, reported as such and never approved; the outcome lists each deployed hook as `approved`, `trusted`, `disabled` or `not approved` with the reason, a refused or timed-out approval leaves the rest reported as they stand, and a rerun approves only what is still not trusted. Done when: deploys on Windows and in WSL each end with every deployed hook `trusted` in a fresh `hooks/list` (each key accounted for) and no other hook's state changed. **Corrected 2026-11-12 (plan review):** disabled hooks, partial failures, the retry and the WSL side were unstated. Cheaper substitute: computing the hash must fail review; Codex computes it.
 - [x] Test `trust_codex_hooks` in `global/tests` with a stub app-server answering recorded responses. Done when: the stub, starting from `modified` hooks, receives one `config/value/write` per deployed hook carrying exactly its key and the `currentHash` the listing gave, and a fresh listing after the writes (the stub applying them) reads `trusted`, so a skipped or corrupted write fails; none is sent for a plugin hook, another file's hook, a disabled hook or one already `trusted`; a listing with no deployed hook, a refused write, a server that stops answering after one approval, `--dry-run` and a missing `codex` each report truthfully; and a test with a relative `--home` and a different ambient `CODEX_HOME` finds every listing and write made against the deployment home and the ambient one untouched. **Corrected 2026-11-12 (plan review):** a recorded success proved no hash was persisted, and `--home` isolation was untested.
 - [x] State the step in `global/README.md`. Done when: the README says that a deploy approves the hooks it wrote and how to check them (`hooks/list` through `codex app-server`, or a Codex session's hook list).
-- [ ] Commit: `global: deploy.py approves the Codex hooks it writes`
+- [x] Commit: `global: deploy.py approves the Codex hooks it writes`
 
 **Test checkpoint:** `python global/deploy.py --agent codex` ends with the deployed hooks `trusted` in Codex's `hooks/list`; making `trust_codex_hooks` skip the write leaves them `modified` and its test fails.
+
+> **Verified:** 2026-11-12 | §4 | 0b65d86feaa6dc4f010c2475fd9d4b4f1d3dfac3
+> **Review:** `docs/reviews/d06-t01-s4.json`
 ## Verification
 
 - Each plugin in `plugins/README.md` loads from this checkout on Windows and in WSL.
