@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Start, show, attach to and stop an unattended agent run held in tmux.
 
-    python3 scripts/unattended-run.py start [--no-heartbeat]   take the launch lock, run the preflight, start (or
-                                                 resume) the run, and its heartbeat unless --no-heartbeat
-    python3 scripts/unattended-run.py status     whether the run is live, its session, start, guard and health
+    python3 scripts/unattended-run.py start [--ships N] [--no-heartbeat]   take the launch lock, run the preflight,
+                                                 start (or resume) the run, and its heartbeat unless --no-heartbeat;
+                                                 --ships N ends the run once it has shipped N sections
+    python3 scripts/unattended-run.py status     whether the run is live, its session, start, guard, health and stall
     python3 scripts/unattended-run.py attach [--watch]   attach to the run's tmux session (--watch: read-only)
     python3 scripts/unattended-run.py stop       end the guard, the tmux sessions and the whole process group
     python3 scripts/unattended-run.py heartbeat [--once]   nudge an idle run; record a dead one as ended (start runs it)
@@ -13,6 +14,9 @@ started it. `build/unattended-run.json` (the run marker) names the run: its agen
 process group. A run never restarts itself (owner decision 2026-11-12): only the operator's `start` starts one, and
 `stop`, a crash or a reboot ends it. The heartbeat nudges a live run and records a dead one as ended, stopping all it
 started. An operator's `start` that finds a marker left without a heartbeat continues that agent session.
+The heartbeat also counts the sections the run ships (rows turned `[x]`, commit by commit), writes
+`build/unattended-health.json` every tick, ends a bounded run at its limit, and writes `build/unattended-needs-operator.md`
+when nothing has shipped for `stall_hours`.
 `status` and `stop` follow the marker, so a profile changed during a run cannot strand it. Linux and WSL only (tmux).
 Standard library only.
 """
@@ -24,6 +28,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import signal
 import subprocess
@@ -39,9 +44,16 @@ MARKER = "build/unattended-run.json"
 # `session` is the run's tag (CONCLAVE_UNATTENDED_TAG, the claim's session, and Claude Code's own --session-id);
 # `agent_session` is the agent's own session id: the tag for Claude Code, and for Codex and Antigravity, which choose
 # their own, the id the run's guard records (None until then).
-MARKER_KEYS = ("session", "agent_session", "tmux_session", "heartbeat_session", "agent", "pgid", "started", "resumed")
+# `start_commit` and `run_started` are the run's baseline (HEAD and the time of its fresh start, both kept by a resume,
+# where `started` is the resume's own time) and `ship_limit` its bound (`start --ships N`, None when unbounded).
+MARKER_KEYS = ("session", "agent_session", "tmux_session", "heartbeat_session", "agent", "pgid", "started", "resumed",
+               "start_commit", "run_started", "ship_limit")
+# Keys a marker written before them lacks, read as unknown: the agent session before D02 T02 §6, the baseline and the
+# bound before D02 T02 §8 (such a run is unbounded, and the heartbeat's first look is its baseline).
+LEGACY_KEYS = ("agent_session", "start_commit", "run_started", "ship_limit")
 GUARD = "build/claude-campaign-guard.json"
-HEALTH = "build/unattended-health.json"  # written by the heartbeat (D02 T02 §8) when it runs
+HEALTH = "build/unattended-health.json"  # written by the heartbeat on every tick
+NEEDS_OPERATOR = "build/unattended-needs-operator.md"  # the stall notice: nothing has shipped for stall_hours
 HEARTBEAT_STATE = "build/unattended-heartbeat.json"
 ENDED = "build/claude-campaign-ended.json"  # written by campaign_guard.py end: how the last run ended
 FINISHED = 10  # the heartbeat's exit status when the run is over: stopped, ended by its agent, or dead
@@ -71,6 +83,10 @@ RESUME_PROMPT = ("Resume the unattended run where it stopped: run process-plan, 
 
 class RunError(RuntimeError):
     """A launcher step that cannot go ahead, said in one line."""
+
+
+class UsageError(RunError):
+    """A start the operator asked for in a form that cannot be run (exit 2), said with what to do instead."""
 
 
 def _load(name: str, path: Path):
@@ -121,11 +137,21 @@ def read_marker(root: Path) -> tuple[dict | None, str | None]:
         return None, None
     except (OSError, ValueError) as exc:
         return None, f"{MARKER} cannot be read ({exc})"
-    if isinstance(data, dict) and set(data) == set(MARKER_KEYS) - {"agent_session"}:
-        # A marker written before D02 T02 §6, when the tag was Claude Code's session and the only agent was Claude.
-        data = {**data, "agent_session": data.get("session") if data.get("agent") == "claude" else None}
+    if isinstance(data, dict) and set(MARKER_KEYS) - set(LEGACY_KEYS) <= set(data) <= set(MARKER_KEYS):
+        if "agent_session" not in data:
+            # Before D02 T02 §6 the tag was Claude Code's session and the only agent was Claude.
+            data = {**data, "agent_session": data.get("session") if data.get("agent") == "claude" else None}
+        data = {**{key: None for key in LEGACY_KEYS}, **data}
     if not isinstance(data, dict) or set(data) != set(MARKER_KEYS):
         return None, f"{MARKER} does not hold {', '.join(MARKER_KEYS)}"
+    if data["start_commit"] is not None and not (isinstance(data["start_commit"], str)
+                                                 and re.fullmatch(r"[0-9a-f]{40}", data["start_commit"])):
+        return None, f"{MARKER} holds a start commit that is not a commit id"
+    if data["run_started"] is not None and not isinstance(data["run_started"], str):
+        return None, f"{MARKER} holds a run start that is not a time"
+    limit = data["ship_limit"]
+    if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0):
+        return None, f"{MARKER} holds a ship limit that is not a whole number above 0"
     if not all(isinstance(data[k], str) and data[k] for k in ("session", "tmux_session", "heartbeat_session")):
         return None, f"{MARKER} names no session"
     if not isinstance(data["pgid"], int) or isinstance(data["pgid"], bool) or data["pgid"] <= 1:
@@ -304,9 +330,10 @@ def _launch(root: Path, run_session: str, argv: list[str], session: str) -> int:
         raise
 
 
-def start(root: Path, out=None, supervise: bool = True) -> int:
+def start(root: Path, out=None, supervise: bool = True, ships: int | None = None) -> int:
     """Start the run, as the operator asked. `supervise` launches the heartbeat in its own tmux session when it is not
-    running. Nothing calls this but the operator: no heartbeat, unit or task restarts a run."""
+    running. `ships` bounds a fresh run to that many sections shipped; a resume keeps the run's own bound. Nothing
+    calls this but the operator: no heartbeat, unit or task restarts a run."""
     out = out or sys.stdout
     profile = lib.load_profile(root)
     run_session, heartbeat = names(profile)
@@ -323,6 +350,16 @@ def start(root: Path, out=None, supervise: bool = True) -> int:
             raise RunError(f"tmux session {run_session} is already running: attach with "
                            "'python3 scripts/unattended-run.py attach', or stop it first")
         old = marker
+        # The bound belongs to the run: a resume keeps it, and only the heartbeat enforces it (run.sh:91).
+        kept = old["ship_limit"] if old else None
+        if old and ships is not None and ships != kept:
+            own = f"is bounded to {kept} section(s)" if kept else "has no ship limit"
+            raise UsageError(f"run {old['session']} {own}; a resume keeps the run's own bound: stop the run to start "
+                             "one with another")
+        limit = kept if old else ships
+        if limit is not None and not supervise:
+            raise UsageError(f"a run bounded to {limit} section(s) needs its heartbeat, which enforces the bound: "
+                             "start it without --no-heartbeat")
         if marker:
             # The tmux session is gone, but that does not prove its processes are: a crashed run's leftovers are
             # ended before anything starts in its place.
@@ -344,6 +381,10 @@ def start(root: Path, out=None, supervise: bool = True) -> int:
             print("start: the preflight refused the run (FAIL lines above); nothing was started", file=out)
             return 1
         started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        try:
+            head = lib.head_commit(root)
+        except lib.ShipCountError as exc:
+            raise RunError(f"the run's start commit cannot be read ({exc})") from None
         session = agent_session = pid = None
         if old and not resume:
             _end_old_guard(root, old, out)  # nothing to resume: the crashed run's guard is ended before a fresh start
@@ -359,9 +400,14 @@ def start(root: Path, out=None, supervise: bool = True) -> int:
             session = str(uuid.uuid4())
             agent_session = session if profile["agent"] == "claude" else None
             pid = _launch(root, run_session, agent_command(root, profile, session, None), session)
+        resumed = session == (old["session"] if old else None)
         marker = {"session": session, "agent_session": agent_session, "tmux_session": run_session,
                   "heartbeat_session": heartbeat, "agent": profile["agent"], "pgid": pid, "started": started,
-                  "resumed": session == (old["session"] if old else None)}
+                  "resumed": resumed,
+                  # A resume keeps the run's baseline (a run marked before D02 T02 §8 keeps having none); a fresh
+                  # session, a fallback included, starts its own.
+                  "start_commit": old["start_commit"] if resumed else head,
+                  "run_started": old["run_started"] if resumed else started, "ship_limit": limit}
         try:
             lib.write_atomic(root / MARKER, json.dumps(marker, indent=2) + "\n")
             lib.write_claim(root, session, pid, profile["agent"], run_session, started=started)
@@ -373,6 +419,8 @@ def start(root: Path, out=None, supervise: bool = True) -> int:
             (root / MARKER).unlink(missing_ok=True)
             lib.clear_claim(root, session, lock_held=True)
             raise RunError(f"the run's state could not be written ({exc}); the run was ended") from None
+        if not resumed:
+            _clear_stall_notice(root, out, reason="a fresh run started")
     print(f"start: {'resumed' if marker['resumed'] else 'started'} session {session} in tmux session "
           f"{run_session} (attach: python3 scripts/unattended-run.py attach)", file=out)
     if supervise:
@@ -394,7 +442,106 @@ def read_state(root: Path, tag: str | None) -> dict:
     state = read_json(root / HEARTBEAT_STATE) or {}
     if state.get("session") != tag:
         state = {}
-    return {"session": tag, **{key: state.get(key) for key in ("last_nudge", "last_error", "ended")}}
+    return {"session": tag, **{key: state.get(key) for key in STATE_KEYS}}
+
+
+# The heartbeat's state for its run: the nudge throttle and the last error (§7); the one ship count the health file,
+# the limit and the stall clock all read (`base`, the commit it counts from; `ships`; `counted`, the last commit
+# counted; `last_ship`), the run's start and bound as last seen, the stall notice's throttle and whether it was alive.
+STATE_KEYS = ("last_nudge", "last_error", "ended", "base", "ships", "counted", "last_ship", "run_started",
+              "ship_limit", "stall_notice_at", "alive")
+STALL_PROMPT = ("Nothing has shipped for hours. Before more section work, find out why from git log, the gate log and "
+                "the test artifacts. Fix the cause in the layer that owns it, or record it and move to another section. "
+                "Never ask the operator a question.")
+
+
+def _iso(epoch: float) -> str:
+    return datetime.fromtimestamp(epoch, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _epoch(stamp: str | None) -> float | None:
+    try:
+        return datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp() if stamp \
+            else None
+    except (TypeError, ValueError):
+        return None
+
+
+def count_ships(root: Path, marker: dict, state: dict, now: float) -> None:
+    """Advance the run's one ship count to HEAD, counting only the commits after the last one counted. A run marked
+    before D02 T02 §8 has no start commit: the heartbeat's first look (HEAD then, and the marker's `started`) is its
+    baseline. The count starts again from the baseline when the state is missing or history was rewritten under it."""
+    head = lib.head_commit(root)
+    if marker["start_commit"]:
+        base, run_started = marker["start_commit"], marker["run_started"]
+    else:
+        base = state.get("base") or head
+        run_started = state.get("run_started") or marker["started"]
+    state["run_started"], state["ship_limit"] = run_started, marker["ship_limit"]
+    if state.get("base") != base or not state.get("counted") or not lib.is_ancestor(root, state["counted"], head):
+        state.update(base=base, ships=0, counted=base, last_ship=None)
+    if state["counted"] == head:
+        return
+    for sha, when, shipped in lib.ships_along(root, state["counted"], head):
+        state["ships"] += shipped
+        state["last_ship"] = {"commit": sha, "at": _iso(when)}
+    state["counted"] = head
+
+
+def health_of(state: dict, now: float) -> dict:
+    """The health file's contents, from the run's state alone, so the ended run's last write needs no marker."""
+    since = _epoch((state.get("last_ship") or {}).get("at")) or _epoch(state.get("run_started"))
+    return {"alive": bool(state.get("alive")), "run": state.get("session"), "ships": state.get("ships") or 0,
+            "ship_limit": state.get("ship_limit"), "last_ship": state.get("last_ship"),
+            "hours_since_ship": round((now - since) / 3600, 2) if since is not None else None,
+            "last_nudge": _iso(state["last_nudge"]) if state.get("last_nudge") else None, "updated": _iso(now)}
+
+
+def _stall(root: Path, state: dict, profile: dict, now: float, out) -> bool:
+    """Whether the run has shipped nothing for stall_hours. A stalled run gets the stall notice, at most once per
+    stall_hours (its throttle in the run's own state, moved only by a notice written); a run that is not stalled has
+    its own notice removed. A write or removal that fails is recorded and tried again next tick."""
+    since = _epoch((state.get("last_ship") or {}).get("at")) or _epoch(state.get("run_started"))
+    if since is None:
+        return False
+    hours = (now - since) / 3600
+    limit = profile["stall_hours"]
+    if hours < limit:
+        notice = root / NEEDS_OPERATOR
+        try:
+            if notice.exists() and f"Run: {state['session']}\n" in notice.read_text(encoding="utf-8"):
+                notice.unlink()
+                print(f"heartbeat: run {state['session']} shipped; the stall notice is removed", file=out)
+            state["stall_notice_at"] = None
+        except OSError as exc:
+            state["last_error"] = f"the stall notice could not be removed ({exc}); tried again next tick"
+        return False
+    if state.get("stall_notice_at") and now - state["stall_notice_at"] < limit * 3600:
+        return True
+    last = state.get("last_ship")
+    shipped = f"the last ship was {last['commit']} at {last['at']}" if last else \
+        f"nothing has shipped since the run started at {state.get('run_started')}"
+    text = (f"# Nothing has shipped for {hours:.1f} hours\n\nRun: {state['session']}\n\nThe unattended run is alive, but "
+            f"no section has shipped for {hours:.1f} hours (stall_hours is {limit}): {shipped}. Read the run file, "
+            "git log and the gate logs, then attach (`python3 scripts/unattended-run.py attach`) or stop the run.\n")
+    try:
+        lib.write_atomic(root / NEEDS_OPERATOR, text)
+        state["stall_notice_at"] = now
+        print(f"heartbeat: nothing has shipped for {hours:.1f} hours; {NEEDS_OPERATOR} written", file=out)
+    except OSError as exc:
+        state["last_error"] = f"the stall notice could not be written ({exc}); tried again next tick"
+        print(f"heartbeat: {state['last_error']}", file=out)
+    return True
+
+
+def _clear_stall_notice(root: Path, out, reason: str) -> None:
+    notice = root / NEEDS_OPERATOR
+    try:
+        if notice.exists():
+            notice.unlink()
+            print(f"start: the previous run's stall notice is removed ({reason})", file=out)
+    except OSError as exc:
+        print(f"start: the previous run's stall notice could not be removed ({exc})", file=out)
 
 
 def run_finished(root: Path, marker: dict) -> bool:
@@ -407,10 +554,11 @@ def run_finished(root: Path, marker: dict) -> bool:
         marker.get("agent_session") and ended.get("session_id") == marker["agent_session"])
 
 
-def _nudge(root: Path, run_session: str, profile: dict, state: dict, now: float, out) -> None:
+def _nudge(root: Path, run_session: str, profile: dict, state: dict, now: float, out,
+           prompt: str = NUDGE_PROMPT) -> None:
     """Prompt a run whose window has shown nothing for idle_minutes, at most once per idle_minutes, unless an
     operator is attached with a client that can type (a read-only watcher does not count). A nudge counts only when
-    tmux answered the client query and accepted the prompt."""
+    tmux answered the client query and accepted the prompt. A stalled run gets the stall prompt (§8)."""
     idle = profile["idle_minutes"] * 60
     target = f"={run_session}:agent"
     shown = tmux("display-message", "-p", "-t", target, "#{window_activity}")
@@ -426,7 +574,7 @@ def _nudge(root: Path, run_session: str, profile: dict, state: dict, now: float,
         return
     if "0" in clients.stdout.split():
         return  # an operator is attached and may be typing
-    typed = tmux("send-keys", "-t", target, "-l", NUDGE_PROMPT)
+    typed = tmux("send-keys", "-t", target, "-l", prompt)
     entered = tmux("send-keys", "-t", target, "Enter") if typed.returncode == 0 else typed
     if entered.returncode != 0:
         state["last_error"] = f"tmux did not take the nudge for {run_session}: {(entered.stderr or '').strip()}"
@@ -511,21 +659,41 @@ def tick(root: Path, now: float, state: dict, out=None) -> int:
     if marker is None:
         print("heartbeat: no run marker; the heartbeat stops", file=out)
         return FINISHED
+    try:
+        count_ships(root, marker, state, now)
+    except lib.ShipCountError as exc:  # the count waits for the next tick; supervision does not
+        state["last_error"] = f"ships could not be counted ({exc}); counted again next tick"
+        print(f"heartbeat: {state['last_error']}", file=out)
     if run_finished(root, marker):
-        return FINISHED if end_run(root, marker, "the run ended itself", state, now, out) == OVER else 0
+        return _ended(root, marker, "the run ended itself", state, now, out)
+    if marker["ship_limit"] and (state.get("ships") or 0) >= marker["ship_limit"]:
+        print(f"heartbeat: run {marker['session']} shipped {state['ships']} of its {marker['ship_limit']} section(s)",
+              file=out)
+        return _ended(root, marker, "the ship limit was reached", state, now, out)
     live = _alive(marker["tmux_session"])
     if live is None:
         state["last_error"] = "tmux could not be asked whether the run is alive"
         return 0
     if not live:
-        return FINISHED if end_run(root, marker, "its session is gone", state, now, out, gone=True) == OVER else 0
-    _nudge(root, marker["tmux_session"], profile, state, now, out)
+        return _ended(root, marker, "its session is gone", state, now, out, gone=True)
+    state["alive"] = True
+    stalled = _stall(root, state, profile, now, out)
+    _nudge(root, marker["tmux_session"], profile, state, now, out, STALL_PROMPT if stalled else NUDGE_PROMPT)
     return 0
+
+
+def _ended(root: Path, marker: dict, reason: str, state: dict, now: float, out, gone: bool = False) -> int:
+    """FINISHED once the run is ended (its last health then says it is not alive), 0 while the cleanup waits."""
+    if end_run(root, marker, reason, state, now, out, gone=gone) != OVER:
+        return 0
+    state["alive"] = False
+    return FINISHED
 
 
 def heartbeat(root: Path, once: bool = False, clock=time.time, sleep=time.sleep, out=None) -> int:
     """Tick every tick_seconds until the run is over. The state is read back from its file on every tick (a heartbeat
-    started again carries it on) and kept in memory while a write fails; it writes that file and nothing else. A tick
+    started again carries it on) and kept in memory while a write fails; it writes that file, the health file and the
+    stall notice, and nothing else. A tick
     that fails (tmux, the guard, the disk, a profile edited mid-run) is recorded and tried again: supervision of a live
     run never ends on an error. `--once` exits 1 on such a failure. A run's ended record whose write fails is kept and
     written again every tick until it lands (under `--once` too), and the heartbeat stops only then and only once the
@@ -542,6 +710,7 @@ def heartbeat(root: Path, once: bool = False, clock=time.time, sleep=time.sleep,
         if marker is None and not problem and not pending:
             print("heartbeat: no run marker; the heartbeat stops", file=out)
             return FINISHED
+        written = None
         if pending:
             # The run is over and its record is still in memory: only the write is left. While the marker cannot be
             # read, a run the operator started may be behind it, so the heartbeat does not stop yet.
@@ -565,10 +734,13 @@ def heartbeat(root: Path, once: bool = False, clock=time.time, sleep=time.sleep,
             unsaved = state
         try:
             lib.write_atomic(root / HEARTBEAT_STATE, json.dumps(unsaved, indent=2) + "\n")
+            written = HEALTH
+            lib.write_atomic(root / HEALTH, json.dumps(health_of(unsaved, clock()), indent=2) + "\n")
             unsaved, pending = None, False
         except OSError as exc:  # a full or failing disk must not end the supervision of the run, or lose its end
+            failed = HEALTH if written == HEALTH else HEARTBEAT_STATE
             pending = (pending or code == FINISHED) and bool(unsaved.get("ended"))
-            print(f"heartbeat: {HEARTBEAT_STATE} could not be written ({exc.strerror or exc}); kept in memory"
+            print(f"heartbeat: {failed} could not be written ({exc.strerror or exc}); kept in memory"
                   + ("; written again next tick" if pending else ""), file=out)
         if not pending and (once or code == FINISHED):
             return code
@@ -625,6 +797,13 @@ def status(root: Path, out=None) -> int:
     print(f"heartbeat state: {json.dumps(beat, sort_keys=True)}" if beat else "heartbeat state: none", file=out)
     health = read_json(root / HEALTH)
     print(f"health: {json.dumps(health, sort_keys=True)}" if health else "health: none", file=out)
+    try:
+        notice = (root / NEEDS_OPERATOR).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        notice = None
+    except OSError as exc:
+        notice = f"{NEEDS_OPERATOR} cannot be read ({exc})"
+    print(f"needs operator:\n{notice.rstrip()}" if notice else "needs operator: no", file=out)
     return 0
 
 
@@ -684,12 +863,21 @@ def stop(root: Path, out=None) -> int:
     return 0
 
 
+def _ship_limit(text: str) -> int:
+    """`--ships N`: a whole number above 0."""
+    if not re.fullmatch(r"[0-9]+", text or "") or int(text) <= 0:
+        raise argparse.ArgumentTypeError(f"must be a whole number above 0, got {text!r}")
+    return int(text)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Start, show, attach to and stop an unattended agent run.")
     parser.add_argument("--root", default=str(HERE.parent), help="the repository (default: this script's)")
     sub = parser.add_subparsers(dest="command", required=True)
     start_parser = sub.add_parser("start")
     start_parser.add_argument("--no-heartbeat", action="store_true", help="start the run without its heartbeat")
+    start_parser.add_argument("--ships", type=_ship_limit, metavar="N",
+                              help="end the run once it has shipped N sections (the heartbeat enforces it)")
     sub.add_parser("status")
     attach_parser = sub.add_parser("attach")
     attach_parser.add_argument("--watch", action="store_true", help="attach read-only")
@@ -703,7 +891,7 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(args.root).resolve()
     try:
         if args.command == "start":
-            return start(root, supervise=not args.no_heartbeat)
+            return start(root, supervise=not args.no_heartbeat, ships=args.ships)
         if args.command == "status":
             return status(root)
         if args.command == "attach":
@@ -711,6 +899,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "heartbeat":
             return heartbeat(root, once=args.once)
         return stop(root)
+    except UsageError as exc:
+        print(f"unattended-run: {exc}", file=sys.stderr)
+        return 2
     except (RunError, lib.ProfileError, lib.LaunchError) as exc:
         print(f"unattended-run: {exc}", file=sys.stderr)
         return 1

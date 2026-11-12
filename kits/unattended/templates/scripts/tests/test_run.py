@@ -67,6 +67,10 @@ time.sleep(300)
 '''
 
 
+TABLE = ("# TODO-01 -- Demo\n\n## Implementation Order\n\n| Order | § | Deliverable | Depends On | Done |\n"
+         "| ----- | - | ----------- | ---------- | ---- |\n| 1 | §2 | Second | none | {s2} |\n| 2 | §1 | First | none | {s1} |\n")
+
+
 def windowless():
     """No console window of its own for any process a test starts on Windows (a console child of a parent with
     none opens one over the owner's work: 2026-11-12, Office's launcher tests flashed 5 to 10); 0 elsewhere."""
@@ -187,7 +191,7 @@ class RunTest(unittest.TestCase):
             (self.root / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(TEMPLATES / rel, self.root / rel)
         for rel in ("scripts/campaign_guard.py", "scripts/codex-campaign-hook.py", "scripts/codex-hook-trust.py",
-                    ".claude/settings.json"):
+                    "scripts/lib/todo_graph.py", ".claude/settings.json"):
             (self.root / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(TODO / rel, self.root / rel)
         (self.root / ".conclave").mkdir()
@@ -195,6 +199,9 @@ class RunTest(unittest.TestCase):
         (self.root / "docs").mkdir()
         (self.root / "docs" / "unattended-prompt.md").write_text(PROMPT, encoding="utf-8")
         (self.root / ".gitignore").write_text("build/\n", encoding="utf-8")
+        self.todo = self.root / "todo" / "02-demo" / "TODO-01-demo.md"
+        self.todo.parent.mkdir(parents=True)
+        self.todo.write_text(TABLE.format(s1="[ ]", s2="[ ]"), encoding="utf-8")
         for args in (["init", "-q", "-b", "main"], ["config", "user.email", "t@t"], ["config", "user.name", "t"],
                      ["config", "commit.gpgsign", "false"], ["add", "-A"], ["commit", "-qm", "fixture"]):
             git(self.root, *args)
@@ -938,6 +945,100 @@ class RunTest(unittest.TestCase):
         self.assertFalse(self.tmux_has("demo-run"), "the stalled run kept running")
         self.assertFalse((self.root / "build" / "unattended-run.json").exists())
 
+    def stamp_row(self, message="stamp §1"):
+        self.todo.write_text(TABLE.format(s1="[x]", s2="[ ]"), encoding="utf-8")
+        git(self.root, "commit", "-qam", message)
+
+    def test_a_fresh_start_records_its_baseline(self):
+        head = git(self.root, "rev-parse", "HEAD").stdout.strip()
+        self.assertEqual(self.launcher("start").returncode, 0)
+        marker = self.marker()
+        self.assertEqual((marker["start_commit"], marker["run_started"], marker["ship_limit"]),
+                         (head, marker["started"], None))
+
+    def test_a_bounded_run_ends_when_it_reaches_its_limit(self):
+        self.write_profile(tick_seconds=1)
+        git(self.root, "commit", "-qam", "a one-second tick")
+        done = self.launcher("start", "--ships", "1", heartbeat=True)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.marker()["ship_limit"], 1)
+        self.calls(1)
+        self.stamp_row()
+        self.assertTrue(self.wait_session_gone("demo-heartbeat"), "the heartbeat outlived the run's limit")
+        self.assertFalse(self.tmux_has("demo-run"))
+        for rel in ("build/unattended-run.json", "build/unattended-launch.json"):
+            self.assertFalse((self.root / rel).exists(), rel)
+        health = json.loads((self.root / "build" / "unattended-health.json").read_text(encoding="utf-8"))
+        self.assertEqual((health["alive"], health["ships"], health["ship_limit"]), (False, 1, 1))
+        state = json.loads((self.root / "build" / "unattended-heartbeat.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["ended"]["reason"], "the ship limit was reached")
+
+    def test_ship_limits_that_cannot_be_run_are_refused(self):
+        for value in ("0", "-1", "x", "1.5"):
+            with self.subTest(ships=value):
+                done = self.launcher("start", "--ships", value, heartbeat=True)
+                self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+                self.assertIn("whole number above 0", done.stderr)
+        done = self.launcher("start", "--ships", "1")  # the helper adds --no-heartbeat
+        self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+        self.assertIn("needs its heartbeat", done.stderr)
+        self.assertFalse(self.log.exists(), "an agent started for a run that could not be bounded")
+        self.assertFalse((self.root / "build" / "unattended-run.json").exists())
+
+    def test_a_resume_keeps_the_runs_bound_and_baseline(self):
+        self.assertEqual(self.launcher("start", "--ships", "2", heartbeat=True).returncode, 0)
+        self.calls(1)
+        before = self.marker()
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-heartbeat"], timeout=30, creationflags=windowless())
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30, creationflags=windowless())
+        self.stamp_row()  # HEAD moves: the resume still counts from the run's own start
+        done = self.launcher("start")
+        self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+        self.assertIn("needs its heartbeat", done.stderr)
+        done = self.launcher("start", "--ships", "3", heartbeat=True)
+        self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+        self.assertIn("is bounded to 2 section(s)", done.stderr)
+        self.assertEqual(len(self.calls(1)), 1, "a refused resume started an agent")
+        done = self.launcher("start", heartbeat=True)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        after = self.marker()
+        self.assertTrue(after["resumed"])
+        self.assertEqual({k: after[k] for k in ("start_commit", "run_started", "ship_limit")},
+                         {k: before[k] for k in ("start_commit", "run_started", "ship_limit")})
+
+    def test_a_fresh_start_removes_another_runs_stall_notice_and_a_resume_keeps_it(self):
+        self.assertEqual(self.launcher("start").returncode, 0)
+        self.calls(1)
+        notice = self.root / "build" / "unattended-needs-operator.md"
+        notice.write_text(f"# Nothing has shipped\n\nRun: {self.marker()['session']}\n", encoding="utf-8")
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30, creationflags=windowless())
+        done = self.launcher("start")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertTrue(self.marker()["resumed"])
+        self.assertTrue(notice.exists(), "a resume removed its own run's notice")
+        self.assertEqual(self.launcher("stop").returncode, 0)
+        done = self.launcher("start")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertFalse(notice.exists(), "a fresh run kept the previous run's notice")
+        self.assertIn("stall notice is removed (a fresh run started)", done.stdout)
+
+    def test_the_stall_nudge_reaches_the_runs_pane(self):
+        echo = Path(self._tmp.name) / "typed.txt"
+        self.assertEqual(self.launcher("start", env={**self.env, "STUB_ECHO": str(echo)}).returncode, 0)
+        self.calls(1)
+        run = self.run_module()
+        now = time.time()
+        marker = {**self.marker(), "run_started": run._iso(now - 7 * 3600)}  # nothing shipped for seven hours
+        (self.root / "build" / "unattended-run.json").write_text(json.dumps(marker), encoding="utf-8")
+        state = run.read_state(self.root, marker["session"])
+        with unittest.mock.patch.object(run, "tmux", self.idle_tmux(run, PROFILE["idle_minutes"] * 60, lambda: now)):
+            self.assertEqual(run.tick(self.root, now, state, __import__("io").StringIO()), 0)
+        self.assertTrue((self.root / "build" / "unattended-needs-operator.md").exists())
+        deadline = time.monotonic() + 15
+        while not (echo.exists() and run.STALL_PROMPT in echo.read_text(encoding="utf-8")) and time.monotonic() < deadline:
+            time.sleep(0.2)
+        self.assertIn(run.STALL_PROMPT, echo.read_text(encoding="utf-8"), "the stall nudge never reached the pane")
+
     def test_a_run_cannot_stop_itself(self):
         self.assertEqual(self.launcher("start").returncode, 0)
         done = self.launcher("stop", env={**self.env, "CONCLAVE_UNATTENDED_RUN": "1"})
@@ -974,7 +1075,9 @@ class HeartbeatTickTest(unittest.TestCase):
             state["ended"] = {"reason": reason, "at": "2026-11-12T00:00:00Z"}
             (root / "build" / "unattended-run.json").unlink()
             return self.run.OVER
-        for name, value in (("_alive", lambda name: self.alive), ("end_run", end_run)):
+        # No repository here: the ship count has tests of its own (HeartbeatShipsTest).
+        for name, value in (("_alive", lambda name: self.alive), ("end_run", end_run),
+                            ("count_ships", lambda root, marker, state, now: None)):
             patch = unittest.mock.patch.object(self.run, name, value)
             patch.start()
             self.addCleanup(patch.stop)
@@ -1229,6 +1332,231 @@ class HeartbeatTickTest(unittest.TestCase):
                 self.assertIsNone(state["last_nudge"])
                 self.assertEqual(noted, 0)
                 self.assertTrue(state["last_error"])
+
+
+T0 = 1_700_000_000  # the fixture's first commit time; the tests' clocks count from it
+
+
+class HeartbeatShipsTest(unittest.TestCase):
+    """The heartbeat's one ship count, its health file, the ship limit and the stall notice (D02 T02 §8), over a real
+    repository with injected clocks and tmux answers, on any system."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name) / "repo"
+        for rel, source in (("scripts/unattended-run.py", TEMPLATES / "scripts" / "unattended-run.py"),
+                            ("scripts/lib/unattended.py", TEMPLATES / "scripts" / "lib" / "unattended.py"),
+                            ("scripts/lib/todo_graph.py", TODO / "scripts" / "lib" / "todo_graph.py")):
+            (self.root / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, self.root / rel)
+        (self.root / ".conclave").mkdir()
+        self.write_profile()
+        (self.root / "docs").mkdir()
+        (self.root / "docs" / "unattended-prompt.md").write_text(PROMPT, encoding="utf-8")
+        (self.root / ".gitignore").write_text("build/\n", encoding="utf-8")
+        self.todo = self.root / "todo" / "02-demo" / "TODO-01-demo.md"
+        self.todo.parent.mkdir(parents=True)
+        for args in (["init", "-q", "-b", "main"], ["config", "user.email", "t@t"], ["config", "user.name", "t"],
+                     ["config", "commit.gpgsign", "false"]):
+            git(self.root, *args)
+        self.base = self.commit("[ ]", "[ ]", "fixture", T0)
+        spec = importlib.util.spec_from_file_location("ships_run", self.root / "scripts" / "unattended-run.py")
+        self.run = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.run)
+        self.marker = {"session": "tag-1", "agent_session": "tag-1", "tmux_session": "demo-run",
+                       "heartbeat_session": "demo-heartbeat", "agent": "claude", "pgid": 4242,
+                       "started": self.run._iso(T0), "resumed": False, "start_commit": self.base,
+                       "run_started": self.run._iso(T0), "ship_limit": None}
+        self.write_marker()
+        self.alive, self.ended, self.out = True, [], __import__("io").StringIO()
+
+        def end_run(root, observed, reason, state, now, out, gone=False):
+            self.ended.append(reason)
+            state["ended"] = {"reason": reason, "at": self.run._iso(now)}
+            (root / "build" / "unattended-run.json").unlink()
+            return self.run.OVER
+        self.nudge = unittest.mock.MagicMock()
+        for name, value in (("_alive", lambda name: self.alive), ("end_run", end_run), ("_nudge", self.nudge)):
+            patch = unittest.mock.patch.object(self.run, name, value)
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def write_profile(self, **changes):
+        (self.root / ".conclave" / "unattended.json").write_text(json.dumps({**PROFILE, **changes}), encoding="utf-8")
+
+    def write_marker(self, **changes):
+        (self.root / "build").mkdir(exist_ok=True)
+        (self.root / "build" / "unattended-run.json").write_text(json.dumps({**self.marker, **changes}),
+                                                                 encoding="utf-8")
+
+    def commit(self, s1, s2, message, when):
+        self.todo.write_text(TABLE.format(s1=s1, s2=s2), encoding="utf-8")
+        git(self.root, "add", "-A")
+        env = {**os.environ, "GIT_COMMITTER_DATE": f"@{when} +0000", "GIT_AUTHOR_DATE": f"@{when} +0000"}
+        subprocess.run(["git", "commit", "-qm", message], cwd=self.root, check=True, capture_output=True, timeout=60,
+                       env=env, creationflags=windowless())
+        return git(self.root, "rev-parse", "HEAD").stdout.strip()
+
+    def state(self, tag="tag-1"):
+        return self.run.read_state(self.root, tag)
+
+    def tick(self, now, state):
+        return self.run.tick(self.root, now, state, self.out)
+
+    def file(self, rel):
+        path = self.root / rel
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+    def test_the_count_advances_by_new_commits_only_and_survives_a_reload(self):
+        state = self.state()
+        self.tick(T0 + 10, state)
+        self.assertEqual((state["ships"], state["counted"], state["last_ship"]), (0, self.base, None))
+        self.commit("[x]", "[ ]", "stamp §1", T0 + 100)
+        second = self.commit("[x]", "[x]", "stamp §2", T0 + 200)  # two ships between two ticks
+        self.tick(T0 + 300, state)
+        self.assertEqual((state["ships"], state["counted"]), (2, second))
+        self.assertEqual(state["last_ship"], {"commit": second, "at": self.run._iso(T0 + 200)})
+        self.run.lib.write_atomic(self.root / "build" / "unattended-heartbeat.json", json.dumps(state))
+        reloaded = self.state()
+        with unittest.mock.patch.object(self.run.lib, "ships_along", wraps=self.run.lib.ships_along) as along:
+            self.tick(T0 + 400, reloaded)
+        self.assertEqual((reloaded["ships"], along.call_count), (2, 0), "a reload counted a commit again")
+        (self.root / "build" / "unattended-heartbeat.json").unlink()
+        fresh = self.state()
+        self.tick(T0 + 500, fresh)
+        self.assertEqual(fresh["ships"], 2, "the count was not rebuilt from the run's start commit")
+
+    def test_a_failed_state_write_counts_no_commit_twice(self):
+        real, calls = self.run.lib.write_atomic, []
+
+        def flaky(path, text):
+            calls.append(path.name)
+            if calls.count("unattended-heartbeat.json") == 1:
+                raise OSError(28, "No space left on device")
+            return real(path, text)
+        sleeps = []
+
+        def ship_then_stop(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) == 1:
+                self.commit("[x]", "[x]", "stamp §2", T0 + 200)
+            else:
+                raise StopIteration
+        self.commit("[x]", "[ ]", "stamp §1", T0 + 100)
+        with unittest.mock.patch.object(self.run.lib, "write_atomic", flaky):
+            with self.assertRaises(StopIteration):
+                self.run.heartbeat(self.root, clock=lambda: T0 + 300, sleep=ship_then_stop, out=self.out)
+        self.assertEqual(self.file("build/unattended-heartbeat.json")["ships"], 2)
+        self.assertEqual(self.file("build/unattended-health.json")["ships"], 2)
+
+    def test_the_health_file_holds_exact_values_before_and_after_a_ship(self):
+        self.assertEqual(self.run.heartbeat(self.root, once=True, clock=lambda: T0 + 3600, out=self.out), 0)
+        self.assertEqual(self.file("build/unattended-health.json"),
+                         {"alive": True, "run": "tag-1", "ships": 0, "ship_limit": None, "last_ship": None,
+                          "hours_since_ship": 1.0, "last_nudge": None, "updated": self.run._iso(T0 + 3600)})
+        shipped = self.commit("[x]", "[ ]", "stamp §1", T0 + 7200)
+        self.run.heartbeat(self.root, once=True, clock=lambda: T0 + 9000, out=self.out)
+        health = self.file("build/unattended-health.json")
+        self.assertEqual((health["ships"], health["hours_since_ship"]), (1, 0.5))
+        self.assertEqual(health["last_ship"], {"commit": shipped, "at": self.run._iso(T0 + 7200)})
+
+    def test_a_resume_before_the_first_ship_keeps_the_stall_clock(self):
+        self.write_marker(started=self.run._iso(T0 + 5000), resumed=True)  # `started` is the resume's own time
+        self.run.heartbeat(self.root, once=True, clock=lambda: T0 + 7200, out=self.out)
+        self.assertEqual(self.file("build/unattended-health.json")["hours_since_ship"], 2.0)
+
+    def test_the_ended_runs_health_says_not_alive_after_a_failed_write(self):
+        self.alive = False
+        real, failed = self.run.lib.write_atomic, []
+
+        def health_fails_once(path, text):
+            if path.name == "unattended-health.json" and not failed:
+                failed.append(1)
+                raise OSError(28, "No space left on device")
+            return real(path, text)
+        sleeps = []
+        with unittest.mock.patch.object(self.run.lib, "write_atomic", health_fails_once):
+            code = self.run.heartbeat(self.root, clock=lambda: T0 + 60, sleep=sleeps.append, out=self.out)
+        self.assertEqual((code, len(sleeps)), (self.run.FINISHED, 1))
+        self.assertIs(self.file("build/unattended-health.json")["alive"], False)
+
+    def test_a_legacy_marker_is_counted_from_the_heartbeats_first_look(self):
+        legacy = {k: v for k, v in self.marker.items() if k not in ("start_commit", "run_started", "ship_limit")}
+        (self.root / "build" / "unattended-run.json").write_text(json.dumps(legacy), encoding="utf-8")
+        before = self.commit("[x]", "[ ]", "stamped before the heartbeat looked", T0 + 100)
+        state = self.state()
+        self.tick(T0 + 200, state)
+        self.assertEqual((state["base"], state["ships"], state["run_started"]), (before, 0, self.run._iso(T0)))
+        self.commit("[x]", "[x]", "stamp §2", T0 + 300)
+        self.tick(T0 + 400, state)
+        self.assertEqual(state["ships"], 1)
+        self.assertEqual(self.run.read_marker(self.root)[0]["ship_limit"], None, "a legacy run is unbounded")
+
+    def test_a_bounded_run_is_ended_when_it_reaches_its_limit(self):
+        self.write_marker(ship_limit=2)
+        self.commit("[x]", "[ ]", "stamp §1", T0 + 100)
+        state = self.state()
+        self.assertEqual(self.tick(T0 + 200, state), 0)
+        self.commit("[x]", "[x]", "stamp §2", T0 + 300)
+        self.assertEqual(self.tick(T0 + 400, state), self.run.FINISHED)
+        self.assertEqual(self.ended, ["the ship limit was reached"])
+        self.assertIs(state["alive"], False)
+
+    def notice(self):
+        path = self.root / "build" / "unattended-needs-operator.md"
+        return path.read_text(encoding="utf-8") if path.exists() else None
+
+    def test_the_stall_notice_is_written_once_per_stall_hours_and_the_stall_nudge_sent(self):
+        state = self.state()
+        self.tick(T0 + 6 * 3600 - 60, state)
+        self.assertIsNone(self.notice())
+        self.assertEqual(self.nudge.call_args.args[-1], self.run.NUDGE_PROMPT)
+        self.tick(T0 + 6 * 3600, state)
+        first = self.notice()
+        self.assertIn("Run: tag-1\n", first)
+        self.assertIn("nothing has shipped since the run started", first)
+        self.assertEqual(self.nudge.call_args.args[-1], self.run.STALL_PROMPT)
+        self.run.lib.write_atomic(self.root / "build" / "unattended-heartbeat.json", json.dumps(state))
+        reloaded = self.state()
+        with unittest.mock.patch.object(self.run.lib, "write_atomic", wraps=self.run.lib.write_atomic) as writes:
+            self.tick(T0 + 7 * 3600, reloaded)
+        self.assertEqual([c.args[0].name for c in writes.call_args_list], [], "the notice was written again")
+        self.assertEqual(self.nudge.call_args.args[-1], self.run.STALL_PROMPT)
+        shipped = self.commit("[x]", "[ ]", "stamp §1", T0 + 8 * 3600)
+        self.tick(T0 + 8 * 3600 + 60, reloaded)
+        self.assertIsNone(self.notice(), "the notice outlived the next ship")
+        self.assertEqual(reloaded["last_ship"]["commit"], shipped)
+
+    def test_a_shorter_stall_hours_and_a_failed_notice_write(self):
+        self.write_profile(stall_hours=3)
+        state = self.state()
+        real, failed = self.run.lib.write_atomic, []
+
+        def notice_fails_once(path, text):
+            if path.name == "unattended-needs-operator.md" and not failed:
+                failed.append(1)
+                raise OSError(28, "No space left on device")
+            return real(path, text)
+        with unittest.mock.patch.object(self.run.lib, "write_atomic", notice_fails_once):
+            self.tick(T0 + 3 * 3600, state)
+        self.assertIsNone(self.notice())
+        self.assertIn("the stall notice could not be written", state["last_error"])
+        self.assertIsNone(state["stall_notice_at"], "a failed write moved the throttle")
+        self.tick(T0 + 3 * 3600 + 60, state)
+        self.assertIn("stall_hours is 3", self.notice())
+
+    def test_another_runs_notice_is_not_removed_by_this_run(self):
+        self.run.lib.write_atomic(self.root / "build" / "unattended-needs-operator.md", "# x\n\nRun: tag-0\n")
+        self.tick(T0 + 60, self.state())
+        self.assertIn("Run: tag-0", self.notice())
+
+    def test_status_shows_the_stall_notice(self):
+        state = self.state()
+        self.tick(T0 + 6 * 3600, state)
+        out = __import__("io").StringIO()
+        self.run.status(self.root, out)
+        self.assertIn("needs operator:\n# Nothing has shipped for 6.0 hours", out.getvalue())
 
 
 class KillWaitTest(unittest.TestCase):

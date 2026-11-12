@@ -462,6 +462,97 @@ class ClaimTest(unittest.TestCase):
         self.assertIs(unattended.tmux_session_exists(name[:-1]), False)
 
 
+# The todo kit's graph library, which owns what an Implementation Order row is: installed beside lib/unattended.py
+# in a project, and in the todo kit's own templates when these tests run from the SDK.
+TODO_GRAPH = next(p for p in (SCRIPTS / "lib" / "todo_graph.py",
+                              TEMPLATES.parent.parent / "todo" / "templates" / "scripts" / "lib" / "todo_graph.py")
+                  if p.is_file())
+TABLE = ("# TODO-01 -- Demo\n\n## Implementation Order\n\n| Order | § | Deliverable | Depends On | Done |\n"
+         "| ----- | - | ----------- | ---------- | ---- |\n| 1 | §2 | Second | none | {s2} |\n| 2 | §1 | First | none | {s1} |\n")
+
+
+def run_git(cwd, *args, when=None):
+    env = {**os.environ, **({"GIT_COMMITTER_DATE": f"@{when} +0000", "GIT_AUTHOR_DATE": f"@{when} +0000"} if when
+                           else {})}
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True, timeout=60, env=env,
+                          creationflags=windowless()).stdout.strip()
+
+
+class ShipCountTest(unittest.TestCase):
+    """Sections shipped, counted commit by commit from git with the todo kit's row pattern (D02 T02 §8)."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name) / "repo"
+        lib_dir = self.root / "scripts" / "lib"
+        lib_dir.mkdir(parents=True)
+        shutil.copyfile(SCRIPTS / "lib" / "unattended.py", lib_dir / "unattended.py")
+        shutil.copyfile(TODO_GRAPH, lib_dir / "todo_graph.py")
+        spec = importlib.util.spec_from_file_location("ships_lib", lib_dir / "unattended.py")
+        self.lib = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.lib)
+        self.todo = self.root / "todo" / "02-demo" / "TODO-01-demo.md"
+        self.todo.parent.mkdir(parents=True)
+        for args in (["init", "-q", "-b", "main"], ["config", "user.email", "t@t"], ["config", "user.name", "t"],
+                     ["config", "commit.gpgsign", "false"]):
+            run_git(self.root, *args)
+        self.base = self.commit("[ ]", "[ ]", "fixture", when=1_700_000_000)
+
+    def commit(self, s1, s2, message, when=None, extra=""):
+        self.todo.write_text(TABLE.format(s1=s1, s2=s2) + extra, encoding="utf-8")
+        run_git(self.root, "add", "-A")
+        run_git(self.root, "commit", "-qm", message, when=when)
+        return run_git(self.root, "rev-parse", "HEAD")
+
+    def test_two_rows_stamped_in_two_commits_are_two_ships_with_their_times(self):
+        first = self.commit("[x]", "[ ]", "stamp §1", when=1_700_000_100)
+        second = self.commit("[x]", "[x]", "stamp §2", when=1_700_000_200)
+        self.assertEqual(self.lib.ships_between(self.root, self.base, second), 2)
+        self.assertEqual(self.lib.ships_along(self.root, self.base, second),
+                         [(first, 1_700_000_100, 1), (second, 1_700_000_200, 1)])
+        self.assertEqual(self.lib.ships_between(self.root, first, second), 1)
+
+    def test_a_row_reopened_and_stamped_again_counts_both_ships(self):
+        # The endpoints alone read one: `[ ]` at the base, `[x]` at the tip (ship_count.py:51).
+        self.commit("[x]", "[ ]", "stamp §1")
+        self.commit("[ ]", "[ ]", "unstamp §1")
+        tip = self.commit("[x]", "[ ]", "stamp §1 again")
+        self.assertEqual(self.lib.ships_between(self.root, self.base, tip), 2)
+
+    def test_an_unstamp_or_an_edit_of_a_stamped_row_is_no_ship(self):
+        stamped = self.commit("[x]", "[ ]", "stamp §1")
+        self.todo.write_text(TABLE.format(s1="[x]", s2="[ ]").replace("| First |", "| First, renamed |"),
+                             encoding="utf-8")
+        run_git(self.root, "commit", "-qam", "edit a stamped row")
+        edited = run_git(self.root, "rev-parse", "HEAD")
+        unstamped = self.commit("[ ]", "[ ]", "unstamp §1")
+        self.assertEqual(self.lib.ships_between(self.root, stamped, edited), 0)
+        self.assertEqual(self.lib.ships_between(self.root, edited, unstamped), 0)
+
+    def test_the_working_tree_is_never_read(self):
+        self.todo.write_text(TABLE.format(s1="[x]", s2="[x]"), encoding="utf-8")  # uncommitted
+        self.assertEqual(self.lib.ships_between(self.root, self.base, run_git(self.root, "rev-parse", "HEAD")), 0)
+
+    def test_a_line_that_starts_with_plus_signs_inside_a_hunk_is_content(self):
+        # `++ note` added in the hunk reads as `+++ note`, which a header parser would take for a file name.
+        tip = self.commit("[x]", "[ ]", "stamp §1 with a note", extra="\n++ note\n")
+        self.assertEqual(self.lib.ships_between(self.root, self.base, tip), 1)
+
+    def test_a_project_without_the_todo_kit_is_refused_by_name(self):
+        (self.root / "scripts" / "lib" / "todo_graph.py").unlink()
+        spec = importlib.util.spec_from_file_location("ships_lib_bare", self.root / "scripts" / "lib" / "unattended.py")
+        bare = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bare)
+        with self.assertRaises(bare.ShipCountError) as caught:
+            bare.ships_between(self.root, self.base, self.base + "~0")
+        self.assertIn("needs the todo kit", str(caught.exception))
+
+    def test_a_commit_git_cannot_resolve_is_a_ship_count_error(self):
+        with self.assertRaises(self.lib.ShipCountError):
+            self.lib.ships_between(self.root, "0" * 40, "HEAD")
+
+
 class WindowlessTest(unittest.TestCase):
     """Every process the kit starts, from its scripts and from its tests, opens no console window on Windows (the
     owner's rule of 2026-11-12: a launcher test never opens a window)."""

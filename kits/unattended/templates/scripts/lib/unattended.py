@@ -121,6 +121,117 @@ def load_profile(root) -> dict:
     return data
 
 
+# The ship counter (D02 T02 §8). A section ships when its Implementation Order row turns `[x]`, which only the todo
+# kit's stamp does; what a row is belongs to the todo kit (`ROW` in scripts/lib/todo_graph.py), so it is read from
+# there, not copied.
+TODO_GRAPH = "todo_graph.py"  # beside this file: the todo kit installs it in scripts/lib/
+
+
+class ShipCountError(RuntimeError):
+    """Ships that cannot be counted: git could not answer, or the todo kit's row pattern is not installed."""
+
+
+_ROW = None
+
+
+def _row_pattern():
+    global _ROW
+    if _ROW is None:
+        import importlib.util
+        import sys
+
+        path = Path(__file__).resolve().parent / TODO_GRAPH
+        name = f"unattended_todo_graph_{abs(hash(str(path)))}"
+        spec = importlib.util.spec_from_file_location(name, path)
+        if not path.is_file() or spec is None or spec.loader is None:
+            raise ShipCountError(f"scripts/lib/{TODO_GRAPH} is missing: the unattended kit needs the todo kit")
+        module = importlib.util.module_from_spec(spec)
+        # Its dataclasses look their module up by name while it loads, so it is registered first (the importlib
+        # recipe), and taken out again if it fails.
+        sys.modules[name] = module
+        try:
+            spec.loader.exec_module(module)
+            _ROW = module.ROW
+        except Exception as exc:  # any failure to load it is a count that cannot be made, named
+            sys.modules.pop(name, None)
+            raise ShipCountError(f"scripts/lib/{TODO_GRAPH} could not be loaded ({type(exc).__name__}: {exc})") \
+                from None
+    return _ROW
+
+
+def ships_in_diff(diff: str) -> int:
+    """Rows one commit's diff turns from `[ ]` to `[x]`, per file and section (Impossible OS `ship_count.py`). A row
+    that only appears, already `[x]` (a file added or moved), is not a ship."""
+    row = _row_pattern()
+    before, after, current, header = {}, {}, None, False
+    for line in diff.splitlines():
+        # File headers come only between `diff --git` and the first hunk: inside a hunk, an added line that starts
+        # with `++` is content, not a header.
+        if line.startswith("diff --git "):
+            current, header = None, True
+            continue
+        if header:
+            if line.startswith("+++ "):
+                current = line[6:] if line.startswith("+++ b/") else None
+            elif line.startswith("@@"):
+                header = False
+            continue
+        if line[:1] not in ("+", "-") or current is None:
+            continue
+        found = row.match(line[1:].rstrip("\r"))
+        if found:
+            (before if line[0] == "-" else after)[(current, int(found.group(2)))] = found.group(5)
+    return sum(1 for key, status in after.items() if status == "x" and before.get(key, "x") != "x")
+
+
+def _git(root, *args: str, timeout: int = 60) -> str:
+    try:
+        done = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, timeout=timeout,
+                              encoding="utf-8", errors="replace", creationflags=windowless())
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ShipCountError(f"git {args[0]} could not run ({exc})") from None
+    if done.returncode != 0:
+        raise ShipCountError(f"git {args[0]} failed: {(done.stderr or '').strip()[:200]}")
+    return done.stdout
+
+
+def ships_along(root, old: str, new: str) -> list[tuple[str, int, int]]:
+    """(commit, committer time, rows shipped) for each first-parent commit from `old` (excluded) to `new` that ships
+    a row, in order, each read from the commit's own diff against its first parent: never the working tree, and
+    never the two endpoints alone, which miss a section reopened and shipped again inside the range."""
+    _row_pattern()  # a project without the todo kit is refused even over a range with nothing in it
+    out = _git(root, "log", "--first-parent", "--reverse", "--no-color", "--no-ext-diff", "--unified=0",
+               "--diff-merges=first-parent", "--format=%x00%H %ct", "-p", f"{old}..{new}", "--", "todo")
+    found = []
+    for chunk in out.split("\0")[1:]:
+        head, _, diff = chunk.partition("\n")
+        sha, _, when = head.partition(" ")
+        shipped = ships_in_diff(diff)
+        if shipped:
+            found.append((sha, int(when), shipped))
+    return found
+
+
+def ships_between(root, old: str, new: str) -> int:
+    """The sections shipped from `old` to `new`, commit by commit (`ships_along`)."""
+    return sum(count for _sha, _when, count in ships_along(root, old, new))
+
+
+def head_commit(root) -> str:
+    return _git(root, "rev-parse", "--verify", "HEAD^{commit}").strip()
+
+
+def is_ancestor(root, older: str, newer: str) -> bool:
+    try:
+        done = subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", older, newer],
+                              capture_output=True, timeout=60, creationflags=windowless())
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ShipCountError(f"git merge-base could not run ({exc})") from None
+    if done.returncode not in (0, 1):
+        raise ShipCountError(f"git merge-base failed: {done.stderr.decode('utf-8', 'replace').strip()[:200]}")
+    return done.returncode == 0
+
+
 # The launch lock and claim (D02 T02 §4). Two launches at once would start two agents on one tree: the lock is held
 # for the launch, and the claim names the run it started, so a later launch can tell a live run from a dead one.
 LAUNCH_LOCK = "build/unattended-launch.lock"
