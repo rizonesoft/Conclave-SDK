@@ -1007,18 +1007,24 @@ def _run_wired(command: str, hook_file: str, workspace: str, payload: str, limit
     group: dict = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
     proc = subprocess.Popen(args, shell=shell, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", **group)
-    try:
-        out, _err = proc.communicate(payload, timeout=limit)
-    except subprocess.TimeoutExpired:
+    def end_tree() -> None:
         if os.name == "nt":
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
         else:
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:  # the group ended between the timeout and the kill
+            except ProcessLookupError:  # the group ended before the kill
                 pass
         proc.communicate()
+
+    try:
+        out, _err = proc.communicate(payload, timeout=limit)
+    except subprocess.TimeoutExpired:
+        end_tree()
         return None, ""
+    except BaseException:  # an interrupt (Ctrl+C) or any other failure ends the hook and its tree before it passes on
+        end_tree()
+        raise
     return proc.returncode, out
 
 
@@ -1071,8 +1077,8 @@ def _self_test(project: str = REPO, limit: float = SELF_TEST_SECONDS) -> tuple[i
                 payload = {"session_id": SELF_TEST_SESSION, "cwd": workspace, "hook_event_name": "Stop"}
             _remove_state(workspace)  # each hook is the run's first push, so none meets the stall breaker
             code, out = _run_wired(command, hook_file, workspace, json.dumps(payload), limit)
-            try:
-                answer = json.loads(out.strip().splitlines()[-1]) if out.strip() else None
+            try:  # the whole of stdout is the answer: a harness reads it as one JSON object, nothing before or after
+                answer = json.loads(out) if out.strip() else None
             except ValueError:
                 answer = "not JSON"
             if code is None:

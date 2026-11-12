@@ -535,6 +535,9 @@ elif mode == "text":
     print("not json at all")
 elif mode in ("block", "continue"):
     print('{"decision": "%s", "reason": "a reason"}' % mode)
+elif mode == "chatty":  # a diagnostic line before an otherwise valid answer: stdout is not one JSON object
+    print("diagnostic: starting")
+    print('{"decision": "continue", "reason": "a reason"}')
 elif mode == "sleep":  # a hook that starts a child and outlives its limit
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
     open(pid_file, "w").write(str(child.pid))
@@ -650,7 +653,7 @@ class SelfTest(unittest.TestCase):
                 self.assertIn(hook_file, failures[0])
 
     def test_an_answer_that_is_not_this_agents_decision_fails(self):
-        for mode in ("empty", "text", "block"):  # {} (the Codex wrapper's fail-open), not JSON, Claude Code's decision
+        for mode in ("empty", "text", "block", "chatty"):  # {}, not JSON, Claude Code's decision, a line before the JSON
             with self.subTest(mode):
                 self.set_command(".agents/hooks.json", self.fake_command(mode))
                 code, lines = self.run_self_test()
@@ -681,6 +684,29 @@ class SelfTest(unittest.TestCase):
         code, lines = self.run_self_test()
         self.assertEqual(code, 1)
         self.assertTrue([line for line in lines if "FAIL .agents/hooks.json" in line and "does not parse" in line], lines)
+
+    def test_an_interrupt_ends_the_running_hook_and_its_child(self):
+        self.set_command(".agents/hooks.json", self.fake_command("sleep"))
+        real = subprocess.Popen.communicate
+        calls = []
+
+        def interrupted(proc, *args, **kwargs):
+            calls.append(1)
+            if len(calls) == 1:  # the first wait is the hook; the interrupt lands while it runs
+                deadline = time.monotonic() + 30
+                while not self.pid_file.exists() and time.monotonic() < deadline:
+                    time.sleep(0.1)
+                raise KeyboardInterrupt
+            return real(proc, *args, **kwargs)
+
+        with mock.patch.object(subprocess.Popen, "communicate", interrupted), self.assertRaises(KeyboardInterrupt):
+            guard._run_wired(self.fake_command("sleep"), ".agents/hooks.json", str(self.project), "{}", 60)
+        child = int(self.pid_file.read_text())
+        self.addCleanup(end_process, child)
+        deadline = time.monotonic() + 10
+        while process_alive(child) and time.monotonic() < deadline:
+            time.sleep(0.2)
+        self.assertFalse(process_alive(child), "an interrupt left the hook's child running")
 
     def test_a_hook_that_outlives_its_limit_is_ended_with_its_child(self):
         self.set_command(".agents/hooks.json", self.fake_command("sleep"))
