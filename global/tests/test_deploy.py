@@ -1,15 +1,23 @@
 """Tests for global/deploy.py. Every run targets a temporary --home, never the real one."""
 import contextlib
 import io
+import itertools
 import json
+import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 GLOBAL = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(GLOBAL))
 import deploy  # noqa: E402
+
+STUB = GLOBAL.parent / "tests" / "fixtures" / "codex_app_server_stub.py"
+# A deploy approves the Codex hooks it wrote through Codex's app-server; tests answer from a stub (an empty listing
+# unless a test sets a scenario), never the machine's real Codex.
+os.environ["CODEX_HOOK_TRUST_SERVER"] = json.dumps([sys.executable, str(STUB)])
 
 OLD_SETTINGS = {
     "model": "opus",
@@ -197,3 +205,117 @@ class DeployTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CodexHookApprovalTest(unittest.TestCase):
+    """A deploy approves in Codex the hooks it wrote, through Codex's app-server, against the deploy's own home."""
+
+    _scenarios = itertools.count()
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.home = Path(self._tmp.name) / "home"
+        self.home.mkdir()
+        self.hooks = self.home / ".codex" / "hooks.json"
+
+    def hook(self, event, index, status="modified", source="user", path=None, command=None, enabled=True):
+        path = str(path or self.hooks)
+        return {"key": "%s:%s:0:%d" % (path, event, index), "eventName": event, "source": source, "sourcePath": path,
+                "command": command or 'python "D:/Conclave-SDK/global/codex/hooks/layer_rules.py"',
+                "currentHash": "sha256:" + str(index) * 64, "trustStatus": status, "enabled": enabled}
+
+    def scenario(self, hooks, **options):
+        path = Path(self._tmp.name) / ("scenario-%d.json" % next(self._scenarios))
+        path.write_text(json.dumps({"listings": [{"data": [{"hooks": hooks}]}], "apply_writes": True, **options}),
+                        encoding="utf-8")
+        self.env = unittest.mock.patch.dict(os.environ, {"CODEX_STUB_SCENARIO": str(path)})
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        return path
+
+    def writes(self, path):
+        log = path.with_name(path.name + ".writes.jsonl")
+        return [json.loads(l) for l in log.read_text(encoding="utf-8").splitlines()] if log.exists() else []
+
+    def relisted(self, path):
+        """A fresh listing from the stub after the deploy: what Codex would now report."""
+        trust = deploy._trust_module()
+        return {h["key"]: h["trustStatus"] for h in trust.list_hooks(self.home, self.hooks.parent)}
+
+    def test_each_deployed_hook_is_approved_with_codexs_own_hash_and_reads_trusted(self):
+        ours = [self.hook("stop", 0), self.hook("user_prompt_submit", 1)]
+        plugin = self.hook("stop", 2, source="plugin")
+        other_file = self.hook("stop", 3, path=self.home / "elsewhere.json")
+        not_global = self.hook("pre_tool_use", 4, command="python other/tool.py")
+        path = self.scenario(ours + [plugin, other_file, not_global])
+        code, out, _ = run("--home", str(self.home), "--agent", "codex")
+        self.assertEqual(code, 0)
+        writes = self.writes(path)
+        self.assertEqual([w["value"] for w in writes],
+                         [{h["key"]: {"trusted_hash": h["currentHash"]}} for h in ours])
+        self.assertTrue(all(w["keyPath"] == "hooks.state" and w["mergeStrategy"] == "upsert" for w in writes))
+        statuses = self.relisted(path)
+        self.assertEqual([statuses[h["key"]] for h in ours], ["trusted", "trusted"])
+        self.assertEqual(statuses[plugin["key"]], "modified")
+        self.assertEqual(out.count("(approved)"), 2, out)
+
+    def test_a_trusted_or_disabled_hook_is_not_written(self):
+        path = self.scenario([self.hook("stop", 0, status="trusted"),
+                              self.hook("user_prompt_submit", 1, enabled=False)])
+        code, out, _ = run("--home", str(self.home), "--agent", "codex")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.writes(path), [])
+        self.assertIn("disabled in Codex, left disabled", out)
+        self.assertIn("unchanged: codex hook", out)
+
+    def test_a_refusal_or_a_silent_server_reports_and_a_rerun_finishes(self):
+        ours = [self.hook("stop", 0), self.hook("user_prompt_submit", 1)]
+        path = self.scenario(ours, refuse_after=1)
+        code, out, _ = run("--home", str(self.home), "--agent", "codex")
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.writes(path)), 1)
+        self.assertIn("not approved: ", out)
+        self.assertIn("run the deploy again to retry", out)
+        statuses = self.relisted(path)
+        self.assertEqual(sorted(statuses.values()), ["modified", "trusted"])
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data.pop("refuse_after")
+        path.write_text(json.dumps(data), encoding="utf-8")
+        run("--home", str(self.home), "--agent", "codex")
+        self.assertEqual(len(self.writes(path)), 2, "the rerun did not approve only what was left")
+        self.assertEqual(set(self.relisted(path).values()), {"trusted"})
+
+    def test_no_listed_hook_dry_run_and_missing_codex_each_report(self):
+        self.scenario([])
+        code, out, _ = run("--home", str(self.home), "--agent", "codex")
+        self.assertIn("skipped: codex hook approval: Codex lists none of the deployed hooks", out)
+        path = self.scenario([self.hook("stop", 0)])
+        code, out, _ = run("--home", str(self.home), "--agent", "codex", "--dry-run")
+        self.assertIn("skipped: codex hook approval: dry run", out)
+        self.assertEqual(self.writes(path), [])
+        with unittest.mock.patch.dict(os.environ, {"CODEX_HOOK_TRUST_SERVER": ""}), \
+                unittest.mock.patch("shutil.which", return_value=None):
+            code, out, _ = run("--home", str(self.home), "--agent", "codex")
+        self.assertEqual(code, 0)
+        self.assertIn("skipped: codex hook approval: codex is not installed", out)
+
+    def test_a_relative_home_is_used_and_the_ambient_codex_home_is_untouched(self):
+        ambient = Path(self._tmp.name) / "ambient-codex"
+        ambient.mkdir()
+        (ambient / "config.toml").write_text("# the operator's own\n", encoding="utf-8")
+        path = self.scenario([self.hook("stop", 0)])
+        cwd = os.getcwd()
+        os.chdir(self._tmp.name)
+        try:
+            with unittest.mock.patch.dict(os.environ, {"CODEX_HOME": str(ambient)}):
+                code, out, _ = run("--home", "home", "--agent", "codex")
+        finally:
+            os.chdir(cwd)
+        self.assertEqual(code, 0, out)
+        homes = path.with_name(path.name + ".homes").read_text(encoding="utf-8").split()
+        self.assertTrue(homes)
+        for home in homes:
+            self.assertEqual(os.path.normcase(os.path.realpath(home)),
+                             os.path.normcase(os.path.realpath(str(self.hooks.parent))), homes)
+        self.assertEqual((ambient / "config.toml").read_text(encoding="utf-8"), "# the operator's own\n")

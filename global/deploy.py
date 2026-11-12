@@ -18,6 +18,7 @@ A file whose content is identical is left alone. A differing file is copied to
 <home>/.conclave/global-backups/<UTC timestamp>/<path relative to home> before it is replaced.
 """
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -148,7 +149,7 @@ def has_hook_commands(data):
 
 class Deployer:
     def __init__(self, home, dry_run):
-        self.home = Path(home)
+        self.home = Path(home).resolve()  # a relative --home must name one folder for every step and child process
         self.dry_run = dry_run
         self.stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         self.results = []
@@ -264,10 +265,75 @@ def deploy_codex(dep):
     template = (root / "rules" / "hooks.json").read_text(encoding="utf-8")
     text = render_codex_hooks(template, str(root / "hooks"), python)
     dep.record("~/.codex/hooks.json (generated)", dep.put(hooks_path, text.encode("utf-8")))
+    trust_codex_hooks(dep, hooks_path)
     skills = root / "skills"
     for folder in sorted(p for p in skills.iterdir() if p.is_dir()) if skills.is_dir() else []:
         if (folder / "SKILL.md").is_file():
             dep.deploy_tree(folder, home / ".agents" / "skills" / folder.name)
+
+
+TRUST_SCRIPT = GLOBAL.parent / "kits" / "todo" / "templates" / "scripts" / "codex-hook-trust.py"
+
+
+def _trust_module():
+    """The todo kit's codex-hook-trust.py from this checkout: the one Codex app-server client the SDK keeps."""
+    spec = importlib.util.spec_from_file_location("deploy_codex_hook_trust", TRUST_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _ours(hook, hooks_path):
+    """A hook this deploy wrote: a user hook from the deployed hooks.json whose command runs a script under
+    global/codex/hooks."""
+    try:
+        same = os.path.normcase(os.path.realpath(str(hook.get("sourcePath", "")))) == \
+            os.path.normcase(os.path.realpath(str(hooks_path)))
+    except (OSError, ValueError):
+        same = False
+    return hook.get("source") == "user" and same and "global/codex/hooks/" in str(hook.get("command", "")).replace("\\", "/")
+
+
+def trust_codex_hooks(dep, hooks_path):
+    """Approve in Codex the hooks this deploy wrote. Codex runs a hook only once its current hash is approved
+    (`hooks.state` in the home's config.toml), and a changed hooks.json reads `modified`, so a deploy that does not
+    approve what it wrote leaves its hooks skipped. The approval goes through Codex's own app-server (`hooks/list`,
+    then `config/value/write`), against this deploy's home (`CODEX_HOME`), never another. A hook the operator
+    disabled stays disabled. Each hook is reported: approved, trusted, disabled, or not approved with the reason."""
+    if dep.dry_run:
+        dep.skip("codex hook approval", "dry run")
+        return
+    try:
+        trust = _trust_module()
+    except (OSError, ImportError, SyntaxError) as exc:
+        dep.skip("codex hook approval", "cannot load %s: %s" % (TRUST_SCRIPT, exc))
+        return
+    codex_home = hooks_path.parent
+    try:
+        hooks = [hook for hook in trust.list_hooks(dep.home, codex_home) if _ours(hook, hooks_path)]
+    except (trust.TrustError, OSError) as exc:
+        dep.skip("codex hook approval", str(exc))
+        return
+    if not hooks:
+        dep.skip("codex hook approval", "Codex lists none of the deployed hooks")
+        return
+    pending = []
+    for hook in hooks:
+        label = "codex hook %s" % hook.get("key")
+        if hook.get("enabled", True) is False:
+            dep.skip(label, "disabled in Codex, left disabled")
+        elif hook.get("trustStatus") == "trusted":
+            dep.record(label, "unchanged")
+        else:
+            pending.append(hook)
+    for hook in pending:
+        label = "codex hook %s" % hook.get("key")
+        try:
+            trust.approve_hooks(dep.home, [hook], codex_home)
+        except (trust.TrustError, OSError) as exc:
+            dep.skip(label, "not approved: %s (run the deploy again to retry)" % exc)
+            continue
+        dep.record(label + " (approved)", "updated")
 
 
 def main(argv=None):

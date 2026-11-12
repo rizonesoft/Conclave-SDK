@@ -132,14 +132,16 @@ def _kill_on_close_job(proc: subprocess.Popen):
 class AppServer:
     """`codex app-server` over stdio: one JSON-RPC object a line. Its whole process tree ends when it closes."""
 
-    def __init__(self, command: list[str], cwd: Path):
+    def __init__(self, command: list[str], cwd: Path, codex_home: Path | None = None):
         # On Windows the server (codex.cmd, then node, then codex.exe) starts suspended, joins a job that ends every
         # process in it when the job closes, and only then runs, so no descendant can start outside the job; elsewhere
         # the session's process group holds the tree.
         group: dict = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED} if os.name == "nt"
                        else {"start_new_session": True})
+        # Absolute, so the server (whose working folder is `cwd`) reads the home that was meant.
+        env = None if codex_home is None else {**os.environ, "CODEX_HOME": str(Path(codex_home).resolve())}
         self.proc = subprocess.Popen(command, cwd=str(cwd), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                     stderr=subprocess.DEVNULL, text=True, encoding="utf-8", **group)
+                                     stderr=subprocess.DEVNULL, text=True, encoding="utf-8", env=env, **group)
         self.job = None
         if os.name == "nt":
             self.job = _kill_on_close_job(self.proc)
@@ -247,18 +249,35 @@ def project_key(root: Path) -> str:
     return os.path.normcase(str(root)) if os.name == "nt" else str(root)
 
 
-def _list(root: Path) -> list[dict]:
-    server = AppServer(_server_command(), root)
+def list_hooks(cwd: Path, codex_home: Path | None = None) -> list[dict]:
+    """Every hook Codex lists for a folder (its `hooks/list`), with its key, hash, trust status and source;
+    `codex_home` points Codex at another home (`CODEX_HOME`) for this call only."""
+    server = AppServer(_server_command(), cwd, codex_home)
     try:
         server.call("initialize", {"clientInfo": {"name": "conclave-codex-hook-trust", "version": "1"}})
         server.notify("initialized")
-        return campaign_hooks(server.call("hooks/list", {"cwds": [str(root)]}), root)
+        listing = server.call("hooks/list", {"cwds": [str(cwd)]})
     finally:
         server.close()
+    return [hook for entry in listing.get("data", []) for hook in entry.get("hooks", [])]
 
 
-def _write(root: Path, key_path: str, value: dict) -> None:
-    server = AppServer(_server_command(), root)
+def approve_hooks(cwd: Path, hooks: list[dict], codex_home: Path | None = None) -> list[str]:
+    """Record Codex's own `currentHash` as the approval of each hook, one write each; returns the keys written.
+    A refusal or a silent server raises TrustError after the writes already made, which stand."""
+    written = []
+    for hook in hooks:
+        _write(cwd, "hooks.state", {hook["key"]: {"trusted_hash": hook["currentHash"]}}, codex_home)
+        written.append(hook["key"])
+    return written
+
+
+def _list(root: Path) -> list[dict]:
+    return campaign_hooks({"data": [{"hooks": list_hooks(root)}]}, root)
+
+
+def _write(root: Path, key_path: str, value: dict, codex_home: Path | None = None) -> None:
+    server = AppServer(_server_command(), root, codex_home)
     try:
         server.call("initialize", {"clientInfo": {"name": "conclave-codex-hook-trust", "version": "1"}})
         server.notify("initialized")
