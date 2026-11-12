@@ -132,16 +132,18 @@ def run_preflight(root: Path, resume_session: str | None, profile: dict) -> tupl
     if resume_session:
         args += ["--resume-session", resume_session]
     limit = PREFLIGHT_SLACK_SECONDS + sum(check["timeout_seconds"] for check in profile["preflight"])
+    # Its profile checks run in sessions of their own, outside its group: the tag reaches them all.
+    tag = f"preflight-{uuid.uuid4()}"
     proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                            start_new_session=True)
+                            start_new_session=True, env={**os.environ, TAG: tag})
     try:
         report, _ = proc.communicate(timeout=limit)
     except subprocess.TimeoutExpired:
-        _end_group(proc.pid, grace=0)
+        end_run_processes(tag, proc.pid, grace=0)
         report, _ = proc.communicate()
-        return 1, (report or "").rstrip() + f"\nFAIL preflight: ran past {limit}s; its process group was ended"
+        return 1, (report or "").rstrip() + f"\nFAIL preflight: ran past {limit}s; it and its checks were ended"
     except BaseException:
-        _end_group(proc.pid, grace=0)
+        end_run_processes(tag, proc.pid, grace=0)
         proc.communicate()
         raise
     return proc.returncode, (report or "").rstrip()
@@ -319,12 +321,16 @@ def start(root: Path, out=None) -> int:
 
 
 def _end_old_guard(root: Path, session: str, out) -> None:
-    """A fresh session cannot take the crashed session's guard, so the launcher ends it, as the operator would."""
+    """A fresh session cannot take the crashed session's guard, so the launcher ends it, as the operator would. If it
+    cannot, nothing fresh starts: the marker still names the crashed session, which owns the guard."""
     guard = read_json(root / GUARD)
     if guard and str(guard.get("session_id")) == session:
         done = _end_guard(root, session)
-        print(f"start: the crashed session's guard {'ended' if done.returncode == 0 else 'not ended'}: "
-              f"{(done.stdout or done.stderr).strip()[-300:]}", file=out)
+        said = (done.stdout or done.stderr).strip()[-300:]
+        if done.returncode != 0:
+            raise RunError(f"the crashed session {session}'s guard could not be ended ({said}); nothing was started, "
+                           f"and {MARKER} still names that session")
+        print(f"start: the crashed session's guard ended: {said}", file=out)
 
 
 def _end_guard(root: Path, session: str) -> subprocess.CompletedProcess:

@@ -362,6 +362,42 @@ class RunTest(unittest.TestCase):
                 run.run_preflight(self.root, None, limit_profile)
         self.assertEqual(popen.call_count, 1)
 
+    def test_a_fallback_whose_old_guard_cannot_be_ended_starts_nothing(self):
+        # Completion review of D02 T02 §5: the fresh session started anyway and the marker lost its owner.
+        self.assertEqual(self.launcher("start").returncode, 0)
+        first = self.marker()["session"]
+        self.calls(1)
+        self.acquire(first)
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+        run = self.run_module()
+        refused = subprocess.CompletedProcess([], 2, stdout="", stderr="campaign-guard: the guard lock timed out")
+        with unittest.mock.patch.dict(os.environ, {"STUB_RESUME_FAILS": "1"}), \
+                unittest.mock.patch.object(run, "_end_guard", return_value=refused):
+            with self.assertRaises(run.RunError) as caught:
+                run.start(self.root, out=open(os.devnull, "w"))
+        self.assertIn("could not be ended", str(caught.exception))
+        self.assertFalse(self.tmux_has("demo-run"), "a fresh session started beside the crashed run's guard")
+        self.assertEqual(self.marker()["session"], first, "the marker lost the crashed session")
+        self.assertEqual(self.guard()["session_id"], first)
+
+    def test_a_cancelled_preflight_ends_its_detached_profile_check(self):
+        # Completion review of D02 T02 §5: profile checks run in sessions of their own, outside the preflight's group.
+        pids = Path(self._tmp.name) / "check.pids"
+        check = ("import os, subprocess, sys, time; "
+                 "c = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)']); "
+                 f"open({str(pids)!r}, 'w').write(f'{{os.getpid()}} {{c.pid}}'); time.sleep(300)")
+        profile = {**PROFILE, "preflight": [{"name": "build", "command": [sys.executable, "-c", check],
+                                             "timeout_seconds": 60}]}
+        self.write_profile(**profile)
+        git(self.root, "commit", "-qam", "a slow check")
+        run = self.run_module()
+        with unittest.mock.patch.object(run, "PREFLIGHT_SLACK_SECONDS", -50):  # a 10 s limit, under the check's 60
+            code, report = run.run_preflight(self.root, None, profile)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL preflight: ran past 10s", report)
+        check_pid, child_pid = (int(p) for p in pids.read_text().split())
+        self.assertTrue(self.wait_gone(check_pid), "the detached profile check outlived its preflight")
+        self.assertTrue(self.wait_gone(child_pid), "the profile check's child outlived its preflight")
     def test_an_agent_that_exits_at_once_is_reported_and_leaves_nothing(self):
         done = self.launcher("start", env={**self.env, "STUB_EXIT": "1"})
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
