@@ -86,6 +86,14 @@ python scripts/campaign_guard.py mint-generation
 python scripts/campaign_guard.py acquire --session "$ANTIGRAVITY_CONVERSATION_ID" --phase <N> --run-file <run file> --cron-id <timer id> --generation <generation> --scope plan
 ```
 
+When no timer can be made (the `schedule` tool is not offered, or it fails), the run is held by the Stop hook alone: acquire with the job id `none` instead, and end with `cancel-confirmed --cron-id none`, as the Codex copy does. Say so in the run file's Critical events.
+
+```bash
+python scripts/campaign_guard.py acquire --session "$ANTIGRAVITY_CONVERSATION_ID" --phase <N> --run-file <run file> --cron-id none --generation <generation> --scope plan
+python scripts/campaign_guard.py end --session "$ANTIGRAVITY_CONVERSATION_ID" --reason <reason>
+python scripts/campaign_guard.py cancel-confirmed --cron-id none
+```
+
 Read the guard back, then record the session, timer, generation and run id in the run file's Critical events.
 
 ```sh
