@@ -6,13 +6,15 @@
     python3 scripts/unattended-run.py status     whether the run is live, its session, start, guard and health
     python3 scripts/unattended-run.py attach [--watch]   attach to the run's tmux session (--watch: read-only)
     python3 scripts/unattended-run.py stop       end the guard, the tmux sessions and the whole process group
-    python3 scripts/unattended-run.py heartbeat [--once]   restart a dead run, nudge an idle one (start runs it)
+    python3 scripts/unattended-run.py heartbeat [--once]   nudge an idle run; record a dead one as ended (start runs it)
 
 The run lives in the detached tmux session `<name>-run` (the profile's `name`), so it outlives the terminal that
 started it. `build/unattended-run.json` (the run marker) names the run: its agent session, its tmux sessions and its
-process group. A `start` that finds the marker but no running session resumes that agent session, and starts a fresh
-one when the resume does not stay up. `status` and `stop` follow the marker, so a profile changed during a run cannot
-strand it. Linux and WSL only (tmux). Standard library only.
+process group. A run never restarts itself (owner decision 2026-11-12): only the operator's `start` starts one, and
+`stop`, a crash or a reboot ends it. The heartbeat nudges a live run and records a dead one as ended, stopping all it
+started. An operator's `start` that finds a marker left without a heartbeat continues that agent session.
+`status` and `stop` follow the marker, so a profile changed during a run cannot strand it. Linux and WSL only (tmux).
+Standard library only.
 """
 from __future__ import annotations
 
@@ -42,9 +44,7 @@ GUARD = "build/claude-campaign-guard.json"
 HEALTH = "build/unattended-health.json"  # written by the heartbeat (D02 T02 §8) when it runs
 HEARTBEAT_STATE = "build/unattended-heartbeat.json"
 ENDED = "build/claude-campaign-ended.json"  # written by campaign_guard.py end: how the last run ended
-FINISHED = 10  # the heartbeat's exit status when the run is over (stopped, or ended by its own agent)
-MAX_WAIT_SECONDS = 3600
-RESET_SECONDS = 3600  # a run alive this long after its last restart has its death count reset
+FINISHED = 10  # the heartbeat's exit status when the run is over: stopped, ended by its agent, or dead
 NUDGE_PROMPT = ("The unattended run looks idle. Continue with process-plan: pick up the open section in the run file "
                 "and keep going. Never ask the operator a question.")
 HISTORY_LIMIT = 50000
@@ -314,18 +314,14 @@ def _launch(root: Path, run_session: str, argv: list[str], session: str) -> int:
         raise
 
 
-def start(root: Path, out=None, expect: str | None = None, supervise: bool = True) -> int:
-    """Start or resume the run. `expect` (the heartbeat's restart) names the run it means: under the launch lock the
-    marker must still name it, or nothing starts and FINISHED is returned, so a stop during a restart's backoff never
-    resurrects the run. `supervise` launches the heartbeat in its own tmux session when it is not running."""
+def start(root: Path, out=None, supervise: bool = True) -> int:
+    """Start the run, as the operator asked. `supervise` launches the heartbeat in its own tmux session when it is not
+    running. Nothing calls this but the operator: no heartbeat, unit or task restarts a run."""
     out = out or sys.stdout
     profile = lib.load_profile(root)
     run_session, heartbeat = names(profile)
     with lib.launch_lock(root):
         marker, problem = read_marker(root)
-        if expect is not None and (marker is None or marker["session"] != expect):
-            print(f"start: run {expect} was stopped or replaced; nothing restarted", file=out)
-            return FINISHED
         if problem:
             raise RunError(f"{problem}: stop the run (or remove {MARKER}) before starting another")
         if marker:
@@ -403,10 +399,12 @@ def _launch_heartbeat(root: Path, heartbeat: str, out) -> None:
     print(f"start: heartbeat running in tmux session {heartbeat}", file=out)
 
 
-def read_state(root: Path) -> dict:
+def read_state(root: Path, tag: str | None) -> dict:
+    """The heartbeat's state for the run tagged `tag`; a state left by another run is not carried over."""
     state = read_json(root / HEARTBEAT_STATE) or {}
-    return {"deaths": state.get("deaths", 0) if isinstance(state.get("deaths"), int) else 0,
-            **{key: state.get(key) for key in ("wait_until", "last_restart", "last_nudge", "last_error")}}
+    if state.get("session") != tag:
+        state = {}
+    return {"session": tag, **{key: state.get(key) for key in ("last_nudge", "last_error", "ended")}}
 
 
 def run_finished(root: Path, marker: dict) -> bool:
@@ -419,27 +417,32 @@ def run_finished(root: Path, marker: dict) -> bool:
         marker.get("agent_session") and ended.get("session_id") == marker["agent_session"])
 
 
-def backoff(profile: dict, deaths: int) -> int:
-    return min(profile["tick_seconds"] * 2 ** min(deaths, 5), MAX_WAIT_SECONDS)
-
-
 def _nudge(root: Path, run_session: str, profile: dict, state: dict, now: float, out) -> None:
     """Prompt a run whose window has shown nothing for idle_minutes, at most once per idle_minutes, unless an
-    operator is attached with a client that can type (a read-only watcher does not count)."""
+    operator is attached with a client that can type (a read-only watcher does not count). A nudge counts only when
+    tmux answered the client query and accepted the prompt."""
     idle = profile["idle_minutes"] * 60
     target = f"={run_session}:agent"
-    shown = tmux("display-message", "-p", "-t", target, "#{window_activity}").stdout.strip()
-    if not shown.isdigit() or now - int(shown) < idle:
+    shown = tmux("display-message", "-p", "-t", target, "#{window_activity}")
+    activity = shown.stdout.strip()
+    if shown.returncode != 0 or not activity.isdigit():
+        state["last_error"] = f"tmux could not say when {run_session} was last active"
         return
-    if state.get("last_nudge") and now - state["last_nudge"] < idle:
+    if now - int(activity) < idle or (state.get("last_nudge") and now - state["last_nudge"] < idle):
         return
-    clients = tmux("list-clients", "-t", f"={run_session}", "-F", "#{client_readonly}").stdout.split()
-    if "0" in clients:
+    clients = tmux("list-clients", "-t", f"={run_session}", "-F", "#{client_readonly}")
+    if clients.returncode != 0:
+        state["last_error"] = f"tmux could not list the clients of {run_session}; no nudge sent"
+        return
+    if "0" in clients.stdout.split():
         return  # an operator is attached and may be typing
-    tmux("send-keys", "-t", target, "-l", NUDGE_PROMPT)
-    tmux("send-keys", "-t", target, "Enter")
-    state["last_nudge"] = now
-    print(f"heartbeat: nudged {run_session} after {int(now - int(shown))}s without activity", file=out)
+    typed = tmux("send-keys", "-t", target, "-l", NUDGE_PROMPT)
+    entered = tmux("send-keys", "-t", target, "Enter") if typed.returncode == 0 else typed
+    if entered.returncode != 0:
+        state["last_error"] = f"tmux did not take the nudge for {run_session}: {(entered.stderr or '').strip()}"
+        return
+    state["last_nudge"], state["last_error"] = now, None
+    print(f"heartbeat: nudged {run_session} after {int(now - int(activity))}s without activity", file=out)
     note_resumption(root, out)
 
 
@@ -457,17 +460,43 @@ def note_resumption(root: Path, out) -> None:
     print(f"heartbeat: {said[-1][-200:] if said else f'heartbeat-still exited {done.returncode}'}", file=out)
 
 
-def finish(root: Path, marker: dict, out) -> int:
-    """The run is over: its marker and its own claim go, so neither start nor a boot resume revives it."""
+def end_run(root: Path, observed: dict, reason: str, state: dict, now: float, out) -> bool:
+    """Record the run `observed` as ended, under the launch lock and only while the marker still names it: stop its
+    tmux sessions, every process tagged with it and its group, end its own guard, and only then remove the marker
+    and the run's claim. True when the run is over (or was replaced by the operator's next one, which is left
+    alone); False when the cleanup failed, keeping the marker and claim for the next tick to try again."""
     with lib.launch_lock(root):
+        marker, _ = read_marker(root)
+        if marker is None or marker["session"] != observed["session"]:
+            print(f"heartbeat: run {observed['session']} is no longer the marked run; nothing of the current one is "
+                  "touched", file=out)
+            return True
+        tmux("kill-session", "-t", f"={marker['tmux_session']}")
+        left = end_run_processes(marker["session"], marker["pgid"])
+        guard = owned_guard(root, marker)
+        failed = None
+        if guard:
+            done = _end_guard(root, str(guard.get("session_id")))
+            if done.returncode != 0:
+                failed = f"its guard did not end ({(done.stdout or done.stderr).strip()[-200:]})"
+        if left:
+            failed = f"processes {left} outlived SIGKILL" + (f"; {failed}" if failed else "")
+        if failed:
+            state["last_error"] = f"run {marker['session']} could not be ended: {failed}; tried again next tick"
+            print(f"heartbeat: {state['last_error']}", file=out)
+            return False
         (root / MARKER).unlink(missing_ok=True)
         lib.clear_claim(root, marker["session"], lock_held=True)
-    print(f"heartbeat: run {marker['session']} ended itself; the heartbeat stops", file=out)
-    return FINISHED
+    state["ended"] = {"reason": reason, "at": datetime.fromtimestamp(now, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    state["last_error"] = None
+    print(f"heartbeat: run {observed['session']} ended ({reason}); nothing restarts it, and the heartbeat stops",
+          file=out)
+    return True
 
 
-def tick(root: Path, now: float, state: dict, out=None, restart=None) -> int:
-    """One heartbeat tick: FINISHED when the run is over, 0 otherwise. `state` is updated in place."""
+def tick(root: Path, now: float, state: dict, out=None) -> int:
+    """One heartbeat tick: FINISHED when the run is over, 0 otherwise. `state` is updated in place. A dead run is
+    recorded as ended, never restarted (owner decision 2026-11-12)."""
     out = out or sys.stdout
     profile = lib.load_profile(root)
     marker, problem = read_marker(root)
@@ -475,47 +504,25 @@ def tick(root: Path, now: float, state: dict, out=None, restart=None) -> int:
         print(f"heartbeat: {problem or 'no run marker'}; the heartbeat stops", file=out)
         return FINISHED
     if run_finished(root, marker):
-        return finish(root, marker, out)
+        return FINISHED if end_run(root, marker, "the run ended itself", state, now, out) else 0
     live = _alive(marker["tmux_session"])
     if live is None:
         state["last_error"] = "tmux could not be asked whether the run is alive"
         return 0
-    if live:
-        if state["deaths"] and state.get("last_restart") and now - state["last_restart"] >= RESET_SECONDS:
-            state["deaths"] = 0
-        state["wait_until"] = None
-        _nudge(root, marker["tmux_session"], profile, state, now, out)
-        return 0
-    if state.get("wait_until") is None:
-        state["wait_until"] = now + backoff(profile, state["deaths"])
-        print(f"heartbeat: run {marker['session']} is not running; restart in "
-              f"{int(state['wait_until'] - now)}s", file=out)
-        return 0
-    if now < state["wait_until"]:
-        return 0
-    try:
-        code = (restart or (lambda: start(root, out, expect=marker["session"], supervise=False)))()
-        error = None if code == 0 else f"start exited {code}"
-    except (RunError, lib.ProfileError, lib.LaunchError, OSError, subprocess.SubprocessError) as exc:
-        code, error = 1, f"{type(exc).__name__}: {exc}"
-    if code == FINISHED:
-        return FINISHED
-    state["deaths"] += 1
-    state["last_error"] = error
-    if error:
-        state["wait_until"] = now + backoff(profile, state["deaths"])
-        print(f"heartbeat: restart failed ({error}); next try in {int(state['wait_until'] - now)}s", file=out)
-    else:
-        state["last_restart"], state["wait_until"] = now, None
+    if not live:
+        return FINISHED if end_run(root, marker, "its session is gone", state, now, out) else 0
+    _nudge(root, marker["tmux_session"], profile, state, now, out)
     return 0
 
 
 def heartbeat(root: Path, once: bool = False, clock=time.time, sleep=time.sleep, out=None) -> int:
-    """Tick every tick_seconds until the run is over. The state is read back from its file on every tick, so a
-    heartbeat started again carries on; it writes that file and nothing else."""
-    unsaved = None  # the state a failed write could not keep, carried in memory until a write succeeds
+    """Tick every tick_seconds until the run is over. The state is read back from its file on every tick (a heartbeat
+    started again carries it on) and kept in memory while a write fails; it writes that file and nothing else."""
+    unsaved = None
     while True:
-        state = unsaved or read_state(root)
+        marker, _ = read_marker(root)
+        tag = marker["session"] if marker else None
+        state = unsaved if unsaved and unsaved.get("session") == tag else read_state(root, tag)
         code = tick(root, clock(), state, out)
         try:
             lib.write_atomic(root / HEARTBEAT_STATE, json.dumps(state, indent=2) + "\n")
