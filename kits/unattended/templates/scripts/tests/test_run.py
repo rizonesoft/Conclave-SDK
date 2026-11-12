@@ -588,6 +588,38 @@ class RunTest(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(self.guard()["session_id"], "someone-else", "stop ended another run's guard")
 
+    def test_a_marker_from_before_agent_session_still_stops_its_run(self):
+        # Round 1 of D02 T02 §6: a §5 marker (no agent_session) became unreadable, and stop lost the run's group.
+        self.assertEqual(self.launcher("start").returncode, 0)
+        child = self.wait_child()
+        path = self.root / "build" / "unattended-run.json"
+        old = json.loads(path.read_text(encoding="utf-8"))
+        del old["agent_session"]
+        path.write_text(json.dumps(old), encoding="utf-8")
+        marker, problem = self.run_module().read_marker(self.root)
+        self.assertIsNone(problem)
+        self.assertEqual(marker["agent_session"], old["session"])
+        done = self.launcher("stop")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertTrue(self.wait_gone(child), "stop lost the old marker's process group")
+
+    def test_a_run_whose_profile_changed_agent_starts_that_agent_fresh(self):
+        # Round 1 of D02 T02 §6: a crashed Claude Code run was resumed as `codex resume <Claude's session id>`.
+        self.assertEqual(self.launcher("start").returncode, 0)
+        first = self.marker()["session"]
+        self.calls(1)
+        self.acquire(first)
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+        self.use_codex()
+        done = self.launcher("start")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("the profile now names codex", done.stdout)
+        self.assertIn("the crashed run's guard ended", done.stdout)
+        call = self.calls(2)[-1]
+        self.assertEqual(call["cli"], "codex")
+        self.assertNotIn("resume", call["argv"])
+        self.assertNotIn(first, call["argv"])
+        self.assertIsNone(self.guard())
     def test_an_antigravity_run_starts_with_its_prompt(self):
         self.write_profile(agent="agy", model="gemini-4-argon", effort="high")
         git(self.root, "commit", "-qam", "an antigravity run")

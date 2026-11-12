@@ -104,6 +104,9 @@ def read_marker(root: Path) -> tuple[dict | None, str | None]:
         return None, None
     except (OSError, ValueError) as exc:
         return None, f"{MARKER} cannot be read ({exc})"
+    if isinstance(data, dict) and set(data) == set(MARKER_KEYS) - {"agent_session"}:
+        # A marker written before D02 T02 §6, when the tag was Claude Code's session and the only agent was Claude.
+        data = {**data, "agent_session": data.get("session") if data.get("agent") == "claude" else None}
     if not isinstance(data, dict) or set(data) != set(MARKER_KEYS):
         return None, f"{MARKER} does not hold {', '.join(MARKER_KEYS)}"
     if not all(isinstance(data[k], str) and data[k] for k in ("session", "tmux_session", "heartbeat_session")):
@@ -324,6 +327,11 @@ def start(root: Path, out=None) -> int:
         # records, and without one (the agent died before it took the guard) the run starts fresh.
         guard = owned_guard(root, old)
         resume = (old["agent_session"] or (str(guard["session_id"]) if guard else None)) if old else None
+        if old and old["agent"] != profile["agent"]:
+            # The profile now names another agent: a session of one cannot be resumed by the other.
+            print(f"start: the crashed run was {old['agent']}, the profile now names {profile['agent']}; its "
+                  f"session is not resumed, and a fresh {profile['agent']} session starts", file=out)
+            resume = None
         code, report = run_preflight(root, old["session"] if old else None, profile)
         print(report, file=out)
         if code != 0:
@@ -331,6 +339,8 @@ def start(root: Path, out=None) -> int:
             return 1
         started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         session = agent_session = pid = None
+        if old and not resume:
+            _end_old_guard(root, old, out)  # nothing to resume: the crashed run's guard is ended before a fresh start
         if resume:
             try:
                 pid = _launch(root, run_session, agent_command(root, profile, old["session"], resume), old["session"])
