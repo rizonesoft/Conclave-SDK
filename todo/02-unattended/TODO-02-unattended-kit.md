@@ -105,7 +105,11 @@ Everything the two projects hard-coded (agent, model, effort, prompt, branch, th
 
 ## 3. Preflight with a PASS or FAIL line per precondition
 
+> **Started:** 2026-11-12T08:38:39Z
+
 A run that cannot work should not start. The preflight prints one line per precondition and exits 1 on any FAIL. Source: RasterFold `scripts/unattended-preflight.py:413` to `:495`, with its project-specific checks left behind.
+
+**Corrected 2026-11-12 (validation):** the launch claim and `read_claim` are built in §4, after this section, so the claim check moves to §4, which owns the claim; here the run check is the campaign guard alone. The Codex hook file names `codex-campaign-hook.py`, not `campaign_guard.py`, so the hook check reads the agent's file with the guard's own `HOOK_FILES` and `_campaign_command` (one source for the markers and the parsing). The upstream check compares with the last fetch and does not fetch: a preflight that needs the network would refuse an offline run for a reason that has nothing to do with the tree (reversing it is one `git fetch` call). The Windows refusal comes first and alone, since nothing after it can run there.
 
 **Phase:** 2
 **Needs:** none
@@ -117,9 +121,9 @@ A run that cannot work should not start. The preflight prints one line per preco
 2. Add the project's own checks from the profile and the process-tree stop. Done when: the checkpoint passes.
 
 - [ ] Create `unattended-preflight.py` with the git checks: on the profile's `branch`, a clean tree, and `HEAD` not behind its upstream when one is set. Done when: tests on fixture repositories find one FAIL line for each broken state and exit 1, and exit 0 with only PASS lines otherwise. Cheaper substitute: one combined "git ok" line must fail the per-state tests.
-- [ ] Add the run checks to `unattended-preflight.py`: no live campaign guard (`build/claude-campaign-guard.json`) and no other launch claim (§4). Done when: tests with a guard file and with a live claim each find their FAIL line.
+- [ ] Add the run check to `unattended-preflight.py`: no live campaign guard (`build/claude-campaign-guard.json`). Done when: a test with a guard file finds its FAIL line and one without finds PASS. **Corrected 2026-11-12:** the claim check moved to §4.
 - [ ] Add the tool checks to `unattended-preflight.py`: `git`, `python3`, `tmux`, the profile agent's CLI and every name in the profile's `tools` are on `PATH`. Done when: a test with a `tools` entry that does not exist finds its FAIL line naming the tool.
-- [ ] Add the hook check to `unattended-preflight.py`: the profile agent's Stop hook file names `campaign_guard.py`, and `python3 scripts/campaign_guard.py --self-test` exits 0 (the self-test is built in D02 T01 §5). Done when: a test with a hook file that lacks the hook finds FAIL and one with a seeded install finds PASS.
+- [ ] Add the hook check to `unattended-preflight.py`: the profile agent's Stop hook file holds an enabled campaign Stop command, read with `HOOK_FILES` and `_campaign_command` from the project's `scripts/campaign_guard.py` (`codex-campaign-hook.py` for Codex), and `python3 scripts/campaign_guard.py --self-test` exits 0 (the self-test is built in D02 T01 §5). Done when: a test with a hook file that lacks the hook finds FAIL and one with a seeded install finds PASS.
 - [ ] Add the headroom checks to `unattended-preflight.py`: free disk on the repository's volume at least `min_disk_gb` and available memory at least `min_ram_gb`, read with `shutil.disk_usage` and `/proc/meminfo`. Done when: a test with thresholds above what the machine has finds both FAIL lines with the measured values.
 - [ ] Run the profile's `preflight` commands from `unattended-preflight.py`: each with no shell, its own timeout, a new process group and the whole group killed on timeout or interrupt (RasterFold `:75`, `:135`), showing only the last line of its output. Done when: a test with a command that starts a child and sleeps past its timeout finds FAIL with exit 124 and the child gone. Cheaper substitute: `subprocess.run(timeout=...)` must fail the child-gone assertion.
 - [ ] Refuse to run on Windows without WSL in `unattended-preflight.py` with one line saying the run needs tmux. Done when: a test with `os.name` patched to `nt` finds exit 1 and that line.
@@ -144,6 +148,7 @@ Two launches at once would start two agents on one tree. A lock held for the lau
 - [ ] Add `write_claim(root, session, pid, agent)` to `lib/unattended.py`, writing `build/unattended-launch.json` (session id, tmux session name, pid, agent, UTC start) through a temporary file and `os.replace`. Done when: a test reads back what was written. Cheaper substitute: a plain `open(..., "w")` must fail review under the repository's atomic-write rule.
 - [ ] Add `read_claim(root)` to `lib/unattended.py`, returning the claim and whether it is live: live means its tmux session exists. A claim that is not JSON or lacks a key reads as stale with the reason. Done when: tests cover a live claim, a claim whose session is gone and a malformed file.
 - [ ] Add `clear_claim(root)` to `lib/unattended.py`, removing the claim only when it is stale or belongs to the session being stopped. Done when: a test finds a live claim of another session untouched and a refusal naming it.
+- [ ] Add the claim check to `unattended-preflight.py`: no other live launch claim, read with `read_claim`. Done when: a test with a live claim of another session finds its FAIL line naming the session, and a stale claim finds PASS with the reason. **Corrected 2026-11-12:** moved here from §3, which runs before the claim exists.
 - [ ] Commit: `unattended: launch lock and claim`
 
 **Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` ends `OK`; making `read_claim` call every claim live makes the stale-claim test fail.
