@@ -71,7 +71,7 @@ def _in_strings(path, text):
     ranges = []
     try:
         for tok in tokenize.generate_tokens(io.StringIO(text).readline):
-            if tok.type == tokenize.STRING:
+            if tok.type in (tokenize.STRING, tokenize.COMMENT):
                 (sr, sc), (er, ec) = tok.start, tok.end
                 ranges.append((offsets[sr - 1] + sc, offsets[er - 1] + ec))
     except (tokenize.TokenError, IndentationError, SyntaxError, IndexError):
@@ -79,9 +79,10 @@ def _in_strings(path, text):
     return ranges
 
 
-def check(path, new_text, added):
-    """Flags for added starts in a launcher test that open a window: [(line, code)]."""
-    if not added or not is_launcher_test(path, new_text):
+def check(path, new_text, added, whole_text=None):
+    """Flags for added starts in a launcher test that open a window: [(line, code)]. `whole_text` is the file an
+    Edit lands in, so a fragment is judged as part of its file (the launcher name may lie outside the fragment)."""
+    if not added or not is_launcher_test(path, (whole_text or "") + "\n" + new_text):
         return []
     lines = new_text.splitlines()
     strings = _in_strings(path, new_text)
@@ -97,7 +98,8 @@ def check(path, new_text, added):
         last = first + call.count("\n")
         if not added.intersection(range(first, last + 1)):
             continue
-        if "creationflags" in call or _is_application(_program(call)):
+        windowless = re.search(r"creationflags\s*=\s*(?!0\b)\S", call)  # creationflags=0 opens a window
+        if windowless or _is_application(_program(call)):
             continue
         if any(EXEMPT in lines[i] for i in range(first, min(last + 1, len(lines)))):
             continue

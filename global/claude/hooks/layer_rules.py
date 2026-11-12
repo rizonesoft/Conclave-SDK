@@ -178,7 +178,7 @@ def record(session, event, edits):
                     "business logic, carry on and say so in the Layer line. If it hides a problem, fix it in the layer "
                     f"that owns it. If that layer genuinely cannot express the fix, keep it and add a `{WORKAROUND} "
                     "<reason>` comment on or just above the line.")
-    windowed = [(path, line, code) for path, new, added in edits for line, code in launcher_tests.check(path, new, added)]
+    windowed = [(path, line, code) for path, new, added in edits for line, code in launcher_tests.check(path, new, added, read(path))]
     if launcher_tests.message(windowed):
         texts.append(launcher_tests.message(windowed))
     return "\n\n".join(texts) or None

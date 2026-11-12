@@ -65,6 +65,19 @@ class CheckTest(unittest.TestCase):
         flags = launcher_tests.check("tests/StartRun.Tests.ps1", text, every_line(text))
         self.assertEqual([line for line, _ in flags], [2])
 
+    def test_a_comment_is_not_a_start(self):
+        text = '# start-campaign\n# subprocess.run(["pwsh"])\n'
+        self.assertEqual(launcher_tests.check("tests/test_campaign.py", text, every_line(text)), [])
+
+    def test_creationflags_zero_still_opens_a_window(self):
+        text = LAUNCHER_TEST.replace("text=True)", "text=True, creationflags=0)")
+        self.assertEqual(len(launcher_tests.check("tests/test_start_campaign.py", text, every_line(text))), 1)
+
+    def test_an_edit_fragment_is_judged_with_its_file(self):
+        fragment = '    return subprocess.run(["pwsh", "-File", SCRIPT])\n'
+        whole = 'import subprocess\nSCRIPT = "scripts/start-campaign.ps1"\ndef run():\n    pass\n'
+        self.assertEqual(launcher_tests.check("tests/test_start_campaign.py", fragment, {0}), [], "no file context")
+        self.assertEqual(len(launcher_tests.check("tests/test_start_campaign.py", fragment, {0}, whole)), 1)
     def test_only_added_lines_count(self):
         self.assertEqual(launcher_tests.check("tests/test_start_campaign.py", LAUNCHER_TEST, {0, 1}), [])
 
