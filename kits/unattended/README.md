@@ -6,6 +6,9 @@ The kit is being built section by section (`todo/02-unattended/TODO-02-unattende
 
 | File | What it is |
 | ---- | ---------- |
-| `scripts/lib/unattended.py` | The kit's shared module; it holds only `SCHEMA_VERSION` so far |
+| `.conclave/unattended.json` | The run profile: agent, model, effort, prompt, branch, thresholds, preflight checks |
+| `docs/unattended-prompt.md` | The seed prompt the run starts with, naming no project |
+| `scripts/lib/unattended.py` | `load_profile`, which refuses a profile it cannot run, naming the key |
+| `scripts/tests/test_unattended.py` | The kit's own tests |
 
-Install it with `python forge.py kit <project> unattended` after the `todo` kit, and check the machine with `python forge.py doctor <project> unattended`. The SDK does not install this kit in itself (`SELF_KITS` in `forge.py`).
+After installing, set `name`, `model` and `effort` in `.conclave/unattended.json` (the template leaves them `null` and the loader refuses it until they are set). Install it with `python forge.py kit <project> unattended` after the `todo` kit, and check the machine with `python forge.py doctor <project> unattended`. The SDK does not install this kit in itself (`SELF_KITS` in `forge.py`).

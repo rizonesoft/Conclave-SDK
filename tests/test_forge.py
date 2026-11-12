@@ -2958,6 +2958,23 @@ class UnattendedKitTests(unittest.TestCase):
         self.assertIn("kit", todo["detail"])
         self.assertIn("todo", todo["detail"])
 
+    def test_the_kits_own_tests_pass(self):
+        tests = FORGE_ROOT / "kits/unattended/templates/scripts/tests"
+        result = subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "-s", str(tests)],
+                                capture_output=True, text=True, timeout=300)
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+        self.assertIn("OK", result.stderr)
+
+    def test_the_installed_tests_pass_in_a_project_that_set_its_profile(self):
+        forge.apply_kit(self.target, "unattended")
+        path = self.target / ".conclave/unattended.json"
+        profile = json.loads(path.read_text(encoding="utf-8"))
+        profile.update(name="demo-run", model="claude-opus-5-5", effort="max", idle_minutes=30, tick_seconds=120)
+        path.write_text(json.dumps(profile), encoding="utf-8")
+        result = subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "-s", str(self.target / "scripts/tests")],
+                                capture_output=True, text=True, timeout=300)
+        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+
     def test_the_documents_name_the_kit_and_the_sdk_does_not_install_it(self):
         self.assertNotIn("unattended", forge.SELF_KITS)
         doctor = next(line for line in forge.__doc__.splitlines() if "forge.py doctor" in line)
