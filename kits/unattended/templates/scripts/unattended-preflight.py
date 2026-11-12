@@ -25,6 +25,9 @@ import sys
 import threading
 
 HERE = Path(__file__).resolve().parent
+# Loading the kit's own modules must not write __pycache__ into the project: that dirties the tree the preflight
+# checks, and a launch would refuse itself.
+sys.dont_write_bytecode = True
 TIMED_OUT = 124  # the status `timeout(1)` reports, given to a check that ran past its limit
 NOT_STARTED = 127  # the status a shell gives a program it could not start
 AGENT_CLI = {"claude": "claude", "codex": "codex", "agy": "agy"}

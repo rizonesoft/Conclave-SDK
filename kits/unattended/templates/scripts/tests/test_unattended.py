@@ -431,6 +431,8 @@ class ClaimTest(unittest.TestCase):
                 [], code, stdout="", stderr=stderr))
         for code, stderr, expected in ((0, "", True), (1, "can't find session: =demo-run\n", False),
                                        (1, "no server running on /tmp/tmux-1000/default\n", False),
+                                       (1, "error connecting to /tmp/tmux-1000/default (No such file or directory)\n",
+                                        False),
                                        (1, "error connecting to /tmp/tmux-1000/default (Permission denied)\n", None)):
             with self.subTest(stderr=stderr), answer(code, stderr):
                 self.assertIs(unattended.tmux_session_exists("demo-run"), expected)

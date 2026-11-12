@@ -122,7 +122,9 @@ LAUNCH_LOCK = "build/unattended-launch.lock"
 CLAIM = "build/unattended-launch.json"
 CLAIM_KEYS = ("session", "tmux_session", "pid", "agent", "started")
 # What tmux says when it can confirm a session does not exist; anything else it says is a lookup that failed.
-TMUX_ABSENT = ("can't find session", "no server running", "session not found")
+# A missing server socket (`error connecting to ... (No such file or directory)`) means no server, so no session; a
+# socket that cannot be reached for another reason (permission) stays unknown.
+TMUX_ABSENT = ("can't find session", "no server running", "session not found", "(no such file or directory)")
 
 
 class LaunchError(RuntimeError):
@@ -148,7 +150,8 @@ def launch_lock(root):
         handle.close()
 
 
-def _write_atomic(path: Path, text: str) -> None:
+def write_atomic(path: Path, text: str) -> None:
+    """Write `text` to `path` through a temporary file in its folder, flushed to disk, and os.replace."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
     try:
@@ -171,7 +174,7 @@ def write_claim(root, session: str, pid: int, agent: str, tmux_session: str, sta
     temporary file and os.replace, and return it. A launch writes it while holding `launch_lock`."""
     claim = {"session": session, "tmux_session": tmux_session, "pid": pid, "agent": agent,
              "started": started or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
-    _write_atomic(Path(root) / CLAIM, json.dumps(claim, indent=2) + "\n")
+    write_atomic(Path(root) / CLAIM, json.dumps(claim, indent=2) + "\n")
     return claim
 
 
