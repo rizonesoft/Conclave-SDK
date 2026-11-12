@@ -71,7 +71,7 @@ Then open the project in Claude Code, Codex or Antigravity. Each agent finds its
 | `todo` | 8 TODO skills, `todo-graph.py`, starter `todo/` tree | Work planned in TODO files |
 | `reviewer` | Reviewer pin, `review-dispatch.py`, review skill | Independent review |
 | `automations` | `tasks.json`, runner, failure email, installers, skill | Scheduled checks |
-| `unattended` | Profile, preflight, tmux launcher, heartbeat, boot unit, shortcut | Runs nobody watches |
+| `unattended` | Skeleton so far; the launcher and the rest come in D02 T02 | Runs nobody watches |
 | `laravel` | `boost.json`, `.mcp.json`, LSP diagnostics, `laravel-boost` | `artisan` exists |
 | `wordpress` | Site pin, SSH/SFTP, WordPress MCP, DDEV, PHPCS | A WordPress site |
 
@@ -228,7 +228,7 @@ On Windows, `pwsh scripts/start-run.ps1` starts a Claude Code session in this ch
 | `kits/todo/` | TODO skills, `todo-graph.py`, starter `todo/` tree, workflow doc. |
 | `kits/reviewer/` | Reviewer pin (one reviewer of another model family) and dispatcher. |
 | `kits/automations/` | Scheduled tasks for Task Scheduler and systemd, with a failure email. |
-| `kits/unattended/` | A `process-plan` run kept going in tmux, restarted and resumed (not in the SDK itself). |
+| `kits/unattended/` | Being built: a run kept going in tmux (D02 T02; not in the SDK itself). |
 | `kits/laravel/`, `kits/wordpress/` | Stack kits. |
 | `prompts/` | Copy-pasteable prompts to import Conclave-SDK from Gemini, Claude, or Codex. |
 | `plugins/` | Account-bound Codex and Claude plugins that belong to no kit (never installed). |
