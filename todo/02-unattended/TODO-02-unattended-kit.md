@@ -78,6 +78,8 @@ The kit folder, its place in the install order, its detection and its doctor bra
 
 ## 2. Run profile `.conclave/unattended.json` and its loader
 
+> **Started:** 2026-11-12T05:49:28Z
+
 Everything the two projects hard-coded (agent, model, effort, prompt, branch, thresholds, session name) becomes one profile the project owns. The loader refuses a profile it cannot run.
 
 **Phase:** 2
@@ -93,7 +95,7 @@ Everything the two projects hard-coded (agent, model, effort, prompt, branch, th
 - [ ] Add `load_profile(root)` to `lib/unattended.py`, returning the profile with every key checked: `agent` one of `claude`, `codex`, `agy`; `name` matching `[a-z0-9][a-z0-9-]{1,40}`; `prompt_file` a relative path inside the repository that exists; numbers whole and positive; `preflight` a list of `{"name", "command", "timeout_seconds"}` with `command` a list of strings. Done when: a test for each fault reads a refusal naming `.conclave/unattended.json` and the key. Cheaper substitute: `dict.get` with silent defaults must fail the unknown-key and wrong-type tests.
 - [ ] Refuse a profile whose `name`, `model` or `effort` is still `null` in `load_profile`, saying which to set. Done when: a test loads the shipped template unchanged and reads that refusal, and loads it with the three set and gets the profile.
 - [ ] Create `kits/unattended/templates/docs/unattended-prompt.md`: a seed prompt that tells the agent to run `process-plan` to completion, never to ask the operator, and to record every decision in the run file, with no project name in it. Done when: the template profile's `prompt_file` names it and `load_profile` accepts it.
-- [ ] Add `kits/unattended/templates/scripts/tests/test_unattended.py` with the loader tests, run from `tests/test_forge.py` as the other kits' tests are (`tests/test_forge.py:444`). Done when: `python -m unittest discover -s kits/unattended/templates/scripts/tests` passes and the quick suite runs it.
+- [ ] Add `kits/unattended/templates/scripts/tests/test_unattended.py` with the loader tests, run from `tests/test_forge.py` as the reviewer kit's tests are (`test_reviewer_kit_dispatcher_tests_pass`), but in the quick suite. Done when: `python -m unittest discover -s kits/unattended/templates/scripts/tests` passes and the quick suite runs it.
 - [ ] Commit: `unattended: run profile and its loader`
 
 **Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` ends `OK`; accepting an unknown `agent` makes its test fail.
