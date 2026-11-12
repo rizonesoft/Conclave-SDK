@@ -86,7 +86,7 @@ The paragraph pasted into every repository ("act autonomously, self-heal, implem
 | `base` (extend) | The operating directive: decide, fix forward, ask only what matters |
 | `base` (extend) | Git hygiene: work on main, prune merged branches and dead worktrees |
 | `unattended` (new) | Preflight, launcher, heartbeat and stop hooks for all three agents |
-| `unattended` (new) | Desktop shortcut and systemd unit that start the run |
+| `unattended` (new) | Desktop shortcut that starts the run; nothing resumes it (2026-11-12) |
 | `lsp` (new) | Language server setup per stack for the three agents, with a doctor check |
 | `toolchain-cpp` (new) | Ninja, ccache or sccache, a fast linker, clangd, a compile database |
 | `toolchain-web` (new) | The PHP and Node equivalents for the Laravel and WordPress kits |
@@ -108,3 +108,5 @@ Status on 2026-11-11, end of day: both GitHub repositories can be deleted.
 ## Bosun guidance (owner decision 2026-11-12)
 
 Bosun is the owner's separate Windows and WSL tool that queues heavy jobs across both sides. The owner decided on 2026-11-12 that the global rules for every agent route full builds and full test suites through `bosun run`, falling back to running the command normally when `bosun` is not installed, and that this checkout carries the guidance behind that rule. The rule is in both `global/claude/rules/claude-code.md` and `global/codex/rules/codex.md` (section 11). The rest is `todo/06-global/TODO-02-bosun-guidance.md` (D06 T02): a reference page and a test that keeps the two rule files in step. It is a commitment of this plan: a run corrects a drifted fact in it, and never retires, merges away, defers or drops it without the owner.
+
+**Owner decision 2026-11-12:** a run never restarts itself. It starts only when the operator starts it; `stop`, a crash or a reboot ends it, and no heartbeat, watchdog, scheduled task or boot unit resumes it. Nudging a live run inside its session stays. The unattended kit's heartbeat restart (D02 T02 §7, first build) is removed and its boot resume (§9) is not built.

@@ -8,7 +8,7 @@ title: "TODO-02 -- Unattended kit"
 
 # TODO-02 -- Unattended kit
 
-> **Goal:** A project installs one kit and can start a `process-plan` run that keeps going with nobody at the keyboard: a preflight that refuses a run that cannot work, a launcher that starts the agent in a session that survives the terminal, a heartbeat that restarts a dead run and nudges an idle one, a boot unit that resumes it, and a desktop shortcut that starts it.
+> **Goal:** A project installs one kit and can start a `process-plan` run that keeps going with nobody at the keyboard: a preflight that refuses a run that cannot work, a launcher that starts the agent in a session that survives the terminal, a heartbeat that nudges an idle run and records a dead one as ended, and a desktop shortcut that starts it; nothing restarts or resumes a run without its operator (owner decision 2026-11-12).
 
 > **Current state:** Measured 2026-11-11. No `kits/unattended/` exists; `forge.py` knows six kits (`KIT_ORDER`, `forge.py:139`). The todo kit's guard holds a run only from inside the session: its docstring says there is no keep-alive outside it (`kits/todo/templates/scripts/campaign_guard.py:19`). The two projects built the outside half separately. RasterFold (`~/projects/RasterFold` in WSL, `b33493346141f96b6b304cd3e0c393595382f056`) has `scripts/unattended-run.sh` (71 lines: lock, preflight, `exec claude`), `scripts/unattended-preflight.py` (509 lines), `docs/unattended-run.md` (60 lines) and a desktop shortcut that is not versioned; nothing restarts its run. Impossible OS (`~/projects/impossible-os` in WSL, `17a762d39ccd1958cbe711901f645fd9b042e939`) has `scripts/run.sh` (157 lines), `scripts/overnight/run-common.sh` (62), `heartbeat.sh` (105), `supervisor.py` (225), `ship_count.py` (66) and `scripts/run-desktop.sh` (80): a tmux session, a heartbeat that restarts and nudges it, and a systemd user unit that resumes it at boot. Both run in WSL and both start Claude Code only. **Corrected 2026-11-11:** the SDK itself now has a Windows launcher of its own, `scripts/start-run.ps1` with a desktop shortcut (Claude Code on the `opus` alias, permission prompts off, a `/goal`, the stored long-lived token), written on the owner's request the same day and modelled on Bosun's `scripts/start-run.ps1`. It is not part of a kit, restarts nothing and is Windows-native, so it does not replace any section below; §5 and §10 may take its goal and token handling as a further source.
 
@@ -23,8 +23,8 @@ title: "TODO-02 -- Unattended kit"
 ## Outcome
 
 - `python forge.py kit <project> unattended` installs the kit, and `python forge.py doctor <project> unattended` says what the machine still needs.
-- `python3 scripts/unattended-run.py start` runs the preflight and starts the agent in a tmux session; `status`, `attach` and `stop` act on that run; a run that dies is restarted and an idle run is nudged.
-- A run that was live when the machine went down resumes at boot, and a desktop shortcut starts a run with one double-click.
+- `python3 scripts/unattended-run.py start` runs the preflight and starts the agent in a tmux session; `status`, `attach` and `stop` act on that run; an idle run is nudged, and a run that dies is recorded as ended, its processes stopped, never restarted.
+- Nothing resumes a run without its operator: no boot unit, scheduled task, watchdog or heartbeat restart, which tests prove; a desktop shortcut starts a run with one double-click.
 - Limit, stated: the run lives in tmux, so it runs on Linux and in WSL. On Windows the shortcut starts it through `wsl.exe`, as RasterFold's does. There is no Windows-native launcher.
 
 **Adjacency:** list=not-applicable (one run per project, found by its session name); document=not-applicable (nothing a user carries or files); settings=applicable @ D02 T02 §2; reporting=applicable @ D02 T02 §8; notifications=applicable @ D02 T02 §8; permissions=applicable @ D02 T02 §3; audit=applicable @ D02 T02 §4; exchange=not-applicable (no import or export); reverse=applicable @ D02 T02 §5
@@ -41,9 +41,9 @@ title: "TODO-02 -- Unattended kit"
 | 4 | §4 | Launch lock and claim | §2 | [x] |
 | 5 | §5 | Launcher for a Claude Code run under tmux | §3, §4 | [x] |
 | 6 | §6 | Launch commands for Codex and Antigravity | §5, T01 §2, T01 §3 | [x] |
-| 7 | §7 | Heartbeat that restarts a dead run and nudges an idle one | §5 | [ ] |
+| 7 | §7 | Heartbeat that nudges an idle run and records a dead one as ended | §5 | [ ] |
 | 8 | §8 | Ship counter, ship limit and stall marker | §7 | [ ] |
-| 9 | §9 | Boot resume through a systemd user unit | §7 | [ ] |
+| 9 | §9 | Nothing resumes a run without its operator | §7 | [ ] |
 | 10 | §10 | Desktop shortcut that starts the run | §5 | [ ] |
 | 11 | §11 | Operator document and `unattended-run` skill | §8, §9, §10 | [ ] |
 
@@ -226,15 +226,13 @@ The launcher starts whichever agent the profile names. The Codex and Antigravity
 > **Verified:** 2026-11-12 | §6 | d43ab1f44ad33c95029c2e2377bcc88d459a3b2a
 > **Review:** `docs/reviews/d02-t02-s6.json`
 
-## 7. Heartbeat that restarts a dead run and nudges an idle one
+## 7. Heartbeat that nudges an idle run and records a dead one as ended
 
 > **Started:** 2026-11-12T14:04:33Z
 
-Nothing restarts RasterFold's run when it dies. Impossible OS's heartbeat does: a loop outside the agent that restarts a dead session with backoff and nudges one that has gone quiet. Source: Impossible OS `scripts/overnight/heartbeat.sh` (105 lines).
+A run nobody watches can go quiet, and one can die. The heartbeat, a loop outside the agent, nudges a live run that has gone quiet, and when the run has died it records the run as ended and stops everything it started; it never restarts it. Source: Impossible OS `scripts/overnight/heartbeat.sh` (105 lines), whose restart half is not lifted.
 
-**Corrected 2026-11-12 (validation):** "returning 10" is the heartbeat's exit status 10, which means the run is over, told apart from an error. A restart is `start` itself, called in the heartbeat's process, so it takes the launch lock, runs the preflight and goes through §5's resume path; a launch already under way is retried on the next tick. The heartbeat is not tagged with the run's tag, which a fresh start changes; `stop` ends its tmux session (§5). The waits 300, 600 and 1,200 seconds (with `tick_seconds` 300) are `tick_seconds * 2 ** deaths` with `deaths` counted before the restart they delay. A nudge is sent at most once per `idle_minutes`.
-
-**Corrected 2026-11-12 (plan review):** a resume owns the crashed run's unfinished edits, so the preflight's clean-tree check passes them when it is given `--resume-session` (saying they were kept), and a test kills an agent after it changed a tracked file and finds the run resumed with the change intact. The end of a run is recorded durably: `campaign_guard.py end` (todo kit) writes `build/claude-campaign-ended.json` (run id, session, the run's `launch_tag`, reason, time), and the heartbeat calls a run finished only on that record naming its tag or agent session, never on a guard that is merely absent; a finished run's marker and its own claim are removed, so neither `start` nor §9's boot resume revives it, and unrelated guards are untouched. The heartbeat restarts through `start(expect=<tag>)`, which re-reads the marker under the launch lock and starts nothing when the run was stopped or replaced meanwhile. A restart that fails (a preflight FAIL, a failed resume and fresh start, a lookup tmux cannot answer, a launch under way) counts as a death for the backoff, keeps supervising, and is recorded in the heartbeat's state as `last_error`, which `status` shows. The state is read back on every tick, so a recreated heartbeat continues it. Tests cover an ordinary `start` leaving exactly one detached heartbeat that restarts a killed agent unaided and that `stop` removes, a stop during backoff, the 3,600-second cap, the one-hour reset, the nudge throttle, and a read-only watcher that does not suppress the nudge while an interactive one does.
+**Owner decision 2026-11-12:** a run never restarts itself. It starts only when the operator starts it; `stop`, a crash or a reboot ends it, and no heartbeat, watchdog, scheduled task or boot unit resumes it. Nudging a live run inside its session stays. The first build of this section restarted a dead run with backoff (commits `6387d7f`, `11a2ce7`, `6daece2`); its review record is kept as `docs/reviews/02-unattended/D02-T02-s7.superseded-2026-11-12.md`, and the section is reviewed again from its plan.
 
 **Phase:** 2
 **Needs:** none
@@ -242,17 +240,17 @@ Nothing restarts RasterFold's run when it dies. Impossible OS's heartbeat does: 
 
 **Build order:**
 
-1. Add `heartbeat` to `kits/unattended/templates/scripts/unattended-run.py` and start it from `start`. Done when: a killed run session is restarted on the next tick.
-2. Add the backoff, the nudge and the exit conditions. Done when: the checkpoint passes.
+1. Re-scope `heartbeat` in `kits/unattended/templates/scripts/unattended-run.py`: no restart. Done when: a killed run session is recorded as ended on the next tick.
+2. Keep the nudge, the end conditions and the bounded writes. Done when: the checkpoint passes.
 
-- [x] Add `heartbeat [--once]` to `unattended-run.py`: every `tick_seconds`, check the run; `start` launches it in its own tmux session `<name>-heartbeat`. Done when: a test with `--once` and a killed run session finds the run restarted through the resume path of §5.
-- [x] Back off restarts in `heartbeat`: wait `tick_seconds * 2 ** min(deaths, 5)`, capped at 3,600 seconds, before the next restart, and reset `deaths` after the run has been alive for one hour; keep `deaths`, `wait_until` and `last_restart` in `build/unattended-heartbeat.json`, written atomically (Impossible OS `heartbeat.sh:19`, `:31`, `:65` to `:78`). Done when: tests with an injected clock find the waits 300, 600 and 1,200 seconds and the reset. Cheaper substitute: a fixed wait must fail the 600 second assertion.
-- [x] Nudge an idle run in `heartbeat`: when the run's tmux window has shown no activity for `idle_minutes` (tmux `window_activity`, which works for every agent; Impossible OS read the Claude transcript's age at `heartbeat.sh:22`), send a one-line prompt with `tmux send-keys`, skipped when a client that is not read-only is attached (`heartbeat.sh:41`). Done when: tests find the nudge sent for an idle run, not sent for an active one and not sent with an operator attached.
-- [x] End the heartbeat loop in `heartbeat` when the run marker is gone, or when the campaign guard was held and has been released by the run itself. Done when: tests for each find the loop returning 10 and the heartbeat session gone, and a run whose guard was never acquired is not treated as finished.
-- [x] Bound what the heartbeat writes: it keeps state files only and writes no log. Done when: a test running 50 ticks finds no new file under `build/` beyond `unattended-heartbeat.json` and the health file of §8.
-- [ ] Commit: `unattended: heartbeat restarts a dead run and nudges an idle one`
+- [ ] Run `heartbeat [--once]` in `unattended-run.py` every `tick_seconds`; `start` launches it in its own tmux session `<name>-heartbeat` unless `--no-heartbeat` is given. Done when: a test with an ordinary `start` finds exactly one heartbeat session, and `stop` removes it.
+- [ ] Record a dead run as ended in `heartbeat`: when the run's tmux session is gone, end every process tagged with the run and its process group, end the run's own guard (`campaign_guard.py end --reason operator-stop` with the guard's session), remove the marker and the run's claim, and exit 10, starting nothing. Done when: a test kills the run's session under the heartbeat and finds no agent started again, the stub's children gone, no guard, marker or claim, and a later `start` beginning a fresh session. Cheaper substitute: a restart through `start` must fail the no-agent-started assertion.
+- [ ] Nudge an idle run in `heartbeat`: when the run's tmux window has shown no activity for `idle_minutes` (tmux `window_activity`), send a one-line prompt with `tmux send-keys`, at most once per `idle_minutes`, skipped when a client that can type is attached (a read-only watcher does not count), and count it with `campaign_guard.py heartbeat-still` for the run's guard (process-plan's heartbeat contract). Done when: tests find the nudge sent for an idle run, not for an active one, not with an operator attached, sent with a watcher, not twice within `idle_minutes`, and `heartbeat-still` run for each nudge.
+- [ ] End the heartbeat loop in `heartbeat` when the run marker is gone, or when the guard's end record (`build/claude-campaign-ended.json`, written by `campaign_guard.py end`) names the run's tag or agent session; a run whose guard was never taken is not treated as finished. Done when: tests for each find exit 10, the heartbeat session gone, and for the run's own end the marker and claim removed.
+- [ ] Keep the heartbeat's state in `build/unattended-heartbeat.json` (`last_nudge`, `last_error`, `ended`), read back on every tick and kept in memory when a write fails. Done when: a test running 50 ticks with nudges writes no new file under `build/` beyond it, and one with a failing write keeps supervising.
+- [ ] Commit: `unattended: heartbeat nudges an idle run and records a dead one as ended`
 
-**Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` ends `OK`; removing the backoff makes the 600 second test fail.
+**Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` ends `OK`; making the heartbeat restart a dead run through `start` makes the no-agent-started test fail.
 
 ## 8. Ship counter, ship limit and stall marker
 
@@ -268,7 +266,7 @@ A run that is alive but ships nothing for hours needs the operator. The heartbea
 2. Add the health file, the limit and the marker to the heartbeat. Done when: the checkpoint passes.
 
 - [ ] Add `ships_between(root, old, new)` to `lib/unattended.py`: the number of Implementation Order rows under `todo/` that are `[ ]` at `old` and `[x]` at `new`, read with `git show` and never from the working tree (`ship_count.py`). Done when: a test repository with two rows stamped between two commits returns 2, and a row unstamped again returns 0 for it. Cheaper substitute: counting `[x]` at `new` alone must fail, because it counts rows that were already done.
-- [ ] Write `build/unattended-health.json` from `heartbeat` on every tick: alive, ships since the start, hours since the last ship, restarts, the last nudge. Done when: a test reads the file after a tick and finds each field.
+- [ ] Write `build/unattended-health.json` from `heartbeat` on every tick: alive, ships since the start, hours since the last ship, the last nudge. Done when: a test reads the file after a tick and finds each field.
 - [ ] Add `--ships N` to `start` in `unattended-run.py`: record `N` and the start commit in the run marker, and have `heartbeat` end the run with `stop` once `ships_between` reaches `N` (`run.sh:91`). Done when: a test with `--ships 1` and one stamped row finds the run stopped and the marker gone.
 - [ ] Write the marker `build/unattended-needs-operator.md` from `heartbeat` when no section has shipped for `stall_hours`, at most once per `stall_hours`, naming the last ship's commit and time, and send the run a second nudge that says nothing has shipped (`supervisor.py:189`, `heartbeat.sh:86`). Done when: tests with an injected clock find one marker at 6 hours and no second one at 7.
 - [ ] Show the marker's text in `status` of `unattended-run.py` and remove the marker on the next ship. Done when: a test finds it in the `status` output and gone after a stamped row.
@@ -276,9 +274,9 @@ A run that is alive but ships nothing for hours needs the operator. The heartbea
 
 **Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` ends `OK`; making `ships_between` read the working tree makes its test fail.
 
-## 9. Boot resume through a systemd user unit
+## 9. Nothing resumes a run without its operator
 
-A run that was live when the machine or WSL restarted should come back without the operator. A oneshot user unit runs `autostart` at boot, which resumes only a run whose marker is still there. Source: Impossible OS `scripts/run.sh:27`, `:41` to `:72` and `:114` to `:124`.
+**Owner decision 2026-11-12:** a run never restarts itself. It starts only when the operator starts it; `stop`, a crash or a reboot ends it, and no heartbeat, watchdog, scheduled task or boot unit resumes it. Nudging a live run inside its session stays. This section proves it across the kits and the SDK: the boot resume the plan first held (a systemd user unit running `autostart`) is not built, and nothing else starts a run on its own.
 
 **Phase:** 2
 **Needs:** none
@@ -286,17 +284,15 @@ A run that was live when the machine or WSL restarted should come back without t
 
 **Build order:**
 
-1. Add `autostart` and the unit writer to `kits/unattended/templates/scripts/unattended-run.py`. Done when: the unit file is written for a profile.
-2. Install and remove it from `start` and `stop`. Done when: the checkpoint passes.
+1. Add the refusals and the tests. Done when: the checkpoint passes.
 
-- [ ] Add `autostart` to `unattended-run.py`: when the run marker exists and no run session is alive, resume the run and its heartbeat through `start`'s resume path; do nothing otherwise. Done when: tests cover a marker with no session (resumed), no marker (nothing) and a live session (nothing).
-- [ ] Add `unit_text(profile, root, python)` to `unattended-run.py`, returning a oneshot user unit named `<name>-unattended.service` that runs `autostart` from the repository, `WantedBy=default.target`, with every path quoted. Done when: a test asserts the unit's `ExecStart`, working directory and a path with a space quoted.
-- [ ] Write and enable the unit from `start` in `unattended-run.py` into `~/.config/systemd/user/` (or the folder in `CONCLAVE_SYSTEMD_DIR`, for tests), skipped with one line when the user manager does not answer or `--no-autostart` is given. Done when: a test with the folder override finds the file, and one with a stub `systemctl` that fails finds the skip line and the run still started.
-- [ ] Disable and delete the unit from `stop` in `unattended-run.py`. Done when: a test finds the file gone after `stop` and a stopped run not resumed by `autostart`.
-- [ ] Add a `systemd-user` check to the `unattended` branch of `doctor_repo` in `forge.py` through `_systemd_user_manager` (`forge.py:534`). Done when: a test with a stub that fails finds `setup_required`.
-- [ ] Commit: `unattended: resume a live run at boot`
+- [ ] Refuse a run launcher as a scheduled command in the automations kit's task loader (`kits/automations/templates/.conclave/automations/run.py`): a task whose command runs `unattended-run.py start`, `start-run.ps1` or another run launcher is refused naming the rule, at load and at install. Done when: tests find the refusal for each launcher form and an ordinary check task accepted.
+- [ ] Scan every kit template and the SDK's own scripts for a resume path in `tests/test_forge.py`: a systemd unit, a cron or `@reboot` line, `Register-ScheduledTask`, `schtasks`, a Windows Run key, or an `autostart` command. Done when: the test passes on the tree and fails on a scratch copy that adds any one of them.
+- [ ] Prove in `kits/unattended/templates/scripts/tests/test_run.py` that a dead session is not resumed by the heartbeat and a crashed agent is not restarted, over 20 ticks. Done when: the test finds one agent start in all.
+- [ ] Record in `kits/unattended/README.md` and the roadmap that a run never restarts itself, and why. Done when: both say it and neither promises a boot resume.
+- [ ] Commit: `unattended: nothing resumes a run without its operator`
 
-**Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` ends `OK`; making `autostart` ignore the marker makes the no-marker test fail.
+**Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; adding `Register-ScheduledTask` to a scratch copy of a kit template makes the scan fail.
 
 ## 10. Desktop shortcut that starts the run
 
@@ -332,10 +328,10 @@ The operator needs one page that says how to start, watch, stop and resume a run
 1. Write `kits/unattended/templates/docs/unattended-run.md`. Done when: every command in it exists in `unattended-run.py`.
 2. Add the skill in the three agent folders. Done when: the checkpoint passes.
 
-- [ ] Write `docs/unattended-run.md` in the kit: set the profile, run the doctor, start (shortcut or command), watch, attach, stop, resume after a stop or a crash, what the heartbeat does, what the stall marker means and the Windows limit. Done when: a test extracts every `unattended-run.py <command>` in the document and finds each in the launcher's argument parser.
+- [ ] Write `docs/unattended-run.md` in the kit: set the profile, run the doctor, start (shortcut or command), watch, attach, stop, start again after a stop or a crash (nothing restarts a run on its own), what the heartbeat does, what the stall marker means and the Windows limit. Done when: a test extracts every `unattended-run.py <command>` in the document and finds each in the launcher's argument parser.
 - [ ] Create `kits/unattended/templates/.claude/skills/unattended-run/SKILL.md` with a description that triggers on starting, stopping or debugging an unattended run, pointing at the document and naming what the agent must never do inside a run (stop it, ask the operator). Done when: the skill's frontmatter has `name` and `description` and its body names `docs/unattended-run.md`.
 - [ ] Create the Antigravity and Codex copies under `.agents/skills/unattended-run/` and `.codex/skills/unattended-run/` (with `agents/openai.yaml` for Codex), each naming its own hook file. Done when: `python forge.py doctor <fresh install> unattended` reports the skill `ok` in all three folders.
-- [ ] Fill `kits/unattended/README.md`: what the kit installs, what it needs (the todo kit, tmux, a systemd user manager for boot resume), the install command and what was not lifted from the two projects and why. Done when: the README lists every file under `kits/unattended/templates/`.
+- [ ] Fill `kits/unattended/README.md`: what the kit installs, what it needs (the todo kit and tmux; nothing resumes a run at boot), the install command and what was not lifted from the two projects and why. Done when: the README lists every file under `kits/unattended/templates/`.
 - [ ] Add a fresh-install test to `tests/test_forge.py`: `init --kit todo --kit unattended`, then the doctor, then the kit's own tests in the installed copy. Done when: it passes and fails when a template file is removed from a scratch copy of the kit.
 - [ ] Commit: `unattended: operator document and skill`
 
@@ -343,7 +339,7 @@ The operator needs one page that says how to start, watch, stop and resume a run
 
 ## Verification
 
-- In WSL, a scratch project with the todo and unattended kits and a stub agent is started with `python3 scripts/unattended-run.py start --ships 1`, its run session is killed and comes back on the next heartbeat tick, a stamped section ends the run, and `stop` leaves no process, marker, claim, guard or unit behind.
+- In WSL, a scratch project with the todo and unattended kits and a stub agent is started with `python3 scripts/unattended-run.py start --ships 1`, a stamped section ends the run; a second run's session is killed and the heartbeat records it as ended without restarting it; and `stop` leaves no process, marker, claim or guard behind.
 - On Windows, the generated shortcut starts that run through `wsl.exe`.
 - `python -m unittest discover -s tests` passes.
 - `python scripts/todo-graph.py validate` and `python scripts/todo-graph.py plan --check` pass.

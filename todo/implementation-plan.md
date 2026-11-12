@@ -39,29 +39,29 @@ Sections: 9 | Checklist items: 79
 
 ### Phase 2: Unattended running
 
-Sections: 19 | Checklist items: 125
+Sections: 19 | Checklist items: 124
 
-| Status | Reference   | Deliverable                                               | Needs        | Items |
-| ------ | ----------- | --------------------------------------------------------- | ------------ | ----- |
-| [x]    | D02 T01 §1  | Antigravity payload handled by the Stop hook              | none         | 6     |
-| [x]    | D02 T01 §2  | Antigravity hook file seeded by the todo kit              | none         | 8     |
-| [x]    | D02 T01 §3  | Codex hook script and hook file                           | none         | 10    |
-| [x]    | D02 T01 §4  | Heartbeat stall breaker for a harness with no Stop hook   | none         | 7     |
-| [x]    | D02 T01 §5  | Guard self-test through each wired hook                   | none         | 6     |
-| [x]    | D02 T01 §6  | Run guard steps in the Antigravity and Codex skill copies | none         | 10    |
-| [x]    | D02 T01 §7  | Live Codex run held by its approved Stop hook             | none         | 4     |
-| [x]    | D02 T02 §1  | Unattended kit known to `forge.py`                        | none         | 6     |
-| [x]    | D02 T02 §2  | Run profile `.conclave/unattended.json` and its loader    | none         | 6     |
-| [x]    | D02 T02 §3  | Preflight with a PASS or FAIL line per precondition       | none         | 9     |
-| [x]    | D02 T02 §4  | Launch lock and claim                                     | none         | 6     |
-| [x]    | D02 T02 §5  | Launcher for a Claude Code run under tmux                 | none         | 8     |
-| [x]    | D02 T02 §6  | Launch commands for Codex and Antigravity                 | none         | 6     |
-| [ ]    | D02 T02 §7  | Heartbeat that restarts a dead run and nudges an idle one | none         | 6     |
-| [ ]    | D02 T02 §8  | Ship counter, ship limit and stall marker                 | none         | 6     |
-| [ ]    | D02 T02 §9  | Boot resume through a systemd user unit                   | none         | 6     |
-| [ ]    | D02 T02 §10 | Desktop shortcut that starts the run                      | windows-host | 5     |
-| [ ]    | D02 T02 §11 | Operator document and `unattended-run` skill              | none         | 6     |
-| [x]    | D06 T01 §4  | Codex approval of the global hooks `deploy.py` writes     | none         | 4     |
+| Status | Reference   | Deliverable                                                       | Needs        | Items |
+| ------ | ----------- | ----------------------------------------------------------------- | ------------ | ----- |
+| [x]    | D02 T01 §1  | Antigravity payload handled by the Stop hook                      | none         | 6     |
+| [x]    | D02 T01 §2  | Antigravity hook file seeded by the todo kit                      | none         | 8     |
+| [x]    | D02 T01 §3  | Codex hook script and hook file                                   | none         | 10    |
+| [x]    | D02 T01 §4  | Heartbeat stall breaker for a harness with no Stop hook           | none         | 7     |
+| [x]    | D02 T01 §5  | Guard self-test through each wired hook                           | none         | 6     |
+| [x]    | D02 T01 §6  | Run guard steps in the Antigravity and Codex skill copies         | none         | 10    |
+| [x]    | D02 T01 §7  | Live Codex run held by its approved Stop hook                     | none         | 4     |
+| [x]    | D02 T02 §1  | Unattended kit known to `forge.py`                                | none         | 6     |
+| [x]    | D02 T02 §2  | Run profile `.conclave/unattended.json` and its loader            | none         | 6     |
+| [x]    | D02 T02 §3  | Preflight with a PASS or FAIL line per precondition               | none         | 9     |
+| [x]    | D02 T02 §4  | Launch lock and claim                                             | none         | 6     |
+| [x]    | D02 T02 §5  | Launcher for a Claude Code run under tmux                         | none         | 8     |
+| [x]    | D02 T02 §6  | Launch commands for Codex and Antigravity                         | none         | 6     |
+| [ ]    | D02 T02 §7  | Heartbeat that nudges an idle run and records a dead one as ended | none         | 6     |
+| [ ]    | D02 T02 §8  | Ship counter, ship limit and stall marker                         | none         | 6     |
+| [ ]    | D02 T02 §9  | Nothing resumes a run without its operator                        | none         | 5     |
+| [ ]    | D02 T02 §10 | Desktop shortcut that starts the run                              | windows-host | 5     |
+| [ ]    | D02 T02 §11 | Operator document and `unattended-run` skill                      | none         | 6     |
+| [x]    | D06 T01 §4  | Codex approval of the global hooks `deploy.py` writes             | none         | 4     |
 
 ### Phase 3: Todo graph that takes a project's shape
 
@@ -145,4 +145,4 @@ Sections: 3 | Checklist items: 16
 
 Progress: 31/74 verified sections, 13 ready to run now.
 
-Checklist: 278/523 items completed (includes Commit items).
+Checklist: 273/522 items completed (includes Commit items).
