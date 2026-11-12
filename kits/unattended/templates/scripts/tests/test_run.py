@@ -617,6 +617,20 @@ class RunTest(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertTrue(self.wait_gone(child), "stop lost the old marker's process group")
 
+    def test_a_recovery_that_fails_is_not_read_as_a_run_that_ended(self):
+        # Round 1 of D02 T02 §7: the launcher's own guard end left an end record, and the heartbeat then stopped.
+        self.assertEqual(self.launcher("start").returncode, 0)
+        first = self.marker()["session"]
+        self.calls(1)
+        self.acquire(first)
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30)
+        done = self.launcher("start", env={**self.env, "STUB_RESUME_FAILS": "1", "STUB_EXIT": "1"})
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)  # the resume and the fresh start both fail
+        self.assertIn("the crashed run's guard ended", done.stdout)
+        run = self.run_module()
+        marker, _ = run.read_marker(self.root)
+        self.assertEqual(marker["session"], first, "the failed recovery lost the run")
+        self.assertFalse(run.run_finished(self.root, marker), "a failed recovery reads as a run that ended")
     def test_a_run_whose_profile_changed_agent_starts_that_agent_fresh(self):
         # Round 1 of D02 T02 §6: a crashed Claude Code run was resumed as `codex resume <Claude's session id>`.
         self.assertEqual(self.launcher("start").returncode, 0)
@@ -821,6 +835,51 @@ class HeartbeatTickTest(unittest.TestCase):
             self.run.heartbeat(self.root, once=True, clock=lambda: next(clock), out=self.out)  # a new heartbeat
         self.assertEqual(json.loads((self.root / "build" / "unattended-heartbeat.json").read_text())["wait_until"],
                          300.0, "a recreated heartbeat forgot its deadline")
+
+    def test_a_state_write_that_fails_keeps_supervising_with_the_state_in_memory(self):
+        # Round 1 of D02 T02 §7: ENOSPC on the state file ended the heartbeat for good.
+        clock = iter([0.0, 100.0, 400.0])
+        sleeps = []
+        real = self.run.lib.write_atomic
+        calls = []
+
+        def flaky(path, text):
+            calls.append(1)
+            if len(calls) <= 2:
+                raise OSError(28, "No space left on device")
+            return real(path, text)
+        restarted = []
+        with unittest.mock.patch.object(self.run.lib, "write_atomic", flaky), \
+                unittest.mock.patch.object(self.run, "start", lambda *a, **k: restarted.append(1) or 0):
+            def stop_after_three(_seconds):
+                sleeps.append(1)
+                if len(sleeps) == 3:
+                    raise StopIteration
+            with self.assertRaises(StopIteration):
+                self.run.heartbeat(self.root, clock=lambda: next(clock), sleep=stop_after_three, out=self.out)
+        self.assertIn("could not be written (No space left on device); kept in memory", self.out.getvalue())
+        self.assertEqual(restarted, [1], "the deadline kept in memory was not honoured")
+        saved = json.loads((self.root / "build" / "unattended-heartbeat.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved["deaths"], 1)
+
+    def test_a_nudge_counts_a_heartbeat_resumption_for_the_guards_stall_breaker(self):
+        # Round 1 of D02 T02 §7: process-plan's heartbeat contract has the heartbeat run heartbeat-still.
+        (self.root / "build" / "claude-campaign-guard.json").write_text(
+            json.dumps({"session_id": "tag-1", "launch_tag": "tag-1"}), encoding="utf-8")
+        ran = []
+        real = subprocess.run
+
+        def record(args, *a, **k):
+            if "heartbeat-still" in args:
+                ran.append(args)
+                return subprocess.CompletedProcess(args, 0, stdout="heartbeat-still: still 1 of 6\n", stderr="")
+            return real(args, *a, **k)
+        with unittest.mock.patch.object(self.run.subprocess, "run", record):
+            sent, _ = self.nudge(PROFILE["idle_minutes"] * 60, [])
+        self.assertTrue(sent)
+        self.assertEqual(len(ran), 1)
+        self.assertEqual(ran[0][ran[0].index("--session") + 1], "tag-1")
+        self.assertIn("heartbeat: heartbeat-still: still 1 of 6", self.out.getvalue())
 
     def test_it_writes_its_state_file_and_nothing_else(self):
         before = set(p.name for p in (self.root / "build").iterdir())

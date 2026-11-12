@@ -421,7 +421,7 @@ def backoff(profile: dict, deaths: int) -> int:
     return min(profile["tick_seconds"] * 2 ** min(deaths, 5), MAX_WAIT_SECONDS)
 
 
-def _nudge(run_session: str, profile: dict, state: dict, now: float, out) -> None:
+def _nudge(root: Path, run_session: str, profile: dict, state: dict, now: float, out) -> None:
     """Prompt a run whose window has shown nothing for idle_minutes, at most once per idle_minutes, unless an
     operator is attached with a client that can type (a read-only watcher does not count)."""
     idle = profile["idle_minutes"] * 60
@@ -438,6 +438,21 @@ def _nudge(run_session: str, profile: dict, state: dict, now: float, out) -> Non
     tmux("send-keys", "-t", target, "Enter")
     state["last_nudge"] = now
     print(f"heartbeat: nudged {run_session} after {int(now - int(shown))}s without activity", file=out)
+    note_resumption(root, out)
+
+
+def note_resumption(root: Path, out) -> None:
+    """A nudge is a heartbeat resumption: the guard's stall breaker counts it (`heartbeat-still`), and ends the run
+    as a stall after enough of them with no change to the tree (process-plan's heartbeat contract)."""
+    marker, _ = read_marker(root)
+    guard = owned_guard(root, marker)
+    if not guard:
+        return
+    done = subprocess.run([sys.executable, str(HERE / "campaign_guard.py"), "heartbeat-still", "--session",
+                           str(guard.get("session_id")), "--root", str(root)], capture_output=True, text=True,
+                          timeout=120)
+    said = (done.stdout or done.stderr).strip().splitlines()
+    print(f"heartbeat: {said[-1][-200:] if said else f'heartbeat-still exited {done.returncode}'}", file=out)
 
 
 def finish(root: Path, marker: dict, out) -> int:
@@ -467,7 +482,7 @@ def tick(root: Path, now: float, state: dict, out=None, restart=None) -> int:
         if state["deaths"] and state.get("last_restart") and now - state["last_restart"] >= RESET_SECONDS:
             state["deaths"] = 0
         state["wait_until"] = None
-        _nudge(marker["tmux_session"], profile, state, now, out)
+        _nudge(root, marker["tmux_session"], profile, state, now, out)
         return 0
     if state.get("wait_until") is None:
         state["wait_until"] = now + backoff(profile, state["deaths"])
@@ -496,10 +511,17 @@ def tick(root: Path, now: float, state: dict, out=None, restart=None) -> int:
 def heartbeat(root: Path, once: bool = False, clock=time.time, sleep=time.sleep, out=None) -> int:
     """Tick every tick_seconds until the run is over. The state is read back from its file on every tick, so a
     heartbeat started again carries on; it writes that file and nothing else."""
+    unsaved = None  # the state a failed write could not keep, carried in memory until a write succeeds
     while True:
-        state = read_state(root)
+        state = unsaved or read_state(root)
         code = tick(root, clock(), state, out)
-        lib.write_atomic(root / HEARTBEAT_STATE, json.dumps(state, indent=2) + "\n")
+        try:
+            lib.write_atomic(root / HEARTBEAT_STATE, json.dumps(state, indent=2) + "\n")
+            unsaved = None
+        except OSError as exc:  # a full or failing disk must not end the supervision of the run
+            unsaved = state
+            print(f"heartbeat: {HEARTBEAT_STATE} could not be written ({exc.strerror or exc}); kept in memory",
+                  file=out or sys.stdout)
         if code == FINISHED or once:
             return code
         sleep(lib.load_profile(root)["tick_seconds"])
@@ -516,6 +538,11 @@ def _end_old_guard(root: Path, old: dict, out) -> None:
         if done.returncode != 0:
             raise RunError(f"the crashed run's guard (session {owner}) could not be ended ({said}); nothing was "
                            f"started, and {MARKER} still names that run")
+        # The guard's end record says how a run's own agent ended it; this end is the launcher's, so its record goes,
+        # or a heartbeat would read a recovery that failed as a run that finished.
+        ended = read_json(root / ENDED)
+        if ended and ended.get("run_id") == guard.get("run_id") and ended.get("reason") == "operator-stop":
+            (root / ENDED).unlink(missing_ok=True)
         print(f"start: the crashed run's guard ended: {said}", file=out)
 
 
