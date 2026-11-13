@@ -69,7 +69,7 @@ Sections: 6 | Checklist items: 38
 
 | Status | Reference  | Deliverable                                               | Needs | Items |
 | ------ | ---------- | --------------------------------------------------------- | ----- | ----- |
-| [ ]    | D03 T01 §1 | Phase list read from `todo/plan.json`                     | none  | 6     |
+| [x]    | D03 T01 §1 | Phase list read from `todo/plan.json`                     | none  | 6     |
 | [ ]    | D03 T01 §2 | Needs values and waiting Needs read from `todo/plan.json` | none  | 6     |
 | [ ]    | D03 T01 §3 | Caps read from `todo/plan.json`                           | none  | 6     |
 | [ ]    | D03 T01 §4 | Receipts folder and plan path read from `todo/plan.json`  | none  | 8     |
@@ -143,6 +143,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 36/74 verified sections, 11 ready to run now.
+Progress: 37/74 verified sections, 13 ready to run now.
 
-Checklist: 325/533 items completed (includes Commit items).
+Checklist: 326/533 items completed (includes Commit items).

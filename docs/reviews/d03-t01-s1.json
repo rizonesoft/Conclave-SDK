@@ -1,0 +1,85 @@
+{
+  "ref": "D03 T01 \u00a71",
+  "title": "Phase list read from `todo/plan.json`",
+  "implementation_sha": "e6ddddc7be41677a1eb5cd661acfef47e3d60a98",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-todo-graph/D03-T01-s1.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "CI tests.yml run 43353920177 on 1a1dc6e (e6ddddc plus records and the INDEX row fix; e6ddddc's own run 43352063483 was red only on that row and the alive-helper race fixed in bd74336) -> quick suite (Windows) success, full suite (Linux) success, kit suites (Linux, tmux) success",
+    "python -m unittest discover -s tests -p test_todo_graph.py -> Ran 156 tests OK (skipped=95)",
+    "the constant PHASES in place of the configured phase_list (test_a_project_lists_its_own_phase_numbers) -> the test fails"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-todo-graph/D03-T01-s1.md",
+    "verdict": "complete",
+    "candidate": "e6ddddc7be41677a1eb5cd661acfef47e3d60a98",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/03-todo-graph/D03-T01-s1.md",
+    "candidate": "ac91d961a43dc9b3c8cdd46f26fcee84539c9508",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "ac91d961a43dc9b3c8cdd46f26fcee84539c9508",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}

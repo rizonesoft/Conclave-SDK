@@ -33,7 +33,7 @@ title: "TODO-01 -- Todo graph that takes a project's shape"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Phase list read from `todo/plan.json` | -- | [ ] |
+| 1 | §1 | Phase list read from `todo/plan.json` | -- | [x] |
 | 2 | §2 | Needs values and waiting Needs read from `todo/plan.json` | §1 | [ ] |
 | 3 | §3 | Caps read from `todo/plan.json` | §1 | [ ] |
 | 4 | §4 | Receipts folder and plan path read from `todo/plan.json` | §1 | [ ] |
@@ -60,11 +60,14 @@ A project names its phases in `todo/plan.json` but may only use the numbers the 
 - [x] Order phases in `todo_graph.py` one way everywhere (`phase_rank`: numeric, with the manual phase 99 last when the list runs past it), for the generated plan, `ordered()` and the check that refuses a prerequisite in a later phase. Done when: a test with `phase_list` of `[0, 12, 3]` renders the phases in the order 0, 3, 12, and one of `[0, 99, 100]` orders 100 before 99, accepts a manual section that depends on phase 100 and refuses a phase-100 section that depends on the manual one.
 - [x] Keep today's behaviour with no key: a `plan.json` without `phase_list` accepts exactly 0 to 7 and 99. Done when: the existing phase tests in `tests/test_todo_graph.py` pass unchanged and a new test refuses phase 8 under the default.
 - [x] Document `phase_list` in `kits/todo/templates/todo/README.md` (What every section declares), copy the file over the SDK's own `todo/README.md`, and run `python forge.py self-sync`. Done when: the two READMEs are identical and `scripts/lib/todo_graph.py` equals the kit file.
-- [ ] Commit: `todo: phase numbers come from todo/plan.json`
+- [x] Commit: `todo: phase numbers come from todo/plan.json`
 
 **Corrected 2026-11-13 (plan review):** the manual phase is last in the dependency check and `ordered()` too, not only in the plan; the `phases` name map is tested against the configured list; and the type and bound refusals add a fractional number and 1000, with 999 accepted.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; checking the constant in place of the configured list makes the phase 12 test fail.
+
+> **Verified:** 2026-11-13 | §1 | e6ddddc7be41677a1eb5cd661acfef47e3d60a98
+> **Review:** `docs/reviews/d03-t01-s1.json`
 
 ## 2. Needs values and waiting Needs read from `todo/plan.json`
 
