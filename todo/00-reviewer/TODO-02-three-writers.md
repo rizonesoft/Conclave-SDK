@@ -111,6 +111,8 @@ The roadmap says to check every `agy` flag against the current CLI before it shi
 
 ## 3. Antigravity counterparts of the base kit's subagents
 
+> **Started:** 2026-11-13T16:17:11Z
+
 Claude Code gets five read-only subagents from the base kit (`code-explorer`, `debug-evidence`, `git-runner`, `mutation-tester`, `test-runner`). Antigravity gets none (roadmap finding 9). Whether it can is a fact about the installed CLI, so the section starts by establishing it.
 
 **Phase:** 4
@@ -123,13 +125,15 @@ Claude Code gets five read-only subagents from the base kit (`code-explorer`, `d
 2. Port the five agents, or record the limit. Done when: the checkpoint passes.
 
 - [ ] Write in `kits/base/README.md` what the installed `agy` supports for project-defined subagents: the folder, the file format, how a tool list is restricted and how a model is chosen, with the CLI version and the help or documentation text it came from. Done when: the README section exists and quotes its source. Cheaper substitute: a format written from memory must fail review.
-- [ ] When Antigravity supports them: create the five definitions under `kits/base/templates/.agents/` in that format, each read-only (no edit or write tool), with the same purpose text as its Claude counterpart. Done when: a fresh `--agent agy` install has all five and a test asserts none lists a write tool.
-- [ ] When Antigravity supports them: extend `kits/base/templates/scripts/verify-agent-tiers.mjs` or add a Python test in `tests/test_forge.py` that checks the Antigravity definitions the way `verify-agent-tiers.mjs` checks the Claude ones. Done when: a definition with a write tool fails the check.
-- [ ] When Antigravity does not support them: state in `kits/base/README.md` and in the Subagents section of `kits/base/templates/AGENTS.md` that Antigravity runs mechanical subtasks in the main session, and close this section with no template change. Done when: both documents carry the sentence and the README names the CLI version checked.
+- [ ] Create the five definitions under `kits/base/templates/.agents/agents/` (`<name>.md`, the folder `agy` 1.5.8 loads a project's subagents from), each with `name`, `description`, `subagent: true`, `mainAgent: false` and a `tools` list holding no `edit_file` or `write_file`, and the same body as its Claude counterpart. Done when: a fresh `--agent agy` install has all five, a test asserts none lists a write tool and each body equals the Claude one's, and a live `agy` session in that install names all five among the subagents it can invoke.
+- [ ] Add `tests/test_agy_agents.py`, checking the Antigravity definitions the way `verify-agent-tiers.mjs` checks the Claude ones: one definition per Claude agent and no other, the frontmatter keys above, `name` equal to the file name, a non-empty description, and only read-only tools. Done when: copies of a definition with a write tool, with `tools` left out, with `mainAgent: true` and with a name that differs from its file each fail the check.
+- [ ] Say in the Subagents section of `kits/base/templates/AGENTS.md` that Antigravity has the same five subagents under `.agents/agents/`, and in `kits/base/README.md` that Codex has none (the base kit ships no `.codex` agent definitions) and runs mechanical subtasks in the main session. Done when: both documents carry their sentence.
 - [ ] Run `python forge.py self-sync`. Done when: `python -m unittest discover -s tests` passes with the SDK's installed copies equal to the kits.
 - [ ] Commit: `base: Antigravity subagents, or the recorded limit`
 
-**Test checkpoint:** `python -m unittest discover -s tests` ends `OK`; when the agents were ported, adding a write tool to one Antigravity definition makes the new check fail, and when they were not, `grep -c "main session" kits/base/README.md` is at least 1.
+**Corrected 2026-11-13 (validation):** established on `agy` 1.5.8: it loads a project's subagents from `.agents/agents/<name>.md` (and from a plugin's `agents/` folder), with frontmatter `name`, `description`, `subagent: true`, `mainAgent: false` and `tools` in its own tool names (`read_file`, `edit_file`, `write_file`, `run_command`, `manage_task`, `search_web`); an omitted `tools` gets a small read-only default, and no per-agent model is set (its own migration guide says to drop `model`). Source: the CLI's built-in `migrate-agent-settings` skill (`~/.gemini/antigravity-cli/builtin/skills/migrate-agent-settings/SKILL.md`, the `agents/<name>.md` paragraph), and a probe: a headless session in a scratch project holding `.agents/agents/probe-root.md` named `probe-root` among its subagents. So the agents are ported, the "does not support" item becomes the documentation of where they are and of Codex's limit, and the check is a Python test of its own.
+
+**Test checkpoint:** `python -m unittest discover -s tests` ends `OK`; adding a write tool to one Antigravity definition makes the new check fail.
 
 ## Verification
 
