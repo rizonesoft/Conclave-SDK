@@ -355,6 +355,8 @@ A project that adopts the kit arrives with sections it stamped under its own too
 
 ## 11. Root index that lists domains
 
+> **Started:** 2026-11-13T10:59:44Z
+
 Both adopting projects keep `todo/TODO-00-INDEX.md` at domain altitude, as the kit's own `todo/README.md` describes it ("root index: domain order + active work"), while the validator demands every TODO file in it (report rows R20 and I17: 33 and 221 files). A project chooses which.
 
 **Phase:** 3
