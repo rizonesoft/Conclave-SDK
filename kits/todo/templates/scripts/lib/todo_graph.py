@@ -1684,6 +1684,36 @@ def projections(root=ROOT, sync=False):
                 f"stale projection: {plan}; run plan --sync")
 
 
+def frozen_files(root=ROOT):
+    """`query frozen`: each TODO file whose frontmatter says `frozen: true`, with its section count, how many of its
+    sections carry a `**Freeze check:**` and the references of those that do not, in path order, and the files whose
+    frontmatter cannot be read. It reads the tree alone, with no validation that could refuse first: a valid tree
+    always has full coverage, and the query is for one that may not (ported from RasterFold's `query frozen`)."""
+    root = Path(root)
+    paths = sorted((root / "todo").glob("[0-9][0-9]-*/TODO-*.md"))
+    require(bool(paths), "canonical TODO tree is missing or empty")
+    files, unreadable = [], []
+    for path in paths:
+        relative = path.relative_to(root).as_posix()
+        name = re.fullmatch(r"TODO-(\d{2})-[a-z0-9-]+\.md", path.name)
+        try:
+            front, body = front_matter(read_text(path), relative)
+        except (Refused, OSError, ValueError):
+            unreadable.append(relative)
+            continue
+        if front.get("frozen") != "true":
+            continue
+        headings = list(re.finditer(r"^## (\d+)\. .+$", body, re.M))
+        missing = []
+        for h in headings:
+            section = body[h.end():].split("\n## ", 1)[0]
+            if not re.search(r"^\*\*Freeze check:\*\*", section, re.M):
+                missing.append(f"D{path.parent.name[:2]} T{name[1]} §{h[1]}" if name else f"{relative} §{h[1]}")
+        files.append({"path": relative, "sections": len(headings), "freeze_checks": len(headings) - len(missing),
+                      "missing": missing})
+    return {"files": files, "unreadable": unreadable}
+
+
 def deferrals(root=ROOT):
     rows = graph(root)
     found = []

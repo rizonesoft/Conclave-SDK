@@ -782,16 +782,18 @@ class Graph(Tree):
         self.git("commit", "-qm", "x")
         spec = self.git("rev-parse", "HEAD") + ":todo/00-workspace/TODO-01-a.md"
         tg._RUN_CACHE = cache = {"git": {}, "config": {}, "batch": {}, "history": {}}
-        real_popen, started = subprocess.Popen, time.monotonic()
+        real_popen = subprocess.Popen
         try:
             fakes = [self.fake_batch(stdout)]  # the batch process; git show itself (the fallback) runs for real
+            started = time.monotonic()
             with mock.patch.object(tg.subprocess, "Popen", lambda *a, **k: fakes.pop() if fakes else real_popen(*a, **k)):
                 answer = tg._git(self.root, "show", spec, timeout=timeout)
+                took = time.monotonic() - started  # the read alone, not the fixture or the comparison
         finally:
             tg._RUN_CACHE = None
             tg._end_run(cache)
         plain = real_popen(["git", "-C", str(self.root), "show", spec], stdout=subprocess.PIPE).communicate()[0]
-        return answer, plain, time.monotonic() - started, cache
+        return answer, plain, took, cache
 
     def test_a_batch_reply_shorter_than_announced_is_answered_by_git_itself(self):
         answer, plain, _, cache = self.batch_read(io.BytesIO(b"abc blob 100\nabc"))
@@ -3030,6 +3032,56 @@ class CliOutput(Tree):
                                 capture_output=True, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual([r["ref"] for r in json.loads(result.stdout.decode("utf-8"))], ["D00 T01 §1"])
+
+
+class QueryFrozen(Tree):
+    """D03 T01 §14: `query frozen` reports Freeze-check coverage from the tree alone, faults and all."""
+
+    def frozen_file(self, ident, rows, missing=()):
+        text = todo_file(rows, ident=ident).replace("status: active", "status: active\nfrozen: true")
+        for n, title, *_ in rows:
+            if n not in missing:
+                text = text.replace(f"## {n}. {title}\n\n", f"## {n}. {title}\n\n**Freeze check:** holds.\n\n", 1)
+        return text
+
+    def build(self):
+        self.write(self.frozen_file("alpha", [(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--"),
+                                              (3, "C", 0, "none", "--")]))
+        self.write(self.frozen_file("beta", [(1, "D", 0, "none", "--"), (2, "E", 0, "none", "--")], missing=(2,)),
+                   name="TODO-02-b.md")
+        self.write(todo_file([(1, "F", 0, "none", "--")], ident="gamma"), name="TODO-03-c.md")
+        self.write("---\nnot a field line\n---\n\n# TODO-04 -- D\n", name="TODO-04-d.md")
+        return {"files": [{"path": "todo/00-workspace/TODO-01-a.md", "sections": 3, "freeze_checks": 3,
+                           "missing": []},
+                          {"path": "todo/00-workspace/TODO-02-b.md", "sections": 2, "freeze_checks": 1,
+                           "missing": ["D00 T02 §2"]}],
+                "unreadable": ["todo/00-workspace/TODO-04-d.md"]}
+
+    def test_each_frozen_file_has_its_coverage_in_path_order(self):
+        expected = self.build()
+        self.assertEqual(tg.frozen_files(self.root), expected)
+
+    def test_a_tree_whose_validation_refuses_is_still_reported(self):
+        expected = self.build()
+        path = self.root / "todo/00-workspace/TODO-01-a.md"  # a stamp whose receipt is missing
+        path.write_text(path.read_text(encoding="utf-8").replace("| 1 | §1 | A | -- | [ ] |", "| 1 | §1 | A | -- | [x] |")
+                        .replace("\n## 2.", f"\n> **Verified:** 2026-11-13 | §1 | {'0' * 40}\n"
+                                 "> **Review:** `docs/reviews/d00-t01-s1.json`\n\n## 2.", 1), encoding="utf-8")
+        with self.assertRaises(tg.Refused):
+            tg.graph(self.root)
+        self.assertEqual(tg.frozen_files(self.root), expected)
+        shutil.copytree(SCRIPTS, self.root / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
+        result = subprocess.run([sys.executable, str(self.root / "scripts/todo-graph.py"), "query", "frozen"],
+                                capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout.decode("utf-8")), expected)
+
+    def test_no_frozen_file_is_an_empty_list_and_no_tree_refuses(self):
+        self.write(todo_file([(1, "F", 0, "none", "--")]))
+        self.assertEqual(tg.frozen_files(self.root), {"files": [], "unreadable": []})
+        shutil.rmtree(self.root / "todo")
+        with self.assertRaises(tg.Refused):
+            tg.frozen_files(self.root)
 
 
 class Repository(unittest.TestCase):

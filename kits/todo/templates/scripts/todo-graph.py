@@ -31,7 +31,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from todo_graph import (ROOT, Refused, adjacency_report, atomic, deferrals, disposition,  # noqa: E402
-                        extract_ref, graph, ordered, plan_config, plan_file, projections, receipts_folder, require,
+                        extract_ref, frozen_files, graph, ordered, plan_config, plan_file, projections, receipts_folder, require,
                         review_rounds, settled, stamp, suspects, unstamp)
 
 
@@ -70,7 +70,7 @@ def main():
     pp = sub.add_parser("plan-path", help="print the generated plan's path, todo/plan.json's layout.plan")
     pp.add_argument("--config", choices=["-"], help="read todo/plan.json's text from stdin (the hook passes the index's)")
     q = sub.add_parser("query")
-    q.add_argument("kind", choices=["ready", "blocked", "stats", "deferred", "adjacency", "plan", "rounds"])
+    q.add_argument("kind", choices=["ready", "blocked", "stats", "deferred", "adjacency", "plan", "rounds", "frozen"])
     r = sub.add_parser("resolve")
     r.add_argument("ref")
     c = sub.add_parser("classify")
@@ -123,6 +123,9 @@ def main():
         if faults:
             return 2
         print(f"valid: {len(rows)} sections")
+        return 0
+    if args.command == "query" and args.kind == "frozen":  # the tree alone, so a tree with faults is reported too
+        print(json.dumps(frozen_files(), indent=2, ensure_ascii=False))
         return 0
     rows = graph()
     if args.command == "plan":
