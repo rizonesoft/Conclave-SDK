@@ -1,0 +1,84 @@
+{
+  "ref": "D03 T01 \u00a715",
+  "title": "Longest chain and filing couplings from `query sequence`",
+  "implementation_sha": "16b7ae730871a658ffeba18c8e4ab11210fb0283",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-todo-graph/D03-T01-s15.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s tests (CI Tests run 43413364578 on effa576, which holds 16b7ae7 and only records past it: quick suite Windows, full suite Linux with the stamp tests, kit suites) -> success",
+    "python -m unittest tests.test_todo_graph.QuerySequence -> OK; a chain 200 past the recursion limit is found"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-todo-graph/D03-T01-s15.md",
+    "verdict": "complete",
+    "candidate": "16b7ae730871a658ffeba18c8e4ab11210fb0283",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/03-todo-graph/D03-T01-s15.md",
+    "candidate": "06b5e0794b76d1318d127dc2b3bddbe548615205",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "06b5e0794b76d1318d127dc2b3bddbe548615205",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}

@@ -47,7 +47,7 @@ title: "TODO-01 -- Todo graph that takes a project's shape"
 | 12 | §12 | Validation git calls cached per run | -- | [x] |
 | 13 | §13 | Section checks run when its table row cannot be read | §8 | [x] |
 | 14 | §14 | Frozen files listed by `query frozen` | -- | [x] |
-| 15 | §15 | Longest chain and filing couplings from `query sequence` | -- | [ ] |
+| 15 | §15 | Longest chain and filing couplings from `query sequence` | -- | [x] |
 
 ## 1. Phase list read from `todo/plan.json`
 
@@ -494,11 +494,14 @@ RasterFold's `query sequence` (`scripts/todo-graph.py:2124` at `75be196`, with `
 - [x] Prove a malformed or missing receipt refuses `query sequence` as it refuses every query (the graph is validated first), never an empty list of couplings. Done when: a CLI test with a stamped section's receipt removed exits 2 with the graph's refusal.
 - [x] Add `sequence` to the `query` choices in `kits/todo/templates/scripts/todo-graph.py`, printing JSON with `chain` and `couplings`. Done when: a CLI test on a valid tree with a stamped section that filed another reads the exact chain and the exact coupling with its state, both non-empty.
 - [x] Document `query sequence` in `kits/todo/templates/todo/README.md` (Commands), copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
-- [ ] Commit: `todo: query sequence prints the longest chain and the filing couplings`
+- [x] Commit: `todo: query sequence prints the longest chain and the filing couplings`
 
 **Corrected 2026-11-13 (plan review):** the chain's direction and tie break are stated and tested with an empty case; the couplings read each stamped row's own receipt path, carry `query plan`'s states from one shared `plan_status`, and are tested under a non-default receipts folder and after a state change; a bad receipt refuses; and the CLI test checks exact, non-empty values. The tests that need a valid stamp run in the full suite (`CONCLAVE_FULL_TESTS=1`) with the other stamp tests.
 
 **Test checkpoint:** `CONCLAVE_FULL_TESTS=1 python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; counting stamped sections into the chain, or reading couplings from the default folder only, makes a test fail.
+
+> **Verified:** 2026-11-13 | §15 | 16b7ae730871a658ffeba18c8e4ab11210fb0283
+> **Review:** `docs/reviews/d03-t01-s15.json`
 
 ## Verification
 

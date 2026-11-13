@@ -83,7 +83,7 @@ Sections: 15 | Checklist items: 100
 | [x]    | D03 T01 §12 | Validation git calls cached per run                       | none  | 6     |
 | [x]    | D03 T01 §13 | Section checks run when its table row cannot be read      | none  | 6     |
 | [x]    | D03 T01 §14 | Frozen files listed by `query frozen`                     | none  | 4     |
-| [ ]    | D03 T01 §15 | Longest chain and filing couplings from `query sequence`  | none  | 6     |
+| [x]    | D03 T01 §15 | Longest chain and filing couplings from `query sequence`  | none  | 6     |
 
 ### Phase 4: Antigravity and Codex as writers
 
@@ -153,6 +153,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 47/84 verified sections, 15 ready to run now.
+Progress: 48/84 verified sections, 14 ready to run now.
 
-Checklist: 394/600 items completed (includes Commit items).
+Checklist: 395/600 items completed (includes Commit items).
