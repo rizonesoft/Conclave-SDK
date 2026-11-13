@@ -2,7 +2,7 @@
 schema_version: 1
 id: project-shaped-graph
 domain: 03-todo-graph
-status: active
+status: done
 title: "TODO-01 -- Todo graph that takes a project's shape"
 ---
 
@@ -41,7 +41,7 @@ title: "TODO-01 -- Todo graph that takes a project's shape"
 | 6 | §8 | Every validation fault in one run | §1 | [x] |
 | 7 | §5 | Adoption dry run on RasterFold and Impossible OS | §2, §3, §4, §7, §8 | [x] |
 | 8 | §6 | Lift or leave decision for each RasterFold graph command | §5 | [x] |
-| 9 | §9 | Pre-adoption stamps frozen at adoption | §4 | [ ] |
+| 9 | §9 | Pre-adoption stamps frozen at adoption | §4 | [x] |
 | 10 | §10 | Ready rows filtered by the hosts this session reaches | -- | [x] |
 | 11 | §11 | Root index that lists domains | §7 | [x] |
 | 12 | §12 | Validation git calls cached per run | -- | [x] |
@@ -331,13 +331,16 @@ A project that adopts the kit arrives with sections it stamped under its own too
 - [x] Document `adopt-stamps` and the `adopted` and `adoption` keys in `kits/todo/templates/todo/README.md` (Brownfield code), copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
 - [x] Add `--adopt-stamps` (with `--phase-map <file>`) to `scripts/adoption-dry-run.py`, adopting the snapshot's stamps before it measures, and record the adoption's own refusal as a fault of its own (the class `adoption refused: ...`) so a failed adoption is measured, never silent. Done when: a fixture test with a foreign-format stamp reports its receipt classes without the flag and none with it, and one whose stamp names a commit off the branch reports the adoption class.
 - [x] Re-run `scripts/adoption-dry-run.py` on RasterFold and on Impossible OS with `--adopt-stamps`, and update the report's rows. Done when: the stamp and receipt classes (R6, R10 to R13, R16, R18, R21, R22, I6, I18, I25) are gone from the runs or listed as adoption refusals with their cause, R1 and I1 count only open sections, and `docs/plans/2026-11-13-todo-graph-adoption.md` says so with the runs' commits.
-- [ ] Commit: `todo: a project's own stamps are frozen at adoption`
+- [x] Commit: `todo: a project's own stamps are frozen at adoption`
 
 **Corrected 2026-11-13 (validation):** the measured trees do not hold the kit's stamp: RasterFold's line is `<date> | §N | <40 hex>` with its own receipts, Impossible OS's `<date> | commit `<7+ hex>` | <evidence>` under rows the kit cannot read (report rows I6 and I12), so adoption reads the tree itself, takes a section's stamp from its body and resolves an abbreviated commit through git; `unstamp` handles a section with no kit receipt; and the dry run gains the flag that adopts in its snapshot.
 
 **Corrected 2026-11-13 (plan review):** a changed receipt or body refuses outright until `unstamp`, for a kit-format section too; the `adoption` marker makes adoption once-only whatever the entries; the phase map is validated with a section's key over its file's; `unstamp` accepts only the reopened section's own faults and rolls back the registry with the rest; the graph checks are proven to hold on adopted sections; and a failed adoption in the dry run is a measured class.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK` (and the stamp test of a repaired section under `CONCLAVE_FULL_TESTS=1`); dropping the body digest comparison, the receipt digest comparison or the `adoption` marker makes a test fail.
+
+> **Verified:** 2026-11-13 | §9 | 2a74eb99180f44cb487f5e7abaefe7c11eec19ba
+> **Review:** `docs/reviews/d03-t01-s9.json`
 
 ## 10. Ready rows filtered by the hosts this session reaches
 

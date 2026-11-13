@@ -2,4 +2,9 @@
 
 | File | Scope | Status |
 | ---- | ----- | ------ |
-| TODO-01-project-shaped-graph.md | Phases, Needs, caps and receipts folder read from plan.json | active |
+
+## Completed
+
+| File | Scope | Completed |
+| ---- | ----- | --------- |
+| TODO-01-project-shaped-graph.md | A project's shape from plan.json, every fault at once, adoption | 2026-11-13 |

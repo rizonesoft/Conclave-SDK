@@ -1,0 +1,84 @@
+{
+  "ref": "D03 T01 \u00a79",
+  "title": "Pre-adoption stamps frozen at adoption",
+  "implementation_sha": "2a74eb99180f44cb487f5e7abaefe7c11eec19ba",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-todo-graph/D03-T01-s9.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s tests (CI Tests run 43433246346 on 56935be, which holds 2a74eb9 and only records past it: quick suite Windows, full suite Linux, kit suites) -> success",
+    "dry runs with --adopt-stamps: RasterFold 125 of 126 stamps adopted, Impossible OS 709 of 908; every receipt class gone"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-todo-graph/D03-T01-s9.md",
+    "verdict": "reconciled",
+    "candidate": "2a74eb99180f44cb487f5e7abaefe7c11eec19ba",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/03-todo-graph/D03-T01-s9.md",
+    "candidate": "5541d8d6dabb61936cb2682c445a76d0e9ece344",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "5541d8d6dabb61936cb2682c445a76d0e9ece344",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 5,
+  "pass_cap": 33
+}
