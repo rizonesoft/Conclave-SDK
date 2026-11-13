@@ -38,7 +38,7 @@ title: "TODO-01 -- Todo graph that takes a project's shape"
 | 3 | §3 | Caps read from `todo/plan.json` | §1 | [x] |
 | 4 | §4 | Receipts folder read from `todo/plan.json` | §1 | [x] |
 | 5 | §7 | Plan path read from `todo/plan.json` | §4 | [x] |
-| 6 | §8 | Every validation fault in one run | §1 | [ ] |
+| 6 | §8 | Every validation fault in one run | §1 | [x] |
 | 7 | §5 | Adoption dry run on RasterFold and Impossible OS | §2, §3, §4, §7, §8 | [ ] |
 | 8 | §6 | Lift or leave decision for each RasterFold graph command | §5 | [ ] |
 
@@ -274,11 +274,14 @@ The generated plan is written to `todo/implementation-plan.md`. A project that k
 - [x] Count no fault that only follows from another: every section reference and file id is gathered first, leniently, so a reference to a section or file whose own reading failed is not reported as unresolved (dependencies, XREFs, adjacency owners, deferral owners, filed gaps), no phase order or cycle is checked through it, and a file with an unread section has no status check. Done when: a test whose section 2 has a bad Phase, with section 3 depending on it, an XREF to it and an active file whose only section it is, reports the one fault, while a reference to a section that exists nowhere is still reported.
 - [x] Add `validate --all` to `kits/todo/templates/scripts/todo-graph.py`: one line per fault, `<path or reference>: <message>`, in file order, then exit 2; `valid: N sections` and exit 0 when there is none. Done when: a test runs the command on a faulty tree and reads the lines and the exit code, and on the SDK's own tree reads `valid`.
 - [x] Document `validate --all` in `kits/todo/templates/todo/README.md`, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
-- [ ] Commit: `todo: validate --all reports every fault in one run`
+- [x] Commit: `todo: validate --all reports every fault in one run`
 
 **Corrected 2026-11-13 (plan review):** "every fault" holds within a section and across the cross-file checks, not only per section; the faults that follow from another are suppressed for every consumer of a section or file that failed, while a truly missing reference is still reported; and unreadable files and malformed `depends_on` are recorded with their path.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; letting a section's refusal end the run (raising in place of recording) makes the three-fault test fail.
+
+> **Verified:** 2026-11-13 | §8 | b99ddc119a6969b33f4d32900a4b95b54604e163
+> **Review:** `docs/reviews/d03-t01-s8.json`
 
 ## Verification
 

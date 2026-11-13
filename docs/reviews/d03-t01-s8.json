@@ -1,0 +1,85 @@
+{
+  "ref": "D03 T01 \u00a78",
+  "title": "Every validation fault in one run",
+  "implementation_sha": "b99ddc119a6969b33f4d32900a4b95b54604e163",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-todo-graph/D03-T01-s8.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "CI tests.yml run 43380535043 on ac19d7b (b99ddc1 plus the reconciliation record) -> full suite (Linux, CONCLAVE_FULL_TESTS=1) success, quick suite (Windows) success, kit suites (Linux, tmux) success",
+    "python -m unittest tests.test_todo_graph -> Ran 193 tests OK (skipped=97)",
+    "a section refusal ending the run in place of being recorded (test_faults_in_two_sections_of_one_file_and_in_another_file_are_all_recorded) -> the test fails"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-todo-graph/D03-T01-s8.md",
+    "verdict": "reconciled",
+    "candidate": "b99ddc119a6969b33f4d32900a4b95b54604e163",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/03-todo-graph/D03-T01-s8.md",
+    "candidate": "8eddd2159c9f586333f2ffd96be7407fa83e64b0",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "8eddd2159c9f586333f2ffd96be7407fa83e64b0",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}
