@@ -1240,9 +1240,10 @@ def plan_config(root=ROOT, text=None):
         folded, parts = plan.lower(), plan.lower().split("/")  # one file on a case-insensitive disk
         require(folded not in (PLAN_CONFIG, "todo/readme.md")
                 and not (len(parts) > 2 and parts[0] == "todo" and re.fullmatch(r"\d{2}-.+", parts[1]))
-                and not folded.startswith(receipts.lower() + "/"),
+                and not folded.startswith(receipts.lower() + "/") and folded != receipts.lower()
+                and not receipts.lower().startswith(folded + "/"),
                 f"{PLAN_CONFIG}: layout plan {plan} is a file the plan does not own: todo/plan.json, todo/README.md, a "
-                f"file in a todo/NN-domain/ folder or in the receipts folder")
+                f"file in a todo/NN-domain/ folder, or the receipts folder, a file in it or a folder above it")
         target = Path(root) / plan
         require(not target.exists() or (target.is_file()
                                           and any(line.startswith(PLAN_NOTICE) for line in read_text(target).splitlines()[:6])),
@@ -1277,7 +1278,9 @@ def plan_config(root=ROOT, text=None):
     title = data.get("title", PLAN_DEFAULTS["title"])
     acceptance = data.get("acceptance")
     phases = data.get("phases", {})
-    require(isinstance(title, str) and title.strip() != "", f"{PLAN_CONFIG}: title must be text")
+    # The title is the plan's first line, a heading: one line, so the generated notice keeps its place below it.
+    require(isinstance(title, str) and title.strip() != "" and "\n" not in title and "\r" not in title,
+            f"{PLAN_CONFIG}: title must be one line of text")
     require(acceptance is None or (isinstance(acceptance, str) and acceptance.strip() != ""),
             f"{PLAN_CONFIG}: acceptance must be text or null")
     require(isinstance(phases, dict), f"{PLAN_CONFIG}: phases must map a phase number to its name")

@@ -580,6 +580,29 @@ class Graph(Tree):
                 self.assertEqual({p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}, before,
                                  "a refused plan path wrote something")
 
+    def test_a_plan_path_on_or_above_the_receipts_folder_is_refused(self):
+        # D03 T01 §7 round 1: a plan written where the receipts folder must be leaves no folder for the stamp.
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        for receipts, plan in (("docs/reviews.md", "docs/reviews.md"), ("docs/reviews.md/receipts", "docs/reviews.md")):
+            with self.subTest(receipts=receipts, plan=plan):
+                self.plan(layout={"receipts": receipts, "plan": plan})
+                with self.assertRaises(tg.Refused) as ctx:
+                    tg.projections(self.root, sync=True)
+                self.assertIn("or the receipts folder, a file in it or a folder above it", str(ctx.exception))
+                self.assertFalse((self.root / plan).exists(), "nothing was written")
+
+    def test_a_title_of_more_than_one_line_is_refused(self):
+        # D03 T01 §7 round 1: a title is the plan's heading, and a second line would push the generated notice down
+        # past where a configured plan is recognised as the plan's own.
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        for title in ("One\nTwo", "One\r\nTwo"):
+            with self.subTest(title=title):
+                self.plan(title=title, layout={"plan": "docs/plan.md"})
+                self.refuses("todo/plan.json: title must be one line of text")
+        self.plan(title="One line", layout={"plan": "docs/plan.md"})
+        tg.projections(self.root, sync=True)
+        tg.projections(self.root, sync=True)  # its own output is recognised again
+
     def test_the_plan_is_written_and_checked_at_the_configured_path(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
         self.plan(layout={"plan": "docs/plan.md"})
