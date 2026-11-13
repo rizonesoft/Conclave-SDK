@@ -432,6 +432,8 @@ Both adopting projects keep `todo/TODO-00-INDEX.md` at domain altitude, as the k
 
 ## 14. Frozen files listed by `query frozen`
 
+> **Started:** 2026-11-13T10:14:33Z
+
 RasterFold's `query frozen` (`scripts/todo-graph.py:2576` at `75be196`, eight lines) lists the frozen TODO files and how many of their sections carry a Freeze check. It reads only the tree, and a project with frozen files needs the list before it touches one (`docs/plans/2026-11-13-todo-graph-adoption.md`, RasterFold graph commands).
 
 **Phase:** 3
