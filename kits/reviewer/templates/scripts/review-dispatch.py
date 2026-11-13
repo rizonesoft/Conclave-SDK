@@ -236,9 +236,9 @@ def agy_flags_missing(help_text):
 # mode refuses every shell command, `git show` included, whatever allow-rule, trusted workspace or hook says (measured
 # on agy 1.5.8, D00 T02 §1), so a reviewer there can read no commit and prints nothing. In the sandbox a command runs
 # but cannot write inside or outside the repository (a commit, a tag and a file write were each refused; only the temp
-# folder takes a write), and the deny rules refuse the agent's own file-writing and MCP tools. `--settings` is never
-# saved; it is a file, so a Windows .cmd shim never re-parses JSON as commands.
-AGY_REVIEW_SETTINGS = {"permissions": {"deny": ["write_file(*)", "mcp(*)"]}}
+# folder takes a write), and the deny rules refuse the agent's own file-writing, file-editing and MCP tools.
+# `--settings` is never saved; it is a file, so a Windows .cmd shim never re-parses JSON as commands.
+AGY_REVIEW_SETTINGS = {"permissions": {"deny": ["write_file(*)", "edit_file(*)", "mcp(*)"]}}
 
 
 def agy_settings_path(output_path):

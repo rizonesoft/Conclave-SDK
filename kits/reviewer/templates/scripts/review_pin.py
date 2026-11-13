@@ -30,8 +30,10 @@ Three-pass (`policy = "three-pass"`): `plan`, exactly one `[[schedule.rounds]]` 
 
 Under three-pass a lens belongs to one of plan, the round and completion (reconciliation may repeat lenses). A
 conditional entry may not hand one of those owned lenses to another of the three; a lens that exists only in a
-conditional entry joins exactly the passes that entry names. An Antigravity reviewer's model name must end with
-every effort the schedule sets. `effort` is optional everywhere: with a schedule, the step alone decides, and a step
+conditional entry joins exactly the passes that entry names. An Antigravity Orchestrator model (`gemini-pro-orchestrator`
+or `gemini-pro-orchestrator-*`) manages its own effort and rejects scheduled efforts on both three-pass and rotation;
+any other Antigravity reviewer's model name must end with every effort a three-pass schedule sets. `effort` is
+optional everywhere: with a schedule, the step alone decides, and a step
 without one passes no effort to the reviewer's CLI, whose own configuration then decides; without a schedule the
 reviewer's `effort` does, or the CLI's configuration when it has none. Standard library only.
 """
@@ -194,10 +196,9 @@ def load_pin(path=PIN, data=None):
     if "schedule" in pin:
         routed = list(dict.fromkeys(chain[0] for chain in routes.values()))
         check_schedule(pin["schedule"], {reviewers[name]["cli"] for name in routed})
-        if pin["schedule"].get("policy") == THREE_PASS:
-            for name in routed:
-                if reviewers[name]["cli"] == "agy":
-                    check_agy_effort(name, reviewers[name]["model"], pin["schedule"])
+        for name in routed:
+            if reviewers[name]["cli"] == "agy":
+                check_agy_effort(name, reviewers[name]["model"], pin["schedule"])
     return pin
 
 
@@ -272,18 +273,25 @@ def faults(path=PIN, data=None):
         if not isinstance(schedule, dict) or set(schedule) != ROTATION_KEYS:
             holds(check_schedule, schedule, set())
             return found
+        steps_sound = True
         for key, step in schedule.items():
             if key == "rounds":
                 if isinstance(step, list) and step:
                     for n, entry in enumerate(step, 1):
-                        step_holds(holds, f"round {n}", entry, efforts, LENSES, "required")
+                        steps_sound = step_holds(holds, f"round {n}", entry, efforts, LENSES, "required") and steps_sound
                 else:
                     found.append("[schedule] rounds needs at least one round")
+                    steps_sound = False
             elif key == "severity_stop_after":
                 if type(step) is not int or not 0 <= step <= 33:
                     found.append("[schedule] severity_stop_after needs a whole number of rounds from 0 to 33")
             else:
-                step_holds(holds, key, step, efforts, LENSES, "none" if key == "completion" else "required")
+                steps_sound = step_holds(holds, key, step, efforts, LENSES,
+                                         "none" if key == "completion" else "required") and steps_sound
+        if steps_sound:
+            for name in routed:
+                if good[name]["cli"] == "agy":
+                    holds(check_agy_effort, name, good[name]["model"], schedule)
         return found
     if schedule["policy"] != THREE_PASS or not holds(check_three_pass_keys, schedule):
         if schedule["policy"] != THREE_PASS:
@@ -434,11 +442,32 @@ def check_step(where, step, efforts, table=LENSES, lenses="required"):
     check_step_lenses(where, step, table)
 
 
+def is_agy_orchestrator(model):
+    """Antigravity Orchestrator models manage effort internally across phases and reject `--effort`."""
+    return model == "gemini-pro-orchestrator" or model.startswith("gemini-pro-orchestrator-")
+
+
+def schedule_efforts(schedule):
+    """Distinct `effort` settings across every step of a `three-pass` or `rotation` schedule."""
+    if schedule.get("policy") == THREE_PASS:
+        steps = [schedule[k] for k in ("plan", "completion", "reconciliation")] + list(schedule["rounds"])
+    else:
+        steps = [schedule[k] for k in ("plan", "completion", "escalation", "rotation")] + list(schedule["rounds"])
+    return list(dict.fromkeys(step["effort"] for step in steps if "effort" in step))
+
+
 def check_agy_effort(name, model, schedule):
-    """An Antigravity reviewer runs at its model name's effort whatever the schedule says, so under three-pass the two
-    must agree, or a pass would be recorded at an effort it did not run at."""
-    steps = [schedule[k] for k in ("plan", "completion", "reconciliation")] + list(schedule["rounds"])
-    for effort in dict.fromkeys(step["effort"] for step in steps if "effort" in step):
+    """Orchestrator models reject any scheduled effort across both three-pass and rotation schedules; other
+    Antigravity reviewers run at their model name's effort, which must agree with every three-pass step."""
+    efforts = schedule_efforts(schedule)
+    if is_agy_orchestrator(model):
+        if efforts:
+            raise Refused(f"reviewer {name!r}: {model} manages its own effort and rejects --effort, but the schedule "
+                          f"has a pass at effort = {efforts[0]}")
+        return
+    if schedule.get("policy") != THREE_PASS:
+        return
+    for effort in efforts:
         if not model.endswith(f"-{effort}"):
             raise Refused(f"reviewer {name!r} runs at the effort in its model name {model}, but the schedule has a "
                           f"pass at effort = {effort}")

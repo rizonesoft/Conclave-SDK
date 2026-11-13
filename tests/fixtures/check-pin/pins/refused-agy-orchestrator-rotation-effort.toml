@@ -1,0 +1,26 @@
+schema_version = 1
+
+[reviewers.orchestrator]
+cli = "agy"
+model = "gemini-pro-orchestrator"
+
+[routes]
+codex = ["orchestrator"]
+
+[schedule]
+severity_stop_after = 0
+
+[schedule.plan]
+lenses = ["plan"]
+
+[schedule.completion]
+
+[[schedule.rounds]]
+lenses = ["adversarial"]
+
+[schedule.rotation]
+effort = "low"
+lenses = ["quality"]
+
+[schedule.escalation]
+lenses = ["adversarial"]

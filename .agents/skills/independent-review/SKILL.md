@@ -11,9 +11,9 @@ Your own review is not enough for a nontrivial change: a different model reviews
 | --- | --- | --- | --- |
 | Claude Code | `claude` | `astra`: `gpt-6-astra` through `codex`, scheduled effort | none |
 | Antigravity | `agy` (or `gemini`) | `astra`: `gpt-6-astra` through `codex`, scheduled effort | none |
-| Codex | `codex` | `hydrogen`: `gemini-4-hydrogen-medium` through `agy`, effort in the model name | none |
+| Codex | `codex` | `carbon`: `gemini-4-carbon-medium` through `agy`, scheduled effort in the model name | none |
 
-Name your own agent as the writer. The pin as installed routes `claude` and `agy` to GPT-6 Astra through the Codex CLI in a read-only sandbox, and `codex` to Gemini 4 Hydrogen through the Antigravity CLI in its sandbox, with its file-writing and MCP tools denied for the session; the project owns its pin and may change it in `.conclave/reviewers.toml`. A route names exactly one reviewer, never of the writer's own model family, and the pin refuses an unrouted writer, an unknown CLI, a second reviewer or a same-family reviewer.
+Name your own agent as the writer. The pin as installed routes `claude` and `agy` to GPT-6 Astra through the Codex CLI in a read-only sandbox, and `codex` to Gemini 4 Carbon through the Antigravity CLI in its sandbox, with its file-writing, file-editing and MCP tools denied for the session; the project owns its pin and may change it in `.conclave/reviewers.toml`. A route names exactly one reviewer, never of the writer's own model family, and the pin refuses an unrouted writer, an unknown CLI, a second reviewer or a same-family reviewer.
 
 The pin's `[schedule]` sets each pass's reasoning effort and lenses, so the writer never picks them, and it has two shapes. Check which one applies first: `python scripts/review_pin.py --check` loads the pin, and `[schedule] policy` says which flow runs. `python scripts/review_pin.py --lenses <kind>` prints a three-pass pin's lenses for a pass and `--caps` prints its `pass_cap` and `no_progress_cap`.
 

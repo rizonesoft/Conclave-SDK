@@ -153,6 +153,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 51/84 verified sections, 11 ready to run now.
+Progress: 51/84 verified sections, 10 ready to run now.
 
-Checklist: 421/606 items completed (includes Commit items).
+Checklist: 427/606 items completed (includes Commit items).

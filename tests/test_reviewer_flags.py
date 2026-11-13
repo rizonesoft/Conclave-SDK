@@ -99,10 +99,10 @@ class FlagList(unittest.TestCase):
             self.assertEqual(dispatch.agy_flags_missing(HELP), ["--read-only"])
 
     def test_the_command_is_built_from_the_flags(self):
-        argv, stdin = dispatch.command({"cli": "agy", "model": "gemini-4-hydrogen-medium"}, "/usr/bin/agy", "short",
+        argv, stdin = dispatch.command({"cli": "agy", "model": "gemini-4-carbon-medium"}, "/usr/bin/agy", "short",
                                        Path("/p.md"), Path("/tmp/x/last-message.md"), 60)
         self.assertIsNone(stdin)
-        self.assertEqual(argv, ["/usr/bin/agy", "--model", "gemini-4-hydrogen-medium", "--sandbox", "--settings",
+        self.assertEqual(argv, ["/usr/bin/agy", "--model", "gemini-4-carbon-medium", "--sandbox", "--settings",
                                 str(Path("/tmp/x/agy-settings.json")), "--print-timeout", "60s", "-p=short"])
         self.assertEqual([a.split("=")[0] for a in argv if a.startswith("-")], list(dispatch.AGY_FLAGS))
 
@@ -144,7 +144,8 @@ class DoctorCheck(unittest.TestCase):
         status, detail = self.check()
         self.assertEqual(status, "ok", detail)
         self.assertIn("9.9.9", detail)
-        self.assertEqual((self.dir / "settings-seen").read_text(), '{"permissions": {"deny": ["write_file(*)", "mcp(*)"]}}')
+        self.assertEqual((self.dir / "settings-seen").read_text(),
+                         '{"permissions": {"deny": ["write_file(*)", "edit_file(*)", "mcp(*)"]}}')
         self.assertEqual(list(Path(tempfile.gettempdir()).glob("forge-agy-settings-*")), [], "the scratch file is gone")
 
     def test_a_renamed_flag_is_unexpected_and_names_it(self):
@@ -176,7 +177,8 @@ class DoctorCheck(unittest.TestCase):
             status, detail = self.check()
         self.assertEqual(status, "ok", detail)
         self.assertIn(" ", str(self.agy))
-        self.assertEqual((self.dir / "settings-seen").read_text(), '{"permissions": {"deny": ["write_file(*)", "mcp(*)"]}}')
+        self.assertEqual((self.dir / "settings-seen").read_text(),
+                         '{"permissions": {"deny": ["write_file(*)", "edit_file(*)", "mcp(*)"]}}')
 
     def test_a_version_probe_that_fails_is_never_ok(self):
         self.mode("version-fails")
@@ -235,7 +237,7 @@ class DoctorCheck(unittest.TestCase):
         forge.apply_kit(project, "reviewer")
         with self.path_with_only_the_stub():
             checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "reviewer")["checks"]}
-        self.assertEqual(checks["reviewer-flags:hydrogen"], "ok")
+        self.assertEqual(checks["reviewer-flags:carbon"], "ok")
         self.assertNotIn("reviewer-flags:astra", checks)
         self.assertEqual(checks["reviewer:astra"], "setup_required")  # codex not on this PATH: no flags check for it
 
@@ -264,7 +266,7 @@ class DoctorCheck(unittest.TestCase):
                 checks = {c["name"]: c for c in forge.doctor_repo(project, "reviewer")["checks"]}
         finally:
             os.chdir(cwd)
-        self.assertEqual(checks["reviewer-flags:hydrogen"]["status"], "ok", checks["reviewer-flags:hydrogen"])
+        self.assertEqual(checks["reviewer-flags:carbon"]["status"], "ok", checks["reviewer-flags:carbon"])
 
     def test_two_antigravity_reviewers_on_one_cli_are_probed_once(self):
         project = self.dir / "project"
@@ -278,7 +280,7 @@ class DoctorCheck(unittest.TestCase):
         with self.path_with_only_the_stub(), \
                 mock.patch.object(forge, "_agy_flags_check", lambda *a: calls.append(a[1]) or real(*a)):
             checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "reviewer")["checks"]}
-        self.assertEqual((checks["reviewer-flags:hydrogen"], checks["reviewer-flags:argon"]), ("ok", "ok"))
+        self.assertEqual((checks["reviewer-flags:carbon"], checks["reviewer-flags:argon"]), ("ok", "ok"))
         self.assertEqual(len(calls), 1)
 
     def test_a_settings_probe_that_fails_for_another_reason_is_not_called_a_refusal(self):

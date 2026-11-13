@@ -63,14 +63,14 @@ class TemplateDispatch(_kit_tests.Harness):
     def test_codex_work_reaches_the_antigravity_reviewer_and_its_review_is_recorded(self):
         result, summary, record = self.round()
         self.assertEqual(result.returncode, 0, (result.stderr, summary))
-        self.assertEqual((summary["reviewer"], summary["model"]), ("hydrogen", "gemini-4-hydrogen-medium"))
+        self.assertEqual((summary["reviewer"], summary["model"]), ("carbon", "gemini-4-carbon-medium"))
         (call,) = self.calls()
         self.assertEqual(call["cli"], "agy")
-        self.assertEqual(call["argv"][call["argv"].index("--model") + 1], "gemini-4-hydrogen-medium")
-        self.assertIn("## Round 1: hydrogen (`gemini-4-hydrogen-medium` via `agy`)", record.read_text(encoding="utf-8"))
+        self.assertEqual(call["argv"][call["argv"].index("--model") + 1], "gemini-4-carbon-medium")
+        self.assertIn("## Round 1: carbon (`gemini-4-carbon-medium` via `agy`)", record.read_text(encoding="utf-8"))
 
     def test_without_the_codex_route_codex_work_has_no_reviewer(self):
-        (self.repo / ".conclave/reviewers.toml").write_text(self.pin.replace('codex = ["hydrogen"]\n', ""),
+        (self.repo / ".conclave/reviewers.toml").write_text(self.pin.replace('codex = ["carbon"]\n', ""),
                                                             encoding="utf-8")
         result, _, _ = self.round()
         self.assertNotEqual(result.returncode, 0)

@@ -1378,7 +1378,8 @@ class MultiCli(Harness):
         # (D00 T02 §1, measured on agy 1.5.8). Read-only comes from the sandbox and the session's deny rules.
         self.assertNotIn("--mode", call["argv"])
         self.assertNotIn("--dangerously-skip-permissions", call["argv"])
-        self.assertEqual(json.loads(call["settings"]), {"permissions": {"deny": ["write_file(*)", "mcp(*)"]}})
+        self.assertEqual(json.loads(call["settings"]),
+                         {"permissions": {"deny": ["write_file(*)", "edit_file(*)", "mcp(*)"]}})
         self.assertFalse(Path(call["argv"][call["argv"].index("--settings") + 1]).exists(), "the settings file is scratch")
         if os.name == "nt":
             # The fake is a .cmd shim on Windows, so the prompt must arrive by file, never as argument text.

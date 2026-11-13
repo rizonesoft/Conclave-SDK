@@ -1,0 +1,29 @@
+schema_version = 1
+
+[reviewers.orchestrator]
+cli = "agy"
+model = "gemini-pro-orchestrator"
+
+[routes]
+codex = ["orchestrator"]
+
+[schedule]
+policy = "three-pass"
+pass_cap = 33
+blocking = ["P1", "P2"]
+
+[schedule.plan]
+effort = "medium"
+lenses = ["plan"]
+
+[[schedule.rounds]]
+effort = "medium"
+lenses = ["adversarial", "integration"]
+
+[schedule.completion]
+effort = "medium"
+lenses = ["plan-delivery", "record"]
+
+[schedule.reconciliation]
+effort = "medium"
+lenses = ["adversarial", "integration", "plan-delivery", "record"]

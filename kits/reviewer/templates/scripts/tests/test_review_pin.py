@@ -385,12 +385,53 @@ class ThreePass(Cases):
     def test_an_antigravity_reviewer_runs_a_google_model(self):
         # D00 T02 §1: agy also serves Anthropic and OpenAI models, so its reviewer's family is its model's.
         agy = THREE_PASS.replace('cli = "codex"\nmodel = "gpt-6-astra"\neffort = "medium"',
-                                 'cli = "agy"\nmodel = "gemini-4-hydrogen-medium"')
-        self.assertEqual(load(agy)["reviewers"]["astra"]["model"], "gemini-4-hydrogen-medium")
+                                 'cli = "agy"\nmodel = "gemini-4-carbon-medium"')
+        self.assertEqual(load(agy)["reviewers"]["astra"]["model"], "gemini-4-carbon-medium")
         for model in ("claude-opus-5-5-medium", "gpt-oss-120b-medium"):
             with self.subTest(model):
-                self.refuses(agy.replace("gemini-4-hydrogen-medium", model), "reviewer 'astra'",
+                self.refuses(agy.replace("gemini-4-carbon-medium", model), "reviewer 'astra'",
                              "must be one of Google's (gemini-...)", model)
+
+    def test_an_antigravity_orchestrator_manages_its_own_effort_and_rejects_scheduled_effort(self):
+        for model in ("gemini-pro-orchestrator", "gemini-pro-orchestrator-argon"):
+            with self.subTest(model=model):
+                unscheduled = HEAD.replace('cli = "codex"\nmodel = "gpt-6-astra"\neffort = "medium"',
+                                           f'cli = "agy"\nmodel = "{model}"')
+                self.assertEqual(load(unscheduled)["reviewers"]["astra"]["model"], model)
+                self.assertEqual(review_pin.faults(data=unscheduled.encode("utf-8")), [])
+
+                three_pass_bare = THREE_PASS.replace(
+                    'cli = "codex"\nmodel = "gpt-6-astra"\neffort = "medium"',
+                    f'cli = "agy"\nmodel = "{model}"',
+                ).replace('effort = "medium"\n', "")
+                self.assertEqual(load(three_pass_bare)["reviewers"]["astra"]["model"], model)
+                self.assertEqual(review_pin.faults(data=three_pass_bare.encode("utf-8")), [])
+
+                three_pass_effort = three_pass_bare.replace(
+                    "[schedule.plan]\n",
+                    '[schedule.plan]\neffort = "medium"\n',
+                )
+                self.refuses(three_pass_effort, "reviewer 'astra'", model, "manages its own effort and rejects --effort")
+                with self.assertRaises(review_pin.Refused) as tp_exc:
+                    load(three_pass_effort)
+                self.assertEqual(review_pin.faults(data=three_pass_effort.encode("utf-8")), [str(tp_exc.exception)])
+
+                rot_bare = ROTATION.replace(
+                    'cli = "codex"\nmodel = "gpt-6-astra"\neffort = "medium"',
+                    f'cli = "agy"\nmodel = "{model}"',
+                ).replace('effort = "medium"\n', "").replace('effort = "high"\n', "").replace('effort = "low"\n', "")
+                self.assertEqual(load(rot_bare)["reviewers"]["astra"]["model"], model)
+                self.assertEqual(review_pin.faults(data=rot_bare.encode("utf-8")), [])
+
+                for step in ("[schedule.plan]", "[schedule.completion]", "[schedule.rotation]",
+                             "[schedule.escalation]", "[[schedule.rounds]]"):
+                    with self.subTest(step=step):
+                        rot_effort = rot_bare.replace(f"{step}\n", f'{step}\neffort = "medium"\n', 1)
+                        self.refuses(rot_effort, "reviewer 'astra'", model, "manages its own effort and rejects --effort",
+                                     "effort = medium")
+                        with self.assertRaises(review_pin.Refused) as rot_exc:
+                            load(rot_effort)
+                        self.assertEqual(review_pin.faults(data=rot_effort.encode("utf-8")), [str(rot_exc.exception)])
 
     def test_the_lens_block_asks_each_lens_its_question_and_for_its_verdict_line(self):
         schedule = load(THREE_PASS)["schedule"]

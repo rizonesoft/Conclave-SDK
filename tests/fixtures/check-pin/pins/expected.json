@@ -186,7 +186,7 @@
         "astra"
       ],
       "codex": [
-        "hydrogen"
+        "carbon"
       ]
     }
   },
@@ -194,5 +194,24 @@
     "exit": 2,
     "ok": false,
     "error": "reviewer 'gemini': an Antigravity reviewer's model must be one of Google's (gemini-...), since agy also runs other families' models: claude-opus-5-5-high"
+  },
+  "valid-agy-orchestrator-unscheduled.toml": {
+    "exit": 0,
+    "ok": true,
+    "routes": {
+      "codex": [
+        "orchestrator"
+      ]
+    }
+  },
+  "refused-agy-orchestrator-effort.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "reviewer 'orchestrator': gemini-pro-orchestrator manages its own effort and rejects --effort, but the schedule has a pass at effort = medium"
+  },
+  "refused-agy-orchestrator-rotation-effort.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "reviewer 'orchestrator': gemini-pro-orchestrator manages its own effort and rejects --effort, but the schedule has a pass at effort = low"
   }
 }
