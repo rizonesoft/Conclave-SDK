@@ -586,6 +586,41 @@ class Graph(Tree):
         self.assertFalse([m for m in found if "unresolved" in m and "§1" in m], found)
         self.refuses("malformed implementation row")
 
+    def test_a_rowless_sections_valid_stamp_is_paired_with_its_receipt(self):
+        # D03 T01 §13 (plan review): a valid stamp under an unreadable row still needs and checks its receipt.
+        self.git("commit", "-q", "--allow-empty", "-m", "base")
+        sha = self.git("rev-parse", "HEAD")
+        stamp = f"> **Verified:** 2026-11-13 | §1 | {sha}\n"
+        receipt_line = "> **Review:** `docs/reviews/d00-t01-s1.json`\n"
+        receipt = self.root / "docs/reviews/d00-t01-s1.json"
+        receipt.parent.mkdir(parents=True, exist_ok=True)
+        base = todo_file([(1, "A", 0, "none", "--")]).replace("| 1 | §1 | A | -- | [ ] |", "| x | 1 | A | -- | [x] |")
+        base = base.replace("- [ ] ", "- [x] ")
+        cases = {"no Review line": (stamp, None), "missing receipt": (stamp + receipt_line, None),
+                 "unreadable receipt": (stamp + receipt_line, b"\xff\xfe"), "invalid receipt": (stamp + receipt_line, b"{}")}
+        for name, (lines, data) in cases.items():
+            with self.subTest(name):
+                receipt.unlink(missing_ok=True)
+                if data is not None:
+                    receipt.write_bytes(data)
+                self.write(base.replace("\n## Verification", "\n" + lines + "\n## Verification"))
+                found = [m for m in self.faults() if "§1" in m and not m.startswith("malformed implementation row")]
+                if name == "no Review line":
+                    self.assertIn("stamp/receipt mismatch: D00 T01 §1", found)
+                else:
+                    self.assertTrue(found and not any(m.startswith(("invalid stamp", "stamp/receipt")) for m in found),
+                                    found)  # the receipt itself was checked and refused
+
+    def test_a_rowless_section_with_a_valid_body_is_no_node_of_the_graph(self):
+        text = todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--")]).replace(
+            "| 1 | §1 | A | -- | [ ] |", "| ⭐ | 1 | A | -- | [ ] |")
+        self.write(text)
+        found, sections = [], None
+        sections = tg.graph(self.root, faults=found)
+        self.assertIn("malformed implementation row: todo/00-workspace/TODO-01-a.md", [m for _, m in found])
+        self.assertNotIn("D00 T01 §1", sections)
+        self.assertIn("D00 T01 §2", sections)
+
     def test_a_section_under_an_unreadable_row_has_its_own_stamp_checked(self):
         text = todo_file([(1, "A", 0, "none", "--")]).replace("| 1 | §1 | A | -- | [ ] |", "| x | 1 | A | -- | [x] |")
         self.write(text.replace("\n## Verification", "\n> **Verified:** 2026-11-13 | §1 | abc\n\n## Verification"))
@@ -740,7 +775,7 @@ class Graph(Tree):
         proc.kill.side_effect = getattr(stdout, "killed", None)  # killing a process ends its output
         return proc
 
-    def batch_read(self, stdout, timeout=30):
+    def batch_read(self, stdout, timeout=30.0):
         """_git's `show` through a fake batch process inside a run, and how long it took; then the real answer."""
         self.write(todo_file([(1, "A", 0, "none", "--")]))
         self.git("add", "-A")

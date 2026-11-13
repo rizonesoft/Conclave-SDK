@@ -1300,6 +1300,8 @@ def _graph(root=ROOT, faults=None):
             done = row[5] == "x" if row is not None else bool(stamp_line or receipt)
             if row is not None and stamp_read:
                 check(done == bool(stamp_line) == bool(receipt), f"checkbox/stamp/receipt mismatch: {ref}", ref)
+            elif stamp_read:  # no box to agree with: the stamp and its receipt still come as a pair
+                check(bool(stamp_line) == bool(receipt), f"stamp/receipt mismatch: {ref}", ref)
             if done and stamp_read:
                 check(all(x[0] == "x" for x in checks), f"unfinished stamped checklist: {ref}", ref)
                 check(not set(needs) & waiting, f"stamped section has a waiting Need: {ref}", ref)
