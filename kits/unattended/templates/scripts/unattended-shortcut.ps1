@@ -6,7 +6,7 @@
 #   pwsh scripts/unattended-shortcut.ps1 -Distro Ubuntu -Icon assets/brand/project.ico
 #   pwsh scripts/unattended-shortcut.ps1 -Remove       remove every shortcut and icon this project made
 #
-# Each link targets `wsl.exe -d <distro> --cd <project in WSL> -- bash -lc <start command>`: the command
+# Each link targets `wsl.exe -d <distro> --cd <project in WSL> --exec bash -lc <start command>`: the command
 # `unattended-run.py`'s start_command gives (a test holds the two equal), which starts the run on the runner and, on
 # a failure, says so and waits for Enter, so the reason stays on screen. Links and icons are written under a
 # temporary name and moved over the old, so a failed save or icon keeps a working shortcut and leaves no broken one.
@@ -59,11 +59,17 @@ if ($Remove) {
 
 if (-not $Distro) { Refuse '-Distro names no WSL distro' }
 if (-not $Icon -or -not (Test-Path -LiteralPath $Icon -PathType Leaf)) { Refuse "-Icon is not a file: '$Icon'" }
-if (-not $Python) { $Python = (Get-Command python -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source }
+if (-not $Python) {
+  $Python = (Get-Command python -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
+}
 if (-not $Python) { Refuse 'python is not on PATH' }
-if (-not $Wsl) { $Wsl = (Get-Command wsl.exe -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source }
+if (-not $Wsl) {
+  $Wsl = (Get-Command wsl.exe -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
+}
 if (-not $Wsl) { Refuse 'wsl.exe is not on PATH: install WSL' }
 $env:WSL_UTF8 = '1'  # wsl.exe lists its distros in UTF-16 otherwise
+# Every call into WSL is --exec: `wsl.exe -- <command>` hands the command to the login shell, which eats the
+# backslashes of a Windows path and parses the start command again (found by the live proof, 2026-11-13).
 
 # The runners, read by the kit's own profile loader, so a profile the run would refuse is refused here too.
 $reader = @'
@@ -79,7 +85,9 @@ if ($LASTEXITCODE -ne 0) { Refuse "the run profile cannot be read: $(($read | Ou
 $agents = @(($read | Select-Object -Last 1) | ConvertFrom-Json)
 
 $listed = @(& $Wsl -l -q 2>$null | ForEach-Object { ($_ -replace "`0", '').Trim() } | Where-Object { $_ })
-if ($LASTEXITCODE -ne 0 -or $listed -notcontains $Distro) { Refuse "WSL has no distro '$Distro' (it lists: $($listed -join ', '))" }
+if ($LASTEXITCODE -ne 0 -or $listed -notcontains $Distro) {
+  Refuse "WSL has no distro '$Distro' (it lists: $($listed -join ', '))"
+}
 
 # The project's path in WSL: a \\wsl.localhost\<distro>\ or \\wsl$\<distro>\ path is that distro's own path, a Linux
 # path is itself, and a Windows-drive path is what wslpath says.
@@ -89,11 +97,11 @@ if ($Project -match '^\\\\wsl(?:\.localhost|\$)\\([^\\]+)\\(.*)$') {
 } elseif ($Project.StartsWith('/')) {
   $linux = $Project
 } else {
-  $linux = (& $Wsl -d $Distro -- wslpath -a $Project 2>$null | Select-Object -First 1)
+  $linux = (& $Wsl -d $Distro --exec wslpath -a $Project 2>$null | Select-Object -First 1)
   if ($LASTEXITCODE -ne 0 -or -not $linux) { Refuse "wslpath could not translate '$Project'" }
   $linux = $linux.Trim()
 }
-& $Wsl -d $Distro -- test -d $linux 2>$null
+& $Wsl -d $Distro --exec test -d $linux 2>$null
 if ($LASTEXITCODE -ne 0) { Refuse "the project path '$linux' does not exist in '$Distro'" }
 
 # One argument as the Windows command line passes it (backslashes doubled before a quote, the quote escaped).
@@ -124,7 +132,8 @@ foreach ($agent in $agents) {
   try {
     $shortcut = $shell.CreateShortcut($linkTemp)
     $shortcut.TargetPath = $Wsl
-    $shortcut.Arguments = (@('-d', $Distro, '--cd', $linux, '--', 'bash', '-lc', $command) | ForEach-Object { Quote $_ }) -join ' '
+    $words = @('-d', $Distro, '--cd', $linux, '--exec', 'bash', '-lc', $command)
+    $shortcut.Arguments = ($words | ForEach-Object { Quote $_ }) -join ' '
     $shortcut.WorkingDirectory = $env:USERPROFILE
     $shortcut.Description = $mark
     $shortcut.IconLocation = "$badge,0"

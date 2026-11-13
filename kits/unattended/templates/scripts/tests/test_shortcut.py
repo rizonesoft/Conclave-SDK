@@ -29,7 +29,7 @@ if os.environ.get("STUB_WSL_FAIL"):
 if args[:2] == ["-l", "-q"]:
     print("Ubuntu\nDebian")
     sys.exit(0)
-rest = args[args.index("--") + 1:] if "--" in args else []
+rest = args[args.index("--exec") + 1:] if "--exec" in args else []
 if rest[:2] == ["wslpath", "-a"]:
     drive, _, tail = rest[2].partition(":")
     print("/mnt/" + drive.lower() + tail.replace("\\", "/"))
@@ -132,7 +132,7 @@ class ShortcutTest(unittest.TestCase):
                 ran = subprocess.run(f'"{link["target"]}" {link["arguments"]}', capture_output=True, text=True,
                                      timeout=60, env=self.env, creationflags=windowless())
                 self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
-                self.assertEqual(self.calls(), [["-d", "Ubuntu", "--cd", linux, "--", "bash", "-lc",
+                self.assertEqual(self.calls(), [["-d", "Ubuntu", "--cd", linux, "--exec", "bash", "-lc",
                                                  self.run.start_command(agent)]])
 
     def test_a_project_in_wsl_starts_from_its_linux_path(self):
@@ -145,7 +145,7 @@ class ShortcutTest(unittest.TestCase):
                 done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", project)
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
                 link = self.read_link(self.desk / "demo Claude campaign.lnk")
-                self.assertIn("--cd /home/x/demo -- bash -lc", link["arguments"])
+                self.assertIn("--cd /home/x/demo --exec bash -lc", link["arguments"])
                 self.assertFalse([c for c in self.calls() if "wslpath" in c], "a WSL path went through wslpath")
 
     def test_a_project_in_another_distro_is_refused(self):
