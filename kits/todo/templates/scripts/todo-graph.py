@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Validate, query, resolve and stamp the canonical TODO graph, and keep todo/implementation-plan.md current.
 
-    python scripts/todo-graph.py validate
+    python scripts/todo-graph.py validate [--all]            # --all: every fault, one line each, then exit 2
     python scripts/todo-graph.py build                       # todo/ -> build/todo-cache.json
     python scripts/todo-graph.py render                      # mermaid dependency graph
     python scripts/todo-graph.py receipts [--config -]       # the receipts folder (todo/plan.json layout.receipts);
@@ -60,8 +60,11 @@ def plan_status(row, rows):
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="command", required=True)
-    for name in ("validate", "build", "render"):
+    for name in ("build", "render"):
         sub.add_parser(name)
+    v = sub.add_parser("validate")
+    v.add_argument("--all", action="store_true",
+                   help="record every fault and go on: one line each, '<path or reference>: <message>', then exit 2")
     rc = sub.add_parser("receipts", help="print the receipts folder, todo/plan.json's layout.receipts (docs/reviews)")
     rc.add_argument("--config", choices=["-"], help="read todo/plan.json's text from stdin (the hook passes the index's)")
     pp = sub.add_parser("plan-path", help="print the generated plan's path, todo/plan.json's layout.plan")
@@ -111,6 +114,15 @@ def main():
         receipt = stamp(ROOT, args.ref, args.sha, args.review, args.checks, args.date, sync_plan=True,
                         cap_outcome=args.cap_outcome, completion=args.completion, plan=args.plan)
         print(f"stamped {args.ref}; receipt {receipt}; plan synchronized")
+        return 0
+    if args.command == "validate" and args.all:
+        faults = []
+        rows = graph(ROOT, faults=faults)
+        for where, message in faults:
+            print(f"{where}: {message}")
+        if faults:
+            return 2
+        print(f"valid: {len(rows)} sections")
         return 0
     rows = graph()
     if args.command == "plan":

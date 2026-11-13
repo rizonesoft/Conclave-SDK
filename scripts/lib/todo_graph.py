@@ -909,202 +909,302 @@ def xrefs_of(body, domain, todo):
     return refs
 
 
-def graph(root=ROOT):
-    """Parse every TODO file strictly; a malformed row or section refuses, it is never read as empty."""
+FAILED = object()  # what graph's attempt() returns for a call whose refusal it recorded
+
+
+def graph(root=ROOT, faults=None):
+    """Parse every TODO file strictly; a malformed row or section refuses, it is never read as empty.
+
+    `faults`: a list to record every refusal in, as (path or reference, message), and go on (`validate --all`).
+    Within a file and a section every check whose inputs are usable still runs, and a fault that only follows from
+    another (a reference to a section or file whose own reading failed) is not recorded. Without the list the first
+    refusal raises, exactly as before."""
     root = Path(root)
-    config = plan_config(root)  # the project's own phase numbers, Needs, waiting Needs and caps (todo/plan.json)
+    collect = faults is not None
+    sections, ids, files = {}, {}, {}
+
+    def check(ok, message, where):
+        if ok:
+            return True
+        if not collect:
+            raise Refused(message)
+        faults.append((where, message))
+        return False
+
+    def attempt(where, fn, *args):
+        """fn(*args); collecting, a refusal, a read failure or bad JSON is recorded and FAILED returned."""
+        if not collect:
+            return fn(*args)
+        try:
+            return fn(*args)
+        except (Refused, OSError, ValueError) as exc:  # Refused is a ValueError; so are JSON and decoding errors
+            faults.append((where, str(exc)))
+            return FAILED
+
+    config = attempt(PLAN_CONFIG, plan_config, root)  # the project's phases, Needs, caps and layout (todo/plan.json)
+    if config is FAILED:
+        return sections  # every check below reads the configuration
     caps = config["caps"]
     phase_list, known_needs, waiting = set(config["phase_list"]), config["needs"], config["waiting"]
-    legacy_receipts(root)  # a malformed freeze list refuses even before any old receipt is read against it
-    sections, ids, files = {}, {}, {}
+    attempt(RECEIPTS, legacy_receipts, root)  # a malformed freeze list refuses even before any old receipt is read
     head_commits = None
     filed_gaps = {}
     paths = sorted((root / "todo").glob("[0-9][0-9]-*/TODO-*.md"))
-    require(bool(paths), "canonical TODO tree is missing or empty")
+    if not check(bool(paths), "canonical TODO tree is missing or empty", "todo/"):
+        return sections
+    # Collecting, every section reference and file id is gathered first, leniently, so a reference to one whose own
+    # reading failed is known to exist and is not recorded as a second fault; a reference to nothing still is.
+    known_refs, known_ids = set(), set()
+    if collect:
+        for path in paths:
+            name = re.fullmatch(r"TODO-(\d{2})-[a-z0-9-]+\.md", path.name)
+            try:
+                raw = read_text(path)
+            except (OSError, ValueError):
+                continue
+            if name:
+                known_refs |= {f"D{path.parent.name[:2]} T{name[1]} §{m[1]}"
+                               for m in re.finditer(r"^## (\d+)\. ", raw, re.M)}
+            m = re.search(r"^id: *\"?([^\"\n]+)\"?[ \t]*$", raw, re.M)
+            if m:
+                known_ids.add(m[1].strip())
+    incomplete = set()  # files with a part that could not be read: no status is checked for them
+
+    def unknown(target, known):
+        """A target to report as unresolved: collecting, not one that exists but failed its own reading."""
+        return not (collect and target in known)
+
     for path in paths:
-        require(not path.is_symlink(), f"symlink TODO: {path}")
         relative = path.relative_to(root).as_posix()
+        if not check(not path.is_symlink(), f"symlink TODO: {path}", relative):
+            continue
         name = re.fullmatch(r"TODO-(\d{2})-[a-z0-9-]+\.md", path.name)
-        require(name is not None, f"invalid TODO filename: {relative}")
+        if not check(name is not None, f"invalid TODO filename: {relative}", relative):
+            continue
         d, t = path.parent.name[:2], name[1]
-        front, body = front_matter(read_text(path), relative)
+        raw = attempt(relative, read_text, path)
+        if raw is FAILED:
+            continue
+        parsed = attempt(relative, front_matter, raw, relative)
+        if parsed is FAILED:
+            continue
+        front, body = parsed
         required = {"schema_version", "id", "domain", "status", "title"}
         optional = {"depends_on", "frozen", "track", "superseded_by"}
-        require(required <= front.keys() and not front.keys() - required - optional,
-                f"frontmatter fields: {relative}")
-        require(front["schema_version"] == "1" and front["domain"] == path.parent.name,
-                f"schema/domain mismatch: {relative}")
-        require(re.fullmatch(r"[a-z][a-z0-9-]{0,58}[a-z0-9]", front["id"])
-                and front["id"] not in ids, f"invalid/duplicate id: {relative}")
-        require(front["status"] in STATUSES, f"unknown status: {relative}")
+        fields_ok = check(required <= front.keys() and not front.keys() - required - optional,
+                          f"frontmatter fields: {relative}", relative)
+        if not fields_ok and not required <= front.keys():
+            continue  # the checks below read every required field
+        check(front["schema_version"] == "1" and front["domain"] == path.parent.name,
+              f"schema/domain mismatch: {relative}", relative)
+        check(re.fullmatch(r"[a-z][a-z0-9-]{0,58}[a-z0-9]", front["id"])
+              and front["id"] not in ids, f"invalid/duplicate id: {relative}", relative)
+        check(front["status"] in STATUSES, f"unknown status: {relative}", relative)
         frozen = front.get("frozen", "false")
-        require(frozen in {"true", "false"}, f"frozen must be true or false: {relative}")
-        file_deps = json.loads(front.get("depends_on", "[]"))
-        require(isinstance(file_deps, list) and all(isinstance(x, str) for x in file_deps),
-                "depends_on must be a JSON string array")
-        require(re.search(r"\A\n*# TODO-\d{2} -- .+\n", body) is not None,
-                f"missing TODO heading: {relative}")
+        check(frozen in {"true", "false"}, f"frozen must be true or false: {relative}", relative)
+        file_deps = attempt(relative, json.loads, front.get("depends_on", "[]"))
+        if file_deps is FAILED or not check(isinstance(file_deps, list) and all(isinstance(x, str) for x in file_deps),
+                                            "depends_on must be a JSON string array", relative):
+            file_deps = []
+            incomplete.add(relative)
+        check(re.search(r"\A\n*# TODO-\d{2} -- .+\n", body) is not None, f"missing TODO heading: {relative}", relative)
         ids[front["id"]] = relative
-        files[relative] = (front, file_deps, [], xrefs_of(body, d, t),
-                           adjacency_of(body, relative, d, t))
+        xrefs = attempt(relative, xrefs_of, body, d, t)
+        adjacency = attempt(relative, adjacency_of, body, relative, d, t)
+        files[relative] = (front, file_deps, [], [] if xrefs is FAILED else xrefs,
+                           {} if adjacency is FAILED else adjacency)
         for label in ("Goal", "Current state"):
-            field(body, label)
-        for label in ("Inputs", "Outcome", "Implementation Order", "Verification"):
-            require(f"## {label}\n" in body, f"missing {label}: {relative}")
+            attempt(relative, field, body, label)
+        labels_ok = all([check(f"## {label}\n" in body, f"missing {label}: {relative}", relative)
+                         for label in ("Inputs", "Outcome", "Implementation Order", "Verification")])
+        if "## Implementation Order\n" not in body:
+            incomplete.add(relative)
+            continue  # no table: no section can be read
         table = body.split("## Implementation Order\n", 1)[1].split("\n## ", 1)[0]
         rows, orders = {}, []
         for line in table.splitlines():
             if not line.startswith("|"):
                 # A row written without its leading pipe would otherwise vanish from the graph.
-                require("|" not in line, f"implementation table line without a leading pipe: {relative}")
+                if not check("|" not in line, f"implementation table line without a leading pipe: {relative}",
+                             relative):
+                    incomplete.add(relative)
                 continue
             m = ROW.fullmatch(line)
             if not m:
-                require("§" not in line and "[" not in line,
-                        f"malformed implementation row: {relative}")
+                if not check("§" not in line and "[" not in line, f"malformed implementation row: {relative}",
+                             relative):
+                    incomplete.add(relative)
                 continue
             order, n = int(m[1]), int(m[2])
-            require(n not in rows, f"duplicate section row: {relative} §{n}")
+            if not check(n not in rows, f"duplicate section row: {relative} §{n}", relative):
+                incomplete.add(relative)
+                continue
             orders.append(order)
             rows[n] = m
-        require(rows and orders == list(range(1, len(rows) + 1)),
-                f"invalid implementation order: {relative}")
-        require(len(rows) <= caps["sections_per_file"],
-                f"over {caps['sections_per_file']} sections; split into a new file: {relative}")
+        if not check(rows and orders == list(range(1, len(rows) + 1)), f"invalid implementation order: {relative}",
+                     relative):
+            incomplete.add(relative)
+        check(len(rows) <= caps["sections_per_file"],
+              f"over {caps['sections_per_file']} sections; split into a new file: {relative}", relative)
         headings = list(re.finditer(r"^## (\d+)\. (.+)$", body, re.M))
         numbers = [int(m[1]) for m in headings]
-        require(all(n >= 1 for n in numbers) and numbers == sorted(set(numbers)) and set(numbers) == set(rows),
-                f"row/body mismatch: {relative}")
-        require(body.rfind("## Verification\n") > headings[-1].start(),
-                f"Verification must follow numbered sections: {relative}")
+        if not check(all(n >= 1 for n in numbers) and numbers == sorted(set(numbers)) and set(numbers) == set(rows),
+                     f"row/body mismatch: {relative}", relative):
+            incomplete.add(relative)
+        if headings:
+            check(body.rfind("## Verification\n") > headings[-1].start(),
+                  f"Verification must follow numbered sections: {relative}", relative)
         # The level-two headings are exactly the format's, once each and in order: any other, or a repeat, would end
         # the section above it early and hide what follows from the graph.
         level_two = re.findall(r"^##(?:[ \t].*)?$", body, re.M)
         numbered = [line for line in level_two if re.fullmatch(r"## \d+\. \S.*", line)]
-        require(level_two == ["## Inputs", "## Outcome", "## Implementation Order", *numbered, "## Verification"],
-                f"level-two headings must be Inputs, Outcome, Implementation Order, the sections and Verification, "
-                f"once each and in that order: {relative}")
+        if not check(level_two == ["## Inputs", "## Outcome", "## Implementation Order", *numbered, "## Verification"],
+                     f"level-two headings must be Inputs, Outcome, Implementation Order, the sections and Verification, "
+                     f"once each and in that order: {relative}", relative):
+            incomplete.add(relative)
+        del labels_ok
         for h in headings:
             n = int(h[1])
+            if n not in rows:
+                continue  # recorded above as a row/body mismatch
             section_body = body[h.end():].split("\n## ", 1)[0].strip()
             ref = f"D{d} T{t} §{n}"
-            require(ref not in sections, f"duplicate address: {ref}")
+            if not check(ref not in sections, f"duplicate address: {ref}", ref):
+                continue
             deliverable, title = rows[n][3].strip(), h[2].strip()
-            require(len(deliverable) <= caps["deliverable_len"] and len(title) <= caps["deliverable_len"],
-                    f"deliverable/title over {caps['deliverable_len']} chars (wraps raw md table): {ref}")
-            phase = field(section_body, "Phase")
-            require(phase.isdigit() and int(phase) in phase_list, f"invalid Phase: {ref}")
-            raw = field(section_body, "Needs")
-            needs = [] if raw == "none" else [v.strip() for v in raw.split(",")]
-            unknown = sorted(set(needs) - known_needs)
-            require(len(needs) == len(set(needs)) and not unknown,
-                    f"unknown/duplicate Needs{' (' + ', '.join(unknown) + ')' if unknown else ''}: {ref}")
+            check(len(deliverable) <= caps["deliverable_len"] and len(title) <= caps["deliverable_len"],
+                  f"deliverable/title over {caps['deliverable_len']} chars (wraps raw md table): {ref}", ref)
+            phase = attempt(ref, field, section_body, "Phase")
+            phase_ok = phase is not FAILED and check(phase.isdigit() and int(phase) in phase_list,
+                                                     f"invalid Phase: {ref}", ref)
+            raw_needs = attempt(ref, field, section_body, "Needs")
+            needs = [] if raw_needs is FAILED or raw_needs == "none" else [v.strip() for v in raw_needs.split(",")]
+            unknown_needs = sorted(set(needs) - known_needs)
+            if raw_needs is not FAILED:
+                check(len(needs) == len(set(needs)) and not unknown_needs,
+                      f"unknown/duplicate Needs{' (' + ', '.join(unknown_needs) + ')' if unknown_needs else ''}: {ref}",
+                      ref)
             dep = rows[n][4].strip()
-            deps = [] if dep == "--" else [normalize(v, d, t) for v in dep.split(",")]
-            require(len(deps) == len(set(deps)), f"duplicate dependency: {ref}")
+            deps = [] if dep == "--" else attempt(ref, lambda: [normalize(v, d, t) for v in dep.split(",")])
+            deps_ok = deps is not FAILED and check(len(deps) == len(set(deps)), f"duplicate dependency: {ref}", ref)
             for line in section_body.splitlines():
                 # Every checklist-shaped line (a list marker and a box, quoted, numbered or indented) must be the one
                 # form the graph counts, so no item can hide in another spelling.
                 if re.match(r"^[\s>]*(?:[-*+]|\d+[.)])[ \t]*\[[^\]\n]*\](?!\()", line):
-                    require(re.fullmatch(r"- \[([ x])\] \S.*", line) is not None,
-                            f"malformed checklist item: {ref}")
-            require("**Build order:**\n" in section_body and "\n- [" in section_body,
-                    f"executable Build order required: {ref}")
-            after_bo = section_body.split("**Build order:**\n", 1)[1]
-            for line in after_bo.splitlines():
-                if re.match(r"^\s*[-*+](\s|$)", line):
-                    require(re.fullmatch(r"- \[([ x])\] \S.*", line) is not None,
-                            f"malformed checklist item: {ref}")
-            build_block = after_bo.split("\n- [", 1)[0]
-            non_empty_bo = [line for line in build_block.splitlines() if line.strip()]
-            build_matches = list(re.finditer(r"^(\d+)\. (\S.+)$", build_block, re.M))
-            build_steps = [int(m[1]) for m in build_matches]
-            require(build_steps and len(build_steps) == len(non_empty_bo)
-                    and build_steps == list(range(1, len(build_steps) + 1))
-                    and all("Done when:" in m[2] for m in build_matches),
-                    f"executable Build order required: {ref}")
+                    check(re.fullmatch(r"- \[([ x])\] \S.*", line) is not None, f"malformed checklist item: {ref}", ref)
+            if check("**Build order:**\n" in section_body and "\n- [" in section_body,
+                     f"executable Build order required: {ref}", ref):
+                after_bo = section_body.split("**Build order:**\n", 1)[1]
+                for line in after_bo.splitlines():
+                    if re.match(r"^\s*[-*+](\s|$)", line):
+                        check(re.fullmatch(r"- \[([ x])\] \S.*", line) is not None,
+                              f"malformed checklist item: {ref}", ref)
+                build_block = after_bo.split("\n- [", 1)[0]
+                non_empty_bo = [line for line in build_block.splitlines() if line.strip()]
+                build_matches = list(re.finditer(r"^(\d+)\. (\S.+)$", build_block, re.M))
+                build_steps = [int(m[1]) for m in build_matches]
+                check(build_steps and len(build_steps) == len(non_empty_bo)
+                      and build_steps == list(range(1, len(build_steps) + 1))
+                      and all("Done when:" in m[2] for m in build_matches),
+                      f"executable Build order required: {ref}", ref)
             checks = re.findall(r"^- \[([ x])\] (.+)$", section_body, re.M)
-            require(2 <= len(checks) <= caps["items_per_section"]
-                    and checks[-1][1].startswith("Commit:")
-                    and not any(c[1].startswith("Commit:") for c in checks[:-1]),
-                    f"2-{caps['items_per_section']} items (at least one work item, Commit last) required: {ref}")
-            require("`" in field(section_body, "Test checkpoint"),
-                    f"runnable Test checkpoint required: {ref}")
-            surface = field(section_body, "Surface")
-            require(surface in {"yes", "no"}, f"Surface must be yes/no: {ref}")
-            if surface == "yes":
+            check(2 <= len(checks) <= caps["items_per_section"]
+                  and checks[-1][1].startswith("Commit:")
+                  and not any(c[1].startswith("Commit:") for c in checks[:-1]),
+                  f"2-{caps['items_per_section']} items (at least one work item, Commit last) required: {ref}", ref)
+            checkpoint = attempt(ref, field, section_body, "Test checkpoint")
+            if checkpoint is not FAILED:
+                check("`" in checkpoint, f"runnable Test checkpoint required: {ref}", ref)
+            surface = attempt(ref, field, section_body, "Surface")
+            if surface is not FAILED and check(surface in {"yes", "no"}, f"Surface must be yes/no: {ref}", ref) \
+                    and surface == "yes":
                 for label in ("Fidelity", "Job", "Treatment", "Chrome"):
-                    field(section_body, label)
+                    attempt(ref, field, section_body, label)
             freeze_check = field(section_body, "Freeze check", False)
-            require(bool(freeze_check) == (frozen == "true"),
-                    f"Freeze check must match frozen frontmatter: {ref}")
+            check(bool(freeze_check) == (frozen == "true"), f"Freeze check must match frozen frontmatter: {ref}", ref)
             done = rows[n][5] == "x"
             stamp_line = field(section_body, "Verified", False)
             receipt = field(section_body, "Review", False).strip("`")
-            require(done == bool(stamp_line) == bool(receipt),
-                    f"checkbox/stamp/receipt mismatch: {ref}")
+            check(done == bool(stamp_line) == bool(receipt), f"checkbox/stamp/receipt mismatch: {ref}", ref)
             if done:
-                require(all(x[0] == "x" for x in checks), f"unfinished stamped checklist: {ref}")
-                require(not set(needs) & waiting, f"stamped section has a waiting Need: {ref}")
+                check(all(x[0] == "x" for x in checks), f"unfinished stamped checklist: {ref}", ref)
+                check(not set(needs) & waiting, f"stamped section has a waiting Need: {ref}", ref)
                 m = re.fullmatch(r"\d{4}-\d{2}-\d{2} \| §" + str(n) + r" \| ([0-9a-f]{40})", stamp_line)
-                require(m is not None, f"invalid stamp: {ref}")
-                if head_commits is None:
-                    head_commits = _head_commits(root)
-                data = receipt_ok(root, receipt, ref, m[1], head_commits, surface=surface == "yes")
-                if "completion" in data:
-                    filed_gaps[ref] = data["completion"]["filed"]
+                if check(m is not None, f"invalid stamp: {ref}", ref) and receipt:
+                    if head_commits is None:
+                        head_commits = attempt(ref, _head_commits, root)
+                    data = FAILED if head_commits is FAILED else attempt(
+                        ref, lambda: receipt_ok(root, receipt, ref, m[1], head_commits, surface=surface == "yes"))
+                    if data is not FAILED and "completion" in data:
+                        filed_gaps[ref] = data["completion"]["filed"]
+            if not (phase_ok and deps_ok):
+                incomplete.add(relative)
+                continue  # a section with no usable Phase or dependencies is not a node of the graph
             sections[ref] = Section(ref, relative, n, h[2], int(phase), deps, needs, done,
                                     front["status"], section_body, receipt, int(rows[n][1]),
                                     tuple(sorted(set(needs) & waiting)))
             files[relative][2].append(ref)
     for relative, (front, file_deps, refs, xrefs, adjacency) in files.items():
-        require(len(set(file_deps)) == len(file_deps), f"duplicate file dependencies: {relative}")
+        check(len(set(file_deps)) == len(file_deps), f"duplicate file dependencies: {relative}", relative)
         for dep in file_deps:
-            require(dep in ids and ids[dep] != relative,
-                    f"unresolved/self file dependency: {relative}")
-            for ref in refs:
-                sections[ref].depends = list(dict.fromkeys(
-                    sections[ref].depends + files[ids[dep]][2]))
+            if dep in ids and ids[dep] != relative:
+                for ref in refs:
+                    sections[ref].depends = list(dict.fromkeys(sections[ref].depends + files[ids[dep]][2]))
+            elif dep not in ids and not unknown(dep, known_ids):
+                incomplete.add(relative)  # it names a file whose own reading failed
+            else:
+                check(False, f"unresolved/self file dependency: {relative}", relative)
         if front["status"] == "superseded":
             successor = front.get("superseded_by", "")
-            require(successor in ids and ids[successor] != relative,
-                    f"superseded TODO must name its successor: {relative}")
-        else:
-            require((front["status"] == "done") == all(sections[r].done for r in refs),
-                    f"file status disagrees with stamps: {relative}")
+            check((successor in ids and ids[successor] != relative)
+                  or (successor not in ids and not unknown(successor, known_ids)),
+                  f"superseded TODO must name its successor: {relative}", relative)
+        elif relative not in incomplete:
+            check((front["status"] == "done") == all(sections[r].done for r in refs),
+                  f"file status disagrees with stamps: {relative}", relative)
         for key, (state, owner) in adjacency.items():
             if owner is not None:
-                require(owner in sections, f"adjacency owner unresolved ({key} @ {owner}): {relative}")
+                check(owner in sections or not unknown(owner, known_refs),
+                      f"adjacency owner unresolved ({key} @ {owner}): {relative}", relative)
         for target in xrefs:
-            require(target in sections, f"unresolved XREF target {target}: {relative}")
+            if target not in sections:
+                check(not unknown(target, known_refs), f"unresolved XREF target {target}: {relative}", relative)
+                continue
             target_file = sections[target].path
             if target_file == relative:
                 continue
             back = files[target_file][3]
-            require(any(sections[b].path == relative for b in back if b in sections),
-                    f"one-sided XREF {target} has no pointer back: {relative}")
+            check(any(sections[b].path == relative for b in back if b in sections)
+                  or any(b not in sections and not unknown(b, known_refs) for b in back),
+                  f"one-sided XREF {target} has no pointer back: {relative}", relative)
     # Deferrals carry an owner or they are abandonments; a shipped owner makes a live deferral stale.
     for row in sections.values():
         # Only a blockquoted marker is read below; any other spelling would drop the deferral from every check.
         for line in row.body.splitlines():
-            require(len(re.findall(r"\*\*(?:Deferred|Resolved):\*\*", line)) <= 1,
-                    f"one Deferred or Resolved marker per line: {row.ref}")
+            check(len(re.findall(r"\*\*(?:Deferred|Resolved):\*\*", line)) <= 1,
+                  f"one Deferred or Resolved marker per line: {row.ref}", row.ref)
             if re.search(r"\*\*(?:Deferred|Resolved):\*\*", line):
-                require(re.match(r"> \*\*(?:Deferred|Resolved):\*\*[ \t]*\S", line) is not None,
-                        f"a Deferred or Resolved marker must open a blockquote line and say something: {row.ref}")
+                check(re.match(r"> \*\*(?:Deferred|Resolved):\*\*[ \t]*\S", line) is not None,
+                      f"a Deferred or Resolved marker must open a blockquote line and say something: {row.ref}",
+                      row.ref)
         for marker in ("Deferred", "Resolved"):
             for line in re.findall(r"^> \*\*" + marker + r":\*\*[ \t]*(\S.*)$", row.body, re.M):
-                owner = xref_target(line.split("-> XREF:", 1)[1], row.ref[1:3], row.ref[5:7]) \
+                owner = attempt(row.ref, xref_target, line.split("-> XREF:", 1)[1], row.ref[1:3], row.ref[5:7]) \
                     if "-> XREF:" in line else None
-                require(owner is not None and owner in sections,
-                        f"{marker} without a resolving owner: {row.ref}")
+                if owner is FAILED:
+                    continue
+                if not check((owner is not None and owner in sections)
+                             or (owner is not None and not unknown(owner, known_refs)),
+                             f"{marker} without a resolving owner: {row.ref}", row.ref) or owner not in sections:
+                    continue
                 if marker == "Deferred":
-                    require(not sections[owner].done,
-                            f"stale deferral, owner {owner} shipped; close it as Resolved: {row.ref}")
+                    check(not sections[owner].done,
+                          f"stale deferral, owner {owner} shipped; close it as Resolved: {row.ref}", row.ref)
     for ref, filed in filed_gaps.items():
         for target in filed:
-            require(target in sections, f"completion gap filed as {target}, which does not resolve: {ref}")
-    _index_coverage(root, files)
+            check(target in sections or not unknown(target, known_refs),
+                  f"completion gap filed as {target}, which does not resolve: {ref}", ref)
+    _index_coverage(root, files, check)
     visiting, visited = set(), set()
     for start in sections:
         if start in visited:
@@ -1117,15 +1217,18 @@ def graph(root=ROOT):
             if idx < len(deps):
                 dep = deps[idx]
                 stack[-1] = (ref, idx + 1)
-                require(dep in sections, f"unresolved dependency: {dep}")
-                require(dep not in visiting, f"dependency cycle: {dep}")
-                require(phase_rank(sections[dep].phase) <= phase_rank(sections[ref].phase),
-                        f"prerequisite in later phase: {ref} -> {dep}")
+                if dep not in sections:
+                    check(not unknown(dep, known_refs), f"unresolved dependency: {dep}", ref)
+                    continue  # collecting: the walk goes on past a missing target
+                if not check(dep not in visiting, f"dependency cycle: {dep}", ref):
+                    continue  # collecting: and past a cycle, once recorded
+                check(phase_rank(sections[dep].phase) <= phase_rank(sections[ref].phase),
+                      f"prerequisite in later phase: {ref} -> {dep}", ref)
                 # A stamped section may sit on an open prerequisite only when an audit reopened that prerequisite
                 # (its Unstamped note): the consumer is then suspect until the prerequisite re-stamps, not unstamped.
-                require(not sections[ref].done or sections[dep].done
-                        or re.search(r"^> \*\*Unstamped:\*\* ", sections[dep].body, re.M) is not None,
-                        f"stamped section has open dependency: {ref}")
+                check(not sections[ref].done or sections[dep].done
+                      or re.search(r"^> \*\*Unstamped:\*\* ", sections[dep].body, re.M) is not None,
+                      f"stamped section has open dependency: {ref}", ref)
                 if dep not in visited:
                     visiting.add(dep)
                     stack.append((dep, 0))
@@ -1136,20 +1239,26 @@ def graph(root=ROOT):
     return sections
 
 
-def _index_coverage(root, files):
+def _index_coverage(root, files, check=None):
+    if check is None:
+        def check(ok, message, where):
+            return require(ok, message) or True
     root_index = root / "todo/TODO-00-INDEX.md"
-    require(root_index.is_file(), "missing todo/TODO-00-INDEX.md")
+    if not check(root_index.is_file(), "missing todo/TODO-00-INDEX.md", "todo/TODO-00-INDEX.md"):
+        return
     root_text = read_text(root_index)
     by_domain = {}
     for relative in files:
         by_domain.setdefault(Path(relative).parent.name, []).append(Path(relative).name)
     for domain, names in by_domain.items():
         index = root / "todo" / domain / "INDEX.md"
-        require(index.is_file(), f"missing domain index: todo/{domain}/INDEX.md")
+        if not check(index.is_file(), f"missing domain index: todo/{domain}/INDEX.md", f"todo/{domain}/INDEX.md"):
+            continue
         text = read_text(index)
         for filename in names:
-            require(filename in text, f"missing from domain index: {domain}/{filename}")
-            require(f"{domain}/{filename}" in root_text, f"missing from root index: {domain}/{filename}")
+            check(filename in text, f"missing from domain index: {domain}/{filename}", f"todo/{domain}/INDEX.md")
+            check(f"{domain}/{filename}" in root_text, f"missing from root index: {domain}/{filename}",
+                  "todo/TODO-00-INDEX.md")
 
 
 def settled(ref, rows):

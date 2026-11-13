@@ -558,6 +558,76 @@ class Graph(Tree):
             self.assertIn("`<receipts>` being `layout.receipts` in `todo/plan.json`, `docs/reviews` by default",
                           path.read_text(encoding="utf-8"), f"{path.relative_to(kit)} never says what <receipts> is")
 
+    # D03 T01 §8: given a faults list, graph records every refusal and goes on (validate --all).
+    def faults(self):
+        found = []
+        tg.graph(self.root, faults=found)
+        return [message for _, message in found]
+
+    def test_every_fault_in_a_section_is_recorded_and_the_first_still_raises_without_the_list(self):
+        self.write(todo_file([(1, "A", 42, "gpu", "--")]))
+        self.assertEqual(self.faults(), ["invalid Phase: D00 T01 §1", "unknown/duplicate Needs (gpu): D00 T01 §1"])
+        self.refuses("invalid Phase: D00 T01 §1")
+
+    def test_faults_in_two_sections_of_one_file_and_in_another_file_are_all_recorded(self):
+        self.write(todo_file([(1, "A", 42, "none", "--"), (2, "B", 0, "gpu", "--")]))
+        self.write(todo_file([(1, "C", 0, "none", "--")], ident="beta").replace("**Surface:** no", "**Surface:** maybe"),
+                   name="TODO-02-b.md")
+        self.assertEqual(self.faults(), ["invalid Phase: D00 T01 §1", "unknown/duplicate Needs (gpu): D00 T01 §2",
+                                         "Surface must be yes/no: D00 T02 §1"])
+
+    def test_the_cross_file_checks_collect_too(self):
+        self.write(todo_file([(1, "A", 0, "none", "§2"), (2, "B", 0, "none", "§1")],
+                             inputs="- i -> XREF: D00 T09 §1"))  # a cycle, and an XREF to nothing
+        self.write(todo_file([(1, "C", 0, "gpu", "--")], ident="beta"), name="TODO-02-b.md", index=False)
+        found = self.faults()
+        for expected in ("unresolved XREF target D00 T09 §1: todo/00-workspace/TODO-01-a.md",
+                         "unknown/duplicate Needs (gpu): D00 T02 §1", "missing from domain index: 00-workspace/TODO-02-b.md",
+                         "dependency cycle: D00 T01 §1"):
+            self.assertIn(expected, found)
+
+    def test_a_read_failure_and_bad_depends_on_are_recorded_with_their_path(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]).replace("status: active", 'status: active\ndepends_on: ["x"'))
+        self.write(todo_file([(1, "B", 0, "none", "--")], ident="beta"), name="TODO-02-b.md")
+        self.write(todo_file([(1, "C", 0, "gpu", "--")], ident="gamma"), name="TODO-03-c.md")
+        real = tg.read_text
+        unreadable = self.root / "todo/00-workspace/TODO-02-b.md"
+
+        def read_text(path):
+            if pathlib.Path(path) == unreadable:
+                raise OSError(5, "Input/output error")
+            return real(path)
+
+        found = []
+        with unittest.mock.patch.object(tg, "read_text", read_text):
+            tg.graph(self.root, faults=found)
+        where = [w for w, _ in found]
+        self.assertIn("todo/00-workspace/TODO-01-a.md", where, "the malformed depends_on, by its path")
+        self.assertIn("todo/00-workspace/TODO-02-b.md", where, "the unreadable file, by its path")
+        self.assertIn(("D00 T03 §1", "unknown/duplicate Needs (gpu): D00 T03 §1"), found)
+
+    def test_a_fault_that_only_follows_from_another_is_not_recorded(self):
+        self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 42, "none", "--"), (3, "C", 0, "none", "§2")],
+                             inputs="- i -> XREF: D00 T02 §1"))
+        self.write(todo_file([(1, "D", 42, "none", "--")], ident="beta", inputs="- i -> XREF: D00 T01 §2"),
+                   name="TODO-02-b.md")  # an active file whose only section cannot be read
+        self.assertEqual(sorted(self.faults()), ["invalid Phase: D00 T01 §2", "invalid Phase: D00 T02 §1"])
+        self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 42, "none", "--"), (3, "C", 0, "none", "§9")]))
+        self.assertIn("unresolved dependency: D00 T01 §9", self.faults(), "a reference to nothing is still recorded")
+
+    def test_validate_all_prints_every_fault_and_exits_2(self):
+        self.write(todo_file([(1, "A", 42, "gpu", "--")]))
+        shutil.copytree(SCRIPTS, self.root / "scripts")
+        run = subprocess.run([sys.executable, "-B", str(self.root / "scripts/todo-graph.py"), "validate", "--all"],
+                             capture_output=True, text=True, encoding="utf-8", timeout=120)
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        self.assertEqual(run.stdout.splitlines(), ["D00 T01 §1: invalid Phase: D00 T01 §1",
+                                                   "D00 T01 §1: unknown/duplicate Needs (gpu): D00 T01 §1"])
+        sdk = subprocess.run([sys.executable, "-B", str(REPO / "scripts/todo-graph.py"), "validate", "--all"],
+                             capture_output=True, text=True, encoding="utf-8", timeout=300)
+        self.assertEqual(sdk.returncode, 0, sdk.stdout + sdk.stderr)
+        self.assertRegex(sdk.stdout, r"^valid: \d+ sections")
+
     # D03 T01 §7: the plan path comes from todo/plan.json (`layout.plan`) and never lands on a file the plan does
     # not own.
     def test_a_plan_path_the_plan_does_not_own_is_refused_before_anything_is_written(self):

@@ -121,6 +121,7 @@ Under a rotation pin (no `policy` key) the completion review comes before the ro
 python scripts/todo-graph.py validate            # structure + graph integrity; exits 2 with the reason on any fault
 python scripts/todo-graph.py build               # parse todo/ -> build/todo-cache.json
 python scripts/todo-graph.py render              # mermaid dependency graph
+python scripts/todo-graph.py validate --all      # every fault at once, one line each (exit 2); plain validate stops at the first
 python scripts/todo-graph.py plan --sync         # regenerate the plan (layout.plan) after any edit
 python scripts/todo-graph.py plan --check        # fail if the generated plan is stale (CI runs this)
 python scripts/todo-graph.py query ready         # sections that can run now (also: blocked, stats, deferred, adjacency, plan)
