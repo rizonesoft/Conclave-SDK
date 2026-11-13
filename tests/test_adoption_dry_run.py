@@ -205,7 +205,9 @@ class DryRun(unittest.TestCase):
         self.foreign_stamp("1" * 40)  # a commit that is in no history
         self.commit()
         _, found = dry.run(self.source, {"title": "P"}, self.out, adopt=True)
-        self.assertIn("adoption refused: adoption refused, nothing written:", [e["class"] for e in found])
+        self.assertIn("adoption refused: its stamp names no commit on this branch (<stamp>)",
+                      [e["class"] for e in found], found)
+        self.assertEqual([e["example"]["where"] for e in found if e["class"].startswith("adoption")], ["D00 T01 §1"])
 
     @unittest.skipUnless(os.environ.get("CONCLAVE_FULL_TESTS"), "slow: set CONCLAVE_FULL_TESTS=1 for the full suite")
     def test_the_sdk_snapshot_with_its_stamped_sections_reports_no_fault(self):

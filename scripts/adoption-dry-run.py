@@ -175,6 +175,8 @@ SHA = re.compile(r"\b[0-9a-f]{12,40}\b")
 # The one kit message that ends by quoting the source line it refused (xrefs_of in todo_graph.py): the line is the
 # example, not the class.
 QUOTED_LINE = re.compile(r"(?<=^XREF must name exactly one well-formed section): .*\Z", re.S)
+# A refused adoption quotes the stamp line it could not read: the stamp is the example, not the class.
+ADOPTION_QUOTE = re.compile(r"(?<=^adoption refused: its stamp names no commit on this branch) \(.*\)\Z", re.S)
 NUMBER = re.compile(r"\b\d+\b")
 
 
@@ -182,6 +184,7 @@ def refusal_class(message):
     """A fault's message with its section, path, quoted Needs value and numbers taken out, so faults of one kind
     group together."""
     text = QUOTED_LINE.sub(": <line>", message)
+    text = ADOPTION_QUOTE.sub(" (<stamp>)", text)
     text = REF.sub("<ref>", text)
     text = NEEDS_VALUE.sub("Needs (<value>)", text)
     text = PATH.sub("<path>", text)
@@ -211,7 +214,13 @@ def measure(snapshot_dir, adopt=False, phase_map=None):
         try:
             tg.adopt_stamps(Path(snapshot_dir), phase_map)
         except tg.Refused as exc:
-            faults.append(("adoption", f"adoption refused: {str(exc).splitlines()[0]}"))
+            lines = str(exc).splitlines()
+            causes = [line.strip() for line in lines[1:] if line.strip()]
+            if not causes:
+                faults.append(("adoption", f"adoption refused: {lines[0] if lines else exc}"))
+            for cause in causes:  # one fault per refused section, so each cause is measured as its own class
+                where, _, why = cause.partition(": ")
+                faults.append((where if why else "adoption", f"adoption refused: {why or cause}"))
     try:
         tg.graph(Path(snapshot_dir), faults)
     except Exception as exc:  # a crash is a refusal class of its own, never a silent pass
