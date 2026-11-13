@@ -3126,6 +3126,14 @@ class QuerySequence(Tree):
             row.done = True
         self.assertEqual(tg.longest_chain(rows), [])
 
+    def test_a_chain_longer_than_the_recursion_limit_is_found(self):
+        n = sys.getrecursionlimit() + 200
+        rows = {f"D00 T01 §{i}": tg.Section(f"D00 T01 §{i}", "todo/00-workspace/TODO-01-a.md", i, "S", 0,
+                                            [f"D00 T01 §{i - 1}"] if i > 1 else [], [], False, "active", "", "", i)
+                for i in range(1, n + 1)}
+        chain = tg.longest_chain(rows)
+        self.assertEqual((len(chain), chain[0], chain[-1]), (n, "D00 T01 §1", f"D00 T01 §{n}"))
+
     def test_of_two_equal_chains_the_one_plan_order_reaches_first_wins(self):
         table = ("| 1 | §3 | C | -- | [ ] |\n| 2 | §4 | D | §3 | [ ] |\n"
                  "| 3 | §1 | A | -- | [ ] |\n| 4 | §2 | B | §1 | [ ] |")

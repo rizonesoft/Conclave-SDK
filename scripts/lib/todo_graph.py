@@ -1703,11 +1703,21 @@ def longest_chain(rows):
     def key(chain):
         return (-len(chain), [rank[ref] for ref in chain])
 
-    def chain_to(ref):
-        if ref not in ending:
-            before = [chain_to(dep) for dep in rows[ref].depends if dep in rows and not rows[dep].done]
-            ending[ref] = (min(before, key=key) if before else []) + [ref]
-        return ending[ref]
+    def chain_to(start):
+        """Iterative, so a chain of any length (Impossible OS holds 2,596 sections) never meets the recursion limit."""
+        stack = [start]
+        while stack:
+            ref = stack[-1]
+            deps = [dep for dep in rows[ref].depends if dep in rows and not rows[dep].done]
+            waiting = [dep for dep in deps if dep not in ending]
+            if waiting:
+                stack.extend(waiting)
+                continue
+            stack.pop()
+            if ref not in ending:
+                before = [ending[dep] for dep in deps]
+                ending[ref] = (min(before, key=key) if before else []) + [ref]
+        return ending[start]
 
     chains = [chain_to(row.ref) for row in ordered(rows) if not row.done]
     return min(chains, key=key) if chains else []
