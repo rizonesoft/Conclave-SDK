@@ -3294,13 +3294,28 @@ class HostNeeds(Tree):
         return types.SimpleNamespace(HKEY_CLASSES_ROOT=0, OpenKey=open_key, CloseKey=lambda key: None)
 
     def probed(self, name="posix", machine="AMD64", env=None, soffice=None, word=False):
-        """builtin_needs on a machine described by its arguments, every probe mocked."""
-        base = {"DISPLAY": "", "WAYLAND_DISPLAY": "", "SESSIONNAME": ""}
-        with mock.patch.dict(os.environ, {**base, **(env or {})}), mock.patch.object(tg.os, "name", name), \
+        """What `detect` prints on a machine described by its arguments, every probe mocked, as a set; checked against
+        builtin_needs, which it prints with no project probe and nothing declared."""
+        base = {"DISPLAY": "", "WAYLAND_DISPLAY": "", "SESSIONNAME": "", "CONCLAVE_HAVE": ""}
+        spec = importlib.util.spec_from_file_location("todo_graph_cli_under_test", SCRIPTS / "todo-graph.py")
+        cli = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cli)
+        out = io.StringIO()
+        class OsAs:  # the library's `os` with another platform name; pathlib and the rest keep the real one
+            def __getattr__(self, attr):
+                return name if attr == "name" else getattr(os, attr)
+        with mock.patch.dict(os.environ, {**base, **(env or {})}), mock.patch.object(tg, "os", OsAs()), \
                 mock.patch("platform.machine", return_value=machine), \
                 mock.patch("shutil.which", return_value=soffice), \
-                mock.patch.dict(sys.modules, {"winreg": self.fake_winreg(word)}):
-            return tg.builtin_needs()
+                mock.patch.dict(sys.modules, {"winreg": self.fake_winreg(word)}), \
+                mock.patch.object(sys, "argv", ["todo-graph.py", "detect"]), \
+                mock.patch.object(cli, "session_needs", lambda: tg.session_needs(self.root)), \
+                mock.patch("sys.stdout", out):
+            self.assertEqual(cli.main(), 0)
+            direct = tg.builtin_needs()
+        printed = {v for v in out.getvalue().strip().split(",") if v}
+        self.assertEqual(printed, direct)
+        return printed
 
     def test_the_built_in_probes(self):
         self.assertEqual(self.probed(), set())  # every probe failing: no Need
