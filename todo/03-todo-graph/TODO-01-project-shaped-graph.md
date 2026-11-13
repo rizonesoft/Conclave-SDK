@@ -386,6 +386,8 @@ Both adopting projects keep `todo/TODO-00-INDEX.md` at domain altitude, as the k
 
 ## 13. Section checks run when its table row cannot be read
 
+> **Started:** 2026-11-13T09:37:13Z
+
 `validate --all` (`§8`) skips a section whose Implementation Order row cannot be read (`todo_graph.py:1074`), so its own faults stay hidden although its body is readable. Every Impossible OS file failed at its table, and the dry run reported no section-level class for its 2,596 sections; the report counted their fields instead (rows I12 to I16).
 
 **Phase:** 3
