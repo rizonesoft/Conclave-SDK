@@ -78,7 +78,7 @@ Sections: 15 | Checklist items: 103
 | [x]    | D03 T01 §5  | Adoption dry run on RasterFold and Impossible OS          | none  | 8     |
 | [x]    | D03 T01 §6  | Lift or leave decision for each RasterFold graph command  | none  | 7     |
 | [ ]    | D03 T01 §9  | Pre-adoption stamps frozen at adoption                    | none  | 11    |
-| [ ]    | D03 T01 §10 | Ready rows filtered by the hosts this session reaches     | none  | 6     |
+| [x]    | D03 T01 §10 | Ready rows filtered by the hosts this session reaches     | none  | 6     |
 | [x]    | D03 T01 §11 | Root index that lists domains                             | none  | 7     |
 | [x]    | D03 T01 §12 | Validation git calls cached per run                       | none  | 6     |
 | [x]    | D03 T01 §13 | Section checks run when its table row cannot be read      | none  | 6     |
@@ -153,6 +153,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 49/84 verified sections, 13 ready to run now.
+Progress: 50/84 verified sections, 12 ready to run now.
 
-Checklist: 411/603 items completed (includes Commit items).
+Checklist: 412/603 items completed (includes Commit items).

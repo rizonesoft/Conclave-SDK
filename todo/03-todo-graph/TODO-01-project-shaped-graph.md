@@ -42,7 +42,7 @@ title: "TODO-01 -- Todo graph that takes a project's shape"
 | 7 | §5 | Adoption dry run on RasterFold and Impossible OS | §2, §3, §4, §7, §8 | [x] |
 | 8 | §6 | Lift or leave decision for each RasterFold graph command | §5 | [x] |
 | 9 | §9 | Pre-adoption stamps frozen at adoption | §4 | [ ] |
-| 10 | §10 | Ready rows filtered by the hosts this session reaches | -- | [ ] |
+| 10 | §10 | Ready rows filtered by the hosts this session reaches | -- | [x] |
 | 11 | §11 | Root index that lists domains | §7 | [x] |
 | 12 | §12 | Validation git calls cached per run | -- | [x] |
 | 13 | §13 | Section checks run when its table row cannot be read | §8 | [x] |
@@ -359,13 +359,16 @@ A project that adopts the kit arrives with sections it stamped under its own too
 - [x] Accept a `probes` key in `todo/plan.json` in `plan_config`: an object from a Need that `needs` lists to the command that proves it, an argument list run with no shell and a 10-second timeout, the Need met when it exits 0, so a project detects its own host Needs (RasterFold's `windows-runtime`, `linux-runtime`, `linux-display`, `ffmpeg-jxl`, `gpu`). Done when: tests refuse a probe for a Need not in `needs`, a probe that is not a non-empty list of strings and a probe for a waiting Need, each naming `todo/plan.json` and `probes`; a configured probe that exits 0 makes its row ready under `--have auto`, one that exits 1 or times out keeps it held, and the probe's process tree is stopped on timeout.
 - [x] Use `--have auto` wherever a runner asks what is ready: `query ready` and `resolve` in `process-plan` and `process-phase` under `.claude/`, `.agents/` and `.codex/` in `kits/todo/templates/`, the heartbeat prompt in `process-plan`, and `ready_rows` in `kits/todo/templates/scripts/campaign_guard.py` (`:264`, the Stop hook's count), and drop the guidance that tells the agent to skip host-bound rows by hand. Done when: a guard test finds `--have auto` on every `query ready` and `resolve` command line in the six skill files and the prompt and none without it, and a Stop hook test with only a row needing an absent host open lets the turn end.
 - [x] Document `detect`, `--have`, `CONCLAVE_HAVE` and `probes` in `kits/todo/templates/todo/README.md`, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
-- [ ] Commit: `todo: ready rows filtered by the hosts this session reaches`
+- [x] Commit: `todo: ready rows filtered by the hosts this session reaches`
 
 **Corrected 2026-11-13 (`§6`):** this section is where RasterFold's `requires-unknown` check lands: a host requirement is a Need from `plan.json`'s closed list, refused when unknown as `needs-unknown` already is, and `detect` checks the host. RasterFold's `requires-no-reason` (a cited reason on each mark) is left with RasterFold: a kit Need names a host, and the section's Test checkpoint is what needs it.
 
 **Corrected 2026-11-13 (plan review):** the session's set is the kit's built-in probes, a project's own probes from `plan.json` (`probes`, so RasterFold's `windows-runtime`, `linux-runtime`, `linux-display` and its tool Needs are detected where they are met) and the Needs a session declares in `CONCLAVE_HAVE`; every readiness consumer takes it (the runner skills' `query ready` and `resolve`, the heartbeat prompt and the Stop hook); and the tests cover `resolve`, several Needs, and the states `--have` must not change.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; ignoring `--have` in `query ready` makes the `--have ''` test fail.
+
+> **Verified:** 2026-11-13 | §10 | 3ff227a70d4a0638c03254e6c6a824be60b54002
+> **Review:** `docs/reviews/d03-t01-s10.json`
 
 ## 11. Root index that lists domains
 
