@@ -1,0 +1,84 @@
+{
+  "ref": "D03 T01 \u00a76",
+  "title": "Lift or leave decision for each RasterFold graph command",
+  "implementation_sha": "6b38b20836f0240f756bd586f7cf788600d8b61f",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-todo-graph/D03-T01-s6.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s tests (CI Tests run 43407816704 on 4bd725a, which holds 6b38b20 and only records past it: quick suite Windows, full suite Linux, kit suites) -> success",
+    "python -m unittest tests.test_adoption_report -> Ran 7 tests OK; every mutated copy fails"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-todo-graph/D03-T01-s6.md",
+    "verdict": "reconciled",
+    "candidate": "6b38b20836f0240f756bd586f7cf788600d8b61f",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/03-todo-graph/D03-T01-s6.md",
+    "candidate": "07515aceba3e18c5decb58a7a35734f23d1f6c4c",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "07515aceba3e18c5decb58a7a35734f23d1f6c4c",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

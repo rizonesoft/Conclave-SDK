@@ -40,7 +40,7 @@ title: "TODO-01 -- Todo graph that takes a project's shape"
 | 5 | §7 | Plan path read from `todo/plan.json` | §4 | [x] |
 | 6 | §8 | Every validation fault in one run | §1 | [x] |
 | 7 | §5 | Adoption dry run on RasterFold and Impossible OS | §2, §3, §4, §7, §8 | [x] |
-| 8 | §6 | Lift or leave decision for each RasterFold graph command | §5 | [ ] |
+| 8 | §6 | Lift or leave decision for each RasterFold graph command | §5 | [x] |
 | 9 | §9 | Pre-adoption stamps frozen at adoption | §4 | [ ] |
 | 10 | §10 | Ready rows filtered by the hosts this session reaches | -- | [ ] |
 | 11 | §11 | Root index that lists domains | §7 | [ ] |
@@ -232,13 +232,16 @@ RasterFold's graph is ten times the kit's and has commands the kit lacks (roadma
 - [x] File a section through `add-todo` for each `lift` row, in this file or a second file in this domain when the count passes 55 sections, with the RasterFold function and commit as its source. Done when: `python scripts/todo-graph.py validate` passes and every `lift` row carries its section reference.
 - [x] Write the two inventories into the report as fenced blocks, each taken mechanically from RasterFold at `75be196`: the commands (the `add_parser` names and the `query` `choices` the kit lacks, `scripts/todo-graph.py:12879` to `:12990`) and the checks (the 58 class names of `SEVERITY_MAP`, `:839` to `:1038`, plus the adjacency and findings checks the two sibling scripts raise outside it). Done when: each block names its source lines and the command that listed it.
 - [x] Add `tests/test_adoption_report.py`: for each table, every inventory entry has exactly one row and every row names an inventory entry; each row's decision is `lift` or `leave`; a `leave` row gives a reason; a `lift` row names a `D03 T01 §N` (or another `DNN TNN §N`) that the graph resolves and whose body names the lifted command or check. Done when: the test passes on the report, and fails on copies of it with a lift row's reference removed, a reference to a section that does not exist, a row duplicated and an inventory entry with no row. Cheaper substitute: comparing `grep -c` counts must fail review, because a missing reference on one row is offset by one on another.
-- [ ] Commit: `todo: lift or leave decision for each RasterFold graph command`
+- [x] Commit: `todo: lift or leave decision for each RasterFold graph command`
 
 **Corrected 2026-11-13 (validation):** read at RasterFold `75be196`: the parser moved to `scripts/todo-graph.py:12879` to `:12990` (`:12687` to `:12790` were the lines at `b334933`), and it has two commands the list above leaves out, `classify` (`cmd_classify`, `:3862`, which the kit has) and the `query design` kind (`:2584`), so each gets a row too: eighteen in all. The report's own check is one `lift` or `leave` per row and a `D03 T` reference on every `lift` row, counted over the table's rows.
 
 **Corrected 2026-11-13 (plan review):** the report's check is a test, `tests/test_adoption_report.py`, that reconciles each table with an inventory taken from RasterFold's own source and resolves every `lift` row's section through the graph, not a pair of `grep` counts.
 
 **Test checkpoint:** `python -m unittest tests.test_adoption_report` ends `OK`, and `python scripts/todo-graph.py validate` and `python scripts/todo-graph.py plan --check` pass with the new sections in the plan; the test's own mutated copies (a lift row without its reference, a reference to nothing, a duplicated row, an inventory entry with no row) each fail it.
+
+> **Verified:** 2026-11-13 | §6 | 6b38b20836f0240f756bd586f7cf788600d8b61f
+> **Review:** `docs/reviews/d03-t01-s6.json`
 
 ## 7. Plan path read from `todo/plan.json`
 
