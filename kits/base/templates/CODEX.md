@@ -5,3 +5,4 @@ Follow [AGENTS.md](./AGENTS.md). This file holds only what is specific to OpenAI
 - Skills live in `.codex/skills/<name>/` (with `agents/openai.yaml` metadata) and are mirrored as real files in `.agents/skills/<name>/` and `.claude/skills/<name>/`. Change all three together.
 - Use `.codex/skills/local-tool-safety` before local tool, Windows/WSL, connector, mail, cloud, SQL, or outbound work.
 - Rules live in `.codex/rules/`.
+- Subagents: Codex has no project subagent definitions; run mechanical subtasks in the main session.

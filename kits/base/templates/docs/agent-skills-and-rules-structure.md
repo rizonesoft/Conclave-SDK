@@ -49,7 +49,7 @@ Codex-facing skills live under:
 
 Reusable starter files for new projects live under `kits/base/`.
 
-The kit contains copied templates for `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, `.agents/skills/`, `.claude/skills/`, and `.codex/skills/`, plus an additive-only starter installer (`kits/base/scripts/install.sh` or `python forge.py kit <target> base`). The starter copies missing files, preserves every existing tuned file, rejects destructive force mode and symlink-parent traversal, and is not an updater.
+The kit contains copied templates for `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, `.agents/skills/`, `.agents/agents/`, `.claude/skills/`, `.claude/agents/`, and `.codex/skills/`, plus an additive-only starter installer (`kits/base/scripts/install.sh` or `python forge.py kit <target> base`). The starter copies missing files, preserves every existing tuned file, rejects destructive force mode and symlink-parent traversal, and is not an updater.
 
 ## Rules
 

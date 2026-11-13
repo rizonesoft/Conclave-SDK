@@ -166,7 +166,8 @@ FORGE_SUFFIXES = (KIT_NEW, ".forge-new", ".forge-replace")
 # rules, subagents, scripts and the automations runner. The SDK's own docs, plan and pins are its project files.
 SELF_KITS = ("base", "todo", "reviewer", "automations")
 SELF_PREFIXES = tuple(f"{d}/{kind}/" for d in AGENT_DIRS for kind in ("skills", "rules")) + (
-    ".claude/agents/", "scripts/", "bin/", "docs/", ".agents/hooks.json", ".codex/hooks.json") + AUTOMATIONS_SCRIPTS
+    ".claude/agents/", ".agents/agents/", "scripts/", "bin/", "docs/", ".agents/hooks.json",
+    ".codex/hooks.json") + AUTOMATIONS_SCRIPTS
 
 
 def installed_kits(target_root: Path) -> list[str]:
@@ -1750,6 +1751,7 @@ def check_repo(target_root: Path) -> dict:
     agy_skills = sorted(p.parent.name for p in (target_root / ".agents/skills").glob("*/SKILL.md"))
     claude_skills = sorted(p.parent.name for p in (target_root / ".claude/skills").glob("*/SKILL.md"))
     codex_skills = sorted(p.parent.name for p in (target_root / ".codex/skills").glob("*/SKILL.md"))
+    agy_agents = sorted(p.stem for p in (target_root / ".agents/agents").glob("*.md"))
     claude_agents = sorted(p.stem for p in (target_root / ".claude/agents").glob("*.md"))
     return {
         "target": target_root.as_posix(),
@@ -1759,9 +1761,11 @@ def check_repo(target_root: Path) -> dict:
         "has_codex_md": (target_root / "CODEX.md").is_file(),
         "has_todo_graph": (target_root / "scripts/todo-graph.py").is_file(),
         "has_verify_agent_tiers": (target_root / "scripts/verify-agent-tiers.mjs").is_file(),
+        "has_agy_subagent": (target_root / "scripts/agy-subagent.py").is_file(),
         "agy_skills": agy_skills,
         "claude_skills": claude_skills,
         "codex_skills": codex_skills,
+        "agy_agents": agy_agents,
         "claude_agents": claude_agents,
         "kits": installed_kits(target_root),
     }
