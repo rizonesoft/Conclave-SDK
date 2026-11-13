@@ -31,8 +31,9 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from todo_graph import (ROOT, Refused, adjacency_report, atomic, deferrals, disposition,  # noqa: E402
-                        extract_ref, frozen_files, graph, ordered, plan_config, plan_file, projections, receipts_folder, require,
-                        review_rounds, settled, stamp, suspects, unstamp)
+                        extract_ref, filing_couplings, frozen_files, graph, longest_chain, ordered, plan_config,
+                        plan_file, plan_status, projections, receipts_folder, require, review_rounds, settled,
+                        stamp, suspects, unstamp)
 
 
 def review_round(value):
@@ -48,15 +49,6 @@ def completion_review(value):
     return {"report": report, "verdict": verdict}
 
 
-def plan_status(row, rows):
-    """A section's state for readers of `query plan`: verified, deferred (its file is not active), ready or blocked."""
-    if row.done:
-        return "verified"
-    if row.status != "active":
-        return "deferred"
-    return "ready" if disposition(row, rows) == 0 else "blocked"
-
-
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="command", required=True)
@@ -70,7 +62,8 @@ def main():
     pp = sub.add_parser("plan-path", help="print the generated plan's path, todo/plan.json's layout.plan")
     pp.add_argument("--config", choices=["-"], help="read todo/plan.json's text from stdin (the hook passes the index's)")
     q = sub.add_parser("query")
-    q.add_argument("kind", choices=["ready", "blocked", "stats", "deferred", "adjacency", "plan", "rounds", "frozen"])
+    q.add_argument("kind", choices=["ready", "blocked", "stats", "deferred", "adjacency", "plan", "rounds", "frozen",
+                                      "sequence"])
     r = sub.add_parser("resolve")
     r.add_argument("ref")
     c = sub.add_parser("classify")
@@ -162,6 +155,8 @@ def main():
             result = adjacency_report()
         elif args.kind == "rounds":
             result = review_rounds()
+        elif args.kind == "sequence":
+            result = {"chain": longest_chain(rows), "couplings": filing_couplings(ROOT, rows)}
         elif args.kind == "plan":
             # The plan's names come from plan_config and every section from the graph, so a reader such as the
             # program showing the plan never parses todo/ itself. graph() has already loaded todo/plan.json

@@ -1684,6 +1684,50 @@ def projections(root=ROOT, sync=False):
                 f"stale projection: {plan}; run plan --sync")
 
 
+def plan_status(row, rows):
+    """A section's state for readers of `query plan`: verified, deferred (its file is not active), ready or blocked."""
+    if row.done:
+        return "verified"
+    if row.status != "active":
+        return "deferred"
+    return "ready" if disposition(row, rows) == 0 else "blocked"
+
+
+def longest_chain(rows):
+    """The longest path through the open sections' dependencies, from the first prerequisite to the last consumer; of
+    paths of one length, the one plan order (`ordered`) reaches first. A stamped section ends a path; with none open
+    the chain is empty (ported from RasterFold's `_longest_chain`)."""
+    rank = {row.ref: i for i, row in enumerate(ordered(rows))}
+    ending = {}  # ref -> the best chain that ends at it
+
+    def key(chain):
+        return (-len(chain), [rank[ref] for ref in chain])
+
+    def chain_to(ref):
+        if ref not in ending:
+            before = [chain_to(dep) for dep in rows[ref].depends if dep in rows and not rows[dep].done]
+            ending[ref] = (min(before, key=key) if before else []) + [ref]
+        return ending[ref]
+
+    chains = [chain_to(row.ref) for row in ordered(rows) if not row.done]
+    return min(chains, key=key) if chains else []
+
+
+def filing_couplings(root, rows):
+    """For each stamped section, one pair per section its completion review filed (`completion.filed` in the receipt
+    its own `Review:` line names, so a project's `layout.receipts` holds): the filer, the filed section and its state
+    as `query plan` reports it. A receipt from before completion reviews has no `completion` and files nothing."""
+    pairs = []
+    for row in ordered(rows):
+        if not (row.done and row.receipt):
+            continue
+        data = json.loads(read_text(Path(root) / row.receipt))
+        for filed in (data.get("completion") or {}).get("filed") or []:
+            pairs.append({"filer": row.ref, "filed": filed,
+                          "state": plan_status(rows[filed], rows) if filed in rows else "unknown"})
+    return pairs
+
+
 def frozen_files(root=ROOT):
     """`query frozen`: each TODO file whose frontmatter says `frozen: true`, with its section count, how many of its
     sections carry a `**Freeze check:**` and the references of those that do not, in path order, and the files whose

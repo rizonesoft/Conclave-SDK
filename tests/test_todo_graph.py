@@ -1350,6 +1350,27 @@ class Stamp(Tree):
                                               "reviewer": "sol", "model": "gpt-6.1-sol", "filed": []})
         self.assertEqual(tg.review_rounds(self.root)["sections"][0]["completion"], "completed")
 
+    def test_query_sequence_prints_the_chain_and_the_filing_coupling(self):
+        # D03 T01 §15: the CLI on a valid tree whose stamped section filed another, and a missing receipt refusing.
+        self.tick_work()
+        self.write_completion(review="1. Recent files: missing-out-of-scope.\n\nCOMPLETION: gaps",
+                              notes="- Filed: D00 T01 §2 (recent files)")
+        receipt = self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-23",
+                             completion={"report": self.COMPLETION, "verdict": "filed"})
+        shutil.copytree(SCRIPTS, self.root / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copytree(tg.DISPATCHER.parent, self.root / "scripts", dirs_exist_ok=True,  # the reviewer kit beside it
+                        ignore=shutil.ignore_patterns("__pycache__", "tests"))
+        cli = [sys.executable, str(self.root / "scripts/todo-graph.py"), "query", "sequence"]
+        result = subprocess.run(cli, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout.decode("utf-8")),
+                         {"chain": ["D00 T01 §2"],
+                          "couplings": [{"filer": "D00 T01 §1", "filed": "D00 T01 §2", "state": "blocked"}]})
+        (self.root / receipt).unlink()
+        result = subprocess.run(cli, capture_output=True)
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn(b"receipt", result.stderr)
+
     def test_filed_gaps_must_be_listed_and_must_resolve(self):
         self.tick_work()
         gaps = "1. Recent files: missing-out-of-scope.\n\nCOMPLETION: gaps"
@@ -3089,6 +3110,45 @@ class QueryFrozen(Tree):
         shutil.rmtree(self.root / "todo")
         with self.assertRaises(tg.Refused):
             tg.frozen_files(self.root)
+
+
+class QuerySequence(Tree):
+    """D03 T01 §15: the longest open chain and the sections each stamped section's completion review filed."""
+
+    def test_the_longest_open_chain_runs_from_prerequisite_to_consumer(self):
+        self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "§1"), (3, "C", 0, "none", "§2"),
+                              (4, "D", 0, "none", "--"), (5, "E", 0, "none", "§4")]))
+        rows = tg.graph(self.root)
+        self.assertEqual(tg.longest_chain(rows), ["D00 T01 §1", "D00 T01 §2", "D00 T01 §3"])
+        rows["D00 T01 §1"].done = True  # a stamped section ends the path
+        self.assertEqual(tg.longest_chain(rows), ["D00 T01 §2", "D00 T01 §3"])
+        for row in rows.values():
+            row.done = True
+        self.assertEqual(tg.longest_chain(rows), [])
+
+    def test_of_two_equal_chains_the_one_plan_order_reaches_first_wins(self):
+        table = ("| 1 | §3 | C | -- | [ ] |\n| 2 | §4 | D | §3 | [ ] |\n"
+                 "| 3 | §1 | A | -- | [ ] |\n| 4 | §2 | B | §1 | [ ] |")
+        self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "§1"), (3, "C", 0, "none", "--"),
+                              (4, "D", 0, "none", "§3")], table_override=table))
+        self.assertEqual(tg.longest_chain(tg.graph(self.root)), ["D00 T01 §3", "D00 T01 §4"])
+
+    def test_couplings_come_from_each_stamped_rows_own_receipt(self):
+        self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--"), (3, "C", 0, "none", "§2"),
+                              (4, "D", 0, "none", "--"), (5, "E", 0, "none", "--")]))
+        rows = tg.graph(self.root)
+        receipts = {"D00 T01 §1": {"completion": {"filed": ["D00 T01 §2", "D00 T01 §3"]}},
+                    "D00 T01 §4": {"completion": {"filed": []}}, "D00 T01 §5": {}}  # §5: before completion reviews
+        for ref, data in receipts.items():
+            path = self.root / f"reviews/{ref[-1]}.json"  # a project's own receipts folder, not docs/reviews
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(data), encoding="utf-8")
+            rows[ref].done, rows[ref].receipt = True, path.relative_to(self.root).as_posix()
+        self.assertEqual(tg.filing_couplings(self.root, rows),
+                         [{"filer": "D00 T01 §1", "filed": "D00 T01 §2", "state": "ready"},
+                          {"filer": "D00 T01 §1", "filed": "D00 T01 §3", "state": "blocked"}])
+        rows["D00 T01 §2"].done = True  # the filed section stamped: its state is read afresh
+        self.assertEqual([p["state"] for p in tg.filing_couplings(self.root, rows)], ["verified", "ready"])
 
 
 class Repository(unittest.TestCase):

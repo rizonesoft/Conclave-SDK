@@ -126,6 +126,7 @@ python scripts/todo-graph.py plan --sync         # regenerate the plan (layout.p
 python scripts/todo-graph.py plan --check        # fail if the generated plan is stale (CI runs this)
 python scripts/todo-graph.py query ready         # sections that can run now (also: blocked, stats, deferred, adjacency, plan, rounds)
 python scripts/todo-graph.py query frozen        # each frozen file's Freeze-check coverage, read from the tree alone
+python scripts/todo-graph.py query sequence      # the longest open chain, and the sections each stamped one filed
 python scripts/todo-graph.py resolve 'D01 T01 §1'  # 0 ready, 1 no such section, 2 no reference, 3 verified, 4 waiting
 python scripts/todo-graph.py classify 'D01 T01 §1' 'D02 T01 §1'   # dispositions as JSON
 python scripts/todo-graph.py stamp 'D01 T01 §1' --sha <commit> --plan <report> --completion '<report>:complete' --review '1:<report>:clean' --check '<cmd> -> <result>'
