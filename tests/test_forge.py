@@ -2967,9 +2967,11 @@ class UnattendedKitTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr[-2000:])
         self.assertIn("OK", result.stderr)
 
-    def test_the_installed_tests_pass_in_a_project_that_set_its_profile(self):
-        forge.apply_kit(self.target, "todo")  # the kit runs under the todo kit's guard, as the doctor requires
-        forge.apply_kit(self.target, "unattended")
+    def test_a_fresh_install_set_up_as_the_page_says_passes_its_doctor_and_its_tests(self):
+        # D02 T02 §11: init with the todo kit (the run guard) and the unattended kit, the profile set as
+        # docs/unattended-run.md says, the doctor, then the kit's own tests in the installed copy.
+        self.assertEqual(forge.main(["init", str(self.target), "--kit", "todo", "--kit", "unattended"]), 0)
+        self.assertTrue((self.target / "docs/unattended-run.md").is_file(), "the operator's page is not installed")
         path = self.target / ".conclave/unattended.json"
         profile = json.loads(path.read_text(encoding="utf-8"))
         (self.target / "docs/unattended-prompt.md").rename(self.target / "docs/project-run.md")
@@ -2977,9 +2979,20 @@ class UnattendedKitTests(unittest.TestCase):
                        prompt_file="docs/project-run.md", preflight=[{"name": "suite", "command": ["python3", "-m", "unittest"],
                                                                 "timeout_seconds": 900}])
         path.write_text(json.dumps(profile), encoding="utf-8")
+        checks = self.checks()
+        for agent_dir in (".agents", ".claude", ".codex"):
+            self.assertEqual(checks[f"skill:unattended-run:{agent_dir}"]["status"], "ok", agent_dir)
+        self.assertEqual(checks["todo-kit"]["status"], "ok")
+        self.assertEqual([n for n, c in checks.items() if c["status"] == "missing"], [])
         result = subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "-s", str(self.target / "scripts/tests")],
                                 capture_output=True, text=True, timeout=900)
         self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+        # A kit file removed afterwards is one the doctor reports missing.
+        (self.target / ".codex/skills/unattended-run/SKILL.md").unlink()
+        (self.target / "docs/unattended-run.md").unlink()
+        checks = self.checks()
+        self.assertEqual(checks["skill:unattended-run:.codex"]["status"], "missing")
+        self.assertEqual(checks["docs/unattended-run.md"]["status"], "missing")
 
     def test_the_documents_name_the_kit_and_the_sdk_does_not_install_it(self):
         self.assertNotIn("unattended", forge.SELF_KITS)

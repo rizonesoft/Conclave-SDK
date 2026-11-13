@@ -511,7 +511,8 @@ TODO_GRAPH = next(p for p in (SCRIPTS / "lib" / "todo_graph.py",
                               TEMPLATES.parent.parent / "todo" / "templates" / "scripts" / "lib" / "todo_graph.py")
                   if p.is_file())
 TABLE = ("# TODO-01 -- Demo\n\n## Implementation Order\n\n| Order | § | Deliverable | Depends On | Done |\n"
-         "| ----- | - | ----------- | ---------- | ---- |\n| 1 | §2 | Second | none | {s2} |\n| 2 | §1 | First | none | {s1} |\n")
+         "| ----- | - | ----------- | ---------- | ---- |\n| 1 | §2 | Second | none | {s2} |\n"
+         "| 2 | §1 | First | none | {s1} |\n")
 
 
 def run_git(cwd, *args, when=None):
@@ -655,9 +656,9 @@ class WindowlessTest(unittest.TestCase):
                 yield node.lineno, None
 
     # The kit's own Python files: in an installed project scripts/ also holds the other kits' files, which are theirs.
-    KIT_FILES = ("campaign-icon.py", "lib/unattended.py", "tests/test_campaign_icon.py", "tests/test_preflight.py",
-                 "tests/test_run.py", "tests/test_shortcut.py", "tests/test_unattended.py", "unattended-preflight.py",
-                 "unattended-run.py")
+    KIT_FILES = ("campaign-icon.py", "lib/unattended.py", "tests/test_campaign_icon.py", "tests/test_document.py",
+                 "tests/test_preflight.py", "tests/test_run.py", "tests/test_shortcut.py", "tests/test_unattended.py",
+                 "unattended-preflight.py", "unattended-run.py")
 
     def test_the_kit_file_list_is_complete_in_the_kit_itself(self):
         if SCRIPTS.parent.name != "templates":

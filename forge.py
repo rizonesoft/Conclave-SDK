@@ -1291,7 +1291,17 @@ def _doctor_unattended(target_root: Path, add_check, system: str | None = None) 
     for src in sorted(p for p in templates.rglob("*") if p.is_file() and "__pycache__" not in p.parts):
         rel = src.relative_to(templates).as_posix()
         path = target_root / rel
+        if rel == "docs/unattended-prompt.md":
+            # The seed prompt is wherever the profile's prompt_file says, which the project may move.
+            try:
+                named = json.loads((target_root / ".conclave/unattended.json").read_text(encoding="utf-8"))["prompt_file"]
+                path = target_root / named if isinstance(named, str) and named else path
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
         add_check(rel, "ok" if path.is_file() else "missing", path.as_posix())
+    for agent_dir in AGENT_DIRS:
+        sk = target_root / agent_dir / "skills/unattended-run/SKILL.md"
+        add_check(f"skill:unattended-run:{agent_dir}", "ok" if sk.is_file() else "missing", sk.as_posix())
     guard = target_root / "scripts/campaign_guard.py"
     add_check("todo-kit", "ok" if guard.is_file() else "setup_required",
               guard.as_posix() if guard.is_file() else f"install the todo kit first: python forge.py kit {target_root.as_posix()} todo")

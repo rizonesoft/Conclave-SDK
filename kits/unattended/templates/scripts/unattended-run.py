@@ -1061,7 +1061,8 @@ def _ship_limit(text: str) -> int:
     return int(text)
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The launcher's command line, which docs/unattended-run.md's examples are checked against."""
     parser = argparse.ArgumentParser(description="Start, show, attach to and stop an unattended agent run.")
     parser.add_argument("--root", default=str(HERE.parent), help="the repository (default: this script's)")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1081,7 +1082,11 @@ def main(argv: list[str] | None = None) -> int:
     shortcut_parser.add_argument("--remove", action="store_true", help="remove this project's entries")
     beat_parser = sub.add_parser("heartbeat")
     beat_parser.add_argument("--once", action="store_true", help="one tick, then exit")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     if os.name == "nt":
         print("unattended-run: the run lives in tmux, on Linux and in WSL: run this in WSL", file=sys.stderr)
         return 1
