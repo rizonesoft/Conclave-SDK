@@ -10,6 +10,7 @@ import sys
 import tempfile
 import types
 import unittest
+import unittest.mock
 from unittest import mock
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -614,6 +615,40 @@ class Graph(Tree):
         self.assertEqual(sorted(self.faults()), ["invalid Phase: D00 T01 §2", "invalid Phase: D00 T02 §1"])
         self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 42, "none", "--"), (3, "C", 0, "none", "§9")]))
         self.assertIn("unresolved dependency: D00 T01 §9", self.faults(), "a reference to nothing is still recorded")
+
+    def test_an_unreadable_index_is_recorded_and_the_walk_still_runs(self):
+        # D03 T01 §8 round 1: an index read outside attempt() ended the run.
+        self.write(todo_file([(1, "A", 0, "gpu", "§9")]))
+        real = tg.read_text
+        index = self.root / "todo/00-workspace/INDEX.md"
+
+        def read_text(path):
+            if pathlib.Path(path) == index:
+                raise OSError(5, "Input/output error")
+            return real(path)
+
+        found = []
+        with unittest.mock.patch.object(tg, "read_text", read_text):
+            tg.graph(self.root, faults=found)
+        messages = [m for _, m in found]
+        self.assertIn("todo/00-workspace/INDEX.md", [w for w, _ in found])
+        self.assertIn("unknown/duplicate Needs (gpu): D00 T01 §1", messages)
+        self.assertIn("unresolved dependency: D00 T01 §9", messages, "the dependency walk ran after the index")
+
+    def test_a_failed_section_in_a_third_file_does_not_hide_a_one_sided_xref(self):
+        # D03 T01 §8 round 1: only a backlink into the originating file may stand in for the missing one.
+        self.write(todo_file([(1, "A", 0, "none", "--")], inputs="- i -> XREF: D00 T02 §1"))
+        self.write(todo_file([(1, "B", 0, "none", "--")], ident="beta", inputs="- i -> XREF: D00 T03 §1"),
+                   name="TODO-02-b.md")
+        self.write(todo_file([(1, "C", 42, "none", "--")], ident="gamma", inputs="- i -> XREF: D00 T02 §1"),
+                   name="TODO-03-c.md")
+        self.assertIn("one-sided XREF D00 T02 §1 has no pointer back: todo/00-workspace/TODO-01-a.md", self.faults())
+
+    def test_a_section_left_out_of_the_graph_still_has_its_deferrals_checked(self):
+        # D03 T01 §8 round 1: a deferral needs no Phase.
+        self.write(todo_file([(1, "A", 42, "none", "--")]).replace(
+            "**Test checkpoint:**", "> **Deferred:** abandoned\n\n**Test checkpoint:**", 1))
+        self.assertEqual(self.faults(), ["invalid Phase: D00 T01 §1", "Deferred without a resolving owner: D00 T01 §1"])
 
     def test_validate_all_prints_every_fault_and_exits_2(self):
         self.write(todo_file([(1, "A", 42, "gpu", "--")]))

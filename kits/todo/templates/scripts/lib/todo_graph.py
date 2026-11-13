@@ -969,6 +969,7 @@ def graph(root=ROOT, faults=None):
             if m:
                 known_ids.add(m[1].strip())
     incomplete = set()  # files with a part that could not be read: no status is checked for them
+    unregistered = {}  # ref -> body of a section left out of the graph (no usable Phase or dependencies)
 
     def unknown(target, known):
         """A target to report as unresolved: collecting, not one that exists but failed its own reading."""
@@ -1139,6 +1140,7 @@ def graph(root=ROOT, faults=None):
                         filed_gaps[ref] = data["completion"]["filed"]
             if not (phase_ok and deps_ok):
                 incomplete.add(relative)
+                unregistered[ref] = section_body  # its deferrals are still checked below
                 continue  # a section with no usable Phase or dependencies is not a node of the graph
             sections[ref] = Section(ref, relative, n, h[2], int(phase), deps, needs, done,
                                     front["status"], section_body, receipt, int(rows[n][1]),
@@ -1174,11 +1176,14 @@ def graph(root=ROOT, faults=None):
             if target_file == relative:
                 continue
             back = files[target_file][3]
+            here = f"D{Path(relative).parent.name[:2]} T{Path(relative).name[5:7]} §"  # the originating file's refs
             check(any(sections[b].path == relative for b in back if b in sections)
-                  or any(b not in sections and not unknown(b, known_refs) for b in back),
+                  or any(b not in sections and b.startswith(here) and not unknown(b, known_refs) for b in back),
                   f"one-sided XREF {target} has no pointer back: {relative}", relative)
-    # Deferrals carry an owner or they are abandonments; a shipped owner makes a live deferral stale.
-    for row in sections.values():
+    # Deferrals carry an owner or they are abandonments; a shipped owner makes a live deferral stale. A section left
+    # out of the graph (collecting) is checked too: its deferrals need no Phase.
+    for row in [*sections.values(), *(Section(ref, "", 0, "", 0, [], [], False, "", body, "")
+                                      for ref, body in unregistered.items())]:
         # Only a blockquoted marker is read below; any other spelling would drop the deferral from every check.
         for line in row.body.splitlines():
             check(len(re.findall(r"\*\*(?:Deferred|Resolved):\*\*", line)) <= 1,
@@ -1204,7 +1209,7 @@ def graph(root=ROOT, faults=None):
         for target in filed:
             check(target in sections or not unknown(target, known_refs),
                   f"completion gap filed as {target}, which does not resolve: {ref}", ref)
-    _index_coverage(root, files, check)
+    _index_coverage(root, files, check, attempt)
     visiting, visited = set(), set()
     for start in sections:
         if start in visited:
@@ -1239,14 +1244,19 @@ def graph(root=ROOT, faults=None):
     return sections
 
 
-def _index_coverage(root, files, check=None):
+def _index_coverage(root, files, check=None, attempt=None):
+    """Every TODO file is listed in its domain's INDEX.md and in todo/TODO-00-INDEX.md (`check` and `attempt`:
+    graph's, which record a refusal and go on when it collects)."""
     if check is None:
         def check(ok, message, where):
             return require(ok, message) or True
+    if attempt is None:
+        def attempt(where, fn, *args):
+            return fn(*args)
     root_index = root / "todo/TODO-00-INDEX.md"
     if not check(root_index.is_file(), "missing todo/TODO-00-INDEX.md", "todo/TODO-00-INDEX.md"):
         return
-    root_text = read_text(root_index)
+    root_text = attempt("todo/TODO-00-INDEX.md", read_text, root_index)
     by_domain = {}
     for relative in files:
         by_domain.setdefault(Path(relative).parent.name, []).append(Path(relative).name)
@@ -1254,11 +1264,13 @@ def _index_coverage(root, files, check=None):
         index = root / "todo" / domain / "INDEX.md"
         if not check(index.is_file(), f"missing domain index: todo/{domain}/INDEX.md", f"todo/{domain}/INDEX.md"):
             continue
-        text = read_text(index)
+        text = attempt(f"todo/{domain}/INDEX.md", read_text, index)
         for filename in names:
-            check(filename in text, f"missing from domain index: {domain}/{filename}", f"todo/{domain}/INDEX.md")
-            check(f"{domain}/{filename}" in root_text, f"missing from root index: {domain}/{filename}",
-                  "todo/TODO-00-INDEX.md")
+            if text is not FAILED:
+                check(filename in text, f"missing from domain index: {domain}/{filename}", f"todo/{domain}/INDEX.md")
+            if root_text is not FAILED:
+                check(f"{domain}/{filename}" in root_text, f"missing from root index: {domain}/{filename}",
+                      "todo/TODO-00-INDEX.md")
 
 
 def settled(ref, rows):
