@@ -65,7 +65,7 @@ Sections: 19 | Checklist items: 133
 
 ### Phase 3: Todo graph that takes a project's shape
 
-Sections: 15 | Checklist items: 96
+Sections: 15 | Checklist items: 97
 
 | Status | Reference   | Deliverable                                               | Needs | Items |
 | ------ | ----------- | --------------------------------------------------------- | ----- | ----- |
@@ -83,7 +83,7 @@ Sections: 15 | Checklist items: 96
 | [x]    | D03 T01 §12 | Validation git calls cached per run                       | none  | 6     |
 | [x]    | D03 T01 §13 | Section checks run when its table row cannot be read      | none  | 6     |
 | [ ]    | D03 T01 §14 | Frozen files listed by `query frozen`                     | none  | 4     |
-| [ ]    | D03 T01 §15 | Longest chain and filing couplings from `query sequence`  | none  | 5     |
+| [ ]    | D03 T01 §15 | Longest chain and filing couplings from `query sequence`  | none  | 6     |
 
 ### Phase 4: Antigravity and Codex as writers
 
@@ -155,4 +155,4 @@ Sections: 3 | Checklist items: 16
 
 Progress: 45/84 verified sections, 17 ready to run now.
 
-Checklist: 381/596 items completed (includes Commit items).
+Checklist: 381/597 items completed (includes Commit items).
