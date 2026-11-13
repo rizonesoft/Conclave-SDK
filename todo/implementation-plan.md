@@ -75,7 +75,7 @@ Sections: 13 | Checklist items: 85
 | [x]    | D03 T01 §4  | Receipts folder read from `todo/plan.json`                | none  | 9     |
 | [x]    | D03 T01 §7  | Plan path read from `todo/plan.json`                      | none  | 8     |
 | [x]    | D03 T01 §8  | Every validation fault in one run                         | none  | 7     |
-| [ ]    | D03 T01 §5  | Adoption dry run on RasterFold and Impossible OS          | none  | 8     |
+| [x]    | D03 T01 §5  | Adoption dry run on RasterFold and Impossible OS          | none  | 8     |
 | [ ]    | D03 T01 §6  | Lift or leave decision for each RasterFold graph command  | none  | 5     |
 | [ ]    | D03 T01 §9  | Pre-adoption stamps frozen at adoption                    | none  | 8     |
 | [ ]    | D03 T01 §10 | Ready rows filtered by the hosts this session reaches     | none  | 5     |
@@ -151,6 +151,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 42/82 verified sections, 17 ready to run now.
+Progress: 43/82 verified sections, 17 ready to run now.
 
-Checklist: 369/585 items completed (includes Commit items).
+Checklist: 370/585 items completed (includes Commit items).

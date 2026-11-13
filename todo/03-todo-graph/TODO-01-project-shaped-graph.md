@@ -39,7 +39,7 @@ title: "TODO-01 -- Todo graph that takes a project's shape"
 | 4 | §4 | Receipts folder read from `todo/plan.json` | §1 | [x] |
 | 5 | §7 | Plan path read from `todo/plan.json` | §4 | [x] |
 | 6 | §8 | Every validation fault in one run | §1 | [x] |
-| 7 | §5 | Adoption dry run on RasterFold and Impossible OS | §2, §3, §4, §7, §8 | [ ] |
+| 7 | §5 | Adoption dry run on RasterFold and Impossible OS | §2, §3, §4, §7, §8 | [x] |
 | 8 | §6 | Lift or leave decision for each RasterFold graph command | §5 | [ ] |
 | 9 | §9 | Pre-adoption stamps frozen at adoption | §4 | [ ] |
 | 10 | §10 | Ready rows filtered by the hosts this session reaches | -- | [ ] |
@@ -194,7 +194,7 @@ The keys above remove the differences that were known. What else stops each proj
 - [x] Check the kit's agent guidance against each project's `caps` in the `plan.json` written for it: the guard `test_the_kit_guidance_names_the_configured_cap_wherever_it_states_a_default` in `tests/test_todo_graph.py` covers the stated defaults, so read `add-todo`, `create-todo` and `groom-plan` for any other limit the project's caps contradict. Done when: the report's guidance row names each line that would mislead an agent working that project, or says none (filed from `D03 T01 §3`'s completion review).
 - [x] File a section through `add-todo` for each decision that is a kit change, in this file, and name each in the report. Done when: `python scripts/todo-graph.py validate` passes and the report's kit-change rows each carry a `D03 T01 §N` reference. Cheaper substitute: a list of follow-ups in the report with no section must fail review.
 - [x] Record what was measured beside the output: the manifest of copied files with their SHA-256 digests, the effective `todo/plan.json`, the project's commit and the SDK commit whose validator ran. After copying, digest the copied source files again; when any changed (the project's campaign edited it mid-copy), copy again, at most three times, and list the files that moved in the manifest, so a torn snapshot never reports refusal classes the tree does not have. Done when: a fixture test with an already-dirty source file finds its digest in the manifest and the source's bytes unchanged after the run, a fixture test that changes a source file during the first copy finds the second copy consistent and the file listed as moved, a test of a valid stamped section in the snapshot reports no fault (its history and receipts came along), a genuinely broken receipt is reported, and a fault planted only in the scratch copy is found while the SDK's own tree validates.
-- [ ] Commit: `todo: measure what stops RasterFold and Impossible OS adopting the graph`
+- [x] Commit: `todo: measure what stops RasterFold and Impossible OS adopting the graph`
 
 **Corrected 2026-11-13 (plan review):** the validator reports every fault itself (new `§8`, `validate --all`), so nothing is set aside and no file's later faults are hidden; the snapshot is a clone with history plus the working tree's `todo/` and receipts folder (Impossible OS's `.claude/overnight/reviews` too), so stamped sections validate as they do at home; the kit library runs with the scratch folder as its explicit root; and the run records its inputs' digests and leaves the sources' bytes as they were.
 
@@ -205,6 +205,9 @@ The keys above remove the differences that were known. What else stops each proj
 **Corrected 2026-11-13 (build):** the clone is `git clone --no-hardlinks --no-checkout` then a detached checkout of the source's `HEAD`, not `--local` alone: `--local` hardlinks the object files into the scratch folder, so the snapshot would share files with the source, and a source on a detached `HEAD` would check out nothing. The stamped-section test runs the dry run on the SDK itself, under `CONCLAVE_FULL_TESTS=1`, since validating the SDK's tree takes a minute on Windows (filed as `§12`). The Impossible OS run measured file-level classes only, because the validator skips a section whose row it cannot read; that gap is filed as `§13`, and the report counts those sections' fields until it ships.
 
 **Test checkpoint:** `python -m unittest discover -s tests` ends `OK` with the dry-run script's fixture test in it, and `python scripts/todo-graph.py validate` passes; removing a planted fault's class from the script's output makes the fixture test fail.
+
+> **Verified:** 2026-11-13 | §5 | f7a2de4775dc65f326271897ca5fa9d729008522
+> **Review:** `docs/reviews/d03-t01-s5.json`
 
 ## 6. Lift or leave decision for each RasterFold graph command
 

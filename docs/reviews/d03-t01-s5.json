@@ -1,0 +1,84 @@
+{
+  "ref": "D03 T01 \u00a75",
+  "title": "Adoption dry run on RasterFold and Impossible OS",
+  "implementation_sha": "f7a2de4775dc65f326271897ca5fa9d729008522",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-todo-graph/D03-T01-s5.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s tests (CI Tests run 43399657106 on a780fe7, which holds f7a2de4 and only records past it: quick suite Windows, full suite Linux, kit suites) -> success",
+    "python scripts/todo-graph.py validate -> valid: 82 sections"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-todo-graph/D03-T01-s5.md",
+    "verdict": "reconciled",
+    "candidate": "f7a2de4775dc65f326271897ca5fa9d729008522",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/03-todo-graph/D03-T01-s5.md",
+    "candidate": "a233878ef5379e52b2da334fb1b4af2547269423",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "a233878ef5379e52b2da334fb1b4af2547269423",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 5,
+  "pass_cap": 33
+}
