@@ -337,6 +337,46 @@ class Graph(Tree):
         self.plan(phase_list=[0, 99, 150])
         self.refuses("prerequisite in later phase")
 
+    def test_a_project_names_its_own_needs_and_which_wait(self):
+        # D03 T01 §2: Needs values and waiting Needs come from todo/plan.json.
+        self.write(todo_file([(1, "A", 0, "gpu", "--"), (2, "B", 0, "owner-decision", "--")]))
+        self.refuses("unknown/duplicate Needs (gpu)")
+        self.plan(needs=["gpu", "owner-decision"], waiting=["gpu"])
+        rows = tg.graph(self.root)
+        self.assertEqual({ref: tg.disposition(r, rows) for ref, r in rows.items()},
+                         {"D00 T01 §1": 4, "D00 T01 §2": 0}, "gpu waits and owner-decision does not, by this plan")
+        self.plan(needs=["owner-decision"])
+        self.refuses("unknown/duplicate Needs (gpu)")
+
+    def test_needs_and_waiting_that_cannot_be_read_are_refused(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        for label, keys, said in (("needs not a list", {"needs": "gpu"}, "needs must be a list"),
+                                  ("a malformed name", {"needs": ["GPU"]}, "needs must be a list"),
+                                  ("a duplicate", {"needs": ["gpu", "gpu"]}, "needs must be a list"),
+                                  ("the reserved none", {"needs": ["none"]}, "needs may not name none"),
+                                  ("none waiting", {"needs": ["gpu"], "waiting": ["none"]}, "waiting may not name none"),
+                                  ("waiting outside needs", {"needs": ["gpu"], "waiting": ["operator"]},
+                                   "waiting names operator, which needs does not")):
+            with self.subTest(label):
+                self.plan(**keys)
+                with self.assertRaises(tg.Refused) as ctx:
+                    tg.graph(self.root)
+                self.assertIn("todo/plan.json", str(ctx.exception))
+                self.assertIn(said, str(ctx.exception))
+
+    def test_needs_without_waiting_keeps_the_kits_waiting_needs_it_lists(self):
+        self.write(todo_file([(1, "A", 0, "gpu", "--"), (2, "B", 0, "operator", "--")]))
+        self.plan(needs=["gpu", "operator"])
+        rows = tg.graph(self.root)
+        self.assertEqual({ref: tg.disposition(r, rows) for ref, r in rows.items()},
+                         {"D00 T01 §1": 0, "D00 T01 §2": 4})
+
+    def test_without_needs_keys_the_defaults_hold(self):
+        self.write(todo_file([(1, "A", 0, "owner-decision", "--"), (2, "B", 0, "attended", "--")]))
+        rows = tg.graph(self.root)
+        self.assertEqual({ref: tg.disposition(r, rows) for ref, r in rows.items()},
+                         {"D00 T01 §1": 4, "D00 T01 §2": 0})
+
     def test_draft_file_is_not_ready(self):
         self.write(todo_file([(1, "A", 0, "none", "--")], status="draft"))
         rows = tg.graph(self.root)
@@ -717,6 +757,27 @@ class Stamp(Tree):
         self.assertTrue(rows["D00 T01 §1"].done)
         self.assertEqual(json.loads((self.root / receipt).read_text(encoding="utf-8"))
                          ["implementation_sha"], self.sha)
+
+    def test_a_configured_waiting_need_holds_the_stamp_and_a_later_one_refuses_the_stamped_section(self):
+        # D03 T01 §2: the stamp and the stamped-section check read the project's waiting Needs, both ways.
+        path = self.root / "todo/00-workspace/TODO-01-a.md"
+        path.write_text(path.read_text(encoding="utf-8").replace("**Needs:** none", "**Needs:** gpu", 1),
+                        encoding="utf-8")
+        plan = self.root / "todo/plan.json"
+        needs = ["gpu", "owner-decision"]
+        plan.write_text(json.dumps({"needs": needs, "waiting": ["gpu"]}), encoding="utf-8")
+        self.tick_work()
+        with self.assertRaises(tg.Refused) as ctx:
+            self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-13")
+        self.assertIn("still waiting on gpu: D00 T01 §1", str(ctx.exception))
+        plan.write_text(json.dumps({"needs": needs, "waiting": ["owner-decision"]}), encoding="utf-8")
+        receipt = self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-13")
+        self.assertTrue(tg.graph(self.root)["D00 T01 §1"].done)
+        self.assertEqual(json.loads((self.root / receipt).read_text(encoding="utf-8"))["implementation_sha"], self.sha)
+        plan.write_text(json.dumps({"needs": needs, "waiting": ["gpu", "owner-decision"]}), encoding="utf-8")
+        with self.assertRaises(tg.Refused) as ctx:
+            tg.graph(self.root)
+        self.assertIn("stamped section has a waiting Need: D00 T01 §1", str(ctx.exception))
 
     def test_receipt_records_rounds_spent_against_the_cap(self):
         self.tick_work()
@@ -2199,7 +2260,8 @@ class QueryPlan(Tree):
         spec.loader.exec_module(cli)
 
         def row(ref, done=False, status="active", needs=(), depends=()):
-            return types.SimpleNamespace(ref=ref, done=done, status=status, needs=list(needs), depends=list(depends))
+            return types.SimpleNamespace(ref=ref, done=done, status=status, needs=list(needs), depends=list(depends),
+                                         waiting=tuple(sorted(set(needs) & tg.WAITING)))
 
         rows = {r.ref: r for r in (row("D01 T01 §1", done=True, status="done"), row("D02 T01 §1", status="draft"),
                                    row("D00 T01 §1", depends=["D02 T01 §1"]), row("D00 T01 §2"),

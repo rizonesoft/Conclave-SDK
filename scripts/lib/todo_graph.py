@@ -27,6 +27,7 @@ ROW = re.compile(r"^\|\s*([1-9]\d*)\s*\|\s*§([1-9]\d*)\s*\|\s*([^|]+)\|\s*([^|]
 NEEDS = {"windows-host", "arm64-host", "display-session", "office", "libreoffice", "store-account",
          "attended", "owner-decision", "third-party", "operator"}
 WAITING = {"owner-decision", "third-party", "operator"}
+NEED_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")  # a Need a project names in todo/plan.json
 STATUSES = {"draft", "active", "blocked", "done", "superseded"}
 # stopped-at-33 is the current review-round cap; stopped-at-22, -13, -8 and -3 stay valid on receipts written under
 # earlier caps.
@@ -171,9 +172,10 @@ class Section:
     body: str
     receipt: str
     order: int = 0
+    waiting: tuple = ()  # its Needs a person must answer, by the project's `waiting` list (todo/plan.json)
 
     def public(self):
-        return {k: v for k, v in asdict(self).items() if k != "body"}
+        return {k: v for k, v in asdict(self).items() if k not in ("body", "waiting")}
 
 
 def front_matter(text, relative):
@@ -893,7 +895,8 @@ def xrefs_of(body, domain, todo):
 def graph(root=ROOT):
     """Parse every TODO file strictly; a malformed row or section refuses, it is never read as empty."""
     root = Path(root)
-    phase_list = set(plan_config(root)["phase_list"])  # the project's own phase numbers (todo/plan.json)
+    config = plan_config(root)  # the project's own phase numbers, Needs and waiting Needs (todo/plan.json)
+    phase_list, known_needs, waiting = set(config["phase_list"]), config["needs"], config["waiting"]
     legacy_receipts(root)  # a malformed freeze list refuses even before any old receipt is read against it
     sections, ids, files = {}, {}, {}
     head_commits = None
@@ -975,8 +978,9 @@ def graph(root=ROOT):
             require(phase.isdigit() and int(phase) in phase_list, f"invalid Phase: {ref}")
             raw = field(section_body, "Needs")
             needs = [] if raw == "none" else [v.strip() for v in raw.split(",")]
-            require(len(needs) == len(set(needs)) and set(needs) <= NEEDS,
-                    f"unknown/duplicate Needs: {ref}")
+            unknown = sorted(set(needs) - known_needs)
+            require(len(needs) == len(set(needs)) and not unknown,
+                    f"unknown/duplicate Needs{' (' + ', '.join(unknown) + ')' if unknown else ''}: {ref}")
             dep = rows[n][4].strip()
             deps = [] if dep == "--" else [normalize(v, d, t) for v in dep.split(",")]
             require(len(deps) == len(set(deps)), f"duplicate dependency: {ref}")
@@ -1023,7 +1027,7 @@ def graph(root=ROOT):
                     f"checkbox/stamp/receipt mismatch: {ref}")
             if done:
                 require(all(x[0] == "x" for x in checks), f"unfinished stamped checklist: {ref}")
-                require(not set(needs) & WAITING, f"stamped section has a waiting Need: {ref}")
+                require(not set(needs) & waiting, f"stamped section has a waiting Need: {ref}")
                 m = re.fullmatch(r"\d{4}-\d{2}-\d{2} \| §" + str(n) + r" \| ([0-9a-f]{40})", stamp_line)
                 require(m is not None, f"invalid stamp: {ref}")
                 if head_commits is None:
@@ -1032,7 +1036,8 @@ def graph(root=ROOT):
                 if "completion" in data:
                     filed_gaps[ref] = data["completion"]["filed"]
             sections[ref] = Section(ref, relative, n, h[2], int(phase), deps, needs, done,
-                                    front["status"], section_body, receipt, int(rows[n][1]))
+                                    front["status"], section_body, receipt, int(rows[n][1]),
+                                    tuple(sorted(set(needs) & waiting)))
             files[relative][2].append(ref)
     for relative, (front, file_deps, refs, xrefs, adjacency) in files.items():
         require(len(set(file_deps)) == len(file_deps), f"duplicate file dependencies: {relative}")
@@ -1148,7 +1153,7 @@ def disposition(row, rows):
     """0 ready, 3 already verified, 4 waiting (inactive file, open or suspect prerequisite, or a person to answer)."""
     if row.done:
         return 3
-    if row.status != "active" or set(row.needs) & WAITING \
+    if row.status != "active" or row.waiting \
             or any(not settled(d, rows) for d in row.depends):
         return 4
     return 0
@@ -1180,13 +1185,27 @@ def plan_config(root=ROOT):
     """The project's plan title, acceptance bar and phase names from todo/plan.json, loaded strictly."""
     path = Path(root) / PLAN_CONFIG
     if not path.is_file():
-        return {**PLAN_DEFAULTS, "phases": dict(PLAN_DEFAULTS["phases"]), "phase_list": PHASES}
+        return {**PLAN_DEFAULTS, "phases": dict(PLAN_DEFAULTS["phases"]), "phase_list": PHASES,
+                "needs": frozenset(NEEDS), "waiting": frozenset(WAITING)}
     try:
         data = json.loads(read_text(path))
     except ValueError as exc:
         raise Refused(f"unreadable {PLAN_CONFIG}: {exc}") from None
-    require(isinstance(data, dict) and set(data) <= {"title", "acceptance", "phases", "phase_list"},
-            f"{PLAN_CONFIG} may only hold title, acceptance, phases and phase_list")
+    require(isinstance(data, dict) and set(data) <= {"title", "acceptance", "phases", "phase_list", "needs", "waiting"},
+            f"{PLAN_CONFIG} may only hold title, acceptance, phases, phase_list, needs and waiting")
+    lists = {}
+    for key, default in (("needs", NEEDS), ("waiting", WAITING)):
+        value = data.get(key, sorted(default))
+        require(isinstance(value, list) and all(isinstance(v, str) and NEED_NAME.fullmatch(v) for v in value)
+                and len(set(value)) == len(value),
+                f"{PLAN_CONFIG}: {key} must be a list of distinct names matching [a-z0-9][a-z0-9-]*")
+        require("none" not in value, f"{PLAN_CONFIG}: {key} may not name none, which a section's Needs: none means "
+                                     "as no Need")
+        lists[key] = frozenset(value)
+    if "waiting" not in data:  # by default, the kit's waiting Needs among those the project lists
+        lists["waiting"] = lists["waiting"] & lists["needs"]
+    require(lists["waiting"] <= lists["needs"],
+            f"{PLAN_CONFIG}: waiting names {', '.join(sorted(lists['waiting'] - lists['needs']))}, which needs does not")
     phase_list = data.get("phase_list", list(PHASES))
     require(isinstance(phase_list, list) and phase_list != []
             and all(isinstance(p, int) and not isinstance(p, bool) and 0 <= p <= 999 for p in phase_list)
@@ -1205,7 +1224,8 @@ def plan_config(root=ROOT):
         require(isinstance(name, str) and name.strip() != "", f"{PLAN_CONFIG}: phase {key} needs a name")
         names[int(key)] = name.strip()
     return {"title": title.strip(), "acceptance": acceptance.strip() if acceptance else None, "phases": names,
-            "phase_list": tuple(sorted(phase_list, key=phase_rank))}
+            "phase_list": tuple(sorted(phase_list, key=phase_rank)), "needs": lists["needs"],
+            "waiting": lists["waiting"]}
 
 
 def projection(root=ROOT):
@@ -1354,8 +1374,7 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=No
     if not stamped:
         require(all(settled(d, rows) for d in row.depends),
                 f"open prerequisite, or one resting on a reopened section: {ref}")
-        require(not set(row.needs) & WAITING,
-                f"still waiting on {', '.join(sorted(set(row.needs) & WAITING))}: {ref}")
+        require(not row.waiting, f"still waiting on {', '.join(row.waiting)}: {ref}")
     require(re.fullmatch(r"[0-9a-f]{40}", sha) is not None,
             "the implementation SHA must be a full 40-character commit")
     commit_ok(root, sha)
