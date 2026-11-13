@@ -35,7 +35,7 @@ title: "TODO-02 -- Antigravity and Codex as first-class writers"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Codex route and an Antigravity reviewer in the template pin | -- | [x] |
-| 2 | §2 | Antigravity flags checked against the installed CLI | -- | [ ] |
+| 2 | §2 | Antigravity flags checked against the installed CLI | -- | [x] |
 | 3 | §3 | Antigravity counterparts of the base kit's subagents | §2 | [ ] |
 
 ## 1. Codex route and an Antigravity reviewer in the template pin
@@ -98,13 +98,16 @@ The roadmap says to check every `agy` flag against the current CLI before it shi
 - [x] Never report `ok` from a probe that failed: a CLI that cannot be started is `setup_required` with the launch error, one that exits non-zero is `unexpected` with its exit code even when its output lists every flag, and one that runs past the limit is `setup_required`, with its whole process tree ended (a job object or `taskkill /T` on Windows, its process group elsewhere), since `agy` may be a `.cmd` wrapper whose child would outlive it. Done when: tests cover a launch failure, a non-zero exit with complete help text, and a stub that starts a child and hangs, after which neither the stub nor its child is alive.
 - [x] Run the check against the `agy` installed on this machine and record its version and the result in `kits/reviewer/README.md`. Done when: the README names the version, and any flag reported missing is fixed in `AGY_FLAGS` with the dispatcher test updated.
 - [x] Run `python forge.py self-sync`. Done when: `scripts/review-dispatch.py` equals the kit file.
-- [ ] Commit: `reviewer: doctor checks the Antigravity flags the dispatcher passes`
+- [x] Commit: `reviewer: doctor checks the Antigravity flags the dispatcher passes`
 
 **Corrected 2026-11-13 (plan review):** the check also probes that the CLI accepts the settings payload (`agy --settings <file> agents`, which validates and runs no model), a failed probe is never `ok` (launch failure, non-zero exit, timeout each have their result), and a timed-out probe's whole process tree is ended and proven so with a child-spawning stub.
 
 **Corrected 2026-11-13 (`§1`):** the flags are the ones of the command `§1` proved against `agy` 1.5.8 (`--model`, `--sandbox`, `--settings`, `--print-timeout`, `-p`): `--mode plan` is gone, because headless plan mode refuses the reviewer every command, and `--settings` carries the session's deny rules. The check also covers that the settings key `permissions` is accepted, since `agy` refuses an unknown setting by name.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` and `python -m unittest discover -s kits/reviewer/templates/scripts/tests` end `OK`; adding a flag to `AGY_FLAGS` that the captured help text lacks makes the missing-flag test fail.
+
+> **Verified:** 2026-11-13 | §2 | 3bc3531a887afd8965373a2d981b8d953ffeaba5
+> **Review:** `docs/reviews/d00-t02-s2.json`
 
 ## 3. Antigravity counterparts of the base kit's subagents
 

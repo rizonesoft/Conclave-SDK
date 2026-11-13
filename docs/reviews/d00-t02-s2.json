@@ -1,0 +1,84 @@
+{
+  "ref": "D00 T02 \u00a72",
+  "title": "Antigravity flags checked against the installed CLI",
+  "implementation_sha": "3bc3531a887afd8965373a2d981b8d953ffeaba5",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-reviewer/D00-T02-s2.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s tests and the kit suites (CI Tests run 43453446488 on 582ccf8, which holds the candidate code 585fab5; 3bc3531 adds one record line: quick suite Windows, full suite Linux, kit suites) -> success",
+    "python forge.py doctor . reviewer -> reviewer-flags:hydrogen ok on agy 1.5.8"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-reviewer/D00-T02-s2.md",
+    "verdict": "reconciled",
+    "candidate": "3bc3531a887afd8965373a2d981b8d953ffeaba5",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/00-reviewer/D00-T02-s2.md",
+    "candidate": "8cd0079529197690d63cf334f6e84d5954f13f4e",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "8cd0079529197690d63cf334f6e84d5954f13f4e",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}
