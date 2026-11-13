@@ -3299,6 +3299,17 @@ class HostNeeds(Tree):
     def plan(self, **keys):
         (self.root / "todo/plan.json").write_text(json.dumps(keys), encoding="utf-8")
 
+    def test_a_probe_runs_from_the_project_root_wherever_it_is_asked(self):
+        (self.root / "scripts/check-host.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+        self.plan(needs=["windows-host", "arm64-host", "owner-decision", "gpu"],
+                  probes={"gpu": [sys.executable, "scripts/check-host.py"]})
+        cwd = os.getcwd()
+        try:
+            os.chdir(self.root / "todo")  # a relative probe must not depend on where the graph was asked from
+            self.assertIn("gpu", tg.session_needs(self.root))
+        finally:
+            os.chdir(cwd)
+
     def test_a_probe_that_hangs_is_stopped_with_its_children(self):
         pid_file = self.root / "child.pid"
         script = ("import subprocess, sys, time; "
@@ -3336,8 +3347,8 @@ class HostNeeds(Tree):
                 for line in found:
                     self.assertIn("--have auto", line, f"{agent} {skill}: {line}")
         guard = (REPO / "kits/todo/templates/scripts/campaign_guard.py").read_text(encoding="utf-8")
-        self.assertIn('"query", "ready",\n                                   *extra]', guard)
-        self.assertIn('(["--have", "auto"], [])', guard)
+        self.assertIn('"query", "ready", *extra]', guard)  # the Stop hook's count asks with the set first
+        self.assertIn('for extra in (["--have", "auto"], []):', guard)
 
 
 class Repository(unittest.TestCase):

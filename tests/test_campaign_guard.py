@@ -53,6 +53,19 @@ else:
 """
 
 
+def alive(pid):
+    """Whether process `pid` still runs (tasklist on Windows, signal 0 elsewhere)."""
+    if os.name == "nt":
+        out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+        return str(pid) in out
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
 class Workspace(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -129,6 +142,22 @@ class StopHook(Workspace):
                    "    sys.exit(2)\n"
                    "print(json.dumps([{'ref': 'D00 T01 \\u00a71', 'title': 'Old', 'phase': 0}]))\n")
         self.assertEqual(guard.ready_rows(self.root), (1, "D00 T01 §1  Old"))
+
+    def test_a_graph_past_its_timeout_is_ended_with_its_children(self):
+        pid_file = os.path.join(self.root, "child.pid")
+        self.write("scripts/todo-graph.py", "import subprocess, sys, time\n"
+                   "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+                   f"open(r'{pid_file}', 'w').write(str(p.pid))\n"
+                   "time.sleep(60)\n")
+        started = time.monotonic()
+        self.assertEqual(guard.ready_rows(self.root, timeout=3), (None, ""))
+        self.assertLess(time.monotonic() - started, 30)
+        child = int(open(pid_file).read())
+        for _ in range(50):
+            if not alive(child):
+                break
+            time.sleep(0.1)
+        self.assertFalse(alive(child), "a probe the graph started outlived the Stop hook's query")
 
     def test_no_guard_another_session_or_an_empty_payload_allows(self):
         self.assertIsNone(self.hook())

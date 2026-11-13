@@ -252,6 +252,33 @@ def _acquire_locked(root: str, session: str, phase: int | None, run_file: str, c
             f"job {cron_id}, generation {doc['generation']}, run {doc['run_id']})")
 
 
+def _run_tree(argv: list, cwd: str, timeout: float) -> tuple[int, str, str] | None:
+    """Run `argv` from `cwd` and return (exit, stdout, stderr), or None when it ran past `timeout` or could not start;
+    on a timeout its whole process tree is ended (`taskkill /T` on Windows, its process group elsewhere), so a probe
+    the graph started never outlives the question."""
+    group: dict = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+                   if os.name == "nt" else {"start_new_session": True})
+    try:
+        proc = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, encoding="utf-8", errors="replace", **group)
+    except OSError:
+        return None
+    try:
+        out, err = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        else:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:  # the group ended before the kill
+                pass
+        proc.communicate()
+        return None
+    return proc.returncode, out, err
+
+
 def ready_rows(root: str, timeout: float = 300.0, phase: int | None = None) -> tuple[int | None, str]:
     """How many rows `query ready` offers, and the first one, or (None, "") when the query cannot be read.
 
@@ -262,19 +289,17 @@ def ready_rows(root: str, timeout: float = 300.0, phase: int | None = None) -> t
     """
     # The session's own set (`--have auto`, D03 T01 §10): a row needing a host this session lacks is not runnable
     # here, so it never holds the turn open. A graph without the flag (an older kit, Isotone's) is asked without it.
-    proc = None
+    done = None
     for extra in (["--have", "auto"], []):
-        try:
-            proc = subprocess.run([sys.executable, os.path.join(root, "scripts", "todo-graph.py"), "query", "ready",
-                                   *extra], capture_output=True, text=True, encoding="utf-8", errors="replace",
-                                  cwd=root, timeout=max(timeout, 1.0))
-        except (OSError, subprocess.TimeoutExpired):
+        done = _run_tree([sys.executable, os.path.join(root, "scripts", "todo-graph.py"), "query", "ready", *extra],
+                         root, max(timeout, 1.0))
+        if done is None:
             return None, ""
-        if proc.returncode == 0 or "--have" not in proc.stderr:
+        if done[0] == 0 or "--have" not in done[2]:
             break
-    if proc.returncode != 0:
+    if done[0] != 0:
         return None, ""
-    out = proc.stdout.strip()
+    out = done[1].strip()
     try:
         rows = json.loads(out)
     except ValueError:

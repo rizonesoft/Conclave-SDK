@@ -1712,13 +1712,13 @@ def projections(root=ROOT, sync=False):
 PROBE_TIMEOUT = 10  # seconds a project's probe may take before its Need counts as absent
 
 
-def _run_probe(argv, timeout=PROBE_TIMEOUT):
-    """Whether a project's probe exits 0 within `timeout`, run with no shell; on a timeout its whole process tree is
+def _run_probe(argv, timeout=PROBE_TIMEOUT, cwd=None):
+    """Whether a project's probe exits 0 within `timeout`, run with no shell from `cwd` (the project root); on a timeout its whole process tree is
     stopped (a job's group on POSIX, `taskkill /T` on Windows), so no probe outlives the question."""
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     try:
-        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                creationflags=flags, start_new_session=os.name != "nt")
+        proc = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, creationflags=flags, start_new_session=os.name != "nt")
     except OSError:
         return False
     try:
@@ -1766,7 +1766,7 @@ def session_needs(root=ROOT):
     what the session declares in `CONCLAVE_HAVE` (comma-separated, for what no program can see, such as `attended`)."""
     config = plan_config(root)
     have = builtin_needs()
-    have |= {need for need, argv in config["probes"].items() if _run_probe(argv)}
+    have |= {need for need, argv in config["probes"].items() if _run_probe(argv, cwd=root)}
     have |= {v.strip() for v in os.environ.get("CONCLAVE_HAVE", "").split(",") if v.strip()}
     return have
 
