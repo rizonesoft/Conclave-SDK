@@ -204,7 +204,9 @@ class DryRun(unittest.TestCase):
         self.commit()
         self.foreign_stamp("1" * 40)  # a commit that is in no history
         self.commit()
-        _, found = dry.run(self.source, {"title": "P"}, self.out, adopt=True)
+        manifest, found = dry.run(self.source, {"title": "P"}, self.out, adopt=True)
+        self.assertEqual(manifest["reopened_for_adoption"], ["D00 T01 §1"])  # taken off in the snapshot, then adopted
+        self.assertIn("> **Verified:**", (self.source / "todo/00-workspace/TODO-01-a.md").read_text(encoding="utf-8"))
         self.assertIn("adoption refused: its stamp names no commit on this branch (<stamp>)",
                       [e["class"] for e in found], found)
         self.assertEqual([e["example"]["where"] for e in found if e["class"].startswith("adoption")], ["D00 T01 §1"])

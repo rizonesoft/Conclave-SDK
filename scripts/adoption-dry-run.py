@@ -204,12 +204,35 @@ def classes(faults):
             for name, e in sorted(groups.items(), key=lambda kv: (-len(kv[1]["places"]), kv[0]))]
 
 
+def reopen_in_snapshot(snapshot_dir, refs):
+    """In the snapshot only, take the stamp lines off the sections `refs` names, as the project would before it adopts
+    the rest (the kit's unstamp does the same for a section already adopted)."""
+    wanted = {}
+    for ref in refs:
+        m = re.fullmatch(r"D(\d{2}) T(\d{2}) §(\d+)", ref)
+        if m:
+            wanted.setdefault((m[1], m[2]), set()).add(m[3])
+    for todo in sorted((Path(snapshot_dir) / "todo").glob("[0-9][0-9]-*/TODO-*.md")):
+        name = re.fullmatch(r"TODO-(\d{2})-[a-z0-9-]+\.md", todo.name)
+        numbers = wanted.get((todo.parent.name[:2], name[1] if name else ""), set())
+        if not numbers:
+            continue
+        text = todo.read_text(encoding="utf-8")
+        parts = re.split(r"(?m)^(?=## \d+\. )", text)
+        for i, part in enumerate(parts):
+            head = re.match(r"## (\d+)\. ", part)
+            if head and head[1] in numbers:
+                parts[i] = re.sub(r"(?m)^> \*\*(?:Verified|Review):\*\*[^\n]*\n?", "", part)
+        atomic_write(todo, "".join(parts).encode("utf-8"))
+
+
 def measure(snapshot_dir, adopt=False, phase_map=None):
     """Every fault the kit's validator finds in the snapshot, as (where, message) pairs, in file order. With `adopt`,
     the snapshot's own stamps are first frozen as the kit's `adopt-stamps` freezes them (D03 T01 §9), and a refused
     adoption is a fault of its own, so a failed adoption is measured, never silent."""
     tg = load_graph()
     faults = []
+    reopened = []
     if adopt:
         try:
             tg.adopt_stamps(Path(snapshot_dir), phase_map)
@@ -221,11 +244,19 @@ def measure(snapshot_dir, adopt=False, phase_map=None):
             for cause in causes:  # one fault per refused section, so each cause is measured as its own class
                 where, _, why = cause.partition(": ")
                 faults.append((where if why else "adoption", f"adoption refused: {why or cause}"))
+                if why:
+                    reopened.append(where)
+            if reopened:  # what adoption clears once the project reopens the stamps it cannot adopt
+                reopen_in_snapshot(Path(snapshot_dir), reopened)
+                try:
+                    tg.adopt_stamps(Path(snapshot_dir), phase_map)
+                except tg.Refused as again:
+                    faults.append(("adoption", f"adoption refused again: {str(again).splitlines()[0]}"))
     try:
         tg.graph(Path(snapshot_dir), faults)
     except Exception as exc:  # a crash is a refusal class of its own, never a silent pass
         faults.append(("validator", f"validator crashed: {type(exc).__name__}: {exc}"))
-    return faults
+    return faults, reopened
 
 
 def run(source, config, out, after_copy=None, adopt=False, phase_map=None):
@@ -244,8 +275,9 @@ def run(source, config, out, after_copy=None, adopt=False, phase_map=None):
                                 "scripts/lib"], capture_output=True, text=True, timeout=60)
     manifest["sdk_commit"] = sdk.stdout.strip() or None
     manifest["sdk_validator_dirty"] = bool(sdk_dirty.stdout.strip())
-    faults = measure(out / "snapshot", adopt=adopt, phase_map=phase_map)
+    faults, reopened = measure(out / "snapshot", adopt=adopt, phase_map=phase_map)
     manifest["adopted"] = adopt
+    manifest["reopened_for_adoption"] = reopened  # stamps it could not adopt, taken off in the snapshot alone
     found = classes(faults)
     atomic_write(out / "manifest.json", (json.dumps(manifest, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
     atomic_write(out / "classes.json", (json.dumps({"classes": found, "faults": [list(f) for f in faults]},
