@@ -60,7 +60,7 @@ Sections: 19 | Checklist items: 133
 | [x]    | D02 T02 §8  | Ship counter, ship limit and stall marker                         | none         | 8     |
 | [x]    | D02 T02 §9  | Nothing resumes a run without its operator                        | none         | 6     |
 | [x]    | D02 T02 §10 | Desktop shortcut that starts the run                              | windows-host | 9     |
-| [ ]    | D02 T02 §11 | Operator document and `unattended-run` skill                      | none         | 8     |
+| [x]    | D02 T02 §11 | Operator document and `unattended-run` skill                      | none         | 8     |
 | [x]    | D06 T01 §4  | Codex approval of the global hooks `deploy.py` writes             | none         | 4     |
 
 ### Phase 3: Todo graph that takes a project's shape
@@ -143,6 +143,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 35/74 verified sections, 12 ready to run now.
+Progress: 36/74 verified sections, 11 ready to run now.
 
-Checklist: 309/531 items completed (includes Commit items).
+Checklist: 310/531 items completed (includes Commit items).

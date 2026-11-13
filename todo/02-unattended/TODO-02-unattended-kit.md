@@ -2,7 +2,7 @@
 schema_version: 1
 id: unattended-kit
 domain: 02-unattended
-status: active
+status: done
 title: "TODO-02 -- Unattended kit"
 ---
 
@@ -45,7 +45,7 @@ title: "TODO-02 -- Unattended kit"
 | 8 | §8 | Ship counter, ship limit and stall marker | §7 | [x] |
 | 9 | §9 | Nothing resumes a run without its operator | §7 | [x] |
 | 10 | §10 | Desktop shortcut that starts the run | §5 | [x] |
-| 11 | §11 | Operator document and `unattended-run` skill | §8, §9, §10 | [ ] |
+| 11 | §11 | Operator document and `unattended-run` skill | §8, §9, §10 | [x] |
 
 ## 1. Unattended kit known to `forge.py`
 
@@ -382,13 +382,16 @@ The operator needs one page that says how to start, watch, stop and resume a run
 - [x] Create the Antigravity and Codex copies under `.agents/skills/unattended-run/` and `.codex/skills/unattended-run/` (with `agents/openai.yaml` for Codex), each naming its own hook file (`.claude/settings.json`, `.agents/hooks.json`, `.codex/hooks.json`), and add `skill:unattended-run:<folder>` checks to the unattended kit's doctor in `forge.py`. Done when: a test of all three copies finds the four triggers (start, stop, watch, debug) in the description, the three inside-run prohibitions in the body, a link to `docs/unattended-run.md` that resolves in the installed project, and that agent's own hook file and no other's; and `python forge.py doctor <fresh install> unattended` reports the skill `ok` in all three folders, and `missing` for one removed.
 - [x] Fill `kits/unattended/README.md`: what the kit installs, what it needs (the todo kit and tmux; nothing resumes a run at boot), the install command and what was not lifted from the two projects and why. Done when: a test finds every file under `kits/unattended/templates/` (tests and `__pycache__` aside, which the kit's own folder lists) named in the README's file table, and none named that is not there.
 - [x] Add a fresh-install test to `tests/test_forge.py`: `init --kit todo --kit unattended`, set the profile as the document says, run the doctor, then the kit's own tests in the installed copy (which run the documented lifecycle against a stub agent where tmux is). Done when: it passes, and the doctor reports `missing` for an installed kit file removed afterwards.
-- [ ] Commit: `unattended: operator document and skill`
+- [x] Commit: `unattended: operator document and skill`
 
 **Corrected 2026-11-13 (validation):** the document covers what Phase 2 built since this section was written (runners and `--agent`, `--ships`, the shortcuts, the scheduled-task refusal) and the shortcut's exact invocation, filed here from `D02 T02 §10`; the skill copies name their own hook files and the doctor checks them as the other kits' are; the README's file table is checked against the templates; and the fresh-install test proves the doctor sees a removed file, since a scratch copy of the kit would mean a copy of the SDK.
 
 **Corrected 2026-11-13 (plan review):** the document test parses each invocation with the launcher's own parser and requires an example of each operation; the guide adds read-only attach, detaching and shortcut removal, and the partial and error states with their recovery, each message checked against the code; and the skill tests read the content of all three copies, not only their frontmatter.
 
 **Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` and `python -m unittest discover -s tests -p test_forge.py` end `OK`; naming a command in `docs/unattended-run.md` that the launcher lacks makes the document test fail.
+
+> **Verified:** 2026-11-13 | §11 | 4f9bdcd1cd945d9e0e17f12c84a84a02a45e92ad
+> **Review:** `docs/reviews/d02-t02-s11.json`
 
 ## Verification
 

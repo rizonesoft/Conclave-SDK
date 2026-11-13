@@ -1,0 +1,85 @@
+{
+  "ref": "D02 T02 \u00a711",
+  "title": "Operator document and `unattended-run` skill",
+  "implementation_sha": "4f9bdcd1cd945d9e0e17f12c84a84a02a45e92ad",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-unattended/D02-T02-s11.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "CI tests.yml run 43346015545 on 4f9bdcd -> quick suite (Windows) success, full suite (Linux, with the fresh-install test requiring every doctor check ok) success, kit suites (Linux, tmux) success",
+    "python -m unittest discover -s kits/unattended/templates/scripts/tests on Windows -> Ran 222 tests OK (skipped=76)",
+    "a command docs/unattended-run.md names that the launcher lacks (test_the_check_refuses_a_bad_page) -> the document check fails"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-unattended/D02-T02-s11.md",
+    "verdict": "reconciled",
+    "candidate": "4f9bdcd1cd945d9e0e17f12c84a84a02a45e92ad",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/02-unattended/D02-T02-s11.md",
+    "candidate": "77391b7bd79f3c67229a72f71fa10c5061e7da8c",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "77391b7bd79f3c67229a72f71fa10c5061e7da8c",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}
