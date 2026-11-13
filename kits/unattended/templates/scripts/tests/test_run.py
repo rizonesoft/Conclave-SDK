@@ -163,6 +163,18 @@ class CommandTest(unittest.TestCase):
                 self.assertFalse([a for a in argv if a in ("--session-id", "--resume", "--disallowedTools")], argv)
 
 
+RUNNER_CLIS = ("claude", "codex", "agy")
+
+
+def host_path_without_runners(path=None):
+    """The host's PATH without the folders that hold a real runner CLI, so the launcher under test can only ever
+    start the stubs: a test that removes a stub must find no runner, never the host's own."""
+    folders = (os.environ["PATH"] if path is None else path).split(os.pathsep)
+    kept = [folder for folder in folders
+            if folder and not any(os.path.exists(os.path.join(folder, cli)) for cli in RUNNER_CLIS)]
+    return os.pathsep.join(kept)
+
+
 @needs_tmux
 class RunTest(unittest.TestCase):
     def setUp(self):
@@ -181,7 +193,7 @@ class RunTest(unittest.TestCase):
         tmux_dir = base / "tmux"
         tmux_dir.mkdir()
         self.env = {**{k: v for k, v in os.environ.items() if k != "TMUX"},
-                    "PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}", "TMUX_TMPDIR": str(tmux_dir),
+                    "PATH": f"{self.bin}{os.pathsep}{host_path_without_runners()}", "TMUX_TMPDIR": str(tmux_dir),
                     "STUB_LOG": str(self.log), "STUB_CHILD": str(self.child_file), "CONCLAVE_STARTUP_GRACE": "2"}
         patch = unittest.mock.patch.dict(os.environ, self.env, clear=True)
         patch.start()
@@ -670,6 +682,15 @@ class RunTest(unittest.TestCase):
         self.assertNotIn("resume", call["argv"])
         self.assertNotIn(first, call["argv"])
         self.assertIsNone(self.guard())
+    def test_no_real_runner_cli_is_within_reach_of_the_launcher(self):
+        # Found 2026-11-13 on a host with a real agy: a test that removed its stub started the real one.
+        for cli in ("claude", "codex", "agy"):
+            self.assertEqual(shutil.which(cli), str(self.bin / cli))
+            (self.bin / cli).unlink()
+            self.assertIsNone(shutil.which(cli), f"a real {cli} is on the launcher's PATH")
+        for tool in ("git", "tmux"):
+            self.assertIsNotNone(shutil.which(tool), tool)
+
     def with_runners(self):
         self.write_profile(runners={"agy": {"model": "gemini-4-carbon-medium", "effort": "medium"},
                                     "codex": {"model": "gpt-6-astra", "effort": "xhigh"}})
