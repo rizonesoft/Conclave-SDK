@@ -44,7 +44,7 @@ title: "TODO-01 -- Todo graph that takes a project's shape"
 | 9 | §9 | Pre-adoption stamps frozen at adoption | §4 | [ ] |
 | 10 | §10 | Ready rows filtered by the hosts this session reaches | -- | [ ] |
 | 11 | §11 | Root index that lists domains | §7 | [ ] |
-| 12 | §12 | Validation git calls cached per run | -- | [ ] |
+| 12 | §12 | Validation git calls cached per run | -- | [x] |
 | 13 | §13 | Section checks run when its table row cannot be read | §8 | [ ] |
 | 14 | §14 | Frozen files listed by `query frozen` | -- | [ ] |
 | 15 | §15 | Longest chain and filing couplings from `query sequence` | -- | [ ] |
@@ -391,13 +391,16 @@ Both adopting projects keep `todo/TODO-00-INDEX.md` at domain altitude, as the k
 - [x] Prove a cached failure reads as an uncached one: a fixture whose stamped sections repeat failing git lookups (a stamp commit that is not in the history, named by two sections) gives the same non-empty faults with the cache and with it switched off, under `validate` (the first refusal) and `validate --all` (every fault). Done when: both comparisons run in the quick suite (not skipped) and match.
 - [x] Read `todo/plan.json` once per `graph` call in `todo_graph.py`, passing the configuration to `receipts_folder` and the other readers inside it. Done when: a test counts one `plan_config` read per `graph` call.
 - [x] Time `python scripts/todo-graph.py validate` on the SDK's tree on Windows before and after. Done when: the commit body quotes both times, the second under 15 seconds.
-- [ ] Commit: `todo: validation reads each git answer once per run`
+- [x] Commit: `todo: validation reads each git answer once per run`
 
 **Corrected 2026-11-13 (validation):** the git processes start in eleven places in `todo_graph.py`: `_git` (`:259`), `commit_ok` (`:207`), `_head_commits` (`:216`), `build_start` (`:413`, `:416`, `:423`) and `plan_record` (`:470`) call `subprocess.run` themselves. All of them go through one runner that the cache serves. `graph` calls no other entry point (`projection`, `stamp` and `unstamp` call `graph`, not the reverse), so each `graph` call opens its own cache and drops it when it returns or raises, and the validation `stamp` runs after its writes reads fresh.
 
 **Corrected 2026-11-13 (plan review):** the cache's end is proven in the same process across a new commit and a new `todo/plan.json`, after a return and after a refusal, and a cached failure is compared with an uncached one on a fixture whose faults are not empty, in both validation modes.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; clearing the cache before each lookup makes the call-count test fail.
+
+> **Verified:** 2026-11-13 | §12 | 941e1af27881681e36ac81076d023086e8a928c1
+> **Review:** `docs/reviews/d03-t01-s12.json`
 
 ## 13. Section checks run when its table row cannot be read
 

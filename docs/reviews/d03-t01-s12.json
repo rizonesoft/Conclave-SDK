@@ -1,0 +1,84 @@
+{
+  "ref": "D03 T01 \u00a712",
+  "title": "Validation git calls cached per run",
+  "implementation_sha": "941e1af27881681e36ac81076d023086e8a928c1",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-todo-graph/D03-T01-s12.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s tests (CI Tests run 43403290943 on ef8fb13, which holds 941e1af and only records past it: quick suite Windows, full suite Linux, kit suites) -> success",
+    "python scripts/todo-graph.py validate -> valid: 82 sections in 9.2 s on Windows (61 s before)"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-todo-graph/D03-T01-s12.md",
+    "verdict": "reconciled",
+    "candidate": "941e1af27881681e36ac81076d023086e8a928c1",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/03-todo-graph/D03-T01-s12.md",
+    "candidate": "a780fe7f16ad0c111a4f5e2a422ee41452a902ca",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "a780fe7f16ad0c111a4f5e2a422ee41452a902ca",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

@@ -80,7 +80,7 @@ Sections: 15 | Checklist items: 95
 | [ ]    | D03 T01 §9  | Pre-adoption stamps frozen at adoption                    | none  | 8     |
 | [ ]    | D03 T01 §10 | Ready rows filtered by the hosts this session reaches     | none  | 5     |
 | [ ]    | D03 T01 §11 | Root index that lists domains                             | none  | 5     |
-| [ ]    | D03 T01 §12 | Validation git calls cached per run                       | none  | 6     |
+| [x]    | D03 T01 §12 | Validation git calls cached per run                       | none  | 6     |
 | [ ]    | D03 T01 §13 | Section checks run when its table row cannot be read      | none  | 6     |
 | [ ]    | D03 T01 §14 | Frozen files listed by `query frozen`                     | none  | 3     |
 | [ ]    | D03 T01 §15 | Longest chain and filing couplings from `query sequence`  | none  | 5     |
@@ -153,6 +153,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 43/84 verified sections, 19 ready to run now.
+Progress: 44/84 verified sections, 18 ready to run now.
 
-Checklist: 376/595 items completed (includes Commit items).
+Checklist: 377/595 items completed (includes Commit items).
