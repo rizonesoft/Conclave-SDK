@@ -39,7 +39,7 @@ Sections: 9 | Checklist items: 79
 
 ### Phase 2: Unattended running
 
-Sections: 19 | Checklist items: 127
+Sections: 19 | Checklist items: 130
 
 | Status | Reference   | Deliverable                                                       | Needs        | Items |
 | ------ | ----------- | ----------------------------------------------------------------- | ------------ | ----- |
@@ -59,7 +59,7 @@ Sections: 19 | Checklist items: 127
 | [x]    | D02 T02 §7  | Heartbeat that nudges an idle run and records a dead one as ended | none         | 6     |
 | [x]    | D02 T02 §8  | Ship counter, ship limit and stall marker                         | none         | 8     |
 | [ ]    | D02 T02 §9  | Nothing resumes a run without its operator                        | none         | 6     |
-| [ ]    | D02 T02 §10 | Desktop shortcut that starts the run                              | windows-host | 5     |
+| [ ]    | D02 T02 §10 | Desktop shortcut that starts the run                              | windows-host | 8     |
 | [ ]    | D02 T02 §11 | Operator document and `unattended-run` skill                      | none         | 6     |
 | [x]    | D06 T01 §4  | Codex approval of the global hooks `deploy.py` writes             | none         | 4     |
 
@@ -145,4 +145,4 @@ Sections: 3 | Checklist items: 16
 
 Progress: 33/74 verified sections, 13 ready to run now.
 
-Checklist: 292/525 items completed (includes Commit items).
+Checklist: 292/528 items completed (includes Commit items).
