@@ -44,7 +44,7 @@ title: "TODO-02 -- Unattended kit"
 | 7 | §7 | Heartbeat that nudges an idle run and records a dead one as ended | §5 | [x] |
 | 8 | §8 | Ship counter, ship limit and stall marker | §7 | [x] |
 | 9 | §9 | Nothing resumes a run without its operator | §7 | [x] |
-| 10 | §10 | Desktop shortcut that starts the run | §5 | [ ] |
+| 10 | §10 | Desktop shortcut that starts the run | §5 | [x] |
 | 11 | §11 | Operator document and `unattended-run` skill | §8, §9, §10 | [ ] |
 
 ## 1. Unattended kit known to `forge.py`
@@ -345,7 +345,7 @@ One double-click starts the run. RasterFold's shortcut does this and is not vers
 - [x] Refuse in `unattended-shortcut.ps1`, before any file is written, a distro that `wsl.exe -l -q` does not list (read with `WSL_UTF8=1`, since its list is UTF-16 otherwise), a project path that does not exist in it, a missing `-Icon` and a profile it cannot read. Done when: each refusal is shown with its message and exit 1, and no link exists afterwards.
 - [x] Translate the project path to its path in WSL in `unattended-shortcut.ps1`: a Windows-drive path through `wsl.exe -d <distro> -- wslpath -a` (`D:\x` is `/mnt/d/x`), a `\\wsl.localhost\<distro>\...` or `\\wsl$\<distro>\...` path to its Linux path, refused when its distro is not `-Distro`, and a Linux path as it is. Done when: tests find `/mnt/d/...` for a Windows drive, `/home/...` for a UNC path of the same distro, and a refusal for a UNC path of another.
 - [x] Prove the shortcut live on this machine: in a fresh `forge.py init --kit todo --kit unattended` scratch project, `pwsh scripts/unattended-shortcut.ps1 -Distro <the real distro> -Icon <an icon> -ShortcutDir <scratch>` writes the links, and running one's read-back target through the real `wsl.exe` reaches `unattended-run.py start --agent` in the project's folder in that distro, whose preflight refuses a tool the scratch profile requires and nobody has, so the run stays on screen until Enter and no agent starts. Done when: the findings file holds the links' read-back and that run's output (the FAIL line and the wait for Enter), and the scratch links and icons are removed.
-- [ ] Commit: `unattended: desktop shortcut that starts the run`
+- [x] Commit: `unattended: desktop shortcut that starts the run`
 
 **Corrected 2026-11-12 (owner):** the launchers take the shape of Office's and Isotone's: named `<Project> Claude campaign` and `<Project> Carbon campaign`, each with the project's icon and its runner's badge in the corner. `scripts/campaign-icon.py` (built with the SDK's own launchers, `scripts/start-run.ps1`) renders it with the standard library alone; `start` takes the runner as `--agent` over the profile's `agent`.
 
@@ -356,6 +356,9 @@ One double-click starts the run. RasterFold's shortcut does this and is not vers
 **Corrected 2026-11-13 (build):** the live proof stops at the preflight instead of starting a stub agent: the link's command finds the agent on the WSL login shell's `PATH`, where the real CLIs are, and a stub could only go there by editing the operator's shell profile, while a real agent started unattended spends money; the run's start with an agent is proven by `RunTest`'s stubs and by `D02 T02 §6`'s live runs. Reversing it means a stub-agent proof in a throwaway WSL user.
 
 **Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` ends `OK`; in a fresh `forge.py init --kit todo --kit unattended` scratch project on Windows, `pwsh scripts/unattended-shortcut.ps1 -Distro <distro> -Icon <icon> -ShortcutDir <scratch>` creates links whose targets read back as `wsl.exe`, and a wrong distro name exits 1 and creates nothing. **Corrected 2026-11-13 (completion review):** each link targets PowerShell (`pwsh.exe`), which runs `wsl.exe -d <distro> --cd <project in WSL> --exec bash -lc <start command>` (`--exec`, not `--`, so the login shell does not parse the command again), and says a failure of WSL itself and waits for Enter too (round 1 of the section).
+
+> **Verified:** 2026-11-13 | §10 | 67823124492ede8e09052d87b5964e2169faf664
+> **Review:** `docs/reviews/d02-t02-s10.json`
 
 ## 11. Operator document and `unattended-run` skill
 

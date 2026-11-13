@@ -1,0 +1,87 @@
+{
+  "ref": "D02 T02 \u00a710",
+  "title": "Desktop shortcut that starts the run",
+  "implementation_sha": "67823124492ede8e09052d87b5964e2169faf664",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-unattended/D02-T02-s10.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "CI tests.yml run 43340772085 on 6782312 -> quick suite (Windows) success, full suite (Linux) success, kit suites (Linux, tmux) success",
+    "python -m unittest discover -s kits/unattended/templates/scripts/tests on Windows -> Ran 216 tests OK (skipped=76)",
+    "pwsh scripts/unattended-shortcut.ps1 -Distro Ubuntu -Icon <icon> -ShortcutDir <scratch> in a fresh scratch install, live -> links read back as pwsh.exe running wsl.exe --exec; activated, both runners reached start --agent and its preflight; a wrong distro exits 1 (test)"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-unattended/D02-T02-s10.md",
+    "verdict": "filed",
+    "candidate": "67823124492ede8e09052d87b5964e2169faf664",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": [
+      "D02 T02 \u00a711"
+    ]
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/02-unattended/D02-T02-s10.md",
+    "candidate": "1d71a26e7d89a16d6ba635c9c39a2b2ad5c0be89",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "1d71a26e7d89a16d6ba635c9c39a2b2ad5c0be89",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}
