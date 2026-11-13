@@ -136,14 +136,18 @@ def check_reviewer_effort(name, entry):
     if cli == "agy":
         if "effort" in entry:
             raise Refused(f"reviewer {name!r}: Antigravity carries the effort in the model name, so set no effort")
-        # Antigravity also serves Anthropic and OpenAI models (`agy models`), so the CLI alone does not say the
-        # family: the other-family rule holds only for Google's own models (D00 T02 §1).
-        if not entry["model"].startswith("gemini-"):
-            raise Refused(f"reviewer {name!r}: an Antigravity reviewer's model must be one of Google's (gemini-...), "
-                          f"since agy also runs other families' models: {entry['model']}")
+
     # Optional: the reviewer's effort is what a pin without a [schedule] runs at; without one, its CLI decides.
     elif "effort" in entry and not _one_of(entry["effort"], EFFORTS[cli]):
         raise Refused(f"reviewer {name!r} needs effort = one of {', '.join(EFFORTS[cli])}")
+
+
+def check_reviewer_family(name, entry):
+    """Rests on a sound `cli` and `model`. Antigravity also serves Anthropic and OpenAI models (`agy models`), so its
+    CLI alone does not say the family: the other-family rule holds only for Google's own models (D00 T02 §1)."""
+    if entry["cli"] == "agy" and not entry["model"].startswith("gemini-"):
+        raise Refused(f"reviewer {name!r}: an Antigravity reviewer's model must be one of Google's (gemini-...), "
+                      f"since agy also runs other families' models: {entry['model']}")
 
 
 def check_reviewer(name, entry):
@@ -152,6 +156,7 @@ def check_reviewer(name, entry):
     check_reviewer_cli(name, entry)
     check_reviewer_model(name, entry)
     check_reviewer_effort(name, entry)
+    check_reviewer_family(name, entry)
 
 
 def check_writers(routes):
@@ -245,6 +250,8 @@ def faults(path=PIN, data=None):
                             holds(check_reviewer_model, name, entry)]
             if sound_fields[1]:
                 sound_fields.append(holds(check_reviewer_effort, name, entry))
+            if sound_fields[1] and sound_fields[2]:  # the family rests on both the cli and the model
+                sound_fields.append(holds(check_reviewer_family, name, entry))
             if all(sound_fields):
                 good[name] = entry
     routes = pin.get("routes")

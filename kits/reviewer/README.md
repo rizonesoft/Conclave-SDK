@@ -15,9 +15,15 @@ A route names exactly one reviewer, never of the writer's own model family: the 
 | Reviewer | CLI | Model | Effort |
 | --- | --- | --- | --- |
 | `astra` | `codex exec`, read-only sandbox | `gpt-6-astra` | `medium` |
-| `hydrogen` | `agy`, plan mode in its sandbox | `gemini-4-hydrogen-medium` | in the model name |
+| `hydrogen` | `agy`, in its sandbox with write tools denied | `gemini-4-hydrogen-medium` | in the model name |
 
-Claude writes and never reviews, so no installed route names a Claude reviewer, though the dispatcher can run one (`cli = "claude"`, plan mode). An Antigravity reviewer carries its effort in the model name, which must agree with the schedule's, and its model must be one of Google's (`gemini-...`): `agy` also runs other families' models, and a route never names the writer's own family. Change reviewers, models, routes or the schedule only in `.conclave/reviewers.toml`. The pin is a starting point the project owns once installed, not a link back to the SDK.
+Claude writes and never reviews, so no installed route names a Claude reviewer, though the dispatcher can run one (`cli = "claude"`, plan mode). An Antigravity reviewer carries its effort in the model name, which must agree with the schedule's, and its model must be one of Google's (`gemini-...`): `agy` also runs other families' models, and a route never names the writer's own family.
+
+### How the Antigravity reviewer is run, and the proof
+
+The dispatcher runs `agy --model <model> --sandbox --settings <file> --print-timeout <n>s -p=<prompt>`, the settings file holding `{"permissions": {"deny": ["write_file(*)", "mcp(*)"]}}` for that session only. It passes no `--mode`: measured on `agy` 1.5.8 (2026-11-13), headless `--mode plan` refuses every shell command, `git show` and `git log` included, whatever a `permissions.allow` rule, a trusted workspace or a `PreToolUse` hook's `allow` says, and a run with one refused tool prints nothing, so a reviewer there returned no review. In the sandbox a command runs and cannot write: a file write by Python and by PowerShell, `git commit` and `git tag` were each refused inside the repository, and writes to the parent folder, the home folder and another repository were refused too (only the temp folder took one), while the deny rules refused the agent's own `write_file` and `edit_file` calls. `--mode auto` is not offered to every account (`agy` then falls back to its default mode), which is why none is passed.
+
+Proof, 2026-11-13: `python scripts/review-dispatch.py --kind round --writer codex` under the installed pin reached `hydrogen` (`gemini-4-hydrogen-medium`, `agy` 1.5.8) on commit `169dc94` and recorded its review in 70 seconds, with its six `LENS` lines, `HIGHEST: P1` and `OVERALL: needs-attention`, the working tree and `HEAD` unchanged. Its P1 was real (the pin loader's family check read a malformed model before checking it) and is fixed with a test. A reviewer that prints nothing now has its own first stderr line in the recorded reason. Change reviewers, models, routes or the schedule only in `.conclave/reviewers.toml`. The pin is a starting point the project owns once installed, not a link back to the SDK.
 
 ## The review schedule
 

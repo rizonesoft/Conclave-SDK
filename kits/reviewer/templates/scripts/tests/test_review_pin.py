@@ -442,6 +442,18 @@ class Faults(unittest.TestCase):
         for text in (HEAD, ROTATION, THREE_PASS, EARLIER_THREE_PASS):
             self.assertEqual(self.found(text), [])
 
+    def test_an_antigravity_reviewer_with_a_malformed_model_is_reported_not_raised(self):
+        # D00 T02 §1, found by the Antigravity reviewer's own first live review: the family rule read the model
+        # before the model was known to be sound, so `--check --all` crashed on these pins.
+        agy = HEAD.replace('cli = "codex"\nmodel = "gpt-6-astra"\neffort = "medium"', 'cli = "agy"\nmodel = 123')
+        self.assertEqual(self.found(agy), ["reviewer 'astra' has a malformed model"])
+        missing = HEAD.replace('cli = "codex"\nmodel = "gpt-6-astra"\neffort = "medium"', 'cli = "agy"')
+        self.assertEqual(self.found(missing), ["reviewer 'astra' has a malformed model"])
+        foreign = HEAD.replace('cli = "codex"\nmodel = "gpt-6-astra"\neffort = "medium"',
+                               'cli = "agy"\nmodel = "claude-opus-5-5-high"')
+        self.assertEqual(self.found(foreign), [self.first(foreign)])
+        self.assertIn("must be one of Google's", self.found(foreign)[0])
+
     def test_three_independent_faults_are_all_reported(self):
         bad = THREE_PASS.replace("pass_cap = 45", "pass_cap = 2").replace(
             'blocking = ["P1", "P2"]', 'blocking = ["P2"]').replace(

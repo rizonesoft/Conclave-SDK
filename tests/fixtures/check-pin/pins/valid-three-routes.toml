@@ -24,8 +24,9 @@ cli = "codex"
 model = "gpt-6-astra"
 effort = "medium"
 
-# Gemini 4 Hydrogen through the Antigravity CLI (`--mode plan --sandbox`),
-# reviewing Codex's work. Antigravity carries the effort in the model name and
+# Gemini 4 Hydrogen through the Antigravity CLI, reviewing Codex's work: in
+# its sandbox, with its file-writing and MCP tools denied for the session
+# (plan mode would refuse the reviewer every command, `git show` included). Antigravity carries the effort in the model name and
 # runs other families' models too, so the model is a Gemini one at the effort
 # every [schedule] pass sets below (`agy models` lists them).
 [reviewers.hydrogen]

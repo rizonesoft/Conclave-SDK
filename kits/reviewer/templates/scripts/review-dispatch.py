@@ -19,8 +19,9 @@ with `--json`, `{"ok": true, "schema_version", "reviewers", "routes", "schedule"
 `schedule` key only when the pin has one) and exit 0, or `{"ok": false, "error": "<the Refused message>"}` and exit 2;
 without `--json`, `ok` or `refused: <message>`.
 
-Reviewers run read-only in the repository root: Codex in its read-only sandbox, Antigravity in plan mode inside its
-sandbox, Claude Code in plan mode. The script prints a JSON summary; `--record` also appends a `## Round N` section to
+Reviewers run read-only in the repository root: Codex in its read-only sandbox, Antigravity inside its sandbox with
+its file-writing and MCP tools denied by session-only settings (never plan mode, which refuses it every command),
+Claude Code in plan mode. The script prints a JSON summary; `--record` also appends a `## Round N` section to
 the findings file with an atomic write, and writes nothing (exit 2, the summary still printed) to a findings file it
 cannot read back. Works the same from PowerShell and from WSL. Stdlib only.
 
@@ -214,8 +215,22 @@ def command(reviewer, executable, prompt, prompt_path, output_path, timeout, eff
     shim = Path(executable).suffix.lower() in (".cmd", ".bat")
     if shim or len(prompt.encode()) > ARGV_PROMPT_LIMIT or len(prompt) > ARGV_PROMPT_LIMIT:
         text = f"Follow the review instructions in the file {prompt_path} exactly. Do not modify any file."
-    return [executable, "--model", model, "--mode", "plan", "--sandbox", "--print-timeout", f"{timeout}s",
-            f"-p={text}"], None
+    return [executable, "--model", model, "--sandbox", "--settings", str(agy_settings_path(output_path)),
+            "--print-timeout", f"{timeout}s", f"-p={text}"], None
+
+
+# An Antigravity reviewer is read-only by its sandbox and these session-only rules, never by plan mode: headless plan
+# mode refuses every shell command, `git show` included, whatever allow-rule, trusted workspace or hook says (measured
+# on agy 1.5.8, D00 T02 §1), so a reviewer there can read no commit and prints nothing. In the sandbox a command runs
+# but cannot write inside or outside the repository (a commit, a tag and a file write were each refused; only the temp
+# folder takes a write), and the deny rules refuse the agent's own file-writing and MCP tools. `--settings` is never
+# saved; it is a file, so a Windows .cmd shim never re-parses JSON as commands.
+AGY_REVIEW_SETTINGS = {"permissions": {"deny": ["write_file(*)", "mcp(*)"]}}
+
+
+def agy_settings_path(output_path):
+    """Where the dispatcher writes AGY_REVIEW_SETTINGS for one review: beside the reviewer's other scratch files."""
+    return Path(output_path).with_name("agy-settings.json")
 
 
 # Win32 job objects, by ctypes (standard library): a reviewer started suspended and assigned to a job set to kill on
@@ -397,6 +412,8 @@ def run(argv, stdin_text, timeout, watched):
     windows = os.name == "nt"
     group = {"creationflags": CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED} if windows else {"start_new_session": True}
     stdout_path = watched[0]
+    # stderr is kept only when the caller watches a third file for it (bounded like the others); otherwise discarded.
+    errors = open(watched[2], "wb") if len(watched) > 2 else None
     with open(stdout_path, "wb") as output:
         job = process = gate = status = None
         step = "create job"
@@ -421,7 +438,8 @@ def run(argv, stdin_text, timeout, watched):
                 try:
                     process = subprocess.Popen(launch, cwd=ROOT,
                                                stdin=subprocess.PIPE if stdin_text is not None else subprocess.DEVNULL,
-                                               stdout=output, stderr=subprocess.DEVNULL, pass_fds=passed, **group)
+                                               stdout=output, stderr=errors or subprocess.DEVNULL, pass_fds=passed,
+                                               **group)
                 finally:
                     for fd in passed:
                         os.close(fd)
@@ -471,6 +489,8 @@ def run(argv, stdin_text, timeout, watched):
                         process.stdin.close()
                     except OSError:
                         pass
+            if errors is not None:
+                errors.close()
     if process.returncode != 0:
         return None, f"exited {process.returncode}"
     if any(path.is_file() and path.stat().st_size > MAX_OUTPUT_BYTES for path in watched):
@@ -535,15 +555,23 @@ def review(pin, writer, prompt_path, timeout, plan=None, kind="round"):
             prompt_file = tmp / "prompt.md"
             prompt_file.write_text(prompt, encoding="utf-8", newline="\n")
         argv, stdin_text = command(reviewer, executable, prompt, prompt_file, message_path, timeout, effort)
-        _, problem = run(argv, stdin_text, timeout, [stdout_path, message_path])
+        if reviewer["cli"] == "agy":
+            agy_settings_path(message_path).write_text(json.dumps(AGY_REVIEW_SETTINGS), encoding="utf-8")
+        stderr_path = tmp / "stderr.txt"
+        _, problem = run(argv, stdin_text, timeout, [stdout_path, message_path, stderr_path])
+        said = ""
         if problem is None:
             # Codex writes its final message to the -o file; stdout carries its progress, not the review.
             source = message_path if reviewer["cli"] == "codex" else stdout_path
             text = decode_reply(source.read_bytes()) if source.is_file() else ""
+            if not text.strip() and stderr_path.is_file():
+                # A CLI that printed no review often says why on stderr (a denied tool, a sign-in): its first line.
+                lines = [x.strip() for x in stderr_path.read_bytes().decode("utf-8", "replace").splitlines() if x.strip()]
+                said = lines[0][:300] if lines else ""
     finally:
         remove_scratch(tmp)
     if problem is None and not (text or "").strip():
-        problem = "returned no review"
+        problem = "returned no review" + (f": {said}" if said else "")
     if problem is None:
         problem = blocked(text)
     if problem:

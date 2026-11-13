@@ -47,7 +47,9 @@ FAKE_CLI = textwrap.dedent('''\
         path = args[-1][len(pointer):].split(" exactly.")[0]
         from_file = open(path).read() if os.path.isfile(path) else None
     with open(os.environ["FAKE_LOG"], "a") as log:
-        log.write(json.dumps({"cli": name, "argv": args, "stdin": stdin, "cwd": os.getcwd(), "from_file": from_file}) + "\\n")
+        settings = open(args[args.index("--settings") + 1]).read() if "--settings" in args else None
+        log.write(json.dumps({"cli": name, "argv": args, "stdin": stdin, "cwd": os.getcwd(), "from_file": from_file,
+                              "settings": settings}) + "\\n")
     if mode in ("sleepchild", "floodchild"):
         # The reviewer starts a child that sleeps 60 s, then hangs (sleepchild) or floods stdout (floodchild).
         child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
@@ -1317,6 +1319,24 @@ class Schedule(Harness):
         self.assertEqual(self.calls(), [])
 
 
+class SilentReviewer(Harness):
+    """A reviewer that prints no review but says why on stderr: its words are the recorded reason (D00 T02 §1)."""
+
+    def test_the_reason_carries_the_cli_s_own_first_stderr_line(self):
+        fake = Path(self._tmp.name) / "fake_cli.py"
+        fake.write_text("import sys\nsys.stderr.write('\\njetski: no output produced: a tool was auto-denied.\\nmore\\n')\n",
+                        encoding="utf-8")
+        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt))
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(summary["failover"][0]["reason"],
+                         "returned no review: jetski: no output produced: a tool was auto-denied.")
+
+    def test_a_silent_reviewer_with_nothing_on_stderr_is_still_no_review(self):
+        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), codex="empty")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(summary["failover"][0]["reason"], "returned no review")
+
+
 class MultiCli(Harness):
     """The Antigravity and Claude Code reviewers: each writer family is reviewed by another family, read-only."""
 
@@ -1346,7 +1366,7 @@ class MultiCli(Harness):
         super().setUp()
         (self.repo / ".conclave/reviewers.toml").write_text(self.PIN, encoding="utf-8")
 
-    def test_gemini_runs_in_plan_mode_with_the_prompt_as_the_p_value(self):
+    def test_gemini_runs_sandboxed_under_deny_rules_with_the_prompt_as_the_p_value(self):
         result, summary = self.dispatch("--writer", "codex", "--prompt", str(self.prompt))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((summary["reviewer"], summary["model"], summary["effort"]), ("gemini", "gemini-4-argon-high", None))
@@ -1354,7 +1374,12 @@ class MultiCli(Harness):
         (call,) = self.calls()
         self.assertEqual(call["cli"], "agy")
         self.assertIn("--sandbox", call["argv"])
-        self.assertEqual(call["argv"][call["argv"].index("--mode") + 1], "plan")
+        # Never plan mode: headless plan mode refuses every shell command, so the reviewer could read no commit
+        # (D00 T02 §1, measured on agy 1.5.8). Read-only comes from the sandbox and the session's deny rules.
+        self.assertNotIn("--mode", call["argv"])
+        self.assertNotIn("--dangerously-skip-permissions", call["argv"])
+        self.assertEqual(json.loads(call["settings"]), {"permissions": {"deny": ["write_file(*)", "mcp(*)"]}})
+        self.assertFalse(Path(call["argv"][call["argv"].index("--settings") + 1]).exists(), "the settings file is scratch")
         if os.name == "nt":
             # The fake is a .cmd shim on Windows, so the prompt must arrive by file, never as argument text.
             self.assertTrue(call["argv"][-1].startswith("-p=Follow the review instructions in the file "))
