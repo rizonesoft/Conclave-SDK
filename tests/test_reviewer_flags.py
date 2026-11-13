@@ -55,6 +55,9 @@ elif "--settings" in args:
     if mode == "rejects-settings":
         sys.stderr.write('Error: --settings: unknown setting "permissions"\n')
         sys.exit(1)
+    if mode == "agents-fails":
+        sys.stderr.write("Failed to start: open installation_id: Access is denied.\n")
+        sys.exit(1)
     print("No agents.")
 '''
 
@@ -214,15 +217,79 @@ class DoctorCheck(unittest.TestCase):
             time.sleep(0.1)
         self.assertEqual([p for p in pids if alive(p)], [], "the stub or its child outlived the probe")
 
+    def path_with_only_the_stub(self):
+        extra = {"PATHEXT": ".CMD;.EXE"} if os.name == "nt" else {}
+        return mock.patch.dict(os.environ, {"PATH": str(self.dir), **extra})
+
     def test_doctor_shows_the_check_for_an_antigravity_reviewer_only(self):
         project = self.dir / "project"
         project.mkdir()
         forge.apply_kit(project, "reviewer")
-        with mock.patch.object(forge.shutil, "which", lambda cli: str(self.agy) if cli == "agy" else None):
+        with self.path_with_only_the_stub():
             checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "reviewer")["checks"]}
         self.assertEqual(checks["reviewer-flags:hydrogen"], "ok")
         self.assertNotIn("reviewer-flags:astra", checks)
-        self.assertEqual(checks["reviewer:astra"], "setup_required")  # codex not installed here: no flags check for it
+        self.assertEqual(checks["reviewer:astra"], "setup_required")  # codex not on this PATH: no flags check for it
+
+    def test_doctor_probes_the_cli_on_path_not_one_in_the_working_directory(self):
+        # Found by Antigravity's review of D00 T02 §2: shutil.which looks in the working directory first on Windows.
+        project = self.dir / "project"
+        project.mkdir()
+        forge.apply_kit(project, "reviewer")
+        name = "agy.cmd" if os.name == "nt" else "agy"
+        decoy = project / name
+        decoy.write_text("@exit 9\r\n" if os.name == "nt" else "#!/bin/sh\nexit 9\n", encoding="utf-8")
+        decoy.chmod(0o755)
+        cwd = os.getcwd()
+        try:
+            os.chdir(project)
+            # Whatever this Python's shutil.which would answer (it differs by version and by environment), doctor
+            # must not ask it: here it names the decoy, as it does on Windows from the working directory.
+            with self.path_with_only_the_stub(), mock.patch.object(forge.shutil, "which", lambda cli: str(decoy)):
+                checks = {c["name"]: c for c in forge.doctor_repo(project, "reviewer")["checks"]}
+        finally:
+            os.chdir(cwd)
+        self.assertEqual(checks["reviewer-flags:hydrogen"]["status"], "ok", checks["reviewer-flags:hydrogen"])
+
+    def test_two_antigravity_reviewers_on_one_cli_are_probed_once(self):
+        project = self.dir / "project"
+        project.mkdir()
+        forge.apply_kit(project, "reviewer")
+        pin = project / ".conclave/reviewers.toml"
+        pin.write_text(pin.read_text(encoding="utf-8").replace(
+            "[routes]", '[reviewers.argon]\ncli = "agy"\nmodel = "gemini-4-argon-medium"\n\n[routes]', 1), encoding="utf-8")
+        calls = []
+        real = forge._agy_flags_check
+        with self.path_with_only_the_stub(), \
+                mock.patch.object(forge, "_agy_flags_check", lambda *a: calls.append(a[1]) or real(*a)):
+            checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "reviewer")["checks"]}
+        self.assertEqual((checks["reviewer-flags:hydrogen"], checks["reviewer-flags:argon"]), ("ok", "ok"))
+        self.assertEqual(len(calls), 1)
+
+    def test_a_settings_probe_that_fails_for_another_reason_is_not_called_a_refusal(self):
+        self.mode("agents-fails")
+        status, detail = self.check()
+        self.assertEqual(status, "unexpected")
+        self.assertIn("agents exited 1: Failed to start: open installation_id: Access is denied.", detail)
+        self.assertNotIn("refuses", detail)
+
+    def test_cleanup_does_not_wait_forever_on_a_pipe_a_stray_process_holds(self):
+        self.mode("hang")
+        real = subprocess.Popen.communicate
+        waits = []
+
+        def communicate(proc, *args, **kwargs):
+            if "taskkill" in str(proc.args):
+                return real(proc, *args, **kwargs)
+            waits.append(kwargs.get("timeout"))
+            if len(waits) == 2:  # the wait after the tree is ended: a stray holder keeps the pipe open
+                raise subprocess.TimeoutExpired(proc.args, kwargs.get("timeout"))
+            return real(proc, *args, **kwargs)
+
+        with mock.patch.object(subprocess.Popen, "communicate", communicate):
+            code, _, problem = forge._probe([str(self.agy), "--help"], timeout=3)
+        self.assertEqual((code, problem), (None, "no answer within 3 seconds"))
+        self.assertEqual(waits[1], 5, "the cleanup wait is bounded")
 
 
 if __name__ == "__main__":

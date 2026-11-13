@@ -1294,7 +1294,12 @@ def _probe(argv: list, timeout: float | None = None) -> tuple[int | None, str, s
             except ProcessLookupError:  # the group ended before the kill
                 pass
         proc.kill()
-        proc.communicate()
+        try:
+            # Bounded: a grandchild that left the group can hold the output pipe open long after the tree is ended.
+            proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            if proc.stdout is not None:
+                proc.stdout.close()
 
     try:
         out, _ = proc.communicate(timeout=timeout)
@@ -1329,9 +1334,12 @@ def _agy_flags_check(dispatch, executable: str) -> tuple[str, str]:
     if code is None:
         return "setup_required", f"{executable} --settings: {problem}"
     said = next((line.strip() for line in text.splitlines() if "--settings:" in line), "")
-    if code != 0 or said:
-        return "unexpected", (f"{executable} refuses the dispatcher's settings"
-                              + (f": {said}" if said else f" (exit {code})"))
+    if said:
+        return "unexpected", f"{executable} refuses the dispatcher's settings: {said}"
+    if code != 0:
+        # Not a refusal of the settings: the CLI failed for a reason of its own (it cannot start, it is not signed in).
+        first = next((line.strip() for line in text.splitlines() if line.strip()), "no output")
+        return "unexpected", f"{executable} --settings <file> agents exited {code}: {first[:200]}"
     code, text, problem = _probe([executable, "--version"])
     if code is None:
         return "setup_required", f"{executable} --version: {problem}"
@@ -1360,12 +1368,17 @@ def _doctor_reviewer(target_root: Path, add_check) -> None:
         sk = target_root / agent_dir / "skills/independent-review/SKILL.md"
         add_check(f"skill:independent-review:{agent_dir}", "ok" if sk.is_file() else "missing", sk.as_posix())
     if pin:
+        flags_checked: dict = {}
         for name, reviewer in pin["reviewers"].items():
-            found = shutil.which(reviewer["cli"])
+            # The dispatcher's own lookup, so doctor probes the executable a review would run: on Windows
+            # shutil.which looks in the working directory first, and the dispatcher never does.
+            found = module.find_cli(reviewer["cli"])
             add_check(f"reviewer:{name}", "ok" if found else "setup_required",
                       f"{reviewer['model']} via {found}" if found else f"{reviewer['cli']} CLI not installed; a round routed to this reviewer has no review")
             if found and reviewer["cli"] == "agy":
-                add_check(f"reviewer-flags:{name}", *_agy_flags_check(module, found))
+                if found not in flags_checked:  # one set of probes per executable, however many reviewers use it
+                    flags_checked[found] = _agy_flags_check(module, found)
+                add_check(f"reviewer-flags:{name}", *flags_checked[found])
 
 
 def _doctor_unattended(target_root: Path, add_check, system: str | None = None) -> None:
