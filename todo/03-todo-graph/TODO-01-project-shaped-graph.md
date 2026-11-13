@@ -35,7 +35,7 @@ title: "TODO-01 -- Todo graph that takes a project's shape"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Phase list read from `todo/plan.json` | -- | [x] |
 | 2 | §2 | Needs values and waiting Needs read from `todo/plan.json` | §1 | [x] |
-| 3 | §3 | Caps read from `todo/plan.json` | §1 | [ ] |
+| 3 | §3 | Caps read from `todo/plan.json` | §1 | [x] |
 | 4 | §4 | Receipts folder read from `todo/plan.json` | §1 | [ ] |
 | 5 | §7 | Plan path read from `todo/plan.json` | §4 | [ ] |
 | 6 | §5 | Adoption dry run on RasterFold and Impossible OS | §2, §3, §4, §7 | [ ] |
@@ -121,13 +121,16 @@ The four size caps suit the SDK's own files. A project with longer sections sets
 - [x] Leave the review caps where they are: `REVIEW_ROUND_CAP` and the pass cap belong to the reviewer pin (`.conclave/reviewers.toml`), not `plan.json`. Done when: a test with `"caps": {"pass_cap": 45}` refuses it as an unknown cap name.
 - [x] Name the configured caps beside the defaults wherever the kit's agent guidance states a fixed one: `add-todo`, `create-todo` and `groom-plan` in `.claude/`, `.agents/` and `.codex/`, and `docs/todo-workflow.md`, under `kits/todo/templates/`, then run `python forge.py self-sync`. Done when: each of those files names `todo/plan.json` `caps` beside 30, 55 and 88 where it states them, the three agents' copies match, and `python -m unittest tests.test_forge` passes.
 - [x] Document `caps` in `kits/todo/templates/todo/README.md`, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
-- [ ] Commit: `todo: size caps come from todo/plan.json`
+- [x] Commit: `todo: size caps come from todo/plan.json`
 
 **Corrected 2026-11-13 (plan review):** the agent skills and `docs/todo-workflow.md` state the caps too, so they name the configured ones; `sections_per_file` and both sides of `deliverable_len` get tests both ways, with a lowered cap; the caps are whole numbers with typed refusals and tested bounds; and `items_per_section` starts at 2, the fewest a section can hold (the README's `1 to 30` is corrected with it).
 
 **Corrected 2026-11-13 (validation):** the checks moved (`:942`, `:963` and `:996` are `:954`, `:975` and `:1009`), and the table row cap is read by the plan's projection at `:1260`, which pads every row to the widest Deliverable: a longer `deliverable_len` needs a longer `table_row`, so the README says so and a test shows the plan refusing a 100 character Deliverable under the default row cap and rendering it under a raised one.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; ignoring the configured `items_per_section` makes the 40 item test fail.
+
+> **Verified:** 2026-11-13 | §3 | 0db1979078fc87d3bb49c2be76789ce13b387602
+> **Review:** `docs/reviews/d03-t01-s3.json`
 
 ## 4. Receipts folder read from `todo/plan.json`
 
