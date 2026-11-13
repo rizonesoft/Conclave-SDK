@@ -2303,6 +2303,23 @@ def _reopened(root):
     return found
 
 
+def _adopted_section(root, ref):
+    """An adopted section read from the tree alone (path, number and body, as graph reads its body), so `unstamp`
+    reaches one whose body or receipt changed since adoption, which the graph then leaves out."""
+    import types
+    m = re.fullmatch(r"D(\d{2}) T(\d{2}) §([1-9]\d*)", ref)
+    require(m is not None, f"not a full section reference: {ref}")
+    files = sorted((Path(root) / "todo").glob(f"{m[1]}-*/TODO-{m[2]}-*.md"))
+    require(len(files) == 1, f"no single TODO file for: {ref}")
+    parts = read_text(files[0]).split("---\n", 2)
+    require(len(parts) == 3 and not parts[0], f"unreadable TODO file for: {ref}")
+    head = re.search(r"^## " + m[3] + r"\. .+$", parts[2], re.M)
+    require(head is not None, "unresolved section: " + ref)
+    body = parts[2][head.end():].split("\n## ", 1)[0].strip()
+    require(re.search(r"^> \*\*Verified:\*\*", body, re.M) is not None, f"not stamped: {ref}")
+    return types.SimpleNamespace(ref=ref, path=files[0].relative_to(root).as_posix(), number=int(m[3]), body=body)
+
+
 def _faults_elsewhere(root, ref, path):
     """The tree's faults outside `ref`, its file's own lines and the sections reopened for repair."""
     faults = []
@@ -2317,11 +2334,7 @@ def _unstamp_adopted(root, ref, reason, date):
     it recorded is kept under a revoked name. The section is now open in the project's own format, so the faults
     reopening exposes in it, and in sections reopened before it, are expected; any other fault, before or after the
     change, refuses it and rolls everything back, the registry included."""
-    faults = []
-    rows = graph(root, faults)
-    require(ref in rows, "unresolved section: " + ref)
-    row = rows[ref]
-    require(row.done, f"not stamped: {ref}")
+    row = _adopted_section(root, ref)  # from the tree: a changed body or receipt drops it from the graph
     elsewhere = _faults_elsewhere(root, ref, row.path)
     require(not elsewhere, "unstamp refused: reopening " + ref + " leaves faults elsewhere:\n  " +
             "\n  ".join(elsewhere))
@@ -2330,6 +2343,8 @@ def _unstamp_adopted(root, ref, reason, date):
     data = json.loads(registry_bytes.decode("utf-8"))
     entry = data["adopted"].pop(ref)
     receipt_path = root / entry["review"] if entry["review"] else None
+    if receipt_path is not None and not receipt_path.is_file():
+        receipt_path = None  # the receipt it recorded is gone: nothing to keep as revoked
     revoked_path = None
     if receipt_path is not None:
         revoked_path = receipt_path.with_name(f"{receipt_path.stem}.revoked-{date}{receipt_path.suffix}")
@@ -2346,7 +2361,8 @@ def _unstamp_adopted(root, ref, reason, date):
     text = read_text(path)
     require(text.count(row.body) == 1, f"section body is not unique in {row.path}")
     text = text.replace(row.body, body)
-    line = re.compile(r"^(\|\s*\d+\s*\|\s*§" + str(row.number) + r"\s*\|[^\n]*\|\s*)\[x\](\s*\|)$", re.M)
+    # The box may be ticked or not: adoption reads a section's stamp from its body, whatever its row says.
+    line = re.compile(r"^(\|\s*\d+\s*\|\s*§" + str(row.number) + r"\s*\|[^\n]*\|\s*)\[[x ]\](\s*\|)$", re.M)
     require(len(line.findall(text)) == 1, f"implementation row not found: {ref}")
     text = line.sub(r"\1[ ]\2", text)
     text = re.sub(r"\A(---\n(?:.*\n)*?)status: done\n", r"\1status: active\n", text, count=1)

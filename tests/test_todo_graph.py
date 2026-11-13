@@ -3627,6 +3627,30 @@ class Adoption(Tree):
         (self.root / "phases.json").write_text("{not json", encoding="utf-8")
         self.assertEqual(subprocess.run(cli, capture_output=True).returncode, 2)
 
+    def test_unstamp_reopens_an_adopted_section_that_changed_or_whose_row_is_open(self):
+        # D03 T01 §9 round 1: the refusal says to unstamp; unstamp must reach the changed section, and an open box.
+        for case in ("body", "receipt gone", "open box"):
+            with self.subTest(case):
+                self.tearDown()
+                self.setUp()
+                self.build()
+                todo = self.root / "todo/00-workspace/TODO-01-a.md"
+                if case == "open box":
+                    todo.write_text(todo.read_text(encoding="utf-8").replace("| 1 | §1 | A | -- | [x] |",
+                                                                             "| 1 | §1 | A | -- | [ ] |"),
+                                    encoding="utf-8")
+                tg.adopt_stamps(self.root, {"todo/00-workspace/TODO-02-b.md": 0})
+                if case == "body":
+                    todo.write_text(todo.read_text(encoding="utf-8").replace("- [x] Work.", "- [x] Work!", 1),
+                                    encoding="utf-8")
+                elif case == "receipt gone":
+                    (self.root / "docs/reviews/rf/d00-t01-s1.md").unlink()
+                tg.unstamp(self.root, "D00 T01 §1", "reopened after a change", "2026-11-14")
+                text = todo.read_text(encoding="utf-8")
+                self.assertIn("| 1 | §1 | A | -- | [ ] |", text)
+                self.assertNotIn("> **Verified:**", text.split("## 2.")[0])
+                self.assertNotIn("D00 T01 §1", self.registry()["adopted"])
+
     def test_unstamp_reopens_an_adopted_section_and_rolls_back_on_any_other_fault(self):
         self.build()
         tg.adopt_stamps(self.root, {"todo/00-workspace/TODO-02-b.md": 0})
