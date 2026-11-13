@@ -44,6 +44,22 @@ def lf_bytes(path: Path) -> bytes:
     return path.read_bytes().replace(b"\r\n", b"\n")
 
 
+def _pid_alive(pid: int) -> bool:
+    if os.name == "nt":
+        probe = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+            capture_output=True,
+            text=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return str(pid) in probe.stdout
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+
+
 class Definitions(unittest.TestCase):
     def test_there_is_one_definition_per_claude_subagent_and_no_other(self):
         self.assertEqual(
@@ -87,6 +103,9 @@ class Definitions(unittest.TestCase):
             "a write tool": good.replace(tools_line, "tools: [read_file, run_command, manage_task, write_file]\n"),
             "an edit tool": good.replace(tools_line, "tools: [read_file, run_command, manage_task, edit_file]\n"),
             "wildcard tool": good.replace(tools_line, "tools: [*]\n"),
+            "run_command removed": good.replace(tools_line, "tools: [read_file, manage_task]\n"),
+            "read_file removed": good.replace(tools_line, "tools: [run_command, manage_task]\n"),
+            "extra search_web tool": good.replace(tools_line, "tools: [read_file, run_command, manage_task, search_web]\n"),
             "tools left out": good.replace(tools_line, ""),
             "model inherit": good.replace(model_line, "model: inherit\n"),
             "model concrete id": good.replace(model_line, "model: gemini-4-hydrogen-medium\n"),
@@ -110,6 +129,7 @@ class Definitions(unittest.TestCase):
             for name, text in runner_and_kit_cases.items():
                 with self.subTest(name=name):
                     self.assertNotEqual(text, good)
+                    self.assertTrue(agy_subagent.definition_problems(path.name, text), name)
                     self.assertTrue(problems(path.name, text, claude), name)
                     subject.write_text(text, encoding="utf-8")
                     res = subprocess.run(
@@ -119,9 +139,17 @@ class Definitions(unittest.TestCase):
                         timeout=30,
                     )
                     self.assertEqual(res.returncode, 1, f"{name}: {res.stdout}{res.stderr}")
+            # Invocation refuses a role missing run_command before starting the CLI.
+            subject.write_text(runner_and_kit_cases["run_command removed"], encoding="utf-8")
+            invoked = subprocess.run(
+                [sys.executable, str(RUNNER), "test-runner", "--root", tmp, "-p=hi"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(invoked.returncode, 2, invoked.stdout + invoked.stderr)
 
         kit_only_cases = {
-            "run_command removed": (good.replace(tools_line, "tools: [read_file, manage_task]\n"), claude),
             "another body": (good + "Also edit files.\n", claude),
             "another description": (good.replace("description: Run test suites", "description: Different"), claude),
             "broken claude counterpart": (good, "no frontmatter\n"),
@@ -183,6 +211,15 @@ class Definitions(unittest.TestCase):
         self.assertIn("scripts/agy-subagent.py", gemini_md)
         self.assertIn("no project subagent definitions", codex_md)
 
+    def test_mutation_task_requires_independent_execution_evidence(self):
+        prompt, check = TASKS["mutation-tester"]
+        self.assertNotIn("test_add_sums", prompt)
+        self.assertFalse(check("I could not run test_add_sums"))
+        self.assertFalse(check("| calc.py | NOT APPLIED (0) | test_add_sums | - |"))
+        self.assertFalse(check("| calc.py | yes | test_add_sums | SURVIVED |"))
+        self.assertFalse(check("| calc.py | yes | none | killed |"))
+        self.assertTrue(check("| calc.py | yes (1 occurrence) | test_add_sums | killed |"))
+
 
 class SubagentRunner(unittest.TestCase):
     def setUp(self):
@@ -195,10 +232,12 @@ class SubagentRunner(unittest.TestCase):
         self._tmp.cleanup()
 
     def _make_stub(self, body: str) -> Path:
-        stub_py = Path(self._tmp.name) / "stub_agy.py"
+        stub_dir = Path(self._tmp.name) / "bin with space"
+        stub_dir.mkdir(exist_ok=True)
+        stub_py = stub_dir / "stub_agy.py"
         stub_py.write_text(body, encoding="utf-8")
         if os.name == "nt":
-            wrapper = Path(self._tmp.name) / "stub_agy.cmd"
+            wrapper = stub_dir / "stub_agy.cmd"
             wrapper.write_text(f'@echo off\r\n"{sys.executable}" "{stub_py}" %*\r\n', encoding="utf-8")
             return wrapper
         stub_py.write_text("#!" + sys.executable + "\n" + body, encoding="utf-8")
@@ -208,15 +247,16 @@ class SubagentRunner(unittest.TestCase):
     def test_runner_builds_command_verifies_model_and_cleans_up_temp_settings(self):
         record_file = Path(self._tmp.name) / "recorded.json"
         stub = self._make_stub(
-            "import json, os, pathlib, sys\n"
+            "import json, pathlib, sys\n"
             "args = sys.argv[1:]\n"
+            "stdin_text = sys.stdin.read()\n"
             "settings_path = args[args.index('--settings') + 1]\n"
             "settings = json.loads(pathlib.Path(settings_path).read_text(encoding='utf-8'))\n"
             f"pathlib.Path({str(record_file)!r}).write_text(\n"
-            "    json.dumps({'args': args, 'settings_path': settings_path, 'settings': settings}),\n"
+            "    json.dumps({'args': args, 'stdin': stdin_text, 'settings_path': settings_path, 'settings': settings}),\n"
             "    encoding='utf-8',\n"
             ")\n"
-            "print(json.dumps({'event': 'init', 'init': {'session_id': 'sid-1', 'model': 'gemini-4-hydrogen-medium', 'agent': 'git-runner'}}))\n"
+            "print(json.dumps({'event': 'init', 'conversation_id': 'cid-9', 'init': {'model': 'gemini-4-hydrogen-medium', 'agent': 'git-runner'}}))\n"
             "print(json.dumps({'event': 'tool_call', 'tool_call': {'tool_name': 'run_command', 'state': 'DONE'}}))\n"
             "print(json.dumps({'event': 'result', 'result': {'status': 'SUCCESS', 'response': 'HEAD is abc123'}}))\n"
         )
@@ -242,9 +282,15 @@ class SubagentRunner(unittest.TestCase):
         out = json.loads(res.stdout)
         self.assertEqual(out["model"], "gemini-4-hydrogen-medium")
         self.assertEqual(out["agent"], "git-runner")
+        self.assertEqual(out["conversation_id"], "cid-9")
+        self.assertEqual(out["tool_calls"], ["run_command"])
         self.assertEqual(out["response"], "HEAD is abc123")
         recorded = json.loads(record_file.read_text(encoding="utf-8"))
-        self.assertIn("-p=--status", recorded["args"])
+        self.assertEqual(recorded["stdin"], "--status")
+        self.assertNotIn("-p", recorded["args"])
+        self.assertFalse(any(a.startswith("-p=") for a in recorded["args"]))
+        self.assertIn("--input-format", recorded["args"])
+        self.assertEqual(recorded["args"][recorded["args"].index("--input-format") + 1], "text")
         self.assertEqual(recorded["args"][:4], ["--model", "gemini-4-hydrogen-medium", "--agent", "git-runner"])
         self.assertEqual(
             recorded["settings"],
@@ -257,6 +303,28 @@ class SubagentRunner(unittest.TestCase):
             },
         )
         self.assertFalse(Path(recorded["settings_path"]).exists())
+
+    def test_runner_delivers_large_stdin_prompt_past_windows_argv_limit(self):
+        large_prompt = "trace line: ValueError('boom')\n" * 1600  # ~49,600 chars (> 32,767 Win32 argv limit)
+        expected_sha = hashlib.sha256(large_prompt.encode("utf-8")).hexdigest()
+        stub = self._make_stub(
+            "import hashlib, json, sys\n"
+            "raw = sys.stdin.buffer.read()\n"
+            "digest = hashlib.sha256(raw).hexdigest()\n"
+            "print(json.dumps({'event': 'init', 'init': {'session_id': 's', 'model': 'gemini-4-hydrogen-medium', 'agent': 'git-runner'}}))\n"
+            "print(json.dumps({'event': 'result', 'result': {'status': 'SUCCESS', 'response': f'{len(raw)}:{digest}'}}))\n"
+        )
+        res = subprocess.run(
+            [sys.executable, str(RUNNER), "git-runner", "--root", str(self.root)],
+            input=large_prompt,
+            env={**os.environ, "AGY_BIN": str(stub)},
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=30,
+        )
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertEqual(res.stdout.strip(), f"{len(large_prompt.encode('utf-8'))}:{expected_sha}")
 
     def test_runner_refuses_wrong_runtime_model_or_forbidden_tool_or_bad_name(self):
         wrong_model_stub = self._make_stub(
@@ -319,25 +387,36 @@ class SubagentRunner(unittest.TestCase):
         self.assertIn("timed out", res.stderr)
         child_pid = int(pid_file.read_text(encoding="utf-8").strip())
         deadline = time.monotonic() + 5.0
-        alive = True
-        while time.monotonic() < deadline:
-            if os.name == "nt":
-                probe = subprocess.run(
-                    ["tasklist", "/FI", f"PID eq {child_pid}", "/NH"],
-                    capture_output=True,
-                    text=True,
-                )
-                alive = str(child_pid) in probe.stdout
-            else:
-                try:
-                    os.kill(child_pid, 0)
-                    alive = True
-                except ProcessLookupError:
-                    alive = False
-            if not alive:
-                break
+        while time.monotonic() < deadline and _pid_alive(child_pid):
             time.sleep(0.1)
-        self.assertFalse(alive, f"child pid {child_pid} survived timeout cleanup")
+        self.assertFalse(_pid_alive(child_pid), f"child pid {child_pid} survived timeout cleanup")
+
+    def test_runner_kills_surviving_descendant_even_when_leader_exits_early(self):
+        pid_file = Path(self._tmp.name) / "orphan.pid"
+        early_exit_stub = self._make_stub(
+            "import json, pathlib, subprocess, sys\n"
+            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+            f"pathlib.Path({str(pid_file)!r}).write_text(str(child.pid), encoding='utf-8')\n"
+            "print(json.dumps({'event': 'init', 'init': {'session_id': 's', 'model': 'gemini-4-hydrogen-medium', 'agent': 'git-runner'}}), flush=True)\n"
+            "print(json.dumps({'event': 'result', 'result': {'status': 'SUCCESS', 'response': 'done early'}}), flush=True)\n"
+            "sys.exit(0)\n"
+        )
+        t0 = time.monotonic()
+        res = subprocess.run(
+            [sys.executable, str(RUNNER), "git-runner", "--root", str(self.root), "--timeout", "30", "-p", "hi"],
+            env={**os.environ, "AGY_BIN": str(early_exit_stub)},
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        elapsed = time.monotonic() - t0
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+        self.assertLess(elapsed, 10.0, "runner waited on an inherited pipe instead of returning on leader exit")
+        child_pid = int(pid_file.read_text(encoding="utf-8").strip())
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and _pid_alive(child_pid):
+            time.sleep(0.1)
+        self.assertFalse(_pid_alive(child_pid), f"descendant pid {child_pid} survived after leader exited")
 
 
 # The known-answer fixture: one module, one passing and one failing test, one commit.
@@ -369,9 +448,13 @@ TASKS = {
     ),
     "mutation-tester": (
         "in calc.py change 'return a + b' to 'return a - b', run python -m unittest discover -s tests "
-        "-k test_add_sums (its baseline passes), then restore calc.py byte for byte, and report which "
-        "test failed under the mutation.",
-        lambda r: "test_add_sums" in r,
+        "-k add (its baseline passes), then restore calc.py byte for byte, and report which "
+        "test failed under the mutation and the outcome.",
+        lambda r: (
+            "test_add_sums" in r
+            and re.search(r"\bkilled\b", r, re.I) is not None
+            and re.search(r"\b(?:not applied|survived|could not)\b", r, re.I) is None
+        ),
     ),
 }
 
@@ -487,9 +570,8 @@ class LiveAgents(unittest.TestCase):
                 "--timeout",
                 "240",
                 "--json",
-                "-p",
-                task,
             ],
+            input=task,
             cwd=self.project,
             capture_output=True,
             text=True,
@@ -501,16 +583,20 @@ class LiveAgents(unittest.TestCase):
         self.assertEqual(res.returncode, 0, f"{agent} failed:\nstdout={res.stdout}\nstderr={res.stderr}")
         payload = json.loads(res.stdout)
         reply = payload["response"]
+        tool_calls = payload["tool_calls"]
         self.results[agent] = {
             "model": payload["model"],
             "agent": payload["agent"],
             "elapsed_s": elapsed,
             "right": bool(right(reply)),
-            "tool_calls": payload["tool_calls"],
+            "tool_calls": tool_calls,
             "reply": reply[:240],
         }
         self.assertEqual(payload["model"], "gemini-4-hydrogen-medium")
         self.assertEqual(payload["agent"], agent)
+        self.assertTrue(tool_calls, f"{agent} executed no tools")
+        if agent != "code-explorer":
+            self.assertIn("run_command", tool_calls, f"{agent} never called run_command: {tool_calls}")
         self.assertTrue(right(reply), f"{agent} wrong answer: {reply}")
         self.assertEqual(
             hashlib.sha256((self.project / "calc.py").read_bytes()).hexdigest(),

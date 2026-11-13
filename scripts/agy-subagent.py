@@ -7,11 +7,13 @@ concrete model ID there), while `invoke_subagent` maps `flash` and `pro` to `gem
 the caller's Gemini 4 Carbon model. Each Conclave Antigravity subagent therefore declares `model: flash` (never
 inheriting Carbon), `conclave_model: gemini-4-hydrogen-medium`, `subagent: true`, `mainAgent: true`,
 `inheritMcp: false` and an explicit read-only `tools:` list, and this script both enforces that contract (`--check`)
-and runs a named subagent on `gemini-4-hydrogen-medium` (`agy --model gemini-4-hydrogen-medium --agent <name>`).
+and runs a named subagent on `gemini-4-hydrogen-medium` (`agy --model gemini-4-hydrogen-medium --agent <name>` with
+the prompt piped on `stdin` via `--input-format text`).
 """
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import os
 from pathlib import Path
@@ -21,6 +23,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 PINNED_MODEL = "gemini-4-hydrogen-medium"
 LOADER_MODEL = "flash"
@@ -37,6 +40,146 @@ REQUIRED_KEYS = (
 )
 WRITE_TOOLS = frozenset({"edit_file", "write_file"})
 ALLOWED_TOOLS = frozenset({"read_file", "run_command", "manage_task", "search_web"})
+BASE_SUBAGENT_TOOLS = ["read_file", "run_command", "manage_task"]
+ROLE_TOOLS: dict[str, list[str]] = {
+    "code-explorer": BASE_SUBAGENT_TOOLS,
+    "debug-evidence": BASE_SUBAGENT_TOOLS,
+    "git-runner": BASE_SUBAGENT_TOOLS,
+    "mutation-tester": BASE_SUBAGENT_TOOLS,
+    "test-runner": BASE_SUBAGENT_TOOLS,
+}
+
+CREATE_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+CREATE_SUSPENDED = 0x00000004
+JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS = 9
+JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+
+
+class _IO_COUNTERS(ctypes.Structure):
+    _fields_ = [
+        ("ReadOperationCount", ctypes.c_uint64),
+        ("WriteOperationCount", ctypes.c_uint64),
+        ("OtherOperationCount", ctypes.c_uint64),
+        ("ReadTransferCount", ctypes.c_uint64),
+        ("WriteTransferCount", ctypes.c_uint64),
+        ("OtherTransferCount", ctypes.c_uint64),
+    ]
+
+
+class _JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("PerProcessUserTimeLimit", ctypes.c_int64),
+        ("PerJobUserTimeLimit", ctypes.c_int64),
+        ("LimitFlags", ctypes.c_uint32),
+        ("MinimumWorkingSetSize", ctypes.c_size_t),
+        ("MaximumWorkingSetSize", ctypes.c_size_t),
+        ("ActiveProcessLimit", ctypes.c_uint32),
+        ("Affinity", ctypes.c_size_t),
+        ("PriorityClass", ctypes.c_uint32),
+        ("SchedulingClass", ctypes.c_uint32),
+    ]
+
+
+class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("BasicLimitInformation", _JOBOBJECT_BASIC_LIMIT_INFORMATION),
+        ("IoInfo", _IO_COUNTERS),
+        ("ProcessMemoryLimit", ctypes.c_size_t),
+        ("JobMemoryLimit", ctypes.c_size_t),
+        ("PeakProcessMemoryUsed", ctypes.c_size_t),
+        ("PeakJobMemoryUsed", ctypes.c_size_t),
+    ]
+
+
+_WIN32 = None
+
+
+def _win32_apis():
+    global _WIN32
+    if _WIN32 is None:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
+        kernel32.CreateJobObjectW.restype = ctypes.c_void_p
+        kernel32.SetInformationJobObject.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+        kernel32.SetInformationJobObject.restype = ctypes.c_int
+        kernel32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        kernel32.AssignProcessToJobObject.restype = ctypes.c_int
+        kernel32.TerminateJobObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+        kernel32.TerminateJobObject.restype = ctypes.c_int
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        kernel32.CloseHandle.restype = ctypes.c_int
+        ntdll = ctypes.WinDLL("ntdll")
+        ntdll.NtResumeProcess.argtypes = [ctypes.c_void_p]
+        ntdll.NtResumeProcess.restype = ctypes.c_int32
+        _WIN32 = (kernel32, ntdll)
+    return _WIN32
+
+
+def _create_kill_on_close_job() -> int:
+    kernel32, _ = _win32_apis()
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        raise ctypes.WinError(ctypes.get_last_error())
+    info = _JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+    info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    if not kernel32.SetInformationJobObject(
+        job,
+        JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS,
+        ctypes.byref(info),
+        ctypes.sizeof(info),
+    ):
+        kernel32.CloseHandle(job)
+        raise ctypes.WinError(ctypes.get_last_error())
+    return int(job)
+
+
+def _assign_and_resume_windows(job: int, proc: subprocess.Popen[bytes]) -> None:
+    kernel32, ntdll = _win32_apis()
+    handle = ctypes.c_void_p(int(proc._handle))  # type: ignore[attr-defined]
+    if not kernel32.AssignProcessToJobObject(job, handle):
+        raise ctypes.WinError(ctypes.get_last_error())
+    status = ntdll.NtResumeProcess(handle)
+    if status != 0:
+        raise OSError(f"NtResumeProcess returned 0x{status & 0xFFFFFFFF:08x}")
+
+
+def _kill_tree(proc: subprocess.Popen[bytes] | None, job: int | None) -> None:
+    """Terminate the subagent process and every surviving descendant, even if the leader has already exited."""
+    if os.name == "nt":
+        if job is not None:
+            kernel32, _ = _win32_apis()
+            kernel32.TerminateJobObject(job, 1)
+            kernel32.CloseHandle(job)
+        if proc is not None:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+    elif proc is not None:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    if proc is not None:
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def _remove_scratch(path: Path, limit: float = 3.0) -> None:
+    deadline = time.monotonic() + limit
+    while True:
+        try:
+            shutil.rmtree(path)
+            return
+        except FileNotFoundError:
+            return
+        except OSError:
+            if time.monotonic() >= deadline:
+                return
+            time.sleep(0.05)
 
 
 def _is_link(path: Path) -> bool:
@@ -170,8 +313,9 @@ def definition_problems(
         found.append(f"inheritMcp is {front.get('inheritMcp')!r}, not 'false'")
     listed, tool_errors = parse_tools_list(front.get("tools"))
     found.extend(tool_errors)
-    if listed is not None and expected_tools is not None and listed != expected_tools:
-        found.append(f"tools are {listed}, not {expected_tools}")
+    required_tools = expected_tools if expected_tools is not None else ROLE_TOOLS.get(stem)
+    if listed is not None and required_tools is not None and listed != required_tools:
+        found.append(f"tools are {listed}, not {required_tools}")
     if not body.strip():
         found.append("empty agent prompt body")
     if claude_text is not None:
@@ -227,27 +371,6 @@ def _extract_tool_names(obj: object, found: list[str]) -> None:
             _extract_tool_names(item, found)
 
 
-def _kill_process_tree(proc: subprocess.Popen[str]) -> None:
-    if proc.poll() is not None:
-        return
-    if os.name == "nt":
-        subprocess.run(
-            ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
-            capture_output=True,
-            stdin=subprocess.DEVNULL,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    else:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-
-
 def run_subagent(
     repo_root: Path,
     agent: str,
@@ -285,10 +408,16 @@ def run_subagent(
         permissions["allow"] = list(allow_commands)
     settings = {"agentMode": "", "permissions": permissions}
 
-    with tempfile.TemporaryDirectory(prefix="conclave-agy-subagent-") as tmp:
-        settings_path = Path(tmp) / "settings.json"
+    scratch = Path(tempfile.mkdtemp(prefix="conclave-agy-subagent-"))
+    try:
+        settings_path = scratch / "settings.json"
+        prompt_path = scratch / "prompt.txt"
+        stdout_path = scratch / "stdout.jsonl"
+        stderr_path = scratch / "stderr.log"
         atomic_write_bytes(settings_path, json.dumps(settings).encode("utf-8"))
-        cmd = [
+        atomic_write_bytes(prompt_path, prompt.encode("utf-8"))
+
+        argv = [
             str(resolved_bin),
             "--model",
             PINNED_MODEL,
@@ -296,41 +425,64 @@ def run_subagent(
             agent,
             "--settings",
             str(settings_path),
+            "--input-format",
+            "text",
             "--output-format",
             "stream-json",
             "--print-timeout",
             f"{timeout}s",
-            f"-p={prompt}",
         ]
-        popen_kwargs: dict[str, object] = {
-            "cwd": str(repo_root),
-            "stdin": subprocess.DEVNULL,
-            "stdout": subprocess.PIPE,
-            "stderr": subprocess.PIPE,
-            "text": True,
-            "encoding": "utf-8",
-            "errors": "replace",
-        }
-        if os.name == "nt":
-            popen_kwargs["creationflags"] = (
-                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-                | getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            )
-        else:
-            popen_kwargs["start_new_session"] = True
+        windows = os.name == "nt"
+        launch: list[str] | str = argv
+        if windows and Path(argv[0]).suffix.lower() in (".cmd", ".bat"):
+            launch = f'{os.environ.get("COMSPEC", "cmd.exe")} /d /s /c "{subprocess.list2cmdline(argv)}"'
 
-        proc = subprocess.Popen(cmd, **popen_kwargs)  # type: ignore[arg-type]
+        job: int | None = None
+        proc: subprocess.Popen[bytes] | None = None
         wall_timeout = timeout + min(15, max(2, timeout))
-        try:
-            stdout, stderr = proc.communicate(timeout=wall_timeout)
-        except subprocess.TimeoutExpired as exc:
-            _kill_process_tree(proc)
-            raise RuntimeError(f"subagent {agent!r} timed out after {timeout}s") from exc
-        except BaseException:
-            _kill_process_tree(proc)
-            raise
+        with (
+            open(prompt_path, "rb") as stdin_handle,
+            open(stdout_path, "wb") as stdout_handle,
+            open(stderr_path, "wb") as stderr_handle,
+        ):
+            try:
+                if windows:
+                    job = _create_kill_on_close_job()
+                    proc = subprocess.Popen(
+                        launch,
+                        cwd=str(repo_root),
+                        stdin=stdin_handle,
+                        stdout=stdout_handle,
+                        stderr=stderr_handle,
+                        creationflags=CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED | CREATE_NO_WINDOW,
+                    )
+                    _assign_and_resume_windows(job, proc)
+                else:
+                    proc = subprocess.Popen(
+                        launch,
+                        cwd=str(repo_root),
+                        stdin=stdin_handle,
+                        stdout=stdout_handle,
+                        stderr=stderr_handle,
+                        start_new_session=True,
+                    )
+                try:
+                    proc.wait(timeout=wall_timeout)
+                except subprocess.TimeoutExpired as exc:
+                    raise RuntimeError(f"subagent {agent!r} timed out after {timeout}s") from exc
+            except OSError as exc:
+                raise RuntimeError(f"could not start Antigravity CLI {resolved_bin!r}: {exc.strerror or exc}") from exc
+            finally:
+                _kill_tree(proc, job)
+
+        returncode = proc.returncode if proc is not None else 1
+        stdout = stdout_path.read_text(encoding="utf-8", errors="replace") if stdout_path.is_file() else ""
+        stderr = stderr_path.read_text(encoding="utf-8", errors="replace") if stderr_path.is_file() else ""
+    finally:
+        _remove_scratch(scratch)
 
     init_event: dict[str, object] | None = None
+    init_conversation_id = ""
     result_event: dict[str, object] | None = None
     tool_calls: list[str] = []
     forbidden_calls: list[str] = []
@@ -348,6 +500,7 @@ def run_subagent(
         event = payload.get("event")
         if event == "init" and isinstance(payload.get("init"), dict):
             init_event = payload["init"]
+            init_conversation_id = str(payload.get("conversation_id") or init_event.get("session_id") or "")
         elif event == "result" and isinstance(payload.get("result"), dict):
             result_event = payload["result"]
         else:
@@ -362,7 +515,7 @@ def run_subagent(
         raise RuntimeError(f"subagent {agent!r} attempted forbidden write tool(s): {sorted(set(forbidden_calls))}")
     if init_event is None:
         detail = (stderr or stdout).strip().splitlines()
-        tail = detail[-1] if detail else f"exit code {proc.returncode}"
+        tail = detail[-1] if detail else f"exit code {returncode}"
         raise RuntimeError(f"subagent {agent!r} produced no stream-json init event ({tail})")
     actual_model = init_event.get("model")
     if actual_model != PINNED_MODEL:
@@ -370,11 +523,11 @@ def run_subagent(
     actual_agent = init_event.get("agent")
     if actual_agent != agent:
         raise RuntimeError(f"subagent {agent!r} ran agent {actual_agent!r}, expected {agent!r}")
-    if proc.returncode != 0 or result_event is None or result_event.get("status") != "SUCCESS":
+    if returncode != 0 or result_event is None or result_event.get("status") != "SUCCESS":
         status = result_event.get("status") if result_event else "NO_RESULT"
         detail = (stderr or stdout).strip().splitlines()
-        tail = detail[-1] if detail else f"exit code {proc.returncode}"
-        raise RuntimeError(f"subagent {agent!r} ended with status={status!r} rc={proc.returncode} ({tail})")
+        tail = detail[-1] if detail else f"exit code {returncode}"
+        raise RuntimeError(f"subagent {agent!r} ended with status={status!r} rc={returncode} ({tail})")
     response = str(result_event.get("response") or "")
     if not response.strip():
         raise RuntimeError(f"subagent {agent!r} returned an empty response")
@@ -382,7 +535,7 @@ def run_subagent(
     return {
         "agent": agent,
         "model": actual_model,
-        "conversation_id": str(init_event.get("session_id") or ""),
+        "conversation_id": init_conversation_id,
         "tool_calls": tool_calls,
         "response": response,
     }
