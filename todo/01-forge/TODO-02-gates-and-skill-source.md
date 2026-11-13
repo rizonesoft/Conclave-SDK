@@ -44,6 +44,8 @@ title: "TODO-02 -- One gate and one skill source"
 
 ## 1. `forge.py check-all` over every suite
 
+> **Started:** 2026-11-13T19:51:07Z
+
 One command runs the Python suites, the kit script tests and the install tests, and is what runs before a commit (recommendation 9). A gate outside it does not exist.
 
 **Phase:** 5
@@ -55,14 +57,16 @@ One command runs the Python suites, the kit script tests and the install tests, 
 1. Add the suite table and the `check-all` subcommand to `forge.py`. Done when: it runs each suite and reports each result.
 2. Name it in `AGENTS.md` and `README.md` as the command to run before a commit. Done when: the checkpoint passes.
 
-- [ ] Add `SUITES` to `forge.py`: a table of name, command and working folder for `tests/`, each `kits/*/templates/scripts/tests/` folder, `kits/wordpress/hosts/pressable/templates/scripts/tests/`, `scripts/tests/` and `node scripts/verify-agent-tiers.mjs`. Done when: a test asserts every command's script or folder exists. Cheaper substitute: one shell line that chains the commands must fail review, because a failure in the middle hides the rest.
+- [ ] Add `SUITES` to `forge.py`: a table of name, command and working folder for `tests/`, each `kits/*/templates/scripts/tests/` folder (automations, reviewer, unattended, wordpress), `kits/wordpress/hosts/pressable/templates/scripts/tests/`, `scripts/tests/`, `node scripts/verify-agent-tiers.mjs` and `python scripts/agy-subagent.py --check`. Done when: a test asserts every command's script or folder exists. Cheaper substitute: one shell line that chains the commands must fail review, because a failure in the middle hides the rest.
 - [ ] Add `check_all(full=False, only=())` to `forge.py`: run each suite as a subprocess with no shell, a per-suite timeout, the last 40 lines of a failing suite kept, and the whole process tree ended on timeout (a job object on Windows, a process group on POSIX), then return each suite's exit and duration. Done when: a test with a stub suite that sleeps past its timeout finds it reported as timed out and its child process gone. Cheaper substitute: `subprocess.run(timeout=...)` alone must fail the child-process assertion, because it leaves grandchildren running.
 - [ ] Set `CONCLAVE_FULL_TESTS=1` for the suites in `check_all` when `full` is true, and leave it unset otherwise. Done when: a test with a stub suite that prints the variable sees `1` with `--full` and nothing without.
 - [ ] Add the `check-all` subcommand to `main` and `_run` in `forge.py` with `--full` and `--only <name>` (repeatable), printing one `PASS` or `FAIL` line per suite and exiting 1 when any failed and 2 for an unknown suite name. Done when: a test runs the command line against a table holding one passing and one failing stub and asserts both lines and exit 1.
-- [ ] Replace the quick-suite command in `AGENTS.md` (Output discipline), `README.md` and `docs/todo-workflow.md` where they name what runs before a commit with `python forge.py check-all`, keeping `--full` for the cases `AGENTS.md` lists. Done when: `grep -n "unittest discover -s tests" AGENTS.md README.md` shows it only as one of the suites `check-all` runs.
+- [ ] Name `python forge.py check-all` in `AGENTS.md` (Test cadence) and `README.md` (`:247`) as the one command that runs every suite, for the cases the cadence already gives the full suite (reproducing a red, or when `ci_status.py` exits 3), with `--only <name>` for one suite; the cadence itself stays (targeted tests while building, CI for the suites). Done when: both documents name the command and `AGENTS.md` still says CI is the section's suite evidence.
 - [ ] Commit: `forge: check-all runs every suite`
 
-**Test checkpoint:** `python forge.py check-all` ends with every suite `PASS` and exit 0; breaking one assertion in `tests/test_forge.py` makes it print `FAIL` for that suite and exit 1.
+**Corrected 2026-11-13 (validation):** the owner's test cadence (`AGENTS.md`, 2026-11-13, later than this section) keeps the local loop to targeted tests and makes CI the suite evidence, so `check-all` is the one command for the whole set when the whole set is wanted, not a step before every commit: the documents say so, and the checkpoint proves the command on stub suites and one real small suite, with the full run left to CI. The kit test folders are four today (automations, reviewer, unattended, wordpress) plus the Pressable overlay, `tests/` holds 17 files, and `scripts/agy-subagent.py --check` (D00 T02 §3) joins `verify-agent-tiers.mjs`. `docs/todo-workflow.md` names no pre-commit suite. `forge._probe` (D00 T02 §2) already ends a process tree on timeout and is the base for the runner.
+
+**Test checkpoint:** `python -m unittest tests.test_check_all` ends `OK` and `python forge.py check-all --only agent-tiers --only agy-subagents` prints `PASS` for both and exits 0; a stub suite that exits 1 makes the command print `FAIL` for it and exit 1.
 
 ## 2. Test inventory that refuses a test no suite runs
 
