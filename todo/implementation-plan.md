@@ -65,13 +65,13 @@ Sections: 19 | Checklist items: 133
 
 ### Phase 3: Todo graph that takes a project's shape
 
-Sections: 6 | Checklist items: 36
+Sections: 6 | Checklist items: 37
 
 | Status | Reference  | Deliverable                                               | Needs | Items |
 | ------ | ---------- | --------------------------------------------------------- | ----- | ----- |
 | [ ]    | D03 T01 §1 | Phase list read from `todo/plan.json`                     | none  | 6     |
 | [ ]    | D03 T01 §2 | Needs values and waiting Needs read from `todo/plan.json` | none  | 6     |
-| [ ]    | D03 T01 §3 | Caps read from `todo/plan.json`                           | none  | 5     |
+| [ ]    | D03 T01 §3 | Caps read from `todo/plan.json`                           | none  | 6     |
 | [ ]    | D03 T01 §4 | Receipts folder and plan path read from `todo/plan.json`  | none  | 8     |
 | [ ]    | D03 T01 §5 | Adoption dry run on RasterFold and Impossible OS          | none  | 6     |
 | [ ]    | D03 T01 §6 | Lift or leave decision for each RasterFold graph command  | none  | 5     |
@@ -145,4 +145,4 @@ Sections: 3 | Checklist items: 16
 
 Progress: 36/74 verified sections, 11 ready to run now.
 
-Checklist: 320/531 items completed (includes Commit items).
+Checklist: 320/532 items completed (includes Commit items).
