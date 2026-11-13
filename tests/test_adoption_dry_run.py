@@ -193,11 +193,32 @@ class DryRun(unittest.TestCase):
         self.assertEqual([p.name for p in self.out.iterdir()], ["keep.txt"])
 
     def test_a_bad_configuration_is_refused_before_anything_is_written(self):
-        for config in (["not", "an", "object"], {"layout": {"receipts": "../outside"}},
-                       {"layout": {"receipts": "/abs"}}):
+        self.tree({("00-workspace", "TODO-01-a.md"): todo_file([(1, "A", 0, "none", "--")])})
+        self.commit()
+        outside = self.source.parent / "outside"  # a folder a bad receipts value would name for removal
+        (outside / "keep").mkdir(parents=True)
+        drive = f"{outside.resolve().as_posix()}"  # D:/.../outside on Windows, /tmp/.../outside elsewhere
+        for config in (["not", "an", "object"], {"layout": ["bad"]}, {"layout": {"receipts": "../outside"}},
+                       {"layout": {"receipts": "/abs"}}, {"layout": {"receipts": drive}},
+                       {"layout": {"receipts": "..\\outside"}}, {"layout": {"receipts": "a\\b"}},
+                       {"layout": {"receipts": 3}}):
             with self.assertRaises(dry.DryRunError):
                 dry.run(self.source, config, self.out)
             self.assertFalse(self.out.exists(), config)
+            self.assertTrue((outside / "keep").is_dir(), config)
+        cfg = self.source.parent / "bad.json"
+        cfg.write_text(json.dumps({"layout": ["bad"]}), encoding="utf-8")
+        with mock.patch("sys.stderr"):
+            self.assertEqual(dry.main([str(self.source), "--config", str(cfg), "--out", str(self.out)]), 2)
+
+    def test_a_replaced_folder_must_lie_inside_the_snapshot(self):
+        snap = self.source.parent / "snap"
+        snap.mkdir()
+        (self.source.parent / "outside").mkdir()
+        for folder in ("../outside", "."):
+            with self.assertRaises(dry.DryRunError):
+                dry.copy_folders(self.source, snap, [folder])
+        self.assertTrue((self.source.parent / "outside").is_dir())
 
     def test_refusal_classes_take_out_sections_paths_and_numbers(self):
         self.assertEqual(dry.refusal_class("invalid Phase 12: D01 T02 §3"), "invalid Phase N: <ref>")

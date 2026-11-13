@@ -22,7 +22,7 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -30,7 +30,6 @@ import sys
 import tempfile
 
 SDK = Path(__file__).resolve().parents[1]
-DEFAULT_RECEIPTS = "docs/reviews"
 COPIES = 3  # the most copies of a moving source before the snapshot is given up as torn
 
 
@@ -88,6 +87,8 @@ def copy_folders(source, snapshot, folders):
     copied, links = {}, []
     for folder in folders:
         target = Path(snapshot) / folder
+        if not target.resolve().is_relative_to(Path(snapshot).resolve()) or target.resolve() == Path(snapshot).resolve():
+            raise DryRunError(f"refusing to replace {target}: it is not a folder inside the snapshot")
         if target.exists():
             shutil.rmtree(target)
         _, skipped = folder_files(source, folder)
@@ -108,14 +109,15 @@ def copy_folders(source, snapshot, folders):
     return copied, sorted(set(links))
 
 
-def receipts_of(config):
-    receipts = (config.get("layout") or {}).get("receipts", DEFAULT_RECEIPTS) if isinstance(config, dict) else None
-    if not isinstance(receipts, str):
-        raise DryRunError("the configuration's layout.receipts must be a folder name")
-    parts = PurePosixPath(receipts).parts
-    if not parts or PurePosixPath(receipts).is_absolute() or ".." in parts or receipts.startswith("/"):
-        raise DryRunError(f"layout.receipts must be a folder inside the repository: {receipts}")
-    return receipts
+def receipts_of(config, source):
+    """The receipts folder the configuration names, checked by the kit's own reader of todo/plan.json against the
+    source (its path rules: relative POSIX names, inside the repository, through no link), so the dry run copies and
+    replaces only what the graph itself would read."""
+    tg = load_graph()
+    try:
+        return tg.plan_config(Path(source), json.dumps(config))["receipts"]
+    except tg.Refused as exc:
+        raise DryRunError(f"the configuration is refused: {exc}") from None
 
 
 def snapshot(source, snapshot_dir, config, after_copy=None):
@@ -129,7 +131,7 @@ def snapshot(source, snapshot_dir, config, after_copy=None):
                               capture_output=True, text=True, timeout=600)
     if checkout.returncode != 0:
         raise DryRunError(f"the clone cannot check out {commit}: {checkout.stderr.strip()[:300]}")
-    folders = ["todo", receipts_of(config)]
+    folders = ["todo", receipts_of(config, source)]
     moved, attempts = set(), 0
     while True:
         attempts += 1
@@ -217,7 +219,7 @@ def run(source, config, out, after_copy=None):
         raise DryRunError(f"--out must be a missing or empty folder: {out}")
     if not isinstance(config, dict):
         raise DryRunError("the configuration must be a JSON object (the plan.json to measure under)")
-    receipts_of(config)  # a bad receipts folder is refused before anything is written
+    receipts_of(config, source)  # a configuration the kit refuses is refused before anything is written
     out.mkdir(parents=True, exist_ok=True)
     manifest = snapshot(source, out / "snapshot", config, after_copy=after_copy)
     sdk = subprocess.run(["git", "--no-optional-locks", "-C", str(SDK), "rev-parse", "HEAD"],
