@@ -237,6 +237,32 @@ class FreshInstall(unittest.TestCase):
         check = self.run_script("scripts/todo-graph.py", "plan", "--check")
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
 
+    @unittest.skipUnless(os.environ.get("CONCLAVE_FULL_TESTS"), "slow: set CONCLAVE_FULL_TESTS=1 for the full suite")
+    def test_a_section_stamps_under_every_plan_json_key(self):
+        # D03 T01's Verification: a project's own phases, Needs, waiting Needs, caps and layout, all at once.
+        needs = ["windows-host", "arm64-host", "display-session", "office", "libreoffice", "store-account",
+                 "attended", "owner-decision", "third-party", "operator", "gpu"]
+        config = {"title": "A project of its own", "phases": {"0": "Core", "12": "Later"}, "phase_list": [0, 12, 99],
+                  "needs": needs, "waiting": ["owner-decision", "third-party", "operator"],
+                  "caps": {"sections_per_file": 40, "items_per_section": 20, "deliverable_len": 80, "table_row": 160},
+                  "layout": {"receipts": ".claude/overnight/reviews", "plan": "docs/plan.md", "root_index": "files"}}
+        (self.repo / "todo/plan.json").write_text(json.dumps(config) + "\n", encoding="utf-8")
+        validate = self.run_script("scripts/todo-graph.py", "validate")
+        self.assertEqual(validate.returncode, 0, validate.stdout + validate.stderr)
+        sync = self.run_script("scripts/todo-graph.py", "plan", "--sync")
+        self.assertEqual(sync.returncode, 0, sync.stdout + sync.stderr)
+        self.git("add", "-A")
+        self.git("commit", "-q", "--amend", "--no-edit")
+        self.start = self.git("rev-parse", "HEAD")
+        self.record = ".claude/overnight/reviews/00-core/D00-T01-s1.md"
+        self.three_pass_to_stamp(".claude/overnight/reviews")
+        plan = (self.repo / "docs/plan.md").read_text(encoding="utf-8")
+        self.assertIn("# A project of its own", plan)
+        self.assertRegex(plan, r"\| \[x\] +\| D00 T01 §1 ")
+        for args in (("validate",), ("plan", "--check")):
+            done = self.run_script("scripts/todo-graph.py", *args)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
     def three_pass_to_stamp(self, receipts):
         """Plan review, round, a completion with gaps, a reconciliation and the stamp, with every findings file and
         receipt in `receipts`."""
