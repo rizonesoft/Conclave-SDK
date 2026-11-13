@@ -84,7 +84,7 @@ PLAN_CONFIG = "todo/plan.json"
 # reviewer kit's scripts/review_layout.py reads the same key under the same rules (tests/test_todo_graph.py holds the
 # two to one table of cases).
 RECEIPTS = "docs/reviews"
-LAYOUT = ("receipts", "plan")
+LAYOUT = ("receipts", "plan", "root_index")
 # A folder name: letters, digits, `_`, `.` and `-`, a leading dot too (`.claude`), but never `.` or `..`, and so no drive,
 # backslash or space.
 LAYOUT_PART = re.compile(r"(?!\.\.?$)[A-Za-z0-9_.-]+")
@@ -1384,7 +1384,7 @@ def _graph(root=ROOT, faults=None):
         for target in filed:
             check(target in sections or not unknown(target, known_refs),
                   f"completion gap filed as {target}, which does not resolve: {ref}", ref)
-    _index_coverage(root, files, check, attempt)
+    _index_coverage(root, files, check, attempt, config["root_index"])
     visiting, visited = set(), set()
     for start in sections:
         if start in visited:
@@ -1437,19 +1437,20 @@ def fault_order(fault):
     return (2, 0, 0, 0) if where == "todo/TODO-00-INDEX.md" else (0, 0, 0, 0)
 
 
-def _index_coverage(root, files, check=None, attempt=None):
-    """Every TODO file is listed in its domain's INDEX.md and in todo/TODO-00-INDEX.md (`check` and `attempt`:
-    graph's, which record a refusal and go on when it collects)."""
+def _index_coverage(root, files, check=None, attempt=None, root_index="files"):
+    """Every TODO file is listed in its domain's INDEX.md, and in todo/TODO-00-INDEX.md as well (`root_index` "files",
+    the default) or, under `layout.root_index` "domains", the root index lists each domain's INDEX.md instead
+    (`check` and `attempt`: graph's, which record a refusal and go on when it collects)."""
     if check is None:
         def check(ok, message, where):
             return require(ok, message) or True
     if attempt is None:
         def attempt(where, fn, *args):
             return fn(*args)
-    root_index = root / "todo/TODO-00-INDEX.md"
+    root_path = root / "todo/TODO-00-INDEX.md"
     # Collecting, a missing index skips only its own checks: the other index is still read.
-    root_text = attempt("todo/TODO-00-INDEX.md", read_text, root_index) \
-        if check(root_index.is_file(), "missing todo/TODO-00-INDEX.md", "todo/TODO-00-INDEX.md") else FAILED
+    root_text = attempt("todo/TODO-00-INDEX.md", read_text, root_path) \
+        if check(root_path.is_file(), "missing todo/TODO-00-INDEX.md", "todo/TODO-00-INDEX.md") else FAILED
     by_domain = {}
     for relative in files:
         by_domain.setdefault(Path(relative).parent.name, []).append(Path(relative).name)
@@ -1458,10 +1459,13 @@ def _index_coverage(root, files, check=None, attempt=None):
         text = attempt(f"todo/{domain}/INDEX.md", read_text, index) \
             if check(index.is_file(), f"missing domain index: todo/{domain}/INDEX.md", f"todo/{domain}/INDEX.md") \
             else FAILED
+        if root_index == "domains" and root_text is not FAILED:
+            check(f"{domain}/INDEX.md" in root_text, f"missing from root index: {domain}/INDEX.md",
+                  "todo/TODO-00-INDEX.md")
         for filename in names:
             if text is not FAILED:
                 check(filename in text, f"missing from domain index: {domain}/{filename}", f"todo/{domain}/INDEX.md")
-            if root_text is not FAILED:
+            if root_index == "files" and root_text is not FAILED:
                 check(f"{domain}/{filename}" in root_text, f"missing from root index: {domain}/{filename}",
                       "todo/TODO-00-INDEX.md")
 
@@ -1612,9 +1616,14 @@ def _plan_config(root=ROOT, text=None):
         require(key.isdigit() and int(key) in phase_list, f"{PLAN_CONFIG}: unknown phase {key!r}")
         require(isinstance(name, str) and name.strip() != "", f"{PLAN_CONFIG}: phase {key} needs a name")
         names[int(key)] = name.strip()
+    root_index = layout.get("root_index", "files")
+    require(root_index in ("files", "domains"),
+            f"{PLAN_CONFIG}: layout root_index must be files (every TODO file in the root index) or domains (each "
+            f"domain's INDEX.md there, its files in the domain index)")
     return {"title": title.strip(), "acceptance": acceptance.strip() if acceptance else None, "phases": names,
             "phase_list": tuple(sorted(phase_list, key=phase_rank)), "needs": lists["needs"],
-            "waiting": lists["waiting"], "caps": caps, "receipts": receipts, "plan": plan}
+            "waiting": lists["waiting"], "caps": caps, "receipts": receipts, "plan": plan,
+            "root_index": root_index}
 
 
 def plan_file(root=ROOT, text=None):

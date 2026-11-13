@@ -41,7 +41,7 @@ If the file is `frozen: true`: every `**Freeze check:**` ran and passed with the
 ### 5. Update the indexes
 
 - Move the file's row in the domain `INDEX.md` from the TODOs table to its Completed table, with the completion date.
-- Move its line in `todo/TODO-00-INDEX.md` from Active TODOs to Completed TODOs. The filename must stay verbatim in both files (index coverage is validated).
+- Move its line in `todo/TODO-00-INDEX.md` from Active TODOs to Completed TODOs. The filename must stay verbatim in both files (index coverage is validated). Under `layout.root_index` `domains` the root index lists domains, not files: move the file's line within its domain `INDEX.md` instead.
 - Where the work is now better documented elsewhere, link that document from the index line rather than deleting section detail. The shipped TODO is the record of how it was built.
 - `python scripts/todo-graph.py plan --sync`, then `validate` and `plan --check` again.
 

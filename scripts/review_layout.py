@@ -15,7 +15,7 @@ import sys
 
 PLAN_CONFIG = "todo/plan.json"
 RECEIPTS = "docs/reviews"
-LAYOUT = ("receipts", "plan")  # plan is the todo kit's to check; this reader reads only receipts
+LAYOUT = ("receipts", "plan", "root_index")  # the todo kit checks plan and root_index; this reads receipts
 # A folder name: letters, digits, `_`, `.` and `-`, a leading dot too (`.claude`), but never `.` or `..`, and so no drive,
 # backslash or space.
 LAYOUT_PART = re.compile(r"(?!\.\.?$)[A-Za-z0-9_.-]+")

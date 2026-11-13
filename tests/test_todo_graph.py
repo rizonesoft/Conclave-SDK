@@ -456,7 +456,8 @@ class Graph(Tree):
                ({"receipts": "docs\\reviews"}, "layout receipts must be"),
                ({"receipts": "docs/../reviews"}, "layout receipts must be"),
                ({"receipts": "./reviews"}, "layout receipts must be"), ({"receipts": "reviews/"}, "layout receipts must be"),
-               ({"receipts": "my reviews"}, "layout receipts must be"))
+               ({"receipts": "my reviews"}, "layout receipts must be"),
+               ({"root_index": "domains"}, "docs/reviews"), ({"receipts": "reviews", "root_index": "files"}, "reviews"))
 
     @staticmethod
     def review_layout():
@@ -486,6 +487,52 @@ class Graph(Tree):
                 for ctx in (graph, reviewer):
                     self.assertIn("todo/plan.json: " + expected, str(ctx.exception))
                 self.assertEqual(str(graph.exception), str(reviewer.exception), "the two kits say it alike")
+
+    # D03 T01 §11: `layout.root_index` "domains" lets the root index list each domain's INDEX.md instead of every file.
+    def domains_tree(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]), index=False)
+        self.write(todo_file([(1, "B", 0, "none", "--")], ident="beta", domain="01-engine"), domain="01-engine",
+                   index=False)
+        for domain, name in (("00-workspace", "TODO-01-a.md"), ("01-engine", "TODO-01-a.md")):
+            (self.root / "todo" / domain / "INDEX.md").write_text(f"# Index\n- {name}\n", encoding="utf-8")
+        (self.root / "todo/TODO-00-INDEX.md").write_text("# Index\n- 00-workspace/INDEX.md\n- 01-engine/INDEX.md\n",
+                                                          encoding="utf-8")
+
+    def test_a_root_index_of_domains_validates_under_domains(self):
+        self.domains_tree()
+        self.plan(layout={"root_index": "domains"})
+        tg.graph(self.root)
+        (self.root / "todo/TODO-00-INDEX.md").write_text("# Index\n- 00-workspace/INDEX.md\n", encoding="utf-8")
+        self.refuses("missing from root index: 01-engine/INDEX.md")
+        self.domains_tree()
+        (self.root / "todo/01-engine/INDEX.md").write_text("# Index\n", encoding="utf-8")
+        self.refuses("missing from domain index: 01-engine/TODO-01-a.md")
+
+    def test_the_key_and_not_its_presence_picks_the_rule(self):
+        self.domains_tree()
+        self.plan(layout={"root_index": "domains"})
+        tg.graph(self.root)
+        self.plan(layout={"root_index": "files"})
+        self.refuses("missing from root index: 00-workspace/TODO-01-a.md")
+        root = self.root / "todo/TODO-00-INDEX.md"
+        root.write_text(root.read_text(encoding="utf-8") + "- 00-workspace/TODO-01-a.md\n- 01-engine/TODO-01-a.md\n",
+                        encoding="utf-8")
+        tg.graph(self.root)
+
+    def test_root_index_takes_files_or_domains_only(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        for value in ("both", 1, None, ["domains"]):
+            with self.subTest(value=value):
+                self.plan(layout={"root_index": value})
+                self.refuses("todo/plan.json: layout root_index must be files")
+
+    def test_the_creating_and_closing_skills_follow_root_index(self):
+        for agent in (".claude", ".agents", ".codex"):
+            for skill, anchor in (("create-todo", "under Active TODOs in `todo/TODO-00-INDEX.md`"),
+                                  ("process-todo-file", "Move its line in `todo/TODO-00-INDEX.md`")):
+                text = (REPO / "kits/todo/templates" / agent / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+                at = text.index(anchor)
+                self.assertIn("layout.root_index", text[at:at + 400], f"{agent} {skill}")
 
     def test_a_receipts_folder_linked_out_of_the_repository_is_refused_by_both_readers(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))

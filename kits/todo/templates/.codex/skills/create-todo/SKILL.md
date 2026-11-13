@@ -30,7 +30,7 @@ Size sections as small, single-responsibility deliverables: never bundle multipl
 
 ### 3. Wire it in
 
-- List the file in the domain `INDEX.md` and under Active TODOs in `todo/TODO-00-INDEX.md` (the filename must appear verbatim in both; the validator refuses otherwise).
+- List the file in the domain `INDEX.md` and under Active TODOs in `todo/TODO-00-INDEX.md` (the filename must appear verbatim in both; the validator refuses otherwise). Under `layout.root_index` `domains` in `todo/plan.json` the root index lists the domain's `INDEX.md` once instead, so add it there only for a new domain, and the file goes in the domain index alone.
 - Reciprocate every `-> XREF:`: each target file must point back at this file.
 - Regenerate the plan and prove the tree holds:
 
