@@ -46,7 +46,7 @@ title: "TODO-01 -- Todo graph that takes a project's shape"
 | 11 | §11 | Root index that lists domains | §7 | [ ] |
 | 12 | §12 | Validation git calls cached per run | -- | [x] |
 | 13 | §13 | Section checks run when its table row cannot be read | §8 | [x] |
-| 14 | §14 | Frozen files listed by `query frozen` | -- | [ ] |
+| 14 | §14 | Frozen files listed by `query frozen` | -- | [x] |
 | 15 | §15 | Longest chain and filing couplings from `query sequence` | -- | [ ] |
 
 ## 1. Phase list read from `todo/plan.json`
@@ -460,11 +460,14 @@ RasterFold's `query frozen` (`scripts/todo-graph.py:2576` at `75be196`, eight li
 - [x] Add `frozen_files(root)` to `kits/todo/templates/scripts/lib/todo_graph.py`, reading the tree alone (no receipt, no git, and no validation that could refuse first, since a valid tree always has full coverage and the query is for one that may not): for each TODO file whose frontmatter says `frozen: true`, its path, its section count, how many sections carry a `**Freeze check:**` and the references of those that do not, in path order; a file whose frontmatter cannot be read is listed under `unreadable`, and a missing or empty `todo/` refuses as `graph` does. Ported from RasterFold's `query frozen`. Done when: a test on a tree with two frozen files of three and two sections (one missing its Freeze check), an unfrozen file and a file with broken frontmatter prints exactly `{"files": [...], "unreadable": [...]}` in path order with the counts 3 and 3, and 2 and 1 with the missing reference, and the same output when a stamped section's receipt is missing.
 - [x] Add `frozen` to the `query` choices in `kits/todo/templates/scripts/todo-graph.py`, answered by `frozen_files` before the graph is validated. Done when: a CLI test reads the JSON on a tree whose validation refuses.
 - [x] Document `query frozen` in `kits/todo/templates/todo/README.md` (Commands), copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
-- [ ] Commit: `todo: query frozen lists the frozen files`
+- [x] Commit: `todo: query frozen lists the frozen files`
 
 **Corrected 2026-11-13 (plan review):** the query reads the tree alone, before and without validation, so it reports coverage on a tree with faults (a valid tree always has full coverage), and its tests use two frozen files of different sizes with unequal counts and an exact, ordered output.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; listing every file in place of the frozen ones, or reporting the section count as the Freeze-check count, makes the test fail.
+
+> **Verified:** 2026-11-13 | §14 | 0f38d9523d7d8bf2f4d5fcb5d2048960aae2127b
+> **Review:** `docs/reviews/d03-t01-s14.json`
 
 ## 15. Longest chain and filing couplings from `query sequence`
 
