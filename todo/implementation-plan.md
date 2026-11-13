@@ -58,7 +58,7 @@ Sections: 19 | Checklist items: 131
 | [x]    | D02 T02 §6  | Launch commands for Codex and Antigravity                         | none         | 6     |
 | [x]    | D02 T02 §7  | Heartbeat that nudges an idle run and records a dead one as ended | none         | 6     |
 | [x]    | D02 T02 §8  | Ship counter, ship limit and stall marker                         | none         | 8     |
-| [ ]    | D02 T02 §9  | Nothing resumes a run without its operator                        | none         | 6     |
+| [x]    | D02 T02 §9  | Nothing resumes a run without its operator                        | none         | 6     |
 | [ ]    | D02 T02 §10 | Desktop shortcut that starts the run                              | windows-host | 9     |
 | [ ]    | D02 T02 §11 | Operator document and `unattended-run` skill                      | none         | 6     |
 | [x]    | D06 T01 §4  | Codex approval of the global hooks `deploy.py` writes             | none         | 4     |
@@ -143,6 +143,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 33/74 verified sections, 13 ready to run now.
+Progress: 34/74 verified sections, 12 ready to run now.
 
-Checklist: 300/529 items completed (includes Commit items).
+Checklist: 301/529 items completed (includes Commit items).

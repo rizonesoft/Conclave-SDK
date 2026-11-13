@@ -1,0 +1,85 @@
+{
+  "ref": "D02 T02 \u00a79",
+  "title": "Nothing resumes a run without its operator",
+  "implementation_sha": "5424d2de2f187e6d5c138f41b06e4f1187451fc4",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-unattended/D02-T02-s9.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "CI tests.yml run 43333912217 on 5424d2d -> quick suite (Windows) success, full suite (Linux) success, kit suites (Linux, tmux) success",
+    "python -m unittest discover -s tests -p test_forge.py -k NothingResumes -> Ran 2 tests OK; each resume path added to a scratch kit template is found",
+    "the automations kit tests -> Ran 36 OK on Windows (skipped=4) and in WSL (skipped=1)"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-unattended/D02-T02-s9.md",
+    "verdict": "reconciled",
+    "candidate": "5424d2de2f187e6d5c138f41b06e4f1187451fc4",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/02-unattended/D02-T02-s9.md",
+    "candidate": "8211ce0ac1cae8f8e95a40a4d83a0dcf89f2f335",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "8211ce0ac1cae8f8e95a40a4d83a0dcf89f2f335",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 7,
+  "pass_cap": 33
+}
