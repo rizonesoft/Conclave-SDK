@@ -588,6 +588,20 @@ class Graph(Tree):
         self.write(text.replace("\n## Verification", "\n> **Verified:** 2026-11-13 | §1 | abc\n\n## Verification"))
         self.assertIn("invalid stamp: D00 T01 §1", self.faults())
 
+    def test_a_repeated_stamp_or_freeze_field_is_recorded_not_raised(self):
+        # D03 T01 §5 (completion): one duplicate Verified line in Impossible OS ended validate --all for the whole tree.
+        text = todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--")])
+        twice = "> **Verified:** 2026-11-13 | §1 | x\n> **Verified:** 2026-11-14 | §1 | y\n\n## 2."
+        self.write(text.replace("\n## 2.", "\n" + twice, 1).replace(
+            "**Test checkpoint:** `true` exits 0.\n\n## Verification",
+            "**Freeze check:** a\n**Freeze check:** b\n\n**Test checkpoint:** `true` exits 0.\n\n## Verification"))
+        self.write(todo_file([(1, "C", 0, "gpu", "--")], ident="beta"), name="TODO-02-b.md")
+        found = self.faults()
+        self.assertIn("duplicate Verified field", found)
+        self.assertIn("duplicate Freeze check field", found)
+        self.assertIn("unknown/duplicate Needs (gpu): D00 T02 §1", found)
+        self.refuses("duplicate Verified field")
+
     def test_faults_in_two_sections_of_one_file_and_in_another_file_are_all_recorded(self):
         self.write(todo_file([(1, "A", 42, "none", "--"), (2, "B", 0, "gpu", "--")]))
         self.write(todo_file([(1, "C", 0, "none", "--")], ident="beta").replace("**Surface:** no", "**Surface:** maybe"),

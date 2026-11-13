@@ -1127,16 +1127,21 @@ def graph(root=ROOT, faults=None):
                     and surface == "yes":
                 for label in ("Fidelity", "Job", "Treatment", "Chrome"):
                     attempt(ref, field, section_body, label)
-            freeze_check = field(section_body, "Freeze check", False)
-            check(bool(freeze_check) == (frozen == "true"), f"Freeze check must match frozen frontmatter: {ref}", ref)
-            stamp_line = field(section_body, "Verified", False)
-            receipt = field(section_body, "Review", False).strip("`")
+            freeze_check = attempt(ref, field, section_body, "Freeze check", False)
+            if freeze_check is not FAILED:
+                check(bool(freeze_check) == (frozen == "true"), f"Freeze check must match frozen frontmatter: {ref}",
+                      ref)
+            # A repeated Verified or Review line is recorded (collecting) and the stamp it would carry goes unread.
+            stamp_line = attempt(ref, field, section_body, "Verified", False)
+            receipt = attempt(ref, field, section_body, "Review", False)
+            stamp_read = stamp_line is not FAILED and receipt is not FAILED
+            stamp_line, receipt = (stamp_line, receipt.strip("`")) if stamp_read else ("", "")
             # With no readable row there is no box: the body's own stamp says whether it claims to be stamped, and that
             # stamp and its receipt are still checked; only the box's agreement with them is not.
             done = row[5] == "x" if row is not None else bool(stamp_line or receipt)
-            if row is not None:
+            if row is not None and stamp_read:
                 check(done == bool(stamp_line) == bool(receipt), f"checkbox/stamp/receipt mismatch: {ref}", ref)
-            if done:
+            if done and stamp_read:
                 check(all(x[0] == "x" for x in checks), f"unfinished stamped checklist: {ref}", ref)
                 check(not set(needs) & waiting, f"stamped section has a waiting Need: {ref}", ref)
                 m = re.fullmatch(r"\d{4}-\d{2}-\d{2} \| §" + str(n) + r" \| ([0-9a-f]{40})", stamp_line)

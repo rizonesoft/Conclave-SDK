@@ -389,10 +389,12 @@ Both adopting projects keep `todo/TODO-00-INDEX.md` at domain altitude, as the k
 1. Run a section's body checks in `graph` in `kits/todo/templates/scripts/lib/todo_graph.py` when it has no readable row. Done when: a section under a malformed row reports its missing Phase.
 2. Re-measure Impossible OS. Done when: the checkpoint passes and the report's counted rows are measured ones.
 
-- [ ] Run each section's own checks in `graph` (its fields, Build order, checklist, checkpoint and freeze check) for a heading with no readable row when collecting, skipping only what the row feeds (the Deliverable length, the done status and the stamp). Done when: a test with a malformed row and a section body with no Phase reports both faults, and `graph` without `faults` raises the row fault first as before.
-- [ ] Keep such a section out of the graph: it is never ready, and a reference to it is not reported as unresolved. Done when: a test with a dependency and an XREF to it reports neither.
+- [x] Run each section's own checks in `graph` (its fields, Build order, checklist, checkpoint and freeze check) for a heading with no readable row when collecting, skipping only what the row feeds (the Deliverable length, the done status and the stamp). Done when: a test with a malformed row and a section body with no Phase reports both faults, and `graph` without `faults` raises the row fault first as before.
+- [x] Keep such a section out of the graph: it is never ready, and a reference to it is not reported as unresolved. Done when: a test with a dependency and an XREF to it reports neither.
 - [ ] Re-run `scripts/adoption-dry-run.py` on Impossible OS and replace rows I12 to I16 of `docs/plans/2026-11-13-todo-graph-adoption.md` with the measured classes and their decisions. Done when: every class of the new run has a row, with the run's commit.
 - [ ] Commit: `todo: section checks run when its table row cannot be read`
+
+**Corrected 2026-11-13 (`§5` completion review):** `§5`'s completion review held its measurement incomplete without this fix, so the first two items shipped in `§5`'s candidate, `7fe94dd` (`graph` in `todo_graph.py`, the `row is None` paths; tests `test_a_section_under_an_unreadable_row_still_has_its_body_checked` and `..._has_its_own_stamp_checked`), and a section under an unreadable row also has its own stamp and receipt checked, since its body says whether it claims a stamp. The re-run is `§5`'s too. This section is left to verify them, review and stamp.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; restoring the skip at `:1074` makes the malformed-row test fail.
 
