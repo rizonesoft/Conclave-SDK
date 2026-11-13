@@ -65,7 +65,13 @@ ADJACENCY_KEYS = ["list", "document", "settings", "reporting", "notifications", 
                   "audit", "exchange", "reverse"]
 # The closed phase list. A project names its phases (and the plan's title and acceptance bar) in
 # todo/plan.json; without it the plan shows bare phase numbers.
-PHASES = (0, 1, 2, 3, 4, 5, 6, 7, 99)
+PHASES = (0, 1, 2, 3, 4, 5, 6, 7, 99)  # the default; a project lists its own in todo/plan.json (`phase_list`)
+MANUAL = 99  # the manual phase (operator only): ordered last, whatever the project's other numbers
+
+
+def phase_rank(phase):
+    """A phase's place in the plan: numeric, with the manual phase last when a project's list runs past it."""
+    return (phase == MANUAL, phase)
 PLAN_CONFIG = "todo/plan.json"
 PLAN_DEFAULTS = {"title": "Implementation plan", "acceptance": None, "phases": {99: "Manual, operator only"}}
 MAX_SECTIONS_PER_FILE = 55
@@ -887,7 +893,7 @@ def xrefs_of(body, domain, todo):
 def graph(root=ROOT):
     """Parse every TODO file strictly; a malformed row or section refuses, it is never read as empty."""
     root = Path(root)
-    plan_config(root)
+    phase_list = set(plan_config(root)["phase_list"])  # the project's own phase numbers (todo/plan.json)
     legacy_receipts(root)  # a malformed freeze list refuses even before any old receipt is read against it
     sections, ids, files = {}, {}, {}
     head_commits = None
@@ -966,7 +972,7 @@ def graph(root=ROOT):
             require(len(deliverable) <= MAX_DELIVERABLE_LEN and len(title) <= MAX_DELIVERABLE_LEN,
                     f"deliverable/title over {MAX_DELIVERABLE_LEN} chars (wraps raw md table): {ref}")
             phase = field(section_body, "Phase")
-            require(phase.isdigit() and int(phase) in PHASES, f"invalid Phase: {ref}")
+            require(phase.isdigit() and int(phase) in phase_list, f"invalid Phase: {ref}")
             raw = field(section_body, "Needs")
             needs = [] if raw == "none" else [v.strip() for v in raw.split(",")]
             require(len(needs) == len(set(needs)) and set(needs) <= NEEDS,
@@ -1090,7 +1096,7 @@ def graph(root=ROOT):
                 stack[-1] = (ref, idx + 1)
                 require(dep in sections, f"unresolved dependency: {dep}")
                 require(dep not in visiting, f"dependency cycle: {dep}")
-                require(sections[dep].phase <= sections[ref].phase,
+                require(phase_rank(sections[dep].phase) <= phase_rank(sections[ref].phase),
                         f"prerequisite in later phase: {ref} -> {dep}")
                 # A stamped section may sit on an open prerequisite only when an audit reopened that prerequisite
                 # (its Unstamped note): the consumer is then suspect until the prerequisite re-stamps, not unstamped.
@@ -1150,7 +1156,7 @@ def disposition(row, rows):
 
 def ordered(sections):
     result, placed, pending = [], set(), sorted(
-        sections, key=lambda r: (sections[r].phase, sections[r].path, sections[r].order))
+        sections, key=lambda r: (phase_rank(sections[r].phase), sections[r].path, sections[r].order))
     while pending:
         ref = next(r for r in pending if all(d in placed for d in sections[r].depends))
         result.append(ref)
@@ -1174,13 +1180,18 @@ def plan_config(root=ROOT):
     """The project's plan title, acceptance bar and phase names from todo/plan.json, loaded strictly."""
     path = Path(root) / PLAN_CONFIG
     if not path.is_file():
-        return {**PLAN_DEFAULTS, "phases": dict(PLAN_DEFAULTS["phases"])}
+        return {**PLAN_DEFAULTS, "phases": dict(PLAN_DEFAULTS["phases"]), "phase_list": PHASES}
     try:
         data = json.loads(read_text(path))
     except ValueError as exc:
         raise Refused(f"unreadable {PLAN_CONFIG}: {exc}") from None
-    require(isinstance(data, dict) and set(data) <= {"title", "acceptance", "phases"},
-            f"{PLAN_CONFIG} may only hold title, acceptance and phases")
+    require(isinstance(data, dict) and set(data) <= {"title", "acceptance", "phases", "phase_list"},
+            f"{PLAN_CONFIG} may only hold title, acceptance, phases and phase_list")
+    phase_list = data.get("phase_list", list(PHASES))
+    require(isinstance(phase_list, list) and phase_list != []
+            and all(isinstance(p, int) and not isinstance(p, bool) and 0 <= p <= 999 for p in phase_list)
+            and len(set(phase_list)) == len(phase_list),
+            f"{PLAN_CONFIG}: phase_list must be a non-empty list of distinct whole numbers from 0 to 999")
     title = data.get("title", PLAN_DEFAULTS["title"])
     acceptance = data.get("acceptance")
     phases = data.get("phases", {})
@@ -1190,10 +1201,11 @@ def plan_config(root=ROOT):
     require(isinstance(phases, dict), f"{PLAN_CONFIG}: phases must map a phase number to its name")
     names = dict(PLAN_DEFAULTS["phases"])
     for key, name in phases.items():
-        require(key.isdigit() and int(key) in PHASES, f"{PLAN_CONFIG}: unknown phase {key!r}")
+        require(key.isdigit() and int(key) in phase_list, f"{PLAN_CONFIG}: unknown phase {key!r}")
         require(isinstance(name, str) and name.strip() != "", f"{PLAN_CONFIG}: phase {key} needs a name")
         names[int(key)] = name.strip()
-    return {"title": title.strip(), "acceptance": acceptance.strip() if acceptance else None, "phases": names}
+    return {"title": title.strip(), "acceptance": acceptance.strip() if acceptance else None, "phases": names,
+            "phase_list": tuple(sorted(phase_list, key=phase_rank))}
 
 
 def projection(root=ROOT):
@@ -1212,7 +1224,7 @@ def projection(root=ROOT):
               "`python scripts/todo-graph.py query ready` lists what can run now. Pasting a whole "
               "row from a table below into `process todo section:` is a complete instruction.", ""]
     checks = {row.ref: re.findall(r"^- \[([ x])\] (.+)$", row.body, re.M) for row in rows}
-    for phase in sorted({row.phase for row in rows}):
+    for phase in sorted({row.phase for row in rows}, key=phase_rank):
         phase_rows = [row for row in rows if row.phase == phase]
         item_count = sum(len(checks[row.ref]) for row in phase_rows)
         name = config["phases"].get(phase)

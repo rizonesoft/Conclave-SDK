@@ -278,6 +278,65 @@ class Graph(Tree):
         self.write(todo_file([(1, "A", 50, "none", "--")]))
         self.refuses("invalid Phase")
 
+    def plan(self, **keys):
+        (self.root / "todo/plan.json").write_text(json.dumps(keys), encoding="utf-8")
+
+    def test_a_project_lists_its_own_phase_numbers(self):
+        # D03 T01 §1: a project's phases come from todo/plan.json's phase_list.
+        self.write(todo_file([(1, "A", 12, "none", "--")]))
+        self.plan(phase_list=[0, 12, 99])
+        self.assertEqual([r.phase for r in tg.graph(self.root).values()], [12])
+        self.plan(phase_list=[0, 3, 99])
+        self.refuses("invalid Phase")
+
+    def test_without_phase_list_the_default_is_0_to_7_and_99(self):
+        self.write(todo_file([(1, "A", 7, "none", "--"), (2, "B", 99, "none", "--")]))
+        self.assertEqual(sorted(r.phase for r in tg.graph(self.root).values()), [7, 99])
+        self.write(todo_file([(1, "A", 8, "none", "--")]))
+        self.refuses("invalid Phase")
+
+    def test_a_phase_list_that_is_not_a_list_of_numbers_is_refused(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        for label, value in (("a string", "0,1"), ("an empty list", []), ("a duplicate", [0, 0]),
+                             ("a negative number", [0, -1]), ("a boolean", [0, True]), ("past 999", [0, 1000]),
+                             ("a number in a string", ["0"]), ("a fractional number", [0, 1.5])):
+            with self.subTest(label):
+                self.plan(phase_list=value)
+                with self.assertRaises(tg.Refused) as ctx:
+                    tg.graph(self.root)
+                self.assertIn("todo/plan.json", str(ctx.exception))
+                self.assertIn("phase_list", str(ctx.exception))
+
+        self.plan(phase_list=[0, 999])
+        self.assertEqual(len(tg.graph(self.root)), 1, "999, the top of the range, was refused")
+
+    def test_phase_names_must_be_listed_phases(self):
+        self.write(todo_file([(1, "A", 12, "none", "--")]))
+        self.plan(phase_list=[0, 12, 99], phases={"12": "Twelve"})
+        self.assertIn("### Phase 12: Twelve", tg.projection(self.root))
+        self.plan(phase_list=[0, 12, 99], phases={"5": "Five"})  # 5 is a default phase this project leaves out
+        self.refuses("unknown phase '5'")
+
+    def test_the_manual_phase_is_last_for_dependencies_and_order_too(self):
+        self.write(todo_file([(1, "Hundred", 100, "none", "--"), (2, "Manual", 99, "none", "§1")]))
+        self.plan(phase_list=[0, 99, 100])
+        rows = tg.graph(self.root)
+        self.assertEqual([r.phase for r in tg.ordered(rows)], [100, 99])
+        self.assertEqual(re.findall(r"^### Phase (\d+)", tg.projection(self.root), re.M), ["100", "99"])
+
+    def test_the_plan_orders_phases_numerically_with_the_manual_phase_last(self):
+        self.write(todo_file([(1, "A", 12, "none", "--"), (2, "B", 0, "none", "--"), (3, "C", 3, "none", "--"),
+                              (4, "D", 150, "none", "--"), (5, "E", 99, "none", "--")]))
+        self.plan(phase_list=[0, 12, 3, 99, 150])
+        headings = re.findall(r"^### Phase (\d+)", tg.projection(self.root), re.M)
+        self.assertEqual(headings, ["0", "3", "12", "150", "99"])
+        self.assertEqual([r.phase for r in tg.ordered(tg.graph(self.root))], [0, 3, 12, 150, 99])
+
+    def test_a_prerequisite_in_the_manual_phase_is_later_than_any_other(self):
+        self.write(todo_file([(1, "Manual", 99, "none", "--"), (2, "After", 150, "none", "§1")]))
+        self.plan(phase_list=[0, 99, 150])
+        self.refuses("prerequisite in later phase")
+
     def test_draft_file_is_not_ready(self):
         self.write(todo_file([(1, "A", 0, "none", "--")], status="draft"))
         rows = tg.graph(self.root)
