@@ -407,14 +407,20 @@ class ThreePass(Cases):
                 self.assertEqual(load(three_pass_bare)["reviewers"]["astra"]["model"], model)
                 self.assertEqual(review_pin.faults(data=three_pass_bare.encode("utf-8")), [])
 
-                three_pass_effort = three_pass_bare.replace(
-                    "[schedule.plan]\n",
-                    '[schedule.plan]\neffort = "medium"\n',
-                )
-                self.refuses(three_pass_effort, "reviewer 'astra'", model, "manages its own effort and rejects --effort")
-                with self.assertRaises(review_pin.Refused) as tp_exc:
-                    load(three_pass_effort)
-                self.assertEqual(review_pin.faults(data=three_pass_effort.encode("utf-8")), [str(tp_exc.exception)])
+                for step in ("[schedule.plan]", "[[schedule.rounds]]", "[schedule.completion]",
+                             "[schedule.reconciliation]"):
+                    with self.subTest(three_pass_step=step):
+                        three_pass_effort = three_pass_bare.replace(
+                            f"{step}\n",
+                            f'{step}\neffort = "medium"\n',
+                            1,
+                        )
+                        self.assertNotEqual(three_pass_effort, three_pass_bare)
+                        self.refuses(three_pass_effort, "reviewer 'astra'", model,
+                                     "manages its own effort and rejects --effort", "effort = medium")
+                        with self.assertRaises(review_pin.Refused) as tp_exc:
+                            load(three_pass_effort)
+                        self.assertEqual(review_pin.faults(data=three_pass_effort.encode("utf-8")), [str(tp_exc.exception)])
 
                 rot_bare = ROTATION.replace(
                     'cli = "codex"\nmodel = "gpt-6-astra"\neffort = "medium"',

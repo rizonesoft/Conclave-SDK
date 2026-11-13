@@ -50,7 +50,7 @@ The round's seven lenses are adversarial, integration, source-defect, consistenc
 - **Caps.** `pass_cap` is the most returned passes a section may take in all (33 when absent). `no_progress_cap` (optional) stops a run of reconciliations whose worst finding gets no less severe.
 - **Conditional lenses.** A `[[schedule.conditional]]` entry (`lenses`, `passes`, `paths`) adds its lenses to the named passes only when a file the section changed starts with one of its repository-relative paths. A plan review, and a review outside a section, take the files from `--paths`.
 - **Lenses of your own.** `[schedule.lenses]` declares extra lens names with their questions, so a project adds a lens without editing the dispatcher.
-- **Effort is optional** on reviewers and steps: a step without one passes no effort to the reviewer's CLI, whose own configuration then decides. An Antigravity model name must end with every effort the schedule sets.
+- **Effort is optional** on reviewers and steps: a step without one passes no effort to the reviewer's CLI, whose own configuration then decides. For non-Orchestrator Antigravity reviewers (`agy`), the model name must end with every effort a three-pass schedule sets; Orchestrator models (`gemini-pro-orchestrator` and `gemini-pro-orchestrator-*`) reject scheduled effort on both three-pass and rotation schedules, and non-Orchestrator rotation schedules ignore step effort.
 
 ### Rotation (no `policy` key)
 
