@@ -270,10 +270,18 @@ def _run_tree(argv: list, cwd: str, timeout: float) -> tuple[int, str, str] | No
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True,
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         else:
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:  # the group ended before the kill
-                pass
+            # SIGTERM first: the graph ends the probes it runs in sessions of their own, which this group does not
+            # hold; then SIGKILL for whatever is left of the group.
+            for sig, grace in ((signal.SIGTERM, 3.0), (signal.SIGKILL, None)):
+                try:
+                    os.killpg(proc.pid, sig)
+                except ProcessLookupError:  # the group ended before the kill
+                    break
+                if grace is not None:
+                    try:
+                        proc.wait(timeout=grace)
+                    except subprocess.TimeoutExpired:
+                        continue
         proc.communicate()
         return None
     return proc.returncode, out, err

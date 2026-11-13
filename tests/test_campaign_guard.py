@@ -143,6 +143,22 @@ class StopHook(Workspace):
                    "print(json.dumps([{'ref': 'D00 T01 \\u00a71', 'title': 'Old', 'phase': 0}]))\n")
         self.assertEqual(guard.ready_rows(self.root), (1, "D00 T01 §1  Old"))
 
+    def test_a_probe_the_real_graph_runs_ends_with_the_stop_hooks_query(self):
+        # D03 T01 §10 (completion): the actual path, the kit's graph running a project's probe that starts a child.
+        self.real_graph("gpu")
+        pid_file = os.path.join(self.root, "child.pid")
+        probe = ("import subprocess, sys, time; "
+                 "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+                 f"open(r'{pid_file}', 'w').write(str(p.pid)); time.sleep(60)")
+        self.write("todo/plan.json", json.dumps({"needs": ["gpu"], "probes": {"gpu": [sys.executable, "-c", probe]}}))
+        self.assertEqual(guard.ready_rows(self.root, timeout=4), (None, ""))
+        child = int(open(pid_file).read())
+        for _ in range(80):
+            if not alive(child):
+                break
+            time.sleep(0.1)
+        self.assertFalse(alive(child), "the probe's child outlived the Stop hook's query")
+
     def test_a_graph_past_its_timeout_is_ended_with_its_children(self):
         pid_file = os.path.join(self.root, "child.pid")
         self.write("scripts/todo-graph.py", "import subprocess, sys, time\n"

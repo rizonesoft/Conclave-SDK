@@ -1710,6 +1710,7 @@ def projections(root=ROOT, sync=False):
 
 
 PROBE_TIMEOUT = 10  # seconds a project's probe may take before its Need counts as absent
+_ACTIVE_PROBES = set()  # the probes running now: a graph told to stop (SIGTERM) ends their groups first
 
 
 def _run_probe(argv, timeout=PROBE_TIMEOUT, cwd=None):
@@ -1721,6 +1722,7 @@ def _run_probe(argv, timeout=PROBE_TIMEOUT, cwd=None):
                                 stderr=subprocess.DEVNULL, creationflags=flags, start_new_session=os.name != "nt")
     except OSError:
         return False
+    _ACTIVE_PROBES.add(proc)
     try:
         return proc.wait(timeout=timeout) == 0
     except subprocess.TimeoutExpired:
@@ -1735,6 +1737,20 @@ def _run_probe(argv, timeout=PROBE_TIMEOUT, cwd=None):
         proc.kill()
         proc.wait()
         return False
+    finally:
+        _ACTIVE_PROBES.discard(proc)
+
+
+def _end_probes(signum, frame):
+    """SIGTERM while probing (POSIX): each probe runs in a session of its own, so the group a caller kills does not
+    hold it; end every running probe's group, then this process, so none outlives the graph."""
+    import signal
+    for proc in list(_ACTIVE_PROBES):
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+    raise SystemExit(128 + signum)
 
 
 def builtin_needs():
@@ -1766,7 +1782,17 @@ def session_needs(root=ROOT):
     what the session declares in `CONCLAVE_HAVE` (comma-separated, for what no program can see, such as `attended`)."""
     config = plan_config(root)
     have = builtin_needs()
-    have |= {need for need, argv in config["probes"].items() if _run_probe(argv, cwd=root)}
+    previous = None
+    if os.name != "nt" and config["probes"]:
+        import signal
+        import threading
+        if threading.current_thread() is threading.main_thread():
+            previous = signal.signal(signal.SIGTERM, _end_probes)
+    try:
+        have |= {need for need, argv in config["probes"].items() if _run_probe(argv, cwd=root)}
+    finally:
+        if previous is not None:
+            signal.signal(signal.SIGTERM, previous)
     have |= {v.strip() for v in os.environ.get("CONCLAVE_HAVE", "").split(",") if v.strip()}
     return have
 

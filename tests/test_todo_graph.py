@@ -1435,6 +1435,19 @@ class Stamp(Tree):
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn(b"receipt", result.stderr)
 
+    def test_a_stamped_section_resolves_as_verified_under_have(self):
+        # D03 T01 §10 (completion): --have changes nothing for a stamped row, whatever the session lacks.
+        self.tick_work()
+        self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-23")
+        shutil.copytree(SCRIPTS, self.root / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copytree(tg.DISPATCHER.parent, self.root / "scripts", dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns("__pycache__", "tests"))
+        for have in ("", "auto", "windows-host"):
+            with self.subTest(have=have):
+                result = subprocess.run([sys.executable, str(self.root / "scripts/todo-graph.py"), "resolve",
+                                         "D00 T01 §1", "--have", have], capture_output=True)
+                self.assertEqual(result.returncode, 3, result.stderr)
+
     def test_filed_gaps_must_be_listed_and_must_resolve(self):
         self.tick_work()
         gaps = "1. Recent files: missing-out-of-scope.\n\nCOMPLETION: gaps"
@@ -3271,18 +3284,55 @@ class HostNeeds(Tree):
         self.assertEqual([r["ref"] for r in auto], ["D00 T01 §1", "D00 T01 §2"])
         self.assertNotIn("attended", self.cli("detect")[1].split(","))  # declared only while CONCLAVE_HAVE names it
 
+    @staticmethod
+    def fake_winreg(word):
+        """A stand-in for winreg whose Word.Application key is there (`word`) or not."""
+        def open_key(root, name):
+            if not word:
+                raise OSError("no such key")
+            return object()
+        return types.SimpleNamespace(HKEY_CLASSES_ROOT=0, OpenKey=open_key, CloseKey=lambda key: None)
+
+    def probed(self, name="posix", machine="AMD64", env=None, soffice=None, word=False):
+        """builtin_needs on a machine described by its arguments, every probe mocked."""
+        base = {"DISPLAY": "", "WAYLAND_DISPLAY": "", "SESSIONNAME": ""}
+        with mock.patch.dict(os.environ, {**base, **(env or {})}), mock.patch.object(tg.os, "name", name), \
+                mock.patch("platform.machine", return_value=machine), \
+                mock.patch("shutil.which", return_value=soffice), \
+                mock.patch.dict(sys.modules, {"winreg": self.fake_winreg(word)}):
+            return tg.builtin_needs()
+
     def test_the_built_in_probes(self):
-        with mock.patch.dict(os.environ, {"DISPLAY": "", "WAYLAND_DISPLAY": "", "SESSIONNAME": ""}), \
-                mock.patch("platform.machine", return_value="AMD64"), mock.patch("shutil.which", return_value=None):
-            none = tg.builtin_needs() - {"windows-host", "office"}
-            with mock.patch("platform.machine", return_value="aarch64"):
-                self.assertIn("arm64-host", tg.builtin_needs())
-            with mock.patch.dict(os.environ, {"DISPLAY": ":0"}):
-                self.assertIn("display-session", tg.builtin_needs())
-            with mock.patch("shutil.which", return_value="/usr/bin/soffice"):
-                self.assertIn("libreoffice", tg.builtin_needs())
-        self.assertEqual(none, set())
-        self.assertEqual("windows-host" in tg.builtin_needs(), os.name == "nt")
+        self.assertEqual(self.probed(), set())  # every probe failing: no Need
+        self.assertEqual(self.probed(machine="aarch64"), {"arm64-host"})
+        self.assertEqual(self.probed(machine="ARM64"), {"arm64-host"})
+        self.assertEqual(self.probed(env={"DISPLAY": ":0"}), {"display-session"})
+        self.assertEqual(self.probed(env={"WAYLAND_DISPLAY": "wayland-0"}), {"display-session"})
+        self.assertEqual(self.probed(soffice="/usr/bin/soffice"), {"libreoffice"})
+        self.assertEqual(self.probed(name="nt"), {"windows-host"})  # no session, no Word
+        self.assertEqual(self.probed(name="nt", env={"SESSIONNAME": "Console"}), {"windows-host", "display-session"})
+        self.assertEqual(self.probed(name="nt", env={"SESSIONNAME": "RDP-Tcp#0"}), {"windows-host", "display-session"})
+        self.assertEqual(self.probed(name="nt", env={"SESSIONNAME": "Services"}), {"windows-host"})
+        self.assertEqual(self.probed(name="nt", word=True), {"windows-host", "office"})
+        self.assertEqual(self.probed(word=True), set())  # Word's key is read on Windows only
+
+    def test_a_configured_probe_makes_its_row_ready_under_auto(self):
+        self.write(todo_file([(1, "Needs a GPU", 0, "gpu", "--")], ident="gamma"), name="TODO-03-c.md")
+        for exit_code, ready in ((0, True), (1, False)):
+            with self.subTest(exit_code=exit_code):
+                self.plan(needs=["windows-host", "arm64-host", "owner-decision", "gpu"],
+                          probes={"gpu": [sys.executable, "-c", f"raise SystemExit({exit_code})"]})
+                self.assertEqual("D00 T03 §1" in self.ready("auto"), ready)
+                code, out = self.cli("resolve", "D00 T03 §1", "--have", "auto")
+                self.assertEqual((code, out["missing_needs"]), (0, []) if ready else (4, ["gpu"]))
+
+    def test_a_configured_probe_that_times_out_holds_its_row(self):
+        self.write(todo_file([(1, "Needs a GPU", 0, "gpu", "--")], ident="gamma"), name="TODO-03-c.md")
+        self.plan(needs=["windows-host", "arm64-host", "owner-decision", "gpu"],
+                  probes={"gpu": [sys.executable, "-c", f"import time; time.sleep({tg.PROBE_TIMEOUT + 20})"]})
+        started = time.monotonic()
+        self.assertNotIn("D00 T03 §1", self.ready("auto"))
+        self.assertLess(time.monotonic() - started, tg.PROBE_TIMEOUT + 15)
 
     def test_a_projects_probes_prove_its_own_needs(self):
         needs = ["windows-host", "arm64-host", "owner-decision", "ffmpeg-jxl", "gpu"]
