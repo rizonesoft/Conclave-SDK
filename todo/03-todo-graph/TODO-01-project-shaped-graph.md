@@ -46,6 +46,8 @@ title: "TODO-01 -- Todo graph that takes a project's shape"
 | 11 | §11 | Root index that lists domains | §7 | [ ] |
 | 12 | §12 | Validation git calls cached per run | -- | [ ] |
 | 13 | §13 | Section checks run when its table row cannot be read | §8 | [ ] |
+| 14 | §14 | Frozen files listed by `query frozen` | -- | [ ] |
+| 15 | §15 | Longest chain and filing couplings from `query sequence` | -- | [ ] |
 
 ## 1. Phase list read from `todo/plan.json`
 
@@ -224,12 +226,12 @@ RasterFold's graph is ten times the kit's and has commands the kit lacks (roadma
 1. Read each RasterFold command the kit lacks. Done when: each has a line count, what it does and what it depends on.
 2. Decide and file. Done when: the checkpoint passes.
 
-- [ ] List in `docs/plans/<date>-todo-graph-adoption.md` the subcommands `warnings`, `self-test`, `needs`, `progress` and the design baseline command, and the `query` kinds `frozen`, `findings`, `surfaces`, `calibration`, `sequence`, `plan-health`, `summary`, `run`, `budget`, `backlog` and `growth`, from RasterFold's `scripts/todo-graph.py:12687` to `:12790`, each with its function, its size and the project files it reads. Done when: all sixteen have a row.
-- [ ] Decide each row: `lift` when it reads only the `todo/` tree and the receipts and would serve any project, `leave` when it reads RasterFold's own files (`budget.json`, `backlog.md`, release tags), with the reason in the row. Done when: no row is undecided. Cheaper substitute: marking everything `leave` to close the section must fail review; `self-test` and `sequence` read only the tree and need a stated reason either way.
-- [ ] Do the same for the sibling scripts the graph loads (`todo-validate.py`, `todo-adjacency.py`, `todo-findings.py`, 4,207 lines together): what each checks that the kit's validator does not. Done when: the report has one row per check the kit lacks.
-- [ ] File a section through `add-todo` for each `lift` row, in this file or a second file in this domain when the count passes 55 sections, with the RasterFold function and commit as its source. Done when: `python scripts/todo-graph.py validate` passes and every `lift` row carries its section reference.
-- [ ] Write the two inventories into the report as fenced blocks, each taken mechanically from RasterFold at `75be196`: the commands (the `add_parser` names and the `query` `choices` the kit lacks, `scripts/todo-graph.py:12879` to `:12990`) and the checks (the 58 class names of `SEVERITY_MAP`, `:839` to `:1038`, plus the adjacency and findings checks the two sibling scripts raise outside it). Done when: each block names its source lines and the command that listed it.
-- [ ] Add `tests/test_adoption_report.py`: for each table, every inventory entry has exactly one row and every row names an inventory entry; each row's decision is `lift` or `leave`; a `leave` row gives a reason; a `lift` row names a `D03 T01 §N` (or another `DNN TNN §N`) that the graph resolves and whose body names the lifted command or check. Done when: the test passes on the report, and fails on copies of it with a lift row's reference removed, a reference to a section that does not exist, a row duplicated and an inventory entry with no row. Cheaper substitute: comparing `grep -c` counts must fail review, because a missing reference on one row is offset by one on another.
+- [x] List in `docs/plans/<date>-todo-graph-adoption.md` the subcommands `warnings`, `self-test`, `needs`, `progress` and the design baseline command, and the `query` kinds `frozen`, `findings`, `surfaces`, `calibration`, `sequence`, `plan-health`, `summary`, `run`, `budget`, `backlog` and `growth`, from RasterFold's `scripts/todo-graph.py:12687` to `:12790`, each with its function, its size and the project files it reads. Done when: all sixteen have a row.
+- [x] Decide each row: `lift` when it reads only the `todo/` tree and the receipts and would serve any project, `leave` when it reads RasterFold's own files (`budget.json`, `backlog.md`, release tags), with the reason in the row. Done when: no row is undecided. Cheaper substitute: marking everything `leave` to close the section must fail review; `self-test` and `sequence` read only the tree and need a stated reason either way.
+- [x] Do the same for the sibling scripts the graph loads (`todo-validate.py`, `todo-adjacency.py`, `todo-findings.py`, 4,207 lines together): what each checks that the kit's validator does not. Done when: the report has one row per check the kit lacks.
+- [x] File a section through `add-todo` for each `lift` row, in this file or a second file in this domain when the count passes 55 sections, with the RasterFold function and commit as its source. Done when: `python scripts/todo-graph.py validate` passes and every `lift` row carries its section reference.
+- [x] Write the two inventories into the report as fenced blocks, each taken mechanically from RasterFold at `75be196`: the commands (the `add_parser` names and the `query` `choices` the kit lacks, `scripts/todo-graph.py:12879` to `:12990`) and the checks (the 58 class names of `SEVERITY_MAP`, `:839` to `:1038`, plus the adjacency and findings checks the two sibling scripts raise outside it). Done when: each block names its source lines and the command that listed it.
+- [x] Add `tests/test_adoption_report.py`: for each table, every inventory entry has exactly one row and every row names an inventory entry; each row's decision is `lift` or `leave`; a `leave` row gives a reason; a `lift` row names a `D03 T01 §N` (or another `DNN TNN §N`) that the graph resolves and whose body names the lifted command or check. Done when: the test passes on the report, and fails on copies of it with a lift row's reference removed, a reference to a section that does not exist, a row duplicated and an inventory entry with no row. Cheaper substitute: comparing `grep -c` counts must fail review, because a missing reference on one row is offset by one on another.
 - [ ] Commit: `todo: lift or leave decision for each RasterFold graph command`
 
 **Corrected 2026-11-13 (validation):** read at RasterFold `75be196`: the parser moved to `scripts/todo-graph.py:12879` to `:12990` (`:12687` to `:12790` were the lines at `b334933`), and it has two commands the list above leaves out, `classify` (`cmd_classify`, `:3862`, which the kit has) and the `query design` kind (`:2584`), so each gets a row too: eighteen in all. The report's own check is one `lift` or `leave` per row and a `D03 T` reference on every `lift` row, counted over the table's rows.
@@ -344,6 +346,8 @@ A project that adopts the kit arrives with sections it stamped under its own too
 - [ ] Document `detect` and `--have` in `kits/todo/templates/todo/README.md`, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
 - [ ] Commit: `todo: ready rows filtered by the hosts this session reaches`
 
+**Corrected 2026-11-13 (`§6`):** this section is where RasterFold's `requires-unknown` and `requires-no-reason` checks land: a host requirement is a Need from `plan.json`'s closed list (refused when unknown, as `needs-unknown` already is), and `detect` stands in for the measured `Requires` reason.
+
 **Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; ignoring `--have` in `query ready` makes the `--have ''` test fail.
 
 ## 11. Root index that lists domains
@@ -422,6 +426,46 @@ Both adopting projects keep `todo/TODO-00-INDEX.md` at domain altitude, as the k
 **Corrected 2026-11-13 (plan review):** a rowless section's stamp is paired with its receipt and its receipt checked, tested with a missing, an unreadable and an invalid receipt, and its absence from the graph is proven on a body that is otherwise valid.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; restoring the skip at `:1074` makes the malformed-row test fail.
+
+## 14. Frozen files listed by `query frozen`
+
+RasterFold's `query frozen` (`scripts/todo-graph.py:2576` at `75be196`, eight lines) lists the frozen TODO files and how many of their sections carry a Freeze check. It reads only the tree, and a project with frozen files needs the list before it touches one (`docs/plans/2026-11-13-todo-graph-adoption.md`, RasterFold graph commands).
+
+**Phase:** 3
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add the `frozen` kind to `query` in `kits/todo/templates/scripts/todo-graph.py`. Done when: it lists a fixture's frozen file.
+2. Document it. Done when: the checkpoint passes.
+
+- [ ] Add `frozen` to the `query` choices in `kits/todo/templates/scripts/todo-graph.py`, printing JSON: one object per file whose frontmatter says `frozen: true`, with its path, its section count and how many sections carry a `**Freeze check:**`, in file order, ported from RasterFold's `query frozen`. Done when: a test on a tree with one frozen and one unfrozen file prints the frozen one only, with both counts, and an empty list when no file is frozen.
+- [ ] Document `query frozen` in `kits/todo/templates/todo/README.md` (Commands), copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
+- [ ] Commit: `todo: query frozen lists the frozen files`
+
+**Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; listing every file in place of the frozen ones makes the test fail.
+
+## 15. Longest chain and filing couplings from `query sequence`
+
+RasterFold's `query sequence` (`scripts/todo-graph.py:2124` at `75be196`, with `_longest_chain`, `_section_edges` and `_filing_couplings` at `:4387`) prints the longest dependency chain and the sections a review filed work into. The chain is the tree's own; the couplings come from RasterFold's findings headings, which the kit does not write, but every kit receipt records the sections its completion review filed (`completion.filed`), so the kit reads them from there.
+
+**Phase:** 3
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add the `sequence` kind to `query` in `kits/todo/templates/scripts/todo-graph.py` and its computation to `kits/todo/templates/scripts/lib/todo_graph.py`. Done when: a fixture's longest chain prints.
+2. Read the couplings from the receipts. Done when: the checkpoint passes.
+
+- [ ] Add `longest_chain(rows)` to `todo_graph.py`: the longest path through the open sections' dependencies, ties broken by plan order, ported from RasterFold's `_longest_chain`. Done when: a test with two chains of three and two open sections returns the three, and a stamped section on the path ends it.
+- [ ] Add `filing_couplings(root, rows)` to `todo_graph.py`: one pair per section a stamped section's receipt lists under `completion.filed`, the filer and the filed section, with the filed section's state. Done when: a test with a receipt that filed two sections returns both pairs, and a receipt with no `completion` (older receipts) returns none for it.
+- [ ] Add `sequence` to the `query` choices in `kits/todo/templates/scripts/todo-graph.py`, printing JSON with `chain` and `couplings`. Done when: a CLI test reads both keys from a fixture tree.
+- [ ] Document `query sequence` in `kits/todo/templates/todo/README.md` (Commands), copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
+- [ ] Commit: `todo: query sequence prints the longest chain and the filing couplings`
+
+**Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; counting stamped sections into the chain makes the chain test fail.
 
 ## Verification
 

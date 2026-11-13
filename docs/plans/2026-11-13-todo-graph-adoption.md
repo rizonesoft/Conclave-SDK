@@ -119,12 +119,139 @@ The classes as the script printed them (counts in brackets are faults where a pl
 
 Impossible OS's stamps (I6, I18) point at review transcripts in `.claude/overnight/reviews` (`*.out`), not the kit's JSON receipts, so they take the same path as RasterFold's 126 through D03 T01 §9.
 
+## RasterFold graph commands: lift or leave
+
+D03 T01 §6, read at RasterFold `75be196` (`scripts/todo-graph.py`, 12,994 lines). A command is `lift` when it reads only the `todo/` tree and the review receipts and would serve any project, and `leave` when it reads RasterFold's own files or conventions, or when the kit already does the job; every `lift` row names the section that brings it into the kit. `tests/test_adoption_report.py` holds both tables to their inventories and resolves every section named.
+
+The commands the kit lacks, from the parser (`add_parser` names and the `query` `choices`, `:12879` to `:12990`, listed with `grep -nE 'add_parser|choices=' scripts/todo-graph.py`), less the ones the kit has under the same name (`build`, `validate`, `query`, `render`, `resolve`, `plan`, `stamp`, `unstamp`; `ready`, `blocked`, `stats`, `deferred`, `adjacency`, `rounds`):
+
+```inventory commands
+warnings self-test needs classify progress design-baseline
+frozen findings surfaces calibration sequence plan-health summary run budget backlog growth design
+```
+
+`Size` is the command's own lines, then with the helpers it calls directly.
+
+| Command | Lines | Size | Reads beyond `todo/` | Decision | Reason or section |
+| ------- | ----- | ---: | -------------------- | -------- | ----------------- |
+| `warnings` | `:1936` | 44, 83 | what `validate` reads | leave | The kit has no warning tier: every fault refuses |
+| `self-test` | `:8310` | 7, 4578 | fixtures only | leave | The kit's tests live in its suites |
+| `needs` | `:3854` | 6, 42 | none | leave | Rows carry Needs; D03 T01 §10 filters by host |
+| `classify` | `:3862` | 7, 50 | none | leave | The kit has `classify`; exit 5 is RasterFold's Moved |
+| `progress` | `:5022` | 10, 30 | a file it writes | leave | `query plan` is the kit's; the rest is a dashboard |
+| `design-baseline` | `:6293` | 36, 141 | `docs/design`, git `HEAD` | leave | RasterFold's design contract |
+| `query frozen` | `:2576` | 8 | none | lift | D03 T01 §14 |
+| `query findings` | `:2375` | 44 | none | leave | The kit keeps findings in `todo/findings.md` |
+| `query surfaces` | `:2599` | 35 | none | leave | The kit's validator refuses a surface missing its labels |
+| `query calibration` | `:2175` | 54 | git subjects | leave | Reads git; `query rounds` serves the kit |
+| `query sequence` | `:2124` | 51 | review findings | lift | D03 T01 §15 (couplings from receipts) |
+| `query plan-health` | `:2634` | 1046 | git, panel records | leave | RasterFold's panel; the kit's stamp checks it |
+| `query summary` | `:3504` | 72 | as `plan-health` | leave | A digest of `plan-health` |
+| `query run` | `:2419` | 157 | review findings | leave | RasterFold's run-ID, Manifest and Ledger records |
+| `query budget` | `:2272` | 25 | `todo/budget.json` | leave | RasterFold's budget file |
+| `query backlog` | `:2301` | 15 | `todo/backlog.md` | leave | RasterFold's backlog file |
+| `query growth` | `:2316` | 36 | git history | leave | Reads git; ties to RasterFold's backlog provenance |
+| `query design` | `:2584` | 15 | `todo/.design-baseline` | leave | RasterFold's design contract |
+
+The checks RasterFold's validator raises: the 58 classes of `SEVERITY_MAP` (`:839` to `:1038`, listed with `ast` over the dictionary's keys), then the five `scripts/todo-adjacency.py` raises (`:228` to `:383`) and the four `scripts/todo-findings.py` makes (`:222` to `:1183`), which sit outside it:
+
+```inventory checks
+over-section-cap duplicate-source-key evidence-citation-short-form review-citation-role-less
+review-citation-role-mismatch superseded-no-successor filter-overclaim-open filter-overclaim-stamped no-commit-item
+partial-flip-shipped commit-history-unreadable fidelity-missing-lines-open fidelity-missing-lines-stamped
+no-checklist-items over-30-items frozen-no-freeze-check freeze-check-not-frozen bare-todo-ref one-sided-xref
+deferral-no-owner resolved-owner-unshipped missing-from-index malformed-stamp needs-unknown moved-target-missing
+pending-control-contract stamp-no-opus-panel requires-unknown requires-no-reason stamp-no-plan-review
+plan-review-malformed filed-target-no-backlink stamp-reopened plan-review-duplicate-id plan-review-no-lineage
+ledger-history-violation provenance-malformed ledger-supersession-broken risk-acceptance-malformed
+risk-acceptance-silent-edit risk-acceptance-chain-broken skill-citation-unresolved skill-citation-short-form
+budget-malformed budget-unrecorded-change origin-malformed backlog-malformed backlog-duplicate backlog-dropped
+backlog-review-rewritten release-backlog-review-missing release-backlog-unreviewed design-missing design-malformed
+design-dead-ref design-baseline-stale design-baseline-grown design-deviation-open-at-release
+anchor-unresolved anchor-unmatched unowned stated-step-unowned vacuous-kind
+findings-heading-grammar never-defect-severity transitions-record derived-ledger-stale
+```
+
+| Check | Decision | Reason or section |
+| ----- | -------- | ----------------- |
+| `over-section-cap` | leave | The kit has it: `sections_per_file` |
+| `duplicate-source-key` | leave | RasterFold's `-> SOURCE:` key; the kit has none |
+| `evidence-citation-short-form` | leave | RasterFold's dated evidence rule; kit XREFs are checked whole |
+| `review-citation-role-less` | leave | RasterFold's multi-round Review lines; the kit's receipt is JSON |
+| `review-citation-role-mismatch` | leave | As above |
+| `superseded-no-successor` | leave | The kit has it |
+| `filter-overclaim-open` | leave | RasterFold's test-filter idiom |
+| `filter-overclaim-stamped` | leave | As above |
+| `no-commit-item` | leave | The kit has it: Commit last |
+| `partial-flip-shipped` | leave | The kit has it: a stamped checklist is all ticked |
+| `commit-history-unreadable` | leave | Its warning; the kit's receipt binds the commit |
+| `fidelity-missing-lines-open` | leave | The kit has it: Surface sections carry their labels |
+| `fidelity-missing-lines-stamped` | leave | As above |
+| `no-checklist-items` | leave | The kit has it: 2 to the cap |
+| `over-30-items` | leave | The kit has it: `items_per_section` |
+| `frozen-no-freeze-check` | leave | The kit has it |
+| `freeze-check-not-frozen` | leave | The kit has it |
+| `bare-todo-ref` | leave | A warning; the kit refuses an XREF with no section |
+| `one-sided-xref` | leave | The kit has it |
+| `deferral-no-owner` | leave | The kit has it |
+| `resolved-owner-unshipped` | leave | A warning; the kit refuses a stale Deferred instead |
+| `missing-from-index` | leave | The kit has it |
+| `malformed-stamp` | leave | The kit has it |
+| `needs-unknown` | leave | The kit has it, against `needs` in `plan.json` |
+| `moved-target-missing` | leave | RasterFold's Moved construct |
+| `pending-control-contract` | leave | Runs a RasterFold script absent from its tree |
+| `stamp-no-opus-panel` | leave | RasterFold's retired panel process |
+| `requires-unknown` | lift | D03 T01 §10 |
+| `requires-no-reason` | lift | D03 T01 §10 |
+| `stamp-no-plan-review` | leave | The kit's receipt records the plan review |
+| `plan-review-malformed` | leave | RasterFold's plan-review ledger format |
+| `filed-target-no-backlink` | leave | RasterFold's ledger rows; the kit's filed gaps resolve |
+| `stamp-reopened` | leave | The kit's `unstamp` writes its own note |
+| `plan-review-duplicate-id` | leave | RasterFold's plan-review ledger format |
+| `plan-review-no-lineage` | leave | As above |
+| `ledger-history-violation` | leave | RasterFold's Ledger records |
+| `provenance-malformed` | leave | RasterFold's Provenance records |
+| `ledger-supersession-broken` | leave | RasterFold's Ledger records |
+| `risk-acceptance-malformed` | leave | RasterFold's risk-acceptance lines |
+| `risk-acceptance-silent-edit` | leave | As above |
+| `risk-acceptance-chain-broken` | leave | As above |
+| `skill-citation-unresolved` | leave | The kit's skills are templates that cite no section |
+| `skill-citation-short-form` | leave | As above |
+| `budget-malformed` | leave | RasterFold's `todo/budget.json` |
+| `budget-unrecorded-change` | leave | As above |
+| `origin-malformed` | leave | RasterFold's `**Origin:**` campaign provenance |
+| `backlog-malformed` | leave | RasterFold's `todo/backlog.md` |
+| `backlog-duplicate` | leave | As above |
+| `backlog-dropped` | leave | As above |
+| `backlog-review-rewritten` | leave | As above |
+| `release-backlog-review-missing` | leave | RasterFold's release tags |
+| `release-backlog-unreviewed` | leave | As above |
+| `design-missing` | leave | RasterFold's `docs/design` contract |
+| `design-malformed` | leave | As above |
+| `design-dead-ref` | leave | As above |
+| `design-baseline-stale` | leave | As above |
+| `design-baseline-grown` | leave | As above |
+| `design-deviation-open-at-release` | leave | As above |
+| `anchor-unresolved` | leave | The kit has it: adjacency owners resolve |
+| `anchor-unmatched` | leave | A keyword heuristic tuned to RasterFold's prose |
+| `unowned` | leave | As above |
+| `stated-step-unowned` | leave | RasterFold's "Industry default" phrasing |
+| `vacuous-kind` | leave | Meaningful only for a mature tree; opt-in in RasterFold |
+| `findings-heading-grammar` | leave | RasterFold's findings headings; the kit's are dispatcher records |
+| `never-defect-severity` | leave | As above |
+| `transitions-record` | leave | RasterFold's `docs/reviews/transitions.md` |
+| `derived-ledger-stale` | leave | RasterFold's generated `docs/reviews/findings.md` |
+
+Two lifts and two rows that go to the host check of D03 T01 §10: the rest is RasterFold's own process, or the kit already holds the line by its own mechanism (its JSON receipts and the dispatcher's records replace RasterFold's panel, ledger and provenance formats).
+
 ## Kit changes, each with its section
 
 - D03 T01 §9, pre-adoption stamps frozen at adoption: 126 RasterFold and 915 Impossible OS stamps were written by each project's own stamp and reviewer, so their stamps and receipts (R6, R10 to R13, R16, R18, R21, R22, I6) and their stamped bodies (R1, I1, I5, I7, I18) cannot meet the kit's current receipt format. The kit's rule is that a stamped section is never rewritten (`todo/README.md`, Brownfield code), and `legacy-receipts.json` already freezes old receipts by digest, but nothing writes that file for a project. The section adds the command that does, once, at adoption.
 - D03 T01 §10, ready rows filtered by the hosts this session reaches: RasterFold's `Requires` gate (R23) skips a row whose host is absent; the kit's `query ready` lists it (`process-plan` says so and leaves the check to the agent).
 - D03 T01 §11, a root index that lists domains: both projects keep the root index at domain altitude, as the kit's own `todo/README.md` describes it ("root index: domain order + active work"), and the validator demands every file in it (R20: 33 files, I33: 223).
 - D03 T01 §13, section checks run when its table row cannot be read: a gap in `validate --all` itself, which hid every section-level class of Impossible OS behind its tables. This section built it (`7fe94dd` for a row, `bc99c1d` for a table heading or frontmatter, with the repeated-stamp crash fixed in `807a237`) because its measurement needed it; D03 T01 §13 verifies and stamps it.
+- D03 T01 §14, frozen files listed by `query frozen`: lifted from RasterFold (`:2576`), it reads only the tree.
+- D03 T01 §15, the longest chain and filing couplings from `query sequence`: lifted from RasterFold (`:2124`), with the couplings read from the kit's receipts (their filed gaps) in place of RasterFold's findings headings.
 - D03 T01 §12, validation git calls cached per run: not a refusal, a cost the runs measured. `validate` on the SDK's 77 sections takes 61 seconds on Windows, 441 git processes (`cat-file`, `merge-base`, `show`) and `plan_config` read 220 times; the cost grows with every stamp, and Impossible OS carries 915 to the SDK's 42, on every pre-commit.
 
 ## Guidance against each project's caps
