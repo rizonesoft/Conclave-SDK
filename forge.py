@@ -1259,6 +1259,73 @@ def _doctor_wordpress(target_root: Path, add_check) -> None:
             add_check(f"mcp:{name}", "setup_required" if missing else "ok",
                       f"wordpress-connect step 3: {', '.join(missing)}" if missing else entry["url"])
 
+PROBE_SECONDS = 15  # how long doctor waits on one question to a reviewer CLI
+
+
+def _probe(argv: list, timeout: float | None = None) -> tuple[int | None, str, str]:
+    """Run one bounded question to a CLI: (exit code, output, problem). The exit code is None when it could not start
+    (`problem` says why) or ran past `timeout`, and then its whole process tree is ended (`taskkill /T` on Windows,
+    its process group elsewhere): a CLI may be a wrapper whose child would outlive it."""
+    timeout = PROBE_SECONDS if timeout is None else timeout
+    windows = os.name == "nt"
+    group: dict = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+                   if windows else {"start_new_session": True})
+    launch = argv
+    if windows and Path(argv[0]).suffix.lower() in (".cmd", ".bat"):
+        launch = [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c", *argv]  # a wrapper script runs through cmd
+    try:
+        proc = subprocess.Popen(launch, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                **group)
+    except OSError as exc:
+        return None, "", f"could not start: {exc.strerror or exc}"
+    try:
+        out, _ = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if windows:
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        else:
+            import signal
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:  # the group ended before the kill
+                pass
+        proc.kill()
+        proc.communicate()
+        return None, "", f"no answer within {timeout:g} seconds"
+    return proc.returncode, out.decode("utf-8", "replace"), ""
+
+
+def _agy_flags_check(dispatch, executable: str) -> tuple[str, str]:
+    """(status, detail) for one Antigravity reviewer: every flag the dispatcher passes is in the installed CLI's
+    --help, and the CLI accepts the dispatcher's session settings. A probe that failed is never `ok`."""
+    code, text, problem = _probe([executable, "--help"])
+    if code is None:
+        return "setup_required", f"{executable} --help: {problem}"
+    if code != 0:
+        return "unexpected", f"{executable} --help exited {code}"
+    missing = dispatch.agy_flags_missing(text)
+    if missing:
+        return "unexpected", (f"{executable} no longer lists {', '.join(missing)}, which the dispatcher passes: every "
+                              f"Antigravity review would return no review")
+    fd, name = tempfile.mkstemp(prefix="forge-agy-settings-", suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(dispatch.AGY_REVIEW_SETTINGS, handle)
+        code, text, problem = _probe([executable, "--settings", name, "agents"])
+    finally:
+        Path(name).unlink(missing_ok=True)
+    if code is None:
+        return "setup_required", f"{executable} --settings: {problem}"
+    said = next((line.strip() for line in text.splitlines() if "--settings:" in line), "")
+    if code != 0 or said:
+        return "unexpected", (f"{executable} refuses the dispatcher's settings"
+                              + (f": {said}" if said else f" (exit {code})"))
+    code, text, _ = _probe([executable, "--version"])
+    version = text.strip().splitlines()[0] if code == 0 and text.strip() else "unknown version"
+    return "ok", f"{executable} {version} lists {', '.join(dispatch.AGY_FLAGS)} and accepts the review settings"
+
+
 def _doctor_reviewer(target_root: Path, add_check) -> None:
     """Read-only reviewer checks: the pin loads under the dispatcher's own rules and each routed CLI is installed."""
     dispatcher = FORGE_ROOT / "kits/reviewer/templates/scripts/review-dispatch.py"
@@ -1282,6 +1349,8 @@ def _doctor_reviewer(target_root: Path, add_check) -> None:
             found = shutil.which(reviewer["cli"])
             add_check(f"reviewer:{name}", "ok" if found else "setup_required",
                       f"{reviewer['model']} via {found}" if found else f"{reviewer['cli']} CLI not installed; a round routed to this reviewer has no review")
+            if found and reviewer["cli"] == "agy":
+                add_check(f"reviewer-flags:{name}", *_agy_flags_check(module, found))
 
 
 def _doctor_unattended(target_root: Path, add_check, system: str | None = None) -> None:

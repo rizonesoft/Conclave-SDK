@@ -215,8 +215,21 @@ def command(reviewer, executable, prompt, prompt_path, output_path, timeout, eff
     shim = Path(executable).suffix.lower() in (".cmd", ".bat")
     if shim or len(prompt.encode()) > ARGV_PROMPT_LIMIT or len(prompt) > ARGV_PROMPT_LIMIT:
         text = f"Follow the review instructions in the file {prompt_path} exactly. Do not modify any file."
-    return [executable, "--model", model, "--sandbox", "--settings", str(agy_settings_path(output_path)),
-            "--print-timeout", f"{timeout}s", f"-p={text}"], None
+    model_flag, sandbox_flag, settings_flag, timeout_flag, prompt_flag = AGY_FLAGS
+    return [executable, model_flag, model, sandbox_flag, settings_flag, str(agy_settings_path(output_path)),
+            timeout_flag, f"{timeout}s", f"{prompt_flag}={text}"], None
+
+
+# Every flag the dispatcher passes to the Antigravity CLI, in the order `command` uses them. `forge.py doctor` holds
+# each against the installed CLI's own --help (D00 T02 §2), so a release that renames one is seen at once instead of
+# turning every Antigravity review into "no review".
+AGY_FLAGS = ("--model", "--sandbox", "--settings", "--print-timeout", "-p")
+
+
+def agy_flags_missing(help_text):
+    """The flags of AGY_FLAGS the CLI's --help text does not list as whole words (`--print` is not `--print-timeout`)."""
+    return [flag for flag in AGY_FLAGS
+            if re.search(r"(?<![\w-])" + re.escape(flag) + r"(?![\w-])", help_text) is None]
 
 
 # An Antigravity reviewer is read-only by its sandbox and these session-only rules, never by plan mode: headless plan
