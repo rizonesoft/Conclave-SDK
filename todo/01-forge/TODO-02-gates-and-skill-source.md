@@ -40,6 +40,7 @@ title: "TODO-02 -- One gate and one skill source"
 | 4 | §4 | Bash installers and their tests retired | §3 | [ ] |
 | 5 | §5 | Skill copy generator with per-agent patches | -- | [ ] |
 | 6 | §6 | Committed skill copies equal to the generator's output | §5 | [ ] |
+| 7 | §7 | Pre-commit hook enabled at install and checked by doctor | -- | [ ] |
 
 ## 1. `forge.py check-all` over every suite
 
@@ -171,6 +172,27 @@ The generator means nothing until the committed copies are its output. The diffe
 - [ ] Commit: `kits: skill copies are the generator's output`
 
 **Test checkpoint:** `python forge.py skill-copies --check` exits 0 and `python -m unittest discover -s tests` ends `OK`; editing one `.agents` skill file by hand makes both fail.
+
+## 7. Pre-commit hook enabled at install and checked by doctor
+
+The todo kit's `scripts/hooks/pre-commit` refuses a commit that would turn the plan gates red, but only once `core.hooksPath` points at `scripts/hooks`, and nothing sets it or says it is unset. The SDK's own clone ran without it until 2026-11-13, when a commit whose tree `validate` refused went through (`7060da9`, repaired in the next commit).
+
+**Phase:** 5
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Report the setting in `forge.py doctor` for the todo kit. Done when: an unset `core.hooksPath` reads `setup_required` naming the command.
+2. Set it at install when nothing else owns the repository's hooks. Done when: the checkpoint passes.
+
+- [ ] Add a todo kit check to `doctor` in `forge.py`: `core.hooksPath` equal to `scripts/hooks` is `ok`; unset, or another path, is `setup_required` naming `git config core.hooksPath scripts/hooks`. Done when: a test in `tests/test_forge.py` reads both states.
+- [ ] Set `core.hooksPath` to `scripts/hooks` when `forge.py` installs the todo kit into a git repository whose `core.hooksPath` is unset and whose `.git/hooks` holds only samples, and leave it, saying why, otherwise. Done when: tests cover a fresh repository (set), one with a `.git/hooks/pre-commit` of its own (left and reported) and one with another `core.hooksPath` (left and reported).
+- [ ] Keep the fresh-install doctor test all `ok` in `tests/test_forge.py`. Done when: its fresh install reports the hook check `ok`.
+- [ ] Document the setting and the doctor check in `kits/todo/templates/todo/README.md` beside the hook, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
+- [ ] Commit: `forge: the todo kit's pre-commit hook is enabled at install and checked by doctor`
+
+**Test checkpoint:** `python -m unittest tests.test_forge` ends `OK`; leaving the install-time setting out makes the fresh-install doctor test fail.
 
 ## Verification
 

@@ -65,7 +65,7 @@ Sections: 19 | Checklist items: 133
 
 ### Phase 3: Todo graph that takes a project's shape
 
-Sections: 7 | Checklist items: 47
+Sections: 8 | Checklist items: 53
 
 | Status | Reference  | Deliverable                                               | Needs | Items |
 | ------ | ---------- | --------------------------------------------------------- | ----- | ----- |
@@ -74,7 +74,8 @@ Sections: 7 | Checklist items: 47
 | [x]    | D03 T01 §3 | Caps read from `todo/plan.json`                           | none  | 6     |
 | [x]    | D03 T01 §4 | Receipts folder read from `todo/plan.json`                | none  | 9     |
 | [x]    | D03 T01 §7 | Plan path read from `todo/plan.json`                      | none  | 8     |
-| [ ]    | D03 T01 §5 | Adoption dry run on RasterFold and Impossible OS          | none  | 7     |
+| [ ]    | D03 T01 §8 | Every validation fault in one run                         | none  | 5     |
+| [ ]    | D03 T01 §5 | Adoption dry run on RasterFold and Impossible OS          | none  | 8     |
 | [ ]    | D03 T01 §6 | Lift or leave decision for each RasterFold graph command  | none  | 5     |
 
 ### Phase 4: Antigravity and Codex as writers
@@ -89,16 +90,17 @@ Sections: 3 | Checklist items: 19
 
 ### Phase 5: One gate and one skill source
 
-Sections: 6 | Checklist items: 35
+Sections: 7 | Checklist items: 40
 
-| Status | Reference  | Deliverable                                            | Needs | Items |
-| ------ | ---------- | ------------------------------------------------------ | ----- | ----- |
-| [ ]    | D01 T02 §1 | `forge.py check-all` over every suite                  | none  | 6     |
-| [ ]    | D01 T02 §2 | Test inventory that refuses a test no suite runs       | none  | 5     |
-| [ ]    | D01 T02 §3 | Install assertions moved from bash to the Python suite | none  | 5     |
-| [ ]    | D01 T02 §4 | Bash installers and their tests retired                | none  | 6     |
-| [ ]    | D01 T02 §5 | Skill copy generator with per-agent patches            | none  | 7     |
-| [ ]    | D01 T02 §6 | Committed skill copies equal to the generator's output | none  | 6     |
+| Status | Reference  | Deliverable                                              | Needs | Items |
+| ------ | ---------- | -------------------------------------------------------- | ----- | ----- |
+| [ ]    | D01 T02 §1 | `forge.py check-all` over every suite                    | none  | 6     |
+| [ ]    | D01 T02 §2 | Test inventory that refuses a test no suite runs         | none  | 5     |
+| [ ]    | D01 T02 §3 | Install assertions moved from bash to the Python suite   | none  | 5     |
+| [ ]    | D01 T02 §4 | Bash installers and their tests retired                  | none  | 6     |
+| [ ]    | D01 T02 §5 | Skill copy generator with per-agent patches              | none  | 7     |
+| [ ]    | D01 T02 §6 | Committed skill copies equal to the generator's output   | none  | 6     |
+| [ ]    | D01 T02 §7 | Pre-commit hook enabled at install and checked by doctor | none  | 5     |
 
 ### Phase 6: Tooling kits
 
@@ -144,6 +146,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 41/75 verified sections, 11 ready to run now.
+Progress: 41/77 verified sections, 12 ready to run now.
 
-Checklist: 345/542 items completed (includes Commit items).
+Checklist: 345/553 items completed (includes Commit items).
