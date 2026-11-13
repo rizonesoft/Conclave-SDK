@@ -332,6 +332,8 @@ A project that adopts the kit arrives with sections it stamped under its own too
 
 ## 10. Ready rows filtered by the hosts this session reaches
 
+> **Started:** 2026-11-13T11:21:18Z
+
 `query ready` lists a row whose Needs name a host this session cannot reach, and `process-plan` leaves the agent to notice. RasterFold's graph checks the host itself (`REQUIRES_ALLOWED`, `scripts/todo-graph.py:264`, and `detect_context`, `:296`, at `bf30b38`; report row R23). The kit gets the same check.
 
 **Phase:** 3
