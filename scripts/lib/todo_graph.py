@@ -1707,7 +1707,11 @@ def frozen_files(root=ROOT):
         missing = []
         for h in headings:
             section = body[h.end():].split("\n## ", 1)[0]
-            if not re.search(r"^\*\*Freeze check:\*\*", section, re.M):
+            try:  # the validator's own reader, so every spelling it accepts counts here too
+                present = bool(field(section, "Freeze check", False))
+            except Refused:
+                present = True  # written twice: there, and the validator refuses the repeat
+            if not present:
                 missing.append(f"D{path.parent.name[:2]} T{name[1]} §{h[1]}" if name else f"{relative} §{h[1]}")
         files.append({"path": relative, "sections": len(headings), "freeze_checks": len(headings) - len(missing),
                       "missing": missing})

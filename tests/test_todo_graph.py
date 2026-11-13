@@ -3076,6 +3076,13 @@ class QueryFrozen(Tree):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout.decode("utf-8")), expected)
 
+    def test_a_freeze_check_in_any_spelling_the_validator_reads_counts(self):
+        text = self.frozen_file("alpha", [(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--")], missing=(1, 2))
+        text = text.replace("## 1. A\n\n", "## 1. A\n\n> **Freeze check:** quoted.\n\n", 1)
+        self.write(text.replace("## 2. B\n\n", "## 2. B\n\n**Freeze check:**   spaced.\n\n", 1))
+        tg.graph(self.root)  # the validator accepts both spellings
+        self.assertEqual(tg.frozen_files(self.root)["files"][0]["missing"], [])
+
     def test_no_frozen_file_is_an_empty_list_and_no_tree_refuses(self):
         self.write(todo_file([(1, "F", 0, "none", "--")]))
         self.assertEqual(tg.frozen_files(self.root), {"files": [], "unreadable": []})
