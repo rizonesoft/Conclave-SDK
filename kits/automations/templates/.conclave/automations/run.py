@@ -77,6 +77,7 @@ def _shell_commands(text: str, shell: str) -> list[list[tuple[str, bool]]]:
     unquoted `;`, `&`, `|` or line break ends a command; in PowerShell a lone `&` that starts one is its call operator,
     kept as a word."""
     esc = "`" if shell == "powershell" else "\\"
+    text = text.replace("\r\n", "\n")  # a Windows line end is a line end, for a continuation and a command break alike
     commands: list[list[tuple[str, bool]]] = []
     words: list[tuple[str, bool]] = []
     word: list[str] = []

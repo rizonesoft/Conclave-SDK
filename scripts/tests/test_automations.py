@@ -152,6 +152,10 @@ LAUNCHED = {  # D02 T02 §9: a run starts only when its operator starts it, neve
     "a bash line continuation": ["bash", "-c", "python3 \\\n scripts/unattended-run.py start"],
     "a PowerShell line continuation": ["pwsh", "-Command", "python3 `\n scripts/unattended-run.py start"],
     "a call right after a separator": ["pwsh", "-Command", "Write-Output ready;& 'scripts/start-run.ps1'"],
+    # Reconciliation 3 of D02 T02 §9: Windows line ends.
+    "a PowerShell continuation with CRLF": ["pwsh", "-Command", "python3 `\r\n 'scripts/unattended-run.py' start"],
+    "a bash continuation with CRLF": ["bash", "-c", "python3 \\\r\n scripts/unattended-run.py start"],
+    "a CRLF command break": ["pwsh", "-Command", "Write-Output ready\r\n& 'scripts/start-run.ps1'"],
 }
 INSPECTED = {  # a launcher named only as data is no launch
     "git diff of the launcher": ["git", "diff", "--", "scripts/start-run.ps1"],
