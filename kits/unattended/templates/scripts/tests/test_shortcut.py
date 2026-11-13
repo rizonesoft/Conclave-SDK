@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 SCRIPTS = Path(__file__).resolve().parents[1]
@@ -115,7 +116,14 @@ class ShortcutTest(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         return done
 
-    def test_one_link_per_runner_that_starts_the_run_in_wsl_on_that_runner(self):
+    def activate(self, link, **env):
+        """The link's own target and arguments, as Windows runs them on a double-click, windowless, Enter typed."""
+        return subprocess.run(f'"{link["target"]}" {link["arguments"]}', input="\n", capture_output=True, text=True,
+                              timeout=120, env={**self.env, **env}, creationflags=windowless())
+
+    def test_one_link_per_runner_hands_wsl_the_start_command_of_that_runner(self):
+        # The command itself (it starts the run, and waits for Enter when it cannot) is the Linux entry's, run in bash
+        # by DesktopEntryTest; the live proof in the findings file ran it through the real wsl.exe.
         self.install()
         self.assertEqual(self.links(), ["My Proj's Carbon campaign.lnk", "My Proj's Claude campaign.lnk"])
         translated = next(c for c in self.calls() if c[3:5] == ["wslpath", "-a"])
@@ -124,13 +132,12 @@ class ShortcutTest(unittest.TestCase):
         for label, agent in (("Carbon", "agy"), ("Claude", "claude")):
             with self.subTest(agent):
                 link = self.read_link(self.desk / f"My Proj's {label} campaign.lnk")
-                self.assertEqual(Path(link["target"]).stem, "wsl")
-                self.assertEqual(link["icon"], f"{self.icons / f'campaign-{agent}.ico'},0")
-                self.assertTrue((self.icons / f"campaign-{agent}.ico").is_file())
+                self.assertEqual(Path(link["target"]).stem, "pwsh")
+                icon = link["icon"].rsplit(",", 1)[0]
+                self.assertRegex(Path(icon).name, rf"^campaign-{agent}-[0-9a-f]{{8}}\.ico$")
+                self.assertTrue(Path(icon).is_file())
                 self.log.unlink()
-                # The link's own target and arguments, as Windows hands them to wsl.exe on a double-click.
-                ran = subprocess.run(f'"{link["target"]}" {link["arguments"]}', capture_output=True, text=True,
-                                     timeout=60, env=self.env, creationflags=windowless())
+                ran = self.activate(link)
                 self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
                 self.assertEqual(self.calls(), [["-d", "Ubuntu", "--cd", linux, "--exec", "bash", "-lc",
                                                  self.run.start_command(agent)]])
@@ -144,9 +151,11 @@ class ShortcutTest(unittest.TestCase):
                 self.log.unlink(missing_ok=True)
                 done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", project)
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-                link = self.read_link(self.desk / "demo Claude campaign.lnk")
-                self.assertIn("--cd /home/x/demo --exec bash -lc", link["arguments"])
                 self.assertFalse([c for c in self.calls() if "wslpath" in c], "a WSL path went through wslpath")
+                self.log.unlink()
+                ran = self.activate(self.read_link(self.desk / "demo Claude campaign.lnk"))
+                self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+                self.assertEqual(self.calls()[0][:5], ["-d", "Ubuntu", "--cd", "/home/x/demo", "--exec"])
 
     def test_a_project_in_another_distro_is_refused(self):
         done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project",
@@ -154,6 +163,20 @@ class ShortcutTest(unittest.TestCase):
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         self.assertIn("the project is in distro 'Debian', not 'Ubuntu'", done.stdout)
         self.assertEqual(self.links(), [])
+
+    def test_a_failure_of_wsl_itself_is_said_and_waits_for_enter(self):
+        # Round 1 of D02 T02 §10: a drive gone or a distro removed fails before bash, whose own wait cannot run.
+        self.install()
+        link = self.read_link(self.desk / "My Proj's Claude campaign.lnk")
+        waiting = subprocess.Popen(f'"{link["target"]}" {link["arguments"]}', stdin=subprocess.PIPE,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                   env={**self.env, "STUB_WSL_FAIL": "1"}, creationflags=windowless())
+        self.addCleanup(lambda: waiting.poll() is None and waiting.kill())
+        time.sleep(5)
+        self.assertIsNone(waiting.poll(), "the window closed without waiting for Enter")
+        out, _ = waiting.communicate("\n", timeout=60)  # Enter: it closes
+        self.assertIn("WSL could not start the run (exit 1): the reason is above. Press Enter to close.", out)
+        self.assertEqual(waiting.returncode, 0)
 
     def test_a_link_is_kept_when_its_replacement_cannot_be_made(self):
         self.install()
@@ -177,13 +200,15 @@ class ShortcutTest(unittest.TestCase):
                        capture_output=True, timeout=60, env={**os.environ, "LINK_PATH": str(other)},
                        creationflags=windowless())
         (self.desk / "notes.txt").write_text("mine\n", encoding="utf-8")
+        another = self.icons / "campaign-claude-deadbeef.ico"  # another project's icon in a shared icon folder
+        another.write_bytes(b"icon")
         self.write_profile({**self.PROFILE, "runners": {}})  # the profile dropped a runner
         self.icon.unlink()  # the icon is gone
         done = self.shortcut("-Remove", STUB_WSL_FAIL="1")  # and WSL answers nothing
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(self.links(), ["Other Claude campaign.lnk"])
         self.assertTrue((self.desk / "notes.txt").exists())
-        self.assertEqual(list(self.icons.glob("campaign-*.ico")), [])
+        self.assertEqual(list(self.icons.glob("campaign-*.ico")), [another])
 
     def test_what_cannot_make_a_working_link_is_refused_before_anything_is_written(self):
         cases = {"a distro WSL does not list": (["-Distro", "Arch", "-Icon", str(self.icon)], {}, "no distro 'Arch'"),

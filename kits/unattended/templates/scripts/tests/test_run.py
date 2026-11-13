@@ -1890,9 +1890,19 @@ class DesktopEntryTest(unittest.TestCase):
 
     def test_a_failed_start_says_so_and_waits_for_enter(self):
         self.run.shortcut(self.project, None, self.apps, False, __import__("io").StringIO())
-        done = self.activate(self.apps / "demo-claude-campaign.desktop", exit_code=1)
-        self.assertIn("The run did not start: the reason is above. Press Enter to close.", done.stdout)
-        self.assertEqual(done.returncode, 0, "the wait for Enter did not run")
+        entry = self.apps / "demo-claude-campaign.desktop"
+        fields = dict(line.split("=", 1) for line in entry.read_text(encoding="utf-8").splitlines() if "=" in line)
+        (Path(fields["Path"]) / "scripts").mkdir(exist_ok=True)
+        (Path(fields["Path"]) / "scripts" / "unattended-run.py").write_text(STUB_LAUNCHER, encoding="utf-8")
+        waiting = subprocess.Popen(__import__("shlex").split(fields["Exec"]), cwd=fields["Path"], stdin=subprocess.PIPE,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, creationflags=windowless(),
+                                   env={**os.environ, "STUB_REPORT": str(self.report), "STUB_EXIT": "1"})
+        self.addCleanup(lambda: waiting.poll() is None and waiting.kill())
+        time.sleep(2)
+        self.assertIsNone(waiting.poll(), "the terminal closed without waiting for Enter")
+        out, _ = waiting.communicate("\n", timeout=60)  # Enter: it closes
+        self.assertIn("The run did not start: the reason is above. Press Enter to close.", out)
+        self.assertEqual(waiting.returncode, 0)
 
     def test_remove_takes_this_projects_entries_only(self):
         for agent in ("claude", "agy"):

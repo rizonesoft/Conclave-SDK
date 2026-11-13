@@ -6,10 +6,11 @@
 #   pwsh scripts/unattended-shortcut.ps1 -Distro Ubuntu -Icon assets/brand/project.ico
 #   pwsh scripts/unattended-shortcut.ps1 -Remove       remove every shortcut and icon this project made
 #
-# Each link targets `wsl.exe -d <distro> --cd <project in WSL> --exec bash -lc <start command>`: the command
-# `unattended-run.py`'s start_command gives (a test holds the two equal), which starts the run on the runner and, on
-# a failure, says so and waits for Enter, so the reason stays on screen. Links and icons are written under a
-# temporary name and moved over the old, so a failed save or icon keeps a working shortcut and leaves no broken one.
+# Each link runs PowerShell, which runs `wsl.exe -d <distro> --cd <project in WSL> --exec bash -lc <start command>`:
+# the command `unattended-run.py`'s start_command gives (a test holds the two equal), which starts the run on the runner
+# and, on a failure, says so and waits for Enter; a failure of WSL itself is said and waits for Enter too.
+# Links and icons are written under a temporary name and moved over the old, so a failed save or icon keeps a
+# working shortcut and leaves no broken one.
 # Removal finds this project's links by the mark in their description, so it works whatever the profile, the icon
 # or the distro now are. Nothing here starts a run: only the operator's double-click does.
 param(
@@ -37,6 +38,10 @@ if (-not ($Project -match '^\\\\wsl(?:\.localhost|\$)\\' -or $Project.StartsWith
 $name = Split-Path $Project -Leaf
 if (-not $IconDir) { $IconDir = Join-Path $env:LOCALAPPDATA $name }
 $mark = "conclave-unattended: $Project"
+# The project's own key, in its icons' names: two projects may share an icon folder, or a folder name.
+$sha = [System.Security.Cryptography.SHA256]::Create()
+$digest = $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Project.ToLowerInvariant()))
+$key = -join ($digest[0..3] | ForEach-Object { $_.ToString('x2') })
 $labels = @{ claude = 'Claude'; codex = 'Codex'; agy = 'Carbon' }
 
 function Refuse([string]$why) { "unattended-shortcut: $why; nothing was written"; exit 1 }
@@ -51,7 +56,7 @@ if ($Remove) {
   $links = @(Get-Owned)
   foreach ($link in $links) { Remove-Item -LiteralPath $link.FullName; "removed: $($link.FullName)" }
   # Named apart from the -Icon parameter: PowerShell names ignore case, and $icon would be that typed string.
-  $badges = @(Get-ChildItem -LiteralPath $IconDir -Filter 'campaign-*.ico' -File -ErrorAction Ignore)
+  $badges = @(Get-ChildItem -LiteralPath $IconDir -Filter "campaign-*-$key.ico" -File -ErrorAction Ignore)
   foreach ($badge in $badges) { Remove-Item -LiteralPath $badge.FullName; "removed: $($badge.FullName)" }
   "unattended-shortcut: $($links.Count) shortcut(s) and $($badges.Count) icon(s) of $Project removed"
   exit 0
@@ -104,6 +109,9 @@ if ($Project -match '^\\\\wsl(?:\.localhost|\$)\\([^\\]+)\\(.*)$') {
 & $Wsl -d $Distro --exec test -d $linux 2>$null
 if ($LASTEXITCODE -ne 0) { Refuse "the project path '$linux' does not exist in '$Distro'" }
 
+# A PowerShell string literal of any text.
+function PSQuote([string]$text) { "'" + $text.Replace("'", "''") + "'" }
+
 # One argument as the Windows command line passes it (backslashes doubled before a quote, the quote escaped).
 function Quote([string]$arg) {
   if ($arg -and $arg -notmatch '[\s"]') { return $arg }
@@ -111,12 +119,13 @@ function Quote([string]$arg) {
 }
 
 $renderer = Join-Path $here 'campaign-icon.py'
+$pwsh = (Get-Process -Id $PID).Path  # the PowerShell 7 that runs this script runs the links too
 $brand = (Resolve-Path -LiteralPath $Icon).Path
 New-Item -ItemType Directory -Force -Path $IconDir, $ShortcutDir | Out-Null
 $shell = New-Object -ComObject WScript.Shell
 foreach ($agent in $agents) {
   $label = "$name $($labels[$agent]) campaign"
-  $badge = Join-Path $IconDir "campaign-$agent.ico"
+  $badge = Join-Path $IconDir "campaign-$agent-$key.ico"
   $badgeTemp = "$badge.$PID.tmp.ico"
   & $Python -B $renderer badge $brand $agent $badgeTemp
   if ($LASTEXITCODE -ne 0) {
@@ -131,9 +140,15 @@ foreach ($agent in $agents) {
   $linkTemp = Join-Path $ShortcutDir "$label.$PID.tmp.lnk"
   try {
     $shortcut = $shell.CreateShortcut($linkTemp)
-    $shortcut.TargetPath = $Wsl
+    # PowerShell runs wsl.exe, so a failure of WSL itself (a drive gone, a distro removed) is said and waits for Enter
+    # too; the command is in the link, not in a script on the project's drive, which may be the one that is gone.
     $words = @('-d', $Distro, '--cd', $linux, '--exec', 'bash', '-lc', $command)
-    $shortcut.Arguments = ($words | ForEach-Object { Quote $_ }) -join ' '
+    $code = "& $(PSQuote $Wsl) $(($words | ForEach-Object { PSQuote $_ }) -join ' '); if (`$LASTEXITCODE -ne 0) { " +
+      "Write-Host ('WSL could not start the run (exit ' + `$LASTEXITCODE + '): the reason is above. ' + " +
+      "'Press Enter to close.'); " +
+      "[void][Console]::ReadLine() }"
+    $shortcut.TargetPath = $pwsh
+    $shortcut.Arguments = "-NoLogo -NoProfile -Command $(Quote $code)"
     $shortcut.WorkingDirectory = $env:USERPROFILE
     $shortcut.Description = $mark
     $shortcut.IconLocation = "$badge,0"
