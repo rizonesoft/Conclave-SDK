@@ -498,6 +498,27 @@ class Graph(Tree):
         with self.assertRaises(layout.LayoutError):
             layout.receipts_folder(self.root)
 
+    def test_a_receipts_folder_linked_inside_the_repository_is_refused_too(self):
+        # D03 T01 §4 round 1: a findings file is never read through a link (report_ok), so its folder is never reached
+        # through one, even a link to the repository's own docs/reviews.
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        (self.root / "docs/reviews").mkdir(parents=True)
+        link = self.root / "reviews"
+        if os.name == "nt":
+            import _winapi
+            _winapi.CreateJunction(str(self.root / "docs/reviews"), str(link))
+        else:
+            os.symlink(self.root / "docs/reviews", link)
+        self.addCleanup(lambda: os.path.lexists(link) and (os.rmdir(link) if os.name == "nt" else link.unlink()))
+        for receipts in ("reviews", "reviews/sub"):
+            with self.subTest(receipts=receipts):
+                self.plan(layout={"receipts": receipts})
+                self.refuses("layout receipts must be a folder inside the repository reached through no link")
+                layout = self.review_layout()
+                with self.assertRaises(layout.LayoutError) as ctx:
+                    layout.receipts_folder(self.root)
+                self.assertIn("reached through no link", str(ctx.exception))
+
     def test_a_section_s_receipt_and_findings_file_live_in_the_configured_folder(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
         self.plan(layout={"receipts": "reviews"})

@@ -158,6 +158,17 @@ class PreCommitHook(unittest.TestCase):
         (self.root / "reviews/d00-t01-s1.json").unlink()
         self.assertEqual(self.commit().returncode, 0, "the fully staged commit is accepted")
 
+    def test_an_unstaged_layout_cannot_move_the_hook_off_the_committed_folder(self):
+        # D03 T01 §4 round 1: the commit holds the staged todo/plan.json (none: docs/reviews), the working tree says
+        # reviews; broken evidence staged in docs/reviews must still be checked, and refused until plan.json is staged.
+        (self.root / "docs/reviews").mkdir(parents=True)
+        (self.root / "docs/reviews/legacy-receipts.json").write_text("not json\n", encoding="utf-8")
+        self.git("add", "docs/reviews")
+        (self.root / "todo/plan.json").write_text('{"layout": {"receipts": "reviews"}}\n', encoding="utf-8")
+        result = self.commit()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("todo/ has unstaged or untracked changes", result.stderr)
+
     def test_a_layout_the_graph_cannot_read_is_refused(self):
         (self.root / "todo/plan.json").write_text('{"layout": {"receipts": "../out"}}\n', encoding="utf-8")
         (self.root / "notes.txt").write_text("x\n", encoding="utf-8")

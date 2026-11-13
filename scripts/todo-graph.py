@@ -4,7 +4,8 @@
     python scripts/todo-graph.py validate
     python scripts/todo-graph.py build                       # todo/ -> build/todo-cache.json
     python scripts/todo-graph.py render                      # mermaid dependency graph
-    python scripts/todo-graph.py receipts                    # the receipts folder (todo/plan.json layout.receipts)
+    python scripts/todo-graph.py receipts [--config -]       # the receipts folder (todo/plan.json layout.receipts);
+                                                             # --config -: that file's text read from stdin
     python scripts/todo-graph.py plan --sync | --check
     python scripts/todo-graph.py query ready | blocked | stats | deferred | adjacency | plan | rounds
     python scripts/todo-graph.py resolve 'D02 T01 §1'        # exit 0 ready, 1 no such section,
@@ -60,7 +61,8 @@ def main():
     sub = p.add_subparsers(dest="command", required=True)
     for name in ("validate", "build", "render"):
         sub.add_parser(name)
-    sub.add_parser("receipts", help="print the receipts folder, todo/plan.json's layout.receipts (docs/reviews)")
+    rc = sub.add_parser("receipts", help="print the receipts folder, todo/plan.json's layout.receipts (docs/reviews)")
+    rc.add_argument("--config", choices=["-"], help="read todo/plan.json's text from stdin (the hook passes the index's)")
     q = sub.add_parser("query")
     q.add_argument("kind", choices=["ready", "blocked", "stats", "deferred", "adjacency", "plan", "rounds"])
     r = sub.add_parser("resolve")
@@ -91,7 +93,7 @@ def main():
     u.add_argument("--date", default=date.today().isoformat())
     args = p.parse_args()
     if args.command == "receipts":  # read by scripts/hooks/pre-commit; the configuration alone, not the graph
-        print(receipts_folder())
+        print(receipts_folder(text=sys.stdin.read() if args.config == "-" else None))
         return 0
     if args.command == "unstamp":
         revoked = unstamp(ROOT, args.ref, args.reason, args.date)

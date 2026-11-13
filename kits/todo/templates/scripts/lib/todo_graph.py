@@ -1194,11 +1194,24 @@ def markdown_table(headers, rows):
             *(render(row) for row in rows)]
 
 
-def plan_config(root=ROOT):
-    """The project's plan title, acceptance bar and phase names from todo/plan.json, loaded strictly."""
+def linked(root, relative):
+    """Whether a folder on the way to root/relative, or the path itself, is a symlink or a junction."""
+    cur = Path(root)
+    for part in relative.split("/"):
+        cur = cur / part
+        if cur.is_symlink() or cur.is_junction():
+            return True
+    return False
+
+
+def plan_config(root=ROOT, text=None):
+    """The project's plan title, acceptance bar and phase names from todo/plan.json, loaded strictly (`text`: that
+    file's content from elsewhere, such as the index, for the pre-commit hook)."""
     path = Path(root) / PLAN_CONFIG
     try:
-        data = json.loads(read_text(path)) if path.is_file() else {}  # no file: every default
+        if text is None:
+            text = read_text(path) if path.is_file() else "{}"  # no file: every default
+        data = json.loads(text)
     except ValueError as exc:
         raise Refused(f"unreadable {PLAN_CONFIG}: {exc}") from None
     require(isinstance(data, dict)
@@ -1210,9 +1223,9 @@ def plan_config(root=ROOT):
         require(name in LAYOUT, f"{PLAN_CONFIG}: layout names {name!r}, which is not one of {', '.join(LAYOUT)}")
     receipts = layout.get("receipts", RECEIPTS)
     require(isinstance(receipts, str) and all(LAYOUT_PART.fullmatch(p) for p in receipts.split("/"))
-            and (Path(root) / receipts).resolve().is_relative_to(Path(root).resolve()),
-            f"{PLAN_CONFIG}: layout receipts must be a folder inside the repository, its names (letters, digits, "
-            f"_ . -) separated by /")
+            and not linked(root, receipts) and (Path(root) / receipts).resolve().is_relative_to(Path(root).resolve()),
+            f"{PLAN_CONFIG}: layout receipts must be a folder inside the repository reached through no link, its "
+            f"names (letters, digits, _ . -) separated by /")
     given = data.get("caps", {})
     require(isinstance(given, dict), f"{PLAN_CONFIG}: caps must be an object naming caps")
     for name, value in given.items():
@@ -1256,9 +1269,10 @@ def plan_config(root=ROOT):
             "waiting": lists["waiting"], "caps": caps, "receipts": receipts}
 
 
-def receipts_folder(root=ROOT):
-    """The project's receipts and findings folder, repository-relative: todo/plan.json's `layout.receipts`."""
-    return plan_config(root)["receipts"]
+def receipts_folder(root=ROOT, text=None):
+    """The project's receipts and findings folder, repository-relative: todo/plan.json's `layout.receipts` (`text`: the
+    file's content from elsewhere)."""
+    return plan_config(root, text)["receipts"]
 
 
 def projection(root=ROOT):

@@ -23,6 +23,17 @@ class LayoutError(ValueError):
     """todo/plan.json's layout cannot be read."""
 
 
+def linked(root, relative):
+    """Whether a folder on the way to root/relative, or the path itself, is a symlink or a junction: a findings file
+    is never read through a link, so its folder is never reached through one."""
+    cur = Path(root)
+    for part in relative.split("/"):
+        cur = cur / part
+        if cur.is_symlink() or cur.is_junction():
+            return True
+    return False
+
+
 def receipts_folder(root):
     """The findings folder under root, repository-relative, from todo/plan.json's `layout.receipts`."""
     path = Path(root) / PLAN_CONFIG
@@ -40,9 +51,9 @@ def receipts_folder(root):
             raise LayoutError(f"{PLAN_CONFIG}: layout names {name!r}, which is not one of {', '.join(LAYOUT)}")
     receipts = layout.get("receipts", RECEIPTS)
     if not (isinstance(receipts, str) and all(LAYOUT_PART.fullmatch(p) for p in receipts.split("/"))
-            and (Path(root) / receipts).resolve().is_relative_to(Path(root).resolve())):
-        raise LayoutError(f"{PLAN_CONFIG}: layout receipts must be a folder inside the repository, its names "
-                          f"(letters, digits, _ . -) separated by /")
+            and not linked(root, receipts) and (Path(root) / receipts).resolve().is_relative_to(Path(root).resolve())):
+        raise LayoutError(f"{PLAN_CONFIG}: layout receipts must be a folder inside the repository reached through no "
+                          f"link, its names (letters, digits, _ . -) separated by /")
     return receipts
 
 
