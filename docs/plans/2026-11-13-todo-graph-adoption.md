@@ -280,6 +280,19 @@ findings-heading-grammar never-defect-severity transitions-record derived-ledger
 
 Two lifts and one row that goes to the host check of D03 T01 §10: the rest is RasterFold's own process, or the kit already holds the line by its own mechanism (its JSON receipts and the dispatcher's records replace RasterFold's panel, ledger and provenance formats).
 
+## After adoption
+
+D03 T01 §9's `adopt-stamps`, run in each snapshot by `scripts/adoption-dry-run.py --adopt-stamps` with a phase map taken from the project's own generated plan (each section under the `### Phase N` its plan lists it in), at SDK `f7d264e1e665`. Adoption is all or nothing: a stamp it cannot freeze refuses the whole run and names the section. The dry run then takes those stamps off in its snapshot alone, as the project would reopen them, and adopts the rest, so both outcomes are measured.
+
+| Project | Commit | Stamps | Adopted | Refused | Classes left | Faults left |
+| ------- | ------ | -----: | ------: | ------: | -----------: | ----------: |
+| RasterFold | `f8d40155fc37` | 126 | 125 | 1 | 12 | 616 |
+| Impossible OS | `3b80578a291a` | 908 | 709 | 199 | 30 | 15,813 |
+
+- RasterFold: every receipt class is gone (R6, R10 to R13, R16, R21, R22: 77 faults). R18 stays: the one refusal is `D00 T01 §7`, whose stamp line (`2026-10-21 | §7 | campaign_guard self-test 145 cases, 0 fail`) names no commit; reopened, it shows as `checkbox/stamp/receipt mismatch` and `invalid stamp` until the project restamps it. R1 now counts 133 sections, the open ones.
+- Impossible OS: every stamp class is gone (`invalid stamp` 908, `stamp/receipt mismatch` 908, `unfinished stamped checklist` 89, `stamped section has a waiting Need` 2, `duplicate Verified field` 4). The 199 refusals are stamps whose abbreviated commit (`commit `b28ead1f``, for example) is not on the branch: history the repository no longer holds. They are the project's to restamp or reopen; I1 now counts 1,884 sections, the open ones.
+- What remains in both is the project-side work the tables above decide: the open sections' fields and Build orders, the table and heading shapes, and the root index (D03 T01 §11).
+
 ## Kit changes, each with its section
 
 - D03 T01 §9, pre-adoption stamps frozen at adoption: 126 RasterFold and 915 Impossible OS stamps were written by each project's own stamp and reviewer, so their stamps and receipts (R6, R10 to R13, R16, R18, R21, R22, I6) and their stamped bodies (R1, I1, I5, I7, I18) cannot meet the kit's current receipt format. The kit's rule is that a stamped section is never rewritten (`todo/README.md`, Brownfield code), and `legacy-receipts.json` already freezes old receipts by digest, but nothing writes that file for a project. The section adds the command that does, once, at adoption.
