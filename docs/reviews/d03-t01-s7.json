@@ -1,0 +1,85 @@
+{
+  "ref": "D03 T01 \u00a77",
+  "title": "Plan path read from `todo/plan.json`",
+  "implementation_sha": "f0ec67fb65b61484c6b29682682218188a49324a",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-todo-graph/D03-T01-s7.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "CI tests.yml run 43369627826 on 2fbe8ff (the stamped commit adds only the findings-file note) -> full suite (Linux, CONCLAVE_FULL_TESTS=1, stamp tests run) success, quick suite (Windows) success, kit suites (Linux, tmux) success",
+    "with CONCLAVE_FULL_TESTS=1, python -m unittest tests.test_todo_graph tests.test_three_pass_install tests.test_pre_commit_hook -> Ran 198 tests OK; the reviewer kit suite -> Ran 194 tests OK (skipped=8); tests.test_forge -> Ran 148 tests OK",
+    "projections on the constant PLAN (test_the_plan_is_written_and_checked_at_the_configured_path) -> the test fails; the notice check dropped -> the not-owned destination test fails"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-todo-graph/D03-T01-s7.md",
+    "verdict": "reconciled",
+    "candidate": "f0ec67fb65b61484c6b29682682218188a49324a",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/03-todo-graph/D03-T01-s7.md",
+    "candidate": "2d79c9e327b3b2991c0eb7dccde571bb7fda8e48",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "2d79c9e327b3b2991c0eb7dccde571bb7fda8e48",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

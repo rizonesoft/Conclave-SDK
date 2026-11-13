@@ -37,7 +37,7 @@ title: "TODO-01 -- Todo graph that takes a project's shape"
 | 2 | §2 | Needs values and waiting Needs read from `todo/plan.json` | §1 | [x] |
 | 3 | §3 | Caps read from `todo/plan.json` | §1 | [x] |
 | 4 | §4 | Receipts folder read from `todo/plan.json` | §1 | [x] |
-| 5 | §7 | Plan path read from `todo/plan.json` | §4 | [ ] |
+| 5 | §7 | Plan path read from `todo/plan.json` | §4 | [x] |
 | 6 | §5 | Adoption dry run on RasterFold and Impossible OS | §2, §3, §4, §7 | [ ] |
 | 7 | §6 | Lift or leave decision for each RasterFold graph command | §5 | [ ] |
 
@@ -232,13 +232,16 @@ The generated plan is written to `todo/implementation-plan.md`. A project that k
 - [x] Name the configured plan path beside the default wherever the todo kit's skills and `docs/todo-workflow.md` name `todo/implementation-plan.md` as a path to read or write. Done when: a guard test like `§3`'s finds every such mention naming `layout.plan` within 80 characters.
 - [x] Stamp, validate, unstamp and validate again with both `receipts` and `plan` configured in `tests/test_three_pass_install.py`, and fail the stamp's plan write once. Done when: with `CONCLAVE_FULL_TESTS=1` the receipt is read back under the configured folder, the configured plan shows the section verified and then reopened, and after the failed write the TODO file, the receipt folder and the plan hold their bytes from before the stamp. Cheaper substitute: checking the plan's path alone must fail review, because the rollback writes it too.
 - [x] Document `layout.plan` in `kits/todo/templates/todo/README.md`, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
-- [ ] Commit: `todo: the plan path comes from todo/plan.json`
+- [x] Commit: `todo: the plan path comes from todo/plan.json`
 
 **Corrected 2026-11-13 (plan review):** the reviewer kit's reader accepts `plan` too, proven with both keys set; an owned plan is recognised by its generated notice, not its title; the hook's recovery message names the configured plan; and the checkpoint's mutation is the notice check, since the `.md` rule alone already refuses `todo/plan.json`.
 
 **Corrected 2026-11-13 (validation):** the references moved with `§4` (`:1288` is `:1326`, the stamp's plan write is `:1471` and `unstamp`'s is `:1561`), and the hook reads the plan path the way `§4` made it read the receipts folder: a CLI query, watched for the staged and the working `todo/plan.json` alike.
 
 **Test checkpoint:** with `CONCLAVE_FULL_TESTS=1` set, `python -m unittest discover -s tests` ends `OK` with the stamp tests run, not skipped; leaving `projections` on the constant `PLAN` makes the `docs/plan.md` test fail, and dropping the notice check makes the unrelated document's test fail with its bytes changed.
+
+> **Verified:** 2026-11-13 | §7 | f0ec67fb65b61484c6b29682682218188a49324a
+> **Review:** `docs/reviews/d03-t01-s7.json`
 
 ## Verification
 
