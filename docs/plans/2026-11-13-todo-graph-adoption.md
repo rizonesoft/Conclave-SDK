@@ -123,12 +123,47 @@ Impossible OS's stamps (I6, I18) point at review transcripts in `.claude/overnig
 
 D03 T01 §6, read at RasterFold `75be196` (`scripts/todo-graph.py`, 12,994 lines). A command is `lift` when it reads only the `todo/` tree and the review receipts and would serve any project, and `leave` when it reads RasterFold's own files or conventions, or when the kit already does the job; every `lift` row names the section that brings it into the kit. `tests/test_adoption_report.py` holds both tables to their inventories and resolves every section named.
 
-The commands the kit lacks, from the parser (`add_parser` names and the `query` `choices`, `:12879` to `:12990`, listed with `grep -nE 'add_parser|choices=' scripts/todo-graph.py`), less the ones the kit has under the same name (`build`, `validate`, `query`, `render`, `resolve`, `plan`, `stamp`, `unstamp`; `ready`, `blocked`, `stats`, `deferred`, `adjacency`, `rounds`):
+The commands the kit lacks, from the parser (`add_parser` names and the `query` `choices`, `:12879` to `:12990`, listed by the first command below), less the ones the kit has under the same name (`build`, `validate`, `query`, `render`, `resolve`, `plan`, `stamp`, `unstamp`; `ready`, `blocked`, `stats`, `deferred`, `adjacency`, `rounds`):
+
+Each inventory is listed again, at the same commit and without touching RasterFold's working tree, by:
+
+```bash
+cd ~/projects/RasterFold; G="git --no-optional-locks show 75be196"
+# the commands: add_parser names and the query choices
+$G:scripts/todo-graph.py | grep -nE 'add_parser\(|choices=\['
+# the checks: the keys of SEVERITY_MAP
+$G:scripts/todo-graph.py | python3 -c 'import ast,sys; t=ast.parse(sys.stdin.read()); print(*[k.value for n in t.body if isinstance(n, ast.AnnAssign) and n.target.id == "SEVERITY_MAP" for k in n.value.keys])'
+# the adjacency checks: every code todo-adjacency.py raises
+$G:scripts/todo-adjacency.py | grep -oE '(code = |"code": )"[a-z-]+"' | sort -u
+# the findings checks: the functions and the rule todo-findings.py applies
+$G:scripts/todo-findings.py | grep -nE '^def (parse_file|check_transitions|render_ledger)|never-defect severity rule'
+```
 
 ```inventory commands
 warnings self-test needs classify progress design-baseline
 frozen findings surfaces calibration sequence plan-health summary run budget backlog growth design
 ```
+
+What each command does, and what it reads (RasterFold line numbers):
+
+- `warnings` shows the validator's warning lines that are new against `todo/.warning-baseline` (`:1905`), and `--accept` rewrites that baseline; it runs `validate`, so it reads what that reads (git history, `docs/design`, `docs/reviews`).
+- `self-test` runs about 4,500 lines of fixture cases that prove the script's own contract, in temporary trees and fixture git repositories.
+- `needs` prints, for many section references in one graph load, the Needs of each as JSON (`needs_for_ref`, `:3794`); it reads the tree only.
+- `classify` prints, for many references in one graph load, each one's exit code as JSON (`resolve_exit_code`, `:3757`), with 5 for a section RasterFold marks Moved; it reads the tree only.
+- `progress` emits the rebuild-progress JSON (phases, rows, durations, review chips) from `todo/implementation-plan.md` and the findings files under `docs/reviews`, writes `build/todo-progress.json` (`:4562`), and with `--write` writes `platform/resources/rebuild-progress.json`.
+- `design-baseline` shrinks `todo/.design-baseline` to the surface sections still lacking a `**Design:**` line, comparing with the file at git `HEAD` (`:6145`); `--init` writes it once.
+- `query frozen` lists the frozen TODO files and how many sections of each carry a Freeze check; it reads the tree only.
+- `query findings` lists the dated finding lines in section checklists (`FINDING_RE`), open first, all with `--all`; it reads the tree only.
+- `query surfaces` lists the open surface sections whose Fidelity block has Job, Treatment and Chrome, and the ones missing any; it reads the tree only.
+- `query calibration` tabulates, for stamped sections, items against owned commits, minutes and rework, from git commit subjects ending `(DNN TNN §N)` (`_all_commit_subjects`, `:4214`), with a correlation only past 30 samples.
+- `query sequence` prints the longest dependency chain and the sections a review filed work into, read from the findings files under `docs/reviews` through `scripts/todo-findings.py` (`_filing_couplings`, `:4387`).
+- `query plan-health` reports on the review loop (unmarked, degraded or stale reviews, panel fallbacks and outages, open criticals with owners, risk acceptances) from the findings files and git (`git_commit_touches`, `git_is_ancestor`, `git_file_at`); `--check` and `--fail-on` gate on it.
+- `query summary` is the one-screen digest of `plan-health`: incomplete runs, overdue owners, the next action and the gate's verdict.
+- `query run <id>` shows one campaign run: its candidate commits, manifest scope, ledger rows and outage state, from the findings files under `docs/reviews` and the markers in section text.
+- `query budget` prints sections per phase, discovered sections, the backlog count and the budget history from `todo/budget.json` and `todo/backlog.md`.
+- `query backlog` lists the entries of `todo/backlog.md` (id, date, app, title, Needs).
+- `query growth --since <ref>` lists the sections and backlog entries added or removed since a commit, reading the tree at that commit with `git ls-tree` and `git show` (`_tree_at`, `:6378`).
+- `query design` counts the surface sections with and without a `**Design:**` line, those `todo/.design-baseline` exempts, and the open Design deviations.
 
 `Size` is the command's own lines, then with the helpers it calls directly.
 
@@ -153,7 +188,7 @@ frozen findings surfaces calibration sequence plan-health summary run budget bac
 | `query growth` | `:2316` | 36 | git history | leave | Reads git; ties to RasterFold's backlog provenance |
 | `query design` | `:2584` | 15 | `todo/.design-baseline` | leave | RasterFold's design contract |
 
-The checks RasterFold's validator raises: the 58 classes of `SEVERITY_MAP` (`:839` to `:1038`, listed with `ast` over the dictionary's keys), then the five `scripts/todo-adjacency.py` raises (`:228` to `:383`) and the four `scripts/todo-findings.py` makes (`:222` to `:1183`), which sit outside it:
+The checks RasterFold's validator raises: the 58 classes of `SEVERITY_MAP` (`:839` to `:1038`, the second command above), then the six codes `scripts/todo-adjacency.py` raises (`:290` to `:383`, the third) and the four checks `scripts/todo-findings.py` makes (the fourth: `parse_file` at `:222` reads the heading grammar, the never-defect rule at `:256`, `check_transitions` at `:323`, and `render_ledger` at `:507`, which `--check` compares with the ledger), which sit outside it:
 
 ```inventory checks
 over-section-cap duplicate-source-key evidence-citation-short-form review-citation-role-less
@@ -168,7 +203,7 @@ risk-acceptance-silent-edit risk-acceptance-chain-broken skill-citation-unresolv
 budget-malformed budget-unrecorded-change origin-malformed backlog-malformed backlog-duplicate backlog-dropped
 backlog-review-rewritten release-backlog-review-missing release-backlog-unreviewed design-missing design-malformed
 design-dead-ref design-baseline-stale design-baseline-grown design-deviation-open-at-release
-anchor-unresolved anchor-unmatched unowned stated-step-unowned vacuous-kind
+declaration anchor-unresolved anchor-unmatched unowned stated-step-unowned vacuous-kind
 findings-heading-grammar never-defect-severity transitions-record derived-ledger-stale
 ```
 
@@ -232,6 +267,7 @@ findings-heading-grammar never-defect-severity transitions-record derived-ledger
 | `design-baseline-stale` | leave | As above |
 | `design-baseline-grown` | leave | As above |
 | `design-deviation-open-at-release` | leave | As above |
+| `declaration` | leave | The kit has it: the Adjacency line is parsed strictly |
 | `anchor-unresolved` | leave | The kit has it: adjacency owners resolve |
 | `anchor-unmatched` | leave | A keyword heuristic tuned to RasterFold's prose |
 | `unowned` | leave | As above |

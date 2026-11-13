@@ -79,7 +79,7 @@ class AdoptionReport(unittest.TestCase):
     def test_the_tables_hold_to_their_inventories_and_every_lift_names_its_section(self):
         self.assertEqual(problems(self.text, self.sections), [])
         self.assertEqual(len(inventory(self.text, "commands")), 18)
-        self.assertEqual(len(inventory(self.text, "checks")), 67)
+        self.assertEqual(len(inventory(self.text, "checks")), 68)
 
     def mutated(self, old, new):
         self.assertIn(old, self.text)
