@@ -41,6 +41,11 @@ title: "TODO-01 -- Todo graph that takes a project's shape"
 | 6 | §8 | Every validation fault in one run | §1 | [x] |
 | 7 | §5 | Adoption dry run on RasterFold and Impossible OS | §2, §3, §4, §7, §8 | [ ] |
 | 8 | §6 | Lift or leave decision for each RasterFold graph command | §5 | [ ] |
+| 9 | §9 | Pre-adoption stamps frozen at adoption | §4 | [ ] |
+| 10 | §10 | Ready rows filtered by the hosts this session reaches | -- | [ ] |
+| 11 | §11 | Root index that lists domains | §7 | [ ] |
+| 12 | §12 | Validation git calls cached per run | -- | [ ] |
+| 13 | §13 | Section checks run when its table row cannot be read | §8 | [ ] |
 
 ## 1. Phase list read from `todo/plan.json`
 
@@ -182,13 +187,13 @@ The keys above remove the differences that were known. What else stops each proj
 1. Copy each project's `todo/` tree to scratch with a `plan.json` written for it and run the kit's `validate` until it stops finding new classes of refusal. Done when: each refusal class is counted.
 2. Write the report and file the sections it calls for. Done when: the checkpoint passes.
 
-- [ ] Add `scripts/adoption-dry-run.py` to the SDK (not to a kit): clone the project with its history into a scratch folder (`git clone --local`), copy its working tree's `todo/` and its receipts folder over the clone so uncommitted work is measured too, write a `todo/plan.json` from arguments, run `§8`'s every-fault validation through the kit library with the scratch folder as its explicit root, and print the refusal classes (each fault's message with its section, path and numbers taken out) with a count of sections and one example each. Every git command it runs against a source repository passes `--no-optional-locks`, so it never takes the source's `index.lock` from under a live campaign's commit. Done when: a test on a fixture tree with two planted faults reports both classes and writes nothing outside its scratch folder, and a test finds `--no-optional-locks` on every git call the script makes against the source. Cheaper substitute: running `validate` once must fail review, because it stops at the first refusal and reports one class.
-- [ ] Run it on RasterFold at its current commit with a `plan.json` holding its seven Needs keys and its phase numbers, and record the commit. Done when: the output is saved under the session scratch folder, its classes are listed in the report below, and its manifest names the commit and every source file the project's own campaign changed during the copy.
-- [ ] Run it on Impossible OS in the same way. Done when: its classes are listed in the report and its manifest is recorded as RasterFold's is.
-- [ ] Write `docs/plans/<date>-todo-graph-adoption.md`: for each project, a table of refusal class, count, an example, and the decision (a new `plan.json` key, a kit change, or the project's files change), with RasterFold's host `Requires` gate (`REQUIRES_ALLOWED`, `:264`) and Impossible OS's missing Needs field each given a row. Done when: every class from the two runs has a row and a decision, and the table rows are within 120 characters.
-- [ ] Check the kit's agent guidance against each project's `caps` in the `plan.json` written for it: the guard `test_the_kit_guidance_names_the_configured_cap_wherever_it_states_a_default` in `tests/test_todo_graph.py` covers the stated defaults, so read `add-todo`, `create-todo` and `groom-plan` for any other limit the project's caps contradict. Done when: the report's guidance row names each line that would mislead an agent working that project, or says none (filed from `D03 T01 §3`'s completion review).
-- [ ] File a section through `add-todo` for each decision that is a kit change, in this file, and name each in the report. Done when: `python scripts/todo-graph.py validate` passes and the report's kit-change rows each carry a `D03 T01 §N` reference. Cheaper substitute: a list of follow-ups in the report with no section must fail review.
-- [ ] Record what was measured beside the output: the manifest of copied files with their SHA-256 digests, the effective `todo/plan.json`, the project's commit and the SDK commit whose validator ran. After copying, digest the copied source files again; when any changed (the project's campaign edited it mid-copy), copy again, at most three times, and list the files that moved in the manifest, so a torn snapshot never reports refusal classes the tree does not have. Done when: a fixture test with an already-dirty source file finds its digest in the manifest and the source's bytes unchanged after the run, a fixture test that changes a source file during the first copy finds the second copy consistent and the file listed as moved, a test of a valid stamped section in the snapshot reports no fault (its history and receipts came along), a genuinely broken receipt is reported, and a fault planted only in the scratch copy is found while the SDK's own tree validates.
+- [x] Add `scripts/adoption-dry-run.py` to the SDK (not to a kit): clone the project with its history into a scratch folder (`git clone --local`), copy its working tree's `todo/` and its receipts folder over the clone so uncommitted work is measured too, write a `todo/plan.json` from arguments, run `§8`'s every-fault validation through the kit library with the scratch folder as its explicit root, and print the refusal classes (each fault's message with its section, path and numbers taken out) with a count of sections and one example each. Every git command it runs against a source repository passes `--no-optional-locks`, so it never takes the source's `index.lock` from under a live campaign's commit. Done when: a test on a fixture tree with two planted faults reports both classes and writes nothing outside its scratch folder, and a test finds `--no-optional-locks` on every git call the script makes against the source. Cheaper substitute: running `validate` once must fail review, because it stops at the first refusal and reports one class.
+- [x] Run it on RasterFold at its current commit with a `plan.json` holding its seven Needs keys and its phase numbers, and record the commit. Done when: the output is saved under the session scratch folder, its classes are listed in the report below, and its manifest names the commit and every source file the project's own campaign changed during the copy.
+- [x] Run it on Impossible OS in the same way. Done when: its classes are listed in the report and its manifest is recorded as RasterFold's is.
+- [x] Write `docs/plans/<date>-todo-graph-adoption.md`: for each project, a table of refusal class, count, an example, and the decision (a new `plan.json` key, a kit change, or the project's files change), with RasterFold's host `Requires` gate (`REQUIRES_ALLOWED`, `:264`) and Impossible OS's missing Needs field each given a row. Done when: every class from the two runs has a row and a decision, and the table rows are within 120 characters.
+- [x] Check the kit's agent guidance against each project's `caps` in the `plan.json` written for it: the guard `test_the_kit_guidance_names_the_configured_cap_wherever_it_states_a_default` in `tests/test_todo_graph.py` covers the stated defaults, so read `add-todo`, `create-todo` and `groom-plan` for any other limit the project's caps contradict. Done when: the report's guidance row names each line that would mislead an agent working that project, or says none (filed from `D03 T01 §3`'s completion review).
+- [x] File a section through `add-todo` for each decision that is a kit change, in this file, and name each in the report. Done when: `python scripts/todo-graph.py validate` passes and the report's kit-change rows each carry a `D03 T01 §N` reference. Cheaper substitute: a list of follow-ups in the report with no section must fail review.
+- [x] Record what was measured beside the output: the manifest of copied files with their SHA-256 digests, the effective `todo/plan.json`, the project's commit and the SDK commit whose validator ran. After copying, digest the copied source files again; when any changed (the project's campaign edited it mid-copy), copy again, at most three times, and list the files that moved in the manifest, so a torn snapshot never reports refusal classes the tree does not have. Done when: a fixture test with an already-dirty source file finds its digest in the manifest and the source's bytes unchanged after the run, a fixture test that changes a source file during the first copy finds the second copy consistent and the file listed as moved, a test of a valid stamped section in the snapshot reports no fault (its history and receipts came along), a genuinely broken receipt is reported, and a fault planted only in the scratch copy is found while the SDK's own tree validates.
 - [ ] Commit: `todo: measure what stops RasterFold and Impossible OS adopting the graph`
 
 **Corrected 2026-11-13 (plan review):** the validator reports every fault itself (new `§8`, `validate --all`), so nothing is set aside and no file's later faults are hidden; the snapshot is a clone with history plus the working tree's `todo/` and receipts folder (Impossible OS's `.claude/overnight/reviews` too), so stamped sections validate as they do at home; the kit library runs with the scratch folder as its explicit root; and the run records its inputs' digests and leaves the sources' bytes as they were.
@@ -196,6 +201,8 @@ The keys above remove the differences that were known. What else stops each proj
 **Corrected 2026-11-13 (validation):** read at RasterFold `bf30b38` and Impossible OS `9f86baf50` (both trees carry another session's uncommitted work, so the dry run only ever copies from them): RasterFold's seven Needs are free-text phrases (`Idle machine (timing)` 44 times, `ffmpeg with libjxl (benchmarks)` 34, then `Network (downloads)`, `Windows host (build/test)`, `GPU (compute)`, `FPGA board` and `ARM64 device`), so its `plan.json` names each as a slug and the phrases are a refusal class of their own; neither project writes a `**Phase:**` field; Impossible OS keeps its receipts in `.claude/overnight/reviews` (`§4`'s `layout.receipts` takes it) and holds 2,595 sections; and `REQUIRES_ALLOWED` is at `scripts/todo-graph.py:264` as named.
 
 **Corrected 2026-11-13 (live campaigns):** both projects run campaigns while this section runs (RasterFold holds `build/claude-campaign-guard.json`; Impossible OS committed `ca1de2af8` past the `9f86baf50` read above). A plain `git status` refreshes the index under `index.lock` and can fail a campaign's `git add` or `commit`, so the script's source git calls use `--no-optional-locks`; and a live tree changes for reasons of its own, so "status unchanged" was not a proof the dry run wrote nothing. The fixture tests prove that, and the run recopies when the source moved mid-copy.
+
+**Corrected 2026-11-13 (build):** the clone is `git clone --no-hardlinks --no-checkout` then a detached checkout of the source's `HEAD`, not `--local` alone: `--local` hardlinks the object files into the scratch folder, so the snapshot would share files with the source, and a source on a detached `HEAD` would check out nothing. The stamped-section test runs the dry run on the SDK itself, under `CONCLAVE_FULL_TESTS=1`, since validating the SDK's tree takes a minute on Windows (filed as `§12`). The Impossible OS run measured file-level classes only, because the validator skips a section whose row it cannot read; that gap is filed as `§13`, and the report counts those sections' fields until it ships.
 
 **Test checkpoint:** `python -m unittest discover -s tests` ends `OK` with the dry-run script's fixture test in it, and `python scripts/todo-graph.py validate` passes; removing a planted fault's class from the script's output makes the fixture test fail.
 
@@ -282,6 +289,112 @@ The generated plan is written to `todo/implementation-plan.md`. A project that k
 
 > **Verified:** 2026-11-13 | §8 | b99ddc119a6969b33f4d32900a4b95b54604e163
 > **Review:** `docs/reviews/d03-t01-s8.json`
+
+## 9. Pre-adoption stamps frozen at adoption
+
+A project that adopts the kit arrives with sections it stamped under its own tooling: RasterFold 126, Impossible OS 915 (`docs/plans/2026-11-13-todo-graph-adoption.md`, rows R1, R6, R10 to R13, R16, R18, R21, R22, I15 and I16). The kit never rewrites a stamped section (`todo/README.md`, Brownfield code) and already freezes old receipts by digest in `legacy-receipts.json`, but nothing writes that file for a project, so every such stamp is a refusal. Adoption freezes them once, by digest, so a later edit still refuses.
+
+**Phase:** 3
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add `adopt_stamps` to `kits/todo/templates/scripts/lib/todo_graph.py` and `adopt-stamps` to `kits/todo/templates/scripts/todo-graph.py`. Done when: a fixture tree with foreign-format stamps validates after one run.
+2. Re-run the RasterFold dry run with the stamps adopted in its snapshot. Done when: the checkpoint passes and the report's rows are updated.
+
+- [ ] Add `adopt_stamps(root, phase_map=None)` to `todo_graph.py`: for each `[x]` row whose `Verified:` commit is an ancestor of `HEAD`, record under a new `adopted` key of `<receipts>/legacy-receipts.json` the reference, the stamp commit, the SHA-256 of the section body and of its receipt file when one exists, written atomically; refuse when `adopted` already holds entries, since adoption runs once. Done when: a test with two foreign-format stamps writes both entries, and a second run refuses and leaves the file's bytes as they were. Cheaper substitute: freezing by reference alone must fail review, because a later edit of the body would then pass.
+- [ ] Skip the receipt checks and the section-format checks (fields, Build order, checklist, checkpoint) in `graph` for an adopted section whose body digest matches its entry, keeping the graph checks (dependencies, phase order, XREFs, indexes). Done when: an adopted section with no Build order and a foreign receipt validates, and the same section with one byte of its body changed reports both faults again.
+- [ ] Take an adopted section's phase from `phase_map` (a JSON object of reference or TODO file path to phase number, read by `adopt-stamps --phase-map <file>`) when its body has no `**Phase:**`, record it in the entry, and refuse at adoption a stamped section with neither. Done when: a test adopts a phase-less section through a file-path entry, the generated plan lists it under that phase, and a section with no phase anywhere is refused naming its reference.
+- [ ] Add the `adopt-stamps` subcommand to `kits/todo/templates/scripts/todo-graph.py`, printing one line per adopted section and the count. Done when: a CLI test reads the lines and exit 0, and exit 2 with the refusal on a second run.
+- [ ] Remove a section's `adopted` entry in `unstamp`, so a reopened section is held to the kit's format when it is stamped again. Done when: a test unstamps an adopted section and finds its entry gone and its format faults reported.
+- [ ] Document `adopt-stamps` in `kits/todo/templates/todo/README.md` (Brownfield code), copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
+- [ ] Re-run `scripts/adoption-dry-run.py` on RasterFold with the stamps adopted in its snapshot, and update the report's rows. Done when: R6, R10 to R13, R16, R18, R21 and R22 are gone from the run, R1 counts only open sections, and `docs/plans/2026-11-13-todo-graph-adoption.md` says so with the run's commit.
+- [ ] Commit: `todo: a project's own stamps are frozen at adoption`
+
+**Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; dropping the body digest comparison makes the one-byte test fail.
+
+## 10. Ready rows filtered by the hosts this session reaches
+
+`query ready` lists a row whose Needs name a host this session cannot reach, and `process-plan` leaves the agent to notice. RasterFold's graph checks the host itself (`REQUIRES_ALLOWED`, `scripts/todo-graph.py:264`, and `detect_context`, `:296`, at `bf30b38`; report row R23). The kit gets the same check.
+
+**Phase:** 3
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add `detect` and `--have` to `kits/todo/templates/scripts/todo-graph.py`. Done when: `query ready --have "$(python scripts/todo-graph.py detect)"` leaves out a row needing an absent host.
+2. Point the runner skills at it. Done when: the checkpoint passes.
+
+- [ ] Add `--have <need,...>` to `query ready` and `resolve` in `todo-graph.py`, reading the list through `todo_graph.py`: a row with a Need that is neither waiting nor in the list is left out of `ready`, and `resolve` exits 4 naming the Need; without `--have` both behave as today. Done when: tests cover a row needing `windows-host` listed with `--have windows-host`, left out with `--have ''`, and listed without the flag. Cheaper substitute: filtering in the skill text alone must fail review, because the heartbeat prompt and other agents call the graph directly.
+- [ ] Add `detect` to `todo-graph.py`: print the comma-separated Needs this machine meets, `windows-host` on Windows, `arm64-host` on an ARM64 machine, `display-session` with an interactive Windows session or `DISPLAY` or `WAYLAND_DISPLAY` set, `libreoffice` when `soffice` is on `PATH`, and `office` when Word's registry key is present (`winreg`), ported from RasterFold's `detect_context`. Done when: tests with each probe mocked print each Need, and none prints for a probe that fails.
+- [ ] Use `query ready --have "$(python scripts/todo-graph.py detect)"` in `process-plan` and `process-phase` under `.claude/`, `.agents/` and `.codex/` in `kits/todo/templates/`, and in the heartbeat prompt. Done when: a guard test finds the flag in each of the six files and the prompt.
+- [ ] Document `detect` and `--have` in `kits/todo/templates/todo/README.md`, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
+- [ ] Commit: `todo: ready rows filtered by the hosts this session reaches`
+
+**Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; ignoring `--have` in `query ready` makes the `--have ''` test fail.
+
+## 11. Root index that lists domains
+
+Both adopting projects keep `todo/TODO-00-INDEX.md` at domain altitude, as the kit's own `todo/README.md` describes it ("root index: domain order + active work"), while the validator demands every TODO file in it (report rows R20 and I17: 33 and 221 files). A project chooses which.
+
+**Phase:** 3
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add `layout.root_index` to `plan_config` in `kits/todo/templates/scripts/lib/todo_graph.py` and read it in `_index_coverage`. Done when: a tree whose root index lists only domains validates under `domains`.
+2. Teach the reviewer kit's reader the key name. Done when: the checkpoint passes.
+
+- [ ] Accept `root_index` in `layout` in `plan_config` of `todo_graph.py`: `files` (the default, today's rule) or `domains`. Done when: tests refuse another string and a non-string, each naming `todo/plan.json` and `layout`, and a `layout` without it keeps `files`.
+- [ ] Under `domains`, require in `_index_coverage` each domain's index link (`NN-domain/INDEX.md`) in the root index in place of each file, the domain indexes still listing every file. Done when: a test validates a domains-only root index, refuses one missing a domain, and refuses a domain index missing a file; under `files` the existing index tests pass unchanged.
+- [ ] Accept the `root_index` member in `kits/reviewer/templates/scripts/review_layout.py`, which checks only the names it does not read. Done when: the readers' table in `tests/test_todo_graph.py` accepts it in both readers.
+- [ ] Document `layout.root_index` in `kits/todo/templates/todo/README.md`, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
+- [ ] Commit: `todo: a root index that lists domains`
+
+**Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; reading the file rule under `domains` makes the domains-only test fail.
+
+## 12. Validation git calls cached per run
+
+`python scripts/todo-graph.py validate` takes 61 seconds on the SDK's 77 sections on Windows (measured 2026-11-13 under `cProfile`): 441 git processes (`cat-file`, `merge-base`, `show`), most of them repeats, and `plan_config` read 220 times. The pre-commit hook runs it on every commit, and a project with 915 stamps pays it many times over.
+
+**Phase:** 3
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Cache git results and the configuration for one `graph` run in `kits/todo/templates/scripts/lib/todo_graph.py`. Done when: the SDK's `validate` takes under 15 seconds.
+2. Prove the results are unchanged. Done when: the checkpoint passes.
+
+- [ ] Memoise `_git`, `commit_ok`, `is_ancestor` and the `git show` reads in `todo_graph.py` for the length of one `graph` call, keyed by root and arguments and dropped when the call returns. Done when: a test counting `subprocess.run` calls during `graph` on a fixture with two stamped sections sharing a commit and a pin sees each distinct git command once, and the faults found are the same as without the cache. Cheaper substitute: a module-level cache that outlives the call must fail review, because a stamp commits between two calls and would read a stale answer.
+- [ ] Read `todo/plan.json` once per `graph` call in `todo_graph.py`, passing the configuration to `receipts_folder` and the other readers inside it. Done when: a test counts one `plan_config` read per `graph` call.
+- [ ] Time `python scripts/todo-graph.py validate` on the SDK's tree on Windows before and after. Done when: the commit body quotes both times, the second under 15 seconds.
+- [ ] Commit: `todo: validation reads each git answer once per run`
+
+**Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; clearing the cache before each lookup makes the call-count test fail.
+
+## 13. Section checks run when its table row cannot be read
+
+`validate --all` (`§8`) skips a section whose Implementation Order row cannot be read (`todo_graph.py:1074`), so its own faults stay hidden although its body is readable. Every Impossible OS file failed at its table, and the dry run reported no section-level class for its 2,596 sections; the report counted their fields instead (rows I12 to I16).
+
+**Phase:** 3
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Run a section's body checks in `graph` in `kits/todo/templates/scripts/lib/todo_graph.py` when it has no readable row. Done when: a section under a malformed row reports its missing Phase.
+2. Re-measure Impossible OS. Done when: the checkpoint passes and the report's counted rows are measured ones.
+
+- [ ] Run each section's own checks in `graph` (its fields, Build order, checklist, checkpoint and freeze check) for a heading with no readable row when collecting, skipping only what the row feeds (the Deliverable length, the done status and the stamp). Done when: a test with a malformed row and a section body with no Phase reports both faults, and `graph` without `faults` raises the row fault first as before.
+- [ ] Keep such a section out of the graph: it is never ready, and a reference to it is not reported as unresolved. Done when: a test with a dependency and an XREF to it reports neither.
+- [ ] Re-run `scripts/adoption-dry-run.py` on Impossible OS and replace rows I12 to I16 of `docs/plans/2026-11-13-todo-graph-adoption.md` with the measured classes and their decisions. Done when: every class of the new run has a row, with the run's commit.
+- [ ] Commit: `todo: section checks run when its table row cannot be read`
+
+**Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; restoring the skip at `:1074` makes the malformed-row test fail.
 
 ## Verification
 

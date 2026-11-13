@@ -65,18 +65,23 @@ Sections: 19 | Checklist items: 133
 
 ### Phase 3: Todo graph that takes a project's shape
 
-Sections: 8 | Checklist items: 55
+Sections: 13 | Checklist items: 81
 
-| Status | Reference  | Deliverable                                               | Needs | Items |
-| ------ | ---------- | --------------------------------------------------------- | ----- | ----- |
-| [x]    | D03 T01 §1 | Phase list read from `todo/plan.json`                     | none  | 6     |
-| [x]    | D03 T01 §2 | Needs values and waiting Needs read from `todo/plan.json` | none  | 6     |
-| [x]    | D03 T01 §3 | Caps read from `todo/plan.json`                           | none  | 6     |
-| [x]    | D03 T01 §4 | Receipts folder read from `todo/plan.json`                | none  | 9     |
-| [x]    | D03 T01 §7 | Plan path read from `todo/plan.json`                      | none  | 8     |
-| [x]    | D03 T01 §8 | Every validation fault in one run                         | none  | 7     |
-| [ ]    | D03 T01 §5 | Adoption dry run on RasterFold and Impossible OS          | none  | 8     |
-| [ ]    | D03 T01 §6 | Lift or leave decision for each RasterFold graph command  | none  | 5     |
+| Status | Reference   | Deliverable                                               | Needs | Items |
+| ------ | ----------- | --------------------------------------------------------- | ----- | ----- |
+| [x]    | D03 T01 §1  | Phase list read from `todo/plan.json`                     | none  | 6     |
+| [x]    | D03 T01 §2  | Needs values and waiting Needs read from `todo/plan.json` | none  | 6     |
+| [x]    | D03 T01 §3  | Caps read from `todo/plan.json`                           | none  | 6     |
+| [x]    | D03 T01 §4  | Receipts folder read from `todo/plan.json`                | none  | 9     |
+| [x]    | D03 T01 §7  | Plan path read from `todo/plan.json`                      | none  | 8     |
+| [x]    | D03 T01 §8  | Every validation fault in one run                         | none  | 7     |
+| [ ]    | D03 T01 §5  | Adoption dry run on RasterFold and Impossible OS          | none  | 8     |
+| [ ]    | D03 T01 §6  | Lift or leave decision for each RasterFold graph command  | none  | 5     |
+| [ ]    | D03 T01 §9  | Pre-adoption stamps frozen at adoption                    | none  | 8     |
+| [ ]    | D03 T01 §10 | Ready rows filtered by the hosts this session reaches     | none  | 5     |
+| [ ]    | D03 T01 §11 | Root index that lists domains                             | none  | 5     |
+| [ ]    | D03 T01 §12 | Validation git calls cached per run                       | none  | 4     |
+| [ ]    | D03 T01 §13 | Section checks run when its table row cannot be read      | none  | 4     |
 
 ### Phase 4: Antigravity and Codex as writers
 
@@ -146,6 +151,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 42/77 verified sections, 12 ready to run now.
+Progress: 42/82 verified sections, 17 ready to run now.
 
-Checklist: 352/555 items completed (includes Commit items).
+Checklist: 359/581 items completed (includes Commit items).
