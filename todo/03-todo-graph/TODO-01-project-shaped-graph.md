@@ -68,6 +68,8 @@ A project names its phases in `todo/plan.json` but may only use the numbers the 
 
 ## 2. Needs values and waiting Needs read from `todo/plan.json`
 
+> **Started:** 2026-11-13T02:27:48Z
+
 RasterFold's Needs are `ffmpeg-jxl`, `network`, `gpu` and four more; the kit accepts ten values of its own and holds three of them out of the ready list. Both lists become keys.
 
 **Phase:** 3
@@ -80,11 +82,13 @@ RasterFold's Needs are `ffmpeg-jxl`, `network`, `gpu` and four more; the kit acc
 2. Use the configured lists wherever `NEEDS` and `WAITING` are read. Done when: the checkpoint passes.
 
 - [ ] Accept optional `needs` and `waiting` keys in `plan_config` of `todo_graph.py`: each a list of distinct names matching `[a-z0-9][a-z0-9-]*`, `waiting` a subset of `needs`, defaulting to `NEEDS` and `WAITING`. Done when: tests refuse a non-list, a malformed name, a duplicate and a `waiting` value that is not in `needs`, each naming the key.
-- [ ] Check a section's `**Needs:**` (`:969`) against the configured `needs` in `todo_graph.py`. Done when: a test tree with `**Needs:** gpu` validates when `needs` holds `gpu` and refuses naming the value when it does not.
-- [ ] Use the configured `waiting` list at the three places `WAITING` is read in `todo_graph.py`: the ready query (`:1142`), the stamp (`:1342`) and the stamped-section check (`:1017`). Done when: a test with `waiting` of `["gpu"]` finds a `gpu` section out of `query ready` and refused by `stamp`, and an `owner-decision` section ready under that same plan. Cheaper substitute: changing only the ready query must fail the stamp assertion.
+- [ ] Check a section's `**Needs:**` (`:978`) against the configured `needs` in `todo_graph.py`. Done when: a test tree with `**Needs:** gpu` validates when `needs` holds `gpu` and refuses naming the value when it does not.
+- [ ] Use the configured `waiting` list at the three places `WAITING` is read in `todo_graph.py`: the ready query (`disposition`, `:1151`), the stamp (`:1357`) and the stamped-section check (`:1026`). Done when: a test with `waiting` of `["gpu"]` finds a `gpu` section out of `query ready` and refused by `stamp`, and an `owner-decision` section ready under that same plan. Cheaper substitute: changing only the ready query must fail the stamp assertion.
 - [ ] Keep today's behaviour with no keys. Done when: the existing Needs tests pass unchanged.
 - [ ] Document both keys in `kits/todo/templates/todo/README.md`, including that "Unattended runs never take" names the default values, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
 - [ ] Commit: `todo: Needs values and waiting Needs come from todo/plan.json`
+
+**Corrected 2026-11-13 (validation):** the line references moved with `§1` (`:969` is `:978`, `:1142` is `disposition` at `:1151`, `:1342` is `:1357`, `:1017` is `:1026`); `disposition` and its callers in the CLI have no configuration, so each section carries its waiting Needs, worked out once from the configured `waiting` when the graph is built.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; leaving the stamp on the constant `WAITING` makes the `gpu` stamp test fail.
 
