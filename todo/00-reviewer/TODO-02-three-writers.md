@@ -75,6 +75,8 @@ The template pin leaves Codex's work with no reviewer (roadmap finding 10). It g
 
 ## 2. Antigravity flags checked against the installed CLI
 
+> **Started:** 2026-11-13T15:16:09Z
+
 The roadmap says to check every `agy` flag against the current CLI before it ships. The dispatcher passes five; a CLI release that renames one would turn every Antigravity review into "no review" with nobody noticing.
 
 **Phase:** 4
