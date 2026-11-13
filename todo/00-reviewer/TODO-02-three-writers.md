@@ -2,7 +2,7 @@
 schema_version: 1
 id: three-writers
 domain: 00-reviewer
-status: active
+status: done
 title: "TODO-02 -- Antigravity and Codex as first-class writers"
 ---
 
@@ -36,7 +36,7 @@ title: "TODO-02 -- Antigravity and Codex as first-class writers"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Codex route and an Antigravity reviewer in the template pin | -- | [x] |
 | 2 | §2 | Antigravity flags checked against the installed CLI | -- | [x] |
-| 3 | §3 | Antigravity counterparts of the base kit's subagents | §2 | [ ] |
+| 3 | §3 | Antigravity counterparts of the base kit's subagents | §2 | [x] |
 
 ## 1. Codex route and an Antigravity reviewer in the template pin
 
@@ -131,7 +131,7 @@ Claude Code gets five read-only subagents from the base kit (`code-explorer`, `d
 - [x] Prove each agent does its job on `gemini-4-hydrogen-medium` in a live session: `tests/test_agy_agents.py` carries a test that runs only with `CONCLAVE_LIVE_AGY=1` (it needs the installed, signed-in CLI, so CI skips it), installs the base kit for `agy` into a scratch repository holding one module, one passing and one failing test, confirms a headless `agy` session in that install lists all five subagents, and invokes each agent through `scripts/agy-subagent.py` on a known-answer task: `code-explorer` names the file and line of a function, `git-runner` the subject of the last commit, `test-runner` the failing test's name, `debug-evidence` the assertion message, and `mutation-tester` applies one named mutation, reports the test that then fails, and leaves the file byte for byte as it was. Done when: the test passes on this machine with `init.model == "gemini-4-hydrogen-medium"` and the answers checked against the fixture for all five, and `kits/base/README.md` records the CLI version, the date, the model and each agent's result.
 - [x] Say in the Subagents section of `kits/base/templates/AGENTS.md` (and `kits/base/templates/GEMINI.md`) that Antigravity has the same five subagents under `.agents/agents/` pinned to `gemini-4-hydrogen-medium` and run via `scripts/agy-subagent.py`, and in `kits/base/README.md` (and `kits/base/templates/CODEX.md`) that Codex has none (the base kit ships no `.codex` agent definitions) and runs mechanical subtasks in the main session. Done when: those documents carry their sentences.
 - [x] Run `python forge.py self-sync`. Done when: `python -m unittest discover -s tests` passes with the SDK's installed copies equal to the kits.
-- [ ] Commit: `base: Antigravity subagents on Gemini 4 Hydrogen medium`
+- [x] Commit: `base: Antigravity subagents on Gemini 4 Hydrogen medium`
 
 **Corrected 2026-11-13 (validation):** established on `agy` 1.5.8: it loads a project's subagents from `.agents/agents/<name>.md` (and from a plugin's `agents/` folder), with frontmatter `name`, `description`, `model`, `subagent`, `mainAgent`, `inheritMcp` and `tools` in its own tool names (`read_file`, `edit_file`, `write_file`, `run_command`, `manage_task`, `search_web`); an omitted `tools` gets a small read-only default. Source: the CLI's built-in `migrate-agent-settings` and `agy-customizations` skills (`~/.gemini/antigravity-cli/builtin/skills/migrate-agent-settings/SKILL.md` and `agy-customizations/SKILL.md`), `agy plugin validate`, and a probe: a headless session in a scratch project holding `.agents/agents/probe-root.md` named `probe-root` among its subagents. So the agents are ported, the "does not support" item becomes the documentation of where they are and of Codex's limit, and the check is a Python test of its own.
 
@@ -140,6 +140,9 @@ Claude Code gets five read-only subagents from the base kit (`code-explorer`, `d
 **Corrected 2026-11-13 (operator):** the five Antigravity subagents must run on Gemini 4 Hydrogen at medium effort (`gemini-4-hydrogen-medium`) while the main writer stays Gemini 4 Carbon. Measured on `agy` 1.5.8: `model:` in `.agents/agents/<name>.md` accepts only the four tier tokens `inherit`, `flash_lite`, `flash` and `pro` (`agy plugin validate` rejects `model: gemini-4-hydrogen-medium` with `Invalid model tier gemini-4-hydrogen-medium. The loader skips this agent`, and a live session omits that file from `<subagents>`), while `invoke_subagent` maps `flash` and `pro` to `gemini-3.8-flash-tiered`, `flash_lite` to `gemini-3.5-flash-lite` and `inherit` to Carbon. Setting `model: flash`, `conclave_model: gemini-4-hydrogen-medium`, `subagent: true`, `mainAgent: true` and `inheritMcp: false` passes `agy plugin validate --strict`, exposes all five in `<subagents>` without inheriting Carbon, and lets `scripts/agy-subagent.py` run each agent directly on `gemini-4-hydrogen-medium` via `agy --model gemini-4-hydrogen-medium --agent <name>`.
 
 **Test checkpoint:** `python -m unittest discover -s tests` ends `OK`; adding a write tool to one Antigravity definition makes the new check fail.
+
+> **Verified:** 2026-11-13 | §3 | b3f8e1bd715e2096ef610292f2b75b177d17a84c
+> **Review:** `docs/reviews/d00-t02-s3.json`
 
 ## Verification
 

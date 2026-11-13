@@ -1,0 +1,84 @@
+{
+  "ref": "D00 T02 \u00a73",
+  "title": "Antigravity counterparts of the base kit's subagents",
+  "implementation_sha": "b3f8e1bd715e2096ef610292f2b75b177d17a84c",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-reviewer/D00-T02-s3.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s tests and the kit suites (CI tests.yml run 43488513127 on b3f8e1bd715e: quick suite Windows, full suite Linux, kit suites Linux) -> success",
+    "CONCLAVE_LIVE_AGY=1 python -m unittest tests.test_agy_agents -> OK on agy 1.5.8 gemini-4-hydrogen-medium"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-reviewer/D00-T02-s3.md",
+    "verdict": "reconciled",
+    "candidate": "b3f8e1bd715e2096ef610292f2b75b177d17a84c",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/00-reviewer/D00-T02-s3.md",
+    "candidate": "554e8dfaef6d703f763bb7cb1e7d23171625783d",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "554e8dfaef6d703f763bb7cb1e7d23171625783d",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}
