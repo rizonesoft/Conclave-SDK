@@ -245,7 +245,14 @@ class DoctorCheck(unittest.TestCase):
             os.chdir(project)
             # Whatever this Python's shutil.which would answer (it differs by version and by environment), doctor
             # must not ask it: here it names the decoy, as it does on Windows from the working directory.
-            with self.path_with_only_the_stub(), mock.patch.object(forge.shutil, "which", lambda cli: str(decoy)):
+            real = forge.shutil.which
+
+            def which(cli, mode=os.F_OK | os.X_OK, path=None):
+                # A search of the caller's own choosing is the real one (the dispatcher's lookup on POSIX);
+                # the default search is the one that finds the decoy.
+                return str(decoy) if path is None else real(cli, mode, path)
+
+            with self.path_with_only_the_stub(), mock.patch.object(forge.shutil, "which", which):
                 checks = {c["name"]: c for c in forge.doctor_repo(project, "reviewer")["checks"]}
         finally:
             os.chdir(cwd)
