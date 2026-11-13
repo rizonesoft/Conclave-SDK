@@ -87,12 +87,12 @@ Sections: 15 | Checklist items: 103
 
 ### Phase 4: Antigravity and Codex as writers
 
-Sections: 3 | Checklist items: 21
+Sections: 3 | Checklist items: 23
 
 | Status | Reference  | Deliverable                                                 | Needs | Items |
 | ------ | ---------- | ----------------------------------------------------------- | ----- | ----- |
 | [ ]    | D00 T02 §1 | Codex route and an Antigravity reviewer in the template pin | none  | 9     |
-| [ ]    | D00 T02 §2 | Antigravity flags checked against the installed CLI         | none  | 6     |
+| [ ]    | D00 T02 §2 | Antigravity flags checked against the installed CLI         | none  | 8     |
 | [ ]    | D00 T02 §3 | Antigravity counterparts of the base kit's subagents        | none  | 6     |
 
 ### Phase 5: One gate and one skill source
@@ -155,4 +155,4 @@ Sections: 3 | Checklist items: 16
 
 Progress: 51/84 verified sections, 11 ready to run now.
 
-Checklist: 421/605 items completed (includes Commit items).
+Checklist: 421/607 items completed (includes Commit items).
