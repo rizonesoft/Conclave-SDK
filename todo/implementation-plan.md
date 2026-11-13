@@ -65,7 +65,7 @@ Sections: 19 | Checklist items: 133
 
 ### Phase 3: Todo graph that takes a project's shape
 
-Sections: 13 | Checklist items: 83
+Sections: 13 | Checklist items: 85
 
 | Status | Reference   | Deliverable                                               | Needs | Items |
 | ------ | ----------- | --------------------------------------------------------- | ----- | ----- |
@@ -81,7 +81,7 @@ Sections: 13 | Checklist items: 83
 | [ ]    | D03 T01 §10 | Ready rows filtered by the hosts this session reaches     | none  | 5     |
 | [ ]    | D03 T01 §11 | Root index that lists domains                             | none  | 5     |
 | [ ]    | D03 T01 §12 | Validation git calls cached per run                       | none  | 6     |
-| [ ]    | D03 T01 §13 | Section checks run when its table row cannot be read      | none  | 4     |
+| [ ]    | D03 T01 §13 | Section checks run when its table row cannot be read      | none  | 6     |
 
 ### Phase 4: Antigravity and Codex as writers
 
@@ -153,4 +153,4 @@ Sections: 3 | Checklist items: 16
 
 Progress: 42/82 verified sections, 17 ready to run now.
 
-Checklist: 367/583 items completed (includes Commit items).
+Checklist: 367/585 items completed (includes Commit items).
