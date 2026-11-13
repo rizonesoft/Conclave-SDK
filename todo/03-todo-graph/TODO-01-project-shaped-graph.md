@@ -168,6 +168,8 @@ Receipts and findings files go to `docs/reviews/` through literals in the graph,
 
 ## 5. Adoption dry run on RasterFold and Impossible OS
 
+> **Started:** 2026-11-13T05:35:33Z
+
 The keys above remove the differences that were known. What else stops each project is measured, not guessed: the kit's validator runs on a scratch copy of each tree and every class of refusal is recorded.
 
 **Phase:** 3
@@ -186,6 +188,8 @@ The keys above remove the differences that were known. What else stops each proj
 - [ ] Check the kit's agent guidance against each project's `caps` in the `plan.json` written for it: the guard `test_the_kit_guidance_names_the_configured_cap_wherever_it_states_a_default` in `tests/test_todo_graph.py` covers the stated defaults, so read `add-todo`, `create-todo` and `groom-plan` for any other limit the project's caps contradict. Done when: the report's guidance row names each line that would mislead an agent working that project, or says none (filed from `D03 T01 §3`'s completion review).
 - [ ] File a section through `add-todo` for each decision that is a kit change, in this file, and name each in the report. Done when: `python scripts/todo-graph.py validate` passes and the report's kit-change rows each carry a `D03 T01 §N` reference. Cheaper substitute: a list of follow-ups in the report with no section must fail review.
 - [ ] Commit: `todo: measure what stops RasterFold and Impossible OS adopting the graph`
+
+**Corrected 2026-11-13 (validation):** read at RasterFold `bf30b38` and Impossible OS `9f86baf50` (both trees carry another session's uncommitted work, so the dry run only ever copies from them): RasterFold's seven Needs are free-text phrases (`Idle machine (timing)` 44 times, `ffmpeg with libjxl (benchmarks)` 34, then `Network (downloads)`, `Windows host (build/test)`, `GPU (compute)`, `FPGA board` and `ARM64 device`), so its `plan.json` names each as a slug and the phrases are a refusal class of their own; neither project writes a `**Phase:**` field; Impossible OS keeps its receipts in `.claude/overnight/reviews` (`§4`'s `layout.receipts` takes it) and holds 2,595 sections; and `REQUIRES_ALLOWED` is at `scripts/todo-graph.py:264` as named.
 
 **Test checkpoint:** `python -m unittest discover -s tests` ends `OK` with the dry-run script's fixture test in it, and `python scripts/todo-graph.py validate` passes; removing a planted fault's class from the script's output makes the fixture test fail.
 
