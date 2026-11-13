@@ -1809,6 +1809,43 @@ class Stamp(Tree):
             self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-13")
         self.assertIn("unticked", str(ctx.exception))
 
+    def test_two_sections_stamped_on_one_commit_and_pin_ask_git_each_question_once(self):
+        # D03 T01 §12 (completion): the success path, both stamps valid and sharing their commit and pin.
+        path = self.root / "todo/00-workspace/TODO-01-a.md"
+        text = path.read_text(encoding="utf-8").replace("**Needs:** owner-decision", "**Needs:** none")
+        text = text.replace("- [ ] Work.", "- [x] Work.").replace(
+            "**Test checkpoint:** `true` exits 0.\n\n## Verification", STARTED + "**Test checkpoint:** `true` exits 0."
+            "\n\n## Verification")
+        path.write_text(text, encoding="utf-8")
+        starts = {1: self.start}  # §1 started in the first commit, §2 in this one
+        self.sha = starts[2] = self.commit("§2 started")
+        for n in (1, 2):
+            self.start = starts[n]  # the candidate the section's plan review is recorded on
+            report = f"docs/reviews/00-workspace/D00-T01-s{n}.md"
+            (self.root / report).write_text("# Review findings\n\n" + envelope(1), encoding="utf-8")
+            completion = f"docs/reviews/00-workspace/D00-T01-s{n}-completion.md"
+            self.write_completion(path=completion, candidate=self.sha)
+            self.stamp(f"D00 T01 §{n}", self.sha, [{"round": 1, "report": report, "verdict": "clean"}],
+                       ["true -> ok"], "2026-10-23", completion={"report": completion, "verdict": "complete"})
+        real, calls = subprocess.run, []
+
+        def spy(argv, *a, **k):
+            if argv[:1] == ["git"]:
+                calls.append(tuple(argv[3:]))
+            return real(argv, *a, **k)
+
+        with mock.patch.object(tg.subprocess, "run", spy):
+            cached = tg.graph(self.root)
+        fast = list(calls)
+        calls.clear()
+        with mock.patch.object(tg.subprocess, "run", spy), mock.patch.object(tg, "CACHE_RUNS", False):
+            uncached = tg.graph(self.root)
+        self.assertEqual(cached, uncached)
+        self.assertTrue(cached["D00 T01 §1"].done and cached["D00 T01 §2"].done)
+        self.assertEqual(len(fast), len(set(fast)), fast)  # each distinct question once
+        self.assertGreater(len(calls), len(set(calls)), "the shared commit and pin are asked about twice uncached")
+        self.assertLess(len(fast), len(calls))
+
     def test_waiting_section_cannot_be_stamped(self):
         with self.assertRaises(tg.Refused):
             self.stamp("D00 T01 §2", self.sha, self.reviews, ["true -> ok"], "2026-10-13")
