@@ -42,6 +42,8 @@ title: "TODO-01 -- Todo graph that takes a project's shape"
 
 ## 1. Phase list read from `todo/plan.json`
 
+> **Started:** 2026-11-13T02:16:11Z
+
 A project names its phases in `todo/plan.json` but may only use the numbers the kit fixed. The list of allowed numbers becomes a key, defaulting to today's.
 
 **Phase:** 3
