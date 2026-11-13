@@ -202,7 +202,7 @@ findings-heading-grammar never-defect-severity transitions-record derived-ledger
 | `pending-control-contract` | leave | Runs a RasterFold script absent from its tree |
 | `stamp-no-opus-panel` | leave | RasterFold's retired panel process |
 | `requires-unknown` | lift | D03 T01 §10 |
-| `requires-no-reason` | lift | D03 T01 §10 |
+| `requires-no-reason` | leave | A kit Need is a closed-list host; its checkpoint says why |
 | `stamp-no-plan-review` | leave | The kit's receipt records the plan review |
 | `plan-review-malformed` | leave | RasterFold's plan-review ledger format |
 | `filed-target-no-backlink` | leave | RasterFold's ledger rows; the kit's filed gaps resolve |
@@ -242,7 +242,7 @@ findings-heading-grammar never-defect-severity transitions-record derived-ledger
 | `transitions-record` | leave | RasterFold's `docs/reviews/transitions.md` |
 | `derived-ledger-stale` | leave | RasterFold's generated `docs/reviews/findings.md` |
 
-Two lifts and two rows that go to the host check of D03 T01 §10: the rest is RasterFold's own process, or the kit already holds the line by its own mechanism (its JSON receipts and the dispatcher's records replace RasterFold's panel, ledger and provenance formats).
+Two lifts and one row that goes to the host check of D03 T01 §10: the rest is RasterFold's own process, or the kit already holds the line by its own mechanism (its JSON receipts and the dispatcher's records replace RasterFold's panel, ledger and provenance formats).
 
 ## Kit changes, each with its section
 

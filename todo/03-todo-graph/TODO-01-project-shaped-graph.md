@@ -346,7 +346,7 @@ A project that adopts the kit arrives with sections it stamped under its own too
 - [ ] Document `detect` and `--have` in `kits/todo/templates/todo/README.md`, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
 - [ ] Commit: `todo: ready rows filtered by the hosts this session reaches`
 
-**Corrected 2026-11-13 (`§6`):** this section is where RasterFold's `requires-unknown` and `requires-no-reason` checks land: a host requirement is a Need from `plan.json`'s closed list (refused when unknown, as `needs-unknown` already is), and `detect` stands in for the measured `Requires` reason.
+**Corrected 2026-11-13 (`§6`):** this section is where RasterFold's `requires-unknown` check lands: a host requirement is a Need from `plan.json`'s closed list, refused when unknown as `needs-unknown` already is, and `detect` checks the host. RasterFold's `requires-no-reason` (a cited reason on each mark) is left with RasterFold: a kit Need names a host, and the section's Test checkpoint is what needs it.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; ignoring `--have` in `query ready` makes the `--have ''` test fail.
 
