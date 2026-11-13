@@ -43,7 +43,7 @@ title: "TODO-01 -- Todo graph that takes a project's shape"
 | 8 | §6 | Lift or leave decision for each RasterFold graph command | §5 | [x] |
 | 9 | §9 | Pre-adoption stamps frozen at adoption | §4 | [ ] |
 | 10 | §10 | Ready rows filtered by the hosts this session reaches | -- | [ ] |
-| 11 | §11 | Root index that lists domains | §7 | [ ] |
+| 11 | §11 | Root index that lists domains | §7 | [x] |
 | 12 | §12 | Validation git calls cached per run | -- | [x] |
 | 13 | §13 | Section checks run when its table row cannot be read | §8 | [x] |
 | 14 | §14 | Frozen files listed by `query frozen` | -- | [x] |
@@ -379,11 +379,14 @@ Both adopting projects keep `todo/TODO-00-INDEX.md` at domain altitude, as the k
 - [x] Make the creating and closing workflows follow the key: `create-todo/SKILL.md` (`:33`, list the new file in the root index) and `process-todo-file/SKILL.md` (`:44`, move its root entry to Completed) under `.claude/`, `.agents/` and `.codex/` in `kits/todo/templates/` say that under `layout.root_index` `domains` the root index lists the domain's `INDEX.md` once and only the domain index lists the file, then `python forge.py self-sync`. Done when: a guard test finds `layout.root_index` within 200 characters of each of the six instructions.
 - [x] Accept the `root_index` member in `kits/reviewer/templates/scripts/review_layout.py`, which checks only the names it does not read. Done when: the readers' table in `tests/test_todo_graph.py` accepts it in both readers.
 - [x] Document `layout.root_index` in `kits/todo/templates/todo/README.md`, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
-- [ ] Commit: `todo: a root index that lists domains`
+- [x] Commit: `todo: a root index that lists domains`
 
 **Corrected 2026-11-13 (plan review):** the creating and closing skills of all three agents follow the key, an explicit `files` is tested against an explicit `domains` on one tree, and the evidence row is I33 (223 files), not I17.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; reading the file rule under `domains` makes the domains-only test fail.
+
+> **Verified:** 2026-11-13 | §11 | c7c1428c3b77c4d0f7554d83c67ad9623250b634
+> **Review:** `docs/reviews/d03-t01-s11.json`
 
 ## 12. Validation git calls cached per run
 
