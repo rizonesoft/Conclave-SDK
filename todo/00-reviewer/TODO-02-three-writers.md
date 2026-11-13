@@ -34,7 +34,7 @@ title: "TODO-02 -- Antigravity and Codex as first-class writers"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Codex route and an Antigravity reviewer in the template pin | -- | [ ] |
+| 1 | §1 | Codex route and an Antigravity reviewer in the template pin | -- | [x] |
 | 2 | §2 | Antigravity flags checked against the installed CLI | -- | [ ] |
 | 3 | §3 | Antigravity counterparts of the base kit's subagents | §2 | [ ] |
 
@@ -61,7 +61,7 @@ The template pin leaves Codex's work with no reviewer (roadmap finding 10). It g
 - [x] Replace the "none yet" row for Codex in the route table of `independent-review` in the three agent folders (`kits/reviewer/templates/.claude/skills/independent-review/SKILL.md:14` and its two copies), and name the new reviewer, its model and the `codex` route in the reviewer inventory of `kits/reviewer/README.md` (`:15` to `:19`, which names only Astra). Done when: a test reads the template pin and finds, in the README inventory and in each of the three skill tables, every reviewer with its model and every route with its reviewer, so a deleted row fails it, and `grep -rn "none yet" kits/reviewer` prints nothing.
 - [x] Dispatch one bounded live review through the installed `agy` with the template pin: `review-dispatch.py --kind round --writer codex` on a small prompt naming a real commit of this repository, recorded to a scratch findings file, with a time limit. Done when: the dispatcher records it as a returned review (its `LENS` lines, `HIGHEST:` and `OVERALL:` present), and the agy version, model, elapsed time and verdict lines are in `kits/reviewer/README.md`. Cheaper substitute: the stub dispatcher test alone must fail review, because it proves neither the prompt's delivery nor a reply the dispatcher accepts.
 - [x] Commit the SDK's own `.conclave/reviewers.toml` with the same reviewer and route as its own commit, before any other section starts, and run `python forge.py self-sync`. Done when: `python scripts/review-dispatch.py --check-pin` prints `ok` and `git log -1 --format=%s -- .conclave/reviewers.toml` is that commit.
-- [ ] Commit: `reviewer: route Codex work to an Antigravity reviewer`
+- [x] Commit: `reviewer: route Codex work to an Antigravity reviewer`
 
 **Corrected 2026-11-13 (validation):** read at `agy` 1.5.8. Its models carry their effort in the name and every three-pass step runs at `medium`, so the reviewer is `gemini-4-hydrogen-medium` (`agy models`; Hydrogen is the line that offers `xhigh`, the strongest Gemini 4 here). The dispatcher builds the Antigravity command at `review-dispatch.py:217`, not `:210`. `agy` serves Claude and GPT models too, so the other-family rule needs the model's family, not only the CLI's: a micro-step above adds it.
 
@@ -72,6 +72,9 @@ The template pin leaves Codex's work with no reviewer (roadmap finding 10). It g
 **Corrected 2026-11-13 (plan review):** a bounded live dispatch through the installed `agy` proves the route returns a review the dispatcher accepts, and the documentation test reads the pin, so a deleted row fails it.
 
 **Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests` and `python -m unittest discover -s tests` both end `OK`; removing the `codex` route makes the new dispatcher test fail.
+
+> **Verified:** 2026-11-13 | §1 | 0166d039e916492ab74dadc3c323e8f85dbe3782
+> **Review:** `docs/reviews/d00-t02-s1.json`
 
 ## 2. Antigravity flags checked against the installed CLI
 

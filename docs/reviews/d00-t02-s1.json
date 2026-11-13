@@ -1,0 +1,84 @@
+{
+  "ref": "D00 T02 \u00a71",
+  "title": "Codex route and an Antigravity reviewer in the template pin",
+  "implementation_sha": "0166d039e916492ab74dadc3c323e8f85dbe3782",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-reviewer/D00-T02-s1.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s tests and the kit suites (CI Tests run 43451565403 on bbab477, which holds 0166d03 and only records past it: quick suite Windows, full suite Linux, kit suites) -> success",
+    "live: review-dispatch.py --kind round --writer codex reached hydrogen (gemini-4-hydrogen-medium, agy 1.5.8) and recorded a review in 70 s"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-reviewer/D00-T02-s1.md",
+    "verdict": "reconciled",
+    "candidate": "0166d039e916492ab74dadc3c323e8f85dbe3782",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/00-reviewer/D00-T02-s1.md",
+    "candidate": "3df073caa6ca94fdff39d3449fdefe30822b8efd",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "3df073caa6ca94fdff39d3449fdefe30822b8efd",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}
