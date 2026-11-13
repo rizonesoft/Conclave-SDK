@@ -1,0 +1,84 @@
+{
+  "ref": "D03 T01 \u00a713",
+  "title": "Section checks run when its table row cannot be read",
+  "implementation_sha": "904fe0bc25beb69d7611f037c39d5352985acab5",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-todo-graph/D03-T01-s13.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s tests (CI Tests run 43404026512 on 904fe0b: quick suite Windows, full suite Linux, kit suites) -> success",
+    "python -m unittest tests.test_todo_graph -k rowless -> OK; restoring the skip fails the malformed-row tests"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-todo-graph/D03-T01-s13.md",
+    "verdict": "complete",
+    "candidate": "904fe0bc25beb69d7611f037c39d5352985acab5",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/03-todo-graph/D03-T01-s13.md",
+    "candidate": "14269bc74e81a79a252708ce91d5df9515317a93",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "14269bc74e81a79a252708ce91d5df9515317a93",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}

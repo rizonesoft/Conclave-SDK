@@ -45,7 +45,7 @@ title: "TODO-01 -- Todo graph that takes a project's shape"
 | 10 | §10 | Ready rows filtered by the hosts this session reaches | -- | [ ] |
 | 11 | §11 | Root index that lists domains | §7 | [ ] |
 | 12 | §12 | Validation git calls cached per run | -- | [x] |
-| 13 | §13 | Section checks run when its table row cannot be read | §8 | [ ] |
+| 13 | §13 | Section checks run when its table row cannot be read | §8 | [x] |
 | 14 | §14 | Frozen files listed by `query frozen` | -- | [ ] |
 | 15 | §15 | Longest chain and filing couplings from `query sequence` | -- | [ ] |
 
@@ -422,13 +422,16 @@ Both adopting projects keep `todo/TODO-00-INDEX.md` at domain altitude, as the k
 - [x] Pair the stamp with its receipt in `graph` for a section with no readable row, as the box pairs them for a section with one: a `Verified:` line with no `Review:` line, or the reverse, is a fault, and the receipt a valid stamp names is checked. Done when: a test with a malformed row and a valid stamp reports the missing receipt when there is no `Review:` line, and the receipt fault when the receipt is missing, unreadable or invalid.
 - [x] Prove the section stays out of the graph on its own: a malformed row over a section whose body is otherwise valid. Done when: a test finds the section's reference absent from what `graph` returns, while a sibling section with a good row is present.
 - [x] Re-run `scripts/adoption-dry-run.py` on Impossible OS and replace rows I12 to I16 of `docs/plans/2026-11-13-todo-graph-adoption.md` with the measured classes and their decisions. Done when: every class of the new run has a row, with the run's commit.
-- [ ] Commit: `todo: section checks run when its table row cannot be read`
+- [x] Commit: `todo: section checks run when its table row cannot be read`
 
 **Corrected 2026-11-13 (`§5` completion review):** `§5`'s completion review held its measurement incomplete without this fix, so the first two items shipped in `§5`'s candidate, `7fe94dd` and `bc99c1d` (`graph` in `todo_graph.py`, the `row is None`, `has_table` and `front_ok` paths, so a file whose table heading or frontmatter cannot be read has its sections checked too; tests `test_a_section_under_an_unreadable_row_still_has_its_body_checked` and `..._has_its_own_stamp_checked`), and a section under an unreadable row also has its own stamp and receipt checked, since its body says whether it claims a stamp. The re-run is `§5`'s too. This section is left to verify them, review and stamp.
 
 **Corrected 2026-11-13 (plan review):** a rowless section's stamp is paired with its receipt and its receipt checked, tested with a missing, an unreadable and an invalid receipt, and its absence from the graph is proven on a body that is otherwise valid.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; restoring the skip at `:1074` makes the malformed-row test fail.
+
+> **Verified:** 2026-11-13 | §13 | 904fe0bc25beb69d7611f037c39d5352985acab5
+> **Review:** `docs/reviews/d03-t01-s13.json`
 
 ## 14. Frozen files listed by `query frozen`
 
