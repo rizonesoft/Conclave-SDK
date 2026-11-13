@@ -1264,23 +1264,25 @@ PROBE_SECONDS = 15  # how long doctor waits on one question to a reviewer CLI
 
 def _probe(argv: list, timeout: float | None = None) -> tuple[int | None, str, str]:
     """Run one bounded question to a CLI: (exit code, output, problem). The exit code is None when it could not start
-    (`problem` says why) or ran past `timeout`, and then its whole process tree is ended (`taskkill /T` on Windows,
-    its process group elsewhere): a CLI may be a wrapper whose child would outlive it."""
+    (`problem` says why) or ran past `timeout`. Its whole process tree is ended (`taskkill /T` on Windows, its process
+    group elsewhere) on a timeout and on any interruption, Ctrl+C included, since the probe runs in a group of its
+    own that the parent's Ctrl+C does not reach and a CLI may be a wrapper whose child would outlive it."""
     timeout = PROBE_SECONDS if timeout is None else timeout
     windows = os.name == "nt"
     group: dict = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "CREATE_NO_WINDOW", 0)}
                    if windows else {"start_new_session": True})
-    launch = argv
+    launch: list | str = argv
     if windows and Path(argv[0]).suffix.lower() in (".cmd", ".bat"):
-        launch = [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c", *argv]  # a wrapper script runs through cmd
+        # A wrapper script runs through cmd.exe, which strips one pair of outer quotes from what follows /c: the whole
+        # command is quoted once more, so a wrapper and an argument that both hold spaces keep their own quotes.
+        launch = f'{os.environ.get("COMSPEC", "cmd.exe")} /d /s /c "{subprocess.list2cmdline(argv)}"'
     try:
         proc = subprocess.Popen(launch, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 **group)
     except OSError as exc:
         return None, "", f"could not start: {exc.strerror or exc}"
-    try:
-        out, _ = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
+
+    def end_tree() -> None:
         if windows:
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True,
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -1292,7 +1294,15 @@ def _probe(argv: list, timeout: float | None = None) -> tuple[int | None, str, s
                 pass
         proc.kill()
         proc.communicate()
+
+    try:
+        out, _ = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        end_tree()
         return None, "", f"no answer within {timeout:g} seconds"
+    except BaseException:  # an interrupt ends the probe and its tree before it passes on
+        end_tree()
+        raise
     return proc.returncode, out.decode("utf-8", "replace"), ""
 
 
@@ -1321,8 +1331,12 @@ def _agy_flags_check(dispatch, executable: str) -> tuple[str, str]:
     if code != 0 or said:
         return "unexpected", (f"{executable} refuses the dispatcher's settings"
                               + (f": {said}" if said else f" (exit {code})"))
-    code, text, _ = _probe([executable, "--version"])
-    version = text.strip().splitlines()[0] if code == 0 and text.strip() else "unknown version"
+    code, text, problem = _probe([executable, "--version"])
+    if code is None:
+        return "setup_required", f"{executable} --version: {problem}"
+    if code != 0 or not text.strip():
+        return "unexpected", f"{executable} --version exited {code} and named no version"
+    version = text.strip().splitlines()[0]
     return "ok", f"{executable} {version} lists {', '.join(dispatch.AGY_FLAGS)} and accepts the review settings"
 
 

@@ -41,6 +41,10 @@ if mode == "hang":
     open(os.path.join(here, "pids"), "w").write(f"{os.getpid()} {child.pid}")
     time.sleep(60)
 if "--version" in args:
+    if mode == "version-fails":
+        sys.exit(4)
+    if mode == "version-hangs":
+        time.sleep(60)
     print("9.9.9")
 elif "--help" in args:
     print(HELP.replace("  --print-timeout", "  --print-limit") if mode == "renamed" else HELP)
@@ -95,7 +99,9 @@ class FlagList(unittest.TestCase):
 class DoctorCheck(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self._tmp.name)
+        # A folder with a space in its name, as "C:\\Program Files" has: the wrapper's own path needs quoting.
+        self.dir = Path(self._tmp.name) / "agy home"
+        self.dir.mkdir()
         (self.dir / "stub.py").write_text(STUB, encoding="utf-8")
         (self.dir / "help.txt").write_text(HELP, encoding="utf-8")
         if os.name == "nt":
@@ -151,6 +157,47 @@ class DoctorCheck(unittest.TestCase):
         status, detail = forge._agy_flags_check(dispatch, str(self.dir / "no-such-agy.exe"))
         self.assertEqual(status, "setup_required")
         self.assertIn("could not start", detail)
+
+    def test_a_wrapper_and_a_settings_file_under_paths_with_spaces_both_work(self):
+        spaced = self.dir / "temp files"
+        spaced.mkdir()
+        with mock.patch.object(tempfile, "tempdir", str(spaced)):
+            status, detail = self.check()
+        self.assertEqual(status, "ok", detail)
+        self.assertIn(" ", str(self.agy))
+        self.assertEqual((self.dir / "settings-seen").read_text(), '{"permissions": {"deny": ["write_file(*)", "mcp(*)"]}}')
+
+    def test_a_version_probe_that_fails_is_never_ok(self):
+        self.mode("version-fails")
+        self.assertEqual(self.check(), ("unexpected", f"{self.agy} --version exited 4 and named no version"))
+        self.mode("version-hangs")
+        with mock.patch.object(forge, "PROBE_SECONDS", 3):
+            status, detail = self.check()
+        self.assertEqual((status, detail), ("setup_required", f"{self.agy} --version: no answer within 3 seconds"))
+
+    def test_an_interrupted_probe_ends_its_tree_before_the_interrupt_passes_on(self):
+        self.mode("hang")
+        real = subprocess.Popen.communicate
+        calls = []
+
+        def interrupted(proc, *args, **kwargs):
+            calls.append(1)
+            if len(calls) == 1:  # the wait for the answer: Ctrl+C arrives here
+                for _ in range(100):
+                    if (self.dir / "pids").exists():
+                        break
+                    time.sleep(0.1)
+                raise KeyboardInterrupt
+            return real(proc, *args, **kwargs)
+
+        with mock.patch.object(subprocess.Popen, "communicate", interrupted), self.assertRaises(KeyboardInterrupt):
+            forge._probe([str(self.agy), "--help"])
+        pids = [int(p) for p in (self.dir / "pids").read_text().split()]
+        for _ in range(50):
+            if not any(alive(p) for p in pids):
+                break
+            time.sleep(0.1)
+        self.assertEqual([p for p in pids if alive(p)], [], "the probe outlived the interrupt")
 
     def test_a_cli_that_hangs_is_setup_required_and_its_whole_tree_is_ended(self):
         self.mode("hang")
