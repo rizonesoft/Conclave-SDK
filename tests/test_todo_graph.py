@@ -1435,6 +1435,24 @@ class Stamp(Tree):
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn(b"receipt", result.stderr)
 
+    def test_a_reopened_adopted_section_stamps_through_the_kit(self):
+        # D03 T01 §9: adopted, reopened by unstamp, then stamped the kit's way with a fresh receipt.
+        path = self.root / "todo/00-workspace/TODO-01-a.md"
+        text = path.read_text(encoding="utf-8").replace("| 1 | §1 | A | -- | [ ] |", "| 1 | §1 | A | -- | [x] |")
+        text = text.replace("- [ ] Work.", "- [x] Work.", 1).replace("- [ ] Commit: `x: a`", "- [x] Commit: `x: a`")
+        path.write_text(text.replace("\n## 2.", f"\n> **Verified:** 2026-09-28 | commit `{self.sha[:10]}` | ok\n\n## 2.", 1),
+                        encoding="utf-8")
+        self.commit("stamped under the project's own tooling")
+        self.assertEqual([r for r, _ in tg.adopt_stamps(self.root)], ["D00 T01 §1"])
+        self.assertTrue(tg.graph(self.root)["D00 T01 §1"].done)
+        tg.unstamp(self.root, "D00 T01 §1", "reopened to take the kit's stamp", "2026-11-14")
+        self.assertFalse(tg.graph(self.root)["D00 T01 §1"].done)
+        sha = self.commit("reopened")
+        self.write_completion(candidate=sha)
+        receipt = self.stamp("D00 T01 §1", sha, self.reviews, ["true -> ok"], "2026-11-15")
+        self.assertTrue((self.root / receipt).is_file())
+        self.assertTrue(tg.graph(self.root)["D00 T01 §1"].done)
+
     def test_a_stamped_section_resolves_as_verified_under_have(self):
         # D03 T01 §10 (completion): --have changes nothing for a stamped row, whatever the session lacks.
         self.tick_work()
@@ -3414,6 +3432,241 @@ class HostNeeds(Tree):
         guard = (REPO / "kits/todo/templates/scripts/campaign_guard.py").read_text(encoding="utf-8")
         self.assertIn('"query", "ready", *extra]', guard)  # the Stop hook's count asks with the set first
         self.assertIn('for extra in (["--have", "auto"], []):', guard)
+
+
+class Adoption(Tree):
+    """D03 T01 §9: the stamps a project made under its own tooling, frozen once at adoption."""
+
+    REGISTRY = "docs/reviews/legacy-receipts.json"
+
+    def setUp(self):
+        super().setUp()
+        for args in (["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "T"]):
+            subprocess.run(["git", "-C", str(self.root), *args], check=True)
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True,
+                              text=True).stdout.strip()
+
+    def commit(self, message="x"):
+        self.git("add", "-A")
+        self.git("commit", "-qm", message)
+        return self.git("rev-parse", "HEAD")
+
+    @staticmethod
+    def foreign(text, stamp, drop_phase=False):
+        """§1 of a two-section file as a project of its own stamped it: no Build order, ticked, its own stamp line."""
+        text = text.replace("| 1 | §1 | A | -- | [ ] |", "| 1 | §1 | A | -- | [x] |")
+        head, rest = text.split("## 1. A\n", 1)
+        first, after = rest.split("\n## 2.", 1)
+        first = first.replace("**Build order:**\n\n1. Do it. Done when: it shows.\n\n", "").replace("- [ ] ", "- [x] ")
+        if drop_phase:
+            first = first.replace("**Phase:** 0\n", "")
+        return head + "## 1. A\n" + first.rstrip("\n") + "\n\n" + stamp + "\n\n## 2." + after
+
+    def build(self):
+        """File 01 stamped in RasterFold's format with a receipt of its own; file 02 in Impossible OS's, phase-less."""
+        a = todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--")])
+        b = todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--")], ident="beta")
+        self.write(a)
+        self.write(b, name="TODO-02-b.md")
+        base = self.commit("base")
+        self.write(self.foreign(a, f"> **Verified:** 2026-09-28 | §1 | {base}\n"
+                                   "> **Review:** `docs/reviews/rf/d00-t01-s1.md`"))
+        self.write(self.foreign(b, f"> **Verified:** 2026-04-17 | commit `{base[:8]}` | 5/5 items | build OK",
+                                drop_phase=True), name="TODO-02-b.md")
+        receipt = self.root / "docs/reviews/rf/d00-t01-s1.md"
+        receipt.parent.mkdir(parents=True, exist_ok=True)
+        receipt.write_text("## Panel\n\nGPT: approve\n", encoding="utf-8")
+        self.commit("stamped under the project's own tooling")
+        return base
+
+    def registry(self):
+        path = self.root / self.REGISTRY
+        return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+
+    def test_adoption_freezes_each_format_with_its_full_commit(self):
+        base = self.build()
+        with self.assertRaises(tg.Refused):  # before adoption the kit refuses both stamps
+            tg.graph(self.root)
+        adopted = tg.adopt_stamps(self.root, {"todo/00-workspace/TODO-02-b.md": 0}, date="2026-11-13")
+        self.assertEqual(adopted, [("D00 T01 §1", base), ("D00 T02 §1", base)])
+        data = self.registry()
+        self.assertEqual(data["adoption"], {"commit": self.git("rev-parse", "HEAD"), "date": "2026-11-13"})
+        self.assertEqual(data["adopted"]["D00 T01 §1"]["review"], "docs/reviews/rf/d00-t01-s1.md")
+        self.assertIsNone(data["adopted"]["D00 T02 §1"]["review"])
+        rows = tg.graph(self.root)
+        self.assertTrue(rows["D00 T01 §1"].done and rows["D00 T02 §1"].done)
+
+    def test_a_stamp_off_the_branch_is_refused_and_nothing_is_written(self):
+        self.build()
+        self.git("checkout", "-qb", "side")
+        side = self.commit("side") if False else None
+        self.git("commit", "-q", "--allow-empty", "-m", "side")
+        side = self.git("rev-parse", "HEAD")
+        self.git("checkout", "-q", "-")
+        path = self.root / "todo/00-workspace/TODO-02-b.md"
+        path.write_text(re.sub(r"commit `[0-9a-f]+`", f"commit `{side[:9]}`", path.read_text(encoding="utf-8")),
+                        encoding="utf-8")
+        with self.assertRaises(tg.Refused) as ctx:
+            tg.adopt_stamps(self.root, {"todo/00-workspace/TODO-02-b.md": 0})
+        self.assertIn("D00 T02 §1: its stamp names no commit on this branch", str(ctx.exception))
+        self.assertIsNone(self.registry())
+
+    def test_adoption_runs_once_even_after_every_section_is_reopened(self):
+        self.build()
+        tg.adopt_stamps(self.root, {"todo/00-workspace/TODO-02-b.md": 0})
+        before = (self.root / self.REGISTRY).read_bytes()
+        with self.assertRaises(tg.Refused) as ctx:
+            tg.adopt_stamps(self.root, {"todo/00-workspace/TODO-02-b.md": 0})
+        self.assertIn("adopted its stamps already", str(ctx.exception))
+        self.assertEqual((self.root / self.REGISTRY).read_bytes(), before)
+        for ref in ("D00 T01 §1", "D00 T02 §1"):
+            tg.unstamp(self.root, ref, "reopened to bring it to the kit's format", "2026-11-14")
+        self.assertEqual(self.registry()["adopted"], {})
+        with self.assertRaises(tg.Refused):
+            tg.adopt_stamps(self.root, {"todo/00-workspace/TODO-02-b.md": 0})
+
+    def test_the_phase_map_is_checked_before_anything_is_written(self):
+        self.build()
+        self.plan_json(phase_list=[0, 3])
+        for bad in ({"todo/00-workspace/TODO-02-b.md": True}, {"todo/00-workspace/TODO-02-b.md": 7}, ["x"]):
+            with self.subTest(bad):
+                with self.assertRaises(tg.Refused):
+                    tg.adopt_stamps(self.root, bad)
+                self.assertIsNone(self.registry())
+        with self.assertRaises(tg.Refused) as ctx:
+            tg.adopt_stamps(self.root, {})
+        self.assertIn("D00 T02 §1: no phase", str(ctx.exception))
+        self.assertIsNone(self.registry())
+        tg.adopt_stamps(self.root, {"todo/00-workspace/TODO-02-b.md": 0, "D00 T02 §1": 3})  # the section's own key wins
+        self.assertEqual(self.registry()["adopted"]["D00 T02 §1"]["phase"], 3)
+
+    def plan_json(self, **keys):
+        (self.root / "todo/plan.json").write_text(json.dumps(keys), encoding="utf-8")
+
+    def test_a_changed_body_or_receipt_refuses_until_unstamp(self):
+        self.build()
+        tg.adopt_stamps(self.root, {"todo/00-workspace/TODO-02-b.md": 0})
+        tg.graph(self.root)
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        receipt = self.root / "docs/reviews/rf/d00-t01-s1.md"
+        original, receipt_bytes = todo.read_bytes(), receipt.read_bytes()
+        for name, change in (("body", lambda: todo.write_bytes(original.replace(b"- [x] Work.", b"- [x] Work!", 1))),
+                             ("receipt", lambda: receipt.write_bytes(receipt_bytes + b" ")),
+                             ("receipt gone", receipt.unlink)):
+            with self.subTest(name):
+                change()
+                self.refuses("adopted section changed since adoption: unstamp it first: D00 T01 §1")
+                todo.write_bytes(original)
+                receipt.write_bytes(receipt_bytes)
+        tg.graph(self.root)
+
+    def test_a_kit_format_adopted_section_is_frozen_too(self):
+        text = todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--")])
+        self.write(text)
+        base = self.commit()
+        stamped = text.replace("| 1 | §1 | A | -- | [ ] |", "| 1 | §1 | A | -- | [x] |").replace(
+            "- [ ] Work.", "- [x] Work.", 1).replace("- [ ] Commit: `x: a`", "- [x] Commit: `x: a`").replace(
+            "\n## 2.", f"\n> **Verified:** 2026-09-28 | §1 | {base}\n> **Review:** `docs/reviews/d00-t01-s1.json`\n\n## 2.", 1)
+        self.write(stamped)
+        (self.root / "docs/reviews").mkdir(parents=True, exist_ok=True)
+        (self.root / "docs/reviews/d00-t01-s1.json").write_text("{}\n", encoding="utf-8")
+        self.commit()
+        tg.adopt_stamps(self.root)
+        tg.graph(self.root)
+        path = self.root / "todo/00-workspace/TODO-01-a.md"
+        path.write_text(path.read_text(encoding="utf-8").replace("Do it. Done when", "Do it all. Done when", 1),
+                        encoding="utf-8")
+        self.refuses("adopted section changed since adoption")
+
+    def test_the_graph_checks_still_hold_on_an_adopted_section(self):
+        self.build()
+        tg.adopt_stamps(self.root, {"todo/00-workspace/TODO-02-b.md": 0})
+        path = self.root / "todo/00-workspace/TODO-01-a.md"
+        good = path.read_text(encoding="utf-8")
+        for name, text, fragment in (
+                ("dependency", good.replace("| 2 | §2 | B | -- | [ ] |", "| 2 | §2 | B | §9 | [ ] |"),
+                 "unresolved dependency"),
+                ("phase order", good.replace("| 2 | §2 | B | -- | [ ] |", "| 2 | §2 | B | §1 | [ ] |").replace(
+                    "## 2. B\n\n**Phase:** 0", "## 2. B\n\n**Phase:** 0").replace(
+                    "| 1 | §1 | A | -- | [x] |", "| 1 | §1 | A | §2 | [x] |"), "stamped section has open dependency"),
+                ("xref", good.replace("## Inputs\n\n- i", "## Inputs\n\n- i -> XREF: D00 T09 §1"), "unresolved XREF"),
+        ):
+            with self.subTest(name):
+                path.write_text(text, encoding="utf-8")
+                self.refuses(fragment)
+        path.write_text(good, encoding="utf-8")
+        index = self.root / "todo/TODO-00-INDEX.md"
+        index.write_text(index.read_text(encoding="utf-8").replace("- 00-workspace/TODO-01-a.md\n", ""), encoding="utf-8")
+        self.refuses("missing from root index: 00-workspace/TODO-01-a.md")
+
+    def test_an_adopted_section_keeps_the_phase_order_check(self):
+        self.build()
+        self.plan_json(phase_list=[0, 1])
+        tg.adopt_stamps(self.root, {"todo/00-workspace/TODO-02-b.md": 0, "D00 T01 §1": 1})
+        tg.graph(self.root)
+        path = self.root / "todo/00-workspace/TODO-02-b.md"  # an adopted phase-0 section on an adopted phase-1 one
+        path.write_text(path.read_text(encoding="utf-8").replace("| 1 | §1 | A | -- | [x] |",
+                                                                  "| 1 | §1 | A | D00 T01 §1 | [x] |"), encoding="utf-8")
+        self.refuses("prerequisite in later phase: D00 T02 §1 -> D00 T01 §1")  # the row is outside the frozen body
+
+    def test_the_cli_adopts_and_refuses_a_second_run(self):
+        self.build()
+        shutil.copytree(SCRIPTS, self.root / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
+        (self.root / "phases.json").write_text('{"todo/00-workspace/TODO-02-b.md": 0}', encoding="utf-8")
+        cli = [sys.executable, str(self.root / "scripts/todo-graph.py"), "adopt-stamps", "--phase-map",
+               str(self.root / "phases.json")]
+        first = subprocess.run(cli, capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(first.stdout.splitlines()[-1], "adopted 2 stamps")
+        self.assertTrue(first.stdout.startswith("adopted D00 T01 §1 at "))
+        second = subprocess.run(cli, capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(second.returncode, 2)
+        self.assertIn("adopted its stamps already", second.stderr)
+        (self.root / "phases.json").write_text("{not json", encoding="utf-8")
+        self.assertEqual(subprocess.run(cli, capture_output=True).returncode, 2)
+
+    def test_unstamp_reopens_an_adopted_section_and_rolls_back_on_any_other_fault(self):
+        self.build()
+        tg.adopt_stamps(self.root, {"todo/00-workspace/TODO-02-b.md": 0})
+        snapshot = {p: p.read_bytes() for p in (self.root / "todo").rglob("*.md")}
+        registry = (self.root / self.REGISTRY).read_bytes()
+        other = self.root / "todo/00-workspace/TODO-02-b.md"  # an unrelated fault elsewhere: B's §2 loses its Phase
+        other.write_text(other.read_text(encoding="utf-8").replace("## 2. B\n\n**Phase:** 0\n", "## 2. B\n\n", 1),
+                         encoding="utf-8")
+        snapshot[other] = other.read_bytes()
+        with self.assertRaises(tg.Refused) as ctx:  # a fault there before the change refuses it
+            tg.unstamp(self.root, "D00 T01 §1", "bring it to the kit's format", "2026-11-14")
+        self.assertIn("leaves faults elsewhere", str(ctx.exception))
+        self.assertEqual({p: p.read_bytes() for p in snapshot}, snapshot)
+        self.assertEqual((self.root / self.REGISTRY).read_bytes(), registry)
+        other.write_text(other.read_text(encoding="utf-8").replace("## 2. B\n\n", "## 2. B\n\n**Phase:** 0\n", 1),
+                         encoding="utf-8")
+        snapshot[other] = other.read_bytes()
+        real = tg._faults_elsewhere  # and one the change causes rolls it all back
+        calls = []
+
+        def after_the_change(*args):
+            calls.append(1)
+            return real(*args) if len(calls) == 1 else ["todo/00-workspace/TODO-02-b.md: a fault the change caused"]
+        with mock.patch.object(tg, "_faults_elsewhere", after_the_change), self.assertRaises(tg.Refused) as ctx:
+            tg.unstamp(self.root, "D00 T01 §1", "bring it to the kit's format", "2026-11-14")
+        self.assertIn("unstamp rolled back", str(ctx.exception))
+        self.assertEqual({p: p.read_bytes() for p in snapshot}, snapshot)
+        self.assertEqual((self.root / self.REGISTRY).read_bytes(), registry)
+        self.assertTrue((self.root / "docs/reviews/rf/d00-t01-s1.md").is_file())
+        self.assertFalse((self.root / "docs/reviews/rf/d00-t01-s1.revoked-2026-11-14.md").exists())
+        tg.unstamp(self.root, "D00 T01 §1", "bring it to the kit's format", "2026-11-14")
+        text = (self.root / "todo/00-workspace/TODO-01-a.md").read_text(encoding="utf-8")
+        self.assertNotIn("> **Verified:**", text)
+        self.assertNotIn("> **Review:**", text)
+        self.assertIn("| 1 | §1 | A | -- | [ ] |", text)
+        self.assertNotIn("D00 T01 §1", self.registry()["adopted"])
+        self.assertTrue((self.root / "docs/reviews/rf/d00-t01-s1.revoked-2026-11-14.md").is_file())
+        faults = []
+        tg.graph(self.root, faults)
+        self.assertIn(("D00 T01 §1", "executable Build order required: D00 T01 §1"), faults)
 
 
 class Repository(unittest.TestCase):

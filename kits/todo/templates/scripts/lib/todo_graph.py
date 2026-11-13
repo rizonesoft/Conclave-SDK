@@ -433,6 +433,50 @@ def _frozen(root, key):
     return maps[key]
 
 
+ADOPTED_KEYS = {"commit", "phase", "body", "receipt", "review"}
+
+
+def adopted_stamps(root):
+    """(marker, ref -> entry) from LEGACY_RECEIPTS's `adoption` and `adopted` keys (D03 T01 §9): the stamps a project
+    made under its own tooling, frozen once at adoption by the digests of their bodies and receipts. (None, {}) when
+    the project never adopted."""
+    shown = f"{receipts_folder(root)}/{LEGACY_RECEIPTS}"
+    path = Path(root) / shown
+    if not path.is_file():
+        return None, {}
+    _frozen(root, "receipts")  # the file's own shape first
+    data = json.loads(read_text(path))
+    marker, entries = data.get("adoption"), data.get("adopted", {})
+    hexes = re.compile(r"[0-9a-f]{40}")
+    require(marker is None or (isinstance(marker, dict) and set(marker) == {"commit", "date"}
+                               and hexes.fullmatch(str(marker["commit"]))
+                               and re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(marker["date"]))),
+            f"{shown}: adoption must name the commit and the date it ran")
+    require(isinstance(entries, dict) and (marker is not None or not entries)
+            and all(re.fullmatch(r"D\d{2} T\d{2} §[1-9]\d*", ref) and isinstance(e, dict) and set(e) == ADOPTED_KEYS
+                    and hexes.fullmatch(str(e["commit"])) and isinstance(e["phase"], int)
+                    and not isinstance(e["phase"], bool) and re.fullmatch(r"[0-9a-f]{64}", str(e["body"]))
+                    and (e["receipt"] is None) == (e["review"] is None)
+                    and (e["receipt"] is None or re.fullmatch(r"[0-9a-f]{64}", str(e["receipt"])))
+                    for ref, e in entries.items()),
+            f"{shown}: adopted must map each section to its commit, phase, body digest and receipt, under an adoption")
+    return marker, entries
+
+
+def _digest(data):
+    return hashlib.sha256(data if isinstance(data, bytes) else data.encode("utf-8")).hexdigest()
+
+
+def adopted_unchanged(root, entry, body):
+    """Whether an adopted section's body, and the receipt it recorded, are as they were at adoption."""
+    if _digest(body) != entry["body"]:
+        return False
+    if entry["review"] is None:
+        return True
+    path = Path(root) / entry["review"]
+    return path.is_file() and not path.is_symlink() and _digest(path.read_bytes()) == entry["receipt"]
+
+
 def legacy_receipts(root):
     """ref -> digest of every receipt written before rounds_spent existed; empty when the file is absent."""
     return _frozen(root, "receipts")
@@ -1094,6 +1138,8 @@ def _graph(root=ROOT, faults=None):
     caps = config["caps"]
     phase_list, known_needs, waiting = set(config["phase_list"]), config["needs"], config["waiting"]
     attempt(RECEIPTS, legacy_receipts, root)  # a malformed freeze list refuses even before any old receipt is read
+    adoption = attempt(RECEIPTS, adopted_stamps, root)
+    adopted = {} if adoption is FAILED else adoption[1]
     head_commits = None
     filed_gaps = {}
     paths = sorted((root / "todo").glob("[0-9][0-9]-*/TODO-*.md"))
@@ -1236,6 +1282,29 @@ def _graph(root=ROOT, faults=None):
             section_body = body[h.end():].split("\n## ", 1)[0].strip()
             ref = f"D{d} T{t} §{n}"
             if not check(ref not in sections, f"duplicate address: {ref}", ref):
+                continue
+            if ref in adopted:  # stamped under the project's own tooling, frozen at adoption (D03 T01 §9)
+                entry = adopted[ref]
+                if not check(adopted_unchanged(root, entry, section_body),
+                             f"adopted section changed since adoption: unstamp it first: {ref}", ref) or row is None \
+                        or not front_ok:
+                    incomplete.add(relative)
+                    unregistered[ref] = section_body
+                    continue
+                phase = entry["phase"]  # adoption chose it (the phase map over the body's own), and the body is frozen
+                check(phase in phase_list, f"invalid Phase: {ref}", ref)
+                raw = re.search(r"^\*\*Needs:\*\*\s*(.+?)\s*$", section_body, re.M)
+                needs = [] if raw is None or raw[1] == "none" else [v.strip() for v in raw[1].split(",")]
+                dep = row[4].strip()
+                deps = [] if dep == "--" else attempt(ref, lambda: [normalize(v, d, t) for v in dep.split(",")])
+                if deps is FAILED or phase not in phase_list:
+                    incomplete.add(relative)
+                    unregistered[ref] = section_body
+                    continue
+                sections[ref] = Section(ref, relative, n, h[2], phase, deps, needs, True, front.get("status", ""),
+                                        section_body, entry["review"] or "", int(row[1]),
+                                        tuple(sorted(set(needs) & waiting)))
+                files[relative][2].append(ref)
                 continue
             deliverable, title = (row[3].strip() if row is not None else ""), h[2].strip()
             check(len(deliverable) <= caps["deliverable_len"] and len(title) <= caps["deliverable_len"],
@@ -2087,17 +2156,93 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=No
     return receipt
 
 
+def adopt_stamps(root=ROOT, phase_map=None, date=None):
+    """Freeze, once, the stamps a project made under its own tooling (D03 T01 §9): each section whose body carries a
+    `> **Verified:**` line, in any project's format, gets an `adopted` entry in LEGACY_RECEIPTS with its full stamp
+    commit (the first commit name in that line, resolved by git and on the branch), its phase (`phase_map` by section,
+    then by file, then the body's own), and the digests of its body and of the receipt its `Review:` line names, under
+    an `adoption` marker that makes a second adoption refuse however many entries remain. It reads the tree alone: a
+    project's stamps fail the kit's validation until they are adopted. Returns [(ref, commit)]; writes nothing when it
+    refuses."""
+    import datetime
+    root = Path(root)
+    config = plan_config(root)
+    shown = f"{config['receipts']}/{LEGACY_RECEIPTS}"
+    path = root / shown
+    data = json.loads(read_text(path)) if path.is_file() else {"schema_version": 1, "receipts": {}}
+    if path.is_file():
+        _frozen(root, "receipts")
+        adopted_stamps(root)
+    when = (data.get("adoption") or {}).get("date") if isinstance(data.get("adoption"), dict) else None
+    require("adoption" not in data, f"{shown}: this project adopted its stamps already, on {when}; a stamp made since "
+                                    f"goes through the kit's own stamp")
+    phase_list = set(config["phase_list"])
+    phase_map = {} if phase_map is None else phase_map
+    require(isinstance(phase_map, dict) and all(
+        isinstance(k, str) and isinstance(v, int) and not isinstance(v, bool) and v in phase_list
+        for k, v in phase_map.items()),
+            f"the phase map must be a JSON object from a section reference or TODO file path to a phase in phase_list")
+    head = _git(root, "rev-parse", "HEAD", timeout=30)
+    require(head.returncode == 0, f"git repository with HEAD commit required to adopt stamps: {root}")
+    head_sha = head.stdout.decode("ascii", "replace").strip()
+    on_branch = set(_git(root, "rev-list", "HEAD", timeout=60).stdout.decode("ascii", "replace").split())
+    entries, problems = {}, []
+    for todo in sorted((root / "todo").glob("[0-9][0-9]-*/TODO-*.md")):
+        name = re.fullmatch(r"TODO-(\d{2})-[a-z0-9-]+\.md", todo.name)
+        parts = read_text(todo).split("---\n", 2)
+        if name is None or len(parts) != 3 or parts[0]:
+            continue  # no address or no body: the validator says why
+        relative, body = todo.relative_to(root).as_posix(), parts[2]
+        for h in re.finditer(r"^## (\d+)\. (.+)$", body, re.M):
+            ref = f"D{todo.parent.name[:2]} T{name[1]} §{h[1]}"
+            section = body[h.end():].split("\n## ", 1)[0].strip()
+            stamp = re.search(r"^> \*\*Verified:\*\*(.*)$", section, re.M)
+            if stamp is None:
+                continue
+            named = re.search(r"\b[0-9a-f]{7,40}\b", stamp[1])
+            resolved = _git(root, "rev-parse", "--verify", "--quiet", f"{named[0]}^{{commit}}", timeout=30) \
+                if named else None
+            commit = resolved.stdout.decode("ascii", "replace").strip() if resolved and resolved.returncode == 0 else ""
+            if not commit or commit not in on_branch:
+                problems.append(f"{ref}: its stamp names no commit on this branch ({stamp[1].strip()[:60]})")
+                continue
+            own = re.search(r"^\*\*Phase:\*\*\s*(\S+)\s*$", section, re.M)
+            phase = phase_map.get(ref, phase_map.get(relative))
+            if phase is None and own:
+                phase = int(own[1]) if own[1].isdigit() and int(own[1]) in phase_list else None
+                if phase is None:
+                    problems.append(f"{ref}: its Phase {own[1]} is not in phase_list")
+                    continue
+            if phase is None:
+                problems.append(f"{ref}: no phase (no Phase field, and the phase map names neither it nor its file)")
+                continue
+            review = re.search(r"^> \*\*Review:\*\*\s*`?([^`\n]+?)`?\s*$", section, re.M)
+            receipt_path = (root / review[1].strip()) if review else None
+            held = receipt_path is not None and receipt_path.is_file() and not receipt_path.is_symlink() \
+                and receipt_path.resolve().is_relative_to(root.resolve())
+            entries[ref] = {"commit": commit, "phase": phase, "body": _digest(section),
+                            "receipt": _digest(receipt_path.read_bytes()) if held else None,
+                            "review": review[1].strip() if held else None}
+    require(not problems, "adoption refused, nothing written:\n  " + "\n  ".join(problems))
+    data["adopted"] = dict(sorted(entries.items()))
+    data["adoption"] = {"commit": head_sha, "date": date or datetime.date.today().isoformat()}
+    atomic(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    return [(ref, entry["commit"]) for ref, entry in data["adopted"].items()]
+
+
 def unstamp(root, ref, reason, date):
     """Flip a stamped section back to open when an audit finds it regressed: remove its Verified and Review lines,
     untick its Commit item and row, reopen its file, and keep the receipt as evidence under a revoked name, with a dated
     Unstamped note in the section saying why. Re-stamping later writes a fresh receipt."""
     root = Path(root)
+    require(bool(reason.strip()) and "\n" not in reason, "--reason must be one line saying what regressed")
+    require(re.fullmatch(r"\d{4}-\d{2}-\d{2}", date) is not None, f"invalid date: {date}")
+    if ref in adopted_stamps(root)[1]:
+        return _unstamp_adopted(root, ref, reason, date)
     rows = graph(root)
     require(ref in rows, "unresolved section: " + ref)
     row = rows[ref]
     require(row.done, f"not stamped: {ref}")
-    require(bool(reason.strip()) and "\n" not in reason, "--reason must be one line saying what regressed")
-    require(re.fullmatch(r"\d{4}-\d{2}-\d{2}", date) is not None, f"invalid date: {date}")
     stamp_lines = re.compile(r"\n\n> \*\*Verified:\*\* [^\n]*\n> \*\*Review:\*\* `[^`\n]*`")
     require(len(stamp_lines.findall(row.body)) == 1, f"stamp lines not found: {ref}")
     receipt_path = root / row.receipt
@@ -2142,6 +2287,102 @@ def unstamp(root, ref, reason, date):
                 atomic(plan_path, original_plan_bytes)
         raise
     return revoked
+
+
+def _reopened(root):
+    """The sections that carry an `Unstamped:` note (reopened, awaiting repair), read from the tree alone."""
+    found = set()
+    for todo in sorted((Path(root) / "todo").glob("[0-9][0-9]-*/TODO-*.md")):
+        name = re.fullmatch(r"TODO-(\d{2})-[a-z0-9-]+\.md", todo.name)
+        if name is None:
+            continue
+        text = read_text(todo)
+        for h in re.finditer(r"^## (\d+)\. .+$", text, re.M):
+            if re.search(r"^> \*\*Unstamped:\*\* ", text[h.end():].split("\n## ", 1)[0], re.M):
+                found.add(f"D{todo.parent.name[:2]} T{name[1]} §{h[1]}")
+    return found
+
+
+def _faults_elsewhere(root, ref, path):
+    """The tree's faults outside `ref`, its file's own lines and the sections reopened for repair."""
+    faults = []
+    graph(root, faults)
+    allowed = _reopened(root) | {ref, path}
+    return [f"{where}: {message}" for where, message in faults if where not in allowed]
+
+
+def _unstamp_adopted(root, ref, reason, date):
+    """unstamp for a section frozen at adoption: its stamp lines go whatever their format, its box and Commit item are
+    unticked, its `adopted` entry is removed (the `adoption` marker stays, so adoption never runs again), and a receipt
+    it recorded is kept under a revoked name. The section is now open in the project's own format, so the faults
+    reopening exposes in it, and in sections reopened before it, are expected; any other fault, before or after the
+    change, refuses it and rolls everything back, the registry included."""
+    faults = []
+    rows = graph(root, faults)
+    require(ref in rows, "unresolved section: " + ref)
+    row = rows[ref]
+    require(row.done, f"not stamped: {ref}")
+    elsewhere = _faults_elsewhere(root, ref, row.path)
+    require(not elsewhere, "unstamp refused: reopening " + ref + " leaves faults elsewhere:\n  " +
+            "\n  ".join(elsewhere))
+    registry = root / f"{receipts_folder(root)}/{LEGACY_RECEIPTS}"
+    registry_bytes = registry.read_bytes()
+    data = json.loads(registry_bytes.decode("utf-8"))
+    entry = data["adopted"].pop(ref)
+    receipt_path = root / entry["review"] if entry["review"] else None
+    revoked_path = None
+    if receipt_path is not None:
+        revoked_path = receipt_path.with_name(f"{receipt_path.stem}.revoked-{date}{receipt_path.suffix}")
+        n = 2
+        while revoked_path.exists():
+            revoked_path = receipt_path.with_name(f"{receipt_path.stem}.revoked-{date}-{n}{receipt_path.suffix}")
+            n += 1
+    body = re.sub(r"\n*^> \*\*(?:Verified|Review):\*\*[^\n]*$", "", row.body, flags=re.M)
+    body = re.sub(r"^- \[x\] (Commit:.+)$", r"- [ ] \1", body, flags=re.M)
+    note = f" (revoked receipt `{revoked_path.relative_to(root).as_posix()}`)" if revoked_path else ""
+    body += f"\n\n> **Unstamped:** {date}: {reason.strip()}{note}"
+    path = root / row.path
+    original_bytes = path.read_bytes()
+    text = read_text(path)
+    require(text.count(row.body) == 1, f"section body is not unique in {row.path}")
+    text = text.replace(row.body, body)
+    line = re.compile(r"^(\|\s*\d+\s*\|\s*§" + str(row.number) + r"\s*\|[^\n]*\|\s*)\[x\](\s*\|)$", re.M)
+    require(len(line.findall(text)) == 1, f"implementation row not found: {ref}")
+    text = line.sub(r"\1[ ]\2", text)
+    text = re.sub(r"\A(---\n(?:.*\n)*?)status: done\n", r"\1status: active\n", text, count=1)
+    receipt_bytes = receipt_path.read_bytes() if receipt_path is not None else None
+    plan_path = root / plan_file(root)
+    original_plan_bytes = plan_path.read_bytes() if plan_path.is_file() else None
+    try:
+        if revoked_path is not None:
+            atomic(revoked_path, receipt_bytes)
+        atomic(registry, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        atomic(path, text)
+        if receipt_path is not None:
+            receipt_path.unlink()
+        others = _faults_elsewhere(root, ref, row.path)
+        require(not others, "unstamp rolled back: reopening " + ref + " leaves faults elsewhere:\n  " +
+                "\n  ".join(others))
+        remaining = []
+        graph(root, remaining)
+        if original_plan_bytes is not None and not remaining:  # a reopened section in its own format waits for repair:
+            projections(root, sync=True)  # the plan syncs then, and the pre-commit hook asks for both
+    except BaseException:  # an interrupt between writes must roll back as an error does
+        try:
+            if receipt_path is not None and not receipt_path.is_file():
+                atomic(receipt_path, receipt_bytes)
+            if revoked_path is not None:
+                revoked_path.unlink(missing_ok=True)
+            if registry.read_bytes() != registry_bytes:
+                atomic(registry, registry_bytes)
+            if not path.is_file() or path.read_bytes() != original_bytes:
+                atomic(path, original_bytes)
+        finally:
+            if original_plan_bytes is not None and (not plan_path.is_file()
+                                                    or plan_path.read_bytes() != original_plan_bytes):
+                atomic(plan_path, original_plan_bytes)
+        raise
+    return revoked_path.relative_to(root).as_posix() if revoked_path else "none (no receipt was recorded)"
 
 
 def suspects(root, ref):

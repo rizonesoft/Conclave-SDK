@@ -201,10 +201,17 @@ def classes(faults):
             for name, e in sorted(groups.items(), key=lambda kv: (-len(kv[1]["places"]), kv[0]))]
 
 
-def measure(snapshot_dir):
-    """Every fault the kit's validator finds in the snapshot, as (where, message) pairs, in file order."""
+def measure(snapshot_dir, adopt=False, phase_map=None):
+    """Every fault the kit's validator finds in the snapshot, as (where, message) pairs, in file order. With `adopt`,
+    the snapshot's own stamps are first frozen as the kit's `adopt-stamps` freezes them (D03 T01 §9), and a refused
+    adoption is a fault of its own, so a failed adoption is measured, never silent."""
     tg = load_graph()
     faults = []
+    if adopt:
+        try:
+            tg.adopt_stamps(Path(snapshot_dir), phase_map)
+        except tg.Refused as exc:
+            faults.append(("adoption", f"adoption refused: {str(exc).splitlines()[0]}"))
     try:
         tg.graph(Path(snapshot_dir), faults)
     except Exception as exc:  # a crash is a refusal class of its own, never a silent pass
@@ -212,7 +219,7 @@ def measure(snapshot_dir):
     return faults
 
 
-def run(source, config, out, after_copy=None):
+def run(source, config, out, after_copy=None, adopt=False, phase_map=None):
     """The whole dry run into out (missing or empty). Returns (manifest, classes)."""
     out = Path(out)
     if out.exists() and any(out.iterdir()):
@@ -228,7 +235,8 @@ def run(source, config, out, after_copy=None):
                                 "scripts/lib"], capture_output=True, text=True, timeout=60)
     manifest["sdk_commit"] = sdk.stdout.strip() or None
     manifest["sdk_validator_dirty"] = bool(sdk_dirty.stdout.strip())
-    faults = measure(out / "snapshot")
+    faults = measure(out / "snapshot", adopt=adopt, phase_map=phase_map)
+    manifest["adopted"] = adopt
     found = classes(faults)
     atomic_write(out / "manifest.json", (json.dumps(manifest, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
     atomic_write(out / "classes.json", (json.dumps({"classes": found, "faults": [list(f) for f in faults]},
@@ -241,10 +249,14 @@ def main(argv=None):
     parser.add_argument("source", help="the project repository (read only)")
     parser.add_argument("--config", required=True, help="the todo/plan.json to measure the project under")
     parser.add_argument("--out", required=True, help="a missing or empty folder for the snapshot and the results")
+    parser.add_argument("--adopt-stamps", action="store_true",
+                        help="freeze the snapshot's own stamps first, as the kit's adopt-stamps does")
+    parser.add_argument("--phase-map", help="with --adopt-stamps: the phase map adopt-stamps takes")
     args = parser.parse_args(argv)
     try:
         config = json.loads(Path(args.config).read_text(encoding="utf-8"))
-        manifest, found = run(args.source, config, args.out)
+        phase_map = json.loads(Path(args.phase_map).read_text(encoding="utf-8")) if args.phase_map else None
+        manifest, found = run(args.source, config, args.out, adopt=args.adopt_stamps, phase_map=phase_map)
     except (DryRunError, OSError, ValueError) as exc:
         print(f"adoption-dry-run: {exc}", file=sys.stderr)
         return 2

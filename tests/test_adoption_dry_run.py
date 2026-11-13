@@ -177,6 +177,36 @@ class DryRun(unittest.TestCase):
         self.assertTrue(found, "a stamp with no receipt must be a fault")
         self.assertTrue(any("receipt" in e["example"]["message"].lower() for e in found), found)
 
+    def foreign_stamp(self, commit):
+        """§1 of a two-section tree stamped in a project's own format, with a receipt of its own."""
+        text = todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--")])
+        text = text.replace("| 1 | §1 | A | -- | [ ] |", "| 1 | §1 | A | -- | [x] |").replace(
+            "- [ ] Work.", "- [x] Work.", 1).replace("- [ ] Commit: `x: a`", "- [x] Commit: `x: a`")
+        self.tree({("00-workspace", "TODO-01-a.md"): text.replace(
+            "\n## 2.", f"\n> **Verified:** 2026-09-28 | §1 | {commit}\n> **Review:** `docs/reviews/rf/s1.md`\n\n## 2.", 1)})
+        self.write("docs/reviews/rf/s1.md", "## Panel\n\napprove\n")
+
+    def test_adopt_stamps_measures_after_the_projects_stamps_are_frozen(self):
+        # D03 T01 §9: without the flag the foreign stamp is a receipt class; with it, none, and nothing else changes.
+        self.tree({("00-workspace", "TODO-01-a.md"): todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--")])})
+        base = self.commit()
+        self.foreign_stamp(base)
+        self.commit()
+        _, plain = dry.run(self.source, {"title": "P"}, self.out / "plain")
+        self.assertTrue(any("receipt" in e["class"] for e in plain), plain)
+        manifest, adopted = dry.run(self.source, {"title": "P"}, self.out / "adopted", adopt=True)
+        self.assertEqual(adopted, [])
+        self.assertTrue(manifest["adopted"])
+        self.assertFalse((self.source / "docs/reviews/legacy-receipts.json").exists())  # the snapshot's, not the source's
+
+    def test_a_refused_adoption_is_a_measured_class(self):
+        self.tree({("00-workspace", "TODO-01-a.md"): todo_file([(1, "A", 0, "none", "--")])})
+        self.commit()
+        self.foreign_stamp("1" * 40)  # a commit that is in no history
+        self.commit()
+        _, found = dry.run(self.source, {"title": "P"}, self.out, adopt=True)
+        self.assertIn("adoption refused: adoption refused, nothing written:", [e["class"] for e in found])
+
     @unittest.skipUnless(os.environ.get("CONCLAVE_FULL_TESTS"), "slow: set CONCLAVE_FULL_TESTS=1 for the full suite")
     def test_the_sdk_snapshot_with_its_stamped_sections_reports_no_fault(self):
         config = json.loads((REPO / "todo/plan.json").read_text(encoding="utf-8"))

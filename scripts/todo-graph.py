@@ -30,7 +30,7 @@ import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
-from todo_graph import (ROOT, Refused, adjacency_report, atomic, deferrals, disposition,  # noqa: E402
+from todo_graph import (ROOT, Refused, adjacency_report, adopt_stamps, atomic, deferrals, disposition,  # noqa: E402
                         extract_ref, filing_couplings, frozen_files, graph, longest_chain, missing_needs, ordered,
                         plan_config, plan_file, plan_status, projections, receipts_folder, require, review_rounds,
                         session_needs, settled, stamp, suspects, unstamp)
@@ -90,6 +90,10 @@ def main():
                         "filed: gaps filed as new sections, each on a '- Filed:' line (under three-pass only when "
                         "the last pass's worst finding is below the pin's blocking levels). completed (rotation pins "
                         "only): every gap was fixed in the section")
+    ad = sub.add_parser("adopt-stamps", help="freeze, once, the stamps this project made before it took the kit "
+                                             "(the adopted and adoption keys of the receipts folder's legacy file)")
+    ad.add_argument("--phase-map", help="a JSON file from a section reference or TODO file path to its phase, for "
+                                        "stamped sections with no Phase field (a section's key wins over its file's)")
     u = sub.add_parser("unstamp", help="an audit found a stamped section regressed: reopen it, keeping the receipt")
     u.add_argument("ref")
     u.add_argument("--reason", required=True)
@@ -100,6 +104,18 @@ def main():
         return 0
     if args.command == "plan-path":  # read by scripts/hooks/pre-commit, like receipts
         print(plan_file(text=sys.stdin.read() if args.config == "-" else None))
+        return 0
+    if args.command == "adopt-stamps":
+        phase_map = None
+        if args.phase_map:
+            try:
+                phase_map = json.loads(Path(args.phase_map).read_text(encoding="utf-8"))
+            except ValueError as exc:
+                raise Refused(f"the phase map {args.phase_map} is not JSON: {exc}") from None
+        adopted = adopt_stamps(ROOT, phase_map)
+        for ref, commit in adopted:
+            print(f"adopted {ref} at {commit}")
+        print(f"adopted {len(adopted)} stamps")
         return 0
     if args.command == "unstamp":
         revoked = unstamp(ROOT, args.ref, args.reason, args.date)
