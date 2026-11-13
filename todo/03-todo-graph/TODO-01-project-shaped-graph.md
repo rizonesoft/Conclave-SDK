@@ -36,7 +36,7 @@ title: "TODO-01 -- Todo graph that takes a project's shape"
 | 1 | §1 | Phase list read from `todo/plan.json` | -- | [x] |
 | 2 | §2 | Needs values and waiting Needs read from `todo/plan.json` | §1 | [x] |
 | 3 | §3 | Caps read from `todo/plan.json` | §1 | [x] |
-| 4 | §4 | Receipts folder read from `todo/plan.json` | §1 | [ ] |
+| 4 | §4 | Receipts folder read from `todo/plan.json` | §1 | [x] |
 | 5 | §7 | Plan path read from `todo/plan.json` | §4 | [ ] |
 | 6 | §5 | Adoption dry run on RasterFold and Impossible OS | §2, §3, §4, §7 | [ ] |
 | 7 | §6 | Lift or leave decision for each RasterFold graph command | §5 | [ ] |
@@ -155,13 +155,16 @@ Receipts and findings files go to `docs/reviews/` through literals in the graph,
 - [x] Read the receipts folder in `kits/todo/templates/scripts/hooks/pre-commit` from the graph (`scripts/todo-graph.py`), for the trigger and the unstaged and untracked checks. Done when: `tests/test_pre_commit_hook.py` shows, with `receipts` set to `reviews`, a commit touching only `reviews/` checked, an unstaged change under `reviews/` refused, a fully staged valid commit accepted and a malformed `layout` refused with the graph's message.
 - [x] Stamp, validate, unstamp and validate again under a configured folder in `tests/test_three_pass_install.py`. Done when: with `CONCLAVE_FULL_TESTS=1` the fresh-install test, with `receipts` set to `reviews`, reads the receipt back at `reviews/<slug>.json`, finds nothing under `docs/reviews/`, and after `unstamp` finds the revoked receipt under `reviews/` and the section reopened. Cheaper substitute: a unit test of the path helper alone must fail review, because the hook and the dispatcher also read the folder.
 - [x] Document `layout.receipts` in `kits/todo/templates/todo/README.md`, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
-- [ ] Commit: `todo: the receipts folder comes from todo/plan.json`
+- [x] Commit: `todo: the receipts folder comes from todo/plan.json`
 
 **Corrected 2026-11-13 (validation):** the line references moved (`:202`, `:291`, `:414`, `:1351` and `:43` are `:214`, `:303`, `:426`, `:1397` and `:44`), and the reviewer kit reads the folder in three places the plan did not name: the dispatcher's `SECTION_FINDINGS`, its `--list-rounds` default and `review-prompt.py`'s findings placeholder, so an item covers them.
 
 **Corrected 2026-11-13 (plan review):** the section is split: the plan path, whose destination can collide with a source file and which the hook must also check, moves to `§7`, and this section keeps the receipts folder. It adds the skills' commands that write the folder, the hook's trigger and unstaged checks, the full path rules with containment through links, the reviewer kit's listing and prompt behaviour with a test that both kits read the key alike, and an unstamp in the end to end proof.
 
 **Test checkpoint:** with `CONCLAVE_FULL_TESTS=1` set, `python -m unittest discover -s tests` ends `OK` with the stamp tests run, not skipped; leaving the receipt path literal at `:1397` makes the configured-folder stamp test fail.
+
+> **Verified:** 2026-11-13 | §4 | 5a8728885056401542175f9c8cbf9e95f4ff51ab
+> **Review:** `docs/reviews/d03-t01-s4.json`
 
 ## 5. Adoption dry run on RasterFold and Impossible OS
 
