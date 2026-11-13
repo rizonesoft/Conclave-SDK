@@ -36,9 +36,10 @@ title: "TODO-01 -- Todo graph that takes a project's shape"
 | 1 | §1 | Phase list read from `todo/plan.json` | -- | [x] |
 | 2 | §2 | Needs values and waiting Needs read from `todo/plan.json` | §1 | [ ] |
 | 3 | §3 | Caps read from `todo/plan.json` | §1 | [ ] |
-| 4 | §4 | Receipts folder and plan path read from `todo/plan.json` | §1 | [ ] |
-| 5 | §5 | Adoption dry run on RasterFold and Impossible OS | §2, §3, §4 | [ ] |
-| 6 | §6 | Lift or leave decision for each RasterFold graph command | §5 | [ ] |
+| 4 | §4 | Receipts folder read from `todo/plan.json` | §1 | [ ] |
+| 5 | §7 | Plan path read from `todo/plan.json` | §4 | [ ] |
+| 6 | §5 | Adoption dry run on RasterFold and Impossible OS | §2, §3, §4, §7 | [ ] |
+| 7 | §6 | Lift or leave decision for each RasterFold graph command | §5 | [ ] |
 
 ## 1. Phase list read from `todo/plan.json`
 
@@ -125,11 +126,11 @@ The four size caps suit the SDK's own files. A project with longer sections sets
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; ignoring the configured `items_per_section` makes the 40 item test fail.
 
-## 4. Receipts folder and plan path read from `todo/plan.json`
+## 4. Receipts folder read from `todo/plan.json`
 
 > **Started:** 2026-11-13T03:19:14Z
 
-Receipts and findings files go to `docs/reviews/` through string literals in four places. A project that keeps reviews elsewhere states the folder once.
+Receipts and findings files go to `docs/reviews/` through literals in the graph, the pre-commit hook, the dispatcher, the prompt filler and the skills' commands. A project that keeps reviews elsewhere states the folder once.
 
 **Phase:** 3
 **Needs:** none
@@ -137,22 +138,24 @@ Receipts and findings files go to `docs/reviews/` through string literals in fou
 
 **Build order:**
 
-1. Add `layout` to `plan_config` in `kits/todo/templates/scripts/lib/todo_graph.py` and route every `docs/reviews/` literal through it. Done when: a stamp writes its receipt under the configured folder.
+1. Add `layout.receipts` to `plan_config` in `kits/todo/templates/scripts/lib/todo_graph.py` and route every `docs/reviews/` literal in the todo and reviewer kits through it. Done when: a stamp writes its receipt under the configured folder.
 2. Run the full suite, because this touches the stamp. Done when: the checkpoint passes.
 
-- [ ] Accept an optional `layout` key in `plan_config` of `todo_graph.py`: an object with `receipts` (default `docs/reviews`) and `plan` (default `todo/implementation-plan.md`), each a relative path with no `..`, no leading slash and no backslash. Done when: tests refuse an absolute path, a `..` segment and an unknown layout name, each naming `layout`.
+- [ ] Accept an optional `layout` key in `plan_config` of `todo_graph.py`: an object whose `receipts` member (default `docs/reviews`) is a non-empty relative POSIX path with no leading slash, backslash, drive letter or `.` or `..` segment, that stays inside the repository through any symlink or junction. Done when: tests refuse a `layout` that is not an object, an unknown member, a non-string, an empty string, an absolute path, `C:/reviews`, a backslash, a `..` segment and a folder that is a symlink out of the repository, each naming `todo/plan.json` and `layout`, and a `layout` without `receipts` keeps `docs/reviews`.
 - [ ] Replace the `docs/reviews/` literals in `todo_graph.py` (the receipt check at `:214`, the findings file check at `:303`, the findings path at `:426`, the receipt path at `:1397` and `LEGACY_RECEIPTS` at `:44`) with paths built from the configured `receipts`. Done when: `grep -n "docs/reviews" kits/todo/templates/scripts/lib/todo_graph.py` shows only the default and comments.
-- [ ] Use the configured `plan` path wherever `PLAN` is read in `todo_graph.py`. Done when: a test with `plan` set to `docs/plan.md` finds `plan --sync` writing there and `plan --check` reading there.
-- [ ] Pass the receipts folder to the dispatcher: `kits/reviewer/templates/scripts/review-dispatch.py` writes findings files where `--record` says, so check that `review-todo-section` in the three agent folders builds its `--record` path from the configured folder and not the literal. Done when: a test asserts the skill text names the configured folder's source (`todo/plan.json`) beside the default.
-- [ ] Read the configured folder in the reviewer kit too, from `todo/plan.json` when it is there: `SECTION_FINDINGS` in `kits/reviewer/templates/scripts/review-dispatch.py` (`:853`, which decides that a findings file is a section's and so runs the three-pass chain), the `--list-rounds` default folder (`:1314`), and the findings placeholder in `kits/reviewer/templates/scripts/review-prompt.py` (`:133`). Done when: a reviewer-kit test with `receipts` set to `reviews` finds `reviews/03-x/D03-T01-s1.md` treated as a section's findings file and `docs/reviews/03-x/D03-T01-s1.md` not, and the default is unchanged without the key.
-- [ ] Stamp a section end to end under a configured folder in `tests/test_three_pass_install.py`. Done when: with `CONCLAVE_FULL_TESTS=1` the fresh-install test stamps with `receipts` set to `reviews` and finds the receipt at `reviews/<slug>.json` and nothing under `docs/reviews/`. Cheaper substitute: a unit test of the path helper alone must fail review, because the pre-commit hook and the dispatcher also read the folder.
-- [ ] Check `kits/todo/templates/scripts/hooks/pre-commit` for the `docs/reviews/` literal and read the folder from `todo/plan.json` there too. Done when: `tests/test_pre_commit_hook.py` passes with a configured folder.
-- [ ] Document `layout` in `kits/todo/templates/todo/README.md`, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
-- [ ] Commit: `todo: receipts folder and plan path come from todo/plan.json`
+- [ ] Read the folder in the reviewer kit from `todo/plan.json` when it is there, with the graph's path rules: `SECTION_FINDINGS` in `kits/reviewer/templates/scripts/review-dispatch.py` (`:853`), the `--list-rounds` default folder (`:1314`) and the findings placeholder in `kits/reviewer/templates/scripts/review-prompt.py` (`:133`). Done when: reviewer-kit tests with `receipts` set to `reviews` find `reviews/03-x/D03-T01-s1.md` treated as a section's findings file and `docs/reviews/03-x/D03-T01-s1.md` not, `--list-rounds` without a folder list a findings file under `reviews/`, an explicit folder still wins, the prompt's findings placeholder fills under `reviews/`, a malformed `layout` is refused with the graph's message, and nothing changes without the key.
+- [ ] Prove the two readers agree in `tests/test_todo_graph.py`: one table of `layout` values run through `plan_config` and the reviewer kit's reader. Done when: each value is accepted by both with the same folder or refused by both. Cheaper substitute: testing each reader alone must fail review, because the kits would drift apart unseen.
+- [ ] Write the commands in `process-todo-section` and `review-todo-section` in `.claude/`, `.agents/` and `.codex/` under `kits/todo/templates/` with `<receipts>/` where they write `docs/reviews/` (the plan review's `--record`, the round's and the completion's, and the stamp's `--plan`, `--completion` and `--review`), saying once that `<receipts>` is `layout.receipts` in `todo/plan.json`, `docs/reviews` by default. Done when: a test finds no `docs/reviews/` in any command line of those six files.
+- [ ] Read the receipts folder in `kits/todo/templates/scripts/hooks/pre-commit` from the graph (`scripts/todo-graph.py`), for the trigger and the unstaged and untracked checks. Done when: `tests/test_pre_commit_hook.py` shows, with `receipts` set to `reviews`, a commit touching only `reviews/` checked, an unstaged change under `reviews/` refused, a fully staged valid commit accepted and a malformed `layout` refused with the graph's message.
+- [ ] Stamp, validate, unstamp and validate again under a configured folder in `tests/test_three_pass_install.py`. Done when: with `CONCLAVE_FULL_TESTS=1` the fresh-install test, with `receipts` set to `reviews`, reads the receipt back at `reviews/<slug>.json`, finds nothing under `docs/reviews/`, and after `unstamp` finds the revoked receipt under `reviews/` and the section reopened. Cheaper substitute: a unit test of the path helper alone must fail review, because the hook and the dispatcher also read the folder.
+- [ ] Document `layout.receipts` in `kits/todo/templates/todo/README.md`, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
+- [ ] Commit: `todo: the receipts folder comes from todo/plan.json`
 
 **Corrected 2026-11-13 (validation):** the line references moved (`:202`, `:291`, `:414`, `:1351` and `:43` are `:214`, `:303`, `:426`, `:1397` and `:44`), and the reviewer kit reads the folder in three places the plan did not name: the dispatcher's `SECTION_FINDINGS`, its `--list-rounds` default and `review-prompt.py`'s findings placeholder, so an item covers them.
 
-**Test checkpoint:** with `CONCLAVE_FULL_TESTS=1` set, `python -m unittest discover -s tests` ends `OK` with the stamp tests run, not skipped; leaving the receipt path literal at `:1351` makes the configured-folder stamp test fail.
+**Corrected 2026-11-13 (plan review):** the section is split: the plan path, whose destination can collide with a source file and which the hook must also check, moves to `§7`, and this section keeps the receipts folder. It adds the skills' commands that write the folder, the hook's trigger and unstaged checks, the full path rules with containment through links, the reviewer kit's listing and prompt behaviour with a test that both kits read the key alike, and an unstamp in the end to end proof.
+
+**Test checkpoint:** with `CONCLAVE_FULL_TESTS=1` set, `python -m unittest discover -s tests` ends `OK` with the stamp tests run, not skipped; leaving the receipt path literal at `:1397` makes the configured-folder stamp test fail.
 
 ## 5. Adoption dry run on RasterFold and Impossible OS
 
@@ -197,6 +200,29 @@ RasterFold's graph is ten times the kit's and has commands the kit lacks (roadma
 - [ ] Commit: `todo: lift or leave decision for each RasterFold graph command`
 
 **Test checkpoint:** `python scripts/todo-graph.py validate` and `python scripts/todo-graph.py plan --check` pass with the new sections in the plan; a `lift` row with no section reference fails the report's own check (`grep -c "lift" ` against `grep -c "D03 T"` in the table, which must match).
+
+## 7. Plan path read from `todo/plan.json`
+
+The generated plan is written to `todo/implementation-plan.md`. A project that keeps it elsewhere states the path once, and the path can never land on a file the plan does not own.
+
+**Phase:** 3
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add `layout.plan` to `plan_config` in `kits/todo/templates/scripts/lib/todo_graph.py` with its collision refusals, and read it wherever `PLAN` is read. Done when: `plan --sync` writes the configured path.
+2. Cover the hook and the stamp's write and rollback. Done when: the checkpoint passes.
+
+- [ ] Accept `plan` in `layout` in `plan_config` of `todo_graph.py` (default `todo/implementation-plan.md`) under `§4`'s path rules, ending `.md`, and refuse a destination the plan does not own: `todo/plan.json`, `todo/README.md`, any file in a `todo/NN-domain/` folder, any path in the receipts folder, and an existing file that does not begin with the generated plan's header. Done when: tests refuse each before anything is written, naming `todo/plan.json` and `layout`, and a `layout` without `plan` keeps the default.
+- [ ] Use the configured path wherever `PLAN` is read in `todo_graph.py`: `projections` (`:1288`), the stamp's plan write and rollback (`:1433` to `:1485`) and `unstamp`. Done when: a test with `plan` set to `docs/plan.md` finds `plan --sync` writing there, `plan --check` reading there and nothing at `todo/implementation-plan.md`.
+- [ ] Read the plan path in `kits/todo/templates/scripts/hooks/pre-commit` from the graph, for the trigger and the unstaged and untracked checks. Done when: `tests/test_pre_commit_hook.py` refuses, with `plan` set to `docs/plan.md`, a commit staging only a corrupted plan and a commit whose staged plan is stale while an unstaged copy is current, and accepts a fully staged valid commit.
+- [ ] Name the configured plan path beside the default wherever the todo kit's skills and `docs/todo-workflow.md` name `todo/implementation-plan.md` as a path to read or write. Done when: a guard test like `§3`'s finds every such mention naming `layout.plan` within 80 characters.
+- [ ] Stamp, validate, unstamp and validate again with both `receipts` and `plan` configured in `tests/test_three_pass_install.py`, and fail the stamp's plan write once. Done when: with `CONCLAVE_FULL_TESTS=1` the receipt is read back under the configured folder, the configured plan shows the section verified and then reopened, and after the failed write the TODO file, the receipt folder and the plan hold their bytes from before the stamp. Cheaper substitute: checking the plan's path alone must fail review, because the rollback writes it too.
+- [ ] Document `layout.plan` in `kits/todo/templates/todo/README.md`, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
+- [ ] Commit: `todo: the plan path comes from todo/plan.json`
+
+**Test checkpoint:** with `CONCLAVE_FULL_TESTS=1` set, `python -m unittest discover -s tests` ends `OK` with the stamp tests run, not skipped; leaving `projections` on the constant `PLAN` makes the `docs/plan.md` test fail, and dropping the `todo/plan.json` destination refusal makes its test fail.
 
 ## Verification
 
