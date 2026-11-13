@@ -588,6 +588,28 @@ class Graph(Tree):
         self.write(text.replace("\n## Verification", "\n> **Verified:** 2026-11-13 | §1 | abc\n\n## Verification"))
         self.assertIn("invalid stamp: D00 T01 §1", self.faults())
 
+    def test_a_section_under_bad_frontmatter_still_has_its_body_checked(self):
+        # D03 T01 §5 (reconciliation): two Impossible OS files with a bad frontmatter line hid 42 sections.
+        text = todo_file([(1, "A", 0, "none", "--")]).replace("status: active", "status: active\nnot a field line")
+        self.write(text.replace("**Phase:** 0\n", "", 1).replace(
+            "**Test checkpoint:** `true` exits 0.", "**Freeze check:** x\n\n**Test checkpoint:** `true` exits 0."))
+        found = self.faults()
+        self.assertIn("invalid or duplicate frontmatter: todo/00-workspace/TODO-01-a.md", found)
+        self.assertIn("missing Phase field", found)
+        # What the bad frontmatter would have said is not judged: no field, frozen or status fault follows from it.
+        self.assertFalse([m for m in found if m.startswith(("frontmatter fields", "Freeze check", "file status"))], found)
+        self.refuses("invalid or duplicate frontmatter")
+
+    def test_a_section_in_a_file_with_no_table_still_has_its_body_checked(self):
+        text = todo_file([(1, "A", 0, "none", "--")])
+        table = text[text.index("## Implementation Order"):text.index("## 1.")]
+        self.write(text.replace(table, "").replace("**Phase:** 0\n", "", 1))
+        found = self.faults()
+        self.assertIn("missing Implementation Order: todo/00-workspace/TODO-01-a.md", found)
+        self.assertIn("missing Phase field", found)
+        self.assertFalse([m for m in found if m.startswith(("invalid implementation order", "row/body"))], found)
+        self.refuses("missing Implementation Order")
+
     def test_a_repeated_stamp_or_freeze_field_is_recorded_not_raised(self):
         # D03 T01 §5 (completion): one duplicate Verified line in Impossible OS ended validate --all for the whole tree.
         text = todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--")])

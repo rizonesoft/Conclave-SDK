@@ -987,13 +987,22 @@ def graph(root=ROOT, faults=None):
         if raw is FAILED:
             continue
         parsed = attempt(relative, front_matter, raw, relative)
-        if parsed is FAILED:
-            continue
-        front, body = parsed
+        front_ok = parsed is not FAILED
+        if front_ok:
+            front, body = parsed
+        else:
+            # Collecting, a frontmatter block with a bad line (recorded) still bounds a body whose sections can be
+            # checked; nothing the frontmatter says is trusted, so none of its checks run and the file is no node.
+            parts = raw.split("---\n", 2)
+            if len(parts) != 3 or parts[0]:
+                continue  # no frontmatter block: no body to find
+            front, body = {}, parts[2]
+            incomplete.add(relative)
         required = {"schema_version", "id", "domain", "status", "title"}
         optional = {"depends_on", "frozen", "track", "superseded_by"}
-        check(required <= front.keys() and not front.keys() - required - optional,
-              f"frontmatter fields: {relative}", relative)
+        if front_ok:
+            check(required <= front.keys() and not front.keys() - required - optional,
+                  f"frontmatter fields: {relative}", relative)
         # Collecting, a missing field skips only the checks that read it (without the list the check above raised).
         if {"schema_version", "domain"} <= front.keys():
             check(front["schema_version"] == "1" and front["domain"] == path.parent.name,
@@ -1005,8 +1014,9 @@ def graph(root=ROOT, faults=None):
             check(front["status"] in STATUSES, f"unknown status: {relative}", relative)
         else:
             incomplete.add(relative)  # no status to hold the stamps against
-        frozen = front.get("frozen", "false")
-        check(frozen in {"true", "false"}, f"frozen must be true or false: {relative}", relative)
+        frozen = front.get("frozen", "false") if front_ok else None  # None: unknown, so no Freeze check is judged
+        if front_ok:
+            check(frozen in {"true", "false"}, f"frozen must be true or false: {relative}", relative)
         file_deps = attempt(relative, json.loads, front.get("depends_on", "[]"))
         if file_deps is FAILED or not check(isinstance(file_deps, list) and all(isinstance(x, str) for x in file_deps),
                                             "depends_on must be a JSON string array", relative):
@@ -1023,10 +1033,12 @@ def graph(root=ROOT, faults=None):
             attempt(relative, field, body, label)
         labels_ok = all([check(f"## {label}\n" in body, f"missing {label}: {relative}", relative)
                          for label in ("Inputs", "Outcome", "Implementation Order", "Verification")])
-        if "## Implementation Order\n" not in body:
+        has_table = "## Implementation Order\n" in body
+        if not has_table:
             incomplete.add(relative)
-            continue  # no table: no section can be read
-        table = body.split("## Implementation Order\n", 1)[1].split("\n## ", 1)[0]
+            if not collect:
+                continue  # no table: no row can be read (collecting, the sections' bodies still are)
+        table = body.split("## Implementation Order\n", 1)[1].split("\n## ", 1)[0] if has_table else ""
         rows, orders = {}, []
         for line in table.splitlines():
             if not line.startswith("|"):
@@ -1047,15 +1059,15 @@ def graph(root=ROOT, faults=None):
                 continue
             orders.append(order)
             rows[n] = m
-        if not check(rows and orders == list(range(1, len(rows) + 1)), f"invalid implementation order: {relative}",
-                     relative):
+        if has_table and not check(rows and orders == list(range(1, len(rows) + 1)),
+                                   f"invalid implementation order: {relative}", relative):
             incomplete.add(relative)
         check(len(rows) <= caps["sections_per_file"],
               f"over {caps['sections_per_file']} sections; split into a new file: {relative}", relative)
         headings = list(re.finditer(r"^## (\d+)\. (.+)$", body, re.M))
         numbers = [int(m[1]) for m in headings]
-        if not check(all(n >= 1 for n in numbers) and numbers == sorted(set(numbers)) and set(numbers) == set(rows),
-                     f"row/body mismatch: {relative}", relative):
+        if not check(all(n >= 1 for n in numbers) and numbers == sorted(set(numbers))
+                     and (set(numbers) == set(rows) or not has_table), f"row/body mismatch: {relative}", relative):
             incomplete.add(relative)
         if headings:
             check(body.rfind("## Verification\n") > headings[-1].start(),
@@ -1128,7 +1140,7 @@ def graph(root=ROOT, faults=None):
                 for label in ("Fidelity", "Job", "Treatment", "Chrome"):
                     attempt(ref, field, section_body, label)
             freeze_check = attempt(ref, field, section_body, "Freeze check", False)
-            if freeze_check is not FAILED:
+            if freeze_check is not FAILED and frozen is not None:
                 check(bool(freeze_check) == (frozen == "true"), f"Freeze check must match frozen frontmatter: {ref}",
                       ref)
             # A repeated Verified or Review line is recorded (collecting) and the stamp it would carry goes unread.
@@ -1152,7 +1164,7 @@ def graph(root=ROOT, faults=None):
                         ref, lambda: receipt_ok(root, receipt, ref, m[1], head_commits, surface=surface == "yes"))
                     if data is not FAILED and "completion" in data:
                         filed_gaps[ref] = data["completion"]["filed"]
-            if row is None or not (phase_ok and deps_ok):
+            if row is None or not front_ok or not (phase_ok and deps_ok):
                 incomplete.add(relative)
                 unregistered[ref] = section_body  # its deferrals are still checked below
                 continue  # a section with no usable Phase or dependencies is not a node of the graph
