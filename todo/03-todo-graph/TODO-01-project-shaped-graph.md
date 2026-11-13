@@ -211,6 +211,8 @@ The keys above remove the differences that were known. What else stops each proj
 
 ## 6. Lift or leave decision for each RasterFold graph command
 
+> **Started:** 2026-11-13T09:53:56Z
+
 RasterFold's graph is ten times the kit's and has commands the kit lacks (roadmap finding 7). Each is read and given a decision: lift it into the kit as its own section, or leave it with the project and say why.
 
 **Phase:** 3
@@ -227,6 +229,8 @@ RasterFold's graph is ten times the kit's and has commands the kit lacks (roadma
 - [ ] Do the same for the sibling scripts the graph loads (`todo-validate.py`, `todo-adjacency.py`, `todo-findings.py`, 4,207 lines together): what each checks that the kit's validator does not. Done when: the report has one row per check the kit lacks.
 - [ ] File a section through `add-todo` for each `lift` row, in this file or a second file in this domain when the count passes 55 sections, with the RasterFold function and commit as its source. Done when: `python scripts/todo-graph.py validate` passes and every `lift` row carries its section reference.
 - [ ] Commit: `todo: lift or leave decision for each RasterFold graph command`
+
+**Corrected 2026-11-13 (validation):** read at RasterFold `75be196`: the parser moved to `scripts/todo-graph.py:12879` to `:12990` (`:12687` to `:12790` were the lines at `b334933`), and it has two commands the list above leaves out, `classify` (`cmd_classify`, `:3862`, which the kit has) and the `query design` kind (`:2584`), so each gets a row too: eighteen in all. The report's own check is one `lift` or `leave` per row and a `D03 T` reference on every `lift` row, counted over the table's rows.
 
 **Test checkpoint:** `python scripts/todo-graph.py validate` and `python scripts/todo-graph.py plan --check` pass with the new sections in the plan; a `lift` row with no section reference fails the report's own check (`grep -c "lift" ` against `grep -c "D03 T"` in the table, which must match).
 
