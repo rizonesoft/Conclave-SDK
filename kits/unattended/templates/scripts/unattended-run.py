@@ -1008,13 +1008,19 @@ RUNNER_LABEL = {"claude": "Claude", "codex": "Codex", "agy": "Carbon"}
 DESKTOP_MARK = "X-Conclave-Project"
 
 
+def start_command(agent: str) -> str:
+    """The shell command every launcher of the run runs in the project (the Linux entry here, the Windows shortcut
+    through wsl.exe): start the run on `agent`, and on a failure say so and wait for Enter."""
+    return (f"python3 scripts/unattended-run.py start --agent {agent} || "
+            "{ echo 'The run did not start: the reason is above. Press Enter to close.'; read -r _; }")
+
+
 def desktop_entry(root: Path, profile: dict, agent: str) -> str:
     """A desktop entry that opens a terminal in the project and starts the run on `agent`; on a failure it says so and
     waits for Enter, so the reason stays on screen. The project path is the entry's `Path`, never part of `Exec`,
     so no character in it needs quoting."""
     label = f"{profile['name']} {RUNNER_LABEL[agent]} campaign"
-    command = (f"python3 scripts/unattended-run.py start --agent {agent} || "
-               "{ echo 'The run did not start: the reason is above. Press Enter to close.'; read -r _; }")
+    command = start_command(agent)
     return ("[Desktop Entry]\nType=Application\n"
             f"Name={label}\nComment=Start the {profile['name']} unattended run on {RUNNER_LABEL[agent]}\n"
             f"Path={root}\nExec=bash -lc \"{command}\"\nTerminal=true\n{DESKTOP_MARK}={root}\n")

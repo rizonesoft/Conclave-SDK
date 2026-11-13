@@ -11,8 +11,9 @@ The kit is being built section by section (`todo/02-unattended/TODO-02-unattende
 | `.conclave/unattended.json` | The run profile: agent, model, effort, prompt, branch, thresholds, preflight checks |
 | `docs/unattended-prompt.md` | The seed prompt the run starts with, naming no project |
 | `scripts/campaign-icon.py` | A launcher's icon: the project's icon with its runner's badge (stdlib only) |
-| `scripts/unattended-run.py` | `start [--ships N]`, `status`, `attach [--watch]`, `stop`, `heartbeat`: the tmux run |
+| `scripts/unattended-run.py` | `start`, `status`, `attach`, `stop`, `heartbeat`, `shortcut`: the run in tmux |
 | `scripts/unattended-preflight.py` | One PASS or FAIL line per precondition; exit 1 on any FAIL (Linux, WSL) |
+| `scripts/unattended-shortcut.ps1` | Windows desktop shortcuts, one per runner, that start the run in WSL |
 | `scripts/lib/unattended.py` | `load_profile`, the launch lock and claim, `ships_between` (rows turned `[x]`) |
 | `scripts/tests/test_unattended.py` | The kit's own tests |
 
