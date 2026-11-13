@@ -6,6 +6,7 @@ Stamping loads the reviewer kit's scripts/review-dispatch.py. Rules: todo/README
 """
 from __future__ import annotations
 
+import copy
 from dataclasses import asdict, dataclass
 import hashlib
 import json
@@ -205,19 +206,16 @@ def front_matter(text, relative):
 
 
 def commit_ok(root, sha):
-    kind = subprocess.run(["git", "-C", str(root), "cat-file", "-t", sha],
-                          capture_output=True, text=True, timeout=30)
-    require(kind.returncode == 0 and kind.stdout.strip() == "commit", "not a commit: " + sha)
-    on_branch = subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", sha, "HEAD"],
-                               capture_output=True, timeout=30)
+    kind = _git(root, "cat-file", "-t", sha, timeout=30)
+    require(kind.returncode == 0 and kind.stdout.decode("utf-8", "replace").strip() == "commit", "not a commit: " + sha)
+    on_branch = _git(root, "merge-base", "--is-ancestor", sha, "HEAD", timeout=30)
     require(on_branch.returncode == 0, "commit is not on this branch: " + sha)
 
 
 def _head_commits(root):
-    res = subprocess.run(["git", "-C", str(root), "rev-list", "HEAD"],
-                         capture_output=True, text=True, timeout=30)
+    res = _git(root, "rev-list", "HEAD", timeout=30)
     require(res.returncode == 0, f"git repository with HEAD commit required for stamped sections: {root}")
-    return set(res.stdout.splitlines())
+    return set(res.stdout.decode("utf-8", "replace").splitlines())
 
 
 def receipt_ok(root, receipt, ref, stamp_sha, commits=None, surface=None):
@@ -256,8 +254,95 @@ def review_dispatch():
     return _REVIEW_DISPATCH[0]
 
 
-def _git(root, *args):
-    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, timeout=60)
+# One graph call's answers (D03 T01 §12): every git command and todo/plan.json read inside a `graph` call runs once,
+# and the answers are dropped when the call returns or raises, so a commit or a configuration change made between two
+# calls (a stamp's own writes, then its validation) is always read fresh. None: no graph call is running.
+_RUN_CACHE = None
+CACHE_RUNS = True  # tests switch it off to compare a cached run with an uncached one
+
+
+def _git(root, *args, timeout=60):
+    """`git -C root <args>`, its output as bytes; inside a graph call each distinct command runs once, a file read at
+    a commit (`show <rev>:<path>`) goes through one `cat-file --batch` process, and `merge-base --is-ancestor` between
+    two commits of the repository is answered from one read of its history."""
+    key = (str(root), args)
+    if _RUN_CACHE is not None and key in _RUN_CACHE["git"]:
+        return _RUN_CACHE["git"][key]
+    out = None
+    if _RUN_CACHE is not None:
+        if len(args) == 2 and args[0] == "show" and ":" in args[1]:
+            out = _batch_show(root, args[1], timeout)
+        elif len(args) == 4 and args[:2] == ("merge-base", "--is-ancestor"):
+            out = _from_history(root, args[2], args[3], timeout)
+    if out is None:
+        out = subprocess.run(["git", "-C", str(root), *args], capture_output=True, timeout=timeout)
+    if _RUN_CACHE is not None:
+        _RUN_CACHE["git"][key] = out
+    return out
+
+
+def _batch_show(root, spec, timeout):
+    """`git show <rev>:<path>` for a file, read through the graph call's one `git cat-file --batch`; None (run git
+    itself) for anything that is not a file there, so a tree, a missing path or a bad name answers as `show` does."""
+    batches = _RUN_CACHE["batch"]
+    proc = batches.get(str(root))
+    if proc is None:
+        proc = batches[str(root)] = subprocess.Popen(["git", "-C", str(root), "cat-file", "--batch"],
+                                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                                     stderr=subprocess.DEVNULL)
+    if "\n" in spec or proc.poll() is not None:
+        return None
+    proc.stdin.write(spec.encode("utf-8") + b"\n")
+    proc.stdin.flush()
+    header = proc.stdout.readline().split()
+    if len(header) != 3 or not header[2].isdigit():
+        return None  # "<spec> missing" or "ambiguous": git show says why
+    data = proc.stdout.read(int(header[2]) + 1)[:-1]
+    if header[1] != b"blob":
+        return None
+    return subprocess.CompletedProcess(["git", "-C", str(root), "show", spec], 0, data, b"")
+
+
+def _from_history(root, older, newer, timeout):
+    """`merge-base --is-ancestor older newer` from the parents of every commit the repository's refs reach, read once
+    per graph call; None (run git itself) when either is not a full commit name in that history."""
+    history = _RUN_CACHE["history"].get(str(root))
+    if history is None:
+        listed = subprocess.run(["git", "-C", str(root), "rev-list", "--parents", "--all", "HEAD"],
+                                capture_output=True, timeout=timeout)
+        history = {}
+        if listed.returncode == 0:
+            for line in listed.stdout.decode("ascii", "replace").splitlines():
+                sha, *parents = line.split()
+                history[sha] = parents
+        _RUN_CACHE["history"][str(root)] = history
+    if newer == "HEAD":
+        head = _git(root, "rev-parse", "HEAD", timeout=timeout)
+        newer = head.stdout.decode("ascii", "replace").strip() if head.returncode == 0 else newer
+    if older not in history or newer not in history:
+        return None
+    seen, stack = set(), [newer]
+    while stack:
+        sha = stack.pop()
+        if sha == older:
+            return subprocess.CompletedProcess(["git", "merge-base", "--is-ancestor", older, newer], 0, b"", b"")
+        if sha not in seen:
+            seen.add(sha)
+            stack.extend(history.get(sha, ()))
+    return subprocess.CompletedProcess(["git", "merge-base", "--is-ancestor", older, newer], 1, b"", b"")
+
+
+def _end_run(cache):
+    """Close the graph call's `cat-file --batch` processes; one that does not stop is killed, so none outlives it."""
+    for proc in cache["batch"].values():
+        try:
+            proc.stdin.close()
+            proc.wait(timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            proc.kill()
+            proc.wait()
+        finally:
+            proc.stdout.close()
 
 
 def is_ancestor(root, older, newer):
@@ -410,20 +495,19 @@ def build_start(root, path, body, ref):
     if started:
         line = started[0].rstrip("\r")
         number = ref.rsplit("§", 1)[1]
-        out = subprocess.run(["git", "-C", str(root), "log", "--reverse", "--format=%H", "--", path],
-                             capture_output=True, text=True, timeout=60)
-        for sha in out.stdout.split() if out.returncode == 0 else []:
-            shown = subprocess.run(["git", "-C", str(root), "show", f"{sha}:{path}"], capture_output=True, timeout=30)
+        out = _git(root, "log", "--reverse", "--format=%H", "--", path)
+        for sha in out.stdout.decode("utf-8", "replace").split() if out.returncode == 0 else []:
+            shown = _git(root, "show", f"{sha}:{path}", timeout=30)
             section = section_text(shown.stdout.decode("utf-8", "replace"), number) if shown.returncode == 0 else None
             if section is not None and line in section.splitlines():
                 first = sha
                 break
     else:
         # The whole reference, so `D01 T02 §2` does not match a commit that names only §22 or §23.
-        out = subprocess.run(["git", "-C", str(root), "log", "--reverse", "--format=%H", "-E",
-                              f"--grep={ref}([^0-9]|$)", "--", ".", ":(exclude)todo", ":(exclude)docs"],
-                             capture_output=True, text=True, timeout=60)
-        first = out.stdout.split()[0] if out.returncode == 0 and out.stdout.split() else None
+        out = _git(root, "log", "--reverse", "--format=%H", "-E", f"--grep={ref}([^0-9]|$)", "--", ".",
+                   ":(exclude)todo", ":(exclude)docs")
+        listed = out.stdout.decode("utf-8", "replace").split() if out.returncode == 0 else []
+        first = listed[0] if listed else None
     require(first is not None, f"cannot find the commit the build began at: record '> **Started:**' in the section "
                                f"before the build: {ref}")
     return first
@@ -467,8 +551,7 @@ def plan_record(root, report, ref, commits=None, start=None):
     if commits is None or candidate not in commits:
         commit_ok(root, candidate)
     if start is not None:  # stamping: the plan was reviewed before the build began
-        ancestor = subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", candidate, start],
-                                  capture_output=True, timeout=30)
+        ancestor = _git(root, "merge-base", "--is-ancestor", candidate, start, timeout=30)
         require(ancestor.returncode == 0, f"the plan review's candidate {candidate} is not the commit the build began "
                                           f"at ({start}) or an ancestor of it: review the plan before the build: {ref}")
     return {"report": report, "candidate": candidate, "reviewer": entry["reviewer"], "model": entry["model"],
@@ -913,7 +996,21 @@ FAILED = object()  # what graph's attempt() returns for a call whose refusal it 
 
 
 def graph(root=ROOT, faults=None):
-    """Parse every TODO file strictly; a malformed row or section refuses, it is never read as empty.
+    """Parse every TODO file strictly; a malformed row or section refuses, it is never read as empty. Each call reads
+    each git answer and todo/plan.json once and forgets them when it returns or raises (`_RUN_CACHE`)."""
+    global _RUN_CACHE
+    if _RUN_CACHE is not None or not CACHE_RUNS:
+        return _graph(root, faults)
+    _RUN_CACHE = cache = {"git": {}, "config": {}, "batch": {}, "history": {}}
+    try:
+        return _graph(root, faults)
+    finally:
+        _RUN_CACHE = None
+        _end_run(cache)
+
+
+def _graph(root=ROOT, faults=None):
+    """graph's body.
 
     `faults`: a list to record every refusal in, as (path or reference, message), and go on (`validate --all`).
     Within a file and a section every check whose inputs are usable still runs, and a fault that only follows from
@@ -1377,6 +1474,15 @@ def linked(root, relative):
 def plan_config(root=ROOT, text=None):
     """The project's plan title, acceptance bar and phase names from todo/plan.json, loaded strictly (`text`: that
     file's content from elsewhere, such as the index, for the pre-commit hook)."""
+    if text is None and _RUN_CACHE is not None:  # one read per graph call
+        key = str(root)
+        if key not in _RUN_CACHE["config"]:
+            _RUN_CACHE["config"][key] = _plan_config(root)
+        return copy.deepcopy(_RUN_CACHE["config"][key])  # a copy, so no caller shares a mutable result
+    return _plan_config(root, text)
+
+
+def _plan_config(root=ROOT, text=None):
     path = Path(root) / PLAN_CONFIG
     try:
         if text is None:

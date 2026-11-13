@@ -610,6 +610,117 @@ class Graph(Tree):
         self.assertFalse([m for m in found if m.startswith(("invalid implementation order", "row/body"))], found)
         self.refuses("missing Implementation Order")
 
+    # D03 T01 §12: one graph call reads each git answer and todo/plan.json once, and forgets them when it ends.
+    def stamped_repo(self, sha, phase=0):
+        """Two sections stamped on `sha` with receipts that fail their checks, committed: graph asks git about the
+        stamp commit for each, and the faults are not empty."""
+        rows = [(1, "A", phase, "none", "--"), (2, "B", 0, "none", "--")]
+        text = todo_file(rows).replace("| [ ] |", "| [x] |").replace("- [ ] ", "- [x] ")
+        for n in (1, 2):
+            stamp = f"> **Verified:** 2026-11-13 | §{n} | {sha}\n> **Review:** `docs/reviews/d00-t01-s{n}.json`\n\n"
+            text = text.replace(f"\n## {n + 1}." if n == 1 else "\n## Verification",
+                                "\n" + stamp + (f"## {n + 1}." if n == 1 else "## Verification"), 1)
+            receipt = self.root / f"docs/reviews/d00-t01-s{n}.json"
+            receipt.parent.mkdir(parents=True, exist_ok=True)
+            receipt.write_text("{}\n", encoding="utf-8")
+        self.write(text.replace("status: active", "status: done"))
+        self.git("add", "-A")
+        self.git("commit", "-qm", "tree")
+
+    def git(self, *args):
+        if not (self.root / ".git").exists():
+            for cmd in (["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "T"]):
+                subprocess.run(["git", "-C", str(self.root), *cmd], check=True)
+        return subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True,
+                              text=True).stdout.strip()
+
+    def git_calls(self, fn):
+        real, calls = subprocess.run, []
+
+        def spy(argv, *a, **k):
+            if argv[:1] == ["git"]:
+                calls.append(tuple(argv[3:]))
+            return real(argv, *a, **k)
+
+        with mock.patch.object(tg.subprocess, "run", spy):
+            result = fn()
+        return result, calls
+
+    def test_a_graph_call_asks_git_each_question_once_and_finds_the_same_faults(self):
+        self.git("commit", "-q", "--allow-empty", "-m", "base")
+        self.stamped_repo("0" * 40)  # a stamp commit that is in no history: each section's lookup fails
+        cached, calls = self.git_calls(self.faults)
+        with mock.patch.object(tg, "CACHE_RUNS", False):
+            uncached, raw_calls = self.git_calls(self.faults)
+        self.assertTrue(cached)
+        self.assertEqual(cached, uncached)
+        self.assertEqual(len(calls), len(set(calls)), calls)  # each distinct command once
+        self.assertGreater(len(raw_calls), len(set(raw_calls)), raw_calls)  # the fixture does repeat them uncached
+        with mock.patch.object(tg, "CACHE_RUNS", False):
+            with self.assertRaises(tg.Refused) as plain:
+                tg.graph(self.root)
+        with self.assertRaises(tg.Refused) as fast:
+            tg.graph(self.root)
+        self.assertEqual(str(fast.exception), str(plain.exception))
+
+    def test_plan_json_is_read_once_per_graph_call(self):
+        self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--")]))
+        with mock.patch.object(tg, "_plan_config", wraps=tg._plan_config) as reads:
+            tg.graph(self.root)
+            tg.graph(self.root)
+        self.assertEqual(reads.call_count, 2)
+
+    def test_the_cache_ends_with_its_graph_call_whether_it_returns_or_raises(self):
+        self.git("commit", "-q", "--allow-empty", "-m", "base")
+        base = self.git("rev-parse", "HEAD")
+        self.git("checkout", "-qb", "side")
+        self.git("commit", "-q", "--allow-empty", "-m", "later")
+        later = self.git("rev-parse", "HEAD")
+        self.git("checkout", "-q", "-")
+        self.git("reset", "-q", "--hard", base)
+        self.stamped_repo(later, phase=12)
+        before = self.faults()  # returned: the stamp commit is off the branch and phase 12 is unknown
+        self.assertIn("invalid Phase: D00 T01 §1", before)
+        self.assertTrue(any("not on this branch" in m for m in before), before)
+        self.assertIsNone(tg._RUN_CACHE)
+        self.git("merge", "-q", "--no-edit", "side")  # a new HEAD that holds the stamp commit
+        (self.root / "todo/plan.json").write_text('{"phase_list": [0, 12]}\n', encoding="utf-8")
+        after = self.faults()
+        self.assertNotIn("invalid Phase: D00 T01 §1", after)
+        self.assertFalse(any("not on this branch" in m for m in after), after)
+        # After a call that raised, the next one reads fresh too.
+        (self.root / "todo/plan.json").write_text('{"phase_list": [0]}\n', encoding="utf-8")
+        with self.assertRaises(tg.Refused):
+            tg.graph(self.root)
+        self.assertIsNone(tg._RUN_CACHE)
+        (self.root / "todo/plan.json").write_text('{"phase_list": [0, 12]}\n', encoding="utf-8")
+        with self.assertRaises(tg.Refused) as ctx:
+            tg.graph(self.root)
+        self.assertNotIn("invalid Phase", str(ctx.exception))
+
+    def test_a_file_read_at_a_commit_answers_as_git_show_does(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        self.git("add", "-A")
+        self.git("commit", "-qm", "x")
+        head = self.git("rev-parse", "HEAD")
+        rel = "todo/00-workspace/TODO-01-a.md"
+        tg._RUN_CACHE = cache = {"git": {}, "config": {}, "batch": {}, "history": {}}
+        try:
+            for spec in (f"{head}:{rel}", f"{head}:todo/missing.md", f"{head}:todo", "nope:x"):
+                fast = tg._git(self.root, "show", spec)
+                plain = subprocess.run(["git", "-C", str(self.root), "show", spec], capture_output=True)
+                self.assertEqual((fast.returncode == 0, fast.stdout if fast.returncode == 0 else b""),
+                                 (plain.returncode == 0, plain.stdout if plain.returncode == 0 else b""), spec)
+            for older, newer, expected in ((head, head, 0), (head, "HEAD", 0), ("f" * 40, head, None)):
+                answer = tg._git(self.root, "merge-base", "--is-ancestor", older, newer)
+                real = subprocess.run(["git", "-C", str(self.root), "merge-base", "--is-ancestor", older, newer],
+                                      capture_output=True)
+                self.assertEqual(answer.returncode, real.returncode, (older, newer))
+        finally:
+            tg._RUN_CACHE = None
+            tg._end_run(cache)
+        self.assertTrue(all(p.poll() is not None for p in cache["batch"].values()), "a batch process outlived its run")
+
     def test_a_repeated_stamp_or_freeze_field_is_recorded_not_raised(self):
         # D03 T01 §5 (completion): one duplicate Verified line in Impossible OS ended validate --all for the whole tree.
         text = todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--")])
