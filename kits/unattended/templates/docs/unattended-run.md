@@ -75,7 +75,7 @@ The heartbeat runs in its own tmux session beside the run. Every `tick_seconds` 
 ## What you may see, and what to do
 
 - `unknown (tmux could not be asked)`: `status` could not reach tmux. Check `tmux ls` in the same WSL distro; nothing about the run is assumed.
-- `health: none`: the heartbeat has not written its health file yet (the run started moments ago, or with `--no-heartbeat`). Look again after a tick; a health file whose `updated` is old means the heartbeat is not running: `status` says so.
+- `health: none`: the heartbeat has not written its health file yet (the run started moments ago, or with `--no-heartbeat`). Look again after a tick. A health file whose `updated` is old means one of two things: the heartbeat is not running (`status` shows it `stopped`: start it again, alone, in its own tmux session with `tmux new-session -d -s <name>-heartbeat python3 scripts/unattended-run.py heartbeat`; it supervises the live run and starts nothing), or it is running but cannot write (`status` shows it `live`): its own tmux session says why (`tmux attach -r -t <name>-heartbeat`), most often a full disk (`df -h .`); it keeps supervising and writes again once it can.
 - `the preflight refused the run (FAIL lines above); nothing was started`: fix each FAIL line and start again.
 - `start refused: it came from the scheduled task`: a scheduled task tried to start the run. Start it yourself, and remove the task.
 - `the run's guard was not ended`: the run is stopped but its guard is not; run `stop` again.
