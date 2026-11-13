@@ -41,7 +41,7 @@ EARLIER_CAPS = {8, 13, 22}
 # Receipts older than the rounds_spent field (stamped under the earlier process). Each is frozen by the
 # digest of its content in LEGACY_RECEIPTS, so a new receipt cannot pass by dropping the field. Their round counts vary
 # (up to 16), so unlike their verdicts they are not bounded here; the digest is what binds them.
-LEGACY_RECEIPTS = "docs/reviews/legacy-receipts.json"
+LEGACY_RECEIPTS = "legacy-receipts.json"  # in the receipts folder (`receipts_folder`)
 LEGACY_VERDICTS = {"clean", "fixed", "stopped-at-3"}
 # The first round with no P1 or P2 finding ends the loop, from round 1 (.conclave/reviewers.toml severity_stop_after,
 # which must equal this). Lowering it only loosens the rule, so older receipts hold.
@@ -74,6 +74,12 @@ def phase_rank(phase):
     """A phase's place in the plan: numeric, with the manual phase last when a project's list runs past it."""
     return (phase == MANUAL, phase)
 PLAN_CONFIG = "todo/plan.json"
+# Where receipts and findings files live; a project names its own folder in todo/plan.json (`layout.receipts`). The
+# reviewer kit's scripts/review_layout.py reads the same key under the same rules (tests/test_todo_graph.py holds the
+# two to one table of cases).
+RECEIPTS = "docs/reviews"
+LAYOUT = ("receipts",)
+LAYOUT_PART = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")  # a folder name: no `.`, `..`, drive, backslash or space
 PLAN_DEFAULTS = {"title": "Implementation plan", "acceptance": None, "phases": {99: "Manual, operator only"}}
 MAX_SECTIONS_PER_FILE = 55
 MAX_ITEMS_PER_SECTION = 30
@@ -211,7 +217,7 @@ def _head_commits(root):
 
 def receipt_ok(root, receipt, ref, stamp_sha, commits=None, surface=None):
     """Check one receipt against its stamp and return it. `surface`: the section's Surface field is yes."""
-    require(re.fullmatch(r"docs/reviews/[a-z0-9][a-z0-9.-]*\.json", receipt or "") is not None,
+    require(re.fullmatch(re.escape(receipts_folder(root)) + r"/[a-z0-9][a-z0-9.-]*\.json", receipt or "") is not None,
             f"invalid receipt path: {ref}")
     path = Path(root) / receipt
     require(path.is_file() and not path.is_symlink(), f"missing receipt: {ref}")
@@ -269,19 +275,20 @@ def receipt_digest(data):
 
 def _frozen(root, key):
     """ref -> digest under `key` in LEGACY_RECEIPTS ("receipts" or "before_plan"); empty when the file or key is absent."""
-    path = Path(root) / LEGACY_RECEIPTS
+    shown = f"{receipts_folder(root)}/{LEGACY_RECEIPTS}"
+    path = Path(root) / shown
     if not path.is_file():
         return {}
     try:
         data = json.loads(read_text(path))
     except ValueError:
-        raise Refused(f"{LEGACY_RECEIPTS} is not JSON") from None
+        raise Refused(f"{shown} is not JSON") from None
     ok = isinstance(data, dict) and data.get("schema_version") == 1 and "receipts" in data
     maps = {name: data.get(name, {}) for name in ("receipts", "before_plan")} if ok else {}
     require(ok and all(isinstance(m, dict) and all(
         isinstance(k, str) and isinstance(v, str) and re.fullmatch(r"[0-9a-f]{64}", v) for k, v in m.items())
         for m in maps.values()),
-            f"{LEGACY_RECEIPTS} needs schema_version 1 and receipts (and any before_plan) mapping each ref to a "
+            f"{shown} needs schema_version 1 and receipts (and any before_plan) mapping each ref to a "
             f"SHA-256 digest")
     return maps[key]
 
@@ -297,10 +304,11 @@ def receipts_before_plan(root):
 
 
 def report_ok(root, raw_report, ref):
-    """A findings file path inside docs/reviews/, reached through no symlink, holding text."""
+    """A findings file path inside the receipts folder, reached through no symlink, holding text."""
     root_path = Path(root)
     report = Path(raw_report)
-    require(isinstance(raw_report, str) and re.fullmatch(r"docs/reviews/[A-Za-z0-9_./-]+\.md", raw_report) is not None
+    require(isinstance(raw_report, str)
+            and re.fullmatch(re.escape(receipts_folder(root)) + r"/[A-Za-z0-9_./-]+\.md", raw_report) is not None
             and not report.is_absolute() and not report.drive and not report.root and ".." not in report.parts,
             f"invalid review report path ({raw_report}): {ref}")
     cur = root_path
@@ -417,13 +425,13 @@ def build_start(root, path, body, ref):
 
 
 def section_findings(root, ref):
-    """The section's own findings file, `docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md`, the domain being the one
+    """The section's own findings file, `<receipts>/<NN-domain>/D<NN>-T<NN>-s<N>.md`, the domain being the one
     `todo/<NN-domain>/` folder its domain number names."""
     m = re.fullmatch(r"D(\d{2}) T(\d{2}) §([1-9]\d*)", ref)
     require(m is not None, f"not a full section reference: {ref}")
     domains = sorted(d.name for d in (Path(root) / "todo").iterdir() if d.is_dir() and d.name.startswith(f"{m[1]}-"))
     require(len(domains) == 1, f"no single todo/{m[1]}-<domain> folder for: {ref}")
-    return f"docs/reviews/{domains[0]}/D{m[1]}-T{m[2]}-s{m[3]}.md"
+    return f"{receipts_folder(root)}/{domains[0]}/D{m[1]}-T{m[2]}-s{m[3]}.md"
 
 
 def plan_record(root, report, ref, commits=None, start=None):
@@ -1194,8 +1202,17 @@ def plan_config(root=ROOT):
     except ValueError as exc:
         raise Refused(f"unreadable {PLAN_CONFIG}: {exc}") from None
     require(isinstance(data, dict)
-            and set(data) <= {"title", "acceptance", "phases", "phase_list", "needs", "waiting", "caps"},
-            f"{PLAN_CONFIG} may only hold title, acceptance, phases, phase_list, needs, waiting and caps")
+            and set(data) <= {"title", "acceptance", "phases", "phase_list", "needs", "waiting", "caps", "layout"},
+            f"{PLAN_CONFIG} may only hold title, acceptance, phases, phase_list, needs, waiting, caps and layout")
+    layout = data.get("layout", {})
+    require(isinstance(layout, dict), f"{PLAN_CONFIG}: layout must be an object naming {', '.join(LAYOUT)}")
+    for name in layout:
+        require(name in LAYOUT, f"{PLAN_CONFIG}: layout names {name!r}, which is not one of {', '.join(LAYOUT)}")
+    receipts = layout.get("receipts", RECEIPTS)
+    require(isinstance(receipts, str) and all(LAYOUT_PART.fullmatch(p) for p in receipts.split("/"))
+            and (Path(root) / receipts).resolve().is_relative_to(Path(root).resolve()),
+            f"{PLAN_CONFIG}: layout receipts must be a folder inside the repository, its names (letters, digits, "
+            f"_ . -) separated by /")
     given = data.get("caps", {})
     require(isinstance(given, dict), f"{PLAN_CONFIG}: caps must be an object naming caps")
     for name, value in given.items():
@@ -1236,7 +1253,12 @@ def plan_config(root=ROOT):
         names[int(key)] = name.strip()
     return {"title": title.strip(), "acceptance": acceptance.strip() if acceptance else None, "phases": names,
             "phase_list": tuple(sorted(phase_list, key=phase_rank)), "needs": lists["needs"],
-            "waiting": lists["waiting"], "caps": caps}
+            "waiting": lists["waiting"], "caps": caps, "receipts": receipts}
+
+
+def receipts_folder(root=ROOT):
+    """The project's receipts and findings folder, repository-relative: todo/plan.json's `layout.receipts`."""
+    return plan_config(root)["receipts"]
 
 
 def projection(root=ROOT):
@@ -1394,7 +1416,7 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=No
     require(not open_items,
             f"unticked checklist items in {ref}: {open_items[0] if open_items else ''}")
     slug = re.sub(r"[^a-z0-9]+", "-", ref.lower().replace("§", "s")).strip("-")
-    receipt = f"docs/reviews/{slug}.json"
+    receipt = f"{receipts_folder(root)}/{slug}.json"
     require(completion is not None,
             f"--completion '<findings file>:<{'|'.join(COMPLETION_VERDICTS)}>' is required: run the completion review "
             f"(scripts/review-dispatch.py --kind completion; under a three-pass pin after the round, under a rotation "

@@ -161,7 +161,7 @@ class Harness(unittest.TestCase):
         self.repo = Path(self._tmp.name) / "repo"
         (self.repo / "scripts").mkdir(parents=True)
         (self.repo / ".conclave").mkdir()
-        for name in ("review-dispatch.py", "review_pin.py"):
+        for name in ("review-dispatch.py", "review_pin.py", "review_layout.py"):
             shutil.copy(SCRIPTS / name, self.repo / "scripts" / name)
         (self.repo / ".conclave/reviewers.toml").write_text(FIXTURE_PIN, encoding="utf-8")
         self.bin = Path(self._tmp.name) / "bin"
@@ -224,6 +224,46 @@ class Harness(unittest.TestCase):
 class Dispatch(Harness):
     RESULT = {"writer": "claude", "reviewer": "sol", "model": "gpt-6.1-sol", "cli": "codex", "effort": "xhigh",
               "failover": []}
+
+    def installed(self):
+        """The dispatcher as the scratch repository holds it, loaded by path: its ROOT is that repository."""
+        spec = importlib.util.spec_from_file_location("dispatch_in_repo", self.repo / "scripts/review-dispatch.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def layout(self, receipts):
+        (self.repo / "todo").mkdir(exist_ok=True)
+        (self.repo / "todo/plan.json").write_text(json.dumps({"layout": {"receipts": receipts}}), encoding="utf-8")
+
+    def test_a_section_findings_file_is_one_in_the_configured_folder(self):
+        # D03 T01 §4: the findings folder is todo/plan.json's layout.receipts, docs/reviews without it.
+        dispatch = self.installed()
+        section, other = "reviews/03-x/D03-T01-s1.md", "docs/reviews/03-x/D03-T01-s1.md"
+        self.assertEqual((dispatch.section_record(self.repo / section), dispatch.section_record(self.repo / other)),
+                         (False, True), "without the key, docs/reviews holds the section files")
+        self.layout("reviews")
+        self.assertEqual((dispatch.section_record(self.repo / section), dispatch.section_record(self.repo / other)),
+                         (True, False))
+        self.layout("../out")
+        with self.assertRaises(dispatch.Refused) as ctx:
+            dispatch.section_record(self.repo / section)
+        self.assertIn("todo/plan.json: layout receipts must be a folder inside the repository", str(ctx.exception))
+
+    def test_list_rounds_reads_the_configured_folder_unless_one_is_named(self):
+        self.layout("reviews")
+        record = self.repo / "reviews/00-design/D00-T01-s1.md"
+        self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
+        result, listing = self.dispatch("--list-rounds", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([r["path"] for r in listing["records"]], ["reviews/00-design/D00-T01-s1.md"])
+        (self.repo / "elsewhere").mkdir()
+        result, listing = self.dispatch("--list-rounds", "--json", "--records", str(self.repo / "elsewhere"))
+        self.assertEqual((result.returncode, listing["records"]), (0, []), "an explicit --records still wins")
+        self.layout("C:/reviews")
+        result, listing = self.dispatch("--list-rounds", "--json")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("layout receipts must be a folder inside the repository", listing["error"])
 
     def test_sol_reviews_claude_work_read_only(self):
         result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt))

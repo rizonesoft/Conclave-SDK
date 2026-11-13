@@ -103,6 +103,7 @@ lenses = ["adversarial"]
 | `.conclave/reviewers.toml` | The reviewers, the route for each writer and the schedule |
 | `scripts/review-dispatch.py` | Runs a pass and records it |
 | `scripts/review_pin.py` | Loads and checks the pin; the one copy of its rules, copyable on its own |
+| `scripts/review_layout.py` | The findings folder, `layout.receipts` in `todo/plan.json` (`docs/reviews` by default) |
 | `scripts/review-prompt.py` | Fills a prompt template in `docs/` and writes the prompt to send |
 | `scripts/tests/test_review_dispatch.py` | Routing, rotation schedule, failed-review and record tests |
 | `scripts/tests/test_three_pass.py` | Three-pass order, pin, caps, blocking, lens verdict and path tests |

@@ -45,7 +45,7 @@ returned round past `severity_stop_after` reads `HIGHEST: P3`: the loop may stop
 With `policy = "three-pass"` in the pin's `[schedule]` a section takes one plan review before the build, one round
 after it, one completion review of the final candidate, and then `--kind reconciliation`
 (`docs/reconciliation-review-prompt.md`) only after a completion that returned gaps, again after each reconciliation
-that returned gaps. For a findings file named for a section (`docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md`) that
+that returned gaps. For a findings file named for a section (`<receipts>/<NN-domain>/D<NN>-T<NN>-s<N>.md`, `<receipts>` being `todo/plan.json`'s `layout.receipts`, `docs/reviews` by default) that
 order is checked before a reviewer runs, each candidate must be a commit descending from the pass before, and a
 reconciliation is refused once the section has spent its `pass_cap` returned passes, after `no_progress_cap`
 reconciliations in a row with no less severe a worst finding, and after a pass whose worst finding is below the
@@ -87,19 +87,25 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _load_review_pin():
-    """scripts/review_pin.py, the one place the pin's rules live, loaded from this file's own folder by path: the
-    dispatcher is itself loaded by path (its name is not importable), and nothing on sys.path decides which copy runs."""
-    path = Path(__file__).resolve().with_name("review_pin.py")
+def _load_beside(name):
+    """scripts/<name>.py, loaded from this file's own folder by path: the dispatcher is itself loaded by path (its
+    name is not importable), and nothing on sys.path decides which copy runs."""
+    path = Path(__file__).resolve().with_name(f"{name}.py")
     if not path.is_file():
         sys.exit(f"review-dispatch: {path} is missing; the reviewer kit installs it beside this script")
-    spec = importlib.util.spec_from_file_location("review_pin", path)
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
+def _load_review_pin():
+    """scripts/review_pin.py, the one place the pin's rules live."""
+    return _load_beside("review_pin")
+
+
 review_pin = _load_review_pin()
+review_layout = _load_beside("review_layout")  # the findings folder, todo/plan.json's layout.receipts
 # The pin's rules, under the names this module has always offered them by (the todo kit's stamp reads them here).
 Refused, load_pin, PIN = review_pin.Refused, review_pin.load_pin, review_pin.PIN
 WRITERS, CLIS, FAMILY, WRITER_FAMILY = review_pin.WRITERS, review_pin.CLIS, review_pin.FAMILY, review_pin.WRITER_FAMILY
@@ -848,16 +854,35 @@ def descends(older, newer):
     return git("merge-base", "--is-ancestor", older, newer).returncode == 0
 
 
-# Windows opens `DOCS/Reviews/...` as the same file, so there the name is matched without regard to case: a section's
-# rules cannot be stepped around by respelling its findings file.
-SECTION_FINDINGS = re.compile(r"(?:^|/)docs/reviews/[0-9]{2}-[A-Za-z0-9_-]+/D[0-9]{2}-T[0-9]{2}-s[1-9][0-9]*\.md$",
-                              re.IGNORECASE if os.name == "nt" else 0)
+def receipts_folder():
+    """The project's findings folder, repository-relative (todo/plan.json's layout.receipts, docs/reviews by
+    default); a layout that cannot be read is refused."""
+    try:
+        return review_layout.receipts_folder(ROOT)
+    except review_layout.LayoutError as exc:
+        raise Refused(str(exc)) from None
+
+
+def section_findings_pattern():
+    """A section's findings file, `<receipts>/<NN-domain>/D<NN>-T<NN>-s<N>.md`. Windows opens `DOCS/Reviews/...` as
+    the same file, so there the name is matched without regard to case: a section's rules cannot be stepped around by
+    respelling its findings file."""
+    return re.compile(re.escape(receipts_folder())
+                      + r"/[0-9]{2}-[A-Za-z0-9_-]+/D[0-9]{2}-T[0-9]{2}-s[1-9][0-9]*\.md$",
+                      re.IGNORECASE if os.name == "nt" else 0)
 
 
 def section_record(record_path):
-    """True for a findings file named for a TODO section, `docs/reviews/<NN-domain>/D<NN>-T<NN>-s<N>.md`: the file
-    whose passes have an order. Any other findings file is a standalone review."""
-    return bool(record_path) and bool(SECTION_FINDINGS.search(Path(os.path.abspath(record_path)).as_posix()))
+    """True for a findings file named for a TODO section, `<receipts>/<NN-domain>/D<NN>-T<NN>-s<N>.md`: the file
+    whose passes have an order. Any other findings file is a standalone review. The folder is the repository's, so
+    the path is matched whole from the repository root: `docs/reviews/...` is not a file in a folder named `reviews`."""
+    if not record_path:
+        return False
+    try:
+        relative = Path(os.path.realpath(record_path)).relative_to(ROOT).as_posix()
+    except ValueError:  # outside the repository: never a section's findings file
+        return False
+    return bool(section_findings_pattern().fullmatch(relative))
 
 
 def returned_plan(record_path):
@@ -1310,8 +1335,9 @@ def main(argv=None):
     parser.add_argument("--list-rounds", action="store_true",
                         help="List the recorded review rounds instead of running one; no reviewer runs")
     parser.add_argument("--json", action="store_true", help="With --list-rounds, print the listing as JSON")
-    parser.add_argument("--records", default=str(ROOT / "docs" / "reviews"),
-                        help="With --list-rounds, the folder of findings files (default docs/reviews)")
+    parser.add_argument("--records",
+                        help="With --list-rounds, the folder of findings files (default todo/plan.json's "
+                             "layout.receipts, docs/reviews without it)")
     args = parser.parse_args(argv)
     if args.check_pin:
         # load_pin stays the only place the rules live: this reports its verdict and runs nothing.
@@ -1326,7 +1352,12 @@ def main(argv=None):
         print(json.dumps(report) if args.json else "ok")
         return 0
     if args.list_rounds:
-        listing = list_rounds(args.records)
+        try:
+            records = args.records or str(ROOT / receipts_folder())
+        except Refused as exc:
+            print(json.dumps({"ok": False, "error": str(exc)}) if args.json else f"refused: {exc}")
+            return 2
+        listing = list_rounds(records)
         if args.json:
             print(json.dumps(listing, indent=2))
         else:

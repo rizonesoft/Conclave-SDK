@@ -123,6 +123,49 @@ class PreCommitHook(unittest.TestCase):
         result = self.commit()
         self.assertNotEqual(result.returncode, 0)
 
+    def configure(self, receipts):
+        """D03 T01 §4: the receipts folder is todo/plan.json's layout.receipts; the hook reads it from the graph."""
+        (self.root / "todo/plan.json").write_text('{"layout": {"receipts": "%s"}}\n' % receipts, encoding="utf-8")
+        self.git("add", "todo/plan.json")
+        result = self.commit()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_the_configured_receipts_folder_is_the_one_the_hook_watches(self):
+        self.configure("reviews")
+        (self.root / "reviews").mkdir()
+        (self.root / "reviews/legacy-receipts.json").write_text("not json\n", encoding="utf-8")
+        self.git("add", "reviews")  # evidence only, in the configured folder: checked, and the graph refuses it
+        result = self.commit()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("reviews/legacy-receipts.json is not JSON", result.stderr)
+        self.git("rm", "-q", "--cached", "reviews/legacy-receipts.json")
+        (self.root / "reviews/legacy-receipts.json").unlink()
+        (self.root / "docs/reviews").mkdir(parents=True)
+        (self.root / "docs/reviews/legacy-receipts.json").write_text("not json\n", encoding="utf-8")
+        self.git("add", "docs/reviews")  # the default folder is no longer evidence here
+        self.assertEqual(self.commit().returncode, 0)
+
+    def test_an_untracked_file_in_the_configured_folder_beside_a_todo_change_is_refused(self):
+        self.configure("reviews")
+        self.tick()
+        self.sync()
+        (self.root / "reviews").mkdir()
+        (self.root / "reviews/d00-t01-s1.json").write_text("{}\n", encoding="utf-8")  # left out of the commit
+        self.git("add", "todo")
+        result = self.commit()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("reviews/ has unstaged or untracked changes", result.stderr)
+        (self.root / "reviews/d00-t01-s1.json").unlink()
+        self.assertEqual(self.commit().returncode, 0, "the fully staged commit is accepted")
+
+    def test_a_layout_the_graph_cannot_read_is_refused(self):
+        (self.root / "todo/plan.json").write_text('{"layout": {"receipts": "../out"}}\n', encoding="utf-8")
+        (self.root / "notes.txt").write_text("x\n", encoding="utf-8")
+        self.git("add", "notes.txt")
+        result = self.commit()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("todo/plan.json: layout receipts must be a folder inside the repository", result.stderr)
+
     def test_a_commit_without_todo_changes_is_not_checked(self):
         (self.root / "notes.txt").write_text("x\n", encoding="utf-8")
         (self.root / "todo/00-workspace/TODO-01-a.md").write_text("broken\n", encoding="utf-8")  # unstaged, untouched

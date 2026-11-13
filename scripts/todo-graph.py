@@ -4,6 +4,7 @@
     python scripts/todo-graph.py validate
     python scripts/todo-graph.py build                       # todo/ -> build/todo-cache.json
     python scripts/todo-graph.py render                      # mermaid dependency graph
+    python scripts/todo-graph.py receipts                    # the receipts folder (todo/plan.json layout.receipts)
     python scripts/todo-graph.py plan --sync | --check
     python scripts/todo-graph.py query ready | blocked | stats | deferred | adjacency | plan | rounds
     python scripts/todo-graph.py resolve 'D02 T01 §1'        # exit 0 ready, 1 no such section,
@@ -28,8 +29,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from todo_graph import (ROOT, Refused, adjacency_report, atomic, deferrals, disposition,  # noqa: E402
-                        extract_ref, graph, ordered, plan_config, projections, require, review_rounds, settled, stamp,
-                        suspects, unstamp)
+                        extract_ref, graph, ordered, plan_config, projections, receipts_folder, require,
+                        review_rounds, settled, stamp, suspects, unstamp)
 
 
 def review_round(value):
@@ -59,6 +60,7 @@ def main():
     sub = p.add_subparsers(dest="command", required=True)
     for name in ("validate", "build", "render"):
         sub.add_parser(name)
+    sub.add_parser("receipts", help="print the receipts folder, todo/plan.json's layout.receipts (docs/reviews)")
     q = sub.add_parser("query")
     q.add_argument("kind", choices=["ready", "blocked", "stats", "deferred", "adjacency", "plan", "rounds"])
     r = sub.add_parser("resolve")
@@ -88,6 +90,9 @@ def main():
     u.add_argument("--reason", required=True)
     u.add_argument("--date", default=date.today().isoformat())
     args = p.parse_args()
+    if args.command == "receipts":  # read by scripts/hooks/pre-commit; the configuration alone, not the graph
+        print(receipts_folder())
+        return 0
     if args.command == "unstamp":
         revoked = unstamp(ROOT, args.ref, args.reason, args.date)
         print(f"unstamped {args.ref}; receipt kept as {revoked}; plan synchronized")

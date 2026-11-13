@@ -45,6 +45,7 @@ def install(root: Path, graph=None):
     (root / "scripts").mkdir(parents=True, exist_ok=True)
     (root / "docs").mkdir(exist_ok=True)
     shutil.copy(SCRIPTS / "review-prompt.py", root / "scripts" / "review-prompt.py")
+    shutil.copy(SCRIPTS / "review_layout.py", root / "scripts" / "review_layout.py")
     for name in TEMPLATES:
         shutil.copy(DOCS / name, root / "docs" / name)
     if graph is not None:
@@ -365,6 +366,26 @@ class TodoLookup(Filler):
 
     def test_explicit_todo_wins(self):
         self.assertIn("`other/TODO.md`", self.ok("plan", "--ref", REF, "--todo", "other/TODO.md"))
+
+    def reconcile(self, *extra):
+        return ["--failed", FAILED, "--gates", str(self.gates), "--governing", "docs/plan.md", "--ref", REF, *extra]
+
+    def test_ref_without_findings_names_the_section_file_in_the_configured_folder(self):
+        # D03 T01 §4: the findings folder is todo/plan.json's layout.receipts, docs/reviews without it.
+        (self.root / "todo/00-x").mkdir(parents=True)
+        self.assertIn("`docs/reviews/00-x/D00-T01-s7.md`", self.ok("reconciliation", *self.reconcile(), common=False))
+        (self.root / "todo/plan.json").write_text('{"layout": {"receipts": "reviews"}}', encoding="utf-8")
+        text = self.ok("reconciliation", *self.reconcile(), common=False)
+        self.assertIn("`reviews/00-x/D00-T01-s7.md`", text)
+        self.assertNotIn("docs/reviews/00-x", text)
+        self.assertIn("`other/f.md`", self.ok("reconciliation", *self.reconcile("--findings", "other/f.md"),
+                                              common=False), "an explicit --findings still wins")
+
+    def test_a_layout_that_cannot_be_read_is_refused(self):
+        (self.root / "todo/00-x").mkdir(parents=True)
+        (self.root / "todo/plan.json").write_text('{"layout": {"receipts": "../out"}}', encoding="utf-8")
+        self.refused("reconciliation", "todo/plan.json: layout receipts must be a folder inside the repository",
+                     *self.reconcile(), common=False)
 
     def test_unresolvable_section_asks_for_todo(self):
         message = self.refused("plan", "--todo is needed", "--ref", "D09 T09 §9")

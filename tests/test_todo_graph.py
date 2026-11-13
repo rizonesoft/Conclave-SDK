@@ -438,6 +438,90 @@ class Graph(Tree):
                  and "Scope" not in line[max(0, m.start() - 40):m.start()]]
         self.assertEqual(stale, [], "guidance states a default cap without naming its todo/plan.json key")
 
+    # D03 T01 §4: the receipts folder comes from todo/plan.json (`layout.receipts`). Each value, and whether both kits'
+    # readers take it: the graph's plan_config and the reviewer kit's scripts/review_layout.py.
+    LAYOUTS = ((None, "docs/reviews"), ({}, "docs/reviews"), ({"receipts": "reviews"}, "reviews"),
+               ({"receipts": "docs/kept/reviews"}, "docs/kept/reviews"), ({"receipts": "a_b.c-d"}, "a_b.c-d"),
+               ([], "layout must be an object"), ("reviews", "layout must be an object"),
+               ({"plan": "docs/plan.md"}, "layout names 'plan'"), ({"receipts": 3}, "layout receipts must be"),
+               ({"receipts": ""}, "layout receipts must be"), ({"receipts": "/reviews"}, "layout receipts must be"),
+               ({"receipts": "C:/reviews"}, "layout receipts must be"),
+               ({"receipts": "docs\\reviews"}, "layout receipts must be"),
+               ({"receipts": "docs/../reviews"}, "layout receipts must be"),
+               ({"receipts": "./reviews"}, "layout receipts must be"), ({"receipts": "reviews/"}, "layout receipts must be"),
+               ({"receipts": "my reviews"}, "layout receipts must be"))
+
+    @staticmethod
+    def review_layout():
+        spec = importlib.util.spec_from_file_location("review_layout_under_test",
+                                                      REPO / "kits/reviewer/templates/scripts/review_layout.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_the_receipts_folder_is_read_alike_by_the_graph_and_the_reviewer_kit(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        layout = self.review_layout()
+        for value, expected in self.LAYOUTS:
+            with self.subTest(layout=value):
+                if value is None:
+                    (self.root / "todo/plan.json").unlink(missing_ok=True)
+                else:
+                    self.plan(layout=value)
+                if "/" in expected or "_" in expected or expected == "reviews":
+                    self.assertEqual((tg.receipts_folder(self.root), layout.receipts_folder(self.root)),
+                                     (expected, expected))
+                    continue
+                with self.assertRaises(tg.Refused) as graph:
+                    tg.graph(self.root)
+                with self.assertRaises(layout.LayoutError) as reviewer:
+                    layout.receipts_folder(self.root)
+                for ctx in (graph, reviewer):
+                    self.assertIn("todo/plan.json: " + expected, str(ctx.exception))
+                self.assertEqual(str(graph.exception), str(reviewer.exception), "the two kits say it alike")
+
+    def test_a_receipts_folder_linked_out_of_the_repository_is_refused_by_both_readers(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        link = self.root / "reviews"
+        if os.name == "nt":
+            import _winapi  # a junction needs no privilege on Windows
+            _winapi.CreateJunction(outside.name, str(link))
+        else:
+            os.symlink(outside.name, link)
+        # The tree's own cleanup unlinks the link without following it; this one covers a run that stops before.
+        self.addCleanup(lambda: os.path.lexists(link) and (os.rmdir(link) if os.name == "nt" else link.unlink()))
+        self.plan(layout={"receipts": "reviews"})
+        self.refuses("todo/plan.json: layout receipts must be a folder inside the repository")
+        layout = self.review_layout()
+        with self.assertRaises(layout.LayoutError):
+            layout.receipts_folder(self.root)
+
+    def test_a_section_s_receipt_and_findings_file_live_in_the_configured_folder(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        self.plan(layout={"receipts": "reviews"})
+        self.assertEqual(tg.section_findings(self.root, "D00 T01 §1"), "reviews/00-workspace/D00-T01-s1.md")
+        with self.assertRaises(tg.Refused) as ctx:
+            tg.receipt_ok(self.root, "docs/reviews/d00-t01-s1.json", "D00 T01 §1", "0" * 40)
+        self.assertIn("invalid receipt path", str(ctx.exception))
+        with self.assertRaises(tg.Refused) as ctx:
+            tg.report_ok(self.root, "docs/reviews/00-workspace/D00-T01-s1.md", "D00 T01 §1")
+        self.assertIn("invalid review report path", str(ctx.exception))
+
+    def test_the_section_skills_write_the_configured_folder_in_their_commands(self):
+        # D03 T01 §4: a command that writes docs/reviews/ starts a project's review outside its configured folder.
+        kit = REPO / "kits/todo/templates"
+        skills = [kit / agent / "skills" / skill / "SKILL.md" for agent in (".claude", ".agents", ".codex")
+                  for skill in ("process-todo-section", "review-todo-section")]
+        literal = [f"{path.relative_to(kit)}:{n}" for path in skills
+                   for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+                   if re.match(r"\s*python3? ", line) and "docs/reviews" in line]
+        self.assertEqual(literal, [], "a command names docs/reviews/ instead of <receipts>/")
+        for path in skills:
+            self.assertIn("`<receipts>` being `layout.receipts` in `todo/plan.json`, `docs/reviews` by default",
+                          path.read_text(encoding="utf-8"), f"{path.relative_to(kit)} never says what <receipts> is")
+
     def test_a_project_names_its_own_needs_and_which_wait(self):
         # D03 T01 §2: Needs values and waiting Needs come from todo/plan.json.
         self.write(todo_file([(1, "A", 0, "gpu", "--"), (2, "B", 0, "owner-decision", "--")]))
@@ -840,7 +924,7 @@ class Stamp(Tree):
         receipt.write_text(json.dumps(data), encoding="utf-8")
         (self.root / self.COMPLETION).unlink()
         self.refuses(tg.LEGACY_RECEIPTS)
-        (self.root / tg.LEGACY_RECEIPTS).write_text(json.dumps(
+        (self.root / tg.RECEIPTS / tg.LEGACY_RECEIPTS).write_text(json.dumps(
             {"schema_version": 1, "receipts": {}, "before_plan": {"D00 T01 §1": tg.receipt_digest(data)}}),
             encoding="utf-8")
         tg.graph(self.root)
@@ -959,7 +1043,7 @@ class Stamp(Tree):
         with self.assertRaises(tg.Refused) as ctx:  # the old shape alone does not make a receipt old
             tg.graph(self.root)
         self.assertIn(tg.LEGACY_RECEIPTS, str(ctx.exception))
-        legacy = self.root / tg.LEGACY_RECEIPTS
+        legacy = self.root / tg.RECEIPTS / tg.LEGACY_RECEIPTS
         legacy.write_text(json.dumps({"schema_version": 1, "receipts": {"D00 T01 §1": tg.receipt_digest(data)}}),
                           encoding="utf-8")
         tg.graph(self.root)  # a frozen old receipt still validates

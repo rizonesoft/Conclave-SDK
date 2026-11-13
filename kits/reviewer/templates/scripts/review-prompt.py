@@ -12,11 +12,14 @@ parent folder. The prompt is the template's text after its `---` line, with ever
 starts with `<` and ends with `>`) replaced by its value. A placeholder with no value is a refusal naming it, as is a
 value the kind has no place for: exit 2, a message on stderr, and nothing written, an existing `--out` untouched.
 Without `--ref` the lines that name the TODO section and its file are dropped; with `--ref` and no `--todo`, the file
-comes from `scripts/todo-graph.py resolve`. Prints the output path and exits 0. Stdlib only; writes are atomic.
+comes from `scripts/todo-graph.py resolve`, and with `--ref` and no `--findings` the section's findings file is
+`<receipts>/<NN-domain>/D<NN>-T<NN>-s<N>.md`, `<receipts>` being `todo/plan.json`'s `layout.receipts` (`docs/reviews`
+by default, read by `scripts/review_layout.py`). Prints the output path and exits 0. Stdlib only; writes are atomic.
 """
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -76,6 +79,29 @@ def resolve_todo(ref: str) -> str:
     if not isinstance(path, str) or not path:
         raise Refused(f"--todo is needed: {graph.name} resolve {ref!r} named no file (exit {result.returncode})")
     return path
+
+
+def section_findings(ref: str) -> str:
+    """The section's findings file for --ref: `<receipts>/<NN-domain>/D<NN>-T<NN>-s<N>.md`, the domain the one
+    `todo/<NN-domain>/` folder its number names, the folder todo/plan.json's layout.receipts."""
+    here = Path(__file__).resolve()
+    spec = importlib.util.spec_from_file_location("review_layout", here.with_name("review_layout.py"))
+    if spec is None or not here.with_name("review_layout.py").is_file():
+        raise Refused(f"--findings is needed: review_layout.py is not beside this script to find {ref}'s file")
+    layout = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(layout)
+    root = here.parent.parent
+    try:
+        folder = layout.receipts_folder(root)
+    except layout.LayoutError as error:
+        raise Refused(str(error)) from None
+    m = re.fullmatch(r"D(\d{2}) T(\d{2}) §(\d+)", ref)
+    todo = root / "todo"
+    domains = sorted(d.name for d in todo.iterdir() if d.is_dir() and d.name.startswith(f"{m[1]}-")) \
+        if todo.is_dir() else []
+    if len(domains) != 1:
+        raise Refused(f"--findings is needed: no single todo/{m[1]}-<domain> folder for {ref}")
+    return f"{folder}/{domains[0]}/D{m[1]}-T{m[2]}-s{m[3]}.md"
 
 
 def fence(content: str) -> str:
@@ -228,6 +254,8 @@ def run(args: argparse.Namespace) -> Path:
     todo = one_line(args.todo)
     if not todo and args.ref and TODO_FILE in body:
         todo = resolve_todo(args.ref)
+    if not args.findings and args.ref and "`<docs/reviews/" in body:
+        args.findings = section_findings(args.ref)
     gates = None
     if args.gates is not None:
         try:

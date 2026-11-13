@@ -145,6 +145,7 @@ class FreshInstall(unittest.TestCase):
         self.git("config", "user.name", "T")
         self.git("config", "core.autocrlf", "false")
         self.start = self.commit("the kits, the pin and the section")
+        self.record = RECORD  # the section's findings file, in the receipts folder
 
     def git(self, *args):
         done = subprocess.run(["git", "-C", str(self.repo), *args], capture_output=True, text=True, timeout=120)
@@ -185,7 +186,7 @@ class FreshInstall(unittest.TestCase):
     def review(self, kind, candidate, template, say, **values):
         done = self.run_script("scripts/review-dispatch.py", "--kind", kind, "--candidate", candidate,
                                "--writer", "claude", "--prompt", self.fill(template, candidate, **values),
-                               "--record", RECORD, say=say)
+                               "--record", self.record, say=say)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         return json.loads(done.stdout)
 
@@ -201,6 +202,36 @@ class FreshInstall(unittest.TestCase):
         self.assertEqual((check.returncode, check.stdout.strip()), (0, "ok"), check.stderr)
 
     def test_a_section_runs_three_pass_to_its_stamp(self):
+        self.three_pass_to_stamp("docs/reviews")
+
+    @unittest.skipUnless(os.environ.get("CONCLAVE_FULL_TESTS"), "slow: set CONCLAVE_FULL_TESTS=1 for the full suite")
+    def test_a_section_stamps_and_unstamps_in_a_configured_receipts_folder(self):
+        # D03 T01 §4: todo/plan.json's layout.receipts moves every receipt and findings file the kits write.
+        (self.repo / "todo/plan.json").write_text('{"layout": {"receipts": "reviews"}}\n', encoding="utf-8")
+        self.git("add", "-A")  # into the first commit, the one whose Started line the build began at
+        self.git("commit", "-q", "--amend", "--no-edit")
+        self.start = self.git("rev-parse", "HEAD")
+        self.record = "reviews/00-core/D00-T01-s1.md"
+        self.three_pass_to_stamp("reviews")
+        self.assertFalse((self.repo / "docs/reviews").exists(), "nothing is written to the default folder")
+        self.commit("the stamp")
+        unstamp = self.run_script("scripts/todo-graph.py", "unstamp", "D00 T01 §1", "--reason", "an audit",
+                                  "--date", "2026-11-13")
+        self.assertEqual(unstamp.returncode, 0, unstamp.stdout + unstamp.stderr)
+        self.assertIn("receipt kept as reviews/d00-t01-s1.revoked-2026-11-13.json", unstamp.stdout)
+        self.assertTrue((self.repo / "reviews/d00-t01-s1.revoked-2026-11-13.json").is_file())
+        self.assertFalse((self.repo / "reviews/d00-t01-s1.json").exists())
+        self.assertIn("| 1 | §1 |", (self.repo / "todo/00-core/TODO-01-a.md").read_text(encoding="utf-8"))
+        self.assertRegex((self.repo / "todo/00-core/TODO-01-a.md").read_text(encoding="utf-8"),
+                         r"\| 1 \| §1 \|[^\n]*\[ \] \|", "the section is reopened")
+        validate = self.run_script("scripts/todo-graph.py", "validate")
+        self.assertEqual(validate.returncode, 0, validate.stdout + validate.stderr)
+        self.assertFalse((self.repo / "docs/reviews").exists())
+
+    def three_pass_to_stamp(self, receipts):
+        """Plan review, round, a completion with gaps, a reconciliation and the stamp, with every findings file and
+        receipt in `receipts`."""
+        RECORD = self.record
         schedule = tomllib.loads((self.repo / ".conclave/reviewers.toml").read_text(encoding="utf-8"))["schedule"]
         lenses = {kind: schedule[kind]["lenses"] for kind in ("plan", "completion", "reconciliation")}
         # The round's design lens is for a section with a surface; this one has none.
@@ -249,7 +280,7 @@ class FreshInstall(unittest.TestCase):
                                 "--completion", f"{RECORD}:reconciled", "--review", f"1:{RECORD}:clean",
                                 "--check", "true -> exit 0")
         self.assertEqual(stamp.returncode, 0, stamp.stdout + stamp.stderr)
-        receipt = json.loads((self.repo / "docs/reviews/d00-t01-s1.json").read_text(encoding="utf-8"))
+        receipt = json.loads((self.repo / receipts / "d00-t01-s1.json").read_text(encoding="utf-8"))
         self.assertEqual((receipt["passes_spent"], receipt["pass_cap"]), (4, schedule["pass_cap"]))
         self.assertEqual((receipt["completion"]["verdict"], receipt["completion"]["candidate"]), ("reconciled", repaired))
         self.assertEqual(receipt["schedule_sha"], self.start)

@@ -35,7 +35,7 @@ Proportionality: only a failure that can happen in real operation with real inpu
 3. Run the pass naming the agent that wrote the change as the writer, never another: a writer the pin does not route refuses, which is no review. Pass `--surface` when the change ships a user-facing surface (`Surface: yes`), so the `design` lens joins:
 
    ```bash
-   python3 scripts/review-dispatch.py --kind round --candidate <full SHA> --writer codex --prompt <scratch>/review-prompt.md --record docs/reviews/<topic>.md
+   python3 scripts/review-dispatch.py --kind round --candidate <full SHA> --writer codex --prompt <scratch>/review-prompt.md --record <receipts>/<topic>.md
    ```
 
    On Windows use `python` instead of `python3`; the command is otherwise the same.
@@ -50,7 +50,7 @@ Proportionality: only a failure that can happen in real operation with real inpu
 
 ## A review outside a TODO section
 
-A findings file not named for a section (for example `docs/reviews/<topic>.md`, or the audit file `docs/reviews/<NN-domain>/audit-d<NN>-t<NN>-s<N>.md`) has no order and no cap. Under a three-pass pin each `--kind round` call takes the pin's round lenses, and `--candidate` is optional there. When the pin has `[[schedule.conditional]]` entries, pass `--paths <file> ...` with the files you changed so their lenses join (the dispatcher refuses `--paths` under a rotation pin). Fix the real findings in new commits and run another round on the new tip, and stop when a round's summary shows `"blocking": false` (under a pin without `blocking`, when the round ends `OVERALL: approve`).
+A findings file not named for a section (for example `<receipts>/<topic>.md`, or the audit file `<receipts>/<NN-domain>/audit-d<NN>-t<NN>-s<N>.md`, `<receipts>` being `layout.receipts` in `todo/plan.json`, `docs/reviews` by default) has no order and no cap. Under a three-pass pin each `--kind round` call takes the pin's round lenses, and `--candidate` is optional there. When the pin has `[[schedule.conditional]]` entries, pass `--paths <file> ...` with the files you changed so their lenses join (the dispatcher refuses `--paths` under a rotation pin). Fix the real findings in new commits and run another round on the new tip, and stop when a round's summary shows `"blocking": false` (under a pin without `blocking`, when the round ends `OVERALL: approve`).
 
 ## Rules
 
