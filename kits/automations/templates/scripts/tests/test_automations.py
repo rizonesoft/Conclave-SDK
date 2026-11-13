@@ -44,13 +44,24 @@ def alive(pid):
     try:
         with open(f"/proc/{pid}/stat", encoding="utf-8") as fh:
             return fh.read().split(")")[-1].split()[0] != "Z"
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):  # gone before the open, or between the open and the read
         return False
 
 
 def fixture_task(name, code="print('ok')", trigger=None):
     return {"name": name, "description": f"fixture {name}", "command": [sys.executable, "-c", code],
             "trigger": trigger or {"weekly": "Monday", "at": "07:00"}, "timeout_minutes": 1}
+
+
+@unittest.skipIf(os.name == "nt", "reads /proc")
+class Alive(unittest.TestCase):
+    def test_a_process_gone_between_the_open_and_the_read_is_not_alive(self):
+        # CI 2026-11-13 (run 43352063483): the process exited after /proc/<pid>/stat opened, and the read raised
+        # ESRCH, which the helper let through as an error instead of reporting the process gone.
+        handle = unittest.mock.MagicMock()
+        handle.__enter__.return_value.read.side_effect = ProcessLookupError(3, "No such process")
+        with unittest.mock.patch("builtins.open", return_value=handle):
+            self.assertFalse(alive(12345))
 
 
 class Manifest(unittest.TestCase):
