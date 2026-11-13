@@ -358,6 +358,8 @@ Both adopting projects keep `todo/TODO-00-INDEX.md` at domain altitude, as the k
 
 ## 12. Validation git calls cached per run
 
+> **Started:** 2026-11-13T09:11:30Z
+
 `python scripts/todo-graph.py validate` takes 61 seconds on the SDK's 77 sections on Windows (measured 2026-11-13 under `cProfile`): 441 git processes (`cat-file`, `merge-base`, `show`), most of them repeats, and `plan_config` read 220 times. The pre-commit hook runs it on every commit, and a project with 915 stamps pays it many times over.
 
 **Phase:** 3
@@ -373,6 +375,8 @@ Both adopting projects keep `todo/TODO-00-INDEX.md` at domain altitude, as the k
 - [ ] Read `todo/plan.json` once per `graph` call in `todo_graph.py`, passing the configuration to `receipts_folder` and the other readers inside it. Done when: a test counts one `plan_config` read per `graph` call.
 - [ ] Time `python scripts/todo-graph.py validate` on the SDK's tree on Windows before and after. Done when: the commit body quotes both times, the second under 15 seconds.
 - [ ] Commit: `todo: validation reads each git answer once per run`
+
+**Corrected 2026-11-13 (validation):** the git processes start in eleven places in `todo_graph.py`: `_git` (`:259`), `commit_ok` (`:207`), `_head_commits` (`:216`), `build_start` (`:413`, `:416`, `:423`) and `plan_record` (`:470`) call `subprocess.run` themselves. All of them go through one runner that the cache serves, and a `graph` call made inside another (`projection` and `stamp` call `graph`) shares the outer call's cache rather than opening a second.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; clearing the cache before each lookup makes the call-count test fail.
 
