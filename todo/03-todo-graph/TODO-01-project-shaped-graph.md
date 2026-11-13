@@ -459,6 +459,8 @@ RasterFold's `query frozen` (`scripts/todo-graph.py:2576` at `75be196`, eight li
 
 ## 15. Longest chain and filing couplings from `query sequence`
 
+> **Started:** 2026-11-13T10:41:30Z
+
 RasterFold's `query sequence` (`scripts/todo-graph.py:2124` at `75be196`, with `_longest_chain`, `_section_edges` and `_filing_couplings` at `:4387`) prints the longest dependency chain and the sections a review filed work into. The chain is the tree's own; the couplings come from RasterFold's findings headings, which the kit does not write, but every kit receipt records the sections its completion review filed (`completion.filed`), so the kit reads them from there.
 
 **Phase:** 3
