@@ -37,7 +37,7 @@ OVERALL: approve
 
 Each was checked against the code and found real. All four are fixed in `forge.py` outside a section (the section is stamped and its checklist is not rewritten), with tests in `tests/test_reviewer_flags.py` that fail without the fix.
 
-- Cleanup wait with no limit: the wait after the tree is ended is bounded at 5 seconds and the pipe closed (`test_cleanup_does_not_wait_forever_on_a_pipe_a_stray_process_holds`).
+- Cleanup wait with no limit: the wait after the tree is ended is bounded at 5 seconds (`test_cleanup_does_not_wait_forever_on_a_pipe_a_stray_process_holds`). Corrected 2026-11-13: the first fix also closed the pipe, and closing a pipe that is being read waits for the read on Windows, so a stray holder still held the probe; the pipe is now left to it (`test_a_stray_process_holding_the_pipe_does_not_hold_the_probe`, which takes 120 seconds and fails with the close back).
 - A failed settings probe called a refusal: only a `--settings:` line is a refusal; any other non-zero exit is reported with its exit code and the CLI's own first line (`test_a_settings_probe_that_fails_for_another_reason_is_not_called_a_refusal`).
 - `shutil.which` in doctor: doctor finds a reviewer CLI with the dispatcher's own `find_cli`, so it probes the executable a review would run (`test_doctor_probes_the_cli_on_path_not_one_in_the_working_directory`).
 - Repeated probes: one set of probes per executable, however many reviewers use it (`test_two_antigravity_reviewers_on_one_cli_are_probed_once`).

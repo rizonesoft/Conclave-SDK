@@ -36,6 +36,14 @@ here = os.path.dirname(os.path.abspath(__file__))
 mode = open(os.path.join(here, "mode")).read().strip()
 args = sys.argv[1:]
 HELP = open(os.path.join(here, "help.txt")).read()
+if mode == "stray":
+    # A grandchild whose parent has gone: `taskkill /T` no longer reaches it, and it holds this stub's output pipe.
+    mid = subprocess.Popen([sys.executable, "-c", "import subprocess, sys; print(subprocess.Popen([sys.executable, "
+                            "'-c', 'import time; time.sleep(120)']).pid, flush=True)"], stdout=subprocess.PIPE)
+    stray = mid.stdout.readline().decode().strip()
+    mid.wait()
+    open(os.path.join(here, "pids"), "w").write(stray)
+    time.sleep(60)
 if mode == "hang":
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     open(os.path.join(here, "pids"), "w").write(f"{os.getpid()} {child.pid}")
@@ -279,6 +287,27 @@ class DoctorCheck(unittest.TestCase):
         self.assertEqual(status, "unexpected")
         self.assertIn("agents exited 1: Failed to start: open installation_id: Access is denied.", detail)
         self.assertNotIn("refuses", detail)
+
+    def test_a_stray_process_holding_the_pipe_does_not_hold_the_probe(self):
+        self.mode("stray")
+
+        def end_stray():
+            pids = self.dir / "pids"
+            for pid in (pids.read_text().split() if pids.exists() else []):  # the stub's own record of what it started
+                if os.name == "nt":
+                    subprocess.run(["taskkill", "/F", "/PID", pid], capture_output=True,
+                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                else:
+                    try:
+                        os.kill(int(pid), 9)
+                    except ProcessLookupError:
+                        pass
+
+        self.addCleanup(end_stray)
+        started = time.monotonic()
+        code, _, problem = forge._probe([str(self.agy), "--help"], timeout=3)
+        self.assertEqual((code, problem), (None, "no answer within 3 seconds"))
+        self.assertLess(time.monotonic() - started, 30, "the cleanup wait is bounded")
 
     def test_cleanup_does_not_wait_forever_on_a_pipe_a_stray_process_holds(self):
         self.mode("hang")

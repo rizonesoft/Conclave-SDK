@@ -1,4 +1,5 @@
-# The SDK's test suites, run in CI so the local loop stays fast (AGENTS.md, "Test cadence"): the quick suite on
+# The SDK's test suites, each run through `python forge.py check-all` (its SUITES table is the one list of them), in CI
+# so the local loop stays fast (AGENTS.md, "Test cadence"): the quick suite on
 # Windows, the full suite (the quick suite plus the stamp tests and the reviewer kit's suite) on Linux, and every
 # kit's own suite on Linux, where tmux lets the unattended kit's run tests run. scripts/ci_status.py reads these runs
 # at every section boundary; a red main comes first.
@@ -36,14 +37,12 @@ jobs:
           git config --global user.email ci@example.invalid
           git config --global user.name ci
       - name: Quick suite
-        run: python -m unittest discover -s tests
+        run: python forge.py check-all --only tests
 
   full-linux:
     name: full suite (Linux)
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    env:
-      CONCLAVE_FULL_TESTS: "1"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -58,7 +57,7 @@ jobs:
           git config --global user.email ci@example.invalid
           git config --global user.name ci
       - name: Full suite
-        run: python -m unittest discover -s tests
+        run: python forge.py check-all --full --only tests
 
   kits-linux:
     name: kit suites (Linux)
@@ -77,12 +76,5 @@ jobs:
           sudo apt-get install -y -q tmux
           git config --global user.email ci@example.invalid
           git config --global user.name ci
-      - name: Each kit's own tests, and the SDK's installed copy of them
-        run: |
-          status=0
-          for suite in kits/*/templates/scripts/tests scripts/tests; do
-            echo "::group::$suite"
-            python -B -m unittest discover -s "$suite" || status=1
-            echo "::endgroup::"
-          done
-          exit $status
+      - name: Every suite but tests/ (each kit's own, the SDK's installed copy, the agent checks)
+        run: python forge.py check-all --full --skip tests

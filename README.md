@@ -244,8 +244,9 @@ On Windows, `pwsh scripts/start-run.ps1` starts a Claude Code session in this ch
 ## Development
 
 ```powershell
-python -m unittest discover -s tests                                     # the quick suite, about a minute
-$env:CONCLAVE_FULL_TESTS = '1'; python -m unittest discover -s tests     # the full suite, several minutes
+python forge.py check-all --full                                         # every suite with the gated tests (CI runs this on each push)
+python forge.py check-all --only tests                                   # one suite by name; --skip <name> leaves one out
+python -m unittest tests.test_forge -k markdown_table                    # while building: only the tests that cover the change
 python scripts/todo-graph.py validate                                    # the SDK's own TODO tree
 python forge.py self-sync                                                # after changing a kit file
 ```

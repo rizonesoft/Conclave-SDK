@@ -1263,6 +1263,29 @@ def _doctor_wordpress(target_root: Path, add_check) -> None:
 PROBE_SECONDS = 15  # how long doctor waits on one question to a reviewer CLI
 
 
+def _own_group() -> dict:
+    """Popen arguments that start a child in a process group of its own, with no console window, so its whole tree
+    can be ended without touching this process."""
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+    return {"start_new_session": True}
+
+
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """End a child started with `_own_group()` and everything it started (`taskkill /T` on Windows, its process
+    group elsewhere)."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    else:
+        import signal
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:  # the group ended before the kill
+            pass
+    proc.kill()
+
+
 def _probe(argv: list, timeout: float | None = None) -> tuple[int | None, str, str]:
     """Run one bounded question to a CLI: (exit code, output, problem). The exit code is None when it could not start
     (`problem` says why) or ran past `timeout`. Its whole process tree is ended (`taskkill /T` on Windows, its process
@@ -1270,8 +1293,7 @@ def _probe(argv: list, timeout: float | None = None) -> tuple[int | None, str, s
     own that the parent's Ctrl+C does not reach and a CLI may be a wrapper whose child would outlive it."""
     timeout = PROBE_SECONDS if timeout is None else timeout
     windows = os.name == "nt"
-    group: dict = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "CREATE_NO_WINDOW", 0)}
-                   if windows else {"start_new_session": True})
+    group = _own_group()
     launch: list | str = argv
     if windows and Path(argv[0]).suffix.lower() in (".cmd", ".bat"):
         # A wrapper script runs through cmd.exe, which strips one pair of outer quotes from what follows /c: the whole
@@ -1284,22 +1306,13 @@ def _probe(argv: list, timeout: float | None = None) -> tuple[int | None, str, s
         return None, "", f"could not start: {exc.strerror or exc}"
 
     def end_tree() -> None:
-        if windows:
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        else:
-            import signal
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:  # the group ended before the kill
-                pass
-        proc.kill()
+        _kill_tree(proc)
         try:
-            # Bounded: a grandchild that left the group can hold the output pipe open long after the tree is ended.
+            # Bounded: a process that left the tree can hold the output pipe open long after the tree is ended. The
+            # pipe is then left to it, not closed: closing a pipe that is being read waits for that read on Windows.
             proc.communicate(timeout=5)
         except subprocess.TimeoutExpired:
-            if proc.stdout is not None:
-                proc.stdout.close()
+            pass
 
     try:
         out, _ = proc.communicate(timeout=timeout)
@@ -1784,6 +1797,141 @@ def check_repo(target_root: Path) -> dict:
     }
 
 
+def _unittest_suite(name: str, folder: str, timeout: int) -> dict:
+    return {"name": name, "kind": "unittest", "path": folder, "timeout": timeout,
+            "argv": [sys.executable, "-B", "-m", "unittest", "discover", "-s", folder]}
+
+
+# Every suite the repository holds: `check-all` runs them all, and CI runs them through it (.github/workflows/tests.yml).
+# `path` is the folder or script a suite stands on, `timeout` its limit in seconds; a `unittest` suite must run a test.
+SUITES: list[dict] = [
+    _unittest_suite("tests", "tests", 3600),
+    _unittest_suite("kit-automations", "kits/automations/templates/scripts/tests", 1800),
+    _unittest_suite("kit-reviewer", "kits/reviewer/templates/scripts/tests", 1800),
+    _unittest_suite("kit-unattended", "kits/unattended/templates/scripts/tests", 1800),
+    _unittest_suite("kit-wordpress", "kits/wordpress/templates/scripts/tests", 1800),
+    _unittest_suite("kit-wordpress-pressable", "kits/wordpress/hosts/pressable/templates/scripts/tests", 1800),
+    _unittest_suite("sdk-scripts", "scripts/tests", 1800),
+    {"name": "agent-tiers", "kind": "command", "path": "scripts/verify-agent-tiers.mjs", "timeout": 300,
+     "argv": ["node", "scripts/verify-agent-tiers.mjs"]},
+    {"name": "agy-subagents", "kind": "command", "path": "scripts/agy-subagent.py", "timeout": 300,
+     "argv": [sys.executable, "-B", "scripts/agy-subagent.py", "--check"]},
+]
+TAIL_LINES = 40         # what is kept of a suite's output, however much it prints
+TAIL_BYTES = 64 * 1024
+RAN_TESTS = re.compile(rb"^Ran (\d+) tests? in ", re.M)
+
+
+def _wait(proc: subprocess.Popen, timeout: float) -> int:
+    return proc.wait(timeout=timeout)
+
+
+def _end_suite(proc: subprocess.Popen) -> None:
+    """End a suite's tree and collect the suite itself, so no process of it is left behind, running or not."""
+    _kill_tree(proc)
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:  # the kill was sent; a process the system will not end is not waited on
+        pass
+
+
+def _run_suite(suite: dict, env: dict, cwd: Path) -> dict:
+    """Run one suite to its end: its result with exit, duration, test count and the bounded tail of its output."""
+    import threading
+    import time
+
+    started = time.monotonic()
+    result = {"name": suite["name"], "passed": False, "exit": None, "tests": None, "reason": "", "tail": ""}
+
+    def done() -> dict:
+        result["seconds"] = round(time.monotonic() - started, 1)
+        return result
+
+    try:
+        proc = subprocess.Popen(suite["argv"], cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, **_own_group())
+    except OSError as exc:
+        result["reason"] = f"could not start: {exc.strerror or exc}"
+        return done()
+    kept = {"tail": b"", "carry": b"", "tests": None}
+    out = proc.stdout
+    assert out is not None
+
+    def drain() -> None:
+        # Read as it is printed and keep only the end: a suite's output is never held whole.
+        try:
+            while chunk := out.read1(65536):
+                found = RAN_TESTS.findall(kept["carry"] + chunk)
+                if found:
+                    kept["tests"] = int(found[-1])
+                kept["carry"] = (kept["carry"] + chunk)[-256:]
+                kept["tail"] = (kept["tail"] + chunk)[-TAIL_BYTES:]
+        except (OSError, ValueError):  # the pipe was closed under the reader after the tree was ended
+            return
+
+    reader = threading.Thread(target=drain, daemon=True)
+    reader.start()
+
+    def finish_reading() -> None:
+        reader.join(5)
+        # A process that outlived the suite can hold the pipe open: the reader (a daemon thread) is then left to it and
+        # the pipe is not closed here, because closing a pipe that is being read waits for that read on Windows.
+        if not reader.is_alive():
+            out.close()
+
+    try:
+        result["exit"] = _wait(proc, suite["timeout"])
+    except subprocess.TimeoutExpired:
+        _end_suite(proc)
+        result["reason"] = f"timed out after {suite['timeout']:g} seconds"
+    except BaseException:  # an interrupt ends the suite and its tree before it passes on
+        _end_suite(proc)
+        finish_reading()
+        raise
+    finish_reading()
+    text = kept["tail"].decode("utf-8", "replace")
+    result["tail"] = "\n".join(text.splitlines()[-TAIL_LINES:])
+    result["tests"] = kept["tests"]
+    if not result["reason"]:
+        if result["exit"] != 0:
+            result["reason"] = f"exit {result['exit']}"
+        elif suite["kind"] == "unittest" and not result["tests"]:
+            result["reason"] = "no tests ran"
+        else:
+            result["passed"] = True
+    return done()
+
+
+def check_all(full: bool = False, only=(), skip=(), suites: list[dict] | None = None, root: Path | None = None,
+              on_result=None) -> list[dict]:
+    """Run every suite (those named by `only`, less those named by `skip`), each to its end whatever the one before
+    did, and return each one's result. An unknown name raises ValueError before any suite starts. `full` sets
+    CONCLAVE_FULL_TESTS=1 for the suites; otherwise it is removed, whatever this process's own environment holds."""
+    table = SUITES if suites is None else suites
+    names = [suite["name"] for suite in table]
+    unknown = [name for name in (*only, *skip) if name not in names]
+    if unknown:
+        raise ValueError(f"unknown suite {', '.join(unknown)} (the suites are: {', '.join(names)})")
+    env = dict(os.environ)
+    env.pop("CONCLAVE_FULL_TESTS", None)
+    if full:
+        env["CONCLAVE_FULL_TESTS"] = "1"
+    results = []
+    for suite in table:
+        if (only and suite["name"] not in only) or suite["name"] in skip:
+            continue
+        results.append(_run_suite(suite, env, FORGE_ROOT if root is None else root))
+        if on_result:
+            on_result(results[-1])
+    return results
+
+
+def _suite_line(result: dict) -> str:
+    tests = "" if result["tests"] is None else f"  {result['tests']} tests"
+    reason = "" if result["passed"] else f"  ({result['reason']})"
+    return f"{'PASS' if result['passed'] else 'FAIL'}  {result['name']}  {result['seconds']:.1f}s{tests}{reason}"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -1842,6 +1990,11 @@ def main(argv: list[str] | None = None) -> int:
     p_self = sub.add_parser("self-sync", help="Refresh the SDK's own installed copy of base, todo, reviewer and automations")
     p_self.add_argument("--dry-run", action="store_true", help="List the files that would change without writing")
 
+    p_all = sub.add_parser("check-all", help="Run every test suite the SDK holds; exit 1 when any fails")
+    p_all.add_argument("--full", action="store_true", help="Set CONCLAVE_FULL_TESTS=1: the gated stamp and adoption tests run too")
+    p_all.add_argument("--only", action="append", default=[], metavar="NAME", help="Only this suite (repeatable)")
+    p_all.add_argument("--skip", action="append", default=[], metavar="NAME", help="Every suite but this one (repeatable)")
+
     p_check = sub.add_parser("check", help="Inspect a target repository's agent setup")
     p_check.add_argument("target", help="Target repository path")
 
@@ -1865,6 +2018,15 @@ def _run(args: argparse.Namespace) -> int:
     if args.command == "self-sync":
         print(json.dumps(self_sync(dry_run=args.dry_run), indent=2))
         return 0
+
+    if args.command == "check-all":
+        results = check_all(full=args.full, only=args.only, skip=args.skip,
+                            on_result=lambda result: print(_suite_line(result), flush=True))
+        failed = [result for result in results if not result["passed"]]
+        for result in failed:
+            print(f"\n--- {result['name']}: {result['reason']}; the end of its output ---\n{result['tail']}", flush=True)
+        print(f"\ncheck-all: {len(results) - len(failed)} of {len(results)} suites passed")
+        return 1 if failed else 0
 
     if args.command == "drift":
         lines, drifted = drift_lines(drift_report(load_projects(Path(args.projects or FORGE_ROOT / PROJECTS))))
