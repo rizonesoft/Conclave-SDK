@@ -1,11 +1,11 @@
 # What stops RasterFold and Impossible OS adopting the todo graph
 
-Measured 2026-11-13 by `scripts/adoption-dry-run.py` (D03 T01 §5), with the kit's every-fault validation (`validate --all`, D03 T01 §8) at SDK `e6d21ca661f809b27893bd174037d8c68bfeca18`, its validator clean. Each project was cloned with its history into scratch, its working tree's `todo/` and receipts folder were copied over the clone (both trees carried another session's uncommitted work, so that work is measured too), and a `todo/plan.json` written for it became the snapshot's own. Neither source was written: every git call against it took `--no-optional-locks`, and both copies held still (one copy each, no file moved).
+Measured 2026-11-13 by `scripts/adoption-dry-run.py` (D03 T01 §5), with the kit's every-fault validation (`validate --all`, D03 T01 §8) at SDK `807a23711533c3aad91702efa9811f397618ece2` (Impossible OS) and `7fe94ddf57446de6a7fe21987e4721f018863dc3` (RasterFold), each validator committed and clean. Each project was cloned with its history into scratch, its working tree's `todo/` and receipts folder were copied over the clone (both trees carried another session's uncommitted work, so that work is measured too), and a `todo/plan.json` written for it became the snapshot's own. Neither source was written: every git call against it took `--no-optional-locks`, and both copies held still (one copy each, no file moved).
 
 | Project | Commit | Files copied | Sections | Stamped | Faults | Classes |
 | ------- | ------ | -----------: | -------: | ------: | -----: | ------: |
-| RasterFold | `bf30b3804d23` | 326 | 259 | 126 | 1,215 | 22 |
-| Impossible OS | `9ece40d6c000` | 5,211 | 2,596 | 915 | 3,981 | 17 |
+| RasterFold | `41bc4662e90a` | 326 | 259 | 126 | 1,215 | 22 |
+| Impossible OS | `d73ad210525d` | 5,217 | 2,596 | 915 | 19,711 | 32 |
 
 The inputs are kept beside the output in the session scratch folder: `manifest.json` (every copied file's SHA-256, the effective `plan.json`, both commits) and `classes.json` (the classes, then every fault) for each run.
 
@@ -16,7 +16,7 @@ The inputs are kept beside the output in the session scratch folder: `manifest.j
 
 ## RasterFold
 
-Every class the run reported, with its decision. `places` is the sections (or files) that carry it.
+Every class the run reported, with its decision. `places` is the sections (or files) that carry it. The first run, at `bf30b3804d23` with SDK `e6d21ca`, reported the same 22 classes and counts.
 
 | # | Class | Places | Example | Decision |
 | - | ----- | -----: | ------- | -------- |
@@ -62,54 +62,76 @@ R23 is RasterFold's `**Requires:**` line (32 sections: `windows-runtime` 14, `di
 
 ## Impossible OS
 
-The kit's validator reads a file's Implementation Order before its sections, and every file failed there, so the run's classes are file-level. The section-level fields were counted directly on the snapshot: of 2,596 sections, `**Phase:**` 0, `**Needs:**` 12, `**Surface:**` 0, `**Build order:**` 0, `**Test checkpoint:**` 1,462, and 915 carry a `Verified:` stamp. The validator skips a section whose table row it cannot read (`todo_graph.py:1074`), so these are counted, not measured: D03 T01 §13 makes it check them and re-runs this measure, and until then they have rows here (I12 to I16) beside the measured ones.
+Every class the run at `d73ad210525d` reported, one row each. The first run (at `9ece40d6c000`, SDK `e6d21ca`) stopped at the tables: the validator skipped a section whose Implementation Order row it could not read, and a repeated `Verified:` line raised out of `validate --all`. Both were gaps in D03 T01 §8, fixed in this section (`7fe94dd`, `807a237`), so this run checks every readable section body. Of the 2,596 sections, 2,554 were checked one by one; the other 42 are the sections of the two files whose frontmatter does not parse (I28: `TODO-10-documentation-site.md` 33, `TODO-09-repository-transfer-rizonetech.md` 9), which the validator reads no further.
 
 | # | Class | Places | Example | Decision |
 | - | ----- | -----: | ------- | -------- |
-| I1 | Implementation row malformed | 225 (2,520) | `TODO-01-developer-tooling-stack` | Project: kit table shape |
-| I2 | Implementation Order invalid | 225 | the same file | Project: as I1 |
-| I3 | Row and body sections differ | 225 | the same file | Project: as I1 |
-| I4 | No Adjacency line in Outcome | 225 | the same file | Project: an Adjacency line per file |
-| I5 | Level-two headings out of order | 223 | the same file | Project: kit heading order |
-| I6 | No Current state | 158 | the same file | Project: one measured line per file |
-| I7 | XREF names no single section | 133 | `TODO-01-vmm-memory-protection` | Project: one reference per XREF |
-| I8 | Verification not last | 17 | `TODO-30-system-health-recovery-...` | Project: move Verification last |
-| I9 | No Verification | 17 | the same file | Project: write one |
-| I10 | TODO filename outside the pattern | 5 | `TODO-A-SSDT-Master-Table.md` | Project: renumber the file |
-| I11 | Inputs, heading, Goal or frontmatter | 9 | `TODO-05-serial-analyze.md` | Project: fix each file |
-| I12 | No Phase field (counted) | 2,596 | every section | Project: phase equals domain number |
-| I13 | No Needs field (counted) | 2,584 | all but 12 | Project: `**Needs:** none` |
-| I14 | No Surface field (counted) | 2,596 | every section | Project: per section |
-| I15 | No Build order (counted) | 2,596 | every section | Project: open sections; stamped by D03 T01 §9 |
-| I16 | No Test checkpoint (counted) | 1,134 | 2,596 less 1,462 | Project: open sections; stamped by D03 T01 §9 |
-| I17 | Files left out of an index | 1 (221), 3 | `TODO-00-INDEX.md` | Kit: D03 T01 §11 (root); project: 3 domain rows |
+| I1 | No Build order | 2,554 | `D00 T01 §1` | Project: open sections; stamped by D03 T01 §9 |
+| I2 | No Phase field | 2,554 | `D00 T01 §1` | Project: phase equals domain number |
+| I3 | No Surface field | 2,554 | `D00 T01 §1` | Project: per section |
+| I4 | No Needs field | 2,544 | `D00 T01 §1` | Project: `**Needs:** none` |
+| I5 | No Test checkpoint | 1,166 | `D00 T04 §47` | Project: open sections; stamped by D03 T01 §9 |
+| I6 | Stamp line not the kit's | 865 | `D00 T01 §1` | Kit: D03 T01 §9 |
+| I7 | Checklist size or Commit not last | 534 | `D00 T01 §13` | Project: open sections; stamped by D03 T01 §9 |
+| I8 | Checklist item in another spelling | 519 (2,217) | `D00 T01 §13` | Project: one item per `- [ ]` line |
+| I9 | Deferred names no owner section | 302 (417) | `D00 T01 §4` | Project: an XREF to a section, or Resolved |
+| I10 | No Adjacency line in Outcome | 225 | `TODO-01-developer-tooling-stack` | Project: an Adjacency line per file |
+| I11 | Implementation Order invalid | 225 | the same file | Project: kit table shape |
+| I12 | Implementation row malformed | 225 (2,520) | the same file | Project: kit table shape |
+| I13 | Row and body sections differ | 225 | the same file | Project: kit table shape |
+| I14 | Level-two headings out of order | 223 | the same file | Project: kit heading order |
+| I15 | Test checkpoint not runnable | 200 | `D00 T01 §2` | Project: a backticked command |
+| I16 | No Current state | 158 | the same file | Project: one measured line per file |
+| I17 | XREF names no single section | 133 | the same file | Project: one reference per XREF |
+| I18 | Stamped with open items | 89 | `D00 T07 §19` | Kit: D03 T01 §9 |
+| I19 | Verification not last | 17 | `TODO-30-system-health-...` | Project: move Verification last |
+| I20 | No Verification | 17 | the same file | Project: write one |
+| I21 | Deliverable over 88 characters | 14 | `D00 T06 §4` | Project: shorten the row |
+| I22 | Needs value not configured | 10 | `D01 T02 §18` | Key: `bare-metal` in `needs` |
+| I23 | Resolved names no owner section | 7 (8) | `D00 T04 §23` | Project: an XREF to a section |
+| I24 | TODO filename outside the pattern | 5 | `TODO-A-SSDT-Master-Table.md` | Project: renumber the file |
+| I25 | Repeated Verified line | 4 | `D00 T08 §12` | Project: one stamp per section |
+| I26 | No Inputs | 3 | `TODO-05-serial-analyze.md` | Project: write one |
+| I27 | Files left out of a domain index | 3 | `02-kernel-core/INDEX.md` | Project: add the rows |
+| I28 | Frontmatter malformed | 2 | `TODO-09-repository-transfer-...` | Project: fix the file |
+| I29 | No TODO heading | 2 | `TODO-28-bsod-ux-enhancements.md` | Project: add the heading |
+| I30 | Frontmatter field missing | 1 | `TODO-29-boot-perf-health-...` | Project: fix the file |
+| I31 | No Goal | 1 | `TODO-11-warm-kernel-update-...` | Project: write one |
+| I32 | Files left out of the root index | 1 (221) | `TODO-00-INDEX.md` | Kit: D03 T01 §11 |
 
-The classes as the script printed them:
+The classes as the script printed them (counts in brackets are faults where a place carries several):
 
-- I1 `malformed implementation row: <path>` (2,520 rows in 225 files): the table is `| ⭐ | Order | Deliverable | Depends On | Status |`, a priority column first and no `Section` column, and dependency cells use ranges (`§1-§6`).
-- I2 `invalid implementation order: <path>`; I3 `row/body mismatch: <path>`; I4 `exactly one Adjacency line inside Outcome required: <path>`.
-- I5 `level-two headings must be Inputs, Outcome, Implementation Order, the sections and Verification, once each and in that order: <path>`; I6 `missing Current state field`.
-- I7 `XREF must name exactly one well-formed section: <line>`: lists of sections (`§2,§3`), ranges, file links with anchors, and blockquote notes (`Deferred:`, `Accepted:`) that carry an XREF to a file with no section.
-- I8 `Verification must follow numbered sections: <path>`; I9 `missing Verification: <path>`; I10 `invalid TODO filename: <path>`.
-- I11 `missing Inputs: <path>` 3, `missing TODO heading: <path>` 2, `invalid or duplicate frontmatter: <path>` 2, `frontmatter fields: <path>` 1, `missing Goal field` 1.
-- I17 `missing from root index: <path>` (221 files) and `missing from domain index: <path>` (3 files).
+- I1 `executable Build order required: <ref>`; I2 `missing Phase field`; I3 `missing Surface field`; I4 `missing Needs field`; I5 `missing Test checkpoint field`.
+- I6 `invalid stamp: <ref>`: the project's stamp is `> **Verified:** 2026-04-17 | commit `ad4d3fa4` | 5/5 items | build OK | ...`, an abbreviated commit and evidence fields, where the kit's is `<date> | §N | <40-character commit>`.
+- I7 `N-N items (at least one work item, Commit last) required: <ref>`; I8 `malformed checklist item: <ref>` (indented sub-items such as `  - [x] ...` under an item).
+- I9 `Deferred without a resolving owner: <ref>`: deferrals that name a question, a file or a commit instead of a section (`> **Deferred:** awaiting-answer Q42 ...`).
+- I10 `exactly one Adjacency line inside Outcome required: <path>`; I11 `invalid implementation order: <path>`.
+- I12 `malformed implementation row: <path>`: the table is `| ⭐ | Order | Deliverable | Depends On | Status |`, a priority column first and no `Section` column, with ranges in dependency cells (`§1-§6`).
+- I13 `row/body mismatch: <path>`; I14 `level-two headings must be Inputs, Outcome, Implementation Order, the sections and Verification, once each and in that order: <path>`.
+- I15 `runnable Test checkpoint required: <ref>`; I16 `missing Current state field`.
+- I17 `XREF must name exactly one well-formed section: <line>`: lists of sections (`§2,§3`), ranges, file links with anchors, and blockquote notes (`Deferred:`, `Accepted:`) whose XREF names a file with no section.
+- I18 `unfinished stamped checklist: <ref>`; I19 `Verification must follow numbered sections: <path>`; I20 `missing Verification: <path>`.
+- I21 `deliverable/title over N chars (wraps raw md table): <ref>`; I22 `unknown/duplicate Needs (<value>): <ref>`, every one `bare-metal`; I23 `Resolved without a resolving owner: <ref>`.
+- I24 `invalid TODO filename: <path>`; I25 `duplicate Verified field`; I26 `missing Inputs: <path>`; I27 `missing from domain index: <path>`.
+- I28 `invalid or duplicate frontmatter: <path>`; I29 `missing TODO heading: <path>`; I30 `frontmatter fields: <path>`; I31 `missing Goal field`; I32 `missing from root index: <path>` (221 files).
 
-Impossible OS's receipts (`.claude/overnight/reviews`, `*.out` review transcripts, not the kit's JSON receipts) were not reached either: its 915 stamps take the same path as RasterFold's 126 through D03 T01 §9.
+Impossible OS's stamps (I6, I18) point at review transcripts in `.claude/overnight/reviews` (`*.out`), not the kit's JSON receipts, so they take the same path as RasterFold's 126 through D03 T01 §9.
 
 ## Kit changes, each with its section
 
-- D03 T01 §9, pre-adoption stamps frozen at adoption: 126 RasterFold and 915 Impossible OS stamps were written by each project's own stamp and reviewer, so their receipts (R6, R10 to R13, R16, R18, R21, R22) and their stamped bodies (R1, I15, I16) cannot meet the kit's current receipt format. The kit's rule is that a stamped section is never rewritten (`todo/README.md`, Brownfield code), and `legacy-receipts.json` already freezes old receipts by digest, but nothing writes that file for a project. The section adds the command that does, once, at adoption.
+- D03 T01 §9, pre-adoption stamps frozen at adoption: 126 RasterFold and 915 Impossible OS stamps were written by each project's own stamp and reviewer, so their stamps and receipts (R6, R10 to R13, R16, R18, R21, R22, I6) and their stamped bodies (R1, I1, I5, I7, I18) cannot meet the kit's current receipt format. The kit's rule is that a stamped section is never rewritten (`todo/README.md`, Brownfield code), and `legacy-receipts.json` already freezes old receipts by digest, but nothing writes that file for a project. The section adds the command that does, once, at adoption.
 - D03 T01 §10, ready rows filtered by the hosts this session reaches: RasterFold's `Requires` gate (R23) skips a row whose host is absent; the kit's `query ready` lists it (`process-plan` says so and leaves the check to the agent).
-- D03 T01 §11, a root index that lists domains: both projects keep the root index at domain altitude, as the kit's own `todo/README.md` describes it ("root index: domain order + active work"), and the validator demands every file in it (R20: 33 files, I17: 221).
-- D03 T01 §13, section checks run when its table row cannot be read: a gap in `validate --all` itself, which hid every section-level class of Impossible OS behind its tables (I12 to I16 are counted until it ships).
+- D03 T01 §11, a root index that lists domains: both projects keep the root index at domain altitude, as the kit's own `todo/README.md` describes it ("root index: domain order + active work"), and the validator demands every file in it (R20: 33 files, I32: 221).
+- D03 T01 §13, section checks run when its table row cannot be read: a gap in `validate --all` itself, which hid every section-level class of Impossible OS behind its tables. This section built it (`7fe94dd`, with the repeated-stamp crash fixed in `807a237`) because its measurement needed it; D03 T01 §13 verifies and stamps it.
 - D03 T01 §12, validation git calls cached per run: not a refusal, a cost the runs measured. `validate` on the SDK's 77 sections takes 61 seconds on Windows, 441 git processes (`cat-file`, `merge-base`, `show`) and `plan_config` read 220 times; the cost grows with every stamp, and Impossible OS carries 915 to the SDK's 42, on every pre-commit.
 
 ## Guidance against each project's caps
 
-Both `plan.json` files keep the default caps (55 sections per file, 30 items, 88-character Deliverables, 120-character plan rows): no file in either project passed 55 sections and only one Deliverable passed 88 (R17), so neither needs a cap of its own. Read against those caps, `add-todo`, `create-todo` and `groom-plan` state each limit with its `caps` key and default, and no line misleads an agent working either project. One figure is tied to no cap at all: "raw Markdown table rows stay under 140 characters" (`create-todo/SKILL.md:25`, `groom-plan/SKILL.md:48`, `todo/README.md:56`) beside the 120-character `table_row` cap and AGENTS.md's 120; it is filed in `todo/findings.md`.
+Both `plan.json` files keep the default caps (55 sections per file, 30 items, 88-character Deliverables, 120-character plan rows): no file in either project passed 55 sections and 15 Deliverables passed 88 (R17, I21), which the decision is to shorten, so neither needs a cap of its own. Read against those caps, `add-todo`, `create-todo` and `groom-plan` state each limit with its `caps` key and default, and no line misleads an agent working either project. One figure is tied to no cap at all: "raw Markdown table rows stay under 140 characters" (`create-todo/SKILL.md:25`, `groom-plan/SKILL.md:48`, `todo/README.md:56`) beside the 120-character `table_row` cap and AGENTS.md's 120; it is filed in `todo/findings.md`.
 
 ## Decisions taken without the owner
 
 - Project-side changes are the projects' own work, done in their repositories when each adopts the kit; nothing here edits them. Reversing that (the kit accepting each project's shape) costs a configuration key per difference and a validator that reads two formats.
 - Phase from the plan headings, Needs as slugs, and `Requires` values as Needs: the kit's shape already expresses each, so no key was added for them. Reversing one costs a key in `plan_config` and its tests.
-- Impossible OS's section-level classes are counted, not validated, until its tables read: a validator that guessed sections past an unreadable table would report faults the tree does not have.
+- Impossible OS's `bare-metal` Need (I22) becomes a `needs` key in its `plan.json`, the one class a key answers. Reversing it costs one value.
+- A section under an unreadable table row is checked from its body alone and is never a node of the graph: guessing its row would report dependency faults the tree does not have. Reversing that costs a second row parser.
