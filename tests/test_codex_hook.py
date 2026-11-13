@@ -124,7 +124,17 @@ class Project(unittest.TestCase):
             subprocess.run(["git", *args], cwd=self.root, capture_output=True, check=True)
 
     def tearDown(self):
-        self._tmp.cleanup()
+        # On Windows a killed process releases its files a moment after it is reaped (CI 2026-11-13, run 43357815752:
+        # WinError 32 on the project folder after the server's grandchild was already gone), so removal is retried
+        # briefly, as the reviewer kit's dispatch tests do.
+        for attempt in range(50):
+            try:
+                self._tmp.cleanup()
+                return
+            except PermissionError:
+                if attempt == 49:
+                    raise
+                time.sleep(0.1)
 
     def ready(self, n):
         (self.root / "scripts/ready.txt").write_text(str(n), encoding="utf-8")
