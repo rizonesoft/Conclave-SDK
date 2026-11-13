@@ -11,7 +11,7 @@ Processing a section is two jobs, in order. First establish that the plan is sou
 
 ## Use this skill when
 
-- The user names a section in any form: a `DNN TNN §N` reference, a path plus section, or a row pasted straight out of `todo/implementation-plan.md`. Step 0 turns all of them into the same thing.
+- The user names a section in any form: a `DNN TNN §N` reference, a path plus section, or a row pasted straight out of the generated plan (`todo/implementation-plan.md`, or `layout.plan` in `todo/plan.json`). Step 0 turns all of them into the same thing.
 - A runner picks the next ready row from the plan.
 - Do not use it to audit shipped work: that is `review-todo-section` in audit stance.
 

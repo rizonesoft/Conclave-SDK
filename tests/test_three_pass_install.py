@@ -207,13 +207,19 @@ class FreshInstall(unittest.TestCase):
     @unittest.skipUnless(os.environ.get("CONCLAVE_FULL_TESTS"), "slow: set CONCLAVE_FULL_TESTS=1 for the full suite")
     def test_a_section_stamps_and_unstamps_in_a_configured_receipts_folder(self):
         # D03 T01 §4: todo/plan.json's layout.receipts moves every receipt and findings file the kits write.
-        (self.repo / "todo/plan.json").write_text('{"layout": {"receipts": ".claude/overnight/reviews"}}\n', encoding="utf-8")
+        # D03 T01 §7: the plan moves too, to docs/plan.md.
+        (self.repo / "todo/plan.json").write_text('{"layout": {"receipts": ".claude/overnight/reviews", "plan": "docs/plan.md"}}\n',
+                                                  encoding="utf-8")
+        sync = self.run_script("scripts/todo-graph.py", "plan", "--sync")
+        self.assertEqual(sync.returncode, 0, sync.stdout + sync.stderr)
         self.git("add", "-A")  # into the first commit, the one whose Started line the build began at
         self.git("commit", "-q", "--amend", "--no-edit")
         self.start = self.git("rev-parse", "HEAD")
         self.record = ".claude/overnight/reviews/00-core/D00-T01-s1.md"  # Impossible OS's folder
         self.three_pass_to_stamp(".claude/overnight/reviews")
         self.assertFalse((self.repo / "docs/reviews").exists(), "nothing is written to the default folder")
+        plan = self.repo / "docs/plan.md"
+        self.assertRegex(plan.read_text(encoding="utf-8"), r"\| \[x\] +\| D00 T01 §1 ", "the configured plan shows it verified")
         self.commit("the stamp")
         unstamp = self.run_script("scripts/todo-graph.py", "unstamp", "D00 T01 §1", "--reason", "an audit",
                                   "--date", "2026-11-13")
@@ -224,9 +230,12 @@ class FreshInstall(unittest.TestCase):
         self.assertIn("| 1 | §1 |", (self.repo / "todo/00-core/TODO-01-a.md").read_text(encoding="utf-8"))
         self.assertRegex((self.repo / "todo/00-core/TODO-01-a.md").read_text(encoding="utf-8"),
                          r"\| 1 \| §1 \|[^\n]*\[ \] \|", "the section is reopened")
+        self.assertRegex(plan.read_text(encoding="utf-8"), r"\| \[ \] +\| D00 T01 §1 ", "and then reopened")
         validate = self.run_script("scripts/todo-graph.py", "validate")
         self.assertEqual(validate.returncode, 0, validate.stdout + validate.stderr)
         self.assertFalse((self.repo / "docs/reviews").exists())
+        check = self.run_script("scripts/todo-graph.py", "plan", "--check")
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
 
     def three_pass_to_stamp(self, receipts):
         """Plan review, round, a completion with gaps, a reconciliation and the stamp, with every findings file and

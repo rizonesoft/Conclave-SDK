@@ -6,6 +6,7 @@
     python scripts/todo-graph.py render                      # mermaid dependency graph
     python scripts/todo-graph.py receipts [--config -]       # the receipts folder (todo/plan.json layout.receipts);
                                                              # --config -: that file's text read from stdin
+    python scripts/todo-graph.py plan-path [--config -]      # the generated plan's path (todo/plan.json layout.plan)
     python scripts/todo-graph.py plan --sync | --check
     python scripts/todo-graph.py query ready | blocked | stats | deferred | adjacency | plan | rounds
     python scripts/todo-graph.py resolve 'D02 T01 §1'        # exit 0 ready, 1 no such section,
@@ -30,7 +31,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from todo_graph import (ROOT, Refused, adjacency_report, atomic, deferrals, disposition,  # noqa: E402
-                        extract_ref, graph, ordered, plan_config, projections, receipts_folder, require,
+                        extract_ref, graph, ordered, plan_config, plan_file, projections, receipts_folder, require,
                         review_rounds, settled, stamp, suspects, unstamp)
 
 
@@ -63,6 +64,8 @@ def main():
         sub.add_parser(name)
     rc = sub.add_parser("receipts", help="print the receipts folder, todo/plan.json's layout.receipts (docs/reviews)")
     rc.add_argument("--config", choices=["-"], help="read todo/plan.json's text from stdin (the hook passes the index's)")
+    pp = sub.add_parser("plan-path", help="print the generated plan's path, todo/plan.json's layout.plan")
+    pp.add_argument("--config", choices=["-"], help="read todo/plan.json's text from stdin (the hook passes the index's)")
     q = sub.add_parser("query")
     q.add_argument("kind", choices=["ready", "blocked", "stats", "deferred", "adjacency", "plan", "rounds"])
     r = sub.add_parser("resolve")
@@ -94,6 +97,9 @@ def main():
     args = p.parse_args()
     if args.command == "receipts":  # read by scripts/hooks/pre-commit; the configuration alone, not the graph
         print(receipts_folder(text=sys.stdin.read() if args.config == "-" else None))
+        return 0
+    if args.command == "plan-path":  # read by scripts/hooks/pre-commit, like receipts
+        print(plan_file(text=sys.stdin.read() if args.config == "-" else None))
         return 0
     if args.command == "unstamp":
         revoked = unstamp(ROOT, args.ref, args.reason, args.date)

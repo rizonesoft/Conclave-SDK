@@ -73,7 +73,7 @@ When the phase table is all `[x]`: `process-todo-file` on any file the phase exh
 ## Guardrails
 
 - Do not invent a side loop that ships rows outside `process-todo-section` plus `review-todo-section`.
-- Do not tick `implementation-plan.md` by hand. It is generated; sync it.
+- Do not tick the generated plan (`implementation-plan.md`, or `layout.plan` in `todo/plan.json`) by hand. It is generated; sync it.
 - Do not claim a phase complete while its table has `[ ]` rows, and do not call a parked phase complete or a stall.
 - Do not end the turn on the audit. Ship, park, or close out.
 - Do not claim a new row while `scripts/ci_status.py` reports main red, and never make CI green by skipping, disabling or loosening a check.

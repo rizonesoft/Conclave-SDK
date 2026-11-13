@@ -250,6 +250,18 @@ class Dispatch(Harness):
             dispatch.section_record(self.repo / section)
         self.assertIn("todo/plan.json: layout receipts must be a folder inside the repository", str(ctx.exception))
 
+    def test_both_layout_keys_set_leave_dispatch_and_listing_working(self):
+        # D03 T01 §7: the plan key is the todo kit's; this kit reads receipts and lets plan through.
+        (self.repo / "todo").mkdir(exist_ok=True)
+        (self.repo / "todo/plan.json").write_text(json.dumps({"layout": {"receipts": "reviews", "plan": "docs/plan.md"}}),
+                                                  encoding="utf-8")
+        self.assertTrue(self.installed().section_record(self.repo / "reviews/03-x/D03-T01-s1.md"))
+        record = self.repo / "reviews/00-design/D00-T01-s1.md"
+        result, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result, listing = self.dispatch("--list-rounds", "--json")
+        self.assertEqual([r["path"] for r in listing["records"]], ["reviews/00-design/D00-T01-s1.md"])
+
     def test_list_rounds_reads_the_configured_folder_unless_one_is_named(self):
         self.layout("reviews")
         record = self.repo / "reviews/00-design/D00-T01-s1.md"

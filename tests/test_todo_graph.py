@@ -445,7 +445,8 @@ class Graph(Tree):
                ({"receipts": ".claude/overnight/reviews"}, ".claude/overnight/reviews"),  # Impossible OS's own
                ({"receipts": "docs/./reviews"}, "layout receipts must be"), ({"receipts": ".."}, "layout receipts must be"),
                ([], "layout must be an object"), ("reviews", "layout must be an object"),
-               ({"plan": "docs/plan.md"}, "layout names 'plan'"), ({"receipts": 3}, "layout receipts must be"),
+               ({"plan": "docs/plan.md"}, "docs/reviews"), ({"receipts": "reviews", "plan": "docs/plan.md"}, "reviews"),
+               ({"other": 1}, "layout names 'other'"), ({"receipts": 3}, "layout receipts must be"),
                ({"receipts": ""}, "layout receipts must be"), ({"receipts": "/reviews"}, "layout receipts must be"),
                ({"receipts": "C:/reviews"}, "layout receipts must be"),
                ({"receipts": "docs\\reviews"}, "layout receipts must be"),
@@ -532,6 +533,18 @@ class Graph(Tree):
             tg.report_ok(self.root, "docs/reviews/00-workspace/D00-T01-s1.md", "D00 T01 §1")
         self.assertIn("invalid review report path", str(ctx.exception))
 
+    def test_the_kit_guidance_names_the_configured_plan_wherever_it_names_the_default(self):
+        # D03 T01 §7: a mention of todo/implementation-plan.md names layout.plan within 80 characters. A skill's
+        # frontmatter description is the trigger text agents match on, kept short; its body says the rest.
+        kit = REPO / "kits/todo/templates"
+        files = [p for p in kit.rglob("*.md") if "skills" in p.parts or p.name in ("todo-workflow.md", "README.md")]
+        stale = [f"{path.relative_to(kit)}:{n}" for path in files
+                 for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+                 if not line.startswith("description:")
+                 for m in re.finditer(r"implementation-plan\.md", line)
+                 if "layout.plan" not in line[max(0, m.start() - 80):m.end() + 80]]
+        self.assertEqual(stale, [], "guidance names the default plan path without layout.plan")
+
     def test_the_section_skills_write_the_configured_folder_in_their_commands(self):
         # D03 T01 §4: a command that writes docs/reviews/ starts a project's review outside its configured folder.
         kit = REPO / "kits/todo/templates"
@@ -544,6 +557,57 @@ class Graph(Tree):
         for path in skills:
             self.assertIn("`<receipts>` being `layout.receipts` in `todo/plan.json`, `docs/reviews` by default",
                           path.read_text(encoding="utf-8"), f"{path.relative_to(kit)} never says what <receipts> is")
+
+    # D03 T01 §7: the plan path comes from todo/plan.json (`layout.plan`) and never lands on a file the plan does
+    # not own.
+    def test_a_plan_path_the_plan_does_not_own_is_refused_before_anything_is_written(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        (self.root / "docs").mkdir()
+        notes = self.root / "docs/notes.md"
+        notes.write_bytes(b"# Implementation plan\n\nHand notes under the plan's own heading.\n")
+        for plan, said in (("todo/plan.json", "layout plan must be a .md file"), ("plan.txt", "layout plan must be"),
+                           ("/plan.md", "layout plan must be"), ("C:/plan.md", "layout plan must be"),
+                           ("docs/../plan.md", "layout plan must be"), ("todo/README.md", "does not own"),
+                           ("TODO/readme.md", "does not own"), ("todo/00-workspace/plan.md", "does not own"),
+                           ("docs/reviews/plan.md", "does not own"), ("docs/notes.md", "is not a generated plan")):
+            with self.subTest(plan=plan):
+                self.plan(layout={"plan": plan})
+                before = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+                with self.assertRaises(tg.Refused) as ctx:
+                    tg.projections(self.root, sync=True)
+                self.assertIn("todo/plan.json: layout plan", str(ctx.exception))
+                self.assertIn(said, str(ctx.exception))
+                self.assertEqual({p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}, before,
+                                 "a refused plan path wrote something")
+
+    def test_the_plan_is_written_and_checked_at_the_configured_path(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        self.plan(layout={"plan": "docs/plan.md"})
+        tg.projections(self.root, sync=True)
+        self.assertTrue((self.root / "docs/plan.md").is_file())
+        self.assertFalse((self.root / tg.PLAN).exists(), "nothing at the default path")
+        tg.projections(self.root)  # --check reads the configured path
+        with open(self.root / "docs/plan.md", "a", encoding="utf-8") as handle:
+            handle.write("a line plan --sync did not write\n")
+        with self.assertRaises(tg.Refused) as ctx:
+            tg.projections(self.root)
+        self.assertIn("stale projection: docs/plan.md", str(ctx.exception))
+
+    def test_an_owned_plan_regenerates_after_its_title_changes(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        self.plan(layout={"plan": "docs/plan.md"})
+        tg.projections(self.root, sync=True)
+        self.plan(layout={"plan": "docs/plan.md"}, title="Another title")
+        tg.projections(self.root, sync=True)  # the notice, not the title, says the file is the plan's
+        self.assertTrue((self.root / "docs/plan.md").read_text(encoding="utf-8").startswith("# Another title\n"))
+
+    def test_without_a_plan_key_the_default_path_is_kept_as_before(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        (self.root / tg.PLAN).write_text("hand written\n", encoding="utf-8")  # the kit's own path, as before
+        self.plan(layout={"receipts": "reviews"})
+        self.assertEqual(tg.plan_file(self.root), tg.PLAN)
+        tg.projections(self.root, sync=True)
+        self.assertIn(tg.PLAN_NOTICE, (self.root / tg.PLAN).read_text(encoding="utf-8"))
 
     def test_a_project_names_its_own_needs_and_which_wait(self):
         # D03 T01 §2: Needs values and waiting Needs come from todo/plan.json.
@@ -1471,6 +1535,31 @@ class Stamp(Tree):
                            "2026-10-13", sync_plan=True)
         self.assertTrue((self.root / receipt).is_file())
         tg.projections(self.root)
+
+    def test_a_failed_write_of_a_configured_plan_rolls_the_stamp_back(self):
+        # D03 T01 §7: the stamp writes and rolls back the plan at todo/plan.json's layout.plan.
+        (self.root / "todo/plan.json").write_text('{"layout": {"plan": "docs/plan.md"}}\n', encoding="utf-8")
+        self.tick_work()
+        tg.projections(self.root, sync=True)
+        plan = self.root / "docs/plan.md"
+        before = self.snapshot()
+        real_atomic = tg.atomic
+
+        def fail_on_the_plan(path, data):
+            if pathlib.Path(path) == plan:
+                raise OSError("simulated disk write failure")
+            return real_atomic(path, data)
+
+        tg.atomic = fail_on_the_plan
+        try:
+            with self.assertRaises(OSError):
+                self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-13", sync_plan=True)
+        finally:
+            tg.atomic = real_atomic
+        self.assertEqual(self.snapshot(), before, "the TODO file, the receipts and the plan are as they were")
+        self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-13", sync_plan=True)
+        self.assertRegex(plan.read_text(encoding="utf-8"), r"\| \[x\] +\| D00 T01 §1 ")
+        self.assertFalse((self.root / tg.PLAN).exists(), "nothing at the default path")
 
     def test_an_interrupted_stamp_rolls_back_and_allows_retry(self):
         self.tick_work()

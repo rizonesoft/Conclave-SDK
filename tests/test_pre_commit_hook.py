@@ -169,6 +169,35 @@ class PreCommitHook(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("todo/ has unstaged or untracked changes", result.stderr)
 
+    def configure_plan(self):
+        """D03 T01 §7: the plan at todo/plan.json's layout.plan, docs/plan.md, committed in sync."""
+        (self.root / "todo/plan.json").write_text('{"layout": {"plan": "docs/plan.md"}}\n', encoding="utf-8")
+        (self.root / "todo/implementation-plan.md").unlink()
+        self.sync()
+        self.git("add", "-A")
+        result = self.commit()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_commit_staging_only_a_corrupted_configured_plan_is_refused(self):
+        self.configure_plan()
+        with open(self.root / "docs/plan.md", "a", encoding="utf-8") as handle:
+            handle.write("a line plan --sync did not write\n")
+        self.git("add", "docs/plan.md")  # no todo/ change staged: the plan alone is evidence
+        result = self.commit()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("stage docs/plan.md", result.stderr)
+
+    def test_a_stale_staged_plan_beside_a_current_unstaged_one_is_refused(self):
+        self.configure_plan()
+        self.tick()
+        self.git("add", "todo")  # the staged plan is the old one
+        self.sync()  # the working tree's is current, and unstaged
+        result = self.commit()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("docs/plan.md has unstaged or untracked changes", result.stderr)
+        self.git("add", "docs/plan.md")
+        self.assertEqual(self.commit().returncode, 0, "the fully staged commit is accepted")
+
     def test_a_layout_the_graph_cannot_read_is_refused(self):
         (self.root / "todo/plan.json").write_text('{"layout": {"receipts": "../out"}}\n', encoding="utf-8")
         (self.root / "notes.txt").write_text("x\n", encoding="utf-8")

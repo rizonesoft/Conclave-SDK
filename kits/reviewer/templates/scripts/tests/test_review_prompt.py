@@ -378,6 +378,9 @@ class TodoLookup(Filler):
         text = self.ok("reconciliation", *self.reconcile(), common=False)
         self.assertIn("`reviews/00-x/D00-T01-s7.md`", text)
         self.assertNotIn("docs/reviews/00-x", text)
+        (self.root / "todo/plan.json").write_text('{"layout": {"receipts": "reviews", "plan": "docs/plan.md"}}',
+                                                  encoding="utf-8")  # D03 T01 §7: the todo kit's plan key passes
+        self.assertIn("`reviews/00-x/D00-T01-s7.md`", self.ok("reconciliation", *self.reconcile(), common=False))
         self.assertIn("`other/f.md`", self.ok("reconciliation", *self.reconcile("--findings", "other/f.md"),
                                               common=False), "an explicit --findings still wins")
 

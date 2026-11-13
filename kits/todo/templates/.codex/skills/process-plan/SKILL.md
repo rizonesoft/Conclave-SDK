@@ -5,7 +5,7 @@ description: Front door in Codex for todo/implementation-plan.md. Audit the plan
 
 # Process the Implementation Plan
 
-The only front door for `todo/implementation-plan.md` when the user did not name a single phase. The file is a generated projection of the 100% complete development plan (small, single-responsibility sections and granular five-part micro-steps): processing it is not "pick a row and improvise", and it is not "tick the boxes" (boxes flip only through `stamp`).
+The only front door for the generated plan (`todo/implementation-plan.md`, or the project's `layout.plan` in `todo/plan.json`) when the user did not name a single phase. The file is a generated projection of the 100% complete development plan (small, single-responsibility sections and granular five-part micro-steps): processing it is not "pick a row and improvise", and it is not "tick the boxes" (boxes flip only through `stamp`).
 
 This skill does not ship a section and does not write a stamp. It audits, then chains `process-phase` runs until the plan is 100% complete or every leftover row is blocked here. Writes stay serial: the run this skill starts is the only writer on the tree.
 
@@ -123,7 +123,7 @@ Re-run `python scripts/todo-graph.py query ready`. If another phase has a ready 
 - Do not invent a side loop that ships rows outside `process-todo-section` plus `review-todo-section`.
 - Do not start a second run, and do not resume a paused run unless the operator said resume.
 - Do not start a run without its guard, and do not end, stop or pause one without releasing it through `end`.
-- Do not tick `implementation-plan.md` by hand, and do not edit it at all: it is generated.
+- Do not tick the generated plan (`implementation-plan.md`, or `layout.plan` in `todo/plan.json`) by hand, and do not edit it at all: it is generated.
 - Do not claim a phase complete while its table has `[ ]` rows.
 - Do not treat a named phase as the whole plan. Chaining is this skill's job, and only this skill's.
 - Do not end the turn on the audit table.
