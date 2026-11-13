@@ -1460,14 +1460,21 @@ def _index_coverage(root, files, check=None, attempt=None, root_index="files"):
             if check(index.is_file(), f"missing domain index: todo/{domain}/INDEX.md", f"todo/{domain}/INDEX.md") \
             else FAILED
         if root_index == "domains" and root_text is not FAILED:
-            check(f"{domain}/INDEX.md" in root_text, f"missing from root index: {domain}/INDEX.md",
+            check(_lists(root_text, f"{domain}/INDEX.md"), f"missing from root index: {domain}/INDEX.md",
                   "todo/TODO-00-INDEX.md")
         for filename in names:
             if text is not FAILED:
                 check(filename in text, f"missing from domain index: {domain}/{filename}", f"todo/{domain}/INDEX.md")
             if root_index == "files" and root_text is not FAILED:
-                check(f"{domain}/{filename}" in root_text, f"missing from root index: {domain}/{filename}",
+                check(_lists(root_text, f"{domain}/{filename}"), f"missing from root index: {domain}/{filename}",
                       "todo/TODO-00-INDEX.md")
+
+
+def _lists(index_text, target):
+    """Whether an index names `target` (`NN-domain/<file>`) as a whole path: alone, linked or quoted, optionally from
+    `./`, but not as the tail of another path such as `archive/NN-domain/<file>` (D03 T01 §11 round 1)."""
+    return re.search(r"(?:^|[\s(\[`<\"'])(?:\./)?" + re.escape(target) + r"(?=$|[\s)\]`>\"'#|:,;])", index_text,
+                     re.M) is not None
 
 
 def settled(ref, rows):

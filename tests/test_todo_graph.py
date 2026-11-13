@@ -508,6 +508,23 @@ class Graph(Tree):
         (self.root / "todo/01-engine/INDEX.md").write_text("# Index\n", encoding="utf-8")
         self.refuses("missing from domain index: 01-engine/TODO-01-a.md")
 
+    def test_an_index_entry_counts_only_as_a_whole_path(self):
+        self.domains_tree()
+        self.plan(layout={"root_index": "domains"})
+        root = self.root / "todo/TODO-00-INDEX.md"
+        for listed, ok in (("[Workspace](./00-workspace/INDEX.md)", True), ("`00-workspace/INDEX.md`", True),
+                           ("[Workspace](archive/00-workspace/INDEX.md)", False), ("x00-workspace/INDEX.md", False),
+                           ("00-workspace/INDEX.mdx", False)):
+            with self.subTest(listed):
+                root.write_text(f"# Index\n- {listed}\n- 01-engine/INDEX.md\n", encoding="utf-8")
+                if ok:
+                    tg.graph(self.root)
+                else:
+                    self.refuses("missing from root index: 00-workspace/INDEX.md")
+        self.plan(layout={"root_index": "files"})  # the same rule for a file entry
+        root.write_text("# Index\n- archive/00-workspace/TODO-01-a.md\n- 01-engine/TODO-01-a.md\n", encoding="utf-8")
+        self.refuses("missing from root index: 00-workspace/TODO-01-a.md")
+
     def test_the_key_and_not_its_presence_picks_the_rule(self):
         self.domains_tree()
         self.plan(layout={"root_index": "domains"})
@@ -532,7 +549,7 @@ class Graph(Tree):
                                   ("process-todo-file", "Move its line in `todo/TODO-00-INDEX.md`")):
                 text = (REPO / "kits/todo/templates" / agent / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
                 at = text.index(anchor)
-                self.assertIn("layout.root_index", text[at:at + 400], f"{agent} {skill}")
+                self.assertIn("layout.root_index", text[at:at + 200], f"{agent} {skill}")
 
     def test_a_receipts_folder_linked_out_of_the_repository_is_refused_by_both_readers(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
