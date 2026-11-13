@@ -650,6 +650,32 @@ class Graph(Tree):
             "**Test checkpoint:**", "> **Deferred:** abandoned\n\n**Test checkpoint:**", 1))
         self.assertEqual(self.faults(), ["invalid Phase: D00 T01 §1", "Deferred without a resolving owner: D00 T01 §1"])
 
+    def test_a_missing_frontmatter_field_hides_only_the_checks_that_read_it(self):
+        # D03 T01 §8 completion: Needs need no title.
+        self.write(todo_file([(1, "A", 0, "gpu", "--")]).replace('title: "TODO-01 -- A"\n', "", 1))
+        self.assertEqual(self.faults(), ["frontmatter fields: todo/00-workspace/TODO-01-a.md",
+                                         "unknown/duplicate Needs (gpu): D00 T01 §1"])
+
+    def test_a_missing_index_hides_only_its_own_checks(self):
+        # D03 T01 §8 completion: each index is read whatever became of the other.
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        (self.root / "todo/TODO-00-INDEX.md").unlink()
+        (self.root / "todo/00-workspace/INDEX.md").write_text("# Index\n", encoding="utf-8")
+        self.assertEqual(self.faults(), ["missing from domain index: 00-workspace/TODO-01-a.md",
+                                         "missing todo/TODO-00-INDEX.md"])
+        self.write(todo_file([(1, "A", 0, "none", "--")]))  # both indexes listed again
+        (self.root / "todo/00-workspace/INDEX.md").unlink()
+        root_index = self.root / "todo/TODO-00-INDEX.md"
+        root_index.write_text("# Index\n", encoding="utf-8")
+        self.assertEqual(self.faults(), ["missing domain index: todo/00-workspace/INDEX.md",
+                                         "missing from root index: 00-workspace/TODO-01-a.md"])
+
+    def test_faults_come_back_in_file_order_whichever_pass_found_them(self):
+        # D03 T01 §8 completion: the dependency walk runs after every file is read, but its fault is the first file's.
+        self.write(todo_file([(1, "A", 0, "none", "§9")]))
+        self.write(todo_file([(1, "B", 0, "gpu", "--")], ident="beta"), name="TODO-02-b.md")
+        self.assertEqual(self.faults(), ["unresolved dependency: D00 T01 §9", "unknown/duplicate Needs (gpu): D00 T02 §1"])
+
     def test_validate_all_prints_every_fault_and_exits_2(self):
         self.write(todo_file([(1, "A", 42, "gpu", "--")]))
         shutil.copytree(SCRIPTS, self.root / "scripts")

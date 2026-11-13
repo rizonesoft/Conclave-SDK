@@ -992,15 +992,19 @@ def graph(root=ROOT, faults=None):
         front, body = parsed
         required = {"schema_version", "id", "domain", "status", "title"}
         optional = {"depends_on", "frozen", "track", "superseded_by"}
-        fields_ok = check(required <= front.keys() and not front.keys() - required - optional,
-                          f"frontmatter fields: {relative}", relative)
-        if not fields_ok and not required <= front.keys():
-            continue  # the checks below read every required field
-        check(front["schema_version"] == "1" and front["domain"] == path.parent.name,
-              f"schema/domain mismatch: {relative}", relative)
-        check(re.fullmatch(r"[a-z][a-z0-9-]{0,58}[a-z0-9]", front["id"])
-              and front["id"] not in ids, f"invalid/duplicate id: {relative}", relative)
-        check(front["status"] in STATUSES, f"unknown status: {relative}", relative)
+        check(required <= front.keys() and not front.keys() - required - optional,
+              f"frontmatter fields: {relative}", relative)
+        # Collecting, a missing field skips only the checks that read it (without the list the check above raised).
+        if {"schema_version", "domain"} <= front.keys():
+            check(front["schema_version"] == "1" and front["domain"] == path.parent.name,
+                  f"schema/domain mismatch: {relative}", relative)
+        if "id" in front:
+            check(re.fullmatch(r"[a-z][a-z0-9-]{0,58}[a-z0-9]", front["id"])
+                  and front["id"] not in ids, f"invalid/duplicate id: {relative}", relative)
+        if "status" in front:
+            check(front["status"] in STATUSES, f"unknown status: {relative}", relative)
+        else:
+            incomplete.add(relative)  # no status to hold the stamps against
         frozen = front.get("frozen", "false")
         check(frozen in {"true", "false"}, f"frozen must be true or false: {relative}", relative)
         file_deps = attempt(relative, json.loads, front.get("depends_on", "[]"))
@@ -1009,7 +1013,8 @@ def graph(root=ROOT, faults=None):
             file_deps = []
             incomplete.add(relative)
         check(re.search(r"\A\n*# TODO-\d{2} -- .+\n", body) is not None, f"missing TODO heading: {relative}", relative)
-        ids[front["id"]] = relative
+        if "id" in front:
+            ids[front["id"]] = relative
         xrefs = attempt(relative, xrefs_of, body, d, t)
         adjacency = attempt(relative, adjacency_of, body, relative, d, t)
         files[relative] = (front, file_deps, [], [] if xrefs is FAILED else xrefs,
@@ -1143,7 +1148,7 @@ def graph(root=ROOT, faults=None):
                 unregistered[ref] = section_body  # its deferrals are still checked below
                 continue  # a section with no usable Phase or dependencies is not a node of the graph
             sections[ref] = Section(ref, relative, n, h[2], int(phase), deps, needs, done,
-                                    front["status"], section_body, receipt, int(rows[n][1]),
+                                    front.get("status", ""), section_body, receipt, int(rows[n][1]),
                                     tuple(sorted(set(needs) & waiting)))
             files[relative][2].append(ref)
     for relative, (front, file_deps, refs, xrefs, adjacency) in files.items():
@@ -1156,7 +1161,7 @@ def graph(root=ROOT, faults=None):
                 incomplete.add(relative)  # it names a file whose own reading failed
             else:
                 check(False, f"unresolved/self file dependency: {relative}", relative)
-        if front["status"] == "superseded":
+        if front.get("status") == "superseded":
             successor = front.get("superseded_by", "")
             check((successor in ids and ids[successor] != relative)
                   or (successor not in ids and not unknown(successor, known_ids)),
@@ -1241,7 +1246,25 @@ def graph(root=ROOT, faults=None):
                 stack.pop()
                 visiting.remove(ref)
                 visited.add(ref)
+    if collect:
+        faults.sort(key=fault_order)  # in file order, whichever pass found each (sort is stable)
     return sections
+
+
+def fault_order(fault):
+    """Where a recorded fault sits in the tree: the configuration and the tree first, then each file by domain and
+    number with its sections in order, a domain's index after its files, the root index last."""
+    where = fault[0]
+    m = re.fullmatch(r"D(\d{2}) T(\d{2}) §(\d+)", where)
+    if m:
+        return (1, int(m[1]), int(m[2]), int(m[3]))
+    m = re.fullmatch(r"todo/(\d{2})-[^/]+/TODO-(\d{2})-[^/]*", where)
+    if m:
+        return (1, int(m[1]), int(m[2]), 0)
+    m = re.fullmatch(r"todo/(\d{2})-[^/]+/INDEX\.md", where)
+    if m:
+        return (1, int(m[1]), 100, 0)
+    return (2, 0, 0, 0) if where == "todo/TODO-00-INDEX.md" else (0, 0, 0, 0)
 
 
 def _index_coverage(root, files, check=None, attempt=None):
@@ -1254,17 +1277,17 @@ def _index_coverage(root, files, check=None, attempt=None):
         def attempt(where, fn, *args):
             return fn(*args)
     root_index = root / "todo/TODO-00-INDEX.md"
-    if not check(root_index.is_file(), "missing todo/TODO-00-INDEX.md", "todo/TODO-00-INDEX.md"):
-        return
-    root_text = attempt("todo/TODO-00-INDEX.md", read_text, root_index)
+    # Collecting, a missing index skips only its own checks: the other index is still read.
+    root_text = attempt("todo/TODO-00-INDEX.md", read_text, root_index) \
+        if check(root_index.is_file(), "missing todo/TODO-00-INDEX.md", "todo/TODO-00-INDEX.md") else FAILED
     by_domain = {}
     for relative in files:
         by_domain.setdefault(Path(relative).parent.name, []).append(Path(relative).name)
     for domain, names in by_domain.items():
         index = root / "todo" / domain / "INDEX.md"
-        if not check(index.is_file(), f"missing domain index: todo/{domain}/INDEX.md", f"todo/{domain}/INDEX.md"):
-            continue
-        text = attempt(f"todo/{domain}/INDEX.md", read_text, index)
+        text = attempt(f"todo/{domain}/INDEX.md", read_text, index) \
+            if check(index.is_file(), f"missing domain index: todo/{domain}/INDEX.md", f"todo/{domain}/INDEX.md") \
+            else FAILED
         for filename in names:
             if text is not FAILED:
                 check(filename in text, f"missing from domain index: {domain}/{filename}", f"todo/{domain}/INDEX.md")
