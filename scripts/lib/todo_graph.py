@@ -2291,20 +2291,6 @@ def unstamp(root, ref, reason, date):
     return revoked
 
 
-def _reopened(root):
-    """The sections that carry an `Unstamped:` note (reopened, awaiting repair), read from the tree alone."""
-    found = set()
-    for todo in sorted((Path(root) / "todo").glob("[0-9][0-9]-*/TODO-*.md")):
-        name = re.fullmatch(r"TODO-(\d{2})-[a-z0-9-]+\.md", todo.name)
-        if name is None:
-            continue
-        text = read_text(todo)
-        for h in re.finditer(r"^## (\d+)\. .+$", text, re.M):
-            if re.search(r"^> \*\*Unstamped:\*\* ", text[h.end():].split("\n## ", 1)[0], re.M):
-                found.add(f"D{todo.parent.name[:2]} T{name[1]} §{h[1]}")
-    return found
-
-
 def _adopted_section(root, ref):
     """An adopted section read from the tree alone (path, number and body, as graph reads its body), so `unstamp`
     reaches one whose body or receipt changed since adoption, which the graph then leaves out."""
@@ -2332,22 +2318,21 @@ FORMAT_FAULT = re.compile(r"(?:missing (?:Phase|Needs|Surface|Test checkpoint|Fi
 
 
 def _faults_elsewhere(root, ref, path):
-    """The tree's faults that reopening `ref` may not leave: every fault but the format faults of `ref` and of the
-    sections reopened for repair before it, and, for `ref` itself, the refusal that told the operator to unstamp."""
+    """The tree's faults that reopening `ref` may not leave: every fault but the format faults of `ref` alone and, for
+    `ref`, the refusal that told the operator to unstamp. A section reopened before it is repaired before the next."""
     faults = []
     graph(root, faults)
-    reopened = _reopened(root) | {ref}
     return [f"{where}: {message}" for where, message in faults
-            if not ((where in reopened and FORMAT_FAULT.match(message))
-                    or (where == ref and message.startswith("adopted section changed since adoption")))]
+            if not (where == ref and (FORMAT_FAULT.match(message)
+                                      or message.startswith("adopted section changed since adoption")))]
 
 
 def _unstamp_adopted(root, ref, reason, date):
     """unstamp for a section frozen at adoption: its stamp lines go whatever their format, its box and Commit item are
     unticked, its `adopted` entry is removed (the `adoption` marker stays, so adoption never runs again), and a receipt
-    it recorded is kept under a revoked name. The section is now open in the project's own format, so the faults
-    reopening exposes in it, and in sections reopened before it, are expected; any other fault, before or after the
-    change, refuses it and rolls everything back, the registry included."""
+    it recorded is kept under a revoked name. The section is now open in the project's own format, so the format
+    faults reopening exposes in it are expected; any other fault, before or after the change (a section reopened
+    earlier and not yet repaired included), refuses it and rolls everything back, the registry included."""
     row = _adopted_section(root, ref)  # from the tree: a changed body or receipt drops it from the graph
     elsewhere = _faults_elsewhere(root, ref, row.path)
     require(not elsewhere, "unstamp refused: reopening " + ref + " leaves faults elsewhere:\n  " +

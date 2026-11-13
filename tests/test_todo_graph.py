@@ -3481,6 +3481,21 @@ class Adoption(Tree):
         self.commit("stamped under the project's own tooling")
         return base
 
+    def repair(self, ref):
+        """Bring a reopened fixture section to the kit's format: its Build order back, and a Phase when it has none."""
+        name = "TODO-01-a.md" if ref == "D00 T01 §1" else "TODO-02-b.md"
+        path = self.root / "todo/00-workspace" / name
+        head, rest = path.read_text(encoding="utf-8").split("## 1. A\n", 1)
+        first, after = rest.split("\n## 2.", 1)
+        if "**Phase:**" not in first:
+            first = first.replace("**Needs:**", "**Phase:** 0\n**Needs:**", 1)
+        first = first.replace("**Surface:** no\n\n", "**Surface:** no\n\n**Build order:**\n\n1. Do it. Done when: it shows."
+                                                    "\n\n", 1)
+        path.write_text(head + "## 1. A\n" + first + "\n## 2." + after, encoding="utf-8")
+        faults = []
+        tg.graph(self.root, faults)
+        self.assertFalse([f for f in faults if f[0] == ref], faults)
+
     def registry(self):
         path = self.root / self.REGISTRY
         return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
@@ -3523,6 +3538,7 @@ class Adoption(Tree):
         self.assertEqual((self.root / self.REGISTRY).read_bytes(), before)
         for ref in ("D00 T01 §1", "D00 T02 §1"):
             tg.unstamp(self.root, ref, "reopened to bring it to the kit's format", "2026-11-14")
+            self.repair(ref)  # each reopened section is brought to the kit's format before the next reopens
         self.assertEqual(self.registry()["adopted"], {})
         with self.assertRaises(tg.Refused):
             tg.adopt_stamps(self.root, {"todo/00-workspace/TODO-02-b.md": 0})
@@ -3650,6 +3666,12 @@ class Adoption(Tree):
         todo_a = self.root / "todo/00-workspace/TODO-01-a.md"
         todo_b = self.root / "todo/00-workspace/TODO-02-b.md"
         tg.unstamp(self.root, "D00 T01 §1", "reopened first", "2026-11-14")  # A's §1 now open, unrepaired
+        before = {p: p.read_bytes() for p in (self.root / "todo").rglob("*.md")}
+        with self.assertRaises(tg.Refused) as ctx:  # an earlier reopened section still waits on repair
+            tg.unstamp(self.root, "D00 T02 §1", "reopen", "2026-11-14")
+        self.assertIn("D00 T01 §1: executable Build order required", str(ctx.exception))
+        self.assertEqual({p: p.read_bytes() for p in before}, before)
+        self.repair("D00 T01 §1")
         for name, path, old, new in (
                 ("same file, another section", todo_b, "## 2. B\n\n**Phase:** 0\n", "## 2. B\n\n"),
                 ("a graph fault in the reopened section", todo_a, "| 1 | §1 | A | -- | [ ] |", "| 1 | §1 | A | §9 | [ ] |")):
