@@ -80,6 +80,10 @@ MAX_ITEMS_PER_SECTION = 30
 MAX_DELIVERABLE_LEN = 88
 # The widest generated plan table row, so the plan never wraps in raw Markdown view.
 MAX_TABLE_ROW = 120
+# The caps a project may set in todo/plan.json (`caps`): each one's default and inclusive bounds. A section needs
+# a work item and its Commit, so items_per_section starts at 2. The review caps belong to the reviewer pin.
+CAPS = {"sections_per_file": (MAX_SECTIONS_PER_FILE, 1, 200), "items_per_section": (MAX_ITEMS_PER_SECTION, 2, 200),
+        "deliverable_len": (MAX_DELIVERABLE_LEN, 20, 200), "table_row": (MAX_TABLE_ROW, 60, 400)}
 
 
 class Refused(ValueError):
@@ -895,7 +899,8 @@ def xrefs_of(body, domain, todo):
 def graph(root=ROOT):
     """Parse every TODO file strictly; a malformed row or section refuses, it is never read as empty."""
     root = Path(root)
-    config = plan_config(root)  # the project's own phase numbers, Needs and waiting Needs (todo/plan.json)
+    config = plan_config(root)  # the project's own phase numbers, Needs, waiting Needs and caps (todo/plan.json)
+    caps = config["caps"]
     phase_list, known_needs, waiting = set(config["phase_list"]), config["needs"], config["waiting"]
     legacy_receipts(root)  # a malformed freeze list refuses even before any old receipt is read against it
     sections, ids, files = {}, {}, {}
@@ -951,8 +956,8 @@ def graph(root=ROOT):
             rows[n] = m
         require(rows and orders == list(range(1, len(rows) + 1)),
                 f"invalid implementation order: {relative}")
-        require(len(rows) <= MAX_SECTIONS_PER_FILE,
-                f"over {MAX_SECTIONS_PER_FILE} sections; split into a new file: {relative}")
+        require(len(rows) <= caps["sections_per_file"],
+                f"over {caps['sections_per_file']} sections; split into a new file: {relative}")
         headings = list(re.finditer(r"^## (\d+)\. (.+)$", body, re.M))
         numbers = [int(m[1]) for m in headings]
         require(all(n >= 1 for n in numbers) and numbers == sorted(set(numbers)) and set(numbers) == set(rows),
@@ -972,8 +977,8 @@ def graph(root=ROOT):
             ref = f"D{d} T{t} §{n}"
             require(ref not in sections, f"duplicate address: {ref}")
             deliverable, title = rows[n][3].strip(), h[2].strip()
-            require(len(deliverable) <= MAX_DELIVERABLE_LEN and len(title) <= MAX_DELIVERABLE_LEN,
-                    f"deliverable/title over {MAX_DELIVERABLE_LEN} chars (wraps raw md table): {ref}")
+            require(len(deliverable) <= caps["deliverable_len"] and len(title) <= caps["deliverable_len"],
+                    f"deliverable/title over {caps['deliverable_len']} chars (wraps raw md table): {ref}")
             phase = field(section_body, "Phase")
             require(phase.isdigit() and int(phase) in phase_list, f"invalid Phase: {ref}")
             raw = field(section_body, "Needs")
@@ -1006,10 +1011,10 @@ def graph(root=ROOT):
                     and all("Done when:" in m[2] for m in build_matches),
                     f"executable Build order required: {ref}")
             checks = re.findall(r"^- \[([ x])\] (.+)$", section_body, re.M)
-            require(2 <= len(checks) <= MAX_ITEMS_PER_SECTION
+            require(2 <= len(checks) <= caps["items_per_section"]
                     and checks[-1][1].startswith("Commit:")
                     and not any(c[1].startswith("Commit:") for c in checks[:-1]),
-                    f"2-{MAX_ITEMS_PER_SECTION} items (at least one work item, Commit last) required: {ref}")
+                    f"2-{caps['items_per_section']} items (at least one work item, Commit last) required: {ref}")
             require("`" in field(section_body, "Test checkpoint"),
                     f"runnable Test checkpoint required: {ref}")
             surface = field(section_body, "Surface")
@@ -1184,15 +1189,21 @@ def markdown_table(headers, rows):
 def plan_config(root=ROOT):
     """The project's plan title, acceptance bar and phase names from todo/plan.json, loaded strictly."""
     path = Path(root) / PLAN_CONFIG
-    if not path.is_file():
-        return {**PLAN_DEFAULTS, "phases": dict(PLAN_DEFAULTS["phases"]), "phase_list": PHASES,
-                "needs": frozenset(NEEDS), "waiting": frozenset(WAITING)}
     try:
-        data = json.loads(read_text(path))
+        data = json.loads(read_text(path)) if path.is_file() else {}  # no file: every default
     except ValueError as exc:
         raise Refused(f"unreadable {PLAN_CONFIG}: {exc}") from None
-    require(isinstance(data, dict) and set(data) <= {"title", "acceptance", "phases", "phase_list", "needs", "waiting"},
-            f"{PLAN_CONFIG} may only hold title, acceptance, phases, phase_list, needs and waiting")
+    require(isinstance(data, dict)
+            and set(data) <= {"title", "acceptance", "phases", "phase_list", "needs", "waiting", "caps"},
+            f"{PLAN_CONFIG} may only hold title, acceptance, phases, phase_list, needs, waiting and caps")
+    given = data.get("caps", {})
+    require(isinstance(given, dict), f"{PLAN_CONFIG}: caps must be an object naming caps")
+    for name, value in given.items():
+        require(name in CAPS, f"{PLAN_CONFIG}: caps names {name!r}, which is not one of {', '.join(CAPS)}")
+        low, high = CAPS[name][1:]
+        require(isinstance(value, int) and not isinstance(value, bool) and low <= value <= high,
+                f"{PLAN_CONFIG}: caps {name} must be a whole number from {low} to {high}")
+    caps = {name: given.get(name, default) for name, (default, _, _) in CAPS.items()}
     lists = {}
     for key, default in (("needs", NEEDS), ("waiting", WAITING)):
         value = data.get(key, sorted(default))
@@ -1225,7 +1236,7 @@ def plan_config(root=ROOT):
         names[int(key)] = name.strip()
     return {"title": title.strip(), "acceptance": acceptance.strip() if acceptance else None, "phases": names,
             "phase_list": tuple(sorted(phase_list, key=phase_rank)), "needs": lists["needs"],
-            "waiting": lists["waiting"]}
+            "waiting": lists["waiting"], "caps": caps}
 
 
 def projection(root=ROOT):
@@ -1257,8 +1268,9 @@ def projection(root=ROOT):
         )
         # Every row is padded to the widest cell, so one long title wraps the whole table: name the widest section.
         widest = max(phase_rows, key=lambda row: len(row.title) + len(", ".join(row.needs)))
-        require(all(len(line) <= MAX_TABLE_ROW for line in table),
-                f"plan table for phase {phase} wraps raw md ({max(len(line) for line in table)} > {MAX_TABLE_ROW} "
+        require(all(len(line) <= config["caps"]["table_row"] for line in table),
+                f"plan table for phase {phase} wraps raw md ({max(len(line) for line in table)} > "
+                f"{config['caps']['table_row']} "
                 f"chars); shorten the heading and Deliverable of {widest.ref} (title {len(widest.title)} chars)")
         lines += table
         lines.append("")

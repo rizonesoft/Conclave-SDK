@@ -337,6 +337,89 @@ class Graph(Tree):
         self.plan(phase_list=[0, 99, 150])
         self.refuses("prerequisite in later phase")
 
+    @staticmethod
+    def items(text, count):
+        """A todo_file text whose sections each hold count checklist items (count - 1 work items, then Commit)."""
+        return text.replace("- [ ] Work.\n", "".join(f"- [ ] Work {i}.\n" for i in range(1, count)))
+
+    def test_caps_that_cannot_be_read_are_refused(self):
+        # D03 T01 §3: the size caps come from todo/plan.json, whole numbers within each cap's bounds.
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        for label, caps, said in (("caps not an object", [40], "caps must be an object"),
+                                  ("caps as text", "40", "caps must be an object"),
+                                  ("an unknown cap", {"widest": 40}, "caps names 'widest'"),
+                                  ("a review cap", {"pass_cap": 45}, "caps names 'pass_cap'"),
+                                  ("a boolean", {"items_per_section": True}, "caps items_per_section must be"),
+                                  ("a fraction", {"items_per_section": 40.5}, "caps items_per_section must be"),
+                                  ("a string", {"deliverable_len": "100"}, "caps deliverable_len must be"),
+                                  *((f"{name} at {value}", {name: value}, f"caps {name} must be a whole number "
+                                     f"from {low} to {high}")
+                                    for name, (_, low, high) in tg.CAPS.items() for value in (low - 1, high + 1))):
+            with self.subTest(label):
+                self.plan(caps=caps)
+                with self.assertRaises(tg.Refused) as ctx:
+                    tg.graph(self.root)
+                self.assertIn("todo/plan.json: " + said, str(ctx.exception))
+
+    def test_each_cap_takes_its_bounds_and_a_cap_left_out_keeps_its_default(self):
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        for end in (1, 2):
+            caps = {name: bounds[end] for name, bounds in tg.CAPS.items()}
+            self.plan(caps=caps)
+            self.assertEqual(tg.plan_config(self.root)["caps"], caps)
+            self.assertEqual(len(tg.graph(self.root)), 1)
+        self.plan(caps={"items_per_section": 40})
+        self.assertEqual(tg.plan_config(self.root)["caps"],
+                         {"sections_per_file": 55, "items_per_section": 40, "deliverable_len": 88, "table_row": 120})
+        (self.root / "todo/plan.json").unlink()
+        self.assertEqual(tg.plan_config(self.root)["caps"], {name: d for name, (d, _, _) in tg.CAPS.items()})
+
+    def test_items_per_section_is_read_from_the_plan(self):
+        self.write(self.items(todo_file([(1, "A", 0, "none", "--")]), 40))
+        self.refuses("2-30 items")
+        self.plan(caps={"items_per_section": 39})
+        self.refuses("2-39 items")
+        self.plan(caps={"items_per_section": 40})
+        self.assertEqual(len(tg.graph(self.root)), 1)
+        self.write(self.items(todo_file([(1, "A", 0, "none", "--")]), 4))
+        self.plan(caps={"items_per_section": 3})  # a lowered cap
+        self.refuses("2-3 items")
+        self.write(todo_file([(1, "A", 0, "none", "--")]))  # Work and Commit: the fewest a section holds
+        self.plan(caps={"items_per_section": 2})
+        self.assertEqual(len(tg.graph(self.root)), 1)
+
+    def test_deliverable_len_is_read_from_the_plan_for_the_cell_and_the_heading(self):
+        long = "D" * 100
+        for label, text in (
+                ("both", todo_file([(1, long, 0, "none", "--")])),
+                ("the cell", todo_file([(1, "A", 0, "none", "--")], table_override=f"| 1 | §1 | {long} | -- | [ ] |")),
+                ("the heading", todo_file([(1, long, 0, "none", "--")], table_override="| 1 | §1 | A | -- | [ ] |"))):
+            with self.subTest(label):
+                self.write(text)
+                (self.root / "todo/plan.json").unlink(missing_ok=True)
+                self.refuses("deliverable/title over 88 chars")
+                self.plan(caps={"deliverable_len": 99})
+                self.refuses("deliverable/title over 99 chars")
+                self.plan(caps={"deliverable_len": 100})
+                self.assertEqual(len(tg.graph(self.root)), 1)
+
+    def test_sections_per_file_is_read_from_the_plan(self):
+        self.write(todo_file([(n, f"S{n}", 0, "none", "--") for n in range(1, 61)]))
+        self.refuses("over 55 sections")
+        self.plan(caps={"sections_per_file": 59})
+        self.refuses("over 59 sections")
+        self.plan(caps={"sections_per_file": 60})
+        self.assertEqual(len(tg.graph(self.root)), 60)
+
+    def test_table_row_is_read_from_the_plan_and_a_longer_deliverable_needs_it(self):
+        self.write(todo_file([(1, "D" * 100, 0, "none", "--")]))
+        self.plan(caps={"deliverable_len": 100})
+        with self.assertRaises(tg.Refused) as ctx:
+            tg.projection(self.root)
+        self.assertIn("> 120 chars", str(ctx.exception))
+        self.plan(caps={"deliverable_len": 100, "table_row": 160})
+        self.assertIn("D" * 100, tg.projection(self.root))
+
     def test_a_project_names_its_own_needs_and_which_wait(self):
         # D03 T01 §2: Needs values and waiting Needs come from todo/plan.json.
         self.write(todo_file([(1, "A", 0, "gpu", "--"), (2, "B", 0, "owner-decision", "--")]))
