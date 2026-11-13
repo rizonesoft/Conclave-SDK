@@ -2179,9 +2179,11 @@ def adopt_stamps(root=ROOT, phase_map=None, date=None):
     phase_list = set(config["phase_list"])
     phase_map = {} if phase_map is None else phase_map
     require(isinstance(phase_map, dict) and all(
-        isinstance(k, str) and isinstance(v, int) and not isinstance(v, bool) and v in phase_list
-        for k, v in phase_map.items()),
-            f"the phase map must be a JSON object from a section reference or TODO file path to a phase in phase_list")
+        isinstance(k, str) and (re.fullmatch(r"D\d{2} T\d{2} §[1-9]\d*", k)
+                                or re.fullmatch(r"todo/\d{2}-[^/]+/TODO-\d{2}-[a-z0-9-]+\.md", k))
+        and isinstance(v, int) and not isinstance(v, bool) and v in phase_list for k, v in phase_map.items()),
+            f"the phase map must be a JSON object from a section reference (DNN TNN §N) or TODO file path "
+            f"(todo/NN-domain/TODO-NN-name.md) to a phase in phase_list")
     head = _git(root, "rev-parse", "HEAD", timeout=30)
     require(head.returncode == 0, f"git repository with HEAD commit required to adopt stamps: {root}")
     head_sha = head.stdout.decode("ascii", "replace").strip()
@@ -2207,12 +2209,12 @@ def adopt_stamps(root=ROOT, phase_map=None, date=None):
                 problems.append(f"{ref}: its stamp names no commit on this branch ({stamp[1].strip()[:60]})")
                 continue
             own = re.search(r"^\*\*Phase:\*\*\s*(\S+)\s*$", section, re.M)
+            if own and not (own[1].isdigit() and int(own[1]) in phase_list):  # checked even under an override
+                problems.append(f"{ref}: its Phase {own[1]} is not in phase_list")
+                continue
             phase = phase_map.get(ref, phase_map.get(relative))
             if phase is None and own:
-                phase = int(own[1]) if own[1].isdigit() and int(own[1]) in phase_list else None
-                if phase is None:
-                    problems.append(f"{ref}: its Phase {own[1]} is not in phase_list")
-                    continue
+                phase = int(own[1])
             if phase is None:
                 problems.append(f"{ref}: no phase (no Phase field, and the phase map names neither it nor its file)")
                 continue
@@ -2320,12 +2322,24 @@ def _adopted_section(root, ref):
     return types.SimpleNamespace(ref=ref, path=files[0].relative_to(root).as_posix(), number=int(m[3]), body=body)
 
 
+# The faults a section reopened from adoption may carry until it is repaired: its own format, written in the
+# project's way (D03 T01 §9). Anything else, a graph fault or a file's own, is never excused.
+FORMAT_FAULT = re.compile(r"(?:missing (?:Phase|Needs|Surface|Test checkpoint|Fidelity|Job|Treatment|Chrome) field"
+                          r"|invalid Phase: |unknown/duplicate Needs|executable Build order required: "
+                          r"|malformed checklist item: |\d+-\d+ items \(at least one work item, Commit last\) required: "
+                          r"|runnable Test checkpoint required: |Surface must be yes/no: |deliverable/title over "
+                          r"|Freeze check must match frozen frontmatter: )")
+
+
 def _faults_elsewhere(root, ref, path):
-    """The tree's faults outside `ref`, its file's own lines and the sections reopened for repair."""
+    """The tree's faults that reopening `ref` may not leave: every fault but the format faults of `ref` and of the
+    sections reopened for repair before it, and, for `ref` itself, the refusal that told the operator to unstamp."""
     faults = []
     graph(root, faults)
-    allowed = _reopened(root) | {ref, path}
-    return [f"{where}: {message}" for where, message in faults if where not in allowed]
+    reopened = _reopened(root) | {ref}
+    return [f"{where}: {message}" for where, message in faults
+            if not ((where in reopened and FORMAT_FAULT.match(message))
+                    or (where == ref and message.startswith("adopted section changed since adoption")))]
 
 
 def _unstamp_adopted(root, ref, reason, date):
@@ -2402,8 +2416,10 @@ def _unstamp_adopted(root, ref, reason, date):
 
 
 def suspects(root, ref):
-    """Stamped sections that depend on ref, directly or through other sections: suspect while ref is open."""
-    rows = graph(root)
+    """Stamped sections that depend on ref, directly or through other sections: suspect while ref is open. Read in
+    collecting mode, so a section reopened from adoption in its own format (its faults waiting on repair) still
+    names its dependents."""
+    rows = graph(root, [])
     found, frontier = [], [ref]
     while frontier:
         current = frontier.pop()

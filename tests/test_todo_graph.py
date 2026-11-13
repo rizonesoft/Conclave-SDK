@@ -3542,6 +3542,23 @@ class Adoption(Tree):
         tg.adopt_stamps(self.root, {"todo/00-workspace/TODO-02-b.md": 0, "D00 T02 §1": 3})  # the section's own key wins
         self.assertEqual(self.registry()["adopted"]["D00 T02 §1"]["phase"], 3)
 
+    def test_a_bad_body_phase_or_map_key_refuses_even_under_an_override(self):
+        self.build()
+        path = self.root / "todo/00-workspace/TODO-01-a.md"
+        path.write_text(path.read_text(encoding="utf-8").replace("## 1. A\n\n**Phase:** 0", "## 1. A\n\n**Phase:** 9", 1),
+                        encoding="utf-8")
+        with self.assertRaises(tg.Refused) as ctx:  # the override cannot hide the body's own bad Phase
+            tg.adopt_stamps(self.root, {"todo/00-workspace/TODO-02-b.md": 0, "D00 T01 §1": 0})
+        self.assertIn("D00 T01 §1: its Phase 9 is not in phase_list", str(ctx.exception))
+        self.assertIsNone(self.registry())
+        path.write_text(path.read_text(encoding="utf-8").replace("## 1. A\n\n**Phase:** 9", "## 1. A\n\n**Phase:** 0", 1),
+                        encoding="utf-8")
+        for key in ("D00 T1 §1", "todo/x.md", "00-workspace/TODO-02-b.md"):
+            with self.subTest(key):
+                with self.assertRaises(tg.Refused):
+                    tg.adopt_stamps(self.root, {key: 0})
+                self.assertIsNone(self.registry())
+
     def plan_json(self, **keys):
         (self.root / "todo/plan.json").write_text(json.dumps(keys), encoding="utf-8")
 
@@ -3626,6 +3643,43 @@ class Adoption(Tree):
         self.assertIn("adopted its stamps already", second.stderr)
         (self.root / "phases.json").write_text("{not json", encoding="utf-8")
         self.assertEqual(subprocess.run(cli, capture_output=True).returncode, 2)
+
+    def test_reopening_excuses_only_format_faults_of_reopened_sections(self):
+        self.build()
+        tg.adopt_stamps(self.root, {"todo/00-workspace/TODO-02-b.md": 0})
+        todo_a = self.root / "todo/00-workspace/TODO-01-a.md"
+        todo_b = self.root / "todo/00-workspace/TODO-02-b.md"
+        tg.unstamp(self.root, "D00 T01 §1", "reopened first", "2026-11-14")  # A's §1 now open, unrepaired
+        for name, path, old, new in (
+                ("same file, another section", todo_b, "## 2. B\n\n**Phase:** 0\n", "## 2. B\n\n"),
+                ("a graph fault in the reopened section", todo_a, "| 1 | §1 | A | -- | [ ] |", "| 1 | §1 | A | §9 | [ ] |")):
+            with self.subTest(name):
+                good = path.read_text(encoding="utf-8")
+                path.write_text(good.replace(old, new, 1), encoding="utf-8")
+                before = {p: p.read_bytes() for p in (self.root / "todo").rglob("*.md")}
+                registry = (self.root / self.REGISTRY).read_bytes()
+                with self.assertRaises(tg.Refused) as ctx:
+                    tg.unstamp(self.root, "D00 T02 §1", "reopen", "2026-11-14")
+                self.assertIn("leaves faults elsewhere", str(ctx.exception))
+                self.assertEqual({p: p.read_bytes() for p in before}, before)
+                self.assertEqual((self.root / self.REGISTRY).read_bytes(), registry)
+                path.write_text(good, encoding="utf-8")
+        tg.unstamp(self.root, "D00 T02 §1", "reopen", "2026-11-14")  # only format faults left: accepted
+
+    def test_the_cli_says_the_plan_waits_for_the_repair(self):
+        self.build()
+        tg.adopt_stamps(self.root, {"todo/00-workspace/TODO-02-b.md": 0})
+        shutil.copytree(SCRIPTS, self.root / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
+        plan = self.root / "todo/implementation-plan.md"
+        before = plan.read_bytes() if plan.exists() else None
+        result = subprocess.run([sys.executable, str(self.root / "scripts/todo-graph.py"), "unstamp", "D00 T01 §1",
+                                 "--reason", "reopen", "--date", "2026-11-14"], capture_output=True, text=True,
+                                encoding="utf-8")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("plan not synchronized: repair first:", result.stdout)
+        self.assertIn("  D00 T01 §1: executable Build order required: D00 T01 §1", result.stdout)
+        self.assertNotIn("plan synchronized\n", result.stdout)
+        self.assertEqual(plan.read_bytes() if plan.exists() else None, before)
 
     def test_unstamp_reopens_an_adopted_section_that_changed_or_whose_row_is_open(self):
         # D03 T01 §9 round 1: the refusal says to unstamp; unstamp must reach the changed section, and an open box.

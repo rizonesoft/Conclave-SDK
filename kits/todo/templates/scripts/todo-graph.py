@@ -119,7 +119,14 @@ def main():
         return 0
     if args.command == "unstamp":
         revoked = unstamp(ROOT, args.ref, args.reason, args.date)
-        print(f"unstamped {args.ref}; receipt kept as {revoked}; plan synchronized")
+        left = []
+        graph(ROOT, left)
+        if left:  # a section reopened from adoption, in the project's own format: the plan syncs once it is repaired
+            print(f"unstamped {args.ref}; receipt kept as {revoked}; plan not synchronized: repair first:")
+            for where, message in left:
+                print(f"  {where}: {message}")
+        else:
+            print(f"unstamped {args.ref}; receipt kept as {revoked}; plan synchronized")
         for ref in suspects(ROOT, args.ref):
             print(f"suspect until {args.ref} re-stamps: {ref}")
         return 0
