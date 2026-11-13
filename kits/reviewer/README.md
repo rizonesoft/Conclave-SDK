@@ -6,17 +6,18 @@ Additive overlay that gives a project independent review by a different model: o
 
 | Work written by | `--writer` | Reviewer |
 | --- | --- | --- |
-| Claude Code | `claude` | GPT-6 Astra through Codex |
-| Antigravity | `agy` (or `gemini`) | GPT-6 Astra through Codex |
-| Codex | `codex` | none yet: add a reviewer of another family and a `codex` route |
+| Claude Code | `claude` | `astra`: GPT-6 Astra through `codex` |
+| Antigravity | `agy` (or `gemini`) | `astra`: GPT-6 Astra through `codex` |
+| Codex | `codex` | `hydrogen`: Gemini 4 Hydrogen through `agy` |
 
 A route names exactly one reviewer, never of the writer's own model family: the pin refuses anything else. `agy` and `gemini` are one writer under two names, so a route under either serves both and a pin may not route both. A reviewer that cannot review is no review, and no other reviewer runs in its place.
 
 | Reviewer | CLI | Model | Effort |
 | --- | --- | --- | --- |
 | `astra` | `codex exec`, read-only sandbox | `gpt-6-astra` | `medium` |
+| `hydrogen` | `agy`, plan mode in its sandbox | `gemini-4-hydrogen-medium` | in the model name |
 
-The dispatcher can also run a reviewer through Claude Code (`cli = "claude"`, plan mode) or Antigravity (`cli = "agy"`, plan mode in its sandbox, with the effort in the model name: `gemini-4-argon-medium`). Change reviewers, models, routes or the schedule only in `.conclave/reviewers.toml`. The pin is a starting point the project owns once installed, not a link back to the SDK.
+Claude writes and never reviews, so no installed route names a Claude reviewer, though the dispatcher can run one (`cli = "claude"`, plan mode). An Antigravity reviewer carries its effort in the model name, which must agree with the schedule's, and its model must be one of Google's (`gemini-...`): `agy` also runs other families' models, and a route never names the writer's own family. Change reviewers, models, routes or the schedule only in `.conclave/reviewers.toml`. The pin is a starting point the project owns once installed, not a link back to the SDK.
 
 ## The review schedule
 

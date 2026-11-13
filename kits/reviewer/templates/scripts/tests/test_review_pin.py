@@ -382,6 +382,16 @@ class ThreePass(Cases):
         load(ROTATION.replace('cli = "codex"\nmodel = "gpt-6-astra"\neffort = "medium"',
                               'cli = "agy"\nmodel = "gemini-4-argon-high"'))
 
+    def test_an_antigravity_reviewer_runs_a_google_model(self):
+        # D00 T02 §1: agy also serves Anthropic and OpenAI models, so its reviewer's family is its model's.
+        agy = THREE_PASS.replace('cli = "codex"\nmodel = "gpt-6-astra"\neffort = "medium"',
+                                 'cli = "agy"\nmodel = "gemini-4-hydrogen-medium"')
+        self.assertEqual(load(agy)["reviewers"]["astra"]["model"], "gemini-4-hydrogen-medium")
+        for model in ("claude-opus-5-5-medium", "gpt-oss-120b-medium"):
+            with self.subTest(model):
+                self.refuses(agy.replace("gemini-4-hydrogen-medium", model), "reviewer 'astra'",
+                             "must be one of Google's (gemini-...)", model)
+
     def test_the_lens_block_asks_each_lens_its_question_and_for_its_verdict_line(self):
         schedule = load(THREE_PASS)["schedule"]
         plan = review_pin.scheduled(schedule, "round", [], False, ["src/kernel/a.c"])

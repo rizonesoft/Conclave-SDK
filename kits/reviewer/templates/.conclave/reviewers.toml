@@ -24,12 +24,21 @@ cli = "codex"
 model = "gpt-6-astra"
 effort = "medium"
 
-# Claude Code and Antigravity write, and Astra reviews both. Codex's own work
-# needs a reviewer of another family: add one (cli = "claude" or "agy") and a
-# `codex = ["<name>"]` route. Until then a review of Codex work refuses.
+# Gemini 4 Hydrogen through the Antigravity CLI (`--mode plan --sandbox`),
+# reviewing Codex's work. Antigravity carries the effort in the model name and
+# runs other families' models too, so the model is a Gemini one at the effort
+# every [schedule] pass sets below (`agy models` lists them).
+[reviewers.hydrogen]
+cli = "agy"
+model = "gemini-4-hydrogen-medium"
+
+# All three writers are routed: Astra (OpenAI) reviews Claude Code and
+# Antigravity, and Hydrogen (Google) reviews Codex. Claude writes and never
+# reviews, so no route names a Claude reviewer.
 [routes]
 claude = ["astra"]
 agy = ["astra"]
+codex = ["hydrogen"]
 
 # The review schedule: three passes per section. Decision 2026-11-11: new
 # installs start on three-pass, the shape the projects built on this SDK run.

@@ -174,5 +174,25 @@
     "exit": 2,
     "ok": false,
     "error_prefix": "[routes] names both agy and gemini"
+  },
+  "valid-three-routes.toml": {
+    "exit": 0,
+    "ok": true,
+    "routes": {
+      "claude": [
+        "astra"
+      ],
+      "agy": [
+        "astra"
+      ],
+      "codex": [
+        "hydrogen"
+      ]
+    }
+  },
+  "refused-agy-foreign-model.toml": {
+    "exit": 2,
+    "ok": false,
+    "error": "reviewer 'gemini': an Antigravity reviewer's model must be one of Google's (gemini-...), since agy also runs other families' models: claude-opus-5-5-high"
   }
 }

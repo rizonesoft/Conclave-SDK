@@ -65,6 +65,8 @@ class CheckPinContract(unittest.TestCase):
                     self.assertEqual(list(report["reviewers"]), list(pin["reviewers"]), f"{name}: reviewer order")
                     self.assertEqual(report["routes"], pin["routes"], f"{name}: routes")
                     self.assertEqual(list(report["routes"]), list(pin["routes"]), f"{name}: route order")
+                    if "routes" in want:  # a fixture that names its routes: the three-route template pin (D00 T02 §1)
+                        self.assertEqual(report["routes"], want["routes"], f"{name}: the routes it promises")
                     self.assertEqual(set(report["clis"]), {"codex", "agy", "claude"}, name)
                     self.assertTrue(all(isinstance(v, bool) for v in report["clis"].values()), name)
                 elif "error_prefix" in want:
@@ -98,6 +100,44 @@ class CheckPinContract(unittest.TestCase):
         self.assertIsNone(json_object(run.stdout), run.stdout)
         self.assertIsNotNone(json_object(check_pin(DISPATCHER, PINS / "valid-shipped.toml").stdout))
 
+
+class ShippedPinDocumentation(unittest.TestCase):
+    """D00 T02 §1: what the kit's README and the three skill copies say about the installed pin is the pin's own:
+    every route with its reviewer, and every reviewer with its CLI and model, so a deleted or stale row fails."""
+
+    KIT = ROOT / "kits/reviewer"
+    PIN = tomllib.loads((KIT / "templates/.conclave/reviewers.toml").read_text(encoding="utf-8"))
+
+    @staticmethod
+    def rows(text):
+        return [[c.strip() for c in line.strip("|").split("|")] for line in text.splitlines() if line.startswith("| ")]
+
+    def row_for_writer(self, text, writer, where):
+        # A writer row names the agent in words first; the reviewer inventory's rows open with a backticked name.
+        found = [r for r in self.rows(text) if len(r) >= 3 and r[1].startswith(f"`{writer}`") and not r[0].startswith("`")]
+        self.assertEqual(len(found), 1, f"{where}: one row for the writer {writer}")
+        return " | ".join(found[0])
+
+    def test_every_route_and_reviewer_is_named_where_the_kit_documents_them(self):
+        self.assertEqual(set(self.PIN["routes"]), {"claude", "agy", "codex"})
+        readme = (self.KIT / "README.md").read_text(encoding="utf-8")
+        skills = {agent: (self.KIT / "templates" / agent / "skills/independent-review/SKILL.md").read_text(encoding="utf-8")
+                  for agent in (".claude", ".agents", ".codex")}
+        for writer, (name,) in self.PIN["routes"].items():
+            reviewer = self.PIN["reviewers"][name]
+            with self.subTest(writer=writer):
+                row = self.row_for_writer(readme, writer, "README")
+                self.assertIn(f"`{name}`", row)
+                self.assertIn(f"`{reviewer['cli']}`", row)
+                for agent, text in skills.items():
+                    row = self.row_for_writer(text, writer, agent)
+                    for part in (name, reviewer["model"], reviewer["cli"]):
+                        self.assertIn(f"`{part}`", row, f"{agent}: {writer}")
+        for name, reviewer in self.PIN["reviewers"].items():
+            with self.subTest(reviewer=name):
+                (row,) = [r for r in self.rows(readme) if r[0] == f"`{name}`"]
+                self.assertIn(f"`{reviewer['model']}`", row[2])
+                self.assertIn(reviewer["cli"], row[1])
 
 if __name__ == "__main__":
     unittest.main()
