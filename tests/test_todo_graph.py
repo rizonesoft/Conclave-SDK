@@ -1,5 +1,6 @@
 """Tests for scripts/lib/todo_graph.py and scripts/todo-graph.py: the graph refuses malformed work and stamps only real evidence."""
 import importlib.util
+import io
 import json
 import os
 import pathlib
@@ -8,6 +9,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import types
 import unittest
 import unittest.mock
@@ -688,15 +691,23 @@ class Graph(Tree):
         after = self.faults()
         self.assertNotIn("invalid Phase: D00 T01 §1", after)
         self.assertFalse(any("not on this branch" in m for m in after), after)
-        # After a call that raised, the next one reads fresh too.
-        (self.root / "todo/plan.json").write_text('{"phase_list": [0]}\n', encoding="utf-8")
-        with self.assertRaises(tg.Refused):
-            tg.graph(self.root)
-        self.assertIsNone(tg._RUN_CACHE)
+        # After a call that raised, the next one reads a new commit and a new configuration fresh too.
+        self.git("reset", "-q", "--hard", "HEAD~1")  # back to the tree commit: the stamp commit off the branch
         (self.root / "todo/plan.json").write_text('{"phase_list": [0, 12]}\n', encoding="utf-8")
-        with self.assertRaises(tg.Refused) as ctx:
+        with self.assertRaises(tg.Refused) as first:
             tg.graph(self.root)
-        self.assertNotIn("invalid Phase", str(ctx.exception))
+        self.assertIn("not on this branch", str(first.exception))
+        self.assertIsNone(tg._RUN_CACHE)
+        self.git("merge", "-q", "--no-edit", "side")
+        (self.root / "todo/plan.json").write_text('{"phase_list": [0]}\n', encoding="utf-8")
+        with self.assertRaises(tg.Refused) as second:
+            tg.graph(self.root)
+        self.assertEqual(str(second.exception), "invalid Phase: D00 T01 §1")  # the new plan.json, read fresh
+        (self.root / "todo/plan.json").write_text('{"phase_list": [0, 12]}\n', encoding="utf-8")
+        with self.assertRaises(tg.Refused) as third:
+            tg.graph(self.root)
+        self.assertNotIn("not on this branch", str(third.exception))  # the new HEAD, read fresh
+        self.assertNotIn("invalid Phase", str(third.exception))
 
     def test_a_file_read_at_a_commit_answers_as_git_show_does(self):
         self.write(todo_file([(1, "A", 0, "none", "--")]))
@@ -719,7 +730,49 @@ class Graph(Tree):
         finally:
             tg._RUN_CACHE = None
             tg._end_run(cache)
-        self.assertTrue(all(p.poll() is not None for p in cache["batch"].values()), "a batch process outlived its run")
+        self.assertTrue(all(e["proc"].poll() is not None for e in cache["batch"].values()), "a batch outlived its run")
+
+    def fake_batch(self, stdout):
+        """A stand-in for `git cat-file --batch` whose output is `stdout` (a file-like object)."""
+        proc = mock.Mock()
+        proc.stdin, proc.stdout = io.BytesIO(), stdout
+        proc.wait.return_value = 0
+        proc.kill.side_effect = getattr(stdout, "killed", None)  # killing a process ends its output
+        return proc
+
+    def batch_read(self, stdout, timeout=30):
+        """_git's `show` through a fake batch process inside a run, and how long it took; then the real answer."""
+        self.write(todo_file([(1, "A", 0, "none", "--")]))
+        self.git("add", "-A")
+        self.git("commit", "-qm", "x")
+        spec = self.git("rev-parse", "HEAD") + ":todo/00-workspace/TODO-01-a.md"
+        tg._RUN_CACHE = cache = {"git": {}, "config": {}, "batch": {}, "history": {}}
+        real_popen, started = subprocess.Popen, time.monotonic()
+        try:
+            fakes = [self.fake_batch(stdout)]  # the batch process; git show itself (the fallback) runs for real
+            with mock.patch.object(tg.subprocess, "Popen", lambda *a, **k: fakes.pop() if fakes else real_popen(*a, **k)):
+                answer = tg._git(self.root, "show", spec, timeout=timeout)
+        finally:
+            tg._RUN_CACHE = None
+            tg._end_run(cache)
+        plain = real_popen(["git", "-C", str(self.root), "show", spec], stdout=subprocess.PIPE).communicate()[0]
+        return answer, plain, time.monotonic() - started, cache
+
+    def test_a_batch_reply_shorter_than_announced_is_answered_by_git_itself(self):
+        answer, plain, _, cache = self.batch_read(io.BytesIO(b"abc blob 100\nabc"))
+        self.assertEqual((answer.returncode, answer.stdout), (0, plain))  # the real file, not a truncated one
+        self.assertTrue(all(e["broken"] for e in cache["batch"].values()))
+
+    def test_a_batch_reply_that_never_comes_is_bounded_by_the_timeout(self):
+        gate = threading.Event()
+        stalled = mock.Mock()
+        stalled.readline.side_effect = lambda: (gate.wait(5), b"")[1]  # stalls past the timeout until killed
+        stalled.killed = gate.set
+        answer, plain, took, cache = self.batch_read(stalled, timeout=0.5)
+        gate.set()
+        self.assertEqual((answer.returncode, answer.stdout), (0, plain))
+        self.assertLess(took, 4)
+        self.assertTrue(all(e["broken"] for e in cache["batch"].values()))
 
     def test_a_repeated_stamp_or_freeze_field_is_recorded_not_raised(self):
         # D03 T01 §5 (completion): one duplicate Verified line in Impossible OS ended validate --all for the whole tree.

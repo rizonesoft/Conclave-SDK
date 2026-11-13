@@ -12,9 +12,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import queue
 import re
 import subprocess
 import tempfile
+import threading
 
 ROOT = Path(__file__).resolve().parents[2]
 PLAN = "todo/implementation-plan.md"  # the default; a project names its own in todo/plan.json (`layout.plan`)
@@ -283,24 +285,78 @@ def _git(root, *args, timeout=60):
 
 def _batch_show(root, spec, timeout):
     """`git show <rev>:<path>` for a file, read through the graph call's one `git cat-file --batch`; None (run git
-    itself) for anything that is not a file there, so a tree, a missing path or a bad name answers as `show` does."""
+    itself) for anything that is not a file there, so a tree, a missing path or a bad name answers as `show` does.
+    A reply that does not come within `timeout`, or comes short of the size it announced, retires the batch process
+    and is answered by git itself, so a stalled or dying process never turns into a hang or a truncated file."""
     batches = _RUN_CACHE["batch"]
-    proc = batches.get(str(root))
-    if proc is None:
-        proc = batches[str(root)] = subprocess.Popen(["git", "-C", str(root), "cat-file", "--batch"],
-                                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                                     stderr=subprocess.DEVNULL)
-    if "\n" in spec or proc.poll() is not None:
+    entry = batches.get(str(root))
+    if entry is None:
+        proc = subprocess.Popen(["git", "-C", str(root), "cat-file", "--batch"], stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        replies = queue.Queue()
+        reader = threading.Thread(target=_batch_reader, args=(proc, replies), daemon=True)
+        reader.start()
+        entry = batches[str(root)] = {"proc": proc, "replies": replies, "reader": reader, "broken": False}
+    if "\n" in spec or entry["broken"]:
         return None
-    proc.stdin.write(spec.encode("utf-8") + b"\n")
-    proc.stdin.flush()
-    header = proc.stdout.readline().split()
-    if len(header) != 3 or not header[2].isdigit():
-        return None  # "<spec> missing" or "ambiguous": git show says why
-    data = proc.stdout.read(int(header[2]) + 1)[:-1]
-    if header[1] != b"blob":
+    try:
+        entry["proc"].stdin.write(spec.encode("utf-8") + b"\n")
+        entry["proc"].stdin.flush()
+        reply = entry["replies"].get(timeout=timeout)
+    except (OSError, ValueError, queue.Empty):
+        reply = None
+    if reply is None:
+        _retire(entry)
         return None
+    kind, data = reply
+    if kind != b"blob":
+        return None  # "missing", "ambiguous" or not a file: git show says why
     return subprocess.CompletedProcess(["git", "-C", str(root), "show", spec], 0, data, b"")
+
+
+def _batch_reader(proc, replies):
+    """Read `cat-file --batch` replies into `replies`: (type, content) for each, (b"missing", b"") for a name it
+    cannot read, and None, ending, at end of output or a reply shorter than the size its header announced."""
+    try:
+        while True:
+            header = proc.stdout.readline()
+            if not header.endswith(b"\n"):
+                break
+            parts = header.split()
+            if len(parts) == 3 and parts[2].isdigit():
+                size = int(parts[2])
+                data = proc.stdout.read(size + 1)
+                if len(data) != size + 1 or not data.endswith(b"\n"):
+                    break
+                replies.put((parts[1], data[:-1]))
+            else:
+                replies.put((b"missing", b""))
+    except (OSError, ValueError):
+        pass
+    replies.put(None)
+
+
+def _retire(entry):
+    """Stop a batch process that failed a reply: every later read in the call goes to git itself."""
+    entry["broken"] = True
+    proc = entry["proc"]
+    proc.kill()  # unhealthy: no graceful close, which a stalled process would not answer
+    proc.wait()
+    proc.stdout.close()
+    entry["reader"].join(timeout=10)
+
+
+def _stop_batch(entry):
+    proc = entry["proc"]
+    try:
+        proc.stdin.close()
+        proc.wait(timeout=10)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        proc.kill()
+        proc.wait()
+    finally:
+        proc.stdout.close()
+        entry["reader"].join(timeout=10)
 
 
 def _from_history(root, older, newer, timeout):
@@ -334,15 +390,9 @@ def _from_history(root, older, newer, timeout):
 
 def _end_run(cache):
     """Close the graph call's `cat-file --batch` processes; one that does not stop is killed, so none outlives it."""
-    for proc in cache["batch"].values():
-        try:
-            proc.stdin.close()
-            proc.wait(timeout=10)
-        except (OSError, subprocess.TimeoutExpired):
-            proc.kill()
-            proc.wait()
-        finally:
-            proc.stdout.close()
+    for entry in cache["batch"].values():
+        if not entry["broken"]:
+            _stop_batch(entry)
 
 
 def is_ancestor(root, older, newer):
