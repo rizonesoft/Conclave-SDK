@@ -1841,6 +1841,73 @@ class KillWaitTest(unittest.TestCase):
             self.assertEqual(run.end_run_processes("tag-1", 4242, grace=2), [])
 
 
+STUB_LAUNCHER = '''import json, os, sys
+with open(os.environ["STUB_REPORT"], "w") as fh:
+    json.dump({"argv": sys.argv[1:], "cwd": os.getcwd()}, fh)
+sys.exit(int(os.environ.get("STUB_EXIT", "0")))
+'''
+
+
+@unittest.skipUnless(os.name == "posix" and shutil.which("bash"), "a desktop entry is Linux's, and its command bash's")
+class DesktopEntryTest(unittest.TestCase):
+    """D02 T02 §10: the entry `shortcut` writes is run as a desktop runs it: its Exec, from its Path."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        base = Path(self._tmp.name)
+        self.project = base / "My Proj's"  # a space and a quote
+        (self.project / ".conclave").mkdir(parents=True)
+        (self.project / "docs").mkdir()
+        (self.project / "docs" / "unattended-prompt.md").write_text(PROMPT, encoding="utf-8")
+        (self.project / ".conclave" / "unattended.json").write_text(json.dumps(
+            {**PROFILE, "runners": {"agy": {"model": "gemini-4-carbon-medium", "effort": "medium"}}}), encoding="utf-8")
+        self.apps = base / "applications"
+        self.report = base / "report.json"
+        self.run = load_run_module()
+
+    def activate(self, entry, exit_code=0):
+        """Run the entry's Exec from its Path, the way a desktop runs a Terminal=true entry, with Enter typed."""
+        fields = dict(line.split("=", 1) for line in entry.read_text(encoding="utf-8").splitlines() if "=" in line)
+        scripts = Path(fields["Path"]) / "scripts"
+        scripts.mkdir(exist_ok=True)
+        (scripts / "unattended-run.py").write_text(STUB_LAUNCHER, encoding="utf-8")
+        return subprocess.run(__import__("shlex").split(fields["Exec"]), cwd=fields["Path"], input="\n",
+                              capture_output=True, text=True, timeout=60, creationflags=windowless(),
+                              env={**os.environ, "STUB_REPORT": str(self.report), "STUB_EXIT": str(exit_code)})
+
+    def test_the_entry_starts_the_run_on_its_runner_from_the_project(self):
+        out = __import__("io").StringIO()
+        self.assertEqual(self.run.shortcut(self.project, "agy", self.apps, False, out), 0)
+        entry = self.apps / "demo-agy-campaign.desktop"
+        fields = dict(line.split("=", 1) for line in entry.read_text(encoding="utf-8").splitlines() if "=" in line)
+        self.assertEqual((fields["Name"], fields["Terminal"], fields["Path"]), ("demo Carbon campaign", "true",
+                                                                               str(self.project)))
+        done = self.activate(entry)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        got = json.loads(self.report.read_text(encoding="utf-8"))
+        self.assertEqual((got["argv"], Path(got["cwd"])), (["start", "--agent", "agy"], self.project))
+
+    def test_a_failed_start_says_so_and_waits_for_enter(self):
+        self.run.shortcut(self.project, None, self.apps, False, __import__("io").StringIO())
+        done = self.activate(self.apps / "demo-claude-campaign.desktop", exit_code=1)
+        self.assertIn("The run did not start: the reason is above. Press Enter to close.", done.stdout)
+        self.assertEqual(done.returncode, 0, "the wait for Enter did not run")
+
+    def test_remove_takes_this_projects_entries_only(self):
+        for agent in ("claude", "agy"):
+            self.run.shortcut(self.project, agent, self.apps, False, __import__("io").StringIO())
+        other = self.apps / "other-claude-campaign.desktop"
+        other.write_text("[Desktop Entry]\nX-Conclave-Project=/elsewhere\n", encoding="utf-8")
+        (self.project / ".conclave" / "unattended.json").write_text("{broken", encoding="utf-8")  # the profile changed
+        self.assertEqual(self.run.shortcut(self.project, None, self.apps, True, __import__("io").StringIO()), 0)
+        self.assertEqual([p.name for p in self.apps.iterdir()], ["other-claude-campaign.desktop"])
+
+    def test_a_runner_the_profile_lacks_is_refused(self):
+        with self.assertRaisesRegex(self.run.UsageError, "no runner for codex"):
+            self.run.shortcut(self.project, "codex", self.apps, False, __import__("io").StringIO())
+
+
 class ScheduledStartTest(unittest.TestCase):
     def test_a_start_from_a_scheduled_task_is_refused_however_it_was_reached(self):
         # D02 T02 §9: the automations kit marks every process a scheduled task runs; the launcher owns the refusal.

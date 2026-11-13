@@ -8,6 +8,7 @@
     python3 scripts/unattended-run.py attach [--watch]   attach to the run's tmux session (--watch: read-only)
     python3 scripts/unattended-run.py stop       end the guard, the tmux sessions and the whole process group
     python3 scripts/unattended-run.py heartbeat [--once]   nudge an idle run; record a dead one as ended (start runs it)
+    python3 scripts/unattended-run.py shortcut [--agent A] [--dir D] [--remove]   a desktop entry that starts the run
 
 The run lives in the detached tmux session `<name>-run` (the profile's `name`), so it outlives the terminal that
 started it. `build/unattended-run.json` (the run marker) names the run: its agent session, its tmux sessions and its
@@ -1002,6 +1003,51 @@ def stop(root: Path, out=None) -> int:
     return 0
 
 
+# The desktop entries `shortcut` writes (D02 T02 §10), one per runner: the name each runner's launcher carries.
+RUNNER_LABEL = {"claude": "Claude", "codex": "Codex", "agy": "Carbon"}
+DESKTOP_MARK = "X-Conclave-Project"
+
+
+def desktop_entry(root: Path, profile: dict, agent: str) -> str:
+    """A desktop entry that opens a terminal in the project and starts the run on `agent`; on a failure it says so and
+    waits for Enter, so the reason stays on screen. The project path is the entry's `Path`, never part of `Exec`,
+    so no character in it needs quoting."""
+    label = f"{profile['name']} {RUNNER_LABEL[agent]} campaign"
+    command = (f"python3 scripts/unattended-run.py start --agent {agent} || "
+               "{ echo 'The run did not start: the reason is above. Press Enter to close.'; read -r _; }")
+    return ("[Desktop Entry]\nType=Application\n"
+            f"Name={label}\nComment=Start the {profile['name']} unattended run on {RUNNER_LABEL[agent]}\n"
+            f"Path={root}\nExec=bash -lc \"{command}\"\nTerminal=true\n{DESKTOP_MARK}={root}\n")
+
+
+def shortcut(root: Path, agent: str | None, folder: Path | None, remove: bool, out=None) -> int:
+    """Write the project's desktop entry for `agent` (the profile's own by default), or with `remove` delete every
+    entry this project wrote, found by its mark whatever the profile now says."""
+    out = out or sys.stdout
+    folder = folder or Path.home() / ".local" / "share" / "applications"
+    if remove:
+        removed = 0
+        for path in sorted(folder.glob("*-campaign.desktop")) if folder.is_dir() else []:
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            if f"\n{DESKTOP_MARK}={root}\n" in text:
+                path.unlink()
+                removed += 1
+                print(f"shortcut: removed {path}", file=out)
+        print(f"shortcut: {removed} entr{'y' if removed == 1 else 'ies'} of {root} removed", file=out)
+        return 0
+    try:
+        profile = lib.runner(lib.load_profile(root), agent)
+    except lib.ProfileError as exc:
+        raise UsageError(str(exc)) from None
+    path = folder / f"{profile['name']}-{profile['agent']}-campaign.desktop"
+    lib.write_atomic(path, desktop_entry(root, profile, profile["agent"]))
+    print(f"shortcut: wrote {path}", file=out)
+    return 0
+
+
 def _ship_limit(text: str) -> int:
     """`--ships N`: a whole number above 0."""
     if not re.fullmatch(r"[0-9]+", text or "") or int(text) <= 0:
@@ -1023,6 +1069,10 @@ def main(argv: list[str] | None = None) -> int:
     attach_parser = sub.add_parser("attach")
     attach_parser.add_argument("--watch", action="store_true", help="attach read-only")
     sub.add_parser("stop")
+    shortcut_parser = sub.add_parser("shortcut")
+    shortcut_parser.add_argument("--agent", choices=lib.AGENTS, help="the runner (default: the profile's own agent)")
+    shortcut_parser.add_argument("--dir", help="where to write it (default: ~/.local/share/applications)")
+    shortcut_parser.add_argument("--remove", action="store_true", help="remove this project's entries")
     beat_parser = sub.add_parser("heartbeat")
     beat_parser.add_argument("--once", action="store_true", help="one tick, then exit")
     args = parser.parse_args(argv)
@@ -1039,6 +1089,8 @@ def main(argv: list[str] | None = None) -> int:
             return attach(root, args.watch)
         if args.command == "heartbeat":
             return heartbeat(root, once=args.once)
+        if args.command == "shortcut":
+            return shortcut(root, args.agent, Path(args.dir).resolve() if args.dir else None, args.remove)
         return stop(root)
     except UsageError as exc:
         print(f"unattended-run: {exc}", file=sys.stderr)
