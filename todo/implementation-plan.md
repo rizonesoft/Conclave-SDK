@@ -65,7 +65,7 @@ Sections: 19 | Checklist items: 133
 
 ### Phase 3: Todo graph that takes a project's shape
 
-Sections: 15 | Checklist items: 97
+Sections: 15 | Checklist items: 99
 
 | Status | Reference   | Deliverable                                               | Needs | Items |
 | ------ | ----------- | --------------------------------------------------------- | ----- | ----- |
@@ -79,7 +79,7 @@ Sections: 15 | Checklist items: 97
 | [x]    | D03 T01 §6  | Lift or leave decision for each RasterFold graph command  | none  | 7     |
 | [ ]    | D03 T01 §9  | Pre-adoption stamps frozen at adoption                    | none  | 8     |
 | [ ]    | D03 T01 §10 | Ready rows filtered by the hosts this session reaches     | none  | 5     |
-| [ ]    | D03 T01 §11 | Root index that lists domains                             | none  | 5     |
+| [ ]    | D03 T01 §11 | Root index that lists domains                             | none  | 7     |
 | [x]    | D03 T01 §12 | Validation git calls cached per run                       | none  | 6     |
 | [x]    | D03 T01 §13 | Section checks run when its table row cannot be read      | none  | 6     |
 | [ ]    | D03 T01 §14 | Frozen files listed by `query frozen`                     | none  | 4     |
@@ -155,4 +155,4 @@ Sections: 3 | Checklist items: 16
 
 Progress: 46/84 verified sections, 16 ready to run now.
 
-Checklist: 387/597 items completed (includes Commit items).
+Checklist: 387/599 items completed (includes Commit items).

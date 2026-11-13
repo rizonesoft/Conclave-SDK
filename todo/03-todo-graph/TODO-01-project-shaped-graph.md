@@ -357,7 +357,7 @@ A project that adopts the kit arrives with sections it stamped under its own too
 
 > **Started:** 2026-11-13T10:59:44Z
 
-Both adopting projects keep `todo/TODO-00-INDEX.md` at domain altitude, as the kit's own `todo/README.md` describes it ("root index: domain order + active work"), while the validator demands every TODO file in it (report rows R20 and I17: 33 and 221 files). A project chooses which.
+Both adopting projects keep `todo/TODO-00-INDEX.md` at domain altitude, as the kit's own `todo/README.md` describes it ("root index: domain order + active work"), while the validator demands every TODO file in it (report rows R20 and I33: 33 and 223 files). A project chooses which.
 
 **Phase:** 3
 **Needs:** none
@@ -370,9 +370,13 @@ Both adopting projects keep `todo/TODO-00-INDEX.md` at domain altitude, as the k
 
 - [ ] Accept `root_index` in `layout` in `plan_config` of `todo_graph.py`: `files` (the default, today's rule) or `domains`. Done when: tests refuse another string and a non-string, each naming `todo/plan.json` and `layout`, and a `layout` without it keeps `files`.
 - [ ] Under `domains`, require in `_index_coverage` each domain's index link (`NN-domain/INDEX.md`) in the root index in place of each file, the domain indexes still listing every file. Done when: a test validates a domains-only root index, refuses one missing a domain, and refuses a domain index missing a file; under `files` the existing index tests pass unchanged.
+- [ ] Prove the key, not its presence, picks the rule: one tree validates under an explicit `domains`, is refused under an explicit `files` until its file entries are restored to the root index, and then validates. Done when: the test runs all three states.
+- [ ] Make the creating and closing workflows follow the key: `create-todo/SKILL.md` (`:33`, list the new file in the root index) and `process-todo-file/SKILL.md` (`:44`, move its root entry to Completed) under `.claude/`, `.agents/` and `.codex/` in `kits/todo/templates/` say that under `layout.root_index` `domains` the root index lists the domain's `INDEX.md` once and only the domain index lists the file, then `python forge.py self-sync`. Done when: a guard test finds `layout.root_index` within 200 characters of each of the six instructions.
 - [ ] Accept the `root_index` member in `kits/reviewer/templates/scripts/review_layout.py`, which checks only the names it does not read. Done when: the readers' table in `tests/test_todo_graph.py` accepts it in both readers.
 - [ ] Document `layout.root_index` in `kits/todo/templates/todo/README.md`, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
 - [ ] Commit: `todo: a root index that lists domains`
+
+**Corrected 2026-11-13 (plan review):** the creating and closing skills of all three agents follow the key, an explicit `files` is tested against an explicit `domains` on one tree, and the evidence row is I33 (223 files), not I17.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; reading the file rule under `domains` makes the domains-only test fail.
 
