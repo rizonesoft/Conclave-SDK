@@ -420,6 +420,24 @@ class Graph(Tree):
         self.plan(caps={"deliverable_len": 100, "table_row": 160})
         self.assertIn("D" * 100, tg.projection(self.root))
 
+    def test_the_kit_guidance_names_the_configured_cap_wherever_it_states_a_default(self):
+        # D03 T01 §3: the round and the completion review each found a guidance line still stating 88 or 30 as fixed.
+        # Each default cap a line states has the todo/plan.json key that overrides it within 80 characters (a key
+        # elsewhere on the line missed the completion's case); index Scope cells, which no cap governs, are exempt.
+        kit = REPO / "kits/todo/templates"
+        guidance = [kit / "todo/README.md", kit / "docs/todo-workflow.md"] + [
+            kit / agent / "skills" / skill / "SKILL.md" for agent in (".claude", ".agents", ".codex")
+            for skill in ("add-todo", "create-todo", "groom-plan")]
+        rules = ((re.compile(r"(?:<= |most |under |over )`?88\b"), "deliverable_len"),
+                 (re.compile(r"\b(?:max|to|most) 30\b"), "items_per_section"),
+                 (re.compile(r"\b55 sections\b"), "sections_per_file"))
+        stale = [f"{path.relative_to(kit)}:{n}: {m[0]!r} without {key}" for path in guidance
+                 for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+                 for pattern, key in rules for m in pattern.finditer(line)
+                 if key not in line[max(0, m.start() - 80):m.end() + 80]
+                 and "Scope" not in line[max(0, m.start() - 40):m.start()]]
+        self.assertEqual(stale, [], "guidance states a default cap without naming its todo/plan.json key")
+
     def test_a_project_names_its_own_needs_and_which_wait(self):
         # D03 T01 §2: Needs values and waiting Needs come from todo/plan.json.
         self.write(todo_file([(1, "A", 0, "gpu", "--"), (2, "B", 0, "owner-decision", "--")]))
