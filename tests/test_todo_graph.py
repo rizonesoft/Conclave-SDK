@@ -442,6 +442,8 @@ class Graph(Tree):
     # readers take it: the graph's plan_config and the reviewer kit's scripts/review_layout.py.
     LAYOUTS = ((None, "docs/reviews"), ({}, "docs/reviews"), ({"receipts": "reviews"}, "reviews"),
                ({"receipts": "docs/kept/reviews"}, "docs/kept/reviews"), ({"receipts": "a_b.c-d"}, "a_b.c-d"),
+               ({"receipts": ".claude/overnight/reviews"}, ".claude/overnight/reviews"),  # Impossible OS's own
+               ({"receipts": "docs/./reviews"}, "layout receipts must be"), ({"receipts": ".."}, "layout receipts must be"),
                ([], "layout must be an object"), ("reviews", "layout must be an object"),
                ({"plan": "docs/plan.md"}, "layout names 'plan'"), ({"receipts": 3}, "layout receipts must be"),
                ({"receipts": ""}, "layout receipts must be"), ({"receipts": "/reviews"}, "layout receipts must be"),

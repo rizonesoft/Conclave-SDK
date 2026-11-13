@@ -79,7 +79,9 @@ PLAN_CONFIG = "todo/plan.json"
 # two to one table of cases).
 RECEIPTS = "docs/reviews"
 LAYOUT = ("receipts",)
-LAYOUT_PART = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*")  # a folder name: no `.`, `..`, drive, backslash or space
+# A folder name: letters, digits, `_`, `.` and `-`, a leading dot too (`.claude`), but never `.` or `..`, and so no drive,
+# backslash or space.
+LAYOUT_PART = re.compile(r"(?!\.\.?$)[A-Za-z0-9_.-]+")
 PLAN_DEFAULTS = {"title": "Implementation plan", "acceptance": None, "phases": {99: "Manual, operator only"}}
 MAX_SECTIONS_PER_FILE = 55
 MAX_ITEMS_PER_SECTION = 30

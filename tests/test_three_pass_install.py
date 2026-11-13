@@ -207,20 +207,20 @@ class FreshInstall(unittest.TestCase):
     @unittest.skipUnless(os.environ.get("CONCLAVE_FULL_TESTS"), "slow: set CONCLAVE_FULL_TESTS=1 for the full suite")
     def test_a_section_stamps_and_unstamps_in_a_configured_receipts_folder(self):
         # D03 T01 §4: todo/plan.json's layout.receipts moves every receipt and findings file the kits write.
-        (self.repo / "todo/plan.json").write_text('{"layout": {"receipts": "reviews"}}\n', encoding="utf-8")
+        (self.repo / "todo/plan.json").write_text('{"layout": {"receipts": ".claude/overnight/reviews"}}\n', encoding="utf-8")
         self.git("add", "-A")  # into the first commit, the one whose Started line the build began at
         self.git("commit", "-q", "--amend", "--no-edit")
         self.start = self.git("rev-parse", "HEAD")
-        self.record = "reviews/00-core/D00-T01-s1.md"
-        self.three_pass_to_stamp("reviews")
+        self.record = ".claude/overnight/reviews/00-core/D00-T01-s1.md"  # Impossible OS's folder
+        self.three_pass_to_stamp(".claude/overnight/reviews")
         self.assertFalse((self.repo / "docs/reviews").exists(), "nothing is written to the default folder")
         self.commit("the stamp")
         unstamp = self.run_script("scripts/todo-graph.py", "unstamp", "D00 T01 §1", "--reason", "an audit",
                                   "--date", "2026-11-13")
         self.assertEqual(unstamp.returncode, 0, unstamp.stdout + unstamp.stderr)
-        self.assertIn("receipt kept as reviews/d00-t01-s1.revoked-2026-11-13.json", unstamp.stdout)
-        self.assertTrue((self.repo / "reviews/d00-t01-s1.revoked-2026-11-13.json").is_file())
-        self.assertFalse((self.repo / "reviews/d00-t01-s1.json").exists())
+        self.assertIn("receipt kept as .claude/overnight/reviews/d00-t01-s1.revoked-2026-11-13.json", unstamp.stdout)
+        self.assertTrue((self.repo / ".claude/overnight/reviews/d00-t01-s1.revoked-2026-11-13.json").is_file())
+        self.assertFalse((self.repo / ".claude/overnight/reviews/d00-t01-s1.json").exists())
         self.assertIn("| 1 | §1 |", (self.repo / "todo/00-core/TODO-01-a.md").read_text(encoding="utf-8"))
         self.assertRegex((self.repo / "todo/00-core/TODO-01-a.md").read_text(encoding="utf-8"),
                          r"\| 1 \| §1 \|[^\n]*\[ \] \|", "the section is reopened")
