@@ -1,0 +1,85 @@
+{
+  "ref": "D03 T01 \u00a72",
+  "title": "Needs values and waiting Needs read from `todo/plan.json`",
+  "implementation_sha": "2b3bd843a297779439e53180309d9609422a9277",
+  "date": "2026-11-13",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/03-todo-graph/D03-T01-s2.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "CI tests.yml run 43355425532 on 7c72615 (2b3bd84 plus records, the INDEX row fix and the alive-helper fix) -> quick suite (Windows) success, full suite (Linux) success, kit suites (Linux, tmux) success",
+    "python -m unittest discover -s tests -p test_todo_graph.py -> Ran 161 tests OK (skipped=96); with CONCLAVE_FULL_TESTS=1 the waiting stamp test runs and passes",
+    "the stamp left on the constant WAITING (test_a_configured_waiting_need_holds_the_stamp_and_a_later_one_refuses_the_stamped_section) -> the test fails"
+  ],
+  "completion": {
+    "report": "docs/reviews/03-todo-graph/D03-T01-s2.md",
+    "verdict": "complete",
+    "candidate": "2b3bd843a297779439e53180309d9609422a9277",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/03-todo-graph/D03-T01-s2.md",
+    "candidate": "1441fd0f0c8e82cad1970f8d7b45f8d79806f0fc",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "1441fd0f0c8e82cad1970f8d7b45f8d79806f0fc",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}

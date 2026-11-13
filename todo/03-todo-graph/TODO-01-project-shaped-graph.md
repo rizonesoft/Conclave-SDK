@@ -34,7 +34,7 @@ title: "TODO-01 -- Todo graph that takes a project's shape"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Phase list read from `todo/plan.json` | -- | [x] |
-| 2 | §2 | Needs values and waiting Needs read from `todo/plan.json` | §1 | [ ] |
+| 2 | §2 | Needs values and waiting Needs read from `todo/plan.json` | §1 | [x] |
 | 3 | §3 | Caps read from `todo/plan.json` | §1 | [ ] |
 | 4 | §4 | Receipts folder read from `todo/plan.json` | §1 | [ ] |
 | 5 | §7 | Plan path read from `todo/plan.json` | §4 | [ ] |
@@ -90,13 +90,16 @@ RasterFold's Needs are `ffmpeg-jxl`, `network`, `gpu` and four more; the kit acc
 - [x] Use the configured `waiting` list at the three places `WAITING` is read in `todo_graph.py`: the ready query (`disposition`, `:1151`), the stamp (`:1357`) and the stamped-section check (`:1026`). Done when: a test with `waiting` of `["gpu"]` finds a `gpu` section out of `query ready` and refused by `stamp` naming `gpu`, and an `owner-decision` section ready under that same plan; a stamp of the `gpu` section under a `waiting` without `gpu` succeeds, its receipt read back and the graph valid, and adding `gpu` to `waiting` afterwards makes the graph refuse it as a stamped section with a waiting Need. Cheaper substitute: changing only the ready query must fail the stamp assertion.
 - [x] Keep today's behaviour with no keys. Done when: the existing Needs tests pass unchanged.
 - [x] Document both keys in `kits/todo/templates/todo/README.md`, including that "Unattended runs never take" names the default values, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
-- [ ] Commit: `todo: Needs values and waiting Needs come from todo/plan.json`
+- [x] Commit: `todo: Needs values and waiting Needs come from todo/plan.json`
 
 **Corrected 2026-11-13 (plan review):** `none` is reserved, since it is a section's no-Need sentinel; the stamped-section check is proven both ways with a real stamp; and the stamp tests run, not skipped: they are in the full suite (`CONCLAVE_FULL_TESTS=1`), run focused locally and by CI's Linux job.
 
 **Corrected 2026-11-13 (validation):** the line references moved with `§1` (`:969` is `:978`, `:1142` is `disposition` at `:1151`, `:1342` is `:1357`, `:1017` is `:1026`); `disposition` and its callers in the CLI have no configuration, so each section carries its waiting Needs, worked out once from the configured `waiting` when the graph is built.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`, and with `CONCLAVE_FULL_TESTS=1` the waiting stamp tests run and pass; leaving the stamp on the constant `WAITING` makes the `gpu` stamp test fail.
+
+> **Verified:** 2026-11-13 | §2 | 2b3bd843a297779439e53180309d9609422a9277
+> **Review:** `docs/reviews/d03-t01-s2.json`
 
 ## 3. Caps read from `todo/plan.json`
 
