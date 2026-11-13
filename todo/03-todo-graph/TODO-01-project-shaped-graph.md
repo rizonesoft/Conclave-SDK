@@ -206,6 +206,8 @@ RasterFold's graph is ten times the kit's and has commands the kit lacks (roadma
 
 ## 7. Plan path read from `todo/plan.json`
 
+> **Started:** 2026-11-13T04:18:35Z
+
 The generated plan is written to `todo/implementation-plan.md`. A project that keeps it elsewhere states the path once, and the path can never land on a file the plan does not own.
 
 **Phase:** 3
@@ -218,12 +220,14 @@ The generated plan is written to `todo/implementation-plan.md`. A project that k
 2. Cover the hook and the stamp's write and rollback. Done when: the checkpoint passes.
 
 - [ ] Accept `plan` in `layout` in `plan_config` of `todo_graph.py` (default `todo/implementation-plan.md`) under `§4`'s path rules, ending `.md`, and refuse a destination the plan does not own: `todo/plan.json`, `todo/README.md`, any file in a `todo/NN-domain/` folder, any path in the receipts folder, and an existing file that does not begin with the generated plan's header. Done when: tests refuse each before anything is written, naming `todo/plan.json` and `layout`, and a `layout` without `plan` keeps the default.
-- [ ] Use the configured path wherever `PLAN` is read in `todo_graph.py`: `projections` (`:1288`), the stamp's plan write and rollback (`:1433` to `:1485`) and `unstamp`. Done when: a test with `plan` set to `docs/plan.md` finds `plan --sync` writing there, `plan --check` reading there and nothing at `todo/implementation-plan.md`.
-- [ ] Read the plan path in `kits/todo/templates/scripts/hooks/pre-commit` from the graph, for the trigger and the unstaged and untracked checks. Done when: `tests/test_pre_commit_hook.py` refuses, with `plan` set to `docs/plan.md`, a commit staging only a corrupted plan and a commit whose staged plan is stale while an unstaged copy is current, and accepts a fully staged valid commit.
+- [ ] Use the configured path wherever `PLAN` is read in `todo_graph.py`: `projections` (`:1326`), the stamp's plan write and rollback (`:1471`) and `unstamp` (`:1561`). Done when: a test with `plan` set to `docs/plan.md` finds `plan --sync` writing there, `plan --check` reading there and nothing at `todo/implementation-plan.md`.
+- [ ] Read the plan path in `kits/todo/templates/scripts/hooks/pre-commit` from the graph through a `todo-graph.py plan-path` query beside `§4`'s `receipts` (with its `--config -` for the staged `todo/plan.json`), for the trigger and the unstaged and untracked checks. Done when: `tests/test_pre_commit_hook.py` refuses, with `plan` set to `docs/plan.md`, a commit staging only a corrupted plan and a commit whose staged plan is stale while an unstaged copy is current, and accepts a fully staged valid commit.
 - [ ] Name the configured plan path beside the default wherever the todo kit's skills and `docs/todo-workflow.md` name `todo/implementation-plan.md` as a path to read or write. Done when: a guard test like `§3`'s finds every such mention naming `layout.plan` within 80 characters.
 - [ ] Stamp, validate, unstamp and validate again with both `receipts` and `plan` configured in `tests/test_three_pass_install.py`, and fail the stamp's plan write once. Done when: with `CONCLAVE_FULL_TESTS=1` the receipt is read back under the configured folder, the configured plan shows the section verified and then reopened, and after the failed write the TODO file, the receipt folder and the plan hold their bytes from before the stamp. Cheaper substitute: checking the plan's path alone must fail review, because the rollback writes it too.
 - [ ] Document `layout.plan` in `kits/todo/templates/todo/README.md`, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
 - [ ] Commit: `todo: the plan path comes from todo/plan.json`
+
+**Corrected 2026-11-13 (validation):** the references moved with `§4` (`:1288` is `:1326`, the stamp's plan write is `:1471` and `unstamp`'s is `:1561`), and the hook reads the plan path the way `§4` made it read the receipts folder: a CLI query, watched for the staged and the working `todo/plan.json` alike.
 
 **Test checkpoint:** with `CONCLAVE_FULL_TESTS=1` set, `python -m unittest discover -s tests` ends `OK` with the stamp tests run, not skipped; leaving `projections` on the constant `PLAN` makes the `docs/plan.md` test fail, and dropping the `todo/plan.json` destination refusal makes its test fail.
 
