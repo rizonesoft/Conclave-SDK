@@ -38,8 +38,9 @@ title: "TODO-01 -- Todo graph that takes a project's shape"
 | 3 | §3 | Caps read from `todo/plan.json` | §1 | [x] |
 | 4 | §4 | Receipts folder read from `todo/plan.json` | §1 | [x] |
 | 5 | §7 | Plan path read from `todo/plan.json` | §4 | [x] |
-| 6 | §5 | Adoption dry run on RasterFold and Impossible OS | §2, §3, §4, §7 | [ ] |
-| 7 | §6 | Lift or leave decision for each RasterFold graph command | §5 | [ ] |
+| 6 | §8 | Every validation fault in one run | §1 | [ ] |
+| 7 | §5 | Adoption dry run on RasterFold and Impossible OS | §2, §3, §4, §7, §8 | [ ] |
+| 8 | §6 | Lift or leave decision for each RasterFold graph command | §5 | [ ] |
 
 ## 1. Phase list read from `todo/plan.json`
 
@@ -181,13 +182,17 @@ The keys above remove the differences that were known. What else stops each proj
 1. Copy each project's `todo/` tree to scratch with a `plan.json` written for it and run the kit's `validate` until it stops finding new classes of refusal. Done when: each refusal class is counted.
 2. Write the report and file the sections it calls for. Done when: the checkpoint passes.
 
-- [ ] Add `scripts/adoption-dry-run.py` to the SDK (not to a kit): copy a project's `todo/` and `docs/reviews/` into a scratch folder, write a `todo/plan.json` from arguments, run the kit's `validate` with each refusal caught and the offending file set aside, and print the refusal classes with a count and one example each. Done when: a test on a fixture tree with two planted faults reports both classes and writes nothing outside its scratch folder. Cheaper substitute: running `validate` once must fail review, because it stops at the first refusal and reports one class.
+- [ ] Add `scripts/adoption-dry-run.py` to the SDK (not to a kit): clone the project with its history into a scratch folder (`git clone --local`), copy its working tree's `todo/` and its receipts folder over the clone so uncommitted work is measured too, write a `todo/plan.json` from arguments, run `§8`'s every-fault validation through the kit library with the scratch folder as its explicit root, and print the refusal classes (each fault's message with its section, path and numbers taken out) with a count of sections and one example each. Done when: a test on a fixture tree with two planted faults reports both classes and writes nothing outside its scratch folder. Cheaper substitute: running `validate` once must fail review, because it stops at the first refusal and reports one class.
 - [ ] Run it on RasterFold at its current commit with a `plan.json` holding its seven Needs keys and its phase numbers, and record the commit. Done when: the output is saved under the session scratch folder and its classes are listed in the report below, and `git -C ~/projects/RasterFold status --short` is unchanged.
 - [ ] Run it on Impossible OS in the same way. Done when: its classes are listed in the report and its tree is unchanged.
 - [ ] Write `docs/plans/<date>-todo-graph-adoption.md`: for each project, a table of refusal class, count, an example, and the decision (a new `plan.json` key, a kit change, or the project's files change), with RasterFold's host `Requires` gate (`REQUIRES_ALLOWED`, `:264`) and Impossible OS's missing Needs field each given a row. Done when: every class from the two runs has a row and a decision, and the table rows are within 120 characters.
 - [ ] Check the kit's agent guidance against each project's `caps` in the `plan.json` written for it: the guard `test_the_kit_guidance_names_the_configured_cap_wherever_it_states_a_default` in `tests/test_todo_graph.py` covers the stated defaults, so read `add-todo`, `create-todo` and `groom-plan` for any other limit the project's caps contradict. Done when: the report's guidance row names each line that would mislead an agent working that project, or says none (filed from `D03 T01 §3`'s completion review).
 - [ ] File a section through `add-todo` for each decision that is a kit change, in this file, and name each in the report. Done when: `python scripts/todo-graph.py validate` passes and the report's kit-change rows each carry a `D03 T01 §N` reference. Cheaper substitute: a list of follow-ups in the report with no section must fail review.
 - [ ] Commit: `todo: measure what stops RasterFold and Impossible OS adopting the graph`
+
+- [ ] Record what was measured beside the output: the manifest of copied files with their SHA-256 digests, the effective `todo/plan.json`, the project's commit and the SDK commit whose validator ran; and digest the source files before and after. Done when: a fixture test with an already-dirty source file finds its digest in the manifest and the source unchanged after the run, a test of a valid stamped section in the snapshot reports no fault (its history and receipts came along), a genuinely broken receipt is reported, and a fault planted only in the scratch copy is found while the SDK's own tree validates.
+
+**Corrected 2026-11-13 (plan review):** the validator reports every fault itself (new `§8`, `validate --all`), so nothing is set aside and no file's later faults are hidden; the snapshot is a clone with history plus the working tree's `todo/` and receipts folder (Impossible OS's `.claude/overnight/reviews` too), so stamped sections validate as they do at home; the kit library runs with the scratch folder as its explicit root; and the run records its inputs' digests and leaves the sources' bytes as they were.
 
 **Corrected 2026-11-13 (validation):** read at RasterFold `bf30b38` and Impossible OS `9f86baf50` (both trees carry another session's uncommitted work, so the dry run only ever copies from them): RasterFold's seven Needs are free-text phrases (`Idle machine (timing)` 44 times, `ffmpeg with libjxl (benchmarks)` 34, then `Network (downloads)`, `Windows host (build/test)`, `GPU (compute)`, `FPGA board` and `ARM64 device`), so its `plan.json` names each as a slug and the phrases are a refusal class of their own; neither project writes a `**Phase:**` field; Impossible OS keeps its receipts in `.claude/overnight/reviews` (`§4`'s `layout.receipts` takes it) and holds 2,595 sections; and `REQUIRES_ALLOWED` is at `scripts/todo-graph.py:264` as named.
 
@@ -246,6 +251,27 @@ The generated plan is written to `todo/implementation-plan.md`. A project that k
 
 > **Verified:** 2026-11-13 | §7 | f0ec67fb65b61484c6b29682682218188a49324a
 > **Review:** `docs/reviews/d03-t01-s7.json`
+
+## 8. Every validation fault in one run
+
+`validate` stops at the first refusal, so a tree with many faults shows them one at a time. Measuring another project's tree, or repairing a large one, needs every fault at once, the way `review_pin.py --check --all` lists a pin's.
+
+**Phase:** 3
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Give `graph` in `kits/todo/templates/scripts/lib/todo_graph.py` a mode that records each refusal and goes on. Done when: a tree with two faulty files reports both.
+2. Expose it as `validate --all`. Done when: the checkpoint passes.
+
+- [ ] Add a `faults` list argument to `graph` in `todo_graph.py`: given one, a refusal in a file's front matter or tables is recorded with the file's path and the rest of that file skipped, a refusal in a section is recorded with its reference and the next section read, and the cross-file checks run over what was read. Done when: a test tree with two faults in different sections of one file and one in another file reports all three, and `graph` without the list still raises the first.
+- [ ] Count no fault that only follows from another: a reference to a section whose own reading failed is not reported as unknown, and its dependants are not reported for phase order or cycles through it. Done when: a test whose section 2 has a bad Phase and whose section 3 depends on it reports one fault, not two.
+- [ ] Add `validate --all` to `kits/todo/templates/scripts/todo-graph.py`: one line per fault, `<path or reference>: <message>`, in file order, then exit 2; `valid: N sections` and exit 0 when there is none. Done when: a test runs the command on a faulty tree and reads the lines and the exit code, and on the SDK's own tree reads `valid`.
+- [ ] Document `validate --all` in `kits/todo/templates/todo/README.md`, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
+- [ ] Commit: `todo: validate --all reports every fault in one run`
+
+**Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; letting a section's refusal end the run (raising in place of recording) makes the three-fault test fail.
 
 ## Verification
 
