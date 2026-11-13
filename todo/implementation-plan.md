@@ -65,7 +65,7 @@ Sections: 19 | Checklist items: 133
 
 ### Phase 3: Todo graph that takes a project's shape
 
-Sections: 13 | Checklist items: 85
+Sections: 13 | Checklist items: 87
 
 | Status | Reference   | Deliverable                                               | Needs | Items |
 | ------ | ----------- | --------------------------------------------------------- | ----- | ----- |
@@ -76,7 +76,7 @@ Sections: 13 | Checklist items: 85
 | [x]    | D03 T01 §7  | Plan path read from `todo/plan.json`                      | none  | 8     |
 | [x]    | D03 T01 §8  | Every validation fault in one run                         | none  | 7     |
 | [x]    | D03 T01 §5  | Adoption dry run on RasterFold and Impossible OS          | none  | 8     |
-| [ ]    | D03 T01 §6  | Lift or leave decision for each RasterFold graph command  | none  | 5     |
+| [ ]    | D03 T01 §6  | Lift or leave decision for each RasterFold graph command  | none  | 7     |
 | [ ]    | D03 T01 §9  | Pre-adoption stamps frozen at adoption                    | none  | 8     |
 | [ ]    | D03 T01 §10 | Ready rows filtered by the hosts this session reaches     | none  | 5     |
 | [ ]    | D03 T01 §11 | Root index that lists domains                             | none  | 5     |
@@ -153,4 +153,4 @@ Sections: 3 | Checklist items: 16
 
 Progress: 43/82 verified sections, 17 ready to run now.
 
-Checklist: 370/585 items completed (includes Commit items).
+Checklist: 370/587 items completed (includes Commit items).
