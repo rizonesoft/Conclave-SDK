@@ -220,6 +220,46 @@ class Definitions(unittest.TestCase):
         self.assertFalse(check("| calc.py | yes | none | killed |"))
         self.assertTrue(check("| calc.py | yes (1 occurrence) | test_add_sums | killed |"))
 
+        live_project = Path(tempfile.gettempdir()) / "live-proj"
+        wt_project = Path(tempfile.gettempdir()) / "mt-wt"
+        base_entry = {
+            "cwd": str(wt_project),
+            "calc_file": str(wt_project / "calc.py"),
+            "calc_sha256": CALC_SHA256,
+            "add_2_3": 5,
+            "passed": True,
+        }
+        mut_entry = {
+            "cwd": str(wt_project),
+            "calc_file": str(wt_project / "calc.py"),
+            "calc_sha256": MUTATED_CALC_SHA256,
+            "add_2_3": -1,
+            "passed": False,
+        }
+        # Inspection-only (no test execution), baseline-only, mutated-only, unmutated repeat, reversed order,
+        # wrong mutation, and mutating the live checkout instead of a throwaway worktree all fail.
+        self.assertTrue(mutation_trace_problems([], live_project))
+        self.assertTrue(mutation_trace_problems([base_entry], live_project))
+        self.assertTrue(mutation_trace_problems([mut_entry], live_project))
+        self.assertTrue(mutation_trace_problems([base_entry, base_entry], live_project))
+        self.assertTrue(mutation_trace_problems([mut_entry, base_entry], live_project))
+        self.assertTrue(
+            mutation_trace_problems(
+                [base_entry, {**mut_entry, "calc_sha256": "deadbeef", "add_2_3": 0}],
+                live_project,
+            )
+        )
+        self.assertTrue(
+            mutation_trace_problems(
+                [
+                    {**base_entry, "cwd": str(live_project), "calc_file": str(live_project / "calc.py")},
+                    {**mut_entry, "cwd": str(live_project), "calc_file": str(live_project / "calc.py")},
+                ],
+                live_project,
+            )
+        )
+        self.assertEqual(mutation_trace_problems([base_entry, mut_entry], live_project), [])
+
 
 class SubagentRunner(unittest.TestCase):
     def setUp(self):
@@ -421,12 +461,80 @@ class SubagentRunner(unittest.TestCase):
 
 # The known-answer fixture: one module, one passing and one failing test, one commit.
 CALC = "def add(a, b):\n    return a + b\n\n\ndef halve(n):\n    return n / 2\n"
-TESTS = (
-    "import unittest\nimport calc\n\n\nclass CalcTest(unittest.TestCase):\n"
-    "    def test_add_sums(self):\n        self.assertEqual(calc.add(2, 3), 5)\n\n"
-    "    def test_halve_keeps_whole_numbers(self):\n"
-    "        self.assertEqual(calc.halve(7), 3, 'halve must floor odd numbers')\n"
-)
+MUTATED_CALC = CALC.replace("return a + b", "return a - b", 1)
+CALC_SHA256 = hashlib.sha256(CALC.encode("utf-8")).hexdigest()
+MUTATED_CALC_SHA256 = hashlib.sha256(MUTATED_CALC.encode("utf-8")).hexdigest()
+
+
+def build_tests_source(trace_path: Path) -> str:
+    return (
+        "import hashlib\nimport json\nimport os\nimport pathlib\nimport unittest\nimport calc\n\n"
+        f"TRACE = pathlib.Path({str(trace_path)!r})\n\n\n"
+        "class CalcTest(unittest.TestCase):\n"
+        "    def test_add_sums(self):\n"
+        "        got = calc.add(2, 3)\n"
+        "        calc_path = pathlib.Path(calc.__file__).resolve()\n"
+        "        entry = {\n"
+        "            'cwd': str(pathlib.Path.cwd().resolve()),\n"
+        "            'calc_file': str(calc_path),\n"
+        "            'calc_sha256': hashlib.sha256(calc_path.read_bytes()).hexdigest(),\n"
+        "            'add_2_3': got,\n"
+        "            'passed': got == 5,\n"
+        "        }\n"
+        "        with TRACE.open('a', encoding='utf-8') as handle:\n"
+        "            handle.write(json.dumps(entry) + '\\n')\n"
+        "        self.assertEqual(got, 5)\n\n"
+        "    def test_halve_keeps_whole_numbers(self):\n"
+        "        self.assertEqual(calc.halve(7), 3, 'halve must floor odd numbers')\n"
+    )
+
+
+def mutation_trace_problems(entries: list[dict[str, object]], live_project: Path) -> list[str]:
+    """Verify independent runtime execution evidence for mutation-tester: a passing baseline run of `test_add_sums` on
+    unmutated `calc.py` inside a throwaway worktree, followed by a failing run on the requested `return a - b` mutation
+    inside a throwaway worktree, with zero mutated runs against the live checkout."""
+    live_root = live_project.resolve()
+    live_calc = (live_root / "calc.py").resolve()
+    found: list[str] = []
+    if not entries:
+        return ["test_add_sums never executed (inspection-only run)"]
+
+    for entry in entries:
+        calc_file = Path(str(entry.get("calc_file") or "")).resolve()
+        if calc_file == live_calc and entry.get("calc_sha256") != CALC_SHA256:
+            found.append("live checkout calc.py was mutated instead of an isolated worktree")
+
+    baseline_indices = [
+        idx
+        for idx, entry in enumerate(entries)
+        if Path(str(entry.get("cwd") or "")).resolve() != live_root
+        and Path(str(entry.get("calc_file") or "")).resolve() != live_calc
+        and entry.get("calc_sha256") == CALC_SHA256
+        and entry.get("add_2_3") == 5
+        and entry.get("passed") is True
+    ]
+    if not baseline_indices:
+        found.append("no passing baseline execution of test_add_sums observed in an isolated worktree")
+        return found
+
+    first_baseline = baseline_indices[0]
+    mutated_after = [
+        idx
+        for idx, entry in enumerate(entries)
+        if idx > first_baseline
+        and Path(str(entry.get("cwd") or "")).resolve() != live_root
+        and Path(str(entry.get("calc_file") or "")).resolve() != live_calc
+        and entry.get("calc_sha256") == MUTATED_CALC_SHA256
+        and entry.get("add_2_3") == -1
+        and entry.get("passed") is False
+    ]
+    if not mutated_after:
+        found.append(
+            "no failing mutated execution of test_add_sums (add(2, 3) == -1 on mutated calc.py) observed after baseline"
+        )
+    return found
+
+
 SUBJECT = "calc: the known-answer fixture"
 TASKS = {
     "code-explorer": (
@@ -475,10 +583,11 @@ class LiveAgents(unittest.TestCase):
             check=True,
             capture_output=True,
         )
+        cls.trace_path = Path(cls._tmp.name) / "calc-trace.jsonl"
         (cls.project / "tests").mkdir()
         (cls.project / ".gitignore").write_bytes(b"__pycache__/\n*.pyc\n")
         (cls.project / "calc.py").write_bytes(CALC.encode("utf-8"))
-        (cls.project / "tests/test_calc.py").write_bytes(TESTS.encode("utf-8"))
+        (cls.project / "tests/test_calc.py").write_bytes(build_tests_source(cls.trace_path).encode("utf-8"))
         for args in (
             ["init", "-q"],
             ["config", "user.email", "t@example.com"],
@@ -550,6 +659,8 @@ class LiveAgents(unittest.TestCase):
 
     def known_answer(self, agent: str):
         task, right = TASKS[agent]
+        if agent == "mutation-tester":
+            self.trace_path.unlink(missing_ok=True)
         before = hashlib.sha256((self.project / "calc.py").read_bytes()).hexdigest()
         worktrees_before = subprocess.run(
             ["git", "-C", str(self.project), "worktree", "list", "--porcelain"],
@@ -584,7 +695,14 @@ class LiveAgents(unittest.TestCase):
         payload = json.loads(res.stdout)
         reply = payload["response"]
         tool_calls = payload["tool_calls"]
-        self.results[agent] = {
+        trace_entries: list[dict[str, object]] = []
+        if agent == "mutation-tester" and self.trace_path.is_file():
+            trace_entries = [
+                json.loads(line)
+                for line in self.trace_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+        record: dict[str, object] = {
             "model": payload["model"],
             "agent": payload["agent"],
             "elapsed_s": elapsed,
@@ -592,12 +710,29 @@ class LiveAgents(unittest.TestCase):
             "tool_calls": tool_calls,
             "reply": reply[:240],
         }
+        if agent == "mutation-tester":
+            record["observed_runs"] = [
+                {
+                    "isolated_worktree": Path(str(e["cwd"])).resolve() != self.project.resolve(),
+                    "calc_sha256": str(e["calc_sha256"])[:12],
+                    "add_2_3": e["add_2_3"],
+                    "passed": e["passed"],
+                }
+                for e in trace_entries
+            ]
+        self.results[agent] = record
         self.assertEqual(payload["model"], "gemini-4-hydrogen-medium")
         self.assertEqual(payload["agent"], agent)
         self.assertTrue(tool_calls, f"{agent} executed no tools")
         if agent != "code-explorer":
             self.assertIn("run_command", tool_calls, f"{agent} never called run_command: {tool_calls}")
         self.assertTrue(right(reply), f"{agent} wrong answer: {reply}")
+        if agent == "mutation-tester":
+            self.assertEqual(
+                mutation_trace_problems(trace_entries, self.project),
+                [],
+                f"mutation-tester execution trace failed verification: {trace_entries}",
+            )
         self.assertEqual(
             hashlib.sha256((self.project / "calc.py").read_bytes()).hexdigest(),
             before,

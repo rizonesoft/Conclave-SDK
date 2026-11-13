@@ -62,7 +62,7 @@ Measured on `agy` `1.5.8` (`2026-11-13`) from `~/.gemini/antigravity-cli/builtin
 
 ### Live verification (`agy` 1.5.8, 2026-11-13)
 
-Verified with `CONCLAVE_LIVE_AGY=1 python -m unittest tests.test_agy_agents` in a fresh `python forge.py init <scratch> --kit base --agent agy` repository (`agy` `1.5.8` on `2026-11-13`): `agy plugin validate --strict` passed with 0 errors and 0 warnings, a headless session in that install named all five custom subagents in `<subagents>`, and each subagent completed its known-answer fixture task on `gemini-4-hydrogen-medium` with the working tree left clean:
+Verified with `CONCLAVE_LIVE_AGY=1 python -m unittest tests.test_agy_agents` in a fresh `python forge.py init <scratch> --kit base --agent agy` repository (`agy` `1.5.8` on `2026-11-13`): `agy plugin validate --strict` passed with 0 errors and 0 warnings, a headless session in that install named all five custom subagents in `<subagents>`, and each subagent completed its known-answer fixture task on `gemini-4-hydrogen-medium` with the working tree and `git worktree list` left clean (for `mutation-tester`, an out-of-tree runtime trace in `calc-trace.jsonl` recorded `test_add_sums` passing at baseline with `add(2, 3) == 5` on `calc.py` `a8fa2c34867c` and then failing under the `return a - b` mutation with `add(2, 3) == -1` on `51e1d93de298` inside an isolated worktree):
 
 | Subagent | Model (`init.model`) | Elapsed | Live result (`2026-11-13`, `agy` `1.5.8`) |
 | -------- | -------------------- | ------- | ----------------------------------------- |
@@ -70,7 +70,7 @@ Verified with `CONCLAVE_LIVE_AGY=1 python -m unittest tests.test_agy_agents` in 
 | `git-runner` | `gemini-4-hydrogen-medium` | `17.1s` | Reported subject `calc: the known-answer fixture` |
 | `test-runner` | `gemini-4-hydrogen-medium` | `16.7s` | Ran unittest and named `test_halve_keeps_whole_numbers` |
 | `debug-evidence` | `gemini-4-hydrogen-medium` | `26.6s` | Quoted `'halve must floor odd numbers'` and `3.5` vs `3` |
-| `mutation-tester` | `gemini-4-hydrogen-medium` | `40.3s` | Killed `test_add_sums` in a worktree; restored `calc.py` |
+| `mutation-tester` | `gemini-4-hydrogen-medium` | `48.3s` | Observed `5` then `-1` (`test_add_sums`) in worktree |
 
 ## Maintenance
 
