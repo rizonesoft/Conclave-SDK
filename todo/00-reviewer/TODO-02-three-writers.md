@@ -40,6 +40,8 @@ title: "TODO-02 -- Antigravity and Codex as first-class writers"
 
 ## 1. Codex route and an Antigravity reviewer in the template pin
 
+> **Started:** 2026-11-13T14:07:20Z
+
 The template pin leaves Codex's work with no reviewer (roadmap finding 10). It gains a second reviewer of another family and a `codex` route to it.
 
 **Phase:** 4
@@ -52,12 +54,15 @@ The template pin leaves Codex's work with no reviewer (roadmap finding 10). It g
 2. Update the fixtures, the skill tables and the SDK's own pin. Done when: the checkpoint passes.
 
 - [ ] Add a reviewer run through the Antigravity CLI to `kits/reviewer/templates/.conclave/reviewers.toml`, with a model name the installed `agy` lists and, under the three-pass schedule, ending in the effort the schedule sets (the loader refuses one that disagrees, `review_pin.py:136`). Done when: `python kits/reviewer/templates/scripts/review_pin.py --check --pin kits/reviewer/templates/.conclave/reviewers.toml` prints `ok`. Cheaper substitute: a model name not checked against the CLI's own list must fail review.
+- [ ] Refuse in `review_pin.py` an Antigravity reviewer whose model is not one of Google's (a name beginning `gemini-`): `agy` also serves Anthropic and OpenAI models (`claude-opus-5-5-medium`, `gpt-oss-120b-medium` in `agy models` at 1.5.8), so the CLI alone does not say the family, and a Claude model routed for Claude's own work would pass the other-family rule. Done when: tests refuse `cli = "agy"` with a `claude-` and a `gpt-` model, naming the reviewer, and accept `gemini-4-hydrogen-medium`. Cheaper substitute: a comment in the pin asking for a Gemini model must fail review, because the loader is what holds the rule.
 - [ ] Add `codex = ["<that reviewer>"]` under `[routes]` in the template pin and rewrite the comment at `:27` to say all three writers are routed. Done when: a test loads the template pin and finds routes for `claude`, `agy` and `codex`, each to a reviewer of another family.
 - [ ] Add a dispatcher test in `kits/reviewer/templates/scripts/tests/test_review_dispatch.py`: with the template pin and a stub `agy`, `--writer codex` reaches the stub and records its review. Done when: the test fails when the `codex` route is removed.
 - [ ] Add a `--check-pin` fixture for the three-route pin under `tests/fixtures/check-pin/` and extend `tests/test_check_pin_contract.py`. Done when: the contract test passes and the fixture's expected JSON names three routes.
 - [ ] Replace the "none yet" row for Codex in the route table of `independent-review` in the three agent folders (`kits/reviewer/templates/.claude/skills/independent-review/SKILL.md:14` and its two copies) and in `kits/reviewer/README.md`. Done when: `grep -rn "none yet" kits/reviewer` prints nothing.
 - [ ] Commit the SDK's own `.conclave/reviewers.toml` with the same reviewer and route as its own commit, before any other section starts, and run `python forge.py self-sync`. Done when: `python scripts/review-dispatch.py --check-pin` prints `ok` and `git log -1 --format=%s -- .conclave/reviewers.toml` is that commit.
 - [ ] Commit: `reviewer: route Codex work to an Antigravity reviewer`
+
+**Corrected 2026-11-13 (validation):** read at `agy` 1.5.8. Its models carry their effort in the name and every three-pass step runs at `medium`, so the reviewer is `gemini-4-hydrogen-medium` (`agy models`; Hydrogen is the line that offers `xhigh`, the strongest Gemini 4 here). The dispatcher builds the Antigravity command at `review-dispatch.py:217`, not `:210`. `agy` serves Claude and GPT models too, so the other-family rule needs the model's family, not only the CLI's: a micro-step above adds it.
 
 **Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests` and `python -m unittest discover -s tests` both end `OK`; removing the `codex` route makes the new dispatcher test fail.
 
