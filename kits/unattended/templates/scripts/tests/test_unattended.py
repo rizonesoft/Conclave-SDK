@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -248,6 +249,48 @@ class LoadProfileTest(unittest.TestCase):
 
 
 posix_only = unittest.skipUnless(os.name == "posix", "the launch lock is fcntl.flock: Linux and WSL")
+
+
+class RunnersTest(unittest.TestCase):
+    """D02 T02 §10: one profile, several runners (`start --agent`), each with its own model and effort."""
+
+    RUNNERS = {"agy": {"model": "gemini-4-carbon-medium", "effort": "medium"},
+               "codex": {"model": "gpt-6-astra", "effort": "minimal"}}
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        (self.root / ".conclave").mkdir()
+        (self.root / "docs").mkdir()
+        (self.root / "docs" / "run-prompt.md").write_text("Run the plan.\n", encoding="utf-8")
+
+    def load(self, runners):
+        (self.root / ".conclave" / "unattended.json").write_text(json.dumps({**FIXTURE, "runners": runners}),
+                                                                 encoding="utf-8")
+        return unattended.load_profile(self.root)
+
+    def test_a_runner_runs_with_its_own_model_and_effort(self):
+        profile = self.load(self.RUNNERS)
+        self.assertEqual({k: unattended.runner(profile, "agy")[k] for k in ("agent", "model", "effort")},
+                         {"agent": "agy", "model": "gemini-4-carbon-medium", "effort": "medium"})
+        self.assertIs(unattended.runner(profile, None), profile)
+        self.assertIs(unattended.runner(profile, "claude"), profile)
+        with self.assertRaisesRegex(unattended.ProfileError, "runners.agy: the profile names no runner for agy"):
+            unattended.runner({**profile, "runners": {}}, "agy")
+
+    def test_a_runner_the_loader_cannot_run_is_refused_by_name(self):
+        cases = {"an unknown agent": ({"gemini": {"model": "m", "effort": "low"}}, "runners.gemini: is not an agent"),
+                 "a missing model": ({"agy": {"effort": "low"}}, "runners.agy: needs exactly model and effort"),
+                 "an empty model": ({"agy": {"model": " ", "effort": "low"}}, "runners.agy.model"),
+                 "an effort the agent does not take": ({"codex": {"model": "m", "effort": "max"}},
+                                                       "runners.codex.effort: must be one of minimal"),
+                 "an extra key": ({"agy": {"model": "m", "effort": "low", "tools": []}}, "needs exactly"),
+                 "the profile's own agent": ({"claude": {"model": "m", "effort": "low"}}, "the profile's own agent"),
+                 "not an object": ([], "runners: must be an object")}
+        for label, (runners, said) in cases.items():
+            with self.subTest(label), self.assertRaisesRegex(unattended.ProfileError, re.escape(said)):
+                self.load(runners)
 
 
 @posix_only

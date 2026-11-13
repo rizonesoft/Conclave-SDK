@@ -670,6 +670,48 @@ class RunTest(unittest.TestCase):
         self.assertNotIn("resume", call["argv"])
         self.assertNotIn(first, call["argv"])
         self.assertIsNone(self.guard())
+    def with_runners(self):
+        self.write_profile(runners={"agy": {"model": "gemini-4-carbon-medium", "effort": "medium"},
+                                    "codex": {"model": "gpt-6-astra", "effort": "xhigh"}})
+        for folder in (".agents", ".codex"):
+            (self.root / folder).mkdir(exist_ok=True)
+        shutil.copyfile(TODO / ".agents/hooks.json", self.root / ".agents/hooks.json")
+        shutil.copyfile(TODO / ".codex/hooks.json", self.root / ".codex/hooks.json")
+        (self.root / "scripts" / "codex-hook-trust.py").write_text(
+            "print('codex-hook-trust: trusted: .codex/hooks.json:stop:0:0')\n", encoding="utf-8")
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-qm", "two runners")
+
+    def test_start_on_a_runner_uses_its_model_and_effort(self):
+        # D02 T02 §10: the shortcut of each runner starts the run with --agent.
+        self.with_runners()
+        done = self.launcher("start", "--agent", "agy")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("PASS version agy", done.stdout)
+        call = self.calls(1)[0]
+        self.assertEqual((call["cli"], call["argv"][:2]), ("agy", ["--model=gemini-4-carbon-medium", "--effort=medium"]))
+        self.assertEqual(self.marker()["agent"], "agy")
+        self.assertEqual(self.launcher("stop").returncode, 0)
+        done = self.launcher("start", "--agent", "codex")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        call = self.calls(2)[-1]
+        self.assertEqual(call["cli"], "codex")
+        self.assertIn('model_reasoning_effort="xhigh"', call["argv"])
+
+    def test_the_preflight_checks_the_chosen_runner(self):
+        self.with_runners()
+        (self.bin / "agy").unlink()  # the default runner, claude, is ready; the chosen one is not
+        done = self.launcher("start", "--agent", "agy")
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("FAIL tool agy", done.stdout)
+        self.assertFalse(self.log.exists(), "an agent started past a failed preflight")
+
+    def test_an_agent_the_profile_names_no_runner_for_is_refused(self):
+        done = self.launcher("start", "--agent", "codex")
+        self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+        self.assertIn("runners.codex: the profile names no runner for codex", done.stderr)
+        self.assertFalse(self.log.exists())
+
     def test_an_antigravity_run_starts_with_its_prompt(self):
         self.write_profile(agent="agy", model="gemini-4-argon", effort="high")
         git(self.root, "commit", "-qam", "an antigravity run")

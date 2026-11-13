@@ -27,6 +27,9 @@ WHOLE = ("min_disk_gb", "min_ram_gb", "tick_seconds", "idle_minutes", "stall_hou
 KEYS = {"schema_version", "name", "agent", "model", "effort", "prompt_file", "branch", "skip_permissions", "tools",
         "preflight", *WHOLE}
 MUST_SET = ("name", "model", "effort")
+# Optional: the other agents this profile can start the run on (`start --agent`), each with its own model and effort.
+OPTIONAL = ("runners",)
+RUNNER_KEYS = {"model", "effort"}
 
 
 def windowless() -> int:
@@ -55,7 +58,7 @@ def load_profile(root) -> dict:
         raise ProfileError(f"{PROFILE}: not readable as UTF-8 JSON ({exc})") from None
     if not isinstance(data, dict):
         raise ProfileError(f"{PROFILE}: the profile must be a JSON object")
-    unknown = sorted(set(data) - KEYS)
+    unknown = sorted(set(data) - KEYS - set(OPTIONAL))
     if unknown:
         raise fault(unknown[0], "is not a run profile key")
     missing = sorted(KEYS - set(data))
@@ -103,6 +106,21 @@ def load_profile(root) -> dict:
         target.read_bytes().decode("utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise fault("prompt_file", f"{prompt} is not readable as UTF-8 ({exc})") from None
+    runners = data.get("runners", {})
+    if not isinstance(runners, dict):
+        raise fault("runners", "must be an object of agent to model and effort")
+    for agent, runner in runners.items():
+        where = f"runners.{agent}"
+        if agent not in AGENTS:
+            raise fault(where, f"is not an agent: one of {', '.join(AGENTS)}")
+        if agent == data["agent"]:
+            raise fault(where, "is the profile's own agent, whose model and effort are the profile's")
+        if not isinstance(runner, dict) or set(runner) != RUNNER_KEYS:
+            raise fault(where, "needs exactly model and effort")
+        if not isinstance(runner["model"], str) or not runner["model"].strip() or "\0" in runner["model"]:
+            raise fault(f"{where}.model", "must be a non-empty string")
+        if runner["effort"] not in EFFORTS[agent]:
+            raise fault(f"{where}.effort", f"must be one of {', '.join(EFFORTS[agent])} for {agent}")
     if not isinstance(data["preflight"], list):
         raise fault("preflight", "must be a list of checks")
     for index, check in enumerate(data["preflight"]):
@@ -119,6 +137,18 @@ def load_profile(root) -> dict:
         if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout <= 0:
             raise fault(f"{where}.timeout_seconds", "must be a whole number above 0")
     return data
+
+
+def runner(profile: dict, agent: str | None) -> dict:
+    """The profile as it runs on `agent` (`start --agent`): its own agent with its own model and effort, or one of its
+    `runners` with that runner's. Raises ProfileError naming the agent when the profile has no runner for it."""
+    if agent is None or agent == profile["agent"]:
+        return profile
+    found = profile.get("runners", {}).get(agent)
+    if found is None:
+        raise ProfileError(f"{PROFILE}: runners.{agent}: the profile names no runner for {agent}; add its model and "
+                           "effort under runners")
+    return {**profile, "agent": agent, "model": found["model"], "effort": found["effort"]}
 
 
 # The ship counter (D02 T02 §8). A section ships when its Implementation Order row turns `[x]`, which only the todo

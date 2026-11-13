@@ -330,14 +330,17 @@ def check_profile_commands(root: Path, profile: dict, report: Report) -> None:
         report.line(code == 0, f"check {check['name']}", f"{detail}: {last or 'no output'}")
 
 
-def preflight(root: Path, out=None, system: str | None = None, resume_session: str | None = None) -> int:
+def preflight(root: Path, out=None, system: str | None = None, resume_session: str | None = None,
+              agent: str | None = None) -> int:
+    """Every precondition of the run, for `agent` when `start --agent` chose one of the profile's runners: its CLI,
+    version and Stop hook are the ones checked."""
     report = Report(out)
     if (system or os.name) == "nt":
         report.line(False, "system", "the unattended run needs tmux, which runs on Linux and in WSL: run it in WSL")
         return 1
     try:
         unattended = _load("unattended_lib", HERE / "lib" / "unattended.py")
-        profile = unattended.load_profile(root)
+        profile = unattended.runner(unattended.load_profile(root), agent)
     except Exception as exc:  # a ProfileError, or the module itself missing or broken: every check needs the profile
         report.line(False, "profile", str(exc) or type(exc).__name__)
         return 1
@@ -362,8 +365,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Refuse an unattended run that cannot work.")
     parser.add_argument("--root", default=str(HERE.parent), help="the repository (default: this script's)")
     parser.add_argument("--resume-session", help="the session of the run being resumed, whose guard is allowed")
+    parser.add_argument("--agent", choices=("claude", "codex", "agy"), help="check the run on this runner of the profile")
     args = parser.parse_args(argv)
-    return preflight(Path(args.root).resolve(), resume_session=args.resume_session)
+    return preflight(Path(args.root).resolve(), resume_session=args.resume_session, agent=args.agent)
 
 
 if __name__ == "__main__":
