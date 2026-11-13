@@ -245,6 +245,24 @@ class CommandLine(Stubs):
         code, _, _ = self.main([self.passing("a"), self.passing("b")], "--skip", "a")
         self.assertEqual((code, self.ran("a"), self.ran("b")), (0, False, True))
 
+    def test_a_suite_this_host_cannot_run_is_shown_as_skipped_and_never_as_passed(self):
+        table = [dict(self.passing("shell"), os="posix"), self.passing("good")]
+        with mock.patch.object(forge, "_runs_here", lambda suite: suite.get("os") != "posix"):
+            code, out, _ = self.main(table)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.splitlines()[0], "SKIP  shell  0.0s  (runs on POSIX only; CI's Linux job runs it)")
+        self.assertIn("check-all: 1 of 1 suites passed, 1 not run on this host", out)
+        self.assertNotIn("the end of its output", out)
+        self.assertFalse(self.ran("shell"))
+        with mock.patch.object(forge, "_runs_here", lambda suite: True):
+            code, out, _ = self.main(table)
+        self.assertRegex(out.splitlines()[0], r"^PASS  shell  ")
+        self.assertTrue(self.ran("shell"))
+
+    def test_a_posix_only_suite_runs_everywhere_but_windows(self):
+        self.assertEqual(forge._runs_here({"os": "posix"}), os.name != "nt")
+        self.assertTrue(forge._runs_here({}))
+
     def test_an_unknown_name_exits_2_before_any_suite_starts(self):
         for flag in ("--only", "--skip"):
             code, _, err = self.main([self.passing("a")], "--only", "a", flag, "nope")
@@ -272,6 +290,17 @@ class RealTable(unittest.TestCase):
                    and (name.startswith(("tests/", "scripts/tests/")) or "/templates/scripts/tests/" in name)}
         top = {folder for folder in folders if not any(folder.startswith(other + "/") for other in folders)}
         self.assertEqual(top, {suite["path"] for suite in forge.SUITES if suite["kind"] == "unittest"})
+
+    def test_every_install_test_in_the_repository_is_a_suite(self):
+        # Found by the round of D01 T02 §1: the six bash install tests ran in no suite.
+        listed = subprocess.run(["git", "ls-files", "kits"], cwd=ROOT, capture_output=True, text=True,
+                                check=True).stdout.split()
+        scripts = {name for name in listed if Path(name).name.startswith("test-") and name.endswith(".sh")}
+        self.assertEqual(len(scripts), 6)
+        suites = {suite["path"]: suite for suite in forge.SUITES if suite["path"].endswith(".sh")}
+        self.assertEqual(set(suites), scripts)
+        for suite in suites.values():
+            self.assertEqual((suite["os"], suite["argv"]), ("posix", ["bash", suite["path"]]))
 
     def test_a_real_suite_passes_through_the_command_line(self):
         out = io.StringIO()

@@ -1816,10 +1816,20 @@ SUITES: list[dict] = [
      "argv": ["node", "scripts/verify-agent-tiers.mjs"]},
     {"name": "agy-subagents", "kind": "command", "path": "scripts/agy-subagent.py", "timeout": 300,
      "argv": [sys.executable, "-B", "scripts/agy-subagent.py", "--check"]},
+    # The bash installers' own tests, until their assertions are in the Python suite and the installers retired
+    # (D01 T02 §3 and §4). They need bash, which only a POSIX host is sure to have: elsewhere they are shown as SKIP.
+    *({"name": f"install-{kit}", "kind": "command", "path": f"kits/{kit}/scripts/test-install.sh", "timeout": 900,
+       "os": "posix", "argv": ["bash", f"kits/{kit}/scripts/test-install.sh"]}
+      for kit in ("automations", "base", "laravel", "reviewer", "todo", "wordpress")),
 ]
 TAIL_LINES = 40         # what is kept of a suite's output, however much it prints
 TAIL_BYTES = 64 * 1024
 RAN_TESTS = re.compile(rb"^Ran (\d+) tests? in ", re.M)
+
+
+def _runs_here(suite: dict) -> bool:
+    """Whether this host can run the suite: one marked `"os": "posix"` runs everywhere but Windows."""
+    return suite.get("os") != "posix" or os.name != "nt"
 
 
 def _wait(proc: subprocess.Popen, timeout: float) -> int:
@@ -1841,7 +1851,8 @@ def _run_suite(suite: dict, env: dict, cwd: Path) -> dict:
     import time
 
     started = time.monotonic()
-    result = {"name": suite["name"], "passed": False, "exit": None, "tests": None, "reason": "", "tail": ""}
+    result = {"name": suite["name"], "passed": False, "skipped": False, "exit": None, "tests": None, "reason": "",
+              "tail": ""}
 
     def done() -> dict:
         result["seconds"] = round(time.monotonic() - started, 1)
@@ -1905,7 +1916,7 @@ def _run_suite(suite: dict, env: dict, cwd: Path) -> dict:
 def check_all(full: bool = False, only=(), skip=(), suites: list[dict] | None = None, root: Path | None = None,
               on_result=None) -> list[dict]:
     """Run every suite (those named by `only`, less those named by `skip`), each to its end whatever the one before
-    did, and return each one's result. An unknown name raises ValueError before any suite starts. `full` sets
+    did, and return each one's result. A suite this host cannot run is returned as skipped, neither passed nor failed. An unknown name raises ValueError before any suite starts. `full` sets
     CONCLAVE_FULL_TESTS=1 for the suites; otherwise it is removed, whatever this process's own environment holds."""
     table = SUITES if suites is None else suites
     names = [suite["name"] for suite in table]
@@ -1920,7 +1931,11 @@ def check_all(full: bool = False, only=(), skip=(), suites: list[dict] | None = 
     for suite in table:
         if (only and suite["name"] not in only) or suite["name"] in skip:
             continue
-        results.append(_run_suite(suite, env, FORGE_ROOT if root is None else root))
+        if _runs_here(suite):
+            results.append(_run_suite(suite, env, FORGE_ROOT if root is None else root))
+        else:  # never counted as passed, and always shown
+            results.append({"name": suite["name"], "passed": False, "skipped": True, "exit": None, "tests": None,
+                            "reason": "runs on POSIX only; CI's Linux job runs it", "tail": "", "seconds": 0.0})
         if on_result:
             on_result(results[-1])
     return results
@@ -1929,7 +1944,8 @@ def check_all(full: bool = False, only=(), skip=(), suites: list[dict] | None = 
 def _suite_line(result: dict) -> str:
     tests = "" if result["tests"] is None else f"  {result['tests']} tests"
     reason = "" if result["passed"] else f"  ({result['reason']})"
-    return f"{'PASS' if result['passed'] else 'FAIL'}  {result['name']}  {result['seconds']:.1f}s{tests}{reason}"
+    word = "SKIP" if result["skipped"] else "PASS" if result["passed"] else "FAIL"
+    return f"{word}  {result['name']}  {result['seconds']:.1f}s{tests}{reason}"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2022,10 +2038,13 @@ def _run(args: argparse.Namespace) -> int:
     if args.command == "check-all":
         results = check_all(full=args.full, only=args.only, skip=args.skip,
                             on_result=lambda result: print(_suite_line(result), flush=True))
-        failed = [result for result in results if not result["passed"]]
+        skipped = [result for result in results if result["skipped"]]
+        failed = [result for result in results if not result["passed"] and not result["skipped"]]
         for result in failed:
             print(f"\n--- {result['name']}: {result['reason']}; the end of its output ---\n{result['tail']}", flush=True)
-        print(f"\ncheck-all: {len(results) - len(failed)} of {len(results)} suites passed")
+        ran = len(results) - len(skipped)
+        print(f"\ncheck-all: {ran - len(failed)} of {ran} suites passed"
+              + (f", {len(skipped)} not run on this host" if skipped else ""))
         return 1 if failed else 0
 
     if args.command == "drift":

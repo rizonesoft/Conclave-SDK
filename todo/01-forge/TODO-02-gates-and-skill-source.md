@@ -70,6 +70,8 @@ One command runs the Python suites, the kit script tests and the install tests, 
 
 **Corrected 2026-11-13 (plan review):** CI itself runs `check-all` in its three jobs and that green run is the section's evidence that the real table works end to end; the documented command is `check-all --full`, proven on a really gated test; a suite that cannot start is a named `FAIL` and the rest still run; output is drained into a bounded tail; the tree is ended on interruption as well as timeout; and the tests prove discovery, continuation, exact selection and the unknown-name refusal.
 
+**Corrected 2026-11-13 (round 1):** the six `kits/*/scripts/test-install.sh` install tests, which the opening line of this section names and its table left out, are suites too (`install-<kit>`, run with bash on POSIX and shown as `SKIP` on Windows) until §3 moves their assertions into the Python suite and §4 retires them.
+
 **Test checkpoint:** `python -m unittest tests.test_check_all` ends `OK` and `python forge.py check-all --only agent-tiers --only agy-subagents` prints `PASS` for both and exits 0; a stub suite that exits 1 makes the command print `FAIL` for it and exit 1.
 
 ## 2. Test inventory that refuses a test no suite runs
