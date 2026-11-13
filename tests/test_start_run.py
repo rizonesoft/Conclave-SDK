@@ -21,6 +21,7 @@ $report = [ordered]@{
   folder = (Get-Location).Path
   token_is_the_expected_one = ($env:CLAUDE_CODE_OAUTH_TOKEN -ceq $env:EXPECTED_TOKEN)
   has_token = [bool]$env:CLAUDE_CODE_OAUTH_TOKEN
+  title = $Host.UI.RawUI.WindowTitle
 }
 $report | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $env:STUB_REPORT -Encoding utf8
 """
@@ -69,7 +70,7 @@ class StartRunTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         first, command = proc.stdout.strip().splitlines()
         self.assertEqual(pathlib.Path(first.removeprefix("in ")).resolve(), ROOT)
-        self.assertRegex(command, r"^claude --session-id [0-9a-f-]{36} --dangerously-skip-permissions --model opus --effort medium \"/goal ")
+        self.assertRegex(command, r"^claude --session-id [0-9a-f-]{36} --dangerously-skip-permissions --model opus --effort medium --name Conclave-SDK Claude campaign \"/goal ")
         self.assertFalse(self.report.exists(), "a dry run must not start claude")
         self.assertNotIn(SENTINEL, proc.stdout + proc.stderr)
 
@@ -77,11 +78,15 @@ class StartRunTests(unittest.TestCase):
         proc = self.launch()
         self.assertEqual(proc.returncode, 0, proc.stderr)
         got = self.received()
-        self.assertEqual(len(got["arguments"]), 8)
-        flag, session, skip, model_flag, model, effort_flag, effort, goal = got["arguments"]
+        self.assertEqual(len(got["arguments"]), 10)
+        flag, session, skip, model_flag, model, effort_flag, effort, name_flag, name, goal = got["arguments"]
         self.assertEqual((flag, skip, model_flag, model), ("--session-id", "--dangerously-skip-permissions", "--model", "opus"))
         # The campaign runs at medium effort, never the user's interactive default (2026-11-12: it started at high).
         self.assertEqual((effort_flag, effort), ("--effort", "medium"))
+        # The window shows which repo's campaign it is: claude.exe overwrites the host title with its own session
+        # topic unless it is given --name, and the host title is the shortcut's name for the runner that has none.
+        self.assertEqual((name_flag, name), ("--name", "Conclave-SDK Claude campaign"))
+        self.assertEqual(got["title"], "Conclave-SDK Claude campaign")
         self.assertRegex(session, r"^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$")
         self.assertTrue(goal.startswith("/goal Finish the Conclave-SDK implementation plan"))
         self.assertIn("process-plan skill", goal)
@@ -252,6 +257,7 @@ class CarbonRunnerTests(unittest.TestCase):
         self.assertNotIn("/goal", prompt)
         self.assertIn("sign-in: Antigravity uses its own Google sign-in", proc.stdout)
         self.assertEqual(pathlib.Path(got["folder"]).resolve(), ROOT)
+        self.assertEqual(got["title"], "Conclave-SDK Carbon campaign")
 
 class WindowlessTests(unittest.TestCase):
     def test_every_process_this_file_starts_gets_no_window(self):

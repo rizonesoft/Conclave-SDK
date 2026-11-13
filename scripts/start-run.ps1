@@ -64,16 +64,19 @@ $tokenName = 'CLAUDE_CODE_OAUTH_TOKEN'
 if (-not $Model) { $Model = if ($Runner -eq 'agy') { 'gemini-4-carbon-medium' } else { 'opus' } }
 if (-not $GuardFile) { $GuardFile = Join-Path $repo 'build\claude-campaign-guard.json' }
 
+# Each runner's shortcut: its name is also the window title, so the operator can tell the campaigns apart.
+$shortcuts = @(
+  @{ Runner = 'claude'; Name = 'Conclave-SDK Claude campaign'; Icon = 'conclave-sdk-campaign-claude.ico'
+     Description = 'Start the Conclave-SDK campaign in Claude Code (the latest Opus)' },
+  @{ Runner = 'agy'; Name = 'Conclave-SDK Carbon campaign'; Icon = 'conclave-sdk-campaign-carbon.ico'
+     Description = 'Start the Conclave-SDK campaign in Google Antigravity on Gemini 4 Carbon' }
+)
+$title = ($shortcuts | Where-Object { $_.Runner -eq $Runner }).Name
+
 if ($InstallShortcut) {
   $pwsh = (Get-Process -Id $PID).Path
   $brand = Join-Path $repo 'assets\brand\conclave-sdk.ico'
   $renderer = Join-Path $repo 'kits\unattended\templates\scripts\campaign-icon.py'
-  $shortcuts = @(
-    @{ Runner = 'claude'; Name = 'Conclave-SDK Claude campaign'; Icon = 'conclave-sdk-campaign-claude.ico'
-       Description = 'Start the Conclave-SDK campaign in Claude Code (the latest Opus)' },
-    @{ Runner = 'agy'; Name = 'Conclave-SDK Carbon campaign'; Icon = 'conclave-sdk-campaign-carbon.ico'
-       Description = 'Start the Conclave-SDK campaign in Google Antigravity on Gemini 4 Carbon' }
-  )
   # The one shortcut this file wrote before the runners split (2026-11-12), named for neither runner.
   $retired = Join-Path $ShortcutDir 'Conclave-SDK unattended run.lnk'
   if ($DryRun) {
@@ -137,7 +140,7 @@ if ($Runner -eq 'agy') {
 } else {
   $agent = 'claude'
   $session = [guid]::NewGuid().ToString()
-  $arguments = @('--session-id', $session, '--dangerously-skip-permissions', '--model', $Model, '--effort', $Effort, "/goal $Goal")
+  $arguments = @('--session-id', $session, '--dangerously-skip-permissions', '--model', $Model, '--effort', $Effort, '--name', $title, "/goal $Goal")
 }
 if ($DryRun) {
   "in $repo"
@@ -179,5 +182,7 @@ if ($agent -eq 'agy') {
   }
 }
 
+# claude.exe shows --name in its title; Antigravity never rewrites the host title, so the one set here persists.
+try { $Host.UI.RawUI.WindowTitle = $title } catch { Write-Verbose "window title not set: $($_.Exception.Message)" }
 Set-Location -LiteralPath $repo
 & $program @arguments
