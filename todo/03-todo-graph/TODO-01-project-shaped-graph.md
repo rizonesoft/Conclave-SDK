@@ -127,6 +127,8 @@ The four size caps suit the SDK's own files. A project with longer sections sets
 
 ## 4. Receipts folder and plan path read from `todo/plan.json`
 
+> **Started:** 2026-11-13T03:19:14Z
+
 Receipts and findings files go to `docs/reviews/` through string literals in four places. A project that keeps reviews elsewhere states the folder once.
 
 **Phase:** 3
@@ -139,13 +141,16 @@ Receipts and findings files go to `docs/reviews/` through string literals in fou
 2. Run the full suite, because this touches the stamp. Done when: the checkpoint passes.
 
 - [ ] Accept an optional `layout` key in `plan_config` of `todo_graph.py`: an object with `receipts` (default `docs/reviews`) and `plan` (default `todo/implementation-plan.md`), each a relative path with no `..`, no leading slash and no backslash. Done when: tests refuse an absolute path, a `..` segment and an unknown layout name, each naming `layout`.
-- [ ] Replace the `docs/reviews/` literals in `todo_graph.py` (the receipt check at `:202`, the findings file check at `:291`, the findings path at `:414`, the receipt path at `:1351` and `LEGACY_RECEIPTS` at `:43`) with paths built from the configured `receipts`. Done when: `grep -n "docs/reviews" kits/todo/templates/scripts/lib/todo_graph.py` shows only the default and comments.
+- [ ] Replace the `docs/reviews/` literals in `todo_graph.py` (the receipt check at `:214`, the findings file check at `:303`, the findings path at `:426`, the receipt path at `:1397` and `LEGACY_RECEIPTS` at `:44`) with paths built from the configured `receipts`. Done when: `grep -n "docs/reviews" kits/todo/templates/scripts/lib/todo_graph.py` shows only the default and comments.
 - [ ] Use the configured `plan` path wherever `PLAN` is read in `todo_graph.py`. Done when: a test with `plan` set to `docs/plan.md` finds `plan --sync` writing there and `plan --check` reading there.
 - [ ] Pass the receipts folder to the dispatcher: `kits/reviewer/templates/scripts/review-dispatch.py` writes findings files where `--record` says, so check that `review-todo-section` in the three agent folders builds its `--record` path from the configured folder and not the literal. Done when: a test asserts the skill text names the configured folder's source (`todo/plan.json`) beside the default.
+- [ ] Read the configured folder in the reviewer kit too, from `todo/plan.json` when it is there: `SECTION_FINDINGS` in `kits/reviewer/templates/scripts/review-dispatch.py` (`:853`, which decides that a findings file is a section's and so runs the three-pass chain), the `--list-rounds` default folder (`:1314`), and the findings placeholder in `kits/reviewer/templates/scripts/review-prompt.py` (`:133`). Done when: a reviewer-kit test with `receipts` set to `reviews` finds `reviews/03-x/D03-T01-s1.md` treated as a section's findings file and `docs/reviews/03-x/D03-T01-s1.md` not, and the default is unchanged without the key.
 - [ ] Stamp a section end to end under a configured folder in `tests/test_three_pass_install.py`. Done when: with `CONCLAVE_FULL_TESTS=1` the fresh-install test stamps with `receipts` set to `reviews` and finds the receipt at `reviews/<slug>.json` and nothing under `docs/reviews/`. Cheaper substitute: a unit test of the path helper alone must fail review, because the pre-commit hook and the dispatcher also read the folder.
 - [ ] Check `kits/todo/templates/scripts/hooks/pre-commit` for the `docs/reviews/` literal and read the folder from `todo/plan.json` there too. Done when: `tests/test_pre_commit_hook.py` passes with a configured folder.
 - [ ] Document `layout` in `kits/todo/templates/todo/README.md`, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
 - [ ] Commit: `todo: receipts folder and plan path come from todo/plan.json`
+
+**Corrected 2026-11-13 (validation):** the line references moved (`:202`, `:291`, `:414`, `:1351` and `:43` are `:214`, `:303`, `:426`, `:1397` and `:44`), and the reviewer kit reads the folder in three places the plan did not name: the dispatcher's `SECTION_FINDINGS`, its `--list-rounds` default and `review-prompt.py`'s findings placeholder, so an item covers them.
 
 **Test checkpoint:** with `CONCLAVE_FULL_TESTS=1` set, `python -m unittest discover -s tests` ends `OK` with the stamp tests run, not skipped; leaving the receipt path literal at `:1351` makes the configured-folder stamp test fail.
 
