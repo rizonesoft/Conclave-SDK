@@ -215,9 +215,10 @@ def run(source, config, out, after_copy=None):
     out = Path(out)
     if out.exists() and any(out.iterdir()):
         raise DryRunError(f"--out must be a missing or empty folder: {out}")
-    out.mkdir(parents=True, exist_ok=True)
     if not isinstance(config, dict):
         raise DryRunError("the configuration must be a JSON object (the plan.json to measure under)")
+    receipts_of(config)  # a bad receipts folder is refused before anything is written
+    out.mkdir(parents=True, exist_ok=True)
     manifest = snapshot(source, out / "snapshot", config, after_copy=after_copy)
     sdk = subprocess.run(["git", "--no-optional-locks", "-C", str(SDK), "rev-parse", "HEAD"],
                          capture_output=True, text=True, timeout=60)

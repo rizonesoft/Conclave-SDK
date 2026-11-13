@@ -192,6 +192,13 @@ class DryRun(unittest.TestCase):
             dry.run(self.source, {"title": "P"}, self.out)
         self.assertEqual([p.name for p in self.out.iterdir()], ["keep.txt"])
 
+    def test_a_bad_configuration_is_refused_before_anything_is_written(self):
+        for config in (["not", "an", "object"], {"layout": {"receipts": "../outside"}},
+                       {"layout": {"receipts": "/abs"}}):
+            with self.assertRaises(dry.DryRunError):
+                dry.run(self.source, config, self.out)
+            self.assertFalse(self.out.exists(), config)
+
     def test_refusal_classes_take_out_sections_paths_and_numbers(self):
         self.assertEqual(dry.refusal_class("invalid Phase 12: D01 T02 §3"), "invalid Phase N: <ref>")
         self.assertEqual(dry.refusal_class("missing from root index: 01-engine/TODO-01-b.md"),
