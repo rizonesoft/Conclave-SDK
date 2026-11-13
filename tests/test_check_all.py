@@ -302,6 +302,15 @@ class RealTable(unittest.TestCase):
         for suite in suites.values():
             self.assertEqual((suite["os"], suite["argv"]), ("posix", ["bash", suite["path"]]))
 
+    def test_every_kit_shell_script_is_committed_executable(self):
+        # Found by CI's first run of the install suites: five installers were committed without the executable bit,
+        # which a checkout on a Windows drive hides (every file is executable there) and a Linux checkout does not.
+        listed = subprocess.run(["git", "ls-files", "-s", "kits/*/scripts/*.sh"], cwd=ROOT, capture_output=True,
+                                text=True, check=True).stdout.splitlines()
+        scripts = [line for line in listed if line.split("	")[1].count("/") == 3]  # kits/<kit>/scripts/<name>.sh
+        self.assertEqual(len(scripts), 14)
+        self.assertEqual([line.split("	")[1] for line in scripts if not line.startswith("100755 ")], [])
+
     def test_a_real_suite_passes_through_the_command_line(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
