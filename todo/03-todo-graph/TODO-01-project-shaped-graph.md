@@ -253,6 +253,8 @@ The generated plan is written to `todo/implementation-plan.md`. A project that k
 
 ## 8. Every validation fault in one run
 
+> **Started:** 2026-11-13T05:51:21Z
+
 `validate` stops at the first refusal, so a tree with many faults shows them one at a time. Measuring another project's tree, or repairing a large one, needs every fault at once, the way `review_pin.py --check --all` lists a pin's.
 
 **Phase:** 3
