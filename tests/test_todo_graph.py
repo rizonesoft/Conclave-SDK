@@ -570,6 +570,24 @@ class Graph(Tree):
         self.assertEqual(self.faults(), ["invalid Phase: D00 T01 §1", "unknown/duplicate Needs (gpu): D00 T01 §1"])
         self.refuses("invalid Phase: D00 T01 §1")
 
+    def test_a_section_under_an_unreadable_row_still_has_its_body_checked(self):
+        # D03 T01 §5 (completion): Impossible OS's tables hid every section-level fault behind the row fault.
+        text = todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "§1")]).replace(
+            "| 1 | §1 | A | -- | [ ] |", "| ⭐ | 1 | A | -- | [ ] |").replace("**Phase:** 0\n", "", 1)
+        self.write(text.replace("**Needs:** none", "**Needs:** gpu", 1) + "\n- -> XREF: D00 T01 §1\n")
+        found = self.faults()
+        self.assertIn("malformed implementation row: todo/00-workspace/TODO-01-a.md", found)
+        self.assertIn("missing Phase field", found)
+        self.assertIn("unknown/duplicate Needs (gpu): D00 T01 §1", found)
+        # It is no node of the graph, and nothing that names it is a second fault.
+        self.assertFalse([m for m in found if "unresolved" in m and "§1" in m], found)
+        self.refuses("malformed implementation row")
+
+    def test_a_section_under_an_unreadable_row_has_its_own_stamp_checked(self):
+        text = todo_file([(1, "A", 0, "none", "--")]).replace("| 1 | §1 | A | -- | [ ] |", "| x | 1 | A | -- | [x] |")
+        self.write(text.replace("\n## Verification", "\n> **Verified:** 2026-11-13 | §1 | abc\n\n## Verification"))
+        self.assertIn("invalid stamp: D00 T01 §1", self.faults())
+
     def test_faults_in_two_sections_of_one_file_and_in_another_file_are_all_recorded(self):
         self.write(todo_file([(1, "A", 42, "none", "--"), (2, "B", 0, "gpu", "--")]))
         self.write(todo_file([(1, "C", 0, "none", "--")], ident="beta").replace("**Surface:** no", "**Surface:** maybe"),

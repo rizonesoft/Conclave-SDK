@@ -1071,13 +1071,14 @@ def graph(root=ROOT, faults=None):
         del labels_ok
         for h in headings:
             n = int(h[1])
-            if n not in rows:
-                continue  # recorded above as a row/body mismatch
+            row = rows.get(n)  # None: no readable row (recorded above); collecting, the body is still checked
+            if row is None and not collect:
+                continue
             section_body = body[h.end():].split("\n## ", 1)[0].strip()
             ref = f"D{d} T{t} §{n}"
             if not check(ref not in sections, f"duplicate address: {ref}", ref):
                 continue
-            deliverable, title = rows[n][3].strip(), h[2].strip()
+            deliverable, title = (row[3].strip() if row is not None else ""), h[2].strip()
             check(len(deliverable) <= caps["deliverable_len"] and len(title) <= caps["deliverable_len"],
                   f"deliverable/title over {caps['deliverable_len']} chars (wraps raw md table): {ref}", ref)
             phase = attempt(ref, field, section_body, "Phase")
@@ -1090,7 +1091,7 @@ def graph(root=ROOT, faults=None):
                 check(len(needs) == len(set(needs)) and not unknown_needs,
                       f"unknown/duplicate Needs{' (' + ', '.join(unknown_needs) + ')' if unknown_needs else ''}: {ref}",
                       ref)
-            dep = rows[n][4].strip()
+            dep = row[4].strip() if row is not None else "--"
             deps = [] if dep == "--" else attempt(ref, lambda: [normalize(v, d, t) for v in dep.split(",")])
             deps_ok = deps is not FAILED and check(len(deps) == len(set(deps)), f"duplicate dependency: {ref}", ref)
             for line in section_body.splitlines():
@@ -1128,10 +1129,13 @@ def graph(root=ROOT, faults=None):
                     attempt(ref, field, section_body, label)
             freeze_check = field(section_body, "Freeze check", False)
             check(bool(freeze_check) == (frozen == "true"), f"Freeze check must match frozen frontmatter: {ref}", ref)
-            done = rows[n][5] == "x"
             stamp_line = field(section_body, "Verified", False)
             receipt = field(section_body, "Review", False).strip("`")
-            check(done == bool(stamp_line) == bool(receipt), f"checkbox/stamp/receipt mismatch: {ref}", ref)
+            # With no readable row there is no box: the body's own stamp says whether it claims to be stamped, and that
+            # stamp and its receipt are still checked; only the box's agreement with them is not.
+            done = row[5] == "x" if row is not None else bool(stamp_line or receipt)
+            if row is not None:
+                check(done == bool(stamp_line) == bool(receipt), f"checkbox/stamp/receipt mismatch: {ref}", ref)
             if done:
                 check(all(x[0] == "x" for x in checks), f"unfinished stamped checklist: {ref}", ref)
                 check(not set(needs) & waiting, f"stamped section has a waiting Need: {ref}", ref)
@@ -1143,12 +1147,12 @@ def graph(root=ROOT, faults=None):
                         ref, lambda: receipt_ok(root, receipt, ref, m[1], head_commits, surface=surface == "yes"))
                     if data is not FAILED and "completion" in data:
                         filed_gaps[ref] = data["completion"]["filed"]
-            if not (phase_ok and deps_ok):
+            if row is None or not (phase_ok and deps_ok):
                 incomplete.add(relative)
                 unregistered[ref] = section_body  # its deferrals are still checked below
                 continue  # a section with no usable Phase or dependencies is not a node of the graph
             sections[ref] = Section(ref, relative, n, h[2], int(phase), deps, needs, done,
-                                    front.get("status", ""), section_body, receipt, int(rows[n][1]),
+                                    front.get("status", ""), section_body, receipt, int(row[1]),
                                     tuple(sorted(set(needs) & waiting)))
             files[relative][2].append(ref)
     for relative, (front, file_deps, refs, xrefs, adjacency) in files.items():
