@@ -75,7 +75,7 @@ The template pin leaves Codex's work with no reviewer (roadmap finding 10). It g
 
 ## 2. Antigravity flags checked against the installed CLI
 
-The roadmap says to check every `agy` flag against the current CLI before it ships. The dispatcher passes four; a CLI release that renames one would turn every Antigravity review into "no review" with nobody noticing.
+The roadmap says to check every `agy` flag against the current CLI before it ships. The dispatcher passes five; a CLI release that renames one would turn every Antigravity review into "no review" with nobody noticing.
 
 **Phase:** 4
 **Needs:** none
@@ -86,12 +86,14 @@ The roadmap says to check every `agy` flag against the current CLI before it shi
 1. Name the flags the dispatcher passes to `agy` in one tuple in `kits/reviewer/templates/scripts/review-dispatch.py`. Done when: the command is built from it.
 2. Check them in `forge.py doctor`. Done when: the checkpoint passes.
 
-- [ ] Move the Antigravity flags (`--model`, `--mode`, `--sandbox`, `--print-timeout`) into a module constant `AGY_FLAGS` in `review-dispatch.py` and build the command at `:210` from it. Done when: the existing dispatcher tests pass unchanged and the command line is byte for byte what it was.
+- [ ] Move the Antigravity flags (`--model`, `--sandbox`, `--settings`, `--print-timeout` and `-p`, the command `§1` proved live; never `--mode`) into a module constant `AGY_FLAGS` in `review-dispatch.py` and build the command in `command` (`:217`) from it. Done when: the existing dispatcher tests pass unchanged and the command line is byte for byte what it was.
 - [ ] Add `agy_flags_missing(help_text)` to `review-dispatch.py`, returning the flags of `AGY_FLAGS` that the CLI's `--help` output does not list as whole words. Done when: tests with a captured help text find none missing, and with `--print-timeout` removed from the text find that one.
 - [ ] Add a `reviewer-flags:<name>` check to `_doctor_reviewer` in `forge.py` (`forge.py:452`) for each reviewer whose CLI is `agy` and installed: run `agy --help` with a 15 second limit and report `unexpected` naming the missing flags, or `ok` with the CLI's version. Done when: tests with a stub `agy` cover both results and a stub that hangs is reported `setup_required` and its process ended.
 - [ ] Run the check against the `agy` installed on this machine and record its version and the result in `kits/reviewer/README.md`. Done when: the README names the version, and any flag reported missing is fixed in `AGY_FLAGS` with the dispatcher test updated.
 - [ ] Run `python forge.py self-sync`. Done when: `scripts/review-dispatch.py` equals the kit file.
 - [ ] Commit: `reviewer: doctor checks the Antigravity flags the dispatcher passes`
+
+**Corrected 2026-11-13 (`§1`):** the flags are the ones of the command `§1` proved against `agy` 1.5.8 (`--model`, `--sandbox`, `--settings`, `--print-timeout`, `-p`): `--mode plan` is gone, because headless plan mode refuses the reviewer every command, and `--settings` carries the session's deny rules. The check also covers that the settings key `permissions` is accepted, since `agy` refuses an unknown setting by name.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` and `python -m unittest discover -s kits/reviewer/templates/scripts/tests` end `OK`; adding a flag to `AGY_FLAGS` that the captured help text lacks makes the missing-flag test fail.
 
