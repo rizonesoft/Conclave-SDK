@@ -96,6 +96,8 @@ RasterFold's Needs are `ffmpeg-jxl`, `network`, `gpu` and four more; the kit acc
 
 ## 3. Caps read from `todo/plan.json`
 
+> **Started:** 2026-11-13T02:47:41Z
+
 The four size caps suit the SDK's own files. A project with longer sections sets its own, within bounds.
 
 **Phase:** 3
@@ -108,10 +110,12 @@ The four size caps suit the SDK's own files. A project with longer sections sets
 2. Cover the bounds. Done when: the checkpoint passes.
 
 - [ ] Accept an optional `caps` key in `plan_config` of `todo_graph.py`: an object with any of `sections_per_file` (1 to 200), `items_per_section` (1 to 200), `deliverable_len` (20 to 200) and `table_row` (60 to 400), each defaulting to its constant. Done when: tests refuse an unknown cap name, a value out of range and a non-number, each naming `caps` and the name.
-- [ ] Use the configured caps at the four checks in `todo_graph.py` (`:942`, `:963`, `:996` and the table row check). Done when: a test section with 40 items validates under `items_per_section` of 40 and refuses under the default, and the same pair holds for a 100 character deliverable.
+- [ ] Use the configured caps at the four checks in `todo_graph.py` (`:954` sections per file, `:975` deliverable, `:1009` items per section and the plan's table row check at `:1260`). Done when: a test section with 40 items validates under `items_per_section` of 40 and refuses under the default, and the same pair holds for a 100 character deliverable.
 - [ ] Leave the review caps where they are: `REVIEW_ROUND_CAP` and the pass cap belong to the reviewer pin (`.conclave/reviewers.toml`), not `plan.json`. Done when: a test with `"caps": {"pass_cap": 45}` refuses it as an unknown cap name.
 - [ ] Document `caps` in `kits/todo/templates/todo/README.md`, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
 - [ ] Commit: `todo: size caps come from todo/plan.json`
+
+**Corrected 2026-11-13 (validation):** the checks moved (`:942`, `:963` and `:996` are `:954`, `:975` and `:1009`), and the table row cap is read by the plan's projection at `:1260`, which pads every row to the widest Deliverable: a longer `deliverable_len` needs a longer `table_row`, so the README says so and a test shows the plan refusing a 100 character Deliverable under the default row cap and rendering it under a raised one.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_todo_graph.py` ends `OK`; ignoring the configured `items_per_section` makes the 40 item test fail.
 
