@@ -2982,8 +2982,12 @@ class UnattendedKitTests(unittest.TestCase):
         checks = self.checks()
         for agent_dir in (".agents", ".claude", ".codex"):
             self.assertEqual(checks[f"skill:unattended-run:{agent_dir}"]["status"], "ok", agent_dir)
-        self.assertEqual(checks["todo-kit"]["status"], "ok")
-        self.assertEqual([n for n, c in checks.items() if c["status"] == "missing"], [])
+        # Every check passes; the one expected exception is tmux on Windows, where the run lives in WSL (and on a
+        # machine with no tmux at all, which the doctor says how to fix).
+        expected = {"tmux": "setup_required"} if os.name == "nt" or not shutil.which("tmux") else {}
+        self.assertEqual({n: c["status"] for n, c in checks.items() if c["status"] != "ok"}, expected)
+        if os.name == "nt":
+            self.assertIn("WSL", checks["tmux"]["detail"])
         result = subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "-s", str(self.target / "scripts/tests")],
                                 capture_output=True, text=True, timeout=900)
         self.assertEqual(result.returncode, 0, result.stderr[-2000:])
