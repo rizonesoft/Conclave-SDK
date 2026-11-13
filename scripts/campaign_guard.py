@@ -260,12 +260,18 @@ def ready_rows(root: str, timeout: float = 300.0, phase: int | None = None) -> t
     phase a row is in, so for a phase it is unknown (None, ""): a phase run then ends on its own closeout or park
     marker, never on another phase's count, and is never pointed at another phase's row.
     """
-    try:
-        proc = subprocess.run([sys.executable, os.path.join(root, "scripts", "todo-graph.py"), "query", "ready"],
-                              capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=root,
-                              timeout=max(timeout, 1.0))
-    except (OSError, subprocess.TimeoutExpired):
-        return None, ""
+    # The session's own set (`--have auto`, D03 T01 §10): a row needing a host this session lacks is not runnable
+    # here, so it never holds the turn open. A graph without the flag (an older kit, Isotone's) is asked without it.
+    proc = None
+    for extra in (["--have", "auto"], []):
+        try:
+            proc = subprocess.run([sys.executable, os.path.join(root, "scripts", "todo-graph.py"), "query", "ready",
+                                   *extra], capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                  cwd=root, timeout=max(timeout, 1.0))
+        except (OSError, subprocess.TimeoutExpired):
+            return None, ""
+        if proc.returncode == 0 or "--have" not in proc.stderr:
+            break
     if proc.returncode != 0:
         return None, ""
     out = proc.stdout.strip()

@@ -1554,8 +1554,10 @@ def _plan_config(root=ROOT, text=None):
     except ValueError as exc:
         raise Refused(f"unreadable {PLAN_CONFIG}: {exc}") from None
     require(isinstance(data, dict)
-            and set(data) <= {"title", "acceptance", "phases", "phase_list", "needs", "waiting", "caps", "layout"},
-            f"{PLAN_CONFIG} may only hold title, acceptance, phases, phase_list, needs, waiting, caps and layout")
+            and set(data) <= {"title", "acceptance", "phases", "phase_list", "needs", "waiting", "caps", "layout",
+                              "probes"},
+            f"{PLAN_CONFIG} may only hold title, acceptance, phases, phase_list, needs, waiting, caps, layout and "
+            f"probes")
     layout = data.get("layout", {})
     require(isinstance(layout, dict), f"{PLAN_CONFIG}: layout must be an object naming {', '.join(LAYOUT)}")
     for name in layout:
@@ -1627,10 +1629,17 @@ def _plan_config(root=ROOT, text=None):
     require(root_index in ("files", "domains"),
             f"{PLAN_CONFIG}: layout root_index must be files (every TODO file in the root index) or domains (each "
             f"domain's INDEX.md there, its files in the domain index)")
+    probes = data.get("probes", {})
+    require(isinstance(probes, dict), f"{PLAN_CONFIG}: probes must be an object from a Need to the command proving it")
+    for need, argv in probes.items():
+        require(need in lists["needs"] and need not in lists["waiting"],
+                f"{PLAN_CONFIG}: probes names {need!r}, which is not a Need in needs that a program can check")
+        require(isinstance(argv, list) and bool(argv) and all(isinstance(a, str) and a for a in argv),
+                f"{PLAN_CONFIG}: probes {need!r} must be a command: a non-empty list of non-empty strings")
     return {"title": title.strip(), "acceptance": acceptance.strip() if acceptance else None, "phases": names,
             "phase_list": tuple(sorted(phase_list, key=phase_rank)), "needs": lists["needs"],
             "waiting": lists["waiting"], "caps": caps, "receipts": receipts, "plan": plan,
-            "root_index": root_index}
+            "root_index": root_index, "probes": probes}
 
 
 def plan_file(root=ROOT, text=None):
@@ -1698,6 +1707,76 @@ def projections(root=ROOT, sync=False):
     else:
         require(target.is_file() and read_text(target) == expected,
                 f"stale projection: {plan}; run plan --sync")
+
+
+PROBE_TIMEOUT = 10  # seconds a project's probe may take before its Need counts as absent
+
+
+def _run_probe(argv, timeout=PROBE_TIMEOUT):
+    """Whether a project's probe exits 0 within `timeout`, run with no shell; on a timeout its whole process tree is
+    stopped (a job's group on POSIX, `taskkill /T` on Windows), so no probe outlives the question."""
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    try:
+        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                creationflags=flags, start_new_session=os.name != "nt")
+    except OSError:
+        return False
+    try:
+        return proc.wait(timeout=timeout) == 0
+    except subprocess.TimeoutExpired:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, creationflags=flags)
+        else:
+            import signal
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                pass
+        proc.kill()
+        proc.wait()
+        return False
+
+
+def builtin_needs():
+    """The kit's own host Needs this machine meets, ported from RasterFold's `detect_context`."""
+    import platform
+    import shutil
+    found = set()
+    if os.name == "nt":
+        found.add("windows-host")
+    if platform.machine().lower() in ("arm64", "aarch64"):
+        found.add("arm64-host")
+    if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY") or (
+            os.name == "nt" and os.environ.get("SESSIONNAME", "").lower().startswith(("console", "rdp"))):
+        found.add("display-session")
+    if shutil.which("soffice"):
+        found.add("libreoffice")
+    if os.name == "nt":
+        try:
+            import winreg
+            winreg.CloseKey(winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, "Word.Application"))
+            found.add("office")
+        except OSError:
+            pass
+    return found
+
+
+def session_needs(root=ROOT):
+    """The Needs this session meets: the kit's built-in probes, the project's own `probes` from todo/plan.json, and
+    what the session declares in `CONCLAVE_HAVE` (comma-separated, for what no program can see, such as `attended`)."""
+    config = plan_config(root)
+    have = builtin_needs()
+    have |= {need for need, argv in config["probes"].items() if _run_probe(argv)}
+    have |= {v.strip() for v in os.environ.get("CONCLAVE_HAVE", "").split(",") if v.strip()}
+    return have
+
+
+def missing_needs(row, have):
+    """The Needs of `row` this session lacks: every Need that is neither waiting (a person's, which `disposition`
+    holds already) nor in `have`. None when no set was given."""
+    if have is None:
+        return None
+    return [need for need in row.needs if need not in row.waiting and need not in have]
 
 
 def plan_status(row, rows):

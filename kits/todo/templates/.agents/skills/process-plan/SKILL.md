@@ -14,7 +14,7 @@ This skill does not ship a section and does not write a stamp. It audits, then c
 One continuous loop. You do not stop between sections or phases:
 
 1. Audit (below), start the run guard (below), then start `process-phase` on the first phase with a ready row, in this same turn.
-2. After that phase's closeout or park, re-run `python scripts/todo-graph.py query ready` and start the next phase with a ready row this session can run: `query ready` does not know which hosts are reachable, so a row whose Needs name an unreachable host is a leftover here even when listed.
+2. After that phase's closeout or park, re-run `python scripts/todo-graph.py query ready --have auto` and start the next phase with a ready row: with `--have auto` it lists only the rows whose Needs this session meets (the kit's host probes, the project's `probes` in `todo/plan.json`, and what `CONCLAVE_HAVE` declares, such as `attended`), so a row it leaves out for a host is a leftover here.
 3. Stop only when no phase has a ready row: every remaining `[ ]` row is blocked or waiting in this context, or the plan is done. That, and an operator stop, are the only halts.
 
 A report to the operator is not a stop. An audit-only reply while a ready phase exists is a process defect: starting the phase is the next action, in the same turn. The self-correcting parts stay in the loop: drifted plan claims are corrected before building (inside `process-todo-section`), every gap and review leftover files through `add-todo`, and red gates are fixed, never bypassed (no `--no-verify`, no amend of a reviewed candidate, no force-push).
@@ -24,7 +24,7 @@ A report to the operator is not a stop. An audit-only reply while a ready phase 
 ```powershell
 git status -sb
 python scripts/todo-graph.py validate
-python scripts/todo-graph.py query ready
+python scripts/todo-graph.py query ready --have auto
 ```
 
 | State | Do this |
@@ -39,7 +39,7 @@ python scripts/todo-graph.py query ready
 ```powershell
 python scripts/todo-graph.py validate
 python scripts/todo-graph.py plan --check
-python scripts/todo-graph.py query ready
+python scripts/todo-graph.py query ready --have auto
 python scripts/todo-graph.py query blocked
 python scripts/todo-graph.py query stats
 python -m unittest discover -s scripts/tests
@@ -56,7 +56,7 @@ Read `todo/README.md` (the format every TODO edit keeps) before the first edit, 
 4. Blocked rows: count and what blocks them (unmet dependencies, waiting Needs, unreachable hosts).
 5. The phase being started, and why it is first.
 
-Ready means runnable now in this context: `query ready` already excludes rows waiting on dependencies, inactive files and people Needs; rows needing a host this session cannot reach (`arm64-host`, `display-session`, `office`, `attended`) are leftovers here even when listed, and `process-phase` re-checks each row with `resolve` rather than trusting a previous list.
+Ready means runnable now in this context: `query ready` already excludes rows waiting on dependencies, inactive files and people Needs; with `--have auto` it also excludes rows needing a host this session does not meet (`python scripts/todo-graph.py detect` prints the set), and `process-phase` re-checks each row with `resolve` rather than trusting a previous list.
 
 If no phase has a ready row, report the leftovers with their blockers and stop. That is a genuine halt.
 
@@ -134,14 +134,14 @@ Run-guard heartbeat for Phase <N> (run file <run file>, generation <generation>)
 3. Run `python scripts/campaign_guard.py pending-cancel`. For each timer it names, cancel it with the schedule tool, then run `python scripts/campaign_guard.py cancel-confirmed --cron-id <timer>`.
 4. If step 1 printed NO GUARD, the run is over: run `python scripts/campaign_guard.py reset-state --expect-no-guard yes`, cancel this timer, and reply RUN FINISHED.
 5. Run `python scripts/campaign_guard.py heartbeat-still --session "$ANTIGRAVITY_CONVERSATION_ID"`. If it printed `progress` or `still`, go on to step 6. If it printed `trip 1`, append `- bookkeeping: <that line> <UTC>` to <run file>'s Critical events and go on to step 6. Every line the heartbeat writes starts `- bookkeeping:`: the stall breaker's fingerprint ignores those, so a heartbeat's own notes never pass for progress and reset the trips. If it ended the run (`end: stall`), cancel this timer, run `cancel-confirmed` for it, append the stall to <run file>'s Critical events, and report it to the operator.
-6. Append `- bookkeeping: heartbeat resumed <UTC>` to <run file>'s Critical events, re-run `python scripts/todo-graph.py query ready`, pick up the open section where it stopped, and keep shipping under process-plan. Stop only at closeout, park, or an operator stop.
+6. Append `- bookkeeping: heartbeat resumed <UTC>` to <run file>'s Critical events, re-run `python scripts/todo-graph.py query ready --have auto`, pick up the open section where it stopped, and keep shipping under process-plan. Stop only at closeout, park, or an operator stop.
 ```
 
 ## 2. After a phase closeout or park
 
 `process-phase` ends in exactly one of three ways: the phase table is all `[x]` with a written closeout; every leftover is blocked here and it parked (a `PARKED` line and park record in its run file); or the operator paused it. A parked phase is not complete and not a stall. Do not call it either.
 
-Re-run `python scripts/todo-graph.py query ready`. If another phase has a ready row this session can run (Needs within reach, as in the loop above), re-point the guard to it first (Run guard, Phase change), then start `process-phase` on it in the same turn, same session, same rules. If none does, end the run (Run guard, End): `plan-done` only when `query stats` shows `verified` equal to `total`; otherwise write a column-0 `PARKED <UTC> run=<run id> <one-line reason>` line and the park record (each leftover and what blocks it) in the current run file, commit it, then end with `park`. Then report which: plan done, or the leftovers and their blockers, with the run files named.
+Re-run `python scripts/todo-graph.py query ready --have auto`. If another phase has a ready row this session can run (Needs within reach, as in the loop above), re-point the guard to it first (Run guard, Phase change), then start `process-phase` on it in the same turn, same session, same rules. If none does, end the run (Run guard, End): `plan-done` only when `query stats` shows `verified` equal to `total`; otherwise write a column-0 `PARKED <UTC> run=<run id> <one-line reason>` line and the park record (each leftover and what blocks it) in the current run file, commit it, then end with `park`. Then report which: plan done, or the leftovers and their blockers, with the run files named.
 
 ## Deny
 

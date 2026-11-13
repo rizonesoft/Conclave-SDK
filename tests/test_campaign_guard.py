@@ -99,6 +99,37 @@ class Workspace(unittest.TestCase):
 
 
 class StopHook(Workspace):
+    def real_graph(self, needs):
+        """The kit's own graph in the workspace, over one open section with `needs`."""
+        sys.path.insert(0, str(REPO / "tests"))
+        from test_todo_graph import todo_file  # the graph tests' fixture writer
+        kit = REPO / "kits" / "todo" / "templates" / "scripts"
+        shutil.copytree(kit, os.path.join(self.root, "scripts"), dirs_exist_ok=True,
+                        ignore=shutil.ignore_patterns("__pycache__", "tests", "campaign_guard.py"))
+        self.write("todo/00-workspace/TODO-01-a.md", todo_file([(1, "Needs a GPU", 0, needs, "--")]))
+        self.write("todo/00-workspace/INDEX.md", "# Index\n- TODO-01-a.md\n")
+        self.write("todo/TODO-00-INDEX.md", "# Index\n- 00-workspace/TODO-01-a.md\n")
+        self.write("todo/plan.json", json.dumps({"needs": ["gpu"]}))
+
+    def test_a_row_needing_a_host_this_session_lacks_does_not_hold_the_turn(self):
+        # D03 T01 §10: the Stop hook counts with the session's set (`--have auto`), so a host-bound row lets it end.
+        self.acquire()
+        self.real_graph("gpu")
+        with mock.patch.dict(os.environ, {"CONCLAVE_HAVE": ""}):
+            self.assertEqual(guard.ready_rows(self.root), (0, ""))
+            self.assertIsNone(self.hook())
+        with mock.patch.dict(os.environ, {"CONCLAVE_HAVE": "gpu"}):  # the session declares it: the row holds the turn
+            self.assertEqual(guard.ready_rows(self.root)[0], 1)
+            self.assertEqual(self.hook()["decision"], "block")
+
+    def test_a_graph_without_have_is_asked_without_it(self):
+        self.write("scripts/todo-graph.py", "import json, sys\n"
+                   "if '--have' in sys.argv:\n"
+                   "    print('todo-graph.py: error: unrecognized arguments: --have auto', file=sys.stderr)\n"
+                   "    sys.exit(2)\n"
+                   "print(json.dumps([{'ref': 'D00 T01 \\u00a71', 'title': 'Old', 'phase': 0}]))\n")
+        self.assertEqual(guard.ready_rows(self.root), (1, "D00 T01 §1  Old"))
+
     def test_no_guard_another_session_or_an_empty_payload_allows(self):
         self.assertIsNone(self.hook())
         self.acquire()

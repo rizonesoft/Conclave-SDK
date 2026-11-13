@@ -31,9 +31,9 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from todo_graph import (ROOT, Refused, adjacency_report, atomic, deferrals, disposition,  # noqa: E402
-                        extract_ref, filing_couplings, frozen_files, graph, longest_chain, ordered, plan_config,
-                        plan_file, plan_status, projections, receipts_folder, require, review_rounds, settled,
-                        stamp, suspects, unstamp)
+                        extract_ref, filing_couplings, frozen_files, graph, longest_chain, missing_needs, ordered,
+                        plan_config, plan_file, plan_status, projections, receipts_folder, require, review_rounds,
+                        session_needs, settled, stamp, suspects, unstamp)
 
 
 def review_round(value):
@@ -54,6 +54,8 @@ def main():
     sub = p.add_subparsers(dest="command", required=True)
     for name in ("build", "render"):
         sub.add_parser(name)
+    sub.add_parser("detect", help="print the Needs this session meets: the kit's probes, todo/plan.json's probes and "
+                                  "CONCLAVE_HAVE")
     v = sub.add_parser("validate")
     v.add_argument("--all", action="store_true",
                    help="record every fault and go on: one line each, '<path or reference>: <message>', then exit 2")
@@ -64,8 +66,10 @@ def main():
     q = sub.add_parser("query")
     q.add_argument("kind", choices=["ready", "blocked", "stats", "deferred", "adjacency", "plan", "rounds", "frozen",
                                       "sequence"])
+    q.add_argument("--have", help="the Needs this session meets, comma-separated, or 'auto' for detect's set: a row needing another (that no person answers) is held")
     r = sub.add_parser("resolve")
     r.add_argument("ref")
+    r.add_argument("--have", help="the Needs this session meets, comma-separated, or 'auto' for detect's set: a row needing another (that no person answers) is held")
     c = sub.add_parser("classify")
     c.add_argument("refs", nargs="+")
     plan = sub.add_parser("plan")
@@ -117,10 +121,19 @@ def main():
             return 2
         print(f"valid: {len(rows)} sections")
         return 0
+    if args.command == "detect":
+        print(",".join(sorted(session_needs())))
+        return 0
     if args.command == "query" and args.kind == "frozen":  # the tree alone, so a tree with faults is reported too
         print(json.dumps(frozen_files(), indent=2, ensure_ascii=False))
         return 0
     rows = graph()
+    have = None if getattr(args, "have", None) is None else (
+        session_needs() if args.have == "auto" else {v.strip() for v in args.have.split(",") if v.strip()})
+
+    def state(row):  # disposition, and a row this session cannot host is held like one that waits
+        code = disposition(row, rows)
+        return 4 if code == 0 and missing_needs(row, have) else code
     if args.command == "plan":
         projections(sync=args.sync)
         print("plan synchronized" if args.sync else "plan current")
@@ -134,10 +147,11 @@ def main():
             return 1
         row = rows[ref]
         unmet = [d for d in row.depends if not settled(d, rows)]
-        print(json.dumps({**row.public(), "body": row.body, "unmet_depends": unmet,
-                          "skill_arg": ref, "exit": disposition(row, rows)},
+        extra = {} if have is None else {"missing_needs": missing_needs(row, have)}
+        print(json.dumps({**row.public(), "body": row.body, "unmet_depends": unmet, **extra,
+                          "skill_arg": ref, "exit": state(row)},
                          indent=2, ensure_ascii=False))
-        return disposition(row, rows)
+        return state(row)
     elif args.command == "classify":
         out = {}
         for item in args.refs:
@@ -147,8 +161,8 @@ def main():
     elif args.command == "query":
         if args.kind == "stats":
             result = {"total": len(rows), "verified": sum(r.done for r in rows.values()),
-                      "ready": sum(disposition(r, rows) == 0 for r in rows.values()),
-                      "blocked": sum(disposition(r, rows) == 4 for r in rows.values())}
+                      "ready": sum(state(r) == 0 for r in rows.values()),
+                      "blocked": sum(state(r) == 4 for r in rows.values())}
         elif args.kind == "deferred":
             result = deferrals()
         elif args.kind == "adjacency":
@@ -168,7 +182,7 @@ def main():
                                     "status": plan_status(r, rows), "depends": r.depends} for r in ordered(rows)]}
         else:
             code = 0 if args.kind == "ready" else 4
-            result = [r.public() for r in ordered(rows) if disposition(r, rows) == code]
+            result = [r.public() for r in ordered(rows) if state(r) == code]
         print(json.dumps(result, indent=2, ensure_ascii=False))
     elif args.command == "build":
         atomic(ROOT / "build/todo-cache.json",

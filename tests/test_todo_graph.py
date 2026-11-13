@@ -3223,6 +3223,123 @@ class QuerySequence(Tree):
         self.assertEqual([p["state"] for p in tg.filing_couplings(self.root, rows)], ["verified", "ready"])
 
 
+class HostNeeds(Tree):
+    """D03 T01 §10: a row needing a host this session does not meet is held, under `--have` and `detect`."""
+
+    def setUp(self):
+        super().setUp()
+        self.write(todo_file([(1, "Host", 0, "windows-host", "--"), (2, "Two hosts", 0, "windows-host, arm64-host", "--"),
+                              (3, "After four", 0, "none", "§4"), (4, "Waits", 0, "owner-decision", "--")]))
+        self.write(todo_file([(1, "Draft", 0, "none", "--")], ident="beta", status="draft"), name="TODO-02-b.md")
+        shutil.copytree(SCRIPTS, self.root / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
+
+    def cli(self, *args, env=None):
+        result = subprocess.run([sys.executable, str(self.root / "scripts/todo-graph.py"), *args], capture_output=True,
+                                env={**os.environ, "CONCLAVE_HAVE": "", **(env or {})})
+        out = result.stdout.decode("utf-8")
+        return result.returncode, (json.loads(out) if out.strip().startswith(("[", "{")) else out.strip())
+
+    def ready(self, *have):
+        return [r["ref"] for r in self.cli("query", "ready", *(("--have", have[0]) if have else ()))[1]]
+
+    def test_query_ready_holds_a_row_whose_host_is_absent(self):
+        self.assertEqual(self.ready(), ["D00 T01 §1", "D00 T01 §2"])  # without the flag: as before
+        self.assertEqual(self.ready("windows-host"), ["D00 T01 §1"])
+        self.assertEqual(self.ready(""), [])
+        self.assertEqual(self.ready("windows-host,arm64-host"), ["D00 T01 §1", "D00 T01 §2"])  # every Need it names
+        code, stats = self.cli("query", "stats", "--have", "")
+        self.assertEqual((code, stats["ready"], stats["blocked"]), (0, 0, 5))  # the draft file's section too
+
+    def test_resolve_names_the_missing_host_and_keeps_every_other_state(self):
+        code, out = self.cli("resolve", "D00 T01 §2", "--have", "windows-host")
+        self.assertEqual((code, out["exit"], out["missing_needs"]), (4, 4, ["arm64-host"]))
+        code, out = self.cli("resolve", "D00 T01 §2", "--have", "windows-host,arm64-host")
+        self.assertEqual((code, out["missing_needs"]), (0, []))
+        everything = "windows-host,arm64-host,owner-decision"
+        for ref in ("D00 T01 §3", "D00 T01 §4", "D00 T02 §1"):  # an unmet dependency, a waiting Need, a draft file
+            with self.subTest(ref):
+                self.assertEqual(self.cli("resolve", ref, "--have", everything)[0], 4)
+        code, out = self.cli("resolve", "D00 T01 §2")
+        self.assertEqual(code, 0)
+        self.assertNotIn("missing_needs", out)
+
+    def test_auto_is_the_set_detect_prints(self):
+        code, printed = self.cli("detect", env={"CONCLAVE_HAVE": "attended, arm64-host"})
+        self.assertEqual(code, 0)
+        self.assertIn("attended", printed.split(","))
+        auto = self.cli("query", "ready", "--have", "auto", env={"CONCLAVE_HAVE": "windows-host,arm64-host"})[1]
+        self.assertEqual([r["ref"] for r in auto], ["D00 T01 §1", "D00 T01 §2"])
+        self.assertNotIn("attended", self.cli("detect")[1].split(","))  # declared only while CONCLAVE_HAVE names it
+
+    def test_the_built_in_probes(self):
+        with mock.patch.dict(os.environ, {"DISPLAY": "", "WAYLAND_DISPLAY": "", "SESSIONNAME": ""}), \
+                mock.patch("platform.machine", return_value="AMD64"), mock.patch("shutil.which", return_value=None):
+            none = tg.builtin_needs() - {"windows-host", "office"}
+            with mock.patch("platform.machine", return_value="aarch64"):
+                self.assertIn("arm64-host", tg.builtin_needs())
+            with mock.patch.dict(os.environ, {"DISPLAY": ":0"}):
+                self.assertIn("display-session", tg.builtin_needs())
+            with mock.patch("shutil.which", return_value="/usr/bin/soffice"):
+                self.assertIn("libreoffice", tg.builtin_needs())
+        self.assertEqual(none, set())
+        self.assertEqual("windows-host" in tg.builtin_needs(), os.name == "nt")
+
+    def test_a_projects_probes_prove_its_own_needs(self):
+        needs = ["windows-host", "arm64-host", "owner-decision", "ffmpeg-jxl", "gpu"]
+        for probes, fragment in (({"nope": ["x"]}, "probes names 'nope'"), ({"gpu": "x"}, "probes 'gpu' must be"),
+                                 ({"gpu": []}, "probes 'gpu' must be"), ({"owner-decision": ["x"]}, "probes names"),
+                                 ([], "probes must be an object")):
+            with self.subTest(probes):
+                self.plan(needs=needs, probes=probes)
+                self.refuses("todo/plan.json: " + fragment)
+        self.plan(needs=needs, probes={"ffmpeg-jxl": [sys.executable, "-c", "raise SystemExit(0)"],
+                                       "gpu": [sys.executable, "-c", "raise SystemExit(1)"]})
+        self.assertEqual(tg.session_needs(self.root) & {"ffmpeg-jxl", "gpu"}, {"ffmpeg-jxl"})
+
+    def plan(self, **keys):
+        (self.root / "todo/plan.json").write_text(json.dumps(keys), encoding="utf-8")
+
+    def test_a_probe_that_hangs_is_stopped_with_its_children(self):
+        pid_file = self.root / "child.pid"
+        script = ("import subprocess, sys, time; "
+                  "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+                  f"open(r'{pid_file}', 'w').write(str(p.pid)); time.sleep(60)")
+        started = time.monotonic()
+        self.assertFalse(tg._run_probe([sys.executable, "-c", script], timeout=3))
+        self.assertLess(time.monotonic() - started, 20)
+        child = int(pid_file.read_text())
+        for _ in range(50):
+            if not self.alive(child):
+                break
+            time.sleep(0.1)
+        self.assertFalse(self.alive(child), "the probe's child outlived its timeout")
+
+    @staticmethod
+    def alive(pid):
+        if os.name == "nt":
+            out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True,
+                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+            return str(pid) in out
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        return True
+
+    def test_every_runner_asks_with_the_sessions_set(self):
+        command = re.compile(r"(?:python3?|<python>) scripts/todo-graph\.py (?:query ready|resolve)\b[^`\n]*")
+        for agent in (".claude", ".agents", ".codex"):
+            for skill in ("process-plan", "process-phase"):
+                text = (REPO / "kits/todo/templates" / agent / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+                found = command.findall(text)
+                self.assertTrue(found, f"{agent} {skill}")
+                for line in found:
+                    self.assertIn("--have auto", line, f"{agent} {skill}: {line}")
+        guard = (REPO / "kits/todo/templates/scripts/campaign_guard.py").read_text(encoding="utf-8")
+        self.assertIn('"query", "ready",\n                                   *extra]', guard)
+        self.assertIn('(["--have", "auto"], [])', guard)
+
+
 class Repository(unittest.TestCase):
     def test_the_authoring_template_copy_is_identical(self):
         # todo/README.md and create-todo name todo/templates/TODO-template.md and each agent's skill copy as one file.
