@@ -21,6 +21,7 @@ OOXML_FAMILY = {
 }
 
 _SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]*:")
+_PCT_SLASH_RE = re.compile(r"%2f|%5c", re.IGNORECASE)
 _XML_SPACE_RUN_RE = re.compile(r"[ \t\r\n]+")
 
 SLIDE_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"
@@ -59,35 +60,74 @@ def one_line(text: str, limit: int) -> str:
     return "".join(c if c.isprintable() else c.encode("unicode_escape").decode() for c in text)[:limit]
 
 
+def _is_valid_part_segment(segment: str) -> bool:
+    return bool(
+        segment
+        and "/" not in segment
+        and "\\" not in segment
+        and not segment.endswith(".")
+        and not any(ord(ch) < 32 or ord(ch) == 127 for ch in segment)
+    )
+
+
 def opc_target(target: str, source_part: str, target_mode: str = "") -> str | None:
-    target = collapse_xml_space(target)
-    if not target:
+    if target_mode == "External":
         return None
-    if target_mode.lower() == "external":
-        return None
-    target = urllib.parse.unquote(target)
+    if target_mode not in ("", "Internal"):
+        raise ValueError(f"invalid relationship TargetMode: {target_mode!r}")
 
-    if _SCHEME_RE.match(target):
-        return None
-
-    if "\\" in target:
+    raw = collapse_xml_space(target)
+    if not raw:
+        raise ValueError("relationship target is empty")
+    if _SCHEME_RE.match(raw):
+        raise ValueError(f"internal relationship target cannot have a URI scheme: {target!r}")
+    if raw.startswith("//"):
+        raise ValueError(f"internal relationship target cannot have a URI authority: {target!r}")
+    if "\\" in raw or _PCT_SLASH_RE.search(raw):
         raise ValueError(f"relationship target is not a POSIX part name: {target!r}")
 
-    if target.startswith("/"):
-        joined = target.lstrip("/")
-    else:
-        joined = posixpath.join(posixpath.dirname(source_part), target)
+    path_ref, frag_sep, _ = raw.partition("#")
+    if "?" in path_ref:
+        raise ValueError(f"internal relationship target cannot have a query component: {target!r}")
+
+    if not path_ref:
+        if not frag_sep or not source_part:
+            raise ValueError(f"relationship target resolves to nothing: {target!r}")
+        base_raw = source_part.lstrip("/")
+        base_parts = base_raw.split("/") if base_raw else []
+        if not base_parts or not all(_is_valid_part_segment(seg) for seg in base_parts):
+            raise ValueError(f"relationship source part is not a valid OPC part name: {source_part!r}")
+        return "/".join(base_parts)
 
     parts: list[str] = []
-    for segment in posixpath.normpath(joined).split("/"):
-        if segment in ("", "."):
+    if not path_ref.startswith("/"):
+        source_dir = posixpath.dirname(source_part.lstrip("/"))
+        if source_dir:
+            for base_seg in source_dir.split("/"):
+                if not _is_valid_part_segment(base_seg):
+                    raise ValueError(f"relationship source part is not a valid OPC part name: {source_part!r}")
+                parts.append(base_seg)
+
+    raw_segments = path_ref[1:].split("/") if path_ref.startswith("/") else path_ref.split("/")
+    for idx, raw_seg in enumerate(raw_segments):
+        is_last = idx == len(raw_segments) - 1
+        if not raw_seg:
+            raise ValueError(f"relationship target has an empty path segment: {target!r}")
+        seg = urllib.parse.unquote(raw_seg)
+        if seg == ".":
+            if is_last:
+                raise ValueError(f"relationship target resolves to a directory: {target!r}")
             continue
-        if segment == "..":
+        if seg == "..":
             if not parts:
                 raise ValueError(f"relationship target escapes the package: {target!r}")
+            if is_last:
+                raise ValueError(f"relationship target resolves to a directory: {target!r}")
             parts.pop()
-        else:
-            parts.append(segment)
+            continue
+        if not _is_valid_part_segment(seg):
+            raise ValueError(f"relationship target is not a valid OPC part name: {target!r}")
+        parts.append(seg)
 
     if not parts:
         raise ValueError(f"relationship target resolves to nothing: {target!r}")
@@ -95,13 +135,27 @@ def opc_target(target: str, source_part: str, target_mode: str = "") -> str | No
 
 
 def normalize_part_name(part_name: str) -> str | None:
+    if not isinstance(part_name, str):
+        return None
     collapsed = collapse_xml_space(part_name)
-    if not collapsed.startswith("/"):
+    if (
+        not collapsed.startswith("/")
+        or collapsed.endswith("/")
+        or "\\" in collapsed
+        or "?" in collapsed
+        or "#" in collapsed
+        or _PCT_SLASH_RE.search(collapsed)
+    ):
         return None
-    try:
-        return opc_target(collapsed, "")
-    except ValueError:
-        return None
+    segments: list[str] = []
+    for raw_seg in collapsed[1:].split("/"):
+        if not raw_seg:
+            return None
+        seg = urllib.parse.unquote(raw_seg)
+        if not _is_valid_part_segment(seg):
+            return None
+        segments.append(seg)
+    return "/".join(segments) if segments else None
 
 
 def rels_source_part(rels_file: Path, unpacked_dir: Path) -> str:

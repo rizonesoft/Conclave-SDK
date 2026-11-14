@@ -691,9 +691,37 @@ class CraftScriptHardeningTests(unittest.TestCase):
 
         self.assertEqual(helpers.opc_target(" ../media/image1.png ", "ppt/slides/slide1.xml"), "ppt/media/image1.png")
         self.assertEqual(helpers.opc_target("\t../media/two%20%20spaces.png\n", "ppt/slides/slide1.xml"), "ppt/media/two  spaces.png")
+        self.assertIsNone(helpers.opc_target("https://example.com/x", "ppt/slides/slide1.xml", "External"))
+        self.assertEqual(helpers.opc_target("slide1.xml#anchor", "ppt/slides/slide2.xml", "Internal"), "ppt/slides/slide1.xml")
+        self.assertEqual(helpers.opc_target("#bookmark", "word/document.xml"), "word/document.xml")
+        for bad_target, src_part, tmode in (
+            ("ftp://example.com/missing.png", "ppt/slides/slide1.xml", "Internal"),
+            ("http://example.com/missing.png", "ppt/slides/slide1.xml", ""),
+            ("//example.com/ppt/slides/slide1.xml", "ppt/slides/slide1.xml", "Internal"),
+            ("", "ppt/slides/slide1.xml", "Internal"),
+            ("slides/slide1.xml", "ppt/presentation.xml", "external"),
+            ("/ppt//slides/slide1.xml", "ppt/presentation.xml", "Internal"),
+            ("slides/slide1.xml/", "ppt/presentation.xml", "Internal"),
+            ("slides/.", "ppt/presentation.xml", "Internal"),
+            ("slides%2fslide1.xml", "ppt/presentation.xml", "Internal"),
+        ):
+            with self.assertRaises(ValueError, msg=(bad_target, src_part, tmode)):
+                helpers.opc_target(bad_target, src_part, tmode)
+
         self.assertEqual(helpers.normalize_part_name(" /ppt/slides/slide%201.xml "), "ppt/slides/slide 1.xml")
         self.assertIsNone(helpers.normalize_part_name("ppt/slides/slide1.xml"))
         self.assertIsNone(helpers.normalize_part_name("/../outside.xml"))
+        for bad_part in (
+            "/ppt//slides/slide1.xml",
+            "/ppt/slides/slide1.xml/",
+            "/",
+            "/ppt/./slides/slide1.xml",
+            "/ppt/slides/../slides/slide1.xml",
+            "/ppt%2Fslides/slide1.xml",
+            "/ppt/slides/slide1.xml#frag",
+            "/ppt/slides/slide1.xml?q=1",
+        ):
+            self.assertIsNone(helpers.normalize_part_name(bad_part), bad_part)
         rel_el = ET.Element("Relationship", Id=" rId\u00e9 ", Type=" http://example.com/t ", Target=" ../media/a\tb.png ", TargetMode="Internal")
         self.assertEqual(
             helpers.read_relationship(rel_el),
@@ -2353,25 +2381,50 @@ class CraftScriptHardeningTests(unittest.TestCase):
             self.assertTrue(dup_s1.exists())
             self.assertTrue(dup_s2.exists())
 
-            # Case 6: wrong [Content_Types].xml namespace, unexpected children, or missing required attrs must refuse
+            # Case 6: wrong [Content_Types].xml namespace, unexpected children, missing attrs, or invalid PartName syntax must refuse
             bad_ct_variants = [
-                ("clean_ct_wrong_ns", b'<Types xmlns="urn:wrong"><Garbage/></Types>'),
+                ("clean_ct_wrong_ns", b'<Types xmlns="urn:wrong"><Garbage/></Types>', False),
                 (
                     "clean_ct_bad_child",
                     b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Garbage/></Types>',
+                    False,
                 ),
                 (
                     "clean_ct_missing_attr",
                     b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
                     b'<Override ContentType="application/xml"/></Types>',
+                    False,
+                ),
+                (
+                    "clean_ct_empty_segment",
+                    b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+                    b'<Override PartName="/ppt//slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>',
+                    True,
+                ),
+                (
+                    "clean_ct_trailing_slash",
+                    b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+                    b'<Override PartName="/ppt/slides/slide1.xml/" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>',
+                    True,
                 ),
             ]
-            for label, raw_ct in bad_ct_variants:
+            val_pptx_case = None
+            if importlib.util.find_spec("lxml") is not None:
+                added_path = str(pptx_scripts)
+                sys.path.insert(0, added_path)
+                try:
+                    import office.validators.pptx as val_pptx_case
+                finally:
+                    if added_path in sys.path:
+                        sys.path.remove(added_path)
+            for label, raw_ct, check_validator in bad_ct_variants:
                 bad_dir, bs1, bs2 = _build_deck(label, ct_bytes=raw_ct)
                 with self.assertRaises(clean.RefusedToClean):
                     clean.remove_orphaned_slides(bad_dir)
                 with self.assertRaises(clean.RefusedToClean):
                     clean.clean_unused_files(bad_dir)
+                if check_validator and val_pptx_case is not None:
+                    self.assertFalse(val_pptx_case.PPTXSchemaValidator(bad_dir).validate_content_types())
                 self.assertTrue(bs1.exists())
                 self.assertTrue(bs2.exists())
 
@@ -2497,6 +2550,35 @@ class CraftScriptHardeningTests(unittest.TestCase):
             self.assertTrue((valid_dir / "ppt" / "slides" / "slide1.xml").is_file())
             if importlib.util.find_spec("lxml") is not None:
                 self.assertTrue(val_pptx_case7.PPTXSchemaValidator(valid_dir).validate())
+
+            # Internal scheme-prefixed Target with TargetMode="Internal" must fail both clean and validators
+            ftp_dir = self.root / "clean_ftp_internal_rel"
+            shutil.copytree(valid_dir, ftp_dir)
+            ftp_rels = ET.Element(f"{{{rels_ns}}}Relationships")
+            ET.SubElement(
+                ftp_rels,
+                f"{{{rels_ns}}}Relationship",
+                Id="rIdImg1",
+                Type=f"{r_ns}/image",
+                Target="../media/image1.png",
+            )
+            ET.SubElement(
+                ftp_rels,
+                f"{{{rels_ns}}}Relationship",
+                Id="rIdFtp",
+                Type=f"{r_ns}/image",
+                Target="ftp://example.com/missing.png",
+                TargetMode="Internal",
+            )
+            (ftp_dir / "ppt" / "slides" / "_rels" / "slide 1.xml.rels").write_bytes(
+                ET.tostring(ftp_rels, encoding="utf-8", xml_declaration=True)
+            )
+            with self.assertRaises(clean.RefusedToClean):
+                clean.clean_unused_files(ftp_dir)
+            if importlib.util.find_spec("lxml") is not None:
+                val_ftp = val_pptx_case7.PPTXSchemaValidator(ftp_dir)
+                self.assertFalse(val_ftp.validate_file_references())
+                self.assertFalse(val_ftp.validate())
 
             for good_ct in (
                 "application/xml",

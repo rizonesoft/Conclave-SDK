@@ -154,7 +154,10 @@ class PPTXSchemaValidator(BaseSchemaValidator):
                     continue
                 rid, rel_type, target, target_mode = read_relationship(rel)
                 if rid in listed and rel_type in slide_types and target:
-                    part = opc_target(target, "ppt/presentation.xml", target_mode)
+                    try:
+                        part = opc_target(target, "ppt/presentation.xml", target_mode)
+                    except ValueError:
+                        continue
                     if part:
                         out.add(part)
             return out
@@ -215,7 +218,10 @@ class PPTXSchemaValidator(BaseSchemaValidator):
                             continue
                         rid, rel_type, target, target_mode = read_relationship(rel)
                         if rid and rel_type.endswith("/relationships/tags") and target:
-                            part = opc_target(target, relative, target_mode)
+                            try:
+                                part = opc_target(target, relative, target_mode)
+                            except ValueError:
+                                continue
                             if part:
                                 targets[rid] = part
             except (lxml.etree.XMLSyntaxError, ValueError):
@@ -461,8 +467,9 @@ class PPTXSchemaValidator(BaseSchemaValidator):
                 for sld_layout_id in root.findall(
                     f".//{{{self.PRESENTATIONML_NAMESPACE}}}sldLayoutId"
                 ):
-                    raw_r_id = sld_layout_id.get(
-                        f"{{{self.OFFICE_RELATIONSHIPS_NAMESPACE}}}id"
+                    raw_r_id = (
+                        sld_layout_id.get(f"{{{self.OFFICE_RELATIONSHIPS_NAMESPACE}}}id")
+                        or sld_layout_id.get(f"{{{STRICT_OFFICE_REL_NS}}}id")
                     )
                     r_id = collapse_xml_space(raw_r_id) if raw_r_id else ""
                     layout_id = sld_layout_id.get("id")

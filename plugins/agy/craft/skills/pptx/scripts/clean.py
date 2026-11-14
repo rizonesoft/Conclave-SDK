@@ -18,7 +18,6 @@ This script removes:
 import posixpath
 import re
 import sys
-import urllib.parse
 from pathlib import Path
 from xml.parsers.expat import ExpatError
 
@@ -331,18 +330,12 @@ def _validate_content_types_dom(ct_dom) -> None:
             attrs = _unqualified_attrs(
                 child, {"PartName", "ContentType"}, "[Content_Types].xml <Override>"
             )
-            part_name = collapse_xml_space(attrs.get("PartName", ""))
-            decoded_part = urllib.parse.unquote(part_name)
+            part_name = attrs.get("PartName", "")
             norm_part = normalize_part_name(part_name)
             ctype = attrs.get("ContentType", "")
             if (
                 "PartName" not in attrs
                 or "ContentType" not in attrs
-                or not part_name.startswith("/")
-                or len(decoded_part) <= 1
-                or "\\" in part_name
-                or "\\" in decoded_part
-                or any(ord(ch) < 32 or ord(ch) == 127 for ch in decoded_part)
                 or norm_part is None
                 or not _is_valid_content_type(ctype)
             ):

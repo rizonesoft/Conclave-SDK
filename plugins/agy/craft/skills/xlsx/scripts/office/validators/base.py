@@ -407,15 +407,14 @@ class BaseSchemaValidator:
                     if target_mode not in ("", "Internal"):
                         broken_refs.append((f"{target} (invalid TargetMode {target_mode!r})", rel.sourceline))
                         continue
-                    if not target:
-                        continue
 
                     try:
                         part = opc_target(target, source_part, target_mode)
-                    except ValueError:
-                        broken_refs.append((f"{target} (escapes package)", rel.sourceline))
+                    except ValueError as exc:
+                        broken_refs.append((f"{target} ({exc})", rel.sourceline))
                         continue
                     if part is None:
+                        broken_refs.append((target, rel.sourceline))
                         continue
 
                     try:
@@ -595,12 +594,18 @@ class BaseSchemaValidator:
                 part_name = override.get("PartName")
                 if part_name is not None:
                     norm_part = normalize_part_name(part_name)
-                    if norm_part is not None:
-                        declared_parts.add(norm_part)
-                    else:
+                    if norm_part is None:
                         errors.append(
                             f"  Line {override.sourceline}: Invalid Override PartName {part_name!r} in [Content_Types].xml"
                         )
+                    else:
+                        part_key = norm_part.lower()
+                        if part_key in declared_parts:
+                            errors.append(
+                                f"  Line {override.sourceline}: Duplicate Override PartName {part_name!r} in [Content_Types].xml"
+                            )
+                        else:
+                            declared_parts.add(part_key)
 
             for default in root.findall(
                 f".//{{{self.CONTENT_TYPES_NAMESPACE}}}Default"
@@ -649,7 +654,7 @@ class BaseSchemaValidator:
                     root_tag = safe_lxml_parse(xml_file).getroot().tag
                     root_name = root_tag.split("}")[-1] if "}" in root_tag else root_tag
 
-                    if root_name in declarable_roots and path_str not in declared_parts:
+                    if root_name in declarable_roots and path_str.lower() not in declared_parts:
                         errors.append(
                             f"  {path_str}: File with <{root_name}> root not declared in [Content_Types].xml"
                         )
