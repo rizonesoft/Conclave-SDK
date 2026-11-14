@@ -1,0 +1,84 @@
+{
+  "ref": "D00 T02 \u00a73",
+  "title": "Antigravity Orchestrator Carbon and subagent contract in the base kit",
+  "implementation_sha": "0c884d06f501efd5e308cb83611633191dc609f4",
+  "date": "2026-11-14",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-reviewer/D00-T02-s3.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "CI tests.yml green at 0c884d06f501 (https://github.com/rizonetech/Conclave-SDK/actions/runs/43552278062) -> success",
+    "CONCLAVE_LIVE_AGY=1 python -m unittest -v tests.test_agy_agents -> Ran 14 tests in 381.924s OK"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-reviewer/D00-T02-s3.md",
+    "verdict": "reconciled",
+    "candidate": "0c884d06f501efd5e308cb83611633191dc609f4",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/00-reviewer/D00-T02-s3.md",
+    "candidate": "33cca77ea9a82600f46022974f3bcddae09ca95f",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "33cca77ea9a82600f46022974f3bcddae09ca95f",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 5,
+  "pass_cap": 33
+}

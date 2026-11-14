@@ -93,7 +93,7 @@ Sections: 4 | Checklist items: 24
 | ------ | ---------- | --------------------------------------------------------------------- | ----- | ----- |
 | [x]    | D00 T02 §1 | Codex route to Gemini 4 Carbon and Orchestrator effort rules          | none  | 7     |
 | [x]    | D00 T02 §2 | Antigravity flags and deny settings checked against the CLI           | none  | 8     |
-| [ ]    | D00 T02 §3 | Antigravity Orchestrator Carbon and subagent contract in the base kit | none  | 5     |
+| [x]    | D00 T02 §3 | Antigravity Orchestrator Carbon and subagent contract in the base kit | none  | 5     |
 | [ ]    | D00 T02 §4 | Orchestrator effort-free profiles in the unattended kit               | none  | 4     |
 
 ### Phase 5: One gate and one skill source
@@ -154,6 +154,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 53/85 verified sections, 11 ready to run now.
+Progress: 54/85 verified sections, 10 ready to run now.
 
 Checklist: 441/610 items completed (includes Commit items).

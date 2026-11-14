@@ -37,7 +37,7 @@ title: "TODO-02 -- Antigravity and Codex as first-class writers"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Codex route to Gemini 4 Carbon and Orchestrator effort rules | -- | [x] |
 | 2 | §2 | Antigravity flags and deny settings checked against the CLI | §1 | [x] |
-| 3 | §3 | Antigravity Orchestrator Carbon and subagent contract in the base kit | §2 | [ ] |
+| 3 | §3 | Antigravity Orchestrator Carbon and subagent contract in the base kit | §2 | [x] |
 | 4 | §4 | Orchestrator effort-free profiles in the unattended kit | §1 | [ ] |
 
 ## 1. Codex route to Gemini 4 Carbon and Orchestrator effort rules
@@ -137,6 +137,9 @@ Claude Code gets five read-only subagents from the base kit under `.claude/agent
 **Test checkpoint:** `python -m unittest tests.test_agy_agents tests.test_check_all tests.test_forge` and `python forge.py check-all --only agent-tiers` end `OK`.
 
 > **Unstamped:** 2026-11-14: Orchestrator (Carbon) handles Carbon planning, Hydrogen execution, and built-in subagents automatically without custom .agents/agents files (revoked receipt `docs/reviews/d00-t02-s3.revoked-2026-11-14.json`)
+
+> **Verified:** 2026-11-14 | §3 | 0c884d06f501efd5e308cb83611633191dc609f4
+> **Review:** `docs/reviews/d00-t02-s3.json`
 
 ## 4. Orchestrator effort-free profiles in the unattended kit
 
