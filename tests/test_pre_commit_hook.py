@@ -1,4 +1,5 @@
 """kits/todo scripts/hooks/pre-commit: a commit that stages TODO changes with a stale plan is refused before CI sees it."""
+import json
 import os
 import pathlib
 import shutil
@@ -7,8 +8,11 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+import forge  # noqa: E402
 from test_todo_graph import todo_file  # noqa: E402
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -211,6 +215,203 @@ class PreCommitHook(unittest.TestCase):
         (self.root / "todo/00-workspace/TODO-01-a.md").write_text("broken\n", encoding="utf-8")  # unstaged, untouched
         self.git("add", "notes.txt")
         self.assertEqual(self.commit().returncode, 0)
+
+
+@unittest.skipUnless(shutil.which("git"), "needs git (which runs the hook with its own shell)")
+class InstallAndDoctor(unittest.TestCase):
+    """D01 T02 section 7: `forge.py kit <project> todo` enables the hook where nothing else owns the repository's
+    hooks, and `forge.py doctor <project> todo` says what is left. Every fixture is set up by the installer alone:
+    no hand copy of the hook, no chmod, no `git config core.hooksPath` unless the test is about another owner."""
+
+    CONFLICT = "would stop those hooks"
+
+    def setUp(self):
+        self.tmp = Scratch()
+        self.addCleanup(self.tmp.cleanup)
+        self.work = pathlib.Path(self.tmp.name).resolve()
+        # The host's own git settings are not the fixture's (a global core.hooksPath would own every repository),
+        # and the todo kit's install asks Codex to approve its Stop hook: a stub answers, never the real one.
+        stub = json.dumps([sys.executable, str(REPO / "tests/fixtures/codex_app_server_stub.py")])
+        env = unittest.mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+                                                    "CODEX_HOOK_TRUST_SERVER": stub})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def git(self, folder, *args, check=True):
+        return subprocess.run(["git", "-C", str(folder), *args], capture_output=True, text=True, check=check)
+
+    def repository(self, name="project"):
+        folder = self.work / name
+        folder.mkdir()
+        for args in (["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "T"],
+                     ["config", "core.autocrlf", "false"]):
+            self.git(folder, *args)
+        return folder
+
+    def hooks_path(self, folder):
+        return self.git(folder, "config", "--get", "core.hooksPath", check=False).stdout.strip()
+
+    def check(self, project):
+        (found,) = [c for c in forge.doctor_repo(project, "todo")["checks"] if c["name"] == "pre-commit-hook"]
+        return found["status"], found["detail"]
+
+    def test_a_fresh_repository_has_the_hook_enabled_and_a_second_install_says_so(self):
+        project = self.repository()
+        self.assertEqual(forge.apply_kit(project, "todo")["pre_commit_hook"], "enabled")
+        self.assertEqual(self.hooks_path(project), "scripts/hooks")
+        self.assertEqual(self.check(project), ("ok", "core.hooksPath is scripts/hooks"))
+        self.assertEqual(forge.apply_kit(project, "todo")["pre_commit_hook"], "already enabled")
+        self.assertEqual(self.hooks_path(project), "scripts/hooks")
+
+    def test_a_real_commit_with_a_stale_plan_is_refused_once_the_kit_is_installed(self):
+        project = self.repository()
+        forge.apply_kit(project, "reviewer")  # the dispatcher the graph loads when it reads receipts
+        self.assertEqual(forge.apply_kit(project, "todo")["pre_commit_hook"], "enabled")
+        todo = project / "todo/00-workspace"
+        todo.mkdir(parents=True)
+        (todo / "TODO-01-a.md").write_text(todo_file([(1, "A", 0, "none", "--")]), encoding="utf-8")
+        (todo / "INDEX.md").write_text("# Index\n- TODO-01-a.md\n", encoding="utf-8")
+        (project / "todo/TODO-00-INDEX.md").write_text("# Index\n- 00-workspace/TODO-01-a.md\n", encoding="utf-8")
+
+        def sync():
+            subprocess.run([sys.executable, str(project / "scripts/todo-graph.py"), "plan", "--sync"], check=True,
+                           capture_output=True, cwd=project)
+
+        sync()
+        self.git(project, "add", "-A")
+        seeded = self.git(project, "commit", "-qm", "seed", check=False)
+        self.assertEqual(seeded.returncode, 0, seeded.stderr)
+        path = todo / "TODO-01-a.md"
+        path.write_text(path.read_text(encoding="utf-8").replace("- [ ] Work.", "- [x] Work."), encoding="utf-8")
+        self.git(project, "add", "todo/00-workspace/TODO-01-a.md")
+        refused = self.git(project, "commit", "-qm", "tick", check=False)
+        self.assertNotEqual(refused.returncode, 0, "git ran no hook: the commit with a stale plan went through")
+        self.assertIn("plan --sync", refused.stderr + refused.stdout)
+        sync()
+        self.git(project, "add", "-A")
+        accepted = self.git(project, "commit", "-qm", "tick", check=False)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+    def test_a_project_with_hooks_of_its_own_keeps_them_and_is_told_how_to_join_the_two(self):
+        for name in ("pre-commit", "pre-push"):
+            with self.subTest(own=name):
+                project = self.repository(f"own-{name}")
+                own = project / ".git/hooks" / name
+                own.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+                left = forge.apply_kit(project, "todo")["pre_commit_hook"]
+                self.assertTrue(left.startswith("left: ") and name in left, left)
+                self.assertEqual(self.hooks_path(project), "")
+                status, detail = self.check(project)
+                self.assertEqual(status, "setup_required")
+                self.assertIn(self.CONFLICT, detail)
+                self.assertIn(f"({name})", detail)
+                self.assertIn("Call scripts/hooks/pre-commit from", detail)
+                # Once the project's pre-commit hook calls the kit's, both run and nothing is left to set up.
+                joined = project / ".git/hooks/pre-commit"
+                joined.write_text('#!/bin/sh\n"$(git rev-parse --show-toplevel)/scripts/hooks/pre-commit" || exit 1\n',
+                                  encoding="utf-8")
+                self.assertEqual(self.check(project), ("ok", f"{joined.as_posix()} calls scripts/hooks/pre-commit"))
+
+    def test_another_hooks_path_is_left_and_the_doctor_never_tells_it_to_be_overwritten_blindly(self):
+        project = self.repository()
+        (project / ".husky").mkdir()
+        (project / ".husky/pre-commit").write_text("#!/bin/sh\nnpx lint-staged\n", encoding="utf-8")
+        self.git(project, "config", "core.hooksPath", ".husky")
+        left = forge.apply_kit(project, "todo")["pre_commit_hook"]
+        self.assertEqual(left, "left: core.hooksPath is .husky")
+        self.assertEqual(self.hooks_path(project), ".husky")
+        status, detail = self.check(project)
+        self.assertEqual(status, "setup_required")
+        self.assertTrue(detail.startswith("core.hooksPath is .husky: "), detail)
+        self.assertIn(self.CONFLICT, detail)
+        self.assertIn("or replace that setup on purpose", detail)
+        with (project / ".husky/pre-commit").open("a", encoding="utf-8") as hook:
+            hook.write("sh scripts/hooks/pre-commit\n")
+        self.assertEqual(self.check(project)[0], "ok")
+        # A hooks path that names a folder with no pre-commit hook in it is still another owner.
+        self.git(project, "config", "core.hooksPath", "elsewhere")
+        self.assertEqual(self.check(project)[0], "setup_required")
+        self.assertIn(self.CONFLICT, self.check(project)[1])
+
+    def test_no_scripts_installs_no_hook_and_enables_none(self):
+        project = self.repository()
+        result = forge.provision(project, with_todo=True, include_scripts=False)
+        (todo,) = [kit for kit in result["kits"] if kit["kit"] == "todo"]
+        self.assertTrue(todo["pre_commit_hook"].startswith("left: scripts/hooks/pre-commit is not installed"), todo)
+        self.assertEqual(self.hooks_path(project), "")
+        status, detail = self.check(project)
+        self.assertEqual(status, "missing")
+        self.assertIn("scripts/hooks/pre-commit is not installed", detail)
+
+    def test_a_dry_run_sets_nothing(self):
+        project = self.repository()
+        self.assertNotIn("pre_commit_hook", forge.apply_kit(project, "todo", dry_run=True))
+        self.assertEqual(self.hooks_path(project), "")
+
+    def test_a_folder_in_no_repository_has_no_commit_to_check(self):
+        project = self.work / "plain"
+        project.mkdir()
+        self.assertEqual(forge.apply_kit(project, "todo")["pre_commit_hook"], "left: not a git repository")
+        self.assertEqual(self.check(project), ("ok", "not a git repository: no commit to check"))
+
+    def test_a_project_nested_in_its_repository_is_reported_and_given_no_setting(self):
+        top = self.repository("top")
+        project = top / "app"
+        project.mkdir()
+        left = forge.apply_kit(project, "todo")["pre_commit_hook"]
+        self.assertTrue(left.startswith("left: the project is a subfolder of the repository at "), left)
+        self.assertEqual(self.hooks_path(top), "")
+        status, detail = self.check(project)
+        self.assertEqual(status, "setup_required")
+        self.assertIn("cannot check a nested project", detail)
+        self.assertIn("python scripts/todo-graph.py validate", detail)
+        self.assertIn("plan --check", detail)
+        self.assertNotIn("git config", detail)
+
+    def test_a_machine_where_git_does_not_run_is_reported(self):
+        project = self.repository()
+        with unittest.mock.patch.object(forge, "_git_answer", return_value=None):
+            left = forge.apply_kit(project, "todo")["pre_commit_hook"]
+            status, detail = self.check(project)
+        self.assertTrue(left.startswith("left: git cannot be run here"), left)
+        self.assertEqual(status, "setup_required")
+        self.assertIn("git cannot be run here", detail)
+        self.assertEqual(self.hooks_path(project), "")
+
+    def test_an_enabled_hook_that_is_gone_or_cannot_run_is_not_ok(self):
+        project = self.repository()
+        forge.apply_kit(project, "todo")
+        hook = project / "scripts/hooks/pre-commit"
+        if os.name != "nt":
+            hook.chmod(0o644)
+            self.assertEqual(self.check(project), ("setup_required", "chmod +x scripts/hooks/pre-commit: git runs only "
+                                                                     "an executable hook"))
+            hook.chmod(0o755)
+        self.assertEqual(self.check(project)[0], "ok")
+        kept = hook.read_bytes()
+        hook.unlink()
+        status, detail = self.check(project)
+        self.assertEqual(status, "missing")
+        self.assertIn("scripts/hooks/pre-commit is not installed", detail)
+        hook.write_bytes(kept)
+        hook.chmod(0o755)
+        (project / "scripts/todo-graph.py").unlink()
+        status, detail = self.check(project)
+        self.assertEqual(status, "missing")
+        self.assertIn("scripts/todo-graph.py is not installed", detail)
+
+    def test_a_failed_write_of_the_setting_is_reported_and_a_retry_works(self):
+        project = self.repository()
+        lock = project / ".git/config.lock"
+        lock.write_text("", encoding="utf-8")  # what a git config still running, or one that was killed, leaves
+        result = forge.apply_kit(project, "todo")
+        self.assertTrue(result["pre_commit_hook"].startswith("left: git config failed: "), result["pre_commit_hook"])
+        self.assertIn("scripts/hooks/pre-commit", result["installed"])  # the install itself stands
+        lock.unlink()
+        self.assertEqual(self.hooks_path(project), "")
+        self.assertEqual(self.check(project), ("setup_required", "git config core.hooksPath scripts/hooks"))
+        self.assertEqual(forge.apply_kit(project, "todo")["pre_commit_hook"], "enabled")
+        self.assertEqual(self.hooks_path(project), "scripts/hooks")
 
 
 class HookFile(unittest.TestCase):

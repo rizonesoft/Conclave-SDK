@@ -721,7 +721,142 @@ def apply_kit(
     }
     if kit_name == "todo" and ".codex/hooks.json" in installed and not dry_run:
         result["codex_hook"] = _approve_codex_hook(target_root)
+    if kit_name == "todo" and not dry_run:
+        result["pre_commit_hook"] = _enable_pre_commit_hook(target_root)
     return result
+
+
+# The todo kit's pre-commit hook (D01 T02 §7): git runs it only once `core.hooksPath` points at the folder it is
+# installed in. The install sets that where nothing else owns the repository's hooks, and the doctor says what is left.
+HOOKS_PATH = "scripts/hooks"
+PRE_COMMIT_HOOK = f"{HOOKS_PATH}/pre-commit"
+
+
+def _git_answer(folder: Path, *args: str) -> tuple[int, str, str] | None:
+    """`git <args>` run in `folder`: (exit code, stdout, stderr) stripped, or None when git cannot be run at all."""
+    try:
+        proc = subprocess.run(["git", *args], cwd=folder, capture_output=True, text=True, timeout=15,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return proc.returncode, proc.stdout.strip(), proc.stderr.strip()
+
+
+def _same_folder(one: Path, other: Path) -> bool:
+    try:
+        return os.path.samefile(one, other)
+    except OSError:
+        return os.path.normcase(Path(one).resolve()) == os.path.normcase(Path(other).resolve())
+
+
+def _hook_setup(target_root: Path) -> dict:
+    """How the repository holding `target_root` runs hooks, read and never changed.
+
+    `state` is one of: `no-git` (git cannot be run, `why` says so), `no-repository`, `nested` (the project is a
+    subfolder of the repository at `top`), `enabled` (`core.hooksPath` resolves to the project's scripts/hooks),
+    `owned` (another `core.hooksPath`, or hooks of the project's own in the default folder: `owner` names it and
+    `pre_commit` is the hook git would run there) and `free` (nothing owns the repository's hooks)."""
+    target_root = Path(target_root)
+    top = _git_answer(target_root, "rev-parse", "--show-toplevel")
+    if top is None:
+        return {"state": "no-git", "why": "git is not on PATH or did not answer"}
+    if top[0] != 0:
+        if "not a git repository" in top[2].lower():
+            return {"state": "no-repository"}
+        return {"state": "no-git", "why": (top[2].splitlines() or ["git rev-parse failed"])[0]}
+    top_path = Path(top[1])
+    if not _same_folder(top_path, target_root):
+        return {"state": "nested", "top": top_path}
+    configured = _git_answer(target_root, "config", "--type=path", "--get", "core.hooksPath")
+    if configured is None or configured[0] not in (0, 1):
+        why = (configured[2].splitlines() or ["git config failed"])[0] if configured else "git did not answer"
+        return {"state": "no-git", "why": why}
+    if configured[0] == 0 and configured[1]:
+        folder = Path(configured[1])
+        folder = folder if folder.is_absolute() else top_path / folder  # git reads a relative path from the top level
+        if _same_folder(folder, target_root / HOOKS_PATH):
+            return {"state": "enabled"}
+        return {"state": "owned", "owner": f"core.hooksPath is {configured[1]}", "pre_commit": folder / "pre-commit"}
+    common = _git_answer(target_root, "rev-parse", "--git-common-dir")
+    if common is None or common[0] != 0:
+        return {"state": "no-git", "why": "git rev-parse --git-common-dir failed"}
+    hooks = Path(common[1]) if Path(common[1]).is_absolute() else target_root / common[1]
+    hooks = hooks / "hooks"
+    own = sorted(path.name for path in hooks.iterdir() if path.is_file() and not path.name.endswith(".sample")) \
+        if hooks.is_dir() else []
+    if own:
+        return {"state": "owned", "owner": f"{hooks.as_posix()} holds the project's own hooks ({', '.join(own)})",
+                "pre_commit": hooks / "pre-commit"}
+    return {"state": "free"}
+
+
+def _kit_hook_problem(target_root: Path) -> tuple[str, str] | None:
+    """Why git could not run the kit's hook even when asked to: a doctor (status, detail), or None when it can."""
+    for rel in (PRE_COMMIT_HOOK, "scripts/todo-graph.py"):
+        if not (target_root / rel).is_file():
+            return "missing", f"{rel} is not installed: run python forge.py kit <project> todo (without --no-scripts)"
+    if os.name != "nt" and not os.access(target_root / PRE_COMMIT_HOOK, os.X_OK):
+        return "setup_required", f"chmod +x {PRE_COMMIT_HOOK}: git runs only an executable hook"
+    return None
+
+
+def _pre_commit_hook_check(target_root: Path) -> tuple[str, str]:
+    """The doctor's `pre-commit-hook` check for the todo kit: (status, detail). It reads and never changes."""
+    setup = _hook_setup(target_root)
+    state = setup["state"]
+    if state == "no-git":
+        return "setup_required", f"git cannot be run here ({setup['why']}), so the hook cannot be checked"
+    if state == "no-repository":
+        return "ok", "not a git repository: no commit to check"
+    if state == "nested":
+        return ("setup_required",
+                f"not enabled: the project is a subfolder of the repository at {setup['top'].as_posix()}, and the hook "
+                "reads the plan at the repository's top level, so it cannot check a nested project; run "
+                "python scripts/todo-graph.py validate and python scripts/todo-graph.py plan --check before a commit")
+    problem = _kit_hook_problem(target_root)
+    if state == "enabled":
+        return problem or ("ok", f"core.hooksPath is {HOOKS_PATH}")
+    if state == "free":
+        return problem or ("setup_required", f"git config core.hooksPath {HOOKS_PATH}")
+    hook = setup["pre_commit"]
+    try:
+        calls_kit = PRE_COMMIT_HOOK in hook.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        calls_kit = False
+    if calls_kit:
+        return problem or ("ok", f"{hook.as_posix()} calls {PRE_COMMIT_HOOK}")
+    return ("setup_required",
+            f"{setup['owner']}: git config core.hooksPath {HOOKS_PATH} would stop those hooks. Call {PRE_COMMIT_HOOK} "
+            f"from {hook.as_posix()}, or replace that setup on purpose with git config core.hooksPath {HOOKS_PATH}")
+
+
+def _enable_pre_commit_hook(target_root: Path) -> str:
+    """Point the repository's `core.hooksPath` at the todo kit's hooks where nothing else owns its hooks.
+
+    Returns `enabled` (read back from git), `already enabled`, or `left: <why>`: never an error, the install stands."""
+    setup = _hook_setup(target_root)
+    state = setup["state"]
+    if state == "enabled":
+        return "already enabled"
+    if state == "no-git":
+        return f"left: git cannot be run here ({setup['why']})"
+    if state == "no-repository":
+        return "left: not a git repository"
+    if state == "nested":
+        return f"left: the project is a subfolder of the repository at {setup['top'].as_posix()}"
+    if state == "owned":
+        return f"left: {setup['owner']}"
+    problem = _kit_hook_problem(target_root)
+    if problem:
+        return f"left: {problem[1]}"
+    written = _git_answer(target_root, "config", "core.hooksPath", HOOKS_PATH)
+    if written is None or written[0] != 0:
+        why = (written[2].splitlines() or [f"exit {written[0]}"])[0] if written else "git did not answer"
+        return f"left: git config failed: {why}"
+    read_back = _git_answer(target_root, "config", "--get", "core.hooksPath")
+    if read_back is None or read_back[0] != 0 or read_back[1] != HOOKS_PATH:
+        return "left: git config did not read back core.hooksPath"
+    return "enabled"
 
 
 def _approve_codex_hook(target_root: Path) -> str:
@@ -1782,6 +1917,7 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
                     "todo/README.md", "docs/todo-workflow.md"):
             path = target_root / rel
             add_check(rel, "ok" if path.is_file() else "missing", path.as_posix())
+        add_check("pre-commit-hook", *_pre_commit_hook_check(target_root))
         add_check("stop-hook", *_stop_hook_wiring(target_root))
         if (target_root / ".agents").is_dir():
             add_check("stop-hook:.agents", *_stop_hook_wiring(target_root, ".agents/hooks.json"))

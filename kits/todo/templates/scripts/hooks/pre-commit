@@ -1,6 +1,8 @@
 #!/bin/sh
 # Refuse a commit that would turn the plan gates red: one that stages TODO changes while the generated plan
-# (todo/plan.json's layout.plan, todo/implementation-plan.md by default) is stale or the TODO graph is invalid. Enabled per clone with `git config core.hooksPath scripts/hooks`.
+# (todo/plan.json's layout.plan, todo/implementation-plan.md by default) is stale or the TODO graph is invalid.
+# Git runs it once core.hooksPath is scripts/hooks: forge.py sets that when it installs the todo kit into a repository
+# whose hooks nothing else owns, `forge.py doctor <project> todo` reports it, and a fresh clone sets it by hand.
 # Ticking a checklist item changes the generated plan, so every TODO edit needs `plan --sync`.
 # Receipts and findings files are graph evidence too: a commit touching only the receipts folder (todo/plan.json's
 # layout.receipts, docs/reviews/ by default) is checked as well.

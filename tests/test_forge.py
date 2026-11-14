@@ -601,6 +601,12 @@ class ForgeProvisionTests(unittest.TestCase):
     def test_todo_kit_install_and_doctor(self):
         project = self.target / "planned"
         project.mkdir()
+        # A git repository, as a project is: the install then enables the kit's pre-commit hook (D01 T02 §7). The
+        # host's own git settings are kept out, since a global core.hooksPath would own the repository's hooks.
+        git_env = unittest.mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+        git_env.start()
+        self.addCleanup(git_env.stop)
+        subprocess.run(["git", "init", "-q"], cwd=project, check=True, capture_output=True)
         # The stub Codex lists the campaign Stop hook untrusted at install, takes the write, then lists it trusted.
         key = str(project.resolve() / ".codex" / "hooks.json")
         scenario = self.target / "codex-scenario.json"
@@ -618,6 +624,7 @@ class ForgeProvisionTests(unittest.TestCase):
         self.addCleanup(stub.stop)
         res = forge.apply_kit(project, "todo")
         self.assertEqual(res["codex_hook"], "approved")
+        self.assertEqual(res["pre_commit_hook"], "enabled")
         writes = (scenario.parent / (scenario.name + ".writes.jsonl")).read_text(encoding="utf-8").splitlines()
         self.assertEqual([json.loads(w)["value"] for w in writes], [{key + ":stop:0:0": {"trusted_hash": "sha256:" + "a" * 64}}])
         self.assertIn("scripts/todo-graph.py", res["installed"])
@@ -625,8 +632,11 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertEqual((project / "scripts/todo-graph.py").stat().st_mode & 0o777, provisioned_mode(0o755))
         doc = forge.doctor_repo(project, "todo")
         self.assertEqual(doc["missing_or_setup_required"], 0, [c for c in doc["checks"] if c["status"] != "ok"])
+        self.assertIn({"name": "pre-commit-hook", "status": "ok", "detail": "core.hooksPath is scripts/hooks"},
+                      doc["checks"])
         res = forge.apply_kit(project, "todo", agent="claude")
         self.assertEqual(res["installed"], [])
+        self.assertEqual(res["pre_commit_hook"], "already enabled")
 
     def test_the_todo_kit_wires_the_stop_hook_and_never_overwrites_a_projects_settings(self):
         project = self.target / "guarded"

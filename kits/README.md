@@ -17,7 +17,7 @@ python forge.py doctor /path/to/project
 
 `forge.py` is the only installer, on Windows, Linux and WSL alike. Dry-run any kit with `--dry-run`. There is no `--force`.
 
-`forge.py` notes what it installed in the project's `.conclave/kits.json`: the SDK commit, and for each file it wrote its kit and a digest of its bytes as installed. A file the project already had is never recorded. The record holds no path to the SDK and the project may delete it. The bash installers write no record.
+`forge.py` notes what it installed in the project's `.conclave/kits.json`: the SDK commit, and for each file it wrote its kit and a digest of its bytes as installed. A file the project already had is never recorded. The record holds no path to the SDK and the project may delete it.
 
 ## Layout
 
