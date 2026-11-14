@@ -878,6 +878,9 @@ class CraftScriptHardeningTests(unittest.TestCase):
                 '<c r="A5"><f>externalvalue</f></c>'
                 '<c r="A6"><f>DERIVEDLOWER</f></c>'
                 '<c r="B1"><f t="array" ref="B1:B2">[1]Ext!C1:C2</f><v></v></c>'
+                '<c r="C1"><f>"ExternalValue"</f></c>'
+                '<c r="C2"><f>IF(1,"ExternalValue","ok")</f></c>'
+                '<c r="C3"><f>"[1]Ext!Z9"</f></c>'
                 '</row></sheetData></worksheet>',
             )
 
@@ -970,6 +973,80 @@ class CraftScriptHardeningTests(unittest.TestCase):
                  unittest.mock.patch.object(recalc, "run_soffice", side_effect=AssertionError("soffice must not run")):
                 self.assertIn("merged cell count exceeds limit", recalc.recalc(str(wb_utf16)).get("error", ""))
                 self.assertIn("merged cell count exceeds limit", recalc.recalc(str(wb_utf16), force=True).get("error", ""))
+
+            # localSheetId scoping and shadowing between workbook-global and sheet-local names
+            wb_scoped = self.root / "book_scoped.xlsx"
+            with zipfile.ZipFile(wb_scoped, "w") as zf:
+                zf.writestr(
+                    "xl/workbook.xml",
+                    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                    '<sheets>'
+                    '<sheet name="Sheet1" sheetId="1" r:id="rId1"/>'
+                    '<sheet name="Sheet2" sheetId="2" r:id="rId2"/>'
+                    '</sheets>'
+                    '<definedNames>'
+                    '<definedName name="ExternalValue">[1]Sheet1!$A$1</definedName>'
+                    '<definedName name="ExternalValue" localSheetId="0">42</definedName>'
+                    '<definedName name="Sheet2OnlyExt" localSheetId="1">[1]Sheet1!$B$2</definedName>'
+                    '</definedNames></workbook>',
+                )
+                zf.writestr(
+                    "xl/_rels/workbook.xml.rels",
+                    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+                    '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>'
+                    '</Relationships>',
+                )
+                zf.writestr("xl/externalLinks/externalLink1.xml", "<externalLink/>")
+                zf.writestr(
+                    "xl/worksheets/sheet1.xml",
+                    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+                    '<row r="1">'
+                    '<c r="A1"><f>ExternalValue</f></c>'
+                    '<c r="A2"><f>Sheet2!Sheet2OnlyExt</f></c>'
+                    '</row></sheetData></worksheet>',
+                )
+                zf.writestr(
+                    "xl/worksheets/sheet2.xml",
+                    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+                    '<row r="1">'
+                    '<c r="A1"><f>ExternalValue</f></c>'
+                    '<c r="A2"><f>Sheet1!ExternalValue</f></c>'
+                    '</row></sheetData></worksheet>',
+                )
+            self.assertEqual(recalc.external_links_at_risk(str(wb_scoped)), ["Sheet1!A2", "Sheet2!A1"])
+
+            # Streaming sibling <c/> flood must stay within O(1) memory bound
+            wb_flood = self.root / "book_flood.xlsx"
+            flood_xml = (
+                b'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                b'<sheetData><row r="1">' + (b"<c/>" * 100_000) + b"</row></sheetData></worksheet>"
+            )
+            with zipfile.ZipFile(wb_flood, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr(
+                    "xl/workbook.xml",
+                    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                    '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>',
+                )
+                zf.writestr(
+                    "xl/_rels/workbook.xml.rels",
+                    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
+                    '</Relationships>',
+                )
+                zf.writestr("xl/worksheets/sheet1.xml", flood_xml)
+            del flood_xml
+
+            import tracemalloc
+            tracemalloc.start()
+            try:
+                self.assertEqual(recalc.external_links_at_risk(str(wb_flood)), [])
+                _, peak_bytes = tracemalloc.get_traced_memory()
+            finally:
+                tracemalloc.stop()
+            self.assertLess(peak_bytes, 4 * 1024 * 1024, f"streaming peak exceeded 4 MiB: {peak_bytes}")
 
     def test_soffice_timeout_terminates_process_tree_before_reap(self):
         docx_scripts = CRAFT_DIR / "skills" / "docx" / "scripts"

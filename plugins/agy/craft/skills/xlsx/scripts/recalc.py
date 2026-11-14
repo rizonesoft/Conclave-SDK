@@ -79,6 +79,8 @@ EXCEL_ERROR_SET = frozenset(EXCEL_ERRORS)
 MAX_XML_PART_BYTES = 128 * 1024 * 1024
 MAX_MERGE_CHECKS = 1_000_000
 MAX_MERGED_CELLS = 1_000_000
+MAX_XML_DEPTH = 256
+MAX_SUBTREE_ELEMENTS = 10_000
 
 _TRANSITIONAL_MAIN_NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 _STRICT_MAIN_NS = "{http://purl.oclc.org/ooxml/spreadsheetml/main}"
@@ -137,12 +139,40 @@ def _safe_fromstring(data: bytes):
     return fromstring(data)
 
 
-def _safe_iterparse(source):
+def _safe_iterparse(source, keep_subtrees=frozenset(("c", "si"))):
     try:
         from defusedxml.ElementTree import iterparse
+        raw_iter = iterparse(source, events=("start", "end"))
     except ImportError:
-        return _stdlib_et.iterparse(_NoDtdStream(source))
-    return iterparse(source)
+        raw_iter = _stdlib_et.iterparse(_NoDtdStream(source), events=("start", "end"))
+
+    stack = []
+    retain_depth = 0
+    subtree_nodes = 0
+    for event, node in raw_iter:
+        if event == "start":
+            stack.append(node)
+            if len(stack) > MAX_XML_DEPTH:
+                raise ValueError(f"XML nesting depth exceeds limit {MAX_XML_DEPTH}")
+            if retain_depth > 0 or _local_tag(node.tag) in keep_subtrees:
+                retain_depth += 1
+                subtree_nodes += 1
+                if subtree_nodes > MAX_SUBTREE_ELEMENTS:
+                    raise ValueError(f"XML element subtree exceeds limit {MAX_SUBTREE_ELEMENTS}")
+            continue
+        yield (event, node)
+        stack.pop()
+        if retain_depth > 0:
+            retain_depth -= 1
+            if retain_depth == 0:
+                subtree_nodes = 0
+                node.clear()
+                if stack:
+                    del stack[-1][:]
+        else:
+            node.clear()
+            if stack:
+                del stack[-1][:]
 
 
 def _workbook_namespaces(workbook):
@@ -215,12 +245,11 @@ def _merged_ranges(sheet_xml, merge_budget=None):
     ranges = []
     budget = merge_budget if merge_budget is not None else [0]
     stream = io.BytesIO(sheet_xml) if isinstance(sheet_xml, (bytes, bytearray)) else sheet_xml
-    for _, node in _safe_iterparse(stream):
+    for _, node in _safe_iterparse(stream, keep_subtrees=frozenset()):
         if _local_tag(node.tag) == "mergeCell":
             ref = node.get("ref")
             if ref:
                 ranges.append(_parse_merge_ref(ref, budget))
-        node.clear()
     return ranges
 
 
@@ -270,19 +299,128 @@ def _validate_workbook_archive(archive: zipfile.ZipFile) -> None:
             _merged_ranges(part, merge_budget=merge_budget)
 
 
-def _names_pattern(names):
-    deduped = {}
-    for raw in names:
-        cleaned = raw.strip() if isinstance(raw, str) else ""
-        if cleaned:
-            deduped.setdefault(cleaned.casefold(), cleaned)
-    if not deduped:
-        return None
-    ordered = sorted(deduped.values(), key=lambda s: (-len(s), s.casefold()))
-    return re.compile(
-        r"(?<![\w.\\])(?:" + "|".join(re.escape(n) for n in ordered) + r")(?![\w.?\\])",
-        re.IGNORECASE,
-    )
+_UNQUOTED_EXT_RE = re.compile(r"\[\d+\][^!\[\]\"']*!")
+_QUOTED_EXT_RE = re.compile(r"^\[\d+\]")
+
+
+def _scan_formula_tokens(expr: str):
+    """Yield ('ext', None, None, False) for external refs or ('name', ident_cf, qual_sheet_cf, is_call)."""
+    s = expr.lstrip()
+    if s.startswith("="):
+        s = s[1:]
+    n = len(s)
+    i = 0
+    qual_sheet = None
+    while i < n:
+        ch = s[i]
+        if ch == '"':
+            qual_sheet = None
+            i += 1
+            while i < n:
+                if s[i] == '"':
+                    if i + 1 < n and s[i + 1] == '"':
+                        i += 2
+                        continue
+                    i += 1
+                    break
+                i += 1
+            continue
+        if ch == "'":
+            i += 1
+            buf = []
+            while i < n:
+                if s[i] == "'":
+                    if i + 1 < n and s[i + 1] == "'":
+                        buf.append("'")
+                        i += 2
+                        continue
+                    i += 1
+                    break
+                buf.append(s[i])
+                i += 1
+            quoted = "".join(buf)
+            if i < n and s[i] == "!":
+                i += 1
+                if _QUOTED_EXT_RE.match(quoted):
+                    yield ("ext", None, None, False)
+                    qual_sheet = None
+                else:
+                    qual_sheet = quoted.casefold()
+            else:
+                qual_sheet = None
+            continue
+        if ch == "[":
+            match = _UNQUOTED_EXT_RE.match(s, i)
+            if match:
+                yield ("ext", None, None, False)
+                i = match.end()
+                qual_sheet = None
+                continue
+            depth = 1
+            i += 1
+            while i < n and depth > 0:
+                if s[i] == "[":
+                    depth += 1
+                elif s[i] == "]":
+                    depth -= 1
+                i += 1
+            qual_sheet = None
+            continue
+        if ch.isalpha() or ch in ("_", "\\"):
+            start = i
+            i += 1
+            while i < n and (s[i].isalnum() or s[i] in ("_", ".", "?", "\\")):
+                i += 1
+            ident = s[start:i]
+            if start > 0 and s[start - 1] == "$":
+                qual_sheet = None
+                continue
+            if i < n and s[i] == "!":
+                qual_sheet = ident.casefold()
+                i += 1
+                continue
+            if i < n and s[i] == ":" and qual_sheet is None:
+                end_3d = i + 1
+                while end_3d < n and (s[end_3d].isalnum() or s[end_3d] in ("_", ".", "?", "\\")):
+                    end_3d += 1
+                if end_3d > i + 1 and end_3d < n and s[end_3d] == "!":
+                    qual_sheet = None
+                    i = end_3d + 1
+                    continue
+            is_call = i < n and s[i] == "("
+            yield ("name", ident.casefold(), qual_sheet, is_call)
+            qual_sheet = None
+            continue
+        if not ch.isspace():
+            qual_sheet = None
+        i += 1
+
+
+def _resolve_def_key(ident_cf, qual_sheet_cf, current_scope, defs, sheet_idx_by_name):
+    if qual_sheet_cf is not None:
+        target_scope = sheet_idx_by_name.get(qual_sheet_cf)
+        if target_scope is None:
+            return None
+        if (ident_cf, target_scope) in defs:
+            return (ident_cf, target_scope)
+        return (ident_cf, None) if (ident_cf, None) in defs else None
+    if current_scope is not None and (ident_cf, current_scope) in defs:
+        return (ident_cf, current_scope)
+    return (ident_cf, None) if (ident_cf, None) in defs else None
+
+
+def _expr_reaches_external(expr, current_scope, external_defs, defs, lambda_defs, sheet_idx_by_name) -> bool:
+    for kind, ident_cf, qual_sheet_cf, is_call in _scan_formula_tokens(expr):
+        if kind == "ext":
+            return True
+        key = _resolve_def_key(ident_cf, qual_sheet_cf, current_scope, defs, sheet_idx_by_name)
+        if key is None:
+            continue
+        if is_call and key not in lambda_defs:
+            continue
+        if key in external_defs:
+            return True
+    return False
 
 
 def _existing_cells(ws):
@@ -330,39 +468,69 @@ def external_links_at_risk(filename):
                 for rel in rels_root
             }
 
+            sheets_el = workbook.find(f"{main_ns}sheets")
+            sheets_list = list(sheets_el) if sheets_el is not None else []
+            sheet_idx_by_name = {
+                (sh.get("name") or "").casefold(): idx
+                for idx, sh in enumerate(sheets_list)
+                if sh.get("name")
+            }
+
             defined_el = workbook.find(f"{main_ns}definedNames")
-            name_texts = [
-                (dn.get("name").strip(), dn.text or "")
-                for dn in (defined_el if defined_el is not None else ())
-                if dn.get("name") and dn.get("name").strip()
-            ]
-            canonical_names = {}
-            for name, _ in name_texts:
-                canonical_names.setdefault(name.casefold(), name)
-            external_keys = {
-                name.casefold()
-                for name, text in name_texts
-                if EXTERNAL_REF_RE.search("=" + text.lstrip("="))
+            defs = {}
+            for dn in (defined_el if defined_el is not None else ()):
+                raw_name = (dn.get("name") or "").strip()
+                if not raw_name:
+                    continue
+                raw_scope = dn.get("localSheetId")
+                scope = int(raw_scope) if raw_scope is not None else None
+                defs[(raw_name.casefold(), scope)] = dn.text or ""
+
+            lambda_defs = {
+                key
+                for key, text in defs.items()
+                if any(
+                    kind == "name" and ident == "lambda" and is_call
+                    for kind, ident, _, is_call in _scan_formula_tokens(text)
+                )
             }
             while True:
-                name_re = _names_pattern(canonical_names[k] for k in external_keys)
-                if name_re is None:
+                added_lambdas = {
+                    key
+                    for key, text in defs.items()
+                    if key not in lambda_defs
+                    and any(
+                        kind == "name"
+                        and _resolve_def_key(ident, qual_sheet, key[1], defs, sheet_idx_by_name) in lambda_defs
+                        for kind, ident, qual_sheet, _ in _scan_formula_tokens(text)
+                    )
+                }
+                if not added_lambdas:
                     break
+                lambda_defs |= added_lambdas
+
+            external_defs = set()
+            while True:
                 added = {
-                    name.casefold()
-                    for name, text in name_texts
-                    if name.casefold() not in external_keys
-                    and name_re.search("=" + text.lstrip("="))
+                    key
+                    for key, text in defs.items()
+                    if key not in external_defs
+                    and _expr_reaches_external(
+                        text,
+                        key[1],
+                        external_defs,
+                        defs,
+                        lambda_defs,
+                        sheet_idx_by_name,
+                    )
                 }
                 if not added:
                     break
-                external_keys |= added
-            name_re = _names_pattern(canonical_names[k] for k in external_keys)
+                external_defs |= added
 
             at_risk = []
             checked_parts = set()
-            sheets_el = workbook.find(f"{main_ns}sheets")
-            for sheet in (sheets_el if sheets_el is not None else ()):
+            for sheet_idx, sheet in enumerate(sheets_list):
                 rel_info = rel_map.get(sheet.get(f"{rel_ns}id"))
                 if not rel_info:
                     continue
@@ -384,15 +552,11 @@ def external_links_at_risk(filename):
                     max_member_bytes=MAX_XML_PART_BYTES,
                     max_bytes=MAX_ARCHIVE_BYTES,
                 ) as part:
-                    for _, node in _safe_iterparse(part):
+                    for _, node in _safe_iterparse(part, keep_subtrees=frozenset(("c",))):
                         if _local_tag(node.tag) == "mergeCell":
                             ref = node.get("ref")
                             if ref:
                                 _parse_merge_ref(ref, merge_budget)
-                            node.clear()
-                            continue
-                        if node.tag == f"{main_ns}row":
-                            node.clear()
                             continue
                         if node.tag != f"{main_ns}c":
                             continue
@@ -413,8 +577,14 @@ def external_links_at_risk(filename):
                         is_uncached = val_text == ""
                         reaches_out = False
                         if f_text:
-                            expr = "=" + f_text.lstrip("=")
-                            reaches_out = bool(EXTERNAL_REF_RE.search(expr) or (name_re and name_re.search(expr)))
+                            reaches_out = _expr_reaches_external(
+                                f_text,
+                                sheet_idx,
+                                external_defs,
+                                defs,
+                                lambda_defs,
+                                sheet_idx_by_name,
+                            )
                             if reaches_out and formula.get("t") == "shared" and si is not None:
                                 shared_ext_si.add(si)
                                 if si in pending_shared:
@@ -561,14 +731,13 @@ def _scan_xml(filename):
                 max_bytes=MAX_ARCHIVE_BYTES,
             ) as part:
                 index = 0
-                for _, node in _safe_iterparse(part):
+                for _, node in _safe_iterparse(part, keep_subtrees=frozenset(("si",))):
                     if node.tag != f"{main_ns}si":
                         continue
                     text = _rich_text(node, main_ns).replace("x005F_", "")
                     if text.startswith("="):
                         shared_equals.add(index)
                     index += 1
-                    node.clear()
 
         checked_parts = set()
         sheets_el = workbook.find(f"{main_ns}sheets")
@@ -585,42 +754,52 @@ def _scan_xml(filename):
                 continue
             checked_parts.add(part_name)
             found = []
-            xml = _read_archive_part(archive, part_name, budget=budget)
-            merged = _merged_ranges(xml, merge_budget=merge_budget)
-            for _, node in _safe_iterparse(io.BytesIO(xml)):
-                if node.tag == f"{main_ns}row":
-                    node.clear()
-                    continue
-                if node.tag != f"{main_ns}c":
-                    continue
-                if node.get("r") is None:
-                    raise ValueError("a cell without its address")
-                formula = node.find(f"{main_ns}f")
-                is_formula = formula is not None and formula.get("t") != "dataTable"
-                err = None
-                cell_type = node.get("t", "n")
-                if cell_type == "s":
-                    v_text = node.findtext(f"{main_ns}v")
-                    if v_text is not None:
-                        index = int(v_text)
-                        is_formula = is_formula or (formula is None and index in shared_equals)
-                elif cell_type == "e":
-                    err = _exact_error(node.findtext(f"{main_ns}v"))
-                elif cell_type not in ("n", "b", "d"):
-                    inline = node.find(f"{main_ns}is")
-                    text = node.findtext(f"{main_ns}v") if inline is None else _rich_text(inline, main_ns)
-                    is_formula = is_formula or (formula is None and (text or "").startswith("="))
-                if not is_formula and not err:
-                    continue
-                row, column = _row_major(node.get("r"))
-                merge_checks += len(merged)
-                if merge_checks > MAX_MERGE_CHECKS:
-                    raise ValueError("too many merged ranges for this many cells")
-                if _hidden_by_a_merge(merged, row, column):
-                    continue
-                formula_count += is_formula
-                if err:
-                    found.append(((row, column), err, node.get("r")))
+            with open_zip_member(
+                archive,
+                part_name,
+                budget=None,
+                max_member_bytes=MAX_XML_PART_BYTES,
+                max_bytes=MAX_ARCHIVE_BYTES,
+            ) as part:
+                merged = _merged_ranges(part, merge_budget=merge_budget)
+            with open_zip_member(
+                archive,
+                part_name,
+                budget=budget,
+                max_member_bytes=MAX_XML_PART_BYTES,
+                max_bytes=MAX_ARCHIVE_BYTES,
+            ) as part:
+                for _, node in _safe_iterparse(part, keep_subtrees=frozenset(("c",))):
+                    if node.tag != f"{main_ns}c":
+                        continue
+                    if node.get("r") is None:
+                        raise ValueError("a cell without its address")
+                    formula = node.find(f"{main_ns}f")
+                    is_formula = formula is not None and formula.get("t") != "dataTable"
+                    err = None
+                    cell_type = node.get("t", "n")
+                    if cell_type == "s":
+                        v_text = node.findtext(f"{main_ns}v")
+                        if v_text is not None:
+                            index = int(v_text)
+                            is_formula = is_formula or (formula is None and index in shared_equals)
+                    elif cell_type == "e":
+                        err = _exact_error(node.findtext(f"{main_ns}v"))
+                    elif cell_type not in ("n", "b", "d"):
+                        inline = node.find(f"{main_ns}is")
+                        text = node.findtext(f"{main_ns}v") if inline is None else _rich_text(inline, main_ns)
+                        is_formula = is_formula or (formula is None and (text or "").startswith("="))
+                    if not is_formula and not err:
+                        continue
+                    row, column = _row_major(node.get("r"))
+                    merge_checks += len(merged)
+                    if merge_checks > MAX_MERGE_CHECKS:
+                        raise ValueError("too many merged ranges for this many cells")
+                    if _hidden_by_a_merge(merged, row, column):
+                        continue
+                    formula_count += is_formula
+                    if err:
+                        found.append(((row, column), err, node.get("r")))
             for _, err, coordinate in sorted(found):
                 error_details[err].append(f"{sheet.get('name')}!{coordinate}")
 
