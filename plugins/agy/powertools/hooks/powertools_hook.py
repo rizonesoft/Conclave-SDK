@@ -669,12 +669,30 @@ def _check_git_force_push(tokens: list[tuple[str, bool]]) -> str | None:
 
 
 def _is_root_target(arg: str) -> bool:
-    cleaned = arg.strip().rstrip("\\/")
-    if arg in ("/", "/*", "\\", "\\*"):
-        return True
-    if re.match(r"^[A-Za-z]:(?:[\\/]+\*?)?$", arg):
-        return True
-    return cleaned == "" and arg.startswith(("/", "\\"))
+    s = arg.strip()
+    if not s:
+        return False
+    s = re.sub(r"^(?:[A-Za-z0-9_.]*\\)?filesystem::", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"^\\\\[?.]\\+", "", s)
+    if re.match(r"^[A-Za-z]:(?:$|[\\/]|(?:\*|\.\.?)(?:$|[\\/]))", s):
+        rest = s[2:]
+    elif s.startswith(("/", "\\")):
+        rest = s
+    else:
+        return False
+    parts = [p for p in re.split(r"[\\/]+", rest) if p != ""]
+    if parts and parts[-1] in ("*", "**", "*.*"):
+        parts = parts[:-1]
+    stack: list[str] = []
+    for part in parts:
+        if part == ".":
+            continue
+        if part == "..":
+            if stack:
+                stack.pop()
+            continue
+        stack.append(part)
+    return len(stack) == 0
 
 
 _REMOVE_ITEM_PARAMS = (

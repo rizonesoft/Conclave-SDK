@@ -209,7 +209,9 @@ class PowertoolsHookBehaviorTests(unittest.TestCase):
             'git commit -m "avoid git push -f accidental match"',
             'git push origin -- "--force"',
             "rm -rf build",
+            "rm -rf ./build/..",
             r"Remove-Item R:\scratch\temp -Recurse -Force",
+            r"Remove-Item R:\scratch\.\temp -Recurse -Force",
             r"Remove-Item C:\ -Recurse:$false",
             r"Remove-Item R:\scratch\temp -Recur -Force",
             r"Remove-Item -Filter *.tmp C:",
@@ -260,14 +262,21 @@ class PowertoolsHookBehaviorTests(unittest.TestCase):
             "rm -rf /",
             'rm "-rf" "/"',
             "rm --rec /",
+            "rm -rf /./*",
+            "rm -rf /.",
+            "rm -rf /foo/..",
+            "rm -rf /foo/../*",
             "rm --no-preserve /tmp/x",
             r"rm C:\ -Recur -Force",
             r"Remove-Item C:\ -Recur -Force",
+            r"Remove-Item -Recurse -Force C:\.\*",
+            r"Remove-Item -Recurse C:\foo\..\*",
             r"Remove-Item C:\ -R",
             r"Remove-Item -LiteralPath C:\ -Rec",
             "Remove-Item / -Recur",
             r"ri -LP D:\ -Recurse",
             r"del C:\* -Recur",
+            r"del /s /q C:\.\*.*",
             'bash -lc "git push --force origin main"',
             'bash -lc "git push \\"--force\\" origin main"',
             'wsl -d Ubuntu bash -lc "git push --force origin main"',
@@ -835,6 +844,96 @@ class CraftScriptHardeningTests(unittest.TestCase):
             res_force = recalc.recalc(str(wb_path), force=True)
             self.assertIn("Could not validate", res_force.get("error", ""))
 
+        # External links inspection uses bounded pure-XML without calling openpyxl.load_workbook
+        wb_ext = self.root / "book_ext.xlsx"
+        with zipfile.ZipFile(wb_ext, "w") as zf:
+            zf.writestr(
+                "xl/workbook.xml",
+                '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>'
+                '<definedNames>'
+                '<definedName name="GlobalExt">[1]Ext!A1</definedName>'
+                '<definedName name="DerivedExt">GlobalExt+1</definedName>'
+                '<definedName name="LocalExt" localSheetId="0">[1]Ext!A2</definedName>'
+                '</definedNames></workbook>',
+            )
+            zf.writestr(
+                "xl/_rels/workbook.xml.rels",
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+                'Target="worksheets/sheet1.xml"/></Relationships>',
+            )
+            zf.writestr("xl/externalLinks/externalLink1.xml", "<externalLink/>")
+            zf.writestr(
+                "xl/worksheets/sheet1.xml",
+                '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+                '<row r="1">'
+                '<c r="A1"><f>[1]Ext!B1</f><v></v></c>'
+                '<c r="A2"><f>[1]Ext!B2</f><v>42</v></c>'
+                '<c r="A3"><f>DerivedExt</f></c>'
+                '<c r="A4"><f>LocalExt</f></c>'
+                '<c r="B1"><f t="array" ref="B1:B2">[1]Ext!C1:C2</f><v></v></c>'
+                '</row></sheetData></worksheet>',
+            )
+
+        fake_openpyxl.load_workbook = lambda *a, **kw: (_ for _ in ()).throw(AssertionError("openpyxl must not be called"))
+        with unittest.mock.patch.dict(sys.modules, {
+            "openpyxl": fake_openpyxl,
+            "openpyxl.worksheet": fake_openpyxl.worksheet,
+            "openpyxl.worksheet.formula": fake_formula,
+        }):
+            self.assertEqual(
+                recalc.external_links_at_risk(str(wb_ext)),
+                ["Sheet1!A1", "Sheet1!A3", "Sheet1!A4", "Sheet1!B1"],
+            )
+            # Merged-cell bomb with unused externalLink or single-quoted ref is rejected immediately
+            for idx_bomb, merge_attr in enumerate(('ref="A1:XFD1048576"', "ref='A1:XFD1048576'")):
+                wb_bomb = self.root / f"book_merge_bomb_{idx_bomb}.xlsx"
+                with zipfile.ZipFile(wb_bomb, "w") as zf:
+                    zf.writestr(
+                        "xl/workbook.xml",
+                        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                        '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>',
+                    )
+                    zf.writestr(
+                        "xl/_rels/workbook.xml.rels",
+                        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+                        'Target="worksheets/sheet1.xml"/></Relationships>',
+                    )
+                    zf.writestr("xl/externalLinks/unused.xml", "<externalLink/>")
+                    zf.writestr(
+                        "xl/worksheets/sheet1.xml",
+                        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                        '<sheetData/><mergeCells count="1">'
+                        f'<mergeCell {merge_attr}/>'
+                        '</mergeCells></worksheet>',
+                    )
+                with self.assertRaisesRegex(ValueError, "merged cell count exceeds limit"):
+                    recalc.external_links_at_risk(str(wb_bomb))
+                with self.assertRaisesRegex(ValueError, "merged cell count exceeds limit"):
+                    recalc._scan_xml(str(wb_bomb))
+                rep = recalc._report(str(wb_bomb))
+                self.assertIn("merged cell count exceeds limit", rep.get("error", ""))
+                with unittest.mock.patch.object(recalc, "get_soffice_env", return_value={}), \
+                     unittest.mock.patch.object(recalc, "run_soffice", side_effect=AssertionError("soffice must not run")):
+                    r_def = recalc.recalc(str(wb_bomb))
+                    self.assertIn("merged cell count exceeds limit", r_def.get("error", ""))
+                    r_force = recalc.recalc(str(wb_bomb), force=True)
+                    self.assertIn("merged cell count exceeds limit", r_force.get("error", ""))
+
+            # Even without defusedxml installed, stdlib Expat guard rejects DOCTYPE/ENTITY
+            wb_dtd = self.root / "book_dtd.xlsx"
+            with zipfile.ZipFile(wb_dtd, "w") as zf:
+                zf.writestr("xl/workbook.xml", '<!DOCTYPE wb [<!ENTITY x "1">]><wb/>')
+                zf.writestr("xl/_rels/workbook.xml.rels", "<Relationships/>")
+                zf.writestr("xl/externalLinks/externalLink1.xml", "<externalLink/>")
+            with unittest.mock.patch.dict(sys.modules, {"defusedxml": None, "defusedxml.ElementTree": None}):
+                with self.assertRaisesRegex(ValueError, "DTD and entity declarations are forbidden"):
+                    recalc.external_links_at_risk(str(wb_dtd))
+
     def test_soffice_timeout_terminates_process_tree_before_reap(self):
         docx_scripts = CRAFT_DIR / "skills" / "docx" / "scripts"
         soffice = _load_module("test_office_soffice", docx_scripts / "office" / "soffice.py", [docx_scripts])
@@ -1256,6 +1355,70 @@ class CraftScriptHardeningTests(unittest.TestCase):
 
         self.assertTrue(out_png.is_file())
         self.assertEqual([p.name for p in out_png.parent.iterdir()], ["out.png"])
+
+    def test_pdf_choice_field_options_handle_strings_and_pairs(self):
+        pdf_scripts = CRAFT_DIR / "skills" / "pdf" / "scripts"
+
+        class FakeDictionaryObject(dict):
+            def get_inherited(self, key, default=None):
+                return self.get(key, default)
+
+        fake_pypdf = types.ModuleType("pypdf")
+        fake_pypdf.PdfReader = lambda p: object()
+        fake_pypdf.PdfWriter = lambda *a, **kw: object()
+        fake_pypdf_generic = types.ModuleType("pypdf.generic")
+        fake_pypdf_generic.DictionaryObject = FakeDictionaryObject
+        fake_pypdf_constants = types.ModuleType("pypdf.constants")
+        fake_pypdf_constants.FieldDictionaryAttributes = types.SimpleNamespace(Opt="/Opt")
+
+        with unittest.mock.patch.dict(
+            sys.modules,
+            {
+                "pypdf": fake_pypdf,
+                "pypdf.generic": fake_pypdf_generic,
+                "pypdf.constants": fake_pypdf_constants,
+            },
+        ):
+            extract_mod = _load_module("test_extract_form_field_info", pdf_scripts / "extract_form_field_info.py")
+            with unittest.mock.patch.dict(sys.modules, {"extract_form_field_info": extract_mod}):
+                fill_mod = _load_module("test_fill_fillable_choice", pdf_scripts / "fill_fillable_fields.py")
+                fill_mod.monkeypatch_pydpf_method()
+                fill_mod.monkeypatch_pydpf_method()
+
+        str_choice = extract_mod.make_field_dict({"/FT": "/Ch", "/_States_": ["Yes", "No", "X"]}, "status")
+        self.assertEqual(str_choice["type"], "choice")
+        self.assertEqual(
+            str_choice["choice_options"],
+            [
+                {"value": "Yes", "text": "Yes"},
+                {"value": "No", "text": "No"},
+                {"value": "X", "text": "X"},
+            ],
+        )
+
+        mixed_choice = extract_mod.make_field_dict(
+            {"/FT": "/Ch", "/_States_": [["CA", "California"], ["NY", "New York"], "Other"]},
+            "state",
+        )
+        self.assertEqual(
+            mixed_choice["choice_options"],
+            [
+                {"value": "CA", "text": "California"},
+                {"value": "NY", "text": "New York"},
+                {"value": "Other", "text": "Other"},
+            ],
+        )
+
+        str_choice["page"] = 1
+        mixed_choice["page"] = 1
+        self.assertIsNone(fill_mod.validation_error_for_field_value(str_choice, "Yes"))
+        self.assertIsNone(fill_mod.validation_error_for_field_value(str_choice, "X"))
+        self.assertIsNone(fill_mod.validation_error_for_field_value(mixed_choice, "CA"))
+        self.assertIsNone(fill_mod.validation_error_for_field_value(mixed_choice, "Other"))
+        self.assertIn("ERROR:", fill_mod.validation_error_for_field_value(str_choice, "Invalid"))
+
+        d = FakeDictionaryObject({"/Opt": [["CA", "California"], "Other"]})
+        self.assertEqual(d.get_inherited("/Opt"), ["CA", "Other"])
 
 
 if __name__ == "__main__":

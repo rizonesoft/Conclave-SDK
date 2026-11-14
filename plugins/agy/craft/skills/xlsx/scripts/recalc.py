@@ -3,7 +3,7 @@ Excel Formula Recalculation Script
 Recalculates all formulas in an Excel file using LibreOffice
 """
 
-import contextlib
+import html
 import io
 import json
 import os
@@ -13,6 +13,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import xml.etree.ElementTree as _stdlib_et
+import xml.parsers.expat as _expat
 import zipfile
 from pathlib import Path
 
@@ -72,6 +74,160 @@ def setup_libreoffice_macro(profile_dir: Path, timeout=30):
     return url, None
 
 
+EXCEL_ERRORS = ["#VALUE!", "#DIV/0!", "#REF!", "#NAME?", "#NULL!", "#NUM!", "#N/A"]
+EXCEL_ERROR_SET = frozenset(EXCEL_ERRORS)
+MAX_XML_PART_BYTES = 128 * 1024 * 1024
+MAX_MERGE_CHECKS = 1_000_000
+MAX_MERGED_CELLS = 1_000_000
+
+_TRANSITIONAL_MAIN_NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+_STRICT_MAIN_NS = "{http://purl.oclc.org/ooxml/spreadsheetml/main}"
+_TRANSITIONAL_REL_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+_STRICT_REL_NS = "{http://purl.oclc.org/ooxml/officeDocument/relationships}"
+_MAIN_NS = _TRANSITIONAL_MAIN_NS
+_REL_NS = _TRANSITIONAL_REL_NS
+_CELL_REF_RE = re.compile(r"([A-Z]+)([0-9]+)")
+_MERGE_RE = re.compile(rb"""<(?:\w+:)?mergeCell\b[^>]*\bref\s*=\s*(?:"([^"]*)"|'([^']*)')""")
+
+
+def _make_dtd_guard():
+    parser = _expat.ParserCreate()
+
+    def _forbid(*_args):
+        raise ValueError("XML DTD and entity declarations are forbidden")
+
+    parser.StartDoctypeDeclHandler = _forbid
+    parser.EntityDeclHandler = _forbid
+    parser.UnparsedEntityDeclHandler = _forbid
+    parser.ExternalEntityRefHandler = _forbid
+    return parser
+
+
+class _NoDtdStream:
+    def __init__(self, stream):
+        self._stream = stream
+        self._guard = _make_dtd_guard()
+        self._finished = False
+
+    def read(self, size=-1):
+        chunk = self._stream.read(size)
+        if chunk:
+            self._guard.Parse(chunk, False)
+        elif size != 0 and not self._finished:
+            self._finished = True
+            self._guard.Parse(b"", True)
+        return chunk
+
+
+def _safe_fromstring(data: bytes):
+    try:
+        from defusedxml.ElementTree import fromstring
+    except ImportError:
+        _make_dtd_guard().Parse(data, True)
+        return _stdlib_et.fromstring(data)
+    return fromstring(data)
+
+
+def _safe_iterparse(source):
+    try:
+        from defusedxml.ElementTree import iterparse
+    except ImportError:
+        return _stdlib_et.iterparse(_NoDtdStream(source))
+    return iterparse(source)
+
+
+def _workbook_namespaces(workbook):
+    if workbook.tag == f"{_STRICT_MAIN_NS}workbook":
+        return _STRICT_MAIN_NS, _STRICT_REL_NS
+    if workbook.tag == f"{_TRANSITIONAL_MAIN_NS}workbook":
+        return _TRANSITIONAL_MAIN_NS, _TRANSITIONAL_REL_NS
+    raise ValueError("not a supported OOXML workbook")
+
+
+def _exact_error(text):
+    if not isinstance(text, str):
+        return None
+    cleaned = text.strip()
+    return cleaned if cleaned in EXCEL_ERROR_SET else None
+
+
+def _read_archive_part(
+    archive: zipfile.ZipFile,
+    name: str,
+    max_bytes: int = MAX_XML_PART_BYTES,
+    budget: list[int] | None = None,
+) -> bytes:
+    return read_zip_member(
+        archive,
+        name,
+        budget=budget,
+        max_member_bytes=max_bytes,
+        max_bytes=MAX_ARCHIVE_BYTES,
+    )
+
+
+def _rich_text(node, main_ns=_MAIN_NS):
+    runs = node.findall(f"{main_ns}t") + node.findall(f"{main_ns}r/{main_ns}t")
+    return "".join(t.text or "" for t in runs)
+
+
+def _row_major(coordinate):
+    cleaned = coordinate.replace("$", "").strip().upper()
+    match = _CELL_REF_RE.fullmatch(cleaned)
+    if match is None:
+        raise ValueError(f"invalid cell coordinate: {coordinate!r}")
+    column, row = match.groups()
+    number = 0
+    for letter in column:
+        number = number * 26 + ord(letter) - ord("A") + 1
+    return int(row), number
+
+
+def _parse_merge_ref(ref_str: str, merge_budget: list[int] | None) -> tuple[int, int, int, int]:
+    cleaned = html.unescape(ref_str).strip()
+    first, sep, last = cleaned.partition(":")
+    if not sep:
+        last = first
+    r1, c1 = _row_major(first)
+    r2, c2 = _row_major(last)
+    top, bottom = min(r1, r2), max(r1, r2)
+    left, right = min(c1, c2), max(c1, c2)
+    area = (bottom - top + 1) * (right - left + 1)
+    if area > MAX_MERGED_CELLS:
+        raise ValueError(f"merged cell count exceeds limit {MAX_MERGED_CELLS}")
+    if merge_budget is not None:
+        merge_budget[0] += area
+        if merge_budget[0] > MAX_MERGED_CELLS:
+            raise ValueError(f"merged cell count exceeds limit {MAX_MERGED_CELLS}")
+    return top, left, bottom, right
+
+
+def _merged_ranges(sheet_xml, merge_budget=None):
+    ranges = []
+    budget = merge_budget if merge_budget is not None else [0]
+    for match in _MERGE_RE.finditer(sheet_xml):
+        raw_ref = match.group(1) if match.group(1) is not None else match.group(2)
+        ranges.append(_parse_merge_ref(raw_ref.decode("utf-8", errors="replace"), budget))
+    return ranges
+
+
+def _hidden_by_a_merge(merged, row, column):
+    return any(
+        top <= row <= bottom and left <= column <= right and (row, column) != (top, left)
+        for top, left, bottom, right in merged
+    )
+
+
+def _validate_workbook_archive(archive: zipfile.ZipFile) -> None:
+    validate_archive(archive)
+    budget = [0]
+    merge_budget = [0]
+    for name in archive.namelist():
+        if "/worksheets/" in name and name.endswith(".xml"):
+            xml = _read_archive_part(archive, name, budget=budget)
+            _merged_ranges(xml, merge_budget=merge_budget)
+
+
 def _names_pattern(names):
     if not names:
         return None
@@ -89,57 +245,99 @@ def external_links_at_risk(filename):
         with zipfile.ZipFile(filename) as archive:
             validate_archive(archive)
             names = archive.namelist()
+            has_external = any(n.startswith("xl/externalLinks/") for n in names)
+            budget = [0]
+            merge_budget = [0]
+            if not has_external:
+                for name in names:
+                    if "/worksheets/" in name and name.endswith(".xml"):
+                        xml = _read_archive_part(archive, name, budget=budget)
+                        _merged_ranges(xml, merge_budget=merge_budget)
+                return []
+
+            workbook = _safe_fromstring(_read_archive_part(archive, "xl/workbook.xml", budget=budget))
+            main_ns, rel_ns = _workbook_namespaces(workbook)
+            targets = {
+                rel.get("Id"): rel.get("Target")
+                for rel in _safe_fromstring(_read_archive_part(archive, "xl/_rels/workbook.xml.rels", budget=budget))
+            }
+
+            defined_el = workbook.find(f"{main_ns}definedNames")
+            name_texts = [
+                (dn.get("name"), dn.text or "")
+                for dn in (defined_el if defined_el is not None else ())
+                if dn.get("name")
+            ]
+            external_names = {name for name, text in name_texts if EXTERNAL_REF_RE.search(text)}
+            while True:
+                name_re = _names_pattern(external_names)
+                if name_re is None:
+                    break
+                added = {
+                    name
+                    for name, text in name_texts
+                    if name not in external_names and name_re.search(text)
+                }
+                if not added:
+                    break
+                external_names |= added
+            name_re = _names_pattern(external_names)
+
+            at_risk = []
+            checked_parts = set()
+            sheets_el = workbook.find(f"{main_ns}sheets")
+            for sheet in (sheets_el if sheets_el is not None else ()):
+                target = targets.get(sheet.get(f"{rel_ns}id"))
+                if not target:
+                    continue
+                if target.startswith("/"):
+                    part_name = target.lstrip("/")
+                else:
+                    part_name = posixpath.normpath(f"xl/{target}")
+                if "/worksheets/" not in part_name or part_name not in names:
+                    continue
+                checked_parts.add(part_name)
+                xml = _read_archive_part(archive, part_name, budget=budget)
+                _merged_ranges(xml, merge_budget=merge_budget)
+                shared_ext_si = set()
+                for _, node in _safe_iterparse(io.BytesIO(xml)):
+                    if node.tag == f"{main_ns}mergeCell" and node.get("ref"):
+                        _parse_merge_ref(node.get("ref"), None)
+                        continue
+                    if node.tag == f"{main_ns}row":
+                        node.clear()
+                        continue
+                    if node.tag != f"{main_ns}c":
+                        continue
+                    coord = node.get("r")
+                    if coord is None:
+                        raise ValueError("a cell without its address")
+                    formula = node.find(f"{main_ns}f")
+                    if formula is None or formula.get("t") == "dataTable":
+                        continue
+                    f_text = (formula.text or "").strip()
+                    si = formula.get("si")
+                    if f_text:
+                        expr = "=" + f_text.lstrip("=")
+                        reaches_out = bool(EXTERNAL_REF_RE.search(expr) or (name_re and name_re.search(expr)))
+                        if reaches_out and formula.get("t") == "shared" and si is not None:
+                            shared_ext_si.add(si)
+                    else:
+                        reaches_out = formula.get("t") == "shared" and si is not None and si in shared_ext_si
+                    if reaches_out:
+                        inline = node.find(f"{main_ns}is")
+                        val_text = _rich_text(inline, main_ns) if inline is not None else (node.findtext(f"{main_ns}v") or "")
+                        if val_text == "":
+                            at_risk.append(f"{sheet.get('name')}!{coord}")
+
+            for name in names:
+                if name not in checked_parts and "/worksheets/" in name and name.endswith(".xml"):
+                    xml = _read_archive_part(archive, name, budget=budget)
+                    _merged_ranges(xml, merge_budget=merge_budget)
+
+            return at_risk
     except (zipfile.BadZipFile, OSError):
         return []
-    if not any(n.startswith("xl/externalLinks/") for n in names):
-        return []
-
-    from openpyxl import load_workbook
-    from openpyxl.worksheet.formula import ArrayFormula
-
-    with contextlib.ExitStack() as stack:
-        formulas = load_workbook(filename, data_only=False)
-        stack.callback(formulas.close)
-        values = load_workbook(filename, data_only=True)
-        stack.callback(values.close)
-
-        defined_names = list(formulas.defined_names.items())
-        for scope_ws in formulas.worksheets:
-            defined_names.extend(scope_ws.defined_names.items())
-        name_texts = [
-            (name, dn.value)
-            for name, dn in defined_names
-            if isinstance(getattr(dn, "value", None), str)
-        ]
-        external_names = {name for name, text in name_texts if EXTERNAL_REF_RE.search(text)}
-        while True:
-            name_re = _names_pattern(external_names)
-            if name_re is None:
-                break
-            added = {
-                name
-                for name, text in name_texts
-                if name not in external_names and name_re.search(text)
-            }
-            if not added:
-                break
-            external_names |= added
-        name_re = _names_pattern(external_names)
-
-        at_risk = []
-        for sheet in formulas.sheetnames:
-            ws = formulas[sheet]
-            cached = values[sheet]
-            for cell in _existing_cells(ws):
-                v = cell.value
-                if isinstance(v, ArrayFormula):
-                    v = v.text
-                if not (isinstance(v, str) and v.startswith("=")):
-                    continue
-                reaches_out = EXTERNAL_REF_RE.search(v) or (name_re and name_re.search(v))
-                if reaches_out and cached[cell.coordinate].value is None:
-                    at_risk.append(f"{sheet}!{cell.coordinate}")
-        return at_risk
 
 
 def recalc(filename, timeout=30, force=False):
@@ -179,7 +377,7 @@ def recalc(filename, timeout=30, force=False):
     if force and zipfile.is_zipfile(abs_path):
         try:
             with zipfile.ZipFile(abs_path) as archive:
-                validate_archive(archive)
+                _validate_workbook_archive(archive)
         except Exception as e:
             return {"error": f"Could not validate {filename}: {e}"}
 
@@ -231,87 +429,25 @@ def _recalc_with_profile(filename, abs_path, timeout, profile_dir: Path):
     return _report(filename)
 
 
-EXCEL_ERRORS = ["#VALUE!", "#DIV/0!", "#REF!", "#NAME?", "#NULL!", "#NUM!", "#N/A"]
-EXCEL_ERROR_SET = frozenset(EXCEL_ERRORS)
-MAX_XML_PART_BYTES = 128 * 1024 * 1024
-
-_MAIN_NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
-_REL_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
-_CELL_REF_RE = re.compile(r"([A-Z]+)([0-9]+)")
-MAX_MERGE_CHECKS = 1_000_000
-_MERGE_RE = re.compile(rb'<(?:\w+:)?mergeCell\b[^>]*\bref="([^"]*)"')
-
-
-def _exact_error(text):
-    if not isinstance(text, str):
-        return None
-    cleaned = text.strip()
-    return cleaned if cleaned in EXCEL_ERROR_SET else None
-
-
-def _read_archive_part(
-    archive: zipfile.ZipFile,
-    name: str,
-    max_bytes: int = MAX_XML_PART_BYTES,
-    budget: list[int] | None = None,
-) -> bytes:
-    return read_zip_member(
-        archive,
-        name,
-        budget=budget,
-        max_member_bytes=max_bytes,
-        max_bytes=MAX_ARCHIVE_BYTES,
-    )
-
-
-def _rich_text(node):
-    runs = node.findall(f"{_MAIN_NS}t") + node.findall(f"{_MAIN_NS}r/{_MAIN_NS}t")
-    return "".join(t.text or "" for t in runs)
-
-
-def _row_major(coordinate):
-    column, row = _CELL_REF_RE.fullmatch(coordinate).groups()
-    number = 0
-    for letter in column:
-        number = number * 26 + ord(letter) - ord("A") + 1
-    return int(row), number
-
-
-def _merged_ranges(sheet_xml):
-    ranges = []
-    for ref in _MERGE_RE.findall(sheet_xml):
-        first, _, last = ref.decode().partition(":")
-        ranges.append((*_row_major(first), *_row_major(last)))
-    return ranges
-
-
-def _hidden_by_a_merge(merged, row, column):
-    return any(
-        top <= row <= bottom and left <= column <= right and (row, column) != (top, left)
-        for top, left, bottom, right in merged
-    )
-
-
 def _scan_xml(filename):
-    from defusedxml.ElementTree import fromstring, iterparse
-
     error_details = {err: [] for err in EXCEL_ERRORS}
     formula_count = 0
     merge_checks = 0
+    merge_budget = [0]
 
     with zipfile.ZipFile(filename) as archive:
         validate_archive(archive)
+        names = archive.namelist()
         budget = [0]
-        workbook = fromstring(_read_archive_part(archive, "xl/workbook.xml", budget=budget))
-        if workbook.tag != f"{_MAIN_NS}workbook":
-            raise ValueError("not a transitional OOXML workbook")
+        workbook = _safe_fromstring(_read_archive_part(archive, "xl/workbook.xml", budget=budget))
+        main_ns, rel_ns = _workbook_namespaces(workbook)
         targets = {
             rel.get("Id"): rel.get("Target")
-            for rel in fromstring(_read_archive_part(archive, "xl/_rels/workbook.xml.rels", budget=budget))
+            for rel in _safe_fromstring(_read_archive_part(archive, "xl/_rels/workbook.xml.rels", budget=budget))
         }
 
         shared_equals = set()
-        if "xl/sharedStrings.xml" in archive.namelist():
+        if "xl/sharedStrings.xml" in names:
             with open_zip_member(
                 archive,
                 "xl/sharedStrings.xml",
@@ -320,45 +456,56 @@ def _scan_xml(filename):
                 max_bytes=MAX_ARCHIVE_BYTES,
             ) as part:
                 index = 0
-                for _, node in iterparse(part):
-                    if node.tag != f"{_MAIN_NS}si":
+                for _, node in _safe_iterparse(part):
+                    if node.tag != f"{main_ns}si":
                         continue
-                    text = _rich_text(node).replace("x005F_", "")
+                    text = _rich_text(node, main_ns).replace("x005F_", "")
                     if text.startswith("="):
                         shared_equals.add(index)
                     index += 1
                     node.clear()
 
-        for sheet in workbook.find(f"{_MAIN_NS}sheets"):
-            target = targets[sheet.get(f"{_REL_NS}id")]
+        checked_parts = set()
+        sheets_el = workbook.find(f"{main_ns}sheets")
+        for sheet in (sheets_el if sheets_el is not None else ()):
+            target = targets.get(sheet.get(f"{rel_ns}id"))
+            if not target:
+                continue
             if target.startswith("/"):
                 part_name = target.lstrip("/")
             else:
                 part_name = posixpath.normpath(f"xl/{target}")
-            if "/worksheets/" not in part_name:
+            if "/worksheets/" not in part_name or part_name not in names:
                 continue
+            checked_parts.add(part_name)
             found = []
             xml = _read_archive_part(archive, part_name, budget=budget)
-            merged = _merged_ranges(xml)
-            for _, node in iterparse(io.BytesIO(xml)):
-                if node.tag == f"{_MAIN_NS}row":
+            merged = _merged_ranges(xml, merge_budget=merge_budget)
+            for _, node in _safe_iterparse(io.BytesIO(xml)):
+                if node.tag == f"{main_ns}mergeCell" and node.get("ref"):
+                    _parse_merge_ref(node.get("ref"), None)
+                    continue
+                if node.tag == f"{main_ns}row":
                     node.clear()
-                if node.tag != f"{_MAIN_NS}c":
+                    continue
+                if node.tag != f"{main_ns}c":
                     continue
                 if node.get("r") is None:
                     raise ValueError("a cell without its address")
-                formula = node.find(f"{_MAIN_NS}f")
+                formula = node.find(f"{main_ns}f")
                 is_formula = formula is not None and formula.get("t") != "dataTable"
                 err = None
                 cell_type = node.get("t", "n")
                 if cell_type == "s":
-                    index = int(node.findtext(f"{_MAIN_NS}v"))
-                    is_formula = is_formula or (formula is None and index in shared_equals)
+                    v_text = node.findtext(f"{main_ns}v")
+                    if v_text is not None:
+                        index = int(v_text)
+                        is_formula = is_formula or (formula is None and index in shared_equals)
                 elif cell_type == "e":
-                    err = _exact_error(node.findtext(f"{_MAIN_NS}v"))
+                    err = _exact_error(node.findtext(f"{main_ns}v"))
                 elif cell_type not in ("n", "b", "d"):
-                    inline = node.find(f"{_MAIN_NS}is")
-                    text = node.findtext(f"{_MAIN_NS}v") if inline is None else _rich_text(inline)
+                    inline = node.find(f"{main_ns}is")
+                    text = node.findtext(f"{main_ns}v") if inline is None else _rich_text(inline, main_ns)
                     is_formula = is_formula or (formula is None and (text or "").startswith("="))
                 if not is_formula and not err:
                     continue
@@ -374,12 +521,21 @@ def _scan_xml(filename):
             for _, err, coordinate in sorted(found):
                 error_details[err].append(f"{sheet.get('name')}!{coordinate}")
 
+        for name in names:
+            if name not in checked_parts and "/worksheets/" in name and name.endswith(".xml"):
+                xml = _read_archive_part(archive, name, budget=budget)
+                _merged_ranges(xml, merge_budget=merge_budget)
+
     return error_details, formula_count
 
 
 def _scan_with_openpyxl(filename):
     from openpyxl import load_workbook
     from openpyxl.worksheet.formula import ArrayFormula
+
+    if zipfile.is_zipfile(filename):
+        with zipfile.ZipFile(filename) as archive:
+            _validate_workbook_archive(archive)
 
     error_details = {err: [] for err in EXCEL_ERRORS}
     wb = load_workbook(filename, data_only=True)
@@ -411,9 +567,11 @@ def _report(filename):
     try:
         try:
             error_details, formula_count = _scan_xml(filename)
-        except Exception:  
+        except ValueError:
+            raise
+        except Exception:
             error_details, formula_count = _scan_with_openpyxl(filename)
-    except Exception as e:  
+    except Exception as e:
         return {"error": str(e)}
 
     total_errors = sum(len(locations) for locations in error_details.values())

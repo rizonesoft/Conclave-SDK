@@ -87,15 +87,26 @@ def monkeypatch_pydpf_method():
     from pypdf.generic import DictionaryObject
     from pypdf.constants import FieldDictionaryAttributes
 
+    if getattr(DictionaryObject.get_inherited, "_conclave_opt_patched", False):
+        return
+
     original_get_inherited = DictionaryObject.get_inherited
 
     def patched_get_inherited(self, key: str, default = None):
         result = original_get_inherited(self, key, default)
-        if key == FieldDictionaryAttributes.Opt:
-            if isinstance(result, list) and all(isinstance(v, list) and len(v) == 2 for v in result):
-                result = [r[0] for r in result]
+        if key == FieldDictionaryAttributes.Opt and isinstance(result, list):
+            normalized = []
+            for entry in result:
+                item = entry.get_object() if hasattr(entry, "get_object") else entry
+                if isinstance(item, (list, tuple)) and len(item) >= 1:
+                    val = item[0]
+                    normalized.append(val.get_object() if hasattr(val, "get_object") else val)
+                else:
+                    normalized.append(item)
+            result = normalized
         return result
 
+    patched_get_inherited._conclave_opt_patched = True
     DictionaryObject.get_inherited = patched_get_inherited
 
 

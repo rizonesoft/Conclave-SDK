@@ -18,6 +18,16 @@ def get_full_annotation_field_id(annotation):
     return ".".join(reversed(components)) if components else None
 
 
+def _deref_pdf_obj(obj):
+    return obj.get_object() if hasattr(obj, "get_object") else obj
+
+
+def _pdf_text(val) -> str:
+    if isinstance(val, bytes):
+        return val.decode("utf-8", errors="replace")
+    return str(val)
+
+
 def make_field_dict(field, field_id):
     field_dict = {"field_id": field_id}
     ft = field.get('/FT')
@@ -36,11 +46,22 @@ def make_field_dict(field, field_id):
                 field_dict["unchecked_value"] = states[1]
     elif ft == "/Ch":
         field_dict["type"] = "choice"
-        states = field.get("/_States_", [])
-        field_dict["choice_options"] = [{
-            "value": state[0],
-            "text": state[1],
-        } for state in states]
+        states = _deref_pdf_obj(field.get("/_States_", [])) or []
+        choice_options = []
+        for raw_state in states:
+            state = _deref_pdf_obj(raw_state)
+            if isinstance(state, (list, tuple)) and len(state) >= 2:
+                choice_options.append({
+                    "value": _pdf_text(_deref_pdf_obj(state[0])),
+                    "text": _pdf_text(_deref_pdf_obj(state[1])),
+                })
+            elif isinstance(state, (list, tuple)) and len(state) == 1:
+                value = _pdf_text(_deref_pdf_obj(state[0]))
+                choice_options.append({"value": value, "text": value})
+            else:
+                value = _pdf_text(state)
+                choice_options.append({"value": value, "text": value})
+        field_dict["choice_options"] = choice_options
     else:
         field_dict["type"] = f"unknown ({ft})"
     return field_dict
