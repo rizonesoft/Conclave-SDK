@@ -121,6 +121,23 @@ def _find_laravel_app_root(target_root: Path) -> Path | None:
     return None
 
 
+def _composer_package_installed(app_root: Path, package: str) -> Path | None:
+    """The app's `vendor/composer/installed.json` when it lists `package`, else None.
+
+    That file is what `composer show <package>` reads, so the answer is Composer's own without Composer on PATH.
+    A file that is absent, unreadable, not JSON or not a package list lists nothing."""
+    installed = app_root / "vendor/composer/installed.json"
+    try:
+        data = json.loads(installed.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError):
+        return None
+    packages = data.get("packages") if isinstance(data, dict) else data  # Composer 1 wrote the bare list
+    if not isinstance(packages, list):
+        return None
+    listed = any(isinstance(entry, dict) and entry.get("name") == package for entry in packages)
+    return installed if listed else None
+
+
 def _is_wp_root(candidate: Path) -> bool:
     return (
         (candidate / "wp-load.php").is_file()
@@ -1719,6 +1736,9 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
         add_check("lsp-diagnostics.py", "ok" if lsp_py.is_file() else "missing", lsp_py.as_posix())
         boost_json = (app_root / "boost.json") if app_root else (target_root / "boost.json")
         add_check("boost.json", "ok" if boost_json.is_file() else "missing", boost_json.as_posix())
+        boost_package = _composer_package_installed(app_root, "laravel/boost") if app_root else None
+        add_check("laravel/boost", "ok" if boost_package else "setup_required",
+                  boost_package.as_posix() if boost_package else "composer require --dev laravel/boost (dependency approval)")
         for agent_dir in (".agents", ".claude", ".codex"):
             sk = target_root / agent_dir / "skills/laravel-boost/SKILL.md"
             add_check(f"skill:{agent_dir}", "ok" if sk.is_file() else "missing", sk.as_posix())
@@ -1949,11 +1969,6 @@ SUITES: list[dict] = [
     _unittest_suite("sdk-scripts", "scripts/tests", 1800),
     {"name": "agent-tiers", "kind": "command", "path": "scripts/verify-agent-tiers.mjs", "timeout": 300,
      "argv": ["node", "scripts/verify-agent-tiers.mjs"]},
-    # The bash installers' own tests, until their assertions are in the Python suite and the installers retired
-    # (D01 T02 §3 and §4). They need bash, which only a POSIX host is sure to have: elsewhere they are shown as SKIP.
-    *({"name": f"install-{kit}", "kind": "command", "path": f"kits/{kit}/scripts/test-install.sh", "timeout": 900,
-       "os": "posix", "argv": ["bash", f"kits/{kit}/scripts/test-install.sh"]}
-      for kit in ("automations", "base", "laravel", "reviewer", "todo", "wordpress")),
     # Global suites under global/ (five unittest suites verified offline on Windows and POSIX).
     _unittest_suite("global-claude-hooks", "global/claude/hooks", 300),
     _unittest_suite("global-codex-hooks", "global/codex/hooks", 300),
@@ -2442,6 +2457,9 @@ def _run(args: argparse.Namespace) -> int:
         return 0
 
     if args.command == "doctor":
+        if not target.is_dir():  # a mistyped path would otherwise read as a project with every check missing
+            print(f"doctor: not a directory: {args.target}", file=sys.stderr)
+            return 2
         res = doctor_repo(target, args.kit_name)
         print(json.dumps(res, indent=2))
         if args.strict and res["missing_or_setup_required"] > 0:

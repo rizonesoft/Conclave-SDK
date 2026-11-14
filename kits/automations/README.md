@@ -33,12 +33,8 @@ For example `{"weekly": "Monday", "at": "07:00"}` or `{"at_logon_delay_minutes":
 ## Install
 
 ```powershell
-python forge.py kit /path/to/project automations
+python forge.py kit /path/to/project automations [--dry-run]
 python forge.py doctor /path/to/project automations
-```
-
-```bash
-kits/automations/scripts/install.sh /path/to/project [--dry-run]
 ```
 
 Then set `folder` in `tasks.json`, add the tasks, and run the project's installer (`pwsh .conclave/automations/install.ps1` or `bash .conclave/automations/install.sh`). The doctor loads the task list under the runner's own rules, reports an unset folder and any command script that does not exist, and checks the scheduler is reachable. Operator globals: Python 3 (`pythonw.exe` on Windows) and `conclave-op` in WSL for the alert's key.

@@ -14,7 +14,7 @@ The reference is rizonetech-com (`/home/derickpayne/www/rizonetech-com`, Pressab
 - **Pressable:** the Pressable MCP `get_site_details` (through `execute_tool`): `id`, `https_url`, `account_id` (into `pressable.account_id`, which the setup helpers require), `staging`, PHP version and data centre.
 - **WordPress.com:** the WordPress.com connector `wpcom-user-sites` (search the domain): the blog ID and `platform`. Only `atomic` has SSH/SFTP; a `simple` site's only channel is the connector, so set `ssh.ssh_host` and `ssh.port` to null (the doctor then skips SSH) and skip step 2. Cross-check with `automattic-agencies` `get-site-details` when the site is agency-managed.
 
-Run `python3 forge.py doctor <repo> wordpress` (or `kits/wordpress/scripts/doctor.sh`) after each step; it lists what is still unset.
+Run `python3 forge.py doctor <repo> wordpress` after each step; it lists what is still unset.
 
 ## 2. SSH/SFTP
 

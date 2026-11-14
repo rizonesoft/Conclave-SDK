@@ -15,16 +15,7 @@ python forge.py kit /path/to/wordpress-project wordpress --host pressable   # or
 python forge.py doctor /path/to/project
 ```
 
-```bash
-# Or directly via bash installers in Linux / WSL / Git Bash
-kits/base/scripts/install.sh /path/to/project
-kits/todo/scripts/install.sh /path/to/project
-kits/reviewer/scripts/install.sh /path/to/project
-kits/laravel/scripts/install.sh /path/to/laravel-project
-kits/wordpress/scripts/install.sh /path/to/wordpress-project --host wpcom
-```
-
-Dry-run any of them with `--dry-run`. There is no `--force`.
+`forge.py` is the only installer, on Windows, Linux and WSL alike. Dry-run any kit with `--dry-run`. There is no `--force`.
 
 `forge.py` notes what it installed in the project's `.conclave/kits.json`: the SDK commit, and for each file it wrote its kit and a digest of its bytes as installed. A file the project already had is never recorded. The record holds no path to the SDK and the project may delete it. The bash installers write no record.
 
@@ -45,14 +36,11 @@ Dry-run any of them with `--dry-run`. There is no `--force`.
 ```text
 kits/<name>/
   README.md
-  scripts/install.sh
-  scripts/test-install.sh
-  scripts/doctor.sh     # stack kits; read-only
   templates/            # files copied into the target
   hosts/<host>/templates/  # wordpress only: per-host files (pressable, wpcom)
 ```
 
-`doctor` (`python forge.py doctor <target>` or `scripts/doctor.sh`) is read-only. Missing globals print `setup_required` and still exit 0 unless you pass `--strict`.
+`doctor` (`python forge.py doctor <target> [<kit>]`) is read-only and prints its report as JSON. Missing globals are reported as `setup_required` and it still exits 0 unless you pass `--strict` (exit 3); a target that is not a folder exits 2.
 
 ## Tests
 
@@ -63,12 +51,11 @@ python -m unittest discover -s tests -v
 $env:CONCLAVE_FULL_TESTS = '1'; python -m unittest discover -s tests -v; Remove-Item Env:CONCLAVE_FULL_TESTS
 ```
 
-```bash
-bash kits/base/scripts/test-install.sh
-bash kits/todo/scripts/test-install.sh
-bash kits/reviewer/scripts/test-install.sh
-bash kits/laravel/scripts/test-install.sh
-bash kits/wordpress/scripts/test-install.sh
+Each kit's install is tested in `tests/test_kit_install.py`, on every host. `python forge.py check-all` runs every suite the repository holds (`--only <name>` and `--skip <name>` choose suites, `--full` adds the gated tests), and refuses a test file no suite runs.
+
+```powershell
+python -m unittest tests.test_kit_install
+python forge.py check-all
 ```
 
 ## Operator globals

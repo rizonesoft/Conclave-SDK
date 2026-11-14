@@ -1,15 +1,17 @@
 """Kit install tests: what the six bash `kits/<kit>/scripts/test-install.sh` files asserted, against `forge.py kit`.
 
 The bash tests ran the bash installers and only on POSIX. These run `forge.apply_kit`, `forge.doctor_repo` and the
-command line on every host (D01 T02 section 3). The seventh kit, `unattended`, never had a bash installer: its install
+command line on every host (D01 T02 section 3). The scripts, the installers and the two `doctor.sh` files were
+retired in D01 T02 section 4: `forge.py` is the only installer and the only doctor. The seventh kit, `unattended`, never had a bash installer: its install
 tests are `UnattendedKitTests` in `tests/test_forge.py`.
 
 Assertion map. Every line of each script is in exactly one row: `lines` are the script's own line numbers, `assertion`
 says what the lines require and the outcome they expect (a loop is written out: "3 agents", "4 prompt templates"), and
 `test` is the method of `KitInstallTests` that requires the same of `forge.py` (`none` for lines that assert nothing).
-`AssertionMapTests` reads the scripts while they exist and fails when a line is in no row or in two, when a `none` row
-holds a line that can fail the script (a `[ ]` test, a `grep`, an `exit 1`, a `sys.exit`, an `assert`, a run of the
-installer, the doctor or python3), or when a row names no test.
+The map is the record of the port: its line numbers are those of the scripts as last committed, at 9f196ea3cb49
+(read one with `git show 9f196ea3cb49:kits/<kit>/scripts/test-install.sh`). While the scripts existed,
+`AssertionMapTests` read them and failed on a line in no row and on a line that could fail a script in a `none` row;
+it still fails when a line is in two rows or when a row names a test this file does not define.
 
 kit | lines | assertion | test
 automations | 1-11 | script header: shell options, native links, scratch folder | none
@@ -101,7 +103,6 @@ import io
 import json
 import os
 import pathlib
-import re
 import shutil
 import subprocess
 import sys
@@ -129,9 +130,6 @@ TODO_SKILLS = ("add-todo", "create-todo", "groom-plan", "process-phase", "proces
                "process-todo-section", "review-todo-section")
 LINKED_FOLDER = {"automations": ".conclave", "base": "scripts", "laravel": "scripts", "reviewer": "scripts",
                  "todo": "scripts", "wordpress": "docs"}
-# What can fail a script: a `[ ]` test, a grep, an explicit exit, a Python assert or sys.exit, and (under `set -e`) a
-# run of the installer, the doctor or python3. A row whose test is `none` may hold no such line.
-ASSERTION_LINE = re.compile(r'\[ |grep|exit 1|sys\.exit|assert|python3|^\s*"\$(installer|doctor)" |\$\("\$doctor"')
 TOOL_SECONDS = 120
 
 
@@ -298,6 +296,74 @@ class KitInstallTests(unittest.TestCase):
         (project / "scripts/lsp-diagnostics.py").unlink()
         checks = {check["name"]: check["status"] for check in forge.doctor_repo(project, "laravel")["checks"]}
         self.assertEqual(checks["lsp-diagnostics.py"], "missing")
+
+    LARAVEL_CHECKS = {"artisan", "lsp-diagnostics.py", "boost.json", "laravel/boost", "laravel-lsp",
+                      "tailwindcss-language-server", "intelephense", "skill:.agents", "skill:.claude", "skill:.codex"}
+    BOOST_HINT = "composer require --dev laravel/boost (dependency approval)"
+
+    def boost_check(self, project):
+        """The `laravel/boost` check of the Laravel doctor, after proving the report still holds every check the
+        retired `kits/laravel/scripts/doctor.sh` reported."""
+        checks = {check["name"]: check for check in forge.doctor_repo(project, "laravel")["checks"]}
+        self.assertEqual(set(checks), self.LARAVEL_CHECKS)
+        return checks["laravel/boost"]["status"], checks["laravel/boost"]["detail"]
+
+    def test_laravel_doctor_reports_the_boost_package_composer_installed(self):
+        # `composer show laravel/boost` reads vendor/composer/installed.json; the doctor reads the same file itself.
+        project = self.project("target", "laravel")
+        installed = self.own_file(project, "vendor/composer/installed.json", json.dumps(
+            {"packages": [{"name": "laravel/framework"}, {"name": "laravel/boost", "version": "v1.0.0"}]}).encode())
+        self.assertEqual(self.boost_check(project), ("ok", installed.as_posix()))
+        # Composer 1 wrote the package list as the document itself.
+        installed.write_text(json.dumps([{"name": "laravel/boost"}]), encoding="utf-8")
+        self.assertEqual(self.boost_check(project)[0], "ok")
+        # A package composer.json requires and nobody installed is not present.
+        installed.unlink()
+        self.own_file(project, "composer.json", b'{"require-dev": {"laravel/boost": "^1.0"}}')
+        self.assertEqual(self.boost_check(project), ("setup_required", self.BOOST_HINT))
+
+    def test_laravel_doctor_reads_the_boost_package_at_the_app_root(self):
+        project = self.project("nested")
+        self.own_file(project, "platform/artisan", b"<?php\n")
+        self.assertEqual(self.boost_check(project), ("setup_required", self.BOOST_HINT))
+        # At the repository root the file is not the app's: only the one beside artisan counts.
+        self.own_file(project, "vendor/composer/installed.json", b'{"packages": [{"name": "laravel/boost"}]}')
+        self.assertEqual(self.boost_check(project), ("setup_required", self.BOOST_HINT))
+        installed = self.own_file(project, "platform/vendor/composer/installed.json",
+                                  b'{"packages": [{"name": "laravel/boost"}]}')
+        self.assertEqual(self.boost_check(project), ("ok", installed.as_posix()))
+
+    def test_laravel_doctor_asks_for_boost_when_composer_does_not_list_it(self):
+        project = self.project("target", "laravel")
+        absent = ("setup_required", self.BOOST_HINT)
+        self.assertEqual(self.boost_check(project), absent)  # no vendor folder at all
+        installed = self.own_file(project, "vendor/composer/installed.json",
+                                  b'{"packages": [{"name": "laravel/framework"}, {"name": "laravel/boost-extras"}]}')
+        self.assertEqual(self.boost_check(project), absent)  # a valid list of other packages
+        for data in (b"not json", b"\xff\xfe", b'"laravel/boost"', b'{"packages": "laravel/boost"}',
+                     b'{"packages": ["laravel/boost", 7, null]}', b"[[[" * 20000):
+            with self.subTest(data=data[:24]):
+                installed.write_bytes(data)
+                self.assertEqual(self.boost_check(project), absent)
+        installed.write_bytes(b'{"packages": [{"name": "laravel/boost"}]}')
+        with unittest.mock.patch.object(pathlib.Path, "read_text", side_effect=PermissionError("locked")):
+            self.assertEqual(self.boost_check(project), absent)  # a file that cannot be read; the report goes on
+        self.assertEqual(self.boost_check(project)[0], "ok")
+        # With no artisan there is no app root to read.
+        empty = self.project("empty")
+        self.own_file(empty, "vendor/composer/installed.json", b'{"packages": [{"name": "laravel/boost"}]}')
+        self.assertEqual(self.boost_check(empty), absent)
+
+    def test_doctor_refuses_a_target_that_is_not_a_folder(self):
+        # Both retired doctor scripts exited 2 on such a target; a report of nine missing checks would hide the typo.
+        a_file = self.own_file(self.work, "a-file", b"x")
+        for target in (self.work / "missing", a_file):
+            for extra in ((), ("laravel",), ("wordpress", "--strict")):
+                with self.subTest(target=target.name, extra=extra):
+                    code, out, err = command_line("doctor", target, *extra)
+                    self.assertEqual(code, 2)
+                    self.assertEqual(out, "")
+                    self.assertEqual(err, f"doctor: not a directory: {target}\n")
 
     def test_laravel_refuses_a_project_with_no_artisan(self):
         project = self.project("empty")
@@ -585,48 +651,6 @@ class AssertionMapTests(unittest.TestCase):
                 if row_kit == kit:
                     self.assertFalse(seen & lines, f"{kit}: lines {sorted(seen & lines)} are in two rows")
                     seen |= lines
-
-    def script_problems(self, kit, text):
-        """What the map gets wrong about a script's text: a line in no row, a line that can fail the script in a
-        `none` row, a row past the script's end."""
-        rows = [(lines, test) for row_kit, lines, _what, test in map_rows() if row_kit == kit]
-        mapped = set().union(*(lines for lines, _test in rows))
-        asserting = set().union(*(lines for lines, test in rows if test != "none"))
-        problems = []
-        for number, line in enumerate(text.splitlines(), 1):
-            if not line.strip():
-                continue
-            if number not in mapped:
-                problems.append(f"{kit}:{number} is in no row: {line}")
-            elif number not in asserting and not line.lstrip().startswith("#") and ASSERTION_LINE.search(line):
-                problems.append(f"{kit}:{number} can fail the script but its row names no test: {line}")
-        if max(mapped) > len(text.splitlines()):
-            problems.append(f"{kit}: a row names line {max(mapped)}, past the script's end")
-        return problems
-
-    def test_every_line_of_a_script_is_in_a_row_and_no_assertion_is_left_without_a_test(self):
-        # The scripts are retired with the bash installers (D01 T02 section 4); the map then stands as the record.
-        for kit in BASH_KITS:
-            script = SDK_ROOT / "kits" / kit / "scripts/test-install.sh"
-            if not script.is_file():
-                continue
-            with self.subTest(kit=kit):
-                self.assertEqual(self.script_problems(kit, script.read_text(encoding="utf-8")), [])
-
-    def test_the_map_check_catches_an_unmapped_line_and_an_assertion_filed_as_none(self):
-        # The check itself can fail: a new assertion appended to a script, and one slipped into the header rows.
-        text = "\n" * 200 + '[ -f "$target/new-file" ]\n'
-        self.assertEqual(len(self.script_problems("base", text)), 1)
-        self.assertIn("is in no row", self.script_problems("base", text)[0])
-        for line in ('[ -f "$target/x" ]', 'grep -q x "$target/y"', '"$installer" "$target" --again >/dev/null',
-                     "python3 -c 'import sys; sys.exit(1)'", 'report=$("$doctor" "$target")'):
-            with self.subTest(line=line):
-                # Line 1 is in the header row, whose test is `none`; the rest pads to the script's 65 lines.
-                problems = self.script_problems("base", line + "\n" * 65)
-                self.assertEqual(len(problems), 1, problems)
-                self.assertIn("names no test", problems[0])
-        harmless = "# a comment that says test and [ and grep\nset -euo pipefail" + "\n" * 64
-        self.assertEqual(self.script_problems("base", harmless), [])
 
 
 if __name__ == "__main__":

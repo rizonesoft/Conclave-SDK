@@ -42,8 +42,4 @@ A missing binary is `SKIPPED` (exit 3 when every requested server is missing), n
 python forge.py doctor . laravel
 ```
 
-```bash
-kits/laravel/scripts/doctor.sh .
-```
-
 Reports `ok` or `setup_required` for Boost, the three language servers, `artisan`, and `scripts/lsp-diagnostics.py`. It never installs anything.

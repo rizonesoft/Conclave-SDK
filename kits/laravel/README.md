@@ -26,12 +26,6 @@ python forge.py kit /path/to/laravel-project laravel [--agent all|gemini|claude|
 python forge.py doctor /path/to/laravel-project laravel
 ```
 
-```bash
-kits/laravel/scripts/install.sh /path/to/laravel-project
-kits/laravel/scripts/install.sh /path/to/laravel-project --dry-run
-kits/laravel/scripts/doctor.sh /path/to/laravel-project
-```
-
 The target may be the Laravel app itself (`artisan` at the root) or a monorepo whose `platform/` (or another first-level child) contains `artisan`.
 
 ## Operator globals

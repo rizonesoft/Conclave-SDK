@@ -42,11 +42,6 @@ python forge.py kit /path/to/project wordpress --host pressable|wpcom [--agent a
 python forge.py doctor /path/to/project wordpress [--strict]
 ```
 
-```bash
-kits/wordpress/scripts/install.sh /path/to/project --host wpcom [--dry-run]
-kits/wordpress/scripts/doctor.sh /path/to/project [--strict]
-```
-
 `--host` defaults to `pressable`. Then run the `wordpress-connect` skill in the project: it fills the pin from the Pressable MCP or the WordPress.com connector, sets up SSH/SFTP and the WordPress MCP, and on Pressable the DDEV mirror. Every write to the live site or the host needs the owner's approval.
 
 ## Operator globals

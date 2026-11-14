@@ -52,10 +52,6 @@ python forge.py kit /path/to/project todo [--agent all|gemini|claude|codex] [--d
 python forge.py doctor /path/to/project todo
 ```
 
-```bash
-kits/todo/scripts/install.sh /path/to/project [--dry-run]
-```
-
 Like every kit it only adds missing files: an existing `todo/` plan, skill or script is kept byte for byte. After installing, add a line to the project's `AGENTS.md` pointing at `docs/todo-workflow.md`.
 
 ## Keeping it current

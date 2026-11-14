@@ -559,25 +559,29 @@ class RealTable(unittest.TestCase):
             self.assertTrue((ROOT / path).is_file(), path)
             self.assertIn("requires npm package '", reason, path)
 
-    def test_every_install_test_in_the_repository_is_a_suite(self):
-        # Found by the round of D01 T02 §1: the six bash install tests ran in no suite.
-        listed = subprocess.run(["git", "ls-files", "kits"], cwd=ROOT, capture_output=True, text=True,
-                                check=True).stdout.split()
-        scripts = {name for name in listed if Path(name).name.startswith("test-") and name.endswith(".sh")}
-        self.assertEqual(len(scripts), 6)
-        suites = {suite["path"]: suite for suite in forge.SUITES if suite["path"].endswith(".sh")}
-        self.assertEqual(set(suites), scripts)
-        for suite in suites.values():
-            self.assertEqual((suite["os"], suite["argv"]), ("posix", ["bash", suite["path"]]))
+    @staticmethod
+    def kit_shell_scripts(root):
+        """Tracked `kits/<kit>/scripts/*.sh` files: a `:(glob)` pathspec, whose `*` stays inside one folder, so the
+        hooks a kit installs from `kits/<kit>/templates/scripts/hooks/` are not among them."""
+        return subprocess.run(["git", "ls-files", ":(glob)kits/*/scripts/*.sh"], cwd=root, capture_output=True,
+                              text=True, check=True).stdout.split()
 
-    def test_every_kit_shell_script_is_committed_executable(self):
-        # Found by CI's first run of the install suites: five installers were committed without the executable bit,
-        # which a checkout on a Windows drive hides (every file is executable there) and a Linux checkout does not.
-        listed = subprocess.run(["git", "ls-files", "-s", "kits/*/scripts/*.sh"], cwd=ROOT, capture_output=True,
-                                text=True, check=True).stdout.splitlines()
-        scripts = [line for line in listed if line.split("	")[1].count("/") == 3]  # kits/<kit>/scripts/<name>.sh
-        self.assertEqual(len(scripts), 14)
-        self.assertEqual([line.split("	")[1] for line in scripts if not line.startswith("100755 ")], [])
+    def test_no_kit_keeps_a_shell_script_beside_its_templates(self):
+        # D01 T02 §4 retired the bash installers, their tests and the doctor scripts: `forge.py` is the only installer
+        # and the only doctor, because it alone writes the install record. One coming back is refused here and,
+        # for an install test, by the inventory as a test no suite runs.
+        self.assertEqual(self.kit_shell_scripts(ROOT), [])
+        self.assertEqual([suite["name"] for suite in forge.SUITES if suite["path"].endswith(".sh")], [])
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = Path(tmp).resolve()
+            subprocess.run(["git", "init", "-q"], cwd=scratch, check=True)
+            for rel in ("kits/base/scripts/test-install.sh", "kits/base/templates/scripts/hooks/pre-push.sh"):
+                (scratch / rel).parent.mkdir(parents=True)
+                (scratch / rel).write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+            subprocess.run(["git", "add", "kits"], cwd=scratch, check=True)
+            self.assertEqual(self.kit_shell_scripts(scratch), ["kits/base/scripts/test-install.sh"])
+            self.assertIn("kits/base/scripts/test-install.sh: unowned test file (add to SUITES or EXCLUDED_TESTS)",
+                          forge._inventory_problems(scratch, forge.SUITES, {}))
 
     def test_a_real_suite_passes_through_the_command_line(self):
         out = io.StringIO()

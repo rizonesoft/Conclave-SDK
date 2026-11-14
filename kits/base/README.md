@@ -17,9 +17,6 @@ templates/
   docs/
   scripts/
     verify-agent-tiers.mjs
-scripts/
-  install.sh
-  test-install.sh
 ```
 
 The template uses real files, not symlinks. Antigravity, Claude, and Codex skills may start aligned, but each tool gets its own copy so wording and metadata can diverge when model or tool behavior requires it.
@@ -28,10 +25,6 @@ The template uses real files, not symlinks. Antigravity, Claude, and Codex skill
 
 ```powershell
 python forge.py kit /path/to/new-project base
-```
-
-```bash
-kits/base/scripts/install.sh /path/to/new-project
 ```
 
 The installer is additive-only: it copies missing files and preserves every existing file byte-for-byte, including locally tuned `.agents`, `.claude`, and `.codex` skills, subagents and project instructions. Preview the exact additions with `--dry-run`:

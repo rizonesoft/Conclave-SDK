@@ -121,12 +121,8 @@ lenses = ["adversarial"]
 ## Install
 
 ```powershell
-python forge.py kit /path/to/project reviewer
+python forge.py kit /path/to/project reviewer [--dry-run]
 python forge.py doctor /path/to/project reviewer
-```
-
-```bash
-kits/reviewer/scripts/install.sh /path/to/project [--dry-run]
 ```
 
 The doctor loads the pin under the dispatcher's own rules and reports any reviewer CLI that is not installed (a pass routed to that reviewer has no review). Operator globals: the `codex`, `agy` and `claude` CLIs, signed in.
