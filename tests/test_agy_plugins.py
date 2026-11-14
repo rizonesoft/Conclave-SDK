@@ -1534,6 +1534,165 @@ class CraftScriptHardeningTests(unittest.TestCase):
         d = FakeDictionaryObject({"/Opt": [["CA", "California"], "Other"]})
         self.assertEqual(d.get_inherited("/Opt"), ["CA", "Other"])
 
+    def test_recalc_opc_targets_xlfn_lambda_and_linear_propagation(self):
+        import time
+
+        xlsx_scripts = CRAFT_DIR / "skills" / "xlsx" / "scripts"
+        recalc = _load_module("test_xlsx_recalc_opc_lambda", xlsx_scripts / "recalc.py", [xlsx_scripts])
+
+        # 1. Saved OOXML _xlfn.LAMBDA / _xlfn._xlws.LAMBDA / alias invocation detection
+        wb_lambda = self.root / "book_xlfn_lambda.xlsx"
+        with zipfile.ZipFile(wb_lambda, "w") as zf:
+            zf.writestr(
+                "xl/workbook.xml",
+                '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>'
+                '<definedNames>'
+                '<definedName name="LinkedFn">_xlfn.LAMBDA(_xlpm.x,[1]Sheet1!A1+_xlpm.x)</definedName>'
+                '<definedName name="WsLambda">_xlfn._xlws.LAMBDA(_xlpm.y,[1]Sheet1!A2+_xlpm.y)</definedName>'
+                '<definedName name="AliasFn">LinkedFn</definedName>'
+                '<definedName name="SUM">[1]Sheet1!A3</definedName>'
+                '</definedNames></workbook>',
+            )
+            zf.writestr(
+                "xl/_rels/workbook.xml.rels",
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+                'Target="worksheets/sheet1.xml"/></Relationships>',
+            )
+            zf.writestr("xl/externalLinks/externalLink1.xml", "<externalLink/>")
+            zf.writestr(
+                "xl/worksheets/sheet1.xml",
+                '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+                '<row r="1">'
+                '<c r="A1"><f>LinkedFn(1)</f></c>'
+                '<c r="A2"><f>WsLambda(1)</f></c>'
+                '<c r="A3"><f>AliasFn(1)</f></c>'
+                '<c r="A4"><f>LinkedFn(1)</f><v>5</v></c>'
+                '<c r="A5"><f>SUM(1,2)</f></c>'
+                '</row></sheetData></worksheet>',
+            )
+        self.assertEqual(
+            recalc.external_links_at_risk(str(wb_lambda)),
+            ["Sheet1!A1", "Sheet1!A2", "Sheet1!A3"],
+        )
+
+        # 2. OPC dot-segment / percent-encoded targets and sharedStrings resolution
+        wb_opc = self.root / "book_opc_targets.xlsx"
+        with zipfile.ZipFile(wb_opc, "w") as zf:
+            zf.writestr(
+                "_rels/.rels",
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+                'Target="/xl/./workbook.xml"/></Relationships>',
+            )
+            zf.writestr(
+                "xl/workbook.xml",
+                '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                '<sheets>'
+                '<sheet name="Sheet1" sheetId="1" r:id="rId1"/>'
+                '<sheet name="Sheet2" sheetId="2" r:id="rId2"/>'
+                '</sheets></workbook>',
+            )
+            zf.writestr(
+                "xl/_rels/workbook.xml.rels",
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+                'Target="/xl/worksheets/./sheet1.xml"/>'
+                '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+                'Target="../xl/worksheets/sheet%202.xml"/>'
+                '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" '
+                'Target="/xl/./sharedStrings.xml"/>'
+                '</Relationships>',
+            )
+            zf.writestr("xl/externalLinks/externalLink1.xml", "<externalLink/>")
+            zf.writestr(
+                "xl/sharedStrings.xml",
+                '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t>=1+1</t></si></sst>',
+            )
+            zf.writestr(
+                "xl/worksheets/sheet1.xml",
+                '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+                '<row r="1"><c r="A1"><f>[1]Ext!A1</f></c></row>'
+                '</sheetData></worksheet>',
+            )
+            zf.writestr(
+                "xl/worksheets/sheet 2.xml",
+                '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+                '<row r="1">'
+                '<c r="A1"><f>[1]Ext!B1</f></c>'
+                '<c r="B1" t="s"><v>0</v></c>'
+                '<c r="C1" t="e"><f>1/0</f><v>#DIV/0!</v></c>'
+                '</row></sheetData></worksheet>',
+            )
+        self.assertEqual(recalc.external_links_at_risk(str(wb_opc)), ["Sheet1!A1", "Sheet2!A1"])
+        errors_opc, formulas_opc = recalc._scan_xml(str(wb_opc))
+        self.assertEqual(formulas_opc, 4)
+        self.assertEqual(errors_opc["#DIV/0!"], ["Sheet2!C1"])
+
+        # Escaping OPC relationship target raises ValueError and fails recalc/_report cleanly
+        wb_escape = self.root / "book_opc_escape.xlsx"
+        with zipfile.ZipFile(wb_escape, "w") as zf:
+            zf.writestr(
+                "xl/workbook.xml",
+                '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>',
+            )
+            zf.writestr(
+                "xl/_rels/workbook.xml.rels",
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+                'Target="../../outside.xml"/></Relationships>',
+            )
+            zf.writestr("xl/externalLinks/externalLink1.xml", "<externalLink/>")
+        with self.assertRaisesRegex(ValueError, "escapes the package"):
+            recalc.external_links_at_risk(str(wb_escape))
+        with self.assertRaisesRegex(ValueError, "escapes the package"):
+            recalc._scan_xml(str(wb_escape))
+        self.assertIn("escapes the package", recalc._report(str(wb_escape)).get("error", ""))
+        with (
+            unittest.mock.patch.object(recalc, "get_soffice_env", return_value={}),
+            unittest.mock.patch.object(recalc, "run_soffice", side_effect=AssertionError("soffice must not run")),
+        ):
+            self.assertIn("escapes the package", recalc.recalc(str(wb_escape)).get("error", ""))
+            self.assertIn("escapes the package", recalc.recalc(str(wb_escape), force=True).get("error", ""))
+
+        # 3. Linear-time O(V+E) defined-name chain propagation across 4,001 names
+        wb_chain = self.root / "book_name_chain.xlsx"
+        dn_xml = "".join(
+            f'<definedName name="Name_{idx}">Name_{idx + 1}</definedName>'
+            for idx in range(4000)
+        ) + '<definedName name="Name_4000">[1]Sheet1!A1</definedName>'
+        with zipfile.ZipFile(wb_chain, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(
+                "xl/workbook.xml",
+                '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>'
+                f'<definedNames>{dn_xml}</definedNames></workbook>',
+            )
+            zf.writestr(
+                "xl/_rels/workbook.xml.rels",
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+                'Target="worksheets/sheet1.xml"/></Relationships>',
+            )
+            zf.writestr("xl/externalLinks/externalLink1.xml", "<externalLink/>")
+            zf.writestr(
+                "xl/worksheets/sheet1.xml",
+                '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+                '<row r="1"><c r="A1"><f>Name_0</f></c></row>'
+                '</sheetData></worksheet>',
+            )
+        t0 = time.perf_counter()
+        chain_risk = recalc.external_links_at_risk(str(wb_chain))
+        elapsed = time.perf_counter() - t0
+        self.assertEqual(chain_risk, ["Sheet1!A1"])
+        self.assertLess(elapsed, 1.0, f"4001-name chain took {elapsed:.3f}s")
+
 
 if __name__ == "__main__":
     unittest.main()

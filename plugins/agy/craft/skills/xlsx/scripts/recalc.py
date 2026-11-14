@@ -7,7 +7,6 @@ import html
 import io
 import json
 import os
-import posixpath
 import re
 import subprocess
 import sys
@@ -16,10 +15,12 @@ import time
 import xml.etree.ElementTree as _stdlib_et
 import xml.parsers.expat as _expat
 import zipfile
+from collections import deque
 from pathlib import Path
 
 from office.helpers import (
     MAX_ARCHIVE_BYTES,
+    opc_target,
     open_zip_member,
     read_zip_member,
     validate_archive,
@@ -95,10 +96,30 @@ def _local_tag(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
 
-def _resolve_rel_target(target: str) -> str:
-    if target.startswith("/"):
-        return target.lstrip("/")
-    return posixpath.normpath(f"xl/{target}")
+def _workbook_opc_context(archive: zipfile.ZipFile, name_set: set[str], budget: list[int]):
+    workbook_part = "xl/workbook.xml"
+    if "_rels/.rels" in name_set:
+        pkg_rels = _safe_fromstring(_read_archive_part(archive, "_rels/.rels", budget=budget))
+        for rel in pkg_rels:
+            if (rel.get("Type") or "").endswith("/officeDocument"):
+                cand = opc_target(rel.get("Target") or "", "", rel.get("TargetMode") or "")
+                if cand and cand in name_set:
+                    workbook_part = cand
+                    break
+    wb_dir, _, wb_base = workbook_part.rpartition("/")
+    rels_part = f"{wb_dir}/_rels/{wb_base}.rels" if wb_dir else f"_rels/{wb_base}.rels"
+    rels_root = (
+        _safe_fromstring(_read_archive_part(archive, rels_part, budget=budget))
+        if rels_part in name_set
+        else None
+    )
+    return workbook_part, rels_part, rels_root
+
+
+def _is_lambda_func_name(ident_cf: str) -> bool:
+    while ident_cf.startswith(("_xlfn.", "_xlws.", "xlws.")):
+        ident_cf = ident_cf.split(".", 1)[1]
+    return ident_cf == "lambda"
 
 
 def _make_dtd_guard():
@@ -265,19 +286,22 @@ def _worksheet_parts(
     names: list[str],
     budget: list[int],
     rels_root=None,
+    workbook_part: str = "xl/workbook.xml",
+    name_set: set[str] | None = None,
 ) -> list[str]:
-    name_set = set(names)
-    parts = [n for n in names if "/worksheets/" in n.lower() and n.lower().endswith(".xml")]
+    if name_set is None:
+        name_set = set(names)
+    parts = [n for n in names if "/worksheets/" in f"/{n.lower()}" and n.lower().endswith(".xml")]
     seen = set(parts)
-    if rels_root is None and "xl/_rels/workbook.xml.rels" in name_set:
-        rels_root = _safe_fromstring(_read_archive_part(archive, "xl/_rels/workbook.xml.rels", budget=budget))
+    if rels_root is None:
+        workbook_part, _, rels_root = _workbook_opc_context(archive, name_set, budget)
     if rels_root is not None:
         for rel in rels_root:
             rel_type = rel.get("Type") or ""
             target = rel.get("Target") or ""
             if rel_type.endswith("/worksheet") and target:
-                part_name = _resolve_rel_target(target)
-                if part_name in name_set and part_name not in seen:
+                part_name = opc_target(target, workbook_part, rel.get("TargetMode") or "")
+                if part_name and part_name in name_set and part_name not in seen:
                     seen.add(part_name)
                     parts.append(part_name)
     return parts
@@ -410,6 +434,8 @@ def _resolve_def_key(ident_cf, qual_sheet_cf, current_scope, defs, sheet_idx_by_
 
 
 def _expr_reaches_external(expr, current_scope, external_defs, defs, lambda_defs, sheet_idx_by_name) -> bool:
+    if not external_defs:
+        return any(kind == "ext" for kind, _, _, _ in _scan_formula_tokens(expr))
     for kind, ident_cf, qual_sheet_cf, is_call in _scan_formula_tokens(expr):
         if kind == "ext":
             return True
@@ -434,19 +460,23 @@ def external_links_at_risk(filename):
         with zipfile.ZipFile(filename) as archive:
             validate_archive(archive)
             names = archive.namelist()
+            name_set = set(names)
             budget = [0]
             merge_budget = [0]
-            rels_root = None
-            if "xl/_rels/workbook.xml.rels" in names:
-                rels_root = _safe_fromstring(
-                    _read_archive_part(archive, "xl/_rels/workbook.xml.rels", budget=budget)
-                )
-            has_external = any(n.lower().startswith("xl/externallinks/") for n in names) or (
+            workbook_part, rels_part, rels_root = _workbook_opc_context(archive, name_set, budget)
+            has_external = any("/externallinks/" in f"/{n.lower()}" for n in names) or (
                 rels_root is not None
                 and any((rel.get("Type") or "").endswith("/externalLink") for rel in rels_root)
             )
             if not has_external:
-                for part_name in _worksheet_parts(archive, names, budget, rels_root=rels_root):
+                for part_name in _worksheet_parts(
+                    archive,
+                    names,
+                    budget,
+                    rels_root=rels_root,
+                    workbook_part=workbook_part,
+                    name_set=name_set,
+                ):
                     with open_zip_member(
                         archive,
                         part_name,
@@ -457,14 +487,14 @@ def external_links_at_risk(filename):
                         _merged_ranges(part, merge_budget=merge_budget)
                 return []
 
-            workbook = _safe_fromstring(_read_archive_part(archive, "xl/workbook.xml", budget=budget))
+            workbook = _safe_fromstring(_read_archive_part(archive, workbook_part, budget=budget))
             main_ns, rel_ns = _workbook_namespaces(workbook)
             if rels_root is None:
                 rels_root = _safe_fromstring(
-                    _read_archive_part(archive, "xl/_rels/workbook.xml.rels", budget=budget)
+                    _read_archive_part(archive, rels_part, budget=budget)
                 )
             rel_map = {
-                rel.get("Id"): (rel.get("Target"), rel.get("Type") or "")
+                rel.get("Id"): (rel.get("Target") or "", rel.get("Type") or "", rel.get("TargetMode") or "")
                 for rel in rels_root
             }
 
@@ -477,56 +507,58 @@ def external_links_at_risk(filename):
             }
 
             defined_el = workbook.find(f"{main_ns}definedNames")
-            defs = {}
+            defs: dict[tuple[str, int | None], list[str]] = {}
             for dn in (defined_el if defined_el is not None else ()):
                 raw_name = (dn.get("name") or "").strip()
                 if not raw_name:
                     continue
                 raw_scope = dn.get("localSheetId")
                 scope = int(raw_scope) if raw_scope is not None else None
-                defs[(raw_name.casefold(), scope)] = dn.text or ""
+                defs.setdefault((raw_name.casefold(), scope), []).append(dn.text or "")
 
-            lambda_defs = {
-                key
-                for key, text in defs.items()
-                if any(
-                    kind == "name" and ident == "lambda" and is_call
-                    for kind, ident, _, is_call in _scan_formula_tokens(text)
-                )
-            }
-            while True:
-                added_lambdas = {
-                    key
-                    for key, text in defs.items()
-                    if key not in lambda_defs
-                    and any(
-                        kind == "name"
-                        and _resolve_def_key(ident, qual_sheet, key[1], defs, sheet_idx_by_name) in lambda_defs
-                        for kind, ident, qual_sheet, _ in _scan_formula_tokens(text)
-                    )
-                }
-                if not added_lambdas:
-                    break
-                lambda_defs |= added_lambdas
+            lambda_defs = set()
+            direct_ext_defs = set()
+            rev_any_deps: dict[tuple[str, int | None], set[tuple[str, int | None]]] = {}
+            def_refs: dict[tuple[str, int | None], set[tuple[tuple[str, int | None], bool]]] = {}
+            for key, texts in defs.items():
+                refs = set()
+                for text in texts:
+                    for kind, ident_cf, qual_sheet_cf, is_call in _scan_formula_tokens(text):
+                        if kind == "ext":
+                            direct_ext_defs.add(key)
+                            continue
+                        if is_call and _is_lambda_func_name(ident_cf):
+                            lambda_defs.add(key)
+                        dep_key = _resolve_def_key(ident_cf, qual_sheet_cf, key[1], defs, sheet_idx_by_name)
+                        if dep_key is not None:
+                            rev_any_deps.setdefault(dep_key, set()).add(key)
+                            refs.add((dep_key, is_call))
+                if refs:
+                    def_refs[key] = refs
 
-            external_defs = set()
-            while True:
-                added = {
-                    key
-                    for key, text in defs.items()
-                    if key not in external_defs
-                    and _expr_reaches_external(
-                        text,
-                        key[1],
-                        external_defs,
-                        defs,
-                        lambda_defs,
-                        sheet_idx_by_name,
-                    )
-                }
-                if not added:
-                    break
-                external_defs |= added
+            lambda_queue = deque(lambda_defs)
+            while lambda_queue:
+                dep_key = lambda_queue.popleft()
+                for parent_key in rev_any_deps.get(dep_key, ()):
+                    if parent_key not in lambda_defs:
+                        lambda_defs.add(parent_key)
+                        lambda_queue.append(parent_key)
+
+            rev_ext_deps: dict[tuple[str, int | None], set[tuple[str, int | None]]] = {}
+            for key, refs in def_refs.items():
+                for dep_key, is_call in refs:
+                    if is_call and dep_key not in lambda_defs:
+                        continue
+                    rev_ext_deps.setdefault(dep_key, set()).add(key)
+
+            external_defs = set(direct_ext_defs)
+            ext_queue = deque(external_defs)
+            while ext_queue:
+                dep_key = ext_queue.popleft()
+                for parent_key in rev_ext_deps.get(dep_key, ()):
+                    if parent_key not in external_defs:
+                        external_defs.add(parent_key)
+                        ext_queue.append(parent_key)
 
             at_risk = []
             checked_parts = set()
@@ -534,12 +566,14 @@ def external_links_at_risk(filename):
                 rel_info = rel_map.get(sheet.get(f"{rel_ns}id"))
                 if not rel_info:
                     continue
-                target, rel_type = rel_info
+                target, rel_type, target_mode = rel_info
                 if not target:
                     continue
-                part_name = _resolve_rel_target(target)
-                is_ws = rel_type.endswith("/worksheet") if rel_type else ("/worksheets/" in part_name.lower())
-                if not is_ws or part_name not in names:
+                part_name = opc_target(target, workbook_part, target_mode)
+                if not part_name:
+                    continue
+                is_ws = rel_type.endswith("/worksheet") if rel_type else ("/worksheets/" in f"/{part_name.lower()}")
+                if not is_ws or part_name not in name_set:
                     continue
                 checked_parts.add(part_name)
                 sheet_name = sheet.get("name")
@@ -598,7 +632,14 @@ def external_links_at_risk(filename):
                         if reaches_out and is_uncached:
                             at_risk.append(f"{sheet_name}!{coord}")
 
-            for part_name in _worksheet_parts(archive, names, budget, rels_root=rels_root):
+            for part_name in _worksheet_parts(
+                archive,
+                names,
+                budget,
+                rels_root=rels_root,
+                workbook_part=workbook_part,
+                name_set=name_set,
+            ):
                 if part_name not in checked_parts:
                     with open_zip_member(
                         archive,
@@ -712,20 +753,34 @@ def _scan_xml(filename):
     with zipfile.ZipFile(filename) as archive:
         validate_archive(archive)
         names = archive.namelist()
+        name_set = set(names)
         budget = [0]
-        workbook = _safe_fromstring(_read_archive_part(archive, "xl/workbook.xml", budget=budget))
+        workbook_part, rels_part, rels_root = _workbook_opc_context(archive, name_set, budget)
+        workbook = _safe_fromstring(_read_archive_part(archive, workbook_part, budget=budget))
         main_ns, rel_ns = _workbook_namespaces(workbook)
-        rels_root = _safe_fromstring(_read_archive_part(archive, "xl/_rels/workbook.xml.rels", budget=budget))
+        if rels_root is None:
+            rels_root = _safe_fromstring(_read_archive_part(archive, rels_part, budget=budget))
         rel_map = {
-            rel.get("Id"): (rel.get("Target"), rel.get("Type") or "")
+            rel.get("Id"): (rel.get("Target") or "", rel.get("Type") or "", rel.get("TargetMode") or "")
             for rel in rels_root
         }
 
         shared_equals = set()
-        if "xl/sharedStrings.xml" in names:
+        ss_part = None
+        for rel in rels_root:
+            if (rel.get("Type") or "").endswith("/sharedStrings"):
+                ss_part = opc_target(rel.get("Target") or "", workbook_part, rel.get("TargetMode") or "")
+                if ss_part:
+                    break
+        if ss_part is None:
+            wb_dir = workbook_part.rpartition("/")[0]
+            fallback_ss = f"{wb_dir}/sharedStrings.xml" if wb_dir else "sharedStrings.xml"
+            if fallback_ss in name_set:
+                ss_part = fallback_ss
+        if ss_part and ss_part in name_set:
             with open_zip_member(
                 archive,
-                "xl/sharedStrings.xml",
+                ss_part,
                 budget=budget,
                 max_member_bytes=MAX_XML_PART_BYTES,
                 max_bytes=MAX_ARCHIVE_BYTES,
@@ -745,12 +800,14 @@ def _scan_xml(filename):
             rel_info = rel_map.get(sheet.get(f"{rel_ns}id"))
             if not rel_info:
                 continue
-            target, rel_type = rel_info
+            target, rel_type, target_mode = rel_info
             if not target:
                 continue
-            part_name = _resolve_rel_target(target)
-            is_ws = rel_type.endswith("/worksheet") if rel_type else ("/worksheets/" in part_name.lower())
-            if not is_ws or part_name not in names:
+            part_name = opc_target(target, workbook_part, target_mode)
+            if not part_name:
+                continue
+            is_ws = rel_type.endswith("/worksheet") if rel_type else ("/worksheets/" in f"/{part_name.lower()}")
+            if not is_ws or part_name not in name_set:
                 continue
             checked_parts.add(part_name)
             found = []
@@ -803,7 +860,14 @@ def _scan_xml(filename):
             for _, err, coordinate in sorted(found):
                 error_details[err].append(f"{sheet.get('name')}!{coordinate}")
 
-        for part_name in _worksheet_parts(archive, names, budget, rels_root=rels_root):
+        for part_name in _worksheet_parts(
+            archive,
+            names,
+            budget,
+            rels_root=rels_root,
+            workbook_part=workbook_part,
+            name_set=name_set,
+        ):
             if part_name not in checked_parts:
                 with open_zip_member(
                     archive,
