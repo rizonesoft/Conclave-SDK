@@ -1,0 +1,83 @@
+{
+  "ref": "D01 T02 \u00a71",
+  "title": "`forge.py check-all` over every suite",
+  "implementation_sha": "6e1571e440cfd3cf68572ab3c5a0574800897e7a",
+  "date": "2026-11-14",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/01-forge/D01-T02-s1.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "tests.test_check_all 27/27 Win+WSL; CI run 43570658864 all 3 jobs 14/14 suites PASS"
+  ],
+  "completion": {
+    "report": "docs/reviews/01-forge/D01-T02-s1.md",
+    "verdict": "reconciled",
+    "candidate": "6e1571e440cfd3cf68572ab3c5a0574800897e7a",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/01-forge/D01-T02-s1.md",
+    "candidate": "5f28ff823b669f5e39d421593a2a9a77b6e74f77",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "5f28ff823b669f5e39d421593a2a9a77b6e74f77",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

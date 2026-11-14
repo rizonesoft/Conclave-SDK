@@ -34,7 +34,7 @@ title: "TODO-02 -- One gate and one skill source"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | `forge.py check-all` over every suite | -- | [ ] |
+| 1 | §1 | `forge.py check-all` over every suite | -- | [x] |
 | 2 | §2 | Test inventory that refuses a test no suite runs | §1 | [ ] |
 | 3 | §3 | Install assertions moved from bash to the Python suite | §1 | [ ] |
 | 4 | §4 | Bash installers and their tests retired | §3 | [ ] |
@@ -79,6 +79,9 @@ One command runs the Python suites, the kit script tests and the install tests, 
 **Corrected 2026-11-14 (plan review 2):** normal suite teardown now ends surviving descendants through a Win32 job object on Windows and session kill on POSIX (`test_a_child_that_outlives_its_suite_does_not_hold_the_run` asserts both PIDs gone), streaming tail storage is proven via peak traced memory (< 2 MB) over a 16 MB output stream without newlines, and the gated-test check reflects unittest's `Ran 2 tests` count in both modes alongside explicit skip/execution assertions.
 
 **Test checkpoint:** `python -m unittest tests.test_check_all` ends `OK` and `python forge.py check-all --only agent-tiers` prints `PASS` and exits 0; a stub suite that exits 1 makes the command print `FAIL` for it and exit 1.
+
+> **Verified:** 2026-11-14 | §1 | 6e1571e440cfd3cf68572ab3c5a0574800897e7a
+> **Review:** `docs/reviews/d01-t02-s1.json`
 
 ## 2. Test inventory that refuses a test no suite runs
 
