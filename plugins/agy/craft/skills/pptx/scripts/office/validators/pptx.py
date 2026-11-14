@@ -5,9 +5,28 @@ Validator for PowerPoint presentation XML files against XSD schemas.
 import re
 from pathlib import Path
 
-from helpers import opc_target, rels_source_part, safe_extract
+try:
+    from helpers import SLIDE_REL_TYPE, one_line, opc_target, rels_source_part, safe_extract
+    from helpers.pptx_chart import find_chart_problems
+    from helpers.pptx_slide import (
+        SLIDE_PART_RE,
+        fatal_slide_errors,
+        is_schema_verdict,
+        stranded_animation_targets,
+    )
+    from helpers.pptx_theme import _NOTES_MASTERS, live_shared_master_themes
+except ImportError:
+    from office.helpers import SLIDE_REL_TYPE, one_line, opc_target, rels_source_part, safe_extract
+    from office.helpers.pptx_chart import find_chart_problems
+    from office.helpers.pptx_slide import (
+        SLIDE_PART_RE,
+        fatal_slide_errors,
+        is_schema_verdict,
+        stranded_animation_targets,
+    )
+    from office.helpers.pptx_theme import _NOTES_MASTERS, live_shared_master_themes
 
-from .base import BaseSchemaValidator
+from .base import BaseSchemaValidator, safe_lxml_parse
 
 
 class PPTXSchemaValidator(BaseSchemaValidator):
@@ -92,19 +111,15 @@ class PPTXSchemaValidator(BaseSchemaValidator):
 
     @staticmethod
     def _print_line(text: str, limit: int) -> None:
-        from helpers import one_line
-
         print(one_line(text, limit))
 
     def _listed_slides(self) -> set[str] | None:
         import lxml.etree
 
-        from helpers import SLIDE_REL_TYPE
-
         r_id = f"{{{self.OFFICE_RELATIONSHIPS_NAMESPACE}}}id"
         try:
-            pres = lxml.etree.parse(str(self.unpacked_dir / "ppt" / "presentation.xml"))
-            rels = lxml.etree.parse(str(self.unpacked_dir / "ppt" / "_rels" / "presentation.xml.rels"))
+            pres = safe_lxml_parse(self.unpacked_dir / "ppt" / "presentation.xml")
+            rels = safe_lxml_parse(self.unpacked_dir / "ppt" / "_rels" / "presentation.xml.rels")
             listed = {e.get(r_id) for e in pres.iter(f"{{{self.PRESENTATIONML_NAMESPACE}}}sldId")}
             return {
                 opc_target(rel.get("Target", ""), "ppt/presentation.xml", rel.get("TargetMode", ""))
@@ -115,8 +130,6 @@ class PPTXSchemaValidator(BaseSchemaValidator):
             return None
 
     def validate_master_theme_uniqueness(self):
-        from helpers.pptx_theme import _NOTES_MASTERS, live_shared_master_themes
-
         shared = live_shared_master_themes(self._package_map())
         if shared:
             print(f"FAILED - Found {len(shared)} master(s) sharing a theme part:")
@@ -149,14 +162,14 @@ class PPTXSchemaValidator(BaseSchemaValidator):
             if listed is not None and relative not in listed:
                 continue
             try:
-                root = lxml.etree.parse(str(slide)).getroot()
+                root = safe_lxml_parse(slide).getroot()
                 named = [t.get(r_id) for t in root.xpath(
                     ".//p:tags[not(ancestor::mc:Fallback) and not(ancestor::mc:Choice[preceding-sibling::mc:Choice])]",
                     namespaces=ns)]
                 rels_file = slide.parent / "_rels" / f"{slide.name}.rels"
                 targets = {
                     rel.get("Id"): opc_target(rel.get("Target", ""), relative, rel.get("TargetMode", ""))
-                    for rel in lxml.etree.parse(str(rels_file)).getroot()
+                    for rel in safe_lxml_parse(rels_file).getroot()
                     if rel.get("Type", "").endswith("/relationships/tags")
                 } if rels_file.is_file() else {}
             except (lxml.etree.XMLSyntaxError, ValueError):
@@ -192,8 +205,6 @@ class PPTXSchemaValidator(BaseSchemaValidator):
         return True
 
     def validate_charts(self):
-        from helpers.pptx_chart import find_chart_problems
-
         problems = find_chart_problems(self._package_map())
         if problems:
             print(f"FAILED - Found {len(problems)} chart problem(s) PowerPoint rejects:")
@@ -208,8 +219,6 @@ class PPTXSchemaValidator(BaseSchemaValidator):
     def _original_slide_defects(self, schema) -> set[str]:
         import tempfile
         import zipfile
-
-        from helpers.pptx_slide import SLIDE_PART_RE, fatal_slide_errors
 
         if self.original_file is None:
             return set()
@@ -238,13 +247,6 @@ class PPTXSchemaValidator(BaseSchemaValidator):
     def validate_slides(self):
         import lxml.etree
 
-        from helpers.pptx_slide import (
-            SLIDE_PART_RE,
-            fatal_slide_errors,
-            is_schema_verdict,
-            stranded_animation_targets,
-        )
-
         schema = self.schemas_dir / self.SCHEMA_MAPPINGS["ppt"]
         inherited = self._original_slide_defects(schema)
         listed = self._listed_slides()
@@ -257,7 +259,7 @@ class PPTXSchemaValidator(BaseSchemaValidator):
                 continue
             unlisted = relative.startswith("ppt/slides/") and listed is not None and relative not in listed
             try:
-                root = lxml.etree.parse(str(xml_file)).getroot()
+                root = safe_lxml_parse(xml_file).getroot()
                 stranded = [] if unlisted else stranded_animation_targets(root)
             except lxml.etree.XMLSyntaxError:
                 stranded = []  
@@ -305,7 +307,7 @@ class PPTXSchemaValidator(BaseSchemaValidator):
             import lxml.etree
 
             try:
-                root = lxml.etree.parse(str(xml_file)).getroot()
+                root = safe_lxml_parse(xml_file).getroot()
             except (lxml.etree.XMLSyntaxError, OSError):
                 root = None  
             if root is not None and (lxml.etree.QName(root).namespace or "").startswith(
@@ -343,7 +345,7 @@ class PPTXSchemaValidator(BaseSchemaValidator):
 
         for xml_file in self.xml_files:
             try:
-                root = lxml.etree.parse(str(xml_file)).getroot()
+                root = safe_lxml_parse(xml_file).getroot()
 
                 for elem in root.iter():
                     for attr, value in elem.attrib.items():
@@ -389,7 +391,7 @@ class PPTXSchemaValidator(BaseSchemaValidator):
 
         for slide_master in slide_masters:
             try:
-                root = lxml.etree.parse(str(slide_master)).getroot()
+                root = safe_lxml_parse(slide_master).getroot()
 
                 rels_file = slide_master.parent / "_rels" / f"{slide_master.name}.rels"
 
@@ -400,7 +402,7 @@ class PPTXSchemaValidator(BaseSchemaValidator):
                     )
                     continue
 
-                rels_root = lxml.etree.parse(str(rels_file)).getroot()
+                rels_root = safe_lxml_parse(rels_file).getroot()
 
                 valid_layout_rids = set()
                 for rel in rels_root.findall(
@@ -451,7 +453,7 @@ class PPTXSchemaValidator(BaseSchemaValidator):
 
         for rels_file in slide_rels_files:
             try:
-                root = lxml.etree.parse(str(rels_file)).getroot()
+                root = safe_lxml_parse(rels_file).getroot()
 
                 layout_rels = [
                     rel
@@ -496,7 +498,7 @@ class PPTXSchemaValidator(BaseSchemaValidator):
 
         for rels_file in slide_rels_files:
             try:
-                root = lxml.etree.parse(str(rels_file)).getroot()
+                root = safe_lxml_parse(rels_file).getroot()
 
                 for rel in root.findall(
                     f".//{{{self.PACKAGE_RELATIONSHIPS_NAMESPACE}}}Relationship"

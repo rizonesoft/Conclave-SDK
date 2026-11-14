@@ -12,10 +12,7 @@ import re
 from collections import Counter
 from typing import Mapping
 
-from defusedxml import ElementTree
-from defusedxml.common import DefusedXmlException
-
-from . import part_text
+from . import XML_PARSE_ERRORS, parse_et_bytes, part_text
 
 
 _CHART_PART_RE = re.compile(r"ppt/charts/chart\d+\.xml")
@@ -205,8 +202,8 @@ def _drawn_series(root) -> list:
 
 def _check_series_order(part: str, xml: str) -> list[str]:
     try:
-        root = ElementTree.fromstring(xml.encode("utf-8", "surrogateescape"))
-    except (ElementTree.ParseError, DefusedXmlException, LookupError, ValueError):
+        root = parse_et_bytes(xml.encode("utf-8", "surrogateescape"))
+    except XML_PARSE_ERRORS:
         return []
     orders = Counter()
     for series in _drawn_series(root):

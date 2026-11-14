@@ -84,7 +84,46 @@ class RefusedToClean(Exception):
     """The package does not look the way a readable package should."""
 
 
+def _local_name(node) -> str:
+    return node.localName or node.tagName.rsplit(":", 1)[-1]
+
+
+def _validate_presentation_package(unpacked_dir: Path) -> None:
+    pres_path = unpacked_dir / "ppt" / "presentation.xml"
+    pres_rels_path = unpacked_dir / "ppt" / "_rels" / "presentation.xml.rels"
+    if not pres_path.is_file() or not pres_rels_path.is_file():
+        raise RefusedToClean(
+            "missing ppt/presentation.xml or ppt/_rels/presentation.xml.rels; "
+            "refusing to delete files from an incomplete PPTX package."
+        )
+
+    pres_dom = parse_xml_file(pres_path)
+    pres_root = pres_dom.documentElement
+    if pres_root is None or _local_name(pres_root) != "presentation":
+        raise RefusedToClean(
+            "ppt/presentation.xml root element is not <presentation>; "
+            "refusing to clean a damaged package."
+        )
+    if not child_local_elements(pres_root, "sldIdLst") and not child_local_elements(
+        pres_root, "sldMasterIdLst"
+    ):
+        raise RefusedToClean(
+            "ppt/presentation.xml has neither <sldIdLst> nor <sldMasterIdLst>; "
+            "refusing to clean a damaged package."
+        )
+
+    rels_dom = parse_xml_file(pres_rels_path)
+    rels_root = rels_dom.documentElement
+    if rels_root is None or _local_name(rels_root) != "Relationships":
+        raise RefusedToClean(
+            "ppt/_rels/presentation.xml.rels root element is not <Relationships>; "
+            "refusing to clean a damaged package."
+        )
+
+
 def remove_orphaned_slides(unpacked_dir: Path) -> list[str]:
+    _validate_presentation_package(unpacked_dir)
+
     slides_dir = unpacked_dir / "ppt" / "slides"
     slides_rels_dir = slides_dir / "_rels"
     pres_rels_path = unpacked_dir / "ppt" / "_rels" / "presentation.xml.rels"
@@ -108,14 +147,14 @@ def remove_orphaned_slides(unpacked_dir: Path) -> list[str]:
 
     for slide_file in on_disk:
         if slide_file.name not in referenced_slides:
-            rel_path = slide_file.relative_to(unpacked_dir)
+            rel_path = slide_file.relative_to(unpacked_dir).as_posix()
             slide_file.unlink()
-            removed.append(str(rel_path))
+            removed.append(rel_path)
 
             rels_file = slides_rels_dir / f"{slide_file.name}.rels"
             if rels_file.exists():
                 rels_file.unlink()
-                removed.append(str(rels_file.relative_to(unpacked_dir)))
+                removed.append(rels_file.relative_to(unpacked_dir).as_posix())
 
     if removed and pres_rels_path.exists():
         rels_dom = parse_xml_file(pres_rels_path)
@@ -136,7 +175,10 @@ def remove_orphaned_slides(unpacked_dir: Path) -> list[str]:
                     changed = True
 
         if changed:
-            atomic_write_bytes(pres_rels_path, rels_dom.toxml(encoding="utf-8"))
+            atomic_write_bytes(
+                pres_rels_path,
+                rels_dom.toxml(encoding="UTF-8", standalone=rels_dom.standalone),
+            )
 
     return removed
 
@@ -146,18 +188,23 @@ def remove_trash_directory(unpacked_dir: Path) -> list[str]:
     removed = []
 
     if trash_dir.exists() and trash_dir.is_dir():
-        for file_path in trash_dir.iterdir():
-            if file_path.is_file():
-                rel_path = file_path.relative_to(unpacked_dir)
-                removed.append(str(rel_path))
-                file_path.unlink()
+        for file_path in sorted(p for p in trash_dir.rglob("*") if p.is_file()):
+            rel_path = file_path.relative_to(unpacked_dir).as_posix()
+            removed.append(rel_path)
+            file_path.unlink()
+        for sub_dir in sorted(
+            (p for p in trash_dir.rglob("*") if p.is_dir()),
+            key=lambda p: len(p.parts),
+            reverse=True,
+        ):
+            sub_dir.rmdir()
         trash_dir.rmdir()
 
     return removed
 
 
-def _referenced_by(rels_files, unpacked_dir: Path) -> set:
-    referenced = set()
+def _referenced_by(rels_files, unpacked_dir: Path) -> set[str]:
+    referenced: set[str] = set()
 
     for rels_file in rels_files:
         source_part = rels_source_part(rels_file, unpacked_dir)
@@ -167,7 +214,7 @@ def _referenced_by(rels_files, unpacked_dir: Path) -> set:
                 rel.getAttribute("Target"), source_part, rel.getAttribute("TargetMode")
             )
             if part is not None:
-                referenced.add(Path(part))
+                referenced.add(part)
 
     return referenced
 
@@ -181,20 +228,24 @@ def remove_orphaned_rels_files(unpacked_dir: Path) -> list[str]:
         if not rels_dir.exists():
             continue
 
-        for rels_file in rels_dir.glob("*.rels"):
-            resource_file = rels_dir.parent / rels_file.name.replace(".rels", "")
+        for rels_file in sorted(rels_dir.glob("*.rels")):
+            resource_file = rels_dir.parent / rels_file.name.removesuffix(".rels")
             if not resource_file.exists():
                 rels_file.unlink()
-                removed.append(str(rels_file.relative_to(unpacked_dir)))
+                removed.append(rels_file.relative_to(unpacked_dir).as_posix())
 
     return removed
 
 
-def get_referenced_files(unpacked_dir: Path) -> set:
+def get_referenced_files(unpacked_dir: Path) -> set[str]:
     return _referenced_by(sorted(unpacked_dir.rglob("*.rels")), unpacked_dir)
 
 
 def remove_orphaned_files(unpacked_dir: Path, referenced: set) -> list[str]:
+    referenced_posix = {
+        item.as_posix() if isinstance(item, Path) else str(item).replace("\\", "/").lstrip("/")
+        for item in referenced
+    }
     resource_dirs = ["media", "embeddings", "charts", "diagrams", "tags", "drawings", "ink"]
     removed = []
 
@@ -203,43 +254,43 @@ def remove_orphaned_files(unpacked_dir: Path, referenced: set) -> list[str]:
         if not dir_path.exists():
             continue
 
-        for file_path in dir_path.glob("*"):
+        for file_path in sorted(dir_path.glob("*")):
             if not file_path.is_file():
                 continue
-            rel_path = file_path.relative_to(unpacked_dir)
-            if rel_path not in referenced:
+            rel_path = file_path.relative_to(unpacked_dir).as_posix()
+            if rel_path not in referenced_posix:
                 file_path.unlink()
-                removed.append(str(rel_path))
+                removed.append(rel_path)
 
     theme_dir = unpacked_dir / "ppt" / "theme"
     if theme_dir.exists():
-        for file_path in theme_dir.glob("theme*.xml"):
-            rel_path = file_path.relative_to(unpacked_dir)
-            if rel_path not in referenced:
+        for file_path in sorted(theme_dir.glob("theme*.xml")):
+            rel_path = file_path.relative_to(unpacked_dir).as_posix()
+            if rel_path not in referenced_posix:
                 file_path.unlink()
-                removed.append(str(rel_path))
+                removed.append(rel_path)
                 theme_rels = theme_dir / "_rels" / f"{file_path.name}.rels"
                 if theme_rels.exists():
                     theme_rels.unlink()
-                    removed.append(str(theme_rels.relative_to(unpacked_dir)))
+                    removed.append(theme_rels.relative_to(unpacked_dir).as_posix())
 
     notes_dir = unpacked_dir / "ppt" / "notesSlides"
     if notes_dir.exists():
-        for file_path in notes_dir.glob("*.xml"):
+        for file_path in sorted(notes_dir.glob("*.xml")):
             if not file_path.is_file():
                 continue
-            rel_path = file_path.relative_to(unpacked_dir)
-            if rel_path not in referenced:
+            rel_path = file_path.relative_to(unpacked_dir).as_posix()
+            if rel_path not in referenced_posix:
                 file_path.unlink()
-                removed.append(str(rel_path))
+                removed.append(rel_path)
 
         notes_rels_dir = notes_dir / "_rels"
         if notes_rels_dir.exists():
-            for file_path in notes_rels_dir.glob("*.rels"):
-                notes_file = notes_dir / file_path.name.replace(".rels", "")
+            for file_path in sorted(notes_rels_dir.glob("*.rels")):
+                notes_file = notes_dir / file_path.name.removesuffix(".rels")
                 if not notes_file.exists():
                     file_path.unlink()
-                    removed.append(str(file_path.relative_to(unpacked_dir)))
+                    removed.append(file_path.relative_to(unpacked_dir).as_posix())
 
     return removed
 
@@ -249,22 +300,28 @@ def update_content_types(unpacked_dir: Path, removed_files: list[str]) -> None:
     if not ct_path.exists():
         return
 
+    removed_set = {p.replace("\\", "/").lstrip("/") for p in removed_files}
     dom = parse_xml_file(ct_path)
     changed = False
 
     for override in list(child_local_elements(dom.documentElement, "Override")):
-        part_name = override.getAttribute("PartName").lstrip("/")
-        if part_name in removed_files:
+        part_name = override.getAttribute("PartName").replace("\\", "/").lstrip("/")
+        if part_name in removed_set:
             if override.parentNode:
                 override.parentNode.removeChild(override)
                 changed = True
 
     if changed:
-        atomic_write_bytes(ct_path, dom.toxml(encoding="utf-8"))
+        atomic_write_bytes(
+            ct_path,
+            dom.toxml(encoding="UTF-8", standalone=dom.standalone),
+        )
 
 
 def clean_unused_files(unpacked_dir: Path) -> list[str]:
     all_removed = []
+
+    _validate_presentation_package(unpacked_dir)
 
     if list(unpacked_dir.rglob("*.rels")) and not get_referenced_files(unpacked_dir):
         raise RefusedToClean(

@@ -9,12 +9,14 @@ import zipfile
 from collections import Counter
 from pathlib import Path
 
-import defusedxml.minidom
 import lxml.etree
 
-from helpers import atomic_write_bytes, one_line, read_zip_member, safe_extract, validate_archive
+try:
+    from helpers import atomic_write_bytes, one_line, parse_xml_file, read_zip_member, safe_extract, validate_archive
+except ImportError:
+    from office.helpers import atomic_write_bytes, one_line, parse_xml_file, read_zip_member, safe_extract, validate_archive
 
-from .base import BaseSchemaValidator
+from .base import BaseSchemaValidator, safe_lxml_fromstring, safe_lxml_parse
 
 
 class DOCXSchemaValidator(BaseSchemaValidator):
@@ -78,7 +80,7 @@ class DOCXSchemaValidator(BaseSchemaValidator):
                 continue
 
             try:
-                root = lxml.etree.parse(str(xml_file)).getroot()
+                root = safe_lxml_parse(xml_file).getroot()
 
                 for elem in root.iter(f"{{{self.WORD_2006_NAMESPACE}}}t"):
                     if elem.text:
@@ -124,7 +126,7 @@ class DOCXSchemaValidator(BaseSchemaValidator):
                 continue
 
             try:
-                root = lxml.etree.parse(str(xml_file)).getroot()
+                root = safe_lxml_parse(xml_file).getroot()
                 namespaces = {"w": self.WORD_2006_NAMESPACE}
 
                 for t_elem in root.xpath(".//w:del//w:t", namespaces=namespaces):
@@ -175,7 +177,7 @@ class DOCXSchemaValidator(BaseSchemaValidator):
                 continue
 
             try:
-                root = lxml.etree.parse(str(xml_file)).getroot()
+                root = safe_lxml_parse(xml_file).getroot()
                 paragraphs = root.findall(f".//{{{self.WORD_2006_NAMESPACE}}}p")
                 count = len(paragraphs)
             except Exception as e:
@@ -195,8 +197,8 @@ class DOCXSchemaValidator(BaseSchemaValidator):
                 with zipfile.ZipFile(original, "r") as zip_ref:
                     safe_extract(zip_ref, Path(temp_dir))
 
-                doc_xml_path = temp_dir + "/word/document.xml"
-                root = lxml.etree.parse(doc_xml_path).getroot()
+                doc_xml_path = Path(temp_dir) / "word" / "document.xml"
+                root = safe_lxml_parse(doc_xml_path).getroot()
 
                 paragraphs = root.findall(f".//{{{self.WORD_2006_NAMESPACE}}}p")
                 count = len(paragraphs)
@@ -214,7 +216,7 @@ class DOCXSchemaValidator(BaseSchemaValidator):
                 continue
 
             try:
-                root = lxml.etree.parse(str(xml_file)).getroot()
+                root = safe_lxml_parse(xml_file).getroot()
                 namespaces = {"w": self.WORD_2006_NAMESPACE}
 
                 invalid_elements = root.xpath(
@@ -268,7 +270,7 @@ class DOCXSchemaValidator(BaseSchemaValidator):
 
         for xml_file in self.xml_files:
             try:
-                tree = lxml.etree.parse(str(xml_file))
+                tree = safe_lxml_parse(xml_file)
                 is_numbering = lxml.etree.QName(tree.getroot()).localname == "numbering"
                 for elem in tree.iter():
                     if val := elem.get(para_id_attr):
@@ -343,13 +345,13 @@ class DOCXSchemaValidator(BaseSchemaValidator):
 
         for xml_file in self.xml_files:
             try:
-                root = lxml.etree.parse(str(xml_file)).getroot()
+                root = safe_lxml_parse(xml_file).getroot()
                 if root.tag != styles_tag:
                     continue
                 repeated = self._repeated_style_ids(root)
                 original = self._original_part(xml_file) if repeated else None
                 if original is not None:
-                    repeated -= self._repeated_style_ids(lxml.etree.fromstring(original))
+                    repeated -= self._repeated_style_ids(safe_lxml_fromstring(original))
             except lxml.etree.XMLSyntaxError:
                 continue  
             errors.extend(
@@ -384,7 +386,7 @@ class DOCXSchemaValidator(BaseSchemaValidator):
             return True
 
         try:
-            doc_root = lxml.etree.parse(str(document_xml)).getroot()
+            doc_root = safe_lxml_parse(document_xml).getroot()
             namespaces = {"w": self.WORD_2006_NAMESPACE}
 
             range_starts = {
@@ -424,7 +426,7 @@ class DOCXSchemaValidator(BaseSchemaValidator):
 
             comment_ids = set()
             if comments_xml and comments_xml.exists():
-                comments_root = lxml.etree.parse(str(comments_xml)).getroot()
+                comments_root = safe_lxml_parse(comments_xml).getroot()
                 comment_ids = {
                     elem.get(f"{{{self.WORD_2006_NAMESPACE}}}id")
                     for elem in comments_root.xpath(
@@ -467,8 +469,7 @@ class DOCXSchemaValidator(BaseSchemaValidator):
 
         for xml_file in self.xml_files:
             try:
-                content = xml_file.read_text(encoding="utf-8")
-                dom = defusedxml.minidom.parseString(content)
+                dom = parse_xml_file(xml_file)
                 is_numbering = dom.documentElement.localName == "numbering"
                 base = 10 if is_numbering else 16
                 pending = []  
@@ -505,7 +506,10 @@ class DOCXSchemaValidator(BaseSchemaValidator):
                             modified = True
 
                 if modified:
-                    atomic_write_bytes(xml_file, dom.toxml(encoding="UTF-8"))
+                    atomic_write_bytes(
+                        xml_file,
+                        dom.toxml(encoding="UTF-8", standalone=dom.standalone),
+                    )
                     for message in pending:
                         print(message)
                     repairs += len(pending)

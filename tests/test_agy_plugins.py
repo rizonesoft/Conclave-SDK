@@ -2026,6 +2026,188 @@ class CraftScriptHardeningTests(unittest.TestCase):
             self.assertTrue(comment._has_relationship(unpacked_docx / "word" / "_rels" / "document.xml.rels", "comments.xml"))
             self.assertTrue(comment._has_content_type(unpacked_docx / "[Content_Types].xml", "/word/comments.xml"))
 
+    def test_pptx_clean_refuses_missing_presentation_and_prunes_content_types_posix(self):
+        pptx_scripts = CRAFT_DIR / "skills" / "pptx" / "scripts"
+        ct_ns = "http://schemas.openxmlformats.org/package/2006/content-types"
+        rels_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
+        p_ns = "http://schemas.openxmlformats.org/presentationml/2006/main"
+        r_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+        with unittest.mock.patch.dict(sys.modules):
+            for mod_name in list(sys.modules):
+                if mod_name == "office" or mod_name.startswith(("office.", "helpers.", "validators.")) or mod_name in ("helpers", "validators"):
+                    sys.modules.pop(mod_name, None)
+            clean = _load_module("test_pptx_clean_refusal", pptx_scripts / "clean.py", [pptx_scripts])
+
+            # Case A: missing ppt/presentation.xml must refuse rather than deleting slide1.xml
+            case_a = self.root / "clean_missing_pres"
+            (case_a / "_rels").mkdir(parents=True)
+            (case_a / "ppt" / "slides").mkdir(parents=True)
+            pkg_rels = ET.Element(f"{{{rels_ns}}}Relationships")
+            ET.SubElement(pkg_rels, f"{{{rels_ns}}}Relationship", Id="rId1", Type=f"{r_ns}/officeDocument", Target="ppt/presentation.xml")
+            (case_a / "_rels" / ".rels").write_bytes(ET.tostring(pkg_rels, encoding="utf-8", xml_declaration=True))
+            slide_bytes = ET.tostring(ET.Element(f"{{{p_ns}}}sld"), encoding="utf-8", xml_declaration=True)
+            slide_a = case_a / "ppt" / "slides" / "slide1.xml"
+            slide_a.write_bytes(slide_bytes)
+            with self.assertRaises(clean.RefusedToClean):
+                clean.clean_unused_files(case_a)
+            with self.assertRaises(clean.RefusedToClean):
+                clean.remove_orphaned_slides(case_a)
+            self.assertTrue(slide_a.exists())
+
+            # Case B: ppt/presentation.xml exists but ppt/_rels/presentation.xml.rels is missing
+            case_b = self.root / "clean_missing_pres_rels"
+            (case_b / "_rels").mkdir(parents=True)
+            (case_b / "ppt" / "slides").mkdir(parents=True)
+            (case_b / "ppt" / "theme").mkdir(parents=True)
+            (case_b / "_rels" / ".rels").write_bytes(ET.tostring(pkg_rels, encoding="utf-8", xml_declaration=True))
+            pres_b = ET.Element(f"{{{p_ns}}}presentation")
+            ET.SubElement(pres_b, f"{{{p_ns}}}sldMasterIdLst")
+            (case_b / "ppt" / "presentation.xml").write_bytes(ET.tostring(pres_b, encoding="utf-8", xml_declaration=True))
+            slide_b = case_b / "ppt" / "slides" / "slide1.xml"
+            theme_b = case_b / "ppt" / "theme" / "theme1.xml"
+            slide_b.write_bytes(slide_bytes)
+            theme_b.write_bytes(b"<theme/>")
+            with self.assertRaises(clean.RefusedToClean):
+                clean.clean_unused_files(case_b)
+            with self.assertRaises(clean.RefusedToClean):
+                clean.remove_orphaned_slides(case_b)
+            self.assertTrue(slide_b.exists())
+            self.assertTrue(theme_b.exists())
+
+            # Case C: orphaned slide, media, nested [trash], and [Content_Types].xml pruning use POSIX paths
+            case_c = self.root / "clean_posix_ct"
+            (case_c / "_rels").mkdir(parents=True)
+            (case_c / "ppt" / "_rels").mkdir(parents=True)
+            (case_c / "ppt" / "slides").mkdir(parents=True)
+            (case_c / "ppt" / "media").mkdir(parents=True)
+            (case_c / "[trash]" / "sub").mkdir(parents=True)
+            (case_c / "_rels" / ".rels").write_bytes(ET.tostring(pkg_rels, encoding="utf-8", xml_declaration=True))
+
+            pres_c = ET.Element(f"{{{p_ns}}}presentation")
+            ET.SubElement(pres_c, f"{{{p_ns}}}sldMasterIdLst")
+            sld_lst = ET.SubElement(pres_c, f"{{{p_ns}}}sldIdLst")
+            ET.SubElement(sld_lst, f"{{{p_ns}}}sldId", id="256", **{f"{{{r_ns}}}id": "rId1"})
+            (case_c / "ppt" / "presentation.xml").write_bytes(ET.tostring(pres_c, encoding="utf-8", xml_declaration=True))
+
+            pres_rels_c = ET.Element(f"{{{rels_ns}}}Relationships")
+            ET.SubElement(pres_rels_c, f"{{{rels_ns}}}Relationship", Id="rId1", Type=f"{r_ns}/slide", Target="slides/slide1.xml")
+            (case_c / "ppt" / "_rels" / "presentation.xml.rels").write_bytes(ET.tostring(pres_rels_c, encoding="utf-8", xml_declaration=True))
+
+            ct_c = ET.Element(f"{{{ct_ns}}}Types")
+            ET.SubElement(ct_c, f"{{{ct_ns}}}Override", PartName="/ppt/presentation.xml", ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml")
+            ET.SubElement(ct_c, f"{{{ct_ns}}}Override", PartName="/ppt/slides/slide1.xml", ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml")
+            ET.SubElement(ct_c, f"{{{ct_ns}}}Override", PartName="/ppt/slides/slide2.xml", ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml")
+            (case_c / "[Content_Types].xml").write_bytes(ET.tostring(ct_c, encoding="utf-8", xml_declaration=True))
+
+            (case_c / "ppt" / "slides" / "slide1.xml").write_bytes(slide_bytes)
+            (case_c / "ppt" / "slides" / "slide2.xml").write_bytes(slide_bytes)
+            (case_c / "ppt" / "media" / "orphan.png").write_bytes(b"png")
+            (case_c / "[trash]" / "sub" / "old.xml").write_bytes(b"<old/>")
+
+            removed = clean.clean_unused_files(case_c)
+            self.assertTrue(all("\\" not in item for item in removed), f"non-POSIX path in {removed!r}")
+            self.assertTrue({"ppt/slides/slide2.xml", "ppt/media/orphan.png", "[trash]/sub/old.xml"}.issubset(set(removed)))
+            self.assertTrue((case_c / "ppt" / "slides" / "slide1.xml").exists())
+            self.assertFalse((case_c / "ppt" / "slides" / "slide2.xml").exists())
+            self.assertFalse((case_c / "ppt" / "media" / "orphan.png").exists())
+            self.assertFalse((case_c / "[trash]").exists())
+
+            out_ct = ET.fromstring((case_c / "[Content_Types].xml").read_bytes())
+            remaining_parts = {el.get("PartName") for el in out_ct.findall(f"{{{ct_ns}}}Override")}
+            self.assertIn("/ppt/slides/slide1.xml", remaining_parts)
+            self.assertNotIn("/ppt/slides/slide2.xml", remaining_parts)
+
+    def test_office_validators_and_merge_runs_work_without_defusedxml(self):
+        docx_scripts = CRAFT_DIR / "skills" / "docx" / "scripts"
+        w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+        c_ns = "http://schemas.openxmlformats.org/drawingml/2006/chart"
+        a_ns = "http://schemas.openxmlformats.org/drawingml/2006/main"
+        rels_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
+        r_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+        with unittest.mock.patch.dict(
+            sys.modules,
+            {
+                "defusedxml": None,
+                "defusedxml.minidom": None,
+                "defusedxml.ElementTree": None,
+                "defusedxml.common": None,
+            },
+        ):
+            for mod_name in list(sys.modules):
+                if mod_name == "office" or mod_name.startswith(("office.", "helpers.", "validators.")) or mod_name in ("helpers", "validators"):
+                    sys.modules.pop(mod_name, None)
+
+            merge_runs = _load_module("test_docx_merge_runs_no_defusedxml", docx_scripts / "merge_runs.py", [docx_scripts])
+            unpacked_doc = self.root / "docx_no_defused"
+            (unpacked_doc / "word").mkdir(parents=True)
+            doc_xml = (
+                f'<w:document xmlns:w="{w_ns}"><w:body><w:p>'
+                "<w:r><w:t xml:space=\"preserve\">Hello </w:t></w:r>"
+                "<w:r><w:t>world</w:t></w:r>"
+                "</w:p></w:body></w:document>"
+            ).encode("utf-8")
+            (unpacked_doc / "word" / "document.xml").write_bytes(doc_xml)
+            count, msg = merge_runs.merge_runs(str(unpacked_doc))
+            self.assertEqual(count, 1, msg)
+            merged_root = ET.fromstring((unpacked_doc / "word" / "document.xml").read_bytes())
+            texts = [el.text for el in merged_root.findall(f".//{{{w_ns}}}t")]
+            self.assertEqual(texts, ["Hello world"])
+
+            pptx_chart = _load_module(
+                "office.helpers.pptx_chart_no_defusedxml",
+                docx_scripts / "office" / "helpers" / "pptx_chart.py",
+                [docx_scripts],
+            )
+            chart_xml = (
+                f'<c:chartSpace xmlns:c="{c_ns}" xmlns:a="{a_ns}">'
+                "<c:chart><c:plotArea><c:barChart>"
+                '<c:ser><c:idx val="0"/><c:order val="0"/></c:ser>'
+                '<c:ser><c:idx val="1"/><c:order val="0"/></c:ser>'
+                '<c:axId val="1"/><c:axId val="2"/>'
+                "</c:barChart>"
+                '<c:catAx><c:axId val="1"/></c:catAx>'
+                '<c:valAx><c:axId val="2"/></c:valAx>'
+                "</c:plotArea></c:chart></c:chartSpace>"
+            ).encode("utf-8")
+            problems = pptx_chart.find_chart_problems({"ppt/charts/chart1.xml": chart_xml})
+            self.assertEqual(len(problems), 1)
+            self.assertIn("share the <c:order> value 0", problems[0])
+
+            if importlib.util.find_spec("lxml") is not None:
+                added_path = str(docx_scripts)
+                sys.path.insert(0, added_path)
+                try:
+                    import office.validators.base as val_base
+                    import office.validators.pptx as val_pptx
+                finally:
+                    if added_path in sys.path:
+                        sys.path.remove(added_path)
+
+                unpacked_pptx = self.root / "pptx_val_sec"
+                (unpacked_pptx / "_rels").mkdir(parents=True)
+                (unpacked_pptx / "ppt" / "theme").mkdir(parents=True)
+                (unpacked_pptx / "ppt" / "charts").mkdir(parents=True)
+                (unpacked_pptx / "ppt" / "tags").mkdir(parents=True)
+
+                (self.root / "secret.txt").write_text("outside", encoding="utf-8")
+                bad_rels = ET.Element(f"{{{rels_ns}}}Relationships")
+                ET.SubElement(bad_rels, f"{{{rels_ns}}}Relationship", Id="rId1", Type=f"{r_ns}/officeDocument", Target="../../secret.txt")
+                (unpacked_pptx / "_rels" / ".rels").write_bytes(ET.tostring(bad_rels, encoding="utf-8", xml_declaration=True))
+                theme_path = unpacked_pptx / "ppt" / "theme" / "theme1.xml"
+                chart_path = unpacked_pptx / "ppt" / "charts" / "chart1.xml"
+                tag_path = unpacked_pptx / "ppt" / "tags" / "tag1.xml"
+                theme_path.write_bytes(b"<theme/>")
+                chart_path.write_bytes(chart_xml)
+                tag_path.write_bytes(b'<!DOCTYPE x [<!ENTITY a "1">]><x/>')
+
+                validator = val_pptx.PPTXSchemaValidator(unpacked_pptx)
+                self.assertIsNotNone(validator._get_schema_path(theme_path))
+                self.assertIsNotNone(val_base.BaseSchemaValidator._get_schema_path(validator, chart_path))
+                self.assertFalse(validator.validate_xml())
+                self.assertFalse(validator.validate_file_references())
+
 
 if __name__ == "__main__":
     unittest.main()

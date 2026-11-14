@@ -6,6 +6,7 @@ import shutil
 import stat
 import tempfile
 import urllib.parse
+import xml.etree.ElementTree as _stdlib_et
 import xml.parsers.expat as _expat
 import zipfile
 from pathlib import Path
@@ -27,6 +28,7 @@ CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types
 OFFICE_REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 STRICT_OFFICE_REL_NS = "http://purl.oclc.org/ooxml/officeDocument/relationships"
 MAX_XML_DEPTH = 256
+XML_PARSE_ERRORS = (_expat.ExpatError, _stdlib_et.ParseError, LookupError, ValueError)
 
 
 def one_line(text: str, limit: int) -> str:
@@ -387,6 +389,15 @@ def _guard_xml_bytes(data: bytes) -> None:
     parser.Parse(data, True)
 
 
+def _wrap_defusedxml_error(fn, data: bytes):
+    try:
+        return fn(data)
+    except Exception as exc:
+        if type(exc).__module__.startswith("defusedxml"):
+            raise ValueError(str(exc)) from exc
+        raise
+
+
 def parse_xml_bytes(data: bytes, max_bytes: int = MAX_MEMBER_BYTES):
     if len(data) > max_bytes:
         raise ValueError(f"XML document size {len(data)} exceeds limit {max_bytes}")
@@ -397,12 +408,7 @@ def parse_xml_bytes(data: bytes, max_bytes: int = MAX_MEMBER_BYTES):
     except (ImportError, AttributeError):
         import xml.dom.minidom as _minidom
         parse_fn = _minidom.parseString
-    try:
-        return parse_fn(data)
-    except Exception as exc:
-        if type(exc).__module__.startswith("defusedxml"):
-            raise ValueError(str(exc)) from exc
-        raise
+    return _wrap_defusedxml_error(parse_fn, data)
 
 
 def parse_xml_file(path: Path, max_bytes: int = MAX_MEMBER_BYTES):
@@ -410,6 +416,24 @@ def parse_xml_file(path: Path, max_bytes: int = MAX_MEMBER_BYTES):
     if size > max_bytes:
         raise ValueError(f"XML file {path.name} size {size} exceeds limit {max_bytes}")
     return parse_xml_bytes(path.read_bytes(), max_bytes=max_bytes)
+
+
+def parse_et_bytes(data: bytes, max_bytes: int = MAX_MEMBER_BYTES):
+    if len(data) > max_bytes:
+        raise ValueError(f"XML document size {len(data)} exceeds limit {max_bytes}")
+    _guard_xml_bytes(data)
+    try:
+        from defusedxml.ElementTree import fromstring as _et_fromstring
+    except (ImportError, AttributeError):
+        _et_fromstring = _stdlib_et.fromstring
+    return _wrap_defusedxml_error(_et_fromstring, data)
+
+
+def parse_et_file(path: Path, max_bytes: int = MAX_MEMBER_BYTES):
+    size = path.stat().st_size
+    if size > max_bytes:
+        raise ValueError(f"XML file {path.name} size {size} exceeds limit {max_bytes}")
+    return parse_et_bytes(path.read_bytes(), max_bytes=max_bytes)
 
 
 def _node_local_name(node) -> str:

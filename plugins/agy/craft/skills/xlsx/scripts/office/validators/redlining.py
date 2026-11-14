@@ -22,13 +22,13 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-import defusedxml.ElementTree as ET
-from defusedxml.common import DefusedXmlException
+try:
+    from helpers import XML_PARSE_ERRORS, parse_et_bytes, parse_et_file, rendered_text, safe_extract
+except ImportError:
+    from office.helpers import XML_PARSE_ERRORS, parse_et_bytes, parse_et_file, rendered_text, safe_extract
 
-from helpers import rendered_text, safe_extract
 
-
-XML_ERRORS = (ET.ParseError, DefusedXmlException, LookupError, ValueError)
+XML_ERRORS = XML_PARSE_ERRORS
 
 
 class RedliningValidator:
@@ -128,8 +128,8 @@ class RedliningValidator:
 
     def _parse_part(self, path):
         if not path.is_file():
-            return ET.fromstring("<absent/>")
-        return ET.parse(path).getroot()
+            return parse_et_bytes(b"<absent/>")
+        return parse_et_file(path)
 
     def _flatten_text_elements(self, root):
         for elem in self._text_elements(root):
