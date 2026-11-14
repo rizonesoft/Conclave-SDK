@@ -239,6 +239,7 @@ The todo kit's `scripts/hooks/pre-commit` refuses a commit that would turn the p
 - [ ] Set `core.hooksPath` to `scripts/hooks` when `forge.py` installs the todo kit into a git repository whose `core.hooksPath` is unset and whose `.git/hooks` holds only samples, and leave it, saying why, otherwise. Done when: tests cover a fresh repository (set), one with a `.git/hooks/pre-commit` of its own (left and reported) and one with another `core.hooksPath` (left and reported).
 - [ ] Keep the fresh-install doctor test all `ok` in `tests/test_forge.py`. Done when: its fresh install reports the hook check `ok`.
 - [ ] Document the setting and the doctor check in `kits/todo/templates/todo/README.md` beside the hook, copy it over `todo/README.md` and run `python forge.py self-sync`. Done when: the two READMEs are identical.
+- [ ] Remove the sentence "The bash installers write no record." from the install record paragraph of `kits/README.md` (line 20), which describes installers §4 deleted as if they still ran. Done when: `git grep -n -i "bash installer" -- kits/README.md` prints nothing. Source: the completion review of §4 (`docs/reviews/01-forge/D01-T02-s4.md`, part 1 item 6, P3).
 - [ ] Commit: `forge: the todo kit's pre-commit hook is enabled at install and checked by doctor`
 
 **Test checkpoint:** `python -m unittest tests.test_forge` ends `OK`; leaving the install-time setting out makes the fresh-install doctor test fail.
