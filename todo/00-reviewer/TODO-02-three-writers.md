@@ -25,6 +25,7 @@ title: "TODO-02 -- Antigravity and Codex as first-class writers"
 - A fresh install's `python scripts/review-dispatch.py --check-pin` prints `ok` with routes for `claude`, `agy` and `codex` (routing `codex` to `carbon`), and a review of Codex work reaches Gemini 4 Carbon.
 - `python forge.py doctor <project> reviewer --strict` checks every flag and session deny rule (`write_file(*)`, `edit_file(*)`, `mcp(*)`) against the installed `agy` and exits 3 on `unexpected` failures.
 - Antigravity sessions use native `Orchestrator (Carbon)` (`gemini-pro-orchestrator`) with zero `.agents/agents/*.md` files or `scripts/agy-subagent.py` in `kits/base` or the SDK root, documented and proven against `agy` 1.5.8.
+- `kits/unattended` accepts `"effort": null` for `gemini-pro-orchestrator` (`Orchestrator (Carbon)`) and `gemini-pro-orchestrator-*` on top-level `agy` profiles and `runners.agy`, omitting `--effort` on launch while refusing non-`null` effort on Orchestrator models and refusing `null` elsewhere.
 
 **Adjacency:** all=not-applicable (developer tooling: a reviewer pin, a command-line check and agent configuration, with no records a user lists, exports, is notified of or reverses)
 
@@ -37,6 +38,7 @@ title: "TODO-02 -- Antigravity and Codex as first-class writers"
 | 1 | §1 | Codex route to Gemini 4 Carbon and Orchestrator effort rules | -- | [x] |
 | 2 | §2 | Antigravity flags and deny settings checked against the CLI | §1 | [x] |
 | 3 | §3 | Antigravity Orchestrator Carbon and subagent contract in the base kit | §2 | [ ] |
+| 4 | §4 | Orchestrator effort-free profiles in the unattended kit | §1 | [ ] |
 
 ## 1. Codex route to Gemini 4 Carbon and Orchestrator effort rules
 
@@ -109,6 +111,8 @@ The roadmap says to check every `agy` flag against the current CLI before it shi
 
 ## 3. Antigravity Orchestrator Carbon and subagent contract in the base kit
 
+> **Started:** 2026-11-14T01:36:08Z
+
 **Corrected 2026-11-14 (reopen):** Prior `D00 T02 §3` started `2026-11-13T16:17:11Z` and created custom `.agents/agents/*.md` files plus `scripts/agy-subagent.py`. Reopened because Antigravity `Orchestrator (Carbon)` (`gemini-pro-orchestrator`) handles Carbon planning, Hydrogen execution, and built-in subagents automatically without custom `.agents/agents/` definitions.
 
 Claude Code gets five read-only subagents from the base kit under `.claude/agents/`. Antigravity with `Orchestrator (Carbon)` provides two-phase planning/execution and built-in subagents (`self`, `research`, `image-generator`) natively and should not ship custom `.agents/agents/*.md` files or `scripts/agy-subagent.py`.
@@ -122,19 +126,40 @@ Claude Code gets five read-only subagents from the base kit under `.claude/agent
 1. Remove `.agents/agents/*.md` and `scripts/agy-subagent.py` from `kits/base` and SDK root and update `forge.py` and install scripts. Done when: fresh `--agent agy` installs ship zero `.agents/agents/` files or `agy-subagent.py`.
 2. Rewrite `tests/test_agy_agents.py`, document native `Orchestrator (Carbon)` in `kits/base`, and run a live `CONCLAVE_LIVE_AGY=1` proof on `gemini-pro-orchestrator`. Done when: tests and live proof pass.
 
-- [ ] Remove all five `.agents/agents/*.md` definitions and `scripts/agy-subagent.py` from `kits/base/templates/` and the SDK root via `git rm`, and remove stale `.agents/agents/` / `agy-subagent.py` references from `forge.py` (`SELF_PREFIXES`, `check_repo`, `SUITES`), `kits/base/scripts/test-install.sh`, `tests/test_forge.py`, `tests/test_check_all.py`, and `todo/01-forge/TODO-02-gates-and-skill-source.md` (with a `Corrected` note). Done when: `git ls-files .agents/agents kits/base/templates/.agents/agents scripts/agy-subagent.py kits/base/templates/scripts/agy-subagent.py` is empty.
-- [ ] Document Antigravity's native `Orchestrator (Carbon)` (`gemini-pro-orchestrator`) behavior in `kits/base/README.md`, `kits/base/templates/AGENTS.md`, `kits/base/templates/GEMINI.md`, `kits/base/templates/CODEX.md`, and `kits/base/templates/docs/agent-skills-and-rules-structure.md`, explaining automatic Carbon planning, Hydrogen execution (`exit_plan_mode`), built-in subagents, and why custom `.agents/agents/` files and `agy-subagent.py` are omitted. Done when: those docs reflect the native architecture with no stale wrapper claims.
-- [ ] Rewrite `tests/test_agy_agents.py` to enforce the native `Orchestrator (Carbon)` contract (asserting zero `.agents/agents/` definitions and no `agy-subagent.py` in `kits/base` or SDK root, verifying `review_pin` orchestrator effort rules, and keeping a `CONCLAVE_LIVE_AGY=1` live proof installing `--agent agy` into a scratch repo and running `agy --model gemini-pro-orchestrator` to observe Carbon planning + `exit_plan_mode` Hydrogen execution + built-in subagents). Done when: `python -m unittest tests.test_agy_agents` passes offline and with `CONCLAVE_LIVE_AGY=1` on `agy` 1.5.8, and results are recorded in `kits/base/README.md`.
-- [ ] Run `python forge.py self-sync`. Done when: `python -m unittest discover -s tests` passes with SDK root matching the kits.
+- [ ] Remove all five `.agents/agents/*.md` definitions and `scripts/agy-subagent.py` from `kits/base/templates/` and the SDK root via `git rm`, and remove stale `.agents/agents/` / `agy-subagent.py` references from `forge.py` (`SELF_PREFIXES`, `check_repo`, `SUITES`), `kits/base/scripts/test-install.sh`, `tests/test_forge.py`, `tests/test_check_all.py`, and `todo/01-forge/TODO-02-gates-and-skill-source.md` (with a `Corrected` note). Done when: `git ls-files .agents/agents kits/base/templates/.agents/agents scripts/agy-subagent.py kits/base/templates/scripts/agy-subagent.py` is empty. Cheaper substitute: deleting only the SDK root copies while leaving `kits/base/templates/.agents/agents` or `agy-subagent.py` in `forge.py` `SUITES` or `test-install.sh` must fail review.
+- [ ] Document Antigravity's native `Orchestrator (Carbon)` (`gemini-pro-orchestrator`) behavior in `kits/base/README.md`, `kits/base/templates/AGENTS.md`, `kits/base/templates/GEMINI.md`, `kits/base/templates/CODEX.md`, and `kits/base/templates/docs/agent-skills-and-rules-structure.md`, explaining automatic Carbon planning, Hydrogen execution (`exit_plan_mode`), built-in subagents, and why custom `.agents/agents/` files and `agy-subagent.py` are omitted. Done when: those docs reflect the native architecture with no stale wrapper claims. Cheaper substitute: leaving stale `.agents/agents` or `scripts/agy-subagent.py` instructions in any base-kit template doc must fail review.
+- [ ] Rewrite `tests/test_agy_agents.py` to enforce the native `Orchestrator (Carbon)` contract (asserting zero `.agents/agents/` definitions and no `agy-subagent.py` in `kits/base` or SDK root, verifying `review_pin` orchestrator effort rules, and keeping a `CONCLAVE_LIVE_AGY=1` live proof installing `--agent agy` into a scratch repo and running `agy --model gemini-pro-orchestrator` to observe Carbon planning + `exit_plan_mode` Hydrogen execution + built-in subagents). Done when: `python -m unittest tests.test_agy_agents` passes offline and with `CONCLAVE_LIVE_AGY=1` on `agy` 1.5.8, and results are recorded in `kits/base/README.md`. Cheaper substitute: checking only file absence without unit-testing stream-json orchestrator verification or without proving live built-in subagent listing and two-phase `exit_plan_mode` execution on `gemini-pro-orchestrator` must fail review.
+- [ ] Run `python forge.py self-sync`. Done when: `python -m unittest discover -s tests` passes with SDK root matching the kits. Cheaper substitute: editing SDK root copies directly instead of syncing from `kits/base/templates` must fail review.
 - [ ] Commit: `base: adopt native Orchestrator Carbon without agy-subagent wrappers`
 
 **Test checkpoint:** `python -m unittest tests.test_agy_agents tests.test_check_all tests.test_forge` and `python forge.py check-all --only agent-tiers` end `OK`.
 
 > **Unstamped:** 2026-11-14: Orchestrator (Carbon) handles Carbon planning, Hydrogen execution, and built-in subagents automatically without custom .agents/agents files (revoked receipt `docs/reviews/d00-t02-s3.revoked-2026-11-14.json`)
 
+## 4. Orchestrator effort-free profiles in the unattended kit
+
+Unattended profiles previously required a string `effort` for every agent and always passed `--effort=<effort>` when launching `agy`. `Orchestrator (Carbon)` (`gemini-pro-orchestrator`) and `gemini-pro-orchestrator-*` manage effort internally and reject `--effort`, so both `.conclave/unattended.json` top-level `agy` profiles and `runners.agy` entries must require `"effort": null` on Orchestrator models and omit `--effort` at launch.
+
+**Phase:** 4
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add `is_agy_orchestrator` to `unattended.py` and omit `--effort` when `effort is None` in `unattended-run.py`. Done when: kit unit tests cover profile validation and argv emission.
+2. Document `"effort": null` for Orchestrator models in `kits/unattended` docs. Done when: the checkpoint passes.
+
+- [ ] Add `is_agy_orchestrator(model)` to `kits/unattended/templates/scripts/lib/unattended.py` and update `load_profile` so top-level `agent == "agy"` profiles and `runners.agy` entries with `gemini-pro-orchestrator` or `gemini-pro-orchestrator-*` require `effort: null` (raising `ProfileError` naming `"manages its own effort and rejects --effort"` on any non-null effort), while keeping `effort` required and validated against `EFFORTS` for all non-orchestrator models and keeping the unchanged template refusal naming `name`, `model`, `effort`. Done when: `LoadProfileTest` and `RunnersTest` in `kits/unattended/templates/scripts/tests/test_unattended.py` cover effort-free orchestrator acceptance, non-null orchestrator refusal, null non-orchestrator refusal, and `runner(profile, "agy")` returning `effort: None`. Cheaper substitute: allowing `effort: null` on non-orchestrator `agy` models or breaking the unchanged-template error message must fail review.
+- [ ] Update `agent_command` in `kits/unattended/templates/scripts/unattended-run.py` so `agent == "agy"` omits `--effort` when `effort is None` (both fresh start and `--conversation` resume) and raises `RunError` if `effort is None` ever reaches `claude` or `codex`. Done when: `CommandTest` in `kits/unattended/templates/scripts/tests/test_run.py` proves `agy` omits `--effort` when `effort is None` across fresh/resume and `skip_permissions` `True`/`False`, keeps `--effort=<e>` for non-orchestrator `agy` models, and refuses `None` effort on `claude` and `codex`. Cheaper substitute: passing `--effort=None` or skipping resume command assertions must fail review.
+- [ ] Update `kits/unattended/README.md` and `kits/unattended/templates/docs/unattended-run.md` to document `effort: null` for Antigravity Orchestrator models (`gemini-pro-orchestrator`, `gemini-pro-orchestrator-*`) in `.conclave/unattended.json` and `runners.agy`. Done when: both docs explain the Orchestrator `effort: null` rule and markdown formatting checks pass. Cheaper substitute: updating code without updating operator setup docs in `unattended-run.md` and `README.md` must fail review.
+- [ ] Commit: `unattended: support effort-free Antigravity Orchestrator profiles`
+
+**Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` and `python -m unittest tests.test_forge -k markdown_table -k dashes` both end `OK`; setting `effort: "medium"` with `model: "gemini-pro-orchestrator"` fails `LoadProfileTest`.
+
 ## Verification
 
 - A fresh `python forge.py init <scratch> --kit reviewer` prints `ok` for `python scripts/review-dispatch.py --check-pin` and lists three routes.
 - `python forge.py doctor . reviewer --strict` exits 0 on this machine with the `reviewer-flags` check shown.
 - `python -m unittest discover -s tests` passes.
+- `python -m unittest discover -s kits/unattended/templates/scripts/tests` passes.
 - `python scripts/todo-graph.py validate` and `python scripts/todo-graph.py plan --check` pass.
