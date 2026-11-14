@@ -1,4 +1,5 @@
 import io
+import ipaddress
 import os
 import posixpath
 import re
@@ -24,7 +25,8 @@ _SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]*:")
 _PCT_SLASH_RE = re.compile(r"%2f|%5c", re.IGNORECASE)
 _BAD_PCT_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 _PCT_PAIR_RE = re.compile(r"%([0-9A-Fa-f]{2})")
-_IPV6_HOST_RE = re.compile(r"^\[[0-9A-Fa-f:.]+\](?::[0-9]*)?\Z")
+_IPVFUTURE_RE = re.compile(r"^[vV][0-9A-Fa-f]+\.[A-Za-z0-9\-._~!$&'()*+,;=:]+\Z")
+_PORT_RE = re.compile(r"^[0-9]+\Z")
 _XML_SPACE_RUN_RE = re.compile(r"[ \t\r\n]+")
 _UNRESERVED_BYTES = frozenset(
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
@@ -103,6 +105,16 @@ def _strict_unquote(value: str) -> str:
     return decoded
 
 
+def _is_valid_ipv6(text: str) -> bool:
+    if not text or "%" in text:
+        return False
+    try:
+        ipaddress.IPv6Address(text)
+        return True
+    except ValueError:
+        return False
+
+
 def is_valid_any_uri(value: str) -> bool:
     if not isinstance(value, str):
         return False
@@ -117,19 +129,48 @@ def is_valid_any_uri(value: str) -> bool:
     before_frag, _, frag = collapsed.partition("#")
     if "[" in frag or "]" in frag:
         return False
-    hier_part, _, query = before_frag.partition("?")
+    hier_or_rel, _, query = before_frag.partition("?")
     if "[" in query or "]" in query:
         return False
-    scheme_match = _SCHEME_RE.match(hier_part)
-    rest = hier_part[scheme_match.end():] if scheme_match else hier_part
+
+    scheme_match = _SCHEME_RE.match(hier_or_rel)
+    if scheme_match:
+        rest = hier_or_rel[scheme_match.end():]
+    else:
+        rest = hier_or_rel
+        if rest and not rest.startswith("/") and ":" in rest.split("/", 1)[0]:
+            return False
+
     if rest.startswith("//"):
         authority, _, path_part = rest[2:].partition("/")
-        if "[" in path_part or "]" in path_part:
+        if "[" in path_part or "]" in path_part or authority.count("@") > 1:
             return False
-        if "[" in authority or "]" in authority:
-            userinfo, sep, hostport = authority.rpartition("@")
-            if (sep and ("[" in userinfo or "]" in userinfo)) or not _IPV6_HOST_RE.match(hostport):
+        if "@" in authority:
+            userinfo, _, hostport = authority.partition("@")
+            if "[" in userinfo or "]" in userinfo:
                 return False
+        else:
+            hostport = authority
+
+        if hostport.startswith("["):
+            close = hostport.find("]")
+            if close == -1:
+                return False
+            ip_body = hostport[1:close]
+            after_bracket = hostport[close + 1:]
+            if not (_is_valid_ipv6(ip_body) or _IPVFUTURE_RE.match(ip_body)):
+                return False
+            if after_bracket and not (
+                after_bracket.startswith(":") and _PORT_RE.match(after_bracket[1:])
+            ):
+                return False
+        else:
+            if "[" in hostport or "]" in hostport or hostport.count(":") > 1:
+                return False
+            if ":" in hostport:
+                _, _, port = hostport.partition(":")
+                if not _PORT_RE.match(port):
+                    return False
     elif "[" in rest or "]" in rest:
         return False
     return True

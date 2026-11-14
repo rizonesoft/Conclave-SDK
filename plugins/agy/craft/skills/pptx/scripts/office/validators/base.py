@@ -15,6 +15,7 @@ try:
         _guard_xml_bytes,
         atomic_write_bytes,
         collapse_xml_space,
+        is_valid_any_uri,
         normalize_part_name,
         opc_target,
         parse_xml_file,
@@ -28,6 +29,7 @@ except ImportError:
         _guard_xml_bytes,
         atomic_write_bytes,
         collapse_xml_space,
+        is_valid_any_uri,
         normalize_part_name,
         opc_target,
         parse_xml_file,
@@ -401,7 +403,10 @@ class BaseSchemaValidator:
                     ".//ns:Relationship",
                     namespaces={"ns": self.PACKAGE_RELATIONSHIPS_NAMESPACE},
                 ):
-                    _, _, target, target_mode = read_relationship(rel)
+                    _, rel_type, target, target_mode = read_relationship(rel)
+                    if not is_valid_any_uri(rel_type):
+                        broken_refs.append((f"{target} (invalid Type {rel_type!r})", rel.sourceline))
+                        continue
                     if target_mode not in ("", "Internal", "External"):
                         broken_refs.append((f"{target} (invalid TargetMode {target_mode!r})", rel.sourceline))
                         continue

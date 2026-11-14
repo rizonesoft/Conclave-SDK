@@ -693,6 +693,11 @@ class CraftScriptHardeningTests(unittest.TestCase):
         self.assertEqual(helpers.opc_target("\t../media/two%20%20spaces.png\n", "ppt/slides/slide1.xml"), "ppt/media/two  spaces.png")
         self.assertIsNone(helpers.opc_target("https://example.com/x", "ppt/slides/slide1.xml", "External"))
         self.assertIsNone(helpers.opc_target("http://[::1]:8080/a", "ppt/slides/slide1.xml", "External"))
+        self.assertIsNone(helpers.opc_target("http://[v1.a]/a", "ppt/slides/slide1.xml", "External"))
+        self.assertIsNone(helpers.opc_target("http://@host:80/a", "ppt/slides/slide1.xml", "External"))
+        self.assertTrue(helpers.is_valid_any_uri("http://[v1.a]/a"))
+        self.assertFalse(helpers.is_valid_any_uri("1bad:type"))
+        self.assertFalse(helpers.is_valid_any_uri("http://host:abc/a"))
         self.assertEqual(helpers.opc_target("slide1.xml#anchor", "ppt/slides/slide2.xml", "Internal"), "ppt/slides/slide1.xml")
         self.assertEqual(helpers.opc_target("#bookmark", "word/document.xml"), "word/document.xml")
         for bad_target, src_part, tmode in (
@@ -714,6 +719,14 @@ class CraftScriptHardeningTests(unittest.TestCase):
             ("slides/slide1.xml#[bad]", "ppt/presentation.xml", "Internal"),
             ("1bad:slide1.xml", "ppt/presentation.xml", "Internal"),
             ("https://example.com/bad%GG", "ppt/slides/slide1.xml", "External"),
+            ("http://host:abc/a", "ppt/slides/slide1.xml", "External"),
+            ("http://host:/a", "ppt/slides/slide1.xml", "External"),
+            ("1bad:type", "ppt/slides/slide1.xml", "External"),
+            (":bad", "ppt/slides/slide1.xml", "External"),
+            ("bad_scheme:foo", "ppt/slides/slide1.xml", "External"),
+            ("http://u@v@host/a", "ppt/slides/slide1.xml", "External"),
+            ("http://[not-ipv6]/a", "ppt/slides/slide1.xml", "External"),
+            ("http://[::1]:abc/a", "ppt/slides/slide1.xml", "External"),
         ):
             with self.assertRaises(ValueError, msg=(bad_target, src_part, tmode)):
                 helpers.opc_target(bad_target, src_part, tmode)
@@ -2637,6 +2650,46 @@ class CraftScriptHardeningTests(unittest.TestCase):
                 val_m18 = val_pptx_case7.PPTXSchemaValidator(bad_m18_dir)
                 self.assertFalse(val_m18.validate_content_types())
                 self.assertFalse(val_m18.validate())
+
+            # Malformed External Target port, malformed Type scheme, and valid IPvFuture host
+            for case_name, rel_id, rel_type, rel_target, rel_mode, should_pass in (
+                ("bad_ext_port", "rIdBadExt", f"{r_ns}/hyperlink", "http://host:abc/a", "External", False),
+                ("bad_type_scheme", "rIdBadType", "1bad:type", "https://example.com/ok", "External", False),
+                ("ipvfuture_ext", "rIdIpvf", f"{r_ns}/hyperlink", "http://[v1.a]/a", "External", True),
+            ):
+                case_dir = self.root / f"clean_{case_name}"
+                shutil.copytree(valid_dir, case_dir)
+                case_rels = ET.Element(f"{{{rels_ns}}}Relationships")
+                ET.SubElement(
+                    case_rels,
+                    f"{{{rels_ns}}}Relationship",
+                    Id="rIdImg1",
+                    Type=f"{r_ns}/image",
+                    Target="../media/image1.png",
+                )
+                ET.SubElement(
+                    case_rels,
+                    f"{{{rels_ns}}}Relationship",
+                    Id=rel_id,
+                    Type=rel_type,
+                    Target=rel_target,
+                    TargetMode=rel_mode,
+                )
+                (case_dir / "ppt" / "slides" / "_rels" / "slide 1.xml.rels").write_bytes(
+                    ET.tostring(case_rels, encoding="utf-8", xml_declaration=True)
+                )
+                if should_pass:
+                    self.assertEqual(clean.clean_unused_files(case_dir), [])
+                    if importlib.util.find_spec("lxml") is not None:
+                        val_case = val_pptx_case7.PPTXSchemaValidator(case_dir)
+                        self.assertTrue(val_case.validate())
+                else:
+                    with self.assertRaises(clean.RefusedToClean):
+                        clean.clean_unused_files(case_dir)
+                    if importlib.util.find_spec("lxml") is not None:
+                        val_case = val_pptx_case7.PPTXSchemaValidator(case_dir)
+                        self.assertFalse(val_case.validate_file_references())
+                        self.assertFalse(val_case.validate())
 
             for good_ct in (
                 "application/xml",
