@@ -390,7 +390,7 @@ class RunTest(unittest.TestCase):
         self.assertEqual(lines["session"], self.marker()["session"])
         self.assertEqual(lines["guard"], "none")
         self.assertEqual(lines["health"], "none")
-        self.assertEqual(self.launcher("stop").returncode, 0)
+        self.assert_stopped()
         lines = dict(line.split(": ", 1) for line in self.launcher("status").stdout.splitlines())
         self.assertTrue(lines["run"].startswith("stopped"))
         self.assertEqual(lines["session"], "none")
@@ -574,7 +574,7 @@ class RunTest(unittest.TestCase):
         self.assertEqual(refused.returncode, 1)
         self.assertIn("unattended-launch.lock", refused.stderr)
         self.assertTrue(self.tmux_has("demo-run"), "a stop beside a launch must change nothing")
-        self.assertEqual(self.launcher("stop").returncode, 0)
+        self.assert_stopped()
         again = self.launcher("stop")
         self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
         self.assertIn("with no marker", again.stdout)
@@ -734,7 +734,7 @@ class RunTest(unittest.TestCase):
         call = self.calls(1)[0]
         self.assertEqual((call["cli"], call["argv"][:2]), ("agy", ["--model=gemini-4-carbon-medium", "--effort=medium"]))
         self.assertEqual(self.marker()["agent"], "agy")
-        self.assertEqual(self.launcher("stop").returncode, 0)
+        self.assert_stopped()
         done = self.launcher("start", "--agent", "codex")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         call = self.calls(2)[-1]
@@ -813,7 +813,7 @@ class RunTest(unittest.TestCase):
         self.assertIn("--conversation=conv-orch-1", call2["argv"])
         self.assertFalse([a for a in call2["argv"] if a.startswith("--effort")], call2["argv"])
         self.assertEqual(call2["argv"][-1], f"--prompt-interactive={self.run_module().RESUME_PROMPT}")
-        self.assertEqual(self.launcher("stop").returncode, 0)
+        self.assert_stopped()
 
         self.write_profile(runners={"agy": {"model": "gemini-pro-orchestrator-preview", "effort": None}})
         git(self.root, "commit", "-qam", "valid orchestrator runner")
@@ -826,7 +826,7 @@ class RunTest(unittest.TestCase):
         self.assertIn("--model=gemini-pro-orchestrator-preview", call3["argv"])
         self.assertFalse([a for a in call3["argv"] if a.startswith("--effort")], call3["argv"])
         self.assertEqual(self.marker()["agent"], "agy")
-        self.assertEqual(self.launcher("stop").returncode, 0)
+        self.assert_stopped()
 
 
 
@@ -842,6 +842,13 @@ class RunTest(unittest.TestCase):
         self.assertIn("kept for the resumed run", done.stdout)
         self.assertTrue(self.marker()["resumed"])
         self.assertIn("An edit the run had not committed.", edited.read_text(encoding="utf-8"))
+
+    def assert_stopped(self):
+        """A stop that must succeed. A failure shows what the launcher said: CI went red on 2026-11-14 on a bare
+        exit code 1 here, in a test that passes on every rerun, with nothing to say which refusal it was."""
+        done = self.launcher("stop")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        return done
 
     def heartbeat_cli(self, *args):
         return subprocess.run([sys.executable, str(self.root / "scripts" / "unattended-run.py"), "heartbeat", *args],
@@ -876,7 +883,7 @@ class RunTest(unittest.TestCase):
         sessions = subprocess.run(["tmux", "ls", "-F", "#{session_name}"], capture_output=True, text=True,
                                   timeout=30, creationflags=windowless()).stdout.split()
         self.assertEqual(sorted(sessions), ["demo-heartbeat", "demo-run"])
-        self.assertEqual(self.launcher("stop").returncode, 0)
+        self.assert_stopped()
         self.assertFalse(self.tmux_has("demo-heartbeat"))
 
     def test_a_killed_run_is_recorded_as_ended_and_never_restarted(self):
@@ -973,7 +980,7 @@ class RunTest(unittest.TestCase):
         self.assertEqual(self.launcher("start").returncode, 0)
         old = self.marker()
         self.calls(1)
-        self.assertEqual(self.launcher("stop").returncode, 0)
+        self.assert_stopped()
         self.assertEqual(self.launcher("start").returncode, 0)
         new = self.marker()
         self.acquire(new["session"], tag=new["session"])
@@ -1187,7 +1194,7 @@ class RunTest(unittest.TestCase):
         self.assertTrue(self.marker()["resumed"])
         self.assertTrue(notice.exists(), "a resume removed its own run's notice")
         old = self.marker()["session"]
-        self.assertEqual(self.launcher("stop").returncode, 0)
+        self.assert_stopped()
         self.assertFalse(notice.exists(), "stop left the stopped run's notice")
         # A notice a failed removal left behind, as from a run that ended while the disk was failing.
         notice.write_text(f"# Nothing has shipped\n\nRun: {old}\n", encoding="utf-8")
