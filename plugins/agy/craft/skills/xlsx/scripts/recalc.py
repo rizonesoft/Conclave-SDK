@@ -16,6 +16,12 @@ import time
 import zipfile
 from pathlib import Path
 
+from office.helpers import (
+    MAX_ARCHIVE_BYTES,
+    open_zip_member,
+    read_zip_member,
+    validate_archive,
+)
 from office.soffice import get_soffice_env, run_soffice
 
 MACRO_FILENAME = "Module1.xba"
@@ -81,8 +87,9 @@ def _existing_cells(ws):
 def external_links_at_risk(filename):
     try:
         with zipfile.ZipFile(filename) as archive:
+            validate_archive(archive)
             names = archive.namelist()
-    except (zipfile.BadZipFile, OSError):
+    except (zipfile.BadZipFile, OSError, ValueError):
         return []
     if not any(n.startswith("xl/externalLinks/") for n in names):
         return []
@@ -235,15 +242,19 @@ def _exact_error(text):
     return cleaned if cleaned in EXCEL_ERROR_SET else None
 
 
-def _read_archive_part(archive: zipfile.ZipFile, name: str, max_bytes: int = MAX_XML_PART_BYTES) -> bytes:
-    info = archive.getinfo(name)
-    if info.file_size < 0 or info.file_size > max_bytes:
-        raise ValueError(f"archive member {name!r} exceeds size limit {max_bytes}")
-    with archive.open(name, "r") as fh:
-        data = fh.read(max_bytes + 1)
-    if len(data) > max_bytes:
-        raise ValueError(f"archive member {name!r} exceeds unpacked limit {max_bytes}")
-    return data
+def _read_archive_part(
+    archive: zipfile.ZipFile,
+    name: str,
+    max_bytes: int = MAX_XML_PART_BYTES,
+    budget: list[int] | None = None,
+) -> bytes:
+    return read_zip_member(
+        archive,
+        name,
+        budget=budget,
+        max_member_bytes=max_bytes,
+        max_bytes=MAX_ARCHIVE_BYTES,
+    )
 
 
 def _rich_text(node):
@@ -282,20 +293,25 @@ def _scan_xml(filename):
     merge_checks = 0
 
     with zipfile.ZipFile(filename) as archive:
-        workbook = fromstring(_read_archive_part(archive, "xl/workbook.xml"))
+        validate_archive(archive)
+        budget = [0]
+        workbook = fromstring(_read_archive_part(archive, "xl/workbook.xml", budget=budget))
         if workbook.tag != f"{_MAIN_NS}workbook":
             raise ValueError("not a transitional OOXML workbook")
         targets = {
             rel.get("Id"): rel.get("Target")
-            for rel in fromstring(_read_archive_part(archive, "xl/_rels/workbook.xml.rels"))
+            for rel in fromstring(_read_archive_part(archive, "xl/_rels/workbook.xml.rels", budget=budget))
         }
 
         shared_equals = set()
         if "xl/sharedStrings.xml" in archive.namelist():
-            ss_info = archive.getinfo("xl/sharedStrings.xml")
-            if ss_info.file_size < 0 or ss_info.file_size > MAX_XML_PART_BYTES:
-                raise ValueError(f"archive member 'xl/sharedStrings.xml' exceeds size limit {MAX_XML_PART_BYTES}")
-            with archive.open("xl/sharedStrings.xml") as part:
+            with open_zip_member(
+                archive,
+                "xl/sharedStrings.xml",
+                budget=budget,
+                max_member_bytes=MAX_XML_PART_BYTES,
+                max_bytes=MAX_ARCHIVE_BYTES,
+            ) as part:
                 index = 0
                 for _, node in iterparse(part):
                     if node.tag != f"{_MAIN_NS}si":
@@ -315,7 +331,7 @@ def _scan_xml(filename):
             if "/worksheets/" not in part_name:
                 continue
             found = []
-            xml = _read_archive_part(archive, part_name)
+            xml = _read_archive_part(archive, part_name, budget=budget)
             merged = _merged_ranges(xml)
             for _, node in iterparse(io.BytesIO(xml)):
                 if node.tag == f"{_MAIN_NS}row":

@@ -26,7 +26,15 @@ from pathlib import Path
 
 import defusedxml.minidom
 from defusedxml import ElementTree
-from office.helpers import SLIDE_REL_TYPE, opc_target
+from office.helpers import (
+    MAX_ARCHIVE_BYTES,
+    MAX_MEMBER_BYTES,
+    SLIDE_REL_TYPE,
+    opc_target,
+    open_zip_member,
+    read_zip_member,
+    validate_archive,
+)
 from office.soffice import run_process_tree, run_soffice
 from PIL import Image, ImageDraw, ImageFont
 
@@ -40,6 +48,7 @@ GRID_PADDING = 20
 BORDER_WIDTH = 2
 FONT_SIZE_RATIO = 0.10
 LABEL_PADDING_RATIO = 0.4
+MAX_THUMBNAIL_XML_BYTES = 32 * 1024 * 1024
 
 
 def main():
@@ -97,9 +106,21 @@ def main():
         sys.exit(1)
 
 
-def _is_hidden(zf: zipfile.ZipFile, part: str) -> bool:
+def _is_hidden(
+    zf: zipfile.ZipFile,
+    part: str,
+    budget: list[int] | None = None,
+    max_member_bytes: int = MAX_MEMBER_BYTES,
+    max_bytes: int = MAX_ARCHIVE_BYTES,
+) -> bool:
     try:
-        with zf.open(part) as f:
+        with open_zip_member(
+            zf,
+            part,
+            budget=budget,
+            max_member_bytes=max_member_bytes,
+            max_bytes=max_bytes,
+        ) as f:
             for _, root in ElementTree.iterparse(f, events=("start",)):
                 return root.get("show") in ("0", "false")  
     except (KeyError, ElementTree.ParseError):
@@ -109,7 +130,19 @@ def _is_hidden(zf: zipfile.ZipFile, part: str) -> bool:
 
 def get_slide_info(pptx_path: Path) -> list[dict]:
     with zipfile.ZipFile(pptx_path, "r") as zf:
-        rels_content = zf.read("ppt/_rels/presentation.xml.rels").decode("utf-8")
+        validate_archive(
+            zf,
+            max_bytes=MAX_ARCHIVE_BYTES,
+            max_member_bytes=MAX_MEMBER_BYTES,
+        )
+        budget = [0]
+        rels_content = read_zip_member(
+            zf,
+            "ppt/_rels/presentation.xml.rels",
+            budget=budget,
+            max_member_bytes=MAX_THUMBNAIL_XML_BYTES,
+            max_bytes=MAX_ARCHIVE_BYTES,
+        ).decode("utf-8")
         rels_dom = defusedxml.minidom.parseString(rels_content)
 
         rid_to_part = {}
@@ -124,7 +157,13 @@ def get_slide_info(pptx_path: Path) -> list[dict]:
             if part is not None:
                 rid_to_part[rel.getAttribute("Id")] = part
 
-        pres_content = zf.read("ppt/presentation.xml").decode("utf-8")
+        pres_content = read_zip_member(
+            zf,
+            "ppt/presentation.xml",
+            budget=budget,
+            max_member_bytes=MAX_THUMBNAIL_XML_BYTES,
+            max_bytes=MAX_ARCHIVE_BYTES,
+        ).decode("utf-8")
         pres_dom = defusedxml.minidom.parseString(pres_content)
 
         present = set(zf.namelist())
@@ -134,7 +173,16 @@ def get_slide_info(pptx_path: Path) -> list[dict]:
             part = rid_to_part.get(sld_id.getAttribute("r:id"))
             if part is not None and part in present:
                 slides.append(
-                    {"name": posixpath.basename(part), "hidden": _is_hidden(zf, part)}
+                    {
+                        "name": posixpath.basename(part),
+                        "hidden": _is_hidden(
+                            zf,
+                            part,
+                            budget=budget,
+                            max_member_bytes=MAX_MEMBER_BYTES,
+                            max_bytes=MAX_ARCHIVE_BYTES,
+                        ),
+                    }
                 )
 
         return slides

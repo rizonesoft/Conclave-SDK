@@ -73,7 +73,7 @@ COMPILED = [(name, re.compile(rx, re.I | re.M), exts) for name, rx, exts in PATT
 CHECKER = os.path.join(HERE, "article_check.py")
 CHECK_CMD = f'{"python" if os.name == "nt" else "python3"} "{CHECKER}"'
 ARTICLE_RULES = (
-    "Owner writing rules:\n"
+    "Owner writing rules (section 10 of the global rules):\n"
     "1. Creative writing (articles, page and marketing copy, product descriptions) uses NLP (natural language "
     "processing): answer first, question-shaped headings, short active sentences, clear named entities, no stock "
     "AI phrasing, no em or en dashes.\n"
@@ -81,8 +81,8 @@ ARTICLE_RULES = (
     "2. Add original value: unique insights, first-hand experience and accurate facts, with every figure sourced.\n"
     "3. Meet E-E-A-T: a named author, first-hand detail, primary sources, honest limits and a review date.\n"
     "4. Never carry a line saying AI assisted with or wrote the article.\n"
-    "5. Write and edit accurately, and get independent cross-family review on facts, AI-sounding prose, and SEO "
-    "rather than relying on self-review alone. No humanizer or paraphrasing tools.\n"
+    "5. Claude researches, writes and rewrites; Antigravity and Codex only review (facts, AI-sounding prose, SEO) "
+    "and suggest, never rewriting the text. No humanizer or paraphrasing tools.\n"
     f"Run `{CHECK_CMD} <draft>` before writing an article back and `{CHECK_CMD} --post <id>` after (in a repository "
     "with its own article checker, use that one); fix every FAIL and answer every WARN."
 )
@@ -453,8 +453,52 @@ def _unwrap_tokens(tokens: list[tuple[str, bool]], depth: int = 0) -> list[tuple
 
 
 _GIT_VAL_OPTS = {"-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env"}
-_PUSH_VAL_OPTS = {"-o", "--push-option", "--receive-pack", "--exec"}
-_MIRROR_CFG_RE = re.compile(r"^remote\..+\.mirror\s*=\s*(true|yes|on|1)$", re.I)
+_MIRROR_CFG_RE = re.compile(r"^remote\..+\.mirror(?:\s*=\s*(true|yes|on|1))?$", re.I)
+_MIRROR_CFG_ENV_RE = re.compile(r"^remote\..+\.mirror\s*=.+$", re.I)
+_PUSH_BASE_LONG_OPTS = (
+    "verbose",
+    "quiet",
+    "repo",
+    "all",
+    "branches",
+    "mirror",
+    "delete",
+    "tags",
+    "dry-run",
+    "porcelain",
+    "force",
+    "force-with-lease",
+    "force-if-includes",
+    "recurse-submodules",
+    "thin",
+    "receive-pack",
+    "exec",
+    "set-upstream",
+    "progress",
+    "prune",
+    "verify",
+    "follow-tags",
+    "signed",
+    "atomic",
+    "push-option",
+    "ipv4",
+    "ipv6",
+)
+_PUSH_ALL_LONG_OPTS = frozenset(_PUSH_BASE_LONG_OPTS) | frozenset(f"no-{o}" for o in _PUSH_BASE_LONG_OPTS)
+_PUSH_FORCE_OPTS = frozenset(("force", "force-with-lease", "force-if-includes"))
+
+
+def _resolve_push_long_opt(tok: str) -> tuple[str | None, bool]:
+    body = tok[2:]
+    raw, has_eq, _ = body.partition("=")
+    if raw in _PUSH_ALL_LONG_OPTS:
+        return raw, has_eq
+    matches = [opt for opt in _PUSH_ALL_LONG_OPTS if opt.startswith(raw)]
+    if len(matches) == 1:
+        return matches[0], has_eq
+    if matches and set(matches) <= _PUSH_FORCE_OPTS:
+        return "force", has_eq
+    return None, has_eq
 
 
 def _check_git_force_push(tokens: list[tuple[str, bool]]) -> str | None:
@@ -471,6 +515,16 @@ def _check_git_force_push(tokens: list[tuple[str, bool]]) -> str | None:
             continue
         if tok.startswith("-c") and len(tok) > 2:
             if _MIRROR_CFG_RE.match(tok[2:].strip()):
+                config_mirror = True
+            i += 1
+            continue
+        if tok == "--config-env":
+            if i + 1 < len(tokens) and _MIRROR_CFG_ENV_RE.match(tokens[i + 1][0].strip()):
+                config_mirror = True
+            i += 2
+            continue
+        if tok.startswith("--config-env="):
+            if _MIRROR_CFG_ENV_RE.match(tok.split("=", 1)[1].strip()):
                 config_mirror = True
             i += 1
             continue
@@ -492,27 +546,27 @@ def _check_git_force_push(tokens: list[tuple[str, bool]]) -> str | None:
                 after_double_dash = True
                 i += 1
                 continue
-            if tok == "--repo":
-                has_repo_opt = True
-                i += 2
-                continue
-            if tok.startswith("--repo="):
-                has_repo_opt = True
+            if tok.startswith("--"):
+                opt, has_eq = _resolve_push_long_opt(tok)
+                if opt == "repo":
+                    has_repo_opt = True
+                    i += 1 if has_eq else 2
+                    continue
+                if opt in ("push-option", "receive-pack", "exec", "recurse-submodules"):
+                    i += 1 if has_eq else 2
+                    continue
+                if opt == "mirror":
+                    return "git force push (--mirror)"
+                if opt == "no-mirror":
+                    mirror_opt = False
+                    i += 1
+                    continue
+                if opt in ("delete", "prune"):
+                    return "git remote ref deletion"
+                if opt in ("force", "force-with-lease", "force-if-includes"):
+                    return "git force push"
                 i += 1
                 continue
-            if tok in _PUSH_VAL_OPTS:
-                i += 2
-                continue
-            if tok == "--mirror":
-                return "git force push (--mirror)"
-            if tok == "--no-mirror":
-                mirror_opt = False
-                i += 1
-                continue
-            if tok in ("--delete", "--prune"):
-                return "git remote ref deletion"
-            if tok in ("--force", "--force-with-lease", "--force-if-includes") or tok.startswith(("--force=", "--force-with-lease=")):
-                return "git force push"
             if tok.startswith("-") and not tok.startswith("--") and len(tok) > 1:
                 consumed_val_opt = False
                 for idx_ch, ch in enumerate(tok[1:], start=1):

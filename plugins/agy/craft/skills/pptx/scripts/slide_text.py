@@ -10,6 +10,7 @@ import re
 import sys
 import zipfile
 
+from office.helpers import validate_archive
 from pptx.package import Package
 
 
@@ -115,6 +116,8 @@ def main() -> None:
             f"Error: {path} is corrupt, password-protected, or an old .ppt (not a zip archive)"
         )
     try:
+        with zipfile.ZipFile(path, "r") as zf:
+            validate_archive(zf)
         deck = getattr(Package.open(path).main_document_part, "presentation", None)
     except Exception as e:
         sys.exit(f"Error: cannot read {path}: {e}")

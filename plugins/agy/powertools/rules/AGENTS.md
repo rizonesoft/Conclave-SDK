@@ -38,3 +38,10 @@ Applies alongside repository `AGENTS.md` and `GEMINI.md` files, where repository
 - Never write em dashes or en dashes anywhere (prose, code, comments, commit messages, or responses); write one line per Markdown paragraph and list item.
 - Keep temporary and scratch files in `R:\scratch` (`/mnt/r/scratch` in WSL), never left behind in repositories.
 - Wrap heavy full builds and full suites with `bosun run -- <cmd>` when `bosun` is on `PATH`, pass `CREATE_NO_WINDOW` or `-NoNewWindow` for console children in launcher tests, and kill whole process trees (`taskkill /T` or process groups) on timeout or teardown.
+
+## 7. Creative writing and articles
+
+- Use NLP phrasing for creative writing (articles, page copy, marketing copy, product descriptions): answer first, question-shaped headings, short active sentences, clear named entities, no stock AI phrasing, and no em or en dashes.
+- Add original value with primary sources, first-hand detail, E-E-A-T signals (named author, honest limits, review date), sourced figures, and never include a line claiming AI wrote or assisted with the article.
+- Claude researches, writes, and rewrites articles; Antigravity and Codex only review (facts, AI-sounding prose, SEO) and suggest without rewriting the text, and never use humanizer or paraphrasing tools.
+- Run `article_check.py` (or the repository's `scripts/article-check.py`) on every draft and written-back post, fixing every `FAIL` and answering every `WARN`.

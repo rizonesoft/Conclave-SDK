@@ -12,7 +12,7 @@ from pathlib import Path
 import defusedxml.minidom
 import lxml.etree
 
-from helpers import atomic_write_bytes, one_line, safe_extract
+from helpers import atomic_write_bytes, one_line, read_zip_member, safe_extract, validate_archive
 
 from .base import BaseSchemaValidator
 
@@ -330,8 +330,9 @@ class DOCXSchemaValidator(BaseSchemaValidator):
         name = xml_file.relative_to(self.unpacked_dir).as_posix()
         try:
             with zipfile.ZipFile(self.original_file) as zf:
-                return zf.read(name)
-        except (KeyError, OSError, zipfile.BadZipFile):
+                validate_archive(zf)
+                return read_zip_member(zf, name)
+        except (KeyError, OSError, ValueError, zipfile.BadZipFile):
             return None
 
     def validate_style_ids(self):

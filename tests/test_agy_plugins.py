@@ -202,6 +202,8 @@ class PowertoolsHookBehaviorTests(unittest.TestCase):
             "git push --repo=origin main",
             "git push -ofix origin main",
             "git push --no-mirror origin main",
+            "git push --no-mir origin main",
+            "git push --recurse-submodules check origin main",
             "git push --tags origin",
             "git branch -f feature-local",
             'git commit -m "avoid git push -f accidental match"',
@@ -233,11 +235,21 @@ class PowertoolsHookBehaviorTests(unittest.TestCase):
             "git push +HEAD:main",
             "git push -uo opt -f origin main",
             "git push --mirror origin",
+            "git push --mir origin",
+            "git push --m origin",
             "git push --repo=origin --mirror",
             "git -c remote.origin.mirror=true push origin",
+            "git -c remote.origin.mirror push origin",
+            "git --config-env=remote.origin.mirror=MIR push origin",
             "git push --delete origin old-branch",
+            "git push --del origin old-branch",
             "git push -d origin old-branch",
             "git push --prune origin",
+            "git push --pru origin",
+            "git push --force-w origin main",
+            "git push --force-i origin main",
+            "git push --rep origin +HEAD:main",
+            "git push --rep origin :old-branch",
             "git push origin :old-branch",
             "gh repo delete owner/repo --yes",
             "Format-Volume -DriveLetter E -FileSystem NTFS",
@@ -437,6 +449,7 @@ class PowertoolsHookBehaviorTests(unittest.TestCase):
         msg = inv_draft["injectSteps"][0]["systemMessage"]["systemMessage"]
         self.assertIn("article check", msg)
         self.assertIn("Owner writing rules", msg)
+        self.assertIn("Claude researches, writes and rewrites", msg)
         # Prose draft alone does not trigger Stop Layer check
         stop = self.run_hook({
             "hookEventName": "Stop",
@@ -968,6 +981,146 @@ class CraftScriptHardeningTests(unittest.TestCase):
                 unpack_mod.unpack_package(pkg_in, oversized_dest)
         self.assertFalse(oversized_dest.exists())
         self.assertEqual(list(self.root.glob("oversized_dest.*.tmp")), [])
+
+    def test_thumbnail_and_helpers_enforce_member_and_aggregate_limits(self):
+        import xml.dom.minidom as xml_minidom
+
+        helpers = _load_module(
+            "test_office_helpers_stream",
+            CRAFT_DIR / "skills" / "pptx" / "scripts" / "office" / "helpers" / "__init__.py",
+        )
+        pptx_scripts = CRAFT_DIR / "skills" / "pptx" / "scripts"
+
+        extra_mods: dict[str, types.ModuleType] = {}
+        if importlib.util.find_spec("defusedxml") is None:
+            fake_defused = types.ModuleType("defusedxml")
+            fake_defused.minidom = xml_minidom
+            fake_defused.ElementTree = ET
+            extra_mods["defusedxml"] = fake_defused
+            extra_mods["defusedxml.minidom"] = xml_minidom
+            extra_mods["defusedxml.ElementTree"] = ET
+        if importlib.util.find_spec("PIL") is None:
+            fake_pil = types.ModuleType("PIL")
+            fake_pil.Image = types.SimpleNamespace()
+            fake_pil.ImageDraw = types.SimpleNamespace()
+            fake_pil.ImageFont = types.SimpleNamespace()
+            extra_mods["PIL"] = fake_pil
+
+        with unittest.mock.patch.dict(sys.modules, extra_mods):
+            thumbnail = _load_module("test_pptx_thumbnail", pptx_scripts / "thumbnail.py", [pptx_scripts])
+            thumbnail.validate_archive = helpers.validate_archive
+            thumbnail.open_zip_member = helpers.open_zip_member
+            thumbnail.read_zip_member = helpers.read_zip_member
+
+            rels_xml = (
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/>'
+                '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide2.xml"/>'
+                "</Relationships>"
+            )
+            pres_xml = (
+                '<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" '
+                'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                '<p:sldIdLst><p:sldId id="256" r:id="rId1"/><p:sldId id="257" r:id="rId2"/></p:sldIdLst>'
+                "</p:presentation>"
+            )
+
+            valid_pptx = self.root / "valid.pptx"
+            with zipfile.ZipFile(valid_pptx, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr("ppt/_rels/presentation.xml.rels", rels_xml)
+                zf.writestr("ppt/presentation.xml", pres_xml)
+                zf.writestr("ppt/slides/slide1.xml", '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>')
+                zf.writestr("ppt/slides/slide2.xml", '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" show="0"/>')
+
+            self.assertEqual(
+                thumbnail.get_slide_info(valid_pptx),
+                [{"name": "slide1.xml", "hidden": False}, {"name": "slide2.xml", "hidden": True}],
+            )
+
+            # Single member XML exceeding MAX_THUMBNAIL_XML_BYTES is rejected (both honest and spoofed header)
+            bomb_pptx = self.root / "bomb.pptx"
+            with zipfile.ZipFile(bomb_pptx, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr("ppt/_rels/presentation.xml.rels", rels_xml + (" " * 4096))
+                zf.writestr("ppt/presentation.xml", pres_xml)
+                zf.writestr("ppt/slides/slide1.xml", '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>')
+
+            with unittest.mock.patch.object(thumbnail, "MAX_THUMBNAIL_XML_BYTES", 1024):
+                with self.assertRaises(ValueError):
+                    thumbnail.get_slide_info(bomb_pptx)
+
+            with (
+                unittest.mock.patch.object(thumbnail, "MAX_THUMBNAIL_XML_BYTES", 1024),
+                unittest.mock.patch.object(thumbnail, "validate_archive", lambda *a, **kw: None),
+            ):
+                small_info = zipfile.ZipInfo("ppt/_rels/presentation.xml.rels")
+                small_info.file_size = 10
+                orig_getinfo = zipfile.ZipFile.getinfo
+                orig_open = zipfile.ZipFile.open
+
+                def spoofed_getinfo(self_zf, name):
+                    if name == "ppt/_rels/presentation.xml.rels":
+                        return small_info
+                    return orig_getinfo(self_zf, name)
+
+                def spoofed_open(self_zf, name_or_info, mode="r", *args, **kwargs):
+                    target_name = name_or_info.filename if isinstance(name_or_info, zipfile.ZipInfo) else name_or_info
+                    if target_name == "ppt/_rels/presentation.xml.rels":
+                        return io.BytesIO((rels_xml + (" " * 4096)).encode("utf-8"))
+                    return orig_open(self_zf, name_or_info, mode, *args, **kwargs)
+
+                with (
+                    unittest.mock.patch.object(zipfile.ZipFile, "getinfo", spoofed_getinfo),
+                    unittest.mock.patch.object(zipfile.ZipFile, "open", spoofed_open),
+                ):
+                    with self.assertRaises(ValueError):
+                        thumbnail.get_slide_info(valid_pptx)
+
+            # Aggregate budget catches combined rels + presentation exceeding MAX_ARCHIVE_BYTES
+            agg_pptx = self.root / "agg.pptx"
+            with zipfile.ZipFile(agg_pptx, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr("ppt/_rels/presentation.xml.rels", rels_xml + (" " * 1400))
+                zf.writestr("ppt/presentation.xml", pres_xml + (" " * 1400))
+                zf.writestr("ppt/slides/slide1.xml", '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>')
+
+            with (
+                unittest.mock.patch.object(thumbnail, "MAX_THUMBNAIL_XML_BYTES", 2048),
+                unittest.mock.patch.object(thumbnail, "MAX_ARCHIVE_BYTES", 2500),
+            ):
+                with self.assertRaises(ValueError):
+                    thumbnail.get_slide_info(agg_pptx)
+
+            # Same aggregate limit enforced by streaming budget even if validate_archive and headers are bypassed
+            small_rels_info = zipfile.ZipInfo("ppt/_rels/presentation.xml.rels")
+            small_rels_info.file_size = 10
+            small_pres_info = zipfile.ZipInfo("ppt/presentation.xml")
+            small_pres_info.file_size = 10
+            orig_getinfo = zipfile.ZipFile.getinfo
+            orig_open = zipfile.ZipFile.open
+
+            def spoof_agg_getinfo(self_zf, name):
+                if name == "ppt/_rels/presentation.xml.rels":
+                    return small_rels_info
+                if name == "ppt/presentation.xml":
+                    return small_pres_info
+                return orig_getinfo(self_zf, name)
+
+            def spoof_agg_open(self_zf, name_or_info, mode="r", *args, **kwargs):
+                target_name = name_or_info.filename if isinstance(name_or_info, zipfile.ZipInfo) else name_or_info
+                if target_name == "ppt/_rels/presentation.xml.rels":
+                    return io.BytesIO((rels_xml + (" " * 1400)).encode("utf-8"))
+                if target_name == "ppt/presentation.xml":
+                    return io.BytesIO((pres_xml + (" " * 1400)).encode("utf-8"))
+                return orig_open(self_zf, name_or_info, mode, *args, **kwargs)
+
+            with (
+                unittest.mock.patch.object(thumbnail, "MAX_THUMBNAIL_XML_BYTES", 2048),
+                unittest.mock.patch.object(thumbnail, "MAX_ARCHIVE_BYTES", 2500),
+                unittest.mock.patch.object(thumbnail, "validate_archive", lambda *a, **kw: None),
+                unittest.mock.patch.object(zipfile.ZipFile, "getinfo", spoof_agg_getinfo),
+                unittest.mock.patch.object(zipfile.ZipFile, "open", spoof_agg_open),
+            ):
+                with self.assertRaises(ValueError):
+                    thumbnail.get_slide_info(valid_pptx)
 
 
 if __name__ == "__main__":

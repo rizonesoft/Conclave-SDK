@@ -1,3 +1,4 @@
+import io
 import os
 import posixpath
 import re
@@ -81,6 +82,131 @@ MAX_ARCHIVE_ENTRIES = 10_000
 MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
 MAX_MEMBER_BYTES = 128 * 1024 * 1024
 _EXTRACT_CHUNK = 64 * 1024
+
+
+def validate_archive(
+    zf: zipfile.ZipFile,
+    max_entries: int = MAX_ARCHIVE_ENTRIES,
+    max_bytes: int = MAX_ARCHIVE_BYTES,
+    max_member_bytes: int = MAX_MEMBER_BYTES,
+) -> None:
+    infos = zf.infolist()
+    if len(infos) > max_entries:
+        raise ValueError(f"archive entry count {len(infos)} exceeds limit {max_entries}")
+    declared_total = 0
+    for m in infos:
+        if stat.S_ISLNK(m.external_attr >> 16):
+            raise ValueError(f"symlink archive entry not allowed: {m.filename!r}")
+        if m.file_size < 0 or m.file_size > max_member_bytes:
+            raise ValueError(f"archive member exceeds size budget: {m.filename!r}")
+        declared_total += m.file_size
+        if declared_total > max_bytes:
+            raise ValueError(f"archive declared size exceeds limit {max_bytes} bytes")
+
+
+class _BoundedZipStream(io.RawIOBase):
+    def __init__(
+        self,
+        raw: io.BufferedIOBase,
+        name: str,
+        budget: list[int] | None,
+        max_member_bytes: int,
+        max_bytes: int,
+    ) -> None:
+        super().__init__()
+        self._raw = raw
+        self._name = name
+        self._budget = budget
+        self._max_member_bytes = max_member_bytes
+        self._max_bytes = max_bytes
+        self._member_read = 0
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, b) -> int:
+        if self.closed:
+            raise ValueError("I/O operation on closed file")
+        remaining_member = self._max_member_bytes - self._member_read
+        if self._budget is not None:
+            remaining_total = self._max_bytes - self._budget[0]
+            remaining = min(remaining_member, remaining_total)
+        else:
+            remaining = remaining_member
+        to_read = min(len(b), max(0, remaining) + 1)
+        data = self._raw.read(to_read)
+        n = len(data)
+        if n == 0:
+            return 0
+        self._member_read += n
+        if self._member_read > self._max_member_bytes:
+            raise ValueError(
+                f"archive member {self._name!r} exceeds unpacked limit {self._max_member_bytes}"
+            )
+        if self._budget is not None:
+            self._budget[0] += n
+            if self._budget[0] > self._max_bytes:
+                raise ValueError(
+                    f"archive exceeds unpacked byte budget {self._max_bytes}"
+                )
+        b[:n] = data
+        return n
+
+    def close(self) -> None:
+        if not self.closed:
+            try:
+                self._raw.close()
+            finally:
+                super().close()
+
+
+def open_zip_member(
+    zf: zipfile.ZipFile,
+    name: str,
+    *,
+    budget: list[int] | None = None,
+    max_member_bytes: int = MAX_MEMBER_BYTES,
+    max_bytes: int = MAX_ARCHIVE_BYTES,
+) -> io.BufferedReader:
+    info = zf.getinfo(name)
+    if stat.S_ISLNK(info.external_attr >> 16):
+        raise ValueError(f"symlink archive entry not allowed: {name!r}")
+    member_cap = min(max_member_bytes, max_bytes)
+    if info.file_size < 0 or info.file_size > member_cap:
+        raise ValueError(f"archive member exceeds size budget: {name!r}")
+    if budget is not None and budget[0] + info.file_size > max_bytes:
+        raise ValueError(f"archive exceeds unpacked byte budget: {name!r}")
+    raw = zf.open(info, "r")
+    try:
+        stream = _BoundedZipStream(raw, name, budget, max_member_bytes, max_bytes)
+        return io.BufferedReader(stream, buffer_size=_EXTRACT_CHUNK)
+    except BaseException:
+        raw.close()
+        raise
+
+
+def read_zip_member(
+    zf: zipfile.ZipFile,
+    name: str,
+    *,
+    budget: list[int] | None = None,
+    max_member_bytes: int = MAX_MEMBER_BYTES,
+    max_bytes: int = MAX_ARCHIVE_BYTES,
+) -> bytes:
+    chunks: list[bytes] = []
+    with open_zip_member(
+        zf,
+        name,
+        budget=budget,
+        max_member_bytes=max_member_bytes,
+        max_bytes=max_bytes,
+    ) as fh:
+        while True:
+            chunk = fh.read(_EXTRACT_CHUNK)
+            if not chunk:
+                break
+            chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def safe_extract(
