@@ -189,6 +189,8 @@ def agent_command(root: Path, profile: dict, tag: str, resume_id: str | None) ->
     agent, model, effort, skip = profile["agent"], profile["model"], profile["effort"], profile["skip_permissions"]
     prompt = RESUME_PROMPT if resume_id else (root / profile["prompt_file"]).read_text(encoding="utf-8")
     if agent == "claude":
+        if not isinstance(effort, str) or not effort.strip():
+            raise RunError("agent 'claude' requires a non-empty effort")
         # --disallowedTools takes a list, which would swallow the prompt: the options end with `--`.
         argv = ["claude", "--model", model, "--effort", effort]
         argv += ["--resume", resume_id] if resume_id else ["--session-id", tag]
@@ -197,6 +199,8 @@ def agent_command(root: Path, profile: dict, tag: str, resume_id: str | None) ->
             argv.append("--dangerously-skip-permissions")
         return argv + ["--", prompt]
     if agent == "codex":
+        if not isinstance(effort, str) or not effort.strip():
+            raise RunError("agent 'codex' requires a non-empty effort")
         # Codex has no --effort: -c overrides config.toml's model_reasoning_effort (a TOML string). It chooses its own
         # session id, so a fresh start names none; `codex resume [SESSION_ID] [PROMPT]` continues one.
         options = ["-m", model, "-c", f'model_reasoning_effort="{effort}"']
@@ -207,7 +211,15 @@ def agent_command(root: Path, profile: dict, tag: str, resume_id: str | None) ->
         return ["codex", *options, "--", prompt]
     if agent == "agy":
         # Antigravity's flags take `--name=value`; --prompt-interactive runs the prompt and keeps the session open.
-        argv = ["agy", f"--model={model}", f"--effort={effort}"]
+        # Orchestrator models manage reasoning effort across phases internally and reject --effort.
+        if lib.is_agy_orchestrator(model):
+            if effort is not None:
+                raise RunError(f"model {model!r} manages its own effort and rejects --effort")
+            argv = ["agy", f"--model={model}"]
+        else:
+            if not isinstance(effort, str) or not effort.strip():
+                raise RunError(f"model {model!r} on 'agy' requires a non-empty effort")
+            argv = ["agy", f"--model={model}", f"--effort={effort}"]
         if resume_id:
             argv.append(f"--conversation={resume_id}")
         if skip:

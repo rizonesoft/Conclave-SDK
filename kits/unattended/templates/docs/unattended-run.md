@@ -7,7 +7,7 @@ A run never restarts itself. It starts only when you start it, and `stop`, a cra
 ## Set it up
 
 1. Install the kit after the todo kit: `python forge.py kit <project> unattended`.
-2. Set `name`, `model` and `effort` in `.conclave/unattended.json`; the template leaves them `null`, and the loader refuses the profile until they are set. To start the run on another agent as well, add it under `runners` with its own model and effort, for example `"runners": {"agy": {"model": "gemini-4-carbon-medium", "effort": "medium"}}`.
+2. Set `name`, `model` and `effort` in `.conclave/unattended.json`; the template leaves them `null`, and the loader refuses the profile until they are set, except Antigravity Orchestrator models (`gemini-pro-orchestrator` and `gemini-pro-orchestrator-*`), which manage effort internally, reject `--effort`, and require `"effort": null` (setting any non-null effort is refused). To start the run on another agent as well, add it under `runners` with its own `model` and `effort`, for example `"runners": {"agy": {"model": "gemini-4-carbon-medium", "effort": "medium"}}` or `"runners": {"agy": {"model": "gemini-pro-orchestrator", "effort": null}}` (the launcher omits `--effort` for Orchestrator models on both fresh starts and `--conversation` resumes).
 3. Check the machine: `python forge.py doctor <project> unattended`. It reports each kit file, the todo kit, tmux and the `unattended-run` skill in each agent's folder.
 
 ## Start it

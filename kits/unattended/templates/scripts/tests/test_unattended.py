@@ -183,6 +183,29 @@ class LoadProfileTest(unittest.TestCase):
             self.write(self.with_(agent=agent, effort=effort))
             self.assertEqual(unattended.load_profile(self.root)["effort"], effort)
 
+    def test_orchestrator_models_require_null_effort_and_non_orchestrators_refuse_it(self):
+        for good in ("gemini-pro-orchestrator", "gemini-pro-orchestrator-preview"):
+            self.assertTrue(unattended.is_agy_orchestrator(good), good)
+        for bad in ("gemini-4-carbon-medium", "gemini-pro-orchestrator-", " gemini-pro-orchestrator",
+                    "gemini-pro-orchestrator\0", None, 1):
+            self.assertFalse(unattended.is_agy_orchestrator(bad), repr(bad))
+        for model in ("gemini-pro-orchestrator", "gemini-pro-orchestrator-2026"):
+            self.write(self.with_(agent="agy", model=model, effort=None))
+            loaded = unattended.load_profile(self.root)
+            self.assertEqual((loaded["agent"], loaded["model"], loaded["effort"]), ("agy", model, None))
+            for bad_effort in ("medium", "", False, 0):
+                with self.subTest(model=model, effort=bad_effort):
+                    self.assertIn("manages its own effort and rejects --effort",
+                                  self.refused("effort", self.with_(agent="agy", model=model, effort=bad_effort)))
+        for case in ({"agent": "agy", "model": "gemini-4-carbon-medium", "effort": None},
+                     {"agent": "claude", "model": "gemini-pro-orchestrator", "effort": None},
+                     {"agent": "codex", "model": "gpt-6-astra", "effort": None}):
+            with self.subTest(case=case):
+                self.refused("effort", self.with_(**case))
+        for bad_model in (" gemini-pro-orchestrator", "gemini-pro-orchestrator ", "gemini-pro-orchestrator-"):
+            with self.subTest(model=bad_model):
+                self.refused("model", self.with_(agent="agy", model=bad_model, effort=None))
+
     def test_a_preflight_command_must_start_with_a_program(self):
         good = {"name": "suite", "command": ["python3"], "timeout_seconds": 60}
         for bad in ([""], ["  ", "-m"]):
@@ -289,6 +312,42 @@ class RunnersTest(unittest.TestCase):
                  "the profile's own agent": ({"claude": {"model": "m", "effort": "low"}}, "the profile's own agent"),
                  "not an object": ([], "runners: must be an object")}
         for label, (runners, said) in cases.items():
+            with self.subTest(label), self.assertRaisesRegex(unattended.ProfileError, re.escape(said)):
+                self.load(runners)
+
+    def test_an_orchestrator_runner_loads_with_null_effort_and_refuses_non_null(self):
+        for model in ("gemini-pro-orchestrator", "gemini-pro-orchestrator-preview"):
+            profile = self.load({"agy": {"model": model, "effort": None},
+                                 "codex": {"model": "gpt-6-astra", "effort": "minimal"}})
+            self.assertEqual({k: unattended.runner(profile, "agy")[k] for k in ("agent", "model", "effort")},
+                             {"agent": "agy", "model": model, "effort": None})
+        top_orch = {**FIXTURE, "agent": "agy", "model": "gemini-pro-orchestrator", "effort": None,
+                    "runners": {"claude": {"model": "claude-opus-5-5", "effort": "high"}}}
+        (self.root / ".conclave" / "unattended.json").write_text(json.dumps(top_orch), encoding="utf-8")
+        loaded = unattended.load_profile(self.root)
+        self.assertEqual({k: unattended.runner(loaded, "claude")[k] for k in ("agent", "model", "effort")},
+                         {"agent": "claude", "model": "claude-opus-5-5", "effort": "high"})
+        bad_cases = {
+            "orchestrator non-null effort": (
+                {"agy": {"model": "gemini-pro-orchestrator", "effort": "medium"}},
+                "manages its own effort and rejects --effort"),
+            "orchestrator variant non-null effort": (
+                {"agy": {"model": "gemini-pro-orchestrator-preview", "effort": "low"}},
+                "runners.agy.effort"),
+            "missing effort key on orchestrator": (
+                {"agy": {"model": "gemini-pro-orchestrator"}},
+                "runners.agy: needs exactly model and effort"),
+            "null effort on non-orchestrator agy": (
+                {"agy": {"model": "gemini-4-carbon-medium", "effort": None}},
+                "runners.agy.effort"),
+            "dangling hyphen orchestrator model": (
+                {"agy": {"model": "gemini-pro-orchestrator-", "effort": None}},
+                "runners.agy.model"),
+            "whitespace in runner model": (
+                {"agy": {"model": " gemini-pro-orchestrator", "effort": None}},
+                "runners.agy.model"),
+        }
+        for label, (runners, said) in bad_cases.items():
             with self.subTest(label), self.assertRaisesRegex(unattended.ProfileError, re.escape(said)):
                 self.load(runners)
 

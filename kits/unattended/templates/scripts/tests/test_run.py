@@ -162,6 +162,28 @@ class CommandTest(unittest.TestCase):
                 argv = run.agent_command(self.root, profile, "tag-1", None)
                 self.assertFalse([a for a in argv if a in ("--session-id", "--resume", "--disallowedTools")], argv)
 
+    def test_the_antigravity_orchestrator_command_omits_effort_and_guards_invalid_efforts(self):
+        run = load_run_module()
+        for model in ("gemini-pro-orchestrator", "gemini-pro-orchestrator-preview"):
+            for skip in (True, False):
+                with self.subTest(model=model, skip_permissions=skip):
+                    profile = {**PROFILE, "agent": "agy", "model": model, "effort": None, "skip_permissions": skip}
+                    bypass = ["--dangerously-skip-permissions"] if skip else []
+                    fresh = run.agent_command(self.root, profile, "tag-1", None)
+                    self.assertEqual(fresh, ["agy", f"--model={model}", *bypass, f"--prompt-interactive={PROMPT}"])
+                    self.assertFalse([a for a in fresh if a.startswith("--effort")], fresh)
+                    resumed = run.agent_command(self.root, profile, "tag-1", "conv-7")
+                    self.assertEqual(resumed, ["agy", f"--model={model}", "--conversation=conv-7", *bypass,
+                                               f"--prompt-interactive={run.RESUME_PROMPT}"])
+                    self.assertFalse([a for a in resumed if a.startswith("--effort")], resumed)
+        for bad in ({**PROFILE, "agent": "claude", "effort": None},
+                    {**PROFILE, "agent": "codex", "model": "gpt-6-astra", "effort": None},
+                    {**PROFILE, "agent": "agy", "model": "gemini-4-argon", "effort": None},
+                    {**PROFILE, "agent": "agy", "model": "gemini-pro-orchestrator", "effort": "medium"}):
+            with self.subTest(agent=bad["agent"], model=bad["model"], effort=bad["effort"]):
+                with self.assertRaises(run.RunError):
+                    run.agent_command(self.root, bad, "tag-1", None)
+
 
 RUNNER_CLIS = ("claude", "codex", "agy")
 
@@ -745,6 +767,66 @@ class RunTest(unittest.TestCase):
         call = self.calls(1)[0]
         self.assertEqual(call["cli"], "agy")
         self.assertEqual(call["argv"][-1], f"--prompt-interactive={PROMPT}")
+
+    def test_orchestrator_top_level_and_runner_profiles_start_and_resume_without_effort(self):
+        (self.root / ".agents").mkdir(exist_ok=True)
+        shutil.copyfile(TODO / ".agents/hooks.json", self.root / ".agents/hooks.json")
+        git(self.root, "add", ".agents/hooks.json")
+        git(self.root, "commit", "-qm", "add agy hook")
+
+        self.write_profile(agent="agy", model="gemini-pro-orchestrator", effort="medium")
+        git(self.root, "commit", "-qam", "invalid top-level orchestrator effort")
+        bad = self.launcher("start")
+        self.assertEqual(bad.returncode, 1, bad.stdout + bad.stderr)
+        self.assertIn("manages its own effort and rejects --effort", bad.stderr)
+        self.assertFalse(self.tmux_has("demo-run"))
+        self.assertFalse(self.log.exists())
+
+        self.write_profile(runners={"agy": {"model": "gemini-pro-orchestrator", "effort": "medium"}})
+        git(self.root, "commit", "-qam", "invalid runner orchestrator effort")
+        bad_runner = self.launcher("start", "--agent", "agy")
+        self.assertEqual(bad_runner.returncode, 1, bad_runner.stdout + bad_runner.stderr)
+        self.assertIn("manages its own effort and rejects --effort", bad_runner.stderr)
+        self.assertFalse(self.log.exists())
+
+        self.write_profile(agent="agy", model="gemini-pro-orchestrator", effort=None)
+        git(self.root, "commit", "-qam", "valid top-level orchestrator")
+        done = self.launcher("start")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("PASS profile", done.stdout)
+        self.assertIn("PASS version agy", done.stdout)
+        call = self.calls(1)[0]
+        self.assertEqual(call["cli"], "agy")
+        self.assertIn("--model=gemini-pro-orchestrator", call["argv"])
+        self.assertFalse([a for a in call["argv"] if a.startswith("--effort")], call["argv"])
+        self.assertEqual(call["argv"][-1], f"--prompt-interactive={PROMPT}")
+
+        first_tag = self.marker()["session"]
+        self.acquire("conv-orch-1", tag=first_tag)
+        subprocess.run(["tmux", "kill-session", "-t", "=demo-run"], timeout=30, creationflags=windowless())
+        resumed = self.launcher("start")
+        self.assertEqual(resumed.returncode, 0, resumed.stdout + resumed.stderr)
+        self.assertTrue(self.marker()["resumed"])
+        call2 = self.calls(2)[-1]
+        self.assertEqual(call2["cli"], "agy")
+        self.assertIn("--model=gemini-pro-orchestrator", call2["argv"])
+        self.assertIn("--conversation=conv-orch-1", call2["argv"])
+        self.assertFalse([a for a in call2["argv"] if a.startswith("--effort")], call2["argv"])
+        self.assertEqual(call2["argv"][-1], f"--prompt-interactive={self.run_module().RESUME_PROMPT}")
+        self.assertEqual(self.launcher("stop").returncode, 0)
+
+        self.write_profile(runners={"agy": {"model": "gemini-pro-orchestrator-preview", "effort": None}})
+        git(self.root, "commit", "-qam", "valid orchestrator runner")
+        runner_done = self.launcher("start", "--agent", "agy")
+        self.assertEqual(runner_done.returncode, 0, runner_done.stdout + runner_done.stderr)
+        self.assertIn("PASS profile", runner_done.stdout)
+        self.assertIn("PASS version agy", runner_done.stdout)
+        call3 = self.calls(3)[-1]
+        self.assertEqual(call3["cli"], "agy")
+        self.assertIn("--model=gemini-pro-orchestrator-preview", call3["argv"])
+        self.assertFalse([a for a in call3["argv"] if a.startswith("--effort")], call3["argv"])
+        self.assertEqual(self.marker()["agent"], "agy")
+        self.assertEqual(self.launcher("stop").returncode, 0)
 
 
 

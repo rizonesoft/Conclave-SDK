@@ -6,7 +6,7 @@ A run never restarts itself: it starts only when its operator starts it, and `st
 
 ## What it needs and how to install it
 
-It needs the `todo` kit (the run guard, `scripts/campaign_guard.py`, and the graph library the ship count reads, `scripts/lib/todo_graph.py`) and tmux, so the run lives on Linux and in WSL; on Windows the shortcuts start it through `wsl.exe`. Install it after the todo kit with `python forge.py kit <project> unattended`, set `name`, `model` and `effort` in `.conclave/unattended.json` (the template leaves them `null`, and the loader refuses the profile until they are set), and check the machine with `python forge.py doctor <project> unattended`. The SDK does not install this kit in itself (`SELF_KITS` in `forge.py`).
+It needs the `todo` kit (the run guard, `scripts/campaign_guard.py`, and the graph library the ship count reads, `scripts/lib/todo_graph.py`) and tmux, so the run lives on Linux and in WSL; on Windows the shortcuts start it through `wsl.exe`. Install it after the todo kit with `python forge.py kit <project> unattended`, set `name`, `model` and `effort` in `.conclave/unattended.json` (the template leaves them `null`, and the loader refuses them until set, except Antigravity Orchestrator models `gemini-pro-orchestrator` and `gemini-pro-orchestrator-*`, which require `"effort": null`), and check the machine with `python forge.py doctor <project> unattended`. The SDK does not install this kit in itself (`SELF_KITS` in `forge.py`).
 
 ## What it installs
 
@@ -54,5 +54,7 @@ Antigravity (`agy`, flags as `--name=value`):
 | Unattended | `--dangerously-skip-permissions` | "Auto-approve all tool permission requests without prompting" |
 | Resume | `--conversation=<id>` | "Resume a previous conversation by ID" |
 | Prompt | `--prompt-interactive=<p>` | "Run an initial prompt interactively and continue the session" |
+
+Antigravity Orchestrator models (`gemini-pro-orchestrator` and `gemini-pro-orchestrator-*`) manage reasoning effort across phases internally and reject `--effort`: both top-level `agent: "agy"` profiles and `runners.agy` entries in `.conclave/unattended.json` must keep `"effort": null` for those models, and the launcher omits `--effort` on both fresh start and `--conversation` resume.
 
 Claude Code: `--model`, `--effort`, `--session-id` (the run's tag), `--resume <id>`, `--disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode`, `--dangerously-skip-permissions`, then `--` and the prompt (`--disallowedTools` takes a list, which would otherwise swallow the prompt).

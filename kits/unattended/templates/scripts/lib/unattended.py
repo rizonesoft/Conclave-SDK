@@ -42,6 +42,13 @@ class ProfileError(ValueError):
     """A run profile the launcher cannot run, named with the file and the key."""
 
 
+def is_agy_orchestrator(model: object) -> bool:
+    """Antigravity Orchestrator models manage effort internally across phases and reject `--effort`."""
+    return (isinstance(model, str) and not any(c.isspace() for c in model) and "\0" not in model
+            and (model == "gemini-pro-orchestrator"
+                 or (model.startswith("gemini-pro-orchestrator-") and model != "gemini-pro-orchestrator-")))
+
+
 def load_profile(root) -> dict:
     """The run profile, every key checked: a fault names `.conclave/unattended.json` and the key, never a default."""
     root = Path(root)
@@ -49,6 +56,31 @@ def load_profile(root) -> dict:
 
     def fault(key: str, what: str) -> ProfileError:
         return ProfileError(f"{PROFILE}: {key}: {what}")
+
+    def check_model(where: str, model: object) -> str:
+        if isinstance(model, str) and "\0" in model:
+            raise fault(where, "must not contain a NUL character")
+        if not isinstance(model, str) or not model.strip():
+            raise fault(where, "must be a non-empty string")
+        if any(c.isspace() for c in model):
+            raise fault(where, "must not contain whitespace")
+        if model == "gemini-pro-orchestrator-":
+            raise fault(where, "gemini-pro-orchestrator- needs a non-empty suffix")
+        return model
+
+    def check_effort(where: str, agent: str, model: str, effort: object) -> None:
+        if isinstance(effort, str) and "\0" in effort:
+            raise fault(where, "must not contain a NUL character")
+        if agent == "agy" and is_agy_orchestrator(model):
+            if effort is not None:
+                raise fault(where, f"must be null for {model}, which manages its own effort and rejects --effort")
+            return
+        efforts = EFFORTS[agent]
+        if effort not in efforts:
+            if not isinstance(effort, str) or not effort.strip():
+                if effort is not None:
+                    raise fault(where, "must be a non-empty string")
+            raise fault(where, f"must be one of {', '.join(efforts)} for {agent}")
 
     try:
         data = json.loads(path.read_bytes().decode("utf-8"))
@@ -66,7 +98,12 @@ def load_profile(root) -> dict:
         raise fault(missing[0], "is required")
     if data["schema_version"] != SCHEMA_VERSION or isinstance(data["schema_version"], bool):
         raise fault("schema_version", f"must be {SCHEMA_VERSION}")
-    unset = [key for key in MUST_SET if data[key] is None]
+    orchestrator_intent = (
+        data["agent"] == "agy" and isinstance(data["model"], str)
+        and (data["model"].strip() == "gemini-pro-orchestrator"
+             or data["model"].strip().startswith("gemini-pro-orchestrator-")))
+    must_set = ("name", "model") if orchestrator_intent else MUST_SET
+    unset = [key for key in must_set if data[key] is None]
     if unset:
         raise fault(unset[0], f"is null in the template; set {', '.join(unset)} for this project")
     # A NUL cannot reach a program's arguments or a file name: refuse it here, not as a ValueError at launch.
@@ -77,12 +114,10 @@ def load_profile(root) -> dict:
         raise fault("name", "must match [a-z0-9][a-z0-9-]{1,40}")
     if data["agent"] not in AGENTS:
         raise fault("agent", f"must be one of {', '.join(AGENTS)}")
-    for key in ("model", "effort", "branch"):
-        if not isinstance(data[key], str) or not data[key].strip():
-            raise fault(key, "must be a non-empty string")
-    efforts = EFFORTS[data["agent"]]
-    if data["effort"] not in efforts:
-        raise fault("effort", f"must be one of {', '.join(efforts)} for {data['agent']}")
+    check_model("model", data["model"])
+    check_effort("effort", data["agent"], data["model"], data["effort"])
+    if not isinstance(data["branch"], str) or not data["branch"].strip():
+        raise fault("branch", "must be a non-empty string")
     if not isinstance(data["skip_permissions"], bool):
         raise fault("skip_permissions", "must be true or false")
     for key in WHOLE:
@@ -117,10 +152,8 @@ def load_profile(root) -> dict:
             raise fault(where, "is the profile's own agent, whose model and effort are the profile's")
         if not isinstance(runner, dict) or set(runner) != RUNNER_KEYS:
             raise fault(where, "needs exactly model and effort")
-        if not isinstance(runner["model"], str) or not runner["model"].strip() or "\0" in runner["model"]:
-            raise fault(f"{where}.model", "must be a non-empty string")
-        if runner["effort"] not in EFFORTS[agent]:
-            raise fault(f"{where}.effort", f"must be one of {', '.join(EFFORTS[agent])} for {agent}")
+        model = check_model(f"{where}.model", runner["model"])
+        check_effort(f"{where}.effort", agent, model, runner["effort"])
     if not isinstance(data["preflight"], list):
         raise fault("preflight", "must be a list of checks")
     for index, check in enumerate(data["preflight"]):
