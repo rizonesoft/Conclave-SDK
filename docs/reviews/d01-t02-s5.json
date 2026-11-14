@@ -1,0 +1,87 @@
+{
+  "ref": "D01 T02 \u00a75",
+  "title": "Skill copy generator with per-agent patches",
+  "implementation_sha": "9e8ec6abb733210a0640c6e85bbb4cba5aee1098",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/01-forge/D01-T02-s5.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest tests.test_skill_copies -> Ran 23 tests, OK",
+    "removing the count check from generate_copy -> test_a_find_that_occurs_twice_is_refused fails",
+    "CI tests.yml run 43646188139 on 9e8ec6abb733 -> success on quick suite (Windows), full suite (Linux), kit suites (Linux)"
+  ],
+  "completion": {
+    "report": "docs/reviews/01-forge/D01-T02-s5.md",
+    "verdict": "filed",
+    "candidate": "9e8ec6abb733210a0640c6e85bbb4cba5aee1098",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": [
+      "D01 T02 \u00a76"
+    ]
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/01-forge/D01-T02-s5.md",
+    "candidate": "da9342f214883702f3be85684b1118b85ace7371",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "da9342f214883702f3be85684b1118b85ace7371",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}

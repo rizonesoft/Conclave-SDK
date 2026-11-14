@@ -38,7 +38,7 @@ title: "TODO-02 -- One gate and one skill source"
 | 2 | §2 | Test inventory that refuses a test no suite runs | §1 | [x] |
 | 3 | §3 | Install assertions moved from bash to the Python suite | §1 | [x] |
 | 4 | §4 | Bash installers and their tests retired | §3 | [x] |
-| 5 | §5 | Skill copy generator with per-agent patches | -- | [ ] |
+| 5 | §5 | Skill copy generator with per-agent patches | -- | [x] |
 | 6 | §6 | Committed skill copies equal to the generator's output | §5 | [ ] |
 | 7 | §7 | Pre-commit hook enabled at install and checked by doctor | -- | [ ] |
 
@@ -203,13 +203,16 @@ The Antigravity and Codex copies of a skill are the Claude copy with a few decla
 - [x] Leave hand-kept files alone in `skill_copies`: a `.codex/skills/<skill>/agents/openai.yaml` file is never generated, deleted or reported. Done when: a test finds a fixture's `openai.yaml` untouched and not listed.
 - [x] Report a stray copy in `skill_copies`: a file under `.agents/skills/` or `.codex/skills/` with no Claude source (other than Codex's `<skill>/agents/openai.yaml`) is listed and fails `--check`, and a run without `check` leaves it in place and reports it, because deleting a file nobody declared is the owner's call. Done when: a test adds one under each agent, an `agents/openai.yaml` under `.agents/skills/` among them, and finds each named.
 - [x] Add the `skill-copies` subcommand to `main` and `_run` in `forge.py` with `--check`, writing through `atomic_write` and exiting 1 when `--check` finds a difference. Done when: a test runs the command line on the fixture and asserts both exits.
-- [ ] Commit: `forge: skill-copies generates the Antigravity and Codex skill files`
+- [x] Commit: `forge: skill-copies generates the Antigravity and Codex skill files`
 
 **Corrected 2026-11-14 (validation):** measured today, each agent holds 19 files under its kits' `skills/` folders (16 `SKILL.md`, two `references/` files and `todo-template.md`), all with LF line endings, and `.codex` holds 16 `agents/openai.yaml` files besides; 10 files differ between the Claude and Antigravity copies and 9 between the Claude and Codex copies (the file's Current state says 9 and 9 of 18, from 2026-11-11, before the unattended kit's skill). No WordPress host overlay holds a skill today, so the overlay walk is proven on a fixture. Four gaps in the items, all taken: the patch path did not say where a host overlay's patches live (beside its `templates/`, like a kit's); the loader's refusals named three faults and left a wrong `schema_version`, a non-list `replace` and a non-string `with` open; `check` did not say a missing copy counts as a difference; and nothing refused a patch whose source is gone. The tests go in a new `tests/test_skill_copies.py`, not `tests/test_forge.py` (4,000 lines whose run takes over ten minutes), so the checkpoint named `test_forge.py` and now names the new file, which the `tests` suite of `check-all` picks up.
 
 **Corrected 2026-11-14 (plan review):** five gaps, all taken. The generation test compared the generator with its own checker (before: "generates both copies, `check` returns nothing afterwards"), so a generator that ignored the patches passed: it now compares with bytes the test writes out. Nothing proved `check` writes nothing, or that a refusal part way leaves earlier copies alone: `skill_copies` is all or nothing, with a test for each. Ordered replacements and kept line endings had no test that told them from independent replacements or normalised newlines. The `agents/openai.yaml` exception covered both agent trees and is Codex's only (before: "other than `agents/openai.yaml`"). Decision (default, cheap to reverse: one branch): a stray copy is reported and never deleted by the generator.
 
 **Test checkpoint:** `python -m unittest tests.test_skill_copies` ends `OK`; removing the count check from `generate_copy` makes the twice test fail.
+
+> **Verified:** 2026-11-15 | §5 | 9e8ec6abb733210a0640c6e85bbb4cba5aee1098
+> **Review:** `docs/reviews/d01-t02-s5.json`
 
 ## 6. Committed skill copies equal to the generator's output
 
