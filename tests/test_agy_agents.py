@@ -16,6 +16,8 @@ import sys
 import tempfile
 import time
 import unittest
+import urllib.parse
+import urllib.request
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -460,6 +462,7 @@ def _parse_ndjson_stream(
 ) -> dict[str, object]:
     """Parse Antigravity stream-json output and enforce init model + terminal success."""
     init_models: list[str] = []
+    conversation_id = ""
     seen_tool_ids: set[str] = set()
     tool_uses: list[dict[str, object]] = []
     tool_results: list[dict[str, object]] = []
@@ -467,6 +470,7 @@ def _parse_ndjson_stream(
     result_texts: list[str] = []
     result_events: list[dict[str, object]] = []
     steps: list[tuple[int, str, str]] = []
+    step_events: list[dict[str, object]] = []
 
     for raw in ndjson.splitlines():
         line = raw.strip()
@@ -475,6 +479,8 @@ def _parse_ndjson_stream(
         event = json.loads(line)
         if not isinstance(event, dict):
             continue
+        if not conversation_id and isinstance(event.get("conversation_id"), str):
+            conversation_id = event["conversation_id"]
         event_kind = str(event.get("event") or "").lower()
         etype = str(event.get("type") or "").lower()
         if event_kind == "step_update" and isinstance(event.get("step_update"), dict):
@@ -488,6 +494,7 @@ def _parse_ndjson_stream(
                     str(su.get("state") or "").upper(),
                 )
             )
+            step_events.append(su)
         if event_kind == "init" and isinstance(event.get("init"), dict):
             model = event["init"].get("model")
             if isinstance(model, str):
@@ -496,7 +503,10 @@ def _parse_ndjson_stream(
             init_models.append(event["model"])
 
         if event_kind == "result" and isinstance(event.get("result"), dict):
-            result_events.append(event["result"])
+            res = event["result"]
+            if not conversation_id and isinstance(res.get("conversation_id"), str):
+                conversation_id = res["conversation_id"]
+            result_events.append(res)
         elif etype == "result":
             result_events.append(event)
 
@@ -526,10 +536,12 @@ def _parse_ndjson_stream(
         final_text = streamed_text + "\n" + final_text
 
     return {
+        "conversation_id": conversation_id,
         "models": init_models,
         "tool_uses": tool_uses,
         "tool_results": tool_results,
         "steps": steps,
+        "step_events": step_events,
         "assistant_text": final_text,
         "result_status": status,
     }
@@ -621,14 +633,189 @@ def parse_orchestrator_stream(
     return parsed
 
 
+def _path_from_file_uri(uri: str) -> Path | None:
+    """Resolve a file:// URI into a local filesystem Path."""
+    parsed = urllib.parse.urlparse(uri)
+    if parsed.scheme != "file":
+        return None
+    local = urllib.request.url2pathname(parsed.path)
+    return Path(local) if local else None
+
+
+def _unwrap_json_str(value: object) -> str:
+    """Decode transcript tool_call argument strings that may be double-JSON-encoded."""
+    if not isinstance(value, str):
+        return ""
+    stripped = value.strip()
+    if stripped.startswith('"') and stripped.endswith('"'):
+        try:
+            decoded = json.loads(stripped)
+            if isinstance(decoded, str):
+                return decoded
+        except json.JSONDecodeError:
+            return stripped.strip('"')
+    return value
+
+
+def _read_jsonl_records(path: Path) -> list[dict[str, object]]:
+    """Load JSONL step dictionaries from a transcript file."""
+    records: list[dict[str, object]] = []
+    for raw in path.read_text(encoding="utf-8-sig").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        obj = json.loads(line)
+        if isinstance(obj, dict):
+            records.append(obj)
+    return records
+
+
+def _verify_subagent_transcript_completion(
+    sub_cid: str,
+    log_uri: str,
+    parent_cid: str,
+    launch_idx: int,
+) -> str:
+    """Verify completed subagent transcript send_message and matching parent SYSTEM_MESSAGE."""
+    sub_log = _path_from_file_uri(log_uri)
+    if sub_log is None or not sub_log.is_file():
+        raise AssertionError(
+            f"subagent {sub_cid!r} missing readable transcript at log_uri={log_uri!r}"
+        )
+    sub_records = _read_jsonl_records(sub_log)
+    if not sub_records:
+        raise AssertionError(f"subagent {sub_cid!r} transcript {sub_log} is empty")
+    bad_statuses = {"ERROR", "FAILED", "FAILURE", "CANCELLED"}
+    for rec in sub_records:
+        rstatus = str(rec.get("status") or "").upper()
+        if rstatus in bad_statuses or rec.get("error"):
+            raise AssertionError(
+                f"subagent {sub_cid!r} transcript recorded failed step: {rec!r}"
+            )
+    last_status = str(sub_records[-1].get("status") or "").upper()
+    if last_status != "DONE":
+        raise AssertionError(
+            f"subagent {sub_cid!r} transcript did not end DONE (last={last_status!r})"
+        )
+
+    sent_messages: list[str] = []
+    for idx, rec in enumerate(sub_records):
+        tool_calls = rec.get("tool_calls")
+        if not isinstance(tool_calls, list):
+            continue
+        for tc in tool_calls:
+            if not isinstance(tc, dict) or tc.get("name") != "send_message":
+                continue
+            args = tc.get("args")
+            amap = args if isinstance(args, dict) else {}
+            recipient = _unwrap_json_str(amap.get("Recipient"))
+            message = _unwrap_json_str(amap.get("Message"))
+            if parent_cid and recipient != parent_cid:
+                continue
+            if not message.strip():
+                continue
+            ack_ok = any(
+                str(nxt.get("status") or "").upper() == "DONE"
+                and "Message sent to" in str(nxt.get("content") or "")
+                for nxt in sub_records[idx + 1 :]
+            )
+            if not ack_ok:
+                raise AssertionError(
+                    f"subagent {sub_cid!r} send_message lacked Message sent confirmation"
+                )
+            sent_messages.append(message)
+    if not sent_messages:
+        raise AssertionError(
+            f"subagent {sub_cid!r} transcript recorded no completed send_message to {parent_cid!r}"
+        )
+
+    if len(sub_log.parents) < 4 or not parent_cid:
+        raise AssertionError(
+            f"cannot resolve parent transcript alongside {sub_log} for parent {parent_cid!r}"
+        )
+    parent_log = sub_log.parents[3] / parent_cid / ".system_generated" / "logs" / "transcript.jsonl"
+    if not parent_log.is_file():
+        raise AssertionError(f"parent transcript missing at {parent_log}")
+    parent_records = _read_jsonl_records(parent_log)
+    matched_parent = [
+        rec
+        for rec in parent_records
+        if str(rec.get("type") or "").upper() == "SYSTEM_MESSAGE"
+        and str(rec.get("status") or "").upper() == "DONE"
+        and isinstance(rec.get("step_index"), int)
+        and int(rec["step_index"]) > launch_idx
+        and f"sender={sub_cid}" in str(rec.get("content") or "")
+    ]
+    if not matched_parent:
+        raise AssertionError(
+            f"parent transcript lacked post-launch SYSTEM_MESSAGE from sender={sub_cid!r}"
+        )
+    parent_msg = str(matched_parent[-1].get("content") or "")
+    if not any(sent.strip() and sent.strip() in parent_msg for sent in sent_messages):
+        raise AssertionError(
+            f"parent SYSTEM_MESSAGE did not carry subagent {sub_cid!r} reply: {parent_msg!r}"
+        )
+    return "\n".join(sent_messages)
+
+
+def _inline_system_message_reply(
+    sub_cid: str,
+    launch_idx: int,
+    step_events: list[dict[str, object]],
+) -> str | None:
+    """Extract attributable completion reply from inline system_message events, if present."""
+    for step in step_events:
+        if str(step.get("step_type") or "").lower() != "system_message":
+            continue
+        raw_idx = step.get("step_index")
+        step_idx = raw_idx if isinstance(raw_idx, int) else -1
+        if step_idx <= launch_idx:
+            continue
+        sender = str(
+            step.get("sender")
+            or step.get("subagent_conversation_id")
+            or step.get("source_conversation_id")
+            or ""
+        ).strip()
+        content = str(step.get("content") or step.get("message") or step.get("text") or "")
+        attributed = sender == sub_cid or f"sender={sub_cid}" in content
+        if not attributed:
+            continue
+        state = str(step.get("state") or "").upper()
+        err = step.get("error") or step.get("is_error")
+        if state != "DONE" or err:
+            raise AssertionError(
+                f"subagent {sub_cid!r} system_message reported failure: {step!r}"
+            )
+        if not content.strip():
+            raise AssertionError(
+                f"subagent {sub_cid!r} system_message contained empty reply payload: {step!r}"
+            )
+        return content
+    return None
+
+
 def parse_subagent_delegation_stream(
-    ndjson: str, *, expected_model_prefix: str = "gemini-pro-orchestrator"
+    ndjson: str,
+    *,
+    expected_model_prefix: str = "gemini-pro-orchestrator",
+    forbid_parent_tools: tuple[str, ...] = (),
 ) -> dict[str, object]:
-    """Validate actual invoke_subagent delegation + completion in stream-json output."""
+    """Validate invoke_subagent delegation with attributable completion per launched subagent."""
     parsed = _parse_ndjson_stream(ndjson, expected_model_prefix=expected_model_prefix)
     tool_uses: list[dict[str, object]] = parsed["tool_uses"]  # type: ignore[assignment]
     tool_results: list[dict[str, object]] = parsed["tool_results"]  # type: ignore[assignment]
-    steps: list[tuple[int, str, str]] = parsed["steps"]  # type: ignore[assignment]
+    step_events: list[dict[str, object]] = parsed["step_events"]  # type: ignore[assignment]
+    parent_cid = str(parsed.get("conversation_id") or "")
+
+    if forbid_parent_tools:
+        forbidden = [
+            call.get("name") for call in tool_uses if call.get("name") in forbid_parent_tools
+        ]
+        if forbidden:
+            raise AssertionError(
+                f"parent invoked forbidden direct inspection tools {forbidden!r} instead of delegating"
+            )
 
     subagent_calls = [call for call in tool_uses if call.get("name") == "invoke_subagent"]
     if not subagent_calls:
@@ -639,34 +826,89 @@ def parse_subagent_delegation_stream(
     subagent_results = _matching_tool_results("invoke_subagent", tool_uses, tool_results)
     if len(subagent_results) < len(subagent_calls):
         raise AssertionError("invoke_subagent call lacked a matching completion tool_result")
-    for res in subagent_results:
-        _assert_result_succeeded(res, "invoke_subagent")
-        out = res.get("output")
-        if isinstance(out, dict) and isinstance(out.get("subagents"), list):
-            for entry in out["subagents"]:
-                if not isinstance(entry, dict) or not str(entry.get("conversation_id") or "").strip():
-                    raise AssertionError(f"invoke_subagent result missing conversation_id: {entry!r}")
 
-    launch_indices: list[int] = []
-    for call in subagent_calls:
-        cid = str(call.get("id") or "")
-        if cid.startswith("step-"):
-            tail = cid.removeprefix("step-")
-            if tail.isdigit():
-                launch_indices.append(int(tail))
-    if launch_indices:
-        min_launch = min(launch_indices)
+    launched: list[tuple[int, str, str]] = []
+    for call, res in zip(subagent_calls, subagent_results):
+        _assert_result_succeeded(res, "invoke_subagent")
+        call_id = str(call.get("id") or "")
+        tail = call_id.removeprefix("step-") if call_id.startswith("step-") else ""
+        launch_idx = int(tail) if tail.isdigit() else -1
+        out = res.get("output")
+        if not isinstance(out, dict) or not isinstance(out.get("subagents"), list) or not out["subagents"]:
+            raise AssertionError(f"invoke_subagent result missing subagents metadata: {res!r}")
+        for entry in out["subagents"]:
+            sub_cid = str(entry.get("conversation_id") or "").strip() if isinstance(entry, dict) else ""
+            if not sub_cid:
+                raise AssertionError(f"invoke_subagent result missing conversation_id: {entry!r}")
+            log_uri = str(entry.get("log_uri") or "").strip()
+            launched.append((launch_idx, sub_cid, log_uri))
+
+    min_launch_idx = min(idx for idx, _, _ in launched)
+    failed_wakeups = [
+        step
+        for step in step_events
+        if str(step.get("step_type") or "").lower() == "system_message"
+        and (
+            min_launch_idx < 0
+            or (isinstance(step.get("step_index"), int) and int(step["step_index"]) > min_launch_idx)
+        )
+        and (
+            str(step.get("state") or "").upper() in {"ERROR", "FAILED", "FAILURE", "CANCELLED"}
+            or step.get("error")
+            or step.get("is_error")
+        )
+    ]
+    if failed_wakeups:
+        raise AssertionError(
+            f"post-launch system_message reported failure: {failed_wakeups!r}"
+        )
+
+    post_launch_done_wakeups = [
+        step
+        for step in step_events
+        if str(step.get("step_type") or "").lower() == "system_message"
+        and str(step.get("state") or "").upper() == "DONE"
+        and (
+            min_launch_idx < 0
+            or (isinstance(step.get("step_index"), int) and int(step["step_index"]) > min_launch_idx)
+        )
+        and not (step.get("error") or step.get("is_error"))
+    ]
+    if len(post_launch_done_wakeups) < len(launched):
+        raise AssertionError(
+            f"expected at least {len(launched)} post-launch DONE system_message wakeup(s), "
+            f"got {len(post_launch_done_wakeups)}"
+        )
+
+    delegated_replies: list[str] = []
+    for launch_idx, sub_cid, log_uri in launched:
         has_wakeup = any(
-            idx > min_launch and stype == "system_message" and sstate == "DONE"
-            for idx, stype, sstate in steps
+            str(step.get("step_type") or "").lower() == "system_message"
+            and str(step.get("state") or "").upper() == "DONE"
+            and (launch_idx < 0 or (isinstance(step.get("step_index"), int) and int(step["step_index"]) > launch_idx))
+            and not (step.get("error") or step.get("is_error"))
+            for step in step_events
         )
         if not has_wakeup:
             raise AssertionError(
-                "invoke_subagent launched asynchronously without post-launch system_message completion"
+                f"subagent {sub_cid!r} lacked post-launch DONE system_message wakeup"
+            )
+
+        inline_reply = _inline_system_message_reply(sub_cid, launch_idx, step_events)
+        if inline_reply is not None:
+            delegated_replies.append(inline_reply)
+        elif log_uri:
+            delegated_replies.append(
+                _verify_subagent_transcript_completion(sub_cid, log_uri, parent_cid, launch_idx)
+            )
+        else:
+            raise AssertionError(
+                f"subagent {sub_cid!r} wakeup was unattributed (no matching sender={sub_cid!r} or log_uri)"
             )
 
     parsed["subagent_calls"] = subagent_calls
     parsed["subagent_results"] = subagent_results
+    parsed["delegated_replies"] = delegated_replies
     return parsed
 
 
@@ -718,6 +960,7 @@ class OrchestratorContractTests(unittest.TestCase):
                 *[f".agents/agents/{name}" for name in RETIRED_AGENT_FILES],
                 "scripts/agy-subagent.py",
             ]
+            expected_pre_bytes: dict[str, bytes] = {}
             for rel in retired_paths:
                 dest = project / rel
                 dest.parent.mkdir(parents=True, exist_ok=True)
@@ -727,15 +970,36 @@ class OrchestratorContractTests(unittest.TestCase):
                     "sha256": hashlib.sha256(original_bytes).hexdigest(),
                 }
                 if rel == ".agents/agents/code-explorer.md":
-                    dest.write_bytes(original_bytes + b"# project customization\n")
+                    content_bytes = original_bytes + b"# project customization\n"
                 else:
-                    dest.write_bytes(original_bytes)
+                    content_bytes = original_bytes
+                dest.write_bytes(content_bytes)
+                expected_pre_bytes[rel] = content_bytes
 
             kits_file.write_text(json.dumps(kits_data, indent=2) + "\n", encoding="utf-8")
 
             custom_agent = project / ".agents" / "agents" / "custom-reviewer.md"
             custom_text = "# Project-specific custom agent definition\n"
             custom_agent.write_text(custom_text, encoding="utf-8")
+
+            def _git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    ["git", *args],
+                    cwd=str(project),
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=check,
+                )
+
+            _git("init")
+            _git("config", "core.autocrlf", "false")
+            _git("config", "user.email", "test@example.com")
+            _git("config", "user.name", "Test")
+            _git("add", "-A")
+            _git("commit", "-m", "chore: pre-migration baseline")
+            _git("branch", "pre-orchestrator-migration")
 
             diff_proc = _run_forge(["diff", str(project), "base"], check=False)
             self.assertEqual(diff_proc.returncode, 0, diff_proc.stderr)
@@ -747,9 +1011,9 @@ class OrchestratorContractTests(unittest.TestCase):
             self.assertEqual(update_proc.returncode, 0, update_proc.stderr)
             for rel in retired_paths:
                 self.assertTrue((project / rel).is_file(), f"update removed {rel} unexpectedly")
-            self.assertIn(
-                b"# project customization\n",
+            self.assertEqual(
                 (project / ".agents/agents/code-explorer.md").read_bytes(),
+                expected_pre_bytes[".agents/agents/code-explorer.md"],
             )
             self.assertEqual(custom_agent.read_text(encoding="utf-8"), custom_text)
 
@@ -761,7 +1025,11 @@ class OrchestratorContractTests(unittest.TestCase):
             ]
             self.assertEqual(locally_modified, [".agents/agents/code-explorer.md"])
 
-            # Follow the documented migration cleanup: remove only the 6 retired SDK paths.
+            # Preserve local customizations into a retained custom file before deleting retired paths.
+            preserved_agent = project / ".agents" / "agents" / "preserved-code-explorer.md"
+            preserved_agent.write_bytes((project / ".agents/agents/code-explorer.md").read_bytes())
+
+            # Remove only the 6 retired SDK paths, update kits.json, and commit the cleanup.
             for rel in retired_paths:
                 (project / rel).unlink()
             updated_kits = json.loads(kits_file.read_text(encoding="utf-8"))
@@ -769,7 +1037,14 @@ class OrchestratorContractTests(unittest.TestCase):
                 updated_kits["files"].pop(rel, None)
             kits_file.write_text(json.dumps(updated_kits, indent=2) + "\n", encoding="utf-8")
 
+            _git("add", "-A")
+            _git("commit", "-m", "chore: remove retired agy wrappers after preserving edits")
+
             self.assertEqual(custom_agent.read_text(encoding="utf-8"), custom_text)
+            self.assertEqual(
+                preserved_agent.read_bytes(),
+                expected_pre_bytes[".agents/agents/code-explorer.md"],
+            )
             for rel in retired_paths:
                 self.assertFalse((project / rel).exists())
 
@@ -781,12 +1056,36 @@ class OrchestratorContractTests(unittest.TestCase):
             doctor_proc = _run_forge(["doctor", str(project), "base"], check=False)
             self.assertEqual(doctor_proc.returncode, 0, doctor_proc.stdout + doctor_proc.stderr)
 
+            # Verify rollback via HEAD alone fails after commit, while pre-orchestrator-migration restores byte-for-byte.
+            head_rollback = _git("checkout", "HEAD", "--", "scripts/agy-subagent.py", check=False)
+            self.assertNotEqual(head_rollback.returncode, 0)
+
+            _git(
+                "checkout",
+                "pre-orchestrator-migration",
+                "--",
+                ".agents/agents",
+                "scripts/agy-subagent.py",
+                ".conclave/kits.json",
+            )
+            for rel, raw_bytes in expected_pre_bytes.items():
+                self.assertTrue((project / rel).is_file(), f"rollback did not restore {rel}")
+                self.assertEqual((project / rel).read_bytes(), raw_bytes, f"byte mismatch on {rel}")
+            self.assertEqual(json.loads(kits_file.read_text(encoding="utf-8")), kits_data)
+            self.assertEqual(custom_agent.read_text(encoding="utf-8"), custom_text)
+            self.assertEqual(
+                preserved_agent.read_bytes(),
+                expected_pre_bytes[".agents/agents/code-explorer.md"],
+            )
+
     def test_docs_self_sync_and_review_pin_orchestrator_helpers(self) -> None:
         readme = (KIT_BASE / "README.md").read_text(encoding="utf-8")
         self.assertIn("### Migrating existing installs to Orchestrator (Carbon)", readme)
         self.assertIn("### Live verification", readme)
         self.assertIn("--model gemini-pro-orchestrator", readme)
         self.assertIn(".agents/agents/<custom>.md", readme)
+        self.assertIn("pre-orchestrator-migration", readme)
+        self.assertIn("preserved-code-explorer.md", readme)
         for name in RETIRED_AGENT_FILES:
             self.assertIn(name, readme)
         self.assertIn("scripts/agy-subagent.py", readme)
@@ -884,6 +1183,8 @@ def _agy_subagent_pair(
     *,
     state: str = "DONE",
     error: str = "",
+    sub_cid: str = "sub-1",
+    log_uri: str = "",
 ) -> list[str]:
     """Return ACTIVE and terminal step_update lines matching agy 1.5.8 invoke_subagent."""
     sub_entry: dict[str, object] = {
@@ -904,7 +1205,9 @@ def _agy_subagent_pair(
             },
         }
     )
-    done_entry = {**sub_entry, "conversation_id": "sub-1"}
+    done_entry: dict[str, object] = {**sub_entry, "conversation_id": sub_cid}
+    if log_uri:
+        done_entry["log_uri"] = log_uri
     done_step: dict[str, object] = {
         "conversation_id": "c1",
         "step_index": step_index,
@@ -916,6 +1219,79 @@ def _agy_subagent_pair(
     if error:
         done_step["error"] = error
     return [active, json.dumps({"event": "step_update", "step_update": done_step})]
+
+
+def _write_transcript_fixture(
+    brain_root: Path,
+    parent_cid: str,
+    sub_cid: str,
+    *,
+    parent_sys_sender: str | None = None,
+    sub_reply: str = "halve is at line 5 returning n / 2.",
+    sub_final_status: str = "DONE",
+    sub_send_ack: bool = True,
+    parent_sys_step_index: int = 5,
+    omit_sub_send: bool = False,
+) -> Path:
+    """Create agy 1.5.8 parent and subagent transcript.jsonl files and return sub_log Path."""
+    sub_log = brain_root / sub_cid / ".system_generated" / "logs" / "transcript.jsonl"
+    sub_log.parent.mkdir(parents=True, exist_ok=True)
+    sub_steps: list[dict[str, object]] = [
+        {"step_index": 0, "type": "SYSTEM_MESSAGE", "status": "DONE", "content": f"sender={parent_cid}"},
+        {"step_index": 1, "type": "PLANNER_RESPONSE", "status": "DONE", "tool_calls": [{"name": "read_file", "args": {"Path": "calc.py"}}]},
+    ]
+    if not omit_sub_send:
+        sub_steps.append(
+            {
+                "step_index": 2,
+                "type": "PLANNER_RESPONSE",
+                "status": "DONE",
+                "tool_calls": [
+                    {
+                        "name": "send_message",
+                        "args": {
+                            "Recipient": json.dumps(parent_cid),
+                            "Message": json.dumps(sub_reply),
+                        },
+                    }
+                ],
+            }
+        )
+        if sub_send_ack:
+            sub_steps.append(
+                {
+                    "step_index": 3,
+                    "type": "GENERIC",
+                    "status": "DONE",
+                    "content": f'Message sent to "{parent_cid}".',
+                }
+            )
+    sub_steps.append(
+        {
+            "step_index": 4,
+            "type": "PLANNER_RESPONSE",
+            "status": sub_final_status,
+            "content": "Completed.",
+        }
+    )
+    sub_log.write_text("\n".join(json.dumps(s) for s in sub_steps) + "\n", encoding="utf-8")
+
+    parent_log = brain_root / parent_cid / ".system_generated" / "logs" / "transcript.jsonl"
+    parent_log.parent.mkdir(parents=True, exist_ok=True)
+    parent_steps: list[dict[str, object]] = [
+        {"step_index": 0, "type": "USER_INPUT", "status": "DONE", "content": "delegate"},
+    ]
+    if parent_sys_sender is not None:
+        parent_steps.append(
+            {
+                "step_index": parent_sys_step_index,
+                "type": "SYSTEM_MESSAGE",
+                "status": "DONE",
+                "content": f"[Message] sender={parent_sys_sender} content={sub_reply}",
+            }
+        )
+    parent_log.write_text("\n".join(json.dumps(s) for s in parent_steps) + "\n", encoding="utf-8")
+    return sub_log
 
 
 def _agy_result_line(status: str = "SUCCESS", response: str = "Done.") -> str:
@@ -1029,10 +1405,10 @@ else:
         self.assertEqual(parsed["models"], ["gemini-pro-orchestrator"])
 
     def test_accepts_valid_invoke_subagent_delegation_stream(self) -> None:
-        stream = "\n".join(
+        inline_stream = "\n".join(
             [
                 _agy_init_line("gemini-pro-orchestrator-argon"),
-                *_agy_subagent_pair(3, "research"),
+                *_agy_subagent_pair(3, "research", sub_cid="sub-1"),
                 json.dumps(
                     {
                         "event": "step_update",
@@ -1041,6 +1417,8 @@ else:
                             "step_index": 5,
                             "state": "DONE",
                             "step_type": "system_message",
+                            "sender": "sub-1",
+                            "content": "[Message] sender=sub-1 halve is on line 5 returning n / 2.",
                         },
                     }
                 ),
@@ -1071,8 +1449,45 @@ else:
                 _agy_result_line("SUCCESS", "halve is on line 5 of calc.py and returns n / 2."),
             ]
         )
-        parsed = parse_subagent_delegation_stream(stream)
-        self.assertIn("line 5", str(parsed["assistant_text"]))
+        inline_parsed = parse_subagent_delegation_stream(
+            inline_stream, forbid_parent_tools=("read_file",)
+        )
+        self.assertIn("n / 2", "\n".join(inline_parsed["delegated_replies"]))  # type: ignore[arg-type]
+        self.assertIn("line 5", str(inline_parsed["assistant_text"]))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            sub_log = _write_transcript_fixture(
+                Path(tmp),
+                "c1",
+                "sub-1",
+                parent_sys_sender="sub-1",
+                sub_reply="halve is on line 5 returning n / 2.",
+            )
+            transcript_stream = "\n".join(
+                [
+                    _agy_init_line("gemini-pro-orchestrator-argon"),
+                    *_agy_subagent_pair(3, "research", sub_cid="sub-1", log_uri=sub_log.as_uri()),
+                    json.dumps(
+                        {
+                            "event": "step_update",
+                            "step_update": {
+                                "conversation_id": "c1",
+                                "step_index": 5,
+                                "state": "DONE",
+                                "step_type": "system_message",
+                            },
+                        }
+                    ),
+                    _agy_result_line("SUCCESS", "halve is on line 5 of calc.py and returns n / 2."),
+                ]
+            )
+            transcript_parsed = parse_subagent_delegation_stream(
+                transcript_stream, forbid_parent_tools=("read_file",)
+            )
+        replies_text = "\n".join(transcript_parsed["delegated_replies"])  # type: ignore[arg-type]
+        self.assertIn("n / 2", replies_text)
+        self.assertRegex(replies_text, r"\b5\b")
+        self.assertIn("line 5", str(transcript_parsed["assistant_text"]))
 
     def test_rejects_listing_only_output_without_invoke_subagent(self) -> None:
         stream = "\n".join(
@@ -1084,41 +1499,185 @@ else:
         with self.assertRaises(AssertionError):
             parse_subagent_delegation_stream(stream)
 
-    def test_rejects_failed_or_incomplete_invoke_subagent(self) -> None:
-        failed_stream = "\n".join(
-            [
-                _agy_init_line("gemini-pro-orchestrator"),
-                *_agy_subagent_pair(
-                    3,
-                    "research",
-                    state="ERROR",
-                    error="subagent launch denied",
-                ),
-                _agy_result_line("SUCCESS"),
-            ]
+    def test_rejects_failed_unattributed_or_direct_inspection_delegation(self) -> None:
+        right_answer = "halve is on line 5 of calc.py and returns n / 2."
+        redacted_wakeup = json.dumps(
+            {
+                "event": "step_update",
+                "step_update": {
+                    "conversation_id": "c1",
+                    "step_index": 5,
+                    "state": "DONE",
+                    "step_type": "system_message",
+                },
+            }
         )
-        with self.assertRaises(AssertionError):
-            parse_subagent_delegation_stream(failed_stream)
+        inline_cases: list[tuple[str, list[str], tuple[str, ...]]] = [
+            (
+                "failed invoke_subagent",
+                [
+                    *_agy_subagent_pair(3, "research", state="ERROR", error="subagent launch denied"),
+                    redacted_wakeup,
+                ],
+                (),
+            ),
+            (
+                "incomplete invoke_subagent",
+                [_agy_subagent_pair(3, "research")[0], redacted_wakeup],
+                (),
+            ),
+            (
+                "launch without wakeup",
+                [*_agy_subagent_pair(3, "research")],
+                (),
+            ),
+            (
+                "unattributed system_message without sender or log_uri",
+                [*_agy_subagent_pair(3, "research"), redacted_wakeup],
+                (),
+            ),
+            (
+                "inline system_message from unrelated sender",
+                [
+                    *_agy_subagent_pair(3, "research", sub_cid="sub-1"),
+                    json.dumps(
+                        {
+                            "event": "step_update",
+                            "step_update": {
+                                "conversation_id": "c1",
+                                "step_index": 5,
+                                "state": "DONE",
+                                "step_type": "system_message",
+                                "sender": "sub-unrelated",
+                                "content": f"[Message] sender=sub-unrelated {right_answer}",
+                            },
+                        }
+                    ),
+                ],
+                (),
+            ),
+            (
+                "failed inline system_message",
+                [
+                    *_agy_subagent_pair(3, "research", sub_cid="sub-1"),
+                    json.dumps(
+                        {
+                            "event": "step_update",
+                            "step_update": {
+                                "conversation_id": "c1",
+                                "step_index": 5,
+                                "state": "ERROR",
+                                "step_type": "system_message",
+                                "error": "subagent failed",
+                            },
+                        }
+                    ),
+                ],
+                (),
+            ),
+            (
+                "parent used forbidden direct read tool",
+                [
+                    *_agy_tool_pair(2, "read_file", parameters={"Path": "calc.py"}, output=right_answer),
+                    *_agy_subagent_pair(3, "research", sub_cid="sub-1"),
+                    json.dumps(
+                        {
+                            "event": "step_update",
+                            "step_update": {
+                                "conversation_id": "c1",
+                                "step_index": 5,
+                                "state": "DONE",
+                                "step_type": "system_message",
+                                "sender": "sub-1",
+                                "content": f"[Message] sender=sub-1 {right_answer}",
+                            },
+                        }
+                    ),
+                ],
+                ("read_file",),
+            ),
+            (
+                "two subagents launched with only one DONE wakeup",
+                [
+                    *_agy_subagent_pair(3, "research", sub_cid="sub-1"),
+                    *_agy_subagent_pair(4, "research", sub_cid="sub-2"),
+                    json.dumps(
+                        {
+                            "event": "step_update",
+                            "step_update": {
+                                "conversation_id": "c1",
+                                "step_index": 5,
+                                "state": "DONE",
+                                "step_type": "system_message",
+                                "sender": "sub-1",
+                                "content": f"[Message] sender=sub-1 {right_answer}",
+                            },
+                        }
+                    ),
+                ],
+                (),
+            ),
+            (
+                "mixed DONE and ERROR system_message wakeups",
+                [
+                    *_agy_subagent_pair(3, "research", sub_cid="sub-1"),
+                    json.dumps(
+                        {
+                            "event": "step_update",
+                            "step_update": {
+                                "conversation_id": "c1",
+                                "step_index": 5,
+                                "state": "DONE",
+                                "step_type": "system_message",
+                                "sender": "sub-1",
+                                "content": f"[Message] sender=sub-1 {right_answer}",
+                            },
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "event": "step_update",
+                            "step_update": {
+                                "conversation_id": "c1",
+                                "step_index": 6,
+                                "state": "ERROR",
+                                "step_type": "system_message",
+                                "error": "secondary wakeup failed",
+                            },
+                        }
+                    ),
+                ],
+                (),
+            ),
+        ]
+        for label, events, forbidden in inline_cases:
+            with self.subTest(case=label):
+                stream = "\n".join(
+                    [_agy_init_line("gemini-pro-orchestrator"), *events, _agy_result_line("SUCCESS", right_answer)]
+                )
+                with self.assertRaises(AssertionError):
+                    parse_subagent_delegation_stream(stream, forbid_parent_tools=forbidden)
 
-        incomplete_call_stream = "\n".join(
-            [
-                _agy_init_line("gemini-pro-orchestrator"),
-                _agy_subagent_pair(3, "research")[0],
-                _agy_result_line("SUCCESS"),
-            ]
-        )
-        with self.assertRaises(AssertionError):
-            parse_subagent_delegation_stream(incomplete_call_stream)
-
-        launch_only_stream = "\n".join(
-            [
-                _agy_init_line("gemini-pro-orchestrator"),
-                *_agy_subagent_pair(3, "research"),
-                _agy_result_line("SUCCESS", "Launched research subagent."),
-            ]
-        )
-        with self.assertRaises(AssertionError):
-            parse_subagent_delegation_stream(launch_only_stream)
+        transcript_cases: list[tuple[str, dict[str, object]]] = [
+            ("unrelated sender in parent transcript", {"parent_sys_sender": "sub-unrelated"}),
+            ("missing parent SYSTEM_MESSAGE reply", {"parent_sys_sender": None}),
+            ("missing subagent send_message", {"parent_sys_sender": "sub-1", "omit_sub_send": True}),
+            ("unconfirmed send_message", {"parent_sys_sender": "sub-1", "sub_send_ack": False}),
+            ("failed subagent final status", {"parent_sys_sender": "sub-1", "sub_final_status": "ERROR"}),
+        ]
+        for label, fixture_kwargs in transcript_cases:
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as tmp:
+                sub_log = _write_transcript_fixture(Path(tmp), "c1", "sub-1", **fixture_kwargs)  # type: ignore[arg-type]
+                stream = "\n".join(
+                    [
+                        _agy_init_line("gemini-pro-orchestrator"),
+                        *_agy_subagent_pair(3, "research", sub_cid="sub-1", log_uri=sub_log.as_uri()),
+                        redacted_wakeup,
+                        _agy_result_line("SUCCESS", right_answer),
+                    ]
+                )
+                with self.assertRaises(AssertionError):
+                    parse_subagent_delegation_stream(stream)
 
     def test_rejects_missing_exit_plan_mode_wrong_model_and_incomplete_result(self) -> None:
         no_exit = "\n".join(
@@ -1303,21 +1862,35 @@ class LiveOrchestratorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             ws = _make_live_workspace(Path(tmp))
             prompt = (
-                "Call invoke_subagent once with TypeName='research' to read calc.py and find the "
-                "exact 1-based line number of `def halve` and the expression it returns. "
-                "Wait for the subagent reply (stop calling other tools until it replies), then "
-                "report the exact line number and returned expression."
+                "Do NOT read calc.py directly in this parent session; do not call read_file, "
+                "view_file, grep_search, find_by_name, list_dir, or run_command. "
+                "Call invoke_subagent once with TypeName='research' to read calc.py, find the "
+                "exact 1-based line number of `def halve` and the expression it returns, and report "
+                "them back with send_message. Wait for the subagent reply (stop calling other tools "
+                "until it replies), then report the exact line number and returned expression."
             )
             rc, stdout, stderr, timed_out = _run_agy(prompt, cwd=ws, timeout=240.0)
             try:
                 self.assertFalse(timed_out, f"agy timed out; stderr={stderr}")
                 self.assertEqual(rc, 0, f"agy rc={rc}; stderr={stderr}\nstdout={stdout[-1200:]}")
-                parsed = parse_subagent_delegation_stream(stdout)
-                combined = (
-                    str(parsed["assistant_text"]) + "\n" + json.dumps(parsed["subagent_results"])
+                parsed = parse_subagent_delegation_stream(
+                    stdout,
+                    forbid_parent_tools=(
+                        "read_file",
+                        "file_read",
+                        "view_file",
+                        "grep_search",
+                        "find_by_name",
+                        "list_dir",
+                        "run_command",
+                        "run_in_terminal",
+                    ),
                 )
-                self.assertRegex(combined, r"\b5\b", f"expected line 5 in:\n{combined}")
-                self.assertIn("n / 2", combined, f"expected 'n / 2' in:\n{combined}")
+                delegated = "\n".join(parsed["delegated_replies"])  # type: ignore[arg-type]
+                assistant = str(parsed["assistant_text"])
+                for label, body in (("delegated_replies", delegated), ("assistant_text", assistant)):
+                    self.assertRegex(body, r"\b5\b", f"expected line 5 in {label}:\n{body}")
+                    self.assertIn("n / 2", body, f"expected 'n / 2' in {label}:\n{body}")
             except AssertionError as exc:
                 dump = _dump_stream_on_error("test01", stdout, stderr)
                 raise AssertionError(f"{exc} (stream saved to {dump})") from exc

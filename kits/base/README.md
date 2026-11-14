@@ -69,18 +69,18 @@ Because `forge.py update <project> base` is additive-only and preserves deleted 
 
 Follow this reversible cleanup after `python forge.py update <project> base`:
 
-1. Inspect retired files with `python forge.py diff <project> base` (each retired file reports `project-only`). Confirm `.conclave/kits.json` or `git diff` shows no local customizations you want to keep in those six paths; keep or rename any project-custom `.agents/agents/<custom>.md` file untouched.
-2. Commit or back up your repository first so the removal is reversible (`git checkout HEAD -- .agents/agents scripts/agy-subagent.py` restores the prior wrappers if you ever revert to `gemini-4-carbon-medium` without `Orchestrator (Carbon)`).
-3. Remove only the six retired SDK paths (and `.agents/agents` if it is now empty; never delete custom `.agents/agents/<custom>.md` files).
+1. Inspect retired files with `python forge.py diff <project> base` (each retired file reports `project-only`). Compare against `.conclave/kits.json` or `git diff`: copy any local customizations you still need from a retired file into a retained project-custom file (for example `.agents/agents/preserved-code-explorer.md`), and leave existing project-custom `.agents/agents/<custom>.md` files untouched.
+2. Commit your pre-cleanup repository state and anchor a durable recovery ref before deleting anything (`git branch pre-orchestrator-migration`, or record `git rev-parse HEAD`). Because a committed deletion removes those paths from later `HEAD` commits, rollback after cleanup is committed uses that saved ref (`git checkout pre-orchestrator-migration -- .agents/agents scripts/agy-subagent.py .conclave/kits.json`) to restore all six retired paths, `.conclave/kits.json`, and their prior customizations byte-for-byte if you ever revert to `gemini-4-carbon-medium` without `Orchestrator (Carbon)`.
+3. Remove only the six retired SDK paths (and `.agents/agents` only if it is now empty; keep migrated `.agents/agents/preserved-*.md` and custom `.agents/agents/<custom>.md` files), remove their retired entries from `.conclave/kits.json` if desired, and commit the cleanup.
 4. Switch interactive and CLI Antigravity launches to `--model gemini-pro-orchestrator` with no `--effort` flag; if the project also installs `kits/unattended`, update `kits/unattended` to a release with Orchestrator effort-free profile support before setting `"effort": null` in `.conclave/unattended.json` (older unattended releases require a non-null string effort such as `gemini-4-carbon-high` with `"effort": "high"`).
 5. Verify native operation: confirm none of the five SDK wrappers remain in `.agents/agents/`, confirm `agy --model gemini-pro-orchestrator` lists built-in `self`, `research`, and `image-generator` in `<subagents>`, and confirm two-phase `exit_plan_mode` execution runs cleanly.
 
 ### Live verification (`agy` 1.5.8, 2026-11-14)
 
-Verified on 2026-11-14 against installed `agy` `1.5.8` with `CONCLAVE_LIVE_AGY=1 python -m unittest -v tests.test_agy_agents` (`Ran 14 tests in 348.903s OK`):
+Verified on 2026-11-14 against installed `agy` `1.5.8` with `CONCLAVE_LIVE_AGY=1 python -m unittest -v tests.test_agy_agents` (`Ran 14 tests in 381.924s OK`):
 
 - **Built-in `<subagents>` listing:** Initiated `gemini-pro-orchestrator` in a fresh `--kit base --agent agy` workspace with zero `.agents/agents` directory and confirmed native `self`, `research`, and `image-generator` subagents are available.
-- **Real `invoke_subagent` delegation:** Delegated a known-answer lookup (`def halve` in `calc.py`) to `TypeName='research'`, observed `step_type: "subagent"` (`invoke_subagent`) launch plus post-launch `system_message` wakeup completion in `stream-json`, and independently confirmed the reported answer (line `5`, returning `n / 2`).
+- **Real `invoke_subagent` delegation:** Delegated a known-answer lookup (`def halve` in `calc.py`) to `TypeName='research'` with parent direct-inspection tools forbidden, observed `step_type: "subagent"` (`invoke_subagent`) launch plus post-launch `system_message` wakeup in `stream-json`, matched subagent `send_message` and parent `SYSTEM_MESSAGE` (`sender=<subagent_conversation_id>`) transcript attribution, and independently confirmed the reported answer (line `5`, returning `n / 2`) in both `delegated_replies` and `assistant_text`.
 - **Two-phase `exit_plan_mode` execution:** Invoked `gemini-pro-orchestrator` to fix buggy `add(a, b)` in `calc.py`, observed planning, `exit_plan_mode` (`Plan mode is off.`), `edit_file`, and `python -m unittest tests.test_calc` (`Ran 2 tests ... OK`) exit `0`.
 
 ## Maintenance
