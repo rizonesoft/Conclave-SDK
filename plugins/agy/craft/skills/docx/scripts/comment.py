@@ -42,9 +42,11 @@ from office.helpers import (
     atomic_write_text,
     child_local_elements,
     local_elements,
+    normalize_part_name,
     opc_target,
     parse_xml_bytes,
     parse_xml_file,
+    read_relationship,
     rezip as _rezip,
     safe_extract as _safe_extract,
 )
@@ -150,7 +152,7 @@ def _get_next_rid(rels_path: Path) -> int:
     dom = parse_xml_file(rels_path)
     max_rid = 0
     for rel in child_local_elements(dom.documentElement, "Relationship"):
-        rid = rel.getAttribute("Id")
+        rid, _, _, _ = read_relationship(rel)
         if rid and rid.startswith("rId") and rid[3:].isdigit() and len(rid[3:]) <= 12:
             max_rid = max(max_rid, int(rid[3:]))
     return max_rid + 1
@@ -158,16 +160,28 @@ def _get_next_rid(rels_path: Path) -> int:
 
 def _has_relationship(rels_path: Path, target: str) -> bool:
     dom = parse_xml_file(rels_path)
-    return any(
-        rel.getAttribute("Target") == target
-        for rel in child_local_elements(dom.documentElement, "Relationship")
-    )
+    wanted = opc_target(target, "word/document.xml")
+    if wanted is None:
+        return False
+    for rel in child_local_elements(dom.documentElement, "Relationship"):
+        _, _, rel_target, target_mode = read_relationship(rel)
+        if not rel_target:
+            continue
+        try:
+            if opc_target(rel_target, "word/document.xml", target_mode) == wanted:
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def _has_content_type(ct_path: Path, part_name: str) -> bool:
     dom = parse_xml_file(ct_path)
+    wanted = normalize_part_name(part_name)
+    if wanted is None:
+        return False
     return any(
-        o.getAttribute("PartName") == part_name
+        normalize_part_name(o.getAttribute("PartName")) == wanted
         for o in child_local_elements(dom.documentElement, "Override")
     )
 
@@ -196,16 +210,15 @@ def _ensure_comment_relationships(unpacked_dir: Path) -> None:
     existing = set()
     max_rid = 0
     for rel in child_local_elements(root, "Relationship"):
-        rid = rel.getAttribute("Id")
+        rid, rel_type, target, target_mode = read_relationship(rel)
         if rid and rid.startswith("rId") and rid[3:].isdigit() and len(rid[3:]) <= 12:
             max_rid = max(max_rid, int(rid[3:]))
-        if rel.getAttribute("Type") not in comment_types:
+        if rel_type not in comment_types or not target:
             continue
-        part = opc_target(
-            rel.getAttribute("Target"),
-            "word/document.xml",
-            rel.getAttribute("TargetMode"),
-        )
+        try:
+            part = opc_target(target, "word/document.xml", target_mode)
+        except ValueError:
+            part = None
         if part is not None:
             existing.add(part)
     next_rid = max_rid + 1
@@ -233,12 +246,13 @@ def _ensure_comment_content_types(unpacked_dir: Path) -> None:
     dom = parse_xml_file(ct_path)
     root = dom.documentElement
     existing = {
-        o.getAttribute("PartName")
+        norm_part
         for o in child_local_elements(root, "Override")
+        if (norm_part := normalize_part_name(o.getAttribute("PartName"))) is not None
     }
     changed = False
     for part_name, content_type in _COMMENT_OVERRIDES:
-        if part_name in existing:
+        if normalize_part_name(part_name) in existing:
             continue
         append_ns_child(
             dom,

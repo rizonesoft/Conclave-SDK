@@ -20,8 +20,10 @@ from pathlib import Path
 
 from office.helpers import (
     MAX_ARCHIVE_BYTES,
+    collapse_xml_space,
     opc_target,
     open_zip_member,
+    read_relationship,
     read_zip_member,
     validate_archive,
 )
@@ -108,8 +110,11 @@ def _workbook_opc_context(archive: zipfile.ZipFile, name_set: set[str], budget: 
     if "_rels/.rels" in name_set:
         pkg_rels = _safe_fromstring(_read_archive_part(archive, "_rels/.rels", budget=budget))
         for rel in pkg_rels:
-            if (rel.get("Type") or "").endswith("/officeDocument"):
-                cand = opc_target(rel.get("Target") or "", "", rel.get("TargetMode") or "")
+            if _local_tag(rel.tag) != "Relationship":
+                continue
+            _, rel_type, target, target_mode = read_relationship(rel)
+            if rel_type.endswith("/officeDocument") and target:
+                cand = opc_target(target, "", target_mode)
                 if cand and cand in name_set:
                     workbook_part = cand
                     break
@@ -367,10 +372,11 @@ def _worksheet_parts(
         workbook_part, _, rels_root = _workbook_opc_context(archive, name_set, budget)
     if rels_root is not None:
         for rel in rels_root:
-            rel_type = rel.get("Type") or ""
-            target = rel.get("Target") or ""
+            if _local_tag(rel.tag) != "Relationship":
+                continue
+            _, rel_type, target, target_mode = read_relationship(rel)
             if rel_type.endswith("/worksheet") and target:
-                part_name = opc_target(target, workbook_part, rel.get("TargetMode") or "")
+                part_name = opc_target(target, workbook_part, target_mode)
                 if part_name and part_name in name_set and part_name not in seen:
                     seen.add(part_name)
                     parts.append(part_name)
@@ -649,7 +655,11 @@ def external_links_at_risk(filename):
             workbook_part, rels_part, rels_root = _workbook_opc_context(archive, name_set, budget)
             has_external = any("/externallinks/" in f"/{n.lower()}" for n in names) or (
                 rels_root is not None
-                and any((rel.get("Type") or "").endswith("/externalLink") for rel in rels_root)
+                and any(
+                    _local_tag(rel.tag) == "Relationship"
+                    and read_relationship(rel)[1].endswith("/externalLink")
+                    for rel in rels_root
+                )
             )
             if not has_external:
                 for part_name in _worksheet_parts(
@@ -676,10 +686,13 @@ def external_links_at_risk(filename):
                 rels_root = _safe_fromstring(
                     _read_archive_part(archive, rels_part, budget=budget)
                 )
-            rel_map = {
-                rel.get("Id"): (rel.get("Target") or "", rel.get("Type") or "", rel.get("TargetMode") or "")
-                for rel in rels_root
-            }
+            rel_map = {}
+            for rel in rels_root:
+                if _local_tag(rel.tag) != "Relationship":
+                    continue
+                rid, rel_type, target, target_mode = read_relationship(rel)
+                if rid:
+                    rel_map[rid] = (target, rel_type, target_mode)
 
             sheets_el = workbook.find(f"{main_ns}sheets")
             sheets_list = list(sheets_el) if sheets_el is not None else []
@@ -767,7 +780,7 @@ def external_links_at_risk(filename):
             at_risk = []
             checked_parts = set()
             for sheet_idx, sheet in enumerate(sheets_list):
-                rel_info = rel_map.get(sheet.get(f"{rel_ns}id"))
+                rel_info = rel_map.get(collapse_xml_space(sheet.get(f"{rel_ns}id") or ""))
                 if not rel_info:
                     continue
                 target, rel_type, target_mode = rel_info
@@ -970,16 +983,22 @@ def _scan_xml(filename):
         main_ns, rel_ns = _workbook_namespaces(workbook)
         if rels_root is None:
             rels_root = _safe_fromstring(_read_archive_part(archive, rels_part, budget=budget))
-        rel_map = {
-            rel.get("Id"): (rel.get("Target") or "", rel.get("Type") or "", rel.get("TargetMode") or "")
-            for rel in rels_root
-        }
+        rel_map = {}
+        for rel in rels_root:
+            if _local_tag(rel.tag) != "Relationship":
+                continue
+            rid, rel_type, target, target_mode = read_relationship(rel)
+            if rid:
+                rel_map[rid] = (target, rel_type, target_mode)
 
         shared_equals = set()
         ss_part = None
         for rel in rels_root:
-            if (rel.get("Type") or "").endswith("/sharedStrings"):
-                ss_part = opc_target(rel.get("Target") or "", workbook_part, rel.get("TargetMode") or "")
+            if _local_tag(rel.tag) != "Relationship":
+                continue
+            _, rel_type, target, target_mode = read_relationship(rel)
+            if rel_type.endswith("/sharedStrings") and target:
+                ss_part = opc_target(target, workbook_part, target_mode)
                 if ss_part:
                     break
         if ss_part is None:
@@ -1007,7 +1026,7 @@ def _scan_xml(filename):
         checked_parts = set()
         sheets_el = workbook.find(f"{main_ns}sheets")
         for sheet in (sheets_el if sheets_el is not None else ()):
-            rel_info = rel_map.get(sheet.get(f"{rel_ns}id"))
+            rel_info = rel_map.get(collapse_xml_space(sheet.get(f"{rel_ns}id") or ""))
             if not rel_info:
                 continue
             target, rel_type, target_mode = rel_info

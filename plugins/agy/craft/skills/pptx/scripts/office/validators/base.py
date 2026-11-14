@@ -10,9 +10,31 @@ from functools import lru_cache
 import lxml.etree
 
 try:
-    from helpers import _guard_xml_bytes, atomic_write_bytes, parse_xml_file, safe_extract
+    from helpers import (
+        STRICT_OFFICE_REL_NS,
+        _guard_xml_bytes,
+        atomic_write_bytes,
+        collapse_xml_space,
+        normalize_part_name,
+        opc_target,
+        parse_xml_file,
+        read_relationship,
+        rels_source_part,
+        safe_extract,
+    )
 except ImportError:
-    from office.helpers import _guard_xml_bytes, atomic_write_bytes, parse_xml_file, safe_extract
+    from office.helpers import (
+        STRICT_OFFICE_REL_NS,
+        _guard_xml_bytes,
+        atomic_write_bytes,
+        collapse_xml_space,
+        normalize_part_name,
+        opc_target,
+        parse_xml_file,
+        read_relationship,
+        rels_source_part,
+        safe_extract,
+    )
 
 
 def safe_lxml_parser():
@@ -359,9 +381,18 @@ class BaseSchemaValidator:
 
         for rels_file in rels_files:
             try:
-                rels_root = safe_lxml_parse(rels_file).getroot()
+                rel_path = rels_file.relative_to(self.unpacked_dir)
+                rels_resolved = rels_file.resolve()
+                if (
+                    not rels_resolved.is_relative_to(unpacked_root)
+                    or rels_file.parent.name != "_rels"
+                    or (rels_file.name == ".rels" and rels_file.parent.parent != unpacked_root)
+                ):
+                    errors.append(f"  {rel_path}: .rels file outside valid _rels directory")
+                    continue
 
-                rels_dir = rels_file.parent
+                rels_root = safe_lxml_parse(rels_file).getroot()
+                source_part = "" if rels_file.name == ".rels" else rels_source_part(rels_file, self.unpacked_dir)
 
                 referenced_files = set()
                 broken_refs = []
@@ -370,34 +401,36 @@ class BaseSchemaValidator:
                     ".//ns:Relationship",
                     namespaces={"ns": self.PACKAGE_RELATIONSHIPS_NAMESPACE},
                 ):
-                    target = rel.get("Target")
-                    if rel.get("TargetMode") == "External":
+                    _, _, target, target_mode = read_relationship(rel)
+                    if target_mode == "External":
                         continue
-                    if target and not target.startswith(
-                        ("http", "mailto:")
-                    ):  
-                        if target.startswith("/"):
-                            target_path = unpacked_root / target.lstrip("/")
-                        elif rels_file.name == ".rels":
-                            target_path = unpacked_root / target
-                        else:
-                            base_dir = rels_dir.parent
-                            target_path = base_dir / target
+                    if target_mode not in ("", "Internal"):
+                        broken_refs.append((f"{target} (invalid TargetMode {target_mode!r})", rel.sourceline))
+                        continue
+                    if not target:
+                        continue
 
-                        try:
-                            target_path = target_path.resolve()
-                            if not target_path.is_relative_to(unpacked_root):
-                                broken_refs.append((f"{target} (escapes package)", rel.sourceline))
-                            elif target_path.exists() and target_path.is_file():
-                                referenced_files.add(target_path)
-                                all_referenced_files.add(target_path)
-                            else:
-                                broken_refs.append((target, rel.sourceline))
-                        except (OSError, ValueError):
+                    try:
+                        part = opc_target(target, source_part, target_mode)
+                    except ValueError:
+                        broken_refs.append((f"{target} (escapes package)", rel.sourceline))
+                        continue
+                    if part is None:
+                        continue
+
+                    try:
+                        target_path = (unpacked_root / part).resolve()
+                        if not target_path.is_relative_to(unpacked_root):
+                            broken_refs.append((f"{target} (escapes package)", rel.sourceline))
+                        elif target_path.exists() and target_path.is_file():
+                            referenced_files.add(target_path)
+                            all_referenced_files.add(target_path)
+                        else:
                             broken_refs.append((target, rel.sourceline))
+                    except (OSError, ValueError):
+                        broken_refs.append((target, rel.sourceline))
 
                 if broken_refs:
-                    rel_path = rels_file.relative_to(self.unpacked_dir)
                     for broken_ref, line_num in broken_refs:
                         errors.append(
                             f"  {rel_path}: Line {line_num}: Broken reference to {broken_ref}"
@@ -453,8 +486,7 @@ class BaseSchemaValidator:
                 for rel in rels_root.findall(
                     f".//{{{self.PACKAGE_RELATIONSHIPS_NAMESPACE}}}Relationship"
                 ):
-                    rid = rel.get("Id")
-                    rel_type = rel.get("Type", "")
+                    rid, rel_type, _, _ = read_relationship(rel)
                     if rid:
                         if rid in rid_to_type:
                             rels_rel_path = rels_file.relative_to(self.unpacked_dir)
@@ -463,44 +495,48 @@ class BaseSchemaValidator:
                                 f"Duplicate relationship ID '{rid}' (IDs must be unique)"
                             )
                         type_name = (
-                            rel_type.split("/")[-1] if "/" in rel_type else rel_type
+                            rel_type.rsplit("/", 1)[-1] if "/" in rel_type else rel_type
                         )
                         rid_to_type[rid] = type_name
 
                 xml_root = safe_lxml_parse(xml_file).getroot()
 
-                r_ns = self.OFFICE_RELATIONSHIPS_NAMESPACE
-                rid_attrs_to_check = ["id", "embed", "link"]
+                rid_ns_list = (self.OFFICE_RELATIONSHIPS_NAMESPACE, STRICT_OFFICE_REL_NS)
+                rid_attrs_to_check = ("id", "embed", "link")
                 for elem in xml_root.iter():
                     if not hasattr(elem, "tag") or callable(elem.tag):
                         continue
-                    for attr_name in rid_attrs_to_check:
-                        rid_attr = elem.get(f"{{{r_ns}}}{attr_name}")
-                        if not rid_attr:
-                            continue
-                        xml_rel_path = xml_file.relative_to(self.unpacked_dir)
-                        elem_name = (
-                            elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
-                        )
+                    for r_ns in rid_ns_list:
+                        for attr_name in rid_attrs_to_check:
+                            raw_rid_attr = elem.get(f"{{{r_ns}}}{attr_name}")
+                            if raw_rid_attr is None:
+                                continue
+                            rid_attr = collapse_xml_space(raw_rid_attr)
+                            if not rid_attr:
+                                continue
+                            xml_rel_path = xml_file.relative_to(self.unpacked_dir)
+                            elem_name = (
+                                elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+                            )
 
-                        if rid_attr not in rid_to_type:
-                            errors.append(
-                                f"  {xml_rel_path}: Line {elem.sourceline}: "
-                                f"<{elem_name}> r:{attr_name} references non-existent relationship '{rid_attr}' "
-                                f"(valid IDs: {', '.join(sorted(rid_to_type.keys())[:5])}{'...' if len(rid_to_type) > 5 else ''})"
-                            )
-                        elif attr_name == "id" and self.ELEMENT_RELATIONSHIP_TYPES:
-                            expected_type = self._get_expected_relationship_type(
-                                elem_name
-                            )
-                            if expected_type:
-                                actual_type = rid_to_type[rid_attr]
-                                if expected_type not in actual_type.lower():
-                                    errors.append(
-                                        f"  {xml_rel_path}: Line {elem.sourceline}: "
-                                        f"<{elem_name}> references '{rid_attr}' which points to '{actual_type}' "
-                                        f"but should point to a '{expected_type}' relationship"
-                                    )
+                            if rid_attr not in rid_to_type:
+                                errors.append(
+                                    f"  {xml_rel_path}: Line {elem.sourceline}: "
+                                    f"<{elem_name}> r:{attr_name} references non-existent relationship '{rid_attr}' "
+                                    f"(valid IDs: {', '.join(sorted(rid_to_type.keys())[:5])}{'...' if len(rid_to_type) > 5 else ''})"
+                                )
+                            elif attr_name == "id" and self.ELEMENT_RELATIONSHIP_TYPES:
+                                expected_type = self._get_expected_relationship_type(
+                                    elem_name
+                                )
+                                if expected_type:
+                                    actual_type = rid_to_type[rid_attr]
+                                    if expected_type not in actual_type.lower():
+                                        errors.append(
+                                            f"  {xml_rel_path}: Line {elem.sourceline}: "
+                                            f"<{elem_name}> references '{rid_attr}' which points to '{actual_type}' "
+                                            f"but should point to a '{expected_type}' relationship"
+                                        )
 
             except Exception as e:
                 xml_rel_path = xml_file.relative_to(self.unpacked_dir)
@@ -558,14 +594,20 @@ class BaseSchemaValidator:
             ):
                 part_name = override.get("PartName")
                 if part_name is not None:
-                    declared_parts.add(part_name.lstrip("/"))
+                    norm_part = normalize_part_name(part_name)
+                    if norm_part is not None:
+                        declared_parts.add(norm_part)
+                    else:
+                        errors.append(
+                            f"  Line {override.sourceline}: Invalid Override PartName {part_name!r} in [Content_Types].xml"
+                        )
 
             for default in root.findall(
                 f".//{{{self.CONTENT_TYPES_NAMESPACE}}}Default"
             ):
                 extension = default.get("Extension")
                 if extension is not None:
-                    declared_extensions.add(extension.lower())
+                    declared_extensions.add(collapse_xml_space(extension).lower())
 
             declarable_roots = {
                 "sld",

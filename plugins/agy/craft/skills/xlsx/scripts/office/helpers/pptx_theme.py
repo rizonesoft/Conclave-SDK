@@ -11,7 +11,13 @@ import posixpath
 import re
 from typing import Mapping
 
-from . import part_text
+from . import (
+    XML_PARSE_ERRORS,
+    opc_target,
+    parse_et_bytes,
+    part_text,
+    read_relationship,
+)
 
 THEME_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme"
 
@@ -20,10 +26,6 @@ _MASTER_RE = re.compile(
     r"(?:slide|notes|handout)Master(?P<num>\d+)\.xml$"
 )
 _GROUP_ORDER = {"slideMasters": 0, "notesMasters": 1, "handoutMasters": 2}
-
-_RELATIONSHIP_RE = re.compile(
-    r"<Relationship\b[^>]*?(?:/>|>.*?</Relationship\s*>)", re.DOTALL
-)
 
 
 def _sort_key(name: str) -> tuple[int, int]:
@@ -37,25 +39,27 @@ def _rels_path(part: str) -> str:
     return f"{directory}/_rels/{base}.rels"
 
 
-def _resolve(rels_path: str, target: str) -> str:
-    if target.startswith("/"):
-        return target.lstrip("/")
-    part_dir = posixpath.dirname(posixpath.dirname(rels_path))
-    return posixpath.normpath(posixpath.join(part_dir, target))
-
-
 def _theme_rel(files: Mapping[str, bytes], master: str):
     rels_path = _rels_path(master)
     rels = files.get(rels_path)
     if rels is None:
         return None
-    for element in _RELATIONSHIP_RE.findall(part_text(rels)):
-        if f'Type="{THEME_REL_TYPE}"' not in element:
+    try:
+        rels_root = parse_et_bytes(rels)
+    except XML_PARSE_ERRORS:
+        return None
+    for rel in rels_root:
+        if rel.tag.rsplit("}", 1)[-1] != "Relationship":
             continue
-        target = re.search(r'\bTarget="([^"]+)"', element)
-        if target is None:
+        _, rel_type, target, target_mode = read_relationship(rel)
+        if rel_type != THEME_REL_TYPE or not target:
             continue
-        return rels_path, element, _resolve(rels_path, target.group(1))
+        try:
+            theme = opc_target(target, master, target_mode)
+        except ValueError:
+            continue
+        if theme:
+            return rels_path, rel, theme
     return None
 
 

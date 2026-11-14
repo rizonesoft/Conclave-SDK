@@ -94,6 +94,16 @@ def opc_target(target: str, source_part: str, target_mode: str = "") -> str | No
     return "/".join(parts)
 
 
+def normalize_part_name(part_name: str) -> str | None:
+    collapsed = collapse_xml_space(part_name)
+    if not collapsed.startswith("/"):
+        return None
+    try:
+        return opc_target(collapsed, "")
+    except ValueError:
+        return None
+
+
 def rels_source_part(rels_file: Path, unpacked_dir: Path) -> str:
     owner_dir = rels_file.parent.parent.relative_to(unpacked_dir)
     part = posixpath.join(owner_dir.as_posix(), rels_file.name[: -len(".rels")])

@@ -668,11 +668,17 @@ class CraftScriptHardeningTests(unittest.TestCase):
     def test_office_helpers_identical_and_safe_extract_bounded(self):
         for rel in (
             "office/helpers/__init__.py",
+            "office/helpers/pptx_chart.py",
+            "office/helpers/pptx_slide.py",
+            "office/helpers/pptx_theme.py",
+            "office/pack.py",
             "office/soffice.py",
             "office/unpack.py",
-            "office/pack.py",
+            "office/validate.py",
+            "office/validators/__init__.py",
             "office/validators/base.py",
             "office/validators/docx.py",
+            "office/validators/pptx.py",
             "office/validators/redlining.py",
         ):
             blobs = {
@@ -685,6 +691,9 @@ class CraftScriptHardeningTests(unittest.TestCase):
 
         self.assertEqual(helpers.opc_target(" ../media/image1.png ", "ppt/slides/slide1.xml"), "ppt/media/image1.png")
         self.assertEqual(helpers.opc_target("\t../media/two%20%20spaces.png\n", "ppt/slides/slide1.xml"), "ppt/media/two  spaces.png")
+        self.assertEqual(helpers.normalize_part_name(" /ppt/slides/slide%201.xml "), "ppt/slides/slide 1.xml")
+        self.assertIsNone(helpers.normalize_part_name("ppt/slides/slide1.xml"))
+        self.assertIsNone(helpers.normalize_part_name("/../outside.xml"))
         rel_el = ET.Element("Relationship", Id=" rId\u00e9 ", Type=" http://example.com/t ", Target=" ../media/a\tb.png ", TargetMode="Internal")
         self.assertEqual(
             helpers.read_relationship(rel_el),
@@ -1592,27 +1601,27 @@ class CraftScriptHardeningTests(unittest.TestCase):
             zf.writestr(
                 "_rels/.rels",
                 '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-                '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
-                'Target="/xl/./workbook.xml"/></Relationships>',
+                '<Relationship Id=" rId1 " Type=" http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument " '
+                'Target=" /xl/./workbook.xml "/></Relationships>',
             )
             zf.writestr(
                 "xl/workbook.xml",
                 '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
                 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
                 '<sheets>'
-                '<sheet name="Sheet1" sheetId="1" r:id="rId1"/>'
+                '<sheet name="Sheet1" sheetId="1" r:id=" rId1 "/>'
                 '<sheet name="Sheet2" sheetId="2" r:id="rId2"/>'
                 '</sheets></workbook>',
             )
             zf.writestr(
                 "xl/_rels/workbook.xml.rels",
                 '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-                '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
-                'Target="/xl/worksheets/./sheet1.xml"/>'
+                '<Relationship Id=" rId1 " Type=" http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet " '
+                'Target=" /xl/worksheets/./sheet1.xml "/>'
                 '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
                 'Target="../xl/worksheets/sheet%202.xml"/>'
-                '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" '
-                'Target="/xl/./sharedStrings.xml"/>'
+                '<Relationship Id=" rId3 " Type=" http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings " '
+                'Target=" /xl/./sharedStrings.xml "/>'
                 '</Relationships>',
             )
             zf.writestr("xl/externalLinks/externalLink1.xml", "<externalLink/>")
@@ -1902,7 +1911,7 @@ class CraftScriptHardeningTests(unittest.TestCase):
         ET.SubElement(
             ct_root,
             f"{{{ct_ns}}}Override",
-            PartName="/ppt/tags/tag1.xml",
+            PartName=" /ppt/tags/tag1.xml ",
             ContentType="application/vnd.openxmlformats-officedocument.presentationml.tags+xml",
         )
 
@@ -1910,18 +1919,18 @@ class CraftScriptHardeningTests(unittest.TestCase):
         ET.SubElement(pkg_rels, f"{{{rels_ns}}}Relationship", Id="rId1", Type=f"{r_ns}/officeDocument", Target="ppt/presentation.xml")
 
         pres_rels = ET.Element(f"{{{rels_ns}}}Relationships")
-        ET.SubElement(pres_rels, f"{{{rels_ns}}}Relationship", Id="rId1", Type=f"{r_ns}/slide", Target="slides/slide1.xml")
+        ET.SubElement(pres_rels, f"{{{rels_ns}}}Relationship", Id=" rId1 ", Type=f" {r_ns}/slide ", Target=" slides/slide1.xml ")
         ET.SubElement(pres_rels, f"{{{rels_ns}}}Relationship", Id="rId2", Type=f"{r_ns}/slideLayout", Target="slideLayouts/slideLayout1.xml")
 
         slide1_rels = ET.Element(f"{{{rels_ns}}}Relationships")
         ET.SubElement(slide1_rels, f"{{{rels_ns}}}Relationship", Id="rId1", Type=f"{r_ns}/slideLayout", Target="../slideLayouts/slideLayout1.xml")
-        ET.SubElement(slide1_rels, f"{{{rels_ns}}}Relationship", Id="rId2", Type=f"{r_ns}/notesSlide", Target="../notesSlides/notesSlide1.xml")
-        ET.SubElement(slide1_rels, f"{{{rels_ns}}}Relationship", Id="rId3", Type=f"{r_ns}/tags", Target="../tags/tag1.xml")
+        ET.SubElement(slide1_rels, f"{{{rels_ns}}}Relationship", Id=" rId2 ", Type=f" {r_ns}/notesSlide ", Target=" ../notesSlides/notesSlide1.xml ")
+        ET.SubElement(slide1_rels, f"{{{rels_ns}}}Relationship", Id=" rId3 ", Type=f" {r_ns}/tags ", Target=" ../tags/tag1.xml ")
 
         pres_root = ET.Element(f"{{{p_ns}}}presentation")
         ET.SubElement(pres_root, f"{{{p_ns}}}sldMasterIdLst")
         sld_lst = ET.SubElement(pres_root, f"{{{p_ns}}}sldIdLst")
-        ET.SubElement(sld_lst, f"{{{p_ns}}}sldId", id="256", **{f"{{{r_ns}}}id": "rId1"})
+        ET.SubElement(sld_lst, f"{{{p_ns}}}sldId", id="256", **{f"{{{r_ns}}}id": " rId1 "})
 
         slide1_root = ET.Element(f"{{{p_ns}}}sld")
         layout1_root = ET.Element(f"{{{p_ns}}}sldLayout")
@@ -1970,22 +1979,23 @@ class CraftScriptHardeningTests(unittest.TestCase):
                 self.assertIn("ppt/tags/tag2.xml", zf.namelist())
 
             rel_targets = {
-                el.get("Id"): el.get("Target")
+                el.get("Id").strip(): el.get("Target").strip()
                 for el in out_pres_rels.findall(f"{{{rels_ns}}}Relationship")
             }
             ordered_targets = [
-                rel_targets[el.get(f"{{{r_ns}}}id")]
+                rel_targets[el.get(f"{{{r_ns}}}id").strip()]
                 for el in out_pres.findall(f".//{{{p_ns}}}sldId")
             ]
             self.assertEqual(ordered_targets, ["slides/slide1.xml", "slides/slide3.xml", "slides/slide2.xml"])
+            self.assertEqual(len(rel_targets), 4)
 
             overrides = {
-                el.get("PartName")
+                el.get("PartName").strip()
                 for el in out_ct.findall(f"{{{ct_ns}}}Override")
             }
             self.assertTrue({"/ppt/slides/slide2.xml", "/ppt/slides/slide3.xml", "/ppt/tags/tag2.xml"}.issubset(overrides))
 
-            slide2_rel_types = {el.get("Type"): el.get("Target") for el in out_slide2_rels.findall(f"{{{rels_ns}}}Relationship")}
+            slide2_rel_types = {el.get("Type").strip(): el.get("Target").strip() for el in out_slide2_rels.findall(f"{{{rels_ns}}}Relationship")}
             self.assertNotIn(f"{r_ns}/notesSlide", slide2_rel_types)
             self.assertEqual(slide2_rel_types.get(f"{r_ns}/tags"), "../tags/tag2.xml")
 
@@ -2015,22 +2025,30 @@ class CraftScriptHardeningTests(unittest.TestCase):
             (unpacked_docx / "word" / "_rels").mkdir(parents=True)
             doc_ct = ET.Element(f"{{{ct_ns}}}Types")
             ET.SubElement(doc_ct, f"{{{ct_ns}}}Default", Extension="rels", ContentType="application/vnd.openxmlformats-package.relationships+xml")
-            ET.SubElement(doc_ct, f"{{{ct_ns}}}Override", PartName="/word/document.xml", ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml")
+            ET.SubElement(doc_ct, f"{{{ct_ns}}}Override", PartName=" /word/document.xml ", ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml")
+            ET.SubElement(doc_ct, f"{{{ct_ns}}}Override", PartName=" /word/commentsExtended.xml ", ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml")
             (unpacked_docx / "[Content_Types].xml").write_bytes(ET.tostring(doc_ct, encoding="utf-8", xml_declaration=True))
 
             doc_rels = ET.Element(f"{{{rels_ns}}}Relationships")
-            ET.SubElement(doc_rels, f"{{{rels_ns}}}Relationship", Id="rId1", Type=f"{r_ns}/styles", Target="styles.xml")
+            ET.SubElement(doc_rels, f"{{{rels_ns}}}Relationship", Id=" rId1 ", Type=f" {r_ns}/styles ", Target=" ./styles.xml ")
+            ET.SubElement(doc_rels, f"{{{rels_ns}}}Relationship", Id=" rId2 ", Type=" http://schemas.microsoft.com/office/2011/relationships/commentsExtended ", Target=" ./commentsExtended.xml ")
             (unpacked_docx / "word" / "_rels" / "document.xml.rels").write_bytes(ET.tostring(doc_rels, encoding="utf-8", xml_declaration=True))
+
+            self.assertEqual(comment._get_next_rid(unpacked_docx / "word" / "_rels" / "document.xml.rels"), 3)
+            self.assertTrue(comment._has_relationship(unpacked_docx / "word" / "_rels" / "document.xml.rels", "styles.xml"))
+            self.assertTrue(comment._has_content_type(unpacked_docx / "[Content_Types].xml", "/word/document.xml"))
 
             comment._ensure_comment_relationships(unpacked_docx)
             comment._ensure_comment_content_types(unpacked_docx)
 
             out_doc_rels = ET.fromstring((unpacked_docx / "word" / "_rels" / "document.xml.rels").read_bytes())
             out_doc_ct = ET.fromstring((unpacked_docx / "[Content_Types].xml").read_bytes())
-            doc_targets = {el.get("Target") for el in out_doc_rels.findall(f"{{{rels_ns}}}Relationship")}
-            self.assertTrue({"comments.xml", "commentsExtended.xml", "commentsIds.xml", "commentsExtensible.xml"}.issubset(doc_targets))
-            doc_overrides = {el.get("PartName") for el in out_doc_ct.findall(f"{{{ct_ns}}}Override")}
-            self.assertTrue({"/word/comments.xml", "/word/commentsExtended.xml", "/word/commentsIds.xml", "/word/commentsExtensible.xml"}.issubset(doc_overrides))
+            doc_targets = [el.get("Target").strip() for el in out_doc_rels.findall(f"{{{rels_ns}}}Relationship")]
+            self.assertEqual(len(doc_targets), 5)
+            self.assertTrue({"comments.xml", "./commentsExtended.xml", "commentsIds.xml", "commentsExtensible.xml"}.issubset(set(doc_targets)))
+            doc_overrides = [el.get("PartName").strip() for el in out_doc_ct.findall(f"{{{ct_ns}}}Override")]
+            self.assertEqual(len(doc_overrides), 5)
+            self.assertTrue({"/word/comments.xml", "/word/commentsExtended.xml", "/word/commentsIds.xml", "/word/commentsExtensible.xml"}.issubset(set(doc_overrides)))
             self.assertTrue(comment._has_relationship(unpacked_docx / "word" / "_rels" / "document.xml.rels", "comments.xml"))
             self.assertTrue(comment._has_content_type(unpacked_docx / "[Content_Types].xml", "/word/comments.xml"))
 
@@ -2269,6 +2287,7 @@ class CraftScriptHardeningTests(unittest.TestCase):
                 if mod_name == "office" or mod_name.startswith(("office.", "helpers.", "validators.")) or mod_name in ("helpers", "validators"):
                     sys.modules.pop(mod_name, None)
             clean = _load_module("test_pptx_clean_precheck", clean_py, [pptx_scripts])
+            add_slide_case7 = _load_module("test_pptx_add_slide_case7", pptx_scripts / "add_slide.py", [pptx_scripts])
 
             # Case 1: <p:sldId id="256"/> missing r:id must refuse rather than deleting slides
             no_rid_dir, s1, s2 = _build_deck("clean_missing_rid", include_rid_attr=False)
@@ -2371,6 +2390,7 @@ class CraftScriptHardeningTests(unittest.TestCase):
             ET.SubElement(pres_valid, f"{{{p_ns}}}sldMasterIdLst")
             sld_lst_valid = ET.SubElement(pres_valid, f"{{{p_ns}}}sldIdLst")
             ET.SubElement(sld_lst_valid, f"{{{p_ns}}}sldId", {"id": "256", f"{{{r_ns}}}id": "rId\u00e9"})
+            ET.SubElement(pres_valid, f"{{{p_ns}}}notesSz", {"cx": "6858000", "cy": "9144000"})
             (valid_dir / "ppt" / "presentation.xml").write_bytes(ET.tostring(pres_valid, encoding="utf-8", xml_declaration=True))
 
             pres_rels_valid = ET.Element(f"{{{rels_ns}}}Relationships")
@@ -2392,17 +2412,17 @@ class CraftScriptHardeningTests(unittest.TestCase):
                 ET.tostring(pres_rels_valid, encoding="utf-8", xml_declaration=True)
             )
 
-            slide_bytes = ET.tostring(ET.Element(f"{{{p_ns}}}sld"), encoding="utf-8", xml_declaration=True)
+            valid_slide_bytes = add_slide_case7.MINIMAL_SLIDE_XML.encode("utf-8")
             vs1 = valid_dir / "ppt" / "slides" / "slide 1.xml"
             vs2 = valid_dir / "ppt" / "slides" / "slide 2.xml"
-            vs1.write_bytes(slide_bytes)
-            vs2.write_bytes(slide_bytes)
+            vs1.write_bytes(valid_slide_bytes)
+            vs2.write_bytes(valid_slide_bytes)
 
             slide1_rels = ET.Element(f"{{{rels_ns}}}Relationships")
             ET.SubElement(
                 slide1_rels,
                 f"{{{rels_ns}}}Relationship",
-                Id="rIdImg1",
+                Id=" rIdImg1 ",
                 Type=f" {r_ns}/image ",
                 Target="../media/image1.png ",
             )
@@ -2438,7 +2458,7 @@ class CraftScriptHardeningTests(unittest.TestCase):
             ET.SubElement(
                 ct_valid,
                 f"{{{ct_ns}}}Override",
-                PartName="/ppt/slides/slide 1.xml",
+                PartName=" /ppt/slides/slide 1.xml ",
                 ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml",
             )
             ET.SubElement(
@@ -2461,6 +2481,22 @@ class CraftScriptHardeningTests(unittest.TestCase):
             ct_after = (valid_dir / "[Content_Types].xml").read_text(encoding="utf-8")
             self.assertIn("/ppt/slides/slide 1.xml", ct_after)
             self.assertNotIn("slide 2.xml", ct_after)
+
+            if importlib.util.find_spec("lxml") is not None:
+                added_path = str(pptx_scripts)
+                sys.path.insert(0, added_path)
+                try:
+                    import office.validators.pptx as val_pptx_case7
+                finally:
+                    if added_path in sys.path:
+                        sys.path.remove(added_path)
+                self.assertTrue(val_pptx_case7.PPTXSchemaValidator(valid_dir).validate())
+
+            new_slide = add_slide_case7.add_slide(valid_dir, "slide 1.xml", after="slide 1.xml")
+            self.assertEqual(new_slide, "slide1.xml")
+            self.assertTrue((valid_dir / "ppt" / "slides" / "slide1.xml").is_file())
+            if importlib.util.find_spec("lxml") is not None:
+                self.assertTrue(val_pptx_case7.PPTXSchemaValidator(valid_dir).validate())
 
             for good_ct in (
                 "application/xml",

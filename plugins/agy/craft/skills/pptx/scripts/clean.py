@@ -32,6 +32,7 @@ from office.helpers import (
     collapse_xml_space,
     get_rel_id_attr,
     local_elements,
+    normalize_part_name,
     opc_target,
     parse_xml_file,
     read_relationship,
@@ -332,6 +333,7 @@ def _validate_content_types_dom(ct_dom) -> None:
             )
             part_name = collapse_xml_space(attrs.get("PartName", ""))
             decoded_part = urllib.parse.unquote(part_name)
+            norm_part = normalize_part_name(part_name)
             ctype = attrs.get("ContentType", "")
             if (
                 "PartName" not in attrs
@@ -341,13 +343,14 @@ def _validate_content_types_dom(ct_dom) -> None:
                 or "\\" in part_name
                 or "\\" in decoded_part
                 or any(ord(ch) < 32 or ord(ch) == 127 for ch in decoded_part)
+                or norm_part is None
                 or not _is_valid_content_type(ctype)
             ):
                 raise RefusedToClean(
                     "[Content_Types].xml <Override> has invalid PartName or ContentType; "
                     "refusing to clean a damaged package."
                 )
-            key = decoded_part.lower()
+            key = norm_part.lower()
             if key in seen_parts:
                 raise RefusedToClean(
                     f"[Content_Types].xml has duplicate <Override> PartName {part_name!r}; "
@@ -649,12 +652,8 @@ def update_content_types(unpacked_dir: Path, removed_files: list[str]) -> None:
     changed = False
 
     for override in list(child_local_elements(dom.documentElement, "Override")):
-        part_name = (
-            urllib.parse.unquote(collapse_xml_space(override.getAttribute("PartName")))
-            .replace("\\", "/")
-            .lstrip("/")
-        )
-        if part_name in removed_set:
+        part_name = normalize_part_name(override.getAttribute("PartName"))
+        if part_name is not None and part_name in removed_set:
             if override.parentNode:
                 override.parentNode.removeChild(override)
                 changed = True

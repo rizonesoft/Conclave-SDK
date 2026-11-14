@@ -6,7 +6,16 @@ import re
 from pathlib import Path
 
 try:
-    from helpers import SLIDE_REL_TYPE, one_line, opc_target, rels_source_part, safe_extract
+    from helpers import (
+        SLIDE_REL_TYPE,
+        STRICT_OFFICE_REL_NS,
+        collapse_xml_space,
+        one_line,
+        opc_target,
+        read_relationship,
+        rels_source_part,
+        safe_extract,
+    )
     from helpers.pptx_chart import find_chart_problems
     from helpers.pptx_slide import (
         SLIDE_PART_RE,
@@ -16,7 +25,16 @@ try:
     )
     from helpers.pptx_theme import _NOTES_MASTERS, live_shared_master_themes
 except ImportError:
-    from office.helpers import SLIDE_REL_TYPE, one_line, opc_target, rels_source_part, safe_extract
+    from office.helpers import (
+        SLIDE_REL_TYPE,
+        STRICT_OFFICE_REL_NS,
+        collapse_xml_space,
+        one_line,
+        opc_target,
+        read_relationship,
+        rels_source_part,
+        safe_extract,
+    )
     from office.helpers.pptx_chart import find_chart_problems
     from office.helpers.pptx_slide import (
         SLIDE_PART_RE,
@@ -117,15 +135,29 @@ class PPTXSchemaValidator(BaseSchemaValidator):
         import lxml.etree
 
         r_id = f"{{{self.OFFICE_RELATIONSHIPS_NAMESPACE}}}id"
+        strict_r_id = f"{{{STRICT_OFFICE_REL_NS}}}id"
+        slide_types = (SLIDE_REL_TYPE, f"{STRICT_OFFICE_REL_NS}/slide")
         try:
             pres = safe_lxml_parse(self.unpacked_dir / "ppt" / "presentation.xml")
             rels = safe_lxml_parse(self.unpacked_dir / "ppt" / "_rels" / "presentation.xml.rels")
-            listed = {e.get(r_id) for e in pres.iter(f"{{{self.PRESENTATIONML_NAMESPACE}}}sldId")}
-            return {
-                opc_target(rel.get("Target", ""), "ppt/presentation.xml", rel.get("TargetMode", ""))
-                for rel in rels.getroot()
-                if rel.get("Id") in listed and rel.get("Type") == SLIDE_REL_TYPE
-            }
+            listed = set()
+            for e in pres.iter():
+                if not hasattr(e, "tag") or callable(e.tag):
+                    continue
+                if e.tag.split("}")[-1] == "sldId":
+                    rid = collapse_xml_space(e.get(r_id) or e.get(strict_r_id) or "")
+                    if rid:
+                        listed.add(rid)
+            out = set()
+            for rel in rels.getroot():
+                if not hasattr(rel, "tag") or callable(rel.tag) or rel.tag.split("}")[-1] != "Relationship":
+                    continue
+                rid, rel_type, target, target_mode = read_relationship(rel)
+                if rid in listed and rel_type in slide_types and target:
+                    part = opc_target(target, "ppt/presentation.xml", target_mode)
+                    if part:
+                        out.add(part)
+            return out
         except (OSError, ValueError, lxml.etree.XMLSyntaxError):
             return None
 
@@ -163,15 +195,29 @@ class PPTXSchemaValidator(BaseSchemaValidator):
                 continue
             try:
                 root = safe_lxml_parse(slide).getroot()
-                named = [t.get(r_id) for t in root.xpath(
-                    ".//p:tags[not(ancestor::mc:Fallback) and not(ancestor::mc:Choice[preceding-sibling::mc:Choice])]",
-                    namespaces=ns)]
+                raw_named = [
+                    t.get(r_id) or t.get(f"{{{STRICT_OFFICE_REL_NS}}}id")
+                    for t in root.xpath(
+                        ".//p:tags[not(ancestor::mc:Fallback) and not(ancestor::mc:Choice[preceding-sibling::mc:Choice])]",
+                        namespaces=ns,
+                    )
+                ]
+                named = [collapse_xml_space(r) for r in raw_named if r]
                 rels_file = slide.parent / "_rels" / f"{slide.name}.rels"
-                targets = {
-                    rel.get("Id"): opc_target(rel.get("Target", ""), relative, rel.get("TargetMode", ""))
-                    for rel in safe_lxml_parse(rels_file).getroot()
-                    if rel.get("Type", "").endswith("/relationships/tags")
-                } if rels_file.is_file() else {}
+                targets = {}
+                if rels_file.is_file():
+                    for rel in safe_lxml_parse(rels_file).getroot():
+                        if (
+                            not hasattr(rel, "tag")
+                            or callable(rel.tag)
+                            or rel.tag.split("}")[-1] != "Relationship"
+                        ):
+                            continue
+                        rid, rel_type, target, target_mode = read_relationship(rel)
+                        if rid and rel_type.endswith("/relationships/tags") and target:
+                            part = opc_target(target, relative, target_mode)
+                            if part:
+                                targets[rid] = part
             except (lxml.etree.XMLSyntaxError, ValueError):
                 continue  
             for rid, count in sorted(Counter(r for r in named if r).items()):
@@ -408,16 +454,17 @@ class PPTXSchemaValidator(BaseSchemaValidator):
                 for rel in rels_root.findall(
                     f".//{{{self.PACKAGE_RELATIONSHIPS_NAMESPACE}}}Relationship"
                 ):
-                    rel_type = rel.get("Type", "")
-                    if "slideLayout" in rel_type:
-                        valid_layout_rids.add(rel.get("Id"))
+                    rid, rel_type, _, _ = read_relationship(rel)
+                    if "slideLayout" in rel_type and rid:
+                        valid_layout_rids.add(rid)
 
                 for sld_layout_id in root.findall(
                     f".//{{{self.PRESENTATIONML_NAMESPACE}}}sldLayoutId"
                 ):
-                    r_id = sld_layout_id.get(
+                    raw_r_id = sld_layout_id.get(
                         f"{{{self.OFFICE_RELATIONSHIPS_NAMESPACE}}}id"
                     )
+                    r_id = collapse_xml_space(raw_r_id) if raw_r_id else ""
                     layout_id = sld_layout_id.get("id")
 
                     if r_id and r_id not in valid_layout_rids:
@@ -460,7 +507,7 @@ class PPTXSchemaValidator(BaseSchemaValidator):
                     for rel in root.findall(
                         f".//{{{self.PACKAGE_RELATIONSHIPS_NAMESPACE}}}Relationship"
                     )
-                    if "slideLayout" in rel.get("Type", "")
+                    if "slideLayout" in read_relationship(rel)[1]
                 ]
 
                 if len(layout_rels) > 1:
@@ -503,12 +550,12 @@ class PPTXSchemaValidator(BaseSchemaValidator):
                 for rel in root.findall(
                     f".//{{{self.PACKAGE_RELATIONSHIPS_NAMESPACE}}}Relationship"
                 ):
-                    rel_type = rel.get("Type", "")
-                    if "notesSlide" in rel_type:
+                    _, rel_type, target, target_mode = read_relationship(rel)
+                    if "notesSlide" in rel_type and target:
                         part = opc_target(
-                            rel.get("Target", ""),
+                            target,
                             rels_source_part(rels_file, self.unpacked_dir),
-                            rel.get("TargetMode", ""),
+                            target_mode,
                         )
                         if part:
                             slide_name = rels_file.stem.replace(
