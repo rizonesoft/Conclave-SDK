@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "replace": [
+    {
+      "find": "section end to end. Resolve it, validate",
+      "with": "section end to end in Codex. Resolve it, validate"
+    },
+    {
+      "find": "Never hand-translate a reference into a filename. Ask the graph:\n\n```powershell\npython scripts/todo-graph.py resolve \"$ARGUMENTS\"",
+      "with": "Never hand-translate a reference into a filename. Pass the section reference or pasted plan row (`<section-ref>`) to the graph:\n\n```powershell\npython scripts/todo-graph.py resolve \"<section-ref>\""
+    },
+    {
+      "find": "commit> --writer claude --prompt <scratch-plan-prompt.md>",
+      "with": "commit> --writer codex --prompt <scratch-plan-prompt.md>"
+    }
+  ]
+}

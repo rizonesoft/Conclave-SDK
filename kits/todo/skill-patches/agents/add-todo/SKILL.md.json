@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "replace": [
+    {
+      "find": "door for new work. Search the todo/",
+      "with": "door for new work in Antigravity. Search the todo/"
+    }
+  ]
+}

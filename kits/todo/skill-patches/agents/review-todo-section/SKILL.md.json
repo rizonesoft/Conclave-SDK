@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "replace": [
+    {
+      "find": " TODO section with self-review,",
+      "with": " TODO section in Antigravity with self-review,"
+    },
+    {
+      "find": "scripts/todo-graph.py resolve \"$ARGUMENTS\"`. Exit 3",
+      "with": "scripts/todo-graph.py resolve \"<section-ref>\"`. Exit 3"
+    }
+  ]
+}

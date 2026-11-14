@@ -2207,6 +2207,11 @@ def _skill_copy_plan(root: Path) -> tuple[dict[Path, bytes], list[Path]]:
         patches_root = overlay / SKILL_PATCHES
         sources = {path.relative_to(source_root).as_posix(): path for path in _files_under(source_root)}
         patches: dict[tuple[str, str], Path] = {}
+        # Folders first: an empty one for an unknown agent holds no file for the walk below to refuse.
+        for child in (sorted(patches_root.iterdir()) if patches_root.is_dir() else []):
+            if child.is_dir() and child.name not in SKILL_COPY_AGENTS:
+                raise SkillCopyError(f"{child.relative_to(root).as_posix()}: a patch folder is "
+                                     f"{SKILL_PATCHES}/agents or {SKILL_PATCHES}/codex")
         for path in _files_under(patches_root):
             parts = path.relative_to(patches_root).parts
             where = path.relative_to(root).as_posix()

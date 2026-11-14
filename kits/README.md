@@ -37,10 +37,23 @@ python forge.py doctor /path/to/project
 kits/<name>/
   README.md
   templates/            # files copied into the target
+  skill-patches/        # what each agent's copy of a skill differs in; never installed
   hosts/<host>/templates/  # wordpress only: per-host files (pressable, wpcom)
 ```
 
 `doctor` (`python forge.py doctor <target> [<kit>]`) is read-only and prints its report as JSON. Missing globals are reported as `setup_required` and it still exits 0 unless you pass `--strict` (exit 3); a target that is not a folder exits 2.
+
+## Changing a skill
+
+A kit keeps each skill file once, under `templates/.claude/skills/`. The Antigravity copy (`templates/.agents/skills/`) and the Codex copy (`templates/.codex/skills/`) are generated: the Claude file, with the replacements declared in `skill-patches/agents/<skill path>.json` or `skill-patches/codex/<skill path>.json` applied in order. A file with no patch is copied unchanged. Codex's `agents/openai.yaml` beside each skill is the one file kept by hand.
+
+```powershell
+python forge.py skill-copies           # write the copies from the Claude files and the patches
+python forge.py skill-copies --check   # write nothing; exit 1 when a copy differs or has no source
+python forge.py self-sync              # then refresh the SDK's own installed copy
+```
+
+Edit the Claude file, or the patch when the difference itself changes, never a generated copy: the next run would overwrite it, and a test fails until the copies match. A patch is `{"schema_version": 1, "replace": [{"find": "<exact text>", "with": "<exact text>"}]}`. Each `find` must occur exactly once in the text at its turn, so keep it to the phrase that differs plus the few words that make it unique; when an edit to the Claude file removes or repeats that phrase the command refuses, naming the patch, and writes nothing. A copy with no Claude file is reported as `stray` and left for you to delete.
 
 ## Tests
 

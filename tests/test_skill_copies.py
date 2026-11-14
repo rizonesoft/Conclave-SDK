@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import pathlib
+import shutil
 import sys
 import tempfile
 import unittest
@@ -262,22 +263,86 @@ class SkillCopiesTests(Fixture):
         self.assertEqual(digests(self.root), before)
 
     def test_anything_under_skill_patches_that_is_not_an_agents_patch_is_refused(self):
-        for rel in ("skill-patches/claude/alpha/SKILL.md.json", "skill-patches/gemini/alpha/SKILL.md.json",
-                    "skill-patches/notes.md", "skill-patches/agents/alpha/SKILL.md.txt"):
+        # rel -> what the refusal names: the folder for an unknown agent, the file for anything else.
+        cases = {"skill-patches/claude/alpha/SKILL.md.json": "kits/demo/skill-patches/claude",
+                 "skill-patches/gemini/alpha/SKILL.md.json": "kits/demo/skill-patches/gemini",
+                 "skill-patches/notes.md": "kits/demo/skill-patches/notes.md",
+                 "skill-patches/agents/alpha/SKILL.md.txt": "kits/demo/skill-patches/agents/alpha/SKILL.md.txt"}
+        for rel, named in cases.items():
             with self.subTest(rel=rel):
                 extra = self.write(self.demo / rel, patch_text(("`--writer claude`", "x")))
+                self.addCleanup(shutil.rmtree, self.demo / "skill-patches" / rel.split("/")[1], True)
                 before = digests(self.root)
+                try:
+                    with self.assertRaises(forge.SkillCopyError) as caught:
+                        forge.skill_copies(root=self.root)
+                    self.assertTrue(str(caught.exception).startswith(named + ": "), str(caught.exception))
+                    self.assertEqual(digests(self.root), before)
+                finally:
+                    extra.unlink()
+                    for folder in (self.demo / "skill-patches/claude", self.demo / "skill-patches/gemini"):
+                        shutil.rmtree(folder, ignore_errors=True)
+
+    def test_an_empty_folder_for_an_unknown_agent_is_refused(self):
+        # Filed by the completion review of D01 T02 section 5: a walk over files alone accepts `skill-patches/gemini/`
+        # until a patch is put in it, when the copies it was meant for have long been wrong.
+        forge.skill_copies(root=self.root)
+        empty = self.demo / "skill-patches/gemini"
+        empty.mkdir()
+        before = digests(self.root)
+        for check in (False, True):
+            with self.subTest(check=check):
                 with self.assertRaises(forge.SkillCopyError) as caught:
-                    forge.skill_copies(root=self.root)
-                self.assertIn(extra.relative_to(self.root).as_posix(), str(caught.exception))
+                    forge.skill_copies(check=check, root=self.root)
+                self.assertIn("kits/demo/skill-patches/gemini", str(caught.exception))
                 self.assertEqual(digests(self.root), before)
-                extra.unlink()
+        empty.rmdir()
+        # The two agents' own folders may be empty: no patch means the copy is the source.
+        (self.demo / "skill-patches/agents/empty").mkdir()
+        self.assertEqual(forge.skill_copies(check=True, root=self.root), [])
 
     def test_a_source_that_is_not_utf8_is_refused_naming_it(self):
         bad = self.write(self.demo / "templates/.claude/skills/beta/SKILL.md", b"\xff\xfe")
         with self.assertRaises(forge.SkillCopyError) as caught:
             forge.skill_copies(root=self.root)
         self.assertIn(bad.relative_to(self.root).as_posix(), str(caught.exception))
+
+
+class RepositoryCopiesTests(unittest.TestCase):
+    """D01 T02 section 6: the committed Antigravity and Codex skill files are the generator's output."""
+
+    def test_every_committed_copy_is_what_the_generator_writes(self):
+        self.assertEqual(forge.skill_copy_report(check=True), {"changed": [], "stray": []})
+
+    def test_every_kit_with_a_differing_copy_declares_it_in_a_patch(self):
+        # A copy can only differ from its Claude file through a patch, so these are all the declared differences.
+        patches = sorted(path.relative_to(SDK_ROOT).as_posix()
+                         for path in SDK_ROOT.glob("kits/**/skill-patches/**/*.json"))
+        self.assertEqual({path.split("/")[1] for path in patches}, {"reviewer", "todo", "unattended"})
+        self.assertEqual(len(patches), 19)
+        for rel in patches:
+            self.assertTrue(forge.load_skill_patch(SDK_ROOT / rel)["replace"], f"{rel} declares no difference")
+
+    def test_a_copy_edited_by_hand_fails_the_check_naming_the_file(self):
+        # On a scratch copy of kits/, never the checkout: one changed line in one copy of each agent.
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = pathlib.Path(tmp).resolve()
+            shutil.copytree(SDK_ROOT / "kits", scratch / "kits",
+                            ignore=shutil.ignore_patterns("__pycache__", "node_modules"))
+            self.assertEqual(forge.skill_copies(check=True, root=scratch), [])
+            edited = ["kits/todo/templates/.agents/skills/add-todo/SKILL.md",
+                      "kits/base/templates/.codex/skills/local-tool-safety/SKILL.md"]
+            for rel in edited:
+                with (scratch / rel).open("a", encoding="utf-8", newline="\n") as copy:
+                    copy.write("A line added by hand.\n")
+            self.assertEqual(forge.skill_copies(check=True, root=scratch), sorted(edited))
+            # Editing the Claude file instead fails it too, until the generator has run.
+            source = scratch / "kits/base/templates/.claude/skills/authoring-skills/SKILL.md"
+            with source.open("a", encoding="utf-8", newline="\n") as claude:
+                claude.write("A line added to the source.\n")
+            self.assertEqual(len(forge.skill_copies(check=True, root=scratch)), 4)
+            self.assertEqual(len(forge.skill_copies(root=scratch)), 4)
+            self.assertEqual(forge.skill_copies(check=True, root=scratch), [])
 
 
 class CommandLineTests(Fixture):

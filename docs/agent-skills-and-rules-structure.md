@@ -68,7 +68,7 @@ Use the word "rules" carefully:
 4. Keep `description` specific enough for automatic selection.
 5. Put long checklists in `references/`.
 6. Put OpenAI/Codex metadata in `.codex/skills/<skill-name>/agents/openai.yaml`.
-7. When other projects should start from the skill too, copy it into the matching Conclave-SDK kit's `templates/` by hand.
+7. When other projects should start from the skill too, contribute it to the matching Conclave-SDK kit. There the Claude file goes in the kit's `templates/.claude/skills/`, what an agent's copy must differ in is declared in the kit's `skill-patches/`, and the SDK's own `python forge.py skill-copies` writes the other two copies. That command belongs to the SDK: in this project the three copies are the project's own files, each edited directly.
 8. Update `AGENTS.md` if the skill changes project behavior.
 9. Validate all skill files, references, and metadata.
 

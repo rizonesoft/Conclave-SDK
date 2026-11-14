@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "replace": [
+    {
+      "find": "is `.claude/settings.json`, and",
+      "with": "is `.agents/hooks.json`, and"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "replace": [
+    {
+      "find": "SHA> --writer claude --prompt <scratch>/review-prompt.md",
+      "with": "SHA> --writer agy --prompt <scratch>/review-prompt.md"
+    }
+  ]
+}

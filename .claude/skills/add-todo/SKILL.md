@@ -1,6 +1,6 @@
 ---
 name: add-todo
-description: Front door for new work. Search the tree for an existing home first, then route to an existing section, a new section, or a whole new file via create-todo. Use whenever work needs capturing.
+description: Front door for new work. Search the todo/ tree for an existing home first, then route to an existing section, a new section, or a whole new file via create-todo. Use whenever work needs capturing.
 ---
 
 # Add TODO

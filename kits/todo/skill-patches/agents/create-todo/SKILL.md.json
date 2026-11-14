@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "replace": [
+    {
+      "find": "new TODO file with frontmatter, ",
+      "with": "new TODO file in Antigravity with frontmatter, "
+    },
+    {
+      "find": "`.claude/skills/create-todo/todo-template.md`",
+      "with": "`.agents/skills/create-todo/todo-template.md`"
+    }
+  ]
+}

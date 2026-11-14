@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "replace": [
+    {
+      "find": "new TODO file with frontmatter, ",
+      "with": "new TODO file in Codex with frontmatter, "
+    },
+    {
+      "find": "`.claude/skills/create-todo/todo-template.md`",
+      "with": "`.codex/skills/create-todo/todo-template.md`"
+    }
+  ]
+}
