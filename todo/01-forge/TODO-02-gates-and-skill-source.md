@@ -85,6 +85,8 @@ One command runs the Python suites, the kit script tests and the install tests, 
 
 ## 2. Test inventory that refuses a test no suite runs
 
+> **Started:** 2026-11-14T07:56:00Z
+
 A new test file that no suite picks up is a gate nobody runs. `check-all` compares the test files in the repository with what its suites cover and fails on one that is unowned.
 
 **Phase:** 5
@@ -101,6 +103,8 @@ A new test file that no suite picks up is a gate nobody runs. `check-all` compar
 - [ ] Run each of the ten `plugins/*/*/tests/` suites and the two `global/*/skills/process-ticktick-task/scripts/` test files once with the network unplugged from the process (no credentials in the environment), then list each in `SUITES` when it passes offline or in `EXCLUDED_TESTS` in `forge.py` with its reason (needs an account, needs a live service). Done when: `unowned_tests()` returns nothing for the repository and every exclusion carries a reason string. Cheaper substitute: excluding the whole `plugins/` folder by prefix must fail review, because a new offline test there would never run.
 - [ ] Fail `check_all` in `forge.py` before running anything when `unowned_tests()` is not empty, naming each file. Done when: a test asserts exit 1 and the file's path in the output.
 - [ ] Commit: `forge: check-all refuses a test file no suite runs`
+
+**Corrected 2026-11-14 (validation):** repository test discovery matches `test_*.py`, `*_test.py`, `*.test.mjs`, `*.test.js` (31 of the 35 files under `plugins/`) and `test-*.sh` via `git ls-files --cached --others --exclude-standard` so both tracked and untracked stray files are caught, checking true suite execution ownership (`unittest` owns `test_*.py` directly in `suite["path"]` or inside importable subpackages where every intermediate folder contains `__init__.py`; `command` owns test files explicitly named in `suite["argv"]`) rather than bare folder prefixes. All 5 `global/` suites (`global/claude/hooks`, `global/codex/hooks`, `global/tests`, `global/claude/skills/process-ticktick-task/scripts`, `global/codex/skills/process-ticktick-task/scripts`) and 6 offline `plugin-*` Node suites across 15 files (passed via explicit file paths in `node --test <files...>`) pass offline on Windows and WSL Linux and join `SUITES` (25 suites total); `plugins/codex/cloud-access` has no `tests/` folder (9 test directories across 10 plugin directories), and the remaining 20 `plugins/*/*/tests/*.test.js` files fail offline strictly with `ERR_MODULE_NOT_FOUND` for uninstalled npm packages (`@modelcontextprotocol/sdk`, `parse5`, `@azure/msal-node`, `zod`, `ajv`, `ssh2`, `ipaddr.js`) not checked into this zero-dependency repository, so each is listed individually in `EXCLUDED_TESTS` with its exact package reason and `check_all` also refuses stale or already-owned exclusions or empty reasons. Note: CI's three jobs remain as decided in §1 (`quick-windows`, `full-linux`, `kits-linux` with `--skip tests` running all non-`tests` suites including `global-*` and `plugin-*`), while `python forge.py check-all` on Windows prints `SKIP` for the 6 POSIX-only `install-*` bash suites and exits 0.
 
 **Test checkpoint:** `python forge.py check-all` exits 0; adding an empty `tests/extra/test_stray.py` makes it exit 1 naming that file.
 
