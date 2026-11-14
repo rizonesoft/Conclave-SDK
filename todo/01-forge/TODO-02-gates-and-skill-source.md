@@ -216,6 +216,8 @@ The Antigravity and Codex copies of a skill are the Claude copy with a few decla
 
 ## 6. Committed skill copies equal to the generator's output
 
+> **Started:** 2026-11-14T22:58:02Z
+
 The generator means nothing until the committed copies are its output. The differences that exist today are written down as patches, any difference that is an accident is removed, and a test keeps the three in step.
 
 **Phase:** 5
@@ -224,18 +226,20 @@ The generator means nothing until the committed copies are its output. The diffe
 
 **Build order:**
 
-1. Write a patch for each of the nine skill files whose copies differ. Done when: `python forge.py skill-copies --check` exits 0 with no committed copy changed by accident.
+1. Write a patch for each skill file whose copies differ (ten for Antigravity, nine for Codex). Done when: `python forge.py skill-copies --check` exits 0 with no committed copy changed by accident.
 2. Add the check to the suite and `self-sync` the SDK's copies. Done when: the checkpoint passes.
 
-- [ ] List every differing line between the Claude copy and each other copy of the nine skill files that differ (measured 2026-11-11: 80 changed lines for `.agents`, 78 for `.codex`) and sort each into intended (the agent's name, the `--writer` value, a tool only one agent has) or accidental (wording that drifted). Done when: the list is in the commit message body with a count per skill and the two counts sum to the measured totals or the difference is explained.
-- [ ] Write the patch files under each `kits/<kit>/skill-patches/` for the intended differences. Done when: `python forge.py skill-copies --check` reports only the files holding accidental differences.
+- [ ] List every differing line between the Claude copy and each other copy of the skill files that differ (measured 2026-11-15 with `diff <claude> <copy> | grep -c '^[<>]'`: 128 lines over ten files for `.agents`, 101 over nine for `.codex`) and sort each into intended (the agent's name, the `--writer` value, a tool, variable or run guard only one agent has) or accidental (wording that drifted). Done when: the list is in `docs/reviews/01-forge/D01-T02-s6-differences.md` with a count per skill and agent, each accidental difference quoted with its resolution, and the counts sum to the measured totals.
+- [ ] Write the patch files under each `kits/<kit>/skill-patches/` for the intended differences, each `find` the shortest text around the difference that occurs once in the source, never a whole paragraph where a phrase will do, so an edit elsewhere in that paragraph reaches the copies without touching the patch; a block only one agent has (the run guard of `process-plan`) is one replacement of the whole block. Done when: `python forge.py skill-copies --check` reports only the files holding accidental differences.
 - [ ] Resolve each accidental difference by changing the Claude source or the copy, whichever holds the better text, then run `python forge.py skill-copies`. Done when: `python forge.py skill-copies --check` exits 0 and `git diff --stat` shows no skill copy changed beyond the listed accidental lines. Cheaper substitute: writing a patch for every differing line without reading it must fail review, because it freezes the drift in place.
-- [ ] Add a test to `tests/test_forge.py` that `forge.skill_copies(check=True)` returns nothing for the repository. Done when: editing one line of a `.codex` skill copy makes it fail naming the file.
-- [ ] Run `python forge.py self-sync` and state the rule in `AGENTS.md` (Strict agent isolation) and `kits/base/templates/docs/agent-skills-and-rules-structure.md`: edit the Claude copy or a patch, then run `skill-copies`. Done when: `python -m unittest discover -s tests` passes with the SDK's installed copies equal to the kits.
+- [ ] Add a test to `tests/test_skill_copies.py` that `forge.skill_copies(check=True)` returns nothing for the repository. Done when: editing one line of a `.codex` skill copy makes it fail naming the file, which the test itself proves on a scratch copy of `kits/`.
+- [ ] Run `python forge.py self-sync` and state the rule in `AGENTS.md` (Strict agent isolation), `kits/base/templates/docs/agent-skills-and-rules-structure.md` and `kits/README.md`: edit the Claude copy or a patch, then run `python forge.py skill-copies`, then `self-sync`. Done when: `python -m unittest tests.test_forge -k self_sync` passes with the SDK's installed copies equal to the kits and each of the three documents names both commands.
 - [ ] Refuse an empty folder under `skill-patches/` that is not `agents` or `codex` in `_skill_copy_plan` of `forge.py`, which today sees only files and so accepts `skill-patches/gemini/` until a patch is put in it. Done when: a test in `tests/test_skill_copies.py` creates the empty folder, finds `forge.SkillCopyError` naming it and every file's digest unchanged, and fails with the folder check removed. Source: the completion review of §5 (`docs/reviews/01-forge/D01-T02-s5.md`, part 1 item 5, P3).
 - [ ] Commit: `kits: skill copies are the generator's output`
 
-**Test checkpoint:** `python forge.py skill-copies --check` exits 0 and `python -m unittest discover -s tests` ends `OK`; editing one `.agents` skill file by hand makes both fail.
+**Corrected 2026-11-15 (validation):** the counts were of 2026-11-11 ("nine skill files", "80 changed lines for `.agents`, 78 for `.codex`"); since then the unattended kit added a skill and the run guard text grew, so they are measured again with the command in the item. The differences were read before this note was written: all but three are intended (the agent's name in each description, `--writer`, `$ARGUMENTS` against `<section-ref>`, each agent's hook file, and the run guard of `process-plan` and `process-phase`, which is a different mechanism per agent). The list went "in the commit message body", which no later reader opens: it is a file beside the findings. The patch item said nothing of how much text a `find` holds, and a whole-paragraph `find` would make every edit of that paragraph break the patch. The test went in `tests/test_forge.py` and now joins the generator's own tests, and its `Done when:` was a manual edit, now proven by the test on a scratch copy. `kits/README.md` is the third place a maintainer reads how kits are changed. The checkpoint ran the whole `tests` folder, which CI runs; before: "`python -m unittest discover -s tests` ends `OK`". The item on an empty folder under `skill-patches/` was filed here by the completion review of §5.
+
+**Test checkpoint:** `python forge.py skill-copies --check` exits 0 and `python -m unittest tests.test_skill_copies` ends `OK`; editing one `.agents` skill file by hand makes both fail.
 
 ## 7. Pre-commit hook enabled at install and checked by doctor
 
