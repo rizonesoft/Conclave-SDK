@@ -21,6 +21,7 @@ installed copy of its kits.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import difflib
 import hashlib
 import json
@@ -1271,19 +1272,107 @@ def _own_group() -> dict:
     return {"start_new_session": True}
 
 
-def _kill_tree(proc: subprocess.Popen) -> None:
-    """End a child started with `_own_group()` and everything it started (`taskkill /T` on Windows, its process
-    group elsewhere)."""
+CREATE_SUSPENDED = 0x00000004
+JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS = 9
+JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+
+
+class _IO_COUNTERS(ctypes.Structure):
+    _fields_ = [("ReadOperationCount", ctypes.c_uint64), ("WriteOperationCount", ctypes.c_uint64),
+                ("OtherOperationCount", ctypes.c_uint64), ("ReadTransferCount", ctypes.c_uint64),
+                ("WriteTransferCount", ctypes.c_uint64), ("OtherTransferCount", ctypes.c_uint64)]
+
+
+class _JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+    _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                ("LimitFlags", ctypes.c_uint32), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", ctypes.c_uint32),
+                ("Affinity", ctypes.c_size_t), ("PriorityClass", ctypes.c_uint32),
+                ("SchedulingClass", ctypes.c_uint32)]
+
+
+class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+    _fields_ = [("BasicLimitInformation", _JOBOBJECT_BASIC_LIMIT_INFORMATION), ("IoInfo", _IO_COUNTERS),
+                ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+
+_WIN32_APIS = None
+
+
+def _win32():
+    """Return cached (kernel32, ntdll) handles with declared signatures (Windows only)."""
+    global _WIN32_APIS
+    if _WIN32_APIS is None:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
+        kernel32.CreateJobObjectW.restype = ctypes.c_void_p
+        kernel32.SetInformationJobObject.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+        kernel32.SetInformationJobObject.restype = ctypes.c_int
+        kernel32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        kernel32.AssignProcessToJobObject.restype = ctypes.c_int
+        kernel32.TerminateJobObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+        kernel32.TerminateJobObject.restype = ctypes.c_int
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        kernel32.CloseHandle.restype = ctypes.c_int
+        ntdll = ctypes.WinDLL("ntdll")
+        ntdll.NtResumeProcess.argtypes = [ctypes.c_void_p]
+        ntdll.NtResumeProcess.restype = ctypes.c_int32
+        _WIN32_APIS = kernel32, ntdll
+    return _WIN32_APIS
+
+
+def _open_windows_job():
+    """Create a Win32 job object configured with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE so descendants die with it."""
+    kernel32, _ = _win32()
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        raise ctypes.WinError(ctypes.get_last_error())
+    info = _JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+    info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    if not kernel32.SetInformationJobObject(job, JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS, ctypes.byref(info),
+                                            ctypes.sizeof(info)):
+        err = ctypes.get_last_error()
+        kernel32.CloseHandle(job)
+        raise ctypes.WinError(err)
+    return job
+
+
+def _assign_and_resume_windows(job, proc: subprocess.Popen) -> None:
+    """Assign a suspended Windows process to `job` and resume its main thread."""
+    kernel32, ntdll = _win32()
+    if not kernel32.AssignProcessToJobObject(job, ctypes.c_void_p(int(proc._handle))):
+        raise ctypes.WinError(ctypes.get_last_error())
+    status = ntdll.NtResumeProcess(ctypes.c_void_p(int(proc._handle)))
+    if status != 0:
+        raise OSError(f"NtResumeProcess returned 0x{status & 0xFFFFFFFF:08x}")
+
+
+def _close_windows_job(job) -> None:
+    """Terminate every process in `job` and close its handle cleanly."""
+    kernel32, _ = _win32()
+    kernel32.TerminateJobObject(job, 1)
+    kernel32.CloseHandle(job)
+
+
+def _kill_tree(proc: subprocess.Popen, job=None) -> None:
+    """End a child started with `_own_group()` and everything it started, including orphaned descendants."""
     if os.name == "nt":
-        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True,
-                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if job is not None:
+            _close_windows_job(job)
+        else:
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     else:
         import signal
         try:
             os.killpg(proc.pid, signal.SIGKILL)
         except ProcessLookupError:  # the group ended before the kill
             pass
-    proc.kill()
+    try:
+        proc.kill()
+    except OSError:
+        pass
 
 
 def _probe(argv: list, timeout: float | None = None) -> tuple[int | None, str, str]:
@@ -1831,9 +1920,9 @@ def _wait(proc: subprocess.Popen, timeout: float) -> int:
     return proc.wait(timeout=timeout)
 
 
-def _end_suite(proc: subprocess.Popen) -> None:
+def _end_suite(proc: subprocess.Popen, job=None) -> None:
     """End a suite's tree and collect the suite itself, so no process of it is left behind, running or not."""
-    _kill_tree(proc)
+    _kill_tree(proc, job)
     try:
         proc.wait(timeout=5)
     except subprocess.TimeoutExpired:  # the kill was sent; a process the system will not end is not waited on
@@ -1853,11 +1942,23 @@ def _run_suite(suite: dict, env: dict, cwd: Path) -> dict:
         result["seconds"] = round(time.monotonic() - started, 1)
         return result
 
+    group = _own_group()
+    job = None
+    proc = None
     try:
+        if os.name == "nt":
+            job = _open_windows_job()
+            group["creationflags"] |= CREATE_SUSPENDED
         proc = subprocess.Popen(suite["argv"], cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, **_own_group())
-    except OSError as exc:
-        result["reason"] = f"could not start: {exc.strerror or exc}"
+                                stderr=subprocess.STDOUT, **group)
+        if job is not None:
+            _assign_and_resume_windows(job, proc)
+    except (OSError, ValueError) as exc:
+        if proc is not None:
+            _end_suite(proc, job)
+        elif job is not None:
+            _close_windows_job(job)
+        result["reason"] = f"could not start: {getattr(exc, 'strerror', None) or exc}"
         return done()
     kept = {"tail": b"", "carry": b"", "tests": None}
     out = proc.stdout
@@ -1885,15 +1986,20 @@ def _run_suite(suite: dict, env: dict, cwd: Path) -> dict:
         if not reader.is_alive():
             out.close()
 
+    ended = False
     try:
         result["exit"] = _wait(proc, suite["timeout"])
     except subprocess.TimeoutExpired:
-        _end_suite(proc)
+        _end_suite(proc, job)
+        ended = True
         result["reason"] = f"timed out after {suite['timeout']:g} seconds"
     except BaseException:  # an interrupt ends the suite and its tree before it passes on
-        _end_suite(proc)
+        _end_suite(proc, job)
+        ended = True
         finish_reading()
         raise
+    if not ended:
+        _end_suite(proc, job)
     finish_reading()
     text = kept["tail"].decode("utf-8", "replace")
     result["tail"] = "\n".join(text.splitlines()[-TAIL_LINES:])

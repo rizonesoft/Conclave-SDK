@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tracemalloc
 import unittest
 from unittest import mock
 
@@ -143,6 +144,26 @@ class Runner(Stubs):
         self.assertLessEqual(len(result["tail"].encode()), forge.TAIL_BYTES)
         self.assertTrue(result["tail"].endswith("END"))
 
+    def test_streaming_output_without_newlines_stays_bounded_in_memory(self):
+        stream = self.command("stream",
+                              'import sys\nchunk = b"y" * 65536\n'
+                              'for _ in range(256):\n    sys.stdout.buffer.write(chunk)\n'
+                              'sys.stdout.buffer.write(b"END")\nsys.stdout.buffer.flush()\nsys.exit(1)\n')
+        was_tracing = tracemalloc.is_tracing()
+        if not was_tracing:
+            tracemalloc.start()
+        try:
+            tracemalloc.reset_peak()
+            (result,) = self.run_all([stream])
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            if not was_tracing:
+                tracemalloc.stop()
+        self.assertEqual(result["exit"], 1)
+        self.assertLessEqual(len(result["tail"].encode()), forge.TAIL_BYTES)
+        self.assertTrue(result["tail"].endswith("END"))
+        self.assertLess(peak, 2 * 1024 * 1024, f"streaming 16 MB peaked at {peak} bytes instead of bounded tail storage")
+
     def test_a_suite_that_cannot_start_fails_by_name_and_the_next_still_runs(self):
         missing = {"name": "missing", "kind": "command", "path": "x", "timeout": 30,
                    "argv": [str(self.dir / "no-such-program"), "x"]}
@@ -179,6 +200,7 @@ class Runner(Stubs):
         first, second = self.run_all([leaver, self.passing("after")])
         self.assertLess(time.monotonic() - started, 30, "the wait for the held pipe is bounded")
         self.assertEqual((first["passed"], first["exit"], second["passed"]), (True, 0, True))
+        self.assert_gone(self.pids("leaver"))
 
     def test_an_interruption_ends_the_tree_and_passes_on(self):
         def interrupted(proc, timeout):
@@ -200,15 +222,18 @@ class FullRun(Stubs):
         suite = self.gated()
         (quick,) = self.run_all([suite])
         self.assertEqual((quick["passed"], quick["tests"]), (True, 2))
+        self.assertIn("skipped=1", quick["tail"])
         self.assertFalse((self.dir / "gated/full-ran").exists(), "the gated test was skipped")
         (full,) = self.run_all([suite], full=True)
         self.assertEqual((full["passed"], full["tests"]), (True, 2))
+        self.assertNotIn("skipped", full["tail"])
         self.assertTrue((self.dir / "gated/full-ran").exists(), "the gated test ran")
 
     def test_the_caller_s_own_variable_does_not_leak_into_a_quick_run(self):
         with mock.patch.dict(os.environ, {"CONCLAVE_FULL_TESTS": "1"}):
             (quick,) = self.run_all([self.gated()])
-        self.assertTrue(quick["passed"])
+        self.assertEqual((quick["passed"], quick["tests"]), (True, 2))
+        self.assertIn("skipped=1", quick["tail"])
         self.assertFalse((self.dir / "gated/full-ran").exists())
 
 
