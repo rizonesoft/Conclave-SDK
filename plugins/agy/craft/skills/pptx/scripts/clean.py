@@ -16,11 +16,14 @@ This script removes:
 """
 
 import posixpath
+import re
 import sys
 from pathlib import Path
 from xml.parsers.expat import ExpatError
 
 from office.helpers import (
+    CONTENT_TYPES_NS,
+    PACKAGE_RELS_NS,
     SLIDE_REL_TYPE,
     STRICT_OFFICE_REL_NS,
     atomic_write_bytes,
@@ -34,11 +37,23 @@ from office.helpers import (
 
 
 _SLIDE_REL_TYPES = (SLIDE_REL_TYPE, f"{STRICT_OFFICE_REL_NS}/slide")
+_XMLNS_NS = "http://www.w3.org/2000/xmlns/"
+_PRESENTATION_NS = (
+    "http://schemas.openxmlformats.org/presentationml/2006/main",
+    "http://purl.oclc.org/ooxml/presentationml/main",
+)
+_TOKEN_PART = r"[!#$%&'*+\-.0-9A-Z^_`a-z|~]+"
+_CONTENT_TYPE_RE = re.compile(
+    rf"^{_TOKEN_PART}/{_TOKEN_PART}(?:\s*;\s*{_TOKEN_PART}=(?:{_TOKEN_PART}|\"[^\x00-\x1F\x7F\"]*\"))*$"
+)
+_EXTENSION_RE = re.compile(r"^(?:[!$&'()*+,:=@a-zA-Z0-9\-_~]|%[0-9a-fA-F]{2})+$")
+_XML_ID_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9._-]*$")
 
 
 def _slide_rids(pres_rels_path: Path, unpacked_dir: Path) -> dict[str, str]:
     source_part = rels_source_part(pres_rels_path, unpacked_dir)
     rels_dom = parse_xml_file(pres_rels_path)
+    _validate_rels_dom(rels_dom, "ppt/_rels/presentation.xml.rels")
 
     rids: dict[str, str] = {}
     for rel in child_local_elements(rels_dom.documentElement, "Relationship"):
@@ -124,6 +139,196 @@ def _validate_slide_id_list(
             )
 
 
+def _unqualified_attrs(el, allowed: set[str], label: str) -> dict[str, str]:
+    attrs = el.attributes
+    values: dict[str, str] = {}
+    if attrs is None:
+        return values
+    for idx in range(attrs.length):
+        attr = attrs.item(idx)
+        if (
+            attr.namespaceURI == _XMLNS_NS
+            or attr.name == "xmlns"
+            or attr.name.startswith("xmlns:")
+        ):
+            continue
+        if attr.namespaceURI:
+            raise RefusedToClean(
+                f"{label} has unexpected namespaced attribute {attr.name!r}; "
+                "refusing to clean a damaged package."
+            )
+        if attr.name not in allowed:
+            raise RefusedToClean(
+                f"{label} has unexpected attribute {attr.name!r}; "
+                "refusing to clean a damaged package."
+            )
+        values[attr.name] = attr.value
+    return values
+
+
+def _ensure_no_unexpected_children(
+    el, allowed_local: set[str] | None, required_ns: str | None, label: str
+) -> list:
+    children = []
+    for child in el.childNodes:
+        if child.nodeType in (el.TEXT_NODE, el.CDATA_SECTION_NODE):
+            if allowed_local is not None and child.data.strip():
+                raise RefusedToClean(
+                    f"{label} contains unexpected text content; "
+                    "refusing to clean a damaged package."
+                )
+        elif child.nodeType == child.ELEMENT_NODE:
+            if allowed_local is None:
+                raise RefusedToClean(
+                    f"{label} contains unexpected element <{child.tagName}>; "
+                    "refusing to clean a damaged package."
+                )
+            if required_ns is not None and child.namespaceURI != required_ns:
+                raise RefusedToClean(
+                    f"{label} element <{child.tagName}> has wrong namespace "
+                    f"{child.namespaceURI!r}; refusing to clean a damaged package."
+                )
+            if _local_name(child) not in allowed_local:
+                raise RefusedToClean(
+                    f"{label} contains unexpected element <{child.tagName}>; "
+                    "refusing to clean a damaged package."
+                )
+            children.append(child)
+    return children
+
+
+def _validate_content_types_dom(ct_dom) -> None:
+    ct_root = ct_dom.documentElement
+    if (
+        ct_root is None
+        or _local_name(ct_root) != "Types"
+        or ct_root.namespaceURI != CONTENT_TYPES_NS
+    ):
+        raise RefusedToClean(
+            "[Content_Types].xml must have <Types> in the OPC content-types namespace; "
+            "refusing to clean a damaged package."
+        )
+    _unqualified_attrs(ct_root, set(), "[Content_Types].xml <Types>")
+    children = _ensure_no_unexpected_children(
+        ct_root,
+        {"Default", "Override"},
+        CONTENT_TYPES_NS,
+        "[Content_Types].xml <Types>",
+    )
+
+    seen_extensions: set[str] = set()
+    seen_parts: set[str] = set()
+    for child in children:
+        name = _local_name(child)
+        _ensure_no_unexpected_children(
+            child, set(), CONTENT_TYPES_NS, f"[Content_Types].xml <{name}>"
+        )
+        if name == "Default":
+            attrs = _unqualified_attrs(
+                child, {"Extension", "ContentType"}, "[Content_Types].xml <Default>"
+            )
+            ext = attrs.get("Extension", "")
+            ctype = attrs.get("ContentType", "")
+            if (
+                "Extension" not in attrs
+                or "ContentType" not in attrs
+                or not _EXTENSION_RE.match(ext)
+                or not _CONTENT_TYPE_RE.match(ctype)
+            ):
+                raise RefusedToClean(
+                    "[Content_Types].xml <Default> has invalid Extension or ContentType; "
+                    "refusing to clean a damaged package."
+                )
+            key = ext.lower()
+            if key in seen_extensions:
+                raise RefusedToClean(
+                    f"[Content_Types].xml has duplicate <Default> Extension {ext!r}; "
+                    "refusing to clean a damaged package."
+                )
+            seen_extensions.add(key)
+        else:
+            attrs = _unqualified_attrs(
+                child, {"PartName", "ContentType"}, "[Content_Types].xml <Override>"
+            )
+            part_name = attrs.get("PartName", "")
+            ctype = attrs.get("ContentType", "")
+            if (
+                "PartName" not in attrs
+                or "ContentType" not in attrs
+                or not part_name.startswith("/")
+                or len(part_name) <= 1
+                or "\\" in part_name
+                or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in part_name)
+                or not _CONTENT_TYPE_RE.match(ctype)
+            ):
+                raise RefusedToClean(
+                    "[Content_Types].xml <Override> has invalid PartName or ContentType; "
+                    "refusing to clean a damaged package."
+                )
+            key = part_name.lower()
+            if key in seen_parts:
+                raise RefusedToClean(
+                    f"[Content_Types].xml has duplicate <Override> PartName {part_name!r}; "
+                    "refusing to clean a damaged package."
+                )
+            seen_parts.add(key)
+
+
+def _validate_rels_dom(rels_dom, rels_label: str) -> None:
+    rels_root = rels_dom.documentElement
+    if (
+        rels_root is None
+        or _local_name(rels_root) != "Relationships"
+        or rels_root.namespaceURI != PACKAGE_RELS_NS
+    ):
+        raise RefusedToClean(
+            f"{rels_label} must have <Relationships> in the OPC relationships namespace; "
+            "refusing to clean a damaged package."
+        )
+    _unqualified_attrs(rels_root, set(), f"{rels_label} <Relationships>")
+    children = _ensure_no_unexpected_children(
+        rels_root,
+        {"Relationship"},
+        PACKAGE_RELS_NS,
+        f"{rels_label} <Relationships>",
+    )
+
+    seen_ids: set[str] = set()
+    for rel in children:
+        _ensure_no_unexpected_children(
+            rel, None, None, f"{rels_label} <Relationship>"
+        )
+        attrs = _unqualified_attrs(
+            rel, {"Id", "Type", "Target", "TargetMode"}, f"{rels_label} <Relationship>"
+        )
+        rel_id = attrs.get("Id", "")
+        rel_type = attrs.get("Type", "")
+        target = attrs.get("Target", "")
+        if (
+            "Id" not in attrs
+            or "Type" not in attrs
+            or "Target" not in attrs
+            or not _XML_ID_RE.match(rel_id)
+            or not rel_type.strip()
+            or not target.strip()
+        ):
+            raise RefusedToClean(
+                f"{rels_label} <Relationship> has missing or invalid Id, Type, or Target; "
+                "refusing to clean a damaged package."
+            )
+        if rel_id in seen_ids:
+            raise RefusedToClean(
+                f"{rels_label} has duplicate relationship Id {rel_id!r}; "
+                "refusing to clean an ambiguous package."
+            )
+        seen_ids.add(rel_id)
+        if "TargetMode" in attrs and attrs["TargetMode"] not in ("Internal", "External"):
+            raise RefusedToClean(
+                f"{rels_label} <Relationship> has invalid TargetMode {attrs['TargetMode']!r}; "
+                "refusing to clean a damaged package."
+            )
+
+
 def _validate_presentation_package(unpacked_dir: Path) -> None:
     ct_path = unpacked_dir / "[Content_Types].xml"
     pres_path = unpacked_dir / "ppt" / "presentation.xml"
@@ -135,17 +340,15 @@ def _validate_presentation_package(unpacked_dir: Path) -> None:
             "refusing to delete files from an incomplete PPTX package."
         )
 
-    ct_dom = parse_xml_file(ct_path)
-    ct_root = ct_dom.documentElement
-    if ct_root is None or _local_name(ct_root) != "Types":
-        raise RefusedToClean(
-            "[Content_Types].xml root element is not <Types>; "
-            "refusing to clean a damaged package."
-        )
+    _validate_content_types_dom(parse_xml_file(ct_path))
 
     pres_dom = parse_xml_file(pres_path)
     pres_root = pres_dom.documentElement
-    if pres_root is None or _local_name(pres_root) != "presentation":
+    if (
+        pres_root is None
+        or _local_name(pres_root) != "presentation"
+        or pres_root.namespaceURI not in _PRESENTATION_NS
+    ):
         raise RefusedToClean(
             "ppt/presentation.xml root element is not <presentation>; "
             "refusing to clean a damaged package."
@@ -158,12 +361,12 @@ def _validate_presentation_package(unpacked_dir: Path) -> None:
             "refusing to clean a damaged package."
         )
 
-    rels_dom = parse_xml_file(pres_rels_path)
-    rels_root = rels_dom.documentElement
-    if rels_root is None or _local_name(rels_root) != "Relationships":
-        raise RefusedToClean(
-            "ppt/_rels/presentation.xml.rels root element is not <Relationships>; "
-            "refusing to clean a damaged package."
+    pres_rels_resolved = pres_rels_path.resolve()
+    for rels_file in sorted(unpacked_dir.rglob("*.rels")):
+        if rels_file.resolve() == pres_rels_resolved:
+            continue
+        _validate_rels_dom(
+            parse_xml_file(rels_file), rels_file.relative_to(unpacked_dir).as_posix()
         )
 
     _validate_slide_id_list(

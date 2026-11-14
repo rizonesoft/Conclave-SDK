@@ -2311,6 +2311,43 @@ class CraftScriptHardeningTests(unittest.TestCase):
             self.assertTrue(w1.exists())
             self.assertTrue(w2.exists())
 
+            # Case 5: duplicate relationship Id targeting slide1.xml and slide2.xml must refuse
+            dup_dir, dup_s1, dup_s2 = _build_deck("clean_dup_rid")
+            dup_pres_rels = ET.Element(f"{{{rels_ns}}}Relationships")
+            ET.SubElement(dup_pres_rels, f"{{{rels_ns}}}Relationship", Id="rId1", Type=f"{r_ns}/slide", Target="slides/slide1.xml")
+            ET.SubElement(dup_pres_rels, f"{{{rels_ns}}}Relationship", Id="rId1", Type=f"{r_ns}/slide", Target="slides/slide2.xml")
+            (dup_dir / "ppt" / "_rels" / "presentation.xml.rels").write_bytes(
+                ET.tostring(dup_pres_rels, encoding="utf-8", xml_declaration=True)
+            )
+            with self.assertRaises(clean.RefusedToClean):
+                clean.remove_orphaned_slides(dup_dir)
+            with self.assertRaises(clean.RefusedToClean):
+                clean.clean_unused_files(dup_dir)
+            self.assertTrue(dup_s1.exists())
+            self.assertTrue(dup_s2.exists())
+
+            # Case 6: wrong [Content_Types].xml namespace, unexpected children, or missing required attrs must refuse
+            bad_ct_variants = [
+                ("clean_ct_wrong_ns", b'<Types xmlns="urn:wrong"><Garbage/></Types>'),
+                (
+                    "clean_ct_bad_child",
+                    b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Garbage/></Types>',
+                ),
+                (
+                    "clean_ct_missing_attr",
+                    b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+                    b'<Override ContentType="application/xml"/></Types>',
+                ),
+            ]
+            for label, raw_ct in bad_ct_variants:
+                bad_dir, bs1, bs2 = _build_deck(label, ct_bytes=raw_ct)
+                with self.assertRaises(clean.RefusedToClean):
+                    clean.remove_orphaned_slides(bad_dir)
+                with self.assertRaises(clean.RefusedToClean):
+                    clean.clean_unused_files(bad_dir)
+                self.assertTrue(bs1.exists())
+                self.assertTrue(bs2.exists())
+
     def test_pptx_apply_theme_resolves_project_local_deps_and_writes_atomically(self):
         node = shutil.which("node")
         if not node:
@@ -2486,9 +2523,13 @@ module.exports = FakeZip;
         deck_prog = proj / "deck_prog.pptx"
         deck_cli = proj / "deck_cli.pptx"
         deck_fail = proj / "deck_fail.pptx"
+        many_deck = proj / "many_entries.pptx"
         _write_sample_deck(deck_prog)
         _write_sample_deck(deck_cli)
         orig_fail_bytes = _write_sample_deck(deck_fail)
+        with zipfile.ZipFile(many_deck, "w", compression=zipfile.ZIP_STORED) as zf:
+            for idx in range(10001):
+                zf.writestr(f"e{idx}.txt", b"")
         theme_json = proj / "theme.json"
         theme_json.write_text(json.dumps(theme_obj), encoding="utf-8")
 
@@ -2517,6 +2558,21 @@ async function main() {{
     else throw err;
   }}
   assert.strictEqual(enospcCaught, true);
+
+  let preZipEntryLimitCaught = false;
+  try {{
+    await applyTheme(path.join(projDir, "many_entries.pptx"), theme, {{
+      jszip: {{
+        loadAsync: async () => {{
+          throw new Error("JSZip.loadAsync should not have been called");
+        }},
+      }},
+    }});
+  }} catch (err) {{
+    if (err && /exceeding limit 10000/i.test(err.message)) preZipEntryLimitCaught = true;
+    else throw err;
+  }}
+  assert.strictEqual(preZipEntryLimitCaught, true);
 
   const fakeZip = {{
     files: Object.fromEntries(Array.from({{ length: 10001 }}, (_, i) => [`f${{i}}.xml`, {{ dir: false }}])),
@@ -2566,6 +2622,19 @@ main().catch((err) => {{ console.error(err); process.exit(1); }});
             check=False,
         )
         self.assertEqual(proc_cli.returncode, 0, f"stderr={proc_cli.stderr}\nstdout={proc_cli.stdout}")
+
+        proc_many = subprocess.run(
+            [node, str(apply_theme_js), "many_entries.pptx", "theme.json"],
+            cwd=str(proj),
+            env=clean_env,
+            capture_output=True,
+            text=True,
+            creationflags=CREATION_FLAGS,
+            timeout=30,
+            check=False,
+        )
+        self.assertNotEqual(proc_many.returncode, 0)
+        self.assertIn("exceeding limit 10000", proc_many.stderr)
 
         for out_deck in (deck_prog, deck_cli):
             with zipfile.ZipFile(out_deck, "r") as zf:
