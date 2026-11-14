@@ -120,6 +120,13 @@ os.environ["CODEX_HOOK_TRUST_SERVER"] = json.dumps([sys.executable, str(SDK_ROOT
 BASH_KITS = ("automations", "base", "laravel", "reviewer", "todo", "wordpress")
 # The file a project of that stack already has, and the folder each script replaced with a link.
 STACK_FILE = {"laravel": "artisan", "wordpress": "wp-load.php"}
+# The WordPress script's dry run stood on a root known only by its wp-config.php: that input stays accepted.
+DRY_STACK_FILE = {"laravel": "artisan", "wordpress": "wp-config.php"}
+# What the scripts required by name, written here and never read from forge: a constant changed there must not
+# change what these tests expect.
+AGENT_DIRS = (".agents", ".claude", ".codex")
+TODO_SKILLS = ("add-todo", "create-todo", "groom-plan", "process-phase", "process-plan", "process-todo-file",
+               "process-todo-section", "review-todo-section")
 LINKED_FOLDER = {"automations": ".conclave", "base": "scripts", "laravel": "scripts", "reviewer": "scripts",
                  "todo": "scripts", "wordpress": "docs"}
 # What can fail a script: a `[ ]` test, a grep, an explicit exit, a Python assert or sys.exit, and (under `set -e`) a
@@ -186,13 +193,21 @@ class KitInstallTests(unittest.TestCase):
         # Resolved: a runner's temp folder can be an 8.3 short name that forge's own paths spell long.
         self.work = pathlib.Path(self.tmp.name).resolve()
 
-    def project(self, name, kit=None):
+    def project(self, name, kit=None, stack=STACK_FILE):
         """An empty project folder, holding the file that makes it a project of the kit's stack."""
         project = self.work / name
         project.mkdir()
-        if kit in STACK_FILE:
-            (project / STACK_FILE[kit]).write_text("<?php\n", encoding="utf-8")
+        if kit in stack:
+            (project / stack[kit]).write_bytes(b"<?php\n")
         return project
+
+    def own_file(self, project, rel, data):
+        """A file the project already has, written as bytes: the scripts compared digests, so a kept file is
+        byte for byte the same, line endings included."""
+        path = project / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return path
 
     def assert_files(self, project, *rels):
         for rel in rels:
@@ -217,7 +232,7 @@ class KitInstallTests(unittest.TestCase):
         res = forge.apply_kit(project, "automations")
         self.assertEqual(tasks.read_bytes(), before)
         self.assertIn(".conclave/automations/tasks.json", res["preserved"])
-        self.assert_files(project, *(f"{agent_dir}/skills/scheduled-automations/SKILL.md" for agent_dir in forge.AGENT_DIRS))
+        self.assert_files(project, *(f"{agent_dir}/skills/scheduled-automations/SKILL.md" for agent_dir in AGENT_DIRS))
         self.assert_files(project, ".codex/skills/scheduled-automations/agents/openai.yaml")
         self.assert_files(project, *(f".conclave/automations/{name}" for name in ("run.py", "alert.py", "install.ps1", "README.md")))
         self.assert_mode(project, ".conclave/automations/install.sh", 0o755)
@@ -235,15 +250,14 @@ class KitInstallTests(unittest.TestCase):
 
     def test_base_keeps_the_projects_files_and_installs_the_rest(self):
         project = self.project("target")
-        own = {"AGENTS.md": "locally tuned\n", ".claude/skills/local-tool-safety/SKILL.md": "custom skill\n",
-               ".codex/settings.toml": "custom settings\n"}
-        for rel, text in own.items():
-            (project / rel).parent.mkdir(parents=True, exist_ok=True)
-            (project / rel).write_text(text, encoding="utf-8")
+        own = {"AGENTS.md": b"locally tuned\r\n", ".claude/skills/local-tool-safety/SKILL.md": b"custom skill\n",
+               ".codex/settings.toml": b"custom settings\r\n"}
+        for rel, data in own.items():
+            self.own_file(project, rel, data)
         forge.apply_kit(project, "base")
-        for rel, text in own.items():
-            self.assertEqual((project / rel).read_text(encoding="utf-8"), text, rel)
-        self.assert_files(project, *(f"{agent_dir}/skills/authoring-skills/SKILL.md" for agent_dir in forge.AGENT_DIRS))
+        for rel, data in own.items():
+            self.assertEqual((project / rel).read_bytes(), data, rel)
+        self.assert_files(project, *(f"{agent_dir}/skills/authoring-skills/SKILL.md" for agent_dir in AGENT_DIRS))
         self.assert_files(project, "scripts/verify-agent-tiers.mjs")
         # Retired with the native Antigravity orchestrator (D00 T02 section 3): neither may come back.
         self.assertFalse((project / ".agents/agents").exists())
@@ -258,12 +272,12 @@ class KitInstallTests(unittest.TestCase):
         (project / "composer.json").write_text('{"name":"fixture/laravel","require-dev":{}}\n', encoding="utf-8")
         (project / "resources/css").mkdir(parents=True)
         (project / "resources/css/app.css").write_text('@import "tailwindcss";\n', encoding="utf-8")
-        (project / "AGENTS.md").write_text("locally tuned\n", encoding="utf-8")
+        self.own_file(project, "AGENTS.md", b"locally tuned\r\n")
         forge.apply_kit(project, "laravel")
-        self.assertEqual((project / "AGENTS.md").read_text(encoding="utf-8"), "locally tuned\n")
+        self.assertEqual((project / "AGENTS.md").read_bytes(), b"locally tuned\r\n")
         self.assert_files(project, "scripts/lsp-diagnostics.py", "scripts/hooks/laravel-lsp-pre-push.sh", "boost.json",
                           "docs/laravel-agent-tooling.md", ".mcp.json",
-                          *(f"{agent_dir}/skills/laravel-boost/SKILL.md" for agent_dir in forge.AGENT_DIRS))
+                          *(f"{agent_dir}/skills/laravel-boost/SKILL.md" for agent_dir in AGENT_DIRS))
         self.assert_mode(project, "scripts/hooks/laravel-lsp-pre-push.sh", 0o755)
         self.assert_mode(project, "docs/laravel-agent-tooling.md", 0o644)
         mcp = json.loads((project / ".mcp.json").read_text(encoding="utf-8"))
@@ -308,12 +322,10 @@ class KitInstallTests(unittest.TestCase):
 
     def test_reviewer_keeps_the_pin_and_installs_runnable_tools(self):
         project = self.project("target")
-        pin = project / forge.REVIEWER_PIN
-        pin.parent.mkdir()
-        pin.write_text("schema_version = 1\n# tuned locally\n", encoding="utf-8")
+        pin = self.own_file(project, ".conclave/reviewers.toml", b"schema_version = 1\r\n# tuned locally\r\n")
         forge.apply_kit(project, "reviewer")
-        self.assertEqual(pin.read_text(encoding="utf-8"), "schema_version = 1\n# tuned locally\n")
-        self.assert_files(project, *(f"{agent_dir}/skills/independent-review/SKILL.md" for agent_dir in forge.AGENT_DIRS))
+        self.assertEqual(pin.read_bytes(), b"schema_version = 1\r\n# tuned locally\r\n")
+        self.assert_files(project, *(f"{agent_dir}/skills/independent-review/SKILL.md" for agent_dir in AGENT_DIRS))
         self.assert_files(project, ".codex/skills/independent-review/agents/openai.yaml")
         self.assert_files(project, *(f"docs/{prompt}-prompt.md" for prompt in (
             "plan-review", "review-round", "completion-review", "reconciliation-review")))
@@ -330,7 +342,7 @@ class KitInstallTests(unittest.TestCase):
         forge.apply_kit(project, "reviewer")
         self.assert_runs(project, "scripts/review_pin.py", "--check")
         self.assert_runs(project, "scripts/review-dispatch.py", "--check-pin")
-        pin = (project / forge.REVIEWER_PIN).read_text(encoding="utf-8").splitlines()
+        pin = (project / ".conclave/reviewers.toml").read_text(encoding="utf-8").splitlines()
         # A new install starts on three-pass and routes all three writers: Claude Code and Antigravity to Astra,
         # Codex to Carbon (D00 T02 section 1; the script still forbade a codex route, on a line `set -e` ignored).
         for line in ('model = "gpt-6-astra"', 'claude = ["astra"]', 'agy = ["astra"]', 'codex = ["carbon"]',
@@ -346,14 +358,11 @@ class KitInstallTests(unittest.TestCase):
 
     def test_todo_keeps_the_plan_and_installs_a_runnable_graph(self):
         project = self.project("target")
-        index = project / "todo/TODO-00-INDEX.md"
-        index.parent.mkdir()
-        index.write_text("project plan index\n", encoding="utf-8")
+        index = self.own_file(project, "todo/TODO-00-INDEX.md", b"project plan index\r\n")
         forge.apply_kit(project, "todo")
-        self.assertEqual(index.read_text(encoding="utf-8"), "project plan index\n")
+        self.assertEqual(index.read_bytes(), b"project plan index\r\n")
         self.assert_files(project, *(f"{agent_dir}/skills/{skill}/SKILL.md"
-                                     for agent_dir in forge.AGENT_DIRS for skill in forge.TODO_SKILLS))
-        self.assertEqual(len(forge.TODO_SKILLS), 8)
+                                     for agent_dir in AGENT_DIRS for skill in TODO_SKILLS))
         self.assert_files(project, ".codex/skills/add-todo/agents/openai.yaml", "todo/README.md",
                           "todo/templates/TODO-template.md", "docs/todo-workflow.md")
         self.assert_mode(project, "scripts/todo-graph.py", 0o755)
@@ -378,15 +387,15 @@ class KitInstallTests(unittest.TestCase):
 
     def test_wordpress_keeps_agents_md_and_installs_the_pressable_overlay(self):
         project = self.project("target", "wordpress")
-        (project / "AGENTS.md").write_text("locally tuned\n", encoding="utf-8")
+        self.own_file(project, "AGENTS.md", b"locally tuned\r\n")
         forge.apply_kit(project, "wordpress")
-        self.assertEqual((project / "AGENTS.md").read_text(encoding="utf-8"), "locally tuned\n")
+        self.assertEqual((project / "AGENTS.md").read_bytes(), b"locally tuned\r\n")
         self.assert_files(project, "docs/wordpress-agent-tooling.md", "phpcs.xml.dist", "tools/phpcs/composer.json",
                           "mcp.wordpress.example.json", "scripts/hooks/wordpress-phpcs-pre-push.sh",
                           ".agents/skills/wordpress-connect/SKILL.md", ".ddev/providers/production.yaml",
-                          *(f"{agent_dir}/skills/wordpress-site-safety/SKILL.md" for agent_dir in forge.AGENT_DIRS))
+                          *(f"{agent_dir}/skills/wordpress-site-safety/SKILL.md" for agent_dir in AGENT_DIRS))
         json.loads((project / "mcp.wordpress.example.json").read_text(encoding="utf-8"))
-        self.assertEqual(json.loads((project / forge.WORDPRESS_PIN).read_text(encoding="utf-8"))["host"], "pressable")
+        self.assertEqual(json.loads((project / ".conclave/wordpress-site.json").read_text(encoding="utf-8"))["host"], "pressable")
         self.assert_mode(project, "bin/wp-remote", 0o755)
         self.assert_mode(project, "phpcs.xml.dist", 0o644)
 
@@ -419,7 +428,7 @@ class KitInstallTests(unittest.TestCase):
         self.assert_files(project, "bin/wp-remote", ".claude/skills/wordpress-connect/SKILL.md")
         for rel in (".ddev", "mcp.wordpress.example.json", "scripts/mcp-headers.py"):
             self.assertFalse((project / rel).exists(), rel)
-        self.assertEqual(json.loads((project / forge.WORDPRESS_PIN).read_text(encoding="utf-8"))["host"], "wpcom")
+        self.assertEqual(json.loads((project / ".conclave/wordpress-site.json").read_text(encoding="utf-8"))["host"], "wpcom")
         checks = {check["name"]: check["status"] for check in forge.doctor_repo(project, "wordpress")["checks"]}
         self.assertEqual(checks["no-ddev"], "ok")
         # Re-running without a host follows the pin; a conflicting host is refused.
@@ -468,7 +477,7 @@ class KitInstallTests(unittest.TestCase):
     def test_a_dry_run_writes_nothing(self):
         for kit in BASH_KITS:
             with self.subTest(kit=kit):
-                project = self.project(f"dry-{kit}", kit)
+                project = self.project(f"dry-{kit}", kit, DRY_STACK_FILE)
                 before = tree(project)
                 res = forge.apply_kit(project, kit, dry_run=True)
                 self.assertTrue(res["installed"], "a dry run names what it would install")
@@ -496,7 +505,7 @@ class KitInstallTests(unittest.TestCase):
                 project = self.project(f"link-{kit}", kit)
                 outside = self.work / f"outside-{kit}"
                 outside.mkdir()
-                (outside / "sentinel").write_text("outside sentinel\n", encoding="utf-8")
+                (outside / "sentinel").write_bytes(b"outside sentinel\n")
                 link = project / LINKED_FOLDER[kit]
                 make_link(outside, link)
                 own = sorted(path.name for path in project.iterdir())
@@ -506,7 +515,7 @@ class KitInstallTests(unittest.TestCase):
                 self.assertEqual(code, 2)
                 # Nothing was written through the link, and nothing beside it either: the refusal comes first.
                 self.assertEqual(sorted(path.name for path in outside.iterdir()), ["sentinel"])
-                self.assertEqual((outside / "sentinel").read_text(encoding="utf-8"), "outside sentinel\n")
+                self.assertEqual((outside / "sentinel").read_bytes(), b"outside sentinel\n")
                 self.assertEqual(sorted(path.name for path in project.iterdir()), own)
 
 
