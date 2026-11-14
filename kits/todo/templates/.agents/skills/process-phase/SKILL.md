@@ -64,11 +64,11 @@ Long jobs never stall the run:
 - After launching a background job, confirm within a few minutes that its process exists and its output file is growing or it has finished. Never wait on a job whose process is gone: a job that ended without its result (killed, no output, no notification) is relaunched once, alone, and the relaunch recorded in the findings file and the run file; a second loss is a Critical event, and the row continues with the next step that does not need that result or parks as a leftover.
 - An idle wait longer than 15 minutes with no job alive is a stall: re-check the job, resume the row, and record it.
 
-Skip rows whose `resolve` is not exit 0 here, and rows `resolve --have auto` holds for a host this session does not meet (exit 4, with the host in `missing_needs`; step 1.3 records which), and re-check them after each stamp: the graph moves as rows flip. When every remaining open row is a leftover, the phase parks: write a column-0 `PARKED <UTC stamp> <one-line reason>` line in the run file followed by the park record (each leftover, what blocks it, where the blocker lives), commit the run file, and return to `process-plan` (or end, if pinned).
+Skip rows whose `resolve` is not exit 0 here, and rows `resolve --have auto` holds for a host this session does not meet (exit 4, with the host in `missing_needs`; step 1.3 records which), and re-check them after each stamp: the graph moves as rows flip. When every remaining open row is a leftover, the phase parks: write a column-0 `PARKED <UTC stamp> run=<run id> <one-line reason>` line in the run file (the run id `acquire` printed, so the Stop hook lets the turn end) followed by the park record (each leftover, what blocks it, where the blocker lives), commit the run file, and return to `process-plan` (or end, if pinned).
 
 ## Step 4: closeout
 
-When the phase table is all `[x]`: `process-todo-file` on any file the phase exhausted, re-run the full test suite once, confirm `query stats` and the regenerated plan show the phase complete, write the closeout under a `## Closeout` heading in the run file (what shipped, what was repaired, what was learned), commit, and report. A phase is complete when its table says so and the closeout is written: not before.
+When the phase table is all `[x]`: `process-todo-file` on any file the phase exhausted, re-run the full test suite once, confirm `query stats` and the regenerated plan show the phase complete, write the closeout under a `## Closeout run=<run id>` heading in the run file (what shipped, what was repaired, what was learned), commit, and report. A phase is complete when its table says so and the closeout is written: not before.
 
 ## Guardrails
 

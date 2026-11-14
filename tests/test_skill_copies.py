@@ -323,6 +323,26 @@ class RepositoryCopiesTests(unittest.TestCase):
         for rel in patches:
             self.assertTrue(forge.load_skill_patch(SDK_ROOT / rel)["replace"], f"{rel} declares no difference")
 
+    def test_every_agents_phase_skill_writes_the_end_markers_the_run_guard_reads(self):
+        # Found by the round of D01 T02 section 6: the Antigravity and Codex copies of process-phase had lost
+        # `run=<run id>` from both markers, which campaign_guard's `end` requires, so a parked or closed run
+        # stayed guarded. The patches may differ in who ends the guard, never in what the markers say.
+        for agent in (".claude", ".agents", ".codex"):
+            with self.subTest(agent=agent):
+                text = (SDK_ROOT / "kits/todo/templates" / agent / "skills/process-phase/SKILL.md").read_text(
+                    encoding="utf-8")
+                self.assertIn("`PARKED <UTC stamp> run=<run id> <one-line reason>`", text)
+                self.assertIn("`## Closeout run=<run id>` heading", text)
+                self.assertNotIn("`## Closeout` heading", text)
+
+    def test_no_patch_swallows_a_whole_paragraph_outside_the_run_guard_block(self):
+        # Same round: a 1,511 character `find` broke on any edit of its paragraph. A phrase is the unit; the one
+        # block is process-plan's Run guard, a different mechanism per agent.
+        for path in sorted(SDK_ROOT.glob("kits/**/skill-patches/**/*.json")):
+            finds = [len(find) for find, _with in forge.load_skill_patch(path)["replace"]]
+            allowed = 1 if path.parent.name == "process-plan" else 0
+            self.assertLessEqual(sum(size > 400 for size in finds), allowed, path.relative_to(SDK_ROOT).as_posix())
+
     def test_a_copy_edited_by_hand_fails_the_check_naming_the_file(self):
         # On a scratch copy of kits/, never the checkout: one changed line in one copy of each agent.
         with tempfile.TemporaryDirectory() as tmp:
