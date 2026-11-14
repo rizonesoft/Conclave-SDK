@@ -2,7 +2,7 @@
 schema_version: 1
 id: three-writers
 domain: 00-reviewer
-status: active
+status: done
 title: "TODO-02 -- Antigravity and Codex as first-class writers"
 ---
 
@@ -38,7 +38,7 @@ title: "TODO-02 -- Antigravity and Codex as first-class writers"
 | 1 | §1 | Codex route to Gemini 4 Carbon and Orchestrator effort rules | -- | [x] |
 | 2 | §2 | Antigravity flags and deny settings checked against the CLI | §1 | [x] |
 | 3 | §3 | Antigravity Orchestrator Carbon and subagent contract in the base kit | §2 | [x] |
-| 4 | §4 | Orchestrator effort-free profiles in the unattended kit | §1 | [ ] |
+| 4 | §4 | Orchestrator effort-free profiles in the unattended kit | §1 | [x] |
 
 ## 1. Codex route to Gemini 4 Carbon and Orchestrator effort rules
 
@@ -164,6 +164,9 @@ Unattended profiles previously required a string `effort` for every agent and al
 **Corrected 2026-11-14 (plan review):** Astra (`gpt-6-astra`) flagged one P2 gap folded above: `RunTest` in `kits/unattended/templates/scripts/tests/test_run.py` is extended with end-to-end persisted `"effort": null` integration coverage through `start`, its separate preflight process, and the launched stub command across top-level `agy` (fresh + resume keeping `--conversation`), `start --agent agy`, and an invalid effort-bearing profile refusing before spawning a child.
 
 **Test checkpoint:** `python -m unittest discover -s kits/unattended/templates/scripts/tests` and `python -m unittest tests.test_forge -k markdown_table -k dashes` both end `OK` (with Linux CI `kits-linux` executing the `RunTest` tmux integration cases); setting `effort: "medium"` with `model: "gemini-pro-orchestrator"` fails `LoadProfileTest`.
+
+> **Verified:** 2026-11-14 | §4 | d8fa70918de042a94bc12f78dd8100d750392667
+> **Review:** `docs/reviews/d00-t02-s4.json`
 
 ## Verification
 
