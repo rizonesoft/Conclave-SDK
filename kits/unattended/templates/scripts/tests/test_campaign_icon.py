@@ -110,8 +110,9 @@ class BadgeTest(unittest.TestCase):
         self.assertEqual(plain_16, mark_16, "a mark was drawn at 16 pixels")
         plain_64, mark_64 = icon.badge_frame(64, solid(64), "#D97757", None), self.badge("claude", 64)
         self.assertGreater(whites(mark_64, 64), whites(plain_64, 64) + 20, "no mark at 64 pixels")
-        self.assertEqual(self.badge("codex", 64), icon.badge_frame(64, solid(64), "#10A37F", None),
-                         "the Codex badge carries its colour alone")
+        codex = self.badge("codex", 64)
+        plain = icon.badge_frame(64, solid(64), "#10A37F", None)
+        self.assertGreater(whites(codex, 64), whites(plain, 64) + 20, "Codex must carry its logo")
 
     def test_the_command_writes_an_icon_with_every_size(self):
         with tempfile.TemporaryDirectory() as tmp:

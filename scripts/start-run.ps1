@@ -4,6 +4,7 @@
 #
 #   pwsh scripts/start-run.ps1                    start the run in Claude Code (the latest Opus)
 #   pwsh scripts/start-run.ps1 -Runner agy        start it in Antigravity on Orchestrator (Carbon) (the Carbon runner)
+#   pwsh scripts/start-run.ps1 -Runner codex      start it in Codex with its configured model at medium effort
 #   pwsh scripts/start-run.ps1 -InstallShortcut   put "Conclave-SDK Claude campaign" and "Conclave-SDK Carbon campaign"
 #                                                 on the desktop, each running the line above for its runner
 #   pwsh scripts/start-run.ps1 -DryRun            print what would run or be written, and change nothing
@@ -36,7 +37,7 @@
 #
 # This file belongs to the SDK alone: it is not part of a kit and is never installed in a project.
 param(
-  [ValidateSet('claude', 'agy')]
+  [ValidateSet('claude', 'agy', 'codex')]
   [string]$Runner = 'claude',
   [switch]$InstallShortcut,
   [switch]$DryRun,
@@ -51,6 +52,7 @@ param(
   # The three below exist for the tests: stand-ins for claude and agy, and a guard file outside the real build folder.
   [string]$ClaudePath = '',
   [string]$AgyPath = '',
+  [string]$CodexPath = '',
   [string]$GuardFile = ''
 )
 $ErrorActionPreference = 'Stop'
@@ -61,7 +63,7 @@ if ($env:CONCLAVE_AUTOMATION -and -not $InstallShortcut) {
 }
 $repo = Split-Path $PSScriptRoot
 $tokenName = 'CLAUDE_CODE_OAUTH_TOKEN'
-if (-not $Model) { $Model = if ($Runner -eq 'agy') { 'gemini-pro-orchestrator' } else { 'opus' } }
+if (-not $Model -and $Runner -ne 'codex') { $Model = if ($Runner -eq 'agy') { 'gemini-pro-orchestrator' } else { 'opus' } }
 if (-not $GuardFile) { $GuardFile = Join-Path $repo 'build\claude-campaign-guard.json' }
 
 # Each runner's shortcut: its name is also the window title, so the operator can tell the campaigns apart.
@@ -69,7 +71,9 @@ $shortcuts = @(
   @{ Runner = 'claude'; Name = 'Conclave-SDK Claude campaign'; Icon = 'conclave-sdk-campaign-claude.ico'
      Description = 'Start the Conclave-SDK campaign in Claude Code (the latest Opus)' },
   @{ Runner = 'agy'; Name = 'Conclave-SDK Carbon campaign'; Icon = 'conclave-sdk-campaign-carbon.ico'
-     Description = 'Start the Conclave-SDK campaign in Google Antigravity on Orchestrator (Carbon)' }
+     Description = 'Start the Conclave-SDK campaign in Google Antigravity on Orchestrator (Carbon)' },
+  @{ Runner = 'codex'; Name = 'Conclave-SDK Codex campaign'; Icon = 'conclave-sdk-campaign-codex.ico'
+     Description = 'Start the Conclave-SDK campaign with Codex as writer' }
 )
 $title = ($shortcuts | Where-Object { $_.Runner -eq $Runner }).Name
 
@@ -132,7 +136,12 @@ if ($null -eq $held) {
 if ($Goal.Contains('"') -or $Goal.Contains("`n")) { 'the goal must be one line with no double quote'; exit 1 }
 if ($Goal.Length -gt 4000) { "the goal is $($Goal.Length) characters; Claude Code allows 4,000"; exit 1 }
 
-if ($Runner -eq 'agy') {
+if ($Runner -eq 'codex') {
+  $agent = 'codex'
+  $arguments = @('--dangerously-bypass-approvals-and-sandbox', '-c', "model_reasoning_effort=$Effort")
+  if ($Model) { $arguments += @('--model', $Model) }
+  $arguments += $Goal
+} elseif ($Runner -eq 'agy') {
   # Antigravity takes its flags as --name=value; --prompt-interactive runs the goal and keeps the session open. It
   # chooses its own conversation id, which the run guard records (agy --help, 1.5.6).
   $agent = 'agy'
@@ -151,11 +160,11 @@ if ($DryRun) {
 
 # Looked up, not assumed: a missing tool is named with its fix instead of failing as a bare "not recognized".
 $python = (Get-Command python -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
-$stand_in = if ($agent -eq 'agy') { $AgyPath } else { $ClaudePath }
+$stand_in = @{ agy = $AgyPath; claude = $ClaudePath; codex = $CodexPath }[$agent]
 $program = if ($stand_in) { $stand_in } else { (Get-Command $agent -ErrorAction Ignore | Select-Object -First 1).Source }
 if (-not $python) { 'python is not on PATH: install Python 3, then start again'; exit 1 }
 if (-not $program) {
-  if ($agent -eq 'agy') { 'agy is not on PATH: install Google Antigravity, then start again' } else { 'claude is not on PATH: install Claude Code, then start again' }
+  "$agent is not on PATH: install its CLI, then start again"
   exit 1
 }
 
@@ -166,7 +175,9 @@ if ($null -ne $held) {
 }
 
 # The sign-in (Claude Code's; Antigravity signs in itself). Each line says where it came from, never the token itself.
-if ($agent -eq 'agy') {
+if ($agent -eq 'codex') {
+  'sign-in: Codex uses its own account'
+} elseif ($agent -eq 'agy') {
   'sign-in: Antigravity uses its own Google sign-in'
 } elseif ([Environment]::GetEnvironmentVariable($tokenName)) {
   'sign-in: the long-lived token this window already has'

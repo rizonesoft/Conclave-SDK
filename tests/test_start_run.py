@@ -199,7 +199,8 @@ class StartRunTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertFalse(retired.exists(), "the old shortcut was left on the desktop")
         for name, runner, ico in (("Conclave-SDK Claude campaign", "claude", "conclave-sdk-campaign-claude.ico"),
-                                  ("Conclave-SDK Carbon campaign", "agy", "conclave-sdk-campaign-carbon.ico")):
+                                  ("Conclave-SDK Carbon campaign", "agy", "conclave-sdk-campaign-carbon.ico"),
+                                  ("Conclave-SDK Codex campaign", "codex", "conclave-sdk-campaign-codex.ico")):
             with self.subTest(runner=runner):
                 link = self.folder / f"{name}.lnk"
                 self.assertTrue(link.is_file(), proc.stdout)
@@ -258,6 +259,40 @@ class CarbonRunnerTests(unittest.TestCase):
         self.assertIn("sign-in: Antigravity uses its own Google sign-in", proc.stdout)
         self.assertEqual(pathlib.Path(got["folder"]).resolve(), ROOT)
         self.assertEqual(got["title"], "Conclave-SDK Carbon campaign")
+
+@unittest.skipUnless(PWSH and os.name == "nt", "Windows launcher")
+class CodexRunnerTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.folder = pathlib.Path(self.tmp.name)
+        self.stub = self.folder / "codex-stub.ps1"
+        self.stub.write_text(STUB, encoding="utf-8")
+        self.report = self.folder / "report.json"
+
+    def launch(self, *arguments):
+        return run("-Runner", "codex", "-CodexPath", str(self.stub), "-GuardFile",
+                   str(self.folder / "no-guard.json"), *arguments,
+                   environment={"STUB_REPORT": str(self.report), "EXPECTED_TOKEN": SENTINEL})
+
+    def test_a_dry_run_names_codex_and_starts_nothing(self):
+        proc = self.launch("-DryRun")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("codex --dangerously-bypass-approvals-and-sandbox", proc.stdout)
+        self.assertFalse(self.report.exists())
+
+    def test_codex_receives_its_own_flags_and_campaign_prompt(self):
+        proc = self.launch()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        got = json.loads(self.report.read_text(encoding="utf-8-sig"))
+        self.assertEqual(got["arguments"][:3],
+                         ["--dangerously-bypass-approvals-and-sandbox", "-c", "model_reasoning_effort=medium"])
+        self.assertIn("process-plan", got["arguments"][-1])
+        self.assertNotIn("/goal", got["arguments"][-1])
+        self.assertEqual(got["title"], "Conclave-SDK Codex campaign")
+        self.assertEqual(pathlib.Path(got["folder"]).resolve(), ROOT)
+        self.assertNotIn("long-lived token", proc.stdout)
+
 
 class WindowlessTests(unittest.TestCase):
     def test_every_process_this_file_starts_gets_no_window(self):
