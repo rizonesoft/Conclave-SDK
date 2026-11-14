@@ -88,13 +88,59 @@ def _local_name(node) -> str:
     return node.localName or node.tagName.rsplit(":", 1)[-1]
 
 
+def _validate_slide_id_list(
+    pres_root, rid_to_slide: dict[str, str], unpacked_dir: Path
+) -> None:
+    sld_lists = child_local_elements(pres_root, "sldIdLst")
+    for sld_lst in sld_lists:
+        for child in sld_lst.childNodes:
+            if child.nodeType != child.ELEMENT_NODE:
+                continue
+            if _local_name(child) not in ("sldId", "extLst"):
+                raise RefusedToClean(
+                    f"<p:sldIdLst> contains unexpected element <{child.tagName}>; "
+                    "refusing to clean a damaged package."
+                )
+
+    root_resolved = unpacked_dir.resolve()
+    for sld_el in local_elements(pres_root, "sldId"):
+        rid = get_rel_id_attr(sld_el)
+        if not rid:
+            raise RefusedToClean(
+                "<p:sldIdLst> contains a <p:sldId> without a relationship id; "
+                "refusing to clean a damaged package."
+            )
+        target_rel = rid_to_slide.get(rid)
+        if not target_rel:
+            raise RefusedToClean(
+                f"<p:sldIdLst> references unknown or invalid slide relationship {rid!r}; "
+                "refusing to clean a damaged package."
+            )
+        target_path = (unpacked_dir / target_rel).resolve()
+        if not target_path.is_relative_to(root_resolved) or not target_path.is_file():
+            raise RefusedToClean(
+                f"<p:sldIdLst> relationship {rid!r} targets missing or invalid slide "
+                f"{target_rel!r}; refusing to clean a damaged package."
+            )
+
+
 def _validate_presentation_package(unpacked_dir: Path) -> None:
+    ct_path = unpacked_dir / "[Content_Types].xml"
     pres_path = unpacked_dir / "ppt" / "presentation.xml"
     pres_rels_path = unpacked_dir / "ppt" / "_rels" / "presentation.xml.rels"
-    if not pres_path.is_file() or not pres_rels_path.is_file():
+    if not ct_path.is_file() or not pres_path.is_file() or not pres_rels_path.is_file():
         raise RefusedToClean(
-            "missing ppt/presentation.xml or ppt/_rels/presentation.xml.rels; "
+            "missing [Content_Types].xml, ppt/presentation.xml, or "
+            "ppt/_rels/presentation.xml.rels; "
             "refusing to delete files from an incomplete PPTX package."
+        )
+
+    ct_dom = parse_xml_file(ct_path)
+    ct_root = ct_dom.documentElement
+    if ct_root is None or _local_name(ct_root) != "Types":
+        raise RefusedToClean(
+            "[Content_Types].xml root element is not <Types>; "
+            "refusing to clean a damaged package."
         )
 
     pres_dom = parse_xml_file(pres_path)
@@ -119,6 +165,10 @@ def _validate_presentation_package(unpacked_dir: Path) -> None:
             "ppt/_rels/presentation.xml.rels root element is not <Relationships>; "
             "refusing to clean a damaged package."
         )
+
+    _validate_slide_id_list(
+        pres_root, _slide_rids(pres_rels_path, unpacked_dir), unpacked_dir
+    )
 
 
 def remove_orphaned_slides(unpacked_dir: Path) -> list[str]:
@@ -323,7 +373,7 @@ def clean_unused_files(unpacked_dir: Path) -> list[str]:
 
     _validate_presentation_package(unpacked_dir)
 
-    if list(unpacked_dir.rglob("*.rels")) and not get_referenced_files(unpacked_dir):
+    if not list(unpacked_dir.rglob("*.rels")) or not get_referenced_files(unpacked_dir):
         raise RefusedToClean(
             "no relationship in this package names a part we can resolve. "
             "Refusing to treat every file as unreferenced."

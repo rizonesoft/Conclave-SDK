@@ -2208,6 +2208,375 @@ class CraftScriptHardeningTests(unittest.TestCase):
                 self.assertFalse(validator.validate_xml())
                 self.assertFalse(validator.validate_file_references())
 
+    def test_pptx_clean_refuses_missing_rid_and_malformed_content_types_before_deletion(self):
+        from xml.parsers.expat import ExpatError
+
+        pptx_scripts = CRAFT_DIR / "skills" / "pptx" / "scripts"
+        clean_py = pptx_scripts / "clean.py"
+        ct_ns = "http://schemas.openxmlformats.org/package/2006/content-types"
+        rels_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
+        p_ns = "http://schemas.openxmlformats.org/presentationml/2006/main"
+        r_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+        def _build_deck(name: str, *, include_rid_attr: bool = True, sld_id_rid: str = "rId1", ct_bytes: bytes | None = None) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path]:
+            unpacked = self.root / name
+            (unpacked / "_rels").mkdir(parents=True)
+            (unpacked / "ppt" / "_rels").mkdir(parents=True)
+            (unpacked / "ppt" / "slides").mkdir(parents=True)
+
+            pkg_rels = ET.Element(f"{{{rels_ns}}}Relationships")
+            ET.SubElement(pkg_rels, f"{{{rels_ns}}}Relationship", Id="rId1", Type=f"{r_ns}/officeDocument", Target="ppt/presentation.xml")
+            (unpacked / "_rels" / ".rels").write_bytes(ET.tostring(pkg_rels, encoding="utf-8", xml_declaration=True))
+
+            pres = ET.Element(f"{{{p_ns}}}presentation")
+            ET.SubElement(pres, f"{{{p_ns}}}sldMasterIdLst")
+            sld_lst = ET.SubElement(pres, f"{{{p_ns}}}sldIdLst")
+            attrs = {"id": "256"}
+            if include_rid_attr:
+                attrs[f"{{{r_ns}}}id"] = sld_id_rid
+            ET.SubElement(sld_lst, f"{{{p_ns}}}sldId", attrs)
+            (unpacked / "ppt" / "presentation.xml").write_bytes(ET.tostring(pres, encoding="utf-8", xml_declaration=True))
+
+            pres_rels = ET.Element(f"{{{rels_ns}}}Relationships")
+            ET.SubElement(pres_rels, f"{{{rels_ns}}}Relationship", Id="rId1", Type=f"{r_ns}/slide", Target="slides/slide1.xml")
+            (unpacked / "ppt" / "_rels" / "presentation.xml.rels").write_bytes(ET.tostring(pres_rels, encoding="utf-8", xml_declaration=True))
+
+            if ct_bytes is None:
+                ct = ET.Element(f"{{{ct_ns}}}Types")
+                ET.SubElement(ct, f"{{{ct_ns}}}Override", PartName="/ppt/presentation.xml", ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml")
+                ET.SubElement(ct, f"{{{ct_ns}}}Override", PartName="/ppt/slides/slide1.xml", ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml")
+                ET.SubElement(ct, f"{{{ct_ns}}}Override", PartName="/ppt/slides/slide2.xml", ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml")
+                ct_bytes = ET.tostring(ct, encoding="utf-8", xml_declaration=True)
+            (unpacked / "[Content_Types].xml").write_bytes(ct_bytes)
+
+            slide_bytes = ET.tostring(ET.Element(f"{{{p_ns}}}sld"), encoding="utf-8", xml_declaration=True)
+            s1 = unpacked / "ppt" / "slides" / "slide1.xml"
+            s2 = unpacked / "ppt" / "slides" / "slide2.xml"
+            s1.write_bytes(slide_bytes)
+            s2.write_bytes(slide_bytes)
+            return unpacked, s1, s2
+
+        with unittest.mock.patch.dict(sys.modules):
+            for mod_name in list(sys.modules):
+                if mod_name == "office" or mod_name.startswith(("office.", "helpers.", "validators.")) or mod_name in ("helpers", "validators"):
+                    sys.modules.pop(mod_name, None)
+            clean = _load_module("test_pptx_clean_precheck", clean_py, [pptx_scripts])
+
+            # Case 1: <p:sldId id="256"/> missing r:id must refuse rather than deleting slides
+            no_rid_dir, s1, s2 = _build_deck("clean_missing_rid", include_rid_attr=False)
+            with self.assertRaises(clean.RefusedToClean):
+                clean.remove_orphaned_slides(no_rid_dir)
+            with self.assertRaises(clean.RefusedToClean):
+                clean.clean_unused_files(no_rid_dir)
+            self.assertTrue(s1.exists())
+            self.assertTrue(s2.exists())
+
+            # Case 2: <p:sldId> pointing to unknown relationship id must refuse
+            dangling_dir, d1, d2 = _build_deck("clean_dangling_rid", sld_id_rid="rId99")
+            with self.assertRaises(clean.RefusedToClean):
+                clean.remove_orphaned_slides(dangling_dir)
+            with self.assertRaises(clean.RefusedToClean):
+                clean.clean_unused_files(dangling_dir)
+            self.assertTrue(d1.exists())
+            self.assertTrue(d2.exists())
+
+            # Case 3: malformed [Content_Types].xml must fail before deleting orphan slide2.xml
+            bad_ct_dir, b1, b2 = _build_deck("clean_bad_ct", ct_bytes=b"<Types><broken")
+            with self.assertRaises(ExpatError):
+                clean.remove_orphaned_slides(bad_ct_dir)
+            with self.assertRaises(ExpatError):
+                clean.clean_unused_files(bad_ct_dir)
+            self.assertTrue(b1.exists())
+            self.assertTrue(b2.exists())
+
+            proc = subprocess.run(
+                [sys.executable, str(clean_py), str(bad_ct_dir)],
+                capture_output=True,
+                text=True,
+                creationflags=CREATION_FLAGS,
+                timeout=30,
+                check=False,
+            )
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("Nothing was deleted.", proc.stderr)
+            self.assertTrue(b2.exists())
+
+            # Case 4: missing or non-<Types> [Content_Types].xml must refuse before deletion
+            wrong_root_dir, w1, w2 = _build_deck("clean_wrong_ct_root", ct_bytes=b"<NotTypes/>")
+            with self.assertRaises(clean.RefusedToClean):
+                clean.clean_unused_files(wrong_root_dir)
+            (wrong_root_dir / "[Content_Types].xml").unlink()
+            with self.assertRaises(clean.RefusedToClean):
+                clean.remove_orphaned_slides(wrong_root_dir)
+            self.assertTrue(w1.exists())
+            self.assertTrue(w2.exists())
+
+    def test_pptx_apply_theme_resolves_project_local_deps_and_writes_atomically(self):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node executable not available")
+
+        apply_theme_js = CRAFT_DIR / "skills" / "pptx" / "scripts" / "apply_theme.js"
+        proj = self.root / "apply_theme_proj"
+        nm_jszip = proj / "node_modules" / "jszip"
+        nm_pptx = proj / "node_modules" / "pptxgenjs"
+        nm_jszip.mkdir(parents=True)
+        nm_pptx.mkdir(parents=True)
+
+        (nm_pptx / "package.json").write_text(json.dumps({"name": "pptxgenjs", "main": "index.js"}), encoding="utf-8")
+        (nm_pptx / "index.js").write_text("module.exports = function FakePptxGenJS() {};\n", encoding="utf-8")
+        (nm_jszip / "package.json").write_text(json.dumps({"name": "jszip", "main": "index.js"}), encoding="utf-8")
+        (nm_jszip / "index.js").write_text(
+            """const zlib = require("zlib");
+function crc32(buf) {
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) {
+    c ^= buf[i];
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+  }
+  return (c ^ 0xffffffff) >>> 0;
+}
+class FakeZip {
+  constructor() { this.files = {}; }
+  static async loadAsync(buf) {
+    const zip = new FakeZip();
+    let eocd = -1;
+    for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) {
+      if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
+    }
+    if (eocd < 0) throw new Error("Bad zip");
+    const total = buf.readUInt16LE(eocd + 10);
+    let ptr = buf.readUInt32LE(eocd + 16);
+    for (let idx = 0; idx < total; idx++) {
+      if (buf.readUInt32LE(ptr) !== 0x02014b50) throw new Error("Bad CD");
+      const compMethod = buf.readUInt16LE(ptr + 10);
+      const compSize = buf.readUInt32LE(ptr + 20);
+      const uncompSize = buf.readUInt32LE(ptr + 24);
+      const nameLen = buf.readUInt16LE(ptr + 28);
+      const extraLen = buf.readUInt16LE(ptr + 30);
+      const commLen = buf.readUInt16LE(ptr + 32);
+      const lfhOff = buf.readUInt32LE(ptr + 42);
+      const name = buf.toString("utf8", ptr + 46, ptr + 46 + nameLen);
+      const lfhNameLen = buf.readUInt16LE(lfhOff + 26);
+      const lfhExtraLen = buf.readUInt16LE(lfhOff + 28);
+      const dataStart = lfhOff + 30 + lfhNameLen + lfhExtraLen;
+      const raw = buf.subarray(dataStart, dataStart + compSize);
+      const payload = compMethod === 8 ? zlib.inflateRawSync(raw) : Buffer.from(raw);
+      zip.files[name] = {
+        name,
+        dir: name.endsWith("/"),
+        _data: { uncompressedSize: uncompSize },
+        _buf: payload,
+        async async(kind) {
+          return kind === "string" ? this._buf.toString("utf8") : Buffer.from(this._buf);
+        },
+      };
+      ptr += 46 + nameLen + extraLen + commLen;
+    }
+    return zip;
+  }
+  file(name, data) {
+    if (arguments.length === 1) return this.files[name] || null;
+    const payload = Buffer.isBuffer(data) ? Buffer.from(data) : Buffer.from(String(data), "utf8");
+    this.files[name] = {
+      name,
+      dir: false,
+      _data: { uncompressedSize: payload.length },
+      _buf: payload,
+      async async(kind) {
+        return kind === "string" ? this._buf.toString("utf8") : Buffer.from(this._buf);
+      },
+    };
+    return this;
+  }
+  async generateAsync() {
+    const locals = [];
+    const centrals = [];
+    let offset = 0;
+    for (const entry of Object.values(this.files)) {
+      const nameBuf = Buffer.from(entry.name, "utf8");
+      const dataBuf = entry.dir ? Buffer.alloc(0) : (entry._buf || Buffer.alloc(0));
+      const crc = crc32(dataBuf);
+      const lfh = Buffer.alloc(30);
+      lfh.writeUInt32LE(0x04034b50, 0);
+      lfh.writeUInt16LE(20, 4);
+      lfh.writeUInt16LE(0x0800, 6);
+      lfh.writeUInt16LE(0, 8);
+      lfh.writeUInt32LE(crc, 14);
+      lfh.writeUInt32LE(dataBuf.length, 18);
+      lfh.writeUInt32LE(dataBuf.length, 22);
+      lfh.writeUInt16LE(nameBuf.length, 26);
+      locals.push(lfh, nameBuf, dataBuf);
+
+      const cdh = Buffer.alloc(46);
+      cdh.writeUInt32LE(0x02014b50, 0);
+      cdh.writeUInt16LE(20, 4);
+      cdh.writeUInt16LE(20, 6);
+      cdh.writeUInt16LE(0x0800, 8);
+      cdh.writeUInt16LE(0, 10);
+      cdh.writeUInt32LE(crc, 16);
+      cdh.writeUInt32LE(dataBuf.length, 20);
+      cdh.writeUInt32LE(dataBuf.length, 24);
+      cdh.writeUInt16LE(nameBuf.length, 28);
+      cdh.writeUInt32LE(offset, 42);
+      centrals.push(cdh, nameBuf);
+      offset += lfh.length + nameBuf.length + dataBuf.length;
+    }
+    const cdBuf = Buffer.concat(centrals);
+    const eocd = Buffer.alloc(22);
+    eocd.writeUInt32LE(0x06054b50, 0);
+    const count = Object.keys(this.files).length;
+    eocd.writeUInt16LE(count, 8);
+    eocd.writeUInt16LE(count, 10);
+    eocd.writeUInt32LE(cdBuf.length, 12);
+    eocd.writeUInt32LE(offset, 16);
+    return Buffer.concat([...locals, cdBuf, eocd]);
+  }
+}
+module.exports = FakeZip;
+""",
+            encoding="utf-8",
+        )
+
+        theme_obj = {
+            "name": 'Northwind & "Co" <1>',
+            "colors": {
+                "dk1": "111111",
+                "lt1": "ffffff",
+                "dk2": "222222",
+                "lt2": "eeeeee",
+                "accent1": "aa1122",
+                "accent2": "bb2233",
+                "accent3": "cc3344",
+                "accent4": "dd4455",
+                "accent5": "ee5566",
+                "accent6": "ff6677",
+                "hlink": "0000ff",
+                "folHlink": "800080",
+            },
+        }
+        theme_xml_src = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Office Theme">'
+            '<a:themeElements>'
+            '<a:clrScheme name="Office">'
+            '<a:dk1><a:srgbClr val="000000"/></a:dk1>'
+            "</a:clrScheme>"
+            '<a:fontScheme name="Office"/>'
+            "</a:themeElements>"
+            "</a:theme>"
+        )
+        chart_xml_src = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" '
+            'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">'
+            '<c:valAx><c:crossesAt val="autoZero"/></c:valAx>'
+            '<a:ln><a:prstDash val="solid"/></a:ln>'
+            "</c:chartSpace>"
+        )
+
+        def _write_sample_deck(dest: pathlib.Path) -> bytes:
+            with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_STORED) as zf:
+                zf.writestr(zipfile.ZipInfo("ppt/slides/"), b"")
+                zf.writestr("ppt/theme/theme1.xml", theme_xml_src.encode("utf-8"))
+                zf.writestr("ppt/charts/chart1.xml", chart_xml_src.encode("utf-8"))
+                zf.writestr("ppt/slides/slide1.xml", b'<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:srgbClr val="112233"/></p:sld>')
+            return dest.read_bytes()
+
+        deck_prog = proj / "deck_prog.pptx"
+        deck_cli = proj / "deck_cli.pptx"
+        deck_fail = proj / "deck_fail.pptx"
+        _write_sample_deck(deck_prog)
+        _write_sample_deck(deck_cli)
+        orig_fail_bytes = _write_sample_deck(deck_fail)
+        theme_json = proj / "theme.json"
+        theme_json.write_text(json.dumps(theme_obj), encoding="utf-8")
+
+        runner = proj / "runner.js"
+        runner.write_text(
+            f"""const assert = require("assert");
+const fs = require("fs");
+const path = require("path");
+const {{ applyTheme }} = require({json.dumps(str(apply_theme_js))});
+
+async function main() {{
+  const projDir = {json.dumps(str(proj))};
+  const theme = JSON.parse(fs.readFileSync(path.join(projDir, "theme.json"), "utf8"));
+  await applyTheme(path.join(projDir, "deck_prog.pptx"), theme);
+
+  const failingFs = Object.assign({{}}, fs, {{
+    writeSync(fd, buf, offset, len) {{
+      throw Object.assign(new Error("ENOSPC: no space left on device"), {{ code: "ENOSPC" }});
+    }},
+  }});
+  let enospcCaught = false;
+  try {{
+    await applyTheme(path.join(projDir, "deck_fail.pptx"), theme, {{ fs: failingFs }});
+  }} catch (err) {{
+    if (err && err.code === "ENOSPC") enospcCaught = true;
+    else throw err;
+  }}
+  assert.strictEqual(enospcCaught, true);
+
+  const fakeZip = {{
+    files: Object.fromEntries(Array.from({{ length: 10001 }}, (_, i) => [`f${{i}}.xml`, {{ dir: false }}])),
+  }};
+  let entryLimitCaught = false;
+  try {{
+    await applyTheme(path.join(projDir, "deck_fail.pptx"), theme, {{
+      jszip: {{ loadAsync: async () => fakeZip }},
+    }});
+  }} catch (err) {{
+    if (err && /exceeding limit 10000/i.test(err.message)) entryLimitCaught = true;
+    else throw err;
+  }}
+  assert.strictEqual(entryLimitCaught, true);
+}}
+
+main().catch((err) => {{ console.error(err); process.exit(1); }});
+""",
+            encoding="utf-8",
+        )
+
+        # Ensure NODE_PATH is not relied upon; run programmatic test outside proj so cwd cannot mask caller resolution
+        clean_env = {k: v for k, v in os.environ.items() if k != "NODE_PATH"}
+        proc_prog = subprocess.run(
+            [node, str(runner)],
+            cwd=str(self.root),
+            env=clean_env,
+            capture_output=True,
+            text=True,
+            creationflags=CREATION_FLAGS,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(proc_prog.returncode, 0, f"stderr={proc_prog.stderr}\nstdout={proc_prog.stdout}")
+        self.assertEqual(deck_fail.read_bytes(), orig_fail_bytes)
+        self.assertEqual(list(proj.glob("*.tmp")), [])
+
+        # Run CLI without NODE_PATH from proj directory so process.cwd() finds project-local pptxgenjs
+        proc_cli = subprocess.run(
+            [node, str(apply_theme_js), "deck_cli.pptx", "theme.json"],
+            cwd=str(proj),
+            env=clean_env,
+            capture_output=True,
+            text=True,
+            creationflags=CREATION_FLAGS,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(proc_cli.returncode, 0, f"stderr={proc_cli.stderr}\nstdout={proc_cli.stdout}")
+
+        for out_deck in (deck_prog, deck_cli):
+            with zipfile.ZipFile(out_deck, "r") as zf:
+                self.assertNotIn("ppt/slides/", zf.namelist())
+                theme_out = zf.read("ppt/theme/theme1.xml").decode("utf-8")
+                self.assertIn('name="Northwind &amp; &quot;Co&quot; &lt;1&gt;"', theme_out)
+                self.assertIn('<a:srgbClr val="AA1122"/>', theme_out)
+                chart_out = zf.read("ppt/charts/chart1.xml").decode("utf-8")
+                self.assertIn('<c:crosses val="autoZero"/>', chart_out)
+                self.assertNotIn('<c:crossesAt val="autoZero"/>', chart_out)
+
 
 if __name__ == "__main__":
     unittest.main()
