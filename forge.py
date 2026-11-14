@@ -11,6 +11,7 @@
     python forge.py kits
     python forge.py check <target>
     python forge.py self-sync
+    python forge.py skill-copies [--check]
 
 Stdlib only. Uses atomic temp-file-then-replace writes. The SDK is a template, not a master copy: init and kit copy
 files once and never overwrite one that exists, so a project owns its copy from then on. They note what they
@@ -1972,6 +1973,131 @@ def _unittest_suite(name: str, folder: str, timeout: int) -> dict:
             "argv": [sys.executable, "-B", "-m", "unittest", "discover", "-s", folder]}
 
 
+# Skill copies (D01 T02 §5): a kit keeps each skill file once, under `templates/.claude/skills/`. Its Antigravity and
+# Codex copies are that file plus the differences a patch file declares, so no copy drifts by hand.
+SKILL_COPY_AGENTS = {"agents": ".agents", "codex": ".codex"}  # the folder under skill-patches/ -> the agent's folder
+SKILL_PATCHES = "skill-patches"
+
+
+class SkillCopyError(ValueError):
+    """A skill patch that cannot be read, no longer applies or has no source: the command ends with exit 2."""
+
+
+def load_skill_patch(path: Path) -> dict:
+    """Read `<overlay>/skill-patches/<agent>/<skill path>.json`: `{"schema_version": 1, "replace": [{"find", "with"}]}`.
+
+    Returns `{"file": path, "replace": [(find, with), ...]}` in the file's order, or raises SkillCopyError naming it."""
+    where = Path(path).as_posix()
+    try:
+        data = json.loads(Path(path).read_bytes().decode("utf-8"))
+    except (ValueError, RecursionError) as exc:
+        raise SkillCopyError(f"{where}: not a JSON file in UTF-8 ({exc})") from exc
+    if not isinstance(data, dict) or set(data) != {"schema_version", "replace"}:
+        raise SkillCopyError(f"{where}: needs exactly the keys schema_version and replace")
+    if type(data["schema_version"]) is not int or data["schema_version"] != 1:
+        raise SkillCopyError(f"{where}: schema_version must be 1")
+    if not isinstance(data["replace"], list):
+        raise SkillCopyError(f"{where}: replace must be a list")
+    pairs: list[tuple[str, str]] = []
+    for number, entry in enumerate(data["replace"], 1):
+        if not isinstance(entry, dict) or set(entry) != {"find", "with"}:
+            raise SkillCopyError(f"{where}: replacement {number} needs exactly the keys find and with")
+        if not isinstance(entry["find"], str) or not isinstance(entry["with"], str):
+            raise SkillCopyError(f"{where}: replacement {number} needs find and with as text")
+        if not entry["find"]:
+            raise SkillCopyError(f"{where}: replacement {number} has an empty find")
+        pairs.append((entry["find"], entry["with"]))
+    return {"file": Path(path), "replace": pairs}
+
+
+def generate_copy(source_text: str, patch: dict | None) -> str:
+    """An agent's copy of a skill file: `source_text` with the patch's replacements applied in order, each to the
+    result of the one before. A `find` must occur exactly once at its turn; no patch is the source unchanged."""
+    text = source_text
+    for find, replacement in (patch["replace"] if patch else ()):
+        count = text.count(find)
+        if count != 1:
+            raise SkillCopyError(f"{Path(patch['file']).as_posix()}: find {find!r} occurs {count} times in the source, "
+                                 "not once: the patch no longer applies")
+        text = text.replace(find, replacement, 1)
+    return text
+
+
+def _skill_overlays(root: Path) -> list[Path]:
+    """Every folder that holds a `templates/` tree: each kit, and each host overlay of a kit (`hosts/<host>/`)."""
+    kits = root / "kits"
+    found: list[Path] = []
+    for kit in (sorted(path for path in kits.iterdir() if path.is_dir()) if kits.is_dir() else []):
+        hosts = kit / "hosts"
+        found.append(kit)
+        found.extend(sorted(path for path in hosts.iterdir() if path.is_dir()) if hosts.is_dir() else [])
+    return [overlay for overlay in found if (overlay / "templates").is_dir() or (overlay / SKILL_PATCHES).is_dir()]
+
+
+def _files_under(folder: Path) -> list[Path]:
+    return sorted(path for path in folder.rglob("*") if path.is_file()) if folder.is_dir() else []
+
+
+def _skill_copy_plan(root: Path) -> tuple[dict[Path, bytes], list[Path]]:
+    """What the generator would write (destination -> bytes) and the copies no Claude source accounts for.
+
+    Nothing is written here: every patch is loaded and every copy built first, so a refusal leaves the tree alone."""
+    outputs: dict[Path, bytes] = {}
+    stray: list[Path] = []
+    for overlay in _skill_overlays(root):
+        source_root = overlay / "templates/.claude/skills"
+        patches_root = overlay / SKILL_PATCHES
+        sources = {path.relative_to(source_root).as_posix(): path for path in _files_under(source_root)}
+        patches: dict[tuple[str, str], Path] = {}
+        for path in _files_under(patches_root):
+            parts = path.relative_to(patches_root).parts
+            where = path.relative_to(root).as_posix()
+            if parts[0] not in SKILL_COPY_AGENTS or len(parts) < 2 or not path.name.endswith(".json"):
+                raise SkillCopyError(f"{where}: a patch is {SKILL_PATCHES}/<agents|codex>/<skill path>.json")
+            skill_path = "/".join(parts[1:])[:-len(".json")]
+            if skill_path not in sources:
+                raise SkillCopyError(f"{where}: no source {(source_root / skill_path).relative_to(root).as_posix()} "
+                                     "for this patch: move or delete the patch with its skill")
+            patches[(parts[0], skill_path)] = path
+        for skill_path, source in sources.items():
+            try:
+                text = source.read_bytes().decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise SkillCopyError(f"{source.relative_to(root).as_posix()}: not UTF-8 ({exc})") from exc
+            for agent, agent_dir in SKILL_COPY_AGENTS.items():
+                patch = patches.get((agent, skill_path))
+                copy = generate_copy(text, load_skill_patch(patch) if patch else None)
+                outputs[overlay / "templates" / agent_dir / "skills" / skill_path] = copy.encode("utf-8")
+        for agent_dir in SKILL_COPY_AGENTS.values():
+            copies_root = overlay / "templates" / agent_dir / "skills"
+            for path in _files_under(copies_root):
+                parts = path.relative_to(copies_root).parts
+                # Codex's own interface file, kept by hand beside each skill: <skill>/agents/openai.yaml.
+                hand_kept = agent_dir == ".codex" and len(parts) == 3 and parts[1:] == ("agents", "openai.yaml")
+                if path not in outputs and not hand_kept:
+                    stray.append(path)
+    return outputs, stray
+
+
+def skill_copy_report(check: bool = False, root: Path | None = None) -> dict:
+    """`skill-copies`: `changed` lists the copies whose bytes differ from the generated ones (a missing copy among
+    them), written unless `check`; `stray` lists copies with no Claude source, which are reported and never deleted."""
+    root = Path(root or FORGE_ROOT).resolve()
+    outputs, stray = _skill_copy_plan(root)
+    changed = [path for path, data in outputs.items() if not path.is_file() or path.read_bytes() != data]
+    if not check:
+        for path in changed:
+            atomic_write(path, outputs[path])
+    return {"changed": sorted(path.relative_to(root).as_posix() for path in changed),
+            "stray": sorted(path.relative_to(root).as_posix() for path in stray)}
+
+
+def skill_copies(check: bool = False, root: Path | None = None) -> list[str]:
+    """The paths `skill_copy_report` names, changed and stray together: empty when every copy is the generator's."""
+    report = skill_copy_report(check=check, root=root)
+    return sorted(report["changed"] + report["stray"])
+
+
 # Every suite the repository holds: `check-all` runs them all, and CI runs them through it (.github/workflows/tests.yml).
 # `path` is the folder or script a suite stands on, `timeout` its limit in seconds; a `unittest` suite must run a test.
 SUITES: list[dict] = [
@@ -2401,6 +2527,10 @@ def main(argv: list[str] | None = None) -> int:
     p_self = sub.add_parser("self-sync", help="Refresh the SDK's own installed copy of base, todo, reviewer and automations")
     p_self.add_argument("--dry-run", action="store_true", help="List the files that would change without writing")
 
+    p_copies = sub.add_parser("skill-copies", help="Write each kit's Antigravity and Codex skill files from its "
+                                                   "Claude files and skill-patches/")
+    p_copies.add_argument("--check", action="store_true",
+                          help="Write nothing; exit 1 when a copy differs from the generated one or has no source")
     p_all = sub.add_parser("check-all", help="Run every test suite the SDK holds; exit 1 when any fails")
     p_all.add_argument("--full", action="store_true", help="Set CONCLAVE_FULL_TESTS=1: the gated stamp and adoption tests run too")
     p_all.add_argument("--only", action="append", default=[], metavar="NAME", help="Only this suite (repeatable)")
@@ -2432,6 +2562,11 @@ def _run(args: argparse.Namespace) -> int:
     if args.command == "self-sync":
         print(json.dumps(self_sync(dry_run=args.dry_run), indent=2))
         return 0
+
+    if args.command == "skill-copies":
+        report = skill_copy_report(check=args.check)
+        print(json.dumps({"check": args.check, **report}, indent=2))
+        return 1 if args.check and (report["changed"] or report["stray"]) else 0
 
     if args.command == "check-all":
         results = check_all(full=args.full, only=args.only, skip=args.skip,
