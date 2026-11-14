@@ -31,6 +31,7 @@ Site-specific settings live in the repository, in `.article-check.json` at or ab
     }
 """
 import argparse
+import ctypes
 import html
 import json
 import os
@@ -89,22 +90,131 @@ def load_config(start):
     return {}, None
 
 
-def _terminate_process_tree(proc: subprocess.Popen) -> None:
-    if proc.poll() is not None:
+_CREATE_SUSPENDED = 0x00000004
+_JOB_EXTENDED_LIMIT_CLASS = 9
+_JOB_KILL_ON_CLOSE = 0x00002000
+
+
+class _IO_COUNTERS(ctypes.Structure):
+    _fields_ = [
+        ("ReadOperationCount", ctypes.c_uint64),
+        ("WriteOperationCount", ctypes.c_uint64),
+        ("OtherOperationCount", ctypes.c_uint64),
+        ("ReadTransferCount", ctypes.c_uint64),
+        ("WriteTransferCount", ctypes.c_uint64),
+        ("OtherTransferCount", ctypes.c_uint64),
+    ]
+
+
+class _JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("PerProcessUserTimeLimit", ctypes.c_int64),
+        ("PerJobUserTimeLimit", ctypes.c_int64),
+        ("LimitFlags", ctypes.c_uint32),
+        ("MinimumWorkingSetSize", ctypes.c_size_t),
+        ("MaximumWorkingSetSize", ctypes.c_size_t),
+        ("ActiveProcessLimit", ctypes.c_uint32),
+        ("Affinity", ctypes.c_size_t),
+        ("PriorityClass", ctypes.c_uint32),
+        ("SchedulingClass", ctypes.c_uint32),
+    ]
+
+
+class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("BasicLimitInformation", _JOBOBJECT_BASIC_LIMIT_INFORMATION),
+        ("IoInfo", _IO_COUNTERS),
+        ("ProcessMemoryLimit", ctypes.c_size_t),
+        ("JobMemoryLimit", ctypes.c_size_t),
+        ("PeakProcessMemoryUsed", ctypes.c_size_t),
+        ("PeakJobMemoryUsed", ctypes.c_size_t),
+    ]
+
+
+_WIN32_APIS = None
+
+
+def _win32():
+    global _WIN32_APIS
+    if _WIN32_APIS is None:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
+        kernel32.CreateJobObjectW.restype = ctypes.c_void_p
+        kernel32.SetInformationJobObject.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+        kernel32.SetInformationJobObject.restype = ctypes.c_int
+        kernel32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        kernel32.AssignProcessToJobObject.restype = ctypes.c_int
+        kernel32.TerminateJobObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+        kernel32.TerminateJobObject.restype = ctypes.c_int
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        kernel32.CloseHandle.restype = ctypes.c_int
+        ntdll = ctypes.WinDLL("ntdll")
+        ntdll.NtResumeProcess.argtypes = [ctypes.c_void_p]
+        ntdll.NtResumeProcess.restype = ctypes.c_int32
+        _WIN32_APIS = kernel32, ntdll
+    return _WIN32_APIS
+
+
+def _open_windows_job():
+    kernel32, _ = _win32()
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        raise ctypes.WinError(ctypes.get_last_error())
+    info = _JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+    info.BasicLimitInformation.LimitFlags = _JOB_KILL_ON_CLOSE
+    if not kernel32.SetInformationJobObject(job, _JOB_EXTENDED_LIMIT_CLASS, ctypes.byref(info), ctypes.sizeof(info)):
+        err = ctypes.get_last_error()
+        kernel32.CloseHandle(job)
+        raise ctypes.WinError(err)
+    return job
+
+
+def _close_windows_job(job) -> None:
+    if job is None:
         return
+    kernel32, _ = _win32()
+    kernel32.TerminateJobObject(job, 1)
+    kernel32.CloseHandle(job)
+
+
+def _assign_and_resume_windows(job, proc: subprocess.Popen):
+    kernel32, ntdll = _win32()
+    handle_val = getattr(proc, "_handle", None)
+    if not isinstance(handle_val, int):
+        kernel32.CloseHandle(job)
+        return None
+    proc_handle = ctypes.c_void_p(int(handle_val))
+    assigned = kernel32.AssignProcessToJobObject(job, proc_handle)
+    if not assigned:
+        kernel32.CloseHandle(job)
+        job = None
+    status = ntdll.NtResumeProcess(proc_handle)
+    if status != 0:
+        if job is not None:
+            _close_windows_job(job)
+        raise OSError(f"NtResumeProcess returned 0x{status & 0xFFFFFFFF:08x}")
+    return job
+
+
+def _terminate_process_tree(proc: subprocess.Popen, job_ref: list | None = None) -> None:
     if os.name == "nt":
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        try:
-            subprocess.run(
-                ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
-                capture_output=True,
-                stdin=subprocess.DEVNULL,
-                creationflags=flags,
-                check=False,
-                timeout=10,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            pass
+        job = job_ref[0] if job_ref else None
+        if job is not None:
+            job_ref[0] = None
+            _close_windows_job(job)
+        else:
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            try:
+                subprocess.run(
+                    ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                    capture_output=True,
+                    stdin=subprocess.DEVNULL,
+                    creationflags=flags,
+                    check=False,
+                    timeout=10,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                pass
         try:
             proc.kill()
         except OSError:
@@ -112,18 +222,11 @@ def _terminate_process_tree(proc: subprocess.Popen) -> None:
     else:
         try:
             os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         except OSError:
             try:
                 proc.kill()
-            except OSError:
-                pass
-
-
-def _close_pipes(proc: subprocess.Popen) -> None:
-    for pipe in (proc.stdout, proc.stderr):
-        if pipe is not None:
-            try:
-                pipe.close()
             except OSError:
                 pass
 
@@ -145,28 +248,55 @@ def run_bounded_command(
         "errors": "replace",
         "cwd": cwd,
     }
+    job = None
     if os.name == "nt":
-        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        job = _open_windows_job()
+        kwargs["creationflags"] = (
+            getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            | _CREATE_SUSPENDED
+        )
     else:
         kwargs["start_new_session"] = True
-    proc = subprocess.Popen(command, **kwargs)
     try:
-        stdout, stderr = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        _terminate_process_tree(proc)
-        try:
-            stdout, stderr = proc.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            _close_pipes(proc)
-            stdout, stderr = None, None
-        raise subprocess.TimeoutExpired(command, timeout, output=stdout, stderr=stderr)
+        proc = subprocess.Popen(command, **kwargs)
     except BaseException:
-        _terminate_process_tree(proc)
-        try:
-            proc.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            _close_pipes(proc)
+        if os.name == "nt" and job is not None:
+            _close_windows_job(job)
         raise
+    job_ref = [None]
+    try:
+        if os.name == "nt" and job is not None:
+            job_ref[0] = _assign_and_resume_windows(job, proc)
+            job = None
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _terminate_process_tree(proc, job_ref)
+            try:
+                stdout, stderr = proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                stdout, stderr = None, None
+            raise subprocess.TimeoutExpired(command, timeout, output=stdout, stderr=stderr)
+        except BaseException:
+            _terminate_process_tree(proc, job_ref)
+            try:
+                proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            raise
+    finally:
+        if os.name == "nt":
+            if job_ref[0] is not None:
+                _close_windows_job(job_ref[0])
+                job_ref[0] = None
+            elif job is not None:
+                _close_windows_job(job)
+        else:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                pass
     completed = subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
     if check and completed.returncode != 0:
         raise subprocess.CalledProcessError(

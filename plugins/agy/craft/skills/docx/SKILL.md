@@ -13,7 +13,7 @@ A `.docx` is a ZIP archive of XML files. Choose your approach by task:
 | Task | Approach |
 |---|---|
 | **Create** a new document | Write a `docx` (npm) script (see gotchas below) |
-| **Edit** an existing document | `unzip` -> edit `word/document.xml` -> `zip` (docx-js cannot open existing files) |
+| **Edit** an existing document | `unpack.py` -> edit `word/document.xml` -> `pack.py` (docx-js is create-only) |
 | **Read** content | `pandoc -t markdown file.docx` |
 
 > Script paths below are relative to this skill's directory.
@@ -53,11 +53,10 @@ ls page-*.jpg   # then read or view the generated images
 Legacy `.doc` files must be converted first: `python scripts/office/soffice.py --headless --convert-to docx file.doc`.
 
 ```bash
-unzip -q doc.docx -d unpacked/
-find unpacked -type l -delete   # strip symlink entries: docx from external parties is untrusted
+python scripts/office/unpack.py doc.docx unpacked/
 python scripts/merge_runs.py unpacked/   # coalesce fragmented runs so text is findable
 # edit unpacked/word/document.xml in place: do NOT reformat or pretty-print
-(cd unpacked && rm -f ../out.docx && zip -XrD ../out.docx .)
+python scripts/office/pack.py unpacked/ out.docx
 python scripts/office/validate.py out.docx --original doc.docx   # XSD checks; --auto-repair fixes common issues
 # redlining? add --author "<the name you redlined under>" to check every edit is tracked
 ```
@@ -77,7 +76,7 @@ An empty bullet in either view is an artifact of that view, not a defect in the 
 
 ## Comments
 
-Comments require six cross-linked files. Use the helper: directory mode when you'll also be editing `document.xml` (saves an unzip/rezip cycle), `.docx`-direct mode otherwise:
+Comments require six cross-linked files. Use the helper: directory mode when you'll also be editing `document.xml` (saves an unpack/repack cycle), `.docx`-direct mode otherwise:
 
 ```bash
 # Against an already-unpacked directory (preferred when also placing markers)

@@ -13,7 +13,7 @@ A `.pptx` is a ZIP archive of XML files. Choose your approach by task:
 | Task | Approach |
 |---|---|
 | **Create** a new deck | Write a `pptxgenjs` script (see gotchas below) and build it as a [structured deck](#structured-decks) unless the user asks for a quick throwaway |
-| **Edit** an existing deck, or build from a template | unzip -> edit `ppt/slides/slideN.xml` -> zip |
+| **Edit** an existing deck, or build from a template | `unpack.py` -> edit `ppt/slides/slideN.xml` -> `pack.py` |
 | **Read** content | `python scripts/slide_text.py deck.pptx` (one block per slide under `<!-- Slide number: N -->` markers); visual grid: `python scripts/thumbnail.py deck.pptx` |
 
 ## Scripts
@@ -27,6 +27,8 @@ Paths are relative to this skill's directory. Everything else is plain Python, `
 | `scripts/add_slide.py unpacked/ slide2.xml [--after slideN.xml]` | Duplicate a slide (or a `slideLayoutN.xml`) with all the package bookkeeping. Also takes a `.pptx` directly with `-o out.pptx` |
 | `scripts/clean.py unpacked/` | Delete slides, media, and rels no longer referenced. Run **after** `<p:sldIdLst>` is final |
 | `scripts/apply_theme.js` | Node module: `const { applyTheme } = require("<this skill's directory>/scripts/apply_theme.js")`. `await applyTheme("deck.pptx", THEME)` after `pres.writeFile()` writes `THEME`'s colors and name (escaped for XML) into the deck's theme, for [structured decks](#structured-decks). Also a CLI: `node scripts/apply_theme.js deck.pptx theme.json` |
+| `scripts/office/unpack.py deck.pptx unpacked/` | Bounded OOXML unpacker enforcing size, count, and path limits |
+| `scripts/office/pack.py unpacked/ out.pptx` | Atomic OOXML packer omitting folder entries |
 | `scripts/office/validate.py deck.pptx [--original src.pptx]` | Schema, relationship, content-type, chart and slide checks; each failure names its fix. Pass `--original` for any template-derived deck so it baselines schema checks against the template and does not confuse template XSD errors with yours |
 | `scripts/office/soffice.py --headless --convert-to pdf deck.pptx` | LibreOffice wrapper; prevents headless `soffice` hangs and profile lock collisions |
 
@@ -73,12 +75,12 @@ A deck built on a theme, layouts, placeholders and sections can be restyled in o
 Pick layouts first: `python scripts/thumbnail.py template.pptx template-thumbs` writes a labeled grid of every slide and prints the file(s) it created: `template-thumbs.jpg`, split into `template-thumbs-N.jpg` past 12 slides. **Always pass that second argument, named after the deck.** It defaults to `thumbnails`, so two decks thumbnailed in one directory silently overwrite each other's grids: the first deck's are simply gone (template analysis only: visual QA needs the full-resolution renders from [Converting to Images](#converting-to-images); it only accepts `.pptx`, so copy a `.potx` to a `.pptx` name first). Use it with `slide_text.py` to map each content section onto a template slide, and vary the layouts: don't put every section on the same title-and-bullets slide.
 
 ```bash
-python3 -c "import sys,zipfile; zipfile.ZipFile(sys.argv[1]).extractall('unpacked')" deck.pptx
+python scripts/office/unpack.py deck.pptx unpacked/
 python scripts/add_slide.py unpacked/ slide2.xml --after slide2.xml   # duplicate a slide (or slideLayoutN.xml); prints the new slide's path
 # reorder / delete slides = edit <p:sldIdLst> in ppt/presentation.xml
 python scripts/clean.py unpacked/                                     # after deletions: removes orphaned slides, media, rels
 # edit slide content in ppt/slides/slideN.xml
-(cd unpacked && rm -f ../out.pptx && zip -XrD ../out.pptx .)          # zip from INSIDE the dir; rm first or deleted parts survive
+python scripts/office/pack.py unpacked/ out.pptx
 python scripts/office/validate.py out.pptx --original deck.pptx
 ```
 

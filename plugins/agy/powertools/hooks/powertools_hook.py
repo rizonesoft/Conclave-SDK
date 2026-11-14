@@ -454,14 +454,26 @@ def _unwrap_tokens(tokens: list[tuple[str, bool]], depth: int = 0) -> list[tuple
 
 _GIT_VAL_OPTS = {"-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env"}
 _PUSH_VAL_OPTS = {"-o", "--push-option", "--receive-pack", "--exec"}
+_MIRROR_CFG_RE = re.compile(r"^remote\..+\.mirror\s*=\s*(true|yes|on|1)$", re.I)
 
 
 def _check_git_force_push(tokens: list[tuple[str, bool]]) -> str | None:
     i = 1
+    config_mirror = False
     while i < len(tokens):
         tok, _ = tokens[i]
         if tok == "--" or not tok.startswith("-"):
             break
+        if tok == "-c":
+            if i + 1 < len(tokens) and _MIRROR_CFG_RE.match(tokens[i + 1][0].strip()):
+                config_mirror = True
+            i += 2
+            continue
+        if tok.startswith("-c") and len(tok) > 2:
+            if _MIRROR_CFG_RE.match(tok[2:].strip()):
+                config_mirror = True
+            i += 1
+            continue
         if tok in _GIT_VAL_OPTS or tok == "-C":
             i += 2
             continue
@@ -471,6 +483,7 @@ def _check_git_force_push(tokens: list[tuple[str, bool]]) -> str | None:
     i += 1
     after_double_dash = False
     has_repo_opt = False
+    mirror_opt = config_mirror
     pos_args: list[str] = []
     while i < len(tokens):
         tok, _ = tokens[i]
@@ -490,6 +503,14 @@ def _check_git_force_push(tokens: list[tuple[str, bool]]) -> str | None:
             if tok in _PUSH_VAL_OPTS:
                 i += 2
                 continue
+            if tok == "--mirror":
+                return "git force push (--mirror)"
+            if tok == "--no-mirror":
+                mirror_opt = False
+                i += 1
+                continue
+            if tok in ("--delete", "--prune"):
+                return "git remote ref deletion"
             if tok in ("--force", "--force-with-lease", "--force-if-includes") or tok.startswith(("--force=", "--force-with-lease=")):
                 return "git force push"
             if tok.startswith("-") and not tok.startswith("--") and len(tok) > 1:
@@ -497,6 +518,8 @@ def _check_git_force_push(tokens: list[tuple[str, bool]]) -> str | None:
                 for idx_ch, ch in enumerate(tok[1:], start=1):
                     if ch == "f":
                         return "git force push"
+                    if ch == "d":
+                        return "git remote ref deletion"
                     if ch == "o":
                         i += 2 if idx_ch == len(tok) - 1 else 1
                         consumed_val_opt = True
@@ -506,12 +529,19 @@ def _check_git_force_push(tokens: list[tuple[str, bool]]) -> str | None:
         if after_double_dash or not tok.startswith("-"):
             pos_args.append(tok)
         i += 1
+    if mirror_opt:
+        return "git force push (--mirror)"
     refspecs = pos_args if has_repo_opt else pos_args[1:]
-    if not has_repo_opt and len(pos_args) == 1 and pos_args[0].startswith("+") and ":" in pos_args[0]:
+    if not has_repo_opt and len(pos_args) == 1 and (
+        (pos_args[0].startswith("+") and ":" in pos_args[0])
+        or (pos_args[0].startswith(":") and len(pos_args[0]) > 1)
+    ):
         refspecs = pos_args
     for ref in refspecs:
         if ref.startswith("+") and len(ref) > 1:
             return "git force push (force refspec)"
+        if ref.startswith(":") and len(ref) > 1:
+            return "git remote ref deletion (delete refspec)"
     return None
 
 

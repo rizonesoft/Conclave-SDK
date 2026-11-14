@@ -122,6 +122,12 @@ class AgyPluginStructureTests(unittest.TestCase):
         workflow_py = POWERTOOLS_DIR / "skills" / "parallel-precheck" / "scripts" / "precheck_workflow.py"
         compile(workflow_py.read_text(encoding="utf-8"), str(workflow_py), "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
 
+        for p in sorted(CRAFT_DIR.rglob("*")):
+            if p.name == "SKILL.md" or p.suffix == ".py":
+                txt = p.read_text(encoding="utf-8")
+                self.assertNotIn(".extractall(", txt, f"unbounded extractall in {p}")
+                self.assertNotIn("unzip -q", txt, f"unbounded unzip in {p}")
+
     def test_no_em_or_en_dashes_in_agy_plugins(self):
         for p in sorted(AGY_PLUGINS.rglob("*")):
             if not p.is_file() or p.suffix not in (".md", ".py", ".json", ".js", ".svg"):
@@ -195,6 +201,8 @@ class PowertoolsHookBehaviorTests(unittest.TestCase):
             "git push --repo origin main",
             "git push --repo=origin main",
             "git push -ofix origin main",
+            "git push --no-mirror origin main",
+            "git push --tags origin",
             "git branch -f feature-local",
             'git commit -m "avoid git push -f accidental match"',
             'git push origin -- "--force"',
@@ -224,6 +232,13 @@ class PowertoolsHookBehaviorTests(unittest.TestCase):
             "git push --repo=origin +HEAD:main",
             "git push +HEAD:main",
             "git push -uo opt -f origin main",
+            "git push --mirror origin",
+            "git push --repo=origin --mirror",
+            "git -c remote.origin.mirror=true push origin",
+            "git push --delete origin old-branch",
+            "git push -d origin old-branch",
+            "git push --prune origin",
+            "git push origin :old-branch",
             "gh repo delete owner/repo --yes",
             "Format-Volume -DriveLetter E -FileSystem NTFS",
             "rm -rf /",
@@ -546,6 +561,48 @@ class PowertoolsHookBehaviorTests(unittest.TestCase):
             notice = hook_mod.check_draft(str(draft))
         self.assertIn("timed out; check the draft by hand.", notice)
 
+        # Exited parent whose pipe-inheriting grandchild outlives it must still terminate grandchild on timeout
+        gc_pid_file = self.root / "exited_parent_gc.pid"
+        exited_parent = self.root / "exited_parent.py"
+        exited_parent.write_text(
+            "import pathlib, subprocess, sys\n"
+            f"pid_file = pathlib.Path({json.dumps(str(gc_pid_file))})\n"
+            "flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)\n"
+            "gc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], stdin=subprocess.DEVNULL, creationflags=flags)\n"
+            "pid_file.write_text(str(gc.pid), encoding='utf-8')\n"
+            "sys.exit(0)\n",
+            encoding="utf-8",
+        )
+        with self.assertRaises(subprocess.TimeoutExpired):
+            hook_mod.article_check.run_bounded_command(
+                [sys.executable, str(exited_parent)],
+                timeout=1.5,
+                cwd=str(self.root),
+            )
+        self.assertTrue(gc_pid_file.exists(), "exited parent did not spawn grandchild before timeout")
+        exited_gc_pid = int(gc_pid_file.read_text(encoding="utf-8").strip())
+        if os.name == "nt":
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.OpenProcess(0x101000, False, exited_gc_pid)
+            if handle:
+                try:
+                    self.assertEqual(kernel32.WaitForSingleObject(handle, 2000), 0, f"grandchild PID {exited_gc_pid} survived")
+                finally:
+                    kernel32.CloseHandle(handle)
+        else:
+            alive = False
+            for _ in range(20):
+                try:
+                    os.kill(exited_gc_pid, 0)
+                    alive = True
+                    import time
+                    time.sleep(0.05)
+                except ProcessLookupError:
+                    alive = False
+                    break
+            self.assertFalse(alive, f"grandchild PID {exited_gc_pid} survived")
+
 
 def _load_module(name: str, path: pathlib.Path, extra_sys_paths: list[pathlib.Path] | None = None):
     added: list[str] = []
@@ -575,6 +632,8 @@ class CraftScriptHardeningTests(unittest.TestCase):
         for rel in (
             "office/helpers/__init__.py",
             "office/soffice.py",
+            "office/unpack.py",
+            "office/pack.py",
             "office/validators/base.py",
             "office/validators/docx.py",
             "office/validators/redlining.py",
@@ -738,7 +797,7 @@ class CraftScriptHardeningTests(unittest.TestCase):
         fake_proc = unittest.mock.MagicMock()
         fake_proc.pid = 42424
         fake_proc.returncode = -9
-        fake_proc.poll.return_value = None
+        fake_proc.poll.return_value = 0
         fake_proc.communicate.side_effect = [subprocess.TimeoutExpired(["soffice"], 1), ("", "")]
 
         with unittest.mock.patch.object(soffice, "get_soffice_env", return_value={}), \
@@ -753,7 +812,50 @@ class CraftScriptHardeningTests(unittest.TestCase):
             mock_run.assert_called_once()
             self.assertEqual(mock_run.call_args[0][0], ["taskkill", "/T", "/F", "/PID", "42424"])
         else:
-            mock_killpg.assert_called_once_with(42424, soffice.signal.SIGKILL)
+            self.assertGreaterEqual(mock_killpg.call_count, 1)
+            mock_killpg.assert_any_call(42424, soffice.signal.SIGKILL)
+
+        gc_pid_file = self.root / "soffice_exited_gc.pid"
+        exited_parent = self.root / "soffice_exited_parent.py"
+        exited_parent.write_text(
+            "import pathlib, subprocess, sys\n"
+            f"pid_file = pathlib.Path({json.dumps(str(gc_pid_file))})\n"
+            "flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)\n"
+            "gc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], stdin=subprocess.DEVNULL, creationflags=flags)\n"
+            "pid_file.write_text(str(gc.pid), encoding='utf-8')\n"
+            "sys.exit(0)\n",
+            encoding="utf-8",
+        )
+        with self.assertRaises(subprocess.TimeoutExpired):
+            soffice.run_process_tree(
+                [sys.executable, str(exited_parent)],
+                capture_output=True,
+                text=True,
+                timeout=1.5,
+            )
+        self.assertTrue(gc_pid_file.exists())
+        gc_pid = int(gc_pid_file.read_text(encoding="utf-8").strip())
+        if os.name == "nt":
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.OpenProcess(0x101000, False, gc_pid)
+            if handle:
+                try:
+                    self.assertEqual(kernel32.WaitForSingleObject(handle, 2000), 0, f"grandchild PID {gc_pid} survived")
+                finally:
+                    kernel32.CloseHandle(handle)
+        else:
+            alive = False
+            for _ in range(20):
+                try:
+                    os.kill(gc_pid, 0)
+                    alive = True
+                    import time
+                    time.sleep(0.05)
+                except ProcessLookupError:
+                    alive = False
+                    break
+            self.assertFalse(alive, f"grandchild PID {gc_pid} survived")
 
     def test_fill_fillable_fields_writes_atomically(self):
         existing_pdf = self.root / "out.pdf"
@@ -831,6 +933,41 @@ class CraftScriptHardeningTests(unittest.TestCase):
         self.assertIn("No space left on device", msg)
         self.assertEqual(doc_xml.read_bytes(), orig_xml)
         self.assertEqual(list(word_dir.glob("*.tmp")), [])
+
+    def test_unpack_and_pack_cli_enforce_budgets_and_atomicity(self):
+        office_dir = CRAFT_DIR / "skills" / "docx" / "scripts" / "office"
+        unpack_mod = _load_module("test_office_unpack", office_dir / "unpack.py", [office_dir])
+        pack_mod = _load_module("test_office_pack", office_dir / "pack.py", [office_dir])
+
+        pkg_in = self.root / "sample.docx"
+        with zipfile.ZipFile(pkg_in, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("[Content_Types].xml", "<Types/>")
+            zf.writestr("word/document.xml", "<w:document/>")
+
+        unpacked_dir = self.root / "unpacked"
+        unpack_mod.unpack_package(pkg_in, unpacked_dir)
+        self.assertEqual((unpacked_dir / "word" / "document.xml").read_text(encoding="utf-8"), "<w:document/>")
+
+        pkg_out = self.root / "repacked.docx"
+        pack_mod.pack_package(unpacked_dir, pkg_out)
+        with zipfile.ZipFile(pkg_out, "r") as zf:
+            self.assertEqual([i.filename for i in zf.infolist() if i.is_dir()], [])
+            self.assertEqual(zf.read("word/document.xml"), b"<w:document/>")
+
+        # Existing non-empty destination is refused without modification
+        keep_marker = unpacked_dir / "marker.txt"
+        keep_marker.write_text("keep", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            unpack_mod.unpack_package(pkg_in, unpacked_dir)
+        self.assertEqual(keep_marker.read_text(encoding="utf-8"), "keep")
+
+        # Overflow during unpack fails atomically and leaves no destination or staging dir
+        oversized_dest = self.root / "oversized_dest"
+        with unittest.mock.patch.object(unpack_mod, "safe_extract", side_effect=ValueError("archive exceeds unpacked byte budget")):
+            with self.assertRaises(ValueError):
+                unpack_mod.unpack_package(pkg_in, oversized_dest)
+        self.assertFalse(oversized_dest.exists())
+        self.assertEqual(list(self.root.glob("oversized_dest.*.tmp")), [])
 
 
 if __name__ == "__main__":
