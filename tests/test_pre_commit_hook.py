@@ -267,6 +267,11 @@ class InstallAndDoctor(unittest.TestCase):
         project = self.repository()
         forge.apply_kit(project, "reviewer")  # the dispatcher the graph loads when it reads receipts
         self.assertEqual(forge.apply_kit(project, "todo")["pre_commit_hook"], "enabled")
+        self.assert_git_refuses_a_stale_plan(project)
+
+    def assert_git_refuses_a_stale_plan(self, project):
+        """One real `git commit` with a stale plan is refused, and goes through once the plan is synced: git ran the
+        kit's hook, whichever way the repository reaches it."""
         todo = project / "todo/00-workspace"
         todo.mkdir(parents=True)
         (todo / "TODO-01-a.md").write_text(todo_file([(1, "A", 0, "none", "--")]), encoding="utf-8")
@@ -306,11 +311,51 @@ class InstallAndDoctor(unittest.TestCase):
                 self.assertIn(self.CONFLICT, detail)
                 self.assertIn(f"({name})", detail)
                 self.assertIn("Call scripts/hooks/pre-commit from", detail)
-                # Once the project's pre-commit hook calls the kit's, both run and nothing is left to set up.
                 joined = project / ".git/hooks/pre-commit"
+                # Naming the kit's hook in a comment is not calling it (found by the round of D01 T02 section 7).
+                joined.write_text("#!/bin/sh\n# TODO: call scripts/hooks/pre-commit\nexit 0\n", encoding="utf-8")
+                joined.chmod(0o755)
+                self.assertEqual(self.check(project)[0], "setup_required")
+                self.assertIn(self.CONFLICT, self.check(project)[1])
+                # Once a command line of the project's pre-commit hook names the kit's, nothing is left to set up;
+                # the doctor says it read the hook, since it runs nothing.
                 joined.write_text('#!/bin/sh\n"$(git rev-parse --show-toplevel)/scripts/hooks/pre-commit" || exit 1\n',
                                   encoding="utf-8")
-                self.assertEqual(self.check(project), ("ok", f"{joined.as_posix()} calls scripts/hooks/pre-commit"))
+                if os.name != "nt":
+                    # A hook file git will not run is not a hook, whatever it says (same round).
+                    joined.chmod(0o644)
+                    self.assertEqual(self.check(project), ("setup_required", f"chmod +x {joined.as_posix()}: git runs "
+                                                                             "only an executable hook"))
+                joined.chmod(0o755)
+                self.assertEqual(self.check(project), (
+                    "ok", f"{joined.as_posix()} names scripts/hooks/pre-commit on a command line (read, not run)"))
+
+    def test_a_projects_own_hook_that_calls_the_kits_refuses_a_real_commit_with_a_stale_plan(self):
+        project = self.repository()
+        own = project / ".git/hooks/pre-commit"
+        own.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        own.chmod(0o755)
+        forge.apply_kit(project, "reviewer")
+        self.assertTrue(forge.apply_kit(project, "todo")["pre_commit_hook"].startswith("left: "))
+        own.write_text('#!/bin/sh\n"$(git rev-parse --show-toplevel)/scripts/hooks/pre-commit" || exit 1\n',
+                       encoding="utf-8")
+        own.chmod(0o755)
+        self.assertEqual(self.check(project)[0], "ok")
+        self.assertEqual(self.hooks_path(project), "")
+        self.assert_git_refuses_a_stale_plan(project)
+
+    def test_an_empty_hooks_path_is_a_choice_the_install_keeps(self):
+        # Found by the round of D01 T02 section 7: `git config core.hooksPath ""` is set, not unset.
+        project = self.repository()
+        self.git(project, "config", "core.hooksPath", "")
+        left = forge.apply_kit(project, "todo")["pre_commit_hook"]
+        self.assertEqual(left, "left: core.hooksPath is set to an empty value")
+        listed = self.git(project, "config", "--get-all", "core.hooksPath", check=False)
+        self.assertEqual((listed.returncode, listed.stdout), (0, "\n"))
+        status, detail = self.check(project)
+        self.assertEqual(status, "setup_required")
+        self.assertTrue(detail.startswith("core.hooksPath is set to an empty value: "), detail)
+        self.assertIn("replace it on purpose with git config core.hooksPath scripts/hooks", detail)
 
     def test_another_hooks_path_is_left_and_the_doctor_never_tells_it_to_be_overwritten_blindly(self):
         project = self.repository()
@@ -327,6 +372,7 @@ class InstallAndDoctor(unittest.TestCase):
         self.assertIn("or replace that setup on purpose", detail)
         with (project / ".husky/pre-commit").open("a", encoding="utf-8") as hook:
             hook.write("sh scripts/hooks/pre-commit\n")
+        (project / ".husky/pre-commit").chmod(0o755)  # git runs only an executable hook on Linux
         self.assertEqual(self.check(project)[0], "ok")
         # A hooks path that names a folder with no pre-commit hook in it is still another owner.
         self.git(project, "config", "core.hooksPath", "elsewhere")

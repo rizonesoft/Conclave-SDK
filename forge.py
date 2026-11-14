@@ -755,7 +755,8 @@ def _hook_setup(target_root: Path) -> dict:
     `state` is one of: `no-git` (git cannot be run, `why` says so), `no-repository`, `nested` (the project is a
     subfolder of the repository at `top`), `enabled` (`core.hooksPath` resolves to the project's scripts/hooks),
     `owned` (another `core.hooksPath`, or hooks of the project's own in the default folder: `owner` names it and
-    `pre_commit` is the hook git would run there) and `free` (nothing owns the repository's hooks)."""
+    `pre_commit` is the hook git would run there, None when the setting names no folder) and `free` (nothing owns
+    the repository's hooks)."""
     target_root = Path(target_root)
     top = _git_answer(target_root, "rev-parse", "--show-toplevel")
     if top is None:
@@ -771,7 +772,9 @@ def _hook_setup(target_root: Path) -> dict:
     if configured is None or configured[0] not in (0, 1):
         why = (configured[2].splitlines() or ["git config failed"])[0] if configured else "git did not answer"
         return {"state": "no-git", "why": why}
-    if configured[0] == 0 and configured[1]:
+    if configured[0] == 0 and not configured[1]:
+        return {"state": "owned", "owner": "core.hooksPath is set to an empty value", "pre_commit": None}
+    if configured[0] == 0:
         folder = Path(configured[1])
         folder = folder if folder.is_absolute() else top_path / folder  # git reads a relative path from the top level
         if _same_folder(folder, target_root / HOOKS_PATH):
@@ -800,6 +803,15 @@ def _kit_hook_problem(target_root: Path) -> tuple[str, str] | None:
     return None
 
 
+def _names_kit_hook(hook: Path) -> bool:
+    """Whether a command line of the hook file names the kit's pre-commit hook. A comment that mentions it does not."""
+    try:
+        lines = hook.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return False
+    return any(PRE_COMMIT_HOOK in line and not line.lstrip().startswith("#") for line in lines)
+
+
 def _pre_commit_hook_check(target_root: Path) -> tuple[str, str]:
     """The doctor's `pre-commit-hook` check for the todo kit: (status, detail). It reads and never changes."""
     setup = _hook_setup(target_root)
@@ -819,12 +831,14 @@ def _pre_commit_hook_check(target_root: Path) -> tuple[str, str]:
     if state == "free":
         return problem or ("setup_required", f"git config core.hooksPath {HOOKS_PATH}")
     hook = setup["pre_commit"]
-    try:
-        calls_kit = PRE_COMMIT_HOOK in hook.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        calls_kit = False
-    if calls_kit:
-        return problem or ("ok", f"{hook.as_posix()} calls {PRE_COMMIT_HOOK}")
+    if hook is None:
+        return ("setup_required", f"{setup['owner']}: someone chose that, so the install left it; replace it on "
+                                  f"purpose with git config core.hooksPath {HOOKS_PATH}")
+    if _names_kit_hook(hook):
+        if os.name != "nt" and not os.access(hook, os.X_OK):
+            return "setup_required", f"chmod +x {hook.as_posix()}: git runs only an executable hook"
+        # Read, not run: the doctor changes nothing and starts no hook, so this is what the file says.
+        return problem or ("ok", f"{hook.as_posix()} names {PRE_COMMIT_HOOK} on a command line (read, not run)")
     return ("setup_required",
             f"{setup['owner']}: git config core.hooksPath {HOOKS_PATH} would stop those hooks. Call {PRE_COMMIT_HOOK} "
             f"from {hook.as_posix()}, or replace that setup on purpose with git config core.hooksPath {HOOKS_PATH}")
