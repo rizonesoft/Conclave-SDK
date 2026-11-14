@@ -23,10 +23,11 @@ from __future__ import annotations
 import argparse
 import ctypes
 import difflib
+import fnmatch
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import shlex
 import shutil
@@ -1953,10 +1954,191 @@ SUITES: list[dict] = [
     *({"name": f"install-{kit}", "kind": "command", "path": f"kits/{kit}/scripts/test-install.sh", "timeout": 900,
        "os": "posix", "argv": ["bash", f"kits/{kit}/scripts/test-install.sh"]}
       for kit in ("automations", "base", "laravel", "reviewer", "todo", "wordpress")),
+    # Global suites under global/ (five unittest suites verified offline on Windows and POSIX).
+    _unittest_suite("global-claude-hooks", "global/claude/hooks", 300),
+    _unittest_suite("global-codex-hooks", "global/codex/hooks", 300),
+    _unittest_suite("global-tests", "global/tests", 300),
+    _unittest_suite("global-claude-ticktick", "global/claude/skills/process-ticktick-task/scripts", 300),
+    _unittest_suite("global-codex-ticktick", "global/codex/skills/process-ticktick-task/scripts", 300),
+    # Offline plugin suites under plugins/ (explicit test files run without external npm dependencies).
+    {"name": "plugin-claude-bunny-net", "kind": "command", "path": "plugins/claude/bunny-net/tests", "timeout": 300,
+     "argv": ["node", "--test", "plugins/claude/bunny-net/tests/client.test.js"]},
+    {"name": "plugin-claude-domains-co-za", "kind": "command", "path": "plugins/claude/domains-co-za/tests", "timeout": 300,
+     "argv": ["node", "--test", "plugins/claude/domains-co-za/tests/client.test.js",
+              "plugins/claude/domains-co-za/tests/totp.test.js"]},
+    {"name": "plugin-codex-atera", "kind": "command", "path": "plugins/codex/atera/tests", "timeout": 300,
+     "argv": ["node", "--test", "plugins/codex/atera/tests/client.test.js",
+              "plugins/codex/atera/tests/credentials.test.js",
+              "plugins/codex/atera/tests/linux-credentials.test.js"]},
+    {"name": "plugin-codex-conclave", "kind": "command", "path": "plugins/codex/conclave/tests", "timeout": 300,
+     "argv": ["node", "--test", "plugins/codex/conclave/tests/approval.test.mjs",
+              "plugins/codex/conclave/tests/launch-wsl.test.mjs",
+              "plugins/codex/conclave/tests/launcher.test.mjs",
+              "plugins/codex/conclave/tests/run-hidden.test.mjs"]},
+    {"name": "plugin-codex-domains-co-za", "kind": "command", "path": "plugins/codex/domains-co-za/tests", "timeout": 300,
+     "argv": ["node", "--test", "plugins/codex/domains-co-za/tests/client.test.js",
+              "plugins/codex/domains-co-za/tests/linux-credentials.test.js",
+              "plugins/codex/domains-co-za/tests/totp.test.js"]},
+    {"name": "plugin-codex-outlook-graph", "kind": "command", "path": "plugins/codex/outlook-graph/tests", "timeout": 300,
+     "argv": ["node", "--test", "plugins/codex/outlook-graph/tests/client.test.js",
+              "plugins/codex/outlook-graph/tests/store.test.js"]},
 ]
+TEST_FILE_PATTERNS = ("test_*.py", "*_test.py", "*.test.mjs", "*.test.js", "test-*.sh")
+# Plugin tests that require third-party npm packages unavailable in this zero-dependency repository.
+# Listed file by file so a new offline test file under plugins/ is caught until added to SUITES.
+EXCLUDED_TESTS: dict[str, str] = {
+    "plugins/claude/bunny-net/tests/changes.test.js":
+        "requires npm package '@modelcontextprotocol/sdk' (not installed in zero-dependency repo)",
+    "plugins/claude/bunny-net/tests/protocol.test.js":
+        "requires npm package '@modelcontextprotocol/sdk' (not installed in zero-dependency repo)",
+    "plugins/claude/domains-co-za/tests/changes.test.js":
+        "requires npm package '@modelcontextprotocol/sdk' (not installed in zero-dependency repo)",
+    "plugins/claude/domains-co-za/tests/protocol.test.js":
+        "requires npm package '@modelcontextprotocol/sdk' (not installed in zero-dependency repo)",
+    "plugins/codex/atera/tests/protocol.test.js":
+        "requires npm package '@modelcontextprotocol/sdk' (not installed in zero-dependency repo)",
+    "plugins/codex/atera/tests/tools.test.js":
+        "requires npm package '@modelcontextprotocol/sdk' (not installed in zero-dependency repo)",
+    "plugins/codex/bunny-net/tests/safety.test.js":
+        "requires npm package '@modelcontextprotocol/sdk' (not installed in zero-dependency repo)",
+    "plugins/codex/domains-co-za/tests/changes.test.js":
+        "requires npm package '@modelcontextprotocol/sdk' (not installed in zero-dependency repo)",
+    "plugins/codex/domains-co-za/tests/protocol.test.js":
+        "requires npm package '@modelcontextprotocol/sdk' (not installed in zero-dependency repo)",
+    "plugins/codex/outlook-graph/tests/attachment-references.test.js":
+        "requires npm package 'parse5' (not installed in zero-dependency repo)",
+    "plugins/codex/outlook-graph/tests/auth.test.js":
+        "requires npm package '@azure/msal-node' (not installed in zero-dependency repo)",
+    "plugins/codex/outlook-graph/tests/changes.test.js":
+        "requires npm package 'zod' (not installed in zero-dependency repo)",
+    "plugins/codex/outlook-graph/tests/html-drafts.test.js":
+        "requires npm package 'zod' (not installed in zero-dependency repo)",
+    "plugins/codex/outlook-graph/tests/protocol.test.js":
+        "requires npm package '@modelcontextprotocol/sdk' (not installed in zero-dependency repo)",
+    "plugins/codex/pressable/tests/safety.test.js":
+        "requires npm package 'ajv' (not installed in zero-dependency repo)",
+    "plugins/codex/pressable/tests/wpcli.test.js":
+        "requires npm package 'ajv' (not installed in zero-dependency repo)",
+    "plugins/codex/website-router/tests/files.test.js":
+        "requires npm package 'ssh2' (not installed in zero-dependency repo)",
+    "plugins/codex/website-router/tests/policy.test.js":
+        "requires npm package 'ajv' (not installed in zero-dependency repo)",
+    "plugins/codex/website-router/tests/router.test.js":
+        "requires npm package 'ajv' (not installed in zero-dependency repo)",
+    "plugins/codex/website-router/tests/security.test.js":
+        "requires npm package 'ipaddr.js' (not installed in zero-dependency repo)",
+}
 TAIL_LINES = 40         # what is kept of a suite's output, however much it prints
 TAIL_BYTES = 64 * 1024
 RAN_TESTS = re.compile(rb"^Ran (\d+) tests? in ", re.M)
+
+
+class UnownedTestsError(Exception):
+    """Raised before any suite starts when check-all sees unowned tests or invalid exclusions."""
+
+
+def _normalize_repo_path(raw: str) -> str:
+    return PurePosixPath(raw.replace("\\", "/")).as_posix()
+
+
+def _repo_test_files(root: Path) -> list[str]:
+    """List every tracked or unignored untracked repository test file matching TEST_FILE_PATTERNS."""
+    try:
+        proc = subprocess.run(
+            ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+            cwd=root,
+            capture_output=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise UnownedTestsError(f"check-all: could not list repository test files with git ls-files: {exc}") from exc
+    if proc.returncode != 0:
+        detail = proc.stderr.decode("utf-8", errors="replace").strip()
+        suffix = f": {detail}" if detail else ""
+        raise UnownedTestsError(f"check-all: git ls-files failed (exit {proc.returncode}){suffix}")
+    found: set[str] = set()
+    for raw in proc.stdout.split(b"\x00"):
+        if not raw:
+            continue
+        rel = _normalize_repo_path(raw.decode("utf-8", errors="replace"))
+        name = PurePosixPath(rel).name
+        if any(fnmatch.fnmatchcase(name, pattern) for pattern in TEST_FILE_PATTERNS) and (root / rel).is_file():
+            found.add(rel)
+    return sorted(found)
+
+
+def _unittest_owns_file(root: Path, suite_path: PurePosixPath, rel: str) -> bool:
+    """True when `python -m unittest discover -s <suite_path>` would import and run `rel`."""
+    file_path = PurePosixPath(rel)
+    if not fnmatch.fnmatchcase(file_path.name, "test_*.py"):
+        return False
+    try:
+        inner = file_path.relative_to(suite_path)
+    except ValueError:
+        return False
+    if not inner.parts:
+        return False
+    cur = suite_path
+    for part in inner.parts[:-1]:
+        cur = cur / part
+        if not (root / cur / "__init__.py").is_file():
+            return False
+    return True
+
+
+def _suite_owned_tests(root: Path, suites: list[dict], files: set[str]) -> set[str]:
+    owned: set[str] = set()
+    for suite in suites:
+        if suite.get("kind") == "unittest":
+            suite_path = PurePosixPath(_normalize_repo_path(suite["path"]))
+            for rel in files:
+                if _unittest_owns_file(root, suite_path, rel):
+                    owned.add(rel)
+            continue
+        for arg in suite.get("argv", ()):
+            if not isinstance(arg, str) or arg.startswith("-"):
+                continue
+            norm = _normalize_repo_path(arg)
+            if norm in files:
+                owned.add(norm)
+    return owned
+
+
+def unowned_tests(root: Path = FORGE_ROOT, suites: list[dict] = SUITES,
+                  excluded: dict[str, str] = EXCLUDED_TESTS) -> list[str]:
+    """Return repository test files owned by no suite in `suites` and omitted from `excluded`."""
+    files = _repo_test_files(root)
+    owned = _suite_owned_tests(root, suites, set(files))
+    valid_excluded = {_normalize_repo_path(path) for path, reason in excluded.items()
+                      if isinstance(reason, str) and reason.strip()}
+    return [rel for rel in files if rel not in owned and rel not in valid_excluded]
+
+
+def _inventory_problems(root: Path, suites: list[dict], excluded: dict[str, str]) -> list[str]:
+    files = _repo_test_files(root)
+    file_set = set(files)
+    owned = _suite_owned_tests(root, suites, file_set)
+    problems: list[str] = []
+    valid_excluded: set[str] = set()
+    for raw_path, reason in excluded.items():
+        norm = _normalize_repo_path(raw_path)
+        if not isinstance(reason, str) or not reason.strip():
+            problems.append(f"{norm}: EXCLUDED_TESTS entry is missing a reason")
+            continue
+        if norm not in file_set:
+            problems.append(f"{norm}: EXCLUDED_TESTS entry does not match any repository test file")
+            continue
+        if norm in owned:
+            problems.append(f"{norm}: EXCLUDED_TESTS entry is already covered by SUITES")
+            continue
+        if norm in valid_excluded:
+            problems.append(f"{norm}: duplicate EXCLUDED_TESTS entry")
+            continue
+        valid_excluded.add(norm)
+    for rel in files:
+        if rel not in owned and rel not in valid_excluded:
+            problems.append(f"{rel}: unowned test file (add to SUITES or EXCLUDED_TESTS)")
+    return problems
 
 
 def _runs_here(suite: dict) -> bool:
@@ -2079,15 +2261,24 @@ def _run_suite(suite: dict, env: dict, cwd: Path) -> dict:
 
 
 def check_all(full: bool = False, only=(), skip=(), suites: list[dict] | None = None, root: Path | None = None,
-              on_result=None) -> list[dict]:
+              on_result=None, excluded: dict[str, str] | None = None) -> list[dict]:
     """Run every suite (those named by `only`, less those named by `skip`), each to its end whatever the one before
-    did, and return each one's result. A suite this host cannot run is returned as skipped, neither passed nor failed. An unknown name raises ValueError before any suite starts. `full` sets
-    CONCLAVE_FULL_TESTS=1 for the suites; otherwise it is removed, whatever this process's own environment holds."""
+    did, and return each one's result. Before any suite runs, validates that every test file in `root` is owned by
+    the full suite table or explicitly listed with a reason in `excluded`, raising `UnownedTestsError` otherwise.
+    A suite this host cannot run is returned as skipped, neither passed nor failed. An unknown name raises ValueError
+    before any suite starts. `full` sets CONCLAVE_FULL_TESTS=1 for the suites; otherwise it is removed, whatever this
+    process's own environment holds."""
     table = SUITES if suites is None else suites
+    target_root = FORGE_ROOT if root is None else root
+    excluded_map = EXCLUDED_TESTS if excluded is None else excluded
     names = [suite["name"] for suite in table]
     unknown = [name for name in (*only, *skip) if name not in names]
     if unknown:
         raise ValueError(f"unknown suite {', '.join(unknown)} (the suites are: {', '.join(names)})")
+    problems = _inventory_problems(target_root, table, excluded_map)
+    if problems:
+        raise UnownedTestsError("check-all: repository test inventory check failed:\n"
+                                + "\n".join(f"  {item}" for item in problems))
     env = dict(os.environ)
     env.pop("CONCLAVE_FULL_TESTS", None)
     if full:
@@ -2097,7 +2288,7 @@ def check_all(full: bool = False, only=(), skip=(), suites: list[dict] | None = 
         if (only and suite["name"] not in only) or suite["name"] in skip:
             continue
         if _runs_here(suite):
-            results.append(_run_suite(suite, env, FORGE_ROOT if root is None else root))
+            results.append(_run_suite(suite, env, target_root))
         else:  # never counted as passed, and always shown
             results.append({"name": suite["name"], "passed": False, "skipped": True, "exit": None, "tests": None,
                             "reason": "runs on POSIX only; CI's Linux job runs it", "tail": "", "seconds": 0.0})
@@ -2182,6 +2373,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return _run(args)
+    except UnownedTestsError as exc:
+        print(str(exc), flush=True)
+        return 1
     except ValueError as exc:
         # forge's own refusals (bad target, no app root, a pinned host) end like argparse's: one line, exit 2.
         print(f"forge.py: error: {exc}", file=sys.stderr)

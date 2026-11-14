@@ -3,9 +3,11 @@ import contextlib
 import io
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import tracemalloc
 import unittest
@@ -55,6 +57,7 @@ class Stubs(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.dir = Path(self.tmp.name).resolve()
+        subprocess.run(["git", "init", "-q"], cwd=self.dir, check=True)
 
     def command(self, name, code, timeout=30):
         """A command suite whose script is `code`; `{marker}` in it is a file the script can write."""
@@ -102,7 +105,16 @@ class Stubs(unittest.TestCase):
         return (self.dir / f"{name}.ran").exists()
 
     def run_all(self, suites, **kwargs):
+        kwargs.setdefault("excluded", {})
         return forge.check_all(suites=suites, root=self.dir, **kwargs)
+
+    def main(self, table, *argv, excluded=None):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(forge, "SUITES", table), mock.patch.object(forge, "FORGE_ROOT", self.dir), \
+                mock.patch.object(forge, "EXCLUDED_TESTS", {} if excluded is None else excluded), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = forge.main(["check-all", *argv])
+        return code, out.getvalue(), err.getvalue()
 
     def pids(self, name):
         deadline = time.monotonic() + 20
@@ -185,11 +197,13 @@ class Runner(Stubs):
         r5, after5 = self.run_all([zero_exit5, self.passing("after5")])
         self.assertEqual((r5["passed"], r5["exit"], r5["tests"], r5["reason"]), (False, 5, 0, "no tests ran"))
         self.assertTrue(after5["passed"] and self.ran("after5"))
+        shutil.rmtree(self.dir / "zero_exit5")
 
         quiet = self.unittest_folder("quiet", GATED)
         quiet["argv"] = [sys.executable, "-c", "pass"]  # exits 0 and reports no test
         (result,) = self.run_all([quiet])
         self.assertEqual((result["passed"], result["exit"], result["reason"]), (False, 0, "no tests ran"))
+        shutil.rmtree(self.dir / "quiet")
 
         crash = self.unittest_folder("crash", GATED)
         crash["argv"] = [sys.executable, "-c", "import sys; sys.exit(2)"]  # nonzero exit without Ran count stays exit 2
@@ -229,9 +243,13 @@ class Runner(Stubs):
         self.assertFalse(self.ran("never"))
 
     def test_an_interruption_during_reader_startup_ends_the_tree_and_passes_on(self):
+        orig_start = threading.Thread.start
+
         def interrupted_start(thread_self):
-            self.pids("startup")  # the suite and its child are running before _wait is entered
-            raise KeyboardInterrupt
+            if getattr(thread_self._target, "__name__", "") == "drain":
+                self.pids("startup")  # the suite and its child are running before _wait is entered
+                raise KeyboardInterrupt
+            return orig_start(thread_self)
 
         with mock.patch("threading.Thread.start", interrupted_start):
             with self.assertRaises(KeyboardInterrupt):
@@ -277,13 +295,6 @@ class FullRun(Stubs):
 
 
 class CommandLine(Stubs):
-    def main(self, table, *argv):
-        out, err = io.StringIO(), io.StringIO()
-        with mock.patch.object(forge, "SUITES", table), mock.patch.object(forge, "FORGE_ROOT", self.dir), \
-                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = forge.main(["check-all", *argv])
-        return code, out.getvalue(), err.getvalue()
-
     def test_a_failure_first_then_a_pass_prints_both_lines_and_exits_1(self):
         code, out, _ = self.main([self.failing("bad"), self.passing("good")])
         lines = out.splitlines()
@@ -335,6 +346,160 @@ class CommandLine(Stubs):
             self.assertFalse(self.ran("a"))
 
 
+class Inventory(Stubs):
+    def _write(self, rel, text=""):
+        path = self.dir / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_unowned_tests_finds_tracked_and_untracked_files_across_all_patterns(self):
+        expected = [
+            "alt_test.py",
+            "hooks/test-epsilon.sh",
+            "tests/extra/test_stray.py",
+            "unit/delta.test.js",
+            "unit/gamma.test.mjs",
+        ]
+        for rel in expected:
+            self._write(rel)
+        self._write("README.md", "# note\n")
+        self._write("notes/helper.py", "x = 1\n")
+        self._write("scripts/helper.test.txt", "ignored\n")
+        self.assertEqual(forge.unowned_tests(root=self.dir, suites=[], excluded={}), expected)
+
+        subprocess.run(["git", "add", "tests/extra/test_stray.py"], cwd=self.dir, check=True)
+        self.assertEqual(forge.unowned_tests(root=self.dir, suites=[], excluded={}), expected)
+
+        upkg = self.unittest_folder("upkg", GATED)
+        self._write("upkg/alpha_test.py")
+        self._write("upkg/beta.test.js")
+        self.assertEqual(forge.unowned_tests(root=self.dir, suites=[upkg], excluded={}),
+                         sorted([*expected, "upkg/alpha_test.py", "upkg/beta.test.js"]))
+
+    def test_unittest_ownership_respects_package_init_chain(self):
+        passing_test = "import unittest\nclass Ok(unittest.TestCase):\n    def test_ok(self): pass\n"
+        suite = self.unittest_folder("pkgsuite", GATED)
+        self._write("pkgsuite/subpkg/__init__.py")
+        self._write("pkgsuite/subpkg/test_ok.py", passing_test)
+        self._write("pkgsuite/subpkg/deep/__init__.py")
+        self._write("pkgsuite/subpkg/deep/test_nested.py", passing_test)
+        self._write("pkgsuite/plaindir/test_missing_init.py", passing_test)
+        self._write("pkgsuite/noparent/nested/__init__.py")
+        self._write("pkgsuite/noparent/nested/test_orphan.py", passing_test)
+
+        self.assertEqual(forge.unowned_tests(root=self.dir, suites=[suite], excluded={}),
+                         ["pkgsuite/noparent/nested/test_orphan.py", "pkgsuite/plaindir/test_missing_init.py"])
+        code, out, _ = self.main([suite])
+        self.assertEqual(code, 1)
+        self.assertIn("pkgsuite/noparent/nested/test_orphan.py", out)
+        self.assertIn("pkgsuite/plaindir/test_missing_init.py", out)
+
+        (self.dir / "pkgsuite/plaindir/test_missing_init.py").unlink()
+        (self.dir / "pkgsuite/noparent/nested/test_orphan.py").unlink()
+        code, out, _ = self.main([suite])
+        self.assertEqual(code, 0, out)
+        self.assertIn("4 tests", out)
+
+    def test_command_suite_owns_only_explicit_argv_files_not_folder_prefix(self):
+        self._write("plug/tests/one.test.js")
+        self._write("plug/tests/two.test.js")
+        suite = {"name": "plug", "kind": "command", "path": "plug/tests", "timeout": 30,
+                 "argv": [sys.executable, "-c", "pass", "plug/tests/one.test.js"]}
+        self.assertEqual(forge.unowned_tests(root=self.dir, suites=[suite], excluded={}), ["plug/tests/two.test.js"])
+        code, out, _ = self.main([suite])
+        self.assertEqual(code, 1)
+        self.assertIn("plug/tests/two.test.js", out)
+
+        suite["argv"].append("plug/tests/two.test.js")
+        self.assertEqual(forge.unowned_tests(root=self.dir, suites=[suite], excluded={}), [])
+        code, out, _ = self.main([suite])
+        self.assertEqual(code, 0, out)
+
+    def test_exclusions_require_existing_unowned_file_with_reason(self):
+        good = self.unittest_folder("good", GATED)
+        self._write("plug/need_dep.test.js")
+
+        self.assertEqual(forge.unowned_tests(root=self.dir, suites=[good],
+                                             excluded={"plug/need_dep.test.js": "needs external package"}), [])
+        code, out, _ = self.main([good], excluded={"plug/need_dep.test.js": "needs external package"})
+        self.assertEqual(code, 0, out)
+
+        for empty_reason in ("", "   "):
+            self.assertEqual(forge.unowned_tests(root=self.dir, suites=[good],
+                                                 excluded={"plug/need_dep.test.js": empty_reason}),
+                             ["plug/need_dep.test.js"])
+            code, out, _ = self.main([good], excluded={"plug/need_dep.test.js": empty_reason})
+            self.assertEqual(code, 1)
+            self.assertIn("plug/need_dep.test.js", out)
+
+        for bad_excluded in (
+            {"plug/need_dep.test.js": "ok", "plug/missing.test.js": "stale"},
+            {"plug/need_dep.test.js": "ok", "plug/": "directory prefix is not allowed"},
+            {"plug/need_dep.test.js": "ok", "good/test_stub.py": "already owned"},
+        ):
+            code, out, _ = self.main([good], excluded=bad_excluded)
+            self.assertEqual(code, 1)
+            bad_key = next(k for k in bad_excluded if k != "plug/need_dep.test.js")
+            self.assertIn(bad_key.rstrip("/"), out)
+
+    def test_inventory_failure_refuses_to_run_any_suite_even_with_only_or_skip(self):
+        sentinel = self.passing("sentinel")
+        owned = self.unittest_folder("owned", GATED)
+        table = [sentinel, owned]
+        stray = self._write("tests/extra/test_stray.py", "x = 1\n")
+
+        for argv in ((), ("--only", "sentinel"), ("--skip", "owned")):
+            code, out, _ = self.main(table, *argv)
+            self.assertEqual(code, 1)
+            self.assertIn("tests/extra/test_stray.py", out)
+            self.assertFalse(self.ran("sentinel"))
+
+        stray.unlink()
+        code, out, _ = self.main(table, "--only", "sentinel", excluded={"stale.test.js": "missing"})
+        self.assertEqual(code, 1)
+        self.assertIn("stale.test.js", out)
+        self.assertFalse(self.ran("sentinel"))
+
+        code, out, _ = self.main(table, "--only", "sentinel")
+        self.assertEqual(code, 0, out)
+        self.assertTrue(self.ran("sentinel"))
+
+    def test_git_ls_files_failure_or_missing_binary_exits_1_before_any_suite_starts(self):
+        sentinel = self.passing("sentinel")
+        with tempfile.TemporaryDirectory() as raw_dir:
+            nongit = Path(raw_dir).resolve()
+            (nongit / "sentinel.py").write_text((self.dir / "sentinel.py").read_text(encoding="utf-8"), encoding="utf-8")
+            with self.assertRaises(forge.UnownedTestsError) as ctx:
+                forge.check_all(suites=[sentinel], root=nongit, excluded={})
+            self.assertIn("git ls-files", str(ctx.exception))
+            self.assertFalse((nongit / "sentinel.ran").exists())
+
+        real_run = subprocess.run
+
+        def raise_missing(cmd, *args, **kwargs):
+            if cmd[:2] == ["git", "ls-files"]:
+                raise FileNotFoundError("git not found")
+            return real_run(cmd, *args, **kwargs)
+
+        with mock.patch.object(forge.subprocess, "run", raise_missing):
+            code, out, _ = self.main([sentinel])
+        self.assertEqual(code, 1)
+        self.assertIn("git ls-files", out)
+        self.assertFalse(self.ran("sentinel"))
+
+        def fail_exit(cmd, *args, **kwargs):
+            if cmd[:2] == ["git", "ls-files"]:
+                return subprocess.CompletedProcess(cmd, 128, b"", b"fatal: index error")
+            return real_run(cmd, *args, **kwargs)
+
+        with mock.patch.object(forge.subprocess, "run", fail_exit):
+            code, out, _ = self.main([sentinel])
+        self.assertEqual(code, 1)
+        self.assertIn("git ls-files failed (exit 128)", out)
+        self.assertFalse(self.ran("sentinel"))
+
+
 class RealTable(unittest.TestCase):
     def test_every_suite_stands_on_something_that_exists(self):
         names = [suite["name"] for suite in forge.SUITES]
@@ -342,18 +507,32 @@ class RealTable(unittest.TestCase):
         for suite in forge.SUITES:
             path = ROOT / suite["path"]
             self.assertTrue(path.exists(), suite["name"])
-            self.assertIn(suite["path"], suite["argv"], suite["name"])
+            self.assertTrue(any(arg == suite["path"] or arg.startswith(suite["path"] + "/")
+                                for arg in suite["argv"]), suite["name"])
             if suite["kind"] == "unittest":
                 self.assertTrue(list(path.glob("test_*.py")), f"{suite['name']} holds no test file")
+            else:
+                for arg in suite["argv"]:
+                    if arg.startswith(suite["path"] + "/"):
+                        self.assertTrue((ROOT / arg).is_file(), f"{suite['name']}: missing {arg}")
 
     def test_every_folder_of_script_tests_in_the_repository_is_a_suite(self):
-        listed = subprocess.run(["git", "ls-files", "tests", "scripts/tests", "kits"], cwd=ROOT, capture_output=True,
-                                text=True, check=True).stdout.split()
+        listed = subprocess.run(["git", "ls-files", "tests", "scripts/tests", "kits", "global"], cwd=ROOT,
+                                capture_output=True, text=True, check=True).stdout.split()
         folders = {str(Path(name).parent.as_posix()) for name in listed
                    if Path(name).name.startswith("test_") and name.endswith(".py")
-                   and (name.startswith(("tests/", "scripts/tests/")) or "/templates/scripts/tests/" in name)}
+                   and (name.startswith(("tests/", "scripts/tests/", "global/"))
+                        or "/templates/scripts/tests/" in name)}
         top = {folder for folder in folders if not any(folder.startswith(other + "/") for other in folders)}
         self.assertEqual(top, {suite["path"] for suite in forge.SUITES if suite["kind"] == "unittest"})
+
+    def test_every_repository_test_file_is_owned_or_explicitly_excluded(self):
+        self.assertEqual(forge.unowned_tests(), [])
+        self.assertEqual(forge._inventory_problems(ROOT, forge.SUITES, forge.EXCLUDED_TESTS), [])
+        self.assertEqual(len(forge.EXCLUDED_TESTS), 20)
+        for path, reason in forge.EXCLUDED_TESTS.items():
+            self.assertTrue((ROOT / path).is_file(), path)
+            self.assertIn("requires npm package '", reason, path)
 
     def test_every_install_test_in_the_repository_is_a_suite(self):
         # Found by the round of D01 T02 §1: the six bash install tests ran in no suite.
