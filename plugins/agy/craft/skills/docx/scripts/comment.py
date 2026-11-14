@@ -24,7 +24,6 @@ After running, add markers to word/document.xml so the comment is visible:
 
 import argparse
 import random
-import shutil
 import sys
 import tempfile
 import zipfile
@@ -35,7 +34,14 @@ import defusedxml.minidom
 from xml.parsers.expat import ExpatError
 from xml.sax.saxutils import escape as xml_escape
 
-from office.helpers import opc_target, rezip as _rezip, safe_extract as _safe_extract
+from office.helpers import (
+    atomic_copy,
+    atomic_write_bytes,
+    atomic_write_text,
+    opc_target,
+    rezip as _rezip,
+    safe_extract as _safe_extract,
+)
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 NS = {
@@ -106,7 +112,7 @@ def _append_xml(xml_path: Path, root_tag: str, content: str) -> None:
         if child.nodeType == child.ELEMENT_NODE:
             root.appendChild(dom.importNode(child, True))
     output = _encode_smart_quotes(dom.toxml(encoding="UTF-8").decode("utf-8"))
-    xml_path.write_text(output, encoding="utf-8")
+    atomic_write_text(xml_path, output, encoding="utf-8")
 
 
 def _find_para_id(comments_path: Path, comment_id: int) -> str | None:
@@ -206,7 +212,7 @@ def _ensure_comment_relationships(unpacked_dir: Path) -> None:
         next_rid += 1
         changed = True
     if changed:
-        rels_path.write_bytes(dom.toxml(encoding="UTF-8"))
+        atomic_write_bytes(rels_path, dom.toxml(encoding="UTF-8"))
 
 
 def _ensure_comment_content_types(unpacked_dir: Path) -> None:
@@ -229,7 +235,7 @@ def _ensure_comment_content_types(unpacked_dir: Path) -> None:
         root.appendChild(override)  
         changed = True
     if changed:
-        ct_path.write_bytes(dom.toxml(encoding="UTF-8"))
+        atomic_write_bytes(ct_path, dom.toxml(encoding="UTF-8"))
 
 
 def add_comment(
@@ -264,7 +270,7 @@ def add_comment(
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     if not comments.exists():
-        shutil.copy(TEMPLATE_DIR / "comments.xml", comments)
+        atomic_copy(TEMPLATE_DIR / "comments.xml", comments)
     _ensure_comment_relationships(unpacked_dir)
     _ensure_comment_content_types(unpacked_dir)
     _append_xml(
@@ -278,7 +284,7 @@ def add_comment(
 
     ext = word / "commentsExtended.xml"
     if not ext.exists():
-        shutil.copy(TEMPLATE_DIR / "commentsExtended.xml", ext)
+        atomic_copy(TEMPLATE_DIR / "commentsExtended.xml", ext)
     if parent_para is not None:
         _append_xml(
             ext, "w15:commentsEx",
@@ -292,7 +298,7 @@ def add_comment(
 
     ids = word / "commentsIds.xml"
     if not ids.exists():
-        shutil.copy(TEMPLATE_DIR / "commentsIds.xml", ids)
+        atomic_copy(TEMPLATE_DIR / "commentsIds.xml", ids)
     _append_xml(
         ids, "w16cid:commentsIds",
         f'<w16cid:commentId w16cid:paraId="{para_id}" w16cid:durableId="{durable_id}"/>',
@@ -300,7 +306,7 @@ def add_comment(
 
     extensible = word / "commentsExtensible.xml"
     if not extensible.exists():
-        shutil.copy(TEMPLATE_DIR / "commentsExtensible.xml", extensible)
+        atomic_copy(TEMPLATE_DIR / "commentsExtensible.xml", extensible)
     _append_xml(
         extensible, "w16cex:commentsExtensible",
         f'<w16cex:commentExtensible w16cex:durableId="{durable_id}" w16cex:dateUtc="{ts}"/>',

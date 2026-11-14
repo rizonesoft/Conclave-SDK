@@ -10,7 +10,7 @@ from functools import lru_cache
 
 import lxml.etree
 
-from helpers import safe_extract
+from helpers import atomic_write_bytes, safe_extract
 
 
 @lru_cache(maxsize=None)
@@ -149,7 +149,7 @@ class BaseSchemaValidator:
                                 pending.append(f"  Repaired: {xml_file.name}: Added xml:space='preserve' to {elem.tagName}: {text_preview}")
 
                 if pending:
-                    xml_file.write_bytes(dom.toxml(encoding="UTF-8"))
+                    atomic_write_bytes(xml_file, dom.toxml(encoding="UTF-8"))
                     for message in pending:
                         print(message)
                     repairs += len(pending)

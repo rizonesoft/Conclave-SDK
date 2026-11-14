@@ -15,6 +15,7 @@ whose cached result is a plain number counts as its name in braces
 document rewrites.
 """
 
+import os
 import re
 import subprocess
 import tempfile
@@ -251,6 +252,7 @@ class RedliningValidator:
                 original_file.write_text(original_text, encoding="utf-8")
                 modified_file.write_text(modified_text, encoding="utf-8")
 
+                flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
                 result = subprocess.run(
                     [
                         "git",
@@ -265,6 +267,9 @@ class RedliningValidator:
                     capture_output=True,
                     encoding="utf-8",
                     errors="replace",
+                    stdin=subprocess.DEVNULL,
+                    creationflags=flags,
+                    timeout=30,
                 )
 
                 if result.stdout.strip():
@@ -294,6 +299,9 @@ class RedliningValidator:
                     capture_output=True,
                     encoding="utf-8",
                     errors="replace",
+                    stdin=subprocess.DEVNULL,
+                    creationflags=flags,
+                    timeout=30,
                 )
 
                 if result.stdout.strip():
@@ -308,7 +316,7 @@ class RedliningValidator:
                             content_lines.append(line)
                     return "\n".join(content_lines)
 
-        except (subprocess.CalledProcessError, FileNotFoundError, Exception):
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
             pass
 
         return None

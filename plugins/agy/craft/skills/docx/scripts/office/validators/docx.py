@@ -12,7 +12,7 @@ from pathlib import Path
 import defusedxml.minidom
 import lxml.etree
 
-from helpers import one_line, safe_extract
+from helpers import atomic_write_bytes, one_line, safe_extract
 
 from .base import BaseSchemaValidator
 
@@ -504,7 +504,7 @@ class DOCXSchemaValidator(BaseSchemaValidator):
                             modified = True
 
                 if modified:
-                    xml_file.write_bytes(dom.toxml(encoding="UTF-8"))
+                    atomic_write_bytes(xml_file, dom.toxml(encoding="UTF-8"))
                     for message in pending:
                         print(message)
                     repairs += len(pending)

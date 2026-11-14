@@ -32,7 +32,7 @@ from pathlib import Path
 
 import defusedxml.minidom
 
-from office.helpers import XML_SPACE, rendered_text, rezip, safe_extract
+from office.helpers import XML_SPACE, atomic_write_bytes, rendered_text, rezip, safe_extract
 
 WORDML_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
@@ -57,7 +57,7 @@ def merge_runs(input_dir: str) -> tuple[int, str]:
         for container in {run.parentNode for run in runs}:
             merge_count += _merge_runs_in(container, run_names)
 
-        doc_xml.write_bytes(dom.toxml(encoding="UTF-8"))
+        atomic_write_bytes(doc_xml, dom.toxml(encoding="UTF-8"))
         return merge_count, f"Merged {merge_count} runs"
 
     except Exception as e:

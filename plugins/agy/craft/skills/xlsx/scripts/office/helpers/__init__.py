@@ -1,6 +1,7 @@
 import os
 import posixpath
 import re
+import shutil
 import stat
 import tempfile
 import urllib.parse
@@ -135,6 +136,67 @@ def safe_extract(
 def folder_entries(package: Path) -> list[str]:
     with zipfile.ZipFile(package) as zf:
         return [info.filename for info in zf.infolist() if info.is_dir()]
+
+
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Atomically write bytes to path via a sibling temp file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=path.name + ".", suffix=".tmp", dir=path.parent
+    )
+    tmp_path = Path(tmp_name)
+    fd_open = True
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fd_open = False
+            fh.write(data)
+        if path.exists():
+            mode = path.stat().st_mode & 0o777
+        else:
+            umask = os.umask(0)
+            os.umask(umask)
+            mode = 0o666 & ~umask
+        os.chmod(tmp_path, mode)
+        os.replace(tmp_path, path)
+    finally:
+        if fd_open:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        tmp_path.unlink(missing_ok=True)
+
+
+def atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
+    """Atomically write text to path via a sibling temp file."""
+    atomic_write_bytes(path, text.encode(encoding))
+
+
+def atomic_copy(src: Path, dst: Path) -> None:
+    """Atomically copy src to dst via a sibling temp file."""
+    with open(src, "rb") as src_fh:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(
+            prefix=dst.name + ".", suffix=".tmp", dir=dst.parent
+        )
+        tmp_path = Path(tmp_name)
+        fd_open = True
+        try:
+            with os.fdopen(fd, "wb") as dst_fh:
+                fd_open = False
+                shutil.copyfileobj(src_fh, dst_fh)
+            try:
+                shutil.copystat(src, tmp_path)
+            except OSError:
+                pass
+            os.replace(tmp_path, dst)
+        finally:
+            if fd_open:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            tmp_path.unlink(missing_ok=True)
 
 
 def rezip(src_dir: Path, out_path: Path) -> None:

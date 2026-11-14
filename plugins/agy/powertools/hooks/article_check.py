@@ -35,6 +35,7 @@ import html
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -88,14 +89,105 @@ def load_config(start):
     return {}, None
 
 
+def _terminate_process_tree(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            subprocess.run(
+                ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                capture_output=True,
+                stdin=subprocess.DEVNULL,
+                creationflags=flags,
+                check=False,
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        try:
+            proc.kill()
+        except OSError:
+            pass
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+
+
+def _close_pipes(proc: subprocess.Popen) -> None:
+    for pipe in (proc.stdout, proc.stderr):
+        if pipe is not None:
+            try:
+                pipe.close()
+            except OSError:
+                pass
+
+
+def run_bounded_command(
+    command: list[str],
+    *,
+    timeout: float = 30,
+    cwd: str | None = None,
+    check: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    """Run a child command with console suppression and full process-tree cleanup."""
+    kwargs: dict = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+        "cwd": cwd,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    else:
+        kwargs["start_new_session"] = True
+    proc = subprocess.Popen(command, **kwargs)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _terminate_process_tree(proc)
+        try:
+            stdout, stderr = proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            _close_pipes(proc)
+            stdout, stderr = None, None
+        raise subprocess.TimeoutExpired(command, timeout, output=stdout, stderr=stderr)
+    except BaseException:
+        _terminate_process_tree(proc)
+        try:
+            proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            _close_pipes(proc)
+        raise
+    completed = subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
+    if check and completed.returncode != 0:
+        raise subprocess.CalledProcessError(
+            completed.returncode, command, output=stdout, stderr=stderr
+        )
+    return completed
+
+
 def fetch_post(post_id, wp):
-    out = subprocess.run([wp, 'post', 'get', str(post_id), '--format=json', '--fields=post_title,post_content,post_author'],
-                         capture_output=True, text=True, encoding='utf-8', errors='replace', stdin=subprocess.DEVNULL, check=True).stdout
+    out = run_bounded_command(
+        [wp, 'post', 'get', str(post_id), '--format=json', '--fields=post_title,post_content,post_author'],
+        timeout=30,
+        check=True,
+    ).stdout
     data = json.JSONDecoder().raw_decode(out[out.index('{'):])[0]
     # Read the name as JSON too: WP-CLI can print a plugin's PHP notices after the answer, so the last line of plain
     # output is not the name.
-    who = subprocess.run([wp, 'user', 'get', str(data['post_author']), '--fields=display_name', '--format=json'],
-                         capture_output=True, text=True, encoding='utf-8', errors='replace', stdin=subprocess.DEVNULL).stdout
+    who = run_bounded_command(
+        [wp, 'user', 'get', str(data['post_author']), '--fields=display_name', '--format=json'],
+        timeout=30,
+    ).stdout
     author = json.JSONDecoder().raw_decode(who[who.index('{'):])[0].get('display_name', '') if '{' in who else ''
     # The post body carries no byline or date; the theme prints the author box and the modified date.
     return f"# {data['post_title']}\n\nBy {author}\n\n{data['post_content']}", True

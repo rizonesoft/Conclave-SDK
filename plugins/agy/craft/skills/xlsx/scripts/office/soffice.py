@@ -66,8 +66,18 @@ def _terminate_process_tree(proc: subprocess.Popen) -> None:
                 pass
 
 
-def run_soffice(args: Iterable[str], **kwargs) -> subprocess.CompletedProcess:
-    args = list(args)
+def _close_pipes(proc: subprocess.Popen) -> None:
+    for pipe in (proc.stdout, proc.stderr, proc.stdin):
+        if pipe is not None:
+            try:
+                pipe.close()
+            except OSError:
+                pass
+
+
+def run_process_tree(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
+    """Run cmd and kill its entire owned process tree on timeout or abort."""
+    cmd = list(cmd)
     timeout = kwargs.pop("timeout", None)
     check = kwargs.pop("check", False)
     capture_output = kwargs.pop("capture_output", False)
@@ -83,6 +93,35 @@ def run_soffice(args: Iterable[str], **kwargs) -> subprocess.CompletedProcess:
     else:
         kwargs.setdefault("start_new_session", True)
 
+    proc = subprocess.Popen(cmd, **kwargs)
+    try:
+        stdout, stderr = proc.communicate(input=input_data, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _terminate_process_tree(proc)
+        try:
+            stdout, stderr = proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            _close_pipes(proc)
+            stdout, stderr = None, None
+        raise subprocess.TimeoutExpired(cmd, timeout, output=stdout, stderr=stderr)
+    except BaseException:
+        _terminate_process_tree(proc)
+        try:
+            proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            _close_pipes(proc)
+        raise
+    completed = subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+    if check and completed.returncode != 0:
+        raise subprocess.CalledProcessError(completed.returncode, cmd, output=stdout, stderr=stderr)
+    return completed
+
+
+def run_soffice(args: Iterable[str], **kwargs) -> subprocess.CompletedProcess:
+    args = list(args)
+    env = kwargs.pop("env", None)
+    if env is None:
+        env = get_soffice_env()
     with contextlib.ExitStack() as stack:
         if not any(str(a).startswith("-env:UserInstallation") for a in args):
             profile = stack.enter_context(
@@ -90,27 +129,7 @@ def run_soffice(args: Iterable[str], **kwargs) -> subprocess.CompletedProcess:
             )
             args = [f"-env:UserInstallation={Path(profile).as_uri()}"] + args
         cmd = ["soffice"] + args
-        proc = subprocess.Popen(cmd, env=get_soffice_env(), **kwargs)
-        try:
-            stdout, stderr = proc.communicate(input=input_data, timeout=timeout)
-        except subprocess.TimeoutExpired:
-            _terminate_process_tree(proc)
-            try:
-                stdout, stderr = proc.communicate(timeout=5)
-            except subprocess.TimeoutExpired:
-                stdout, stderr = None, None
-            raise subprocess.TimeoutExpired(cmd, timeout, output=stdout, stderr=stderr)
-        except BaseException:
-            _terminate_process_tree(proc)
-            try:
-                proc.communicate(timeout=5)
-            except subprocess.TimeoutExpired:
-                pass
-            raise
-        completed = subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
-        if check and completed.returncode != 0:
-            raise subprocess.CalledProcessError(completed.returncode, cmd, output=stdout, stderr=stderr)
-        return completed
+        return run_process_tree(cmd, env=env, **kwargs)
 
 
 
@@ -130,14 +149,26 @@ def _ensure_shim() -> Path:
     if _SHIM_SO.exists():
         return _SHIM_SO
 
-    src = Path(tempfile.gettempdir()) / "lo_socket_shim.c"
-    src.write_text(_SHIM_SOURCE, encoding="utf-8")
-    subprocess.run(
-        ["gcc", "-shared", "-fPIC", "-o", str(_SHIM_SO), str(src), "-ldl"],
-        check=True,
-        capture_output=True,
+    fd, tmp_so_name = tempfile.mkstemp(
+        prefix="lo_socket_shim.", suffix=".so", dir=_SHIM_SO.parent
     )
-    src.unlink()
+    os.close(fd)
+    tmp_so = Path(tmp_so_name)
+    try:
+        with tempfile.TemporaryDirectory(
+            prefix="lo_shim_src_", ignore_cleanup_errors=True
+        ) as src_dir:
+            src = Path(src_dir) / "lo_socket_shim.c"
+            src.write_text(_SHIM_SOURCE, encoding="utf-8")
+            run_process_tree(
+                ["gcc", "-shared", "-fPIC", "-o", str(tmp_so), str(src), "-ldl"],
+                check=True,
+                capture_output=True,
+                timeout=30,
+            )
+        os.replace(tmp_so, _SHIM_SO)
+    finally:
+        tmp_so.unlink(missing_ok=True)
     return _SHIM_SO
 
 

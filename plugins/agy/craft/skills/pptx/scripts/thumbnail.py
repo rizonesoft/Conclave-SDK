@@ -27,7 +27,7 @@ from pathlib import Path
 import defusedxml.minidom
 from defusedxml import ElementTree
 from office.helpers import SLIDE_REL_TYPE, opc_target
-from office.soffice import run_soffice
+from office.soffice import run_process_tree, run_soffice
 from PIL import Image, ImageDraw, ImageFont
 
 
@@ -198,7 +198,7 @@ def convert_to_images(pptx_path: Path, temp_dir: Path) -> list[Path]:
         detail = (result.stderr or result.stdout or "").strip()
         raise RuntimeError(f"PDF conversion failed: {detail}" if detail else "PDF conversion failed")
 
-    result = subprocess.run(
+    result = run_process_tree(
         [
             "pdftoppm",
             "-jpeg",
@@ -209,6 +209,7 @@ def convert_to_images(pptx_path: Path, temp_dir: Path) -> list[Path]:
         ],
         capture_output=True,
         text=True,
+        timeout=60,
     )
     if result.returncode != 0:
         raise RuntimeError("Image conversion failed")

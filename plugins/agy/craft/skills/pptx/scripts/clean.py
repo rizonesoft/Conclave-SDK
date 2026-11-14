@@ -22,7 +22,7 @@ from pathlib import Path
 
 import defusedxml.minidom
 
-from office.helpers import SLIDE_REL_TYPE, opc_target, rels_source_part
+from office.helpers import SLIDE_REL_TYPE, atomic_write_bytes, opc_target, rels_source_part
 
 
 def _slide_rids(pres_rels_path: Path, unpacked_dir: Path) -> dict[str, str]:
@@ -121,8 +121,7 @@ def remove_orphaned_slides(unpacked_dir: Path) -> list[str]:
                     changed = True
 
         if changed:
-            with open(pres_rels_path, "wb") as f:
-                f.write(rels_dom.toxml(encoding="utf-8"))
+            atomic_write_bytes(pres_rels_path, rels_dom.toxml(encoding="utf-8"))
 
     return removed
 
@@ -246,8 +245,7 @@ def update_content_types(unpacked_dir: Path, removed_files: list[str]) -> None:
                 changed = True
 
     if changed:
-        with open(ct_path, "wb") as f:
-            f.write(dom.toxml(encoding="utf-8"))
+        atomic_write_bytes(ct_path, dom.toxml(encoding="utf-8"))
 
 
 def clean_unused_files(unpacked_dir: Path) -> list[str]:

@@ -453,14 +453,14 @@ def _unwrap_tokens(tokens: list[tuple[str, bool]], depth: int = 0) -> list[tuple
 
 
 _GIT_VAL_OPTS = {"-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env"}
-_PUSH_VAL_OPTS = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
+_PUSH_VAL_OPTS = {"-o", "--push-option", "--receive-pack", "--exec"}
 
 
 def _check_git_force_push(tokens: list[tuple[str, bool]]) -> str | None:
     i = 1
     while i < len(tokens):
         tok, _ = tokens[i]
-        if not tok.startswith("-"):
+        if tok == "--" or not tok.startswith("-"):
             break
         if tok in _GIT_VAL_OPTS or tok == "-C":
             i += 2
@@ -470,6 +470,7 @@ def _check_git_force_push(tokens: list[tuple[str, bool]]) -> str | None:
         return None
     i += 1
     after_double_dash = False
+    has_repo_opt = False
     pos_args: list[str] = []
     while i < len(tokens):
         tok, _ = tokens[i]
@@ -478,18 +479,37 @@ def _check_git_force_push(tokens: list[tuple[str, bool]]) -> str | None:
                 after_double_dash = True
                 i += 1
                 continue
+            if tok == "--repo":
+                has_repo_opt = True
+                i += 2
+                continue
+            if tok.startswith("--repo="):
+                has_repo_opt = True
+                i += 1
+                continue
             if tok in _PUSH_VAL_OPTS:
                 i += 2
                 continue
             if tok in ("--force", "--force-with-lease", "--force-if-includes") or tok.startswith(("--force=", "--force-with-lease=")):
                 return "git force push"
-            if tok.startswith("-") and not tok.startswith("--") and "f" in tok[1:]:
-                return "git force push"
+            if tok.startswith("-") and not tok.startswith("--") and len(tok) > 1:
+                consumed_val_opt = False
+                for idx_ch, ch in enumerate(tok[1:], start=1):
+                    if ch == "f":
+                        return "git force push"
+                    if ch == "o":
+                        i += 2 if idx_ch == len(tok) - 1 else 1
+                        consumed_val_opt = True
+                        break
+                if consumed_val_opt:
+                    continue
         if after_double_dash or not tok.startswith("-"):
             pos_args.append(tok)
         i += 1
-    # Refspecs come after the remote name
-    for ref in pos_args[1:]:
+    refspecs = pos_args if has_repo_opt else pos_args[1:]
+    if not has_repo_opt and len(pos_args) == 1 and pos_args[0].startswith("+") and ":" in pos_args[0]:
+        refspecs = pos_args
+    for ref in refspecs:
         if ref.startswith("+") and len(ref) > 1:
             return "git force push (force refspec)"
     return None
@@ -589,22 +609,11 @@ def repo_checker(path: str) -> str | None:
 def check_draft(path: str) -> str:
     root = repo_checker(path)
     command = [sys.executable, os.path.join(root, REPO_CHECKER) if root else CHECKER, os.path.abspath(path)]
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
     try:
-        out = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            stdin=subprocess.DEVNULL,
-            creationflags=flags,
-            timeout=30,
-            cwd=root,
-        )
+        out = article_check.run_bounded_command(command, timeout=30, cwd=root)
     except subprocess.TimeoutExpired:
         return f"{path}: the article checker timed out; check the draft by hand."
-    report = out.stdout.strip() or out.stderr.strip()
+    report = (out.stdout or "").strip() or (out.stderr or "").strip()
     return f"article check {path} ({'repository checker' if root else 'global checker'}):\n{report}"
 
 

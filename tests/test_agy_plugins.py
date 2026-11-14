@@ -192,6 +192,9 @@ class PowertoolsHookBehaviorTests(unittest.TestCase):
         safe_cmds = [
             "git status",
             "git push origin main",
+            "git push --repo origin main",
+            "git push --repo=origin main",
+            "git push -ofix origin main",
             "git branch -f feature-local",
             'git commit -m "avoid git push -f accidental match"',
             'git push origin -- "--force"',
@@ -217,6 +220,10 @@ class PowertoolsHookBehaviorTests(unittest.TestCase):
             "git push -f",
             "git push --force-with-lease origin main",
             'git -C . push origin "+main"',
+            "git push --repo origin +HEAD:main",
+            "git push --repo=origin +HEAD:main",
+            "git push +HEAD:main",
+            "git push -uo opt -f origin main",
             "gh repo delete owner/repo --yes",
             "Format-Volume -DriveLetter E -FileSystem NTFS",
             "rm -rf /",
@@ -482,6 +489,63 @@ class PowertoolsHookBehaviorTests(unittest.TestCase):
         })
         self.assertEqual(stop3.get("decision"), "stop")
 
+    def test_check_draft_timeout_terminates_process_tree(self):
+        hook_mod = _load_module("test_powertools_hook_mod", HOOK_SCRIPT)
+        pid_file = self.root / "grandchild.pid"
+        child_script = self.root / "slow_checker.py"
+        child_script.write_text(
+            "import pathlib, subprocess, sys, time\n"
+            f"pid_file = pathlib.Path({json.dumps(str(pid_file))})\n"
+            "flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)\n"
+            "gc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags)\n"
+            "pid_file.write_text(str(gc.pid), encoding='utf-8')\n"
+            "time.sleep(60)\n",
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(subprocess.TimeoutExpired):
+            hook_mod.article_check.run_bounded_command(
+                [sys.executable, str(child_script)],
+                timeout=1.5,
+                cwd=str(self.root),
+            )
+
+        self.assertTrue(pid_file.exists(), "child did not spawn grandchild before timeout")
+        gc_pid = int(pid_file.read_text(encoding="utf-8").strip())
+        if os.name == "nt":
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.OpenProcess(0x101000, False, gc_pid)
+            if handle:
+                try:
+                    wait_rc = kernel32.WaitForSingleObject(handle, 2000)
+                    self.assertEqual(wait_rc, 0, f"grandchild PID {gc_pid} survived timeout")
+                finally:
+                    kernel32.CloseHandle(handle)
+        else:
+            alive = False
+            for _ in range(20):
+                try:
+                    os.kill(gc_pid, 0)
+                    alive = True
+                    import time
+                    time.sleep(0.05)
+                except ProcessLookupError:
+                    alive = False
+                    break
+            self.assertFalse(alive, f"grandchild PID {gc_pid} survived timeout")
+
+        draft = self.workspace / "drafts" / "post.md"
+        draft.parent.mkdir(parents=True, exist_ok=True)
+        draft.write_text("# Post\n", encoding="utf-8")
+        with unittest.mock.patch.object(
+            hook_mod.article_check,
+            "run_bounded_command",
+            side_effect=subprocess.TimeoutExpired([sys.executable], 30),
+        ):
+            notice = hook_mod.check_draft(str(draft))
+        self.assertIn("timed out; check the draft by hand.", notice)
+
 
 def _load_module(name: str, path: pathlib.Path, extra_sys_paths: list[pathlib.Path] | None = None):
     added: list[str] = []
@@ -508,7 +572,13 @@ class CraftScriptHardeningTests(unittest.TestCase):
         self.root = pathlib.Path(self._tmp.name)
 
     def test_office_helpers_identical_and_safe_extract_bounded(self):
-        for rel in ("office/helpers/__init__.py", "office/soffice.py"):
+        for rel in (
+            "office/helpers/__init__.py",
+            "office/soffice.py",
+            "office/validators/base.py",
+            "office/validators/docx.py",
+            "office/validators/redlining.py",
+        ):
             blobs = {
                 skill: (CRAFT_DIR / "skills" / skill / "scripts" / rel).read_bytes()
                 for skill in ("docx", "pptx", "xlsx")
@@ -718,6 +788,49 @@ class CraftScriptHardeningTests(unittest.TestCase):
 
         self.assertEqual(existing_pdf.read_bytes(), b"%PDF-existing")
         self.assertEqual(list(self.root.glob("*.tmp")), [])
+
+    def test_directory_mode_atomic_writes_preserve_existing_xml(self):
+        docx_scripts = CRAFT_DIR / "skills" / "docx" / "scripts"
+        helpers = _load_module("test_atomic_helpers", docx_scripts / "office" / "helpers" / "__init__.py")
+
+        target = self.root / "part.xml"
+        target.write_bytes(b"<root>original</root>")
+        with unittest.mock.patch.object(helpers.os, "fdopen", side_effect=OSError("No space left on device")):
+            with self.assertRaises(OSError):
+                helpers.atomic_write_bytes(target, b"<root>partial</root>")
+        self.assertEqual(target.read_bytes(), b"<root>original</root>")
+        self.assertEqual(list(self.root.glob("*.tmp")), [])
+
+        with unittest.mock.patch.object(helpers.os, "replace", side_effect=OSError("No space left on device")):
+            with self.assertRaises(OSError):
+                helpers.atomic_write_bytes(target, b"<root>replacement</root>")
+        self.assertEqual(target.read_bytes(), b"<root>original</root>")
+        self.assertEqual(list(self.root.glob("*.tmp")), [])
+
+        unpacked = self.root / "unpacked"
+        word_dir = unpacked / "word"
+        word_dir.mkdir(parents=True)
+        doc_xml = word_dir / "document.xml"
+        orig_xml = (
+            b'<?xml version="1.0" encoding="UTF-8"?>'
+            b'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            b'<w:body><w:p><w:r><w:t>Hello</w:t></w:r><w:r><w:t> world</w:t></w:r></w:p></w:body>'
+            b'</w:document>'
+        )
+        doc_xml.write_bytes(orig_xml)
+
+        import xml.dom.minidom as xml_minidom
+        fake_defused = types.ModuleType("defusedxml")
+        fake_defused.minidom = xml_minidom
+        with unittest.mock.patch.dict(sys.modules, {"defusedxml": fake_defused, "defusedxml.minidom": xml_minidom}):
+            merge_runs = _load_module("test_merge_runs", docx_scripts / "merge_runs.py", [docx_scripts])
+            with unittest.mock.patch("office.helpers.os.replace", side_effect=OSError("No space left on device")):
+                count, msg = merge_runs.merge_runs(str(unpacked))
+
+        self.assertEqual(count, 0)
+        self.assertIn("No space left on device", msg)
+        self.assertEqual(doc_xml.read_bytes(), orig_xml)
+        self.assertEqual(list(word_dir.glob("*.tmp")), [])
 
 
 if __name__ == "__main__":

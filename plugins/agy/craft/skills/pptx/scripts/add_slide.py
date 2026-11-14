@@ -28,7 +28,6 @@ A duplicated slide still holds the source's content: edit ppt/slides/slideN.xml
 import argparse
 import posixpath
 import re
-import shutil
 import sys
 from typing import NoReturn
 import tempfile
@@ -39,7 +38,14 @@ from xml.parsers.expat import ExpatError
 import defusedxml.minidom
 from defusedxml.common import DefusedXmlException
 
-from office.helpers import opc_target, rezip, safe_extract
+from office.helpers import (
+    atomic_copy,
+    atomic_write_bytes,
+    atomic_write_text,
+    opc_target,
+    rezip,
+    safe_extract,
+)
 
 MINIMAL_SLIDE_XML = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
@@ -107,14 +113,14 @@ def create_slide_from_layout(unpacked_dir: Path, layout_file: str, after: str | 
     after_rid = _precheck_registration(unpacked_dir, after, dest)
     slides_dir.mkdir(parents=True, exist_ok=True)
 
-    (slides_dir / dest).write_text(MINIMAL_SLIDE_XML, encoding="utf-8")
+    atomic_write_text(slides_dir / dest, MINIMAL_SLIDE_XML, encoding="utf-8")
 
     rels_dir.mkdir(exist_ok=True)
     rels_xml = f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/{layout_file}"/>
 </Relationships>'''
-    (rels_dir / f"{dest}.rels").write_text(rels_xml, encoding="utf-8")
+    atomic_write_text(rels_dir / f"{dest}.rels", rels_xml, encoding="utf-8")
 
     _register_slide(unpacked_dir, dest, layout_file, after_rid)
     return dest
@@ -132,13 +138,13 @@ def duplicate_slide(unpacked_dir: Path, source: str, after: str | None = None) -
     dest = f"slide{next_num}.xml"
     after_rid = _precheck_registration(unpacked_dir, after, dest)
 
-    shutil.copy2(source_slide, slides_dir / dest)
+    atomic_copy(source_slide, slides_dir / dest)
 
     source_rels = rels_dir / f"{source}.rels"
     shared_parts: list[str] = []
     if source_rels.exists():
         dest_rels = rels_dir / f"{dest}.rels"
-        shutil.copy2(source_rels, dest_rels)
+        atomic_copy(source_rels, dest_rels)
         rels_content = dest_rels.read_text(encoding="utf-8")
         rels_content = RELATIONSHIP_RE.sub(
             lambda m: "" if NOTES_SLIDE_TYPE_RE.search(m.group(0)) else m.group(0),
@@ -149,7 +155,7 @@ def duplicate_slide(unpacked_dir: Path, source: str, after: str | None = None) -
             if TAGS_TYPE_RE.search(m.group(0)) else m.group(0),
             rels_content,
         )
-        dest_rels.write_text(rels_content, encoding="utf-8")
+        atomic_write_text(dest_rels, rels_content, encoding="utf-8")
         shared_parts = sorted({
             t for t in re.findall(r'Type="[^"]*/relationships/(\w+)"', rels_content)
             if t in SHARED_PART_TYPES
@@ -179,12 +185,14 @@ def _with_own_tags_part(unpacked_dir: Path, relationship: str, slide_part: str) 
     names = [f.name for f in tags_dir.iterdir()] + re.findall(r"""PartName=["'][^"']*/([^/"']+)["']""", content_types)
     taken = [int(m.group(1)) for name in names if (m := re.fullmatch(r"tag(\d{1,9})\.xml", name, re.I))]
     copy = tags_dir / f"tag{max(taken, default=0) + 1}.xml"
-    shutil.copy2(unpacked_dir / source, copy)
+    atomic_copy(unpacked_dir / source, copy)
 
     part = copy.relative_to(unpacked_dir).as_posix()
     override = f'<Override PartName="/{part}" ContentType="{TAGS_CONTENT_TYPE}"/>'
-    content_types_path.write_text(
-        content_types.replace("</Types>", f"  {override}\n</Types>"), encoding="utf-8"
+    atomic_write_text(
+        content_types_path,
+        content_types.replace("</Types>", f"  {override}\n</Types>"),
+        encoding="utf-8",
     )
     relative = posixpath.relpath(part, posixpath.dirname(slide_part))
     return relationship.replace(target.group(0), f'Target="{relative}"')
@@ -255,7 +263,7 @@ def _count_slide_in_app_properties(unpacked_dir: Path, position: int) -> None:
     except (AttributeError, LookupError, ValueError, TypeError, OSError, ExpatError, DefusedXmlException):
         return  
     slides.firstChild.data = str(was + 1)
-    path.write_bytes(dom.toxml(encoding="UTF-8", standalone=dom.standalone))
+    atomic_write_bytes(path, dom.toxml(encoding="UTF-8", standalone=dom.standalone))
 
 
 def _add_slide_title(dom, was: int, position: int) -> bool:
@@ -305,7 +313,7 @@ def _add_to_content_types(unpacked_dir: Path, dest: str) -> None:
 
     if f'PartName="/ppt/slides/{dest}"' not in content_types:
         content_types = content_types.replace("</Types>", f"  {new_override}\n</Types>")
-        content_types_path.write_text(content_types, encoding="utf-8")
+        atomic_write_text(content_types_path, content_types, encoding="utf-8")
 
 
 def _add_to_presentation_rels(unpacked_dir: Path, dest: str) -> str:
@@ -323,7 +331,7 @@ def _add_to_presentation_rels(unpacked_dir: Path, dest: str) -> str:
 
     new_rel = f'<Relationship Id="{rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/{dest}"/>'
     pres_rels = pres_rels.replace("</Relationships>", f"  {new_rel}\n</Relationships>")
-    pres_rels_path.write_text(pres_rels, encoding="utf-8")
+    atomic_write_text(pres_rels_path, pres_rels, encoding="utf-8")
 
     return rid
 
@@ -383,7 +391,7 @@ def _insert_into_sld_id_lst(
     else:
         _die("presentation.xml has no <p:sldIdLst> (or <p:sldMasterIdLst> to anchor a new one)")
 
-    pres_path.write_text(xml, encoding="utf-8")
+    atomic_write_text(pres_path, xml, encoding="utf-8")
 
     lst = re.search(r"<p:sldIdLst>(.*)</p:sldIdLst>", xml, re.DOTALL)
     entries = re.findall(r"<p:sldId\b[^>]*>", lst.group(1)) if lst else []
