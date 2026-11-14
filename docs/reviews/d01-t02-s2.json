@@ -1,0 +1,83 @@
+{
+  "ref": "D01 T02 \u00a72",
+  "title": "Test inventory that refuses a test no suite runs",
+  "implementation_sha": "82c7a1172e9a4566faa53263f7ed22a84a50cb81",
+  "date": "2026-11-14",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/01-forge/D01-T02-s2.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "tests.test_check_all 35/35 Win+WSL; CI run 43576278972 all 3 jobs 25/25 suites PASS"
+  ],
+  "completion": {
+    "report": "docs/reviews/01-forge/D01-T02-s2.md",
+    "verdict": "reconciled",
+    "candidate": "82c7a1172e9a4566faa53263f7ed22a84a50cb81",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/01-forge/D01-T02-s2.md",
+    "candidate": "1b6e4b69b513408c515fa88c6687f3d3bb9ff7e0",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "1b6e4b69b513408c515fa88c6687f3d3bb9ff7e0",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

@@ -35,7 +35,7 @@ title: "TODO-02 -- One gate and one skill source"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | `forge.py check-all` over every suite | -- | [x] |
-| 2 | §2 | Test inventory that refuses a test no suite runs | §1 | [ ] |
+| 2 | §2 | Test inventory that refuses a test no suite runs | §1 | [x] |
 | 3 | §3 | Install assertions moved from bash to the Python suite | §1 | [ ] |
 | 4 | §4 | Bash installers and their tests retired | §3 | [ ] |
 | 5 | §5 | Skill copy generator with per-agent patches | -- | [ ] |
@@ -98,15 +98,18 @@ A new test file that no suite picks up is a gate nobody runs. `check-all` compar
 1. Add `unowned_tests()` to `forge.py` and run it first in `check_all`. Done when: a stray test file fails the run by name.
 2. Decide every `global/` and `plugins/` suite. Done when: each is run or excluded with a reason.
 
-- [ ] Add `unowned_tests()` to `forge.py`: list tracked files named `test_*.py`, `*_test.py`, `*.test.mjs` and `test-*.sh` with `git ls-files`, and return those under no suite folder in `SUITES` and no entry in `EXCLUDED_TESTS`. Done when: a test adds `tests/extra/test_stray.py` to a scratch copy and finds it returned. Cheaper substitute: a hard-coded count of test files must fail, because it passes when one file replaces another.
-- [ ] Add the `global/claude/hooks/`, `global/codex/hooks/` and `global/tests/` suites to `SUITES` in `forge.py`, after running each once and recording its command in the table. Done when: `python forge.py check-all --only global-claude-hooks` passes, or the suite's failure is filed in `todo/findings.md` with `file:line` and the suite still listed.
-- [ ] Run each of the ten `plugins/*/*/tests/` suites and the two `global/*/skills/process-ticktick-task/scripts/` test files once with the network unplugged from the process (no credentials in the environment), then list each in `SUITES` when it passes offline or in `EXCLUDED_TESTS` in `forge.py` with its reason (needs an account, needs a live service). Done when: `unowned_tests()` returns nothing for the repository and every exclusion carries a reason string. Cheaper substitute: excluding the whole `plugins/` folder by prefix must fail review, because a new offline test there would never run.
-- [ ] Fail `check_all` in `forge.py` before running anything when `unowned_tests()` is not empty, naming each file. Done when: a test asserts exit 1 and the file's path in the output.
-- [ ] Commit: `forge: check-all refuses a test file no suite runs`
+- [x] Add `unowned_tests()` to `forge.py`: list tracked files named `test_*.py`, `*_test.py`, `*.test.mjs` and `test-*.sh` with `git ls-files`, and return those under no suite folder in `SUITES` and no entry in `EXCLUDED_TESTS`. Done when: a test adds `tests/extra/test_stray.py` to a scratch copy and finds it returned. Cheaper substitute: a hard-coded count of test files must fail, because it passes when one file replaces another.
+- [x] Add the `global/claude/hooks/`, `global/codex/hooks/` and `global/tests/` suites to `SUITES` in `forge.py`, after running each once and recording its command in the table. Done when: `python forge.py check-all --only global-claude-hooks` passes, or the suite's failure is filed in `todo/findings.md` with `file:line` and the suite still listed.
+- [x] Run each of the ten `plugins/*/*/tests/` suites and the two `global/*/skills/process-ticktick-task/scripts/` test files once with the network unplugged from the process (no credentials in the environment), then list each in `SUITES` when it passes offline or in `EXCLUDED_TESTS` in `forge.py` with its reason (needs an account, needs a live service). Done when: `unowned_tests()` returns nothing for the repository and every exclusion carries a reason string. Cheaper substitute: excluding the whole `plugins/` folder by prefix must fail review, because a new offline test there would never run.
+- [x] Fail `check_all` in `forge.py` before running anything when `unowned_tests()` is not empty, naming each file. Done when: a test asserts exit 1 and the file's path in the output.
+- [x] Commit: `forge: check-all refuses a test file no suite runs`
 
 **Corrected 2026-11-14 (validation):** repository test discovery matches `test_*.py`, `*_test.py`, `*.test.mjs`, `*.test.js` (31 of the 35 files under `plugins/`) and `test-*.sh` via `git ls-files --cached --others --exclude-standard` so both tracked and untracked stray files are caught, checking true suite execution ownership (`unittest` owns `test_*.py` directly in `suite["path"]` or inside importable subpackages where every intermediate folder contains `__init__.py`; `command` owns test files explicitly named in `suite["argv"]`) rather than bare folder prefixes. All 5 `global/` suites (`global/claude/hooks`, `global/codex/hooks`, `global/tests`, `global/claude/skills/process-ticktick-task/scripts`, `global/codex/skills/process-ticktick-task/scripts`) and 6 offline `plugin-*` Node suites across 15 files (passed via explicit file paths in `node --test <files...>`) pass offline on Windows and WSL Linux and join `SUITES` (25 suites total); `plugins/codex/cloud-access` has no `tests/` folder (9 test directories across 10 plugin directories), and the remaining 20 `plugins/*/*/tests/*.test.js` files fail offline strictly with `ERR_MODULE_NOT_FOUND` for uninstalled npm packages (`@modelcontextprotocol/sdk`, `parse5`, `@azure/msal-node`, `zod`, `ajv`, `ssh2`, `ipaddr.js`) not checked into this zero-dependency repository, so each is listed individually in `EXCLUDED_TESTS` with its exact package reason and `check_all` also refuses stale or already-owned exclusions or empty reasons. Note: CI's three jobs remain as decided in §1 (`quick-windows`, `full-linux`, `kits-linux` with `--skip tests` running all non-`tests` suites including `global-*` and `plugin-*`), while `python forge.py check-all` on Windows prints `SKIP` for the 6 POSIX-only `install-*` bash suites and exits 0.
 
 **Test checkpoint:** `python forge.py check-all` exits 0; adding an empty `tests/extra/test_stray.py` makes it exit 1 naming that file.
+
+> **Verified:** 2026-11-14 | §2 | 82c7a1172e9a4566faa53263f7ed22a84a50cb81
+> **Review:** `docs/reviews/d01-t02-s2.json`
 
 ## 3. Install assertions moved from bash to the Python suite
 
