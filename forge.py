@@ -1355,8 +1355,54 @@ def _close_windows_job(job) -> None:
     kernel32.CloseHandle(job)
 
 
-def _kill_tree(proc: subprocess.Popen, job=None) -> None:
-    """End a child started with `_own_group()` and everything it started, including orphaned descendants."""
+def _kill_tagged(tag: str) -> None:
+    """End every surviving POSIX process whose environment carries `CONCLAVE_CHECK_ALL_TAG=<tag>` (even detached sessions)."""
+    if os.name == "nt":
+        return
+    import signal
+
+    needle = f"CONCLAVE_CHECK_ALL_TAG={tag}"
+    needle_bytes = needle.encode()
+    self_pid = os.getpid()
+    if os.path.isdir("/proc"):
+        for _ in range(2):
+            try:
+                entries = os.listdir("/proc")
+            except OSError:
+                return
+            for entry in entries:
+                if not entry.isdigit():
+                    continue
+                pid = int(entry)
+                if pid == self_pid or pid <= 1:
+                    continue
+                try:
+                    with open(f"/proc/{entry}/environ", "rb") as handle:
+                        if needle_bytes in handle.read().split(b"\0"):
+                            os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    continue
+        return
+    try:
+        out = subprocess.run(["ps", "eww", "-ax", "-o", "pid=,command="], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return
+    for line in out.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) < 2 or not parts[0].isdigit():
+            continue
+        pid = int(parts[0])
+        if pid == self_pid or pid <= 1:
+            continue
+        if needle in parts[1].split():
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                continue
+
+
+def _kill_tree(proc: subprocess.Popen, job=None, tag: str | None = None) -> None:
+    """End a child started with `_own_group()` and everything it started, including orphaned or detached descendants."""
     if os.name == "nt":
         if job is not None:
             _close_windows_job(job)
@@ -1369,6 +1415,8 @@ def _kill_tree(proc: subprocess.Popen, job=None) -> None:
             os.killpg(proc.pid, signal.SIGKILL)
         except ProcessLookupError:  # the group ended before the kill
             pass
+        if tag:
+            _kill_tagged(tag)
     try:
         proc.kill()
     except OSError:
@@ -1920,9 +1968,9 @@ def _wait(proc: subprocess.Popen, timeout: float) -> int:
     return proc.wait(timeout=timeout)
 
 
-def _end_suite(proc: subprocess.Popen, job=None) -> None:
+def _end_suite(proc: subprocess.Popen, job=None, tag: str | None = None) -> None:
     """End a suite's tree and collect the suite itself, so no process of it is left behind, running or not."""
-    _kill_tree(proc, job)
+    _kill_tree(proc, job, tag)
     try:
         proc.wait(timeout=5)
     except subprocess.TimeoutExpired:  # the kill was sent; a process the system will not end is not waited on
@@ -1943,64 +1991,80 @@ def _run_suite(suite: dict, env: dict, cwd: Path) -> dict:
         return result
 
     group = _own_group()
+    tag = os.urandom(8).hex()
+    suite_env = {**env, "CONCLAVE_CHECK_ALL_TAG": tag}
     job = None
     proc = None
     try:
         if os.name == "nt":
             job = _open_windows_job()
             group["creationflags"] |= CREATE_SUSPENDED
-        proc = subprocess.Popen(suite["argv"], cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        proc = subprocess.Popen(suite["argv"], cwd=cwd, env=suite_env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, **group)
         if job is not None:
             _assign_and_resume_windows(job, proc)
     except (OSError, ValueError) as exc:
         if proc is not None:
-            _end_suite(proc, job)
+            _end_suite(proc, job, tag)
         elif job is not None:
             _close_windows_job(job)
         result["reason"] = f"could not start: {getattr(exc, 'strerror', None) or exc}"
         return done()
-    kept = {"tail": b"", "carry": b"", "tests": None}
-    out = proc.stdout
-    assert out is not None
-
-    def drain() -> None:
-        # Read as it is printed and keep only the end: a suite's output is never held whole.
-        try:
-            while chunk := out.read1(65536):
-                found = RAN_TESTS.findall(kept["carry"] + chunk)
-                if found:
-                    kept["tests"] = int(found[-1])
-                kept["carry"] = (kept["carry"] + chunk)[-256:]
-                kept["tail"] = (kept["tail"] + chunk)[-TAIL_BYTES:]
-        except (OSError, ValueError):  # the pipe was closed under the reader after the tree was ended
-            return
-
-    reader = threading.Thread(target=drain, daemon=True)
-    reader.start()
+    except BaseException:
+        if proc is not None:
+            _end_suite(proc, job, tag)
+        elif job is not None:
+            _close_windows_job(job)
+        raise
+    ended = False
+    finished = False
+    reader = None
+    out = None
 
     def finish_reading() -> None:
-        reader.join(5)
+        nonlocal finished
+        if finished:
+            return
+        finished = True
+        if reader is not None and reader.is_alive():
+            reader.join(5)
         # A process that outlived the suite can hold the pipe open: the reader (a daemon thread) is then left to it and
         # the pipe is not closed here, because closing a pipe that is being read waits for that read on Windows.
-        if not reader.is_alive():
-            out.close()
+        if out is not None and (reader is None or not reader.is_alive()):
+            try:
+                out.close()
+            except OSError:
+                pass
 
-    ended = False
     try:
-        result["exit"] = _wait(proc, suite["timeout"])
-    except subprocess.TimeoutExpired:
-        _end_suite(proc, job)
-        ended = True
-        result["reason"] = f"timed out after {suite['timeout']:g} seconds"
-    except BaseException:  # an interrupt ends the suite and its tree before it passes on
-        _end_suite(proc, job)
-        ended = True
+        kept = {"tail": b"", "carry": b"", "tests": None}
+        out = proc.stdout
+        assert out is not None
+
+        def drain() -> None:
+            # Read as it is printed and keep only the end: a suite's output is never held whole.
+            try:
+                while chunk := out.read1(65536):
+                    found = RAN_TESTS.findall(kept["carry"] + chunk)
+                    if found:
+                        kept["tests"] = int(found[-1])
+                    kept["carry"] = (kept["carry"] + chunk)[-256:]
+                    kept["tail"] = (kept["tail"] + chunk)[-TAIL_BYTES:]
+            except (OSError, ValueError):  # the pipe was closed under the reader after the tree was ended
+                return
+
+        reader = threading.Thread(target=drain, daemon=True)
+        try:
+            reader.start()
+            result["exit"] = _wait(proc, suite["timeout"])
+        except subprocess.TimeoutExpired:
+            _end_suite(proc, job, tag)
+            ended = True
+            result["reason"] = f"timed out after {suite['timeout']:g} seconds"
+    finally:
+        if not ended:
+            _end_suite(proc, job, tag)
         finish_reading()
-        raise
-    if not ended:
-        _end_suite(proc, job)
-    finish_reading()
     text = kept["tail"].decode("utf-8", "replace")
     result["tail"] = "\n".join(text.splitlines()[-TAIL_LINES:])
     result["tests"] = kept["tests"]

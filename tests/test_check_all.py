@@ -15,9 +15,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import forge  # noqa: E402  the SDK's own CLI, imported after the path insert as tests/test_forge.py does
 
-# A stub suite that starts a child, records both PIDs and sleeps past any timeout a test gives it.
+# A stub suite that starts a child (detached when --detach is given), records both PIDs and sleeps past any timeout a test gives it.
 HANG = r'''import os, subprocess, sys, time
-child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
+extra = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "CREATE_NO_WINDOW", 0)} if os.name == "nt" else {"start_new_session": True}
+child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"], **(extra if "--detach" in sys.argv else {}))
 open(sys.argv[1], "w").write(f"{os.getpid()} {child.pid}")
 if "--leave" in sys.argv:
     sys.exit(0)  # the suite ends and its child lives on, holding the output pipe
@@ -212,6 +213,30 @@ class Runner(Stubs):
                 self.run_all([self.hanging("slow", timeout=60), self.passing("never")])
         self.assert_gone(self.pids("slow"))
         self.assertFalse(self.ran("never"))
+
+    def test_an_interruption_during_reader_startup_ends_the_tree_and_passes_on(self):
+        def interrupted_start(thread_self):
+            self.pids("startup")  # the suite and its child are running before _wait is entered
+            raise KeyboardInterrupt
+
+        with mock.patch("threading.Thread.start", interrupted_start):
+            with self.assertRaises(KeyboardInterrupt):
+                self.run_all([self.hanging("startup", timeout=60), self.passing("never")])
+        self.assert_gone(self.pids("startup"))
+        self.assertFalse(self.ran("never"))
+
+    def test_a_detached_session_descendant_is_ended_on_suite_exit_and_timeout(self):
+        detached = self.hanging("detached", timeout=60)
+        detached["argv"].extend(["--detach", "--leave"])
+        (result,) = self.run_all([detached])
+        self.assertEqual((result["passed"], result["exit"]), (True, 0))
+        self.assert_gone(self.pids("detached"))
+
+        timed = self.hanging("detached_timeout", timeout=3)
+        timed["argv"].append("--detach")
+        (result,) = self.run_all([timed])
+        self.assertEqual((result["passed"], result["exit"]), (False, None))
+        self.assert_gone(self.pids("detached_timeout"))
 
 
 class FullRun(Stubs):
