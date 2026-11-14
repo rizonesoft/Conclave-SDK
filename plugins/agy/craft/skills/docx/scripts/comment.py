@@ -43,6 +43,7 @@ from office.helpers import (
     child_local_elements,
     local_elements,
     normalize_part_name,
+    opc_part_key,
     opc_target,
     parse_xml_bytes,
     parse_xml_file,
@@ -163,15 +164,17 @@ def _has_relationship(rels_path: Path, target: str) -> bool:
     wanted = opc_target(target, "word/document.xml")
     if wanted is None:
         return False
+    wanted_key = opc_part_key(wanted)
     for rel in child_local_elements(dom.documentElement, "Relationship"):
         _, _, rel_target, target_mode = read_relationship(rel)
         if not rel_target:
             continue
         try:
-            if opc_target(rel_target, "word/document.xml", target_mode) == wanted:
-                return True
+            resolved = opc_target(rel_target, "word/document.xml", target_mode)
         except ValueError:
             continue
+        if resolved is not None and opc_part_key(resolved) == wanted_key:
+            return True
     return False
 
 
@@ -180,8 +183,10 @@ def _has_content_type(ct_path: Path, part_name: str) -> bool:
     wanted = normalize_part_name(part_name)
     if wanted is None:
         return False
+    wanted_key = opc_part_key(wanted)
     return any(
-        normalize_part_name(o.getAttribute("PartName")) == wanted
+        (existing := normalize_part_name(o.getAttribute("PartName"))) is not None
+        and opc_part_key(existing) == wanted_key
         for o in child_local_elements(dom.documentElement, "Override")
     )
 
@@ -220,11 +225,12 @@ def _ensure_comment_relationships(unpacked_dir: Path) -> None:
         except ValueError:
             part = None
         if part is not None:
-            existing.add(part)
+            existing.add(opc_part_key(part))
     next_rid = max_rid + 1
     changed = False
     for rel_type, target in _COMMENT_RELS:
-        if opc_target(target, "word/document.xml") in existing:
+        resolved = opc_target(target, "word/document.xml")
+        if resolved is not None and opc_part_key(resolved) in existing:
             continue
         append_ns_child(
             dom,
@@ -246,13 +252,14 @@ def _ensure_comment_content_types(unpacked_dir: Path) -> None:
     dom = parse_xml_file(ct_path)
     root = dom.documentElement
     existing = {
-        norm_part
+        opc_part_key(norm_part)
         for o in child_local_elements(root, "Override")
         if (norm_part := normalize_part_name(o.getAttribute("PartName"))) is not None
     }
     changed = False
     for part_name, content_type in _COMMENT_OVERRIDES:
-        if normalize_part_name(part_name) in existing:
+        norm_target = normalize_part_name(part_name)
+        if norm_target is not None and opc_part_key(norm_target) in existing:
             continue
         append_ns_child(
             dom,

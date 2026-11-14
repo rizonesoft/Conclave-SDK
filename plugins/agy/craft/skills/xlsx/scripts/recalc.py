@@ -21,6 +21,7 @@ from pathlib import Path
 from office.helpers import (
     MAX_ARCHIVE_BYTES,
     collapse_xml_space,
+    opc_part_key,
     opc_target,
     open_zip_member,
     read_relationship,
@@ -105,24 +106,35 @@ def _local_tag(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
 
-def _workbook_opc_context(archive: zipfile.ZipFile, name_set: set[str], budget: list[int]):
-    workbook_part = "xl/workbook.xml"
-    if "_rels/.rels" in name_set:
-        pkg_rels = _safe_fromstring(_read_archive_part(archive, "_rels/.rels", budget=budget))
+def _workbook_opc_context(
+    archive: zipfile.ZipFile,
+    name_set: set[str],
+    budget: list[int],
+    member_by_key: dict[str, str] | None = None,
+):
+    if member_by_key is None:
+        member_by_key = {opc_part_key(n): n for n in name_set}
+    workbook_part = member_by_key.get("xl/workbook.xml", "xl/workbook.xml")
+    pkg_rels_member = member_by_key.get("_rels/.rels")
+    if pkg_rels_member is not None:
+        pkg_rels = _safe_fromstring(_read_archive_part(archive, pkg_rels_member, budget=budget))
         for rel in pkg_rels:
             if _local_tag(rel.tag) != "Relationship":
                 continue
             _, rel_type, target, target_mode = read_relationship(rel)
             if rel_type.endswith("/officeDocument") and target:
                 cand = opc_target(target, "", target_mode)
-                if cand and cand in name_set:
-                    workbook_part = cand
+                matched = member_by_key.get(opc_part_key(cand)) if cand else None
+                if matched is not None:
+                    workbook_part = matched
                     break
     wb_dir, _, wb_base = workbook_part.rpartition("/")
-    rels_part = f"{wb_dir}/_rels/{wb_base}.rels" if wb_dir else f"_rels/{wb_base}.rels"
+    rels_part_raw = f"{wb_dir}/_rels/{wb_base}.rels" if wb_dir else f"_rels/{wb_base}.rels"
+    rels_member = member_by_key.get(opc_part_key(rels_part_raw))
+    rels_part = rels_member or rels_part_raw
     rels_root = (
-        _safe_fromstring(_read_archive_part(archive, rels_part, budget=budget))
-        if rels_part in name_set
+        _safe_fromstring(_read_archive_part(archive, rels_member, budget=budget))
+        if rels_member is not None
         else None
     )
     return workbook_part, rels_part, rels_root
@@ -363,13 +375,18 @@ def _worksheet_parts(
     rels_root=None,
     workbook_part: str = "xl/workbook.xml",
     name_set: set[str] | None = None,
+    member_by_key: dict[str, str] | None = None,
 ) -> list[str]:
     if name_set is None:
         name_set = set(names)
+    if member_by_key is None:
+        member_by_key = {opc_part_key(n): n for n in names}
     parts = [n for n in names if "/worksheets/" in f"/{n.lower()}" and n.lower().endswith(".xml")]
-    seen = set(parts)
+    seen = {opc_part_key(n) for n in parts}
     if rels_root is None:
-        workbook_part, _, rels_root = _workbook_opc_context(archive, name_set, budget)
+        workbook_part, _, rels_root = _workbook_opc_context(
+            archive, name_set, budget, member_by_key
+        )
     if rels_root is not None:
         for rel in rels_root:
             if _local_tag(rel.tag) != "Relationship":
@@ -377,9 +394,12 @@ def _worksheet_parts(
             _, rel_type, target, target_mode = read_relationship(rel)
             if rel_type.endswith("/worksheet") and target:
                 part_name = opc_target(target, workbook_part, target_mode)
-                if part_name and part_name in name_set and part_name not in seen:
-                    seen.add(part_name)
-                    parts.append(part_name)
+                matched = member_by_key.get(opc_part_key(part_name)) if part_name else None
+                if matched is not None:
+                    part_key = opc_part_key(matched)
+                    if part_key not in seen:
+                        seen.add(part_key)
+                        parts.append(matched)
     return parts
 
 
@@ -650,9 +670,12 @@ def external_links_at_risk(filename):
             validate_archive(archive)
             names = archive.namelist()
             name_set = set(names)
+            member_by_key = {opc_part_key(n): n for n in names}
             budget = [0]
             merge_budget = [0]
-            workbook_part, rels_part, rels_root = _workbook_opc_context(archive, name_set, budget)
+            workbook_part, rels_part, rels_root = _workbook_opc_context(
+                archive, name_set, budget, member_by_key
+            )
             has_external = any("/externallinks/" in f"/{n.lower()}" for n in names) or (
                 rels_root is not None
                 and any(
@@ -669,6 +692,7 @@ def external_links_at_risk(filename):
                     rels_root=rels_root,
                     workbook_part=workbook_part,
                     name_set=name_set,
+                    member_by_key=member_by_key,
                 ):
                     with open_zip_member(
                         archive,
@@ -790,9 +814,11 @@ def external_links_at_risk(filename):
                 if not part_name:
                     continue
                 is_ws = rel_type.endswith("/worksheet") if rel_type else ("/worksheets/" in f"/{part_name.lower()}")
-                if not is_ws or part_name not in name_set:
+                matched_part = member_by_key.get(opc_part_key(part_name))
+                if not is_ws or matched_part is None:
                     continue
-                checked_parts.add(part_name)
+                checked_parts.add(opc_part_key(matched_part))
+                part_name = matched_part
                 sheet_name = sheet.get("name")
                 shared_ext_si = set()
                 pending_shared = {}
@@ -862,8 +888,9 @@ def external_links_at_risk(filename):
                 rels_root=rels_root,
                 workbook_part=workbook_part,
                 name_set=name_set,
+                member_by_key=member_by_key,
             ):
-                if part_name not in checked_parts:
+                if opc_part_key(part_name) not in checked_parts:
                     with open_zip_member(
                         archive,
                         part_name,
@@ -977,8 +1004,11 @@ def _scan_xml(filename):
         validate_archive(archive)
         names = archive.namelist()
         name_set = set(names)
+        member_by_key = {opc_part_key(n): n for n in names}
         budget = [0]
-        workbook_part, rels_part, rels_root = _workbook_opc_context(archive, name_set, budget)
+        workbook_part, rels_part, rels_root = _workbook_opc_context(
+            archive, name_set, budget, member_by_key
+        )
         workbook = _safe_fromstring(_read_archive_part(archive, workbook_part, budget=budget))
         main_ns, rel_ns = _workbook_namespaces(workbook)
         if rels_root is None:
@@ -1004,12 +1034,13 @@ def _scan_xml(filename):
         if ss_part is None:
             wb_dir = workbook_part.rpartition("/")[0]
             fallback_ss = f"{wb_dir}/sharedStrings.xml" if wb_dir else "sharedStrings.xml"
-            if fallback_ss in name_set:
+            if opc_part_key(fallback_ss) in member_by_key:
                 ss_part = fallback_ss
-        if ss_part and ss_part in name_set:
+        ss_member = member_by_key.get(opc_part_key(ss_part)) if ss_part else None
+        if ss_member is not None:
             with open_zip_member(
                 archive,
-                ss_part,
+                ss_member,
                 budget=budget,
                 max_member_bytes=MAX_XML_PART_BYTES,
                 max_bytes=MAX_ARCHIVE_BYTES,
@@ -1036,9 +1067,11 @@ def _scan_xml(filename):
             if not part_name:
                 continue
             is_ws = rel_type.endswith("/worksheet") if rel_type else ("/worksheets/" in f"/{part_name.lower()}")
-            if not is_ws or part_name not in name_set:
+            matched_part = member_by_key.get(opc_part_key(part_name))
+            if not is_ws or matched_part is None:
                 continue
-            checked_parts.add(part_name)
+            checked_parts.add(opc_part_key(matched_part))
+            part_name = matched_part
             found = []
             with open_zip_member(
                 archive,
@@ -1105,8 +1138,9 @@ def _scan_xml(filename):
             rels_root=rels_root,
             workbook_part=workbook_part,
             name_set=name_set,
+            member_by_key=member_by_key,
         ):
-            if part_name not in checked_parts:
+            if opc_part_key(part_name) not in checked_parts:
                 with open_zip_member(
                     archive,
                     part_name,

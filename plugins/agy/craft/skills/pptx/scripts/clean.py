@@ -33,6 +33,7 @@ from office.helpers import (
     is_valid_any_uri,
     local_elements,
     normalize_part_name,
+    opc_part_key,
     opc_target,
     parse_xml_file,
     read_relationship,
@@ -132,6 +133,35 @@ def _is_valid_content_type(value: str) -> bool:
     return bool(states & {0, 5})
 
 
+def _package_files_by_key(unpacked_dir: Path) -> dict[str, Path]:
+    root_resolved = unpacked_dir.resolve()
+    files_by_key: dict[str, Path] = {}
+    for file_path in sorted(unpacked_dir.rglob("*")):
+        if not file_path.is_file():
+            continue
+        rel_posix = file_path.relative_to(unpacked_dir).as_posix()
+        resolved = file_path.resolve()
+        if not resolved.is_relative_to(root_resolved) or not resolved.is_file():
+            raise RefusedToClean(
+                f"{rel_posix} escapes package root; refusing to clean a damaged package."
+            )
+        key = opc_part_key(rel_posix)
+        if key == "[trash]" or key.startswith("[trash]/"):
+            continue
+        if key in files_by_key:
+            prev_rel = files_by_key[key].relative_to(unpacked_dir).as_posix()
+            raise RefusedToClean(
+                f"package contains equivalent OPC part names {prev_rel!r} and {rel_posix!r}; "
+                "refusing to clean a damaged package."
+            )
+        files_by_key[key] = file_path
+    return files_by_key
+
+
+def _find_rels_files(files_by_key: dict[str, Path]) -> list[Path]:
+    return [p for key, p in files_by_key.items() if key.endswith(".rels")]
+
+
 def _slide_rids(pres_rels_path: Path, unpacked_dir: Path) -> dict[str, str]:
     source_part = rels_source_part(pres_rels_path, unpacked_dir)
     rels_dom = parse_xml_file(pres_rels_path)
@@ -159,20 +189,31 @@ def _referenced_slide_rids(pres_path: Path) -> list[str]:
     ]
 
 
-def get_slides_in_sldidlst(unpacked_dir: Path) -> set[str]:
-    pres_path = unpacked_dir / "ppt" / "presentation.xml"
-    pres_rels_path = unpacked_dir / "ppt" / "_rels" / "presentation.xml.rels"
+def _referenced_slide_keys(
+    unpacked_dir: Path, files_by_key: dict[str, Path] | None = None
+) -> set[str]:
+    if files_by_key is None:
+        files_by_key = _package_files_by_key(unpacked_dir)
+    pres_path = files_by_key.get("ppt/presentation.xml")
+    pres_rels_path = files_by_key.get("ppt/_rels/presentation.xml.rels")
 
-    if not pres_path.exists() or not pres_rels_path.exists():
+    if pres_path is None or pres_rels_path is None:
         return set()
 
     rid_to_slide = _slide_rids(pres_rels_path, unpacked_dir)
     referenced_rids = set(_referenced_slide_rids(pres_path))
-
     return {
-        posixpath.basename(rid_to_slide[rid])
+        opc_part_key(rid_to_slide[rid])
         for rid in referenced_rids
         if rid in rid_to_slide
+    }
+
+
+def get_slides_in_sldidlst(unpacked_dir: Path) -> set[str]:
+    files_by_key = _package_files_by_key(unpacked_dir)
+    return {
+        files_by_key[key].name if key in files_by_key else posixpath.basename(key)
+        for key in _referenced_slide_keys(unpacked_dir, files_by_key)
     }
 
 
@@ -185,7 +226,7 @@ def _local_name(node) -> str:
 
 
 def _validate_slide_id_list(
-    pres_root, rid_to_slide: dict[str, str], unpacked_dir: Path
+    pres_root, rid_to_slide: dict[str, str], files_by_key: dict[str, Path]
 ) -> None:
     sld_lists = child_local_elements(pres_root, "sldIdLst")
     for sld_lst in sld_lists:
@@ -198,7 +239,6 @@ def _validate_slide_id_list(
                     "refusing to clean a damaged package."
                 )
 
-    root_resolved = unpacked_dir.resolve()
     for sld_el in local_elements(pres_root, "sldId"):
         rid = get_rel_id_attr(sld_el)
         if not rid:
@@ -212,8 +252,7 @@ def _validate_slide_id_list(
                 f"<p:sldIdLst> references unknown or invalid slide relationship {rid!r}; "
                 "refusing to clean a damaged package."
             )
-        target_path = (unpacked_dir / target_rel).resolve()
-        if not target_path.is_relative_to(root_resolved) or not target_path.is_file():
+        if opc_part_key(target_rel) not in files_by_key:
             raise RefusedToClean(
                 f"<p:sldIdLst> relationship {rid!r} targets missing or invalid slide "
                 f"{target_rel!r}; refusing to clean a damaged package."
@@ -344,7 +383,7 @@ def _validate_content_types_dom(ct_dom) -> None:
                     "[Content_Types].xml <Override> has invalid PartName or ContentType; "
                     "refusing to clean a damaged package."
                 )
-            key = norm_part.lower()
+            key = opc_part_key(norm_part)
             if key in seen_parts:
                 raise RefusedToClean(
                     f"[Content_Types].xml has duplicate <Override> PartName {part_name!r}; "
@@ -412,11 +451,12 @@ def _validate_rels_dom(rels_dom, rels_label: str, source_part: str = "") -> None
             ) from exc
 
 
-def _validate_presentation_package(unpacked_dir: Path) -> None:
-    ct_path = unpacked_dir / "[Content_Types].xml"
-    pres_path = unpacked_dir / "ppt" / "presentation.xml"
-    pres_rels_path = unpacked_dir / "ppt" / "_rels" / "presentation.xml.rels"
-    if not ct_path.is_file() or not pres_path.is_file() or not pres_rels_path.is_file():
+def _validate_presentation_package(unpacked_dir: Path) -> dict[str, Path]:
+    files_by_key = _package_files_by_key(unpacked_dir)
+    ct_path = files_by_key.get("[content_types].xml")
+    pres_path = files_by_key.get("ppt/presentation.xml")
+    pres_rels_path = files_by_key.get("ppt/_rels/presentation.xml.rels")
+    if ct_path is None or pres_path is None or pres_rels_path is None:
         raise RefusedToClean(
             "missing [Content_Types].xml, ppt/presentation.xml, or "
             "ppt/_rels/presentation.xml.rels; "
@@ -444,41 +484,55 @@ def _validate_presentation_package(unpacked_dir: Path) -> None:
             "refusing to clean a damaged package."
         )
 
-    pres_rels_resolved = pres_rels_path.resolve()
-    for rels_file in sorted(unpacked_dir.rglob("*.rels")):
-        if rels_file.parent.name != "_rels":
+    for key, rels_file in files_by_key.items():
+        if not key.endswith(".rels"):
+            continue
+        if opc_part_key(rels_file.parent.name) != "_rels" or (
+            opc_part_key(rels_file.name) == ".rels" and rels_file.parent.parent != unpacked_dir
+        ):
             raise RefusedToClean(
                 f"{rels_file.relative_to(unpacked_dir).as_posix()} is not inside a _rels directory; "
                 "refusing to clean a damaged package."
             )
-        if rels_file.resolve() == pres_rels_resolved:
+        if key == "ppt/_rels/presentation.xml.rels":
             continue
+        source_part = "" if key == "_rels/.rels" else rels_source_part(rels_file, unpacked_dir)
         _validate_rels_dom(
             parse_xml_file(rels_file),
             rels_file.relative_to(unpacked_dir).as_posix(),
-            rels_source_part(rels_file, unpacked_dir),
+            source_part,
         )
 
     _validate_slide_id_list(
-        pres_root, _slide_rids(pres_rels_path, unpacked_dir), unpacked_dir
+        pres_root, _slide_rids(pres_rels_path, unpacked_dir), files_by_key
     )
+    return files_by_key
 
 
 def remove_orphaned_slides(unpacked_dir: Path) -> list[str]:
-    _validate_presentation_package(unpacked_dir)
+    files_by_key = _validate_presentation_package(unpacked_dir)
 
     slides_dir = unpacked_dir / "ppt" / "slides"
-    slides_rels_dir = slides_dir / "_rels"
-    pres_rels_path = unpacked_dir / "ppt" / "_rels" / "presentation.xml.rels"
+    pres_path = files_by_key.get("ppt/presentation.xml")
+    pres_rels_path = files_by_key.get("ppt/_rels/presentation.xml.rels")
 
     if not slides_dir.exists():
         return []
 
-    referenced_slides = get_slides_in_sldidlst(unpacked_dir)
-    on_disk = sorted(slides_dir.glob("slide*.xml"))
+    referenced_slide_keys = _referenced_slide_keys(unpacked_dir, files_by_key)
+    on_disk = [
+        file_path
+        for key, file_path in files_by_key.items()
+        if posixpath.dirname(key) == "ppt/slides"
+        and posixpath.basename(key).startswith("slide")
+        and key.endswith(".xml")
+    ]
 
-    if on_disk and not any(s.name in referenced_slides for s in on_disk):
-        listed = _referenced_slide_rids(unpacked_dir / "ppt" / "presentation.xml")
+    if on_disk and not any(
+        opc_part_key(s.relative_to(unpacked_dir).as_posix()) in referenced_slide_keys
+        for s in on_disk
+    ):
+        listed = _referenced_slide_rids(pres_path) if pres_path is not None else []
         if listed:
             raise RefusedToClean(
                 f"<p:sldIdLst> lists {len(listed)} slide(s) and none of the "
@@ -489,17 +543,18 @@ def remove_orphaned_slides(unpacked_dir: Path) -> list[str]:
     removed = []
 
     for slide_file in on_disk:
-        if slide_file.name not in referenced_slides:
-            rel_path = slide_file.relative_to(unpacked_dir).as_posix()
+        rel_path = slide_file.relative_to(unpacked_dir).as_posix()
+        if opc_part_key(rel_path) not in referenced_slide_keys:
             slide_file.unlink()
             removed.append(rel_path)
 
-            rels_file = slides_rels_dir / f"{slide_file.name}.rels"
-            if rels_file.exists():
+            rels_key = opc_part_key(f"ppt/slides/_rels/{slide_file.name}.rels")
+            rels_file = files_by_key.get(rels_key)
+            if rels_file is not None and rels_file.exists():
                 rels_file.unlink()
                 removed.append(rels_file.relative_to(unpacked_dir).as_posix())
 
-    if removed and pres_rels_path.exists():
+    if removed and pres_rels_path is not None and pres_rels_path.exists():
         rels_dom = parse_xml_file(pres_rels_path)
         source_part = rels_source_part(pres_rels_path, unpacked_dir)
         changed = False
@@ -511,7 +566,7 @@ def remove_orphaned_slides(unpacked_dir: Path) -> list[str]:
             part = opc_target(target, source_part, target_mode)
             if part is None:
                 continue
-            if posixpath.basename(part) not in referenced_slides:
+            if opc_part_key(part) not in referenced_slide_keys:
                 if rel.parentNode:
                     rel.parentNode.removeChild(rel)
                     changed = True
@@ -549,7 +604,11 @@ def _referenced_by(rels_files, unpacked_dir: Path) -> set[str]:
     referenced: set[str] = set()
 
     for rels_file in rels_files:
-        source_part = rels_source_part(rels_file, unpacked_dir)
+        source_part = (
+            ""
+            if opc_part_key(rels_file.relative_to(unpacked_dir).as_posix()) == "_rels/.rels"
+            else rels_source_part(rels_file, unpacked_dir)
+        )
         dom = parse_xml_file(rels_file)
         for rel in child_local_elements(dom.documentElement, "Relationship"):
             _, _, target, target_mode = read_relationship(rel)
@@ -561,93 +620,110 @@ def _referenced_by(rels_files, unpacked_dir: Path) -> set[str]:
 
 
 def remove_orphaned_rels_files(unpacked_dir: Path) -> list[str]:
-    resource_dirs = ["charts", "diagrams", "drawings"]
+    rels_parent_keys = {
+        "ppt/charts/_rels",
+        "ppt/diagrams/_rels",
+        "ppt/drawings/_rels",
+    }
+    files_by_key = _package_files_by_key(unpacked_dir)
     removed = []
 
-    for dir_name in resource_dirs:
-        rels_dir = unpacked_dir / "ppt" / dir_name / "_rels"
-        if not rels_dir.exists():
+    for key, rels_file in list(files_by_key.items()):
+        if posixpath.dirname(key) not in rels_parent_keys or not key.endswith(".rels"):
             continue
-
-        for rels_file in sorted(rels_dir.glob("*.rels")):
-            resource_file = rels_dir.parent / rels_file.name.removesuffix(".rels")
-            if not resource_file.exists():
-                rels_file.unlink()
-                removed.append(rels_file.relative_to(unpacked_dir).as_posix())
+        base_name = posixpath.basename(key)[:-5]
+        if not base_name:
+            continue
+        owner_dir = posixpath.dirname(posixpath.dirname(key))
+        if f"{owner_dir}/{base_name}" not in files_by_key:
+            rels_file.unlink()
+            removed.append(rels_file.relative_to(unpacked_dir).as_posix())
 
     return removed
 
 
 def get_referenced_files(unpacked_dir: Path) -> set[str]:
-    return _referenced_by(sorted(unpacked_dir.rglob("*.rels")), unpacked_dir)
+    return _referenced_by(_find_rels_files(_package_files_by_key(unpacked_dir)), unpacked_dir)
 
 
 def remove_orphaned_files(unpacked_dir: Path, referenced: set) -> list[str]:
-    referenced_posix = {
-        item.as_posix() if isinstance(item, Path) else str(item).replace("\\", "/").lstrip("/")
+    referenced_keys = {
+        opc_part_key(
+            item.as_posix() if isinstance(item, Path) else str(item).replace("\\", "/").lstrip("/")
+        )
         for item in referenced
     }
-    resource_dirs = ["media", "embeddings", "charts", "diagrams", "tags", "drawings", "ink"]
+    resource_dir_keys = {
+        "ppt/media",
+        "ppt/embeddings",
+        "ppt/charts",
+        "ppt/diagrams",
+        "ppt/tags",
+        "ppt/drawings",
+        "ppt/ink",
+    }
+    files_by_key = _package_files_by_key(unpacked_dir)
     removed = []
 
-    for dir_name in resource_dirs:
-        dir_path = unpacked_dir / "ppt" / dir_name
-        if not dir_path.exists():
-            continue
+    for key, file_path in list(files_by_key.items()):
+        if posixpath.dirname(key) in resource_dir_keys and key not in referenced_keys:
+            file_path.unlink()
+            removed.append(file_path.relative_to(unpacked_dir).as_posix())
+            files_by_key.pop(key, None)
 
-        for file_path in sorted(dir_path.glob("*")):
-            if not file_path.is_file():
+    for key, file_path in list(files_by_key.items()):
+        if (
+            posixpath.dirname(key) == "ppt/theme"
+            and posixpath.basename(key).startswith("theme")
+            and key.endswith(".xml")
+            and key not in referenced_keys
+        ):
+            file_path.unlink()
+            removed.append(file_path.relative_to(unpacked_dir).as_posix())
+            files_by_key.pop(key, None)
+            theme_rels_key = f"ppt/theme/_rels/{posixpath.basename(key)}.rels"
+            theme_rels = files_by_key.get(theme_rels_key)
+            if theme_rels is not None and theme_rels.exists():
+                theme_rels.unlink()
+                removed.append(theme_rels.relative_to(unpacked_dir).as_posix())
+                files_by_key.pop(theme_rels_key, None)
+
+    for key, file_path in list(files_by_key.items()):
+        if (
+            posixpath.dirname(key) == "ppt/notesslides"
+            and key.endswith(".xml")
+            and key not in referenced_keys
+        ):
+            file_path.unlink()
+            removed.append(file_path.relative_to(unpacked_dir).as_posix())
+            files_by_key.pop(key, None)
+
+    for key, file_path in list(files_by_key.items()):
+        if posixpath.dirname(key) == "ppt/notesslides/_rels" and key.endswith(".rels"):
+            base_name = posixpath.basename(key)[:-5]
+            if not base_name:
                 continue
-            rel_path = file_path.relative_to(unpacked_dir).as_posix()
-            if rel_path not in referenced_posix:
+            notes_key = f"ppt/notesslides/{base_name}"
+            if notes_key not in files_by_key:
                 file_path.unlink()
-                removed.append(rel_path)
-
-    theme_dir = unpacked_dir / "ppt" / "theme"
-    if theme_dir.exists():
-        for file_path in sorted(theme_dir.glob("theme*.xml")):
-            rel_path = file_path.relative_to(unpacked_dir).as_posix()
-            if rel_path not in referenced_posix:
-                file_path.unlink()
-                removed.append(rel_path)
-                theme_rels = theme_dir / "_rels" / f"{file_path.name}.rels"
-                if theme_rels.exists():
-                    theme_rels.unlink()
-                    removed.append(theme_rels.relative_to(unpacked_dir).as_posix())
-
-    notes_dir = unpacked_dir / "ppt" / "notesSlides"
-    if notes_dir.exists():
-        for file_path in sorted(notes_dir.glob("*.xml")):
-            if not file_path.is_file():
-                continue
-            rel_path = file_path.relative_to(unpacked_dir).as_posix()
-            if rel_path not in referenced_posix:
-                file_path.unlink()
-                removed.append(rel_path)
-
-        notes_rels_dir = notes_dir / "_rels"
-        if notes_rels_dir.exists():
-            for file_path in sorted(notes_rels_dir.glob("*.rels")):
-                notes_file = notes_dir / file_path.name.removesuffix(".rels")
-                if not notes_file.exists():
-                    file_path.unlink()
-                    removed.append(file_path.relative_to(unpacked_dir).as_posix())
+                removed.append(file_path.relative_to(unpacked_dir).as_posix())
+                files_by_key.pop(key, None)
 
     return removed
 
 
 def update_content_types(unpacked_dir: Path, removed_files: list[str]) -> None:
-    ct_path = unpacked_dir / "[Content_Types].xml"
-    if not ct_path.exists():
+    ct_path = _package_files_by_key(unpacked_dir).get("[content_types].xml")
+    if ct_path is None or not ct_path.exists():
         return
 
-    removed_set = {p.replace("\\", "/").lstrip("/") for p in removed_files}
+    removed_keys = {opc_part_key(p.replace("\\", "/").lstrip("/")) for p in removed_files}
     dom = parse_xml_file(ct_path)
     changed = False
 
     for override in list(child_local_elements(dom.documentElement, "Override")):
         part_name = normalize_part_name(override.getAttribute("PartName"))
-        if part_name is not None and part_name in removed_set:
+        if part_name is not None and opc_part_key(part_name) in removed_keys:
             if override.parentNode:
                 override.parentNode.removeChild(override)
                 changed = True
@@ -662,9 +738,9 @@ def update_content_types(unpacked_dir: Path, removed_files: list[str]) -> None:
 def clean_unused_files(unpacked_dir: Path) -> list[str]:
     all_removed = []
 
-    _validate_presentation_package(unpacked_dir)
+    files_by_key = _validate_presentation_package(unpacked_dir)
 
-    if not list(unpacked_dir.rglob("*.rels")) or not get_referenced_files(unpacked_dir):
+    if not _find_rels_files(files_by_key) or not get_referenced_files(unpacked_dir):
         raise RefusedToClean(
             "no relationship in this package names a part we can resolve. "
             "Refusing to treat every file as unreferenced."

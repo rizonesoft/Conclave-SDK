@@ -736,6 +736,8 @@ class CraftScriptHardeningTests(unittest.TestCase):
 
         self.assertEqual(helpers.normalize_part_name(" /ppt/slides/slide%201.xml "), "ppt/slides/slide 1.xml")
         self.assertEqual(helpers.normalize_part_name("/ppt/slides/slid%C3%A91.xml"), "ppt/slides/slid\u00e91.xml")
+        self.assertEqual(helpers.opc_part_key("ppt/media/IMAGE1.PNG"), "ppt/media/image1.png")
+        self.assertNotEqual(helpers.opc_part_key("ppt/slides/slide\u212a.xml"), helpers.opc_part_key("ppt/slides/slidek.xml"))
         self.assertIsNone(helpers.normalize_part_name("ppt/slides/slide1.xml"))
         self.assertIsNone(helpers.normalize_part_name("/../outside.xml"))
         for bad_part in (
@@ -792,6 +794,45 @@ class CraftScriptHardeningTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     helpers.safe_extract(zf, out_stream, max_member_bytes=512, max_bytes=4096)
         self.assertFalse((out_stream / "bomb.txt").exists())
+
+        # rezip() and pack_package() must reject output destinations inside or equal to src_dir
+        pack_mod = _load_module(
+            "test_office_pack",
+            CRAFT_DIR / "skills" / "docx" / "scripts" / "office" / "pack.py",
+            [CRAFT_DIR / "skills" / "docx" / "scripts"],
+        )
+        pack_py = CRAFT_DIR / "skills" / "docx" / "scripts" / "office" / "pack.py"
+        pack_src = self.root / "pack_src"
+        (pack_src / "word").mkdir(parents=True)
+        (pack_src / "[Content_Types].xml").write_text(
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>',
+            encoding="utf-8",
+        )
+        (pack_src / "word" / "document.xml").write_text("<document/>", encoding="utf-8")
+
+        with self.assertRaises(ValueError):
+            helpers.rezip(pack_src, pack_src / "result.docx")
+        with self.assertRaises(ValueError):
+            helpers.rezip(pack_src, pack_src)
+        with self.assertRaises(ValueError):
+            pack_mod.pack_package(pack_src, pack_src / "nested" / "result.docx")
+        self.assertFalse((pack_src / "nested").exists())
+
+        pack_cli = subprocess.run(
+            [sys.executable, str(pack_py), str(pack_src), str(pack_src / "result.docx")],
+            capture_output=True,
+            text=True,
+            creationflags=CREATION_FLAGS,
+            timeout=30,
+            check=False,
+        )
+        self.assertNotEqual(pack_cli.returncode, 0)
+        self.assertFalse((pack_src / "result.docx").exists())
+        self.assertEqual(list(pack_src.glob("*.tmp")), [])
+
+        outside_docx = self.root / "outside_result.docx"
+        pack_mod.pack_package(pack_src, outside_docx)
+        self.assertTrue(outside_docx.is_file())
 
     def test_xlsx_recalc_distinguishes_text_from_error_cells(self):
         xlsx_scripts = CRAFT_DIR / "skills" / "xlsx" / "scripts"
@@ -2581,6 +2622,9 @@ class CraftScriptHardeningTests(unittest.TestCase):
                         sys.path.remove(added_path)
                 self.assertTrue(val_pptx_case7.PPTXSchemaValidator(valid_dir).validate())
 
+            case_fold_dir = self.root / "clean_case_fold"
+            shutil.copytree(valid_dir, case_fold_dir)
+
             new_slide = add_slide_case7.add_slide(valid_dir, "slide 1.xml", after="slide 1.xml")
             self.assertEqual(new_slide, "slide1.xml")
             self.assertTrue((valid_dir / "ppt" / "slides" / "slide1.xml").is_file())
@@ -2724,6 +2768,107 @@ class CraftScriptHardeningTests(unittest.TestCase):
                 if importlib.util.find_spec("lxml") is not None:
                     val_ep = val_pptx_case7.PPTXSchemaValidator(empty_port_dir)
                     self.assertTrue(val_ep.validate_file_references())
+
+            # Case-insensitive OPC part-name matching in clean.py and BaseSchemaValidator across OSes
+            (case_fold_dir / "ppt" / "theme").mkdir(parents=True)
+            (case_fold_dir / "ppt" / "notesSlides").mkdir(parents=True)
+            theme_xml = (
+                b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                b'<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="T">'
+                b'<a:themeElements>'
+                b'<a:clrScheme name="C">'
+                b'<a:dk1><a:srgbClr val="000000"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1>'
+                b'<a:dk2><a:srgbClr val="111111"/></a:dk2><a:lt2><a:srgbClr val="EEEEEE"/></a:lt2>'
+                b'<a:accent1><a:srgbClr val="112233"/></a:accent1><a:accent2><a:srgbClr val="223344"/></a:accent2>'
+                b'<a:accent3><a:srgbClr val="334455"/></a:accent3><a:accent4><a:srgbClr val="445566"/></a:accent4>'
+                b'<a:accent5><a:srgbClr val="556677"/></a:accent5><a:accent6><a:srgbClr val="667788"/></a:accent6>'
+                b'<a:hlink><a:srgbClr val="0000FF"/></a:hlink><a:folHlink><a:srgbClr val="800080"/></a:folHlink>'
+                b'</a:clrScheme>'
+                b'<a:fontScheme name="F"><a:majorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont>'
+                b'<a:minorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont></a:fontScheme>'
+                b'<a:fmtScheme name="S"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill>'
+                b'<a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst>'
+                b'<a:lnStyleLst><a:ln><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln>'
+                b'<a:ln><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln>'
+                b'<a:ln><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst>'
+                b'<a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle>'
+                b'<a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst>'
+                b'<a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill>'
+                b'<a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme>'
+                b'</a:themeElements></a:theme>'
+            )
+            notes_xml = ET.tostring(ET.Element(f"{{{p_ns}}}notes"), encoding="utf-8", xml_declaration=True)
+            (case_fold_dir / "ppt" / "theme" / "theme1.xml").write_bytes(theme_xml)
+            (case_fold_dir / "ppt" / "notesSlides" / "notesSlide1.xml").write_bytes(notes_xml)
+            (case_fold_dir / "ppt" / "media" / "orphan2.png").write_bytes(b"ORPHAN2")
+
+            cf_pres_rels = ET.Element(f"{{{rels_ns}}}Relationships")
+            ET.SubElement(
+                cf_pres_rels,
+                f"{{{rels_ns}}}Relationship",
+                Id="rId\u00e9",
+                Type=f"{r_ns}/slide",
+                Target="slides/SLIDE 1.XML",
+            )
+            ET.SubElement(
+                cf_pres_rels,
+                f"{{{rels_ns}}}Relationship",
+                Id="rIdTheme",
+                Type=f"{r_ns}/theme",
+                Target="theme/THEME1.XML",
+            )
+            (case_fold_dir / "ppt" / "_rels" / "presentation.xml.rels").write_bytes(
+                ET.tostring(cf_pres_rels, encoding="utf-8", xml_declaration=True)
+            )
+
+            cf_slide_rels = ET.Element(f"{{{rels_ns}}}Relationships")
+            ET.SubElement(
+                cf_slide_rels,
+                f"{{{rels_ns}}}Relationship",
+                Id="rIdImg1",
+                Type=f"{r_ns}/image",
+                Target="../media/IMAGE1.PNG",
+            )
+            ET.SubElement(
+                cf_slide_rels,
+                f"{{{rels_ns}}}Relationship",
+                Id="rIdNotes1",
+                Type=f"{r_ns}/notesSlide",
+                Target="../notesSlides/NOTESSLIDE1.XML",
+            )
+            (case_fold_dir / "ppt" / "slides" / "_rels" / "slide 1.xml.rels").write_bytes(
+                ET.tostring(cf_slide_rels, encoding="utf-8", xml_declaration=True)
+            )
+
+            cf_ct_root = ET.fromstring((case_fold_dir / "[Content_Types].xml").read_bytes())
+            ET.SubElement(
+                cf_ct_root,
+                f"{{{ct_ns}}}Override",
+                PartName="/ppt/theme/theme1.xml",
+                ContentType="application/vnd.openxmlformats-officedocument.theme+xml",
+            )
+            ET.SubElement(
+                cf_ct_root,
+                f"{{{ct_ns}}}Override",
+                PartName="/ppt/media/ORPHAN2.PNG",
+                ContentType="image/png",
+            )
+            (case_fold_dir / "[Content_Types].xml").write_bytes(
+                ET.tostring(cf_ct_root, encoding="utf-8", xml_declaration=True)
+            )
+
+            cf_removed = clean.clean_unused_files(case_fold_dir)
+            self.assertEqual(cf_removed, ["ppt/media/orphan2.png"])
+            self.assertTrue((case_fold_dir / "ppt" / "slides" / "slide 1.xml").is_file())
+            self.assertTrue((case_fold_dir / "ppt" / "media" / "image1.png").is_file())
+            self.assertTrue((case_fold_dir / "ppt" / "theme" / "theme1.xml").is_file())
+            self.assertTrue((case_fold_dir / "ppt" / "notesSlides" / "notesSlide1.xml").is_file())
+            self.assertFalse((case_fold_dir / "ppt" / "media" / "orphan2.png").exists())
+            self.assertNotIn("ORPHAN2.PNG", (case_fold_dir / "[Content_Types].xml").read_text(encoding="utf-8"))
+            if importlib.util.find_spec("lxml") is not None:
+                val_cf = val_pptx_case7.PPTXSchemaValidator(case_fold_dir)
+                self.assertTrue(val_cf.validate_file_references())
+                self.assertTrue(val_cf.validate_content_types())
 
             for good_ct in (
                 "application/xml",

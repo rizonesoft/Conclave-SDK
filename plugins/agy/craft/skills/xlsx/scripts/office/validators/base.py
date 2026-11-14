@@ -17,6 +17,7 @@ try:
         collapse_xml_space,
         is_valid_any_uri,
         normalize_part_name,
+        opc_part_key,
         opc_target,
         parse_xml_file,
         read_relationship,
@@ -31,6 +32,7 @@ except ImportError:
         collapse_xml_space,
         is_valid_any_uri,
         normalize_part_name,
+        opc_part_key,
         opc_target,
         parse_xml_file,
         read_relationship,
@@ -356,25 +358,38 @@ class BaseSchemaValidator:
 
     def validate_file_references(self):
         errors = []
+        unpacked_root = self.unpacked_dir.resolve()
 
-        rels_files = list(self.unpacked_dir.rglob("*.rels"))
+        rels_files = []
+        all_files = []
+        files_by_key: dict[str, Path] = {}
+        for file_path in sorted(self.unpacked_dir.rglob("*")):
+            if not file_path.is_file():
+                continue
+            rel_posix = file_path.relative_to(self.unpacked_dir).as_posix()
+            key = opc_part_key(rel_posix)
+            if opc_part_key(file_path.name).endswith(".rels"):
+                rels_files.append(file_path)
+                continue
+            if key == "[content_types].xml":
+                continue
+            resolved = file_path.resolve()
+            if not resolved.is_relative_to(unpacked_root):
+                errors.append(f"  {rel_posix}: File escapes package root")
+                continue
+            if key in files_by_key:
+                prev_rel = files_by_key[key].relative_to(unpacked_root).as_posix()
+                errors.append(f"  Duplicate equivalent OPC part names: {prev_rel} and {rel_posix}")
+                continue
+            files_by_key[key] = resolved
+            all_files.append(resolved)
 
-        if not rels_files:
+        if not rels_files and not errors:
             if self.verbose:
                 print("PASSED - No .rels files found")
             return True
 
-        all_files = []
-        for file_path in self.unpacked_dir.rglob("*"):
-            if (
-                file_path.is_file()
-                and file_path.name != "[Content_Types].xml"
-                and not file_path.name.endswith(".rels")
-            ):  
-                all_files.append(file_path.resolve())
-
         all_referenced_files = set()
-        unpacked_root = self.unpacked_dir.resolve()
 
         if self.verbose:
             print(
@@ -387,14 +402,14 @@ class BaseSchemaValidator:
                 rels_resolved = rels_file.resolve()
                 if (
                     not rels_resolved.is_relative_to(unpacked_root)
-                    or rels_file.parent.name != "_rels"
-                    or (rels_file.name == ".rels" and rels_file.parent.parent != unpacked_root)
+                    or opc_part_key(rels_file.parent.name) != "_rels"
+                    or (opc_part_key(rels_file.name) == ".rels" and rels_file.parent.parent != unpacked_root)
                 ):
                     errors.append(f"  {rel_path}: .rels file outside valid _rels directory")
                     continue
 
                 rels_root = safe_lxml_parse(rels_file).getroot()
-                source_part = "" if rels_file.name == ".rels" else rels_source_part(rels_file, self.unpacked_dir)
+                source_part = "" if opc_part_key(rels_file.name) == ".rels" else rels_source_part(rels_file, self.unpacked_dir)
 
                 referenced_files = set()
                 broken_refs = []
@@ -422,13 +437,15 @@ class BaseSchemaValidator:
                         broken_refs.append((target, rel.sourceline))
                         continue
 
+                    matched = files_by_key.get(opc_part_key(part))
+                    if matched is not None:
+                        referenced_files.add(matched)
+                        all_referenced_files.add(matched)
+                        continue
                     try:
                         target_path = (unpacked_root / part).resolve()
                         if not target_path.is_relative_to(unpacked_root):
                             broken_refs.append((f"{target} (escapes package)", rel.sourceline))
-                        elif target_path.exists() and target_path.is_file():
-                            referenced_files.add(target_path)
-                            all_referenced_files.add(target_path)
                         else:
                             broken_refs.append((target, rel.sourceline))
                     except (OSError, ValueError):
@@ -472,15 +489,24 @@ class BaseSchemaValidator:
         import lxml.etree
 
         errors = []
+        rels_by_key = {
+            opc_part_key(f.relative_to(self.unpacked_dir).as_posix()): f
+            for f in self.xml_files
+            if f.is_file() and opc_part_key(f.name).endswith(".rels")
+        }
 
         for xml_file in self.xml_files:
-            if xml_file.suffix == ".rels":
+            if opc_part_key(xml_file.name).endswith(".rels"):
                 continue
 
-            rels_dir = xml_file.parent / "_rels"
-            rels_file = rels_dir / f"{xml_file.name}.rels"
+            rels_key = opc_part_key(
+                (xml_file.parent / "_rels" / f"{xml_file.name}.rels")
+                .relative_to(self.unpacked_dir)
+                .as_posix()
+            )
+            rels_file = rels_by_key.get(rels_key)
 
-            if not rels_file.exists():
+            if rels_file is None:
                 continue
 
             try:
@@ -604,7 +630,7 @@ class BaseSchemaValidator:
                             f"  Line {override.sourceline}: Invalid Override PartName {part_name!r} in [Content_Types].xml"
                         )
                     else:
-                        part_key = norm_part.lower()
+                        part_key = opc_part_key(norm_part)
                         if part_key in declared_parts:
                             errors.append(
                                 f"  Line {override.sourceline}: Duplicate Override PartName {part_name!r} in [Content_Types].xml"
@@ -659,7 +685,7 @@ class BaseSchemaValidator:
                     root_tag = safe_lxml_parse(xml_file).getroot().tag
                     root_name = root_tag.split("}")[-1] if "}" in root_tag else root_tag
 
-                    if root_name in declarable_roots and path_str.lower() not in declared_parts:
+                    if root_name in declarable_roots and opc_part_key(path_str) not in declared_parts:
                         errors.append(
                             f"  {path_str}: File with <{root_name}> root not declared in [Content_Types].xml"
                         )

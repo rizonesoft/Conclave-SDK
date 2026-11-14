@@ -1016,3 +1016,49 @@ HIGHEST: P2
 OVERALL: needs-attention
 
 - Implemented: Finding 1 (P2 source-defect): `_PORT_RE` in `plugins/agy/craft/skills/{docx,pptx,xlsx}/scripts/office/helpers/__init__.py` now uses `^[0-9]*\Z` so RFC 3986 empty ports (`port = *DIGIT`, e.g. `http://example.com:/` and `http://[::1]:/`) are accepted by `is_valid_any_uri()`, `opc_target()`, `clean._validate_rels_dom()`, and `BaseSchemaValidator.validate_file_references()`, with both hostname and bracketed IPv6 empty-port unit and end-to-end tests added in `tests/test_agy_plugins.py`.
+
+## Round 22: astra (`gpt-6-astra` via `codex`)
+
+- Writer: agy
+- Run: 2026-11-14T17:08:29Z
+- Candidate: 4c658e0485ee119c1e2777131cfee32808f22e92
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 32
+- Digest: afbae89b93863ce6
+
+### adversarial: needs-attention
+
+1. **P1** `plugins/agy/craft/skills/pptx/scripts/clean.py:602`: Cleaning can delete a referenced image because resolved relationship targets and filesystem paths are compared as case-sensitive strings. On Windows, unpack a normal deck containing `ppt/media/image1.png`, set its image relationship target to `../media/IMAGE1.PNG`, then run `clean.py <unpacked_dir>`. Validation accepts the package, but cleaning deletes the image and leaves its relationship dangling. Reproduced through `clean_unused_files()` using an in-memory Windows filesystem, without modifying files. Apply consistent OPC part-name comparison to resource references and deletion candidates; the theme and notes comparisons have the same defect.
+
+### integration: needs-attention
+
+2. **P2** `plugins/agy/craft/skills/docx/scripts/office/helpers/__init__.py:572`: `rezip()` includes an existing output package when that output is inside the input directory. Run `python plugins/agy/craft/skills/docx/scripts/office/pack.py unpacked unpacked/result.docx` twice. The second package contains the entire previous `result.docx`; subsequent runs accumulate nested copies, potentially retaining content removed from the current document. Neither the caller nor this helper rejects that destination or excludes it. This is statically verified and affects all three identical helper copies.
+
+### source-defect: approve
+
+No finding against the empty-port grammar in [RFC 3986 §3.2.3](https://www.rfc-editor.org/rfc/rfc3986.html#section-3.2.3).
+
+### consistency: approve
+
+No additional findings.
+
+### quality: approve
+
+No additional findings.
+
+### optimization: approve
+
+No independent finding beyond finding 2.
+
+LENS adversarial: findings
+LENS integration: findings
+LENS source-defect: clean
+LENS consistency: clean
+LENS quality: clean
+LENS optimization: clean
+HIGHEST: P1
+OVERALL: needs-attention
+
+- Implemented: Finding 1 (P1 adversarial): Added ECMA-376 Part 2 section 9.1.1.4 ASCII case-folding helper `opc_part_key()` across `plugins/agy/craft/skills/{docx,pptx,xlsx}/scripts/office/helpers/__init__.py` and switched `clean.py` (`_package_files_by_key()`, `_validate_slide_id_list()`, `_validate_presentation_package()`, `remove_orphaned_slides()`, `remove_orphaned_rels_files()`, `remove_orphaned_files()`, `update_content_types()`), `BaseSchemaValidator` (`validate_file_references()`, `validate_all_relationship_ids()`, `validate_content_types()`), `add_slide.py`, `comment.py`, `thumbnail.py`, and `recalc.py` to compare OPC part names and `.rels` lookups case-insensitively across both Windows and Linux, with regression tests in `tests/test_agy_plugins.py`.
+- Implemented: Finding 2 (P2 integration): Added `reject_output_inside_source()` in `plugins/agy/craft/skills/{docx,pptx,xlsx}/scripts/office/helpers/__init__.py` and enforced it at the top of `rezip()` and `pack.pack_package()` before directory creation or temp-file creation, with unit and CLI regression tests in `tests/test_agy_plugins.py`.

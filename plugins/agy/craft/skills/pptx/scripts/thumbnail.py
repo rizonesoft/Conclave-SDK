@@ -34,6 +34,7 @@ from office.helpers import (
     child_local_elements,
     get_rel_id_attr,
     local_elements,
+    opc_part_key,
     opc_target,
     open_zip_member,
     parse_xml_bytes,
@@ -170,9 +171,13 @@ def get_slide_info(pptx_path: Path) -> list[dict]:
             max_member_bytes=MAX_MEMBER_BYTES,
         )
         budget = [0]
+        present_by_key = {opc_part_key(name): name for name in zf.namelist()}
+        pres_rels_member = present_by_key.get(
+            "ppt/_rels/presentation.xml.rels", "ppt/_rels/presentation.xml.rels"
+        )
         rels_content = read_zip_member(
             zf,
-            "ppt/_rels/presentation.xml.rels",
+            pres_rels_member,
             budget=budget,
             max_member_bytes=MAX_THUMBNAIL_XML_BYTES,
             max_bytes=MAX_ARCHIVE_BYTES,
@@ -189,27 +194,27 @@ def get_slide_info(pptx_path: Path) -> list[dict]:
             if part is not None:
                 rid_to_part[rel_id] = part
 
+        pres_member = present_by_key.get("ppt/presentation.xml", "ppt/presentation.xml")
         pres_content = read_zip_member(
             zf,
-            "ppt/presentation.xml",
+            pres_member,
             budget=budget,
             max_member_bytes=MAX_THUMBNAIL_XML_BYTES,
             max_bytes=MAX_ARCHIVE_BYTES,
         )
         pres_dom = parse_xml_bytes(pres_content, max_bytes=MAX_THUMBNAIL_XML_BYTES)
 
-        present = set(zf.namelist())
-
         slides = []
         for sld_id in local_elements(pres_dom.documentElement, "sldId"):
             part = rid_to_part.get(get_rel_id_attr(sld_id))
-            if part is not None and part in present:
+            member = present_by_key.get(opc_part_key(part)) if part is not None else None
+            if member is not None:
                 slides.append(
                     {
-                        "name": posixpath.basename(part),
+                        "name": posixpath.basename(member),
                         "hidden": _is_hidden(
                             zf,
-                            part,
+                            member,
                             budget=budget,
                             max_member_bytes=MAX_MEMBER_BYTES,
                             max_bytes=MAX_ARCHIVE_BYTES,

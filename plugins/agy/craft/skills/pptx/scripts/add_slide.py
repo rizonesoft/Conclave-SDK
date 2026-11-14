@@ -51,6 +51,7 @@ from office.helpers import (
     get_rel_id_attr,
     local_elements,
     normalize_part_name,
+    opc_part_key,
     opc_target,
     parse_xml_bytes,
     parse_xml_file,
@@ -203,8 +204,10 @@ def _ensure_content_type_override(
     dom = parse_xml_file(content_types_path)
     root = _root_with_local_name(dom, "Types", "[Content_Types].xml")
     wanted = normalize_part_name(part_name)
-    if wanted is not None and any(
-        normalize_part_name(el.getAttribute("PartName")) == wanted
+    wanted_key = opc_part_key(wanted) if wanted is not None else None
+    if wanted_key is not None and any(
+        (existing := normalize_part_name(el.getAttribute("PartName"))) is not None
+        and opc_part_key(existing) == wanted_key
         for el in child_local_elements(root, "Override")
     ):
         return
@@ -221,16 +224,33 @@ def _ensure_content_type_override(
     )
 
 
+def _resolve_unpacked_part(unpacked_dir: Path, part: str) -> Path | None:
+    direct = unpacked_dir / part
+    if direct.is_file():
+        return direct
+    target_key = opc_part_key(part)
+    root_resolved = unpacked_dir.resolve()
+    for cand in unpacked_dir.rglob("*"):
+        if not cand.is_file():
+            continue
+        if not cand.resolve().is_relative_to(root_resolved):
+            continue
+        if opc_part_key(cand.relative_to(unpacked_dir).as_posix()) == target_key:
+            return cand
+    return None
+
+
 def _with_own_tags_part(unpacked_dir: Path, rel, slide_part: str) -> None:
     _, _, raw_target, target_mode = read_relationship(rel)
     try:
         source = opc_target(raw_target, slide_part, target_mode) if raw_target else None
     except ValueError:
         source = None
-    if source is None or not (unpacked_dir / source).is_file():
+    source_path = _resolve_unpacked_part(unpacked_dir, source) if source is not None else None
+    if source_path is None:
         return
 
-    tags_dir = (unpacked_dir / source).parent
+    tags_dir = source_path.parent
     names = [f.name for f in tags_dir.iterdir()]
     content_types_path = unpacked_dir / "[Content_Types].xml"
     if content_types_path.is_file():
@@ -243,7 +263,7 @@ def _with_own_tags_part(unpacked_dir: Path, rel, slide_part: str) -> None:
         )
     taken = [int(m.group(1)) for name in names if (m := re.fullmatch(r"tag(\d{1,9})\.xml", name, re.I))]
     copy = tags_dir / f"tag{max(taken, default=0) + 1}.xml"
-    atomic_copy(unpacked_dir / source, copy)
+    atomic_copy(source_path, copy)
 
     part = copy.relative_to(unpacked_dir).as_posix()
     _ensure_content_type_override(unpacked_dir, f"/{part}", TAGS_CONTENT_TYPE)
@@ -267,8 +287,10 @@ def _precheck_registration(unpacked_dir: Path, after: str | None, dest: str) -> 
     if content_types.exists():
         ct_dom = parse_xml_file(content_types)
         ct_root = _root_with_local_name(ct_dom, "Types", "[Content_Types].xml")
+        dest_key = opc_part_key(f"ppt/slides/{dest}")
         if any(
-            normalize_part_name(el.getAttribute("PartName")) == f"ppt/slides/{dest}"
+            (existing := normalize_part_name(el.getAttribute("PartName"))) is not None
+            and opc_part_key(existing) == dest_key
             for el in child_local_elements(ct_root, "Override")
         ):
             stale.append("[Content_Types].xml")
@@ -372,13 +394,13 @@ def _add_to_content_types(unpacked_dir: Path, dest: str) -> None:
 
 def _find_slide_relationship_dom(rels_dom, slide_name: str) -> str | None:
     root = _root_with_local_name(rels_dom, "Relationships", "presentation.xml.rels")
-    expected_part = f"ppt/slides/{slide_name}"
+    expected_key = opc_part_key(f"ppt/slides/{slide_name}")
     for rel in child_local_elements(root, "Relationship"):
         rid, _, target, target_mode = read_relationship(rel)
         if not target:
             continue
         part = opc_target(target, "ppt/presentation.xml", target_mode)
-        if part == expected_part and rid:
+        if part is not None and opc_part_key(part) == expected_key and rid:
             return rid
     return None
 

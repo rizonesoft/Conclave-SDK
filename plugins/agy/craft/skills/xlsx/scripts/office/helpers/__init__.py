@@ -304,6 +304,16 @@ def normalize_part_name(part_name: str) -> str | None:
     return "/".join(segments) if segments else None
 
 
+_ASCII_LOWER_MAP = str.maketrans(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"
+)
+
+
+def opc_part_key(part: str) -> str:
+    """Return the ECMA-376 Part 2 section 9.1.1.4 ASCII case-folded part key."""
+    return part.translate(_ASCII_LOWER_MAP)
+
+
 def rels_source_part(rels_file: Path, unpacked_dir: Path) -> str:
     owner_dir = rels_file.parent.parent.relative_to(unpacked_dir)
     part = posixpath.join(owner_dir.as_posix(), rels_file.name[: -len(".rels")])
@@ -465,6 +475,7 @@ def safe_extract(
         raise ValueError(f"archive entry count {len(infos)} exceeds limit {max_entries}")
 
     declared_total = 0
+    seen_file_keys: set[str] = set()
     targets: list[tuple[zipfile.ZipInfo, Path]] = []
     for m in infos:
         if stat.S_ISLNK(m.external_attr >> 16):
@@ -472,6 +483,13 @@ def safe_extract(
         target = (dest / m.filename).resolve()
         if not target.is_relative_to(dest):
             raise ValueError(f"unsafe archive entry: {m.filename!r}")
+        if not m.is_dir():
+            if target == dest:
+                raise ValueError(f"unsafe archive entry: {m.filename!r}")
+            part_key = opc_part_key(target.relative_to(dest).as_posix())
+            if part_key in seen_file_keys:
+                raise ValueError(f"duplicate archive entry: {m.filename!r}")
+            seen_file_keys.add(part_key)
         if m.file_size < 0 or m.file_size > max_member_bytes:
             raise ValueError(f"archive member exceeds size budget: {m.filename!r}")
         declared_total += m.file_size
@@ -568,7 +586,25 @@ def atomic_copy(src: Path, dst: Path) -> None:
             tmp_path.unlink(missing_ok=True)
 
 
+def reject_output_inside_source(src_dir: Path, out_path: Path) -> None:
+    """Reject archive destinations inside or equal to the unpacked source directory."""
+    src_abs = Path(os.path.abspath(src_dir))
+    out_abs = Path(os.path.abspath(out_path))
+    src_resolved = src_dir.resolve()
+    out_resolved = out_path.resolve()
+    out_parent_resolved = out_path.parent.resolve()
+    if (
+        out_abs.is_relative_to(src_abs)
+        or out_resolved.is_relative_to(src_resolved)
+        or out_parent_resolved.is_relative_to(src_resolved)
+    ):
+        raise ValueError(
+            f"Output archive {out_path} must not be inside source directory {src_dir}"
+        )
+
+
 def rezip(src_dir: Path, out_path: Path) -> None:
+    reject_output_inside_source(src_dir, out_path)
     files = sorted(p for p in src_dir.rglob("*") if p.is_file())
     ct = src_dir / "[Content_Types].xml"
     fd, tmp_name = tempfile.mkstemp(

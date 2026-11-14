@@ -7,9 +7,9 @@ import sys
 from pathlib import Path
 
 try:
-    from helpers import OOXML_FAMILY, rezip
+    from helpers import OOXML_FAMILY, reject_output_inside_source, rezip
 except ImportError:
-    from office.helpers import OOXML_FAMILY, rezip
+    from office.helpers import OOXML_FAMILY, reject_output_inside_source, rezip
 
 
 def pack_package(src_dir: Path, out_path: Path) -> None:
@@ -22,6 +22,7 @@ def pack_package(src_dir: Path, out_path: Path) -> None:
         raise ValueError(
             f"{out_path} must be one of: {', '.join(sorted(OOXML_FAMILY))}"
         )
+    reject_output_inside_source(src_dir, out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     rezip(src_dir, out_path)
 
