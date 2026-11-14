@@ -80,6 +80,8 @@ EXCEL_ERROR_SET = frozenset(EXCEL_ERRORS)
 MAX_XML_PART_BYTES = 128 * 1024 * 1024
 MAX_MERGE_CHECKS = 1_000_000
 MAX_MERGED_CELLS = 1_000_000
+MAX_XLSX_ROWS = 1_048_576
+MAX_XLSX_COLS = 16_384
 MAX_XML_DEPTH = 256
 MAX_SUBTREE_ELEMENTS = 10_000
 
@@ -89,7 +91,7 @@ _TRANSITIONAL_REL_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/r
 _STRICT_REL_NS = "{http://purl.oclc.org/ooxml/officeDocument/relationships}"
 _MAIN_NS = _TRANSITIONAL_MAIN_NS
 _REL_NS = _TRANSITIONAL_REL_NS
-_CELL_REF_RE = re.compile(r"([A-Z]+)([0-9]+)")
+_CELL_REF_RE = re.compile(r"\$?([A-Za-z]{1,3})\$?([1-9][0-9]{0,6})\Z")
 
 
 def _local_tag(tag: str) -> str:
@@ -116,10 +118,26 @@ def _workbook_opc_context(archive: zipfile.ZipFile, name_set: set[str], budget: 
     return workbook_part, rels_part, rels_root
 
 
-def _is_lambda_func_name(ident_cf: str) -> bool:
+def _strip_func_prefix(ident_cf: str) -> str:
     while ident_cf.startswith(("_xlfn.", "_xlws.", "xlws.")):
         ident_cf = ident_cf.split(".", 1)[1]
-    return ident_cf == "lambda"
+    return ident_cf
+
+
+def _is_lambda_func_name(ident_cf: str) -> bool:
+    return _strip_func_prefix(ident_cf) == "lambda"
+
+
+def _binding_func_kind(ident_cf: str, qual_sheet_cf: str | None) -> str | None:
+    if qual_sheet_cf is not None:
+        return None
+    base = _strip_func_prefix(ident_cf)
+    return base if base in ("let", "lambda") else None
+
+
+def _local_name_variants(param_cf: str) -> tuple[str, str]:
+    bare = param_cf[6:] if param_cf.startswith("_xlpm.") else param_cf
+    return bare, f"_xlpm.{bare}"
 
 
 def _make_dtd_guard():
@@ -232,18 +250,29 @@ def _rich_text(node, main_ns=_MAIN_NS):
 
 
 def _row_major(coordinate):
-    cleaned = coordinate.replace("$", "").strip().upper()
-    match = _CELL_REF_RE.fullmatch(cleaned)
+    if not isinstance(coordinate, str):
+        raise ValueError("invalid cell coordinate")
+    stripped = coordinate.strip()
+    if len(stripped) > 12:
+        raise ValueError(f"invalid cell coordinate: {stripped[:20]!r}")
+    match = _CELL_REF_RE.fullmatch(stripped)
     if match is None:
-        raise ValueError(f"invalid cell coordinate: {coordinate!r}")
-    column, row = match.groups()
-    number = 0
-    for letter in column:
-        number = number * 26 + ord(letter) - ord("A") + 1
-    return int(row), number
+        raise ValueError(f"invalid cell coordinate: {stripped!r}")
+    col_str, row_str = match.groups()
+    row = int(row_str)
+    if row > MAX_XLSX_ROWS:
+        raise ValueError(f"row out of Excel bounds: {stripped!r}")
+    col = 0
+    for letter in col_str.upper():
+        col = col * 26 + ord(letter) - ord("A") + 1
+    if col > MAX_XLSX_COLS:
+        raise ValueError(f"column out of Excel bounds: {stripped!r}")
+    return row, col
 
 
 def _parse_merge_ref(ref_str: str, merge_budget: list[int] | None) -> tuple[int, int, int, int]:
+    if len(ref_str) > 64:
+        raise ValueError("invalid mergeCell ref")
     cleaned = html.unescape(ref_str).strip()
     first, sep, last = cleaned.partition(":")
     if not sep:
@@ -327,16 +356,19 @@ _UNQUOTED_EXT_RE = re.compile(r"\[\d+\][^!\[\]\"']*!")
 _QUOTED_EXT_RE = re.compile(r"^\[\d+\]")
 
 
-def _scan_formula_tokens(expr: str):
-    """Yield ('ext', None, None, False) for external refs or ('name', ident_cf, qual_sheet_cf, is_call)."""
+def _lex_formula_tokens(expr: str) -> list[tuple[str, str | None, str | None, bool]]:
     s = expr.lstrip()
     if s.startswith("="):
         s = s[1:]
     n = len(s)
     i = 0
     qual_sheet = None
+    tokens: list[tuple[str, str | None, str | None, bool]] = []
     while i < n:
         ch = s[i]
+        if ch.isspace():
+            i += 1
+            continue
         if ch == '"':
             qual_sheet = None
             i += 1
@@ -348,6 +380,7 @@ def _scan_formula_tokens(expr: str):
                     i += 1
                     break
                 i += 1
+            tokens.append(("other", None, None, False))
             continue
         if ch == "'":
             i += 1
@@ -366,17 +399,18 @@ def _scan_formula_tokens(expr: str):
             if i < n and s[i] == "!":
                 i += 1
                 if _QUOTED_EXT_RE.match(quoted):
-                    yield ("ext", None, None, False)
+                    tokens.append(("ext", None, None, False))
                     qual_sheet = None
                 else:
                     qual_sheet = quoted.casefold()
             else:
                 qual_sheet = None
+                tokens.append(("other", None, None, False))
             continue
         if ch == "[":
             match = _UNQUOTED_EXT_RE.match(s, i)
             if match:
-                yield ("ext", None, None, False)
+                tokens.append(("ext", None, None, False))
                 i = match.end()
                 qual_sheet = None
                 continue
@@ -389,6 +423,32 @@ def _scan_formula_tokens(expr: str):
                     depth -= 1
                 i += 1
             qual_sheet = None
+            tokens.append(("other", None, None, False))
+            continue
+        if ch == "(":
+            qual_sheet = None
+            tokens.append(("lparen", None, None, False))
+            i += 1
+            continue
+        if ch == ")":
+            qual_sheet = None
+            tokens.append(("rparen", None, None, False))
+            i += 1
+            continue
+        if ch == "{":
+            qual_sheet = None
+            tokens.append(("lbrace", None, None, False))
+            i += 1
+            continue
+        if ch == "}":
+            qual_sheet = None
+            tokens.append(("rbrace", None, None, False))
+            i += 1
+            continue
+        if ch == ",":
+            qual_sheet = None
+            tokens.append(("comma", None, None, False))
+            i += 1
             continue
         if ch.isalpha() or ch in ("_", "\\"):
             start = i
@@ -398,6 +458,7 @@ def _scan_formula_tokens(expr: str):
             ident = s[start:i]
             if start > 0 and s[start - 1] == "$":
                 qual_sheet = None
+                tokens.append(("other", None, None, False))
                 continue
             if i < n and s[i] == "!":
                 qual_sheet = ident.casefold()
@@ -408,16 +469,89 @@ def _scan_formula_tokens(expr: str):
                 while end_3d < n and (s[end_3d].isalnum() or s[end_3d] in ("_", ".", "?", "\\")):
                     end_3d += 1
                 if end_3d > i + 1 and end_3d < n and s[end_3d] == "!":
-                    qual_sheet = None
+                    qual_sheet = f"{ident.casefold()}:{s[i + 1:end_3d].casefold()}"
                     i = end_3d + 1
                     continue
             is_call = i < n and s[i] == "("
-            yield ("name", ident.casefold(), qual_sheet, is_call)
+            tokens.append(("name", ident.casefold(), qual_sheet, is_call))
             qual_sheet = None
             continue
-        if not ch.isspace():
-            qual_sheet = None
-        i += 1
+        qual_sheet = None
+        while i < n:
+            c = s[i]
+            if c.isspace() or c in "\"'[](){}," or c.isalpha() or c in ("_", "\\"):
+                break
+            i += 1
+        tokens.append(("other", None, None, False))
+    return tokens
+
+
+def _scan_formula_tokens(expr: str):
+    """Yield ('ext', None, None, False) for external refs or ('name', ident_cf, qual_sheet_cf, is_call)."""
+    tokens = _lex_formula_tokens(expr)
+    paren_stack = []
+    enter_events: dict[int, list[str]] = {}
+    exit_events: dict[int, list[str]] = {}
+    decl_indices: set[int] = set()
+
+    for idx, (kind, ident_cf, qual_sheet_cf, is_call) in enumerate(tokens):
+        if kind == "lparen":
+            func_kind = None
+            if idx > 0 and tokens[idx - 1][0] == "name" and tokens[idx - 1][3]:
+                func_kind = _binding_func_kind(tokens[idx - 1][1], tokens[idx - 1][2])
+            paren_stack.append((idx, func_kind, []))
+        elif kind == "lbrace":
+            paren_stack.append(None)
+        elif kind == "comma":
+            if paren_stack and paren_stack[-1] is not None:
+                paren_stack[-1][2].append(idx)
+        elif kind == "rbrace":
+            if paren_stack and paren_stack[-1] is None:
+                paren_stack.pop()
+        elif kind == "rparen":
+            while paren_stack and paren_stack[-1] is None:
+                paren_stack.pop()
+            if not paren_stack:
+                continue
+            lp_idx, func_kind, commas = paren_stack.pop()
+            if func_kind is None or idx <= lp_idx + 1:
+                continue
+            bounds = [lp_idx, *commas, idx]
+            num_args = len(bounds) - 1
+            if func_kind == "lambda" and num_args >= 2:
+                body_start = bounds[num_args - 1] + 1
+                for arg_i in range(num_args - 1):
+                    p_idx = bounds[arg_i] + 1
+                    if bounds[arg_i + 1] - p_idx == 1 and tokens[p_idx][0] == "name" and tokens[p_idx][2] is None:
+                        decl_indices.add(p_idx)
+                        bare, prefixed = _local_name_variants(tokens[p_idx][1])
+                        enter_events.setdefault(body_start, []).extend((bare, prefixed))
+                        exit_events.setdefault(idx, []).extend((bare, prefixed))
+            elif func_kind == "let" and num_args >= 3:
+                for pair_i in range(0, num_args - 2, 2):
+                    p_idx = bounds[pair_i] + 1
+                    if bounds[pair_i + 1] - p_idx == 1 and tokens[p_idx][0] == "name" and tokens[p_idx][2] is None:
+                        decl_indices.add(p_idx)
+                        bare, prefixed = _local_name_variants(tokens[p_idx][1])
+                        scope_start = bounds[pair_i + 2] + 1
+                        enter_events.setdefault(scope_start, []).extend((bare, prefixed))
+                        exit_events.setdefault(idx, []).extend((bare, prefixed))
+
+    active_counts: dict[str, int] = {}
+    for idx, (kind, ident_cf, qual_sheet_cf, is_call) in enumerate(tokens):
+        for name_cf in enter_events.get(idx, ()):
+            active_counts[name_cf] = active_counts.get(name_cf, 0) + 1
+        if kind == "ext":
+            yield ("ext", None, None, False)
+        elif kind == "name" and idx not in decl_indices:
+            if not (qual_sheet_cf is None and active_counts.get(ident_cf, 0) > 0):
+                yield ("name", ident_cf, qual_sheet_cf, is_call)
+        for name_cf in exit_events.get(idx, ()):
+            cnt = active_counts.get(name_cf, 0)
+            if cnt <= 1:
+                active_counts.pop(name_cf, None)
+            else:
+                active_counts[name_cf] = cnt - 1
 
 
 def _resolve_def_key(ident_cf, qual_sheet_cf, current_scope, defs, sheet_idx_by_name):
@@ -513,7 +647,13 @@ def external_links_at_risk(filename):
                 if not raw_name:
                     continue
                 raw_scope = dn.get("localSheetId")
-                scope = int(raw_scope) if raw_scope is not None else None
+                if raw_scope is None:
+                    scope = None
+                else:
+                    raw_scope_s = raw_scope.strip()
+                    if not (raw_scope_s.isdigit() and len(raw_scope_s) <= 7):
+                        raise ValueError(f"invalid localSheetId: {raw_scope!r}")
+                    scope = int(raw_scope_s)
                 defs.setdefault((raw_name.casefold(), scope), []).append(dn.text or "")
 
             lambda_defs = set()
@@ -597,6 +737,7 @@ def external_links_at_risk(filename):
                         coord = node.get("r")
                         if coord is None:
                             raise ValueError("a cell without its address")
+                        _row_major(coord)
                         formula = node.find(f"{main_ns}f")
                         if formula is None or formula.get("t") == "dataTable":
                             continue
@@ -838,7 +979,10 @@ def _scan_xml(filename):
                     if cell_type == "s":
                         v_text = node.findtext(f"{main_ns}v")
                         if v_text is not None:
-                            index = int(v_text)
+                            v_clean = v_text.strip()
+                            if not (v_clean.isdigit() and len(v_clean) <= 10):
+                                raise ValueError("invalid shared string index")
+                            index = int(v_clean)
                             is_formula = is_formula or (formula is None and index in shared_equals)
                     elif cell_type == "e":
                         err = _exact_error(node.findtext(f"{main_ns}v"))

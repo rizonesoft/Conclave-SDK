@@ -1693,6 +1693,98 @@ class CraftScriptHardeningTests(unittest.TestCase):
         self.assertEqual(chain_risk, ["Sheet1!A1"])
         self.assertLess(elapsed, 1.0, f"4001-name chain took {elapsed:.3f}s")
 
+    def test_recalc_coordinate_bounds_and_let_lambda_local_scopes(self):
+        import time
+
+        xlsx_scripts = CRAFT_DIR / "skills" / "xlsx" / "scripts"
+        recalc = _load_module("test_xlsx_recalc_bounds_let", xlsx_scripts / "recalc.py", [xlsx_scripts])
+
+        # 1. Excel grid limits and O(1) rejection of oversized coordinate strings
+        self.assertEqual(recalc._row_major("$XFD$1048576"), (1048576, 16384))
+        for bad_coord in ("XFE1", "ZZZ1", "A1048577", "A0", "A$B1"):
+            with self.assertRaises(ValueError):
+                recalc._row_major(bad_coord)
+
+        wb_long_col = self.root / "book_long_col.xlsx"
+        long_ref = ("A" * 160_000) + "1"
+        with zipfile.ZipFile(wb_long_col, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(
+                "xl/workbook.xml",
+                '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>',
+            )
+            zf.writestr(
+                "xl/_rels/workbook.xml.rels",
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+                'Target="worksheets/sheet1.xml"/></Relationships>',
+            )
+            zf.writestr(
+                "xl/worksheets/sheet1.xml",
+                '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                f'<sheetData/><mergeCells count="1"><mergeCell ref="{long_ref}"/></mergeCells>'
+                '</worksheet>',
+            )
+        t0 = time.perf_counter()
+        with self.assertRaises(ValueError):
+            recalc.external_links_at_risk(str(wb_long_col))
+        with self.assertRaises(ValueError):
+            recalc._scan_xml(str(wb_long_col))
+        self.assertIn("error", recalc._report(str(wb_long_col)))
+        with (
+            unittest.mock.patch.object(recalc, "get_soffice_env", return_value={}),
+            unittest.mock.patch.object(recalc, "run_soffice", side_effect=AssertionError("soffice must not run")),
+        ):
+            self.assertIn("error", recalc.recalc(str(wb_long_col)))
+            self.assertIn("error", recalc.recalc(str(wb_long_col), force=True))
+        self.assertLess(time.perf_counter() - t0, 0.5)
+
+        # 2. Formula-local LET and LAMBDA bindings shadow workbook defined names cleanly
+        wb_let = self.root / "book_let_scopes.xlsx"
+        with zipfile.ZipFile(wb_let, "w") as zf:
+            zf.writestr(
+                "xl/workbook.xml",
+                '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>'
+                '<definedNames>'
+                '<definedName name="Rate">[1]Sheet1!$A$1</definedName>'
+                '<definedName name="SafeDef">LET(Rate, 10, Rate * 2)</definedName>'
+                '<definedName name="LeakyDef">LET(Rate, Rate + 1, Rate * 2)</definedName>'
+                '<definedName name="SafeLambda">_xlfn.LAMBDA(Rate, Rate + 1)</definedName>'
+                '<definedName name="UnsafeLambda">_xlfn.LAMBDA(_xlpm.x, Rate + _xlpm.x)</definedName>'
+                '</definedNames></workbook>',
+            )
+            zf.writestr(
+                "xl/_rels/workbook.xml.rels",
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+                'Target="worksheets/sheet1.xml"/></Relationships>',
+            )
+            zf.writestr("xl/externalLinks/externalLink1.xml", "<externalLink/>")
+            zf.writestr(
+                "xl/worksheets/sheet1.xml",
+                '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+                '<row r="1">'
+                '<c r="A1"><f>LET(Rate,1,Rate+1)</f></c>'
+                '<c r="A2"><f>_xlfn.LET(_xlpm.Rate,1,_xlpm.Rate+1)</f></c>'
+                '<c r="A3"><f>LET(Arr,{1,2},Rate,3,Bonus,Rate+1,Bonus)</f></c>'
+                '<c r="A4"><f>SafeDef+1</f></c>'
+                '<c r="A5"><f>SafeLambda(5)</f></c>'
+                '<c r="B1"><f>LET(Rate,Rate+1,Rate*2)</f></c>'
+                '<c r="B2"><f>LET(Unused,1,Rate)</f></c>'
+                '<c r="B3"><f>LET(Rate,1,Rate)+Rate</f></c>'
+                '<c r="B4"><f>LET(Rate,1,Sheet1!Rate+Rate)</f></c>'
+                '<c r="B5"><f>LeakyDef</f></c>'
+                '<c r="B6"><f>UnsafeLambda(5)</f></c>'
+                '</row></sheetData></worksheet>',
+            )
+        self.assertEqual(
+            recalc.external_links_at_risk(str(wb_let)),
+            ["Sheet1!B1", "Sheet1!B2", "Sheet1!B3", "Sheet1!B4", "Sheet1!B5", "Sheet1!B6"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
