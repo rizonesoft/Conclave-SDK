@@ -1,0 +1,86 @@
+{
+  "ref": "D00 T02 \u00a72",
+  "title": "Antigravity flags and deny settings checked against the CLI",
+  "implementation_sha": "5147b0187fccf63c663c708a744653b7a7c77d31",
+  "date": "2026-11-14",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-reviewer/D00-T02-s2.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "CI tests.yml green at 5147b0187fcc (https://github.com/rizonetech/Conclave-SDK/actions/runs/43534696230) -> success",
+    "python -m unittest discover -s tests -p test_reviewer_flags.py -> Ran 21 tests in 32.520s OK",
+    "python -m unittest discover -s kits/reviewer/templates/scripts/tests -> Ran 199 tests in 146.606s OK (skipped=8)",
+    "python forge.py doctor . reviewer --strict -> exit 0 (reviewer-flags:carbon ok)"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-reviewer/D00-T02-s2.md",
+    "verdict": "complete",
+    "candidate": "5147b0187fccf63c663c708a744653b7a7c77d31",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/00-reviewer/D00-T02-s2.md",
+    "candidate": "7e95813b26faee8735e1284f61433e5fae79a592",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "7e95813b26faee8735e1284f61433e5fae79a592",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}

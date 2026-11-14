@@ -35,7 +35,7 @@ title: "TODO-02 -- Antigravity and Codex as first-class writers"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Codex route to Gemini 4 Carbon and Orchestrator effort rules | -- | [x] |
-| 2 | §2 | Antigravity flags and deny settings checked against the CLI | §1 | [ ] |
+| 2 | §2 | Antigravity flags and deny settings checked against the CLI | §1 | [x] |
 | 3 | §3 | Antigravity Orchestrator Carbon and subagent contract in the base kit | §2 | [ ] |
 
 ## 1. Codex route to Gemini 4 Carbon and Orchestrator effort rules
@@ -94,7 +94,7 @@ The roadmap says to check every `agy` flag against the current CLI before it shi
 - [x] Enforce never-`ok` failure mapping in `_probe` and `_agy_flags_check` in `forge.py` and verify CLI `--strict` exit codes end to end: launch failure -> `setup_required`, non-zero exit -> `unexpected`, timeout -> `setup_required` after `_kill_tree` cleanup (`forge.main(["doctor", ..., "reviewer", "--strict"])` returns `3` on `unexpected` or `setup_required` and `0` when `reviewer-flags:carbon` and `reviewer:astra` pass). Done when: `DoctorCheck` tests in `tests/test_reviewer_flags.py` exercise `forge.main(["doctor", str(project), "reviewer", "--strict"])` directly via captured stdout JSON across `ok` (exit `0`), missing flag (`3`), rejected settings (`3`), `agents` failure (`3`), and `setup_required` (`3`, `0` without `--strict`) plus process-tree cleanup on timeout and interrupt. Cheaper substitute: inspecting only `doctor_repo()` return dicts without testing `forge.main(..., "--strict")` exit code `3` must fail review.
 - [x] Run live `python forge.py doctor . reviewer --strict` against installed `agy` (`[reviewers.carbon]`) and record the date, `agy` version, `reviewer-flags:carbon` result (`ok`), all five `AGY_FLAGS`, and all three `AGY_REVIEW_SETTINGS` deny patterns in `kits/reviewer/README.md` (`:28`). Done when: `python forge.py doctor . reviewer --strict` exits `0` showing `reviewer-flags:carbon` `ok` and `kits/reviewer/README.md` records that verification. Cheaper substitute: keeping the stale `2026-11-13` `hydrogen` note without re-running `doctor . reviewer --strict` after `§1` switched to `carbon` and added `edit_file(*)` must fail review.
 - [x] Run `python forge.py self-sync`. Done when: `scripts/review-dispatch.py` and `scripts/review_pin.py` match `kits/reviewer/templates/` and `tests.test_forge -k self_sync` passes. Cheaper substitute: editing `scripts/review-dispatch.py` directly or skipping `self-sync` breaks SDK parity tests.
-- [ ] Commit: `reviewer: verify Antigravity flags and deny settings for Carbon`
+- [x] Commit: `reviewer: verify Antigravity flags and deny settings for Carbon`
 
 **Corrected 2026-11-14 (reopen):** Prior `D00 T02 §2` started `2026-11-13T15:16:09Z` and verified `reviewer-flags:hydrogen` without `edit_file(*)` in `AGY_REVIEW_SETTINGS`. Reopened 2026-11-14 to verify `AGY_FLAGS` and all three `AGY_REVIEW_SETTINGS` deny rules (`write_file(*)`, `edit_file(*)`, `mcp(*)`) against `[reviewers.carbon]` and add end-to-end `forge.main doctor --strict` exit-code tests.
 
@@ -103,6 +103,9 @@ The roadmap says to check every `agy` flag against the current CLI before it shi
 **Test checkpoint:** `python -m unittest discover -s tests -p test_reviewer_flags.py` and `python -m unittest discover -s kits/reviewer/templates/scripts/tests` end `OK`.
 
 > **Unstamped:** 2026-11-14: Re-verify Antigravity reviewer flags and edit_file/write_file/mcp deny settings against the Carbon reviewer (revoked receipt `docs/reviews/d00-t02-s2.revoked-2026-11-14.json`)
+
+> **Verified:** 2026-11-14 | §2 | 5147b0187fccf63c663c708a744653b7a7c77d31
+> **Review:** `docs/reviews/d00-t02-s2.json`
 
 ## 3. Antigravity Orchestrator Carbon and subagent contract in the base kit
 
