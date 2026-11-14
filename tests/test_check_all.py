@@ -151,6 +151,17 @@ class Runner(Stubs):
         self.assertIn("line 59999", result["tail"])
         self.assertNotIn("line 100 ", result["tail"])
 
+    def test_a_python_suites_summary_stays_after_what_it_printed_before(self):
+        # Python buffers a piped stdout and would write it at exit, after the summary unittest sends to stderr: the
+        # kept tail was then 40 lines of a test's own printing with the failure pushed out (found 2026-11-14).
+        chatty = self.command("chatty", 'import sys\nfor i in range(200):\n    print("chatter", i)\n'
+                                        'sys.stderr.write("FAILED (failures=1)\\n")\nsys.exit(1)\n')
+        with mock.patch.dict(os.environ):
+            os.environ.pop("PYTHONUNBUFFERED", None)
+            (result,) = self.run_all([chatty])
+        self.assertEqual(result["tail"].splitlines()[-1], "FAILED (failures=1)")
+        self.assertIn("chatter 199", result["tail"])
+
     def test_one_very_long_line_is_cut_to_the_byte_limit(self):
         long = self.command("long", 'import sys\nsys.stdout.write("y" * 500000 + "END")\nsys.exit(1)\n')
         (result,) = self.run_all([long])

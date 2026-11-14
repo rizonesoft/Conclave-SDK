@@ -2286,6 +2286,9 @@ def check_all(full: bool = False, only=(), skip=(), suites: list[dict] | None = 
     env.pop("CONCLAVE_FULL_TESTS", None)
     if full:
         env["CONCLAVE_FULL_TESTS"] = "1"
+    # A Python suite writes as it goes: a buffered stdout would land at exit, after the summary unittest sends to
+    # stderr, and push the failure out of the kept tail.
+    env["PYTHONUNBUFFERED"] = "1"
     results = []
     for suite in table:
         if (only and suite["name"] not in only) or suite["name"] in skip:
