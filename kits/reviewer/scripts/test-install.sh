@@ -45,12 +45,17 @@ mkdir -p "$fresh"
 (cd "$fresh" && python3 -B scripts/review-dispatch.py --check-pin >/dev/null)
 grep -q 'model = "gpt-6-astra"' "$fresh/.conclave/reviewers.toml"
 grep -q 'claude = \["astra"\]' "$fresh/.conclave/reviewers.toml"
-# A new install starts on three-pass, with Antigravity routed beside Claude Code.
+# A new install starts on three-pass, with Antigravity routed beside Claude Code and Codex routed to Carbon.
 grep -q 'agy = \["astra"\]' "$fresh/.conclave/reviewers.toml"
 grep -q '^policy = "three-pass"' "$fresh/.conclave/reviewers.toml"
 (cd "$fresh" && python3 -B scripts/review_pin.py --caps | grep -q '^pass_cap 33$')
 (cd "$fresh" && python3 -B scripts/review_pin.py --lenses completion | grep -q '^plan-delivery: ')
-! grep -q -e '^codex = ' -e '^gemini = ' -e 'sonnet' "$fresh/.conclave/reviewers.toml"
+grep -q '^codex = \["carbon"\]' "$fresh/.conclave/reviewers.toml"
+# No route under Antigravity's other name, and no Claude model reviews. An `if`, because `set -e` ignores a `!` line.
+if grep -q -e '^gemini = ' -e 'sonnet' "$fresh/.conclave/reviewers.toml"; then
+  printf 'a fresh pin routes gemini or names a Claude reviewer\n' >&2
+  exit 1
+fi
 
 tree_after_first=$(cd "$target" && find . -type f -print0 | sort -z | xargs -0 -r sha256sum)
 "$installer" "$target" >/dev/null
