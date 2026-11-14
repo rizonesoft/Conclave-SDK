@@ -61,8 +61,10 @@ elif "--help" in args:
     print(HELP.replace("  --print-timeout", "  --print-limit") if mode == "renamed" else HELP)
     sys.exit(3 if mode == "help-fails" else 0)
 elif "--settings" in args:
-    assert os.path.isfile(args[args.index("--settings") + 1])
-    open(os.path.join(here, "settings-seen"), "w").write(open(args[args.index("--settings") + 1]).read())
+    settings_arg = args[args.index("--settings") + 1]
+    assert os.path.isfile(settings_arg)
+    open(os.path.join(here, "settings-seen"), "w").write(open(settings_arg).read())
+    open(os.path.join(here, "settings-path"), "w").write(settings_arg)
     if mode == "rejects-settings":
         sys.stderr.write('Error: --settings: unknown setting "permissions"\n')
         sys.exit(1)
@@ -134,6 +136,11 @@ class DoctorCheck(unittest.TestCase):
         # A folder with a space in its name, as "C:\\Program Files" has: the wrapper's own path needs quoting.
         self.dir = Path(self._tmp.name) / "agy home"
         self.dir.mkdir()
+        self.temp_dir = self.dir / "private-temp"
+        self.temp_dir.mkdir()
+        temp_patch = mock.patch.object(tempfile, "tempdir", str(self.temp_dir))
+        temp_patch.start()
+        self.addCleanup(temp_patch.stop)
         (self.dir / "stub.py").write_text(STUB, encoding="utf-8")
         (self.dir / "help.txt").write_text(HELP, encoding="utf-8")
         if os.name == "nt":
@@ -167,7 +174,8 @@ class DoctorCheck(unittest.TestCase):
         self.assertIn("9.9.9", detail)
         self.assertEqual((self.dir / "settings-seen").read_text(),
                          '{"permissions": {"deny": ["write_file(*)", "edit_file(*)", "mcp(*)"]}}')
-        self.assertEqual(list(Path(tempfile.gettempdir()).glob("forge-agy-settings-*")), [], "the scratch file is gone")
+        self.assertEqual(Path((self.dir / "settings-path").read_text(encoding="utf-8")).parent, self.temp_dir)
+        self.assertEqual(list(self.temp_dir.glob("forge-agy-settings-*")), [], "the scratch file is gone")
 
     def test_a_renamed_flag_is_unexpected_and_names_it(self):
         self.mode("renamed")
@@ -180,7 +188,8 @@ class DoctorCheck(unittest.TestCase):
         status, detail = self.check()
         self.assertEqual(status, "unexpected")
         self.assertIn('Error: --settings: unknown setting "permissions"', detail)
-        self.assertEqual(list(Path(tempfile.gettempdir()).glob("forge-agy-settings-*")), [])
+        self.assertEqual(Path((self.dir / "settings-path").read_text(encoding="utf-8")).parent, self.temp_dir)
+        self.assertEqual(list(self.temp_dir.glob("forge-agy-settings-*")), [])
 
     def test_a_help_that_exits_non_zero_is_never_ok_though_it_lists_every_flag(self):
         self.mode("help-fails")
@@ -400,7 +409,8 @@ class DoctorCheck(unittest.TestCase):
                 json.loads((self.dir / "settings-seen").read_text(encoding="utf-8")),
                 {"permissions": {"deny": ["write_file(*)", "edit_file(*)", "mcp(*)"]}},
             )
-            self.assertEqual(list(Path(tempfile.gettempdir()).glob("forge-agy-settings-*")), [])
+            self.assertEqual(Path((self.dir / "settings-path").read_text(encoding="utf-8")).parent, self.temp_dir)
+            self.assertEqual(list(self.temp_dir.glob("forge-agy-settings-*")), [])
 
             self.mode("renamed")
             code, payload = self._run_doctor_cli(project, strict=True)
@@ -416,7 +426,8 @@ class DoctorCheck(unittest.TestCase):
             self.assertEqual(code, 3, payload)
             self.assertEqual(checks["reviewer-flags:carbon"]["status"], "unexpected")
             self.assertIn("--settings:", checks["reviewer-flags:carbon"]["detail"])
-            self.assertEqual(list(Path(tempfile.gettempdir()).glob("forge-agy-settings-*")), [])
+            self.assertEqual(Path((self.dir / "settings-path").read_text(encoding="utf-8")).parent, self.temp_dir)
+            self.assertEqual(list(self.temp_dir.glob("forge-agy-settings-*")), [])
 
             self.mode("agents-fails")
             code, payload = self._run_doctor_cli(project, strict=True)
