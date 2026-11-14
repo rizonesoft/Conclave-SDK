@@ -1,0 +1,86 @@
+{
+  "ref": "D01 T02 \u00a77",
+  "title": "Pre-commit hook enabled at install and checked by doctor",
+  "implementation_sha": "d46c3add1d05bcb7c37d5544c4ea3bf75bab3648",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/01-forge/D01-T02-s7.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest tests.test_pre_commit_hook -> Ran 28 tests, OK (Windows and WSL)",
+    "python -m unittest tests.test_forge -k test_todo_kit_install_and_doctor -> Ran 1 test, OK",
+    "install-time setting left out -> all InstallAndDoctor tests fail, the real-commit test among them",
+    "CI tests.yml run 43650515083 on d46c3add1d05 -> success on quick suite (Windows), full suite (Linux), kit suites (Linux)"
+  ],
+  "completion": {
+    "report": "docs/reviews/01-forge/D01-T02-s7.md",
+    "verdict": "complete",
+    "candidate": "d46c3add1d05bcb7c37d5544c4ea3bf75bab3648",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/01-forge/D01-T02-s7.md",
+    "candidate": "ee76d1284e89f7dfa506323a70634a12cf16e7f3",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "ee76d1284e89f7dfa506323a70634a12cf16e7f3",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}

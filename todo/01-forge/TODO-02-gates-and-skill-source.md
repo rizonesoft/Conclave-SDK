@@ -40,7 +40,7 @@ title: "TODO-02 -- One gate and one skill source"
 | 4 | §4 | Bash installers and their tests retired | §3 | [x] |
 | 5 | §5 | Skill copy generator with per-agent patches | -- | [x] |
 | 6 | §6 | Committed skill copies equal to the generator's output | §5 | [ ] |
-| 7 | §7 | Pre-commit hook enabled at install and checked by doctor | -- | [ ] |
+| 7 | §7 | Pre-commit hook enabled at install and checked by doctor | -- | [x] |
 
 ## 1. `forge.py check-all` over every suite
 
@@ -268,7 +268,7 @@ The todo kit's `scripts/hooks/pre-commit` refuses a commit that would turn the p
 - [x] Keep the fresh-install doctor test all `ok` in `tests/test_forge.py`: `test_todo_kit_install_and_doctor` installs into a git repository. Done when: its fresh install reports `pre-commit-hook` as `ok` with `core.hooksPath` set by the install, and the test fails with the install-time setting left out.
 - [x] Document the setting and the doctor check in `kits/todo/templates/todo/README.md` beside the hook, copy it over `todo/README.md`, replace "Enable it once per clone" in `kits/todo/README.md` (line 32) and in the header comment of `kits/todo/templates/scripts/hooks/pre-commit` (line 3) with what the install now does, and run `python forge.py self-sync`. Done when: the two READMEs are identical, `python -m unittest tests.test_forge -k self_sync` passes and `git grep -n "once per clone" -- kits scripts todo/README.md` prints nothing.
 - [x] Remove the sentence "The bash installers write no record." from the install record paragraph of `kits/README.md` (line 20), which describes installers §4 deleted as if they still ran. Done when: `git grep -n -i "bash installer" -- kits/README.md` prints nothing. Source: the completion review of §4 (`docs/reviews/01-forge/D01-T02-s4.md`, part 1 item 6, P3).
-- [ ] Commit: `forge: the todo kit's pre-commit hook is enabled at install and checked by doctor`
+- [x] Commit: `forge: the todo kit's pre-commit hook is enabled at install and checked by doctor`
 
 **Corrected 2026-11-15 (validation):** measured today. `test_todo_kit_install_and_doctor` (`tests/test_forge.py:601`) installs into a folder that is no git repository and expects every check `ok`, as do the other fresh-install tests, so the check needed an answer for that state, which the item did not give: `ok`, saying there is no repository (decision, default, cheap to reverse: one branch; a folder with no commits has no commit to refuse). The item also left open a project that is a subfolder of its repository (hooks paths are relative to the top level, so `scripts/hooks` would point elsewhere: reported, never set) and a machine where `git` does not run. The install item named three cases and left a second install, a dry run, no repository and a subfolder open. Nothing proved git actually runs the hook once the setting is made, so one test makes a real commit. Two more places say "Enable it once per clone" and were in no item: `kits/todo/README.md:32` and the hook's own header comment. The tests go in a new `tests/test_pre_commit_hook.py` (the items said `tests/test_forge.py`, whose full run takes over ten minutes), so the checkpoint names that file and the one `test_forge` test that changes; before: "`python -m unittest tests.test_forge` ends `OK`". The item on `kits/README.md` was filed here by the completion review of §4.
 
@@ -277,6 +277,9 @@ The todo kit's `scripts/hooks/pre-commit` refuses a commit that would turn the p
 **Corrected 2026-11-15 (round 1):** the owned-setup item read "it is `ok` once that hook's text names `scripts/hooks/pre-commit`" and its tests "each before and after its hook calls the kit's". The round showed three ways that was wrong: a comment naming the hook counted as a call, a wrapper git cannot run (mode 0644 on Linux) read `ok`, and an empty `core.hooksPath` was taken for unset and overwritten at install. The doctor still reads the hook and runs nothing, so its `ok` now says exactly that, and the proof that a joined hook works is a real commit in the tests.
 
 **Test checkpoint:** `python -m unittest tests.test_pre_commit_hook` and `python -m unittest tests.test_forge -k test_todo_kit_install_and_doctor` end `OK`; leaving the install-time setting out makes the fresh-install doctor test and the real-commit test fail.
+
+> **Verified:** 2026-11-15 | §7 | d46c3add1d05bcb7c37d5544c4ea3bf75bab3648
+> **Review:** `docs/reviews/d01-t02-s7.json`
 
 ## Verification
 
