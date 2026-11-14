@@ -2348,6 +2348,74 @@ class CraftScriptHardeningTests(unittest.TestCase):
                 self.assertTrue(bs1.exists())
                 self.assertTrue(bs2.exists())
 
+            # Case 7: valid Unicode xsd:ID, quoted ST_ContentType escapes/Latin-1, and PartName spaces clean cleanly
+            ct_valid = ET.Element(f"{{{ct_ns}}}Types")
+            ET.SubElement(
+                ct_valid,
+                f"{{{ct_ns}}}Default",
+                Extension="xml",
+                ContentType='application/xml;p="a\\"b";q="caf\u00e9";r="a\\\\"',
+            )
+            ET.SubElement(
+                ct_valid,
+                f"{{{ct_ns}}}Override",
+                PartName="/ppt/presentation.xml",
+                ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml",
+            )
+            ET.SubElement(
+                ct_valid,
+                f"{{{ct_ns}}}Override",
+                PartName="/ppt/slides/slide 1.xml",
+                ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml",
+            )
+            ET.SubElement(
+                ct_valid,
+                f"{{{ct_ns}}}Override",
+                PartName="/ppt/slides/slide2.xml",
+                ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml",
+            )
+            valid_dir, vs1, vs2 = _build_deck(
+                "clean_valid_opc_unicode",
+                sld_id_rid="rId\u00e9",
+                ct_bytes=ET.tostring(ct_valid, encoding="utf-8", xml_declaration=True),
+            )
+            unicode_rels = ET.Element(f"{{{rels_ns}}}Relationships")
+            ET.SubElement(
+                unicode_rels,
+                f"{{{rels_ns}}}Relationship",
+                Id="rId\u00e9",
+                Type=f"{r_ns}/slide",
+                Target="slides/slide1.xml",
+            )
+            (valid_dir / "ppt" / "_rels" / "presentation.xml.rels").write_bytes(
+                ET.tostring(unicode_rels, encoding="utf-8", xml_declaration=True)
+            )
+            removed = clean.clean_unused_files(valid_dir)
+            self.assertIn("ppt/slides/slide2.xml", removed)
+            self.assertTrue(vs1.exists())
+            self.assertFalse(vs2.exists())
+
+            for good_ct in (
+                "application/xml",
+                'application/xml;p="a\\"b"',
+                'application/xml;p="a\\\\"',
+                'application/xml;p="a\\"',
+                'application/xml;p="caf\u00e9"',
+                'application/xml ; p="a\tb"',
+                'application/xml;p="a\\x"',
+            ):
+                self.assertTrue(clean._is_valid_content_type(good_ct), good_ct)
+            for bad_ct in (
+                "not-a-type",
+                "application/xml;",
+                "application/xml; p = token",
+                'application/xml;p="bad"tail',
+                'application/xml;p="unterminated',
+                'application/xml;p="\x80"',
+                'application/xml;p="\u0100"',
+            ):
+                self.assertFalse(clean._is_valid_content_type(bad_ct), bad_ct)
+
     def test_pptx_apply_theme_resolves_project_local_deps_and_writes_atomically(self):
         node = shutil.which("node")
         if not node:
@@ -2524,12 +2592,44 @@ module.exports = FakeZip;
         deck_cli = proj / "deck_cli.pptx"
         deck_fail = proj / "deck_fail.pptx"
         many_deck = proj / "many_entries.pptx"
+        gap_deck = proj / "gap_crafted.pptx"
         _write_sample_deck(deck_prog)
         _write_sample_deck(deck_cli)
         orig_fail_bytes = _write_sample_deck(deck_fail)
         with zipfile.ZipFile(many_deck, "w", compression=zipfile.ZIP_STORED) as zf:
             for idx in range(10001):
                 zf.writestr(f"e{idx}.txt", b"")
+
+        # Crafted dual-directory gap archive: benign CD at offset 31, real LFH at 78, hostile symlink CD at 109,
+        # EOCD declaring cdOffset=31, cdSize=47 (leaving a gap JSZip would use as extraBytes to read offset 109).
+        import struct
+
+        padding = b"\x00" * 31
+        lfh_crafted = struct.pack("<IHHHHHIIIHH", 0x04034B50, 20, 0, 0, 0, 0, 0, 0, 0, 1, 0) + b"a"
+        cd_benign = struct.pack("<IHHHHHHIIIHHHHHII", 0x02014B50, 20, 20, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 78) + b"a"
+        cd_hostile = struct.pack(
+            "<IHHHHHHIIIHHHHHII",
+            0x02014B50,
+            (3 << 8) | 20,
+            20,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            200 * 1024 * 1024,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0o120777 << 16,
+            78,
+        ) + b"a"
+        eocd_crafted = struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, 1, 1, len(cd_benign), 31, 0)
+        gap_deck.write_bytes(padding + cd_benign + lfh_crafted + cd_hostile + eocd_crafted)
+
         theme_json = proj / "theme.json"
         theme_json.write_text(json.dumps(theme_obj), encoding="utf-8")
 
@@ -2573,6 +2673,21 @@ async function main() {{
     else throw err;
   }}
   assert.strictEqual(preZipEntryLimitCaught, true);
+
+  let gapCdCaught = false;
+  try {{
+    await applyTheme(path.join(projDir, "gap_crafted.pptx"), theme, {{
+      jszip: {{
+        loadAsync: async () => {{
+          throw new Error("JSZip.loadAsync should not have been called for gap_crafted");
+        }},
+      }},
+    }});
+  }} catch (err) {{
+    if (err && /central directory/i.test(err.message)) gapCdCaught = true;
+    else throw err;
+  }}
+  assert.strictEqual(gapCdCaught, true);
 
   const fakeZip = {{
     files: Object.fromEntries(Array.from({{ length: 10001 }}, (_, i) => [`f${{i}}.xml`, {{ dir: false }}])),
@@ -2635,6 +2750,19 @@ main().catch((err) => {{ console.error(err); process.exit(1); }});
         )
         self.assertNotEqual(proc_many.returncode, 0)
         self.assertIn("exceeding limit 10000", proc_many.stderr)
+
+        proc_gap = subprocess.run(
+            [node, str(apply_theme_js), "gap_crafted.pptx", "theme.json"],
+            cwd=str(proj),
+            env=clean_env,
+            capture_output=True,
+            text=True,
+            creationflags=CREATION_FLAGS,
+            timeout=30,
+            check=False,
+        )
+        self.assertNotEqual(proc_gap.returncode, 0)
+        self.assertIn("central directory", proc_gap.stderr.lower())
 
         for out_deck in (deck_prog, deck_cli):
             with zipfile.ZipFile(out_deck, "r") as zf:

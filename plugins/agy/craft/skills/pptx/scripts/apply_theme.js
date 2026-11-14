@@ -289,23 +289,66 @@ function themeXml(xml, theme) {
 	return out;
 }
 
-function readZip64MemberUncompressedSize(extraBuf, deckLabel) {
+function parseZip64Extra(extraBuf, needUncomp, needComp, needOffset, needDisk, deckLabel) {
 	let pos = 0;
-	while (pos + 4 <= extraBuf.length) {
+	let zip64Payload = null;
+	while (pos < extraBuf.length) {
+		if (pos + 4 > extraBuf.length) {
+			throw new Error(`${deckLabel} has a truncated ZIP extra field header. Nothing was changed.`);
+		}
 		const headerId = extraBuf.readUInt16LE(pos);
 		const dataSize = extraBuf.readUInt16LE(pos + 2);
 		pos += 4;
-		if (pos + dataSize > extraBuf.length) break;
-		if (headerId === 0x0001 && dataSize >= 8) {
-			const val = extraBuf.readBigUInt64LE(pos);
-			if (val > BigInt(MAX_MEMBER_BYTES)) {
-				throw new Error(`${deckLabel} contains a member exceeding size budget (${MAX_MEMBER_BYTES} bytes). Nothing was changed.`);
+		if (pos + dataSize > extraBuf.length) {
+			throw new Error(`${deckLabel} has a truncated ZIP extra field payload. Nothing was changed.`);
+		}
+		if (headerId === 0x0001) {
+			if (zip64Payload !== null) {
+				throw new Error(`${deckLabel} contains duplicate ZIP64 extra fields on an entry. Nothing was changed.`);
 			}
-			return Number(val);
+			zip64Payload = extraBuf.subarray(pos, pos + dataSize);
 		}
 		pos += dataSize;
 	}
-	throw new Error(`${deckLabel} has a malformed ZIP64 member size header. Nothing was changed.`);
+
+	const requiredBytes = (needUncomp ? 8 : 0) + (needComp ? 8 : 0) + (needOffset ? 8 : 0) + (needDisk ? 4 : 0);
+	if (requiredBytes === 0) {
+		return {};
+	}
+	if (zip64Payload === null || zip64Payload.length < requiredBytes) {
+		throw new Error(`${deckLabel} has a malformed ZIP64 member size or offset header. Nothing was changed.`);
+	}
+
+	let offset = 0;
+	const out = {};
+	if (needUncomp) {
+		const val = zip64Payload.readBigUInt64LE(offset);
+		if (val > BigInt(MAX_MEMBER_BYTES)) {
+			throw new Error(`${deckLabel} contains a member exceeding size budget (${MAX_MEMBER_BYTES} bytes). Nothing was changed.`);
+		}
+		out.uncompSize = Number(val);
+		offset += 8;
+	}
+	if (needComp) {
+		const val = zip64Payload.readBigUInt64LE(offset);
+		if (val > BigInt(MAX_ARCHIVE_BYTES)) {
+			throw new Error(`${deckLabel} contains a compressed member exceeding archive budget (${MAX_ARCHIVE_BYTES} bytes). Nothing was changed.`);
+		}
+		out.compSize = Number(val);
+		offset += 8;
+	}
+	if (needOffset) {
+		const val = zip64Payload.readBigUInt64LE(offset);
+		if (val > BigInt(MAX_ARCHIVE_BYTES)) {
+			throw new Error(`${deckLabel} contains an out-of-bounds local header offset. Nothing was changed.`);
+		}
+		out.lfhOffset = Number(val);
+		offset += 8;
+	}
+	if (needDisk) {
+		out.diskStart = zip64Payload.readUInt32LE(offset);
+	}
+	return out;
 }
 
 function inspectZipBuffer(buf, deckLabel) {
@@ -319,15 +362,17 @@ function inspectZipBuffer(buf, deckLabel) {
 		throw new Error(`${deckLabel} is not a valid ZIP archive. Nothing was changed.`);
 	}
 
+	// Match JSZip's lastIndexOfSignature(0x06054b50) and require exact EOF alignment so
+	// trailing comment signatures cannot cause JSZip and this precheck to parse different EOCDs.
 	let eocd = -1;
 	const minEocd = Math.max(0, buf.length - 22 - 65535);
 	for (let i = buf.length - 22; i >= minEocd; i--) {
-		if (buf.readUInt32LE(i) === 0x06054b50 && i + 22 + buf.readUInt16LE(i + 20) === buf.length) {
+		if (buf.readUInt32LE(i) === 0x06054b50) {
 			eocd = i;
 			break;
 		}
 	}
-	if (eocd < 0) {
+	if (eocd < 0 || eocd + 22 + buf.readUInt16LE(eocd + 20) !== buf.length) {
 		throw new Error(`${deckLabel} is missing a valid ZIP end-of-central-directory record. Nothing was changed.`);
 	}
 
@@ -339,7 +384,18 @@ function inspectZipBuffer(buf, deckLabel) {
 	let cdOffset = buf.readUInt32LE(eocd + 16);
 	let cdUpperBound = eocd;
 
-	if (eocd >= 20 && buf.readUInt32LE(eocd - 20) === 0x07064b50) {
+	const needsZip64 =
+		diskNum === 0xffff ||
+		cdDisk === 0xffff ||
+		diskEntries === 0xffff ||
+		totalEntries === 0xffff ||
+		cdSize === 0xffffffff ||
+		cdOffset === 0xffffffff;
+
+	if (needsZip64) {
+		if (eocd < 20 || buf.readUInt32LE(eocd - 20) !== 0x07064b50) {
+			throw new Error(`${deckLabel} has a malformed or missing ZIP64 central directory locator. Nothing was changed.`);
+		}
 		const locDisk = buf.readUInt32LE(eocd - 16);
 		const z64OffBig = buf.readBigUInt64LE(eocd - 12);
 		const totalDisks = buf.readUInt32LE(eocd - 4);
@@ -353,43 +409,52 @@ function inspectZipBuffer(buf, deckLabel) {
 		if (buf.readUInt32LE(z64Off) !== 0x06064b50) {
 			throw new Error(`${deckLabel} has a malformed ZIP64 end-of-central-directory record. Nothing was changed.`);
 		}
+		const z64RecordSize = buf.readBigUInt64LE(z64Off + 4);
+		if (z64RecordSize < 44n || BigInt(z64Off) + 12n + z64RecordSize !== BigInt(eocd - 20)) {
+			throw new Error(`${deckLabel} has a ZIP64 record size mismatch with its locator. Nothing was changed.`);
+		}
 		const z64DiskNum = buf.readUInt32LE(z64Off + 16);
 		const z64CdDisk = buf.readUInt32LE(z64Off + 20);
 		const z64DiskEntries = buf.readBigUInt64LE(z64Off + 24);
 		const z64TotalEntries = buf.readBigUInt64LE(z64Off + 32);
 		const z64CdSize = buf.readBigUInt64LE(z64Off + 40);
 		const z64CdOffset = buf.readBigUInt64LE(z64Off + 48);
-		if (z64DiskNum !== 0 || z64CdDisk !== 0 || z64DiskEntries !== z64TotalEntries) {
-			throw new Error(`${deckLabel} is an unsupported multi-disk ZIP64 archive. Nothing was changed.`);
+		if (
+			z64DiskNum !== 0 ||
+			z64CdDisk !== 0 ||
+			z64DiskEntries !== z64TotalEntries ||
+			(diskNum !== 0xffff && diskNum !== 0) ||
+			(cdDisk !== 0xffff && cdDisk !== 0) ||
+			(diskEntries !== 0xffff && BigInt(diskEntries) !== z64DiskEntries) ||
+			(totalEntries !== 0xffff && BigInt(totalEntries) !== z64TotalEntries) ||
+			(cdSize !== 0xffffffff && BigInt(cdSize) !== z64CdSize) ||
+			(cdOffset !== 0xffffffff && BigInt(cdOffset) !== z64CdOffset)
+		) {
+			throw new Error(`${deckLabel} is an unsupported or inconsistent multi-disk ZIP64 archive. Nothing was changed.`);
 		}
 		if (z64TotalEntries > BigInt(MAX_ARCHIVE_ENTRIES)) {
 			throw new Error(`${deckLabel} has ${z64TotalEntries.toString()} archive entries, exceeding limit ${MAX_ARCHIVE_ENTRIES}. Nothing was changed.`);
 		}
-		if (z64CdSize > BigInt(MAX_ARCHIVE_BYTES) || z64CdOffset + z64CdSize > BigInt(z64Off)) {
-			throw new Error(`${deckLabel} has an out-of-bounds ZIP64 central directory. Nothing was changed.`);
+		if (z64CdSize > BigInt(MAX_ARCHIVE_BYTES) || z64CdOffset + z64CdSize !== BigInt(z64Off)) {
+			throw new Error(`${deckLabel} has an out-of-bounds or misaligned ZIP64 central directory. Nothing was changed.`);
 		}
 		totalEntries = Number(z64TotalEntries);
 		cdSize = Number(z64CdSize);
 		cdOffset = Number(z64CdOffset);
 		cdUpperBound = z64Off;
 	} else {
-		if (
-			diskNum !== 0 ||
-			cdDisk !== 0 ||
-			diskEntries !== totalEntries ||
-			totalEntries === 0xffff ||
-			cdSize === 0xffffffff ||
-			cdOffset === 0xffffffff
-		) {
-			throw new Error(`${deckLabel} has an unsupported multi-disk or truncated ZIP directory. Nothing was changed.`);
+		if (diskNum !== 0 || cdDisk !== 0 || diskEntries !== totalEntries) {
+			throw new Error(`${deckLabel} has an unsupported multi-disk ZIP directory. Nothing was changed.`);
 		}
 		if (totalEntries > MAX_ARCHIVE_ENTRIES) {
 			throw new Error(`${deckLabel} has ${totalEntries} archive entries, exceeding limit ${MAX_ARCHIVE_ENTRIES}. Nothing was changed.`);
 		}
 	}
 
-	if (cdOffset < 0 || cdSize < 0 || cdOffset + cdSize > cdUpperBound) {
-		throw new Error(`${deckLabel} has an out-of-bounds ZIP central directory. Nothing was changed.`);
+	// Require exact CD-to-EOCD adjacency so JSZip computes extraBytes === 0 and reads the
+	// same central directory bytes validated here.
+	if (cdOffset < 0 || cdSize < 0 || cdOffset + cdSize !== cdUpperBound) {
+		throw new Error(`${deckLabel} has a misaligned or out-of-bounds ZIP central directory. Nothing was changed.`);
 	}
 
 	const cdEnd = cdOffset + cdSize;
@@ -404,11 +469,14 @@ function inspectZipBuffer(buf, deckLabel) {
 		if (seenEntries > MAX_ARCHIVE_ENTRIES) {
 			throw new Error(`${deckLabel} has more than ${MAX_ARCHIVE_ENTRIES} archive entries, exceeding limit ${MAX_ARCHIVE_ENTRIES}. Nothing was changed.`);
 		}
+		const compSize32 = buf.readUInt32LE(ptr + 20);
 		const uncompSize32 = buf.readUInt32LE(ptr + 24);
 		const nameLen = buf.readUInt16LE(ptr + 28);
 		const extraLen = buf.readUInt16LE(ptr + 30);
 		const commentLen = buf.readUInt16LE(ptr + 32);
+		const diskStart16 = buf.readUInt16LE(ptr + 34);
 		const extAttr = buf.readUInt32LE(ptr + 38);
+		const lfhOff32 = buf.readUInt32LE(ptr + 42);
 		const entryEnd = ptr + 46 + nameLen + extraLen + commentLen;
 		if (entryEnd > cdEnd) {
 			throw new Error(`${deckLabel} has a truncated ZIP central directory entry. Nothing was changed.`);
@@ -416,9 +484,27 @@ function inspectZipBuffer(buf, deckLabel) {
 		if (((extAttr >>> 16) & 0o170000) === 0o120000) {
 			throw new Error(`${deckLabel} contains a symlink archive entry, which is not allowed. Nothing was changed.`);
 		}
-		const uncompSize = uncompSize32 === 0xffffffff
-			? readZip64MemberUncompressedSize(buf.subarray(ptr + 46 + nameLen, ptr + 46 + nameLen + extraLen), deckLabel)
-			: uncompSize32;
+		const zip64Fields = parseZip64Extra(
+			buf.subarray(ptr + 46 + nameLen, ptr + 46 + nameLen + extraLen),
+			uncompSize32 === 0xffffffff,
+			compSize32 === 0xffffffff,
+			lfhOff32 === 0xffffffff,
+			diskStart16 === 0xffff,
+			deckLabel,
+		);
+		const diskStart = diskStart16 === 0xffff ? zip64Fields.diskStart : diskStart16;
+		if (diskStart !== 0) {
+			throw new Error(`${deckLabel} is an unsupported multi-disk ZIP archive. Nothing was changed.`);
+		}
+		const compSize = compSize32 === 0xffffffff ? zip64Fields.compSize : compSize32;
+		const uncompSize = uncompSize32 === 0xffffffff ? zip64Fields.uncompSize : uncompSize32;
+		const lfhOffset = lfhOff32 === 0xffffffff ? zip64Fields.lfhOffset : lfhOff32;
+		if (lfhOffset + 30 > cdOffset || buf.readUInt32LE(lfhOffset) !== 0x04034b50) {
+			throw new Error(`${deckLabel} central directory entry points to an invalid local file header. Nothing was changed.`);
+		}
+		if (compSize > MAX_ARCHIVE_BYTES) {
+			throw new Error(`${deckLabel} contains a compressed member exceeding archive budget (${MAX_ARCHIVE_BYTES} bytes). Nothing was changed.`);
+		}
 		if (uncompSize > MAX_MEMBER_BYTES) {
 			throw new Error(`${deckLabel} contains a member exceeding size budget (${MAX_MEMBER_BYTES} bytes). Nothing was changed.`);
 		}
@@ -459,6 +545,11 @@ async function applyTheme(deckPath, theme, outPathOrOptions = deckPath, maybeOpt
 	const entryNames = Object.keys(zip.files);
 	if (entryNames.length > MAX_ARCHIVE_ENTRIES) {
 		throw new Error(`${deckPath} has ${entryNames.length} archive entries, exceeding limit ${MAX_ARCHIVE_ENTRIES}. Nothing was changed.`);
+	}
+	for (const entry of Object.values(zip.files)) {
+		if (entry && typeof entry.unixPermissions === "number" && ((entry.unixPermissions >>> 0) & 0o170000) === 0o120000) {
+			throw new Error(`${deckPath} contains a symlink archive entry, which is not allowed. Nothing was changed.`);
+		}
 	}
 
 	const budget = { total: 0 };

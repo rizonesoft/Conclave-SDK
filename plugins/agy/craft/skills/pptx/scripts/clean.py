@@ -42,12 +42,90 @@ _PRESENTATION_NS = (
     "http://schemas.openxmlformats.org/presentationml/2006/main",
     "http://purl.oclc.org/ooxml/presentationml/main",
 )
-_TOKEN_PART = r"[!#$%&'*+\-.0-9A-Z^_`a-z|~]+"
-_CONTENT_TYPE_RE = re.compile(
-    rf"^{_TOKEN_PART}/{_TOKEN_PART}(?:\s*;\s*{_TOKEN_PART}=(?:{_TOKEN_PART}|\"[^\x00-\x1F\x7F\"]*\"))*$"
+_XML_WS = " \t\r\n"
+_TOKEN_CHARS = frozenset(
+    "!#$%&'*+-.0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ^_`abcdefghijklmnopqrstuvwxyz|~"
 )
-_EXTENSION_RE = re.compile(r"^(?:[!$&'()*+,:=@a-zA-Z0-9\-_~]|%[0-9a-fA-F]{2})+$")
-_XML_ID_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9._-]*$")
+_EXTENSION_RE = re.compile(r"^(?:[!$&'()*+,:=@a-zA-Z0-9\-_~]|%[0-9a-fA-F]{2})+\Z")
+_NCNAME_START = (
+    r"A-Z_a-z\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u02FF\u0370-\u037D"
+    r"\u037F-\u1FFF\u200C-\u200D\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF"
+    r"\uF900-\uFDCF\uFDF0-\uFFFD\U00010000-\U000EFFFF"
+)
+_NCNAME_CHAR = _NCNAME_START + r"\-.0-9\u00B7\u0300-\u036F\u203F-\u2040"
+_XML_ID_RE = re.compile(rf"^[{_NCNAME_START}][{_NCNAME_CHAR}]*\Z")
+
+
+def _is_valid_content_type(value: str) -> bool:
+    """Validate ST_ContentType from opc-contentTypes.xsd in linear O(n) time."""
+    if "/" not in value:
+        return False
+    idx = value.find("/")
+    media_type = value[:idx]
+    if not media_type or not all(ch in _TOKEN_CHARS for ch in media_type):
+        return False
+    pos = idx + 1
+    sub_start = pos
+    while pos < len(value) and value[pos] in _TOKEN_CHARS:
+        pos += 1
+    if pos == sub_start:
+        return False
+
+    # 8-state NFA matching optional (; param = token | quoted-string)* parameters.
+    states = {0}
+    for ch in value[pos:]:
+        code = ord(ch)
+        next_states: set[int] = set()
+        if 0 in states:
+            if ch in _XML_WS:
+                next_states.add(1)
+            elif ch == ";":
+                next_states.add(2)
+        if 1 in states:
+            if ch in _XML_WS:
+                next_states.add(1)
+            elif ch == ";":
+                next_states.add(2)
+        if 2 in states:
+            if ch in _XML_WS:
+                next_states.add(2)
+            elif ch in _TOKEN_CHARS:
+                next_states.add(3)
+        if 3 in states:
+            if ch in _TOKEN_CHARS:
+                next_states.add(3)
+            elif ch == "=":
+                next_states.add(4)
+        if 4 in states:
+            if ch in _TOKEN_CHARS:
+                next_states.add(5)
+            elif ch == '"':
+                next_states.add(6)
+        if 5 in states:
+            if ch in _TOKEN_CHARS:
+                next_states.add(5)
+            elif ch in _XML_WS:
+                next_states.add(1)
+            elif ch == ";":
+                next_states.add(2)
+        if 6 in states:
+            if ch == '"':
+                next_states.add(0)
+            elif ch == "\\":
+                next_states.add(6)
+                next_states.add(7)
+            elif (
+                ch in _XML_WS
+                or (0x20 <= code <= 0x7E)
+                or (0xA0 <= code <= 0xFF)
+            ):
+                next_states.add(6)
+        if 7 in states and 0x00 <= code <= 0x7F:
+            next_states.add(6)
+        if not next_states:
+            return False
+        states = next_states
+    return bool(states & {0, 5})
 
 
 def _slide_rids(pres_rels_path: Path, unpacked_dir: Path) -> dict[str, str]:
@@ -63,7 +141,7 @@ def _slide_rids(pres_rels_path: Path, unpacked_dir: Path) -> dict[str, str]:
             rel.getAttribute("Target"), source_part, rel.getAttribute("TargetMode")
         )
         if part is not None:
-            rids[rel.getAttribute("Id")] = part
+            rids[rel.getAttribute("Id").strip(_XML_WS)] = part
     return rids
 
 
@@ -74,7 +152,7 @@ def _referenced_slide_rids(pres_path: Path) -> list[str]:
     return [
         rid
         for el in local_elements(pres_dom.documentElement, "sldId")
-        if (rid := get_rel_id_attr(el))
+        if (rid := get_rel_id_attr(el).strip(_XML_WS))
     ]
 
 
@@ -119,7 +197,7 @@ def _validate_slide_id_list(
 
     root_resolved = unpacked_dir.resolve()
     for sld_el in local_elements(pres_root, "sldId"):
-        rid = get_rel_id_attr(sld_el)
+        rid = get_rel_id_attr(sld_el).strip(_XML_WS)
         if not rid:
             raise RefusedToClean(
                 "<p:sldIdLst> contains a <p:sldId> without a relationship id; "
@@ -233,7 +311,7 @@ def _validate_content_types_dom(ct_dom) -> None:
                 "Extension" not in attrs
                 or "ContentType" not in attrs
                 or not _EXTENSION_RE.match(ext)
-                or not _CONTENT_TYPE_RE.match(ctype)
+                or not _is_valid_content_type(ctype)
             ):
                 raise RefusedToClean(
                     "[Content_Types].xml <Default> has invalid Extension or ContentType; "
@@ -258,8 +336,8 @@ def _validate_content_types_dom(ct_dom) -> None:
                 or not part_name.startswith("/")
                 or len(part_name) <= 1
                 or "\\" in part_name
-                or any(ch.isspace() or ord(ch) < 32 or ord(ch) == 127 for ch in part_name)
-                or not _CONTENT_TYPE_RE.match(ctype)
+                or any(ord(ch) < 32 or ord(ch) == 127 for ch in part_name)
+                or not _is_valid_content_type(ctype)
             ):
                 raise RefusedToClean(
                     "[Content_Types].xml <Override> has invalid PartName or ContentType; "
@@ -301,16 +379,16 @@ def _validate_rels_dom(rels_dom, rels_label: str) -> None:
         attrs = _unqualified_attrs(
             rel, {"Id", "Type", "Target", "TargetMode"}, f"{rels_label} <Relationship>"
         )
-        rel_id = attrs.get("Id", "")
-        rel_type = attrs.get("Type", "")
-        target = attrs.get("Target", "")
+        rel_id = attrs.get("Id", "").strip(_XML_WS)
+        rel_type = attrs.get("Type", "").strip(_XML_WS)
+        target = attrs.get("Target", "").strip(_XML_WS)
         if (
             "Id" not in attrs
             or "Type" not in attrs
             or "Target" not in attrs
             or not _XML_ID_RE.match(rel_id)
-            or not rel_type.strip()
-            or not target.strip()
+            or not rel_type
+            or not target
         ):
             raise RefusedToClean(
                 f"{rels_label} <Relationship> has missing or invalid Id, Type, or Target; "
