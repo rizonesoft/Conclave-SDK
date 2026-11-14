@@ -135,7 +135,11 @@ def _is_pid_alive(pid: int) -> bool:
     return True
 
 
-def _kill_tree(proc: subprocess.Popen[str], job_handle: int | None = None) -> None:
+def _kill_tree(
+    proc: subprocess.Popen[str],
+    job_handle: int | None = None,
+    pgid: int | None = None,
+) -> None:
     """Terminate proc and every descendant process cleanly on Windows or POSIX."""
     if sys.platform == "win32":
         kernel32, _, _ = _configure_win32_job_api()
@@ -161,10 +165,17 @@ def _kill_tree(proc: subprocess.Popen[str], job_handle: int | None = None) -> No
             except OSError:
                 pass
     else:
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except (ProcessLookupError, PermissionError, OSError):
-            pass
+        target_pgid = pgid
+        if target_pgid is None:
+            try:
+                target_pgid = os.getpgid(proc.pid)
+            except (ProcessLookupError, PermissionError, OSError):
+                target_pgid = proc.pid
+        if target_pgid and target_pgid > 0:
+            try:
+                os.killpg(target_pgid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
         if proc.poll() is None:
             try:
                 proc.kill()
@@ -205,6 +216,8 @@ def _run_bounded_subprocess(
         popen_kwargs["start_new_session"] = True
 
     proc = subprocess.Popen(cmd, **popen_kwargs)
+    # With start_new_session=True, proc.pid is its pgid even after communicate() reaps proc.
+    pgid: int | None = proc.pid if sys.platform != "win32" else None
     timed_out = False
     stdout = ""
     stderr = ""
@@ -236,7 +249,7 @@ def _run_bounded_subprocess(
             stdout, stderr = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             timed_out = True
-            _kill_tree(proc, job_handle)
+            _kill_tree(proc, job_handle, pgid=pgid)
             job_handle = None
             try:
                 stdout, stderr = proc.communicate(timeout=5)
@@ -245,7 +258,7 @@ def _run_bounded_subprocess(
                 stderr = stderr or ""
     finally:
         # Terminate any surviving descendants even when the root exited normally.
-        _kill_tree(proc, job_handle)
+        _kill_tree(proc, job_handle, pgid=pgid)
         if proc.stdout is not None:
             proc.stdout.close()
         if proc.stderr is not None:
@@ -542,8 +555,32 @@ def _matching_tool_results(
 def _assert_result_succeeded(res: dict[str, object], tool_name: str) -> None:
     """Reject missing/errored tool_result dictionaries."""
     status = str(res.get("status") or "").lower()
-    if res.get("is_error") or status in {"error", "failed", "failure"}:
+    if res.get("is_error") or status in {"error", "failed", "failure", "cancelled"}:
         raise AssertionError(f"{tool_name} tool_result reported failure: {res!r}")
+
+
+def _results_for_call(
+    call: dict[str, object],
+    tool_results: list[dict[str, object]],
+    consumed_indices: set[int],
+) -> list[dict[str, object]]:
+    """Return matching terminal tool_result records for one tool call."""
+    call_id = str(call.get("id") or "")
+    if call_id:
+        matched: list[dict[str, object]] = []
+        for idx, res in enumerate(tool_results):
+            if str(res.get("id") or "") == call_id:
+                consumed_indices.add(idx)
+                matched.append(res)
+        return matched
+    call_name = str(call.get("name") or "")
+    for idx, res in enumerate(tool_results):
+        if idx in consumed_indices or str(res.get("id") or ""):
+            continue
+        if str(res.get("name") or "") == call_name:
+            consumed_indices.add(idx)
+            return [res]
+    return []
 
 
 def parse_orchestrator_stream(
@@ -558,17 +595,29 @@ def parse_orchestrator_stream(
     if not exit_indices:
         raise AssertionError("Orchestrator stream did not invoke exit_plan_mode")
 
-    exit_results = _matching_tool_results("exit_plan_mode", tool_uses, tool_results)
-    if not exit_results:
-        raise AssertionError("exit_plan_mode was called without a completion tool_result")
-    for res in exit_results:
-        _assert_result_succeeded(res, "exit_plan_mode")
+    consumed_results: set[int] = set()
+    for idx in exit_indices:
+        matched_exit = _results_for_call(tool_uses[idx], tool_results, consumed_results)
+        if not matched_exit:
+            raise AssertionError("exit_plan_mode was called without a completion tool_result")
+        for res in matched_exit:
+            _assert_result_succeeded(res, "exit_plan_mode")
 
     post_exit_tools = [
         call for call in tool_uses[exit_indices[0] + 1 :] if call.get("name") != "exit_plan_mode"
     ]
     if not post_exit_tools:
         raise AssertionError("Orchestrator emitted no execution tool call after exit_plan_mode")
+
+    for call in post_exit_tools:
+        tool_name = str(call.get("name") or "tool")
+        matched = _results_for_call(call, tool_results, consumed_results)
+        if not matched:
+            raise AssertionError(
+                f"Orchestrator execution tool call {tool_name!r} did not complete: {call!r}"
+            )
+        for res in matched:
+            _assert_result_succeeded(res, tool_name)
     return parsed
 
 
@@ -920,6 +969,48 @@ else:
                 f"descendant PID {grand_pid} survived bounded tree cleanup",
             )
 
+    def test_normal_exit_kills_detached_descendant_process_tree(self) -> None:
+        child_script = """
+import subprocess, sys, time
+from pathlib import Path
+
+pid_file = Path(sys.argv[1])
+if len(sys.argv) == 2:
+    grand = subprocess.Popen(
+        [sys.executable, __file__, str(pid_file), "grandchild"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+    )
+    pid_file.write_text(str(grand.pid), encoding="utf-8")
+else:
+    time.sleep(60)
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            script = tmp_path / "spawn_and_exit.py"
+            grand_pid_file = tmp_path / "grand.pid"
+            script.write_text(child_script.strip() + "\n", encoding="utf-8")
+
+            rc, _, stderr, timed_out = _run_bounded_subprocess(
+                [sys.executable, str(script), str(grand_pid_file)],
+                cwd=tmp_path,
+                timeout=10.0,
+            )
+            self.assertFalse(timed_out, f"spawn_and_exit.py timed out; stderr={stderr}")
+            self.assertEqual(rc, 0, stderr)
+            self.assertTrue(grand_pid_file.is_file(), "child did not spawn grandchild")
+            grand_pid = int(grand_pid_file.read_text(encoding="utf-8").strip())
+
+            deadline = time.monotonic() + 3.0
+            while _is_pid_alive(grand_pid) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertFalse(
+                _is_pid_alive(grand_pid),
+                f"detached descendant PID {grand_pid} survived parent exit cleanup",
+            )
+
     def test_accepts_valid_orchestrator_exit_plan_and_execution_stream(self) -> None:
         stream = "\n".join(
             [
@@ -1072,6 +1163,52 @@ else:
         with self.assertRaises(AssertionError):
             parse_orchestrator_stream(failed_result)
 
+    def test_rejects_incomplete_or_failed_execution_after_exit_plan_mode(self) -> None:
+        active_only_exec = "\n".join(
+            [
+                _agy_init_line("gemini-pro-orchestrator"),
+                *_agy_tool_pair(3, "exit_plan_mode", output="Plan mode is off."),
+                _agy_tool_pair(4, "edit_file", parameters={"Path": "calc.py"})[0],
+                _agy_result_line("SUCCESS"),
+            ]
+        )
+        with self.assertRaisesRegex(AssertionError, "did not complete"):
+            parse_orchestrator_stream(active_only_exec)
+
+        failed_exec_with_error = "\n".join(
+            [
+                _agy_init_line("gemini-pro-orchestrator"),
+                *_agy_tool_pair(3, "exit_plan_mode", output="Plan mode is off."),
+                *_agy_tool_pair(4, "edit_file", state="ERROR", error="permission denied"),
+                _agy_result_line("SUCCESS"),
+            ]
+        )
+        with self.assertRaisesRegex(AssertionError, "reported failure"):
+            parse_orchestrator_stream(failed_exec_with_error)
+
+        failed_exec_state_only = "\n".join(
+            [
+                _agy_init_line("gemini-pro-orchestrator"),
+                *_agy_tool_pair(3, "exit_plan_mode", output="Plan mode is off."),
+                *_agy_tool_pair(4, "edit_file", state="ERROR"),
+                _agy_result_line("SUCCESS"),
+            ]
+        )
+        with self.assertRaisesRegex(AssertionError, "reported failure"):
+            parse_orchestrator_stream(failed_exec_state_only)
+
+        active_second_exit = "\n".join(
+            [
+                _agy_init_line("gemini-pro-orchestrator"),
+                *_agy_tool_pair(3, "exit_plan_mode", output="Plan mode is off."),
+                _agy_tool_pair(4, "exit_plan_mode")[0],
+                *_agy_tool_pair(5, "edit_file", parameters={"Path": "calc.py"}),
+                _agy_result_line("SUCCESS"),
+            ]
+        )
+        with self.assertRaisesRegex(AssertionError, "exit_plan_mode"):
+            parse_orchestrator_stream(active_second_exit)
+
 
 CALC_SOURCE = """def add(a, b):
     return a - b
@@ -1204,14 +1341,13 @@ class LiveOrchestratorTests(unittest.TestCase):
                 raise AssertionError(f"{exc} (stream saved to {dump})") from exc
             fixed_src = (ws / "calc.py").read_text(encoding="utf-8")
             self.assertIn("a + b", fixed_src)
-            check = subprocess.run(
+            v_rc, v_out, v_err, v_timed_out = _run_bounded_subprocess(
                 [sys.executable, "-m", "unittest", "tests.test_calc"],
-                cwd=str(ws),
-                capture_output=True,
-                text=True,
-                check=False,
+                cwd=ws,
+                timeout=30.0,
             )
-            self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+            self.assertFalse(v_timed_out, f"tests.test_calc timed out; stderr={v_err}")
+            self.assertEqual(v_rc, 0, v_out + v_err)
 
 
 if __name__ == "__main__":
