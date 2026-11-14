@@ -1,0 +1,84 @@
+{
+  "ref": "D00 T02 \u00a71",
+  "title": "Codex route to Gemini 4 Carbon and Orchestrator effort rules",
+  "implementation_sha": "630d20f13a9778670fed77a1d6b487cf1dd0d33b",
+  "date": "2026-11-14",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-reviewer/D00-T02-s1.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "CI tests.yml green at 630d20f13a97 (https://github.com/rizonetech/Conclave-SDK/actions/runs/43528324805) -> success",
+    "live: codex -> carbon (gemini-4-carbon-medium, agy 1.5.8) + edit_file(*) deny probe passed"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-reviewer/D00-T02-s1.md",
+    "verdict": "reconciled",
+    "candidate": "630d20f13a9778670fed77a1d6b487cf1dd0d33b",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/00-reviewer/D00-T02-s1.md",
+    "candidate": "f69e3edd55873cf0a293a8d5e0e9ba1f836fc304",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "f69e3edd55873cf0a293a8d5e0e9ba1f836fc304",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

@@ -34,7 +34,7 @@ title: "TODO-02 -- Antigravity and Codex as first-class writers"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Codex route to Gemini 4 Carbon and Orchestrator effort rules | -- | [ ] |
+| 1 | §1 | Codex route to Gemini 4 Carbon and Orchestrator effort rules | -- | [x] |
 | 2 | §2 | Antigravity flags and deny settings checked against the CLI | §1 | [ ] |
 | 3 | §3 | Antigravity Orchestrator Carbon and subagent contract in the base kit | §2 | [ ] |
 
@@ -59,7 +59,7 @@ The template pin previously routed Codex reviews to Gemini 4 Hydrogen (`hydrogen
 - [x] Update `tests/test_template_pin.py`, `tests/test_reviewer_flags.py` (`AGY_REVIEW_SETTINGS` JSON assertions in `dispatch.review` tests and `carbon` reviewer references), and `tests/fixtures/check-pin/pins/` (`valid-three-routes.toml` equal to template, `expected.json`, plus `valid-agy-orchestrator-unscheduled.toml`, `refused-agy-orchestrator-effort.toml`, and `refused-agy-orchestrator-rotation-effort.toml` exercised in `tests/test_check_pin_contract.py`). Done when: `python -m unittest tests.test_template_pin tests.test_check_pin_contract tests.test_reviewer_flags` passes and removing `codex = ["carbon"]` fails `test_template_pin`. Cheaper substitute: updating `expected.json` without regenerating/checking `valid-three-routes.toml` against the shipped pin or without testing `--check-pin` refusal on effort-bearing orchestrator pins must fail review.
 - [x] Update the reviewer tables in `kits/reviewer/README.md` (`:7-28`) and the three `independent-review` copies (`kits/reviewer/templates/.{agents,claude,codex}/skills/independent-review/SKILL.md`) to name `carbon` and `gemini-4-carbon-medium` for `codex`, and run `python forge.py self-sync` so `.conclave/reviewers.toml`, `scripts/`, `.agents/`, `.claude/`, `.codex/`, and `docs/` match the kits. Done when: `tests.test_check_pin_contract.ShippedPinDocumentation` passes and `python scripts/review-dispatch.py --check-pin` prints `ok`. Cheaper substitute: updating only `README.md` or one agent skill copy leaves the isolated `.agents`, `.claude`, or `.codex` instructions stale and fails `ShippedPinDocumentation`.
 - [x] Dispatch one bounded live review through the installed `agy` with the template pin (`python scripts/review-dispatch.py --kind round --candidate f69e3edd55873cf0a293a8d5e0e9ba1f836fc304 --writer codex --prompt <scratch>/s1-live-codex-prompt.md --record <scratch>/live-codex-carbon.md`, using a non-section scratch record name) asking for a verifiable observation from that committed candidate (`§1`'s `Started:` timestamp, without naming it in the prompt), and record the `agy` version, date, reviewer (`carbon`), model (`gemini-4-carbon-medium`), elapsed time, candidate observation, `edit_file(*)` deny probe result, and verdict lines in `kits/reviewer/README.md`. Done when: the dispatcher exits `0`, records `reviewer == "carbon"` and `model == "gemini-4-carbon-medium"`, quotes `2026-11-13T22:54:00Z` from the candidate alongside `LENS` lines, `HIGHEST:`, and `OVERALL:`, and the results match `kits/reviewer/README.md`.
-- [ ] Commit: `reviewer: route Codex work to Gemini 4 Carbon`
+- [x] Commit: `reviewer: route Codex work to Gemini 4 Carbon`
 
 **Corrected 2026-11-14 (reopen):** Prior `D00 T02 §1` started `2026-11-13T14:07:20Z` and routed `codex` to `hydrogen` (`gemini-4-hydrogen-medium`) without `edit_file(*)` in `AGY_REVIEW_SETTINGS` and without `gemini-pro-orchestrator` effort handling. Reopened 2026-11-14 to route `codex` to Gemini 4 Carbon (`gemini-4-carbon-medium`), deny `edit_file(*)`, and teach `review_pin.py` about Orchestrator models.
 
@@ -68,6 +68,9 @@ The template pin previously routed Codex reviews to Gemini 4 Hydrogen (`hydrogen
 **Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests` and `python -m unittest tests.test_template_pin tests.test_check_pin_contract tests.test_reviewer_flags tests.test_forge` both end `OK`; removing `codex = ["carbon"]` fails `tests.test_template_pin`.
 
 > **Unstamped:** 2026-11-14: Route Codex reviews to Gemini 4 Carbon instead of Hydrogen and handle Orchestrator (Carbon) effort rules in review_pin.py (revoked receipt `docs/reviews/d00-t02-s1.revoked-2026-11-14.json`)
+
+> **Verified:** 2026-11-14 | §1 | 630d20f13a9778670fed77a1d6b487cf1dd0d33b
+> **Review:** `docs/reviews/d00-t02-s1.json`
 
 ## 2. Antigravity flags and deny settings checked against the CLI
 
