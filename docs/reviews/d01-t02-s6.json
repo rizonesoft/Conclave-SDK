@@ -1,0 +1,86 @@
+{
+  "ref": "D01 T02 \u00a76",
+  "title": "Committed skill copies equal to the generator's output",
+  "implementation_sha": "3cc5e686807e9d3a57d39ff637f13dc4e5c100c6",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/01-forge/D01-T02-s6.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python forge.py skill-copies --check -> exit 0, changed [], stray []",
+    "python -m unittest tests.test_skill_copies -> Ran 29 tests, OK",
+    "a copy edited by hand in a scratch copy of kits/ -> named by the check (test_a_copy_edited_by_hand_fails_the_check_naming_the_file)",
+    "CI tests.yml run 43651895325 on 3cc5e686807e -> success on quick suite (Windows), full suite (Linux), kit suites (Linux)"
+  ],
+  "completion": {
+    "report": "docs/reviews/01-forge/D01-T02-s6.md",
+    "verdict": "complete",
+    "candidate": "3cc5e686807e9d3a57d39ff637f13dc4e5c100c6",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/01-forge/D01-T02-s6.md",
+    "candidate": "6a656aac02a2a3c96f0c6c9e8aa033f64b551a12",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "6a656aac02a2a3c96f0c6c9e8aa033f64b551a12",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}

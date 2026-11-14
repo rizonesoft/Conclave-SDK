@@ -107,7 +107,7 @@ Sections: 7 | Checklist items: 58
 | [x]    | D01 T02 §3 | Install assertions moved from bash to the Python suite   | none  | 6     |
 | [x]    | D01 T02 §4 | Bash installers and their tests retired                  | none  | 12    |
 | [x]    | D01 T02 §5 | Skill copy generator with per-agent patches              | none  | 9     |
-| [ ]    | D01 T02 §6 | Committed skill copies equal to the generator's output   | none  | 8     |
+| [x]    | D01 T02 §6 | Committed skill copies equal to the generator's output   | none  | 8     |
 | [x]    | D01 T02 §7 | Pre-commit hook enabled at install and checked by doctor | none  | 10    |
 
 ### Phase 6: Tooling kits
@@ -154,6 +154,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 61/85 verified sections, 7 ready to run now.
+Progress: 62/85 verified sections, 6 ready to run now.
 
-Checklist: 494/626 items completed (includes Commit items).
+Checklist: 495/626 items completed (includes Commit items).

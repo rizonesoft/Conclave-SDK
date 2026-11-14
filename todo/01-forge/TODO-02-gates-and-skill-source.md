@@ -2,7 +2,7 @@
 schema_version: 1
 id: gates-and-skill-source
 domain: 01-forge
-status: active
+status: done
 title: "TODO-02 -- One gate and one skill source"
 ---
 
@@ -39,7 +39,7 @@ title: "TODO-02 -- One gate and one skill source"
 | 3 | §3 | Install assertions moved from bash to the Python suite | §1 | [x] |
 | 4 | §4 | Bash installers and their tests retired | §3 | [x] |
 | 5 | §5 | Skill copy generator with per-agent patches | -- | [x] |
-| 6 | §6 | Committed skill copies equal to the generator's output | §5 | [ ] |
+| 6 | §6 | Committed skill copies equal to the generator's output | §5 | [x] |
 | 7 | §7 | Pre-commit hook enabled at install and checked by doctor | -- | [x] |
 
 ## 1. `forge.py check-all` over every suite
@@ -236,13 +236,16 @@ The generator means nothing until the committed copies are its output. The diffe
 - [x] Run `python forge.py self-sync` and state the SDK's rule where an SDK maintainer reads it, `AGENTS.md` (Strict agent isolation) and `kits/README.md`: edit the Claude copy or a patch, run `python forge.py skill-copies`, then `self-sync`. Done when: `python -m unittest tests.test_forge -k self_sync` passes with the SDK's installed copies equal to the kits and both documents name both commands.
 - [x] Keep the shipped document right for a project in `kits/base/templates/docs/agent-skills-and-rules-structure.md`: a project owns its three copies and edits each directly, having no `forge.py`, patches or `self-sync`; step 7 of "Adding a New Skill" ("copy it into the matching Conclave-SDK kit's `templates/` by hand") says to add the Claude file and any patch in the SDK and run its generator there. Done when: the document tells a project to run no SDK command on its own tree, names `skill-copies` only as what the SDK does with a contributed skill, and its installed copy `docs/agent-skills-and-rules-structure.md` is identical after `self-sync`.
 - [x] Refuse an empty folder under `skill-patches/` that is not `agents` or `codex` in `_skill_copy_plan` of `forge.py`, which today sees only files and so accepts `skill-patches/gemini/` until a patch is put in it. Done when: a test in `tests/test_skill_copies.py` creates the empty folder, finds `forge.SkillCopyError` naming it and every file's digest unchanged, and fails with the folder check removed. Source: the completion review of §5 (`docs/reviews/01-forge/D01-T02-s5.md`, part 1 item 5, P3).
-- [ ] Commit: `kits: skill copies are the generator's output`
+- [x] Commit: `kits: skill copies are the generator's output`
 
 **Corrected 2026-11-15 (validation):** the counts were of 2026-11-11 ("nine skill files", "80 changed lines for `.agents`, 78 for `.codex`"); since then the unattended kit added a skill and the run guard text grew, so they are measured again with the command in the item. The differences were read before this note was written: all but three are intended (the agent's name in each description, `--writer`, `$ARGUMENTS` against `<section-ref>`, each agent's hook file, and the run guard of `process-plan` and `process-phase`, which is a different mechanism per agent). The list went "in the commit message body", which no later reader opens: it is a file beside the findings. The patch item said nothing of how much text a `find` holds, and a whole-paragraph `find` would make every edit of that paragraph break the patch. The test went in `tests/test_forge.py` and now joins the generator's own tests, and its `Done when:` was a manual edit, now proven by the test on a scratch copy. `kits/README.md` is the third place a maintainer reads how kits are changed. The checkpoint ran the whole `tests` folder, which CI runs; before: "`python -m unittest discover -s tests` ends `OK`". The item on an empty folder under `skill-patches/` was filed here by the completion review of §5.
 
 **Corrected 2026-11-15 (plan review):** two gaps, both taken. The proof that only accidental lines changed was `git diff --stat`, which counts lines and would pass a changed `--writer` value with the same totals: it is the full diff, quoted and read against the list. The documentation item put the generator workflow in `kits/base/templates/docs/agent-skills-and-rules-structure.md`, which ships to projects that have no `forge.py`, patches or `self-sync` (before: "state the rule in `AGENTS.md` (Strict agent isolation), `kits/base/templates/docs/agent-skills-and-rules-structure.md` and `kits/README.md`"): the SDK's rule goes where SDK maintainers read it, and the shipped document keeps a project's own instructions and corrects its step on contributing a skill back.
 
 **Test checkpoint:** `python forge.py skill-copies --check` exits 0 and `python -m unittest tests.test_skill_copies` ends `OK`; editing one `.agents` skill file by hand makes both fail.
+
+> **Verified:** 2026-11-15 | §6 | 3cc5e686807e9d3a57d39ff637f13dc4e5c100c6
+> **Review:** `docs/reviews/d01-t02-s6.json`
 
 ## 7. Pre-commit hook enabled at install and checked by doctor
 

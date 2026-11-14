@@ -6,7 +6,6 @@ Governing plans: [docs/plans/2026-11-11-sdk-audit-and-roadmap.md](../docs/plans/
 
 | Domain | File | Scope |
 | ------ | ---- | ----- |
-| 01 | 01-forge/TODO-02-gates-and-skill-source.md | check-all, one installer, generated skill copies |
 | 04 | 04-tooling/TODO-01-lsp-kit.md | Server table, client, Claude plugin, MCP bridge |
 | 04 | 04-tooling/TODO-02-toolchain-kits.md | Tool pins and doctor for C, C++, PHP and Node |
 | 05 | 05-base/TODO-01-operating-directive.md | Operating directive, git rules, init --goal |
@@ -20,6 +19,7 @@ Governing plans: [docs/plans/2026-11-11-sdk-audit-and-roadmap.md](../docs/plans/
 | 00 | 00-reviewer/TODO-01-three-pass-review.md | Three-pass review in the reviewer and todo kits | 2026-11-11 |
 | 00 | 00-reviewer/TODO-02-three-writers.md | Codex route, Antigravity flag check and Orchestrator Carbon | 2026-11-14 |
 | 01 | 01-forge/TODO-01-install-record-and-update.md | Install record, diff, update and drift report | 2026-11-11 |
+| 01 | 01-forge/TODO-02-gates-and-skill-source.md | check-all, one installer, generated skill copies | 2026-11-15 |
 | 02 | 02-unattended/TODO-01-run-guard-three-agents.md | Campaign guard hooks for Antigravity and Codex | 2026-11-12 |
 | 02 | 02-unattended/TODO-02-unattended-kit.md | Preflight, launcher, heartbeat, shortcuts | 2026-11-13 |
 | 03 | 03-todo-graph/TODO-01-project-shaped-graph.md | A project's shape, every fault at once, adoption | 2026-11-13 |
