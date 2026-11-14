@@ -970,7 +970,7 @@ class OrchestratorContractTests(unittest.TestCase):
                     "sha256": hashlib.sha256(original_bytes).hexdigest(),
                 }
                 if rel == ".agents/agents/code-explorer.md":
-                    content_bytes = original_bytes + b"# project customization\n"
+                    content_bytes = original_bytes + b"# project customization\r\n"
                 else:
                     content_bytes = original_bytes
                 dest.write_bytes(content_bytes)
@@ -994,12 +994,22 @@ class OrchestratorContractTests(unittest.TestCase):
                 )
 
             _git("init")
-            _git("config", "core.autocrlf", "false")
+            _git("config", "core.autocrlf", "true")
             _git("config", "user.email", "test@example.com")
             _git("config", "user.name", "Test")
             _git("add", "-A")
             _git("commit", "-m", "chore: pre-migration baseline")
             _git("branch", "pre-orchestrator-migration")
+
+            archive_script = (
+                "import pathlib, zipfile; "
+                "z = zipfile.ZipFile('.git/pre-orchestrator-migration.zip', 'w'); "
+                "[z.write(f) for p in ('.agents/agents', 'scripts/agy-subagent.py', '.conclave/kits.json') "
+                "for f in ([pathlib.Path(p)] if pathlib.Path(p).is_file() else "
+                "sorted(x for x in pathlib.Path(p).rglob('*') if x.is_file()) if pathlib.Path(p).is_dir() else [])]; "
+                "z.close()"
+            )
+            subprocess.run([sys.executable, "-c", archive_script], cwd=str(project), check=True)
 
             diff_proc = _run_forge(["diff", str(project), "base"], check=False)
             self.assertEqual(diff_proc.returncode, 0, diff_proc.stderr)
@@ -1056,17 +1066,30 @@ class OrchestratorContractTests(unittest.TestCase):
             doctor_proc = _run_forge(["doctor", str(project), "base"], check=False)
             self.assertEqual(doctor_proc.returncode, 0, doctor_proc.stdout + doctor_proc.stderr)
 
-            # Verify rollback via HEAD alone fails after commit, while pre-orchestrator-migration restores byte-for-byte.
+            # Verify rollback via HEAD alone fails after commit, and plain checkout alters newlines under autocrlf=true.
             head_rollback = _git("checkout", "HEAD", "--", "scripts/agy-subagent.py", check=False)
             self.assertNotEqual(head_rollback.returncode, 0)
 
+            _git("checkout", "pre-orchestrator-migration", "--", "scripts/agy-subagent.py")
+            self.assertNotEqual(
+                (project / "scripts/agy-subagent.py").read_bytes(),
+                expected_pre_bytes["scripts/agy-subagent.py"],
+            )
+
             _git(
+                "-c",
+                "core.autocrlf=false",
                 "checkout",
                 "pre-orchestrator-migration",
                 "--",
                 ".agents/agents",
                 "scripts/agy-subagent.py",
                 ".conclave/kits.json",
+            )
+            subprocess.run(
+                [sys.executable, "-m", "zipfile", "-e", ".git/pre-orchestrator-migration.zip", "."],
+                cwd=str(project),
+                check=True,
             )
             for rel, raw_bytes in expected_pre_bytes.items():
                 self.assertTrue((project / rel).is_file(), f"rollback did not restore {rel}")
@@ -1085,6 +1108,8 @@ class OrchestratorContractTests(unittest.TestCase):
         self.assertIn("--model gemini-pro-orchestrator", readme)
         self.assertIn(".agents/agents/<custom>.md", readme)
         self.assertIn("pre-orchestrator-migration", readme)
+        self.assertIn(".git/pre-orchestrator-migration.zip", readme)
+        self.assertIn("core.autocrlf=false", readme)
         self.assertIn("preserved-code-explorer.md", readme)
         for name in RETIRED_AGENT_FILES:
             self.assertIn(name, readme)
