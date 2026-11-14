@@ -26,7 +26,7 @@ _PCT_SLASH_RE = re.compile(r"%2f|%5c", re.IGNORECASE)
 _BAD_PCT_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 _PCT_PAIR_RE = re.compile(r"%([0-9A-Fa-f]{2})")
 _IPVFUTURE_RE = re.compile(r"^[vV][0-9A-Fa-f]+\.[A-Za-z0-9\-._~!$&'()*+,;=:]+\Z")
-_PORT_RE = re.compile(r"^[0-9]+\Z")
+_PORT_RE = re.compile(r"^[0-9]*\Z")
 _XML_SPACE_RUN_RE = re.compile(r"[ \t\r\n]+")
 _UNRESERVED_BYTES = frozenset(
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"

@@ -695,7 +695,11 @@ class CraftScriptHardeningTests(unittest.TestCase):
         self.assertIsNone(helpers.opc_target("http://[::1]:8080/a", "ppt/slides/slide1.xml", "External"))
         self.assertIsNone(helpers.opc_target("http://[v1.a]/a", "ppt/slides/slide1.xml", "External"))
         self.assertIsNone(helpers.opc_target("http://@host:80/a", "ppt/slides/slide1.xml", "External"))
+        self.assertIsNone(helpers.opc_target("http://example.com:/a", "ppt/slides/slide1.xml", "External"))
+        self.assertIsNone(helpers.opc_target("http://[::1]:/a", "ppt/slides/slide1.xml", "External"))
         self.assertTrue(helpers.is_valid_any_uri("http://[v1.a]/a"))
+        self.assertTrue(helpers.is_valid_any_uri("http://example.com:/"))
+        self.assertTrue(helpers.is_valid_any_uri("http://[::1]:/"))
         self.assertFalse(helpers.is_valid_any_uri("1bad:type"))
         self.assertFalse(helpers.is_valid_any_uri("http://host:abc/a"))
         self.assertEqual(helpers.opc_target("slide1.xml#anchor", "ppt/slides/slide2.xml", "Internal"), "ppt/slides/slide1.xml")
@@ -720,7 +724,6 @@ class CraftScriptHardeningTests(unittest.TestCase):
             ("1bad:slide1.xml", "ppt/presentation.xml", "Internal"),
             ("https://example.com/bad%GG", "ppt/slides/slide1.xml", "External"),
             ("http://host:abc/a", "ppt/slides/slide1.xml", "External"),
-            ("http://host:/a", "ppt/slides/slide1.xml", "External"),
             ("1bad:type", "ppt/slides/slide1.xml", "External"),
             (":bad", "ppt/slides/slide1.xml", "External"),
             ("bad_scheme:foo", "ppt/slides/slide1.xml", "External"),
@@ -2690,6 +2693,37 @@ class CraftScriptHardeningTests(unittest.TestCase):
                         val_case = val_pptx_case7.PPTXSchemaValidator(case_dir)
                         self.assertFalse(val_case.validate_file_references())
                         self.assertFalse(val_case.validate())
+
+            # RFC 3986 empty port (port = *DIGIT) is valid for External relationships
+            for case_name, rel_id, rel_target in (
+                ("empty_port_host", "rIdEmptyPortHost", "http://example.com:/"),
+                ("empty_port_ipv6", "rIdEmptyPortIpv6", "http://[::1]:/"),
+            ):
+                empty_port_dir = self.root / f"clean_{case_name}"
+                shutil.copytree(valid_dir, empty_port_dir)
+                ep_rels = ET.Element(f"{{{rels_ns}}}Relationships")
+                ET.SubElement(
+                    ep_rels,
+                    f"{{{rels_ns}}}Relationship",
+                    Id="rIdImg1",
+                    Type=f"{r_ns}/image",
+                    Target="../media/image1.png",
+                )
+                ET.SubElement(
+                    ep_rels,
+                    f"{{{rels_ns}}}Relationship",
+                    Id=rel_id,
+                    Type=f"{r_ns}/hyperlink",
+                    Target=rel_target,
+                    TargetMode="External",
+                )
+                (empty_port_dir / "ppt" / "slides" / "_rels" / "slide 1.xml.rels").write_bytes(
+                    ET.tostring(ep_rels, encoding="utf-8", xml_declaration=True)
+                )
+                self.assertEqual(clean.clean_unused_files(empty_port_dir), [])
+                if importlib.util.find_spec("lxml") is not None:
+                    val_ep = val_pptx_case7.PPTXSchemaValidator(empty_port_dir)
+                    self.assertTrue(val_ep.validate_file_references())
 
             for good_ct in (
                 "application/xml",
