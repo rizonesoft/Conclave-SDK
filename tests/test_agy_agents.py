@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 from ctypes import wintypes
 import hashlib
@@ -108,6 +109,25 @@ def _configure_win32_job_api():
     ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
     ntdll.NtResumeProcess.restype = ctypes.c_long
     return kernel32, ntdll, JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+
+
+@contextlib.contextmanager
+def _temp_dir_released_by_its_tree(seconds: float = 5.0):
+    """A temp folder for a test whose killed process tree ran in it. Windows reports a killed process gone a moment
+    before it lets go of its working folder (about 0.1 s, measured 2026-11-14), so the removal waits for that, bounded:
+    a folder still held after `seconds` is a process that survived, and the removal's error fails the test."""
+    tmp = tempfile.mkdtemp()
+    try:
+        yield tmp
+    finally:
+        deadline = time.monotonic() + seconds
+        while os.path.lexists(tmp):
+            try:
+                shutil.rmtree(tmp)
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.05)
 
 
 def _is_pid_alive(pid: int) -> bool:
@@ -1345,7 +1365,7 @@ if len(sys.argv) == 2:
 else:
     time.sleep(60)
 """
-        with tempfile.TemporaryDirectory() as tmp:
+        with _temp_dir_released_by_its_tree() as tmp:
             tmp_path = Path(tmp)
             script = tmp_path / "spawn_tree.py"
             grand_pid_file = tmp_path / "grand.pid"
@@ -1388,7 +1408,7 @@ if len(sys.argv) == 2:
 else:
     time.sleep(60)
 """
-        with tempfile.TemporaryDirectory() as tmp:
+        with _temp_dir_released_by_its_tree() as tmp:
             tmp_path = Path(tmp)
             script = tmp_path / "spawn_and_exit.py"
             grand_pid_file = tmp_path / "grand.pid"
