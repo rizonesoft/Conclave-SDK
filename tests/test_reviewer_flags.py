@@ -1,6 +1,9 @@
 """`forge.py doctor <project> reviewer` checks the flags and settings the dispatcher passes to the Antigravity CLI
 against the installed CLI (D00 T02 §2), with a stub `agy` standing in for it."""
+import contextlib
 import importlib.util
+import io
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -66,7 +69,10 @@ elif "--settings" in args:
     if mode == "agents-fails":
         sys.stderr.write("Failed to start: open installation_id: Access is denied.\n")
         sys.exit(1)
-    print("No agents.")
+    if any(a.startswith("-p=") for a in args):
+        print("HIGHEST: none\nOVERALL: approve")
+    else:
+        print("No agents.")
 '''
 
 
@@ -89,10 +95,15 @@ class FlagList(unittest.TestCase):
     def test_a_renamed_flag_is_missing_and_a_longer_neighbour_does_not_stand_in(self):
         self.assertEqual(dispatch.agy_flags_missing(HELP.replace("  --print-timeout", "  --print-limit")),
                          ["--print-timeout"])
-        # `--print` is listed, `--print-timeout` is not: a prefix is not the flag.
-        self.assertEqual(dispatch.agy_flags_missing("\n".join(l for l in HELP.splitlines() if "--print-timeout" not in l)),
+        # `--print-timeout-extra` contains `--print-timeout` as a substring, and `--print` contains `-p`: naive
+        # `flag in help_text` fails on both, while whole-word matching catches each missing flag.
+        self.assertEqual(dispatch.agy_flags_missing(HELP.replace("  --print-timeout  ", "  --print-timeout-extra  ")),
                          ["--print-timeout"])
         self.assertEqual(dispatch.agy_flags_missing(HELP.replace("  -p  ", "  -q  ")), ["-p"])
+        self.assertEqual(dispatch.agy_flags_missing("\n".join(l for l in HELP.splitlines() if "  -p  " not in l)),
+                         ["-p"])
+        self.assertEqual(dispatch.agy_flags_missing("\n".join(l for l in HELP.splitlines() if "--print-timeout" not in l)),
+                         ["--print-timeout"])
 
     def test_a_flag_the_help_lacks_is_reported_when_the_dispatcher_starts_passing_it(self):
         with mock.patch.object(dispatch, "AGY_FLAGS", (*dispatch.AGY_FLAGS, "--read-only")):
@@ -105,6 +116,16 @@ class FlagList(unittest.TestCase):
         self.assertEqual(argv, ["/usr/bin/agy", "--model", "gemini-4-carbon-medium", "--sandbox", "--settings",
                                 str(Path("/tmp/x/agy-settings.json")), "--print-timeout", "60s", "-p=short"])
         self.assertEqual([a.split("=")[0] for a in argv if a.startswith("-")], list(dispatch.AGY_FLAGS))
+
+        custom_flags = ("--llm", "--box", "--cfg", "--wait", "--prompt")
+        with mock.patch.object(dispatch, "AGY_FLAGS", custom_flags):
+            rebound, rebound_stdin = dispatch.command(
+                {"cli": "agy", "model": "gemini-4-carbon-medium"}, "/usr/bin/agy", "short",
+                Path("/p.md"), Path("/tmp/x/last-message.md"), 45,
+            )
+        self.assertIsNone(rebound_stdin)
+        self.assertEqual(rebound, ["/usr/bin/agy", "--llm", "gemini-4-carbon-medium", "--box", "--cfg",
+                                   str(Path("/tmp/x/agy-settings.json")), "--wait", "45s", "--prompt=short"])
 
 
 class DoctorCheck(unittest.TestCase):
@@ -328,6 +349,107 @@ class DoctorCheck(unittest.TestCase):
             code, _, problem = forge._probe([str(self.agy), "--help"], timeout=3)
         self.assertEqual((code, problem), (None, "no answer within 3 seconds"))
         self.assertEqual(waits[1], 5, "the cleanup wait is bounded")
+
+    def _install_codex_stub(self):
+        if os.name == "nt":
+            stub = self.dir / "codex.cmd"
+            stub.write_text("@echo off\r\necho codex 0.0.0\r\n", encoding="utf-8")
+        else:
+            stub = self.dir / "codex"
+            stub.write_text("#!/bin/sh\necho codex 0.0.0\n", encoding="utf-8")
+            stub.chmod(0o755)
+        return stub
+
+    def _run_doctor_cli(self, project, strict=True):
+        out = io.StringIO()
+        argv = ["doctor", str(project), "reviewer", *(["--strict"] if strict else [])]
+        with contextlib.redirect_stdout(out):
+            code = forge.main(argv)
+        return code, json.loads(out.getvalue())
+
+    def test_dispatch_review_writes_agy_review_settings_before_invoking_agy(self):
+        project = self.dir / "project"
+        project.mkdir()
+        forge.apply_kit(project, "reviewer")
+        prompt_path = self.dir / "prompt.md"
+        prompt_path.write_text("Review the diff cleanly.\n", encoding="utf-8")
+        pin = dispatch.load_pin(project / ".conclave/reviewers.toml")
+        pin.pop("schedule", None)
+        with self.path_with_only_the_stub():
+            summary = dispatch.review(pin, "codex", prompt_path, 30)
+        self.assertEqual((summary["reviewer"], summary["model"]), ("carbon", "gemini-4-carbon-medium"))
+        self.assertEqual(
+            json.loads((self.dir / "settings-seen").read_text(encoding="utf-8")),
+            {"permissions": {"deny": ["write_file(*)", "edit_file(*)", "mcp(*)"]}},
+        )
+
+    def test_doctor_cli_strict_exit_codes_and_temp_cleanup(self):
+        project = self.dir / "project"
+        project.mkdir()
+        forge.apply_kit(project, "reviewer")
+        self._install_codex_stub()
+
+        with self.path_with_only_the_stub():
+            code, payload = self._run_doctor_cli(project, strict=True)
+            checks = {c["name"]: c for c in payload["checks"]}
+            self.assertEqual(code, 0, payload)
+            self.assertEqual(payload["missing_or_setup_required"], 0)
+            self.assertEqual(checks["reviewer:carbon"]["status"], "ok")
+            self.assertEqual(checks["reviewer-flags:carbon"]["status"], "ok")
+            self.assertEqual(
+                json.loads((self.dir / "settings-seen").read_text(encoding="utf-8")),
+                {"permissions": {"deny": ["write_file(*)", "edit_file(*)", "mcp(*)"]}},
+            )
+            self.assertEqual(list(Path(tempfile.gettempdir()).glob("forge-agy-settings-*")), [])
+
+            self.mode("renamed")
+            code, payload = self._run_doctor_cli(project, strict=True)
+            checks = {c["name"]: c for c in payload["checks"]}
+            self.assertEqual(code, 3, payload)
+            self.assertEqual(checks["reviewer-flags:carbon"]["status"], "unexpected")
+            non_strict_code, _ = self._run_doctor_cli(project, strict=False)
+            self.assertEqual(non_strict_code, 0)
+
+            self.mode("rejects-settings")
+            code, payload = self._run_doctor_cli(project, strict=True)
+            checks = {c["name"]: c for c in payload["checks"]}
+            self.assertEqual(code, 3, payload)
+            self.assertEqual(checks["reviewer-flags:carbon"]["status"], "unexpected")
+            self.assertIn("--settings:", checks["reviewer-flags:carbon"]["detail"])
+            self.assertEqual(list(Path(tempfile.gettempdir()).glob("forge-agy-settings-*")), [])
+
+            self.mode("agents-fails")
+            code, payload = self._run_doctor_cli(project, strict=True)
+            checks = {c["name"]: c for c in payload["checks"]}
+            self.assertEqual(code, 3, payload)
+            self.assertEqual(checks["reviewer-flags:carbon"]["status"], "unexpected")
+            self.assertNotIn("refuses", checks["reviewer-flags:carbon"]["detail"])
+
+            self.mode("hang")
+            with mock.patch.object(forge, "PROBE_SECONDS", 3):
+                code, payload = self._run_doctor_cli(project, strict=True)
+            checks = {c["name"]: c for c in payload["checks"]}
+            self.assertEqual(code, 3, payload)
+            self.assertEqual(checks["reviewer-flags:carbon"]["status"], "setup_required")
+            pids = [int(p) for p in (self.dir / "pids").read_text(encoding="utf-8").split()]
+            for _ in range(50):
+                if not any(alive(p) for p in pids):
+                    break
+                time.sleep(0.1)
+            self.assertEqual([p for p in pids if alive(p)], [])
+            with mock.patch.object(forge, "PROBE_SECONDS", 3):
+                non_strict_code, _ = self._run_doctor_cli(project, strict=False)
+            self.assertEqual(non_strict_code, 0)
+
+        empty_path = self.dir / "empty-bin"
+        empty_path.mkdir()
+        extra = {"PATHEXT": ".CMD;.EXE"} if os.name == "nt" else {}
+        with mock.patch.dict(os.environ, {"PATH": str(empty_path), **extra}):
+            code, payload = self._run_doctor_cli(project, strict=True)
+        checks = {c["name"]: c for c in payload["checks"]}
+        self.assertEqual(code, 3, payload)
+        self.assertEqual(checks["reviewer:carbon"]["status"], "setup_required")
+        self.assertNotIn("reviewer-flags:carbon", checks)
 
 
 if __name__ == "__main__":
