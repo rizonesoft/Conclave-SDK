@@ -121,12 +121,27 @@ def _find_laravel_app_root(target_root: Path) -> Path | None:
     return None
 
 
+def _composer_vendor_dir(app_root: Path) -> Path:
+    """Where Composer keeps the app's packages: COMPOSER_VENDOR_DIR, then `config.vendor-dir` in the app's
+    `composer.json` (relative to the app root), then `vendor`, the order Composer itself reads them in."""
+    configured = os.environ.get("COMPOSER_VENDOR_DIR")
+    if not configured:
+        try:
+            config = json.loads((app_root / "composer.json").read_text(encoding="utf-8")).get("config")
+            configured = config.get("vendor-dir") if isinstance(config, dict) else None
+        except (OSError, ValueError, RecursionError, AttributeError):
+            configured = None
+    if not isinstance(configured, str) or not configured.strip():
+        configured = "vendor"
+    return app_root / configured  # an absolute `configured` replaces the app root, as pathlib joins
+
+
 def _composer_package_installed(app_root: Path, package: str) -> Path | None:
-    """The app's `vendor/composer/installed.json` when it lists `package`, else None.
+    """The app's `<vendor>/composer/installed.json` when it lists `package`, else None.
 
     That file is what `composer show <package>` reads, so the answer is Composer's own without Composer on PATH.
     A file that is absent, unreadable, not JSON or not a package list lists nothing."""
-    installed = app_root / "vendor/composer/installed.json"
+    installed = _composer_vendor_dir(app_root) / "composer/installed.json"
     try:
         data = json.loads(installed.read_text(encoding="utf-8"))
     except (OSError, ValueError, RecursionError):

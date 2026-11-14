@@ -190,6 +190,12 @@ class KitInstallTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         # Resolved: a runner's temp folder can be an 8.3 short name that forge's own paths spell long.
         self.work = pathlib.Path(self.tmp.name).resolve()
+        # The Laravel doctor reads Composer's vendor folder from the environment first: a host's own setting is not
+        # the fixture's.
+        env = unittest.mock.patch.dict(os.environ)
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop("COMPOSER_VENDOR_DIR", None)
 
     def project(self, name, kit=None, stack=STACK_FILE):
         """An empty project folder, holding the file that makes it a project of the kit's stack."""
@@ -332,6 +338,33 @@ class KitInstallTests(unittest.TestCase):
         installed = self.own_file(project, "platform/vendor/composer/installed.json",
                                   b'{"packages": [{"name": "laravel/boost"}]}')
         self.assertEqual(self.boost_check(project), ("ok", installed.as_posix()))
+
+    def test_laravel_doctor_reads_the_vendor_folder_composer_is_configured_with(self):
+        # Found by the round of D01 T02 section 4: `composer show` honours `config.vendor-dir` and COMPOSER_VENDOR_DIR.
+        project = self.project("target", "laravel")
+        listed = b'{"packages": [{"name": "laravel/boost"}]}'
+        absent = ("setup_required", self.BOOST_HINT)
+        moved = self.own_file(project, "dependencies/composer/installed.json", listed)
+        with unittest.mock.patch.dict(os.environ):
+            os.environ.pop("COMPOSER_VENDOR_DIR", None)
+            self.assertEqual(self.boost_check(project), absent)  # nothing says the folder moved
+            composer = self.own_file(project, "composer.json", b'{"config": {"vendor-dir": "dependencies"}}')
+            self.assertEqual(self.boost_check(project), ("ok", moved.as_posix()))
+            # The default folder is then not Composer's: a stale list there counts for nothing.
+            moved.write_bytes(b'{"packages": []}')
+            self.own_file(project, "vendor/composer/installed.json", listed)
+            self.assertEqual(self.boost_check(project), absent)
+            # The environment variable outranks composer.json, as in Composer.
+            elsewhere = self.own_file(self.work, "elsewhere/composer/installed.json", listed)
+            os.environ["COMPOSER_VENDOR_DIR"] = str(self.work / "elsewhere")
+            self.assertEqual(self.boost_check(project), ("ok", elsewhere.as_posix()))
+            del os.environ["COMPOSER_VENDOR_DIR"]
+            # A composer.json that is unreadable or sets no usable folder leaves the default.
+            for data in (b"not json", b"[]", b'{"config": []}', b'{"config": {"vendor-dir": 7}}',
+                         b'{"config": {"vendor-dir": ""}}', b'{"require": {}}'):
+                with self.subTest(data=data):
+                    composer.write_bytes(data)
+                    self.assertEqual(self.boost_check(project)[0], "ok")
 
     def test_laravel_doctor_asks_for_boost_when_composer_does_not_list_it(self):
         project = self.project("target", "laravel")
