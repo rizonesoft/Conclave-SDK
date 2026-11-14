@@ -401,6 +401,20 @@ class Inventory(Stubs):
         self.assertEqual(code, 0, out)
         self.assertIn("4 tests", out)
 
+    def test_unittest_ownership_refuses_invalid_module_filenames(self):
+        suite = self.unittest_folder("modsuite", GATED)
+        self._write("modsuite/test_sync-conflicts.py",
+                    "import unittest\nclass Bad(unittest.TestCase):\n    def test_fail(self): self.fail('boom')\n")
+        self._write("modsuite/test_bad.name.py",
+                    "import unittest\nclass Bad(unittest.TestCase):\n    def test_fail(self): self.fail('boom')\n")
+
+        self.assertEqual(forge.unowned_tests(root=self.dir, suites=[suite], excluded={}),
+                         ["modsuite/test_bad.name.py", "modsuite/test_sync-conflicts.py"])
+        code, out, _ = self.main([suite])
+        self.assertEqual(code, 1)
+        self.assertIn("modsuite/test_sync-conflicts.py", out)
+        self.assertIn("modsuite/test_bad.name.py", out)
+
     def test_command_suite_owns_only_explicit_argv_files_not_folder_prefix(self):
         self._write("plug/tests/one.test.js")
         self._write("plug/tests/two.test.js")

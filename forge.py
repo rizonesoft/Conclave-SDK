@@ -2067,10 +2067,13 @@ def _repo_test_files(root: Path) -> list[str]:
     return sorted(found)
 
 
+_UNITTEST_MODULE_NAME = re.compile(r"^[_a-z]\w*\.py$", re.IGNORECASE)
+
+
 def _unittest_owns_file(root: Path, suite_path: PurePosixPath, rel: str) -> bool:
     """True when `python -m unittest discover -s <suite_path>` would import and run `rel`."""
     file_path = PurePosixPath(rel)
-    if not fnmatch.fnmatchcase(file_path.name, "test_*.py"):
+    if not fnmatch.fnmatchcase(file_path.name, "test_*.py") or not _UNITTEST_MODULE_NAME.match(file_path.name):
         return False
     try:
         inner = file_path.relative_to(suite_path)
