@@ -1,0 +1,84 @@
+{
+  "ref": "D01 T02 \u00a73",
+  "title": "Install assertions moved from bash to the Python suite",
+  "implementation_sha": "d3886551efa817bb8152bed35b6b829643f6adc2",
+  "date": "2026-11-14",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/01-forge/D01-T02-s3.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s tests -p test_kit_install.py -> Ran 28 tests, OK",
+    "CI tests.yml run 43583070965 on d3886551efa8 -> success on quick suite (Windows), full suite (Linux), kit suites (Linux)"
+  ],
+  "completion": {
+    "report": "docs/reviews/01-forge/D01-T02-s3.md",
+    "verdict": "complete",
+    "candidate": "d3886551efa817bb8152bed35b6b829643f6adc2",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/01-forge/D01-T02-s3.md",
+    "candidate": "672908bd521618ec01a891e87b0a14ff510b866c",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "672908bd521618ec01a891e87b0a14ff510b866c",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}
