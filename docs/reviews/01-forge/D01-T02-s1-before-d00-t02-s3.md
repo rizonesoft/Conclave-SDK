@@ -159,3 +159,28 @@ RECONCILIATION: gaps
 ### Reconciliation 1 disposition
 
 - Implemented: Open P1 (candidate-specific CI evidence): `tests.yml` completed green across all three jobs (`quick suite (Windows)`, `full suite (Linux)`, `kit suites (Linux)`) on Reconciliation 1 candidate `5f7fd0741c8e6f8aeccff662946d16ecdcd3f4c6` (run `43515010030`) and, after `D00 T02 §3` retired `agy-subagents` leaving 14 suites in `forge.SUITES` (see `Corrected 2026-11-14 (D00 T02 §3)` at `todo/01-forge/TODO-02-gates-and-skill-source.md:75`), on `d8fa70918de042a94bc12f78dd8100d750392667` (run `43559409443`, `PASS` on `tests` on Windows and Linux and `PASS` on all 13 non-`tests` suites in `kit suites (Linux)`); this reconciliation candidate modifies only `docs/reviews/01-forge/D01-T02-s1.md` and `docs/phase-runs/2026-11-14-phase-5.md`, and its own completed three-job green `tests.yml` run with verbatim `PASS` lines for all 14 suites in `forge.SUITES` is awaited and supplied in `--gates` before Reconciliation 2 executes.
+
+## Reconciliation review: astra (`gpt-6-astra` via `codex`)
+
+- Writer: agy
+- Run: 2026-11-14T06:18:05Z
+- Candidate: fb893ab65af493873d7963a25eef1339c798640d
+- Effort: medium
+- Lenses: adversarial, integration, plan-delivery, record
+- Lines: 14
+- Digest: d9d006bb4a15073f
+
+1. **Closed, original P1: candidate-specific CI evidence.** Supplied run `43562771427` identifies repaired candidate `fb893ab6`, all three successful jobs and PASS lines for every current suite. This satisfies the evidence requirement at `todo/01-forge/TODO-02-gates-and-skill-source.md:65` and the disposition at `docs/reviews/01-forge/D01-T02-s1.md:161`. CI results were assessed from supplied evidence, not independently rerun.
+
+2. **Closed, original P1: unattended fixture can launch a real agent.** Host runner directories are removed at `kits/unattended/templates/scripts/tests/test_run.py:191`, and the fixture uses that environment at `kits/unattended/templates/scripts/tests/test_run.py:218`. The regression at `kits/unattended/templates/scripts/tests/test_run.py:707` removes each stub and requires no discoverable runner while retaining Git and tmux. The writer records implementation at `docs/reviews/01-forge/D01-T02-s1.md:132`. This is repaired, not deferred.
+
+3. **New finding, open, P1: the repair changes the section’s promised contract.** Relative to `f06cb17a`, `todo/01-forge/TODO-02-gates-and-skill-source.md:60` removes the required Antigravity check, line `65` reduces two agent checks to one, and line `77` removes `--only agy-subagents` from the checkpoint. The retirement explanation at `todo/01-forge/TODO-02-gates-and-skill-source.md:75` does not preserve those obligations. Independently calling `section_contract` for both candidates returned unequal results; `scripts/lib/todo_graph.py:878` therefore rejects the reconciliation stamp. The original suite selection also now reports `unknown suite agy-subagents`. Restore fulfillment of the reviewed contract; green CI over the reduced suite table cannot close this discrepancy.
+
+No files modified. Filesystem-writing tests and live agent proofs were not rerun.
+
+LENS adversarial: clean
+LENS integration: findings
+LENS plan-delivery: findings
+LENS record: findings
+HIGHEST: P1
+RECONCILIATION: gaps
