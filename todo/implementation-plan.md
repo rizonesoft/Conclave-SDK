@@ -98,14 +98,14 @@ Sections: 4 | Checklist items: 24
 
 ### Phase 5: One gate and one skill source
 
-Sections: 7 | Checklist items: 43
+Sections: 7 | Checklist items: 49
 
 | Status | Reference  | Deliverable                                              | Needs | Items |
 | ------ | ---------- | -------------------------------------------------------- | ----- | ----- |
 | [x]    | D01 T02 §1 | `forge.py check-all` over every suite                    | none  | 8     |
 | [x]    | D01 T02 §2 | Test inventory that refuses a test no suite runs         | none  | 5     |
 | [x]    | D01 T02 §3 | Install assertions moved from bash to the Python suite   | none  | 6     |
-| [ ]    | D01 T02 §4 | Bash installers and their tests retired                  | none  | 6     |
+| [ ]    | D01 T02 §4 | Bash installers and their tests retired                  | none  | 12    |
 | [ ]    | D01 T02 §5 | Skill copy generator with per-agent patches              | none  | 7     |
 | [ ]    | D01 T02 §6 | Committed skill copies equal to the generator's output   | none  | 6     |
 | [ ]    | D01 T02 §7 | Pre-commit hook enabled at install and checked by doctor | none  | 5     |
@@ -156,4 +156,4 @@ Sections: 3 | Checklist items: 16
 
 Progress: 58/85 verified sections, 9 ready to run now.
 
-Checklist: 456/611 items completed (includes Commit items).
+Checklist: 456/617 items completed (includes Commit items).
