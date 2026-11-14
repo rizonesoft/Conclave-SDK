@@ -152,6 +152,15 @@ class GenerateCopyTests(unittest.TestCase):
         self.assertIn(self.FILE.as_posix(), str(caught.exception))
         self.assertIn("2 times", str(caught.exception))
 
+    def test_a_find_that_matches_at_two_overlapping_places_is_refused(self):
+        # Found by the round of D01 T02 section 5: str.count sees one `---` in `----`, where there are two.
+        for source, find, times in (("Heading\n----\n", "---", 2), ("aaaa", "aa", 3), ("abab ab", "ab", 3)):
+            with self.subTest(source=source):
+                with self.assertRaises(forge.SkillCopyError) as caught:
+                    forge.generate_copy(source, self.patch((find, "***")))
+                self.assertIn(f"{times} times", str(caught.exception))
+        self.assertEqual(forge.generate_copy("Heading\n---\n", self.patch(("---", "***"))), "Heading\n***\n")
+
     def test_no_patch_is_the_source_unchanged(self):
         self.assertEqual(forge.generate_copy("as it is\r\n", None), "as it is\r\n")
 
@@ -207,6 +216,24 @@ class SkillCopiesTests(Fixture):
         self.assertNotIn("kits/demo/templates/.codex/skills/alpha/agents/openai.yaml", written)
         self.assertEqual(forge.skill_copies(check=True, root=self.root), [])
         self.assertEqual((self.demo / "templates/.codex/skills/alpha/agents/openai.yaml").read_bytes(), OPENAI_YAML)
+
+    def test_a_claude_file_at_the_interface_path_never_replaces_codex_s_own(self):
+        # Found by the round of D01 T02 section 5: an imported Claude skill may hold agents/openai.yaml too.
+        self.write(self.demo / "templates/.claude/skills/alpha/agents/openai.yaml", b"claude's file\n")
+        written = forge.skill_copies(root=self.root)
+        self.assertIn("kits/demo/templates/.agents/skills/alpha/agents/openai.yaml", written)
+        self.assertNotIn("kits/demo/templates/.codex/skills/alpha/agents/openai.yaml", written)
+        self.assertEqual((self.demo / "templates/.codex/skills/alpha/agents/openai.yaml").read_bytes(), OPENAI_YAML)
+        self.assertEqual(forge.skill_copies(check=True, root=self.root), [])
+        # Where Codex has no such file yet, none is made: it is written by hand or not at all.
+        self.write(self.demo / "templates/.claude/skills/beta/agents/openai.yaml", b"claude's file\n")
+        forge.skill_copies(root=self.root)
+        self.assertFalse((self.demo / "templates/.codex/skills/beta/agents/openai.yaml").exists())
+        # A patch for a copy that is never generated has nothing to apply to.
+        stale = self.write(self.demo / "skill-patches/codex/alpha/agents/openai.yaml.json", patch_text(("claude", "x")))
+        with self.assertRaises(forge.SkillCopyError) as caught:
+            forge.skill_copies(root=self.root)
+        self.assertIn(stale.relative_to(self.root).as_posix(), str(caught.exception))
 
     def test_a_copy_with_no_claude_source_is_reported_and_left_in_place(self):
         forge.skill_copies(root=self.root)

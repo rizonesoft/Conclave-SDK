@@ -2015,7 +2015,8 @@ def generate_copy(source_text: str, patch: dict | None) -> str:
     result of the one before. A `find` must occur exactly once at its turn; no patch is the source unchanged."""
     text = source_text
     for find, replacement in (patch["replace"] if patch else ()):
-        count = text.count(find)
+        # Every place the text starts, overlapping ones too: `---` is in `----` twice, and str.count says once.
+        count = sum(text.startswith(find, start) for start in range(len(text) - len(find) + 1))
         if count != 1:
             raise SkillCopyError(f"{Path(patch['file']).as_posix()}: find {find!r} occurs {count} times in the source, "
                                  "not once: the patch no longer applies")
@@ -2038,6 +2039,13 @@ def _files_under(folder: Path) -> list[Path]:
     return sorted(path for path in folder.rglob("*") if path.is_file()) if folder.is_dir() else []
 
 
+def _codex_interface_file(agent_dir: str, skill_path: str) -> bool:
+    """Codex's own interface file, kept by hand beside each skill: `.codex/skills/<skill>/agents/openai.yaml`.
+    It is never generated, patched or reported, whatever the Claude tree holds at that path."""
+    parts = PurePosixPath(skill_path).parts
+    return agent_dir == ".codex" and len(parts) == 3 and parts[1:] == ("agents", "openai.yaml")
+
+
 def _skill_copy_plan(root: Path) -> tuple[dict[Path, bytes], list[Path]]:
     """What the generator would write (destination -> bytes) and the copies no Claude source accounts for.
 
@@ -2055,6 +2063,9 @@ def _skill_copy_plan(root: Path) -> tuple[dict[Path, bytes], list[Path]]:
             if parts[0] not in SKILL_COPY_AGENTS or len(parts) < 2 or not path.name.endswith(".json"):
                 raise SkillCopyError(f"{where}: a patch is {SKILL_PATCHES}/<agents|codex>/<skill path>.json")
             skill_path = "/".join(parts[1:])[:-len(".json")]
+            if skill_path in sources and _codex_interface_file(SKILL_COPY_AGENTS[parts[0]], skill_path):
+                raise SkillCopyError(f"{where}: Codex's agents/openai.yaml is kept by hand and never generated, "
+                                     "so it takes no patch")
             if skill_path not in sources:
                 raise SkillCopyError(f"{where}: no source {(source_root / skill_path).relative_to(root).as_posix()} "
                                      "for this patch: move or delete the patch with its skill")
@@ -2065,15 +2076,15 @@ def _skill_copy_plan(root: Path) -> tuple[dict[Path, bytes], list[Path]]:
             except UnicodeDecodeError as exc:
                 raise SkillCopyError(f"{source.relative_to(root).as_posix()}: not UTF-8 ({exc})") from exc
             for agent, agent_dir in SKILL_COPY_AGENTS.items():
+                if _codex_interface_file(agent_dir, skill_path):
+                    continue
                 patch = patches.get((agent, skill_path))
                 copy = generate_copy(text, load_skill_patch(patch) if patch else None)
                 outputs[overlay / "templates" / agent_dir / "skills" / skill_path] = copy.encode("utf-8")
         for agent_dir in SKILL_COPY_AGENTS.values():
             copies_root = overlay / "templates" / agent_dir / "skills"
             for path in _files_under(copies_root):
-                parts = path.relative_to(copies_root).parts
-                # Codex's own interface file, kept by hand beside each skill: <skill>/agents/openai.yaml.
-                hand_kept = agent_dir == ".codex" and len(parts) == 3 and parts[1:] == ("agents", "openai.yaml")
+                hand_kept = _codex_interface_file(agent_dir, path.relative_to(copies_root).as_posix())
                 if path not in outputs and not hand_kept:
                     stray.append(path)
     return outputs, stray
