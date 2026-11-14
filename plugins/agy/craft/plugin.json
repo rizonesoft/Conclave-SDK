@@ -1,0 +1,13 @@
+{
+  "name": "agy-craft",
+  "displayName": "Conclave Craft & Documents",
+  "version": "1.0.0",
+  "description": "High-craft anti-slop frontend design paired with Chrome DevTools verification, plus production Word, Excel, PowerPoint, and PDF authoring and inspection.",
+  "author": "Conclave",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "Design and build a distinctive, production-grade UI component and verify it in the browser",
+    "Create a structured Excel workbook with live formulas and run LibreOffice recalculation checks",
+    "Build or edit a Word document or PowerPoint deck and validate its OOXML schema"
+  ]
+}

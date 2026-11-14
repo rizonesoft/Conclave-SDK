@@ -1,0 +1,13 @@
+{
+  "name": "agy-powertools",
+  "displayName": "Conclave Powertools",
+  "version": "1.0.0",
+  "description": "Engineering rigor, root-cause debugging, verification gates, parallel pre-check lenses, code review intake, and layer/article lifecycle hooks for Antigravity.",
+  "author": "Conclave",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "Run parallel pre-check lenses on my uncommitted changes, then dispatch cross-model review",
+    "Process this code review feedback critically and verify every item against the codebase",
+    "Investigate this failure systematically and fix it at the owning layer"
+  ]
+}

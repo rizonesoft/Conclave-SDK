@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Deploy the global Claude Code and Codex configuration from this checkout to the running user's home.
+"""Deploy the global Claude Code, Codex, and Antigravity configuration from this checkout to the running user's home.
 
 Everything is located relative to this file, so the Conclave-SDK checkout can live anywhere. Run it once on
 Windows and once in WSL. Standard library only.
 
-    python <SDK>/global/deploy.py [--agent claude|codex|all] [--home DIR] [--dry-run]
+    python <SDK>/global/deploy.py [--agent claude|codex|agy|all] [--home DIR] [--dry-run]
 
 Targets (home is the running user's home directory, or --home):
   claude/rules/claude-code.md     -> <home>/.claude/CLAUDE.md
@@ -13,6 +13,7 @@ Targets (home is the running user's home directory, or --home):
   codex/rules/codex.md            -> <home>/.codex/AGENTS.md
   codex/rules/hooks.json          -> <home>/.codex/hooks.json        (template, placeholders filled in)
   codex/skills/<name>/SKILL.md    -> <home>/.agents/skills/<name>/
+  ../plugins/agy/<name>/          -> <home>/.gemini/config/plugins/<name>/ (hooks.json interpreter rendered)
 
 A file whose content is identical is left alone. A differing file is copied to
 <home>/.conclave/global-backups/<UTC timestamp>/<path relative to home> before it is replaced.
@@ -336,9 +337,56 @@ def trust_codex_hooks(dep, hooks_path):
         dep.record(label + " (approved)", "updated")
 
 
+def render_agy_hooks(hooks_json_text, python_cmd):
+    """Rewrite hooks/powertools_hook.py commands in an Antigravity hooks.json for python_cmd."""
+    data = json.loads(hooks_json_text)
+
+    def walk(node):
+        if isinstance(node, dict):
+            command = node.get("command")
+            if isinstance(command, str) and "hooks/powertools_hook.py" in command:
+                node["command"] = "%s hooks/powertools_hook.py" % python_cmd
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(data)
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+
+
+def deploy_agy(dep):
+    agy_root = GLOBAL.parent / "plugins" / "agy"
+    if not agy_root.is_dir():
+        return
+    py = python_token(sys.executable) if os.name == "nt" else "python3"
+    for folder in sorted(p for p in agy_root.iterdir() if p.is_dir() and (p / "plugin.json").is_file()):
+        dest_dir = dep.home / ".gemini" / "config" / "plugins" / folder.name
+        statuses = []
+        count = 0
+        for src in sorted(p for p in folder.rglob("*") if p.is_file()):
+            rel = src.relative_to(folder)
+            if SKIP_DIRS & set(rel.parts) or src.suffix in SKIP_SUFFIXES:
+                continue
+            if rel == Path("hooks.json"):
+                data = render_agy_hooks(src.read_text(encoding="utf-8"), py).encode("utf-8")
+            else:
+                data = src.read_bytes()
+            statuses.append(dep.put(dest_dir / rel, data))
+            count += 1
+        if all(s == "unchanged" for s in statuses):
+            status = "unchanged"
+        elif all(s == "created" for s in statuses):
+            status = "created"
+        else:
+            status = "updated"
+        dep.record("%s (%d files)" % (dep.shown(dest_dir), count), status)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--agent", choices=("claude", "codex", "all"), default="all")
+    parser.add_argument("--agent", choices=("claude", "codex", "agy", "all"), default="all")
     parser.add_argument("--home", help="deploy to this directory instead of the user's home")
     parser.add_argument("--dry-run", action="store_true", help="report what would change and write nothing")
     args = parser.parse_args(argv)
@@ -349,6 +397,8 @@ def main(argv=None):
             deploy_claude(dep)
         if args.agent in ("codex", "all"):
             deploy_codex(dep)
+        if args.agent in ("agy", "all"):
+            deploy_agy(dep)
     except Refusal as exc:
         print("refused: %s" % exc, file=sys.stderr)
         return 2

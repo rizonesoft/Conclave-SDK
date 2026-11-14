@@ -103,6 +103,8 @@ class DeployTest(unittest.TestCase):
                          (GLOBAL / "codex" / "rules" / "codex.md").read_bytes())
         self.assertTrue((self.home / ".claude" / "skills" / "process-email" / "SKILL.md").is_file())
         self.assertTrue((self.home / ".agents" / "skills" / "file-to-ticktick" / "SKILL.md").is_file())
+        self.assertTrue((self.home / ".gemini" / "config" / "plugins" / "powertools" / "plugin.json").is_file())
+        self.assertTrue((self.home / ".gemini" / "config" / "plugins" / "craft" / "plugin.json").is_file())
         self.assertFalse((self.home / ".claude" / "settings.json").exists())
         self.assertIn("skipped: ~/.claude/settings.json", out)
         self.assertFalse((self.home / ".conclave").exists())
@@ -200,7 +202,38 @@ class DeployTest(unittest.TestCase):
     def test_agent_filter(self):
         run("--home", str(self.home), "--agent", "codex")
         self.assertFalse((self.home / ".claude").exists())
+        self.assertFalse((self.home / ".gemini").exists())
         self.assertTrue((self.home / ".codex" / "AGENTS.md").is_file())
+
+    def test_agy_deploy_renders_hooks_and_backs_up_changes(self):
+        code, out, _ = run("--home", str(self.home), "--agent", "agy")
+        self.assertEqual(code, 0, out)
+        self.assertFalse((self.home / ".claude").exists())
+        self.assertFalse((self.home / ".codex").exists())
+        powertools_dest = self.home / ".gemini" / "config" / "plugins" / "powertools"
+        craft_dest = self.home / ".gemini" / "config" / "plugins" / "craft"
+        self.assertTrue((powertools_dest / "plugin.json").is_file())
+        self.assertTrue((craft_dest / "plugin.json").is_file())
+
+        expected_py = deploy.python_token(sys.executable) if os.name == "nt" else "python3"
+        hooks_data = json.loads((powertools_dest / "hooks.json").read_text(encoding="utf-8"))
+        pre_cmd = hooks_data["powertools-hooks"]["PreInvocation"][0]["command"]
+        self.assertEqual(pre_cmd, "%s hooks/powertools_hook.py" % expected_py)
+        self.assertNotIn("||", pre_cmd)
+
+        before = snapshot(self.home)
+        code2, out2, _ = run("--home", str(self.home), "--agent", "agy")
+        self.assertEqual(code2, 0)
+        self.assertEqual(snapshot(self.home), before)
+        self.assertIn("0 created, 0 updated", out2)
+
+        readme = powertools_dest / "README.md"
+        readme.write_bytes(b"custom note\n")
+        code3, out3, _ = run("--home", str(self.home), "--agent", "agy")
+        self.assertEqual(code3, 0, out3)
+        backups = list((self.home / ".conclave" / "global-backups").glob("*/.gemini/config/plugins/powertools/README.md"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_bytes(), b"custom note\n")
 
 
 

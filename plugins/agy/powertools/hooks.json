@@ -1,0 +1,42 @@
+{
+  "powertools-hooks": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 hooks/powertools_hook.py || python hooks/powertools_hook.py",
+        "timeout": 15
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "run_command|write_file|edit_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 hooks/powertools_hook.py || python hooks/powertools_hook.py",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "write_file|edit_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 hooks/powertools_hook.py || python hooks/powertools_hook.py",
+            "timeout": 35
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python3 hooks/powertools_hook.py || python hooks/powertools_hook.py",
+        "timeout": 15
+      }
+    ]
+  }
+}
