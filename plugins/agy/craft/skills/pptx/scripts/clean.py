@@ -30,6 +30,7 @@ from office.helpers import (
     child_local_elements,
     collapse_xml_space,
     get_rel_id_attr,
+    is_valid_any_uri,
     local_elements,
     normalize_part_name,
     opc_target,
@@ -385,7 +386,7 @@ def _validate_rels_dom(rels_dom, rels_label: str, source_part: str = "") -> None
             or "Type" not in attrs
             or "Target" not in attrs
             or not _XML_ID_RE.match(rel_id)
-            or not rel_type
+            or not is_valid_any_uri(rel_type)
             or not target
         ):
             raise RefusedToClean(

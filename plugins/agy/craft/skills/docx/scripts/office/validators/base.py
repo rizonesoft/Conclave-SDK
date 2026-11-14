@@ -402,9 +402,7 @@ class BaseSchemaValidator:
                     namespaces={"ns": self.PACKAGE_RELATIONSHIPS_NAMESPACE},
                 ):
                     _, _, target, target_mode = read_relationship(rel)
-                    if target_mode == "External":
-                        continue
-                    if target_mode not in ("", "Internal"):
+                    if target_mode not in ("", "Internal", "External"):
                         broken_refs.append((f"{target} (invalid TargetMode {target_mode!r})", rel.sourceline))
                         continue
 
@@ -412,6 +410,8 @@ class BaseSchemaValidator:
                         part = opc_target(target, source_part, target_mode)
                     except ValueError as exc:
                         broken_refs.append((f"{target} ({exc})", rel.sourceline))
+                        continue
+                    if target_mode == "External":
                         continue
                     if part is None:
                         broken_refs.append((target, rel.sourceline))

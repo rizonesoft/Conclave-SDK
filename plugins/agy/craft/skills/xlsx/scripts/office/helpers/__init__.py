@@ -22,7 +22,16 @@ OOXML_FAMILY = {
 
 _SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]*:")
 _PCT_SLASH_RE = re.compile(r"%2f|%5c", re.IGNORECASE)
+_BAD_PCT_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
+_PCT_PAIR_RE = re.compile(r"%([0-9A-Fa-f]{2})")
+_IPV6_HOST_RE = re.compile(r"^\[[0-9A-Fa-f:.]+\](?::[0-9]*)?\Z")
 _XML_SPACE_RUN_RE = re.compile(r"[ \t\r\n]+")
+_UNRESERVED_BYTES = frozenset(
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+)
+_ASCII_PCHAR = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~!$&'()*+,;=:@ "
+)
 
 SLIDE_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"
 PACKAGE_RELS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
@@ -60,18 +69,96 @@ def one_line(text: str, limit: int) -> str:
     return "".join(c if c.isprintable() else c.encode("unicode_escape").decode() for c in text)[:limit]
 
 
+def _is_valid_decoded_char(ch: str) -> bool:
+    code = ord(ch)
+    if code < 0x80:
+        return 0x20 <= code <= 0x7E
+    return (
+        0xA0 <= code <= 0x10FFFF
+        and not (0xD800 <= code <= 0xDFFF)
+        and code not in (0xFFFE, 0xFFFF)
+    )
+
+
+def _is_valid_uri_char(ch: str, extra_ascii: str = "") -> bool:
+    code = ord(ch)
+    if code < 0x80:
+        return ch in _ASCII_PCHAR or ch == "%" or ch in extra_ascii
+    return (
+        0xA0 <= code <= 0x10FFFF
+        and not (0xD800 <= code <= 0xDFFF)
+        and code not in (0xFFFE, 0xFFFF)
+    )
+
+
+def _strict_unquote(value: str) -> str:
+    if _BAD_PCT_RE.search(value):
+        raise ValueError("invalid percent-encoding")
+    try:
+        decoded = urllib.parse.unquote(value, encoding="utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ValueError("invalid UTF-8 percent-encoding") from exc
+    if not all(_is_valid_decoded_char(ch) for ch in decoded):
+        raise ValueError("URI contains control or noncharacter codepoints")
+    return decoded
+
+
+def is_valid_any_uri(value: str) -> bool:
+    if not isinstance(value, str):
+        return False
+    collapsed = collapse_xml_space(value)
+    if (
+        not collapsed
+        or _BAD_PCT_RE.search(collapsed)
+        or collapsed.count("#") > 1
+        or not all(_is_valid_decoded_char(ch) for ch in collapsed)
+    ):
+        return False
+    before_frag, _, frag = collapsed.partition("#")
+    if "[" in frag or "]" in frag:
+        return False
+    hier_part, _, query = before_frag.partition("?")
+    if "[" in query or "]" in query:
+        return False
+    scheme_match = _SCHEME_RE.match(hier_part)
+    rest = hier_part[scheme_match.end():] if scheme_match else hier_part
+    if rest.startswith("//"):
+        authority, _, path_part = rest[2:].partition("/")
+        if "[" in path_part or "]" in path_part:
+            return False
+        if "[" in authority or "]" in authority:
+            userinfo, sep, hostport = authority.rpartition("@")
+            if (sep and ("[" in userinfo or "]" in userinfo)) or not _IPV6_HOST_RE.match(hostport):
+                return False
+    elif "[" in rest or "]" in rest:
+        return False
+    return True
+
+
 def _is_valid_part_segment(segment: str) -> bool:
     return bool(
         segment
         and "/" not in segment
         and "\\" not in segment
         and not segment.endswith(".")
-        and not any(ord(ch) < 32 or ord(ch) == 127 for ch in segment)
+        and all(_is_valid_decoded_char(ch) for ch in segment)
     )
+
+
+def _validated_source_segments(source_part: str) -> list[str]:
+    if source_part.startswith("//") or source_part.endswith("/"):
+        raise ValueError(f"relationship source part is not a valid OPC part name: {source_part!r}")
+    base_raw = source_part.removeprefix("/")
+    base_parts = base_raw.split("/") if base_raw else []
+    if not base_parts or not all(_is_valid_part_segment(seg) for seg in base_parts):
+        raise ValueError(f"relationship source part is not a valid OPC part name: {source_part!r}")
+    return base_parts
 
 
 def opc_target(target: str, source_part: str, target_mode: str = "") -> str | None:
     if target_mode == "External":
+        if not is_valid_any_uri(target):
+            raise ValueError(f"external relationship target is not a valid URI: {target!r}")
         return None
     if target_mode not in ("", "Internal"):
         raise ValueError(f"invalid relationship TargetMode: {target_mode!r}")
@@ -79,41 +166,51 @@ def opc_target(target: str, source_part: str, target_mode: str = "") -> str | No
     raw = collapse_xml_space(target)
     if not raw:
         raise ValueError("relationship target is empty")
+    if _BAD_PCT_RE.search(raw):
+        raise ValueError(f"relationship target has invalid percent-encoding: {target!r}")
     if _SCHEME_RE.match(raw):
         raise ValueError(f"internal relationship target cannot have a URI scheme: {target!r}")
     if raw.startswith("//"):
         raise ValueError(f"internal relationship target cannot have a URI authority: {target!r}")
-    if "\\" in raw or _PCT_SLASH_RE.search(raw):
+    if "\\" in raw:
         raise ValueError(f"relationship target is not a POSIX part name: {target!r}")
 
-    path_ref, frag_sep, _ = raw.partition("#")
+    path_ref, frag_sep, fragment = raw.partition("#")
+    if frag_sep:
+        if not all(_is_valid_uri_char(ch, "/?") for ch in fragment):
+            raise ValueError(f"relationship target fragment has invalid URI characters: {target!r}")
+        try:
+            _strict_unquote(fragment)
+        except ValueError as exc:
+            raise ValueError(f"relationship target fragment has invalid percent-encoding: {target!r}") from exc
+
     if "?" in path_ref:
         raise ValueError(f"internal relationship target cannot have a query component: {target!r}")
+    if _PCT_SLASH_RE.search(path_ref):
+        raise ValueError(f"relationship target is not a POSIX part name: {target!r}")
+    if not all(_is_valid_uri_char(ch, "/") for ch in path_ref):
+        raise ValueError(f"relationship target has invalid URI characters: {target!r}")
+    if path_ref and not path_ref.startswith("/") and ":" in path_ref.split("/", 1)[0]:
+        raise ValueError(f"relative relationship target first segment cannot contain ':': {target!r}")
 
     if not path_ref:
         if not frag_sep or not source_part:
             raise ValueError(f"relationship target resolves to nothing: {target!r}")
-        base_raw = source_part.lstrip("/")
-        base_parts = base_raw.split("/") if base_raw else []
-        if not base_parts or not all(_is_valid_part_segment(seg) for seg in base_parts):
-            raise ValueError(f"relationship source part is not a valid OPC part name: {source_part!r}")
-        return "/".join(base_parts)
+        return "/".join(_validated_source_segments(source_part))
 
     parts: list[str] = []
-    if not path_ref.startswith("/"):
-        source_dir = posixpath.dirname(source_part.lstrip("/"))
-        if source_dir:
-            for base_seg in source_dir.split("/"):
-                if not _is_valid_part_segment(base_seg):
-                    raise ValueError(f"relationship source part is not a valid OPC part name: {source_part!r}")
-                parts.append(base_seg)
+    if not path_ref.startswith("/") and source_part:
+        parts.extend(_validated_source_segments(source_part)[:-1])
 
     raw_segments = path_ref[1:].split("/") if path_ref.startswith("/") else path_ref.split("/")
     for idx, raw_seg in enumerate(raw_segments):
         is_last = idx == len(raw_segments) - 1
         if not raw_seg:
             raise ValueError(f"relationship target has an empty path segment: {target!r}")
-        seg = urllib.parse.unquote(raw_seg)
+        try:
+            seg = _strict_unquote(raw_seg)
+        except ValueError as exc:
+            raise ValueError(f"relationship target has invalid percent-encoding: {target!r}") from exc
         if seg == ".":
             if is_last:
                 raise ValueError(f"relationship target resolves to a directory: {target!r}")
@@ -144,14 +241,22 @@ def normalize_part_name(part_name: str) -> str | None:
         or "\\" in collapsed
         or "?" in collapsed
         or "#" in collapsed
-        or _PCT_SLASH_RE.search(collapsed)
+        or _BAD_PCT_RE.search(collapsed)
+        or not all(_is_valid_uri_char(ch, "/") for ch in collapsed[1:])
     ):
         return None
+    for match in _PCT_PAIR_RE.finditer(collapsed):
+        octet = int(match.group(1), 16)
+        if octet in (0x2F, 0x5C) or octet in _UNRESERVED_BYTES or octet < 0x20 or octet == 0x7F:
+            return None
     segments: list[str] = []
     for raw_seg in collapsed[1:].split("/"):
         if not raw_seg:
             return None
-        seg = urllib.parse.unquote(raw_seg)
+        try:
+            seg = _strict_unquote(raw_seg)
+        except ValueError:
+            return None
         if not _is_valid_part_segment(seg):
             return None
         segments.append(seg)

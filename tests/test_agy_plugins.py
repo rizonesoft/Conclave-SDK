@@ -692,6 +692,7 @@ class CraftScriptHardeningTests(unittest.TestCase):
         self.assertEqual(helpers.opc_target(" ../media/image1.png ", "ppt/slides/slide1.xml"), "ppt/media/image1.png")
         self.assertEqual(helpers.opc_target("\t../media/two%20%20spaces.png\n", "ppt/slides/slide1.xml"), "ppt/media/two  spaces.png")
         self.assertIsNone(helpers.opc_target("https://example.com/x", "ppt/slides/slide1.xml", "External"))
+        self.assertIsNone(helpers.opc_target("http://[::1]:8080/a", "ppt/slides/slide1.xml", "External"))
         self.assertEqual(helpers.opc_target("slide1.xml#anchor", "ppt/slides/slide2.xml", "Internal"), "ppt/slides/slide1.xml")
         self.assertEqual(helpers.opc_target("#bookmark", "word/document.xml"), "word/document.xml")
         for bad_target, src_part, tmode in (
@@ -704,11 +705,21 @@ class CraftScriptHardeningTests(unittest.TestCase):
             ("slides/slide1.xml/", "ppt/presentation.xml", "Internal"),
             ("slides/.", "ppt/presentation.xml", "Internal"),
             ("slides%2fslide1.xml", "ppt/presentation.xml", "Internal"),
+            ("slides/slide1.xml#bad%GG", "ppt/presentation.xml", "Internal"),
+            ("slides/slide%GG.xml", "ppt/presentation.xml", "Internal"),
+            ("slides/slide%FF.xml", "ppt/presentation.xml", "Internal"),
+            ("slides/slide1.xml#bad%FF", "ppt/presentation.xml", "Internal"),
+            ("slides/slide1.xml#a#b", "ppt/presentation.xml", "Internal"),
+            ("slides/slide[1].xml", "ppt/presentation.xml", "Internal"),
+            ("slides/slide1.xml#[bad]", "ppt/presentation.xml", "Internal"),
+            ("1bad:slide1.xml", "ppt/presentation.xml", "Internal"),
+            ("https://example.com/bad%GG", "ppt/slides/slide1.xml", "External"),
         ):
             with self.assertRaises(ValueError, msg=(bad_target, src_part, tmode)):
                 helpers.opc_target(bad_target, src_part, tmode)
 
         self.assertEqual(helpers.normalize_part_name(" /ppt/slides/slide%201.xml "), "ppt/slides/slide 1.xml")
+        self.assertEqual(helpers.normalize_part_name("/ppt/slides/slid%C3%A91.xml"), "ppt/slides/slid\u00e91.xml")
         self.assertIsNone(helpers.normalize_part_name("ppt/slides/slide1.xml"))
         self.assertIsNone(helpers.normalize_part_name("/../outside.xml"))
         for bad_part in (
@@ -720,6 +731,15 @@ class CraftScriptHardeningTests(unittest.TestCase):
             "/ppt%2Fslides/slide1.xml",
             "/ppt/slides/slide1.xml#frag",
             "/ppt/slides/slide1.xml?q=1",
+            "/ppt/slides/%73lide1.xml",
+            "/ppt/slides/slide%31.xml",
+            "/ppt/slides/slide%2d1.xml",
+            "/ppt/slides/slide%2e1.xml",
+            "/ppt/slides/slide%5f1.xml",
+            "/ppt/slides/slide%7e1.xml",
+            "/ppt/slides/slide%GG.xml",
+            "/ppt/slides/slide%FF.xml",
+            "/ppt/slides/slide[1].xml",
         ):
             self.assertIsNone(helpers.normalize_part_name(bad_part), bad_part)
         rel_el = ET.Element("Relationship", Id=" rId\u00e9 ", Type=" http://example.com/t ", Target=" ../media/a\tb.png ", TargetMode="Internal")
@@ -2579,6 +2599,44 @@ class CraftScriptHardeningTests(unittest.TestCase):
                 val_ftp = val_pptx_case7.PPTXSchemaValidator(ftp_dir)
                 self.assertFalse(val_ftp.validate_file_references())
                 self.assertFalse(val_ftp.validate())
+
+            # Malformed fragment percent-escape in internal Target must fail both clean and validators
+            bad_frag_dir = self.root / "clean_bad_frag_rel"
+            shutil.copytree(valid_dir, bad_frag_dir)
+            frag_rels = ET.Element(f"{{{rels_ns}}}Relationships")
+            ET.SubElement(
+                frag_rels,
+                f"{{{rels_ns}}}Relationship",
+                Id="rId1",
+                Type=f"{r_ns}/slide",
+                Target="slides/slide 1.xml#bad%GG",
+            )
+            (bad_frag_dir / "ppt" / "_rels" / "presentation.xml.rels").write_bytes(
+                ET.tostring(frag_rels, encoding="utf-8", xml_declaration=True)
+            )
+            with self.assertRaises(clean.RefusedToClean):
+                clean.clean_unused_files(bad_frag_dir)
+            if importlib.util.find_spec("lxml") is not None:
+                val_frag = val_pptx_case7.PPTXSchemaValidator(bad_frag_dir)
+                self.assertFalse(val_frag.validate_file_references())
+                self.assertFalse(val_frag.validate())
+
+            # Percent-encoded unreserved characters in PartName (ECMA-376 M1.8) must fail both clean and validators
+            bad_m18_dir = self.root / "clean_bad_m18_ct"
+            shutil.copytree(valid_dir, bad_m18_dir)
+            ct_m18_path = bad_m18_dir / "[Content_Types].xml"
+            ct_m18_text = ct_m18_path.read_text(encoding="utf-8")
+            self.assertIn("/ppt/slides/slide 1.xml", ct_m18_text)
+            ct_m18_path.write_text(
+                ct_m18_text.replace("/ppt/slides/slide 1.xml", "/ppt/slides/%73lide%201.xml"),
+                encoding="utf-8",
+            )
+            with self.assertRaises(clean.RefusedToClean):
+                clean.clean_unused_files(bad_m18_dir)
+            if importlib.util.find_spec("lxml") is not None:
+                val_m18 = val_pptx_case7.PPTXSchemaValidator(bad_m18_dir)
+                self.assertFalse(val_m18.validate_content_types())
+                self.assertFalse(val_m18.validate())
 
             for good_ct in (
                 "application/xml",
