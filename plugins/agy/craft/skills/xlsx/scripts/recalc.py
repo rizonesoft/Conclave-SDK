@@ -84,6 +84,11 @@ MAX_XLSX_ROWS = 1_048_576
 MAX_XLSX_COLS = 16_384
 MAX_XML_DEPTH = 256
 MAX_SUBTREE_ELEMENTS = 10_000
+MAX_FORMULA_CHARS = 32_768
+MAX_FORMULA_TOKENS = 16_384
+MAX_ELEMENT_TEXT_CHARS = 1_048_576
+MAX_DEFINED_NAMES = 100_000
+MAX_DEFINED_NAME_TOTAL_CHARS = 4 * 1024 * 1024
 
 _TRANSITIONAL_MAIN_NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 _STRICT_MAIN_NS = "{http://purl.oclc.org/ooxml/spreadsheetml/main}"
@@ -142,14 +147,44 @@ def _local_name_variants(param_cf: str) -> tuple[str, str]:
 
 def _make_dtd_guard():
     parser = _expat.ParserCreate()
+    stack: list[list] = []
 
     def _forbid(*_args):
         raise ValueError("XML DTD and entity declarations are forbidden")
+
+    def _start(name: str, attrs: dict[str, str]):
+        local = name.rsplit(":", 1)[-1]
+        parent_local = stack[-1][0] if stack else ""
+        limit = (
+            MAX_FORMULA_CHARS
+            if (local == "f" and parent_local == "c" and attrs.get("t") != "dataTable")
+            or local == "definedName"
+            else MAX_ELEMENT_TEXT_CHARS
+        )
+        stack.append([local, 0, limit])
+        if len(stack) > MAX_XML_DEPTH:
+            raise ValueError(f"XML nesting depth exceeds limit {MAX_XML_DEPTH}")
+
+    def _end(_name: str):
+        if stack:
+            stack.pop()
+
+    def _char(data: str):
+        if stack:
+            top = stack[-1]
+            top[1] += len(data)
+            if top[1] > top[2]:
+                if top[2] == MAX_FORMULA_CHARS:
+                    raise ValueError(f"formula length exceeds limit {MAX_FORMULA_CHARS}")
+                raise ValueError(f"XML element text exceeds limit {top[2]}")
 
     parser.StartDoctypeDeclHandler = _forbid
     parser.EntityDeclHandler = _forbid
     parser.UnparsedEntityDeclHandler = _forbid
     parser.ExternalEntityRefHandler = _forbid
+    parser.StartElementHandler = _start
+    parser.EndElementHandler = _end
+    parser.CharacterDataHandler = _char
     return parser
 
 
@@ -170,20 +205,21 @@ class _NoDtdStream:
 
 
 def _safe_fromstring(data: bytes):
+    _make_dtd_guard().Parse(data, True)
     try:
         from defusedxml.ElementTree import fromstring
     except ImportError:
-        _make_dtd_guard().Parse(data, True)
         return _stdlib_et.fromstring(data)
     return fromstring(data)
 
 
 def _safe_iterparse(source, keep_subtrees=frozenset(("c", "si"))):
+    guarded_source = _NoDtdStream(source)
     try:
         from defusedxml.ElementTree import iterparse
-        raw_iter = iterparse(source, events=("start", "end"))
+        raw_iter = iterparse(guarded_source, events=("start", "end"))
     except ImportError:
-        raw_iter = _stdlib_et.iterparse(_NoDtdStream(source), events=("start", "end"))
+        raw_iter = _stdlib_et.iterparse(guarded_source, events=("start", "end"))
 
     stack = []
     retain_depth = 0
@@ -296,10 +332,15 @@ def _merged_ranges(sheet_xml, merge_budget=None):
     budget = merge_budget if merge_budget is not None else [0]
     stream = io.BytesIO(sheet_xml) if isinstance(sheet_xml, (bytes, bytearray)) else sheet_xml
     for _, node in _safe_iterparse(stream, keep_subtrees=frozenset()):
-        if _local_tag(node.tag) == "mergeCell":
+        tag = _local_tag(node.tag)
+        if tag == "mergeCell":
             ref = node.get("ref")
             if ref:
                 ranges.append(_parse_merge_ref(ref, budget))
+        elif tag == "f" and node.get("t") != "dataTable":
+            f_len = len(node.text or "")
+            if f_len > MAX_FORMULA_CHARS:
+                raise ValueError(f"formula length {f_len} exceeds limit {MAX_FORMULA_CHARS}")
     return ranges
 
 
@@ -357,6 +398,8 @@ _QUOTED_EXT_RE = re.compile(r"^\[\d+\]")
 
 
 def _lex_formula_tokens(expr: str) -> list[tuple[str, str | None, str | None, bool]]:
+    if len(expr) > MAX_FORMULA_CHARS:
+        raise ValueError(f"formula length {len(expr)} exceeds limit {MAX_FORMULA_CHARS}")
     s = expr.lstrip()
     if s.startswith("="):
         s = s[1:]
@@ -364,6 +407,12 @@ def _lex_formula_tokens(expr: str) -> list[tuple[str, str | None, str | None, bo
     i = 0
     qual_sheet = None
     tokens: list[tuple[str, str | None, str | None, bool]] = []
+
+    def _emit(tok: tuple[str, str | None, str | None, bool]) -> None:
+        if len(tokens) >= MAX_FORMULA_TOKENS:
+            raise ValueError(f"formula token count exceeds limit {MAX_FORMULA_TOKENS}")
+        tokens.append(tok)
+
     while i < n:
         ch = s[i]
         if ch.isspace():
@@ -380,7 +429,7 @@ def _lex_formula_tokens(expr: str) -> list[tuple[str, str | None, str | None, bo
                     i += 1
                     break
                 i += 1
-            tokens.append(("other", None, None, False))
+            _emit(("other", None, None, False))
             continue
         if ch == "'":
             i += 1
@@ -399,18 +448,18 @@ def _lex_formula_tokens(expr: str) -> list[tuple[str, str | None, str | None, bo
             if i < n and s[i] == "!":
                 i += 1
                 if _QUOTED_EXT_RE.match(quoted):
-                    tokens.append(("ext", None, None, False))
+                    _emit(("ext", None, None, False))
                     qual_sheet = None
                 else:
                     qual_sheet = quoted.casefold()
             else:
                 qual_sheet = None
-                tokens.append(("other", None, None, False))
+                _emit(("other", None, None, False))
             continue
         if ch == "[":
             match = _UNQUOTED_EXT_RE.match(s, i)
             if match:
-                tokens.append(("ext", None, None, False))
+                _emit(("ext", None, None, False))
                 i = match.end()
                 qual_sheet = None
                 continue
@@ -423,31 +472,31 @@ def _lex_formula_tokens(expr: str) -> list[tuple[str, str | None, str | None, bo
                     depth -= 1
                 i += 1
             qual_sheet = None
-            tokens.append(("other", None, None, False))
+            _emit(("other", None, None, False))
             continue
         if ch == "(":
             qual_sheet = None
-            tokens.append(("lparen", None, None, False))
+            _emit(("lparen", None, None, False))
             i += 1
             continue
         if ch == ")":
             qual_sheet = None
-            tokens.append(("rparen", None, None, False))
+            _emit(("rparen", None, None, False))
             i += 1
             continue
         if ch == "{":
             qual_sheet = None
-            tokens.append(("lbrace", None, None, False))
+            _emit(("lbrace", None, None, False))
             i += 1
             continue
         if ch == "}":
             qual_sheet = None
-            tokens.append(("rbrace", None, None, False))
+            _emit(("rbrace", None, None, False))
             i += 1
             continue
         if ch == ",":
             qual_sheet = None
-            tokens.append(("comma", None, None, False))
+            _emit(("comma", None, None, False))
             i += 1
             continue
         if ch.isalpha() or ch in ("_", "\\"):
@@ -458,7 +507,7 @@ def _lex_formula_tokens(expr: str) -> list[tuple[str, str | None, str | None, bo
             ident = s[start:i]
             if start > 0 and s[start - 1] == "$":
                 qual_sheet = None
-                tokens.append(("other", None, None, False))
+                _emit(("other", None, None, False))
                 continue
             if i < n and s[i] == "!":
                 qual_sheet = ident.casefold()
@@ -473,7 +522,7 @@ def _lex_formula_tokens(expr: str) -> list[tuple[str, str | None, str | None, bo
                     i = end_3d + 1
                     continue
             is_call = i < n and s[i] == "("
-            tokens.append(("name", ident.casefold(), qual_sheet, is_call))
+            _emit(("name", ident.casefold(), qual_sheet, is_call))
             qual_sheet = None
             continue
         qual_sheet = None
@@ -482,7 +531,7 @@ def _lex_formula_tokens(expr: str) -> list[tuple[str, str | None, str | None, bo
             if c.isspace() or c in "\"'[](){}," or c.isalpha() or c in ("_", "\\"):
                 break
             i += 1
-        tokens.append(("other", None, None, False))
+        _emit(("other", None, None, False))
     return tokens
 
 
@@ -642,10 +691,25 @@ def external_links_at_risk(filename):
 
             defined_el = workbook.find(f"{main_ns}definedNames")
             defs: dict[tuple[str, int | None], list[str]] = {}
+            defined_count = 0
+            defined_chars = 0
             for dn in (defined_el if defined_el is not None else ()):
                 raw_name = (dn.get("name") or "").strip()
                 if not raw_name:
                     continue
+                defined_count += 1
+                if defined_count > MAX_DEFINED_NAMES:
+                    raise ValueError(f"definedName count exceeds limit {MAX_DEFINED_NAMES}")
+                dn_text = dn.text or ""
+                if len(dn_text) > MAX_FORMULA_CHARS:
+                    raise ValueError(
+                        f"definedName length {len(dn_text)} exceeds limit {MAX_FORMULA_CHARS}"
+                    )
+                defined_chars += len(dn_text)
+                if defined_chars > MAX_DEFINED_NAME_TOTAL_CHARS:
+                    raise ValueError(
+                        f"total definedName text exceeds limit {MAX_DEFINED_NAME_TOTAL_CHARS}"
+                    )
                 raw_scope = dn.get("localSheetId")
                 if raw_scope is None:
                     scope = None
@@ -654,7 +718,7 @@ def external_links_at_risk(filename):
                     if not (raw_scope_s.isdigit() and len(raw_scope_s) <= 7):
                         raise ValueError(f"invalid localSheetId: {raw_scope!r}")
                     scope = int(raw_scope_s)
-                defs.setdefault((raw_name.casefold(), scope), []).append(dn.text or "")
+                defs.setdefault((raw_name.casefold(), scope), []).append(dn_text)
 
             lambda_defs = set()
             direct_ext_defs = set()
@@ -741,7 +805,12 @@ def external_links_at_risk(filename):
                         formula = node.find(f"{main_ns}f")
                         if formula is None or formula.get("t") == "dataTable":
                             continue
-                        f_text = (formula.text or "").strip()
+                        raw_f_text = formula.text or ""
+                        if len(raw_f_text) > MAX_FORMULA_CHARS:
+                            raise ValueError(
+                                f"formula length {len(raw_f_text)} exceeds limit {MAX_FORMULA_CHARS}"
+                            )
+                        f_text = raw_f_text.strip()
                         si = formula.get("si")
                         inline = node.find(f"{main_ns}is")
                         val_text = (
@@ -974,6 +1043,12 @@ def _scan_xml(filename):
                         raise ValueError("a cell without its address")
                     formula = node.find(f"{main_ns}f")
                     is_formula = formula is not None and formula.get("t") != "dataTable"
+                    if is_formula:
+                        f_len = len(formula.text or "")
+                        if f_len > MAX_FORMULA_CHARS:
+                            raise ValueError(
+                                f"formula length {f_len} exceeds limit {MAX_FORMULA_CHARS}"
+                            )
                     err = None
                     cell_type = node.get("t", "n")
                     if cell_type == "s":

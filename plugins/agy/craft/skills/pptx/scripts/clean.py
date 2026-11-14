@@ -16,22 +16,33 @@ This script removes:
 """
 
 import posixpath
-import re
 import sys
 from pathlib import Path
+from xml.parsers.expat import ExpatError
 
-import defusedxml.minidom
+from office.helpers import (
+    SLIDE_REL_TYPE,
+    STRICT_OFFICE_REL_NS,
+    atomic_write_bytes,
+    child_local_elements,
+    get_rel_id_attr,
+    local_elements,
+    opc_target,
+    parse_xml_file,
+    rels_source_part,
+)
 
-from office.helpers import SLIDE_REL_TYPE, atomic_write_bytes, opc_target, rels_source_part
+
+_SLIDE_REL_TYPES = (SLIDE_REL_TYPE, f"{STRICT_OFFICE_REL_NS}/slide")
 
 
 def _slide_rids(pres_rels_path: Path, unpacked_dir: Path) -> dict[str, str]:
     source_part = rels_source_part(pres_rels_path, unpacked_dir)
-    rels_dom = defusedxml.minidom.parse(str(pres_rels_path))
+    rels_dom = parse_xml_file(pres_rels_path)
 
     rids: dict[str, str] = {}
-    for rel in rels_dom.getElementsByTagName("Relationship"):
-        if rel.getAttribute("Type") != SLIDE_REL_TYPE:
+    for rel in child_local_elements(rels_dom.documentElement, "Relationship"):
+        if rel.getAttribute("Type") not in _SLIDE_REL_TYPES:
             continue
         part = opc_target(
             rel.getAttribute("Target"), source_part, rel.getAttribute("TargetMode")
@@ -39,6 +50,17 @@ def _slide_rids(pres_rels_path: Path, unpacked_dir: Path) -> dict[str, str]:
         if part is not None:
             rids[rel.getAttribute("Id")] = part
     return rids
+
+
+def _referenced_slide_rids(pres_path: Path) -> list[str]:
+    if not pres_path.exists():
+        return []
+    pres_dom = parse_xml_file(pres_path)
+    return [
+        rid
+        for el in local_elements(pres_dom.documentElement, "sldId")
+        if (rid := get_rel_id_attr(el))
+    ]
 
 
 def get_slides_in_sldidlst(unpacked_dir: Path) -> set[str]:
@@ -49,9 +71,7 @@ def get_slides_in_sldidlst(unpacked_dir: Path) -> set[str]:
         return set()
 
     rid_to_slide = _slide_rids(pres_rels_path, unpacked_dir)
-
-    pres_content = pres_path.read_text(encoding="utf-8")
-    referenced_rids = set(re.findall(r'<p:sldId[^>]*r:id="([^"]+)"', pres_content))
+    referenced_rids = set(_referenced_slide_rids(pres_path))
 
     return {
         posixpath.basename(rid_to_slide[rid])
@@ -76,12 +96,7 @@ def remove_orphaned_slides(unpacked_dir: Path) -> list[str]:
     on_disk = sorted(slides_dir.glob("slide*.xml"))
 
     if on_disk and not any(s.name in referenced_slides for s in on_disk):
-        listed = re.findall(
-            r'<p:sldId[^>]*r:id="([^"]+)"',
-            (unpacked_dir / "ppt" / "presentation.xml").read_text(encoding="utf-8")
-            if (unpacked_dir / "ppt" / "presentation.xml").exists()
-            else "",
-        )
+        listed = _referenced_slide_rids(unpacked_dir / "ppt" / "presentation.xml")
         if listed:
             raise RefusedToClean(
                 f"<p:sldIdLst> lists {len(listed)} slide(s) and none of the "
@@ -103,12 +118,12 @@ def remove_orphaned_slides(unpacked_dir: Path) -> list[str]:
                 removed.append(str(rels_file.relative_to(unpacked_dir)))
 
     if removed and pres_rels_path.exists():
-        rels_dom = defusedxml.minidom.parse(str(pres_rels_path))
+        rels_dom = parse_xml_file(pres_rels_path)
         source_part = rels_source_part(pres_rels_path, unpacked_dir)
         changed = False
 
-        for rel in list(rels_dom.getElementsByTagName("Relationship")):
-            if rel.getAttribute("Type") != SLIDE_REL_TYPE:
+        for rel in list(child_local_elements(rels_dom.documentElement, "Relationship")):
+            if rel.getAttribute("Type") not in _SLIDE_REL_TYPES:
                 continue
             part = opc_target(
                 rel.getAttribute("Target"), source_part, rel.getAttribute("TargetMode")
@@ -146,8 +161,8 @@ def _referenced_by(rels_files, unpacked_dir: Path) -> set:
 
     for rels_file in rels_files:
         source_part = rels_source_part(rels_file, unpacked_dir)
-        dom = defusedxml.minidom.parse(str(rels_file))
-        for rel in dom.getElementsByTagName("Relationship"):
+        dom = parse_xml_file(rels_file)
+        for rel in child_local_elements(dom.documentElement, "Relationship"):
             part = opc_target(
                 rel.getAttribute("Target"), source_part, rel.getAttribute("TargetMode")
             )
@@ -234,10 +249,10 @@ def update_content_types(unpacked_dir: Path, removed_files: list[str]) -> None:
     if not ct_path.exists():
         return
 
-    dom = defusedxml.minidom.parse(str(ct_path))
+    dom = parse_xml_file(ct_path)
     changed = False
 
-    for override in list(dom.getElementsByTagName("Override")):
+    for override in list(child_local_elements(dom.documentElement, "Override")):
         part_name = override.getAttribute("PartName").lstrip("/")
         if part_name in removed_files:
             if override.parentNode:
@@ -294,7 +309,7 @@ if __name__ == "__main__":
 
     try:
         removed = clean_unused_files(unpacked_dir)
-    except (RefusedToClean, ValueError) as e:
+    except (RefusedToClean, ValueError, ExpatError) as e:
         print(f"Error: {e}", file=sys.stderr)
         print("Nothing was deleted.", file=sys.stderr)
         sys.exit(1)

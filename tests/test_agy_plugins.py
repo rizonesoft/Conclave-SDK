@@ -1785,6 +1785,247 @@ class CraftScriptHardeningTests(unittest.TestCase):
             ["Sheet1!B1", "Sheet1!B2", "Sheet1!B3", "Sheet1!B4", "Sheet1!B5", "Sheet1!B6"],
         )
 
+    def test_recalc_formula_and_token_budgets_prevent_memory_amplification(self):
+        import time
+        import tracemalloc
+
+        xlsx_scripts = CRAFT_DIR / "skills" / "xlsx" / "scripts"
+        recalc = _load_module("test_xlsx_recalc_formula_budget", xlsx_scripts / "recalc.py", [xlsx_scripts])
+
+        self.assertGreater(len(recalc._lex_formula_tokens("=SUM(1,2,3)+Rate")), 0)
+        with self.assertRaises(ValueError):
+            recalc._lex_formula_tokens("Rate+" * 7000 + "1")
+        with self.assertRaises(ValueError):
+            recalc._lex_formula_tokens("x+" * 9000 + "x")
+
+        wb_big_f = self.root / "book_big_formula.xlsx"
+        big_expr = "Rate+" * 100_000 + "1"
+        with zipfile.ZipFile(wb_big_f, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(
+                "xl/workbook.xml",
+                '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>'
+                '<definedNames><definedName name="Rate">[1]Sheet1!$A$1</definedName></definedNames>'
+                "</workbook>",
+            )
+            zf.writestr(
+                "xl/_rels/workbook.xml.rels",
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+                'Target="worksheets/sheet1.xml"/></Relationships>',
+            )
+            zf.writestr("xl/externalLinks/externalLink1.xml", "<externalLink/>")
+            zf.writestr(
+                "xl/worksheets/sheet1.xml",
+                '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+                f'<row r="1"><c r="A1"><f>{big_expr}</f></c></row>'
+                "</sheetData></worksheet>",
+            )
+
+        t0 = time.perf_counter()
+        tracemalloc.start()
+        try:
+            with self.assertRaises(ValueError):
+                recalc.external_links_at_risk(str(wb_big_f))
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        elapsed = time.perf_counter() - t0
+        self.assertLess(elapsed, 0.5, f"oversized formula check took {elapsed:.3f}s")
+        self.assertLess(peak, 2 * 1024 * 1024, f"tracemalloc peak {peak} bytes exceeded 2 MiB")
+
+        with self.assertRaises(ValueError):
+            recalc._scan_xml(str(wb_big_f))
+        self.assertIn("error", recalc._report(str(wb_big_f)))
+        with (
+            unittest.mock.patch.object(recalc, "get_soffice_env", return_value={}),
+            unittest.mock.patch.object(recalc, "run_soffice", side_effect=AssertionError("soffice must not run")),
+        ):
+            self.assertIn("error", recalc.recalc(str(wb_big_f)))
+            self.assertIn("error", recalc.recalc(str(wb_big_f), force=True))
+
+        wb_big_dn = self.root / "book_big_dn.xlsx"
+        big_dn = "1+" * 20_000 + "1"
+        with zipfile.ZipFile(wb_big_dn, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(
+                "xl/workbook.xml",
+                '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>'
+                f'<definedNames><definedName name="Huge">{big_dn}</definedName></definedNames>'
+                "</workbook>",
+            )
+            zf.writestr(
+                "xl/_rels/workbook.xml.rels",
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+                'Target="worksheets/sheet1.xml"/></Relationships>',
+            )
+            zf.writestr("xl/externalLinks/externalLink1.xml", "<externalLink/>")
+            zf.writestr(
+                "xl/worksheets/sheet1.xml",
+                '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/></worksheet>',
+            )
+        with self.assertRaises(ValueError):
+            recalc.external_links_at_risk(str(wb_big_dn))
+
+    def test_pptx_and_docx_scripts_handle_namespace_prefixed_opc_xml(self):
+        ct_ns = "http://schemas.openxmlformats.org/package/2006/content-types"
+        rels_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
+        p_ns = "http://schemas.openxmlformats.org/presentationml/2006/main"
+        r_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+        ct_root = ET.Element(f"{{{ct_ns}}}Types")
+        ET.SubElement(ct_root, f"{{{ct_ns}}}Default", Extension="rels", ContentType="application/vnd.openxmlformats-package.relationships+xml")
+        ET.SubElement(ct_root, f"{{{ct_ns}}}Default", Extension="xml", ContentType="application/xml")
+        ET.SubElement(
+            ct_root,
+            f"{{{ct_ns}}}Override",
+            PartName="/ppt/presentation.xml",
+            ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml",
+        )
+        ET.SubElement(
+            ct_root,
+            f"{{{ct_ns}}}Override",
+            PartName="/ppt/slides/slide1.xml",
+            ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml",
+        )
+        ET.SubElement(
+            ct_root,
+            f"{{{ct_ns}}}Override",
+            PartName="/ppt/tags/tag1.xml",
+            ContentType="application/vnd.openxmlformats-officedocument.presentationml.tags+xml",
+        )
+
+        pkg_rels = ET.Element(f"{{{rels_ns}}}Relationships")
+        ET.SubElement(pkg_rels, f"{{{rels_ns}}}Relationship", Id="rId1", Type=f"{r_ns}/officeDocument", Target="ppt/presentation.xml")
+
+        pres_rels = ET.Element(f"{{{rels_ns}}}Relationships")
+        ET.SubElement(pres_rels, f"{{{rels_ns}}}Relationship", Id="rId1", Type=f"{r_ns}/slide", Target="slides/slide1.xml")
+        ET.SubElement(pres_rels, f"{{{rels_ns}}}Relationship", Id="rId2", Type=f"{r_ns}/slideLayout", Target="slideLayouts/slideLayout1.xml")
+
+        slide1_rels = ET.Element(f"{{{rels_ns}}}Relationships")
+        ET.SubElement(slide1_rels, f"{{{rels_ns}}}Relationship", Id="rId1", Type=f"{r_ns}/slideLayout", Target="../slideLayouts/slideLayout1.xml")
+        ET.SubElement(slide1_rels, f"{{{rels_ns}}}Relationship", Id="rId2", Type=f"{r_ns}/notesSlide", Target="../notesSlides/notesSlide1.xml")
+        ET.SubElement(slide1_rels, f"{{{rels_ns}}}Relationship", Id="rId3", Type=f"{r_ns}/tags", Target="../tags/tag1.xml")
+
+        pres_root = ET.Element(f"{{{p_ns}}}presentation")
+        ET.SubElement(pres_root, f"{{{p_ns}}}sldMasterIdLst")
+        sld_lst = ET.SubElement(pres_root, f"{{{p_ns}}}sldIdLst")
+        ET.SubElement(sld_lst, f"{{{p_ns}}}sldId", id="256", **{f"{{{r_ns}}}id": "rId1"})
+
+        slide1_root = ET.Element(f"{{{p_ns}}}sld")
+        layout1_root = ET.Element(f"{{{p_ns}}}sldLayout")
+        notes1_root = ET.Element(f"{{{p_ns}}}notes")
+        tag1_root = ET.Element(f"{{{p_ns}}}tagLst")
+
+        deck = self.root / "prefixed.pptx"
+        with zipfile.ZipFile(deck, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("[Content_Types].xml", ET.tostring(ct_root, encoding="utf-8", xml_declaration=True))
+            zf.writestr("_rels/.rels", ET.tostring(pkg_rels, encoding="utf-8", xml_declaration=True))
+            zf.writestr("ppt/_rels/presentation.xml.rels", ET.tostring(pres_rels, encoding="utf-8", xml_declaration=True))
+            zf.writestr("ppt/slides/_rels/slide1.xml.rels", ET.tostring(slide1_rels, encoding="utf-8", xml_declaration=True))
+            zf.writestr("ppt/presentation.xml", ET.tostring(pres_root, encoding="utf-8", xml_declaration=True))
+            zf.writestr("ppt/slides/slide1.xml", ET.tostring(slide1_root, encoding="utf-8", xml_declaration=True))
+            zf.writestr("ppt/slideLayouts/slideLayout1.xml", ET.tostring(layout1_root, encoding="utf-8", xml_declaration=True))
+            zf.writestr("ppt/notesSlides/notesSlide1.xml", ET.tostring(notes1_root, encoding="utf-8", xml_declaration=True))
+            zf.writestr("ppt/tags/tag1.xml", ET.tostring(tag1_root, encoding="utf-8", xml_declaration=True))
+
+        pptx_scripts = CRAFT_DIR / "skills" / "pptx" / "scripts"
+        docx_scripts = CRAFT_DIR / "skills" / "docx" / "scripts"
+
+        extra_mods: dict[str, types.ModuleType] = {}
+        if importlib.util.find_spec("PIL") is None:
+            fake_pil = types.ModuleType("PIL")
+            fake_pil.Image = types.SimpleNamespace()
+            fake_pil.ImageDraw = types.SimpleNamespace()
+            fake_pil.ImageFont = types.SimpleNamespace()
+            extra_mods["PIL"] = fake_pil
+
+        with unittest.mock.patch.dict(sys.modules, extra_mods):
+            for mod_name in list(sys.modules):
+                if mod_name == "office" or mod_name.startswith("office."):
+                    sys.modules.pop(mod_name, None)
+            add_slide = _load_module("test_pptx_add_slide_ns", pptx_scripts / "add_slide.py", [pptx_scripts])
+            thumbnail = _load_module("test_pptx_thumbnail_ns", pptx_scripts / "thumbnail.py", [pptx_scripts])
+            clean = _load_module("test_pptx_clean_ns", pptx_scripts / "clean.py", [pptx_scripts])
+
+            self.assertEqual(add_slide.add_slide_to_package(deck, "slide1.xml"), "slide2.xml")
+            self.assertEqual(add_slide.add_slide_to_package(deck, "slideLayout1.xml", after="slide1.xml"), "slide3.xml")
+
+            with zipfile.ZipFile(deck, "r") as zf:
+                out_ct = ET.fromstring(zf.read("[Content_Types].xml"))
+                out_pres_rels = ET.fromstring(zf.read("ppt/_rels/presentation.xml.rels"))
+                out_pres = ET.fromstring(zf.read("ppt/presentation.xml"))
+                out_slide2_rels = ET.fromstring(zf.read("ppt/slides/_rels/slide2.xml.rels"))
+                self.assertIn("ppt/tags/tag2.xml", zf.namelist())
+
+            rel_targets = {
+                el.get("Id"): el.get("Target")
+                for el in out_pres_rels.findall(f"{{{rels_ns}}}Relationship")
+            }
+            ordered_targets = [
+                rel_targets[el.get(f"{{{r_ns}}}id")]
+                for el in out_pres.findall(f".//{{{p_ns}}}sldId")
+            ]
+            self.assertEqual(ordered_targets, ["slides/slide1.xml", "slides/slide3.xml", "slides/slide2.xml"])
+
+            overrides = {
+                el.get("PartName")
+                for el in out_ct.findall(f"{{{ct_ns}}}Override")
+            }
+            self.assertTrue({"/ppt/slides/slide2.xml", "/ppt/slides/slide3.xml", "/ppt/tags/tag2.xml"}.issubset(overrides))
+
+            slide2_rel_types = {el.get("Type"): el.get("Target") for el in out_slide2_rels.findall(f"{{{rels_ns}}}Relationship")}
+            self.assertNotIn(f"{r_ns}/notesSlide", slide2_rel_types)
+            self.assertEqual(slide2_rel_types.get(f"{r_ns}/tags"), "../tags/tag2.xml")
+
+            self.assertEqual(
+                [s["name"] for s in thumbnail.get_slide_info(deck)],
+                ["slide1.xml", "slide3.xml", "slide2.xml"],
+            )
+
+            unpacked_pptx = self.root / "unpacked_pptx"
+            with zipfile.ZipFile(deck, "r") as zf:
+                zf.extractall(unpacked_pptx)
+            orphan = unpacked_pptx / "ppt" / "slides" / "slide99.xml"
+            orphan.write_bytes(ET.tostring(slide1_root, encoding="utf-8", xml_declaration=True))
+            removed = clean.clean_unused_files(unpacked_pptx)
+            self.assertFalse(orphan.exists())
+            self.assertTrue(any("slide99.xml" in item for item in removed))
+            for keep in ("slide1.xml", "slide2.xml", "slide3.xml"):
+                self.assertTrue((unpacked_pptx / "ppt" / "slides" / keep).exists())
+
+        with unittest.mock.patch.dict(sys.modules):
+            for mod_name in list(sys.modules):
+                if mod_name == "office" or mod_name.startswith("office."):
+                    sys.modules.pop(mod_name, None)
+            comment = _load_module("test_docx_comment_ns", docx_scripts / "comment.py", [docx_scripts])
+
+            unpacked_docx = self.root / "unpacked_docx"
+            (unpacked_docx / "word" / "_rels").mkdir(parents=True)
+            doc_ct = ET.Element(f"{{{ct_ns}}}Types")
+            ET.SubElement(doc_ct, f"{{{ct_ns}}}Default", Extension="rels", ContentType="application/vnd.openxmlformats-package.relationships+xml")
+            ET.SubElement(doc_ct, f"{{{ct_ns}}}Override", PartName="/word/document.xml", ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml")
+            (unpacked_docx / "[Content_Types].xml").write_bytes(ET.tostring(doc_ct, encoding="utf-8", xml_declaration=True))
+
+            doc_rels = ET.Element(f"{{{rels_ns}}}Relationships")
+            ET.SubElement(doc_rels, f"{{{rels_ns}}}Relationship", Id="rId1", Type=f"{r_ns}/styles", Target="styles.xml")
+            (unpacked_docx / "word" / "_rels" / "document.xml.rels").write_bytes(ET.tostring(doc_rels, encoding="utf-8", xml_declaration=True))
+
+            comment._ensure_comment_relationships(unpacked_docx)
+            comment._ensure_comment_content_types(unpacked_docx)
+
+            out_doc_rels = ET.fromstring((unpacked_docx / "word" / "_rels" / "document.xml.rels").read_bytes())
+            out_doc_ct = ET.fromstring((unpacked_docx / "[Content_Types].xml").read_bytes())
+            doc_targets = {el.get("Target") for el in out_doc_rels.findall(f"{{{rels_ns}}}Relationship")}
+            self.assertTrue({"comments.xml", "commentsExtended.xml", "commentsIds.xml", "commentsExtensible.xml"}.issubset(doc_targets))
+            doc_overrides = {el.get("PartName") for el in out_doc_ct.findall(f"{{{ct_ns}}}Override")}
+            self.assertTrue({"/word/comments.xml", "/word/commentsExtended.xml", "/word/commentsIds.xml", "/word/commentsExtensible.xml"}.issubset(doc_overrides))
+            self.assertTrue(comment._has_relationship(unpacked_docx / "word" / "_rels" / "document.xml.rels", "comments.xml"))
+            self.assertTrue(comment._has_content_type(unpacked_docx / "[Content_Types].xml", "/word/comments.xml"))
+
 
 if __name__ == "__main__":
     unittest.main()

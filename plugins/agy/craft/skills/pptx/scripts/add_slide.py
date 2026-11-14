@@ -35,14 +35,23 @@ import zipfile
 from pathlib import Path
 from xml.parsers.expat import ExpatError
 
-import defusedxml.minidom
-from defusedxml.common import DefusedXmlException
-
 from office.helpers import (
+    CONTENT_TYPES_NS,
+    OFFICE_REL_NS,
+    PACKAGE_RELS_NS,
+    SLIDE_REL_TYPE,
+    STRICT_OFFICE_REL_NS,
+    append_ns_child,
     atomic_copy,
     atomic_write_bytes,
     atomic_write_text,
+    child_local_elements,
+    ensure_ns_prefix,
+    get_rel_id_attr,
+    local_elements,
     opc_target,
+    parse_xml_bytes,
+    parse_xml_file,
     rezip,
     safe_extract,
 )
@@ -73,10 +82,10 @@ MINIMAL_SLIDE_XML = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 
 SHARED_PART_TYPES = ("chart", "diagramData", "oleObject", "package")
 
-NOTES_SLIDE_TYPE_RE = re.compile(r"""Type=["'][^"']*/relationships/notesSlide["']""")
-TAGS_TYPE_RE = re.compile(r"""Type=["'][^"']*/relationships/tags["']""")
+_TRANSITIONAL_P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
+_STRICT_P_NS = "http://purl.oclc.org/ooxml/presentationml/main"
+SLIDE_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.slide+xml"
 TAGS_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.tags+xml"
-RELATIONSHIP_RE = re.compile(r"<Relationship\b[^>]*?(?:/>|>.*?</Relationship\s*>)", re.DOTALL)
 
 SLIDE_ID_MIN = 256
 SLIDE_ID_MAX = 2147483647
@@ -87,9 +96,20 @@ def _die(msg: str) -> NoReturn:
     sys.exit(1)
 
 
+def _node_local_name(node) -> str:
+    return node.localName or node.tagName.rsplit(":", 1)[-1]
+
+
+def _root_with_local_name(dom, local_name: str, label: str):
+    root = dom.documentElement
+    if root is None or _node_local_name(root) != local_name:
+        raise ValueError(f"invalid {label} root element")
+    return root
+
+
 def get_next_slide_number(slides_dir: Path) -> int:
     existing = [int(m.group(1)) for f in slides_dir.glob("slide*.xml")
-                if (m := re.match(r"slide(\d+)\.xml", f.name))]
+                if (m := re.fullmatch(r"slide(\d{1,9})\.xml", f.name))]
     return max(existing) + 1 if existing else 1
 
 
@@ -145,21 +165,24 @@ def duplicate_slide(unpacked_dir: Path, source: str, after: str | None = None) -
     if source_rels.exists():
         dest_rels = rels_dir / f"{dest}.rels"
         atomic_copy(source_rels, dest_rels)
-        rels_content = dest_rels.read_text(encoding="utf-8")
-        rels_content = RELATIONSHIP_RE.sub(
-            lambda m: "" if NOTES_SLIDE_TYPE_RE.search(m.group(0)) else m.group(0),
-            rels_content,
+        rels_dom = parse_xml_file(dest_rels)
+        rels_root = _root_with_local_name(rels_dom, "Relationships", dest_rels.name)
+        shared_kinds: set[str] = set()
+        for rel in list(child_local_elements(rels_root, "Relationship")):
+            rel_type = rel.getAttribute("Type")
+            if rel_type.endswith("/relationships/notesSlide"):
+                rels_root.removeChild(rel)
+            elif rel_type.endswith("/relationships/tags"):
+                _with_own_tags_part(unpacked_dir, rel, f"ppt/slides/{dest}")
+            elif "/relationships/" in rel_type:
+                kind = rel_type.rsplit("/relationships/", 1)[-1]
+                if kind in SHARED_PART_TYPES:
+                    shared_kinds.add(kind)
+        atomic_write_bytes(
+            dest_rels,
+            rels_dom.toxml(encoding="UTF-8", standalone=rels_dom.standalone),
         )
-        rels_content = RELATIONSHIP_RE.sub(
-            lambda m: _with_own_tags_part(unpacked_dir, m.group(0), f"ppt/slides/{dest}")
-            if TAGS_TYPE_RE.search(m.group(0)) else m.group(0),
-            rels_content,
-        )
-        atomic_write_text(dest_rels, rels_content, encoding="utf-8")
-        shared_parts = sorted({
-            t for t in re.findall(r'Type="[^"]*/relationships/(\w+)"', rels_content)
-            if t in SHARED_PART_TYPES
-        })
+        shared_parts = sorted(shared_kinds)
 
     _register_slide(unpacked_dir, dest, source, after_rid)
     if shared_parts:
@@ -170,55 +193,82 @@ def duplicate_slide(unpacked_dir: Path, source: str, after: str | None = None) -
     return dest
 
 
-def _with_own_tags_part(unpacked_dir: Path, relationship: str, slide_part: str) -> str:
-    target = re.search(r"""Target=["']([^"']*)["']""", relationship)
+def _ensure_content_type_override(
+    unpacked_dir: Path, part_name: str, content_type: str
+) -> None:
+    content_types_path = unpacked_dir / "[Content_Types].xml"
+    dom = parse_xml_file(content_types_path)
+    root = _root_with_local_name(dom, "Types", "[Content_Types].xml")
+    if any(el.getAttribute("PartName") == part_name for el in child_local_elements(root, "Override")):
+        return
+    append_ns_child(
+        dom,
+        root,
+        "Override",
+        {"PartName": part_name, "ContentType": content_type},
+        expected_ns=CONTENT_TYPES_NS,
+    )
+    atomic_write_bytes(
+        content_types_path,
+        dom.toxml(encoding="UTF-8", standalone=dom.standalone),
+    )
+
+
+def _with_own_tags_part(unpacked_dir: Path, rel, slide_part: str) -> None:
+    raw_target = rel.getAttribute("Target")
+    target_mode = rel.getAttribute("TargetMode")
     try:
-        source = opc_target(target.group(1), slide_part) if target else None
+        source = opc_target(raw_target, slide_part, target_mode) if raw_target else None
     except ValueError:
         source = None
     if source is None or not (unpacked_dir / source).is_file():
-        return relationship
+        return
 
     tags_dir = (unpacked_dir / source).parent
+    names = [f.name for f in tags_dir.iterdir()]
     content_types_path = unpacked_dir / "[Content_Types].xml"
-    content_types = content_types_path.read_text(encoding="utf-8")
-    names = [f.name for f in tags_dir.iterdir()] + re.findall(r"""PartName=["'][^"']*/([^/"']+)["']""", content_types)
+    if content_types_path.is_file():
+        ct_dom = parse_xml_file(content_types_path)
+        ct_root = _root_with_local_name(ct_dom, "Types", "[Content_Types].xml")
+        names.extend(
+            part_attr.rsplit("/", 1)[-1]
+            for el in child_local_elements(ct_root, "Override")
+            if (part_attr := el.getAttribute("PartName"))
+        )
     taken = [int(m.group(1)) for name in names if (m := re.fullmatch(r"tag(\d{1,9})\.xml", name, re.I))]
     copy = tags_dir / f"tag{max(taken, default=0) + 1}.xml"
     atomic_copy(unpacked_dir / source, copy)
 
     part = copy.relative_to(unpacked_dir).as_posix()
-    override = f'<Override PartName="/{part}" ContentType="{TAGS_CONTENT_TYPE}"/>'
-    atomic_write_text(
-        content_types_path,
-        content_types.replace("</Types>", f"  {override}\n</Types>"),
-        encoding="utf-8",
-    )
+    _ensure_content_type_override(unpacked_dir, f"/{part}", TAGS_CONTENT_TYPE)
     relative = posixpath.relpath(part, posixpath.dirname(slide_part))
-    return relationship.replace(target.group(0), f'Target="{relative}"')
+    rel.setAttribute("Target", relative)
 
 
 def _precheck_registration(unpacked_dir: Path, after: str | None, dest: str) -> str | None:
     pres_path = unpacked_dir / "ppt" / "presentation.xml"
     if not pres_path.exists():
         _die(f"{pres_path} not found: is this an unpacked PPTX?")
-    xml = pres_path.read_text(encoding="utf-8")
+    pres_dom = parse_xml_file(pres_path)
+    root = _root_with_local_name(pres_dom, "presentation", "presentation.xml")
 
-    has_slot = (
-        "</p:sldIdLst>" in xml
-        or re.search(r"<p:sldIdLst\s*/>", xml)
-        or "</p:sldMasterIdLst>" in xml
-    )
-    if not has_slot:
+    sld_id_lst = _only_child(root, "sldIdLst")
+    if sld_id_lst is None and _only_child(root, "sldMasterIdLst") is None:
         _die("presentation.xml has no <p:sldIdLst> (or <p:sldMasterIdLst> to anchor a new one)")
 
     stale = []
     content_types = unpacked_dir / "[Content_Types].xml"
-    if content_types.exists() and f'PartName="/ppt/slides/{dest}"' in content_types.read_text(encoding="utf-8"):
-        stale.append("[Content_Types].xml")
+    if content_types.exists():
+        ct_dom = parse_xml_file(content_types)
+        ct_root = _root_with_local_name(ct_dom, "Types", "[Content_Types].xml")
+        if any(
+            el.getAttribute("PartName") == f"/ppt/slides/{dest}"
+            for el in child_local_elements(ct_root, "Override")
+        ):
+            stale.append("[Content_Types].xml")
     pres_rels = unpacked_dir / "ppt" / "_rels" / "presentation.xml.rels"
-    if pres_rels.exists() and _find_slide_relationship(
-        pres_rels.read_text(encoding="utf-8"), dest
+    if pres_rels.exists() and _find_slide_relationship_dom(
+        parse_xml_file(pres_rels), dest
     ):
         stale.append("presentation.xml.rels")
     if stale:
@@ -230,7 +280,10 @@ def _precheck_registration(unpacked_dir: Path, after: str | None, dest: str) -> 
     if not after:
         return None
     after_rid = _rid_for_slide(unpacked_dir, after)
-    if not re.search(rf'<p:sldId\b[^>]*r:id="{re.escape(after_rid)}"[^>]*>', xml):
+    if sld_id_lst is None or not any(
+        get_rel_id_attr(el) == after_rid
+        for el in child_local_elements(sld_id_lst, "sldId")
+    ):
         _die(f"{after} ({after_rid}) is not listed in <p:sldIdLst>")
     return after_rid
 
@@ -255,12 +308,12 @@ def _count_slide_in_app_properties(unpacked_dir: Path, position: int) -> None:
     if not path.is_file():
         return
     try:
-        dom = defusedxml.minidom.parse(str(path))
+        dom = parse_xml_file(path)
         slides = _only_child(dom.documentElement, "Slides")
         was = int(slides.firstChild.data)
         if not _add_slide_title(dom, was, position):
             return
-    except (AttributeError, LookupError, ValueError, TypeError, OSError, ExpatError, DefusedXmlException):
+    except (AttributeError, LookupError, ValueError, TypeError, OSError, ExpatError):
         return  
     slides.firstChild.data = str(was + 1)
     atomic_write_bytes(path, dom.toxml(encoding="UTF-8", standalone=dom.standalone))
@@ -301,54 +354,89 @@ def _elements(node) -> list:
 
 
 def _only_child(node, local_name: str):
-    found = [c for c in _elements(node) if c.localName == local_name] if node else []
+    found = child_local_elements(node, local_name)
     return found[0] if len(found) == 1 else None
 
 
 def _add_to_content_types(unpacked_dir: Path, dest: str) -> None:
-    content_types_path = unpacked_dir / "[Content_Types].xml"
-    content_types = content_types_path.read_text(encoding="utf-8")
+    _ensure_content_type_override(
+        unpacked_dir, f"/ppt/slides/{dest}", SLIDE_CONTENT_TYPE
+    )
 
-    new_override = f'<Override PartName="/ppt/slides/{dest}" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>'
 
-    if f'PartName="/ppt/slides/{dest}"' not in content_types:
-        content_types = content_types.replace("</Types>", f"  {new_override}\n</Types>")
-        atomic_write_text(content_types_path, content_types, encoding="utf-8")
+def _find_slide_relationship_dom(rels_dom, slide_name: str) -> str | None:
+    root = _root_with_local_name(rels_dom, "Relationships", "presentation.xml.rels")
+    expected_part = f"ppt/slides/{slide_name}"
+    for rel in child_local_elements(root, "Relationship"):
+        target = rel.getAttribute("Target")
+        if not target:
+            continue
+        part = opc_target(target, "ppt/presentation.xml", rel.getAttribute("TargetMode"))
+        if part == expected_part:
+            rid = rel.getAttribute("Id")
+            if rid:
+                return rid
+    return None
+
+
+def _find_slide_relationship(pres_rels: str, slide_name: str) -> str | None:
+    return _find_slide_relationship_dom(parse_xml_bytes(pres_rels.encode("utf-8")), slide_name)
 
 
 def _add_to_presentation_rels(unpacked_dir: Path, dest: str) -> str:
     pres_rels_path = unpacked_dir / "ppt" / "_rels" / "presentation.xml.rels"
-    pres_rels = pres_rels_path.read_text(encoding="utf-8")
+    rels_dom = parse_xml_file(pres_rels_path)
+    rels_root = _root_with_local_name(rels_dom, "Relationships", "presentation.xml.rels")
 
-    existing = _find_slide_relationship(pres_rels, dest)
+    existing = _find_slide_relationship_dom(rels_dom, dest)
     if existing:
         return existing
 
-    pres_xml = (unpacked_dir / "ppt" / "presentation.xml").read_text(encoding="utf-8")
-    used = {int(n) for n in re.findall(r'\bId="rId(\d+)"', pres_rels)}
-    used |= {int(n) for n in re.findall(r'\br:id="rId(\d+)"', pres_xml)}
-    rid = f"rId{max(used) + 1 if used else 1}"
+    pres_dom = parse_xml_file(unpacked_dir / "ppt" / "presentation.xml")
+    pres_root = _root_with_local_name(pres_dom, "presentation", "presentation.xml")
 
-    new_rel = f'<Relationship Id="{rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/{dest}"/>'
-    pres_rels = pres_rels.replace("</Relationships>", f"  {new_rel}\n</Relationships>")
-    atomic_write_text(pres_rels_path, pres_rels, encoding="utf-8")
+    used: set[int] = set()
+    for rel in child_local_elements(rels_root, "Relationship"):
+        if (m := re.fullmatch(r"rId(\d{1,9})", rel.getAttribute("Id"))):
+            used.add(int(m.group(1)))
+    for el in pres_dom.getElementsByTagName("*"):
+        if not el.attributes:
+            continue
+        for i in range(el.attributes.length):
+            attr = el.attributes.item(i)
+            if attr.namespaceURI in (OFFICE_REL_NS, STRICT_OFFICE_REL_NS) or attr.name.endswith(":id"):
+                if (m := re.fullmatch(r"rId(\d{1,9})", attr.value)):
+                    used.add(int(m.group(1)))
+
+    rid = f"rId{max(used) + 1 if used else 1}"
+    slide_rel_type = (
+        f"{STRICT_OFFICE_REL_NS}/slide"
+        if pres_root.namespaceURI == _STRICT_P_NS
+        else SLIDE_REL_TYPE
+    )
+    append_ns_child(
+        rels_dom,
+        rels_root,
+        "Relationship",
+        {"Id": rid, "Type": slide_rel_type, "Target": f"slides/{dest}"},
+        expected_ns=PACKAGE_RELS_NS,
+    )
+    atomic_write_bytes(
+        pres_rels_path,
+        rels_dom.toxml(encoding="UTF-8", standalone=rels_dom.standalone),
+    )
 
     return rid
 
 
-def _find_slide_relationship(pres_rels: str, slide_name: str) -> str | None:
-    for m in re.finditer(r"<Relationship\b[^>]*>", pres_rels):
-        element = m.group(0)
-        if re.search(rf'Target="(?:/ppt/)?slides/{re.escape(slide_name)}"', element):
-            id_match = re.search(r'\bId="([^"]+)"', element)
-            if id_match:
-                return id_match.group(1)
-    return None
-
-
 def _get_next_slide_id(unpacked_dir: Path) -> int:
-    pres_content = (unpacked_dir / "ppt" / "presentation.xml").read_text(encoding="utf-8")
-    used = {int(m) for m in re.findall(r'<p:sldId[^>]*\bid="(\d+)"', pres_content)}
+    pres_dom = parse_xml_file(unpacked_dir / "ppt" / "presentation.xml")
+    pres_root = _root_with_local_name(pres_dom, "presentation", "presentation.xml")
+    used: set[int] = set()
+    for el in local_elements(pres_root, "sldId"):
+        raw = el.getAttribute("id").strip()
+        if raw.isdigit() and len(raw) <= 10:
+            used.add(int(raw))
 
     candidate = max((i for i in used if i >= SLIDE_ID_MIN), default=SLIDE_ID_MIN - 1) + 1
     if candidate <= SLIDE_ID_MAX and candidate not in used:
@@ -359,51 +447,65 @@ def _get_next_slide_id(unpacked_dir: Path) -> int:
     _die("no slide id available in [256, 2147483647]: the deck is full")
 
 
+def _create_child_element(dom, parent, local_name: str):
+    if parent.namespaceURI:
+        qname = f"{parent.prefix}:{local_name}" if parent.prefix else local_name
+        return dom.createElementNS(parent.namespaceURI, qname)
+    return dom.createElement(local_name)
+
+
 def _insert_into_sld_id_lst(
     unpacked_dir: Path, slide_id: int, rid: str, after_rid: str | None = None
 ) -> tuple[int, int]:
     pres_path = unpacked_dir / "ppt" / "presentation.xml"
-    xml = pres_path.read_text(encoding="utf-8")
-    entry = f'<p:sldId id="{slide_id}" r:id="{rid}"/>'
+    pres_dom = parse_xml_file(pres_path)
+    root = _root_with_local_name(pres_dom, "presentation", "presentation.xml")
 
-    if f'r:id="{rid}"' in xml:
+    if any(get_rel_id_attr(el) == rid for el in local_elements(root, "sldId")):
         _die(f"presentation.xml already references {rid}; refusing to add a duplicate")
 
+    rel_ns = STRICT_OFFICE_REL_NS if root.namespaceURI == _STRICT_P_NS else OFFICE_REL_NS
+    r_prefix = ensure_ns_prefix(pres_dom, root, rel_ns, default_prefix="r")
+
+    sld_id_lst = _only_child(root, "sldIdLst")
+    if sld_id_lst is None:
+        master_lst = _only_child(root, "sldMasterIdLst")
+        if master_lst is None:
+            _die("presentation.xml has no <p:sldIdLst> (or <p:sldMasterIdLst> to anchor a new one)")
+        sld_id_lst = _create_child_element(pres_dom, root, "sldIdLst")
+        root.insertBefore(sld_id_lst, master_lst.nextSibling)
+
+    entry = _create_child_element(pres_dom, sld_id_lst, "sldId")
+    entry.setAttribute("id", str(slide_id))
+    entry.setAttributeNS(rel_ns, f"{r_prefix}:id", rid)
+
     if after_rid:
-        open_tag = re.search(rf'<p:sldId\b[^>]*r:id="{re.escape(after_rid)}"[^>]*>', xml)
-        if not open_tag:
-            _die(f"{after_rid} is not listed in <p:sldIdLst>")
-        end = open_tag.end()
-        if not open_tag.group(0).endswith("/>"):
-            close = xml.find("</p:sldId>", end)
-            if close == -1:
-                _die(f"unclosed <p:sldId> for {after_rid} in presentation.xml")
-            end = close + len("</p:sldId>")
-        xml = xml[:end] + entry + xml[end:]
-    elif "</p:sldIdLst>" in xml:
-        xml = xml.replace("</p:sldIdLst>", f"{entry}</p:sldIdLst>", 1)
-    elif re.search(r"<p:sldIdLst\s*/>", xml):
-        xml = re.sub(r"<p:sldIdLst\s*/>", f"<p:sldIdLst>{entry}</p:sldIdLst>", xml, count=1)
-    elif "</p:sldMasterIdLst>" in xml:
-        xml = xml.replace(
-            "</p:sldMasterIdLst>", f"</p:sldMasterIdLst><p:sldIdLst>{entry}</p:sldIdLst>", 1
+        anchor = next(
+            (el for el in child_local_elements(sld_id_lst, "sldId") if get_rel_id_attr(el) == after_rid),
+            None,
         )
+        if anchor is None:
+            _die(f"{after_rid} is not listed in <p:sldIdLst>")
+        sld_id_lst.insertBefore(entry, anchor.nextSibling)
     else:
-        _die("presentation.xml has no <p:sldIdLst> (or <p:sldMasterIdLst> to anchor a new one)")
+        sld_id_lst.appendChild(entry)
 
-    atomic_write_text(pres_path, xml, encoding="utf-8")
+    atomic_write_bytes(
+        pres_path,
+        pres_dom.toxml(encoding="UTF-8", standalone=pres_dom.standalone),
+    )
 
-    lst = re.search(r"<p:sldIdLst>(.*)</p:sldIdLst>", xml, re.DOTALL)
-    entries = re.findall(r"<p:sldId\b[^>]*>", lst.group(1)) if lst else []
+    entries = child_local_elements(sld_id_lst, "sldId")
     position = next(
-        (i for i, e in enumerate(entries, 1) if f'r:id="{rid}"' in e), len(entries)
+        (i for i, el in enumerate(entries, 1) if get_rel_id_attr(el) == rid),
+        len(entries),
     )
     return position, len(entries)
 
 
 def _rid_for_slide(unpacked_dir: Path, slide_name: str) -> str:
     pres_rels_path = unpacked_dir / "ppt" / "_rels" / "presentation.xml.rels"
-    rid = _find_slide_relationship(pres_rels_path.read_text(encoding="utf-8"), slide_name)
+    rid = _find_slide_relationship_dom(parse_xml_file(pres_rels_path), slide_name)
     if not rid:
         _die(f"{slide_name} has no relationship in presentation.xml.rels")
     return rid
@@ -457,11 +559,14 @@ def main() -> None:
     if target.is_dir():
         if args.output:
             parser.error("--output is only valid for .pptx/.potx input; a directory is modified in place")
-        add_slide(target, args.source, args.after)
+        try:
+            add_slide(target, args.source, args.after)
+        except (OSError, ValueError, ExpatError) as e:
+            _die(str(e))
     elif target.is_file() and target.suffix.lower() in (".pptx", ".potx"):
         try:
             add_slide_to_package(target, args.source, args.after, Path(args.output) if args.output else None)
-        except (OSError, ValueError, zipfile.BadZipFile) as e:
+        except (OSError, ValueError, ExpatError, zipfile.BadZipFile) as e:
             _die(str(e))
     else:
         _die(f"{target} is neither a directory nor a .pptx/.potx file")

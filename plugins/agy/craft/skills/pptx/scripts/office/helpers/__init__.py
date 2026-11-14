@@ -6,6 +6,7 @@ import shutil
 import stat
 import tempfile
 import urllib.parse
+import xml.parsers.expat as _expat
 import zipfile
 from pathlib import Path
 
@@ -21,6 +22,11 @@ OOXML_FAMILY = {
 _SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]*:")
 
 SLIDE_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"
+PACKAGE_RELS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+CONTENT_TYPES_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
+OFFICE_REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+STRICT_OFFICE_REL_NS = "http://purl.oclc.org/ooxml/officeDocument/relationships"
+MAX_XML_DEPTH = 256
 
 
 def one_line(text: str, limit: int) -> str:
@@ -352,3 +358,151 @@ def rezip(src_dir: Path, out_path: Path) -> None:
     finally:
         if tmp_out.exists():
             tmp_out.unlink()
+
+
+def _guard_xml_bytes(data: bytes) -> None:
+    parser = _expat.ParserCreate()
+    depth = 0
+
+    def _forbid(*_args):
+        raise ValueError("XML DTD and entity declarations are forbidden")
+
+    def _start(_name, _attrs):
+        nonlocal depth
+        depth += 1
+        if depth > MAX_XML_DEPTH:
+            raise ValueError(f"XML nesting depth exceeds limit {MAX_XML_DEPTH}")
+
+    def _end(_name):
+        nonlocal depth
+        if depth > 0:
+            depth -= 1
+
+    parser.StartDoctypeDeclHandler = _forbid
+    parser.EntityDeclHandler = _forbid
+    parser.UnparsedEntityDeclHandler = _forbid
+    parser.ExternalEntityRefHandler = _forbid
+    parser.StartElementHandler = _start
+    parser.EndElementHandler = _end
+    parser.Parse(data, True)
+
+
+def parse_xml_bytes(data: bytes, max_bytes: int = MAX_MEMBER_BYTES):
+    if len(data) > max_bytes:
+        raise ValueError(f"XML document size {len(data)} exceeds limit {max_bytes}")
+    _guard_xml_bytes(data)
+    try:
+        import defusedxml.minidom as _minidom
+        parse_fn = _minidom.parseString
+    except (ImportError, AttributeError):
+        import xml.dom.minidom as _minidom
+        parse_fn = _minidom.parseString
+    try:
+        return parse_fn(data)
+    except Exception as exc:
+        if type(exc).__module__.startswith("defusedxml"):
+            raise ValueError(str(exc)) from exc
+        raise
+
+
+def parse_xml_file(path: Path, max_bytes: int = MAX_MEMBER_BYTES):
+    size = path.stat().st_size
+    if size > max_bytes:
+        raise ValueError(f"XML file {path.name} size {size} exceeds limit {max_bytes}")
+    return parse_xml_bytes(path.read_bytes(), max_bytes=max_bytes)
+
+
+def _node_local_name(node) -> str:
+    return node.localName or node.tagName.rsplit(":", 1)[-1]
+
+
+def child_local_elements(node, local_name: str) -> list:
+    if node is None:
+        return []
+    return [
+        c
+        for c in node.childNodes
+        if c.nodeType == c.ELEMENT_NODE and _node_local_name(c) == local_name
+    ]
+
+
+def local_elements(node, local_name: str) -> list:
+    if node is None:
+        return []
+    return [
+        el for el in node.getElementsByTagName("*") if _node_local_name(el) == local_name
+    ]
+
+
+def append_ns_child(
+    dom,
+    parent,
+    local_name: str,
+    attrs: dict[str, str],
+    expected_ns: str | None = None,
+):
+    if parent is None:
+        raise ValueError("cannot append child to None XML parent")
+    if expected_ns is not None and parent.namespaceURI not in (None, "", expected_ns):
+        raise ValueError(
+            f"unexpected XML namespace {parent.namespaceURI!r}, expected {expected_ns!r}"
+        )
+    if parent.namespaceURI:
+        qname = f"{parent.prefix}:{local_name}" if parent.prefix else local_name
+        el = dom.createElementNS(parent.namespaceURI, qname)
+    else:
+        el = dom.createElement(local_name)
+    for k, v in attrs.items():
+        el.setAttribute(k, v)
+    parent.appendChild(el)
+    return el
+
+
+def ensure_ns_prefix(dom, root, target_ns: str, default_prefix: str = "r") -> str:
+    if root.attributes:
+        for i in range(root.attributes.length):
+            attr = root.attributes.item(i)
+            if attr.value == target_ns and (
+                attr.prefix == "xmlns" or attr.name.startswith("xmlns:")
+            ):
+                pfx = attr.localName or attr.name.split(":", 1)[1]
+                if pfx and pfx != "xmlns":
+                    return pfx
+
+    used_bindings: dict[str, set[str]] = {}
+    candidate_prefixes: list[str] = []
+    for el in dom.getElementsByTagName("*"):
+        if not el.attributes:
+            continue
+        for i in range(el.attributes.length):
+            attr = el.attributes.item(i)
+            if attr.prefix == "xmlns" or attr.name.startswith("xmlns:"):
+                pfx = attr.localName or attr.name.split(":", 1)[1]
+                if pfx and pfx != "xmlns":
+                    used_bindings.setdefault(pfx, set()).add(attr.value)
+                    if attr.value == target_ns:
+                        candidate_prefixes.append(pfx)
+
+    for pfx in candidate_prefixes:
+        if (
+            not root.hasAttribute(f"xmlns:{pfx}")
+            and used_bindings.get(pfx) == {target_ns}
+        ):
+            root.setAttribute(f"xmlns:{pfx}", target_ns)
+            return pfx
+
+    prefix = default_prefix
+    idx = 0
+    while prefix in used_bindings:
+        idx += 1
+        prefix = f"{default_prefix}{idx}"
+    root.setAttribute(f"xmlns:{prefix}", target_ns)
+    return prefix
+
+
+def get_rel_id_attr(el) -> str:
+    return (
+        el.getAttributeNS(OFFICE_REL_NS, "id")
+        or el.getAttributeNS(STRICT_OFFICE_REL_NS, "id")
+        or el.getAttribute("r:id")
+    )

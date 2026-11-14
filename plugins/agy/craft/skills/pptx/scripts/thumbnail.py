@@ -21,17 +21,22 @@ import posixpath
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as _stdlib_et
+import xml.parsers.expat as _expat
 import zipfile
 from pathlib import Path
 
-import defusedxml.minidom
-from defusedxml import ElementTree
 from office.helpers import (
     MAX_ARCHIVE_BYTES,
     MAX_MEMBER_BYTES,
     SLIDE_REL_TYPE,
+    STRICT_OFFICE_REL_NS,
+    child_local_elements,
+    get_rel_id_attr,
+    local_elements,
     opc_target,
     open_zip_member,
+    parse_xml_bytes,
     read_zip_member,
     validate_archive,
 )
@@ -106,6 +111,30 @@ def main():
         sys.exit(1)
 
 
+class _DtdRejectingStream:
+    def __init__(self, stream):
+        self._stream = stream
+        self._guard = _expat.ParserCreate()
+        self._finished = False
+
+        def _forbid(*_args):
+            raise ValueError("XML DTD and entity declarations are forbidden")
+
+        self._guard.StartDoctypeDeclHandler = _forbid
+        self._guard.EntityDeclHandler = _forbid
+        self._guard.UnparsedEntityDeclHandler = _forbid
+        self._guard.ExternalEntityRefHandler = _forbid
+
+    def read(self, size=-1):
+        chunk = self._stream.read(size)
+        if chunk:
+            self._guard.Parse(chunk, False)
+        elif size != 0 and not self._finished:
+            self._finished = True
+            self._guard.Parse(b"", True)
+        return chunk
+
+
 def _is_hidden(
     zf: zipfile.ZipFile,
     part: str,
@@ -114,6 +143,10 @@ def _is_hidden(
     max_bytes: int = MAX_ARCHIVE_BYTES,
 ) -> bool:
     try:
+        from defusedxml import ElementTree as et_mod
+    except (ImportError, AttributeError):
+        et_mod = _stdlib_et
+    try:
         with open_zip_member(
             zf,
             part,
@@ -121,9 +154,9 @@ def _is_hidden(
             max_member_bytes=max_member_bytes,
             max_bytes=max_bytes,
         ) as f:
-            for _, root in ElementTree.iterparse(f, events=("start",)):
+            for _, root in et_mod.iterparse(_DtdRejectingStream(f), events=("start",)):
                 return root.get("show") in ("0", "false")  
-    except (KeyError, ElementTree.ParseError):
+    except (KeyError, SyntaxError, ValueError, _expat.ExpatError):
         return False
     return False
 
@@ -142,12 +175,13 @@ def get_slide_info(pptx_path: Path) -> list[dict]:
             budget=budget,
             max_member_bytes=MAX_THUMBNAIL_XML_BYTES,
             max_bytes=MAX_ARCHIVE_BYTES,
-        ).decode("utf-8")
-        rels_dom = defusedxml.minidom.parseString(rels_content)
+        )
+        rels_dom = parse_xml_bytes(rels_content, max_bytes=MAX_THUMBNAIL_XML_BYTES)
 
+        slide_rel_types = (SLIDE_REL_TYPE, f"{STRICT_OFFICE_REL_NS}/slide")
         rid_to_part = {}
-        for rel in rels_dom.getElementsByTagName("Relationship"):
-            if rel.getAttribute("Type") != SLIDE_REL_TYPE:
+        for rel in child_local_elements(rels_dom.documentElement, "Relationship"):
+            if rel.getAttribute("Type") not in slide_rel_types:
                 continue
             part = opc_target(
                 rel.getAttribute("Target"),
@@ -163,14 +197,14 @@ def get_slide_info(pptx_path: Path) -> list[dict]:
             budget=budget,
             max_member_bytes=MAX_THUMBNAIL_XML_BYTES,
             max_bytes=MAX_ARCHIVE_BYTES,
-        ).decode("utf-8")
-        pres_dom = defusedxml.minidom.parseString(pres_content)
+        )
+        pres_dom = parse_xml_bytes(pres_content, max_bytes=MAX_THUMBNAIL_XML_BYTES)
 
         present = set(zf.namelist())
 
         slides = []
-        for sld_id in pres_dom.getElementsByTagName("p:sldId"):
-            part = rid_to_part.get(sld_id.getAttribute("r:id"))
+        for sld_id in local_elements(pres_dom.documentElement, "sldId"):
+            part = rid_to_part.get(get_rel_id_attr(sld_id))
             if part is not None and part in present:
                 slides.append(
                     {
