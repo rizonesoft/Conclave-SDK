@@ -314,9 +314,9 @@ class RealTable(unittest.TestCase):
     def test_a_real_suite_passes_through_the_command_line(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            code = forge.main(["check-all", "--only", "agy-subagents"])
+            code = forge.main(["check-all", "--only", "agent-tiers"])
         self.assertEqual(code, 0, out.getvalue())
-        self.assertRegex(out.getvalue().splitlines()[0], r"^PASS  agy-subagents  ")
+        self.assertRegex(out.getvalue().splitlines()[0], r"^PASS  agent-tiers  ")
 
     def test_the_workflow_runs_its_suites_through_check_all(self):
         text = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")

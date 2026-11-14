@@ -28,13 +28,14 @@ settings_before=$(sha256sum "$target/.codex/settings.toml")
 [ "$skill_before" = "$(sha256sum "$target/.claude/skills/local-tool-safety/SKILL.md")" ]
 [ "$settings_before" = "$(sha256sum "$target/.codex/settings.toml")" ]
 [ -f "$target/.agents/skills/authoring-skills/SKILL.md" ]
-[ -f "$target/.agents/agents/code-explorer.md" ]
+[ ! -e "$target/.agents/agents" ]
 [ -f "$target/.claude/skills/authoring-skills/SKILL.md" ]
 [ -f "$target/.codex/skills/authoring-skills/SKILL.md" ]
-[ -f "$target/scripts/agy-subagent.py" ]
+[ ! -e "$target/scripts/agy-subagent.py" ]
+[ -f "$target/scripts/verify-agent-tiers.mjs" ]
 # Nothing is world-writable, whatever modes the kit checkout reports.
 [ "$(stat -c %a "$target/.claude/skills/authoring-skills/SKILL.md")" = 644 ]
-[ "$(stat -c %a "$target/scripts/agy-subagent.py")" = 755 ]
+[ "$(stat -c %a "$target/scripts/verify-agent-tiers.mjs")" = 755 ]
 
 tree_after_first=$(cd "$target" && find . -type f -print0 | sort -z | xargs -0 -r sha256sum)
 "$installer" "$target" >/dev/null

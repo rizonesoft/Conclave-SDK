@@ -1,772 +1,1217 @@
-"""The base kit's Antigravity subagents (D00 T02 §3): one definition per Claude subagent under `.agents/agents/`,
-pinned to `gemini-4-hydrogen-medium` and checked and invoked through `scripts/agy-subagent.py`, with read-only tools
-and no write or edit tool. A live test (CONCLAVE_LIVE_AGY=1, the installed and signed-in CLI) proves that a fresh
-`--agent agy` install loads all five in `<subagents>` and that each completes its known-answer task on
-`gemini-4-hydrogen-medium`."""
+"""Tests for native Antigravity Orchestrator (Carbon) adoption in kits/base."""
+
+from __future__ import annotations
+
+import ctypes
+from ctypes import wintypes
 import hashlib
 import importlib.util
 import json
 import os
 from pathlib import Path
-import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
 
+
 ROOT = Path(__file__).resolve().parents[1]
-BASE = ROOT / "kits/base/templates"
-AGY_AGENTS = BASE / ".agents/agents"
-CLAUDE_AGENTS = BASE / ".claude/agents"
-RUNNER = BASE / "scripts/agy-subagent.py"
-TOOLS = ["read_file", "run_command", "manage_task"]
-EXPECTED_NAMES = ["code-explorer", "debug-evidence", "git-runner", "mutation-tester", "test-runner"]
+KIT_BASE = ROOT / "kits" / "base"
+TEMPLATES = KIT_BASE / "templates"
+RETIRED_AGENT_FILES = (
+    "code-explorer.md",
+    "debug-evidence.md",
+    "git-runner.md",
+    "mutation-tester.md",
+    "test-runner.md",
+)
 
-_spec = importlib.util.spec_from_file_location("agy_subagent", RUNNER)
-assert _spec is not None and _spec.loader is not None
-agy_subagent = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(agy_subagent)
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-
-def problems(filename: str, text: str, claude_text: str) -> list[str]:
-    """Every way one Antigravity definition fails its base-kit contract; empty when it holds."""
-    return agy_subagent.definition_problems(
-        filename,
-        text,
-        expected_tools=TOOLS,
-        claude_text=claude_text,
-    )
+import forge  # noqa: E402
 
 
-def lf_bytes(path: Path) -> bytes:
-    return path.read_bytes().replace(b"\r\n", b"\n")
+def _load_review_pin():
+    """Import scripts/lib/review_pin.py without mutating sys.path permanently."""
+    path = ROOT / "kits" / "reviewer" / "templates" / "scripts" / "review_pin.py"
+    spec = importlib.util.spec_from_file_location("review_pin_under_test", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def _pid_alive(pid: int) -> bool:
-    if os.name == "nt":
-        probe = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
-            capture_output=True,
-            text=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        return str(pid) in probe.stdout
+def _configure_win32_job_api():
+    """Bind Win32 and ntdll APIs with explicit 64-bit-safe handle types."""
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    ntdll = ctypes.WinDLL("ntdll", use_last_error=True)
+
+    class IO_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_uint64),
+            ("WriteOperationCount", ctypes.c_uint64),
+            ("OtherOperationCount", ctypes.c_uint64),
+            ("ReadTransferCount", ctypes.c_uint64),
+            ("WriteTransferCount", ctypes.c_uint64),
+            ("OtherTransferCount", ctypes.c_uint64),
+        ]
+
+    class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", wintypes.LARGE_INTEGER),
+            ("PerJobUserTimeLimit", wintypes.LARGE_INTEGER),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        ]
+
+    class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ("IoInfo", IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.SetInformationJobObject.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+    ]
+    kernel32.SetInformationJobObject.restype = wintypes.BOOL
+    kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+    kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.TerminateJobObject.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
+    ntdll.NtResumeProcess.restype = ctypes.c_long
+    return kernel32, ntdll, JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+
+
+def _is_pid_alive(pid: int) -> bool:
+    """Return True if pid still exists as an active OS process."""
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        kernel32, _, _ = _configure_win32_job_api()
+        process_query_limited_information = 0x1000
+        still_active = 259
+        handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+        if not handle:
+            return False
+        try:
+            code = wintypes.DWORD()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return False
+            return code.value == still_active
+        finally:
+            kernel32.CloseHandle(handle)
     try:
         os.kill(pid, 0)
-        return True
     except ProcessLookupError:
         return False
+    except PermissionError:
+        return True
+    return True
 
 
-class Definitions(unittest.TestCase):
-    def test_there_is_one_definition_per_claude_subagent_and_no_other(self):
-        self.assertEqual(
-            sorted(p.name for p in AGY_AGENTS.iterdir()),
-            sorted(p.name for p in CLAUDE_AGENTS.glob("*.md")),
-        )
-        self.assertEqual([p.stem for p in sorted(AGY_AGENTS.glob("*.md"))], EXPECTED_NAMES)
-
-    def test_each_definition_holds_its_contract(self):
-        for path in sorted(AGY_AGENTS.glob("*.md")):
-            with self.subTest(path.name):
-                self.assertEqual(
-                    problems(
-                        path.name,
-                        path.read_text(encoding="utf-8"),
-                        (CLAUDE_AGENTS / path.name).read_text(encoding="utf-8"),
-                    ),
-                    [],
-                )
-        checked = subprocess.run(
-            [sys.executable, str(RUNNER), "--check", "--root", str(BASE)],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
-        self.assertIn("5 definition(s) checked, all pinned to gemini-4-hydrogen-medium", checked.stdout)
-
-    def test_a_definition_that_breaks_the_contract_fails_the_check(self):
-        path = AGY_AGENTS / "test-runner.md"
-        good = path.read_text(encoding="utf-8")
-        claude = (CLAUDE_AGENTS / path.name).read_text(encoding="utf-8")
-        tools_line = "tools: [read_file, run_command, manage_task]\n"
-        pin_line = "conclave_model: gemini-4-hydrogen-medium\n"
-        model_line = "model: flash\n"
-        self.assertIn(tools_line, good)
-        self.assertIn(pin_line, good)
-        self.assertIn(model_line, good)
-
-        runner_and_kit_cases = {
-            "a write tool": good.replace(tools_line, "tools: [read_file, run_command, manage_task, write_file]\n"),
-            "an edit tool": good.replace(tools_line, "tools: [read_file, run_command, manage_task, edit_file]\n"),
-            "wildcard tool": good.replace(tools_line, "tools: [*]\n"),
-            "run_command removed": good.replace(tools_line, "tools: [read_file, manage_task]\n"),
-            "read_file removed": good.replace(tools_line, "tools: [run_command, manage_task]\n"),
-            "extra search_web tool": good.replace(tools_line, "tools: [read_file, run_command, manage_task, search_web]\n"),
-            "tools left out": good.replace(tools_line, ""),
-            "model inherit": good.replace(model_line, "model: inherit\n"),
-            "model concrete id": good.replace(model_line, "model: gemini-4-hydrogen-medium\n"),
-            "conclave_model omitted": good.replace(pin_line, ""),
-            "conclave_model low effort": good.replace(pin_line, "conclave_model: gemini-4-hydrogen-low\n"),
-            "conclave_model high effort": good.replace(pin_line, "conclave_model: gemini-4-hydrogen-high\n"),
-            "conclave_model xhigh effort": good.replace(pin_line, "conclave_model: gemini-4-hydrogen-xhigh\n"),
-            "conclave_model carbon": good.replace(pin_line, "conclave_model: gemini-4-carbon-medium\n"),
-            "conclave_model claude": good.replace(pin_line, "conclave_model: claude-sonnet-5-5-medium\n"),
-            "conclave_model gpt": good.replace(pin_line, "conclave_model: gpt-6-astra\n"),
-            "subagent false": good.replace("subagent: true\n", "subagent: false\n"),
-            "mainAgent false": good.replace("mainAgent: true\n", "mainAgent: false\n"),
-            "inheritMcp true": good.replace("inheritMcp: false\n", "inheritMcp: true\n"),
-            "another name": good.replace("name: test-runner\n", "name: runner\n"),
-            "duplicate pin": good.replace(pin_line, pin_line + "conclave_model: gemini-4-carbon-medium\n"),
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            agents_dir = Path(tmp) / ".agents/agents"
-            agents_dir.mkdir(parents=True)
-            subject = agents_dir / path.name
-            for name, text in runner_and_kit_cases.items():
-                with self.subTest(name=name):
-                    self.assertNotEqual(text, good)
-                    self.assertTrue(agy_subagent.definition_problems(path.name, text), name)
-                    self.assertTrue(problems(path.name, text, claude), name)
-                    subject.write_text(text, encoding="utf-8")
-                    res = subprocess.run(
-                        [sys.executable, str(RUNNER), "--check", "--root", tmp],
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
-                    )
-                    self.assertEqual(res.returncode, 1, f"{name}: {res.stdout}{res.stderr}")
-            # Invocation refuses a role missing run_command before starting the CLI.
-            subject.write_text(runner_and_kit_cases["run_command removed"], encoding="utf-8")
-            invoked = subprocess.run(
-                [sys.executable, str(RUNNER), "test-runner", "--root", tmp, "-p=hi"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            self.assertEqual(invoked.returncode, 2, invoked.stdout + invoked.stderr)
-
-        kit_only_cases = {
-            "another body": (good + "Also edit files.\n", claude),
-            "another description": (good.replace("description: Run test suites", "description: Different"), claude),
-            "broken claude counterpart": (good, "no frontmatter\n"),
-        }
-        for name, (text, claude_variant) in kit_only_cases.items():
-            with self.subTest(name=name):
-                self.assertTrue(problems(path.name, text, claude_variant), name)
-
-    def test_a_fresh_agy_install_has_all_five_and_runner_and_no_claude_folder(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            project = Path(tmp) / "project"
+def _kill_tree(proc: subprocess.Popen[str], job_handle: int | None = None) -> None:
+    """Terminate proc and every descendant process cleanly on Windows or POSIX."""
+    if sys.platform == "win32":
+        kernel32, _, _ = _configure_win32_job_api()
+        if job_handle:
+            try:
+                kernel32.TerminateJobObject(job_handle, 1)
+            except OSError:
+                pass
+        if proc.poll() is None:
             subprocess.run(
-                [sys.executable, str(ROOT / "forge.py"), "init", str(project), "--kit", "base", "--agent", "agy"],
-                check=True,
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
                 capture_output=True,
+                check=False,
             )
-            self.assertEqual(
-                sorted(p.name for p in (project / ".agents/agents").glob("*.md")),
-                sorted(p.name for p in AGY_AGENTS.glob("*.md")),
-            )
-            self.assertTrue((project / "scripts/agy-subagent.py").is_file())
-            self.assertFalse((project / ".claude").exists())
-            checked = subprocess.run(
-                [sys.executable, str(project / "scripts/agy-subagent.py"), "--check", "--root", str(project)],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
-
-    def test_the_sdk_s_own_copy_equals_the_kit(self):
-        installed_dir = ROOT / ".agents/agents"
-        self.assertEqual(
-            sorted(p.name for p in installed_dir.iterdir()),
-            sorted(p.name for p in AGY_AGENTS.iterdir()),
-        )
-        for path in sorted(AGY_AGENTS.glob("*.md")):
-            self.assertEqual(lf_bytes(installed_dir / path.name), lf_bytes(path), path.name)
-        self.assertEqual(lf_bytes(ROOT / "scripts/agy-subagent.py"), lf_bytes(RUNNER))
-
-    def test_documentation_records_agy_subagents_model_and_codex_limit(self):
-        readme = (ROOT / "kits/base/README.md").read_text(encoding="utf-8")
-        agents_md = (BASE / "AGENTS.md").read_text(encoding="utf-8")
-        gemini_md = (BASE / "GEMINI.md").read_text(encoding="utf-8")
-        codex_md = (BASE / "CODEX.md").read_text(encoding="utf-8")
-        for needle in (
-            "1.5.8",
-            ".agents/agents/",
-            "migrate-agent-settings",
-            "gemini-4-hydrogen-medium",
-            "scripts/agy-subagent.py",
-            "Codex has no",
-            *EXPECTED_NAMES,
-        ):
-            self.assertIn(needle, readme)
-        for needle in (".agents/agents/", "gemini-4-hydrogen-medium", "scripts/agy-subagent.py", "Codex has no subagent"):
-            self.assertIn(needle, agents_md)
-        self.assertIn("gemini-4-hydrogen-medium", gemini_md)
-        self.assertIn("scripts/agy-subagent.py", gemini_md)
-        self.assertIn("no project subagent definitions", codex_md)
-
-    def test_mutation_task_requires_independent_execution_evidence(self):
-        prompt, check = TASKS["mutation-tester"]
-        self.assertNotIn("test_add_sums", prompt)
-        self.assertFalse(check("I could not run test_add_sums"))
-        self.assertFalse(check("| calc.py | NOT APPLIED (0) | test_add_sums | - |"))
-        self.assertFalse(check("| calc.py | yes | test_add_sums | SURVIVED |"))
-        self.assertFalse(check("| calc.py | yes | none | killed |"))
-        self.assertTrue(check("| calc.py | yes (1 occurrence) | test_add_sums | killed |"))
-
-        live_project = Path(tempfile.gettempdir()) / "live-proj"
-        wt_project = Path(tempfile.gettempdir()) / "mt-wt"
-        base_entry = {
-            "cwd": str(wt_project),
-            "calc_file": str(wt_project / "calc.py"),
-            "calc_sha256": CALC_SHA256,
-            "add_2_3": 5,
-            "passed": True,
-        }
-        mut_entry = {
-            "cwd": str(wt_project),
-            "calc_file": str(wt_project / "calc.py"),
-            "calc_sha256": MUTATED_CALC_SHA256,
-            "add_2_3": -1,
-            "passed": False,
-        }
-        # Inspection-only (no test execution), baseline-only, mutated-only, unmutated repeat, reversed order,
-        # wrong mutation, and mutating the live checkout instead of a throwaway worktree all fail.
-        self.assertTrue(mutation_trace_problems([], live_project))
-        self.assertTrue(mutation_trace_problems([base_entry], live_project))
-        self.assertTrue(mutation_trace_problems([mut_entry], live_project))
-        self.assertTrue(mutation_trace_problems([base_entry, base_entry], live_project))
-        self.assertTrue(mutation_trace_problems([mut_entry, base_entry], live_project))
-        self.assertTrue(
-            mutation_trace_problems(
-                [base_entry, {**mut_entry, "calc_sha256": "deadbeef", "add_2_3": 0}],
-                live_project,
-            )
-        )
-        self.assertTrue(
-            mutation_trace_problems(
-                [
-                    {**base_entry, "cwd": str(live_project), "calc_file": str(live_project / "calc.py")},
-                    {**mut_entry, "cwd": str(live_project), "calc_file": str(live_project / "calc.py")},
-                ],
-                live_project,
-            )
-        )
-        self.assertEqual(mutation_trace_problems([base_entry, mut_entry], live_project), [])
+        if proc.poll() is None:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+        if job_handle:
+            try:
+                kernel32.CloseHandle(job_handle)
+            except OSError:
+                pass
+    else:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+        if proc.poll() is None:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
 
 
-class SubagentRunner(unittest.TestCase):
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self._tmp.name) / "project"
-        (self.root / ".agents/agents").mkdir(parents=True)
-        shutil.copyfile(AGY_AGENTS / "git-runner.md", self.root / ".agents/agents/git-runner.md")
+def _run_bounded_subprocess(
+    cmd: list[str],
+    *,
+    cwd: Path,
+    timeout: float,
+    env: dict[str, str] | None = None,
+) -> tuple[int, str, str, bool]:
+    """Run cmd in a process tree / Job Object and kill the entire tree on timeout or exit."""
+    popen_kwargs: dict[str, object] = {
+        "cwd": str(cwd),
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+        "env": env,
+    }
+    job_handle: int | None = None
+    assigned_job = False
 
-    def tearDown(self):
-        self._tmp.cleanup()
+    if sys.platform == "win32":
+        create_suspended = 0x00000004
+        create_new_process_group = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+        popen_kwargs["creationflags"] = create_suspended | create_new_process_group
+    else:
+        popen_kwargs["start_new_session"] = True
 
-    def _make_stub(self, body: str) -> Path:
-        stub_dir = Path(self._tmp.name) / "bin with space"
-        stub_dir.mkdir(exist_ok=True)
-        stub_py = stub_dir / "stub_agy.py"
-        stub_py.write_text(body, encoding="utf-8")
-        if os.name == "nt":
-            wrapper = stub_dir / "stub_agy.cmd"
-            wrapper.write_text(f'@echo off\r\n"{sys.executable}" "{stub_py}" %*\r\n', encoding="utf-8")
-            return wrapper
-        stub_py.write_text("#!" + sys.executable + "\n" + body, encoding="utf-8")
-        stub_py.chmod(0o755)
-        return stub_py
+    proc = subprocess.Popen(cmd, **popen_kwargs)
+    timed_out = False
+    stdout = ""
+    stderr = ""
 
-    def test_runner_builds_command_verifies_model_and_cleans_up_temp_settings(self):
-        record_file = Path(self._tmp.name) / "recorded.json"
-        stub = self._make_stub(
-            "import json, pathlib, sys\n"
-            "args = sys.argv[1:]\n"
-            "stdin_text = sys.stdin.read()\n"
-            "settings_path = args[args.index('--settings') + 1]\n"
-            "settings = json.loads(pathlib.Path(settings_path).read_text(encoding='utf-8'))\n"
-            f"pathlib.Path({str(record_file)!r}).write_text(\n"
-            "    json.dumps({'args': args, 'stdin': stdin_text, 'settings_path': settings_path, 'settings': settings}),\n"
-            "    encoding='utf-8',\n"
-            ")\n"
-            "print(json.dumps({'event': 'init', 'conversation_id': 'cid-9', 'init': {'model': 'gemini-4-hydrogen-medium', 'agent': 'git-runner'}}))\n"
-            "print(json.dumps({'event': 'tool_call', 'tool_call': {'tool_name': 'run_command', 'state': 'DONE'}}))\n"
-            "print(json.dumps({'event': 'result', 'result': {'status': 'SUCCESS', 'response': 'HEAD is abc123'}}))\n"
-        )
-        env = {**os.environ, "AGY_BIN": str(stub)}
-        res = subprocess.run(
-            [
-                sys.executable,
-                str(RUNNER),
-                "git-runner",
-                "--root",
-                str(self.root),
-                "--allow-command",
-                "command(git)",
-                "--json",
-                "-p=--status",
-            ],
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        out = json.loads(res.stdout)
-        self.assertEqual(out["model"], "gemini-4-hydrogen-medium")
-        self.assertEqual(out["agent"], "git-runner")
-        self.assertEqual(out["conversation_id"], "cid-9")
-        self.assertEqual(out["tool_calls"], ["run_command"])
-        self.assertEqual(out["response"], "HEAD is abc123")
-        recorded = json.loads(record_file.read_text(encoding="utf-8"))
-        self.assertEqual(recorded["stdin"], "--status")
-        self.assertNotIn("-p", recorded["args"])
-        self.assertFalse(any(a.startswith("-p=") for a in recorded["args"]))
-        self.assertIn("--input-format", recorded["args"])
-        self.assertEqual(recorded["args"][recorded["args"].index("--input-format") + 1], "text")
-        self.assertEqual(recorded["args"][:4], ["--model", "gemini-4-hydrogen-medium", "--agent", "git-runner"])
-        self.assertEqual(
-            recorded["settings"],
+    try:
+        if sys.platform == "win32":
+            kernel32, ntdll, ext_struct = _configure_win32_job_api()
+            job_object_limit_kill_on_job_close = 0x2000
+            job_object_extended_limit_information = 9
+            job_handle = kernel32.CreateJobObjectW(None, None)
+            if job_handle:
+                info = ext_struct()
+                info.BasicLimitInformation.LimitFlags = job_object_limit_kill_on_job_close
+                if kernel32.SetInformationJobObject(
+                    job_handle,
+                    job_object_extended_limit_information,
+                    ctypes.byref(info),
+                    ctypes.sizeof(info),
+                ):
+                    assigned_job = bool(
+                        kernel32.AssignProcessToJobObject(job_handle, int(proc._handle))
+                    )
+                if not assigned_job:
+                    kernel32.CloseHandle(job_handle)
+                    job_handle = None
+            ntdll.NtResumeProcess(int(proc._handle))
+
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            _kill_tree(proc, job_handle)
+            job_handle = None
+            try:
+                stdout, stderr = proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                stdout = stdout or ""
+                stderr = stderr or ""
+    finally:
+        # Terminate any surviving descendants even when the root exited normally.
+        _kill_tree(proc, job_handle)
+        if proc.stdout is not None:
+            proc.stdout.close()
+        if proc.stderr is not None:
+            proc.stderr.close()
+
+    returncode = proc.returncode if proc.returncode is not None else -1
+    return returncode, stdout or "", stderr or "", timed_out
+
+
+def _run_agy(
+    prompt: str,
+    *,
+    cwd: Path,
+    model: str = "gemini-pro-orchestrator",
+    timeout: float = 240.0,
+    extra_args: list[str] | None = None,
+) -> tuple[int, str, str, bool]:
+    """Invoke agy headless with stream-json output under bounded tree cleanup."""
+    print_timeout = max(30, int(timeout) - 10)
+    cmd = [
+        "agy",
+        "--model",
+        model,
+        "--dangerously-skip-permissions",
+        "--output-format",
+        "stream-json",
+        "--print-timeout",
+        f"{print_timeout}s",
+        *(extra_args or []),
+        "-p",
+        prompt,
+    ]
+    return _run_bounded_subprocess(cmd, cwd=cwd, timeout=timeout)
+
+
+def _extract_agy_step_update(
+    step: dict[str, object],
+    seen_tool_ids: set[str],
+    tool_uses: list[dict[str, object]],
+    tool_results: list[dict[str, object]],
+    delta_chunks: list[str],
+) -> None:
+    """Extract tool/subagent call, result, and text events from agy 1.5.8 step_update."""
+    step_type = str(step.get("step_type") or "").lower()
+    state = str(step.get("state") or "").upper()
+    if step_type == "agent_response":
+        delta = step.get("text_delta")
+        if isinstance(delta, str) and delta:
+            delta_chunks.append(delta)
+        return
+    if step_type not in {"tool", "subagent"}:
+        return
+
+    tool_info = step.get("tool_info")
+    info = tool_info if isinstance(tool_info, dict) else {}
+    sub_info = step.get("subagent_info")
+    sinfo = sub_info if isinstance(sub_info, dict) else {}
+    name = str(step.get("tool_name") or info.get("name") or "")
+    if not name and step_type == "subagent":
+        name = "invoke_subagent"
+    if not name:
+        return
+    step_idx = step.get("step_index")
+    tool_id = str(step.get("tool_id") or (f"step-{step_idx}" if step_idx is not None else ""))
+
+    if state == "ACTIVE" or (tool_id and tool_id not in seen_tool_ids):
+        if tool_id:
+            seen_tool_ids.add(tool_id)
+        tool_uses.append(
             {
-                "agentMode": "",
-                "permissions": {
-                    "deny": ["write_file(*)", "edit_file(*)", "mcp(*)"],
-                    "allow": ["command(git)"],
-                },
-            },
+                "name": name,
+                "id": tool_id,
+                "args": info.get("parameters") or info.get("args") or sinfo or {},
+            }
         )
-        self.assertFalse(Path(recorded["settings_path"]).exists())
 
-    def test_runner_delivers_large_stdin_prompt_past_windows_argv_limit(self):
-        large_prompt = "trace line: ValueError('boom')\n" * 1600  # ~49,600 chars (> 32,767 Win32 argv limit)
-        expected_sha = hashlib.sha256(large_prompt.encode("utf-8")).hexdigest()
-        stub = self._make_stub(
-            "import hashlib, json, sys\n"
-            "raw = sys.stdin.buffer.read()\n"
-            "digest = hashlib.sha256(raw).hexdigest()\n"
-            "print(json.dumps({'event': 'init', 'init': {'session_id': 's', 'model': 'gemini-4-hydrogen-medium', 'agent': 'git-runner'}}))\n"
-            "print(json.dumps({'event': 'result', 'result': {'status': 'SUCCESS', 'response': f'{len(raw)}:{digest}'}}))\n"
+    if state != "ACTIVE":
+        err = step.get("error") or info.get("error") or sinfo.get("error")
+        is_error = bool(
+            state in {"ERROR", "FAILED", "FAILURE", "CANCELLED"}
+            or step.get("is_error")
+            or info.get("is_error")
+            or sinfo.get("is_error")
+            or err
         )
-        res = subprocess.run(
-            [sys.executable, str(RUNNER), "git-runner", "--root", str(self.root)],
-            input=large_prompt,
-            env={**os.environ, "AGY_BIN": str(stub)},
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=30,
+        tool_results.append(
+            {
+                "name": name,
+                "id": tool_id,
+                "status": "error" if is_error else (str(step.get("status") or state or "DONE")),
+                "is_error": is_error,
+                "output": info.get("output") or err or (sinfo if sinfo else ""),
+            }
         )
-        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertEqual(res.stdout.strip(), f"{len(large_prompt.encode('utf-8'))}:{expected_sha}")
 
-    def test_runner_refuses_wrong_runtime_model_or_forbidden_tool_or_bad_name(self):
-        wrong_model_stub = self._make_stub(
-            "import json\n"
-            "print(json.dumps({'event': 'init', 'init': {'session_id': 's', 'model': 'gemini-3.8-flash-tiered', 'agent': 'git-runner'}}))\n"
-            "print(json.dumps({'event': 'result', 'result': {'status': 'SUCCESS', 'response': 'ok'}}))\n"
-        )
-        res = subprocess.run(
-            [sys.executable, str(RUNNER), "git-runner", "--root", str(self.root), "-p", "hi"],
-            env={**os.environ, "AGY_BIN": str(wrong_model_stub)},
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        self.assertEqual(res.returncode, 1)
-        self.assertIn("gemini-3.8-flash-tiered", res.stderr)
 
-        write_tool_stub = self._make_stub(
-            "import json\n"
-            "print(json.dumps({'event': 'init', 'init': {'session_id': 's', 'model': 'gemini-4-hydrogen-medium', 'agent': 'git-runner'}}))\n"
-            "print(json.dumps({'event': 'tool_call', 'tool_call': {'tool_name': 'write_file', 'state': 'DONE'}}))\n"
-            "print(json.dumps({'event': 'result', 'result': {'status': 'SUCCESS', 'response': 'ok'}}))\n"
+def _extract_tool_events(
+    event: dict[str, object],
+    seen_tool_ids: set[str],
+    tool_uses: list[dict[str, object]],
+    tool_results: list[dict[str, object]],
+    delta_chunks: list[str],
+    result_texts: list[str],
+) -> None:
+    """Walk one parsed stream-json event recursively for tool calls, results, and text."""
+    event_kind = str(event.get("event") or "").lower()
+    if event_kind == "step_update" and isinstance(event.get("step_update"), dict):
+        _extract_agy_step_update(
+            event["step_update"], seen_tool_ids, tool_uses, tool_results, delta_chunks
         )
-        res_write = subprocess.run(
-            [sys.executable, str(RUNNER), "git-runner", "--root", str(self.root), "-p", "hi"],
-            env={**os.environ, "AGY_BIN": str(write_tool_stub)},
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        self.assertEqual(res_write.returncode, 1)
-        self.assertIn("write_file", res_write.stderr)
+        return
+    if event_kind == "result" and isinstance(event.get("result"), dict):
+        res_obj = event["result"]
+        for key in ("response", "result", "text", "summary"):
+            val = res_obj.get(key)
+            if isinstance(val, str) and val:
+                result_texts.append(val)
+        return
 
-        for bad_agent in ("../git-runner", "missing-agent"):
-            res_bad = subprocess.run(
-                [sys.executable, str(RUNNER), bad_agent, "--root", str(self.root), "-p", "hi"],
-                env={**os.environ, "AGY_BIN": str(wrong_model_stub)},
-                capture_output=True,
-                text=True,
-                timeout=30,
+    etype = str(event.get("type") or "").lower()
+    if etype in {"tool_use", "tool_call"}:
+        name = str(event.get("tool_name") or event.get("name") or "")
+        if name:
+            tool_uses.append(
+                {
+                    "name": name,
+                    "id": str(event.get("tool_id") or event.get("id") or event.get("call_id") or ""),
+                    "args": event.get("parameters")
+                    or event.get("arguments")
+                    or event.get("args")
+                    or event.get("input")
+                    or {},
+                }
             )
-            self.assertEqual(res_bad.returncode, 2)
-
-    def test_runner_kills_process_tree_on_timeout(self):
-        pid_file = Path(self._tmp.name) / "child.pid"
-        hang_stub = self._make_stub(
-            "import pathlib, subprocess, sys, time\n"
-            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
-            f"pathlib.Path({str(pid_file)!r}).write_text(str(child.pid), encoding='utf-8')\n"
-            "time.sleep(60)\n"
+    elif etype in {"tool_result", "tool_response"}:
+        tool_results.append(
+            {
+                "name": str(event.get("tool_name") or event.get("name") or ""),
+                "id": str(event.get("tool_id") or event.get("id") or event.get("call_id") or ""),
+                "status": str(event.get("status") or ""),
+                "is_error": bool(event.get("is_error") or event.get("error")),
+                "output": event.get("output") or event.get("result") or event.get("content") or "",
+            }
         )
-        res = subprocess.run(
-            [sys.executable, str(RUNNER), "git-runner", "--root", str(self.root), "--timeout", "1", "-p", "hi"],
-            env={**os.environ, "AGY_BIN": str(hang_stub)},
-            capture_output=True,
-            text=True,
-            timeout=30,
+    elif etype == "message" and event.get("role") == "assistant":
+        content = event.get("content")
+        if isinstance(content, str):
+            result_texts.append(content)
+        elif isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict) and isinstance(item.get("text"), str):
+                    result_texts.append(item["text"])
+                elif isinstance(item, str):
+                    result_texts.append(item)
+    elif etype == "result":
+        for key in ("response", "result", "text", "summary"):
+            val = event.get(key)
+            if isinstance(val, str) and val:
+                result_texts.append(val)
+
+    for key in ("tool_calls", "calls", "parts"):
+        nested = event.get(key)
+        if isinstance(nested, list):
+            for entry in nested:
+                if isinstance(entry, dict):
+                    if "functionCall" in entry and isinstance(entry["functionCall"], dict):
+                        fc = entry["functionCall"]
+                        tool_uses.append(
+                            {
+                                "name": str(fc.get("name") or ""),
+                                "id": str(fc.get("id") or ""),
+                                "args": fc.get("args") or {},
+                            }
+                        )
+                    elif "functionResponse" in entry and isinstance(entry["functionResponse"], dict):
+                        fr = entry["functionResponse"]
+                        tool_results.append(
+                            {
+                                "name": str(fr.get("name") or ""),
+                                "id": str(fr.get("id") or ""),
+                                "status": str(fr.get("status") or ""),
+                                "is_error": bool(fr.get("is_error") or fr.get("error")),
+                                "output": fr.get("response") or fr.get("output") or "",
+                            }
+                        )
+                    else:
+                        _extract_tool_events(
+                            entry,
+                            seen_tool_ids,
+                            tool_uses,
+                            tool_results,
+                            delta_chunks,
+                            result_texts,
+                        )
+
+
+def _parse_ndjson_stream(
+    ndjson: str, *, expected_model_prefix: str = "gemini-pro-orchestrator"
+) -> dict[str, object]:
+    """Parse Antigravity stream-json output and enforce init model + terminal success."""
+    init_models: list[str] = []
+    seen_tool_ids: set[str] = set()
+    tool_uses: list[dict[str, object]] = []
+    tool_results: list[dict[str, object]] = []
+    delta_chunks: list[str] = []
+    result_texts: list[str] = []
+    result_events: list[dict[str, object]] = []
+    steps: list[tuple[int, str, str]] = []
+
+    for raw in ndjson.splitlines():
+        line = raw.strip()
+        if not line or not line.startswith("{"):
+            continue
+        event = json.loads(line)
+        if not isinstance(event, dict):
+            continue
+        event_kind = str(event.get("event") or "").lower()
+        etype = str(event.get("type") or "").lower()
+        if event_kind == "step_update" and isinstance(event.get("step_update"), dict):
+            su = event["step_update"]
+            raw_idx = su.get("step_index")
+            step_idx = raw_idx if isinstance(raw_idx, int) else -1
+            steps.append(
+                (
+                    step_idx,
+                    str(su.get("step_type") or "").lower(),
+                    str(su.get("state") or "").upper(),
+                )
+            )
+        if event_kind == "init" and isinstance(event.get("init"), dict):
+            model = event["init"].get("model")
+            if isinstance(model, str):
+                init_models.append(model)
+        elif etype == "init" and isinstance(event.get("model"), str):
+            init_models.append(event["model"])
+
+        if event_kind == "result" and isinstance(event.get("result"), dict):
+            result_events.append(event["result"])
+        elif etype == "result":
+            result_events.append(event)
+
+        _extract_tool_events(
+            event, seen_tool_ids, tool_uses, tool_results, delta_chunks, result_texts
         )
-        self.assertEqual(res.returncode, 1)
-        self.assertIn("timed out", res.stderr)
-        child_pid = int(pid_file.read_text(encoding="utf-8").strip())
-        deadline = time.monotonic() + 5.0
-        while time.monotonic() < deadline and _pid_alive(child_pid):
-            time.sleep(0.1)
-        self.assertFalse(_pid_alive(child_pid), f"child pid {child_pid} survived timeout cleanup")
 
-    def test_runner_kills_surviving_descendant_even_when_leader_exits_early(self):
-        pid_file = Path(self._tmp.name) / "orphan.pid"
-        early_exit_stub = self._make_stub(
-            "import json, pathlib, subprocess, sys\n"
-            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
-            f"pathlib.Path({str(pid_file)!r}).write_text(str(child.pid), encoding='utf-8')\n"
-            "print(json.dumps({'event': 'init', 'init': {'session_id': 's', 'model': 'gemini-4-hydrogen-medium', 'agent': 'git-runner'}}), flush=True)\n"
-            "print(json.dumps({'event': 'result', 'result': {'status': 'SUCCESS', 'response': 'done early'}}), flush=True)\n"
-            "sys.exit(0)\n"
+    if not init_models:
+        raise AssertionError("stream-json missing init.model event")
+    bad_models = [m for m in init_models if not m.startswith(expected_model_prefix)]
+    if bad_models:
+        raise AssertionError(
+            f"unexpected init.model {bad_models!r}; expected prefix {expected_model_prefix!r}"
         )
-        t0 = time.monotonic()
-        res = subprocess.run(
-            [sys.executable, str(RUNNER), "git-runner", "--root", str(self.root), "--timeout", "30", "-p", "hi"],
-            env={**os.environ, "AGY_BIN": str(early_exit_stub)},
-            capture_output=True,
-            text=True,
-            timeout=15,
+    if not result_events:
+        raise AssertionError("stream-json incomplete: missing terminal result event")
+    final_result = result_events[-1]
+    status = str(final_result.get("status") or "")
+    if status.upper() != "SUCCESS" or final_result.get("error"):
+        raise AssertionError(
+            f"stream-json did not finish with SUCCESS result: {final_result!r}"
         )
-        elapsed = time.monotonic() - t0
-        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertLess(elapsed, 10.0, "runner waited on an inherited pipe instead of returning on leader exit")
-        child_pid = int(pid_file.read_text(encoding="utf-8").strip())
-        deadline = time.monotonic() + 5.0
-        while time.monotonic() < deadline and _pid_alive(child_pid):
-            time.sleep(0.1)
-        self.assertFalse(_pid_alive(child_pid), f"descendant pid {child_pid} survived after leader exited")
+
+    streamed_text = "".join(delta_chunks)
+    final_text = "\n".join(result_texts) if result_texts else streamed_text
+    if streamed_text and result_texts and streamed_text not in final_text:
+        final_text = streamed_text + "\n" + final_text
+
+    return {
+        "models": init_models,
+        "tool_uses": tool_uses,
+        "tool_results": tool_results,
+        "steps": steps,
+        "assistant_text": final_text,
+        "result_status": status,
+    }
 
 
-# The known-answer fixture: one module, one passing and one failing test, one commit.
-CALC = "def add(a, b):\n    return a + b\n\n\ndef halve(n):\n    return n / 2\n"
-MUTATED_CALC = CALC.replace("return a + b", "return a - b", 1)
-CALC_SHA256 = hashlib.sha256(CALC.encode("utf-8")).hexdigest()
-MUTATED_CALC_SHA256 = hashlib.sha256(MUTATED_CALC.encode("utf-8")).hexdigest()
+def _matching_tool_results(
+    tool_name: str, tool_uses: list[dict[str, object]], tool_results: list[dict[str, object]]
+) -> list[dict[str, object]]:
+    """Return tool_results matching tool_name (via explicit name or matching tool_id)."""
+    ids = {
+        str(call["id"])
+        for call in tool_uses
+        if call.get("name") == tool_name and call.get("id")
+    }
+    matched: list[dict[str, object]] = []
+    for res in tool_results:
+        rid = str(res.get("id") or "")
+        if res.get("name") == tool_name or (ids and rid in ids):
+            matched.append(res)
+    return matched
 
 
-def build_tests_source(trace_path: Path) -> str:
-    return (
-        "import hashlib\nimport json\nimport os\nimport pathlib\nimport unittest\nimport calc\n\n"
-        f"TRACE = pathlib.Path({str(trace_path)!r})\n\n\n"
-        "class CalcTest(unittest.TestCase):\n"
-        "    def test_add_sums(self):\n"
-        "        got = calc.add(2, 3)\n"
-        "        calc_path = pathlib.Path(calc.__file__).resolve()\n"
-        "        entry = {\n"
-        "            'cwd': str(pathlib.Path.cwd().resolve()),\n"
-        "            'calc_file': str(calc_path),\n"
-        "            'calc_sha256': hashlib.sha256(calc_path.read_bytes()).hexdigest(),\n"
-        "            'add_2_3': got,\n"
-        "            'passed': got == 5,\n"
-        "        }\n"
-        "        with TRACE.open('a', encoding='utf-8') as handle:\n"
-        "            handle.write(json.dumps(entry) + '\\n')\n"
-        "        self.assertEqual(got, 5)\n\n"
-        "    def test_halve_keeps_whole_numbers(self):\n"
-        "        self.assertEqual(calc.halve(7), 3, 'halve must floor odd numbers')\n"
+def _assert_result_succeeded(res: dict[str, object], tool_name: str) -> None:
+    """Reject missing/errored tool_result dictionaries."""
+    status = str(res.get("status") or "").lower()
+    if res.get("is_error") or status in {"error", "failed", "failure"}:
+        raise AssertionError(f"{tool_name} tool_result reported failure: {res!r}")
+
+
+def parse_orchestrator_stream(
+    ndjson: str, *, expected_model_prefix: str = "gemini-pro-orchestrator"
+) -> dict[str, object]:
+    """Validate that an Orchestrator run planned, exited plan mode, and executed cleanly."""
+    parsed = _parse_ndjson_stream(ndjson, expected_model_prefix=expected_model_prefix)
+    tool_uses: list[dict[str, object]] = parsed["tool_uses"]  # type: ignore[assignment]
+    tool_results: list[dict[str, object]] = parsed["tool_results"]  # type: ignore[assignment]
+
+    exit_indices = [i for i, call in enumerate(tool_uses) if call.get("name") == "exit_plan_mode"]
+    if not exit_indices:
+        raise AssertionError("Orchestrator stream did not invoke exit_plan_mode")
+
+    exit_results = _matching_tool_results("exit_plan_mode", tool_uses, tool_results)
+    if not exit_results:
+        raise AssertionError("exit_plan_mode was called without a completion tool_result")
+    for res in exit_results:
+        _assert_result_succeeded(res, "exit_plan_mode")
+
+    post_exit_tools = [
+        call for call in tool_uses[exit_indices[0] + 1 :] if call.get("name") != "exit_plan_mode"
+    ]
+    if not post_exit_tools:
+        raise AssertionError("Orchestrator emitted no execution tool call after exit_plan_mode")
+    return parsed
+
+
+def parse_subagent_delegation_stream(
+    ndjson: str, *, expected_model_prefix: str = "gemini-pro-orchestrator"
+) -> dict[str, object]:
+    """Validate actual invoke_subagent delegation + completion in stream-json output."""
+    parsed = _parse_ndjson_stream(ndjson, expected_model_prefix=expected_model_prefix)
+    tool_uses: list[dict[str, object]] = parsed["tool_uses"]  # type: ignore[assignment]
+    tool_results: list[dict[str, object]] = parsed["tool_results"]  # type: ignore[assignment]
+    steps: list[tuple[int, str, str]] = parsed["steps"]  # type: ignore[assignment]
+
+    subagent_calls = [call for call in tool_uses if call.get("name") == "invoke_subagent"]
+    if not subagent_calls:
+        raise AssertionError(
+            "stream did not invoke invoke_subagent (listing-only output is insufficient)"
+        )
+
+    subagent_results = _matching_tool_results("invoke_subagent", tool_uses, tool_results)
+    if len(subagent_results) < len(subagent_calls):
+        raise AssertionError("invoke_subagent call lacked a matching completion tool_result")
+    for res in subagent_results:
+        _assert_result_succeeded(res, "invoke_subagent")
+        out = res.get("output")
+        if isinstance(out, dict) and isinstance(out.get("subagents"), list):
+            for entry in out["subagents"]:
+                if not isinstance(entry, dict) or not str(entry.get("conversation_id") or "").strip():
+                    raise AssertionError(f"invoke_subagent result missing conversation_id: {entry!r}")
+
+    launch_indices: list[int] = []
+    for call in subagent_calls:
+        cid = str(call.get("id") or "")
+        if cid.startswith("step-"):
+            tail = cid.removeprefix("step-")
+            if tail.isdigit():
+                launch_indices.append(int(tail))
+    if launch_indices:
+        min_launch = min(launch_indices)
+        has_wakeup = any(
+            idx > min_launch and stype == "system_message" and sstate == "DONE"
+            for idx, stype, sstate in steps
+        )
+        if not has_wakeup:
+            raise AssertionError(
+                "invoke_subagent launched asynchronously without post-launch system_message completion"
+            )
+
+    parsed["subagent_calls"] = subagent_calls
+    parsed["subagent_results"] = subagent_results
+    return parsed
+
+
+def _run_forge(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+    """Run forge.py synchronously inside ROOT."""
+    return subprocess.run(
+        [sys.executable, str(ROOT / "forge.py"), *args],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=check,
     )
 
 
-def mutation_trace_problems(entries: list[dict[str, object]], live_project: Path) -> list[str]:
-    """Verify independent runtime execution evidence for mutation-tester: a passing baseline run of `test_add_sums` on
-    unmutated `calc.py` inside a throwaway worktree, followed by a failing run on the requested `return a - b` mutation
-    inside a throwaway worktree, with zero mutated runs against the live checkout."""
-    live_root = live_project.resolve()
-    live_calc = (live_root / "calc.py").resolve()
-    found: list[str] = []
-    if not entries:
-        return ["test_add_sums never executed (inspection-only run)"]
+class OrchestratorContractTests(unittest.TestCase):
+    """Offline structural, migration, pin, and documentation contracts for Antigravity."""
 
-    for entry in entries:
-        calc_file = Path(str(entry.get("calc_file") or "")).resolve()
-        if calc_file == live_calc and entry.get("calc_sha256") != CALC_SHA256:
-            found.append("live checkout calc.py was mutated instead of an isolated worktree")
+    def test_retired_wrappers_and_suite_removed_everywhere(self) -> None:
+        self.assertFalse((TEMPLATES / ".agents" / "agents").exists())
+        self.assertFalse((TEMPLATES / "scripts" / "agy-subagent.py").exists())
+        self.assertFalse((ROOT / ".agents" / "agents").exists())
+        self.assertFalse((ROOT / "scripts" / "agy-subagent.py").exists())
+        self.assertNotIn("agy-subagents", [suite["name"] for suite in forge.SUITES])
 
-    baseline_indices = [
-        idx
-        for idx, entry in enumerate(entries)
-        if Path(str(entry.get("cwd") or "")).resolve() != live_root
-        and Path(str(entry.get("calc_file") or "")).resolve() != live_calc
-        and entry.get("calc_sha256") == CALC_SHA256
-        and entry.get("add_2_3") == 5
-        and entry.get("passed") is True
-    ]
-    if not baseline_indices:
-        found.append("no passing baseline execution of test_add_sums observed in an isolated worktree")
-        return found
+        claude_agents = sorted((TEMPLATES / ".claude" / "agents").glob("*.md"))
+        self.assertEqual(len(claude_agents), 5)
 
-    first_baseline = baseline_indices[0]
-    mutated_after = [
-        idx
-        for idx, entry in enumerate(entries)
-        if idx > first_baseline
-        and Path(str(entry.get("cwd") or "")).resolve() != live_root
-        and Path(str(entry.get("calc_file") or "")).resolve() != live_calc
-        and entry.get("calc_sha256") == MUTATED_CALC_SHA256
-        and entry.get("add_2_3") == -1
-        and entry.get("passed") is False
-    ]
-    if not mutated_after:
-        found.append(
-            "no failing mutated execution of test_add_sums (add(2, 3) == -1 on mutated calc.py) observed after baseline"
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "fresh-agy"
+            _run_forge(["init", str(project), "--kit", "base", "--agent", "agy"])
+            self.assertFalse((project / ".agents" / "agents").exists())
+            self.assertFalse((project / "scripts" / "agy-subagent.py").exists())
+            self.assertTrue((project / ".agents" / "skills").is_dir())
+            self.assertTrue((project / "AGENTS.md").is_file())
+            self.assertTrue((project / "GEMINI.md").is_file())
+
+    def test_migration_preserves_custom_agents_and_removes_retired_wrappers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "legacy-agy"
+            _run_forge(["init", str(project), "--kit", "base", "--agent", "agy"])
+
+            kits_file = project / ".conclave" / "kits.json"
+            kits_data = json.loads(kits_file.read_text(encoding="utf-8"))
+            files_map: dict[str, dict[str, str]] = kits_data["files"]
+
+            retired_paths = [
+                *[f".agents/agents/{name}" for name in RETIRED_AGENT_FILES],
+                "scripts/agy-subagent.py",
+            ]
+            for rel in retired_paths:
+                dest = project / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                original_bytes = f"# legacy wrapper placeholder for {rel}\n".encode("utf-8")
+                files_map[rel] = {
+                    "kit": "base",
+                    "sha256": hashlib.sha256(original_bytes).hexdigest(),
+                }
+                if rel == ".agents/agents/code-explorer.md":
+                    dest.write_bytes(original_bytes + b"# project customization\n")
+                else:
+                    dest.write_bytes(original_bytes)
+
+            kits_file.write_text(json.dumps(kits_data, indent=2) + "\n", encoding="utf-8")
+
+            custom_agent = project / ".agents" / "agents" / "custom-reviewer.md"
+            custom_text = "# Project-specific custom agent definition\n"
+            custom_agent.write_text(custom_text, encoding="utf-8")
+
+            diff_proc = _run_forge(["diff", str(project), "base"], check=False)
+            self.assertEqual(diff_proc.returncode, 0, diff_proc.stderr)
+            for rel in retired_paths:
+                self.assertIn(rel, diff_proc.stdout)
+                self.assertIn("project-only", diff_proc.stdout)
+
+            update_proc = _run_forge(["update", str(project), "base"], check=False)
+            self.assertEqual(update_proc.returncode, 0, update_proc.stderr)
+            for rel in retired_paths:
+                self.assertTrue((project / rel).is_file(), f"update removed {rel} unexpectedly")
+            self.assertIn(
+                b"# project customization\n",
+                (project / ".agents/agents/code-explorer.md").read_bytes(),
+            )
+            self.assertEqual(custom_agent.read_text(encoding="utf-8"), custom_text)
+
+            locally_modified = [
+                rel
+                for rel in retired_paths
+                if hashlib.sha256((project / rel).read_bytes()).hexdigest()
+                != files_map[rel]["sha256"]
+            ]
+            self.assertEqual(locally_modified, [".agents/agents/code-explorer.md"])
+
+            # Follow the documented migration cleanup: remove only the 6 retired SDK paths.
+            for rel in retired_paths:
+                (project / rel).unlink()
+            updated_kits = json.loads(kits_file.read_text(encoding="utf-8"))
+            for rel in retired_paths:
+                updated_kits["files"].pop(rel, None)
+            kits_file.write_text(json.dumps(updated_kits, indent=2) + "\n", encoding="utf-8")
+
+            self.assertEqual(custom_agent.read_text(encoding="utf-8"), custom_text)
+            for rel in retired_paths:
+                self.assertFalse((project / rel).exists())
+
+            post_diff = _run_forge(["diff", str(project), "base"], check=False)
+            self.assertEqual(post_diff.returncode, 0, post_diff.stderr)
+            for rel in retired_paths:
+                self.assertNotIn(rel, post_diff.stdout)
+
+            doctor_proc = _run_forge(["doctor", str(project), "base"], check=False)
+            self.assertEqual(doctor_proc.returncode, 0, doctor_proc.stdout + doctor_proc.stderr)
+
+    def test_docs_self_sync_and_review_pin_orchestrator_helpers(self) -> None:
+        readme = (KIT_BASE / "README.md").read_text(encoding="utf-8")
+        self.assertIn("### Migrating existing installs to Orchestrator (Carbon)", readme)
+        self.assertIn("### Live verification", readme)
+        self.assertIn("--model gemini-pro-orchestrator", readme)
+        self.assertIn(".agents/agents/<custom>.md", readme)
+        for name in RETIRED_AGENT_FILES:
+            self.assertIn(name, readme)
+        self.assertIn("scripts/agy-subagent.py", readme)
+
+        structure_template = (
+            TEMPLATES / "docs" / "agent-skills-and-rules-structure.md"
+        ).read_text(encoding="utf-8")
+        structure_root = (ROOT / "docs" / "agent-skills-and-rules-structure.md").read_text(
+            encoding="utf-8"
         )
-    return found
+        self.assertEqual(structure_template, structure_root)
+        self.assertIn(
+            "without `.agents/agents/*.md` files or `scripts/agy-subagent.py`",
+            structure_root,
+        )
+
+        pin = _load_review_pin()
+        self.assertTrue(pin.is_agy_orchestrator("gemini-pro-orchestrator"))
+        self.assertTrue(pin.is_agy_orchestrator("gemini-pro-orchestrator-argon"))
+        self.assertFalse(pin.is_agy_orchestrator("gemini-4-carbon-high"))
+
+        three_pass_ok = {
+            "policy": pin.THREE_PASS,
+            "plan": {},
+            "rounds": [{}],
+            "completion": {},
+            "reconciliation": {},
+        }
+        pin.check_agy_effort("carbon", "gemini-pro-orchestrator", three_pass_ok)
+
+        three_pass_effort = {**three_pass_ok, "plan": {"effort": "medium"}}
+        with self.assertRaisesRegex(pin.Refused, "manages its own effort and rejects --effort"):
+            pin.check_agy_effort("carbon", "gemini-pro-orchestrator", three_pass_effort)
+
+        rotation_effort = {
+            "policy": "rotation",
+            "plan": {},
+            "rounds": [{}],
+            "completion": {},
+            "escalation": {"effort": "high"},
+            "rotation": {},
+        }
+        with self.assertRaisesRegex(pin.Refused, "manages its own effort and rejects --effort"):
+            pin.check_agy_effort("carbon", "gemini-pro-orchestrator-argon", rotation_effort)
 
 
-SUBJECT = "calc: the known-answer fixture"
-TASKS = {
-    "code-explorer": (
-        "find where the function halve is defined and report its file and line number.",
-        lambda r: "calc.py" in r and re.search(r"(?:calc\.py[:#]L?|line )5\b", r) is not None,
-    ),
-    "git-runner": (
-        "report the subject line of the most recent commit.",
-        lambda r: SUBJECT in r,
-    ),
-    "test-runner": (
-        "run python -m unittest discover -s tests and report the name of the failing test.",
-        lambda r: "test_halve_keeps_whole_numbers" in r,
-    ),
-    "debug-evidence": (
-        "gather the evidence for why python -m unittest discover -s tests fails: report the exact "
-        "assertion message and the two values it compared.",
-        lambda r: "halve must floor odd numbers" in r and "3.5" in r,
-    ),
-    "mutation-tester": (
-        "in calc.py change 'return a + b' to 'return a - b', run python -m unittest discover -s tests "
-        "-k add (its baseline passes), then restore calc.py byte for byte, and report which "
-        "test failed under the mutation and the outcome.",
-        lambda r: (
-            "test_add_sums" in r
-            and re.search(r"\bkilled\b", r, re.I) is not None
-            and re.search(r"\b(?:not applied|survived|could not)\b", r, re.I) is None
-        ),
-    ),
-}
+def _agy_init_line(model: str = "gemini-pro-orchestrator") -> str:
+    """Return an agy 1.5.8 init NDJSON line."""
+    return json.dumps({"event": "init", "conversation_id": "c1", "init": {"model": model}})
+
+
+def _agy_tool_pair(
+    step_index: int,
+    tool_name: str,
+    *,
+    parameters: dict[str, object] | None = None,
+    state: str = "DONE",
+    output: str = "",
+    error: str = "",
+) -> list[str]:
+    """Return ACTIVE and terminal step_update lines matching agy 1.5.8 stream-json."""
+    active = json.dumps(
+        {
+            "event": "step_update",
+            "step_update": {
+                "conversation_id": "c1",
+                "step_index": step_index,
+                "state": "ACTIVE",
+                "step_type": "tool",
+                "tool_name": tool_name,
+                "tool_info": {"name": tool_name, "parameters": parameters or {}},
+            },
+        }
+    )
+    done_step: dict[str, object] = {
+        "conversation_id": "c1",
+        "step_index": step_index,
+        "state": state,
+        "step_type": "tool",
+        "tool_name": tool_name,
+        "tool_info": {
+            "name": tool_name,
+            "parameters": parameters or {},
+            **({"output": output} if output else {}),
+        },
+    }
+    if error:
+        done_step["error"] = error
+    return [active, json.dumps({"event": "step_update", "step_update": done_step})]
+
+
+def _agy_subagent_pair(
+    step_index: int,
+    type_name: str = "research",
+    *,
+    state: str = "DONE",
+    error: str = "",
+) -> list[str]:
+    """Return ACTIVE and terminal step_update lines matching agy 1.5.8 invoke_subagent."""
+    sub_entry: dict[str, object] = {
+        "type_name": type_name,
+        "role": "Codebase Researcher",
+        "initial_prompt": "Locate halve in calc.py",
+    }
+    active = json.dumps(
+        {
+            "event": "step_update",
+            "step_update": {
+                "conversation_id": "c1",
+                "step_index": step_index,
+                "state": "ACTIVE",
+                "step_type": "subagent",
+                "tool_name": "invoke_subagent",
+                "subagent_info": {"subagents": [sub_entry]},
+            },
+        }
+    )
+    done_entry = {**sub_entry, "conversation_id": "sub-1"}
+    done_step: dict[str, object] = {
+        "conversation_id": "c1",
+        "step_index": step_index,
+        "state": state,
+        "step_type": "subagent",
+        "tool_name": "invoke_subagent",
+        "subagent_info": {"subagents": [done_entry]},
+    }
+    if error:
+        done_step["error"] = error
+    return [active, json.dumps({"event": "step_update", "step_update": done_step})]
+
+
+def _agy_result_line(status: str = "SUCCESS", response: str = "Done.") -> str:
+    """Return an agy 1.5.8 terminal result NDJSON line."""
+    return json.dumps(
+        {
+            "event": "result",
+            "result": {"conversation_id": "c1", "status": status, "response": response},
+        }
+    )
+
+
+class ProcessAndStreamContractTests(unittest.TestCase):
+    """Process-tree teardown and positive/negative stream-json parser tests."""
+
+    def test_timeout_kills_parent_and_descendant_process_tree(self) -> None:
+        child_script = """
+import subprocess, sys, time
+from pathlib import Path
+
+pid_file = Path(sys.argv[1])
+if len(sys.argv) == 2:
+    grand = subprocess.Popen([sys.executable, __file__, str(pid_file), "grandchild"])
+    pid_file.write_text(str(grand.pid), encoding="utf-8")
+    time.sleep(60)
+else:
+    time.sleep(60)
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            script = tmp_path / "spawn_tree.py"
+            grand_pid_file = tmp_path / "grand.pid"
+            script.write_text(child_script.strip() + "\n", encoding="utf-8")
+
+            # Use a child wrapper that lets the script write grand.pid before timing out.
+            # Retry deadline comfortably longer than Python startup + file write (<0.4s).
+            _, _, _, timed_out = _run_bounded_subprocess(
+                [sys.executable, str(script), str(grand_pid_file)],
+                cwd=tmp_path,
+                timeout=1.5,
+            )
+            self.assertTrue(timed_out, "spawn_tree.py should have timed out")
+            self.assertTrue(grand_pid_file.is_file(), "child did not spawn grandchild in time")
+            grand_pid = int(grand_pid_file.read_text(encoding="utf-8").strip())
+
+            deadline = time.monotonic() + 3.0
+            while _is_pid_alive(grand_pid) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertFalse(
+                _is_pid_alive(grand_pid),
+                f"descendant PID {grand_pid} survived bounded tree cleanup",
+            )
+
+    def test_accepts_valid_orchestrator_exit_plan_and_execution_stream(self) -> None:
+        stream = "\n".join(
+            [
+                _agy_init_line("gemini-pro-orchestrator"),
+                *_agy_tool_pair(
+                    12,
+                    "exit_plan_mode",
+                    parameters={"plan": "fix calc.add"},
+                    output="Plan mode is off.",
+                ),
+                *_agy_tool_pair(15, "edit_file", parameters={"Path": "calc.py"}),
+                _agy_result_line("SUCCESS", "Fixed add() and ran unittest."),
+            ]
+        )
+        parsed = parse_orchestrator_stream(stream)
+        self.assertEqual(parsed["models"], ["gemini-pro-orchestrator"])
+
+    def test_accepts_valid_invoke_subagent_delegation_stream(self) -> None:
+        stream = "\n".join(
+            [
+                _agy_init_line("gemini-pro-orchestrator-argon"),
+                *_agy_subagent_pair(3, "research"),
+                json.dumps(
+                    {
+                        "event": "step_update",
+                        "step_update": {
+                            "conversation_id": "c1",
+                            "step_index": 5,
+                            "state": "DONE",
+                            "step_type": "system_message",
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "event": "step_update",
+                        "step_update": {
+                            "conversation_id": "c1",
+                            "step_index": 6,
+                            "state": "ACTIVE",
+                            "step_type": "agent_response",
+                            "text_delta": "halve is on ",
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "event": "step_update",
+                        "step_update": {
+                            "conversation_id": "c1",
+                            "step_index": 6,
+                            "state": "DONE",
+                            "step_type": "agent_response",
+                            "text_delta": "line 5.",
+                        },
+                    }
+                ),
+                _agy_result_line("SUCCESS", "halve is on line 5 of calc.py and returns n / 2."),
+            ]
+        )
+        parsed = parse_subagent_delegation_stream(stream)
+        self.assertIn("line 5", str(parsed["assistant_text"]))
+
+    def test_rejects_listing_only_output_without_invoke_subagent(self) -> None:
+        stream = "\n".join(
+            [
+                _agy_init_line("gemini-pro-orchestrator"),
+                _agy_result_line("SUCCESS", "Available subagents: self, research, image-generator."),
+            ]
+        )
+        with self.assertRaises(AssertionError):
+            parse_subagent_delegation_stream(stream)
+
+    def test_rejects_failed_or_incomplete_invoke_subagent(self) -> None:
+        failed_stream = "\n".join(
+            [
+                _agy_init_line("gemini-pro-orchestrator"),
+                *_agy_subagent_pair(
+                    3,
+                    "research",
+                    state="ERROR",
+                    error="subagent launch denied",
+                ),
+                _agy_result_line("SUCCESS"),
+            ]
+        )
+        with self.assertRaises(AssertionError):
+            parse_subagent_delegation_stream(failed_stream)
+
+        incomplete_call_stream = "\n".join(
+            [
+                _agy_init_line("gemini-pro-orchestrator"),
+                _agy_subagent_pair(3, "research")[0],
+                _agy_result_line("SUCCESS"),
+            ]
+        )
+        with self.assertRaises(AssertionError):
+            parse_subagent_delegation_stream(incomplete_call_stream)
+
+        launch_only_stream = "\n".join(
+            [
+                _agy_init_line("gemini-pro-orchestrator"),
+                *_agy_subagent_pair(3, "research"),
+                _agy_result_line("SUCCESS", "Launched research subagent."),
+            ]
+        )
+        with self.assertRaises(AssertionError):
+            parse_subagent_delegation_stream(launch_only_stream)
+
+    def test_rejects_missing_exit_plan_mode_wrong_model_and_incomplete_result(self) -> None:
+        no_exit = "\n".join(
+            [
+                _agy_init_line("gemini-pro-orchestrator"),
+                *_agy_tool_pair(3, "edit_file", parameters={"Path": "calc.py"}),
+                _agy_result_line("SUCCESS"),
+            ]
+        )
+        with self.assertRaises(AssertionError):
+            parse_orchestrator_stream(no_exit)
+
+        wrong_model = "\n".join(
+            [
+                _agy_init_line("gemini-4-carbon-high"),
+                *_agy_tool_pair(3, "exit_plan_mode", output="Plan mode is off."),
+                *_agy_tool_pair(4, "edit_file"),
+                _agy_result_line("SUCCESS"),
+            ]
+        )
+        with self.assertRaises(AssertionError):
+            parse_orchestrator_stream(wrong_model)
+
+        incomplete = "\n".join(
+            [
+                _agy_init_line("gemini-pro-orchestrator"),
+                *_agy_tool_pair(3, "exit_plan_mode", output="Plan mode is off."),
+                *_agy_tool_pair(4, "edit_file"),
+            ]
+        )
+        with self.assertRaises(AssertionError):
+            parse_orchestrator_stream(incomplete)
+
+        failed_result = "\n".join(
+            [
+                _agy_init_line("gemini-pro-orchestrator"),
+                *_agy_tool_pair(3, "exit_plan_mode", output="Plan mode is off."),
+                *_agy_tool_pair(4, "edit_file"),
+                _agy_result_line("ERROR"),
+            ]
+        )
+        with self.assertRaises(AssertionError):
+            parse_orchestrator_stream(failed_result)
+
+
+CALC_SOURCE = """def add(a, b):
+    return a - b
+
+
+def halve(n):
+    return n / 2
+"""
+
+TESTS_SOURCE = """import unittest
+from calc import add, halve
+
+
+class CalcTests(unittest.TestCase):
+    def test_add(self):
+        self.assertEqual(add(2, 3), 5)
+
+    def test_halve(self):
+        self.assertEqual(halve(10), 5)
+"""
+
+
+def _make_live_workspace(tmp_root: Path) -> Path:
+    """Create a fresh base+agy workspace with a known buggy calc.py and failing unit test."""
+    ws = tmp_root / "ws"
+    _run_forge(["init", str(ws), "--kit", "base", "--agent", "agy"])
+    (ws / "calc.py").write_text(CALC_SOURCE, encoding="utf-8")
+    (ws / "tests").mkdir(exist_ok=True)
+    (ws / "tests" / "test_calc.py").write_text(TESTS_SOURCE, encoding="utf-8")
+    subprocess.run(["git", "init"], cwd=str(ws), check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=str(ws),
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test"],
+        cwd=str(ws),
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(["git", "add", "-A"], cwd=str(ws), check=True, capture_output=True)
+    subprocess.run(
+        ["git", "commit", "-m", "initial buggy calc"],
+        cwd=str(ws),
+        check=True,
+        capture_output=True,
+    )
+    return ws
+
+
+def _dump_stream_on_error(name: str, stdout: str, stderr: str) -> Path:
+    """Save raw stream output under build/ when a live assertion fails."""
+    dump_dir = ROOT / "build"
+    dump_dir.mkdir(exist_ok=True)
+    dump = dump_dir / f"live-agy-{name}.jsonl"
+    dump.write_text(stdout + ("\n--- STDERR ---\n" + stderr if stderr else ""), encoding="utf-8")
+    return dump
 
 
 @unittest.skipUnless(
-    os.environ.get("CONCLAVE_LIVE_AGY") and shutil.which("agy"),
-    "live: set CONCLAVE_LIVE_AGY=1 on a machine with the signed-in Antigravity CLI",
+    bool(os.environ.get("CONCLAVE_LIVE_AGY")) and bool(shutil.which("agy")),
+    "live Orchestrator proof runs only when CONCLAVE_LIVE_AGY is set and agy is on PATH",
 )
-class LiveAgents(unittest.TestCase):
-    """Each agent, in a fresh `--agent agy` install, proven on `gemini-4-hydrogen-medium` against the fixture."""
+class LiveOrchestratorTests(unittest.TestCase):
+    """Live agy 1.5.8 proofs for built-in subagents, invoke_subagent, and exit_plan_mode."""
 
-    @classmethod
-    def setUpClass(cls):
-        cls._tmp = tempfile.TemporaryDirectory()
-        cls.project = Path(cls._tmp.name) / "project"
-        subprocess.run(
-            [sys.executable, str(ROOT / "forge.py"), "init", str(cls.project), "--kit", "base", "--agent", "agy"],
-            check=True,
-            capture_output=True,
-        )
-        cls.trace_path = Path(cls._tmp.name) / "calc-trace.jsonl"
-        (cls.project / "tests").mkdir()
-        (cls.project / ".gitignore").write_bytes(b"__pycache__/\n*.pyc\n")
-        (cls.project / "calc.py").write_bytes(CALC.encode("utf-8"))
-        (cls.project / "tests/test_calc.py").write_bytes(build_tests_source(cls.trace_path).encode("utf-8"))
-        for args in (
-            ["init", "-q"],
-            ["config", "user.email", "t@example.com"],
-            ["config", "user.name", "T"],
-            ["config", "core.autocrlf", "false"],
-            ["add", "-A"],
-            ["commit", "-qm", SUBJECT],
-        ):
-            subprocess.run(["git", "-C", str(cls.project), *args], check=True, capture_output=True)
-        cls.results: dict[str, object] = {}
-
-    @classmethod
-    def tearDownClass(cls):
-        print("\nlive agy results:", json.dumps(cls.results, indent=1))
-        cls._tmp.cleanup()
-
-    def test_00_install_validates_and_live_session_lists_all_five_subagents(self):
-        plugin_dir = Path(self._tmp.name) / "validate-plugin"
-        (plugin_dir / "agents").mkdir(parents=True)
-        (plugin_dir / "plugin.json").write_text(
-            json.dumps({"name": "conclave-base-agents", "version": "1.0.0"}),
-            encoding="utf-8",
-        )
-        for md in (self.project / ".agents/agents").glob("*.md"):
-            shutil.copyfile(md, plugin_dir / "agents" / md.name)
-        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        validated = subprocess.run(
-            [str(shutil.which("agy")), "plugin", "validate", "--strict", str(plugin_dir)],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            stdin=subprocess.DEVNULL,
-            creationflags=flags,
-        )
-        self.assertEqual(validated.returncode, 0, validated.stdout + validated.stderr)
-
-        settings_path = Path(self._tmp.name) / "list-settings.json"
-        settings_path.write_text(
-            json.dumps({"agentMode": "", "permissions": {"deny": ["write_file(*)", "edit_file(*)", "mcp(*)"]}}),
-            encoding="utf-8",
-        )
-        listed = subprocess.run(
-            [
-                str(shutil.which("agy")),
-                "--model",
-                "gemini-4-hydrogen-medium",
-                "--settings",
-                str(settings_path),
-                "--output-format",
-                "json",
-                "--print-timeout",
-                "90s",
-                "-p=List the exact names of all available subagents in your <subagents> block, one per line. Call no tools.",
-            ],
-            cwd=self.project,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=120,
-            stdin=subprocess.DEVNULL,
-            creationflags=flags,
-        )
-        self.assertEqual(listed.returncode, 0, listed.stdout + listed.stderr)
-        response = json.loads(listed.stdout).get("response", "")
-        self.results["_session_subagents"] = [name for name in EXPECTED_NAMES if name in response]
-        for name in EXPECTED_NAMES:
-            self.assertIn(name, response, f"live session omitted {name!r} from <subagents>: {response}")
-
-    def known_answer(self, agent: str):
-        task, right = TASKS[agent]
-        if agent == "mutation-tester":
-            self.trace_path.unlink(missing_ok=True)
-        before = hashlib.sha256((self.project / "calc.py").read_bytes()).hexdigest()
-        worktrees_before = subprocess.run(
-            ["git", "-C", str(self.project), "worktree", "list", "--porcelain"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
-        t0 = time.monotonic()
-        res = subprocess.run(
-            [
-                sys.executable,
-                str(self.project / "scripts/agy-subagent.py"),
-                agent,
-                "--root",
-                str(self.project),
-                "--allow-command",
-                "command(*)",
-                "--timeout",
-                "240",
-                "--json",
-            ],
-            input=task,
-            cwd=self.project,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=280,
-        )
-        elapsed = round(time.monotonic() - t0, 1)
-        self.assertEqual(res.returncode, 0, f"{agent} failed:\nstdout={res.stdout}\nstderr={res.stderr}")
-        payload = json.loads(res.stdout)
-        reply = payload["response"]
-        tool_calls = payload["tool_calls"]
-        trace_entries: list[dict[str, object]] = []
-        if agent == "mutation-tester" and self.trace_path.is_file():
-            trace_entries = [
-                json.loads(line)
-                for line in self.trace_path.read_text(encoding="utf-8").splitlines()
-                if line.strip()
-            ]
-        record: dict[str, object] = {
-            "model": payload["model"],
-            "agent": payload["agent"],
-            "elapsed_s": elapsed,
-            "right": bool(right(reply)),
-            "tool_calls": tool_calls,
-            "reply": reply[:240],
-        }
-        if agent == "mutation-tester":
-            record["observed_runs"] = [
-                {
-                    "isolated_worktree": Path(str(e["cwd"])).resolve() != self.project.resolve(),
-                    "calc_sha256": str(e["calc_sha256"])[:12],
-                    "add_2_3": e["add_2_3"],
-                    "passed": e["passed"],
-                }
-                for e in trace_entries
-            ]
-        self.results[agent] = record
-        self.assertEqual(payload["model"], "gemini-4-hydrogen-medium")
-        self.assertEqual(payload["agent"], agent)
-        self.assertTrue(tool_calls, f"{agent} executed no tools")
-        if agent != "code-explorer":
-            self.assertIn("run_command", tool_calls, f"{agent} never called run_command: {tool_calls}")
-        self.assertTrue(right(reply), f"{agent} wrong answer: {reply}")
-        if agent == "mutation-tester":
-            self.assertEqual(
-                mutation_trace_problems(trace_entries, self.project),
-                [],
-                f"mutation-tester execution trace failed verification: {trace_entries}",
+    def test_00_builtin_subagents_listed_without_legacy_wrappers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = _make_live_workspace(Path(tmp))
+            self.assertFalse((ws / ".agents" / "agents").exists())
+            prompt = (
+                "Do not edit any files. First exit plan mode if needed, or answer directly: "
+                "list the built-in subagent TypeName identifiers visible in your <subagents> "
+                "prompt section (including self, research, image-generator) and check whether "
+                "a .agents/agents directory exists in this workspace."
             )
-        self.assertEqual(
-            hashlib.sha256((self.project / "calc.py").read_bytes()).hexdigest(),
-            before,
-            f"{agent} left calc.py changed",
-        )
-        status = subprocess.run(
-            ["git", "-C", str(self.project), "status", "--short"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(status.stdout.strip(), "", f"{agent} left the tree changed: {status.stdout}")
-        worktrees_after = subprocess.run(
-            ["git", "-C", str(self.project), "worktree", "list", "--porcelain"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
-        self.assertEqual(worktrees_after, worktrees_before, f"{agent} left an extra git worktree behind")
+            rc, stdout, stderr, timed_out = _run_agy(prompt, cwd=ws, timeout=180.0)
+            try:
+                self.assertFalse(timed_out, f"agy timed out; stderr={stderr}")
+                self.assertEqual(rc, 0, f"agy rc={rc}; stderr={stderr}\nstdout={stdout[-1000:]}")
+                parsed = _parse_ndjson_stream(stdout)
+                text = str(parsed["assistant_text"]).lower()
+                for name in ("self", "research", "image-generator"):
+                    self.assertIn(name, text, f"missing built-in subagent {name!r} in:\n{text}")
+            except AssertionError as exc:
+                dump = _dump_stream_on_error("test00", stdout, stderr)
+                raise AssertionError(f"{exc} (stream saved to {dump})") from exc
 
-    def test_code_explorer_finds_the_function(self):
-        self.known_answer("code-explorer")
+    def test_01_live_invoke_subagent_known_answer_delegation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = _make_live_workspace(Path(tmp))
+            prompt = (
+                "Call invoke_subagent once with TypeName='research' to read calc.py and find the "
+                "exact 1-based line number of `def halve` and the expression it returns. "
+                "Wait for the subagent reply (stop calling other tools until it replies), then "
+                "report the exact line number and returned expression."
+            )
+            rc, stdout, stderr, timed_out = _run_agy(prompt, cwd=ws, timeout=240.0)
+            try:
+                self.assertFalse(timed_out, f"agy timed out; stderr={stderr}")
+                self.assertEqual(rc, 0, f"agy rc={rc}; stderr={stderr}\nstdout={stdout[-1200:]}")
+                parsed = parse_subagent_delegation_stream(stdout)
+                combined = (
+                    str(parsed["assistant_text"]) + "\n" + json.dumps(parsed["subagent_results"])
+                )
+                self.assertRegex(combined, r"\b5\b", f"expected line 5 in:\n{combined}")
+                self.assertIn("n / 2", combined, f"expected 'n / 2' in:\n{combined}")
+            except AssertionError as exc:
+                dump = _dump_stream_on_error("test01", stdout, stderr)
+                raise AssertionError(f"{exc} (stream saved to {dump})") from exc
 
-    def test_git_runner_reads_the_last_commit(self):
-        self.known_answer("git-runner")
-
-    def test_test_runner_names_the_failing_test(self):
-        self.known_answer("test-runner")
-
-    def test_debug_evidence_quotes_the_assertion(self):
-        self.known_answer("debug-evidence")
-
-    def test_mutation_tester_mutates_reports_and_restores(self):
-        self.known_answer("mutation-tester")
+    def test_02_live_orchestrator_plans_exits_plan_mode_and_executes_fix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = _make_live_workspace(Path(tmp))
+            prompt = (
+                "Plan and fix the bug in calc.py so `python -m unittest tests.test_calc` passes "
+                "all tests. Use your normal planning phase, invoke exit_plan_mode to transition "
+                "to execution, apply the fix to calc.py, run `python -m unittest tests.test_calc`, "
+                "and report the test output."
+            )
+            rc, stdout, stderr, timed_out = _run_agy(prompt, cwd=ws, timeout=240.0)
+            try:
+                self.assertFalse(timed_out, f"agy timed out; stderr={stderr}")
+                self.assertEqual(rc, 0, f"agy rc={rc}; stderr={stderr}\nstdout={stdout[-1200:]}")
+                parse_orchestrator_stream(stdout)
+            except AssertionError as exc:
+                dump = _dump_stream_on_error("test02", stdout, stderr)
+                raise AssertionError(f"{exc} (stream saved to {dump})") from exc
+            fixed_src = (ws / "calc.py").read_text(encoding="utf-8")
+            self.assertIn("a + b", fixed_src)
+            check = subprocess.run(
+                [sys.executable, "-m", "unittest", "tests.test_calc"],
+                cwd=str(ws),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
 
 
 if __name__ == "__main__":

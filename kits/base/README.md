@@ -1,6 +1,6 @@
 # Base kit
 
-Reusable starter overlay for adding Conclave-SDK agent instructions, skills and read-only subagents to a project across Google Antigravity (`.agents/`), Claude Code (`.claude/`), and OpenAI Codex (`.codex/`). This is the generic agent layer; Laravel and WordPress stacks are sibling kits under `kits/`.
+Reusable starter overlay for adding Conclave-SDK agent instructions, skills and subagent configuration to a project across Google Antigravity (`.agents/`), Claude Code (`.claude/`), and OpenAI Codex (`.codex/`). This is the generic agent layer; Laravel and WordPress stacks are sibling kits under `kits/`.
 
 ## Contents
 
@@ -10,21 +10,19 @@ templates/
   GEMINI.md
   CLAUDE.md
   CODEX.md
-  .agents/agents/
   .agents/skills/
   .claude/agents/
   .claude/skills/
   .codex/skills/
   docs/
   scripts/
-    agy-subagent.py
     verify-agent-tiers.mjs
 scripts/
   install.sh
   test-install.sh
 ```
 
-The template uses real files, not symlinks. Antigravity, Claude, and Codex skills and agent definitions may start aligned, but each tool gets its own copy so wording and metadata can diverge when model or tool behavior requires it.
+The template uses real files, not symlinks. Antigravity, Claude, and Codex skills may start aligned, but each tool gets its own copy so wording and metadata can diverge when model or tool behavior requires it.
 
 ## Install
 
@@ -46,31 +44,44 @@ There is no force/overwrite mode on kits. Before copying any file, the installer
 
 After installing, adapt `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, and skill descriptions to the target project.
 
-The template `docs/` folder holds the skill/rule structure document. Under `scripts/`, `verify-agent-tiers.mjs` checks that every Claude agent definition pins an explicit model, that no agent can edit files (an explicit `tools:` list with no edit tools), that an elevated tier records why, and that a Haiku agent meets every condition of the near-mechanical allowance in `AGENTS.md` (reading frontmatter as a closed subset of YAML: flat `key: value` pairs plus one skipped `hooks:` block, refusing everything else). Alongside it, `agy-subagent.py` enforces the Antigravity subagent frontmatter contract (`python scripts/agy-subagent.py --check`) and runs a named subagent on `gemini-4-hydrogen-medium` (`python scripts/agy-subagent.py <agent> -p="<task>"`).
+The template `docs/` folder holds the skill/rule structure document. Under `scripts/`, `verify-agent-tiers.mjs` checks that every Claude agent definition in `.claude/agents/` pins an explicit model, that no agent can edit files (an explicit `tools:` list with no edit tools), that an elevated tier records why, and that a Haiku agent meets every condition of the near-mechanical allowance in `AGENTS.md` (reading frontmatter as a closed subset of YAML: flat `key: value` pairs plus one skipped `hooks:` block, refusing everything else).
 
 ## Subagents across the three writers
 
-Claude Code and Google Antigravity both receive the five read-only subagent counterparts (`code-explorer`, `debug-evidence`, `git-runner`, `mutation-tester`, `test-runner`). Codex has no project subagent definitions (the base kit ships no `.codex/agents/` folder, matching Antigravity's built-in `migrate-agent-settings` discovery table, which lists no subagent path for Codex) and runs mechanical subtasks in the main session.
+Claude Code receives five read-only subagent definitions under `.claude/agents/` (`code-explorer`, `debug-evidence`, `git-runner`, `mutation-tester`, `test-runner`). Codex has no project subagent definitions (the base kit ships no `.codex/agents/` folder) and runs mechanical subtasks in the main session.
 
-### Antigravity (`agy` 1.5.8) format, tool restriction and model selection
+Google Antigravity (`agy` 1.5.8) uses native `Orchestrator (Carbon)` (`gemini-pro-orchestrator`) instead of custom `.agents/agents/*.md` files or wrapper scripts:
 
-Measured on `agy` `1.5.8` (`2026-11-13`) from `~/.gemini/antigravity-cli/builtin/skills/agy-customizations/SKILL.md`, `~/.gemini/antigravity-cli/builtin/skills/migrate-agent-settings/SKILL.md`, `agy plugin validate --strict` and headless sessions:
+- **Two-phase orchestration:** `gemini-pro-orchestrator` automatically plans on Carbon (`<plan_execute_protocol>`), hands concrete execution plans to Hydrogen through `exit_plan_mode`, and can hand back to Carbon via `enter_plan_mode` when verification or design assumptions diverge.
+- **Built-in subagents (`<subagents>`):** Every session natively includes built-in `self`, `research`, and `image-generator` subagents invoked via `invoke_subagent`. Shipping custom `.agents/agents/*.md` wrappers is redundant and can override native model routing, so fresh `--agent agy` installs ship zero `.agents/agents/` files and no `scripts/agy-subagent.py`.
+- **Effort and model selection:** `gemini-pro-orchestrator` and `gemini-pro-orchestrator-*` manage reasoning effort internally across planning and execution turns and reject `--effort`; start interactive or campaign sessions with `agy --model gemini-pro-orchestrator` and omit `--effort`.
 
-- **Folder and discovery:** `agy-customizations/SKILL.md` states `"Path: .agents/ (or .agent/, _agents/, _agent/) at the root of your project"`, and `agy` `1.5.8` discovers workspace agent definitions at `.agents/agents/<name>.md` (as well as `agents/<name>.md` inside a plugin).
-- **Frontmatter and tool restriction:** `migrate-agent-settings/SKILL.md` specifies `"agents/<name>.md (Claude Code subagents): keep the body as the system prompt"` with `name`, `description`, `subagent`, `mainAgent` and `tools`, noting `"tools: always write it, since an omitted tools gets only a small read-only default set"` and `"map each grant to the native tool names: Read/Glob/Grep to read_file, Edit/MultiEdit to edit_file, Write to write_file, Bash to run_command and manage_task, WebSearch/WebFetch to search_web"`. Each of the five base subagents sets `tools: [read_file, run_command, manage_task]` and `inheritMcp: false`, with neither `edit_file` nor `write_file`.
-- **Model selection (`gemini-4-hydrogen-medium`):** `migrate-agent-settings/SKILL.md` says `"Drop model and color"` for imported definitions because `agy` `1.5.8`'s agent loader accepts only the four tier tokens `inherit`, `flash_lite`, `flash` and `pro` in `model:`; writing `model: gemini-4-hydrogen-medium` in `.agents/agents/<name>.md` fails `agy plugin validate` with `"Invalid model tier gemini-4-hydrogen-medium. The loader skips this agent"` and omits the file from `<subagents>`. At runtime, `invoke_subagent` maps `flash` and `pro` to `gemini-3.8-flash-tiered`, `flash_lite` to `gemini-3.5-flash-lite`, and `inherit` to the caller's Gemini 4 Carbon model. To run Antigravity subagents on Gemini 4 Hydrogen at medium effort (`gemini-4-hydrogen-medium`) while the main writer stays Gemini 4 Carbon, each `.agents/agents/<name>.md` sets `model: flash` (passing `agy plugin validate --strict`, appearing in `<subagents>`, and never inheriting Carbon), `conclave_model: gemini-4-hydrogen-medium`, `subagent: true`, `mainAgent: true` and `inheritMcp: false`, and `scripts/agy-subagent.py` invokes `agy --model gemini-4-hydrogen-medium --agent <name> --settings <deny write_file, edit_file, mcp> --input-format text --output-format stream-json` with the prompt piped on `stdin`, verifying `init.model == "gemini-4-hydrogen-medium"` and `init.agent == <name>` on every call.
+### Migrating existing installs to Orchestrator (Carbon)
 
-### Live verification (`agy` 1.5.8, 2026-11-13)
+Because `forge.py update <project> base` is additive-only and preserves deleted kit files as `project-only` (so local edits are never lost), existing projects updated from older `base` kit releases retain the retired Antigravity wrappers and remain discoverable by `agy` until cleaned up:
 
-Verified with `CONCLAVE_LIVE_AGY=1 python -m unittest tests.test_agy_agents` in a fresh `python forge.py init <scratch> --kit base --agent agy` repository (`agy` `1.5.8` on `2026-11-13`): `agy plugin validate --strict` passed with 0 errors and 0 warnings, a headless session in that install named all five custom subagents in `<subagents>`, and each subagent completed its known-answer fixture task on `gemini-4-hydrogen-medium` with the working tree and `git worktree list` left clean (for `mutation-tester`, an out-of-tree runtime trace in `calc-trace.jsonl` recorded `test_add_sums` passing at baseline with `add(2, 3) == 5` on `calc.py` `a8fa2c34867c` and then failing under the `return a - b` mutation with `add(2, 3) == -1` on `51e1d93de298` inside an isolated worktree):
+- `.agents/agents/code-explorer.md`
+- `.agents/agents/debug-evidence.md`
+- `.agents/agents/git-runner.md`
+- `.agents/agents/mutation-tester.md`
+- `.agents/agents/test-runner.md`
+- `scripts/agy-subagent.py`
 
-| Subagent | Model (`init.model`) | Elapsed | Live result (`2026-11-13`, `agy` `1.5.8`) |
-| -------- | -------------------- | ------- | ----------------------------------------- |
-| `code-explorer` | `gemini-4-hydrogen-medium` | `20.2s` | Located `halve` at `calc.py:5` |
-| `git-runner` | `gemini-4-hydrogen-medium` | `17.1s` | Reported subject `calc: the known-answer fixture` |
-| `test-runner` | `gemini-4-hydrogen-medium` | `16.7s` | Ran unittest and named `test_halve_keeps_whole_numbers` |
-| `debug-evidence` | `gemini-4-hydrogen-medium` | `26.6s` | Quoted `'halve must floor odd numbers'` and `3.5` vs `3` |
-| `mutation-tester` | `gemini-4-hydrogen-medium` | `48.3s` | Observed `5` then `-1` (`test_add_sums`) in worktree |
+Follow this reversible cleanup after `python forge.py update <project> base`:
+
+1. Inspect retired files with `python forge.py diff <project> base` (each retired file reports `project-only`). Confirm `.conclave/kits.json` or `git diff` shows no local customizations you want to keep in those six paths; keep or rename any project-custom `.agents/agents/<custom>.md` file untouched.
+2. Commit or back up your repository first so the removal is reversible (`git checkout HEAD -- .agents/agents scripts/agy-subagent.py` restores the prior wrappers if you ever revert to `gemini-4-carbon-medium` without `Orchestrator (Carbon)`).
+3. Remove only the six retired SDK paths (and `.agents/agents` if it is now empty; never delete custom `.agents/agents/<custom>.md` files).
+4. Switch project Antigravity launches and run configs to `--model gemini-pro-orchestrator` with no `--effort` flag (`effort: null` in `.conclave/unattended.json`).
+5. Verify native operation: confirm none of the five SDK wrappers remain in `.agents/agents/`, confirm `agy --model gemini-pro-orchestrator` lists built-in `self`, `research`, and `image-generator` in `<subagents>`, and confirm two-phase `exit_plan_mode` execution runs cleanly.
+
+### Live verification (`agy` 1.5.8, 2026-11-14)
+
+Verified on 2026-11-14 against installed `agy` `1.5.8` with `CONCLAVE_LIVE_AGY=1 python -m unittest -v tests.test_agy_agents` (`Ran 12 tests in 329.597s OK`):
+
+- **Built-in `<subagents>` listing:** Initiated `gemini-pro-orchestrator` in a fresh `--kit base --agent agy` workspace with zero `.agents/agents` directory and confirmed native `self`, `research`, and `image-generator` subagents are available.
+- **Real `invoke_subagent` delegation:** Delegated a known-answer lookup (`def halve` in `calc.py`) to `TypeName='research'`, observed `step_type: "subagent"` (`invoke_subagent`) launch plus post-launch `system_message` wakeup completion in `stream-json`, and independently confirmed the reported answer (line `5`, returning `n / 2`).
+- **Two-phase `exit_plan_mode` execution:** Invoked `gemini-pro-orchestrator` to fix buggy `add(a, b)` in `calc.py`, observed planning, `exit_plan_mode` (`Plan mode is off.`), `edit_file`, and `python -m unittest tests.test_calc` (`Ran 2 tests ... OK`) exit `0`.
 
 ## Maintenance
 
