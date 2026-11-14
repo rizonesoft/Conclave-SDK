@@ -18,6 +18,7 @@ camelCase hook payloads from stdin and outputs exact contract responses on stdou
 """
 from __future__ import annotations
 
+import base64
 import fnmatch
 import importlib.util
 import json
@@ -242,13 +243,70 @@ def extract_clean_prompt(raw: str) -> str:
 _PREFIX_SHELL_RX = r"^\s*(?:(?:sudo|env|command|time|nohup|nice|[A-Za-z_]\w*=\S+)\s+)*"
 _NO_BS_SHELL_RE = re.compile(_PREFIX_SHELL_RX + r"(?:pwsh|powershell|cmd)(?:\.exe)?(?:\s|$)", re.I)
 _PWSH_SHELL_RE = re.compile(_PREFIX_SHELL_RX + r"(?:pwsh|powershell)(?:\.exe)?(?:\s|$)", re.I)
-_PWSH_VAL_OPTS = {
-    "-executionpolicy", "-ep", "-windowstyle", "-w", "-inputformat", "-if",
-    "-outputformat", "-of", "-configurationname", "-config", "-workingdirectory", "-wd",
-    "-settingsfile",
+_PWSH_CLI_ALIASES = {
+    "c": "command",
+    "f": "file",
+    "e": "encodedcommand",
+    "ec": "encodedcommand",
+    "enc": "encodedcommand",
+    "ep": "executionpolicy",
+    "w": "windowstyle",
+    "if": "inputformat",
+    "of": "outputformat",
+    "config": "configurationname",
+    "wd": "workingdirectory",
+    "nop": "noprofile",
+    "noni": "noninteractive",
+    "nol": "nologo",
 }
-_PWSH_CMD_OPTS = {"-command", "-c"}
-_PWSH_STOP_OPTS = {"-file", "-f", "-encodedcommand", "-ec", "-e", "-enc", "-encodedarguments"}
+_PWSH_CLI_LONG_OPTS = (
+    "command",
+    "file",
+    "encodedcommand",
+    "encodedarguments",
+    "executionpolicy",
+    "windowstyle",
+    "inputformat",
+    "outputformat",
+    "configurationname",
+    "workingdirectory",
+    "settingsfile",
+    "noprofile",
+    "noninteractive",
+    "nologo",
+    "noexit",
+    "sta",
+    "mta",
+    "login",
+    "version",
+    "help",
+)
+_PWSH_CLI_VAL_NAMES = frozenset({
+    "executionpolicy",
+    "windowstyle",
+    "inputformat",
+    "outputformat",
+    "configurationname",
+    "workingdirectory",
+    "settingsfile",
+    "encodedarguments",
+})
+
+
+def _resolve_pwsh_cli_opt(tok: str) -> str | None:
+    if not tok.startswith("-"):
+        return None
+    raw = tok.lstrip("-").lower()
+    if not raw:
+        return None
+    if raw in _PWSH_CLI_ALIASES:
+        return _PWSH_CLI_ALIASES[raw]
+    if raw in _PWSH_CLI_LONG_OPTS:
+        return raw
+    matches = [o for o in _PWSH_CLI_LONG_OPTS if o.startswith(raw)]
+    if len(matches) == 1:
+        return matches[0]
+    return None
 
 
 def _join_wrapped_tokens(rem: list[tuple[str, bool]]) -> str:
@@ -413,19 +471,30 @@ def _unwrap_tokens(tokens: list[tuple[str, bool]], depth: int = 0) -> list[tuple
         elif base in ("pwsh", "pwsh.exe", "powershell", "powershell.exe"):
             j = idx + 1
             while j < len(tokens):
-                flag = tokens[j][0].lower()
-                if flag in _PWSH_STOP_OPTS:
+                tok_raw = tokens[j][0]
+                opt = _resolve_pwsh_cli_opt(tok_raw)
+                if opt == "file":
                     return []
-                if flag in _PWSH_CMD_OPTS:
+                if opt == "encodedcommand":
+                    if j + 1 < len(tokens):
+                        try:
+                            decoded = base64.b64decode(tokens[j + 1][0], validate=False).decode("utf-16-le", errors="ignore")
+                        except Exception:
+                            decoded = ""
+                        if decoded:
+                            res = catastrophic_command(decoded, depth + 1)
+                            return [("_FORCE_ASK:" + res, False)] if res else []
+                    return []
+                if opt == "command":
                     rem = tokens[j + 1:]
                     if rem:
                         res = catastrophic_command(_join_wrapped_tokens(rem), depth + 1)
                         return [("_FORCE_ASK:" + res, False)] if res else []
                     return []
-                if flag in _PWSH_VAL_OPTS:
+                if opt in _PWSH_CLI_VAL_NAMES:
                     j += 2
                     continue
-                if flag.startswith("-"):
+                if tok_raw.startswith("-"):
                     j += 1
                     continue
                 rem = tokens[j:]
@@ -608,6 +677,135 @@ def _is_root_target(arg: str) -> bool:
     return cleaned == "" and arg.startswith(("/", "\\"))
 
 
+_REMOVE_ITEM_PARAMS = (
+    "path",
+    "literalpath",
+    "filter",
+    "include",
+    "exclude",
+    "recurse",
+    "force",
+    "credential",
+    "verbose",
+    "debug",
+    "erroraction",
+    "warningaction",
+    "informationaction",
+    "progressaction",
+    "errorvariable",
+    "warningvariable",
+    "informationvariable",
+    "outvariable",
+    "outbuffer",
+    "pipelinevariable",
+    "whatif",
+    "confirm",
+    "stream",
+)
+_REMOVE_ITEM_ALIASES = {
+    "pspath": "literalpath",
+    "lp": "literalpath",
+    "vb": "verbose",
+    "db": "debug",
+    "ea": "erroraction",
+    "wa": "warningaction",
+    "infa": "informationaction",
+    "proga": "progressaction",
+    "ev": "errorvariable",
+    "wv": "warningvariable",
+    "iv": "informationvariable",
+    "ov": "outvariable",
+    "ob": "outbuffer",
+    "pv": "pipelinevariable",
+    "wi": "whatif",
+    "cf": "confirm",
+}
+_REMOVE_ITEM_SWITCHES = frozenset(("recurse", "force", "verbose", "debug", "whatif", "confirm"))
+_REMOVE_ITEM_TARGET_PARAMS = frozenset(("path", "literalpath"))
+
+
+def _resolve_pwsh_param(raw_name: str) -> str | None:
+    low = raw_name.lower()
+    if low in _REMOVE_ITEM_ALIASES:
+        return _REMOVE_ITEM_ALIASES[low]
+    if low in _REMOVE_ITEM_PARAMS:
+        return low
+    matches = [p for p in _REMOVE_ITEM_PARAMS if p.startswith(low)]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _check_root_delete(tokens: list[tuple[str, bool]], base: str) -> str | None:
+    is_rm = base in ("rm", "rm.exe")
+    recursive = False
+    no_preserve = False
+    after_dd = False
+    targets: list[str] = []
+    k = 1
+    while k < len(tokens):
+        t = tokens[k][0]
+        if not after_dd and t == "--":
+            after_dd = True
+            k += 1
+            continue
+        if after_dd:
+            targets.extend(p for p in t.split(",") if p)
+            k += 1
+            continue
+        if _is_root_target(t):
+            targets.append(t)
+            k += 1
+            continue
+        if is_rm and t.startswith("--"):
+            opt = t[2:].partition("=")[0].lower()
+            if len(opt) >= 4 and "no-preserve-root".startswith(opt):
+                no_preserve = True
+            elif len(opt) >= 1 and "recursive".startswith(opt):
+                recursive = True
+            k += 1
+            continue
+        if t.startswith("-") and len(t) > 1 and not t.startswith("--"):
+            raw_name, has_colon, colon_val = t[1:].partition(":")
+            ps_param = _resolve_pwsh_param(raw_name)
+            if ps_param == "recurse":
+                recursive = True if not has_colon else (colon_val.strip().lower() not in ("$false", "false", "0"))
+                k += 1
+                continue
+            if ps_param in _REMOVE_ITEM_TARGET_PARAMS and (not is_rm or len(raw_name) >= 2):
+                if has_colon:
+                    targets.extend(p for p in colon_val.split(",") if p)
+                    k += 1
+                elif k + 1 < len(tokens):
+                    targets.extend(p for p in tokens[k + 1][0].split(",") if p)
+                    k += 2
+                else:
+                    k += 1
+                continue
+            if ps_param in _REMOVE_ITEM_SWITCHES and (not is_rm or len(raw_name) >= 2):
+                k += 1
+                continue
+            if ps_param is not None and (not is_rm or len(raw_name) >= 2):
+                k += 1 if has_colon else 2
+                continue
+            if is_rm and ("r" in t[1:].lower()):
+                recursive = True
+            k += 1
+            continue
+        if t.lower() in ("/s", "/s/q", "/q/s"):
+            recursive = True
+            k += 1
+            continue
+        if t.startswith("/") and len(t) <= 3 and base in ("rd", "rmdir", "del", "erase"):
+            k += 1
+            continue
+        targets.extend(p for p in t.split(",") if p)
+        k += 1
+    if no_preserve or (recursive and any(_is_root_target(t) for t in targets)):
+        return "root filesystem delete"
+    return None
+
+
 def catastrophic_command(cmd: str, _depth: int = 0) -> str | None:
     """Return a short reason label iff cmd contains a catastrophic point-of-no-return command."""
     if _depth > 5:
@@ -625,7 +823,16 @@ def catastrophic_command(cmd: str, _depth: int = 0) -> str | None:
             if reason:
                 return reason
         elif base in ("gh", "gh.exe"):
-            pos = [t for t, _ in tokens[1:] if not t.startswith("-")]
+            pos: list[str] = []
+            gi = 1
+            while gi < len(tokens):
+                gt = tokens[gi][0]
+                if gt in ("-R", "--repo", "--hostname"):
+                    gi += 2
+                    continue
+                if not gt.startswith("-"):
+                    pos.append(gt)
+                gi += 1
             if pos[:2] == ["repo", "delete"]:
                 return "GitHub repository deletion"
         elif base in ("format-volume", "clear-disk", "initialize-disk", "diskpart", "diskpart.exe") or re.match(r"^mkfs(\.\w+)?$", base):
@@ -633,35 +840,10 @@ def catastrophic_command(cmd: str, _depth: int = 0) -> str | None:
         elif base in ("format", "format.com"):
             if any(re.match(r"^[A-Za-z]:$", t) for t, _ in tokens[1:]):
                 return "disk or volume format/wipe"
-        elif base in ("rm", "rm.exe"):
-            recursive = False
-            no_preserve = False
-            after_dd = False
-            targets: list[str] = []
-            for t, _ in tokens[1:]:
-                if not after_dd and t == "--":
-                    after_dd = True
-                elif not after_dd and t == "--no-preserve-root":
-                    no_preserve = True
-                elif not after_dd and (t == "--recursive" or (t.startswith("-") and not t.startswith("--") and ("r" in t.lower()))):
-                    recursive = True
-                elif after_dd or not t.startswith("-"):
-                    targets.append(t)
-            if no_preserve or (recursive and any(_is_root_target(t) for t in targets)):
-                return "root filesystem delete"
-        elif base in ("remove-item", "ri", "rd", "rmdir"):
-            recursive = False
-            after_dd = False
-            targets = []
-            for t, _ in tokens[1:]:
-                if not after_dd and t == "--":
-                    after_dd = True
-                elif not after_dd and t.lower() in ("-recurse", "/s"):
-                    recursive = True
-                elif after_dd or not t.startswith(("-", "/")):
-                    targets.append(t)
-            if recursive and any(_is_root_target(t) for t in targets):
-                return "root filesystem delete"
+        elif base in ("rm", "rm.exe", "remove-item", "ri", "rd", "rmdir", "del", "erase"):
+            reason = _check_root_delete(tokens, base)
+            if reason:
+                return reason
     return None
 
 

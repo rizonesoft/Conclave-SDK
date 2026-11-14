@@ -210,6 +210,9 @@ class PowertoolsHookBehaviorTests(unittest.TestCase):
             'git push origin -- "--force"',
             "rm -rf build",
             r"Remove-Item R:\scratch\temp -Recurse -Force",
+            r"Remove-Item C:\ -Recurse:$false",
+            r"Remove-Item R:\scratch\temp -Recur -Force",
+            r"Remove-Item -Filter *.tmp C:",
             'bash -lc "git push origin main"',
             'bash -c "git commit -m \\"git push --force\\""',
             'pwsh -File deploy.ps1',
@@ -252,13 +255,25 @@ class PowertoolsHookBehaviorTests(unittest.TestCase):
             "git push --rep origin :old-branch",
             "git push origin :old-branch",
             "gh repo delete owner/repo --yes",
+            "gh -R owner/repo repo delete",
             "Format-Volume -DriveLetter E -FileSystem NTFS",
             "rm -rf /",
             'rm "-rf" "/"',
+            "rm --rec /",
+            "rm --no-preserve /tmp/x",
+            r"rm C:\ -Recur -Force",
+            r"Remove-Item C:\ -Recur -Force",
+            r"Remove-Item C:\ -R",
+            r"Remove-Item -LiteralPath C:\ -Rec",
+            "Remove-Item / -Recur",
+            r"ri -LP D:\ -Recurse",
+            r"del C:\* -Recur",
             'bash -lc "git push --force origin main"',
             'bash -lc "git push \\"--force\\" origin main"',
             'wsl -d Ubuntu bash -lc "git push --force origin main"',
             'pwsh -NoProfile -Command "Remove-Item -Recurse C:\\"',
+            'pwsh -NoP -Com "Remove-Item C:\\ -Recur -Force"',
+            "pwsh -EncodedCommand ZwBpAHQAIABwAHUAcwBoACAALQAtAGYAbwByAGMAZQAgAG8AcgBpAGcAaQBuACAAbQBhAGkAbgA=",
             r'cmd /c "gh repo delete acme/app"',
         ]
         for cmd in dangerous_cmds:
@@ -803,6 +818,23 @@ class CraftScriptHardeningTests(unittest.TestCase):
         self.assertEqual(op_errors["#REF!"], ["S1!B2"])
         self.assertEqual(sum(len(v) for v in op_errors.values()), 1)
 
+        # Archive validation failure must propagate to recalc() and refuse LibreOffice
+        with (
+            unittest.mock.patch.object(
+                recalc,
+                "validate_archive",
+                side_effect=ValueError("archive entry count 10001 exceeds limit 10000"),
+            ),
+            unittest.mock.patch.object(recalc, "get_soffice_env", return_value={}),
+            unittest.mock.patch.object(recalc, "run_soffice", side_effect=AssertionError("soffice must not run")),
+        ):
+            with self.assertRaises(ValueError):
+                recalc.external_links_at_risk(str(wb_path))
+            res_default = recalc.recalc(str(wb_path))
+            self.assertIn("Could not inspect", res_default.get("error", ""))
+            res_force = recalc.recalc(str(wb_path), force=True)
+            self.assertIn("Could not validate", res_force.get("error", ""))
+
     def test_soffice_timeout_terminates_process_tree_before_reap(self):
         docx_scripts = CRAFT_DIR / "skills" / "docx" / "scripts"
         soffice = _load_module("test_office_soffice", docx_scripts / "office" / "soffice.py", [docx_scripts])
@@ -1121,6 +1153,109 @@ class CraftScriptHardeningTests(unittest.TestCase):
             ):
                 with self.assertRaises(ValueError):
                     thumbnail.get_slide_info(valid_pptx)
+
+    def test_pdf_image_scripts_create_dirs_and_batch_bounded(self):
+        pdf_scripts = CRAFT_DIR / "skills" / "pdf" / "scripts"
+        calls: list[tuple[int, int, int | None]] = []
+        created_images: list[object] = []
+
+        class FakePdfImage:
+            def __init__(self, size=(800, 1000)):
+                self.size = size
+                self.closed = False
+
+            def resize(self, new_size):
+                return FakePdfImage(new_size)
+
+            def save(self, path, format=None):
+                pathlib.Path(path).write_bytes(b"PNG")
+
+            def close(self):
+                self.closed = True
+
+        fake_pdf2image = types.ModuleType("pdf2image")
+        fake_pdf2image.pdfinfo_from_path = lambda path: {"Pages": 25}
+
+        def fake_convert_from_path(pdf_path, dpi=200, first_page=None, last_page=None, size=None):
+            calls.append((first_page, last_page, size))
+            batch = [FakePdfImage() for _ in range(first_page, last_page + 1)]
+            created_images.extend(batch)
+            return batch
+
+        fake_pdf2image.convert_from_path = fake_convert_from_path
+
+        in_pdf = self.root / "input.pdf"
+        in_pdf.write_bytes(b"%PDF-1.4")
+        missing_dir = self.root / "nested" / "images"
+
+        with unittest.mock.patch.dict(sys.modules, {"pdf2image": fake_pdf2image}):
+            conv_mod = _load_module("test_convert_pdf_to_images", pdf_scripts / "convert_pdf_to_images.py")
+            conv_mod.convert(str(in_pdf), str(missing_dir), max_dim=1000)
+
+        self.assertTrue(missing_dir.is_dir())
+        self.assertEqual(calls, [(1, 10, 1000), (11, 20, 1000), (21, 25, 1000)])
+        self.assertEqual(len(created_images), 25)
+        self.assertTrue(all(img.closed for img in created_images))
+        for page_num in range(1, 26):
+            self.assertTrue((missing_dir / f"page_{page_num}.png").is_file())
+        self.assertEqual(list(missing_dir.glob("*.tmp")), [])
+
+        fields_json = self.root / "fields.json"
+        fields_json.write_text(
+            json.dumps({
+                "form_fields": [{
+                    "page_number": 1,
+                    "entry_bounding_box": [10, 10, 40, 30],
+                    "label_bounding_box": [10, 35, 40, 55],
+                }]
+            }),
+            encoding="utf-8",
+        )
+        out_png = self.root / "nested_val" / "out.png"
+
+        if importlib.util.find_spec("PIL") is not None:
+            from PIL import Image as RealImage
+
+            in_png = self.root / "page_1.png"
+            RealImage.new("RGB", (100, 100), "white").save(in_png)
+            val_mod = _load_module("test_create_validation_image", pdf_scripts / "create_validation_image.py")
+            val_mod.create_validation_image(1, str(fields_json), str(in_png), str(out_png))
+        else:
+            in_png = self.root / "page_1.png"
+            in_png.write_bytes(b"PNG")
+
+            class FakeValImg:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    return False
+
+                def copy(self):
+                    return FakeValImg()
+
+                def save(self, path):
+                    pathlib.Path(path).write_bytes(b"PNG-VAL")
+
+                def close(self):
+                    pass
+
+            class FakeDraw:
+                def rectangle(self, *args, **kwargs):
+                    pass
+
+            fake_pil = types.ModuleType("PIL")
+            fake_pil.Image = types.SimpleNamespace(open=lambda p: FakeValImg())
+            fake_pil.ImageDraw = types.SimpleNamespace(Draw=lambda img: FakeDraw())
+            with unittest.mock.patch.dict(
+                sys.modules,
+                {"PIL": fake_pil, "PIL.Image": fake_pil.Image, "PIL.ImageDraw": fake_pil.ImageDraw},
+            ):
+                val_mod = _load_module("test_create_validation_image", pdf_scripts / "create_validation_image.py")
+                val_mod.create_validation_image(1, str(fields_json), str(in_png), str(out_png))
+
+        self.assertTrue(out_png.is_file())
+        self.assertEqual([p.name for p in out_png.parent.iterdir()], ["out.png"])
 
 
 if __name__ == "__main__":

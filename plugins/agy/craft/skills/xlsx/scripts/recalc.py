@@ -89,7 +89,7 @@ def external_links_at_risk(filename):
         with zipfile.ZipFile(filename) as archive:
             validate_archive(archive)
             names = archive.namelist()
-    except (zipfile.BadZipFile, OSError, ValueError):
+    except (zipfile.BadZipFile, OSError):
         return []
     if not any(n.startswith("xl/externalLinks/") for n in names):
         return []
@@ -175,6 +175,13 @@ def recalc(filename, timeout=30, force=False):
                 "external_link_cells": shown,
                 "external_link_cells_truncated": max(0, len(at_risk) - len(shown)),
             }
+
+    if force and zipfile.is_zipfile(abs_path):
+        try:
+            with zipfile.ZipFile(abs_path) as archive:
+                validate_archive(archive)
+        except Exception as e:
+            return {"error": f"Could not validate {filename}: {e}"}
 
     with tempfile.TemporaryDirectory(
         prefix="recalc-lo-profile-", ignore_cleanup_errors=True
