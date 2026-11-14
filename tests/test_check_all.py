@@ -542,11 +542,11 @@ class RealTable(unittest.TestCase):
                         self.assertTrue((ROOT / arg).is_file(), f"{suite['name']}: missing {arg}")
 
     def test_every_folder_of_script_tests_in_the_repository_is_a_suite(self):
-        listed = subprocess.run(["git", "ls-files", "tests", "scripts/tests", "kits", "global"], cwd=ROOT,
-                                capture_output=True, text=True, check=True).stdout.split()
+        listed = subprocess.run(["git", "ls-files", "tests", "scripts/tests", "kits", "global", "plugins/claude"],
+                                cwd=ROOT, capture_output=True, text=True, check=True).stdout.split()
         folders = {str(Path(name).parent.as_posix()) for name in listed
                    if Path(name).name.startswith("test_") and name.endswith(".py")
-                   and (name.startswith(("tests/", "scripts/tests/", "global/"))
+                   and (name.startswith(("tests/", "scripts/tests/", "global/", "plugins/claude/"))
                         or "/templates/scripts/tests/" in name)}
         top = {folder for folder in folders if not any(folder.startswith(other + "/") for other in folders)}
         self.assertEqual(top, {suite["path"] for suite in forge.SUITES if suite["kind"] == "unittest"})

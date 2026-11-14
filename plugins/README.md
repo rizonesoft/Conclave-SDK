@@ -27,9 +27,12 @@ Shared design notes for the Codex plugins are in `codex/DESIGN.md`, with the app
 
 ## Claude helper scripts
 
-`claude/scripts/` holds the shell helpers for the two Claude plugins. Each finds the plugin folders from its own location and converts paths with `wslpath -w` (or `cygpath -w`) where Windows needs them.
+`claude/scripts/` holds the helpers for the two Claude plugins. Each finds the plugin folders from its own location, so the servers run straight from this checkout: `<SDK>\plugins\claude\<name>\dist\server.mjs` under Windows Node, on Windows and in WSL alike.
 
-- `register-claude.sh` registers (or re-registers) every Claude connection plugin with Claude Code at user scope.
+- `build_claude.py [--check] [name ...]` runs `npm ci` and `npm run build`, then records the digest of the sources in `dist/source.sha256`. `dist/server.mjs` and the stamp are tracked in git, so a fresh checkout runs the servers with no build step; `--check` reports a missing or stale bundle.
+- `register_claude.py [--check]` registers (or re-registers) every Claude connection plugin with Claude Code at user scope through `claude mcp add-json`. The CLI takes an entry only as an argument, so an entry that carries an `env` block is refused and left untouched, never sent or printed (the plugins read no environment). Run it once on Windows and once in WSL. `--check` writes nothing and reports an entry that is missing, is not exactly Windows Node running this checkout's bundle, or runs a stale bundle. `register-claude.sh` runs the same script.
+- The once-per-session drift check (`global/claude/hooks/session_drift_check.py`) applies the same `--check` rules on the first prompt of every Claude Code session.
+- Tests: `python -m unittest discover -s plugins/claude/scripts -p "test_*.py"`.
 - `import-bunny-net.sh` and `import-domains-co-za.sh` seed the encrypted credential store from the Conclave vault.
 
 In the plugin READMEs, `<SDK>` means the Conclave-SDK checkout.

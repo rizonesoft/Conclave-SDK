@@ -1,6 +1,6 @@
 # Domains.co.za by Rizonetech
 
-Local Windows MCP integration for Domains.co.za reseller domain management. Claude Code copy; source lives in `<SDK>\plugins\claude\domains-co-za`. Registered for Claude by `<SDK>/plugins/claude/scripts/register-claude.sh`. It shares no code, build or credential store with the Codex plugin of the same name.
+Local Windows MCP integration for Domains.co.za reseller domain management. Claude Code copy; source lives in `<SDK>\plugins\claude\domains-co-za`. Registered for Claude by `<SDK>/plugins/claude/scripts/register_claude.py`. It shares no code, build or credential store with the Codex plugin of the same name.
 
 ## Capabilities
 
@@ -39,7 +39,7 @@ Updating the Conclave entry alone does not refresh the encrypted copy: rerun the
 
 ## Claude Code (WSL)
 
-Claude Code (user scope, all projects) runs `dist/server.mjs` through Windows Node, so DPAPI decryption works unchanged. Register or refresh every Claude connection plugin with `bash <SDK>/plugins/claude/scripts/register-claude.sh`. From WSL, refresh the encrypted credential straight from Conclave without a desktop prompt:
+Claude Code (user scope, all projects) runs `dist/server.mjs` through Windows Node, so DPAPI decryption works unchanged. Register or refresh every Claude connection plugin with `python <SDK>/plugins/claude/scripts/register_claude.py` on Windows and `bash <SDK>/plugins/claude/scripts/register-claude.sh` in WSL. `dist/server.mjs` is tracked in git, so a fresh checkout runs without a build. After a source change, rebuild with `python <SDK>/plugins/claude/scripts/build_claude.py domains-co-za` (it runs `npm run build` and records the sources' digest in `dist/source.sha256`) and commit the bundle; the session drift check warns while the bundle is stale. From WSL, refresh the encrypted credential straight from Conclave without a desktop prompt:
 
 ```bash
 bash <SDK>/plugins/claude/scripts/import-domains-co-za.sh
@@ -51,7 +51,7 @@ bash <SDK>/plugins/claude/scripts/import-domains-co-za.sh
 cd <SDK>\plugins\claude\domains-co-za
 npm ci
 npm test
-npm run build
+python ..\scripts\build_claude.py domains-co-za
 pwsh -NoProfile -File tests/windows-setup.ps1
 ```
 

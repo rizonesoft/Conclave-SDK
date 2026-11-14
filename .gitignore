@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 build/
+node_modules/
 scratch/
 .DS_Store
 Thumbs.db

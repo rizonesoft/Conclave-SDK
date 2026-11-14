@@ -1,6 +1,6 @@
 # bunny.net by Rizonetech
 
-Local Windows MCP integration for bunny.net CDN, DNS and storage administration. Claude Code copy; source lives in `<SDK>\plugins\claude\bunny-net`. Registered for Claude by `<SDK>/plugins/claude/scripts/register-claude.sh`. It is not a Codex plugin and has its own credential store.
+Local Windows MCP integration for bunny.net CDN, DNS and storage administration. Claude Code copy; source lives in `<SDK>\plugins\claude\bunny-net`. Registered for Claude by `<SDK>/plugins/claude/scripts/register_claude.py`. It is not a Codex plugin and has its own credential store.
 
 ## Capabilities
 
@@ -35,7 +35,7 @@ Rotation: reset the key in the bunny.net dashboard (the old key stops working im
 
 ## Claude Code (WSL)
 
-Claude Code (user scope, all projects) runs `dist/server.mjs` through Windows Node, so DPAPI decryption works unchanged. Register or refresh every Claude connection plugin with `bash <SDK>/plugins/claude/scripts/register-claude.sh`. Rebuild (`npm run build`) after source changes; Claude picks up the new bundle on its next session.
+Claude Code (user scope, all projects) runs `dist/server.mjs` through Windows Node, so DPAPI decryption works unchanged. Register or refresh every Claude connection plugin with `python <SDK>/plugins/claude/scripts/register_claude.py` on Windows and `bash <SDK>/plugins/claude/scripts/register-claude.sh` in WSL. `dist/server.mjs` is tracked in git, so a fresh checkout runs without a build. After a source change, rebuild with `python <SDK>/plugins/claude/scripts/build_claude.py bunny-net` (it runs `npm run build` and records the sources' digest in `dist/source.sha256`) and commit the bundle; Claude picks it up on its next session, and the session drift check warns while the bundle is stale.
 
 ## Build and verify
 
@@ -43,7 +43,7 @@ Claude Code (user scope, all projects) runs `dist/server.mjs` through Windows No
 cd <SDK>\plugins\claude\bunny-net
 npm ci
 npm test
-npm run build
+python ..\scripts\build_claude.py bunny-net
 pwsh -NoProfile -File tests/windows-setup.ps1
 node scripts/verify-installed.mjs .
 ```

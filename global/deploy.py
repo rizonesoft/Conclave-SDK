@@ -9,7 +9,8 @@ Windows and once in WSL. Standard library only.
 Targets (home is the running user's home directory, or --home):
   claude/rules/claude-code.md     -> <home>/.claude/CLAUDE.md
   claude/skills/<name>/           -> <home>/.claude/skills/<name>/   (files copied, destination-only files kept)
-  claude/hooks/*                  -> not copied: <home>/.claude/settings.json hook commands are pointed at them
+  claude/hooks/*                  -> not copied: <home>/.claude/settings.json hook commands are pointed at them,
+                                     and the session drift check is added to UserPromptSubmit when absent
   codex/rules/codex.md            -> <home>/.codex/AGENTS.md
   codex/rules/hooks.json          -> <home>/.codex/hooks.json        (template, placeholders filled in)
   codex/skills/<name>/SKILL.md    -> <home>/.agents/skills/<name>/
@@ -29,7 +30,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 GLOBAL = Path(__file__).resolve().parent
-HOOK_SCRIPTS = ("article_rules.py", "layer_rules.py", "article_check.py")
+HOOK_SCRIPTS = ("article_rules.py", "layer_rules.py", "article_check.py", "session_drift_check.py")
+DRIFT_HOOK = "session_drift_check.py"
 SKIP_DIRS = {"__pycache__"}
 SKIP_SUFFIXES = {".pyc", ".pyo"}
 
@@ -126,6 +128,28 @@ def rewrite_settings(data, hooks_dir_posix):
 
     walk(data.get("hooks", {}) if isinstance(data, dict) else {})
     return changed
+
+
+def ensure_drift_hook(data, hooks_dir_posix):
+    """Add the once-per-session drift check to UserPromptSubmit in a parsed settings.json that already runs the
+    global hooks, with the interpreter those hooks use. Returns True when an entry was added."""
+    hooks = data.get("hooks", {})
+    groups = hooks.setdefault("UserPromptSubmit", [])
+    launcher = None
+    scripts = "|".join(re.escape(s) for s in HOOK_SCRIPTS)
+    for event_groups in hooks.values():
+        for group in event_groups:
+            for hook in group.get("hooks", []):
+                command = hook.get("command") or ""
+                if DRIFT_HOOK in command and event_groups is groups:
+                    return False
+                # Everything before the quoted script path: `python`, `"C:/Py/python.exe" -X utf8`, `uv run python`.
+                match = re.match(r'^(.*?)\s*"[^"]*[\\/](?:%s)"' % scripts, command)
+                if launcher is None and match and match.group(1).strip():
+                    launcher = match.group(1).strip()
+    groups.append({"hooks": [{"type": "command", "timeout": 10,
+                              "command": '%s "%s/%s"' % (launcher or "python", hooks_dir_posix, DRIFT_HOOK)}]})
+    return True
 
 
 def has_hook_commands(data):
@@ -255,10 +279,11 @@ def deploy_claude(dep):
     if settings is None:
         dep.skip(label, "file not found, hook entries are not invented")
     elif not has_hook_commands(settings):
-        dep.skip(label, "no article_rules, layer_rules or article_check hook command found")
+        dep.skip(label, "no global hook command found (%s)" % ", ".join(HOOK_SCRIPTS))
     else:
         hooks_posix = (root / "hooks").as_posix()
-        if rewrite_settings(settings, hooks_posix):
+        changed = rewrite_settings(settings, hooks_posix)
+        if ensure_drift_hook(settings, hooks_posix) or changed:
             text = json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
             dep.record(label, dep.put(settings_path, text.encode("utf-8")))
         else:

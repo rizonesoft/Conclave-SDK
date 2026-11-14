@@ -9,7 +9,7 @@ With no arguments it checks the repositories listed in verify-repos.txt beside t
 environment. It never writes to a repository. Exit 1 on any FAIL.
 
 Checks:
-- ~/.claude/settings.json runs both hooks on every event they need, from this folder.
+- ~/.claude/settings.json runs the article, layer and session drift hooks on every event they need, from this folder.
 - No managed settings file and no repository settings file sets disableAllHooks, and managed settings do not set
   allowManagedHooksOnly (either would silently switch the global hooks off).
 - Replayed from inside each repository: the article hook routes a draft to the right checker, and the layer hook
@@ -30,6 +30,7 @@ import layer_rules  # noqa: E402
 REQUIRED = [
     ("UserPromptSubmit", None, "article_rules.py"),
     ("UserPromptSubmit", None, "layer_rules.py"),
+    ("UserPromptSubmit", None, "session_drift_check.py"),
     ("PreToolUse", "Bash", "article_rules.py"),
     ("PreToolUse", "Write", "layer_rules.py"),
     ("PreToolUse", "Edit", "layer_rules.py"),

@@ -1960,6 +1960,7 @@ SUITES: list[dict] = [
     _unittest_suite("global-tests", "global/tests", 300),
     _unittest_suite("global-claude-ticktick", "global/claude/skills/process-ticktick-task/scripts", 300),
     _unittest_suite("global-codex-ticktick", "global/codex/skills/process-ticktick-task/scripts", 300),
+    _unittest_suite("plugin-claude-scripts", "plugins/claude/scripts", 300),
     # Offline plugin suites under plugins/ (explicit test files run without external npm dependencies).
     {"name": "plugin-claude-bunny-net", "kind": "command", "path": "plugins/claude/bunny-net/tests", "timeout": 300,
      "argv": ["node", "--test", "plugins/claude/bunny-net/tests/client.test.js"]},

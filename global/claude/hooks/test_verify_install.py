@@ -14,8 +14,9 @@ def wired(py="python"):
     """Settings that run both hooks from this folder on every required event."""
     article = {"type": "command", "command": f'{py} "{HERE}/article_rules.py"'}
     layer = {"type": "command", "command": f'{py} "{HERE}/layer_rules.py"'}
+    drift = {"type": "command", "command": f'{py} "{HERE}/session_drift_check.py"'}
     return {"hooks": {
-        "UserPromptSubmit": [{"hooks": [article]}, {"hooks": [layer]}],
+        "UserPromptSubmit": [{"hooks": [article]}, {"hooks": [layer]}, {"hooks": [drift]}],
         "PreToolUse": [{"matcher": "Bash|PowerShell", "hooks": [article]}, {"matcher": "Write|Edit|MultiEdit", "hooks": [layer]}],
         "PostToolUse": [{"matcher": "Write|Edit|MultiEdit", "hooks": [article, layer]}],
         "Stop": [{"hooks": [layer]}],
@@ -30,6 +31,12 @@ class VerifyInstallTest(unittest.TestCase):
         settings = wired()
         del settings["hooks"]["Stop"]
         self.assertEqual(verify_install.check_wiring(settings), [f"Stop * does not run layer_rules.py from {HERE}"])
+
+    def test_missing_drift_hook_is_reported(self):
+        settings = wired()
+        settings["hooks"]["UserPromptSubmit"].pop()
+        self.assertEqual(verify_install.check_wiring(settings),
+                         [f"UserPromptSubmit * does not run session_drift_check.py from {HERE}"])
 
     def test_narrow_matcher_is_reported(self):
         settings = wired()

@@ -170,6 +170,34 @@ class DeployTest(unittest.TestCase):
         text = (self.home / ".claude" / "settings.json").read_text(encoding="utf-8")
         self.assertIn('\n  "model"', text)
 
+    def test_settings_gain_the_session_drift_hook_with_the_interpreter_in_use(self):
+        hooks = (GLOBAL / "claude" / "hooks").as_posix()
+        for interpreter in ("python", "python3", '"C:/Program Files/Py/python.exe" -X utf8', "uv run python"):
+            data = json.loads(json.dumps(OLD_SETTINGS).replace('python \\"Q:', interpreter.replace('"', '\\"') + ' \\"Q:'))
+            path = self.write_settings(data)
+            code, out, _ = run("--home", str(self.home), "--agent", "claude", "--check")
+            self.assertEqual(code, 1, out)
+            self.assertIn("updated: ~/.claude/settings.json", out)
+            run("--home", str(self.home), "--agent", "claude")
+            prompt = json.loads(path.read_text(encoding="utf-8"))["hooks"]["UserPromptSubmit"]
+            self.assertEqual(prompt[-1], {"hooks": [{"type": "command", "timeout": 10,
+                                                     "command": '%s "%s/session_drift_check.py"' % (interpreter, hooks)}]})
+            self.assertEqual(len(prompt), 2)
+            run("--home", str(self.home), "--agent", "claude")
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["hooks"]["UserPromptSubmit"], prompt)
+            self.assertEqual(run("--home", str(self.home), "--agent", "claude", "--check")[0], 0)
+
+    def test_a_moved_session_drift_hook_is_repointed_not_duplicated(self):
+        data = json.loads(json.dumps(OLD_SETTINGS))
+        data["hooks"]["UserPromptSubmit"].append(
+            {"hooks": [{"type": "command", "command": 'python "Q:/old/hooks/session_drift_check.py"', "timeout": 10}]})
+        path = self.write_settings(data)
+        run("--home", str(self.home), "--agent", "claude")
+        prompt = json.loads(path.read_text(encoding="utf-8"))["hooks"]["UserPromptSubmit"]
+        self.assertEqual([g["hooks"][0]["command"].rsplit("/", 1)[1] for g in prompt],
+                         ['article_rules.py"', 'session_drift_check.py"'])
+        self.assertNotIn("Q:/old", json.dumps(prompt))
+
     def test_settings_without_hook_commands_is_left_alone(self):
         path = self.write_settings({"model": "opus", "hooks": {"Stop": [{"hooks": [{"command": "echo hi"}]}]}})
         before = path.read_bytes()
