@@ -4,7 +4,7 @@
 Everything is located relative to this file, so the Conclave-SDK checkout can live anywhere. Run it once on
 Windows and once in WSL. Standard library only.
 
-    python <SDK>/global/deploy.py [--agent claude|codex|agy|all] [--home DIR] [--dry-run]
+    python <SDK>/global/deploy.py [--agent claude|codex|agy|all] [--home DIR] [--dry-run] [--check]
 
 Targets (home is the running user's home directory, or --home):
   claude/rules/claude-code.md     -> <home>/.claude/CLAUDE.md
@@ -13,7 +13,7 @@ Targets (home is the running user's home directory, or --home):
   codex/rules/codex.md            -> <home>/.codex/AGENTS.md
   codex/rules/hooks.json          -> <home>/.codex/hooks.json        (template, placeholders filled in)
   codex/skills/<name>/SKILL.md    -> <home>/.agents/skills/<name>/
-  ../plugins/agy/<name>/          -> <home>/.gemini/config/plugins/<name>/ (hooks.json interpreter rendered)
+  ../plugins/agy/<name>/          -> <home>/.gemini/config/plugins/<name>/ (mirrored; hooks.json and DEPLOYED_FROM rendered)
 
 A file whose content is identical is left alone. A differing file is copied to
 <home>/.conclave/global-backups/<UTC timestamp>/<path relative to home> before it is replaced.
@@ -189,6 +189,21 @@ class Deployer:
     def deploy_file(self, src, dest):
         self.record(self.shown(dest), self.put(dest, src.read_bytes()))
 
+    def prune(self, dest, root_dir):
+        """Back up and remove an orphan file inside a mirrored folder. Returns updated."""
+        if not self.dry_run:
+            backup = self.home / ".conclave" / "global-backups" / self.stamp / dest.relative_to(self.home)
+            self.atomic_write(backup, dest.read_bytes())
+            dest.unlink()
+            parent = dest.parent
+            while parent != root_dir and parent.is_dir():
+                try:
+                    parent.rmdir()
+                except OSError:
+                    break
+                parent = parent.parent
+        return "updated"
+
     def deploy_tree(self, src_dir, dest_dir):
         statuses = []
         count = 0
@@ -356,32 +371,52 @@ def render_agy_hooks(hooks_json_text, python_cmd):
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
+def render_agy_hook_script(script_text, agy_source_posix):
+    """Stamp DEPLOYED_FROM with agy_source_posix in powertools_hook.py."""
+    replacement = "DEPLOYED_FROM = %s" % json.dumps(str(agy_source_posix))
+    new_text, count = re.subn(r"^DEPLOYED_FROM = .*$", lambda _m: replacement, script_text, count=1, flags=re.M)
+    if count != 1:
+        raise Refusal("Missing DEPLOYED_FROM assignment in powertools_hook.py")
+    return new_text
+
+
 def deploy_agy(dep):
     agy_root = GLOBAL.parent / "plugins" / "agy"
     if not agy_root.is_dir():
         return
     py = python_token(sys.executable) if os.name == "nt" else "python3"
+    agy_source_posix = agy_root.as_posix()
     for folder in sorted(p for p in agy_root.iterdir() if p.is_dir() and (p / "plugin.json").is_file()):
         dest_dir = dep.home / ".gemini" / "config" / "plugins" / folder.name
-        statuses = []
-        count = 0
+        expected = {}
         for src in sorted(p for p in folder.rglob("*") if p.is_file()):
             rel = src.relative_to(folder)
             if SKIP_DIRS & set(rel.parts) or src.suffix in SKIP_SUFFIXES:
                 continue
             if rel == Path("hooks.json"):
                 data = render_agy_hooks(src.read_text(encoding="utf-8"), py).encode("utf-8")
+            elif rel == Path("hooks") / "powertools_hook.py":
+                data = render_agy_hook_script(src.read_text(encoding="utf-8"), agy_source_posix).encode("utf-8")
             else:
                 data = src.read_bytes()
-            statuses.append(dep.put(dest_dir / rel, data))
-            count += 1
+            expected[rel] = data
+
+        statuses = [dep.put(dest_dir / rel, data) for rel, data in sorted(expected.items())]
+        if dest_dir.is_dir():
+            for existing in sorted(p for p in dest_dir.rglob("*") if p.is_file()):
+                rel = existing.relative_to(dest_dir)
+                if SKIP_DIRS & set(rel.parts) or existing.suffix in SKIP_SUFFIXES:
+                    continue
+                if rel not in expected:
+                    statuses.append(dep.prune(existing, dest_dir))
+
         if all(s == "unchanged" for s in statuses):
             status = "unchanged"
         elif all(s == "created" for s in statuses):
             status = "created"
         else:
             status = "updated"
-        dep.record("%s (%d files)" % (dep.shown(dest_dir), count), status)
+        dep.record("%s (%d files)" % (dep.shown(dest_dir), len(expected)), status)
 
 
 def main(argv=None):
@@ -389,9 +424,10 @@ def main(argv=None):
     parser.add_argument("--agent", choices=("claude", "codex", "agy", "all"), default="all")
     parser.add_argument("--home", help="deploy to this directory instead of the user's home")
     parser.add_argument("--dry-run", action="store_true", help="report what would change and write nothing")
+    parser.add_argument("--check", action="store_true", help="verify deployed files match this checkout and exit 1 on drift")
     args = parser.parse_args(argv)
     home = Path(args.home) if args.home else Path.home()
-    dep = Deployer(home, args.dry_run)
+    dep = Deployer(home, args.dry_run or args.check)
     try:
         if args.agent in ("claude", "all"):
             deploy_claude(dep)
@@ -406,6 +442,10 @@ def main(argv=None):
     for _, status in dep.results:
         counts[status] = counts.get(status, 0) + 1
     summary = ", ".join("%d %s" % (counts.get(k, 0), k) for k in ("created", "updated", "unchanged", "skipped"))
+    if args.check:
+        drifted = counts.get("created", 0) + counts.get("updated", 0)
+        print("%s: %s" % ("drift detected" if drifted else "in sync", summary))
+        return 1 if drifted else 0
     print("%s%s" % ("dry run, nothing written: " if args.dry_run else "", summary))
     return 0
 

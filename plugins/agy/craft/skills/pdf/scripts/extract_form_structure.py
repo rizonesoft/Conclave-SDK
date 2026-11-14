@@ -13,7 +13,9 @@ Usage: python extract_form_structure.py <input.pdf> <output.json>
 """
 
 import json
+import os
 import sys
+import tempfile
 import pdfplumber
 
 
@@ -99,8 +101,18 @@ def main():
     print(f"Extracting structure from {pdf_path}...")
     structure = extract_form_structure(pdf_path)
 
-    with open(output_path, "w") as f:
-        json.dump(structure, f, indent=2)
+    out_abs = os.path.abspath(output_path)
+    out_dir = os.path.dirname(out_abs) or "."
+    os.makedirs(out_dir, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix=os.path.basename(out_abs) + ".", suffix=".tmp", dir=out_dir)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(structure, f, indent=2)
+        os.replace(tmp_path, out_abs)
+    except BaseException:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
 
     print(f"Found:")
     print(f"  - {len(structure['pages'])} pages")

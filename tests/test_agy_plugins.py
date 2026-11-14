@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
+import io
 import json
 import os
 import pathlib
@@ -10,7 +12,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
+import unittest.mock
+import xml.etree.ElementTree as ET
+import zipfile
 
 SDK_ROOT = pathlib.Path(__file__).resolve().parents[1]
 AGY_PLUGINS = SDK_ROOT / "plugins" / "agy"
@@ -155,7 +161,7 @@ class PowertoolsHookBehaviorTests(unittest.TestCase):
         self.transcript = self.root / "transcript.jsonl"
         self.transcript_full = self.root / "transcript_full.jsonl"
 
-    def run_hook(self, payload: dict) -> dict:
+    def run_hook(self, payload: dict, extra_env: dict[str, str] | None = None) -> dict:
         base = {
             "conversationId": "conv-123",
             "workspacePaths": [str(self.workspace)],
@@ -166,6 +172,8 @@ class PowertoolsHookBehaviorTests(unittest.TestCase):
         }
         base.update(payload)
         env = dict(os.environ, PLUGIN_DATA=str(self.plugin_data))
+        if extra_env:
+            env.update(extra_env)
         res = subprocess.run(
             [sys.executable, str(HOOK_SCRIPT)],
             input=json.dumps(base),
@@ -186,8 +194,12 @@ class PowertoolsHookBehaviorTests(unittest.TestCase):
             "git push origin main",
             "git branch -f feature-local",
             'git commit -m "avoid git push -f accidental match"',
+            'git push origin -- "--force"',
             "rm -rf build",
             r"Remove-Item R:\scratch\temp -Recurse -Force",
+            'bash -lc "git push origin main"',
+            'bash -c "git commit -m \\"git push --force\\""',
+            'pwsh -File deploy.ps1',
         ]
         for cmd in safe_cmds:
             with self.subTest(cmd=cmd):
@@ -199,12 +211,21 @@ class PowertoolsHookBehaviorTests(unittest.TestCase):
 
         dangerous_cmds = [
             "git push --force origin main",
+            'git push "--force" origin main',
+            "git push '--force' origin main",
+            'git -C . push "-f"',
             "git push -f",
             "git push --force-with-lease origin main",
-            "git -C . push origin +main",
+            'git -C . push origin "+main"',
             "gh repo delete owner/repo --yes",
             "Format-Volume -DriveLetter E -FileSystem NTFS",
             "rm -rf /",
+            'rm "-rf" "/"',
+            'bash -lc "git push --force origin main"',
+            'bash -lc "git push \\"--force\\" origin main"',
+            'wsl -d Ubuntu bash -lc "git push --force origin main"',
+            'pwsh -NoProfile -Command "Remove-Item -Recurse C:\\"',
+            r'cmd /c "gh repo delete acme/app"',
         ]
         for cmd in dangerous_cmds:
             with self.subTest(cmd=cmd):
@@ -214,6 +235,67 @@ class PowertoolsHookBehaviorTests(unittest.TestCase):
                 })
                 self.assertEqual(out.get("decision"), "force_ask", f"expected force_ask for {cmd}: {out}")
                 self.assertTrue(out.get("reason"))
+
+    def test_drift_notice_fires_once_per_session(self):
+        src_root = self.root / "src-agy"
+        inst_root = self.root / "inst-agy"
+        src_plugin = src_root / "powertools"
+        inst_plugin = inst_root / "powertools"
+        (src_plugin / "hooks").mkdir(parents=True)
+        (inst_plugin / "hooks").mkdir(parents=True)
+        (src_plugin / "plugin.json").write_text('{"name": "agy-powertools"}\n', encoding="utf-8")
+        (inst_plugin / "plugin.json").write_text('{"name": "agy-powertools"}\n', encoding="utf-8")
+        (src_plugin / "hooks.json").write_text('{"powertools-hooks": {"PreInvocation": [{"command": "python3 hooks/powertools_hook.py"}]}}\n', encoding="utf-8")
+        (inst_plugin / "hooks.json").write_text('{"powertools-hooks": {"PreInvocation": [{"command": "C:/Py/python.exe hooks/powertools_hook.py"}]}}\n', encoding="utf-8")
+        hook_text = HOOK_SCRIPT.read_text(encoding="utf-8")
+        (src_plugin / "hooks" / "powertools_hook.py").write_text(hook_text, encoding="utf-8")
+        inst_hook = inst_plugin / "hooks" / "powertools_hook.py"
+        inst_hook.write_text(
+            re.sub(r"^DEPLOYED_FROM = .*$", f"DEPLOYED_FROM = {json.dumps(src_root.as_posix())}", hook_text, count=1, flags=re.M),
+            encoding="utf-8",
+        )
+        for helper in ("article_check.py", "launcher_tests.py"):
+            content = (POWERTOOLS_DIR / "hooks" / helper).read_bytes()
+            (src_plugin / "hooks" / helper).write_bytes(content)
+            (inst_plugin / "hooks" / helper).write_bytes(content)
+
+        def call_installed(payload):
+            base = {
+                "conversationId": "drift-conv",
+                "workspacePaths": [str(self.workspace)],
+                "transcriptPath": str(self.transcript),
+                "artifactDirectoryPath": str(self.artifacts),
+                "lastUserInput": "Check status",
+                "cwd": str(self.workspace),
+            }
+            base.update(payload)
+            res = subprocess.run(
+                [sys.executable, str(inst_hook)],
+                input=json.dumps(base),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                creationflags=CREATION_FLAGS,
+                timeout=15,
+                env=dict(os.environ, PLUGIN_DATA=str(self.plugin_data)),
+            )
+            self.assertEqual(res.returncode, 0, res.stderr)
+            return json.loads(res.stdout)
+
+        # In sync initially -> no drift notice
+        self.assertEqual(call_installed({"hookEventName": "PreInvocation", "conversationId": "sync-conv"}), {})
+
+        # Modify source file and start a fresh session -> warns once
+        (src_plugin / "README.md").write_text("updated\n", encoding="utf-8")
+        first = call_installed({"hookEventName": "PreInvocation"})
+        msg = first["injectSteps"][0]["systemMessage"]["systemMessage"]
+        self.assertIn("Conclave plugin drift detected", msg)
+        self.assertIn("powertools", msg)
+
+        # Second invocation (even on a new prompt in same session) does not repeat
+        second = call_installed({"hookEventName": "PreInvocation", "lastUserInput": "Another prompt"})
+        self.assertEqual(second, {})
 
     def test_masking_warning_flushes_once_and_workaround_exempts(self):
         app_py = self.workspace / "app.py"
@@ -399,6 +481,243 @@ class PowertoolsHookBehaviorTests(unittest.TestCase):
             "terminationReason": "NO_TOOL_CALL",
         })
         self.assertEqual(stop3.get("decision"), "stop")
+
+
+def _load_module(name: str, path: pathlib.Path, extra_sys_paths: list[pathlib.Path] | None = None):
+    added: list[str] = []
+    for p in extra_sys_paths or []:
+        sp = str(p)
+        if sp not in sys.path:
+            sys.path.insert(0, sp)
+            added.append(sp)
+    try:
+        spec = importlib.util.spec_from_file_location(name, path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    finally:
+        for sp in added:
+            if sp in sys.path:
+                sys.path.remove(sp)
+
+
+class CraftScriptHardeningTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = pathlib.Path(self._tmp.name)
+
+    def test_office_helpers_identical_and_safe_extract_bounded(self):
+        for rel in ("office/helpers/__init__.py", "office/soffice.py"):
+            blobs = {
+                skill: (CRAFT_DIR / "skills" / skill / "scripts" / rel).read_bytes()
+                for skill in ("docx", "pptx", "xlsx")
+            }
+            self.assertEqual(len(set(blobs.values())), 1, f"{rel} differs across docx/pptx/xlsx")
+
+        helpers = _load_module("test_office_helpers", CRAFT_DIR / "skills" / "docx" / "scripts" / "office" / "helpers" / "__init__.py")
+
+        # Entry count limit
+        z_many = self.root / "many.zip"
+        with zipfile.ZipFile(z_many, "w") as zf:
+            for idx in range(4):
+                zf.writestr(f"f{idx}.txt", b"a")
+        with zipfile.ZipFile(z_many, "r") as zf:
+            with self.assertRaises(ValueError):
+                helpers.safe_extract(zf, self.root / "out_many", max_entries=3)
+
+        # Declared total byte limit
+        z_decl = self.root / "decl.zip"
+        with zipfile.ZipFile(z_decl, "w") as zf:
+            zf.writestr("a.txt", b"x" * 60)
+            zf.writestr("b.txt", b"y" * 60)
+        with zipfile.ZipFile(z_decl, "r") as zf:
+            with self.assertRaises(ValueError):
+                helpers.safe_extract(zf, self.root / "out_decl", max_bytes=100)
+
+        # Streaming byte limit catches oversized stream despite small declared header and removes partial target
+        z_stream = self.root / "stream.zip"
+        with zipfile.ZipFile(z_stream, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("bomb.txt", b"A" * 100)
+        out_stream = self.root / "out_stream"
+        with zipfile.ZipFile(z_stream, "r") as zf:
+            with unittest.mock.patch.object(zf, "open", return_value=io.BytesIO(b"B" * 1024)):
+                with self.assertRaises(ValueError):
+                    helpers.safe_extract(zf, out_stream, max_member_bytes=512, max_bytes=4096)
+        self.assertFalse((out_stream / "bomb.txt").exists())
+
+    def test_xlsx_recalc_distinguishes_text_from_error_cells(self):
+        xlsx_scripts = CRAFT_DIR / "skills" / "xlsx" / "scripts"
+        recalc = _load_module("test_xlsx_recalc", xlsx_scripts / "recalc.py", [xlsx_scripts])
+
+        wb_path = self.root / "book.xlsx"
+        with zipfile.ZipFile(wb_path, "w") as zf:
+            zf.writestr(
+                "xl/workbook.xml",
+                '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>',
+            )
+            zf.writestr(
+                "xl/_rels/workbook.xml.rels",
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+                'Target="worksheets/sheet1.xml"/></Relationships>',
+            )
+            zf.writestr(
+                "xl/sharedStrings.xml",
+                '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                '<si><t>Use IFERROR to handle #N/A</t></si>'
+                '<si><t>No #REF! errors remain</t></si>'
+                '</sst>',
+            )
+            zf.writestr(
+                "xl/worksheets/sheet1.xml",
+                '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+                '<row r="1">'
+                '<c r="A1" t="s"><v>0</v></c>'
+                '<c r="A2" t="s"><v>1</v></c>'
+                '<c r="A3" t="inlineStr"><is><t>No #DIV/0! issue</t></is></c>'
+                '<c r="A4" t="str"><f>"#N/A"</f><v>#N/A</v></c>'
+                '</row></sheetData></worksheet>',
+            )
+
+        fake_defused = types.ModuleType("defusedxml")
+        fake_defused.ElementTree = ET
+        with unittest.mock.patch.dict(sys.modules, {"defusedxml": fake_defused, "defusedxml.ElementTree": ET}):
+            errors, formulas = recalc._scan_xml(str(wb_path))
+        self.assertEqual(formulas, 1)
+        self.assertEqual(sum(len(v) for v in errors.values()), 0, errors)
+
+        # Add a genuine error cell (t="e")
+        wb_err = self.root / "book_err.xlsx"
+        with zipfile.ZipFile(wb_path, "r") as zin, zipfile.ZipFile(wb_err, "w") as zout:
+            for item in zin.infolist():
+                if item.filename == "xl/worksheets/sheet1.xml":
+                    zout.writestr(
+                        item,
+                        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+                        '<row r="1">'
+                        '<c r="A1" t="s"><v>0</v></c>'
+                        '<c r="B1" t="e"><f>1/0</f><v>#DIV/0!</v></c>'
+                        '</row></sheetData></worksheet>',
+                    )
+                else:
+                    zout.writestr(item, zin.read(item.filename))
+
+        with unittest.mock.patch.dict(sys.modules, {"defusedxml": fake_defused, "defusedxml.ElementTree": ET}):
+            errors2, formulas2 = recalc._scan_xml(str(wb_err))
+        self.assertEqual(formulas2, 1)
+        self.assertEqual(errors2["#DIV/0!"], ["Sheet1!B1"])
+
+        # Openpyxl fallback path: data_type=="s" ignored, data_type=="e" reported
+        class FakeCell:
+            def __init__(self, coord, data_type, value):
+                self.coordinate = coord
+                self.data_type = data_type
+                self.value = value
+
+        class FakeSheet:
+            def __init__(self, cells):
+                self._cells = {i: c for i, c in enumerate(cells)}
+
+            def iter_rows(self):
+                return []
+
+        class FakeWorkbook:
+            def __init__(self, sheets):
+                self._sheets = sheets
+                self.sheetnames = list(sheets)
+
+            def __getitem__(self, name):
+                return self._sheets[name]
+
+            def close(self):
+                pass
+
+        fake_openpyxl = types.ModuleType("openpyxl")
+        fake_openpyxl.worksheet = types.ModuleType("openpyxl.worksheet")
+        fake_formula = types.ModuleType("openpyxl.worksheet.formula")
+        fake_formula.ArrayFormula = type("ArrayFormula", (), {})
+
+        wb_data = FakeWorkbook({
+            "S1": FakeSheet([
+                FakeCell("A1", "s", "Use IFERROR to handle #N/A"),
+                FakeCell("A2", "s", "No #REF! errors remain"),
+                FakeCell("B2", "e", "#REF!"),
+            ])
+        })
+        wb_forms = FakeWorkbook({
+            "S1": FakeSheet([FakeCell("B2", "f", "=Sheet9!A1")])
+        })
+        fake_openpyxl.load_workbook = lambda fn, data_only=False: wb_data if data_only else wb_forms
+        with unittest.mock.patch.dict(sys.modules, {
+            "openpyxl": fake_openpyxl,
+            "openpyxl.worksheet": fake_openpyxl.worksheet,
+            "openpyxl.worksheet.formula": fake_formula,
+        }):
+            op_errors, op_formulas = recalc._scan_with_openpyxl("dummy.xlsx")
+        self.assertEqual(op_formulas, 1)
+        self.assertEqual(op_errors["#REF!"], ["S1!B2"])
+        self.assertEqual(sum(len(v) for v in op_errors.values()), 1)
+
+    def test_soffice_timeout_terminates_process_tree_before_reap(self):
+        docx_scripts = CRAFT_DIR / "skills" / "docx" / "scripts"
+        soffice = _load_module("test_office_soffice", docx_scripts / "office" / "soffice.py", [docx_scripts])
+
+        fake_proc = unittest.mock.MagicMock()
+        fake_proc.pid = 42424
+        fake_proc.returncode = -9
+        fake_proc.poll.return_value = None
+        fake_proc.communicate.side_effect = [subprocess.TimeoutExpired(["soffice"], 1), ("", "")]
+
+        with unittest.mock.patch.object(soffice, "get_soffice_env", return_value={}), \
+             unittest.mock.patch.object(soffice.subprocess, "Popen", return_value=fake_proc), \
+             unittest.mock.patch.object(soffice.subprocess, "run") as mock_run, \
+             unittest.mock.patch.object(soffice.os, "killpg", create=True) as mock_killpg:
+            with self.assertRaises(subprocess.TimeoutExpired):
+                soffice.run_soffice(["--headless", "file.xlsx"], capture_output=True, text=True, timeout=1)
+
+        self.assertEqual(fake_proc.communicate.call_count, 2)
+        if os.name == "nt":
+            mock_run.assert_called_once()
+            self.assertEqual(mock_run.call_args[0][0], ["taskkill", "/T", "/F", "/PID", "42424"])
+        else:
+            mock_killpg.assert_called_once_with(42424, soffice.signal.SIGKILL)
+
+    def test_fill_fillable_fields_writes_atomically(self):
+        existing_pdf = self.root / "out.pdf"
+        existing_pdf.write_bytes(b"%PDF-existing")
+        fields_json = self.root / "fields.json"
+        fields_json.write_text('[{"field_id": "name", "page": 1, "value": "Alice"}]', encoding="utf-8")
+        in_pdf = self.root / "in.pdf"
+        in_pdf.write_bytes(b"%PDF-input")
+
+        class BrokenWriter:
+            def __init__(self, clone_from=None):
+                self.pages = [object()]
+            def update_page_form_field_values(self, *args, **kwargs):
+                pass
+            def set_need_appearances_writer(self, val):
+                pass
+            def write(self, fh):
+                fh.write(b"%PDF-partial")
+                raise OSError("No space left on device")
+
+        fake_pypdf = types.ModuleType("pypdf")
+        fake_pypdf.PdfReader = lambda p: object()
+        fake_pypdf.PdfWriter = BrokenWriter
+        fake_extract = types.ModuleType("extract_form_field_info")
+        fake_extract.get_field_info = lambda r: [{"field_id": "name", "page": 1, "type": "text"}]
+
+        fill_path = CRAFT_DIR / "skills" / "pdf" / "scripts" / "fill_fillable_fields.py"
+        with unittest.mock.patch.dict(sys.modules, {"pypdf": fake_pypdf, "extract_form_field_info": fake_extract}):
+            fill_mod = _load_module("test_fill_fillable_fields", fill_path)
+            with self.assertRaises(OSError):
+                fill_mod.fill_pdf_fields(str(in_pdf), str(fields_json), str(existing_pdf))
+
+        self.assertEqual(existing_pdf.read_bytes(), b"%PDF-existing")
+        self.assertEqual(list(self.root.glob("*.tmp")), [])
 
 
 if __name__ == "__main__":

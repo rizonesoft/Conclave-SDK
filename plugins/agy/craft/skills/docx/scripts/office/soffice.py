@@ -17,6 +17,7 @@ callers that build their own argv (they must pass -env:UserInstallation too).
 
 import contextlib
 import os
+import signal
 import socket
 import subprocess
 import tempfile
@@ -35,15 +36,81 @@ def get_soffice_env() -> dict:
     return env
 
 
+def _terminate_process_tree(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            subprocess.run(
+                ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                capture_output=True,
+                stdin=subprocess.DEVNULL,
+                creationflags=flags,
+                check=False,
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        try:
+            proc.kill()
+        except OSError:
+            pass
+    else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+
+
 def run_soffice(args: Iterable[str], **kwargs) -> subprocess.CompletedProcess:
     args = list(args)
+    timeout = kwargs.pop("timeout", None)
+    check = kwargs.pop("check", False)
+    capture_output = kwargs.pop("capture_output", False)
+    input_data = kwargs.pop("input", None)
+    if capture_output:
+        if "stdout" in kwargs or "stderr" in kwargs:
+            raise ValueError("stdout and stderr arguments may not be used with capture_output.")
+        kwargs["stdout"] = subprocess.PIPE
+        kwargs["stderr"] = subprocess.PIPE
+    kwargs.setdefault("stdin", subprocess.DEVNULL if input_data is None else subprocess.PIPE)
+    if os.name == "nt":
+        kwargs["creationflags"] = kwargs.get("creationflags", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    else:
+        kwargs.setdefault("start_new_session", True)
+
     with contextlib.ExitStack() as stack:
         if not any(str(a).startswith("-env:UserInstallation") for a in args):
             profile = stack.enter_context(
                 tempfile.TemporaryDirectory(prefix="lo_profile_", ignore_cleanup_errors=True)
             )
             args = [f"-env:UserInstallation={Path(profile).as_uri()}"] + args
-        return subprocess.run(["soffice"] + args, env=get_soffice_env(), **kwargs)
+        cmd = ["soffice"] + args
+        proc = subprocess.Popen(cmd, env=get_soffice_env(), **kwargs)
+        try:
+            stdout, stderr = proc.communicate(input=input_data, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _terminate_process_tree(proc)
+            try:
+                stdout, stderr = proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                stdout, stderr = None, None
+            raise subprocess.TimeoutExpired(cmd, timeout, output=stdout, stderr=stderr)
+        except BaseException:
+            _terminate_process_tree(proc)
+            try:
+                proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            raise
+        completed = subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+        if check and completed.returncode != 0:
+            raise subprocess.CalledProcessError(completed.returncode, cmd, output=stdout, stderr=stderr)
+        return completed
 
 
 

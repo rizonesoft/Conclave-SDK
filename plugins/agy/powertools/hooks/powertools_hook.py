@@ -28,6 +28,8 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# Stamped by global/deploy.py on deploy; empty in the source checkout.
+DEPLOYED_FROM = ""
 
 
 def _sibling(name: str):
@@ -112,6 +114,7 @@ def _default_state() -> dict:
         "prompt_checked": False,
         "wp_reminded": False,
         "sent_back": False,
+        "drift_checked": False,
         "files": [],
         "flags": [],
         "pending": {},
@@ -236,25 +239,56 @@ def extract_clean_prompt(raw: str) -> str:
     return cleaned.strip()
 
 
+_PREFIX_SHELL_RX = r"^\s*(?:(?:sudo|env|command|time|nohup|nice|[A-Za-z_]\w*=\S+)\s+)*"
+_NO_BS_SHELL_RE = re.compile(_PREFIX_SHELL_RX + r"(?:pwsh|powershell|cmd)(?:\.exe)?(?:\s|$)", re.I)
+_PWSH_SHELL_RE = re.compile(_PREFIX_SHELL_RX + r"(?:pwsh|powershell)(?:\.exe)?(?:\s|$)", re.I)
+_PWSH_VAL_OPTS = {
+    "-executionpolicy", "-ep", "-windowstyle", "-w", "-inputformat", "-if",
+    "-outputformat", "-of", "-configurationname", "-config", "-workingdirectory", "-wd",
+    "-settingsfile",
+}
+_PWSH_CMD_OPTS = {"-command", "-c"}
+_PWSH_STOP_OPTS = {"-file", "-f", "-encodedcommand", "-ec", "-e", "-enc", "-encodedarguments"}
+
+
+def _join_wrapped_tokens(rem: list[tuple[str, bool]]) -> str:
+    if len(rem) == 1:
+        return rem[0][0]
+    return " ".join(('"%s"' % t if (" " in t or "\t" in t) else t) for t, _ in rem)
+
+
 def _split_shell_segments(cmd: str) -> list[str]:
     """Split a command string on unquoted pipeline/chain separators."""
     segments: list[str] = []
     buf: list[str] = []
     quote: str | None = None
+    allow_bs_escape = True
+    allow_bt_escape = False
     i = 0
     n = len(cmd)
     while i < n:
         c = cmd[i]
         if quote:
             buf.append(c)
-            if c == "`" and quote == '"' and i + 1 < n:
-                i += 1
-                buf.append(cmd[i])
-            elif c == quote:
+            if quote == '"':
+                if allow_bs_escape and c == "\\" and i + 1 < n and cmd[i + 1] in ('"', "\\"):
+                    i += 1
+                    buf.append(cmd[i])
+                    i += 1
+                    continue
+                if allow_bt_escape and c == "`" and i + 1 < n:
+                    i += 1
+                    buf.append(cmd[i])
+                    i += 1
+                    continue
+            if c == quote:
                 quote = None
             i += 1
             continue
         if c in ("'", '"'):
+            prefix = "".join(buf)
+            allow_bs_escape = not bool(_NO_BS_SHELL_RE.match(prefix))
+            allow_bt_escape = bool(_PWSH_SHELL_RE.match(prefix))
             quote = c
             buf.append(c)
             i += 1
@@ -279,7 +313,9 @@ def _split_shell_segments(cmd: str) -> list[str]:
 
 
 def _tokenize_segment(seg: str) -> list[tuple[str, bool]]:
-    """Tokenize a shell segment preserving backslashes; returns (text, was_quoted)."""
+    """Tokenize a shell segment preserving Windows path backslashes; returns (text, was_quoted)."""
+    allow_bs_escape = not bool(_NO_BS_SHELL_RE.match(seg))
+    allow_bt_escape = bool(_PWSH_SHELL_RE.match(seg))
     tokens: list[tuple[str, bool]] = []
     i = 0
     n = len(seg)
@@ -297,6 +333,15 @@ def _tokenize_segment(seg: str) -> list[tuple[str, bool]]:
                 q = c
                 i += 1
                 while i < n and seg[i] != q:
+                    if q == '"':
+                        if allow_bs_escape and seg[i] == "\\" and i + 1 < n and seg[i + 1] in ('"', "\\", "$", "`"):
+                            buf.append(seg[i + 1])
+                            i += 2
+                            continue
+                        if allow_bt_escape and seg[i] == "`" and i + 1 < n and seg[i + 1] in ('"', "`"):
+                            buf.append(seg[i + 1])
+                            i += 2
+                            continue
                     buf.append(seg[i])
                     i += 1
                 if i < n and seg[i] == q:
@@ -308,8 +353,8 @@ def _tokenize_segment(seg: str) -> list[tuple[str, bool]]:
     return tokens
 
 
-def _unwrap_tokens(tokens: list[tuple[str, bool]]) -> list[tuple[str, bool]]:
-    """Skip leading env assignments and trivial shell/WSL wrappers."""
+def _unwrap_tokens(tokens: list[tuple[str, bool]], depth: int = 0) -> list[tuple[str, bool]]:
+    """Strip env/prefix wrappers and inspect nested shell -c / -Command / /c payloads."""
     idx = 0
     while idx < len(tokens):
         tok, quoted = tokens[idx]
@@ -317,23 +362,91 @@ def _unwrap_tokens(tokens: list[tuple[str, bool]]) -> list[tuple[str, bool]]:
         base = os.path.basename(low.replace("\\", "/"))
         if not quoted and "=" in tok and not tok.startswith("-"):
             idx += 1
-        elif base in ("env", "command", "time", "nohup"):
+        elif base in ("env", "command", "time", "nohup", "nice"):
             idx += 1
+            if base == "env":
+                while idx < len(tokens) and tokens[idx][0].startswith("-"):
+                    flag = tokens[idx][0]
+                    idx += 1
+                    if flag == "--":
+                        break
+                    if flag in ("-u", "-C", "-S"):
+                        idx += 1
+        elif base in ("sudo",):
+            idx += 1
+            while idx < len(tokens) and tokens[idx][0].startswith("-"):
+                flag = tokens[idx][0]
+                idx += 1
+                if flag == "--":
+                    break
+                if flag in ("-u", "-g", "-C", "-D", "-R", "-T", "-U", "-h", "-p") and idx < len(tokens):
+                    idx += 1
         elif base in ("wsl", "wsl.exe"):
             idx += 1
             while idx < len(tokens) and tokens[idx][0].startswith("-"):
                 flag = tokens[idx][0]
                 idx += 1
+                if flag in ("-e", "--exec", "--"):
+                    break
                 if flag in ("-d", "--distribution", "-u", "--user", "--cd") and idx < len(tokens):
                     idx += 1
-            if idx < len(tokens) and tokens[idx][0] in ("bash", "sh", "zsh") and idx + 1 < len(tokens):
-                if tokens[idx + 1][0] in ("-c", "-lc") and idx + 2 < len(tokens):
-                    inner = tokens[idx + 2][0]
-                    for sub in _split_shell_segments(inner):
-                        res = catastrophic_command(sub)
-                        if res:
-                            return [("_FORCE_ASK:" + res, False)]
-                    idx += 3
+        elif base in ("bash", "bash.exe", "sh", "sh.exe", "zsh", "dash", "ksh", "ash"):
+            j = idx + 1
+            while j < len(tokens):
+                flag = tokens[j][0]
+                if flag == "--":
+                    j += 1
+                    break
+                if flag == "-o" and j + 1 < len(tokens):
+                    j += 2
+                    continue
+                if flag.startswith("-") and not flag.startswith("--") and "c" in flag[1:]:
+                    if j + 1 < len(tokens):
+                        res = catastrophic_command(tokens[j + 1][0], depth + 1)
+                        return [("_FORCE_ASK:" + res, False)] if res else []
+                    return []
+                if flag.startswith("-"):
+                    j += 1
+                    continue
+                break
+            return []
+        elif base in ("pwsh", "pwsh.exe", "powershell", "powershell.exe"):
+            j = idx + 1
+            while j < len(tokens):
+                flag = tokens[j][0].lower()
+                if flag in _PWSH_STOP_OPTS:
+                    return []
+                if flag in _PWSH_CMD_OPTS:
+                    rem = tokens[j + 1:]
+                    if rem:
+                        res = catastrophic_command(_join_wrapped_tokens(rem), depth + 1)
+                        return [("_FORCE_ASK:" + res, False)] if res else []
+                    return []
+                if flag in _PWSH_VAL_OPTS:
+                    j += 2
+                    continue
+                if flag.startswith("-"):
+                    j += 1
+                    continue
+                rem = tokens[j:]
+                res = catastrophic_command(_join_wrapped_tokens(rem), depth + 1)
+                return [("_FORCE_ASK:" + res, False)] if res else []
+            return []
+        elif base in ("cmd", "cmd.exe"):
+            j = idx + 1
+            while j < len(tokens):
+                flag = tokens[j][0].lower()
+                if flag in ("/c", "/k") or (flag.startswith("/") and len(flag) <= 4 and flag[-1] in ("c", "k")):
+                    rem = tokens[j + 1:]
+                    if rem:
+                        res = catastrophic_command(_join_wrapped_tokens(rem), depth + 1)
+                        return [("_FORCE_ASK:" + res, False)] if res else []
+                    return []
+                if flag.startswith("/"):
+                    j += 1
+                    continue
+                break
+            return []
         else:
             break
     return tokens[idx:]
@@ -346,8 +459,8 @@ _PUSH_VAL_OPTS = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 def _check_git_force_push(tokens: list[tuple[str, bool]]) -> str | None:
     i = 1
     while i < len(tokens):
-        tok, quoted = tokens[i]
-        if quoted or not tok.startswith("-"):
+        tok, _ = tokens[i]
+        if not tok.startswith("-"):
             break
         if tok in _GIT_VAL_OPTS or tok == "-C":
             i += 2
@@ -359,8 +472,8 @@ def _check_git_force_push(tokens: list[tuple[str, bool]]) -> str | None:
     after_double_dash = False
     pos_args: list[str] = []
     while i < len(tokens):
-        tok, quoted = tokens[i]
-        if not after_double_dash and not quoted:
+        tok, _ = tokens[i]
+        if not after_double_dash:
             if tok == "--":
                 after_double_dash = True
                 i += 1
@@ -391,10 +504,12 @@ def _is_root_target(arg: str) -> bool:
     return cleaned == "" and arg.startswith(("/", "\\"))
 
 
-def catastrophic_command(cmd: str) -> str | None:
+def catastrophic_command(cmd: str, _depth: int = 0) -> str | None:
     """Return a short reason label iff cmd contains a catastrophic point-of-no-return command."""
+    if _depth > 5:
+        return None
     for seg in _split_shell_segments(cmd):
-        tokens = _unwrap_tokens(_tokenize_segment(seg))
+        tokens = _unwrap_tokens(_tokenize_segment(seg), _depth)
         if not tokens:
             continue
         first_tok = tokens[0][0]
@@ -406,7 +521,7 @@ def catastrophic_command(cmd: str) -> str | None:
             if reason:
                 return reason
         elif base in ("gh", "gh.exe"):
-            pos = [t for t, q in tokens[1:] if q or not t.startswith("-")]
+            pos = [t for t, _ in tokens[1:] if not t.startswith("-")]
             if pos[:2] == ["repo", "delete"]:
                 return "GitHub repository deletion"
         elif base in ("format-volume", "clear-disk", "initialize-disk", "diskpart", "diskpart.exe") or re.match(r"^mkfs(\.\w+)?$", base):
@@ -417,19 +532,30 @@ def catastrophic_command(cmd: str) -> str | None:
         elif base in ("rm", "rm.exe"):
             recursive = False
             no_preserve = False
+            after_dd = False
             targets: list[str] = []
-            for t, q in tokens[1:]:
-                if not q and t == "--no-preserve-root":
+            for t, _ in tokens[1:]:
+                if not after_dd and t == "--":
+                    after_dd = True
+                elif not after_dd and t == "--no-preserve-root":
                     no_preserve = True
-                elif not q and (t == "--recursive" or (t.startswith("-") and not t.startswith("--") and ("r" in t.lower()))):
+                elif not after_dd and (t == "--recursive" or (t.startswith("-") and not t.startswith("--") and ("r" in t.lower()))):
                     recursive = True
-                elif q or not t.startswith("-"):
+                elif after_dd or not t.startswith("-"):
                     targets.append(t)
             if no_preserve or (recursive and any(_is_root_target(t) for t in targets)):
                 return "root filesystem delete"
         elif base in ("remove-item", "ri", "rd", "rmdir"):
-            recursive = any(not q and t.lower() in ("-recurse", "/s") for t, q in tokens[1:])
-            targets = [t for t, q in tokens[1:] if q or not t.startswith("-")]
+            recursive = False
+            after_dd = False
+            targets = []
+            for t, _ in tokens[1:]:
+                if not after_dd and t == "--":
+                    after_dd = True
+                elif not after_dd and t.lower() in ("-recurse", "/s"):
+                    recursive = True
+                elif after_dd or not t.startswith(("-", "/")):
+                    targets.append(t)
             if recursive and any(_is_root_target(t) for t in targets):
                 return "root filesystem delete"
     return None
@@ -573,9 +699,109 @@ def _handle_post_tool_use(data: dict, session: str, state: dict) -> dict:
     return {}
 
 
+def _norm_hooks_json(raw: bytes) -> bytes:
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return raw
+
+    def walk(node):
+        if isinstance(node, dict):
+            cmd = node.get("command")
+            if isinstance(cmd, str) and "hooks/powertools_hook.py" in cmd:
+                node["command"] = "<PY> hooks/powertools_hook.py"
+            for val in node.values():
+                walk(val)
+        elif isinstance(node, list):
+            for val in node:
+                walk(val)
+
+    walk(data)
+    return json.dumps(data, sort_keys=True, ensure_ascii=False).encode("utf-8")
+
+
+def _norm_hook_py(raw: bytes) -> bytes:
+    try:
+        text = raw.decode("utf-8").replace("\r\n", "\n")
+    except UnicodeDecodeError:
+        return raw
+    return re.sub(r"^DEPLOYED_FROM = .*$", 'DEPLOYED_FROM = ""', text, count=1, flags=re.M).encode("utf-8")
+
+
+def _collect_plugin_files(folder: str) -> set[str]:
+    files: set[str] = set()
+    for root, dirs, names in os.walk(folder):
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
+        for name in names:
+            if name.endswith((".pyc", ".pyo")):
+                continue
+            rel = os.path.relpath(os.path.join(root, name), folder).replace("\\", "/")
+            files.add(rel)
+    return files
+
+
+def _read_normalized_plugin_file(plugin_dir: str, rel: str) -> bytes:
+    full = os.path.join(plugin_dir, *rel.split("/"))
+    with open(full, "rb") as fh:
+        raw = fh.read()
+    if rel == "hooks.json":
+        return _norm_hooks_json(raw)
+    if rel == "hooks/powertools_hook.py":
+        return _norm_hook_py(raw)
+    return raw
+
+
+def _check_plugin_drift() -> str | None:
+    """Compare installed plugin bundles under HERE/../.. with the checkout named in DEPLOYED_FROM."""
+    try:
+        src_root = os.environ.get("CONCLAVE_AGY_SOURCE") or DEPLOYED_FROM
+        installed_root = os.path.abspath(os.path.join(HERE, "..", ".."))
+        if not src_root or not os.path.isdir(src_root) or not os.path.isdir(installed_root):
+            return None
+        if os.path.normcase(os.path.realpath(src_root)) == os.path.normcase(os.path.realpath(installed_root)):
+            return None
+
+        drifted: list[str] = []
+        for plugin_name in sorted(os.listdir(src_root)):
+            src_plugin = os.path.join(src_root, plugin_name)
+            if not os.path.isdir(src_plugin) or not os.path.isfile(os.path.join(src_plugin, "plugin.json")):
+                continue
+            inst_plugin = os.path.join(installed_root, plugin_name)
+            if not os.path.isdir(inst_plugin):
+                drifted.append(plugin_name)
+                continue
+            src_files = _collect_plugin_files(src_plugin)
+            inst_files = _collect_plugin_files(inst_plugin)
+            if src_files != inst_files:
+                drifted.append(plugin_name)
+                continue
+            for rel in sorted(src_files):
+                if _read_normalized_plugin_file(src_plugin, rel) != _read_normalized_plugin_file(inst_plugin, rel):
+                    drifted.append(plugin_name)
+                    break
+
+        if not drifted:
+            return None
+        deploy_py = os.path.normpath(os.path.join(src_root, "..", "..", "global", "deploy.py")).replace("\\", "/")
+        py_cmd = "python" if os.name == "nt" else "python3"
+        return (
+            f"Conclave plugin drift detected in {', '.join(drifted)} "
+            f"(installed copy under {installed_root} differs from {src_root}). "
+            f'Run `{py_cmd} "{deploy_py}" --agent agy` to sync.'
+        )
+    except OSError:
+        return None
+
+
 def _handle_pre_invocation(data: dict, session: str, state: dict) -> dict:
     raw_input = str(data.get("lastUserInput") or "")
     dirty = False
+    if not state.get("drift_checked"):
+        state["drift_checked"] = True
+        dirty = True
+        drift_msg = _check_plugin_drift()
+        if drift_msg:
+            state.setdefault("queued_notices", []).append(drift_msg)
     if raw_input and not state.get("prompt_checked"):
         clean = extract_clean_prompt(raw_input)
         state["prompt_checked"] = True

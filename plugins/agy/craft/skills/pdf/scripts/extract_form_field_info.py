@@ -1,5 +1,7 @@
 import json
+import os
 import sys
+import tempfile
 
 from pypdf import PdfReader
 
@@ -110,8 +112,18 @@ def get_field_info(reader: PdfReader):
 def write_field_info(pdf_path: str, json_output_path: str):
     reader = PdfReader(pdf_path)
     field_info = get_field_info(reader)
-    with open(json_output_path, "w") as f:
-        json.dump(field_info, f, indent=2)
+    out_abs = os.path.abspath(json_output_path)
+    out_dir = os.path.dirname(out_abs) or "."
+    os.makedirs(out_dir, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix=os.path.basename(out_abs) + ".", suffix=".tmp", dir=out_dir)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(field_info, f, indent=2)
+        os.replace(tmp_path, out_abs)
+    except BaseException:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
     print(f"Wrote {len(field_info)} fields to {json_output_path}")
 
 

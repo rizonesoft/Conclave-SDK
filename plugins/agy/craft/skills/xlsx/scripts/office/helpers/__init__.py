@@ -76,15 +76,60 @@ def rendered_text(text: str, preserve: bool) -> str:
     return text if preserve else text.strip(XML_SPACE)
 
 
-def safe_extract(zf: zipfile.ZipFile, dest: Path) -> None:
+MAX_ARCHIVE_ENTRIES = 10_000
+MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
+MAX_MEMBER_BYTES = 128 * 1024 * 1024
+_EXTRACT_CHUNK = 64 * 1024
+
+
+def safe_extract(
+    zf: zipfile.ZipFile,
+    dest: Path,
+    max_entries: int = MAX_ARCHIVE_ENTRIES,
+    max_bytes: int = MAX_ARCHIVE_BYTES,
+    max_member_bytes: int = MAX_MEMBER_BYTES,
+) -> None:
     dest = dest.resolve()
-    for m in zf.infolist():
+    infos = zf.infolist()
+    if len(infos) > max_entries:
+        raise ValueError(f"archive entry count {len(infos)} exceeds limit {max_entries}")
+
+    declared_total = 0
+    targets: list[tuple[zipfile.ZipInfo, Path]] = []
+    for m in infos:
         if stat.S_ISLNK(m.external_attr >> 16):
             raise ValueError(f"symlink archive entry not allowed: {m.filename!r}")
         target = (dest / m.filename).resolve()
         if not target.is_relative_to(dest):
             raise ValueError(f"unsafe archive entry: {m.filename!r}")
-        zf.extract(m, dest)
+        if m.file_size < 0 or m.file_size > max_member_bytes:
+            raise ValueError(f"archive member exceeds size budget: {m.filename!r}")
+        declared_total += m.file_size
+        if declared_total > max_bytes:
+            raise ValueError(f"archive declared size exceeds limit {max_bytes} bytes")
+        targets.append((m, target))
+
+    total_written = 0
+    for m, target in targets:
+        if m.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        member_written = 0
+        try:
+            with zf.open(m, "r") as src, open(target, "wb") as dst:
+                while True:
+                    chunk = src.read(_EXTRACT_CHUNK)
+                    if not chunk:
+                        break
+                    member_written += len(chunk)
+                    total_written += len(chunk)
+                    if member_written > max_member_bytes or total_written > max_bytes:
+                        raise ValueError("archive exceeds unpacked byte budget")
+                    dst.write(chunk)
+        except BaseException:
+            target.unlink(missing_ok=True)
+            raise
 
 
 def folder_entries(package: Path) -> list[str]:

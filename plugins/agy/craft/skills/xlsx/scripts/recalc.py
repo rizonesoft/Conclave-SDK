@@ -7,10 +7,8 @@ import contextlib
 import io
 import json
 import os
-import platform
 import posixpath
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -36,16 +34,6 @@ RECALCULATE_MACRO = """<?xml version="1.0" encoding="UTF-8"?>
       ThisComponent.close(True)
     End Sub
 </script:module>"""
-
-
-def has_gtimeout():
-    try:
-        subprocess.run(
-            ["gtimeout", "--version"], capture_output=True, timeout=1, check=False
-        )
-        return True
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
 
 
 def _stamp(path):
@@ -197,33 +185,22 @@ def _recalc_with_profile(filename, abs_path, timeout, profile_dir: Path):
 
     before = _stamp(abs_path)
 
-    cmd = [
-        "soffice",
+    args = [
+        f"-env:UserInstallation={profile_url}",
         "--headless",
         "--norestore",
-        f"-env:UserInstallation={profile_url}",
         "vnd.sun.star.script:Standard.Module1.RecalculateAndSave?language=Basic&location=application",
         abs_path,
     ]
 
-    if platform.system() == "Linux" and shutil.which("timeout"):
-        cmd = ["timeout", str(timeout)] + cmd
-    elif platform.system() == "Darwin" and has_gtimeout():
-        cmd = ["gtimeout", str(timeout)] + cmd
-
     timed_out = f"LibreOffice timed out after {timeout}s; formulas were NOT recalculated. Re-run with a longer timeout."
 
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, env=get_soffice_env(), timeout=timeout + 15
-        )
+        result = run_soffice(args, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return {"error": timed_out}
     except FileNotFoundError:
         return {"error": SOFFICE_MISSING}
-
-    if result.returncode == 124:
-        return {"error": timed_out}
 
     if result.returncode != 0:
         detail = (result.stderr or "").strip() or f"soffice exited {result.returncode}"
@@ -241,6 +218,8 @@ def _recalc_with_profile(filename, abs_path, timeout, profile_dir: Path):
 
 
 EXCEL_ERRORS = ["#VALUE!", "#DIV/0!", "#REF!", "#NAME?", "#NULL!", "#NUM!", "#N/A"]
+EXCEL_ERROR_SET = frozenset(EXCEL_ERRORS)
+MAX_XML_PART_BYTES = 128 * 1024 * 1024
 
 _MAIN_NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 _REL_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
@@ -249,12 +228,22 @@ MAX_MERGE_CHECKS = 1_000_000
 _MERGE_RE = re.compile(rb'<(?:\w+:)?mergeCell\b[^>]*\bref="([^"]*)"')
 
 
-def _error_in(text):
-    if "#" in text:
-        for err in EXCEL_ERRORS:
-            if err in text:
-                return err
-    return None
+def _exact_error(text):
+    if not isinstance(text, str):
+        return None
+    cleaned = text.strip()
+    return cleaned if cleaned in EXCEL_ERROR_SET else None
+
+
+def _read_archive_part(archive: zipfile.ZipFile, name: str, max_bytes: int = MAX_XML_PART_BYTES) -> bytes:
+    info = archive.getinfo(name)
+    if info.file_size < 0 or info.file_size > max_bytes:
+        raise ValueError(f"archive member {name!r} exceeds size limit {max_bytes}")
+    with archive.open(name, "r") as fh:
+        data = fh.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise ValueError(f"archive member {name!r} exceeds unpacked limit {max_bytes}")
+    return data
 
 
 def _rich_text(node):
@@ -293,25 +282,25 @@ def _scan_xml(filename):
     merge_checks = 0
 
     with zipfile.ZipFile(filename) as archive:
-        workbook = fromstring(archive.read("xl/workbook.xml"))
+        workbook = fromstring(_read_archive_part(archive, "xl/workbook.xml"))
         if workbook.tag != f"{_MAIN_NS}workbook":
             raise ValueError("not a transitional OOXML workbook")
         targets = {
             rel.get("Id"): rel.get("Target")
-            for rel in fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+            for rel in fromstring(_read_archive_part(archive, "xl/_rels/workbook.xml.rels"))
         }
 
-        shared_errors, shared_equals = {}, set()
+        shared_equals = set()
         if "xl/sharedStrings.xml" in archive.namelist():
+            ss_info = archive.getinfo("xl/sharedStrings.xml")
+            if ss_info.file_size < 0 or ss_info.file_size > MAX_XML_PART_BYTES:
+                raise ValueError(f"archive member 'xl/sharedStrings.xml' exceeds size limit {MAX_XML_PART_BYTES}")
             with archive.open("xl/sharedStrings.xml") as part:
                 index = 0
                 for _, node in iterparse(part):
                     if node.tag != f"{_MAIN_NS}si":
                         continue
                     text = _rich_text(node).replace("x005F_", "")
-                    err = _error_in(text)
-                    if err:
-                        shared_errors[index] = err
                     if text.startswith("="):
                         shared_equals.add(index)
                     index += 1
@@ -323,10 +312,10 @@ def _scan_xml(filename):
                 part_name = target.lstrip("/")
             else:
                 part_name = posixpath.normpath(f"xl/{target}")
-            if "/worksheets/" not in part_name:  
+            if "/worksheets/" not in part_name:
                 continue
             found = []
-            xml = archive.read(part_name)
+            xml = _read_archive_part(archive, part_name)
             merged = _merged_ranges(xml)
             for _, node in iterparse(io.BytesIO(xml)):
                 if node.tag == f"{_MAIN_NS}row":
@@ -341,12 +330,12 @@ def _scan_xml(filename):
                 cell_type = node.get("t", "n")
                 if cell_type == "s":
                     index = int(node.findtext(f"{_MAIN_NS}v"))
-                    err = shared_errors.get(index)
                     is_formula = is_formula or (formula is None and index in shared_equals)
+                elif cell_type == "e":
+                    err = _exact_error(node.findtext(f"{_MAIN_NS}v"))
                 elif cell_type not in ("n", "b", "d"):
                     inline = node.find(f"{_MAIN_NS}is")
                     text = node.findtext(f"{_MAIN_NS}v") if inline is None else _rich_text(inline)
-                    err = _error_in(text or "")
                     is_formula = is_formula or (formula is None and (text or "").startswith("="))
                 if not is_formula and not err:
                     continue
@@ -374,8 +363,8 @@ def _scan_with_openpyxl(filename):
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
         for cell in _existing_cells(ws):
-            if isinstance(cell.value, str):
-                err = _error_in(cell.value)
+            if cell.data_type == "e" and isinstance(cell.value, str):
+                err = _exact_error(cell.value)
                 if err:
                     error_details[err].append(f"{sheet_name}!{cell.coordinate}")
     wb.close()

@@ -42,7 +42,7 @@ The Codex plugins are listed in one private catalogue, `codex/.agents/plugins/ma
 
 ## Antigravity plugins
 
-General-purpose Antigravity bundles under `agy/` have no host or account bindings and install globally through `global/deploy.py --agent agy`.
+General-purpose Antigravity bundles under `agy/` have no host or account bindings and install globally by mirroring into `.gemini/config/plugins/` through `global/deploy.py --agent agy`. Run `global/deploy.py --agent agy --check` to verify sync; `powertools` also checks for drift once per session against its deployed checkout.
 
 | Plugin | Purpose |
 | ------ | ------- |

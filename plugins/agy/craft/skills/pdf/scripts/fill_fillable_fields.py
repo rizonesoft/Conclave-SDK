@@ -1,5 +1,7 @@
 import json
+import os
 import sys
+import tempfile
 
 from pypdf import PdfReader, PdfWriter
 
@@ -47,9 +49,19 @@ def fill_pdf_fields(input_pdf_path: str, fields_json_path: str, output_pdf_path:
         writer.update_page_form_field_values(writer.pages[page - 1], field_values, auto_regenerate=False)
 
     writer.set_need_appearances_writer(True)
-    
-    with open(output_pdf_path, "wb") as f:
-        writer.write(f)
+
+    out_abs = os.path.abspath(output_pdf_path)
+    out_dir = os.path.dirname(out_abs) or "."
+    os.makedirs(out_dir, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix=os.path.basename(out_abs) + ".", suffix=".tmp", dir=out_dir)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            writer.write(f)
+        os.replace(tmp_path, out_abs)
+    except BaseException:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
 
 
 def validation_error_for_field_value(field_info, field_value):

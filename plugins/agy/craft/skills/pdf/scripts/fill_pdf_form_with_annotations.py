@@ -1,5 +1,7 @@
 import json
+import os
 import sys
+import tempfile
 
 from pypdf import PdfReader, PdfWriter
 from pypdf.annotations import FreeText
@@ -89,8 +91,18 @@ def fill_pdf_form(input_pdf_path, fields_json_path, output_pdf_path):
         annotations.append(annotation)
         writer.add_annotation(page_number=page_num - 1, annotation=annotation)
         
-    with open(output_pdf_path, "wb") as output:
-        writer.write(output)
+    out_abs = os.path.abspath(output_pdf_path)
+    out_dir = os.path.dirname(out_abs) or "."
+    os.makedirs(out_dir, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix=os.path.basename(out_abs) + ".", suffix=".tmp", dir=out_dir)
+    try:
+        with os.fdopen(fd, "wb") as output:
+            writer.write(output)
+        os.replace(tmp_path, out_abs)
+    except BaseException:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
     
     print(f"Successfully filled PDF form and saved to {output_pdf_path}")
     print(f"Added {len(annotations)} text annotations")

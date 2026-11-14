@@ -229,11 +229,42 @@ class DeployTest(unittest.TestCase):
 
         readme = powertools_dest / "README.md"
         readme.write_bytes(b"custom note\n")
+        stale = powertools_dest / "stale" / "orphan.txt"
+        stale.parent.mkdir()
+        stale.write_bytes(b"orphan\n")
+        pycache_file = powertools_dest / "hooks" / "__pycache__" / "x.pyc"
+        pycache_file.parent.mkdir()
+        pycache_file.write_bytes(b"cache")
+        third_party = self.home / ".gemini" / "config" / "plugins" / "third-party" / "plugin.json"
+        third_party.parent.mkdir(parents=True)
+        third_party.write_bytes(b"{}")
+
+        # --check detects drift without modifying anything on disk
+        before_check = snapshot(self.home)
+        code_chk_bad, out_chk_bad, _ = run("--home", str(self.home), "--agent", "agy", "--check")
+        self.assertEqual(code_chk_bad, 1, out_chk_bad)
+        self.assertIn("drift detected", out_chk_bad)
+        self.assertEqual(snapshot(self.home), before_check)
+
+        # Normal deploy backs up and updates modified file + prunes orphan, keeping pycache and third-party plugins
         code3, out3, _ = run("--home", str(self.home), "--agent", "agy")
         self.assertEqual(code3, 0, out3)
+        self.assertFalse(stale.exists())
+        self.assertFalse(stale.parent.exists())
+        self.assertTrue(pycache_file.exists())
+        self.assertEqual(third_party.read_bytes(), b"{}")
+
         backups = list((self.home / ".conclave" / "global-backups").glob("*/.gemini/config/plugins/powertools/README.md"))
+        orphan_backups = list((self.home / ".conclave" / "global-backups").glob("*/.gemini/config/plugins/powertools/stale/orphan.txt"))
         self.assertEqual(len(backups), 1)
         self.assertEqual(backups[0].read_bytes(), b"custom note\n")
+        self.assertEqual(len(orphan_backups), 1)
+        self.assertEqual(orphan_backups[0].read_bytes(), b"orphan\n")
+
+        # --check reports in sync (exit 0) once repaired
+        code_chk_ok, out_chk_ok, _ = run("--home", str(self.home), "--agent", "agy", "--check")
+        self.assertEqual(code_chk_ok, 0, out_chk_ok)
+        self.assertIn("in sync", out_chk_ok)
 
 
 
