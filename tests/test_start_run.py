@@ -223,7 +223,7 @@ class StartRunTests(unittest.TestCase):
 
 @unittest.skipUnless(PWSH and os.name == "nt", "start-run.ps1 is the SDK's Windows launcher: PowerShell 7 on Windows")
 class CarbonRunnerTests(unittest.TestCase):
-    """-Runner agy starts the run in Antigravity on Gemini 4 Carbon, with the same goal."""
+    """-Runner agy starts the run in Antigravity on Orchestrator (Carbon), with the same goal."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -242,7 +242,7 @@ class CarbonRunnerTests(unittest.TestCase):
         proc = self.launch("-DryRun")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         command = proc.stdout.strip().splitlines()[-1]
-        self.assertTrue(command.startswith('agy --model=gemini-4-carbon-medium --dangerously-skip-permissions '
+        self.assertTrue(command.startswith('agy --model=gemini-pro-orchestrator --dangerously-skip-permissions '
                                            '"--prompt-interactive=Finish the Conclave-SDK implementation plan'), command)
         self.assertFalse(self.report.exists())
 
@@ -251,7 +251,7 @@ class CarbonRunnerTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         got = json.loads(self.report.read_text(encoding="utf-8-sig"))
         model, skip, prompt = got["arguments"]
-        self.assertEqual((model, skip), ("--model=gemini-4-carbon-medium", "--dangerously-skip-permissions"))
+        self.assertEqual((model, skip), ("--model=gemini-pro-orchestrator", "--dangerously-skip-permissions"))
         self.assertTrue(prompt.startswith("--prompt-interactive=Finish the Conclave-SDK implementation plan"), prompt)
         self.assertIn("No run guard was held when this session was launched", prompt)
         self.assertNotIn("/goal", prompt)
