@@ -175,13 +175,27 @@ class Runner(Stubs):
         self.assertTrue(second["passed"] and self.ran("after"))
 
     def test_a_unittest_suite_that_ran_no_test_fails(self):
-        (result,) = self.run_all([self.unittest_folder("empty", None)])
-        self.assertFalse(result["passed"])
-        self.assertIn(result["reason"], ("no tests ran", "exit 5"))  # Python 3.12 and later exit 5 for an empty run
+        empty, after = self.run_all([self.unittest_folder("empty", None), self.passing("after")])
+        self.assertEqual((empty["passed"], empty["reason"], empty["tests"]), (False, "no tests ran", 0))
+        self.assertIn(empty["exit"], (0, 5))  # Python 3.12+ exits 5; older Pythons exit 0
+        self.assertTrue(after["passed"] and self.ran("after"))
+
+        zero_exit5 = self.unittest_folder("zero_exit5", GATED)
+        zero_exit5["argv"] = [sys.executable, "-c", 'import sys; print("Ran 0 tests in 0.000s"); sys.exit(5)']
+        r5, after5 = self.run_all([zero_exit5, self.passing("after5")])
+        self.assertEqual((r5["passed"], r5["exit"], r5["tests"], r5["reason"]), (False, 5, 0, "no tests ran"))
+        self.assertTrue(after5["passed"] and self.ran("after5"))
+
         quiet = self.unittest_folder("quiet", GATED)
         quiet["argv"] = [sys.executable, "-c", "pass"]  # exits 0 and reports no test
         (result,) = self.run_all([quiet])
-        self.assertEqual((result["passed"], result["reason"]), (False, "no tests ran"))
+        self.assertEqual((result["passed"], result["exit"], result["reason"]), (False, 0, "no tests ran"))
+
+        crash = self.unittest_folder("crash", GATED)
+        crash["argv"] = [sys.executable, "-c", "import sys; sys.exit(2)"]  # nonzero exit without Ran count stays exit 2
+        (result,) = self.run_all([crash])
+        self.assertEqual((result["passed"], result["exit"], result["tests"], result["reason"]),
+                         (False, 2, None, "exit 2"))
 
     def test_a_failure_and_a_timeout_are_each_followed_by_the_next_suite(self):
         results = self.run_all([self.failing("bad"), self.passing("second"), self.hanging("slow"), self.passing("last")])

@@ -2069,10 +2069,10 @@ def _run_suite(suite: dict, env: dict, cwd: Path) -> dict:
     result["tail"] = "\n".join(text.splitlines()[-TAIL_LINES:])
     result["tests"] = kept["tests"]
     if not result["reason"]:
-        if result["exit"] != 0:
-            result["reason"] = f"exit {result['exit']}"
-        elif suite["kind"] == "unittest" and not result["tests"]:
+        if suite["kind"] == "unittest" and (result["tests"] == 0 or (result["exit"] == 0 and result["tests"] is None)):
             result["reason"] = "no tests ran"
+        elif result["exit"] != 0:
+            result["reason"] = f"exit {result['exit']}"
         else:
             result["passed"] = True
     return done()
