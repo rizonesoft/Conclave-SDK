@@ -1,0 +1,87 @@
+{
+  "ref": "D01 T02 \u00a74",
+  "title": "Bash installers and their tests retired",
+  "implementation_sha": "4c6346f61acfb02f39bd2c2e4e342b3e0b33e697",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/01-forge/D01-T02-s4.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest tests.test_kit_install tests.test_check_all -> Ran 66 tests, OK",
+    "git ls-files \":(glob)kits/*/scripts/*.sh\" -> prints nothing",
+    "CI tests.yml run 43645116247 on 83aecc0 (4c6346f plus its findings file, TODO file and plan only) -> success on quick suite (Windows), full suite (Linux), kit suites (Linux)"
+  ],
+  "completion": {
+    "report": "docs/reviews/01-forge/D01-T02-s4.md",
+    "verdict": "filed",
+    "candidate": "4c6346f61acfb02f39bd2c2e4e342b3e0b33e697",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": [
+      "D01 T02 \u00a77"
+    ]
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/01-forge/D01-T02-s4.md",
+    "candidate": "591d6d8449294bf18c3532bda930e957f8ac1ebe",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "591d6d8449294bf18c3532bda930e957f8ac1ebe",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}
