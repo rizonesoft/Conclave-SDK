@@ -856,6 +856,8 @@ class CraftScriptHardeningTests(unittest.TestCase):
                 '<definedName name="GlobalExt">[1]Ext!A1</definedName>'
                 '<definedName name="DerivedExt">GlobalExt+1</definedName>'
                 '<definedName name="LocalExt" localSheetId="0">[1]Ext!A2</definedName>'
+                '<definedName name="ExternalValue">[1]Sheet1!$A$1</definedName>'
+                '<definedName name="DerivedLower">externalvalue+1</definedName>'
                 '</definedNames></workbook>',
             )
             zf.writestr(
@@ -873,6 +875,8 @@ class CraftScriptHardeningTests(unittest.TestCase):
                 '<c r="A2"><f>[1]Ext!B2</f><v>42</v></c>'
                 '<c r="A3"><f>DerivedExt</f></c>'
                 '<c r="A4"><f>LocalExt</f></c>'
+                '<c r="A5"><f>externalvalue</f></c>'
+                '<c r="A6"><f>DERIVEDLOWER</f></c>'
                 '<c r="B1"><f t="array" ref="B1:B2">[1]Ext!C1:C2</f><v></v></c>'
                 '</row></sheetData></worksheet>',
             )
@@ -885,7 +889,7 @@ class CraftScriptHardeningTests(unittest.TestCase):
         }):
             self.assertEqual(
                 recalc.external_links_at_risk(str(wb_ext)),
-                ["Sheet1!A1", "Sheet1!A3", "Sheet1!A4", "Sheet1!B1"],
+                ["Sheet1!A1", "Sheet1!A3", "Sheet1!A4", "Sheet1!A5", "Sheet1!A6", "Sheet1!B1"],
             )
             # Merged-cell bomb with unused externalLink or single-quoted ref is rejected immediately
             for idx_bomb, merge_attr in enumerate(('ref="A1:XFD1048576"', "ref='A1:XFD1048576'")):
@@ -933,6 +937,39 @@ class CraftScriptHardeningTests(unittest.TestCase):
             with unittest.mock.patch.dict(sys.modules, {"defusedxml": None, "defusedxml.ElementTree": None}):
                 with self.assertRaisesRegex(ValueError, "DTD and entity declarations are forbidden"):
                     recalc.external_links_at_risk(str(wb_dtd))
+
+            # UTF-16 worksheet XML without external links must still enforce merged-cell budget
+            wb_utf16 = self.root / "book_utf16_bomb.xlsx"
+            with zipfile.ZipFile(wb_utf16, "w") as zf:
+                zf.writestr(
+                    "xl/workbook.xml",
+                    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                    '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>',
+                )
+                zf.writestr(
+                    "xl/_rels/workbook.xml.rels",
+                    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+                    'Target="worksheets/sheet1.xml"/></Relationships>',
+                )
+                zf.writestr(
+                    "xl/worksheets/sheet1.xml",
+                    (
+                        '<?xml version="1.0" encoding="UTF-16"?>'
+                        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                        '<sheetData/><mergeCells count="1"><mergeCell ref="A1:XFD1048576"/></mergeCells>'
+                        '</worksheet>'
+                    ).encode("utf-16"),
+                )
+            with self.assertRaisesRegex(ValueError, "merged cell count exceeds limit"):
+                recalc.external_links_at_risk(str(wb_utf16))
+            with self.assertRaisesRegex(ValueError, "merged cell count exceeds limit"):
+                recalc._scan_xml(str(wb_utf16))
+            with unittest.mock.patch.object(recalc, "get_soffice_env", return_value={}), \
+                 unittest.mock.patch.object(recalc, "run_soffice", side_effect=AssertionError("soffice must not run")):
+                self.assertIn("merged cell count exceeds limit", recalc.recalc(str(wb_utf16)).get("error", ""))
+                self.assertIn("merged cell count exceeds limit", recalc.recalc(str(wb_utf16), force=True).get("error", ""))
 
     def test_soffice_timeout_terminates_process_tree_before_reap(self):
         docx_scripts = CRAFT_DIR / "skills" / "docx" / "scripts"
