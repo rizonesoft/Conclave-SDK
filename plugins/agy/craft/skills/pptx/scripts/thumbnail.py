@@ -37,6 +37,7 @@ from office.helpers import (
     opc_target,
     open_zip_member,
     parse_xml_bytes,
+    read_relationship,
     read_zip_member,
     validate_archive,
 )
@@ -181,15 +182,12 @@ def get_slide_info(pptx_path: Path) -> list[dict]:
         slide_rel_types = (SLIDE_REL_TYPE, f"{STRICT_OFFICE_REL_NS}/slide")
         rid_to_part = {}
         for rel in child_local_elements(rels_dom.documentElement, "Relationship"):
-            if rel.getAttribute("Type") not in slide_rel_types:
+            rel_id, rel_type, target, target_mode = read_relationship(rel)
+            if rel_type not in slide_rel_types:
                 continue
-            part = opc_target(
-                rel.getAttribute("Target"),
-                "ppt/presentation.xml",
-                rel.getAttribute("TargetMode"),
-            )
+            part = opc_target(target, "ppt/presentation.xml", target_mode)
             if part is not None:
-                rid_to_part[rel.getAttribute("Id")] = part
+                rid_to_part[rel_id] = part
 
         pres_content = read_zip_member(
             zf,

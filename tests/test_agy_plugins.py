@@ -683,6 +683,14 @@ class CraftScriptHardeningTests(unittest.TestCase):
 
         helpers = _load_module("test_office_helpers", CRAFT_DIR / "skills" / "docx" / "scripts" / "office" / "helpers" / "__init__.py")
 
+        self.assertEqual(helpers.opc_target(" ../media/image1.png ", "ppt/slides/slide1.xml"), "ppt/media/image1.png")
+        self.assertEqual(helpers.opc_target("\t../media/two%20%20spaces.png\n", "ppt/slides/slide1.xml"), "ppt/media/two  spaces.png")
+        rel_el = ET.Element("Relationship", Id=" rId\u00e9 ", Type=" http://example.com/t ", Target=" ../media/a\tb.png ", TargetMode="Internal")
+        self.assertEqual(
+            helpers.read_relationship(rel_el),
+            ("rId\u00e9", "http://example.com/t", "../media/a b.png", "Internal"),
+        )
+
         # Entry count limit
         z_many = self.root / "many.zip"
         with zipfile.ZipFile(z_many, "w") as zf:
@@ -2348,8 +2356,73 @@ class CraftScriptHardeningTests(unittest.TestCase):
                 self.assertTrue(bs1.exists())
                 self.assertTrue(bs2.exists())
 
-            # Case 7: valid Unicode xsd:ID, quoted ST_ContentType escapes/Latin-1, and PartName spaces clean cleanly
+            # Case 7: valid Unicode xsd:ID, quoted ST_ContentType escapes/Latin-1, space-bearing parts, and whitespace-padded xs:anyURI Targets
+            valid_dir = self.root / "clean_valid_opc_unicode"
+            (valid_dir / "_rels").mkdir(parents=True)
+            (valid_dir / "ppt" / "_rels").mkdir(parents=True)
+            (valid_dir / "ppt" / "slides" / "_rels").mkdir(parents=True)
+            (valid_dir / "ppt" / "media").mkdir(parents=True)
+
+            pkg_rels = ET.Element(f"{{{rels_ns}}}Relationships")
+            ET.SubElement(pkg_rels, f"{{{rels_ns}}}Relationship", Id="rId1", Type=f"{r_ns}/officeDocument", Target="ppt/presentation.xml")
+            (valid_dir / "_rels" / ".rels").write_bytes(ET.tostring(pkg_rels, encoding="utf-8", xml_declaration=True))
+
+            pres_valid = ET.Element(f"{{{p_ns}}}presentation")
+            ET.SubElement(pres_valid, f"{{{p_ns}}}sldMasterIdLst")
+            sld_lst_valid = ET.SubElement(pres_valid, f"{{{p_ns}}}sldIdLst")
+            ET.SubElement(sld_lst_valid, f"{{{p_ns}}}sldId", {"id": "256", f"{{{r_ns}}}id": "rId\u00e9"})
+            (valid_dir / "ppt" / "presentation.xml").write_bytes(ET.tostring(pres_valid, encoding="utf-8", xml_declaration=True))
+
+            pres_rels_valid = ET.Element(f"{{{rels_ns}}}Relationships")
+            ET.SubElement(
+                pres_rels_valid,
+                f"{{{rels_ns}}}Relationship",
+                Id=" rId\u00e9 ",
+                Type=f" {r_ns}/slide ",
+                Target=" slides/slide 1.xml ",
+            )
+            ET.SubElement(
+                pres_rels_valid,
+                f"{{{rels_ns}}}Relationship",
+                Id="rId2",
+                Type=f"{r_ns}/slide",
+                Target="slides/slide 2.xml",
+            )
+            (valid_dir / "ppt" / "_rels" / "presentation.xml.rels").write_bytes(
+                ET.tostring(pres_rels_valid, encoding="utf-8", xml_declaration=True)
+            )
+
+            slide_bytes = ET.tostring(ET.Element(f"{{{p_ns}}}sld"), encoding="utf-8", xml_declaration=True)
+            vs1 = valid_dir / "ppt" / "slides" / "slide 1.xml"
+            vs2 = valid_dir / "ppt" / "slides" / "slide 2.xml"
+            vs1.write_bytes(slide_bytes)
+            vs2.write_bytes(slide_bytes)
+
+            slide1_rels = ET.Element(f"{{{rels_ns}}}Relationships")
+            ET.SubElement(
+                slide1_rels,
+                f"{{{rels_ns}}}Relationship",
+                Id="rIdImg1",
+                Type=f" {r_ns}/image ",
+                Target="../media/image1.png ",
+            )
+            (valid_dir / "ppt" / "slides" / "_rels" / "slide 1.xml.rels").write_bytes(
+                ET.tostring(slide1_rels, encoding="utf-8", xml_declaration=True)
+            )
+
+            img_kept = valid_dir / "ppt" / "media" / "image1.png"
+            img_orphan = valid_dir / "ppt" / "media" / "orphan.png"
+            img_kept.write_bytes(b"PNG-KEPT")
+            img_orphan.write_bytes(b"PNG-ORPHAN")
+
             ct_valid = ET.Element(f"{{{ct_ns}}}Types")
+            ET.SubElement(
+                ct_valid,
+                f"{{{ct_ns}}}Default",
+                Extension="rels",
+                ContentType="application/vnd.openxmlformats-package.relationships+xml",
+            )
+            ET.SubElement(ct_valid, f"{{{ct_ns}}}Default", Extension="png", ContentType="image/png")
             ET.SubElement(
                 ct_valid,
                 f"{{{ct_ns}}}Default",
@@ -2371,29 +2444,23 @@ class CraftScriptHardeningTests(unittest.TestCase):
             ET.SubElement(
                 ct_valid,
                 f"{{{ct_ns}}}Override",
-                PartName="/ppt/slides/slide2.xml",
+                PartName=" /ppt/slides/slide 2.xml ",
                 ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml",
             )
-            valid_dir, vs1, vs2 = _build_deck(
-                "clean_valid_opc_unicode",
-                sld_id_rid="rId\u00e9",
-                ct_bytes=ET.tostring(ct_valid, encoding="utf-8", xml_declaration=True),
-            )
-            unicode_rels = ET.Element(f"{{{rels_ns}}}Relationships")
-            ET.SubElement(
-                unicode_rels,
-                f"{{{rels_ns}}}Relationship",
-                Id="rId\u00e9",
-                Type=f"{r_ns}/slide",
-                Target="slides/slide1.xml",
-            )
-            (valid_dir / "ppt" / "_rels" / "presentation.xml.rels").write_bytes(
-                ET.tostring(unicode_rels, encoding="utf-8", xml_declaration=True)
-            )
+            (valid_dir / "[Content_Types].xml").write_bytes(ET.tostring(ct_valid, encoding="utf-8", xml_declaration=True))
+
             removed = clean.clean_unused_files(valid_dir)
-            self.assertIn("ppt/slides/slide2.xml", removed)
-            self.assertTrue(vs1.exists())
+            self.assertIn("ppt/slides/slide 2.xml", removed)
+            self.assertIn("ppt/media/orphan.png", removed)
+            self.assertNotIn("ppt/slides/slide 1.xml", removed)
+            self.assertNotIn("ppt/media/image1.png", removed)
+            self.assertTrue(vs1.is_file())
+            self.assertTrue(img_kept.is_file())
             self.assertFalse(vs2.exists())
+            self.assertFalse(img_orphan.exists())
+            ct_after = (valid_dir / "[Content_Types].xml").read_text(encoding="utf-8")
+            self.assertIn("/ppt/slides/slide 1.xml", ct_after)
+            self.assertNotIn("slide 2.xml", ct_after)
 
             for good_ct in (
                 "application/xml",

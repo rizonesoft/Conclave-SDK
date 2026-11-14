@@ -18,6 +18,7 @@ This script removes:
 import posixpath
 import re
 import sys
+import urllib.parse
 from pathlib import Path
 from xml.parsers.expat import ExpatError
 
@@ -28,10 +29,12 @@ from office.helpers import (
     STRICT_OFFICE_REL_NS,
     atomic_write_bytes,
     child_local_elements,
+    collapse_xml_space,
     get_rel_id_attr,
     local_elements,
     opc_target,
     parse_xml_file,
+    read_relationship,
     rels_source_part,
 )
 
@@ -131,17 +134,16 @@ def _is_valid_content_type(value: str) -> bool:
 def _slide_rids(pres_rels_path: Path, unpacked_dir: Path) -> dict[str, str]:
     source_part = rels_source_part(pres_rels_path, unpacked_dir)
     rels_dom = parse_xml_file(pres_rels_path)
-    _validate_rels_dom(rels_dom, "ppt/_rels/presentation.xml.rels")
+    _validate_rels_dom(rels_dom, "ppt/_rels/presentation.xml.rels", source_part)
 
     rids: dict[str, str] = {}
     for rel in child_local_elements(rels_dom.documentElement, "Relationship"):
-        if rel.getAttribute("Type") not in _SLIDE_REL_TYPES:
+        rel_id, rel_type, target, target_mode = read_relationship(rel)
+        if rel_type not in _SLIDE_REL_TYPES:
             continue
-        part = opc_target(
-            rel.getAttribute("Target"), source_part, rel.getAttribute("TargetMode")
-        )
+        part = opc_target(target, source_part, target_mode)
         if part is not None:
-            rids[rel.getAttribute("Id").strip(_XML_WS)] = part
+            rids[rel_id] = part
     return rids
 
 
@@ -152,7 +154,7 @@ def _referenced_slide_rids(pres_path: Path) -> list[str]:
     return [
         rid
         for el in local_elements(pres_dom.documentElement, "sldId")
-        if (rid := get_rel_id_attr(el).strip(_XML_WS))
+        if (rid := get_rel_id_attr(el))
     ]
 
 
@@ -197,7 +199,7 @@ def _validate_slide_id_list(
 
     root_resolved = unpacked_dir.resolve()
     for sld_el in local_elements(pres_root, "sldId"):
-        rid = get_rel_id_attr(sld_el).strip(_XML_WS)
+        rid = get_rel_id_attr(sld_el)
         if not rid:
             raise RefusedToClean(
                 "<p:sldIdLst> contains a <p:sldId> without a relationship id; "
@@ -328,22 +330,24 @@ def _validate_content_types_dom(ct_dom) -> None:
             attrs = _unqualified_attrs(
                 child, {"PartName", "ContentType"}, "[Content_Types].xml <Override>"
             )
-            part_name = attrs.get("PartName", "")
+            part_name = collapse_xml_space(attrs.get("PartName", ""))
+            decoded_part = urllib.parse.unquote(part_name)
             ctype = attrs.get("ContentType", "")
             if (
                 "PartName" not in attrs
                 or "ContentType" not in attrs
                 or not part_name.startswith("/")
-                or len(part_name) <= 1
+                or len(decoded_part) <= 1
                 or "\\" in part_name
-                or any(ord(ch) < 32 or ord(ch) == 127 for ch in part_name)
+                or "\\" in decoded_part
+                or any(ord(ch) < 32 or ord(ch) == 127 for ch in decoded_part)
                 or not _is_valid_content_type(ctype)
             ):
                 raise RefusedToClean(
                     "[Content_Types].xml <Override> has invalid PartName or ContentType; "
                     "refusing to clean a damaged package."
                 )
-            key = part_name.lower()
+            key = decoded_part.lower()
             if key in seen_parts:
                 raise RefusedToClean(
                     f"[Content_Types].xml has duplicate <Override> PartName {part_name!r}; "
@@ -352,7 +356,7 @@ def _validate_content_types_dom(ct_dom) -> None:
             seen_parts.add(key)
 
 
-def _validate_rels_dom(rels_dom, rels_label: str) -> None:
+def _validate_rels_dom(rels_dom, rels_label: str, source_part: str = "") -> None:
     rels_root = rels_dom.documentElement
     if (
         rels_root is None
@@ -379,9 +383,7 @@ def _validate_rels_dom(rels_dom, rels_label: str) -> None:
         attrs = _unqualified_attrs(
             rel, {"Id", "Type", "Target", "TargetMode"}, f"{rels_label} <Relationship>"
         )
-        rel_id = attrs.get("Id", "").strip(_XML_WS)
-        rel_type = attrs.get("Type", "").strip(_XML_WS)
-        target = attrs.get("Target", "").strip(_XML_WS)
+        rel_id, rel_type, target, target_mode = read_relationship(rel)
         if (
             "Id" not in attrs
             or "Type" not in attrs
@@ -400,11 +402,17 @@ def _validate_rels_dom(rels_dom, rels_label: str) -> None:
                 "refusing to clean an ambiguous package."
             )
         seen_ids.add(rel_id)
-        if "TargetMode" in attrs and attrs["TargetMode"] not in ("Internal", "External"):
+        if "TargetMode" in attrs and target_mode not in ("Internal", "External"):
             raise RefusedToClean(
-                f"{rels_label} <Relationship> has invalid TargetMode {attrs['TargetMode']!r}; "
+                f"{rels_label} <Relationship> has invalid TargetMode {target_mode!r}; "
                 "refusing to clean a damaged package."
             )
+        try:
+            opc_target(target, source_part, target_mode)
+        except ValueError as exc:
+            raise RefusedToClean(
+                f"{rels_label} <Relationship> has invalid Target {target!r}: {exc}"
+            ) from exc
 
 
 def _validate_presentation_package(unpacked_dir: Path) -> None:
@@ -441,10 +449,17 @@ def _validate_presentation_package(unpacked_dir: Path) -> None:
 
     pres_rels_resolved = pres_rels_path.resolve()
     for rels_file in sorted(unpacked_dir.rglob("*.rels")):
+        if rels_file.parent.name != "_rels":
+            raise RefusedToClean(
+                f"{rels_file.relative_to(unpacked_dir).as_posix()} is not inside a _rels directory; "
+                "refusing to clean a damaged package."
+            )
         if rels_file.resolve() == pres_rels_resolved:
             continue
         _validate_rels_dom(
-            parse_xml_file(rels_file), rels_file.relative_to(unpacked_dir).as_posix()
+            parse_xml_file(rels_file),
+            rels_file.relative_to(unpacked_dir).as_posix(),
+            rels_source_part(rels_file, unpacked_dir),
         )
 
     _validate_slide_id_list(
@@ -493,11 +508,10 @@ def remove_orphaned_slides(unpacked_dir: Path) -> list[str]:
         changed = False
 
         for rel in list(child_local_elements(rels_dom.documentElement, "Relationship")):
-            if rel.getAttribute("Type") not in _SLIDE_REL_TYPES:
+            _, rel_type, target, target_mode = read_relationship(rel)
+            if rel_type not in _SLIDE_REL_TYPES:
                 continue
-            part = opc_target(
-                rel.getAttribute("Target"), source_part, rel.getAttribute("TargetMode")
-            )
+            part = opc_target(target, source_part, target_mode)
             if part is None:
                 continue
             if posixpath.basename(part) not in referenced_slides:
@@ -541,9 +555,8 @@ def _referenced_by(rels_files, unpacked_dir: Path) -> set[str]:
         source_part = rels_source_part(rels_file, unpacked_dir)
         dom = parse_xml_file(rels_file)
         for rel in child_local_elements(dom.documentElement, "Relationship"):
-            part = opc_target(
-                rel.getAttribute("Target"), source_part, rel.getAttribute("TargetMode")
-            )
+            _, _, target, target_mode = read_relationship(rel)
+            part = opc_target(target, source_part, target_mode)
             if part is not None:
                 referenced.add(part)
 
@@ -636,7 +649,11 @@ def update_content_types(unpacked_dir: Path, removed_files: list[str]) -> None:
     changed = False
 
     for override in list(child_local_elements(dom.documentElement, "Override")):
-        part_name = override.getAttribute("PartName").replace("\\", "/").lstrip("/")
+        part_name = (
+            urllib.parse.unquote(collapse_xml_space(override.getAttribute("PartName")))
+            .replace("\\", "/")
+            .lstrip("/")
+        )
         if part_name in removed_set:
             if override.parentNode:
                 override.parentNode.removeChild(override)

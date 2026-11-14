@@ -21,6 +21,7 @@ OOXML_FAMILY = {
 }
 
 _SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]*:")
+_XML_SPACE_RUN_RE = re.compile(r"[ \t\r\n]+")
 
 SLIDE_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"
 PACKAGE_RELS_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
@@ -31,11 +32,35 @@ MAX_XML_DEPTH = 256
 XML_PARSE_ERRORS = (_expat.ExpatError, _stdlib_et.ParseError, LookupError, ValueError)
 
 
+def collapse_xml_space(value: str) -> str:
+    return _XML_SPACE_RUN_RE.sub(" ", value).strip(" ")
+
+
+def read_relationship(rel_el) -> tuple[str, str, str, str]:
+    if hasattr(rel_el, "getAttribute"):
+        raw_id = rel_el.getAttribute("Id") or ""
+        raw_type = rel_el.getAttribute("Type") or ""
+        raw_target = rel_el.getAttribute("Target") or ""
+        target_mode = rel_el.getAttribute("TargetMode") or ""
+    else:
+        raw_id = rel_el.get("Id") or ""
+        raw_type = rel_el.get("Type") or ""
+        raw_target = rel_el.get("Target") or ""
+        target_mode = rel_el.get("TargetMode") or ""
+    return (
+        collapse_xml_space(raw_id),
+        collapse_xml_space(raw_type),
+        collapse_xml_space(raw_target),
+        target_mode,
+    )
+
+
 def one_line(text: str, limit: int) -> str:
     return "".join(c if c.isprintable() else c.encode("unicode_escape").decode() for c in text)[:limit]
 
 
 def opc_target(target: str, source_part: str, target_mode: str = "") -> str | None:
+    target = collapse_xml_space(target)
     if not target:
         return None
     if target_mode.lower() == "external":
@@ -525,8 +550,9 @@ def ensure_ns_prefix(dom, root, target_ns: str, default_prefix: str = "r") -> st
 
 
 def get_rel_id_attr(el) -> str:
-    return (
+    return collapse_xml_space(
         el.getAttributeNS(OFFICE_REL_NS, "id")
         or el.getAttributeNS(STRICT_OFFICE_REL_NS, "id")
         or el.getAttribute("r:id")
+        or ""
     )
