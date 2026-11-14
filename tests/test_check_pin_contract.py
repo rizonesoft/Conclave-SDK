@@ -119,7 +119,9 @@ class ShippedPinDocumentation(unittest.TestCase):
         return " | ".join(found[0])
 
     def test_every_route_and_reviewer_is_named_where_the_kit_documents_them(self):
-        self.assertEqual(set(self.PIN["routes"]), {"claude", "agy", "codex"})
+        # Owner decision 2026-11-14 (dbf6373): Claude Code and Antigravity write, Codex only reviews.
+        self.assertEqual(set(self.PIN["routes"]), {"claude", "agy"})
+        self.assertEqual(set(self.PIN["reviewers"]), {"astra"})
         readme = (self.KIT / "README.md").read_text(encoding="utf-8")
         skills = {agent: (self.KIT / "templates" / agent / "skills/independent-review/SKILL.md").read_text(encoding="utf-8")
                   for agent in (".claude", ".agents", ".codex")}

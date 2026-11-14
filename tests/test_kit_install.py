@@ -58,7 +58,7 @@ reviewer | 33-39 | review_pin.py, review-prompt.py, their tests; --help exits 0 
 reviewer | 41-45 | fresh: exit 0, review_pin --check and --check-pin exit 0 | test_reviewer_fresh_pin_passes_its_checks_and_is_three_pass
 reviewer | 46-50 | pin: astra model, claude and agy to astra, three-pass | test_reviewer_fresh_pin_passes_its_checks_and_is_three_pass
 reviewer | 51-52 | --caps prints pass_cap 33; completion has plan-delivery | test_reviewer_fresh_pin_passes_its_checks_and_is_three_pass
-reviewer | 53-58 | codex routed to carbon; no gemini route, no sonnet | test_reviewer_fresh_pin_passes_its_checks_and_is_three_pass
+reviewer | 53-58 | no codex or gemini route, no carbon, no sonnet | test_reviewer_fresh_pin_passes_its_checks_and_is_three_pass
 reviewer | 60-62 | second install exits 0, every file digest unchanged | test_a_second_install_changes_no_file
 reviewer | 64-67 | dry run exits 0, the folder stays empty | test_a_dry_run_writes_nothing
 reviewer | 69-72 | --force exits non-zero | test_force_is_refused_and_changes_nothing
@@ -347,8 +347,10 @@ class KitInstallTests(unittest.TestCase):
         for line in ('model = "gpt-6-astra"', 'claude = ["astra"]', 'agy = ["astra"]',
                      'policy = "three-pass"'):
             self.assertIn(line, pin)
-        # No route under Antigravity's other name, and no Claude model reviews (Claude writes and never reviews).
-        self.assertEqual([line for line in pin if line.startswith("gemini = ") or "sonnet" in line], [])
+        # Codex only reviews (no writer route, no Carbon reviewer), no route under Antigravity's other name,
+        # and no Claude model reviews (Claude writes and never reviews).
+        self.assertEqual([line for line in pin if line.startswith(("gemini = ", "codex = ", "[reviewers.carbon]"))
+                          or "sonnet" in line], [])
         self.assertIn("pass_cap 33", self.assert_runs(project, "scripts/review_pin.py", "--caps").splitlines())
         lenses = self.assert_runs(project, "scripts/review_pin.py", "--lenses", "completion").splitlines()
         self.assertTrue(any(line.startswith("plan-delivery: ") for line in lenses), lenses)
