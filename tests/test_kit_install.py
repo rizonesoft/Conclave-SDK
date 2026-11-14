@@ -343,9 +343,8 @@ class KitInstallTests(unittest.TestCase):
         self.assert_runs(project, "scripts/review_pin.py", "--check")
         self.assert_runs(project, "scripts/review-dispatch.py", "--check-pin")
         pin = (project / ".conclave/reviewers.toml").read_text(encoding="utf-8").splitlines()
-        # A new install starts on three-pass and routes all three writers: Claude Code and Antigravity to Astra,
-        # Codex to Carbon (D00 T02 section 1; the script still forbade a codex route, on a line `set -e` ignored).
-        for line in ('model = "gpt-6-astra"', 'claude = ["astra"]', 'agy = ["astra"]', 'codex = ["carbon"]',
+        # A new install starts on three-pass and routes the two writers to Astra.
+        for line in ('model = "gpt-6-astra"', 'claude = ["astra"]', 'agy = ["astra"]',
                      'policy = "three-pass"'):
             self.assertIn(line, pin)
         # No route under Antigravity's other name, and no Claude model reviews (Claude writes and never reviews).

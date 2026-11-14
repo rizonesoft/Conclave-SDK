@@ -37,12 +37,12 @@ Requires Node.js 22+ and Windows PowerShell for normal Windows use. The 1Passwor
 4. Build and verify:
 
    ```powershell
-   cd <SDK>\plugins\codex\atera
+   cd D:\Conclave-SDK\plugins\codex\atera
    npm ci
    npm run icons
    npm run build
    npm test
-   codex plugin marketplace add <SDK>\plugins\codex
+   codex plugin marketplace add D:\Conclave-SDK\plugins\codex
    codex plugin add atera@rizonetech
    node scripts/check-connection.mjs
    ```
@@ -69,7 +69,7 @@ The current specification declares Bearer-token authentication and `/api/v3/` pa
 
 ## Set, update, or check credentials
 
-Run from `<SDK>\plugins\codex\atera` (or the actual plugin directory):
+Run from `D:\Conclave-SDK\plugins\codex\atera` (or the actual plugin directory):
 
 ```powershell
 # Set a token on a new computer, or replace the current token. Input is hidden.

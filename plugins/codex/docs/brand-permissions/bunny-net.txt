@@ -1,0 +1,17 @@
+UNSENT DRAFT
+To: hello@bunny.net
+Subject: Permission to use the Bunny.net logo for a private Rizonetech integration
+
+Good day Bunny.net team,
+
+We have built a private integration with the Bunny.net API for our internal work at Rizonetech. It connects our own account to ChatGPT and Codex through an MCP server and supports CDN, DNS and Storage management, with previews and explicit confirmation before changes.
+
+Could you please confirm whether we may use your official logo or icon to identify this integration in our private ChatGPT plugin listing, local Codex plugin, and the related assets and documentation in our private source repository?
+
+The proposed display name is "Bunny.net integration by Rizonetech", with a clear statement that it is an unofficial integration developed by Rizonetech and is not endorsed by Bunny.net. It is not being offered publicly or sold, and we would seek separate permission before any public distribution.
+
+We would use your approved artwork without changing its design, apart from proportional resizing. Please let us know any required attribution, naming rules, usage limits or other conditions, and which logo file you would prefer us to use.
+
+We are holding the ChatGPT icon upload until permission is confirmed. I can provide a preview for review. If another team handles brand permissions, please direct this request to them.
+
+[Current Rizonetech signature follows in the saved Outlook draft.]

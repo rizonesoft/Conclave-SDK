@@ -1,6 +1,6 @@
 # Pressable by Rizonetech
 
-Private hosting management through Pressable's official MCP server, wrapped with encrypted credential storage and explicit change previews. Source: `<SDK>\plugins\codex\pressable`. Independent integration, not endorsed by Pressable.
+Private hosting management through Pressable's official MCP server, wrapped with encrypted credential storage and explicit change previews. Source: `D:\Conclave-SDK\plugins\codex\pressable`. Independent integration, not endorsed by Pressable.
 
 ## Capabilities
 
@@ -13,9 +13,9 @@ Six MCP tools expose 57 reviewed operations: 36 reads and 21 prepared changes. I
 Prerequisites: Node 22 or newer and PowerShell. Install the plugin from the Rizonetech marketplace. Run the source or installed package's `scripts/configure.ps1` for a hidden credential prompt, or pass a SecureString via `-Token`. For the existing Conclave recovery entry:
 
 ```powershell
-& <SDK>\plugins\codex\pressable\scripts\configure.ps1 -TokenReference 'op://Conclave/ybrpgakuvfuuwc5srxjsrj7ff4/password'
-& <SDK>\plugins\codex\pressable\scripts\configure.ps1 -Status
-node <SDK>\plugins\codex\pressable\scripts\check-connection.mjs
+& D:\Conclave-SDK\plugins\codex\pressable\scripts\configure.ps1 -TokenReference 'op://Conclave/ybrpgakuvfuuwc5srxjsrj7ff4/password'
+& D:\Conclave-SDK\plugins\codex\pressable\scripts\configure.ps1 -Status
+node D:\Conclave-SDK\plugins\codex\pressable\scripts\check-connection.mjs
 ```
 
 Stores the token under `%LOCALAPPDATA%\Rizonetech\Pressable\token.dpapi`, encrypted for the current Windows account, with current-user/SYSTEM ACLs. Configuration is non-secret and unrelated settings survive updates. Normal operation never invokes 1Password; the live check explicitly blocks it. The process caches the credential until restart. After rotation restart/reload the plugin; changing the 1Password entry alone does not refresh the runtime copy.
@@ -42,10 +42,10 @@ An offline service returns a concise failure and never queues business changes. 
 ## Build and tests
 
 ```powershell
-npm --prefix <SDK>\plugins\codex\pressable ci
-npm --prefix <SDK>\plugins\codex\pressable test
-& <SDK>\plugins\codex\pressable\tests\windows-setup.ps1
-npm --prefix <SDK>\plugins\codex\pressable run build
+npm --prefix D:\Conclave-SDK\plugins\codex\pressable ci
+npm --prefix D:\Conclave-SDK\plugins\codex\pressable test
+& D:\Conclave-SDK\plugins\codex\pressable\tests\windows-setup.ps1
+npm --prefix D:\Conclave-SDK\plugins\codex\pressable run build
 ```
 
 `scripts/review-schemas.mjs` is explicit developer-only schema discovery, never automatic access expansion. The checked-in operation schemas are provider metadata, not account contents. Requests have deadlines, a 4 MiB response limit and bounded parameters. Pagination is explicit; one result is not a promise of full inventory. Provider failures omit raw error bodies; response credential fields and URL query strings are redacted.

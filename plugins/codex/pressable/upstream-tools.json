@@ -1,0 +1,75 @@
+[
+  {
+    "name": "discover_tools",
+    "title": "Discover Pressable Tools",
+    "description": "List the Pressable operations you can perform. Returns each operation's name,\ntitle, a one-line summary, and category — but not its full input schema (use\ndescribe_tool for that). Use this first to find the operation you need, then\ndescribe_tool to learn its parameters, then execute_tool to run it.\n\nOptionally pass `query` to filter operations by a case-insensitive substring\nmatch against name, title, and summary (e.g. \"backup\", \"dns\", \"plugin\").\n",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Optional case-insensitive substring to filter operations by name, title, or summary."
+        }
+      }
+    },
+    "annotations": {
+      "title": "Discover Pressable Tools",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "describe_tool",
+    "title": "Describe a Pressable Tool",
+    "description": "Return the full definition of one Pressable operation: its title, description,\ninput schema (parameters, types, and which are required), and behavior\nannotations. Call discover_tools first to find the operation name, then pass it\nhere to learn exactly how to call it with execute_tool.\n",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tool_name": {
+          "type": "string",
+          "description": "The exact operation name from discover_tools (e.g. \"get_site_status\")."
+        }
+      },
+      "required": [
+        "tool_name"
+      ]
+    },
+    "annotations": {
+      "title": "Describe a Pressable Tool",
+      "readOnlyHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true,
+      "openWorldHint": false
+    }
+  },
+  {
+    "name": "execute_tool",
+    "title": "Execute a Pressable Tool",
+    "description": "Run a Pressable operation by name with the given parameters. Call discover_tools\nto find the operation and describe_tool to learn its input schema first, then pass\nthe operation name and a parameters object here. Authorization, input validation,\nand behavior are identical to calling the operation directly.\n",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tool_name": {
+          "type": "string",
+          "description": "The exact operation name from discover_tools (e.g. \"get_site_status\")."
+        },
+        "parameters": {
+          "type": "object",
+          "description": "The operation's parameters, matching its input schema from describe_tool."
+        }
+      },
+      "required": [
+        "tool_name"
+      ]
+    },
+    "annotations": {
+      "title": "Execute a Pressable Tool",
+      "readOnlyHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": true
+    }
+  }
+]

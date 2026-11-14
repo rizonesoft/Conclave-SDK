@@ -739,8 +739,8 @@ class ForgeProvisionTests(unittest.TestCase):
         checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "reviewer")["checks"]}
         self.assertEqual(checks["reviewer-pin"], "ok")
         self.assertEqual(checks["skill:independent-review:.claude"], "ok")
-        # D00 T02 §1: the installed pin routes all three writers, through two reviewers.
-        self.assertEqual({k for k in checks if k.startswith("reviewer:")}, {"reviewer:astra", "reviewer:carbon"})
+        # Two writers share the Codex reviewer.
+        self.assertEqual({k for k in checks if k.startswith("reviewer:")}, {"reviewer:astra"})
         self.assertIn("reviewer", forge.installed_kits(project))
 
         (project / ".conclave/reviewers.toml").write_text("schema_version = 1\n", encoding="utf-8")

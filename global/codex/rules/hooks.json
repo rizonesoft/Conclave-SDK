@@ -2,7 +2,8 @@
   "hooks": {
     "UserPromptSubmit": [{"hooks": [
       {"type": "command", "command": "python3 \"{HOOKS}/article_rules.py\"", "commandWindows": "{PYTHON_WINDOWS} \"{HOOKS_WINDOWS}/article_rules.py\"", "timeout": 40},
-      {"type": "command", "command": "python3 \"{HOOKS}/layer_rules.py\"", "commandWindows": "{PYTHON_WINDOWS} \"{HOOKS_WINDOWS}/layer_rules.py\"", "timeout": 10}
+      {"type": "command", "command": "python3 \"{HOOKS}/layer_rules.py\"", "commandWindows": "{PYTHON_WINDOWS} \"{HOOKS_WINDOWS}/layer_rules.py\"", "timeout": 10},
+      {"type": "command", "command": "python3 \"{HOOKS}/session_drift_check.py\"", "commandWindows": "{PYTHON_WINDOWS} \"{HOOKS_WINDOWS}/session_drift_check.py\"", "timeout": 4}
     ]}],
     "PreToolUse": [{"matcher": "^(Bash|shell|exec_command|local_shell|PowerShell)$", "hooks": [
       {"type": "command", "command": "python3 \"{HOOKS}/article_rules.py\"", "commandWindows": "{PYTHON_WINDOWS} \"{HOOKS_WINDOWS}/article_rules.py\"", "timeout": 40}

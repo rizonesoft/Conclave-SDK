@@ -9,13 +9,12 @@ Your own review is not enough for a nontrivial change: a different model reviews
 
 | Work written by | `--writer` | Reviewer (as installed) | Fallback |
 | --- | --- | --- | --- |
-| Claude Code | `claude` | `astra`: `gpt-6-astra` through `codex`, scheduled effort | none |
-| Antigravity | `agy` (or `gemini`) | `astra`: `gpt-6-astra` through `codex`, scheduled effort | none |
-| Codex | `codex` | `carbon`: `gemini-4-carbon-medium` through `agy`, scheduled effort in the model name | none |
+| Claude Code | `claude` | `astra`: `gpt-6-astra` through `codex`, medium then low | none |
+| Antigravity | `agy` (or `gemini`) | `astra`: `gpt-6-astra` through `codex`, medium then low | none |
 
-Name your own agent as the writer. The pin as installed routes `claude` and `agy` to GPT-6 Astra through the Codex CLI in a read-only sandbox, and `codex` to Gemini 4 Carbon through the Antigravity CLI in its sandbox, with its file-writing, file-editing and MCP tools denied for the session; the project owns its pin and may change it in `.conclave/reviewers.toml`. A route names exactly one reviewer, never of the writer's own model family, and the pin refuses an unrouted writer, an unknown CLI, a second reviewer or a same-family reviewer.
+Claude Code and Antigravity write; Codex only reviews. The installed pin routes both writers to GPT-6 Astra through the Codex CLI in a read-only sandbox. Codex has no writer route. A route names exactly one reviewer of another model family.
 
-The pin's `[schedule]` sets each pass's reasoning effort and lenses, so the writer never picks them, and it has two shapes. Check which one applies first: `python scripts/review_pin.py --check` loads the pin, and `[schedule] policy` says which flow runs. `python scripts/review_pin.py --lenses <kind>` prints a three-pass pin's lenses for a pass and `--caps` prints its `pass_cap` and `no_progress_cap`.
+The pin's `[schedule]` sets each pass's lenses and optional reasoning effort, so the writer never picks them, and it has two shapes. The installed pin gives Astra medium effort for plan and initial round reviews, then low for completion and reconciliation. Check which one applies first: `python scripts/review_pin.py --check` loads the pin, and `[schedule] policy` says which flow runs. `python scripts/review_pin.py --lenses <kind>` prints a three-pass pin's lenses for a pass and `--caps` prints its `pass_cap` and `no_progress_cap`.
 
 - **Three-pass** (`policy = "three-pass"`, what a new install starts on): a plan review before the build, one round after it, one completion review of the final candidate, and a reconciliation only after a pass that returned gaps.
 - **Rotation** (no `policy` key): a plan review, a completion review, then rounds at falling effort and one lens per round until a round has no `P1` or `P2` finding.

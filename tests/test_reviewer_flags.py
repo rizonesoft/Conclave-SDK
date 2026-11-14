@@ -265,6 +265,9 @@ class DoctorCheck(unittest.TestCase):
         project = self.dir / "project"
         project.mkdir()
         forge.apply_kit(project, "reviewer")
+        # Explicit custom pin: Antigravity reviewers are not the installed default.
+        (project / ".conclave/reviewers.toml").write_bytes(
+            (ROOT / "tests/fixtures/check-pin/pins/valid-three-routes.toml").read_bytes())
         with self.path_with_only_the_stub():
             checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "reviewer")["checks"]}
         self.assertEqual(checks["reviewer-flags:carbon"], "ok")
@@ -276,6 +279,9 @@ class DoctorCheck(unittest.TestCase):
         project = self.dir / "project"
         project.mkdir()
         forge.apply_kit(project, "reviewer")
+        # Explicit custom pin: Antigravity reviewers are not the installed default.
+        (project / ".conclave/reviewers.toml").write_bytes(
+            (ROOT / "tests/fixtures/check-pin/pins/valid-three-routes.toml").read_bytes())
         name = "agy.cmd" if os.name == "nt" else "agy"
         decoy = project / name
         decoy.write_text("@exit 9\r\n" if os.name == "nt" else "#!/bin/sh\nexit 9\n", encoding="utf-8")
@@ -302,6 +308,9 @@ class DoctorCheck(unittest.TestCase):
         project = self.dir / "project"
         project.mkdir()
         forge.apply_kit(project, "reviewer")
+        # Explicit custom pin: Antigravity reviewers are not the installed default.
+        (project / ".conclave/reviewers.toml").write_bytes(
+            (ROOT / "tests/fixtures/check-pin/pins/valid-three-routes.toml").read_bytes())
         pin = project / ".conclave/reviewers.toml"
         pin.write_text(pin.read_text(encoding="utf-8").replace(
             "[routes]", '[reviewers.argon]\ncli = "agy"\nmodel = "gemini-4-argon-medium"\n\n[routes]', 1), encoding="utf-8")
@@ -380,6 +389,9 @@ class DoctorCheck(unittest.TestCase):
         project = self.dir / "project"
         project.mkdir()
         forge.apply_kit(project, "reviewer")
+        # Explicit custom pin: Antigravity reviewers are not the installed default.
+        (project / ".conclave/reviewers.toml").write_bytes(
+            (ROOT / "tests/fixtures/check-pin/pins/valid-three-routes.toml").read_bytes())
         prompt_path = self.dir / "prompt.md"
         prompt_path.write_text("Review the diff cleanly.\n", encoding="utf-8")
         pin = dispatch.load_pin(project / ".conclave/reviewers.toml")
@@ -396,6 +408,9 @@ class DoctorCheck(unittest.TestCase):
         project = self.dir / "project"
         project.mkdir()
         forge.apply_kit(project, "reviewer")
+        # Explicit custom pin: Antigravity reviewers are not the installed default.
+        (project / ".conclave/reviewers.toml").write_bytes(
+            (ROOT / "tests/fixtures/check-pin/pins/valid-three-routes.toml").read_bytes())
         self._install_codex_stub()
 
         with self.path_with_only_the_stub():

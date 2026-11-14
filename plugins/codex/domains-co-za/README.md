@@ -1,6 +1,6 @@
 # Domains.co.za by Rizonetech
 
-Local Windows MCP integration for Domains.co.za reseller domain management. Source lives directly in `<SDK>\plugins\codex\domains-co-za` and is listed under **Rizonetech**.
+Local Windows MCP integration for Domains.co.za reseller domain management. Source lives directly in `D:\Conclave-SDK\plugins\codex\domains-co-za` and is listed under **Rizonetech**.
 
 ## Capabilities
 
@@ -18,17 +18,17 @@ Prerequisites: Windows, Node.js 22+, PowerShell; 1Password CLI is needed only fo
 
 ```powershell
 # Import once after completing the Conclave placeholder:
-& <SDK>\plugins\codex\domains-co-za\scripts\configure.ps1 -ImportFrom1Password
+& D:\Conclave-SDK\plugins\codex\domains-co-za\scripts\configure.ps1 -ImportFrom1Password
 # Or enter username/password locally with a hidden password prompt:
-& <SDK>\plugins\codex\domains-co-za\scripts\configure.ps1
+& D:\Conclave-SDK\plugins\codex\domains-co-za\scripts\configure.ps1
 # Or store a provider-issued JWT using a hidden local prompt:
 $credential = Read-Host 'API bearer token' -AsSecureString
-& <SDK>\plugins\codex\domains-co-za\scripts\configure.ps1 -Token $credential
+& D:\Conclave-SDK\plugins\codex\domains-co-za\scripts\configure.ps1 -Token $credential
 $credential.Dispose()
 # Presence only, no decryption or 1Password:
-& <SDK>\plugins\codex\domains-co-za\scripts\configure.ps1 -Status
+& D:\Conclave-SDK\plugins\codex\domains-co-za\scripts\configure.ps1 -Status
 # Harmless API check, no private account details returned:
-node <SDK>\plugins\codex\domains-co-za\scripts\check-connection.mjs
+node D:\Conclave-SDK\plugins\codex\domains-co-za\scripts\check-connection.mjs
 ```
 
 Credentials are bundled into a Windows DPAPI CurrentUser-encrypted file under `%LOCALAPPDATA%\Rizonetech\DomainsCoZa\token.dpapi`. The directory ACL allows only the current account and SYSTEM. Non-secret `config.json` has a schema version; updates preserve unrelated fields. Empty/invalid imports do not overwrite working credentials. Secrets are never accepted as plaintext command arguments. A SecureString `-Credential` JSON bundle is also supported for local automation and isolated tests.
@@ -40,7 +40,7 @@ Updating the Conclave entry alone does not refresh the encrypted copy: rerun the
 ## Build and verify
 
 ```powershell
-cd <SDK>\plugins\codex\domains-co-za
+cd D:\Conclave-SDK\plugins\codex\domains-co-za
 npm ci
 npm test
 npm run build

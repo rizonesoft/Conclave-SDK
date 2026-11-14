@@ -1,6 +1,6 @@
 # Private ChatGPT cloud access
 
-Source: <SDK>\plugins\codex\cloud-access. Uses official OpenAI tunnel-client v0.0.15 (release asset SHA-256 3b53133a1e24d43f63088d843860cb1701a4c3ed6390de2e19f69089e443bddc1).
+Source: D:\Conclave-SDK\plugins\codex\cloud-access. Uses official OpenAI tunnel-client v0.0.15 (release asset SHA-256 3b53133a1e24d43f63088d843860cb1701a4c3ed6390de2e19f69089e443bddc1).
 
 ## Current state (2026-10-05)
 

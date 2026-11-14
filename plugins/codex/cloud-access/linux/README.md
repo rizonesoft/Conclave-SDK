@@ -1,6 +1,6 @@
 # Ubuntu cloud runtime
 
-Production host: conclave-srv, Ubuntu 24.04, Tailscale 100.83.89.28. Source remains <SDK>\plugins\codex.
+Production host: conclave-srv, Ubuntu 24.04, Tailscale 100.83.89.28. Source remains D:\Conclave-SDK\plugins\codex.
 
 Services: rizonetech-mcp@atera and rizonetech-mcp@domains-co-za. Both are enabled at boot and automatically restart. Existing private OpenAI tunnel IDs and ChatGPT connections are retained. No public inbound MCP listener is exposed; Tailscale is for administration, outbound OpenAI tunnels carry cloud calls. Health endpoints bind to 127.0.0.1 ports 18781 and 18782.
 

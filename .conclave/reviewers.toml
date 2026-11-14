@@ -24,22 +24,10 @@ cli = "codex"
 model = "gpt-6-astra"
 effort = "medium"
 
-# Gemini 4 Carbon through the Antigravity CLI, reviewing Codex's work: in
-# its sandbox, with its file-writing, file-editing and MCP tools denied for the
-# session (plan mode would refuse the reviewer every command, `git show` included).
-# Gemini 4 Carbon reviews directly at the effort every [schedule] pass sets
-# (`agy models` lists them), without delegating execution to Hydrogen.
-[reviewers.carbon]
-cli = "agy"
-model = "gemini-4-carbon-medium"
-
-# All three writers are routed: Astra (OpenAI) reviews Claude Code and
-# Antigravity, and Carbon (Google) reviews Codex. Claude writes and never
-# reviews, so no route names a Claude reviewer.
+# Claude and Antigravity write. Codex (Astra) only reviews.
 [routes]
 claude = ["astra"]
 agy = ["astra"]
-codex = ["carbon"]
 
 # The review schedule: three passes per section. Decision 2026-11-11: new
 # installs start on three-pass, the shape the projects built on this SDK run.
@@ -77,11 +65,11 @@ effort = "medium"
 lenses = ["adversarial", "integration", "source-defect", "consistency", "quality", "optimization", "design"]
 
 [schedule.completion]
-effort = "medium"
+effort = "low"
 lenses = ["plan-delivery", "record"]
 
 [schedule.reconciliation]
-effort = "medium"
+effort = "low"
 lenses = ["adversarial", "integration", "plan-delivery", "record"]
 
 # Optional keys, shown as examples.

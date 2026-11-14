@@ -1,6 +1,6 @@
 # Router design
 
-Authoritative source: <SDK>\plugins\codex\website-router. Local catalogue: Rizonetech. Cloud host: conclave-srv. One dedicated outbound OpenAI tunnel serves the router's registered websites. Website additions update the encrypted registry, not the plugin source or tunnel configuration.
+Authoritative source: D:\Conclave-SDK\plugins\codex\website-router. Local catalogue: Rizonetech. Cloud host: conclave-srv. One dedicated outbound OpenAI tunnel serves the router's registered websites. Website additions update the encrypted registry, not the plugin source or tunnel configuration.
 
 ## Target and policy boundaries
 

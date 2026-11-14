@@ -8,28 +8,16 @@ Additive overlay that gives a project independent review by a different model: o
 | --- | --- | --- |
 | Claude Code | `claude` | `astra`: GPT-6 Astra through `codex` |
 | Antigravity | `agy` (or `gemini`) | `astra`: GPT-6 Astra through `codex` |
-| Codex | `codex` | `carbon`: Gemini 4 Carbon through `agy` |
 
-A route names exactly one reviewer, never of the writer's own model family: the pin refuses anything else. `agy` and `gemini` are one writer under two names, so a route under either serves both and a pin may not route both. A reviewer that cannot review is no review, and no other reviewer runs in its place.
+Claude Code and Antigravity are the two writers. Codex is reviewer only, through `astra` (`gpt-6-astra`, read-only sandbox). The default pin has no Codex writer route and no Antigravity reviewer. Astra uses medium effort for plan and initial round reviews, then low for completion and reconciliation. Routes, lenses and pass limits otherwise retain their existing behavior.
 
-| Reviewer | CLI | Model | Effort |
-| --- | --- | --- | --- |
-| `astra` | `codex exec`, read-only sandbox | `gpt-6-astra` | `medium` |
-| `carbon` | `agy`, in its sandbox with edit, write and MCP denied | `gemini-4-carbon-medium` | in the model name |
+## Updating existing projects
 
-Claude writes and never reviews, so no installed route names a Claude reviewer, though the dispatcher can run one (`cli = "claude"`, plan mode). A direct Antigravity reviewer carries its effort in the model name (which must agree with any three-pass `[schedule]` effort), and its model must be one of Google's (`gemini-...`): `agy` also runs other families' models, and a route never names the writer's own family. Antigravity `Orchestrator` models (`gemini-pro-orchestrator` and `gemini-pro-orchestrator-*`) manage effort internally and reject `--effort`, so they load only when no `[schedule]` pass sets `effort` (on both three-pass and rotation schedules).
-
-### How the Antigravity reviewer is run, and the proof
-
-The dispatcher runs `agy --model <model> --sandbox --settings <file> --print-timeout <n>s -p=<prompt>`, the settings file holding `{"permissions": {"deny": ["write_file(*)", "edit_file(*)", "mcp(*)"]}}` for that session only. It passes no `--mode`: measured on `agy` 1.5.8 (2026-11-13), headless `--mode plan` refuses every shell command, `git show` and `git log` included, whatever a `permissions.allow` rule, a trusted workspace or a `PreToolUse` hook's `allow` says, and a run with one refused tool prints nothing, so a reviewer there returned no review. In the sandbox a command runs and cannot write: a file write by Python and by PowerShell, `git commit` and `git tag` were each refused inside the repository, and writes to the parent folder, the home folder and another repository were refused too (only the temp folder took one), while the deny rules refuse the agent's own `write_file(*)`, `edit_file(*)` and `mcp(*)` calls. `--mode auto` is not offered to every account (`agy` then falls back to its default mode), which is why none is passed.
-
-Proof, 2026-11-14: `python scripts/review-dispatch.py --kind round --candidate f69e3edd55873cf0a293a8d5e0e9ba1f836fc304 --writer codex` under the installed pin reached `carbon` (`gemini-4-carbon-medium`, `agy` 1.5.8) and recorded its review to a scratch findings file (`2026-11-13T23:19:28Z`, ~411s, all six `LENS` lines present, `HIGHEST: P1`, `OVERALL: needs-attention`) while quoting the committed `Started:` line `2026-11-13T22:54:00Z` from `f69e3edd`. A paired bounded live `--sandbox --settings` probe (`76.5s`, `gemini-4-carbon-medium`) read `f69e3edd` (`2026-11-13T22:54:00Z`) and attempted `edit_file` on a disposable scratch file: `agy` refused it with `Permission denied ... Matches user-configured deny rule`, leaving its SHA-256 unchanged (`60A8F0BF...CC7`). Earlier proof, 2026-11-13: `review_pin` checks fixed a family-check crash on malformed models and a reviewer that prints nothing keeps its first stderr line.
-
-`python forge.py doctor <project> reviewer` holds that command against the installed CLI with a `reviewer-flags:<name>` check for each Antigravity reviewer: every flag the dispatcher passes (`AGY_FLAGS` in `review-dispatch.py`: `--model`, `--sandbox`, `--settings`, `--print-timeout`, `-p`) is in `agy --help`, and `agy --settings <file> agents` accepts the session settings (`write_file(*)`, `edit_file(*)`, `mcp(*)`; it validates them and runs no model). It reports `unexpected` naming a flag the CLI no longer lists or the CLI's own refusal of the settings, `setup_required` when the CLI cannot start or does not answer in 15 seconds (its whole process tree is then ended), and `ok` with the version otherwise. Checked 2026-11-14 against `agy` 1.5.8 on this machine via `python forge.py doctor . reviewer --strict`: exited `0` with `reviewer-flags:carbon` status `ok`, all five flags listed, and `write_file(*)`, `edit_file(*)`, and `mcp(*)` settings accepted. Change reviewers, models, routes or the schedule only in `.conclave/reviewers.toml`. The pin is a starting point the project owns once installed, not a link back to the SDK.
+Keep the Claude and Antigravity writer routes pointing to Astra. Remove the Codex writer route and unused Carbon reviewer from the project's pin. Restore medium plan/round effort and low completion/reconciliation effort without changing other lenses or limits. Remove Codex campaign shortcuts and keep the Claude and Carbon writer shortcuts. Existing projects own their copies and are not changed by an SDK update.
 
 ## The review schedule
 
-The pin's `[schedule]` makes the dispatcher pick each pass's effort and lenses, so a section is reviewed the same way every time. It has two shapes.
+The pin's `[schedule]` makes the dispatcher pick each pass's lenses and optional effort, so a section is reviewed the same way every time. The installed pin uses medium for Astra plan/initial round reviews and low for completion/reconciliation. It has two shapes.
 
 ### Three-pass (`policy = "three-pass"`, what a new install starts on)
 
@@ -50,7 +38,7 @@ The round's seven lenses are adversarial, integration, source-defect, consistenc
 - **Caps.** `pass_cap` is the most returned passes a section may take in all (33 when absent). `no_progress_cap` (optional) stops a run of reconciliations whose worst finding gets no less severe.
 - **Conditional lenses.** A `[[schedule.conditional]]` entry (`lenses`, `passes`, `paths`) adds its lenses to the named passes only when a file the section changed starts with one of its repository-relative paths. A plan review, and a review outside a section, take the files from `--paths`.
 - **Lenses of your own.** `[schedule.lenses]` declares extra lens names with their questions, so a project adds a lens without editing the dispatcher.
-- **Effort is optional** on reviewers and steps: a step without one passes no effort to the reviewer's CLI, whose own configuration then decides. For non-Orchestrator Antigravity reviewers (`agy`), the model name must end with every effort a three-pass schedule sets; Orchestrator models (`gemini-pro-orchestrator` and `gemini-pro-orchestrator-*`) reject scheduled effort on both three-pass and rotation schedules, and non-Orchestrator rotation schedules ignore step effort.
+- **Effort is optional** on reviewers and steps: a step without one passes no effort to the reviewer's CLI, whose own configuration then decides. For non-Orchestrator Antigravity reviewers (`agy`), the model name must end with every effort a three-pass schedule sets; Orchestrator models (`gemini-pro-orchestrator` and `gemini-pro-orchestrator-*`) require an effort-free schedule, and non-Orchestrator rotation schedules ignore step effort.
 
 ### Rotation (no `policy` key)
 
@@ -64,7 +52,7 @@ The round's seven lenses are adversarial, integration, source-defect, consistenc
 | Later rounds, one lens each | low | consistency, quality, design, optimization, record |
 | After a low-effort round that finds a P1 | medium | adversarial |
 
-The design lens joins the rotation only with `--surface`. With `severity_stop_after = 0` the first round with no P1 or P2 finding ends the loop (the summary's `severity_stop` is true); the cap is 33 rounds. A rotation schedule takes none of the three-pass keys. A project on a rotation pin keeps it for as long as its pin says so:
+The design lens joins the rotation only with `--surface`. With `severity_stop_after = 0` the first round with no P1 or P2 finding ends the loop (the summary's `severity_stop` is true); the cap is 33 rounds. A rotation schedule takes none of the three-pass keys. A project on a rotation pin keeps it for as long as its pin says so. Orchestrator ignores the effort settings; other reviewers retain this cadence:
 
 ```toml
 [schedule]
