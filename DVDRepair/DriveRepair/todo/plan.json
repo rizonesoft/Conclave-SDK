@@ -1,8 +1,0 @@
-{
-  "title": "Implementation plan",
-  "acceptance": "DriveRepair.exe builds from a clean clone against the pinned SDK, passes its parity check against both AutoIt originals, and repairs, verifies and reverses on a real machine with a real device.",
-  "phases": {
-    "0": "Repository and tooling",
-    "99": "Manual, operator only"
-  }
-}
