@@ -1,0 +1,85 @@
+{
+  "ref": "D05 T01 \u00a74",
+  "title": "`forge.py init --acceptance` for the todo kit's plan",
+  "implementation_sha": "ac2759132d8ee3c04465ce3c7be67950333ed355",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/05-base/D05-T01-s4.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "check-all --only tests 955 pass on 9b5fcd4",
+    "tests.test_forge -k InitAcceptance -k InitGoal on Windows and WSL, seven mutations caught",
+    "CI run 43759375944 green on ac27591"
+  ],
+  "completion": {
+    "report": "docs/reviews/05-base/D05-T01-s4.md",
+    "verdict": "complete",
+    "candidate": "ac2759132d8ee3c04465ce3c7be67950333ed355",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/05-base/D05-T01-s4.md",
+    "candidate": "97cbe2400dea1680b3c2d0f00ed054435462cfa8",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "97cbe2400dea1680b3c2d0f00ed054435462cfa8",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}

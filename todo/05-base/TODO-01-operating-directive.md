@@ -2,7 +2,7 @@
 schema_version: 1
 id: operating-directive
 domain: 05-base
-status: active
+status: done
 title: "TODO-01 -- Operating directive in the base kit"
 ---
 
@@ -37,7 +37,7 @@ title: "TODO-01 -- Operating directive in the base kit"
 | 1 | §1 | Operating directive in the base `AGENTS.md` | -- | [x] |
 | 2 | §2 | Git hygiene rules in the base kit | §1 | [x] |
 | 3 | §3 | `forge.py init --goal` | §1, D01 T01 §2 | [x] |
-| 4 | §4 | `forge.py init --acceptance` for the todo kit's plan | §3 | [ ] |
+| 4 | §4 | `forge.py init --acceptance` for the todo kit's plan | §3 | [x] |
 
 ## 1. Operating directive in the base `AGENTS.md`
 
@@ -153,13 +153,16 @@ The ambition ("finish 100 percent") belongs where the runner reads it: the accep
 - [x] Leave a project's own `todo/plan.json` alone in `provision`, and fill one that is not yet the project's: the one this run installed, or one still byte for byte the kit's (what a run that failed before writing the bar leaves), by the rule `--goal` follows. Never read or write through a link: a `todo/plan.json` that is a link, or whose `todo/` is (`_is_link`, `_has_unsafe_parent`), is left as it is. The result always says what happened: `acceptance_applied` true with `acceptance_reason` naming the case (written into the plan this run installed, filled in the kit's file, the bar already there), or false with why (the project's own file, a link). Done when: tests find a project's own file byte for byte unchanged with its reason; a linked file and a linked `todo/` refused with the link and the file it leads to unchanged; a fresh run, a retry after a failed write (exit 1, the kit's file in place, the second run filling it) and a second identical run each with their `true` reason, the last leaving the file byte for byte as it was.
 - [x] Prove the generated plan shows the bar: after the install, `python scripts/todo-graph.py plan --sync` writes a `todo/implementation-plan.md` whose acceptance line holds the text. Done when: a test on the fresh install finds it.
 - [x] Document `--acceptance` in `README.md` and in `kits/todo/README.md`. Done when: both name it with one example.
-- [ ] Commit: `forge: init --acceptance sets the plan's acceptance bar`
+- [x] Commit: `forge: init --acceptance sets the plan's acceptance bar`
 
 **Corrected 2026-11-15 (validation):** measured against the tree after §3. (1) `todo/plan.json` in the todo kit is two-space JSON with `acceptance: null`, and `todo-graph.py plan` prints a set bar as "The acceptance bar is <bar>" (`scripts/lib/todo_graph.py`), so the bar is written as JSON (`json.dumps`, two spaces, `ensure_ascii=False`, a final newline), never by replacing text. (2) §3's plan review showed what a value written after the install needs: a refusal of what it would not write, the result's `_applied` and `_reason`, and a retry for a file still the kit's; this section takes the same three, with the same limits. (3) The install record holds the kit's digest for `todo/plan.json`, so a filled bar reads as the project's change, as the goal does.
 
 **Corrected 2026-11-15 (plan review):** two gaps, both taken into the item on an existing plan. (1) The retry writes into a file the run did not install, and `provision` checks for links only on the way to files it creates: a linked `todo/plan.json` or `todo/` is never read or written, and tests keep the link and what it leads to unchanged. (2) The result says `acceptance_applied` and `acceptance_reason` in every case, success included, and a second identical run reports the bar already there and changes nothing.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; accepting `--acceptance` without the todo kit makes its refusal test fail.
+
+> **Verified:** 2026-11-15 | §4 | ac2759132d8ee3c04465ce3c7be67950333ed355
+> **Review:** `docs/reviews/d05-t01-s4.json`
 
 ## Verification
 

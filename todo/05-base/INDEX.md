@@ -2,4 +2,9 @@
 
 | File | Scope | Status |
 | ---- | ----- | ------ |
-| TODO-01-operating-directive.md | Operating directive, git rules, init --goal and --acceptance | active |
+
+## Completed
+
+| File | Scope | Completed |
+| ---- | ----- | --------- |
+| TODO-01-operating-directive.md | Operating directive, git rules, init --goal and --acceptance | 2026-11-15 |
