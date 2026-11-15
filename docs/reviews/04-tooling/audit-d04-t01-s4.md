@@ -32,3 +32,5 @@ LENS quality: findings
 LENS optimization: clean
 HIGHEST: P3
 OVERALL: needs-attention
+
+- Fixed: finding 1, the exemption of `.conclave/lsp.json` from the byte comparison applies to the Laravel install alone, so the standalone lsp kit and every other kit keep the check, in e27f874
