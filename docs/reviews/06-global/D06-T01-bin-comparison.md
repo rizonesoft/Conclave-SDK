@@ -51,7 +51,60 @@ No counterpart, left out on purpose (`docs/plans/2026-11-11-sdk-audit-and-roadma
 
 ## Derived, local or backup material (51)
 
+Each file is named under its folder. The site ids in the first folder's names are the connection ids `plugins/codex/website-router/CONNECTIONS.md` already lists.
+
 - `R:/Bin/codex/website-router/.local/` (31 files): one site inventory and the abilities, definitions and tools each connected WordPress site reported, written by `scripts/inspect.mjs` and rebuilt by running it. This is the client site list the owner dropped (roadmap, item 2), and `plugins/codex/**/.local/` is ignored by git.
+  - `R:/Bin/codex/website-router/.local/inventory.json`
+  - `R:/Bin/codex/website-router/.local/jmr-group-production-abilities.json`
+  - `R:/Bin/codex/website-router/.local/jmr-group-production-definitions.json`
+  - `R:/Bin/codex/website-router/.local/jmr-group-production-tools.json`
+  - `R:/Bin/codex/website-router/.local/redfern-shop-production-abilities.json`
+  - `R:/Bin/codex/website-router/.local/redfern-shop-production-definitions.json`
+  - `R:/Bin/codex/website-router/.local/redfern-shop-production-tools.json`
+  - `R:/Bin/codex/website-router/.local/rizonesoft-abilities.json`
+  - `R:/Bin/codex/website-router/.local/rizonesoft-definitions.json`
+  - `R:/Bin/codex/website-router/.local/rizonesoft-staging-abilities.json`
+  - `R:/Bin/codex/website-router/.local/rizonesoft-staging-definitions.json`
+  - `R:/Bin/codex/website-router/.local/rizonesoft-staging-eu-abilities.json`
+  - `R:/Bin/codex/website-router/.local/rizonesoft-staging-eu-definitions.json`
+  - `R:/Bin/codex/website-router/.local/rizonesoft-staging-eu-tools.json`
+  - `R:/Bin/codex/website-router/.local/rizonesoft-staging-tools.json`
+  - `R:/Bin/codex/website-router/.local/rizonesoft-tools.json`
+  - `R:/Bin/codex/website-router/.local/rizonetech-abilities.json`
+  - `R:/Bin/codex/website-router/.local/rizonetech-definitions.json`
+  - `R:/Bin/codex/website-router/.local/rizonetech-launch-abilities.json`
+  - `R:/Bin/codex/website-router/.local/rizonetech-launch-definitions.json`
+  - `R:/Bin/codex/website-router/.local/rizonetech-launch-eu-abilities.json`
+  - `R:/Bin/codex/website-router/.local/rizonetech-launch-eu-definitions.json`
+  - `R:/Bin/codex/website-router/.local/rizonetech-launch-eu-tools.json`
+  - `R:/Bin/codex/website-router/.local/rizonetech-launch-tools.json`
+  - `R:/Bin/codex/website-router/.local/rizonetech-tools.json`
+  - `R:/Bin/codex/website-router/.local/swiss-hotel-school-staging-abilities.json`
+  - `R:/Bin/codex/website-router/.local/swiss-hotel-school-staging-definitions.json`
+  - `R:/Bin/codex/website-router/.local/swiss-hotel-school-staging-tools.json`
+  - `R:/Bin/codex/website-router/.local/vormann-production-abilities.json`
+  - `R:/Bin/codex/website-router/.local/vormann-production-definitions.json`
+  - `R:/Bin/codex/website-router/.local/vormann-production-tools.json`
 - `R:/Bin/codex/.local/releases/` (5 files): packaged release zips of `conclave`, `pressable` and `website-router`, rebuilt from the sources.
+  - `R:/Bin/codex/.local/releases/conclave-0.1.0.zip`
+  - `R:/Bin/codex/.local/releases/conclave-0.1.2.zip`
+  - `R:/Bin/codex/.local/releases/pressable-0.1.0.zip`
+  - `R:/Bin/codex/.local/releases/website-router-0.1.0.zip`
+  - `R:/Bin/codex/.local/releases/website-router-0.2.1.zip`
 - `R:/Bin/codex/.local/tunnel-client/` (10 files): the downloaded tunnel client v0.0.15. The 7 extracted files are byte for byte the ones under `plugins/codex/.local/tunnel-client/v0.0.15/` (SHA-256 compared); the other 3 are its download zip and two notes on setting it up (`configuration.md`, `onboarding.md`).
+  - `R:/Bin/codex/.local/tunnel-client/configuration.md`
+  - `R:/Bin/codex/.local/tunnel-client/onboarding.md`
+  - `R:/Bin/codex/.local/tunnel-client/tunnel-client-v0.0.15-windows-amd64.zip`
+  - `R:/Bin/codex/.local/tunnel-client/v0.0.15/LICENSE`
+  - `R:/Bin/codex/.local/tunnel-client/v0.0.15/NOTICE`
+  - `R:/Bin/codex/.local/tunnel-client/v0.0.15/cloudflared-manifest.json`
+  - `R:/Bin/codex/.local/tunnel-client/v0.0.15/cloudflared.exe`
+  - `R:/Bin/codex/.local/tunnel-client/v0.0.15/tunnel-client-v0.0.15-windows-amd64-licenses.txt`
+  - `R:/Bin/codex/.local/tunnel-client/v0.0.15/tunnel-client-v0.0.15-windows-amd64.spdx.json`
+  - `R:/Bin/codex/.local/tunnel-client/v0.0.15/tunnel-client.exe`
 - `R:/Bin/codex/.migration-backup/` (5 files): the Codex configuration, hook file and two scheduled-task definitions saved before the 2026-11-10 move, and a `verify.mjs` check script. Both tasks are live with actions outside `R:/Bin` (`Rizonetech Conclave Cloud Access` running, `Rizonetech Plugin Cloud Access` disabled), and the live configuration has replaced the saved one.
+  - `R:/Bin/codex/.migration-backup/conclave-task.xml`
+  - `R:/Bin/codex/.migration-backup/provider-task.xml`
+  - `R:/Bin/codex/.migration-backup/verify.mjs`
+  - `R:/Bin/codex/.migration-backup/windows-config.toml`
+  - `R:/Bin/codex/.migration-backup/windows-hooks.json`
