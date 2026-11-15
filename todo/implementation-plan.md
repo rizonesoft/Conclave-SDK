@@ -121,7 +121,7 @@ Sections: 14 | Checklist items: 131
 | [x]    | D04 T01 §3 | Diagnostics client that reads the server table           | none  | 13    |
 | [x]    | D04 T01 §4 | Laravel kit moved onto the shared client                 | none  | 8     |
 | [x]    | D04 T01 §5 | Claude Code plugin generated from the server table       | none  | 10    |
-| [ ]    | D04 T01 §6 | MCP bridge for Codex and Antigravity                     | none  | 17    |
+| [x]    | D04 T01 §6 | MCP bridge for Codex and Antigravity                     | none  | 17    |
 | [ ]    | D04 T01 §7 | Language server skill and document for the three agents  | none  | 6     |
 | [x]    | D04 T02 §1 | Tool pin file and the script that checks it              | none  | 8     |
 | [x]    | D04 T02 §2 | `toolchain-cpp` kit with pins for the C and C++ tools    | none  | 9     |
@@ -154,6 +154,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 71/85 verified sections, 7 ready to run now.
+Progress: 72/85 verified sections, 7 ready to run now.
 
-Checklist: 607/673 items completed (includes Commit items).
+Checklist: 608/673 items completed (includes Commit items).

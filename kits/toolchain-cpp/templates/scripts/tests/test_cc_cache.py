@@ -172,10 +172,13 @@ class Fixture(unittest.TestCase):
                              timeout=120, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         return ran.returncode, self.calls()[before:]
 
-    def written(self, path):
-        """A path as a wrapper holds it: quoted for sh on POSIX, as it is on Windows."""
-        path = str(pathlib.Path(path).resolve())
-        return (path if WINDOWS else cc_cache._sh(path)).encode("utf-8")
+    def holds(self, path, name="cc"):
+        """Whether a wrapper names a path: quoted for sh on POSIX; on Windows as it is, whatever the letter case
+        of its extension (the lookup adds the extension as PATHEXT spells it)."""
+        text = self.wrapper(name).read_text(encoding="utf-8")
+        if WINDOWS:
+            return str(path).lower() in text.lower()
+        return cc_cache._sh(path) in text
 
     def wrapper(self, name="cc"):
         return self.folder / (name + ".cmd" if WINDOWS else name)
@@ -235,7 +238,7 @@ class WrapperTests(Fixture):
             self.assertEqual(code, 0)
             self.assertTrue(os.path.samefile(cc_cache.find("cc", skip=[self.folder]), real))
         self.assertEqual((self.wrapper().read_bytes(), self.wrapper().stat().st_mtime_ns), before)
-        self.assertIn(self.written(real), self.wrapper().read_bytes())
+        self.assertTrue(self.holds(real), "the wrapper does not name the real compiler")
         code, calls = self.compile("cc", "x.c")
         self.assertEqual((code, len(calls)), (0, 2), "the wrapper reached itself")
 
@@ -254,8 +257,63 @@ class WrapperTests(Fixture):
         with unittest.mock.patch.dict(os.environ, {"PATH": os.environ["PATH"] + os.pathsep + str(elsewhere)}):
             self.setup("cc")
         self.assertNotEqual(self.wrapper().stat().st_mtime_ns, 10**18)
-        self.assertIn(self.written(moved), self.wrapper().read_bytes())
+        self.assertTrue(self.holds(moved), "the wrapper does not name the compiler where it now is")
         self.assertEqual([path.name for path in self.folder.iterdir() if path.name.endswith(".tmp")], [])
+
+    @unittest.skipIf(WINDOWS, "a compiler that is a link to another is how POSIX installs clang++")
+    def test_a_compiler_that_is_a_link_is_run_by_its_own_name(self):
+        # Found by the review round: the link was resolved, so clang++ ran as clang and lost its C++ mode.
+        real = self.compiler("clang")
+        (self.bin / "clang++").symlink_to(real)
+        self.cache()
+        self.assertEqual(self.setup("clang++")[0], 0)
+        code, calls = self.compile("clang++", "main.cpp")
+        self.assertEqual(code, 0)
+        self.assertEqual(calls[0]["argv"][0], str(self.bin / "clang++"))
+        self.assertEqual(cc_cache.find("clang++"), self.bin / "clang++")
+
+    @unittest.skipUnless(WINDOWS, "an extension in a compiler's name is a Windows matter")
+    def test_a_compiler_named_with_its_extension_is_refused_and_not_left_uncached_in_silence(self):
+        # Found by the review round: clang.exe got a wrapper named clang.exe.cmd, which no shell runs.
+        self.compiler("clang")
+        self.cache()
+        for name in ("clang.exe", "clang.CMD"):
+            code, out, err = self.setup(name)
+            self.assertEqual((code, out), (2, ""))
+            self.assertEqual(err, f"cc-cache: name the compiler without its extension: clang, not {name}\n")
+        self.assertFalse(self.folder.exists())
+        self.assertEqual(self.setup("clang")[0], 0)
+
+    def test_two_setups_of_one_project_take_turns(self):
+        # Found by the review round: one setup's cleanup removed the file another was still writing.
+        for name in ("cc", "c++", "clang"):
+            self.compiler(name)
+        self.cache()
+        sets = [["cc"], ["cc", "c++"], ["clang"], ["c++", "clang"], ["cc", "c++", "clang"], ["c++"]] * 2
+        script = str(self.project / "scripts/cc-cache.py")
+        running = [subprocess.Popen([sys.executable, "-B", script, "--shell", "sh", *names],
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)) for names in sets]
+        results = [(proc.communicate(timeout=120), proc.returncode) for proc in running]
+        for (out, err), code in results:
+            self.assertEqual(code, 0, err)
+            self.assertTrue(out.startswith("export PATH="), out)
+        # The folder is one setup's decision, whole: its wrappers and the choice, with nothing half-written.
+        left = sorted(path.name for path in self.folder.iterdir())
+        allowed = [sorted([cc_cache.CHOICE, *[self.wrapper(name).name for name in names]]) for names in sets]
+        self.assertIn(left, allowed)
+        self.assertEqual([path.name for path in self.folder.parent.iterdir() if path.name.endswith(".lock")], [])
+        # A lock another setup holds is waited for, then reported; one a dead setup left is taken over.
+        lock = self.folder.parent / (self.folder.name + ".lock")
+        lock.write_text("", encoding="utf-8")
+        with unittest.mock.patch.object(cc_cache, "LOCK_WAIT", 0.3):
+            code, out, err = self.setup("cc")
+        self.assertEqual((code, out), (1, ""))
+        self.assertEqual(err, f"cc-cache: another setup has held {lock} for 0.3 seconds\n")
+        old = lock.stat().st_mtime - cc_cache.LOCK_STALE - 5
+        os.utime(lock, (old, old))
+        self.assertEqual(self.setup("cc")[0], 0)
+        self.assertFalse(lock.exists())
 
     def test_a_compiler_that_is_not_installed_gets_no_wrapper_and_the_others_get_theirs(self):
         self.compiler()

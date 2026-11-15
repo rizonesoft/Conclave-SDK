@@ -19,9 +19,14 @@ The folder is exactly what the last run decided: a wrapper this run did not writ
 it changes nothing and a shell that already has the folder on `PATH` reaches the real compilers. A wrapper also
 stands aside by itself when it runs with `BUILD_NO_CCACHE` set or with the cache's program gone.
 
+A compiler is run by the path it was found at, never by what that path links to: `clang++` that is a link to
+`clang` is still run as `clang++`, which is how the compiler knows it is compiling C++. Two setups for one
+project (two build configurations started together) take turns: the folder is written under a lock.
+
 Exit 0 also when there is nothing to wrap (a missing cache never breaks a build); 1 when a wrapper cannot be
-written; 2 for a compiler name that is not a bare name or a path that cannot be written safely. Standard library
-only.
+written or another setup holds the folder for too long; 2 for a compiler name that is not a bare name (on
+Windows, one given with its extension: name `clang`, not `clang.exe`) or a path that cannot be written safely.
+Standard library only.
 """
 import argparse
 import hashlib
@@ -29,6 +34,7 @@ import os
 import re
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +43,8 @@ OPT_OUT = "BUILD_NO_CCACHE"
 CHOICE = "cache-choice"   # in the wrapper folder: the name and the path of the cache the wrappers run
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9+._-]*")
 SHELLS = ("sh", "powershell", "cmd")
+LOCK_WAIT = 30.0     # seconds a setup waits for another one of the same project
+LOCK_STALE = 120.0   # seconds after which a lock is taken to be left by a setup that died
 
 
 class Refused(Exception):
@@ -81,7 +89,9 @@ def find(name, skip=(), environ=None):
         for candidate in names:
             path = Path(folder) / candidate
             if path.is_file() and os.access(path, os.X_OK):
-                return path.resolve()
+                # The path it was found at, not what it links to: a compiler reads its own name
+                # (clang++ linked to clang compiles C++ only when run as clang++).
+                return Path(os.path.abspath(path))
     return None
 
 
@@ -170,6 +180,40 @@ def _keep_only(folder, keep):
             path.unlink()
 
 
+class Locked:
+    """The wrapper folder held for one setup, from its first write to its last removal, so two setups of one
+    project never see each other's half-written state. The lock is a file beside the folder, made exclusively;
+    one older than LOCK_STALE was left by a setup that died and is taken over."""
+
+    def __init__(self, folder, wait=None):
+        self.path = folder.parent / (folder.name + ".lock")
+        self.wait = LOCK_WAIT if wait is None else wait
+
+    def __enter__(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        deadline = time.monotonic() + self.wait
+        while True:
+            try:
+                os.close(os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+                return self
+            except FileExistsError:
+                try:
+                    if time.time() - self.path.stat().st_mtime > LOCK_STALE:
+                        self.path.unlink()
+                        continue
+                except OSError:
+                    continue   # it went away between the two looks: try again
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"another setup has held {self.path} for {self.wait:g} seconds") from None
+                time.sleep(0.05)
+
+    def __exit__(self, *exc):
+        try:
+            self.path.unlink()
+        except OSError:
+            pass   # already gone: a later setup took a lock it judged stale
+
+
 def recorded_choice(project, environ=None):
     """The cache a project's wrappers run, as (name, path), or None when it has none."""
     try:
@@ -196,6 +240,10 @@ def main(argv=None, root=None):
         for name in args.compilers:
             if not NAME.fullmatch(name):
                 raise Refused(f"{name!r} is not a compiler's name (a bare name, as the build runs it)")
+            suffix = Path(name).suffix.upper()
+            if windows and suffix and suffix in os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").upper().split(";"):
+                # The shell would find the real clang.exe before a wrapper named clang.exe.cmd.
+                raise Refused(f"name the compiler without its extension: {Path(name).stem}, not {name}")
         off, cache = None, None
         if os.environ.get(OPT_OUT):
             off = f"{OPT_OUT} is set"
@@ -217,20 +265,26 @@ def main(argv=None, root=None):
             if not wrappers:
                 off = "none of the compilers named is installed"
         if off is not None:
-            _keep_only(folder, ())   # a shell that still has the folder on PATH reaches the real compilers
+            if folder.is_dir():
+                with Locked(folder):
+                    _keep_only(folder, ())   # a shell that still has the folder on PATH reaches the real compilers
             print(comment(f"cc-cache: off: {off}", args.shell))
             print(f"cc-cache: off: {off}", file=sys.stderr)
             return 0
         line = statement(folder, args.shell)
-        folder.mkdir(parents=True, exist_ok=True)
-        for name, data in wrappers.items():
-            _write(folder / name, data, executable=True)
         name = "sccache" if cache.stem.lower().startswith("sccache") else "ccache"
-        _write(folder / CHOICE, f"{name}\n{cache}\n".encode("utf-8"), executable=False)
-        _keep_only(folder, {*wrappers, CHOICE})
+        with Locked(folder):
+            folder.mkdir(parents=True, exist_ok=True)
+            for wrapper, data in wrappers.items():
+                _write(folder / wrapper, data, executable=True)
+            _write(folder / CHOICE, f"{name}\n{cache}\n".encode("utf-8"), executable=False)
+            _keep_only(folder, {*wrappers, CHOICE})
     except Refused as exc:
         print(f"cc-cache: {exc}", file=sys.stderr)
         return 2
+    except TimeoutError as exc:
+        print(f"cc-cache: {exc}", file=sys.stderr)
+        return 1
     except OSError as exc:
         print(f"cc-cache: {folder}: cannot be written ({exc.strerror or exc})", file=sys.stderr)
         return 1
