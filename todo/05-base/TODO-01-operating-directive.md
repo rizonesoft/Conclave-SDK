@@ -73,6 +73,8 @@ The directive becomes a section of the base `AGENTS.md`, written as rules with a
 
 ## 2. Git hygiene rules in the base kit
 
+> **Started:** 2026-11-15T18:48:07Z
+
 The second `base` row: work on main, and clean up branches and worktrees when work is finished. Source: `global/claude/rules/claude-code.md` section 6.
 
 **Phase:** 7
@@ -86,9 +88,11 @@ The second `base` row: work on main, and clean up branches and worktrees when wo
 
 - [ ] Add `## Git` to `kits/base/templates/AGENTS.md` with one rule per line: develop on the main branch unless the operator asks for a branch in that task; read `git status --short` before staging and never write over another session's uncommitted changes; never discard changes with `reset`, `checkout`, `restore` or `clean` unless asked for that exact cleanup; after a commit, confirm it landed; remove worktrees you created, delete branches whose content is on main, and prune dead worktree records; never delete an unmerged branch without asking. Done when: each rule is one list item. Cheaper substitute: a link to the owner's machine-level rules must fail, because a project does not have them.
 - [ ] Keep the rule a project can change: say in the section's first line that a project with a branch workflow replaces the first rule with its own. Done when: the line is there.
-- [ ] Add the section to the test from §1 in `tests/test_forge.py`. Done when: removing the section from the template makes it fail.
-- [ ] Run `python forge.py self-sync`. Done when: `python -m unittest discover -s tests` passes.
+- [ ] Add the section to the test from §1 in `tests/test_forge.py` (`OperatingDirectiveTests`): each rule's statement written in the test, the section after Safety, and the SDK's own `AGENTS.md` holding the same section byte for byte, as it does the directive. Done when: removing the section from the template makes it fail, and so does removing any one rule while the heading stays.
+- [ ] Add the section to the SDK's own `AGENTS.md` (which `self-sync` does not write) and run `python forge.py self-sync`. Done when: the SDK's section equals the template's and `python -m unittest tests.test_forge tests.test_kit_install` passes.
 - [ ] Commit: `base: git hygiene rules in AGENTS.md`
+
+**Corrected 2026-11-15 (validation):** measured against the tree after `D05 T01 §1`. The template's sections are now Working rules, Operating directive, Safety, Skills, Subagents; Git goes after Safety, beside the other rules on what an agent may do. The SDK's own `AGENTS.md` carries the directive and Safety byte for byte since §1, so it carries Git the same way and the test holds all three, so the SDK never ships rules it does not keep. The test is the one §1 added, extended, and it holds each rule's text so an empty section fails it.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; deleting the Git section from the template makes the test fail.
 
