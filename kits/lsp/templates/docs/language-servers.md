@@ -8,12 +8,11 @@ The project's language servers are listed in one table, `.conclave/lsp.json` (`p
 
 ## Setting up
 
-1. Add the servers of the project's stack to the table. A preset is a stack's servers (`cpp`, `python`, `php`, `web`, `laravel`); `list` shows the table and the presets, and `remove` takes one server out.
+1. Add the servers of the project's stack to the table. A preset is a stack's servers (`cpp`, `python`, `php`, `web`, `laravel`), and `list` shows the table and the presets.
 
 ```text
 python scripts/lsp-servers.py add python
 python scripts/lsp-servers.py list
-python scripts/lsp-servers.py remove basedpyright
 ```
 
 2. Install the servers. Nothing here installs one: each entry of the table carries the line that installs its server, `list` shows the table, and `python forge.py doctor <project> lsp` (run from the SDK) says which are missing. A server that is not installed is reported as `SKIPPED`, never as a pass.
@@ -29,11 +28,18 @@ Once the plugin exists, `add` and `remove` keep it in step with the table. After
 
 4. For Codex and Antigravity, register the bridge (below).
 
-## Checking a change
-
-Run the servers on the files a change touched. Give one input: the staged files, the changed files, a commit's files, or paths.
+To take a server out of the table later (it is not part of setting up):
 
 ```text
+python scripts/lsp-servers.py remove basedpyright
+```
+
+## Checking a change
+
+Run the servers on the files a change touched. Give one input. `--changed` is every file the change touched: staged, not yet staged and new. `--staged` and `--worktree` each see one part of that, a commit's files are `--commit`, and paths name files directly. When the run says no file was in the input, nothing was checked.
+
+```text
+python scripts/lsp-diagnostics.py --all --changed
 python scripts/lsp-diagnostics.py --all --staged
 python scripts/lsp-diagnostics.py --all --worktree
 python scripts/lsp-diagnostics.py --all --commit HEAD

@@ -105,13 +105,14 @@ python scripts/lsp-servers.py remove tailwindcss        # delete one server
 ## Diagnostics
 
 ```text
-python scripts/lsp-diagnostics.py --all --staged                  # every server, the staged files
+python scripts/lsp-diagnostics.py --all --changed                 # every server, every file a change touched
+python scripts/lsp-diagnostics.py --all --staged                  # the staged files
 python scripts/lsp-diagnostics.py --all --worktree                # the files changed in the working tree
 python scripts/lsp-diagnostics.py --all --commit <sha>             # the files of a commit
 python scripts/lsp-diagnostics.py --server clangd src/main.c      # named servers (repeatable), named files
 ```
 
-The table is the only list of servers: `--server` takes its names and an empty table is refused with how to add one. Give one input (`--staged`, `--worktree`, `--commit <sha>` or paths from the project root). Git is read with `-z`, so a file name with a space or outside ASCII arrives whole, and a git command that fails (an unknown revision, a folder that is no repository) ends the run with git's reason, never as an empty input. A file goes only to the servers that serve it: its name ends with one of the server's `extensions` (the longest suffix gives the language id, so `.blade.php` is not `.php`) and it lies under the server's `root`. The client is read-only: it opens documents in the server's memory and writes nothing to the project.
+The table is the only list of servers: `--server` takes its names and an empty table is refused with how to add one. Give one input: `--changed` (everything the working tree differs from the last commit in: staged, not staged and new files, never ignored ones), `--staged`, `--worktree` (changed and not yet staged), `--commit <sha>`, or paths from the project root. Git is read with `-z`, so a file name with a space or outside ASCII arrives whole, and a git command that fails (an unknown revision, a folder that is no repository) ends the run with git's reason, never as an empty input. A file goes only to the servers that serve it: its name ends with one of the server's `extensions` (the longest suffix gives the language id, so `.blade.php` is not `.php`) and it lies under the server's `root`. The client is read-only: it opens documents in the server's memory and writes nothing to the project.
 
 `--severity <error|warning|information|hint>` and `--settle <seconds>` override each server's own `severity` and `settle`; `--timeout <seconds>` (default 240, or `LSP_DIAGNOSTICS_TIMEOUT`) is what a server gets for the whole run; `--json` prints one document (`servers`, `diagnostics`, `failing`, `exit`, `error`) for every run that gets past its arguments, a refused one included (exit 2, with the refusal as its `error`); `--verbose` shows the end of each server's standard error.
 

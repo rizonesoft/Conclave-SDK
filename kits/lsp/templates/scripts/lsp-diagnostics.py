@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Run the project's language servers over a set of files and report their diagnostics.
 
+    python scripts/lsp-diagnostics.py --all --changed
     python scripts/lsp-diagnostics.py --all --staged
     python scripts/lsp-diagnostics.py --server clangd src/main.c
     python scripts/lsp-diagnostics.py --server intelephense --commit <sha> --json
 
-The servers are the ones in `.conclave/lsp.json` (`python scripts/lsp-servers.py list`). The files are the staged
-ones (`--staged`), the changed ones (`--worktree`), those of a commit (`--commit <sha>`), or the paths given, read
+The servers are the ones in `.conclave/lsp.json` (`python scripts/lsp-servers.py list`). The files are everything
+a change touched (`--changed`: staged, not yet staged and new files alike), the staged ones (`--staged`), the
+ones changed and not yet staged (`--worktree`), those of a commit (`--commit <sha>`), or the paths given, read
 from the project root. A file goes only to the servers that serve it: by its suffix, and under the server's `root`.
 The client is read-only: it opens documents in the server's memory and writes nothing to the project.
 
@@ -38,6 +40,9 @@ import lsp_table  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 GIT_INPUT = {
+    # Everything the working tree differs from the last commit in: staged, not staged, and files git does not
+    # track yet (never the ignored ones). It also works in a repository with no commit.
+    "changed": ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
     "staged": ["diff", "--cached", "--name-only", "-z", "--diff-filter=d"],
     "worktree": ["diff", "--name-only", "-z", "--diff-filter=d"],
     "commit": ["show", "--name-only", "-z", "--pretty=format:", "--diff-filter=d"],
@@ -60,7 +65,17 @@ def git_paths(root, form, revision=None):
     if proc.returncode != 0:
         reason = proc.stderr.decode("utf-8", errors="replace").strip().splitlines()
         raise Refused(f"git {GIT_INPUT[form][0]} failed: {reason[0] if reason else f'exit {proc.returncode}'}")
-    names = [name.decode("utf-8", errors="surrogateescape") for name in proc.stdout.split(b"\x00") if name.strip()]
+    fields = [field for field in proc.stdout.split(b"\x00") if field.strip()]
+    if form == "changed":
+        # `XY name`, and after a rename or a copy one more field, the name it had: that one is not a file now.
+        entries, fields, old_name = fields, [], False
+        for entry in entries:
+            if old_name:
+                old_name = False
+                continue
+            old_name = entry[:1] in (b"R", b"C")
+            fields.append(entry[3:])
+    names = [name.decode("utf-8", errors="surrogateescape") for name in fields]
     return [root / name for name in names if (root / name).is_file()]
 
 
@@ -133,7 +148,9 @@ def build_parser():
     parser.add_argument("--server", action="append", default=[], help="a server of .conclave/lsp.json (repeatable)")
     parser.add_argument("--all", action="store_true", help="every server in the table")
     parser.add_argument("--staged", action="store_true", help="the files staged in git")
-    parser.add_argument("--worktree", action="store_true", help="the files changed in the working tree")
+    parser.add_argument("--changed", action="store_true", help="every file a change touched: staged, not staged "
+                                                                "and new")
+    parser.add_argument("--worktree", action="store_true", help="the files changed and not yet staged")
     parser.add_argument("--commit", help="the files of a commit")
     parser.add_argument("--severity", choices=tuple(lsp_client.SEVERITY_RANK),
                         help="the least severity that fails the run, for every server (default: each server's own)")
@@ -149,10 +166,10 @@ def build_parser():
 def main(argv=None, root=None):
     args = build_parser().parse_args(argv)
     root = Path(root or ROOT).resolve()
-    forms = [form for form in ("staged", "worktree", "commit") if getattr(args, form)]
+    forms = [form for form in ("changed", "staged", "worktree", "commit") if getattr(args, form)]
     try:
         if len(forms) + bool(args.paths) > 1:
-            raise Refused("give one input: --staged, --worktree, --commit <sha>, or paths")
+            raise Refused("give one input: --changed, --staged, --worktree, --commit <sha>, or paths")
         if args.all == bool(args.server):
             raise Refused("name the servers with --server <name>, or run every one with --all")
         table = lsp_table.load_servers(root)

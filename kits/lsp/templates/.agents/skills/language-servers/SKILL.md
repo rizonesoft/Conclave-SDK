@@ -17,10 +17,11 @@ The project's language servers are listed in one table, `.conclave/lsp.json` (`p
 Run the servers on the files the change touched, not on the whole project:
 
 ```text
-python scripts/lsp-diagnostics.py --all --worktree          # changed and not yet staged
-python scripts/lsp-diagnostics.py --all --staged
-python scripts/lsp-diagnostics.py --all --commit <sha>
+python scripts/lsp-diagnostics.py --all --changed           # everything the change touched: staged, not staged, new
+python scripts/lsp-diagnostics.py --all --commit <sha>      # a change that is already committed
 ```
+
+`--changed` is the one to use for work in progress: `--staged` and `--worktree` each see only part of a change, and neither sees a new file that is not staged. If the run says no file was in the input, nothing was checked: name the files as paths.
 
 Read the result as a check, not as advice:
 

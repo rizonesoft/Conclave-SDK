@@ -679,6 +679,45 @@ class GitInputTests(CommandLine):
         self.file("untracked.py", "x  # E: new\n")
         self.assertEqual(self.files("--worktree"), (1, [odd[0]]))
 
+    def test_changed_names_every_file_a_change_touched_staged_or_not_and_new(self):
+        # Found by the round of D04 T01 section 7: --worktree leaves out what is staged and what is new, so a
+        # check of "the change" with it could check nothing and pass.
+        # A file that is committed and not touched: `t.py` is what is left of `kept.py` when the name a rename had
+        # is cut as if it were an entry, so it is listed only if that name is not passed over.
+        self.file("t.py", "x  # E: not part of the change\n")
+        self.git("add", "t.py")
+        self.git("commit", "-qm", "an untouched file")
+        self.assertEqual(self.files("--changed"), (0, []))
+        self.file("staged.py", "x  # E: staged\n")
+        self.git("add", "staged.py")
+        self.file("kept.py", "x  # E: changed and not staged\n")
+        self.file("new file.py", "x  # E: new, not tracked\n")
+        self.file("sub/caf\u00e9.py", "x  # E: new, in a new folder\n")
+        (self.project / ".gitignore").write_text("ignored.py\n", encoding="utf-8")
+        self.file("ignored.py", "x  # E: ignored\n")
+        (self.project / "removed.py").unlink()
+        self.git("mv", "kept.py", "moved.py")   # a rename: its new name, not the old one
+        self.assertEqual(self.files("--changed"),
+                         (4, ["moved.py", "new file.py", "staged.py", "sub/caf\u00e9.py"]))
+        self.assertEqual(self.files("--worktree"), (1, ["moved.py"]))   # what the narrower forms see of it
+        self.assertEqual(self.files("--staged")[0], 2)
+        code, out, err = self.run_main("--all", "--changed", "--staged")
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("give one input: --changed, --staged, --worktree, --commit <sha>, or paths", err)
+
+    def test_changed_works_in_a_repository_with_no_commit_yet(self):
+        fresh = self.dir / "fresh"
+        (fresh / ".conclave").mkdir(parents=True)
+        (fresh / lsp_table.TABLE).write_bytes((self.project / lsp_table.TABLE).read_bytes())
+        (fresh / "first.py").write_text("x  # E: before any commit\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(fresh), "init", "-q"], check=True, capture_output=True,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = lsp_diagnostics.main(["--all", "--changed", "--settle", "0.2", "--json"], root=fresh)
+        self.assertEqual(code, 1, err.getvalue())
+        self.assertEqual([row["file"] for row in json.loads(out.getvalue())["diagnostics"]], ["first.py"])
+
     def test_a_git_command_that_fails_is_refused_and_never_an_empty_input(self):
         self.assert_refused("git show failed: ", "--all", "--commit", "no-such-revision")
         shutil.rmtree(self.project / ".git", onerror=lambda function, path, _info: (os.chmod(path, 0o700),

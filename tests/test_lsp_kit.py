@@ -943,7 +943,8 @@ class DocumentTests(InstalledProject):
         # Each use the document promises has an example.
         lines = {f"{script} {' '.join(arguments)}" for script, arguments in commands}
         for promised in ("lsp-servers.py add python", "lsp-servers.py list", "lsp-servers.py remove basedpyright",
-                         "lsp-servers.py plugin", "lsp-diagnostics.py --all --staged",
+                         "lsp-servers.py plugin", "lsp-diagnostics.py --all --changed",
+                         "lsp-diagnostics.py --all --staged",
                          "lsp-diagnostics.py --all --worktree", "lsp-diagnostics.py --all --commit HEAD",
                          "lsp-diagnostics.py --server basedpyright src/app.py",
                          "lsp-diagnostics.py --all --staged --json"):
@@ -955,7 +956,7 @@ class DocumentTests(InstalledProject):
     def test_a_command_the_scripts_lack_does_not_parse(self):
         # What the test above would do with a wrong document: an option that is not there, a missing argument.
         for script, arguments in (("lsp-servers.py", ["add"]), ("lsp-servers.py", ["install", "python"]),
-                                  ("lsp-diagnostics.py", ["--all", "--changed"]),
+                                  ("lsp-diagnostics.py", ["--all", "--modified"]),
                                   ("lsp-diagnostics.py", ["--all", "--commit"]), ("lsp-mcp-bridge.py", ["--port", "1"])):
             with self.subTest(command=f"{script} {' '.join(arguments)}"):
                 with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
@@ -963,46 +964,85 @@ class DocumentTests(InstalledProject):
 
     @unittest.skipUnless(shutil.which("git"), "needs git")
     def test_the_documents_setup_sequence_and_its_recovery_work_in_an_installed_project(self):
+        # The document's own commands, in its order, on the table they leave: nothing is swapped in. The one thing
+        # the test supplies is what the document says the reader must install, the server's program, as a stub.
         project = self.install()
+        stub = self.stub("clean")
+        folder = self.work / "bin"
+        folder.mkdir()
+        if os.name == "nt":
+            (folder / "basedpyright-langserver.cmd").write_text(f'@"{stub[0]}" "{stub[1]}" %*\r\n', encoding="utf-8")
+        else:
+            launcher = folder / "basedpyright-langserver"
+            launcher.write_text(f'#!/bin/sh\nexec "{stub[0]}" "{stub[1]}" "$@"\n', encoding="utf-8")
+            launcher.chmod(0o755)
+        env = dict(os.environ, PATH=str(folder) + os.pathsep + os.environ["PATH"])
         setup = [arguments for script, arguments in self.commands("Setting up") if script == "lsp-servers.py"]
-        # The document's order: add a preset, list, remove a server, then generate the plugin (and its recovery).
-        self.assertEqual([arguments[0] for arguments in setup[:4]], ["add", "list", "remove", "plugin"])
-        for arguments in setup[:4]:
-            code, out, err = self.run_script(project, "scripts/lsp-servers.py", *arguments)
+        steps, later = setup[:-1], setup[-1]
+        self.assertEqual([arguments[0] for arguments in steps[:3]], ["add", "list", "plugin"])
+        self.assertEqual(later[0], "remove", "taking a server out is shown after the steps, not among them")
+        self.assertNotIn("remove", [arguments[0] for arguments in steps])
+        for arguments in steps:
+            code, _out, err = self.run_script(project, "scripts/lsp-servers.py", *arguments, env=env)
             self.assertEqual(code, 0, f"lsp-servers.py {' '.join(arguments)}: {err}")
+        # After the steps the project has the server it added, and a plugin that names it.
+        table = forge._lsp_table_module()
+        self.assertEqual([server["name"] for server in table.load_servers(project)], ["basedpyright"])
         plugin = forge._lsp_plugin_module()
-        self.assertTrue((project / plugin.FOLDER / plugin.SERVERS).is_file())
-        checks = {check["name"]: check["status"] for check in forge.doctor_repo(project, "lsp")["checks"]}
-        self.assertEqual(checks["claude-plugin"], "ok")
+        listed = json.loads((project / plugin.FOLDER / plugin.SERVERS).read_text(encoding="utf-8"))
+        self.assertEqual(list(listed), ["basedpyright"])
+
+        def doctor():
+            with unittest.mock.patch.dict(os.environ, {"PATH": env["PATH"]}):
+                return {check["name"]: check["status"] for check in forge.doctor_repo(project, "lsp")["checks"]}
+
+        self.assertEqual((doctor()["claude-plugin"], doctor()["server:basedpyright"]), ("ok", "ok"))
         # The table edited by hand: the plugin is behind it until the documented command is run again.
-        self.servers(project, ("basedpyright", "clean"))
-        checks = {check["name"]: check["status"] for check in forge.doctor_repo(project, "lsp")["checks"]}
-        self.assertEqual(checks["claude-plugin"], "unexpected")
+        document = json.loads((project / TABLE).read_text(encoding="utf-8"))
+        document["servers"][0]["command"] = ["basedpyright-langserver", "--stdio", "--verbose"]
+        (project / TABLE).write_text(json.dumps(document), encoding="utf-8")
+        self.assertEqual(doctor()["claude-plugin"], "unexpected")
         text = self.DOCUMENT.read_text(encoding="utf-8")
         self.assertIn("the plugin is behind it (the doctor's `claude-plugin` check says `unexpected`): run "
                       "`python scripts/lsp-servers.py plugin` again", text)
-        self.assertEqual(self.run_script(project, "scripts/lsp-servers.py", "plugin")[0], 0)
-        checks = {check["name"]: check["status"] for check in forge.doctor_repo(project, "lsp")["checks"]}
-        self.assertEqual(checks["claude-plugin"], "ok")
+        self.assertEqual(self.run_script(project, "scripts/lsp-servers.py", "plugin", env=env)[0], 0)
+        self.assertEqual(doctor()["claude-plugin"], "ok")
         for word in ("claude --plugin-dir .claude/lsp/conclave-lsp", "`CLAUDE_CODE_PLUGIN_DIRS`",
                      "Nothing here installs one"):
             self.assertIn(word, text)
-        # The diagnostics commands, each as the document writes it, against a server that runs.
+        # The diagnostics commands, each as the document writes it, on that table: a clean file, checked by the
+        # server the setup added, which must finish (`ok`), with exit 0. Not merely "did not refuse".
+        # The installed kit is committed first, so that the change under check is the project's own file.
+        for args in (["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "T"],
+                     ["add", "-A"], ["commit", "-qm", "the kit"]):
+            self.git(project, *args)
         (project / "src").mkdir()
         (project / "src/app.py").write_text("x = 1\n", encoding="utf-8")
-        for args in (["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "T"],
-                     ["add", "-A"], ["commit", "-qm", "first"]):
+        for args in (["add", "src/app.py"], ["commit", "-qm", "first"]):
             self.git(project, *args)
         (project / "src/app.py").write_text("x = 2\n", encoding="utf-8")
         self.git(project, "add", "src/app.py")
+        (project / "src/app.py").write_text("x = 3\n", encoding="utf-8")   # staged, and changed again since
         checking = [arguments for script, arguments in self.commands("Checking a change")
                     if script == "lsp-diagnostics.py" and arguments]
-        self.assertGreaterEqual(len(checking), 5)
+        self.assertGreaterEqual(len(checking), 6)
         for arguments in checking:
-            code, out, err = self.run_script(project, "scripts/lsp-diagnostics.py", *arguments, "--settle", "0.2")
-            # It ran as a check: clean, or with the diagnostics of the files it was given (a commit holds the
-            # kit's own files too). Never a refusal (2) or a run in which nothing could check (3).
-            self.assertIn(code, (0, 1), f"lsp-diagnostics.py {' '.join(arguments)}: {err}")
+            with self.subTest(command=" ".join(arguments)):
+                extra = [] if "--json" in arguments else ["--json"]
+                code, out, err = self.run_script(project, "scripts/lsp-diagnostics.py", *arguments, *extra,
+                                                 "--settle", "0.2", env=env)
+                self.assertEqual(code, 0, f"lsp-diagnostics.py {' '.join(arguments)}: {err}")
+                report = json.loads(out)
+                self.assertEqual(report["servers"]["basedpyright"], {"status": "ok", "reason": None, "files": 1,
+                                                                     "unanswered": [], "unread": []})
+        # And the same commands report a diagnostic when the file has one.
+        (project / "src/app.py").write_text("x = 3\nE: undefined name\n", encoding="utf-8")
+        code, out, _err = self.run_script(project, "scripts/lsp-diagnostics.py", "--all", "--changed", "--json",
+                                          "--settle", "0.2", env=env)
+        self.assertEqual((code, json.loads(out)["diagnostics"][0]["message"]), (1, "undefined name"))
+        # Taking the server out, as the document shows afterwards.
+        self.assertEqual(self.run_script(project, "scripts/lsp-servers.py", *later, env=env)[0], 0)
+        self.assertEqual(table.load_servers(project), [])
 
     def test_the_documents_table_of_outcomes_is_what_the_client_does(self):
         text = self.DOCUMENT.read_text(encoding="utf-8")
@@ -1052,8 +1092,8 @@ class SkillTests(InstalledProject):
                 self.assertIn("the definition or the uses of a symbol", description)
                 for statement in POLICY:
                     self.assertIn(statement, text, f"{agent}'s skill does not say: {statement}")
-                for named in ("scripts/lsp-diagnostics.py", "docs/language-servers.md", TABLE, "--worktree",
-                              "--staged", "--commit"):
+                for named in ("scripts/lsp-diagnostics.py", "docs/language-servers.md", TABLE, "--all --changed",
+                              "--worktree", "--staged", "--commit"):
                     self.assertIn(named, text)
                 self.assertLess(len(text.splitlines()), 60)
 
