@@ -7,8 +7,7 @@
     python forge.py update <target> [kit] [--only <path>]... [--no-scripts] [--kit-new] [--dry-run]
     python forge.py record <target> [kit] [--merged <path>]... [--dry-run]
     python forge.py drift [--projects <file>]
-    python forge.py doctor <target> [base|todo|reviewer|automations|unattended|lsp|toolchain-cpp|laravel|
-                                     wordpress] [--strict]
+    python forge.py doctor <target> [base|todo|reviewer|automations|unattended|lsp|toolchain-cpp|laravel|wordpress] [--strict]
         (no kit named: the Laravel or WordPress kit when the project is one, else base, plus lsp when installed;
         a toolchain kit starts each pinned tool to read its version, so it is checked only when named)
     python forge.py kits
