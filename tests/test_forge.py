@@ -1258,6 +1258,148 @@ class InitGoalTests(unittest.TestCase):
         self.assertEqual(self.goal_line(pointed), self.GOAL)
 
 
+class InitAcceptanceTests(unittest.TestCase):
+    """D05 T01 section 4: `init --acceptance` sets the acceptance bar in the todo kit's plan."""
+
+    BAR = 'Every screen in the "SPEC" works end to end'
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.work = pathlib.Path(self.tmp.name).resolve()
+        self.kit = (FORGE_ROOT / "kits/todo/templates/todo/plan.json").read_bytes()
+
+    def init(self, project, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = forge.main(["init", str(project), *argv])
+        return code, (json.loads(out.getvalue()) if code == 0 else None), err.getvalue()
+
+    def plan(self, project):
+        return json.loads((project / "todo/plan.json").read_text(encoding="utf-8"))
+
+    def test_the_bar_is_set_as_json_and_printed_in_the_generated_plan(self):
+        project = self.work / "new"
+        code, result, err = self.init(project, "--kit", "todo", "--acceptance", self.BAR)
+        self.assertEqual(code, 0, err)
+        kit = json.loads(self.kit)
+        plan = self.plan(project)
+        self.assertEqual(plan["acceptance"], self.BAR)   # a double quote survives: JSON, not text substitution
+        self.assertEqual({k: v for k, v in plan.items() if k != "acceptance"},
+                         {k: v for k, v in kit.items() if k != "acceptance"})
+        self.assertEqual(list(plan), list(kit))
+        self.assertEqual((result["acceptance_applied"], result["acceptance_reason"]),
+                         (True, "written into the todo/plan.json this run installed"))
+        states = {item["path"]: item["state"] for item in forge.diff_project(project, "todo")["kits"]["todo"]["files"]}
+        self.assertEqual(states["todo/plan.json"], "project-changed")
+        # The graph needs one TODO file to generate a plan: the three-pass install test's, filed as that test files it.
+        spec = importlib.util.spec_from_file_location("three_pass_fixture", FORGE_ROOT / "tests/test_three_pass_install.py")
+        fixture = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fixture)
+        (project / "todo/00-core").mkdir()
+        (project / "todo/00-core/TODO-01-a.md").write_text(fixture.TODO, encoding="utf-8")
+        (project / "todo/00-core/INDEX.md").write_text("# Index\n- TODO-01-a.md\n", encoding="utf-8")
+        index = project / "todo/TODO-00-INDEX.md"
+        index.write_text(index.read_text(encoding="utf-8") + "- 00-core/TODO-01-a.md\n", encoding="utf-8")
+        ran = subprocess.run([sys.executable, "-B", "scripts/todo-graph.py", "plan", "--sync"], cwd=project,
+                             capture_output=True, text=True, timeout=120,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        generated = (project / "todo/implementation-plan.md").read_text(encoding="utf-8")
+        self.assertIn(f"The acceptance bar is {self.BAR}", generated.splitlines())
+        # A second identical run changes nothing and says the bar is there.
+        before = (project / "todo/plan.json").read_bytes()
+        code, again, err = self.init(project, "--kit", "todo", "--acceptance", self.BAR)
+        self.assertEqual(code, 0, err)
+        self.assertEqual((again["acceptance_applied"], again["acceptance_reason"]),
+                         (True, "todo/plan.json already holds this bar"))
+        self.assertEqual((project / "todo/plan.json").read_bytes(), before)
+        # Without --acceptance: the kit's file and no acceptance in the result.
+        plain = self.work / "plain"
+        code, result, err = self.init(plain, "--kit", "todo")
+        self.assertEqual((code, (plain / "todo/plan.json").read_bytes()), (0, self.kit), err)
+        self.assertNotIn("acceptance_applied", result)
+
+    def test_a_bar_init_would_not_write_and_a_bar_without_the_todo_kit_are_refused_before_any_write(self):
+        cases = [((), self.BAR, "--acceptance: the bar is written into the todo kit's plan; add --kit todo"),
+                 (("--kit", "todo"), "", "--acceptance: the bar is empty"),
+                 (("--kit", "todo"), "x" * 601, "--acceptance: the bar is 601 characters, more than 600"),
+                 (("--kit", "todo"), "one\ntwo", "no line break or control character"),
+                 (("--kit", "todo"), "one" + chr(0x85) + "two", "no line break or control character"),
+                 (("--kit", "todo"), "fast " + chr(0x2014) + " and right", "em or en dash")]
+        for number, (kits, bar, said) in enumerate(cases):
+            with self.subTest(said=said):
+                project = self.work / f"refused{number}"
+                code, _result, err = self.init(project, *kits, "--acceptance", bar)
+                self.assertEqual(code, 2)
+                self.assertIn(said, err)
+                self.assertFalse(project.exists() and any(project.iterdir()), "init wrote before refusing")
+
+    def test_a_projects_own_plan_is_kept_and_a_failed_write_is_recovered(self):
+        own = self.work / "own"
+        (own / "todo").mkdir(parents=True)
+        (own / "todo/plan.json").write_bytes(b'{"title": "Ours", "acceptance": null}\n')
+        code, result, err = self.init(own, "--kit", "todo", "--acceptance", self.BAR)
+        self.assertEqual(code, 0, err)
+        self.assertEqual((own / "todo/plan.json").read_bytes(), b'{"title": "Ours", "acceptance": null}\n')
+        self.assertEqual((result["acceptance_applied"], result["acceptance_reason"]),
+                         (False, "todo/plan.json is the project's own, so the bar was not written"))
+        retry = self.work / "retry"
+        real = forge.atomic_write
+
+        def failing(path, data, *args, **kwargs):
+            if pathlib.Path(path).name == "plan.json" and b"SPEC" in data:
+                raise OSError(28, "No space left on device")
+            return real(path, data, *args, **kwargs)
+
+        with unittest.mock.patch.object(forge, "atomic_write", failing):
+            code, _result, err = self.init(retry, "--kit", "todo", "--acceptance", self.BAR)
+        self.assertEqual(code, 1)
+        self.assertIn("No space left on device", err)
+        self.assertEqual((retry / "todo/plan.json").read_bytes(), self.kit)
+        code, result, err = self.init(retry, "--kit", "todo", "--acceptance", self.BAR)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.plan(retry)["acceptance"], self.BAR)
+        self.assertEqual((result["acceptance_applied"], result["acceptance_reason"]),
+                         (True, "written into todo/plan.json, which was still the kit's file"))
+
+    def test_a_plan_reached_through_a_link_is_never_read_or_written(self):
+        outside = self.work / "outside"
+        outside.mkdir()
+        (outside / "plan.json").write_bytes(self.kit)   # the kit's bytes: the retry rule would fill it
+        cases = {}
+        linked_file = self.work / "linked-file"
+        (linked_file / "todo").mkdir(parents=True)
+        cases["file"] = (linked_file, linked_file / "todo/plan.json", outside / "plan.json")
+        linked_dir = self.work / "linked-dir"
+        linked_dir.mkdir()
+        cases["folder"] = (linked_dir, linked_dir / "todo", outside)
+        for kind, (project, link, target) in cases.items():
+            with self.subTest(link=kind):
+                try:
+                    link.symlink_to(target, target_is_directory=kind == "folder")
+                except (OSError, NotImplementedError) as exc:
+                    self.skipTest(f"this system will not make a link here ({exc})")
+                before = (outside / "plan.json").read_bytes()
+                code, result, err = self.init(project, "--kit", "todo", "--acceptance", self.BAR)
+                if code == 0:
+                    self.assertEqual((result["acceptance_applied"], result["acceptance_reason"]),
+                                     (False, "todo/plan.json is reached through a link, so the bar was not written"))
+                else:   # the install itself refused the link, before writing: also never through it
+                    self.assertEqual(code, 2, err)
+                self.assertTrue(link.is_symlink())
+                self.assertEqual((outside / "plan.json").read_bytes(), before)
+        # The rule itself, whatever the install does first.
+        project = self.work / "direct"
+        (project / "todo").mkdir(parents=True)
+        try:
+            (project / "todo/plan.json").symlink_to(outside / "plan.json")
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"this system will not make a link here ({exc})")
+        self.assertEqual(forge._apply_acceptance(project, self.BAR, False)["acceptance_applied"], False)
+        self.assertEqual((outside / "plan.json").read_bytes(), self.kit)
+
+
 class InstallRecordTests(unittest.TestCase):
     """`.conclave/kits.json`: what forge installed, as a note the project owns."""
 

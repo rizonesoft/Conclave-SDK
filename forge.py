@@ -2625,21 +2625,56 @@ GOAL_PLACEHOLDER = ("Not stated yet: replace this line with the project's goal i
 GOAL_LIMIT = 600   # characters
 
 
-def _check_goal(goal: str | None) -> None:
-    """Refuse a goal `init` would not write, before any file is written: empty, longer than GOAL_LIMIT, more than
-    one line, or holding a dash the writing rules forbid."""
-    if goal is None:
+def _check_line(option: str, noun: str, text: str | None) -> None:
+    """Refuse a line `init` would not write (`--goal`, `--acceptance`), before any file is written: empty, longer
+    than GOAL_LIMIT, more than one line or holding a control character, or holding a dash the writing rules
+    forbid."""
+    if text is None:
         return
-    if not goal.strip():
-        raise ValueError("--goal: the goal is empty")
-    if len(goal) > GOAL_LIMIT:
-        raise ValueError(f"--goal: the goal is {len(goal)} characters, more than {GOAL_LIMIT}")
+    if not text.strip():
+        raise ValueError(f"{option}: the {noun} is empty")
+    if len(text) > GOAL_LIMIT:
+        raise ValueError(f"{option}: the {noun} is {len(text)} characters, more than {GOAL_LIMIT}")
     # Every character Python splits lines at, and every other control character (a tab, a form feed), found by
     # the review round: NEL, a vertical tab and a form feed passed a check of four line breaks.
-    if goal.splitlines() != [goal] or any(unicodedata.category(c) in ("Cc", "Zl", "Zp") for c in goal):
-        raise ValueError("--goal: the goal is one line, with no line break or control character")
-    if "\u2014" in goal or "\u2013" in goal:
-        raise ValueError("--goal: the goal holds an em or en dash; use a comma, a colon or a full stop")
+    if text.splitlines() != [text] or any(unicodedata.category(c) in ("Cc", "Zl", "Zp") for c in text):
+        raise ValueError(f"{option}: the {noun} is one line, with no line break or control character")
+    if "\u2014" in text or "\u2013" in text:
+        raise ValueError(f"{option}: the {noun} holds an em or en dash; use a comma, a colon or a full stop")
+
+
+PLAN_JSON = "todo/plan.json"
+
+
+def _with_acceptance(data: bytes, acceptance: str) -> bytes:
+    """A todo/plan.json's bytes with its `acceptance` key set, written as the kit writes the file: two-space JSON
+    with every other key and its order kept, and a final newline."""
+    plan = json.loads(data.decode("utf-8"))
+    plan["acceptance"] = acceptance.strip()
+    return (json.dumps(plan, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def _apply_acceptance(target_root: Path, acceptance: str, installed: bool) -> dict:
+    """Write the acceptance bar into the project's todo/plan.json when that file is not yet the project's: the one
+    this run installed, or one still byte for byte the kit's (what a run that failed before its write leaves).
+    Nothing is read or written through a link. Returns the result's `acceptance_applied` and `acceptance_reason`."""
+    path = target_root / PLAN_JSON
+    if _has_unsafe_parent(target_root, PLAN_JSON) or _is_link(path):
+        return {"acceptance_applied": False,
+                "acceptance_reason": f"{PLAN_JSON} is reached through a link, so the bar was not written"}
+    if not path.is_file():
+        return {"acceptance_applied": False, "acceptance_reason": f"this install has no {PLAN_JSON}"}
+    kit = (FORGE_ROOT / "kits/todo/templates" / PLAN_JSON).read_bytes()
+    current = path.read_bytes()
+    if current == _with_acceptance(kit, acceptance):
+        return {"acceptance_applied": True, "acceptance_reason": f"{PLAN_JSON} already holds this bar"}
+    if current != kit:
+        return {"acceptance_applied": False,
+                "acceptance_reason": f"{PLAN_JSON} is the project's own, so the bar was not written"}
+    atomic_write(path, _with_acceptance(kit, acceptance))
+    return {"acceptance_applied": True,
+            "acceptance_reason": f"written into the {PLAN_JSON} this run installed" if installed
+            else f"written into {PLAN_JSON}, which was still the kit's file"}
 
 
 def _with_goal(data: bytes, goal: str) -> bytes:
@@ -2683,14 +2718,18 @@ def provision(
     wordpress_host: str | None = None,
     overwrite_existing_docs: bool = False,
     goal: str | None = None,
+    acceptance: str | None = None,
 ) -> dict:
     """`init`: copy the base kit plus only the kits asked for, never the whole SDK, and never over a file the project
     already has. `with_todo` is shorthand for the `todo` kit; `overwrite_existing_docs` (`init --force`) rewrites only
     the four entry docs. The install record notes what was written and holds no path back to the SDK, so the
     project owns everything init copied. `goal` (`init --goal`) is written under `## Goal` in an AGENTS.md that is
     not yet the project's (`_apply_goal`); one that is the project's own is left as it is, and the result says so.
+    `acceptance` (`init --acceptance`, with the todo kit only) is set in todo/plan.json the same way
+    (`_apply_acceptance`).
     """
-    _check_goal(goal)   # a goal init would not write refuses before anything is
+    _check_line("--goal", "goal", goal)   # a goal or a bar init would not write refuses before anything is
+    _check_line("--acceptance", "bar", acceptance)
     agent = normalize_agent(agent)
     target_root = Path(target_root).resolve()
     # Checked on the resolved path, which is the one written to, so no link (dangling or retargeted before this run)
@@ -2704,6 +2743,8 @@ def provision(
 
     chosen = ["base", *(["todo"] if with_todo else []), *(kits or [])]
     selected = [k for k in KIT_ORDER if k in chosen] + [k for k in dict.fromkeys(chosen) if k not in KIT_ORDER]
+    if acceptance is not None and "todo" not in selected:
+        raise ValueError("--acceptance: the bar is written into the todo kit's plan; add --kit todo")
 
     def include(rel: str) -> bool:
         return include_scripts or not rel.startswith("scripts/")
@@ -2786,6 +2827,9 @@ def provision(
     if goal is not None:
         wrote = "forced" if "AGENTS.md" in forced else "installed" if "AGENTS.md" in kit_results[0]["installed"] else None
         result.update(_apply_goal(target_root, goal, wrote))
+    if acceptance is not None:
+        todo_result = next(r for name, r in zip(selected, kit_results) if name == "todo")
+        result.update(_apply_acceptance(target_root, acceptance, PLAN_JSON in todo_result["installed"]))
     return result
 
 
@@ -3401,6 +3445,9 @@ def main(argv: list[str] | None = None) -> int:
     p_init.add_argument("--goal", default=None,
                         help="The project's goal in one sentence, written under ## Goal in the AGENTS.md init installs "
                              "(at most 600 characters, one line)")
+    p_init.add_argument("--acceptance", default=None,
+                        help="The plan's acceptance bar, set in the todo/plan.json init installs (needs --kit todo; at "
+                             "most 600 characters, one line)")
     p_init.add_argument("--force", action="store_true",
                         help="Replace AGENTS.md, GEMINI.md, CLAUDE.md and CODEX.md with the kit's, keeping each replaced one as <name>.replaced")
 
@@ -3546,6 +3593,7 @@ def _run(args: argparse.Namespace) -> int:
             wordpress_host=args.wp_host,
             overwrite_existing_docs=args.force,
             goal=args.goal,
+            acceptance=args.acceptance,
         )
         print(json.dumps(res, indent=2))
         return 1 if any(_lsp_write_failed(kit) for kit in res.get("kits", [])) else 0

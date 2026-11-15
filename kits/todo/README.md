@@ -23,6 +23,8 @@ Additive overlay that brings the Conclave TODO system into a project for Gemini 
 
 `python scripts/todo-graph.py query plan` prints the plan as JSON: `title`, `acceptance` and `phases` (number to name) from `todo/plan.json`, and `sections`, every section in plan order with its `ref`, `path`, `title`, `phase`, `depends` and `status` (`verified`, `ready`, `blocked`, or `deferred` when its file is not active). A program that shows the plan reads this instead of parsing `todo/`; an unreadable `todo/plan.json` is refused with exit 2, as every other query.
 
+The plan's acceptance bar is the `acceptance` key of `todo/plan.json` (`null` in the kit), which the generated plan prints under its title. A new project can set it when it is created: `python forge.py init <project> --kit todo --acceptance "every screen in the SPEC works end to end"` writes it into the `todo/plan.json` the install creates, or into one still byte for byte the kit's, and leaves a project's own file alone (the result's `acceptance_applied` and `acceptance_reason` say which).
+
 ## CI status and dependency merges
 
 `python scripts/ci_status.py [--json] [--branch main] [--workflow <file>]` reads each watched workflow's recent runs through `gh` and reports its latest completed verdict (a cancelled run carries none) and how many newer runs are still in progress, naming the failed jobs of a red one. It watches the `--workflow` files, else the `workflows` list in `.conclave/ci.json` (`{"workflows": ["ci.yml"]}`), else every workflow in `.github/workflows/`. Exit 1 means a watched workflow is red; exit 3 means `gh` failed and the state is unknown, never green.
