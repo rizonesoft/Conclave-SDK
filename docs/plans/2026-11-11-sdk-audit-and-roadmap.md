@@ -103,7 +103,7 @@ Status on 2026-11-11, end of day: both GitHub repositories can be deleted.
 
 1. The import is pushed to `origin/main`, and the live copies were compared with it file by file: the same content once line endings and the old folder names are set aside.
 2. The client site list and the brand permission drafts were dropped on the owner's decision; they were not imported.
-3. `global/deploy.py` now deploys the rules, skills and hook wiring from this checkout to the home folder, with no hard-coded path, and was run on Windows and in WSL: both run from `global/`. The copies in `R:/Bin/claude` and `R:/Bin/codex` are superseded. The MCP plugin registrations were not moved: a plugin registered from `R:/Bin` keeps running from there until it is registered again from `plugins/`.
+3. `global/deploy.py` now deploys the rules, skills and hook wiring from this checkout to the home folder, with no hard-coded path, and was run on Windows and in WSL: both run from `global/`. Every MCP plugin registration runs from `plugins/` (the Claude servers since 2026-11-14, the Codex marketplace since `dbf6373`, proven on 2026-11-16 by `D06 T01 §1`), and `R:/Bin/claude` and `R:/Bin/codex` were deleted on 2026-11-16 (`D06 T01 §2`).
 
 ## Bosun guidance (owner decision 2026-11-12)
 

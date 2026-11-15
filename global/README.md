@@ -51,7 +51,7 @@ Codex runs a hook only once its current hash is approved (`hooks.state` in the h
 
 Hook tests live beside the hooks: `python -m unittest discover -s global/claude/hooks -p "test_*.py"` and the same in `global/codex/hooks`.
 
-The copies in `R:\Bin` (themselves from the retired `R:\Claude` and `R:\Codex` repositories) are superseded. For Claude Code nothing live reads `R:\Bin\claude` since 2026-11-14: rules, skills and hooks deploy from here, and the two MCP servers are registered from `plugins/claude` on Windows and in WSL. The folder is kept untouched as a rollback copy.
+The copies in `R:\Bin` (themselves from the retired `R:\Claude` and `R:\Codex` repositories) were deleted on 2026-11-16, after a file-by-file comparison showed their content is here or is derived, local or backup material (`docs/reviews/06-global/D06-T01-bin-comparison.md`). Rules, skills and hooks deploy from here, and the plugins are registered from `plugins/` on Windows and in WSL (`plugins/README.md`, "Registered from this checkout").
 
 ## Account identifiers
 
