@@ -112,7 +112,7 @@ Sections: 7 | Checklist items: 58
 
 ### Phase 6: Tooling kits
 
-Sections: 15 | Checklist items: 144
+Sections: 16 | Checklist items: 148
 
 | Status | Reference  | Deliverable                                              | Needs | Items |
 | ------ | ---------- | -------------------------------------------------------- | ----- | ----- |
@@ -123,6 +123,7 @@ Sections: 15 | Checklist items: 144
 | [x]    | D04 T01 §5 | Claude Code plugin generated from the server table       | none  | 10    |
 | [x]    | D04 T01 §6 | MCP bridge for Codex and Antigravity                     | none  | 17    |
 | [x]    | D04 T01 §7 | Language server skill and document for the three agents  | none  | 11    |
+| [ ]    | D04 T01 §8 | Bridge answers what arrived before its input ended       | none  | 4     |
 | [x]    | D04 T02 §1 | Tool pin file and the script that checks it              | none  | 8     |
 | [x]    | D04 T02 §2 | `toolchain-cpp` kit with pins for the C and C++ tools    | none  | 9     |
 | [x]    | D04 T02 §3 | Compile database freshness check                         | none  | 10    |
@@ -155,6 +156,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 75/86 verified sections, 5 ready to run now.
+Progress: 75/87 verified sections, 6 ready to run now.
 
-Checklist: 637/686 items completed (includes Commit items).
+Checklist: 637/690 items completed (includes Commit items).

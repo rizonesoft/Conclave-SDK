@@ -2,7 +2,7 @@
 schema_version: 1
 id: lsp-kit
 domain: 04-tooling
-status: done
+status: active
 title: "TODO-01 -- LSP kit"
 ---
 
@@ -40,6 +40,7 @@ title: "TODO-01 -- LSP kit"
 | 5 | §5 | Claude Code plugin generated from the server table | §2 | [x] |
 | 6 | §6 | MCP bridge for Codex and Antigravity | §3 | [x] |
 | 7 | §7 | Language server skill and document for the three agents | §5, §6 | [x] |
+| 8 | §8 | Bridge answers what arrived before its input ended | §6, §7 | [ ] |
 
 ## 1. LSP kit known to `forge.py`
 
@@ -292,6 +293,28 @@ The wiring is no use if an agent does not know it is there. A skill in each agen
 
 > **Verified:** 2026-11-15 | §7 | c259f76a002e9f1dab3491ddc6437157ec93819b
 > **Review:** `docs/reviews/d04-t01-s7.json`
+
+## 8. Bridge answers what arrived before its input ended
+
+> **Started:** 2026-11-15T14:58:28Z
+
+Found 2026-11-15 while running this file's Verification block in WSL with a real basedpyright. `echo '<tools/list>' | python scripts/lsp-mcp-bridge.py`, the first thing anyone tries when an MCP server seems not to work, prints nothing and exits 0: the end of input stops the bridge before it reads what was sent just before it. With the pipe held open, as an agent holds it, the same request is answered. The fresh-install test of §7 sent exactly that input and asserted only exit 0, so it passed while nothing was printed.
+
+**Phase:** 6
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Answer what arrived before the end of input, without starting a server for it. Done when: the kit's bridge tests pass.
+2. Give the document a line that tries the bridge by hand, and make the fresh-install test read the answer. Done when: the checkpoint passes.
+
+- [ ] In `serve` of `kits/lsp/templates/scripts/lsp-mcp-bridge.py`, when the input ends, answer in order the messages that arrived before it and then end with exit 0: a message that starts no server (`initialize`, `ping`, `tools/list`, an unknown method, a malformed line) is answered as always, and a `tools/call` that had not begun is answered with a tool error saying that the input ended before the call could run and that a client keeps its input open until it has read the answer. The call in hand when the input ends is cancelled and its servers ended, as today, and a signal still ends the bridge at once with nothing more answered. Done when: tests in `scripts/tests/test_lsp_mcp_bridge.py` find both answers and exit 0 for `initialize` and `tools/list` followed at once by the end of input; the error with that text, and no server started, for a `tools/call` waiting at the end of input; the three existing end-of-input tests passing unchanged; and no answer to messages waiting when a signal comes.
+- [ ] Give `kits/lsp/templates/docs/language-servers.md` one line that tries the bridge by hand (`echo` of a `tools/list` request piped to the script, the same line in `sh` and in PowerShell), with what it prints and the note that a call needs the input kept open. Done when: a test in `tests/test_lsp_kit.py` takes that line from the installed document, runs it in the system's shell in an installed project, and finds the four tools in what it prints.
+- [ ] Make `FreshInstallTests` in `tests/test_lsp_kit.py` read the bridge's answer: given `tools/list` and the end of input, the installed copy prints the four tools. Done when: a bridge that answers nothing makes the test fail.
+- [ ] Commit: `lsp: the bridge answers what arrived before its input ended`
+
+**Test checkpoint:** `python forge.py check-all --only kit-lsp` passes and `python -m unittest tests.test_lsp_kit` ends `OK`; ending the bridge at the end of input as before makes the new kit test and the fresh-install test fail.
 
 ## Verification
 
