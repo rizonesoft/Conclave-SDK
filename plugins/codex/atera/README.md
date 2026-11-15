@@ -89,10 +89,10 @@ For local automation, `-Token` accepts a PowerShell `SecureString`, for example 
 
 ## Move to another computer
 
-1. Clone `https://github.com/rizonetech/Codex` to the desired directory and install Node.js 22+.
-2. In the `atera` directory, run `npm ci` and `npm run build`.
+1. Clone `https://github.com/rizonetech/Conclave-SDK` to the desired directory and install Node.js 22+.
+2. In `<checkout>/plugins/codex/atera`, run `npm ci` and `npm run build`.
 3. Run `./scripts/configure.ps1` to enter the token locally, or install/authorize 1Password CLI and use `-TokenReference` once. Do not copy `token.dpapi` from the old machine.
-4. Register the new checkout with `codex plugin marketplace add <checkout-path>` and install `codex plugin add atera@rizonetech`.
+4. Register the Codex catalogue with `codex plugin marketplace add <checkout>/plugins/codex` and install `codex plugin add atera@rizonetech`.
 5. Run the connection check and start a new chat. Check Atera's token IP restrictions if the new computer uses another public IP.
 
 Test credential setup with `./tests/windows-setup.ps1`. It uses synthetic values in an isolated temporary directory and does not change your live credentials. See the repository's [credential rule](../docs/WINDOWS_CREDENTIALS.md).

@@ -100,6 +100,15 @@ class DriftTests(unittest.TestCase):
         self.write(self.cache / 'scripts/launch.mjs', 'launcher')
         self.assertEqual(self.check(), [])
 
+    def test_plugin_manifest(self):
+        # plugin.json carries the developer link Codex shows; a stale installed copy is drift
+        # (found 2026-11-16: copies kept the deleted rizonetech/Codex link and the check passed).
+        self.write(self.plugin / 'plugin.json', '{"author":{"url":"new"}}')
+        self.write(self.cache / 'plugin.json', '{"author":{"url":"old"}}')
+        self.assertIn('manifest', self.check()[0])
+        self.write(self.cache / 'plugin.json', '{"author":{"url":"new"}}')
+        self.assertEqual(self.check(), [])
+
     def test_manifest(self):
         self.write(self.cache / 'mcp.json', '{"old":true}')
         self.assertIn('manifest', self.check()[0])

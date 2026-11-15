@@ -19,7 +19,7 @@
   },
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "author": {
-    "url": "https://github.com/rizonetech/Codex",
+    "url": "https://github.com/rizonetech/Conclave-SDK",
     "name": "Rizonetech"
   },
   "description": "Manage Pressable hosting and reviewed WP-CLI commands, with encrypted credentials, explicit change previews and asynchronous result checks.",

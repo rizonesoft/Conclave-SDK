@@ -99,7 +99,7 @@ On Ninja and similar tools: yes for the C and C++ projects (RasterFold, Impossib
 
 Imported on 2026-11-11 into `global/` (rules, hooks, personal skills) and `plugins/` (ten plugin folders: eight for Codex, two for Claude), 378 files, byte for byte. Left out: each repository's own glue, verification and deployment logs, the brand permission drafts and the client site list.
 
-Status on 2026-11-11, end of day: both GitHub repositories can be deleted.
+Status on 2026-11-11, end of day: both GitHub repositories can be deleted. Status on 2026-11-16: both are deleted (`gh repo view` reports "Could not resolve to a Repository" for each; the owner deleted them before `D06 T01 §3` ran), no checkout has either as a remote or submodule, and the Codex plugins' author links now name `rizonetech/Conclave-SDK`.
 
 1. The import is pushed to `origin/main`, and the live copies were compared with it file by file: the same content once line endings and the old folder names are set aside.
 2. The client site list and the brand permission drafts were dropped on the owner's decision; they were not imported.

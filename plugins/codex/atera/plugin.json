@@ -5,7 +5,7 @@
   "description": "Read Atera device inventory, monitor status, patch availability, and alerts through Rizonetech's local MCP integration.",
   "author": {
     "name": "Rizonetech",
-    "url": "https://github.com/rizonetech/Codex"
+    "url": "https://github.com/rizonetech/Conclave-SDK"
   },
   "extensions": {
     "com.openai": {

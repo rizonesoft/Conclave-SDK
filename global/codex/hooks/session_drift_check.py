@@ -107,11 +107,11 @@ def plugin_drift(home, sdk, deadline):
             if actual != expected:
                 problems.append(name + ': cached bundles differ from SDK')
                 break
-            manifests = ('mcp.json', '.mcp.json')
+            manifests = ('mcp.json', '.mcp.json', 'plugin.json')
             if any((plugin / name).is_file() != (version / name).is_file() or
                    ((plugin / name).is_file() and (plugin / name).read_bytes() != (version / name).read_bytes())
                    for name in manifests):
-                problems.append(name + ': cached MCP manifest differs from SDK')
+                problems.append(name + ': cached plugin or MCP manifest differs from SDK')
                 break
     return problems
 

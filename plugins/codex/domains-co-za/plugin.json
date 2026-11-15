@@ -5,7 +5,7 @@
   "description": "Manage Domains.co.za reseller domains, DNS, nameservers, renewals and registration through a local Windows-encrypted connection.",
   "author": {
     "name": "Rizonetech",
-    "url": "https://github.com/rizonetech/Codex"
+    "url": "https://github.com/rizonetech/Conclave-SDK"
   },
   "extensions": {
     "com.openai": {

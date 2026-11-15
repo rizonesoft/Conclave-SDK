@@ -5,7 +5,7 @@
   "description": "Read complete Outlook identity and thread context, update existing HTML reply drafts safely, prepare unsent drafts, and verify evidenced Inbox filing.",
   "author": {
     "name": "Rizonetech",
-    "url": "https://github.com/rizonetech/Codex"
+    "url": "https://github.com/rizonetech/Conclave-SDK"
   },
   "extensions": {
     "com.openai": {
