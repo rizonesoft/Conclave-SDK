@@ -628,13 +628,19 @@ class ClaudePluginTests(unittest.TestCase):
                     self.assertIn("started", text, f"Claude Code did not start the {name} server")
                     self.assertIn(f"document {uri}", text, f"the {name} server was not given {rel}")
                     self.assertTrue(back, f"the {name} server's diagnostic did not come back: {ran.stdout[:400]}")
-                # The server under a root of its own is given that folder as its workspace root. Where Claude Code
-                # starts the process is its own choice: it is printed, for the record, and not asserted.
+                # The server under a root of its own is given that folder as its workspace root and its process is
+                # started there, as the kit's README says of this run: both are asserted, by each mechanism.
                 beta = (self.work / f"beta-{mode.strip('-')}.log").read_text(encoding="utf-8")
                 self.assertIn("root " + (project / "api").resolve().as_uri(), beta)
                 started_in = [line[4:] for line in beta.splitlines() if line.startswith("cwd ")]
-                print(f"  beta: workspace root=api, process started in "
-                      f"{'the root' if os.path.samefile(started_in[0], project / 'api') else 'the project'}")
+                self.assertTrue(started_in, "the beta server logged no working directory")
+                for folder in started_in:
+                    self.assertTrue(os.path.samefile(folder, project / "api"),
+                                    f"the rooted server was started in {folder}, not in its root")
+                print(f"  beta: workspace root=api, process started in {pathlib.Path(started_in[0]).name}/")
+                alpha = (self.work / f"alpha-{mode.strip('-')}.log").read_text(encoding="utf-8")
+                for folder in [line[4:] for line in alpha.splitlines() if line.startswith("cwd ")]:
+                    self.assertTrue(os.path.samefile(folder, project), f"the alpha server was started in {folder}")
 
 
 if __name__ == "__main__":
