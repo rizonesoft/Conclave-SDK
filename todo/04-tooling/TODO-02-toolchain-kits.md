@@ -286,6 +286,8 @@ Each kit gets a short document and a skill so an agent uses the pinned tools, th
 
 ## 8. Optional tools named as optional in the check's text
 
+> **Started:** 2026-11-15T14:29:57Z
+
 Found 2026-11-15 while running this file's Verification block in WSL. For a missing tool the pin marks optional, `scripts/toolchain-check.py` prints `phpstan  setup_required  not installed ...`, the word it prints for a required tool. Its exit code (0) and the doctor (`optional`) are right, but an agent that reads the text reports an optional tool as setup the project needs, and the documents of §7 say an optional tool is shown and never fails the check.
 
 **Phase:** 6
