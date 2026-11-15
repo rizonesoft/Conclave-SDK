@@ -14,7 +14,7 @@ These plugins connect one owner's own accounts and services. They are account-bo
 | ------ | ----- | ------------------- | ----- |
 | `codex/website-router` | Codex | WordPress sites over MCP, SSH and SFTP | 19 |
 | `codex/pressable` | Codex | Pressable hosting and reviewed WP-CLI | 15 |
-| `codex/outlook-graph` | Codex | Outlook mail and drafts through Microsoft Graph | 81 |
+| `codex/outlook-graph` | Codex | Outlook mail and drafts through Microsoft Graph | 82 |
 | `codex/atera` | Codex | Atera devices, monitors, patches, alerts | 16 |
 | `codex/domains-co-za` | Codex | Domains.co.za domains, DNS, renewals | 17 |
 | `codex/bunny-net` | Codex | Bunny.net CDN, DNS and Storage | 18 |
