@@ -125,6 +125,83 @@ class LoadServersTests(Fixture):
         self.assertIn("server 'clangd': name: used by two servers", self.refusal())
 
 
+class RootAndProgramTests(Fixture):
+    """Found by the round of D04 T01 section 2."""
+
+    def test_a_root_that_names_the_project_itself_is_the_project(self):
+        for value in (".", "./"):
+            with self.subTest(root=value):
+                self.servers(dict(CLANGD, root=value))
+                self.assertEqual(lsp_table.load_servers(self.root)[0]["root"], ".")
+        self.servers(dict(CLANGD, root="./app/"))
+        self.assertEqual(lsp_table.load_servers(self.root)[0]["root"], "app")
+        for value in (".", "./"):  # a file cannot be the folder itself
+            with self.subTest(requires=value):
+                self.servers(dict(CLANGD, requires=value))
+                self.assertIn("server 'clangd': requires:", self.refusal())
+
+    def program(self, folder, name, executable=True):
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / (f"{name}.cmd" if os.name == "nt" else name)
+        path.write_text("@exit /b 0\r\n" if os.name == "nt" else "#!/bin/sh\nexit 0\n", encoding="utf-8")
+        path.chmod(0o755 if executable else 0o644)
+        return path
+
+    def on_path(self, *folders):
+        env = {"PATH": os.pathsep.join(str(folder) for folder in folders)}
+        if os.name == "nt":
+            env["PATHEXT"] = ".CMD;.EXE"
+        patch = unittest.mock.patch.dict(os.environ, env)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def entry(self, **changes):
+        self.servers(dict(CLANGD, **changes))
+        return lsp_table.load_servers(self.root)[0]
+
+    def test_a_bare_name_is_found_on_path_and_never_in_the_working_directory(self):
+        elsewhere = self.root / "elsewhere"
+        self.program(elsewhere, "clangd")
+        self.on_path(self.root / "empty-bin")
+        entry = self.entry()
+        held = os.getcwd()
+        os.chdir(elsewhere)  # a file of that name here has nothing to do with the project
+        try:
+            self.assertIsNone(lsp_table.find_program(self.root, entry))
+        finally:
+            os.chdir(held)
+        found = self.program(self.root / "empty-bin", "clangd")
+        self.assertTrue(os.path.samefile(lsp_table.find_program(self.root, entry), found))
+
+    def test_a_program_named_by_a_path_is_read_from_the_servers_folder_not_the_working_directory(self):
+        self.on_path(self.root / "empty-bin")
+        elsewhere = self.root / "elsewhere"
+        self.program(elsewhere / "bin", "server")
+        entry = self.entry(command=["./bin/server"], root="app")
+        (self.root / "app").mkdir()
+        held = os.getcwd()
+        os.chdir(elsewhere)  # holds bin/server; the project's app/ folder does not
+        try:
+            self.assertIsNone(lsp_table.find_program(self.root, entry))
+            found = self.program(self.root / "app/bin", "server")
+            self.assertTrue(os.path.samefile(lsp_table.find_program(self.root, entry), found))
+        finally:
+            os.chdir(held)
+        absolute = self.program(self.root / "tools", "abs-server")
+        entry = self.entry(command=[absolute.as_posix()])
+        self.assertTrue(os.path.samefile(lsp_table.find_program(self.root, entry), absolute))
+
+    @unittest.skipIf(os.name == "nt", "Windows has no execute permission to withhold: a .cmd file runs")
+    def test_a_file_the_system_will_not_execute_is_not_an_installed_program(self):
+        self.on_path(self.root / "bin")
+        self.program(self.root / "bin", "clangd", executable=False)
+        self.assertIsNone(lsp_table.find_program(self.root, self.entry()))
+        self.program(self.root / "app/bin", "server", executable=False)
+        self.assertIsNone(lsp_table.find_program(self.root, self.entry(command=["bin/server"], root="app")))
+        (self.root / "app/bin/server").chmod(0o755)
+        self.assertIsNotNone(lsp_table.find_program(self.root, self.entry(command=["bin/server"], root="app")))
+
+
 class PresetTests(Fixture):
     def presets(self, document):
         path = self.root / "presets.json"
@@ -169,6 +246,8 @@ class PresetTests(Fixture):
         self.assertEqual(laravel["extensions"], {".php": "php", ".blade.php": "blade"})
         self.assertEqual((intelephense["requires"], intelephense["severity"], intelephense["settle"]),
                          ("composer.json", "error", 10))
+        # Its index goes to a folder the client makes outside the repository: the placeholder says so.
+        self.assertEqual(intelephense["init"], {"storagePath": "${scratch}", "clearCache": False})
         diagnostics = intelephense["settings"]["intelephense"]["diagnostics"]
         self.assertEqual((diagnostics["typeErrors"], diagnostics["undefinedFunctions"]), (False, True))
         self.assertEqual((tailwind["requires"], tailwind["severity"], tailwind["settle"]),

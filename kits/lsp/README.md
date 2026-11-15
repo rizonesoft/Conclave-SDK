@@ -55,7 +55,11 @@ python forge.py doctor /path/to/project lsp [--strict]
 | `settle` | no | Seconds to wait for diagnostics, from 1 to 120 | `5` |
 | `note` | no | One line on what the server is for | none |
 
-A suffix is matched against the end of a file's name and the longest match wins, so `.blade.php` can name a different language from `.php`. `root` and `requires` are relative paths that stay inside the project. Anything else in the file (an unknown key, a `command` given as one string, a duplicate name) is refused by every tool that reads the table, with a message naming the file, the server and the key.
+A suffix is matched against the end of a file's name and the longest match wins, so `.blade.php` can name a different language from `.php`. `root` and `requires` are relative paths that stay inside the project (`.` and `./` are the project itself).
+
+The program, the first item of `command`, is found the same way by every tool. A bare name (`clangd`) is looked for on `PATH` and nowhere else, never in the working directory. A name with a folder in it (`vendor/bin/laravel-lsp`) is read from the server's `root`; an absolute path is read as it is. Either way it must be a file the system will execute.
+
+The value `${scratch}` in `init` or `settings` stands for a temporary folder outside the repository that the diagnostics client (§3) makes for the run and removes afterwards: the `laravel` preset gives it to Intelephense as its `storagePath`, so the server's index never lands in the project. Anything else in the file (an unknown key, a `command` given as one string, a duplicate name) is refused by every tool that reads the table, with a message naming the file, the server and the key.
 
 ## Presets
 

@@ -223,10 +223,30 @@ class LspKitTests(unittest.TestCase):
         local = dict(SERVER, name="local-ls", command=["vendor/bin/local-ls"], root="app")
         self.table(project, local)
         self.assertEqual(self.checks(forge.doctor_repo(project, "lsp"))["server:local-ls"]["status"], "setup_required")
-        (project / "app/vendor/bin").mkdir(parents=True)
-        (project / "app/vendor/bin/local-ls").write_text("#!/bin/sh\n", encoding="utf-8")
-        check = self.checks(forge.doctor_repo(project, "lsp"))["server:local-ls"]
-        self.assertEqual((check["status"], check["detail"]), ("ok", (project / "app/vendor/bin/local-ls").as_posix()))
+        # The same path under the working directory is not the project's: the doctor reads the server's own folder.
+        held, elsewhere = os.getcwd(), self.work / "elsewhere"
+        for base in (elsewhere, project / "app"):
+            (base / "vendor/bin").mkdir(parents=True)
+        program = "local-ls.cmd" if os.name == "nt" else "local-ls"
+        body = "@exit /b 0\r\n" if os.name == "nt" else "#!/bin/sh\nexit 0\n"
+        (elsewhere / "vendor/bin" / program).write_text(body, encoding="utf-8")
+        (elsewhere / "vendor/bin" / program).chmod(0o755)
+        os.chdir(elsewhere)
+        try:
+            self.assertEqual(self.checks(forge.doctor_repo(project, "lsp"))["server:local-ls"]["status"],
+                             "setup_required")
+            local = project / "app/vendor/bin" / program
+            local.write_text(body, encoding="utf-8")
+            local.chmod(0o644)
+            if os.name != "nt":  # a file the system will not execute is not an installed server
+                self.assertEqual(self.checks(forge.doctor_repo(project, "lsp"))["server:local-ls"]["status"],
+                                 "setup_required")
+            local.chmod(0o755)
+            check = self.checks(forge.doctor_repo(project, "lsp"))["server:local-ls"]
+        finally:
+            os.chdir(held)
+        self.assertEqual(check["status"], "ok")
+        self.assertTrue(os.path.samefile(check["detail"], local), check["detail"])
 
     def test_a_table_that_does_not_load_is_reported_with_the_refusal_and_no_server_check(self):
         project = self.project()

@@ -39,7 +39,12 @@ def _inside(value):
     if not isinstance(value, str) or not value or "\\" in value:
         return False
     path = PurePosixPath(value)
-    return not path.is_absolute() and ".." not in path.parts and ":" not in path.parts[0]
+    # `.` and `./` name the folder itself and have no parts: a root may be that, a file may not.
+    return bool(path.parts) and not path.is_absolute() and ".." not in path.parts and ":" not in path.parts[0]
+
+
+def _is_here(value):
+    return isinstance(value, str) and bool(value) and "\\" not in value and not PurePosixPath(value).parts
 
 
 def check_entry(where, name, entry):
@@ -70,8 +75,10 @@ def check_entry(where, name, entry):
     checked = {"name": name, "command": list(command), "extensions": dict(extensions), "install": install}
     for key, default in DEFAULTS.items():
         value = entry.get(key, default)
-        if key == "root" and not (value == "." or _inside(value)):
-            raise TableError(f"{where}: root: a folder inside the project, not {value!r}")
+        if key == "root":
+            if not (_is_here(value) or _inside(value)):
+                raise TableError(f"{where}: root: a folder inside the project, not {value!r}")
+            value = "." if _is_here(value) else PurePosixPath(value).as_posix()
         if key == "requires" and value is not None and not _inside(value):
             raise TableError(f"{where}: requires: a file inside the project, not {value!r}")
         if key == "init" and not isinstance(value, dict):
@@ -87,6 +94,38 @@ def check_entry(where, name, entry):
             raise TableError(f"{where}: note: one line")
         checked[key] = value
     return checked
+
+
+def find_program(root, entry):
+    """The file a server's program is, as text, or None when it is not installed.
+
+    A bare name is looked for on PATH and nowhere else: not in the working directory, which on Windows the
+    standard lookup tries first and which has nothing to do with the project. A program named with a folder is
+    read from the folder the server runs in (`root`), as the client starts it; an absolute path is read as it is.
+    Either way it must be a file the system will execute."""
+    program = entry["command"][0]
+    windows = os.name == "nt"
+    extensions = [ext for ext in os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(os.pathsep) if ext] \
+        if windows else []
+
+    def runnable(path):
+        names = [path]
+        if windows and path.suffix.upper() not in {ext.upper() for ext in extensions}:
+            names = [path.with_name(path.name + ext) for ext in extensions]
+        for candidate in names:
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return candidate
+        return None
+
+    if "/" in program or "\\" in program:
+        path = Path(program)
+        found = runnable(path if path.is_absolute() else Path(root) / entry["root"] / path)
+        return found.as_posix() if found else None
+    for folder in os.environ.get("PATH", "").split(os.pathsep):
+        found = runnable(Path(folder) / program) if folder else None
+        if found:
+            return str(found)
+    return None
 
 
 def _read_json(path, where):

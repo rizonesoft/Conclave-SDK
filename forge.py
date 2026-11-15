@@ -1919,12 +1919,7 @@ def _doctor_lsp(target_root: Path, add_check) -> None:
     else:
         add_check("server-table", "ok", f"{LSP_TABLE}: {', '.join(server['name'] for server in servers)}")
     for server in servers:
-        program = server["command"][0]
-        found = shutil.which(program)
-        if found is None and ("/" in program or "\\" in program):
-            # A program named by a path is read from the folder the server runs in, as the client starts it.
-            local = target_root / server["root"] / program
-            found = local.as_posix() if local.is_file() else None
+        found = table.find_program(target_root, server)  # the kit's own lookup: PATH, or the server's folder
         add_check(f"server:{server['name']}", "ok" if found else "setup_required", found or server["install"])
 
 

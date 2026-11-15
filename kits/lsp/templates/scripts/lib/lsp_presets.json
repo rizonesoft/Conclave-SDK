@@ -122,6 +122,10 @@
         {
           "server": "intelephense",
           "requires": "composer.json",
+          "init": {
+            "storagePath": "${scratch}",
+            "clearCache": false
+          },
           "severity": "error",
           "settle": 10,
           "settings": {
