@@ -2025,14 +2025,15 @@ def _kit_file_checks(kit: str, target_root: Path, add_check) -> None:
 _TOOLCHAIN_MODULES: dict[str, types.ModuleType] = {}
 
 
-def _toolchain_module(kit: str) -> types.ModuleType:
-    """A toolchain kit's toolchain-check.py, loaded from the kit (forge reads; the project's copy is the
-    project's), so the doctor checks a pin file exactly as the kit's own script does. Kept per file, so its limits
-    can be read back."""
-    path = FORGE_ROOT / "kits" / kit / "templates/scripts/toolchain-check.py"
+def _toolchain_module(kit: str, script: str = "toolchain-check.py") -> types.ModuleType:
+    """A script of a toolchain kit (toolchain-check.py unless named), loaded from the kit (forge reads; the
+    project's copy is the project's), so the doctor checks a pin file exactly as the kit's own script does. Kept
+    per file, so its limits can be read back."""
+    path = FORGE_ROOT / "kits" / kit / "templates/scripts" / script
     key = str(path)
     if key not in _TOOLCHAIN_MODULES:
-        module = types.ModuleType(f"_forge_toolchain_check_{kit.replace('-', '_')}")
+        name = f"{kit}_{script.removesuffix('.py')}".replace("-", "_")
+        module = types.ModuleType(f"_forge_{name}")
         module.__file__ = key
         exec(compile(path.read_text(encoding="utf-8"), key, "exec"), module.__dict__)
         _TOOLCHAIN_MODULES[key] = module
@@ -2042,7 +2043,9 @@ def _toolchain_module(kit: str) -> types.ModuleType:
 def _doctor_toolchain(target_root: Path, add_check, kit: str) -> None:
     """A toolchain kit's checks: each file the kit installs, the project's pin file (`tool-pins`), and each pinned
     tool as `tool:<name>`. A tool that is not ok is `setup_required` when the pin requires it and `optional` when
-    it does not, whatever the cause, with the check script's own detail; `optional` is shown and never counted."""
+    it does not, whatever the cause, with the check script's own detail; `optional` is shown and never counted.
+    The C and C++ kit adds `compile-database`: `ok` for a current database, `setup_required` with the status and
+    the reason for any other, as the kit's compdb-check.py finds it."""
     _kit_file_checks(kit, target_root, add_check)
     module = _toolchain_module(kit)
     try:
@@ -2061,6 +2064,15 @@ def _doctor_toolchain(target_root: Path, add_check, kit: str) -> None:
             add_check(f"tool:{tool['name']}", "optional" if tool["optional"] else "setup_required", tool["detail"])
     if kit == "toolchain-web":
         _doctor_web_constraints(target_root / pin_file["root"], pins, module, add_check)
+    if kit == "toolchain-cpp":
+        compdb = _toolchain_module(kit, "compdb-check.py")
+        database = compdb.check_database(target_root, pin_file)   # reads, and starts nothing
+        if database["status"] == "current":
+            add_check("compile-database", "ok", database["detail"])
+        else:
+            again = compdb.regenerate_line(database)
+            add_check("compile-database", "setup_required",
+                      f"{database['status']}: {database['detail']}" + (f"; {again}" if again else ""))
 
 
 # What a PHP or Node project says of its own runtime: (the pin it is compared with, the manifest, where in it).

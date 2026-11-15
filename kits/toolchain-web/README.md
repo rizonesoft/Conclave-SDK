@@ -46,7 +46,7 @@ Two keys at the top of the pin file say where the project keeps tools of its own
 
 `root` is the app's folder inside the project (`.` when left out). `search` lists folders inside it: a command is looked for in `vendor/bin` and `node_modules/.bin` of the app first, then on `PATH`, and never in the working directory. That is how `phpstan`, `pint`, `phpcs` and a project's own `pnpm` are found, as the `.bat` or `.cmd` launcher on Windows.
 
-To change a pin, edit `.conclave/toolchain-web.json`: raise a `min_version`, set `optional` to `false` for a tool the project cannot do without, or add a tool. The format and its rules are those of the C and C++ kit (`kits/toolchain-cpp/README.md`): each command has its own version arguments, pattern and minimum.
+To change a pin, edit `.conclave/toolchain-web.json`: raise a `min_version`, set `optional` to `false` for a tool the project cannot do without, or add a tool. The format and its rules are those of the C and C++ kit (`kits/toolchain-cpp/README.md`): each command has its own version arguments, pattern and minimum. The loader is the same file in both kits, so it also accepts the C and C++ kit's optional `compdb` key (where a compile database is); this kit has no check that reads it.
 
 Intelephense is not pinned here. It is a language server with no version command; the LSP kit's doctor reports it as `server:intelephense`.
 

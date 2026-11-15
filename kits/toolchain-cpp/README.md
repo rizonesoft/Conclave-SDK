@@ -9,10 +9,12 @@ The kit is being built in sections (`todo/04-tooling/TODO-02-toolchain-kits.md`)
 | `.conclave/toolchain-cpp.json` | The pin file: each tool, the commands that satisfy it, the least version |
 | `scripts/toolchain-check.py` | Reads the pin file and reports each tool; installs and writes nothing |
 | `scripts/tests/test_toolchain_check.py` | The check's own tests, with stub tools |
+| `scripts/compdb-check.py` | Says whether the compile database can be trusted; runs and writes nothing |
+| `scripts/tests/test_compdb_check.py` | The compile database check's own tests |
 
 The pin file is the project's own from the first install: `forge.py` never overwrites it, and a project that already has one keeps it byte for byte.
 
-Still to come: the compile database check (D04 T02 §3), the compiler cache wrapper (§4), the clangd seed and its entry in the LSP kit's server table (§5), and the `cpp-toolchain` skill and document (§7).
+Still to come: the compiler cache wrapper (§4), the clangd seed and its entry in the LSP kit's server table (§5), and the `cpp-toolchain` skill and document (§7).
 
 ## Install
 
@@ -63,6 +65,40 @@ python scripts/toolchain-check.py --pins .conclave/toolchain-cpp.json --root /pa
 
 It exits 3 when a tool that is not optional is not ok, 2 when the pin file does not load, 0 otherwise. Each tool is run with no shell, for at most 15 seconds and 64 KiB of output, and whatever it started is ended with it.
 
+## The compile database
+
+clangd is only as good as the `compile_commands.json` it reads: a stale one gives agents wrong diagnostics. `scripts/compdb-check.py` says whether the project's can be trusted.
+
+```powershell
+python scripts/compdb-check.py                                   # one line: the status and why
+python scripts/compdb-check.py --json
+python scripts/compdb-check.py --root /path/to/project --path build/compile_commands.json
+python scripts/compdb-check.py --build-file CMakeLists.txt --build-file cmake/flags.cmake
+```
+
+| Status | Meaning |
+| --- | --- |
+| `current` | It parses, every source file it names exists, and no build file is newer than it |
+| `stale` | A build file is newer than it, or a source file it names no longer exists (each named) |
+| `unknown` | A build file named by the pin file or `--build-file` cannot be read |
+| `invalid` | It cannot be read, is not a JSON list of entries, or an entry (named by number) is bad |
+| `missing` | There is no file at its path |
+
+It exits 0 for `current`, 1 for any other status, and 2 for bad usage or a pin file that does not load. `--json` prints one document (`path`, `status`, `detail`, `entries`, `newer`, `gone`, `regenerate`) for every run that gets past its arguments, a refused one included (`status` is then `refused`). An entry needs a `directory`, a `file` and a compile command (`command`, or `arguments` starting with the compiler), as the format requires; a relative `file` is read from its `directory`, and a relative `directory` from the database's folder. At most 20 missing source files are named and the rest are counted.
+
+The pin file says where the database is and what it must not be older than, under an optional `compdb` key (each key in it optional, each file read under the pin file's `root`):
+
+```json
+{"schema_version": 1, "tools": [],
+ "compdb": {"path": "build/compile_commands.json",
+            "build_files": ["CMakeLists.txt", "cmake/flags.cmake"],
+            "regenerate": ["cmake", "-S", ".", "-B", "build"]}}
+```
+
+- `path`: the database, `compile_commands.json` when left out. `--path`, read from `--root`, overrides it.
+- `build_files`: the files that change the compile flags. When left out, `build.ninja`, `Makefile` and `CMakeLists.txt` are compared where they exist, in the `root` and beside the database. A project with included makefiles or nested `CMakeLists.txt` files names them here, so the doctor sees them too. `--build-file` replaces the list for one run. A file named here that does not exist makes the status `unknown`, because freshness that cannot be told is not `current`.
+- `regenerate`: the project's own command that writes the database again, as a list of arguments. The check prints it (`regenerate with: ...`) for a database that is not current and never runs it: a check that builds is not read-only.
+
 ## Doctor
 
 `python forge.py doctor <project> toolchain-cpp` reports:
@@ -70,6 +106,8 @@ It exits 3 when a tool that is not optional is not ok, 2 when the pin file does 
 - each file the kit installs, `ok` or `missing`;
 - `tool-pins`: `ok` with the tools the project's pin file names, `missing` with the refusal when it does not load;
 - `tool:<name>` for each pinned tool: `ok` with the path found and its version; `setup_required` when a required tool is not ok, with the reason (not installed and how to install it, both versions when it is too old, or what went wrong when it was run); `optional` for the same on a tool the pin marks optional.
+
+- `compile-database`: `ok` with the database and its entry count when it is `current`; `setup_required` with the status and the reason for `missing`, `invalid`, `stale` and `unknown`, and the project's `regenerate` command when the pin file gives one. It reads the pin file's `compdb` and starts nothing.
 
 `optional` is shown and never counted: `--strict` exits 3 only for a required tool, a missing file or a pin file that does not load, so a project that uses no compiler cache passes.
 

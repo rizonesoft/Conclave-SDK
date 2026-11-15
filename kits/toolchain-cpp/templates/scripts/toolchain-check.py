@@ -21,6 +21,13 @@ A pin file may also name where the project keeps tools of its own, which no PATH
 `root` is the app's folder inside the project (`.` when left out) and `search` lists folders inside it; a command
 is looked for there first, then on PATH, and never in the working directory.
 
+A pin file may say where the project's compile database is and what it must not be older than, for
+compdb-check.py (each key optional; the files are read under `root`):
+
+    {"schema_version": 1, "tools": [...],
+     "compdb": {"path": "build/compile_commands.json", "build_files": ["CMakeLists.txt", "src/flags.cmake"],
+                "regenerate": ["cmake", "-S", ".", "-B", "build"]}}
+
 It prints one line per tool and exits 3 when a tool that is not optional is not ok, 2 when the pin file does not
 load. It reads and reports: it installs nothing and writes nothing. Standard library only.
 """
@@ -49,7 +56,9 @@ ARGUMENT = re.compile(r"[A-Za-z0-9=_./:+-]+")
 # output to refuse, not a number to convert.
 VERSION = re.compile(r"[0-9]{1,9}(?:\.[0-9]{1,9}){0,7}")
 TOP_KEYS = {"schema_version", "tools"}
-TOP_OPTIONAL = {"root", "search"}
+TOP_OPTIONAL = {"root", "search", "compdb"}
+COMPDB_KEYS = ("path", "build_files", "regenerate")
+COMPDB_PATH = "compile_commands.json"
 TOOL_KEYS = {"name", "commands", "install", "optional"}
 COMMAND_KEYS = {"command", "version_args", "version_pattern", "min_version"}
 
@@ -139,6 +148,7 @@ def load_pin_file(path):
     for folder in search:
         if not _inside(folder) or not PurePosixPath(folder).parts:
             raise PinError(f"{where}: search: a folder inside the project, not {folder!r}")
+    compdb = _load_compdb(where, data)
     if not isinstance(data["tools"], list):
         raise PinError(f"{where}: tools: a list of tools")
     tools, seen = [], set()
@@ -164,7 +174,46 @@ def load_pin_file(path):
             raise PinError(f"{tool_where}: optional: true or false")
         tools.append({"name": name, "commands": commands, "install": install, "optional": optional})
     return {"tools": tools, "root": PurePosixPath(root).as_posix(),
-            "search": [PurePosixPath(folder).as_posix() for folder in search]}
+            "search": [PurePosixPath(folder).as_posix() for folder in search], "compdb": compdb}
+
+
+def _load_compdb(where, data):
+    """A pin file's `compdb`, checked: {"path": the compile database, "build_files": the files it must not be
+    older than (None: the usual ones, where they exist), "regenerate": the project's own command that writes it
+    again, as arguments (shown by compdb-check.py, never run)}. The files are named under the pin file's `root`."""
+    loaded = {"path": COMPDB_PATH, "build_files": None, "regenerate": []}
+    if "compdb" not in data:
+        return loaded
+    where = f"{where}: compdb"
+    compdb = data["compdb"]
+    if not isinstance(compdb, dict):
+        raise PinError(f"{where}: an object with the optional keys {', '.join(COMPDB_KEYS)}")
+    _keys(where, compdb, (), COMPDB_KEYS)
+
+    def a_file(value):
+        return _inside(value) and bool(PurePosixPath(value).parts)
+
+    if "path" in compdb:
+        if not a_file(compdb["path"]):
+            raise PinError(f"{where}: path: a file inside the project, not {compdb['path']!r}")
+        loaded["path"] = PurePosixPath(compdb["path"]).as_posix()
+    if "build_files" in compdb:
+        files = compdb["build_files"]
+        if not isinstance(files, list) or not files:
+            raise PinError(f"{where}: build_files: a list of at least one file inside the project")
+        for file in files:
+            if not a_file(file):
+                raise PinError(f"{where}: build_files: a file inside the project, not {file!r}")
+        loaded["build_files"] = [PurePosixPath(file).as_posix() for file in files]
+    if "regenerate" in compdb:
+        command = compdb["regenerate"]
+        if not isinstance(command, list) or not command:
+            raise PinError(f"{where}: regenerate: a command as a list of at least one argument")
+        for argument in command:
+            if not isinstance(argument, str) or not argument.strip() or "\n" in argument or "\r" in argument:
+                raise PinError(f"{where}: regenerate: each argument is a one-line string, not {argument!r}")
+        loaded["regenerate"] = list(command)
+    return loaded
 
 
 def search_folders(project, pin_file):

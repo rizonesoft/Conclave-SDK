@@ -115,7 +115,7 @@ class LoadPinsTests(Fixture):
                 tc.load_pins(path)
         self.assertIn("cannot be read (Permission denied)", str(caught.exception))
         cases = {"not UTF-8": b"\xff\xfe{}", "not JSON": b"{", "an object": b"null", "an object ": b"[]",
-                 "unknown key 'compdb'": json.dumps({"schema_version": 1, "tools": [], "compdb": {}}).encode(),
+                 "unknown key 'ccache'": json.dumps({"schema_version": 1, "tools": [], "ccache": {}}).encode(),
                  "missing key 'tools'": b'{"schema_version": 1}',
                  "schema_version: must be 1": b'{"schema_version": 2, "tools": []}',
                  "schema_version: must be 1 ": b'{"schema_version": true, "tools": []}',
@@ -642,6 +642,54 @@ class SearchFolderTests(Fixture):
         local = self.local_tool(self.project / "vendor/bin", "phpstan", "PHPStan - PHP Static Analysis Tool 2.3.5\n")
         local.chmod(0o644)
         self.assertIsNone(tc.find_command("phpstan", [self.project / "vendor/bin"]))
+
+
+class CompdbKeyTests(Fixture):
+    """D04 T02 section 3: the pin file's `compdb`, which compdb-check.py and the doctor read."""
+
+    def document(self, **top):
+        return {"schema_version": 1, "tools": [self.tool()], **top}
+
+    def test_a_pin_file_without_compdb_has_the_defaults_and_one_with_it_still_checks_its_tools(self):
+        plain = tc.load_pin_file(self.pins(self.document()))
+        self.assertEqual(plain["compdb"], {"path": "compile_commands.json", "build_files": None, "regenerate": []})
+        self.assertEqual(tc.load_pin_file(self.pins(self.document(compdb={})))["compdb"], plain["compdb"])
+        compdb = {"path": "build/compile_commands.json", "build_files": ["CMakeLists.txt", "src/flags.cmake"],
+                  "regenerate": ["cmake", "-S", ".", "-B", "build"]}
+        path = self.pins(self.document(compdb=compdb))
+        loaded = tc.load_pin_file(path)
+        self.assertEqual(loaded["compdb"], compdb)
+        self.assertEqual(loaded["tools"], plain["tools"])
+        self.prints("ninja", "1.11.1\n")
+        (tool,) = tc.check_tools(tc.load_pins(path))
+        self.assertEqual((tool["name"], tool["status"], tool["version"]), ("ninja", "ok", "1.11.1"))
+
+    def test_a_compdb_the_format_does_not_allow_is_refused_naming_the_file_and_the_key(self):
+        cases = [("build", "an object with the optional keys path, build_files, regenerate"),
+                 ({"run": ["make"]}, "unknown key 'run'"),
+                 ({"path": "../compile_commands.json"}, "path: a file inside the project"),
+                 ({"path": "/srv/compile_commands.json"}, "path: a file inside the project"),
+                 ({"path": "C:/build/compile_commands.json"}, "path: a file inside the project"),
+                 ({"path": "build\\compile_commands.json"}, "path: a file inside the project"),
+                 ({"path": "."}, "path: a file inside the project"),
+                 ({"path": 3}, "path: a file inside the project"),
+                 ({"build_files": []}, "build_files: a list of at least one file"),
+                 ({"build_files": "Makefile"}, "build_files: a list of at least one file"),
+                 ({"build_files": ["Makefile", "../flags.mk"]},
+                  "build_files: a file inside the project, not '../flags.mk'"),
+                 ({"build_files": [7]}, "build_files: a file inside the project, not 7"),
+                 ({"regenerate": []}, "regenerate: a command as a list of at least one argument"),
+                 ({"regenerate": "make compdb"}, "regenerate: a command as a list of at least one argument"),
+                 ({"regenerate": ["make", 3]}, "regenerate: each argument is a one-line string, not 3"),
+                 ({"regenerate": ["make", ""]}, "regenerate: each argument is a one-line string, not ''"),
+                 ({"regenerate": ["make\nrm"]}, "regenerate: each argument is a one-line string")]
+        for compdb, expected in cases:
+            with self.subTest(compdb=compdb):
+                path = self.pins(self.document(compdb=compdb))
+                with self.assertRaises(tc.PinError) as caught:
+                    tc.load_pin_file(path)
+                self.assertTrue(str(caught.exception).startswith(f"{path.as_posix()}: compdb: {expected}"),
+                                caught.exception)
 
 
 class InProcessTests(Fixture):

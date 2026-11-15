@@ -64,6 +64,8 @@ REAL_WEB_OUTPUT = {
                "PHP_CodeSniffer 4.0.4, from a scratch composer install, Ubuntu")],
 }
 WEB_PINS = ".conclave/toolchain-web.json"
+THEN = 1_700_000_000_000_000_000   # the time a fixture's compile database is given, in nanoseconds
+LATER = THEN + 5_000_000_000
 LSP_TABLE = ".conclave/lsp.json"
 
 
@@ -187,6 +189,29 @@ class ToolchainFixture(unittest.TestCase):
 class CppKitTests(ToolchainFixture):
     """D04 T02 section 2: the toolchain-cpp kit's seed pins, its install and its doctor."""
 
+    def project(self, name="project", install=True, database=True):
+        """A project with a current compile database (section 3), so the doctor's other checks are read alone."""
+        folder = super().project(name, install)
+        if install and database:
+            self.database(folder)
+        return folder
+
+    def database(self, project, rel="compile_commands.json", entries=None, when=THEN):
+        """A compile database under the project: one entry whose source file exists, unless given."""
+        path = project / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if entries is None:
+            (path.parent / "main.c").write_text("int main(void) { return 0; }\n", encoding="utf-8")
+            entries = [{"directory": str(path.parent), "file": "main.c", "command": "cc -c main.c"}]
+        path.write_text(entries if isinstance(entries, str) else json.dumps(entries), encoding="utf-8")
+        os.utime(path, ns=(when, when))
+        return path
+
+    def touch(self, path, when):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("changed\n", encoding="utf-8")
+        os.utime(path, ns=(when, when))
+
     # the seed
 
     def test_the_seed_pins_five_tools_and_marks_the_three_a_project_may_not_use_optional(self):
@@ -217,7 +242,8 @@ class CppKitTests(ToolchainFixture):
     # the install
 
     def test_init_and_kit_install_the_pins_and_the_check_and_record_them(self):
-        files = [PINS, "scripts/tests/test_toolchain_check.py", "scripts/toolchain-check.py"]
+        files = [PINS, "scripts/compdb-check.py", "scripts/tests/test_compdb_check.py",
+                 "scripts/tests/test_toolchain_check.py", "scripts/toolchain-check.py"]
         for name, argv in (("by-init", ("init", "{}", "--kit", self.KIT)), ("by-kit", ("kit", "{}", self.KIT))):
             with self.subTest(command=argv[0]):
                 project = self.project(name, install=False)
@@ -360,6 +386,93 @@ class CppKitTests(ToolchainFixture):
         self.assertEqual(checks["tool:marked"]["status"], "ok")
         self.assertEqual((self.work / "ran").read_text(), "x")
 
+    # the compile database (section 3)
+
+    def compdb_pins(self, project, **top):
+        pins = project / PINS
+        pins.write_text(json.dumps({"schema_version": 1, "tools": [self.pin("alpha")], **top}), encoding="utf-8")
+
+    def test_the_doctor_reports_a_current_compile_database_at_the_pin_files_root_and_path(self):
+        project = self.project(database=False)
+        self.prints("alpha", "alpha v2.5.1\n")
+        self.compdb_pins(project, root="engine", compdb={"path": "build/compile_commands.json"})
+        self.database(project, "engine/build/compile_commands.json")
+        # Decoys the doctor must not read: at the project root and in the working directory.
+        self.database(project, "compile_commands.json", entries="not json")
+        elsewhere = self.work / "elsewhere"
+        elsewhere.mkdir()
+        (elsewhere / "compile_commands.json").write_text("[]", encoding="utf-8")
+        cwd = os.getcwd()
+        os.chdir(elsewhere)
+        self.addCleanup(os.chdir, cwd)
+        code, report, checks = self.doctor(project, "--strict")
+        self.assertEqual((code, report["missing_or_setup_required"]), (0, 0))
+        self.assertEqual(checks["compile-database"], {"name": "compile-database", "status": "ok",
+                                                     "detail": "engine/build/compile_commands.json, 1 entry"})
+        for rel in ("scripts/compdb-check.py", "scripts/tests/test_compdb_check.py"):
+            self.assertEqual(checks[rel]["status"], "ok")
+
+    def test_a_compile_database_that_is_not_current_is_setup_required_with_the_reason(self):
+        project = self.project(database=False)
+        self.prints("alpha", "alpha v2.5.1\n")
+        again = ["cmake", "-S", ".", "-B", "build"]
+        self.compdb_pins(project, compdb={"regenerate": again})
+
+        def found():
+            code, report, checks = self.doctor(project, "--strict")
+            self.assertEqual((code, report["missing_or_setup_required"]), (3, 1))
+            self.assertEqual(checks["tool:alpha"]["status"], "ok")   # every other check is still listed
+            self.assertEqual(checks["compile-database"]["status"], "setup_required")
+            return checks["compile-database"]["detail"]
+
+        line = "; regenerate with: cmake -S . -B build"
+        self.assertEqual(found(), "missing: compile_commands.json does not exist" + line)
+        self.database(project, entries="[]")
+        self.assertEqual(found(), "invalid: compile_commands.json holds no entry, so it describes no build" + line)
+        self.database(project, entries=[{"directory": str(project), "file": "a.c", "command": ""}])
+        self.assertEqual(found(), "invalid: compile_commands.json: entry 1: `command` is not a command line" + line)
+        (project / "compile_commands.json").unlink()
+        (project / "compile_commands.json").mkdir()   # a database that cannot be read
+        self.assertTrue(found().startswith("invalid: compile_commands.json cannot be read ("))
+        (project / "compile_commands.json").rmdir()
+        self.database(project)
+        self.touch(project / "Makefile", LATER)
+        self.assertEqual(found(), "stale: compile_commands.json: older than Makefile" + line)
+        # The pin file's own build files: a configured file that is not one of the usual ones.
+        self.compdb_pins(project, compdb={"build_files": ["cmake/flags.cmake"]})
+        self.touch(project / "cmake/flags.cmake", THEN)
+        code, _report, checks = self.doctor(project, "--strict")
+        self.assertEqual((code, checks["compile-database"]["status"]), (0, "ok"))   # the Makefile no longer counts
+        self.touch(project / "cmake/flags.cmake", LATER)
+        self.assertEqual(found(), "stale: compile_commands.json: older than cmake/flags.cmake")
+        (project / "cmake/flags.cmake").unlink()
+        self.assertEqual(found(), "unknown: compile_commands.json: a build file named by the pin file cannot be "
+                                  "read, so its freshness cannot be told: cmake/flags.cmake (it does not exist)")
+
+    def test_the_compile_database_check_starts_nothing_and_is_the_cpp_kits_alone(self):
+        project = self.project(database=False)
+        self.stub("marked", "with open(r'{dir}/ran', 'a') as mark:\n    mark.write('x')\n")
+        self.compdb_pins(project, compdb={"regenerate": ["marked"]})
+        self.prints("alpha", "alpha v2.5.1\n")
+        _code, _report, checks = self.doctor(project)
+        self.assertIn("regenerate with: marked", checks["compile-database"]["detail"])
+        self.assertFalse((self.work / "ran").exists(), "the doctor ran the regenerate command")
+        # A pin file that does not load: no database check, as no tool check.
+        (project / PINS).write_text('{"schema_version": 1, "tools": [], "compdb": {"path": "../x"}}',
+                                    encoding="utf-8")
+        _code, _report, checks = self.doctor(project)
+        self.assertIn("compdb: path: a file inside the project", checks["tool-pins"]["detail"])
+        self.assertNotIn("compile-database", checks)
+        # The web kit's copy of the loader accepts the key, and its doctor has no such check.
+        web = self.work / "web"
+        web.mkdir()
+        forge.apply_kit(web, "toolchain-web")
+        (web / WEB_PINS).write_text(json.dumps({"schema_version": 1, "tools": [], "compdb": {}}), encoding="utf-8")
+        code, out, _err = command_line("doctor", web, "toolchain-web")
+        names = [check["name"] for check in json.loads(out)["checks"]]
+        self.assertIn("tool-pins", names)
+        self.assertNotIn("compile-database", names)
+
     def test_the_readme_lists_every_file_every_seed_tool_and_the_optional_status(self):
         readme = (SDK_ROOT / "kits" / self.KIT / "README.md").read_text(encoding="utf-8")
         templates = SDK_ROOT / "kits" / self.KIT / "templates"
@@ -370,8 +483,11 @@ class CppKitTests(ToolchainFixture):
             self.assertIn(f"`{tool['name']}`", readme)
             for entry in tool["commands"]:
                 self.assertIn(f"`{entry['command']}`", readme)
-        for word in ("`optional`", "`setup_required`", "`tool-pins`", "`tool:<name>`"):
+        for word in ("`optional`", "`setup_required`", "`tool-pins`", "`tool:<name>`", "`compile-database`",
+                     "`compdb`", "`path`", "`build_files`", "`regenerate`", "`current`", "`stale`", "`unknown`",
+                     "`invalid`", "`missing`", "compdb-check.py --json"):
             self.assertIn(word, readme)
+        self.assertIn("`compdb`", (SDK_ROOT / "kits/toolchain-web/README.md").read_text(encoding="utf-8"))
 
 
 
