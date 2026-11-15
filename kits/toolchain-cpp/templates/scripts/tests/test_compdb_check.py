@@ -428,6 +428,20 @@ class CommandLineTests(Fixture):
         self.assertEqual(detail, "compile_commands.json: older than Makefile; 1 source file(s) asked for have no "
                                  "entry in it: lib/c.c")
 
+    def test_every_source_asked_for_without_an_entry_is_named_however_many(self):
+        # Found by the completion review: the 21st and later were counted, not named.
+        self.database()
+        names = [f"src/new{number:02d}.c" for number in range(1, 24)]
+        for name in names:
+            self.file(name)
+        arguments = [part for name in names for part in ("--source", name)]
+        code, status, detail, report = self.both(*arguments)
+        self.assertEqual((code, status), (1, "stale"))
+        self.assertEqual(report["unlisted"], names)
+        self.assertEqual(detail, "compile_commands.json: 23 source file(s) asked for have no entry in it: "
+                                 + ", ".join(names))
+        self.assertNotIn("more", detail)
+
     def test_a_source_reached_through_a_link_is_the_same_file(self):
         # Found by the review round: a build that names its sources through a linked folder.
         self.file("src/a.c")

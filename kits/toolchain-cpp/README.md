@@ -152,7 +152,7 @@ python scripts/cache-stats.py --cache sccache --json
 
 It reads the form each cache prints for a program (`ccache --print-stats`, `sccache --show-stats --stats-format json`; confirmed against ccache 4.12.3 and sccache 0.13.0 and 0.19.0 on 2026-11-15), runs the cache with no shell for a bounded time and output, and exits 3 with `--min-hit-rate` when the rate is below it or when no compile went through the cache at all. Exit 2, with one line saying which, when no cache is installed or the cache could not be started, failed, ran over a limit, printed something else, or did not reset.
 
-A build that finds its sources by itself (a wildcard in a Makefile, a glob in CMake) changes no build file when a source is added, so the database stays `current` without the new file. `--source <file>` (relative to `--root`, repeatable) asks whether that file has an entry, matched through each entry's `directory` with the system's rule for case; a file without one is listed under `unlisted` and the status is `stale`. After adding or moving a source: regenerate, then name the file. A `--source` outside the project is exit 2.
+A build that finds its sources by itself (a wildcard in a Makefile, a glob in CMake) changes no build file when a source is added, so the database stays `current` without the new file. `--source <file>` (relative to `--root`, repeatable) asks whether that file has an entry, matched through each entry's `directory` with the system's rule for case; a file without one is listed under `unlisted` and the status is `stale`, and every such file is named, however many are asked for. After adding or moving a source: regenerate, then name the file. A `--source` outside the project is exit 2.
 
 ## clangd
 

@@ -25,6 +25,7 @@ A build that finds its sources by itself (a glob in a Makefile or in CMake) chan
 added, so the database stays `current` without the new file. `--source <file>` (relative to `--root`,
 repeatable) asks whether that file has an entry: after adding or moving a source and regenerating the database,
 name the file to prove it is there. A file is the same file under every name: links are followed on both sides.
+Every file asked for that has no entry is named, however many (the 20 that bound the other lists do not apply).
 
 It exits 0 for `current`, 1 for any other status, 2 for bad usage or a pin file that does not load. It never
 regenerates the database: when the pin file gives the project's own command (`compdb.regenerate`), that command is
@@ -191,9 +192,10 @@ def check_database(project, pin_file, path=None, build_files=None, read_limit=RE
         if not there:
             gone[source_file] = _shown(source_file, project)
     result["gone"] = list(gone.values())[:NAMED]
+    # Every one is named, however many: they are the caller's own list, each asked about by name.
     unlisted = [_shown(project / source, project) for source in dict.fromkeys(sources or ())
                 if _same_file_key(project / source) not in listed]
-    result["unlisted"] = unlisted[:NAMED]
+    result["unlisted"] = unlisted
 
     # What is certain (stale) and what could not be told (unknown) are both reported, whichever sets the status:
     # a stale database with a file that could not be inspected names that file too.
@@ -204,9 +206,7 @@ def check_database(project, pin_file, path=None, build_files=None, read_limit=RE
         more = f" and {len(gone) - NAMED} more" if len(gone) > NAMED else ""
         certain.append(f"{len(gone)} source file(s) it names no longer exist: {', '.join(result['gone'])}{more}")
     if unlisted:
-        more = f" and {len(unlisted) - NAMED} more" if len(unlisted) > NAMED else ""
-        certain.append(f"{len(unlisted)} source file(s) asked for have no entry in it: "
-                       f"{', '.join(result['unlisted'])}{more}")
+        certain.append(f"{len(unlisted)} source file(s) asked for have no entry in it: {', '.join(unlisted)}")
     so = "" if certain else ", so its freshness cannot be told"
     if unreadable:
         origin = f"named by {source}" if source else "of the project"
