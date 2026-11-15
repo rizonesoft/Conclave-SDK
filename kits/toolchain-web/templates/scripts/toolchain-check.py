@@ -155,18 +155,61 @@ def compare_versions(found, wanted):
     return (left > right) - (left < right)
 
 
-def _end_tree(proc):
-    """End a tool and everything it started: a version command that hangs must leave nothing behind.
+def _windows_job(proc):
+    """A Windows job object holding the tool, or None when one cannot be made. A job holds every process the tool
+    starts, so they can be ended after the tool itself has exited, when nothing else names them."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+    kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        return None
+    handle = kernel32.OpenProcess(0x0101, False, proc.pid)  # PROCESS_SET_QUOTA | PROCESS_TERMINATE
+    assigned = bool(handle) and bool(kernel32.AssignProcessToJobObject(job, handle))
+    if handle:
+        kernel32.CloseHandle(handle)
+    if not assigned:
+        kernel32.CloseHandle(job)
+        return None
+    return job
+
+
+def _windows_job_end(job):
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.TerminateJobObject(job, 1)
+    kernel32.CloseHandle(job)
+
+
+def _end_tree(proc, job=None):
+    """End a tool and everything it started: a version command must leave nothing behind, whether it hung, flooded
+    or exited with a child still running.
 
     Each step may find the process already gone, which is the outcome wanted, so that is not an error here; the
     caller's result still says which limit was hit."""
     if os.name == "nt":
-        taskkill = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "taskkill.exe")
-        try:
-            subprocess.run([taskkill, "/T", "/F", "/PID", str(proc.pid)], capture_output=True, timeout=15,
-                           creationflags=subprocess.CREATE_NO_WINDOW)
-        except (OSError, subprocess.SubprocessError):
-            pass
+        if job is not None:
+            _windows_job_end(job)
+        else:
+            # No job object could be made: the tree is reached through its root, which works while the root lives.
+            taskkill = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "taskkill.exe")
+            try:
+                subprocess.run([taskkill, "/T", "/F", "/PID", str(proc.pid)], capture_output=True, timeout=15,
+                               creationflags=subprocess.CREATE_NO_WINDOW)
+            except (OSError, subprocess.SubprocessError):
+                pass
     else:
         try:
             os.killpg(proc.pid, signal.SIGKILL)  # the tool leads its own session, so the group is its tree
@@ -185,8 +228,9 @@ def _end_tree(proc):
 def run_bounded(argv, time_limit=TIME_LIMIT, output_cap=OUTPUT_CAP):
     """Run `argv` with no shell and no console window, reading standard output and standard error together.
 
-    Returns {"output", "exit", "stopped", "error"}: `stopped` is "time" or "output" when a limit ended the run (the
-    whole process tree is then ended), and `error` is the system's reason when the program could not be started."""
+    Returns {"output", "exit", "stopped", "error"}: `stopped` is "time" or "output" when a limit ended the run, and
+    `error` is the system's reason when the program could not be started. Whatever the program started is ended
+    with it on every way out."""
     windows = os.name == "nt"
     try:
         # Its own process group on Windows and its own session on POSIX, so its whole tree can be ended.
@@ -196,6 +240,7 @@ def run_bounded(argv, time_limit=TIME_LIMIT, output_cap=OUTPUT_CAP):
             start_new_session=not windows)
     except OSError as exc:
         return {"output": "", "exit": None, "stopped": None, "error": exc.strerror or str(exc)}
+    job = _windows_job(proc) if windows else None
     chunks, over = [], threading.Event()
 
     def read():
@@ -231,9 +276,9 @@ def run_bounded(argv, time_limit=TIME_LIMIT, output_cap=OUTPUT_CAP):
             except subprocess.TimeoutExpired:
                 stopped = "time"
     finally:
-        # Every way out, an interrupt (Ctrl+C) included: the tool leads its own session, so nothing else ends it.
-        if proc.poll() is None:
-            _end_tree(proc)
+        # Every way out, an interrupt (Ctrl+C) and a clean exit included: the tool leads its own session, so nothing
+        # else ends what it started, and a launcher can exit while a child it started runs on.
+        _end_tree(proc, job)
         reader.join(5)
         proc.stdout.close()
     return {"output": b"".join(chunks).decode("utf-8", errors="replace"), "exit": proc.returncode,

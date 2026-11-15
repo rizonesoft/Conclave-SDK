@@ -331,6 +331,35 @@ class BoundTests(Fixture):
         ran = tc.run_bounded([str(self.bin / ("ninja.cmd" if os.name == "nt" else "ninja"))], 30, 1000)
         self.assertEqual((ran["stopped"], len(ran["output"])), ("output", 1000))
 
+    def test_a_child_that_outlives_its_launcher_and_holds_the_output_is_ended_at_the_limit(self):
+        # Found by the completion review of D04 T02 section 1: the launcher exits, a child it started keeps the
+        # output open, and nothing names the child any more.
+        self.stub("ninja", "import os, subprocess, sys, time\n"
+                           "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'],\n"
+                           "                         stdout=sys.stdout, stderr=sys.stderr)\n"
+                           "open(r'{dir}/pids', 'w').write(f'{os.getpid()} {child.pid}')\n"
+                           "print('1.11.1')\n")
+        started = time.monotonic()
+        result = tc.check_tool(self.tool(), time_limit=3)
+        self.assertLess(time.monotonic() - started, 13, "the check outlived its limit")
+        self.assertEqual(result["status"], "setup_required")
+        self.assertIn("did not answer within 3 seconds and was stopped", result["detail"])
+        for pid in self.pids():
+            self.assertTrue(gone(pid), f"process {pid} outlived the check")
+
+    def test_a_silent_child_left_by_a_tool_that_answered_is_ended_too(self):
+        # Same review: the tool prints its version and exits 0, leaving a child that holds nothing open.
+        self.stub("ninja", "import os, subprocess, sys\n"
+                           "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'],\n"
+                           "                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,\n"
+                           "                         stderr=subprocess.DEVNULL)\n"
+                           "open(r'{dir}/pids', 'w').write(f'{os.getpid()} {child.pid}')\n"
+                           "print('1.11.1')\n")
+        result = tc.check_tool(self.tool(), time_limit=30)
+        self.assertEqual((result["status"], result["version"]), ("ok", "1.11.1"))
+        for pid in self.pids():
+            self.assertTrue(gone(pid), f"process {pid} outlived the check")
+
     def test_a_pattern_that_never_finishes_is_stopped_and_the_next_tool_is_checked(self):
         # Found by the round of D04 T02 section 1: the pattern ran outside every limit. `(?:a+)+([0-9])$` on a line
         # of a's with no digit backtracks for hours.
