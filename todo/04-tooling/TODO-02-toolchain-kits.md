@@ -204,8 +204,6 @@ The PHP and Node equivalent for Laravel and WordPress projects: pins for the run
 
 **Corrected 2026-11-15 (round 1):** two findings, both fixed. The constraint reader stopped at an alternative's first comparator, so `>=8.2 >=8.3` (and Composer's `>=8.2, >=8.3`) read as 8.2 and a pin at 8.2 passed: every comparator of an alternative is read, its lowest version is the highest of its lower bounds, and a comparator the doctor does not know makes the constraint not compared. The app's folder was written into the pin file after the seed had been copied and recorded, so an install stopped between the two, or whose second write failed, left a seed with no `root` that the retry kept as the project's own: a pin file that is still the kit's seed byte for byte is given its root by the next install, and one the project has changed is never touched.
 
-**Corrected 2026-11-15 (completion review):** the app-root item says "a pin file the project already has is never changed". Since round 1 there is one exception, stated here because a reviewed checklist is not reworded: a pin file that is still the kit's seed byte for byte, in a project whose app is not at the root, is not yet the project's, and the next install gives it its `root`. That install reports the file under `repaired` and never under `preserved`; a pin file the project has changed in any way is left as it is and reported `preserved`. `kits/toolchain-web/README.md` says the same.
-
 **Test checkpoint:** `python -m unittest tests.test_toolchain_kits` and `python forge.py check-all --only kit-toolchain-cpp --only kit-toolchain-web` end `OK`; ignoring `composer.json`'s own PHP constraint makes its test fail.
 
 ## 7. Toolchain skills and documents for the three agents
