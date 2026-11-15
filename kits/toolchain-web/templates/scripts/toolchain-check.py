@@ -31,13 +31,17 @@ from pathlib import Path
 
 TIME_LIMIT = 15.0        # seconds a tool gets to print its version
 OUTPUT_CAP = 64 * 1024   # bytes read from a tool before it is stopped
+PATTERN_LIMIT = 5.0      # seconds a version pattern gets to read that output
+PATTERN_LENGTH = 500     # characters a version pattern may hold
 
 NAME = re.compile(r"[a-z0-9][a-z0-9+.-]*")
 COMMAND = re.compile(r"[A-Za-z0-9][A-Za-z0-9+._-]*")  # a bare name: found on PATH, never a path into the project
 # What a version argument may hold. On Windows a .cmd launcher is started through cmd.exe, which reads other
 # characters as its own syntax; none of them is needed to ask a tool its version.
 ARGUMENT = re.compile(r"[A-Za-z0-9=_./:+-]+")
-VERSION = re.compile(r"[0-9]+(?:\.[0-9]+)*")
+# At most eight parts of at most nine digits: no release is numbered past that, and a longer run of digits is
+# output to refuse, not a number to convert.
+VERSION = re.compile(r"[0-9]{1,9}(?:\.[0-9]{1,9}){0,7}")
 TOP_KEYS = {"schema_version", "tools"}
 TOOL_KEYS = {"name", "commands", "install", "optional"}
 COMMAND_KEYS = {"command", "version_args", "version_pattern", "min_version"}
@@ -73,15 +77,17 @@ def _load_command(where, entry):
     pattern = entry["version_pattern"]
     if not isinstance(pattern, str):
         raise PinError(f"{where}: version_pattern: a regular expression as text")
+    if len(pattern) > PATTERN_LENGTH:
+        raise PinError(f"{where}: version_pattern: longer than {PATTERN_LENGTH} characters")
     try:
         compiled = re.compile(pattern)
-    except re.error as exc:
-        raise PinError(f"{where}: version_pattern: does not compile ({exc})") from exc
+    except (re.error, RecursionError, OverflowError) as exc:
+        raise PinError(f"{where}: version_pattern: does not compile ({exc or type(exc).__name__})") from exc
     if compiled.groups != 1:
         raise PinError(f"{where}: version_pattern: needs exactly one group, has {compiled.groups}")
     minimum = entry["min_version"]
     if not isinstance(minimum, str) or not VERSION.fullmatch(minimum):
-        raise PinError(f"{where}: min_version: dotted numbers such as 1.10, not {minimum!r}")
+        raise PinError(f"{where}: min_version: dotted numbers such as 1.10, not {str(minimum)[:40]!r}")
     return {"command": name, "version_args": list(args), "version_pattern": pattern, "min_version": minimum}
 
 
@@ -209,26 +215,51 @@ def run_bounded(argv, time_limit=TIME_LIMIT, output_cap=OUTPUT_CAP):
                 return
 
     reader = threading.Thread(target=read, daemon=True)
-    reader.start()
-    deadline = time.monotonic() + time_limit
-    while reader.is_alive() and time.monotonic() < deadline:
-        reader.join(0.05)
     stopped = None
-    if over.is_set():
-        stopped = "output"
-    elif reader.is_alive():
-        stopped = "time"
-    else:
-        try:
-            proc.wait(timeout=max(deadline - time.monotonic(), 0.05))
-        except subprocess.TimeoutExpired:
+    try:
+        reader.start()
+        deadline = time.monotonic() + time_limit
+        while reader.is_alive() and time.monotonic() < deadline:
+            reader.join(0.05)
+        if over.is_set():
+            stopped = "output"
+        elif reader.is_alive():
             stopped = "time"
-    if stopped:
-        _end_tree(proc)
-    reader.join(5)
-    proc.stdout.close()
+        else:
+            try:
+                proc.wait(timeout=max(deadline - time.monotonic(), 0.05))
+            except subprocess.TimeoutExpired:
+                stopped = "time"
+    finally:
+        # Every way out, an interrupt (Ctrl+C) included: the tool leads its own session, so nothing else ends it.
+        if proc.poll() is None:
+            _end_tree(proc)
+        reader.join(5)
+        proc.stdout.close()
     return {"output": b"".join(chunks).decode("utf-8", errors="replace"), "exit": proc.returncode,
             "stopped": stopped, "error": None}
+
+
+_SEARCH = """import json, re, sys
+job = json.load(sys.stdin)
+found = re.search(job['pattern'], job['text'])
+json.dump({'matched': found is not None, 'group': found.group(1) if found else None}, sys.stdout)
+"""
+
+
+def search_bounded(pattern, text, limit=None):
+    """`re.search(pattern, text)` under a time limit: {"matched", "group"}, or None when it did not finish.
+
+    The standard library cannot stop a match that backtracks without end, and a thread running one cannot be
+    stopped either, so the match runs in a second interpreter that can."""
+    limit = PATTERN_LIMIT if limit is None else limit
+    try:
+        ran = subprocess.run([sys.executable, "-I", "-S", "-c", _SEARCH], capture_output=True, timeout=limit,
+                             input=json.dumps({"pattern": pattern, "text": text}).encode("utf-8"),
+                             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        return json.loads(ran.stdout.decode("utf-8")) if ran.returncode == 0 else None
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        return None
 
 
 def check_tool(pin, time_limit=TIME_LIMIT, output_cap=OUTPUT_CAP):
@@ -256,15 +287,18 @@ def check_tool(pin, time_limit=TIME_LIMIT, output_cap=OUTPUT_CAP):
     elif ran["exit"] != 0:
         result["detail"] = f"{shown} exited {ran['exit']}"
     else:
-        match = re.search(entry["version_pattern"], ran["output"])
-        if match is None:
+        found = search_bounded(entry["version_pattern"], ran["output"])
+        if found is None:
+            result["detail"] = (f"{shown}: the pattern {entry['version_pattern']!r} did not finish reading its output "
+                                f"within {PATTERN_LIMIT:g} seconds")
+        elif not found["matched"]:
             result["detail"] = f"{shown}: the pattern {entry['version_pattern']!r} does not match its output"
-        elif parse_version(match.group(1)) is None:
-            result["detail"] = f"{shown}: the pattern captured {match.group(1)!r}, which is not a version"
+        elif parse_version(found["group"]) is None:
+            result["detail"] = f"{shown}: the pattern captured {str(found['group'])[:40]!r}, which is not a version"
         else:
-            result["version"] = match.group(1)
-            if compare_versions(match.group(1), entry["min_version"]) < 0:
-                result["detail"] = (f"{path} is {match.group(1)}, older than the pinned {entry['min_version']}. "
+            result["version"] = found["group"]
+            if compare_versions(found["group"], entry["min_version"]) < 0:
+                result["detail"] = (f"{path} is {found['group']}, older than the pinned {entry['min_version']}. "
                                     f"Install: {pin['install']}")
             else:
                 result["status"], result["detail"] = "ok", path

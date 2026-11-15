@@ -162,6 +162,11 @@ class LoadPinsTests(Fixture):
             (command(min_version="1.x"), "command 'ninja': min_version:"),
             (command(min_version="v1.2"), "command 'ninja': min_version:"),
             (command(min_version=1.2), "command 'ninja': min_version:"),
+            # Found by the round of D04 T02 section 1: inputs the loader took and the check then choked on.
+            (command(min_version="9" * 4301), "command 'ninja': min_version:"),
+            (command(min_version=".".join(["1"] * 9)), "command 'ninja': min_version:"),
+            (command(version_pattern="(?:" * 1000 + "(1)" + ")" * 1000), "command 'ninja': version_pattern:"),
+            (command(version_pattern="(1)" + "a" * 600), "command 'ninja': version_pattern: longer than"),
             (tool(install="one\ntwo"), "tool 'ninja': install: a one-line hint"),
             (tool(install=""), "tool 'ninja': install: a one-line hint"),
             (tool(optional="yes"), "tool 'ninja': optional: true or false"),
@@ -325,6 +330,46 @@ class BoundTests(Fixture):
         self.stub("ninja", "import sys\nsys.stdout.write('y' * 100000)\n")
         ran = tc.run_bounded([str(self.bin / ("ninja.cmd" if os.name == "nt" else "ninja"))], 30, 1000)
         self.assertEqual((ran["stopped"], len(ran["output"])), ("output", 1000))
+
+    def test_a_pattern_that_never_finishes_is_stopped_and_the_next_tool_is_checked(self):
+        # Found by the round of D04 T02 section 1: the pattern ran outside every limit. `(?:a+)+([0-9])$` on a line
+        # of a's with no digit backtracks for hours.
+        self.prints("ninja", "a" * 64 + "!\n")
+        self.prints("clangd", "clangd version 19.1.7\n")
+        slow = self.tool(commands=[dict(COMMAND, version_pattern=r"(?:a+)+([0-9])$")])
+        fine = self.tool("clangd", [dict(COMMAND, command="clangd", version_pattern=r"version ([0-9.]+)",
+                                         min_version="15")])
+        started = time.monotonic()
+        with unittest.mock.patch.object(tc, "PATTERN_LIMIT", 2.0):
+            results = tc.check_tools([slow, fine])
+        self.assertLess(time.monotonic() - started, 30, "the pattern ran past its limit")
+        self.assertEqual([result["status"] for result in results], ["setup_required", "ok"])
+        self.assertIn("did not finish reading its output within 2 seconds", results[0]["detail"])
+
+    def test_an_interrupted_check_leaves_no_tool_running(self):
+        # Same round: Ctrl+C while a tool is being waited on skipped the cleanup, and the tool has its own session.
+        self.stub("ninja", "import os\n" + CHILD + "time.sleep(120)\n")
+        real = time.monotonic
+        calls = []
+
+        def interrupted():
+            calls.append(1)
+            if len(calls) > 3 and (self.dir / "pids").is_file() and len((self.dir / "pids").read_text().split()) == 2:
+                raise KeyboardInterrupt
+            return real()
+
+        with unittest.mock.patch.object(tc.time, "monotonic", interrupted):
+            with self.assertRaises(KeyboardInterrupt):
+                tc.check_tool(self.tool(), time_limit=60)
+        for pid in self.pids():
+            self.assertTrue(gone(pid), f"process {pid} outlived the interrupted check")
+
+    def test_a_capture_too_long_to_be_a_version_is_not_one(self):
+        self.prints("ninja", "9" * 5000 + "\n")
+        result = tc.check_tool(self.tool(commands=[dict(COMMAND, version_pattern=r"^(\d+)")]))
+        self.assertEqual((result["status"], result["version"]), ("setup_required", None))
+        self.assertIn("which is not a version", result["detail"])
+        self.assertLess(len(result["detail"]), 400)
 
 
 class CommandLineTests(Fixture):
