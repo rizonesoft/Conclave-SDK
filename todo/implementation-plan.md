@@ -112,7 +112,7 @@ Sections: 7 | Checklist items: 58
 
 ### Phase 6: Tooling kits
 
-Sections: 14 | Checklist items: 131
+Sections: 14 | Checklist items: 133
 
 | Status | Reference  | Deliverable                                              | Needs | Items |
 | ------ | ---------- | -------------------------------------------------------- | ----- | ----- |
@@ -122,7 +122,7 @@ Sections: 14 | Checklist items: 131
 | [x]    | D04 T01 §4 | Laravel kit moved onto the shared client                 | none  | 8     |
 | [x]    | D04 T01 §5 | Claude Code plugin generated from the server table       | none  | 10    |
 | [x]    | D04 T01 §6 | MCP bridge for Codex and Antigravity                     | none  | 17    |
-| [ ]    | D04 T01 §7 | Language server skill and document for the three agents  | none  | 6     |
+| [ ]    | D04 T01 §7 | Language server skill and document for the three agents  | none  | 8     |
 | [x]    | D04 T02 §1 | Tool pin file and the script that checks it              | none  | 8     |
 | [x]    | D04 T02 §2 | `toolchain-cpp` kit with pins for the C and C++ tools    | none  | 9     |
 | [x]    | D04 T02 §3 | Compile database freshness check                         | none  | 10    |
@@ -156,4 +156,4 @@ Sections: 3 | Checklist items: 16
 
 Progress: 72/85 verified sections, 7 ready to run now.
 
-Checklist: 608/673 items completed (includes Commit items).
+Checklist: 608/675 items completed (includes Commit items).
