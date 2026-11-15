@@ -999,6 +999,62 @@ class OperatingDirectiveTests(unittest.TestCase):
             self.check_agents(template.replace("\n## Operating directive\n", "\n## Something else\n"))
 
 
+class BosunPageTests(unittest.TestCase):
+    """D06 T02 section 1: docs/bosun.md says what the global queue rule needs, and global/README.md links it."""
+
+    PAGE = FORGE_ROOT / "docs/bosun.md"
+    # Each topic the page must cover, written here: a topic removed from the page is a topic missed.
+    TOPICS = (
+        "bosun run --", "bosun status", "bosun report --days 7",
+        "Wrap full builds and full test suites", "never wrap dev servers or watchers",
+        "Run the command normally, without `bosun run --`",
+        "2 slots by default, shared by Windows and WSL", "6 GB available on Windows", "3 GB available inside the VM",
+        "After 15 minutes a waiting job starts anyway",
+        "at most 100 GB", "exits 74",
+        "sudo ~/.local/share/bosun/enable-write-budget.sh", "wsl --shutdown",
+        "counts writes to the Linux disk only", "/mnt/c",
+        "bosun config set", "bosun config get", "bosun config unset <key>",
+        "A flag wins over a variable, a variable over the saved file, and the file over the default",
+        "%LOCALAPPDATA%\\Bosun\\logs", "every 30 seconds and kept for 14 days",
+    )
+    # Every figure the README states that the page may state; any other number is a threshold the README lacks.
+    FIGURES = {"2", "6", "3", "15", "100", "74", "0", "30", "14", "7"}
+
+    def test_the_page_covers_each_topic_and_names_the_bosun_commit(self):
+        text = self.PAGE.read_text(encoding="utf-8")
+        for topic in self.TOPICS:
+            self.assertIn(topic, text)
+        last = text.rstrip().splitlines()[-1]
+        self.assertRegex(last, r"^Checked against Bosun's `README\.md` at commit `[0-9a-f]{40}`, \d{4}-\d{2}-\d{2}\.$")
+        # The figures of the body: code, the last line (the commit and its date) and the rule's number left out.
+        body = text.rstrip().rsplit("\n", 1)[0].replace("(section 11,", "(")
+        prose = re.sub(r"```.*?```|`[^`]*`", "", body, flags=re.DOTALL)
+        stated = set(re.findall(r"(?<![\w.])\d+(?![\w.])", prose))
+        self.assertEqual(stated - self.FIGURES, set(), "the page states a figure Bosun's README does not")
+        for line in text.splitlines():
+            self.assertNotIn(chr(0x2014), line)
+            self.assertNotIn(chr(0x2013), line)
+
+    def test_the_global_readme_links_the_page(self):
+        readme = FORGE_ROOT / "global/README.md"
+        links = re.findall(r"\]\(([^)]*bosun\.md)\)", readme.read_text(encoding="utf-8"))
+        self.assertEqual(len(links), 1)
+        self.assertEqual((readme.parent / links[0]).resolve(), self.PAGE.resolve())
+
+    @unittest.skipUnless((pathlib.Path("D:/Bosun/README.md") if os.name == "nt" else pathlib.Path("/mnt/d/Bosun/README.md")).is_file(),
+                         "needs the Bosun checkout beside this one")
+    def test_each_fact_on_the_page_is_in_bosuns_readme(self):
+        bosun = pathlib.Path("D:/Bosun") if os.name == "nt" else pathlib.Path("/mnt/d/Bosun")
+        readme = (bosun / "README.md").read_text(encoding="utf-8")
+        for fact in ("2 slots by default, shared by Windows and WSL", "6 GB available on Windows",
+                     "3 GB available inside the VM", "After 15 minutes a waiting job starts anyway", "at most 100 GB",
+                     "exits 74", "enable-write-budget.sh", "counts writes to the Linux disk only",
+                     "A flag wins over a variable, a variable over the saved file, and the file over the default",
+                     "sampled every 30 seconds and kept for 14 days", "Do not wrap dev servers or watchers",
+                     "bosun config unset slots", "bosun config get", "--max-write-gb", "BOSUN_MAX_WRITE_GB"):
+            self.assertIn(fact, readme, f"Bosun's README no longer says: {fact}")
+
+
 class InstallRecordTests(unittest.TestCase):
     """`.conclave/kits.json`: what forge installed, as a note the project owns."""
 

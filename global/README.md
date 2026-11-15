@@ -16,6 +16,7 @@ The owner's machine-level configuration for Claude Code, Codex, and Antigravity:
 | `../plugins/agy/<name>/` | Antigravity global plugins deployed to `.gemini/config/plugins/` |
 | `deploy.py`, `tests/` | The one deploy script and its tests |
 | `codex/scripts/` | `check-approval-policy.mjs` |
+| [`../docs/bosun.md`](../docs/bosun.md) | The Bosun queue behind section 11's "Heavy jobs queue" bullet |
 
 The three agents are maintained independently. Nothing here is shared across `claude/`, `codex/`, and `plugins/agy/`.
 
