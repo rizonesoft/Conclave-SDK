@@ -1099,6 +1099,139 @@ class BosunPageTests(unittest.TestCase):
             self.assertIn(fact, readme, f"Bosun's README no longer says: {fact}")
 
 
+class InitGoalTests(unittest.TestCase):
+    """D05 T01 section 3: `init --goal` writes the goal under `## Goal` in an AGENTS.md that is not yet the project's."""
+
+    GOAL = "Ship the importer that turns supplier price lists into catalogue updates"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.work = pathlib.Path(self.tmp.name).resolve()
+        self.kit = (FORGE_ROOT / "kits/base/templates/AGENTS.md").read_bytes()
+
+    def init(self, project, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = forge.main(["init", str(project), *argv])
+        return code, (json.loads(out.getvalue()) if code == 0 else None), err.getvalue()
+
+    def goal_line(self, project):
+        lines = (project / "AGENTS.md").read_text(encoding="utf-8").splitlines()
+        at = lines.index("## Goal")
+        self.assertEqual(lines[at + 1], "")
+        return lines[at + 2]
+
+    def agents_state(self, project):
+        files = forge.diff_project(project, "base")["kits"]["base"]["files"]
+        return next(item["state"] for item in files if item["path"] == "AGENTS.md")
+
+    def test_the_template_holds_the_placeholder_init_replaces(self):
+        self.assertEqual(self.kit.count(forge.GOAL_PLACEHOLDER.encode("utf-8") + b"\n"), 1)
+        text = self.kit.decode("utf-8")
+        self.assertLess(text.index("\n## Goal\n"), text.index("\n## Working rules\n"))
+        self.assertNotIn("name what the project is", text)
+        self.assertIn("say where the code lives and which commands verify it", text)
+
+    def test_a_goal_is_written_under_its_heading_and_reads_as_the_projects_change(self):
+        project = self.work / "new"
+        code, result, err = self.init(project, "--kit", "todo", "--goal", self.GOAL)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.goal_line(project), self.GOAL)
+        text = (project / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertNotIn(forge.GOAL_PLACEHOLDER, text)
+        self.assertTrue(text.endswith(forge.TODO_POINTER))   # the todo kit's pointer is still added
+        self.assertEqual((result["goal_applied"], result["goal_reason"]),
+                         (True, "written into the AGENTS.md this run installed"))
+        self.assertEqual(self.agents_state(project), "project-changed")
+        self.assertEqual(forge.load_record(project)["files"]["AGENTS.md"]["sha256"], forge.file_digest(self.kit))
+        # Without a goal: the placeholder, the kit's bytes, and no goal in the result.
+        plain = self.work / "plain"
+        code, result, err = self.init(plain)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.goal_line(plain), forge.GOAL_PLACEHOLDER)
+        self.assertEqual((plain / "AGENTS.md").read_bytes(), self.kit)
+        self.assertEqual(self.agents_state(plain), "identical")
+        self.assertNotIn("goal_applied", result)
+
+    def test_a_goal_init_would_not_write_is_refused_before_anything_is_written(self):
+        for goal, said in (("", "empty"), ("   ", "empty"), ("x" * 601, "601 characters, more than 600"),
+                           ("Ship it\nthen more", "no line break"), ("Ship it\rthen more", "no line break"),
+                           ("Ship it " + chr(0x2014) + " fast", "em or en dash"),
+                           ("Ship it " + chr(0x2013) + " fast", "em or en dash")):
+            with self.subTest(goal=goal[:20]):
+                project = self.work / f"refused-{len(list(self.work.iterdir()))}"
+                code, _result, err = self.init(project, "--goal", goal)
+                self.assertEqual(code, 2)
+                self.assertTrue(err.startswith("forge.py: error: --goal: "), err)
+                self.assertIn(said, err)
+                self.assertFalse(project.exists() and any(project.iterdir()), "init wrote before refusing")
+        self.assertEqual(len("x" * 600), forge.GOAL_LIMIT)
+        project = self.work / "at-the-limit"
+        self.assertEqual(self.init(project, "--goal", "x" * 600)[0], 0)
+
+    def test_a_projects_own_agents_md_keeps_its_bytes_and_says_why(self):
+        project = self.work / "own"
+        project.mkdir()
+        (project / "AGENTS.md").write_bytes(b"# Our own rules\n")
+        code, result, err = self.init(project, "--goal", self.GOAL)
+        self.assertEqual(code, 0, err)
+        self.assertEqual((project / "AGENTS.md").read_bytes(), b"# Our own rules\n")
+        self.assertFalse(result["goal_applied"])
+        self.assertIn("init --force", result["goal_reason"])
+        self.assertIn("the project's own", result["goal_reason"])
+
+    def test_force_writes_the_goal_and_keeps_the_original_once_with_and_without_the_todo_kit(self):
+        for kits in ((), ("--kit", "todo")):
+            with self.subTest(kits=kits):
+                project = self.work / f"forced{len(kits)}"
+                project.mkdir()
+                (project / "AGENTS.md").write_bytes(b"# Our own rules\n")
+                code, first, err = self.init(project, *kits, "--force", "--goal", self.GOAL)
+                self.assertEqual(code, 0, err)
+                self.assertEqual(self.goal_line(project), self.GOAL)
+                self.assertEqual(first["backups"], ["AGENTS.md.replaced"])
+                self.assertEqual((first["goal_applied"], first["goal_reason"]),
+                                 (True, "written into the AGENTS.md that --force replaced"))
+                filled = (project / "AGENTS.md").read_bytes()
+                code, second, err = self.init(project, *kits, "--force", "--goal", self.GOAL)
+                self.assertEqual(code, 0, err)
+                self.assertEqual(second["backups"], [])
+                self.assertEqual((second["goal_applied"], second["goal_reason"]),
+                                 (True, "AGENTS.md already holds this goal"))
+                self.assertEqual((project / "AGENTS.md").read_bytes(), filled)
+                self.assertEqual((project / "AGENTS.md.replaced").read_bytes(), b"# Our own rules\n")
+                self.assertEqual(sorted(p.name for p in project.glob("AGENTS.md*")), ["AGENTS.md", "AGENTS.md.replaced"])
+
+    def test_a_goal_write_that_fails_is_exit_1_and_the_next_init_fills_the_kits_file(self):
+        project = self.work / "retry"
+        real = forge.atomic_write
+
+        def failing(path, data, *args, **kwargs):
+            if pathlib.Path(path).name == "AGENTS.md" and self.GOAL.encode("utf-8") in data:
+                raise OSError(28, "No space left on device")
+            return real(path, data, *args, **kwargs)
+
+        with unittest.mock.patch.object(forge, "atomic_write", failing):
+            code, _result, err = self.init(project, "--goal", self.GOAL)
+        self.assertEqual(code, 1)
+        self.assertIn("No space left on device", err)
+        self.assertEqual((project / "AGENTS.md").read_bytes(), self.kit)   # the kit's file, not the project's
+        code, result, err = self.init(project, "--goal", self.GOAL)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.goal_line(project), self.GOAL)
+        self.assertEqual((result["goal_applied"], result["goal_reason"]),
+                         (True, "written into AGENTS.md, which was still the kit's file"))
+        # The same with the todo kit's pointer already appended: still the kit's file.
+        pointed = self.work / "retry-todo"
+        with unittest.mock.patch.object(forge, "atomic_write", failing):
+            self.assertEqual(self.init(pointed, "--kit", "todo", "--goal", self.GOAL)[0], 1)
+        self.assertEqual((pointed / "AGENTS.md").read_bytes(), self.kit + forge.TODO_POINTER.encode("utf-8"))
+        code, result, err = self.init(pointed, "--kit", "todo", "--goal", self.GOAL)
+        self.assertEqual((code, result["goal_applied"]), (0, True), err)
+        self.assertEqual(self.goal_line(pointed), self.GOAL)
+
+
 class InstallRecordTests(unittest.TestCase):
     """`.conclave/kits.json`: what forge installed, as a note the project owns."""
 

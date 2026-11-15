@@ -1,0 +1,85 @@
+{
+  "ref": "D06 T02 \u00a71",
+  "title": "Bosun reference page",
+  "implementation_sha": "65974ac970d81a7ac2b6a4302734a646b18c7a10",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/06-global/D06-T02-s1.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "tests.test_forge -k BosunPage 3 OK on Windows and WSL",
+    "check-all --only global-tests 25 pass",
+    "CI run 43747209315 green on 65974ac"
+  ],
+  "completion": {
+    "report": "docs/reviews/06-global/D06-T02-s1.md",
+    "verdict": "reconciled",
+    "candidate": "65974ac970d81a7ac2b6a4302734a646b18c7a10",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/06-global/D06-T02-s1.md",
+    "candidate": "7301eaaf33fce6c50d1b3e2d39f33c18fd9e87ef",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "7301eaaf33fce6c50d1b3e2d39f33c18fd9e87ef",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

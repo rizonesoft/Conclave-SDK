@@ -37,6 +37,8 @@ There is no force/overwrite mode on kits. Before copying any file, the installer
 
 After installing, adapt `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, and skill descriptions to the target project.
 
+`AGENTS.md` holds, in order: Goal (one placeholder line, which `python forge.py init <project> --goal "<goal>"` replaces with the project's goal), Working rules, Operating directive (seven rules for acting without waiting to be told, the unattended case among them), Safety (the one list of what needs the operator), Git (main branch, staging, cleanup), Skills and Subagents. Each agent's rule file under `.agents/rules/`, `.claude/rules/` and `.codex/rules/` points at the Operating directive.
+
 The template `docs/` folder holds the skill/rule structure document. Under `scripts/`, `verify-agent-tiers.mjs` checks that every Claude agent definition in `.claude/agents/` pins an explicit model, that no agent can edit files (an explicit `tools:` list with no edit tools), that an elevated tier records why, and that a Haiku agent meets every condition of the near-mechanical allowance in `AGENTS.md` (reading frontmatter as a closed subset of YAML: flat `key: value` pairs plus one skipped `hooks:` block, refusing everything else).
 
 ## Subagents across the three writers

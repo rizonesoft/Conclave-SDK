@@ -1,6 +1,10 @@
 # AGENTS.md
 
-This repository follows the Conclave-SDK 3-agent conventions. Adapt this file to the project: name what the project is, where the code lives, and which commands verify it.
+This repository follows the Conclave-SDK 3-agent conventions. Adapt this file to the project: say where the code lives and which commands verify it.
+
+## Goal
+
+Not stated yet: replace this line with the project's goal in one sentence (`python forge.py init <project> --goal "<goal>"` writes it for a new project).
 
 ## Working rules
 

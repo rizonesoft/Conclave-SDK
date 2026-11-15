@@ -111,7 +111,12 @@ python forge.py init ..\MyProject
 python forge.py init ..\MyProject --kit todo
 python forge.py init ..\MyWordPressSite --kit wordpress --wp-host wpcom
 python forge.py init ..\MyLaravelApp --kit todo --kit laravel
+
+# State the project's goal: written under ## Goal in the AGENTS.md init installs
+python forge.py init ..\MyProject --kit todo --goal "Ship the importer that turns supplier price lists into catalogue updates"
 ```
+
+`--goal` takes one line of at most 600 characters and is refused, before anything is written, when it is empty, longer, holds a line break or an em or en dash. It is written into an `AGENTS.md` that is not yet the project's: one this run installs, one `--force` replaces, or one still byte for byte the kit's (so a run that failed before writing it can be run again). A project whose `AGENTS.md` is its own keeps it as it is, and the result says why (`goal_applied`, `goal_reason`). The install record keeps the kit's digest, so `diff` shows the filled `AGENTS.md` as the project's change.
 
 `init` plans every kit you name before it writes a file, so a kit that refuses (no `artisan` for `laravel`, an unknown name) leaves the folder as it was. `init --force` replaces the four entry docs (`AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, or only those for `--agent`) with the kit's, and first keeps each one it replaces as `<name>.replaced`; a doc that already holds what `init` would leave is not touched. To undo, copy the backup back (`Copy-Item AGENTS.md.replaced AGENTS.md`). `--force` refuses, before writing anything, to replace a doc whose `.replaced` holds an earlier version, since that is the only copy of it: move the old backup aside (`Rename-Item AGENTS.md.replaced AGENTS.md.replaced-1`) and run it again. A run cut short after backing a doc up can simply be run again.
 

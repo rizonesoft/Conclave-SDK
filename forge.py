@@ -2618,6 +2618,56 @@ TODO_POINTER = (
     "Plan and build through the TODO system: [docs/todo-workflow.md](./docs/todo-workflow.md).\n"
 )
 ENTRY_DOCS = ("AGENTS.md", "GEMINI.md", "CLAUDE.md", "CODEX.md")
+# The line under `## Goal` in the base kit's AGENTS.md that `init --goal` replaces (D05 T01 section 3).
+GOAL_PLACEHOLDER = ("Not stated yet: replace this line with the project's goal in one sentence (`python forge.py init "
+                    "<project> --goal \"<goal>\"` writes it for a new project).")
+GOAL_LIMIT = 600   # characters
+
+
+def _check_goal(goal: str | None) -> None:
+    """Refuse a goal `init` would not write, before any file is written: empty, longer than GOAL_LIMIT, more than
+    one line, or holding a dash the writing rules forbid."""
+    if goal is None:
+        return
+    if not goal.strip():
+        raise ValueError("--goal: the goal is empty")
+    if len(goal) > GOAL_LIMIT:
+        raise ValueError(f"--goal: the goal is {len(goal)} characters, more than {GOAL_LIMIT}")
+    if any(mark in goal for mark in ("\n", "\r", "\u2028", "\u2029")):
+        raise ValueError("--goal: the goal is one line, with no line break")
+    if "\u2014" in goal or "\u2013" in goal:
+        raise ValueError("--goal: the goal holds an em or en dash; use a comma, a colon or a full stop")
+
+
+def _with_goal(data: bytes, goal: str) -> bytes:
+    """An AGENTS.md's bytes with the goal in place of the placeholder line."""
+    line = GOAL_PLACEHOLDER.encode("utf-8") + b"\n"
+    if data.count(line) != 1:
+        raise ValueError("the base kit's AGENTS.md has no goal placeholder line to replace")
+    return data.replace(line, goal.strip().encode("utf-8") + b"\n")
+
+
+def _apply_goal(target_root: Path, goal: str, wrote: str | None) -> dict:
+    """Write the goal into the project's AGENTS.md when that file is not yet the project's: one this run wrote
+    (`wrote` says how), or one still byte for byte the kit's, with or without the todo kit's pointer, which is
+    what a run that failed before its goal was written leaves. A file that is the project's own is left as it is.
+    Returns the result's `goal_applied` and `goal_reason`."""
+    path = target_root / "AGENTS.md"
+    if path.is_symlink() or not path.is_file():
+        return {"goal_applied": False, "goal_reason": "this install has no AGENTS.md of its own to write the goal into"}
+    kit = (FORGE_ROOT / "kits/base/templates/AGENTS.md").read_bytes()
+    pointer = TODO_POINTER.encode("utf-8")
+    current = path.read_bytes()
+    if current in (_with_goal(kit, goal), _with_goal(kit, goal) + pointer):
+        return {"goal_applied": True, "goal_reason": "AGENTS.md already holds this goal"}
+    if current not in (kit, kit + pointer):
+        return {"goal_applied": False, "goal_reason": "AGENTS.md is the project's own, so the goal was not written "
+                                                     "(init --force replaces it, keeping it as AGENTS.md.replaced)"}
+    atomic_write(path, _with_goal(current, goal))
+    reasons = {"installed": "written into the AGENTS.md this run installed",
+               "forced": "written into the AGENTS.md that --force replaced"}
+    return {"goal_applied": True,
+            "goal_reason": reasons.get(wrote, "written into AGENTS.md, which was still the kit's file")}
 
 
 def provision(
@@ -2629,12 +2679,15 @@ def provision(
     kits: list[str] | None = None,
     wordpress_host: str | None = None,
     overwrite_existing_docs: bool = False,
+    goal: str | None = None,
 ) -> dict:
     """`init`: copy the base kit plus only the kits asked for, never the whole SDK, and never over a file the project
     already has. `with_todo` is shorthand for the `todo` kit; `overwrite_existing_docs` (`init --force`) rewrites only
     the four entry docs. The install record notes what was written and holds no path back to the SDK, so the
-    project owns everything init copied.
+    project owns everything init copied. `goal` (`init --goal`) is written under `## Goal` in an AGENTS.md that is
+    not yet the project's (`_apply_goal`); one that is the project's own is left as it is, and the result says so.
     """
+    _check_goal(goal)   # a goal init would not write refuses before anything is
     agent = normalize_agent(agent)
     target_root = Path(target_root).resolve()
     # Checked on the resolved path, which is the one written to, so no link (dangling or retargeted before this run)
@@ -2666,7 +2719,14 @@ def provision(
     # TODO pointer with the todo kit). A doc already holding that is left alone.
     base_templates = FORGE_ROOT / "kits/base/templates"
     pointer = TODO_POINTER.encode("utf-8") if "todo" in selected else b""
-    docs = {doc: ((base_templates / doc).read_bytes(), (base_templates / doc).read_bytes() + (pointer if doc == "AGENTS.md" else b""))
+    def finished(doc: str) -> bytes:
+        """What --force leaves in a doc: the kit's bytes, and in AGENTS.md the goal and the TODO pointer."""
+        data = (base_templates / doc).read_bytes()
+        if doc != "AGENTS.md":
+            return data
+        return (_with_goal(data, goal) if goal is not None else data) + pointer
+
+    docs = {doc: ((base_templates / doc).read_bytes(), finished(doc))
             for doc in ENTRY_DOCS if overwrite_existing_docs and _rel_allowed_for_agent(doc, agent)
             and not (target_root / doc).is_symlink()}
     for doc, (_kit_bytes, final) in docs.items():
@@ -2704,7 +2764,7 @@ def provision(
 
     written = [rel for r in kit_results for rel in r["installed"]] + forced
     skipped = [rel for r in kit_results for rel in r["preserved"] if rel not in forced]
-    return {
+    result = {
         "target": target_root.as_posix(),
         "agent": agent,
         "written": written,
@@ -2712,6 +2772,10 @@ def provision(
         "backups": backups,
         "kits": kit_results,
     }
+    if goal is not None:
+        wrote = "forced" if "AGENTS.md" in forced else "installed" if "AGENTS.md" in kit_results[0]["installed"] else None
+        result.update(_apply_goal(target_root, goal, wrote))
+    return result
 
 
 REPLACED = ".replaced"
@@ -3322,6 +3386,9 @@ def main(argv: list[str] | None = None) -> int:
     p_init.add_argument("--wp-host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
     p_init.add_argument("--no-scripts", action="store_true", help="Leave out the kits' scripts/ files")
     p_init.add_argument("--with-todo", action="store_true", help="Shorthand for --kit todo")
+    p_init.add_argument("--goal", default=None,
+                        help="The project's goal in one sentence, written under ## Goal in the AGENTS.md init installs "
+                             "(at most 600 characters, one line)")
     p_init.add_argument("--force", action="store_true",
                         help="Replace AGENTS.md, GEMINI.md, CLAUDE.md and CODEX.md with the kit's, keeping each replaced one as <name>.replaced")
 
@@ -3466,6 +3533,7 @@ def _run(args: argparse.Namespace) -> int:
             kits=args.kit,
             wordpress_host=args.wp_host,
             overwrite_existing_docs=args.force,
+            goal=args.goal,
         )
         print(json.dumps(res, indent=2))
         return 1 if any(_lsp_write_failed(kit) for kit in res.get("kits", [])) else 0
