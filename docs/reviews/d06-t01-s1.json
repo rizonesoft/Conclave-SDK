@@ -1,0 +1,88 @@
+{
+  "ref": "D06 T01 \u00a71",
+  "title": "Plugins registered from `plugins/`",
+  "implementation_sha": "8a3f67df0b750ce4b947c35e4cfd591590166569",
+  "date": "2026-11-16",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/06-global/D06-T01-s1.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "agent configs grep R:/Bin|/mnt/r/Bin (Windows, WSL) -> 0, 0",
+    "register_claude.py --check (Windows, WSL) -> register_claude: ok, ok",
+    "session_drift_check.check() (Windows, WSL) -> [], []",
+    "one read-only call per matrix entry -> all answered except Windows Codex outlook-graph (tools bound, not exposed; owner accepted 2026-11-16, todo/findings.md)",
+    "global/codex/hooks test_session_drift_check (Windows, WSL) -> 16 OK, 16 OK",
+    "plugins/codex/outlook-graph npm test -> 82 pass, 0 fail"
+  ],
+  "completion": {
+    "report": "docs/reviews/06-global/D06-T01-s1.md",
+    "verdict": "reconciled",
+    "candidate": "8a3f67df0b750ce4b947c35e4cfd591590166569",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/06-global/D06-T01-s1.md",
+    "candidate": "ff1487fcb3fa8cb496525495d44ef492b02e4930",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "ff1487fcb3fa8cb496525495d44ef492b02e4930",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 5,
+  "pass_cap": 33
+}

@@ -153,10 +153,10 @@ Sections: 3 | Checklist items: 19
 
 | Status | Reference  | Deliverable                              | Needs    | Items |
 | ------ | ---------- | ---------------------------------------- | -------- | ----- |
-| [ ]    | D06 T01 §1 | Plugins registered from `plugins/`       | attended | 9     |
+| [x]    | D06 T01 §1 | Plugins registered from `plugins/`       | attended | 9     |
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 85/88 verified sections, 1 ready to run now.
+Progress: 86/88 verified sections, 0 ready to run now.
 
-Checklist: 686/697 items completed (includes Commit items).
+Checklist: 687/697 items completed (includes Commit items).

@@ -34,7 +34,7 @@ title: "TODO-01 -- Imported material: plugins and retired repositories"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Plugins registered from `plugins/` | -- | [ ] |
+| 1 | §1 | Plugins registered from `plugins/` | -- | [x] |
 | 2 | §2 | Superseded copies under `R:/Bin` removed | §1 | [ ] |
 | 3 | §3 | Retired GitHub repositories deleted | §2 | [ ] |
 | 4 | §4 | Codex approval of the global hooks `deploy.py` writes | D02 T01 §3 | [x] |
@@ -66,9 +66,12 @@ Each plugin's registration in the owner's Codex and Claude Code configuration is
 - [x] Refresh each stale installed copy with `codex plugin add <name>@rizonetech` and prove every copy matches this checkout. Done when: the drift check prints nothing on Windows and in WSL. Done 2026-11-16: `outlook-graph` refreshed on both systems; the WSL copy was the one the fixed check named.
 - [x] Call one read-only tool of each matrix entry from a fresh session of its agent. Done when: each answers, or the failure is recorded with the plugin name and its cause and the owner decides before §2 starts (corrected 2026-11-16 after the round: the owner's decision had been dropped). Done 2026-11-16: Codex on Windows, `connection_status` ok for `atera`, `bunny-net`, `domains-co-za`, `pressable`, and `website-router` (10 of 13 sites connected; Rizonetech, Rizonetech Launch and Swiss Hotel School Staging did not, a site-side state), `memory_health` ok for `conclave`; Codex in WSL, `outlook-graph` ok; Claude Code on Windows and in WSL, `bunny-net` and `domains-co-za` connected. `atera`, `bunny-net` and `website-router` answered only after their stores were seeded from the Conclave vault with their own import scripts. Not answered: `outlook-graph` from Codex on Windows, which binds its 14 tools yet never exposes them to the model (filed in `todo/findings.md`); the same server answers `connection_status` when started from its Windows copy directly. Owner decision, 2026-11-16, asked after one more run with the `apps` feature off changed nothing: accept it as a recorded Codex issue and carry on with §2 and §3.
 - [x] Record in `plugins/README.md` that the plugins are registered from this checkout and how to register them on a new machine, as a deliberate change to that README (one of the two files under the imported folders held to the writing rules). Done when: the README has the paragraph. Done: "Registered from this checkout".
-- [ ] Commit: `plugins: registered from this checkout`
+- [x] Commit: `plugins: registered from this checkout`
 
 **Test checkpoint:** on Windows and in WSL, `grep -rn "R:/Bin\|R:\\\\Bin\|/mnt/r/Bin"` over each agent's plugin and MCP configuration (names and paths only) prints nothing, `register_claude.py --check` prints `ok`, the drift hook run by hand prints nothing, and one tool call per matrix entry answers or its failure carries the owner's recorded decision; a registration left on the old path shows in the listing, and a stale installed copy makes the drift hook name it.
+
+> **Verified:** 2026-11-16 | §1 | 8a3f67df0b750ce4b947c35e4cfd591590166569
+> **Review:** `docs/reviews/d06-t01-s1.json`
 
 ## 2. Superseded copies under `R:/Bin` removed
 
