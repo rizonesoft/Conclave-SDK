@@ -1,0 +1,85 @@
+{
+  "ref": "D05 T01 \u00a73",
+  "title": "`forge.py init --goal`",
+  "implementation_sha": "f06cf398cd85f2751e5e6cacefbfc54faccd2acd",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/05-base/D05-T01-s3.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "check-all --only tests 951 pass on 5b51e4a",
+    "tests.test_forge -k InitGoal on Windows and WSL, ten mutations caught",
+    "CI run on f06cf39 green"
+  ],
+  "completion": {
+    "report": "docs/reviews/05-base/D05-T01-s3.md",
+    "verdict": "complete",
+    "candidate": "f06cf398cd85f2751e5e6cacefbfc54faccd2acd",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/05-base/D05-T01-s3.md",
+    "candidate": "307923aab122e2f634f45a0b9ceff3f69af49c31",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "307923aab122e2f634f45a0b9ceff3f69af49c31",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}

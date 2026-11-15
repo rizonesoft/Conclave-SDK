@@ -36,7 +36,7 @@ title: "TODO-01 -- Operating directive in the base kit"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Operating directive in the base `AGENTS.md` | -- | [x] |
 | 2 | §2 | Git hygiene rules in the base kit | §1 | [x] |
-| 3 | §3 | `forge.py init --goal` | §1, D01 T01 §2 | [ ] |
+| 3 | §3 | `forge.py init --goal` | §1, D01 T01 §2 | [x] |
 | 4 | §4 | `forge.py init --acceptance` for the todo kit's plan | §3 | [ ] |
 
 ## 1. Operating directive in the base `AGENTS.md`
@@ -122,13 +122,16 @@ The base `AGENTS.md` asks the project to name what it is. `init --goal "<text>"`
 - [x] Leave an existing `AGENTS.md` alone in `provision`: when `init --goal` runs on a project whose `AGENTS.md` is its own (not the kit's bytes) and `--force` is not given, nothing is written to it and the result has `goal_applied` false and a `goal_reason` naming `--force`. With `--force`, the `AGENTS.md` the run writes holds the goal, the project's own file is kept as `AGENTS.md.replaced`, and a second identical `init --force --goal` (also with `--kit todo`, whose pointer changes the bytes compared) backs nothing up again and reports the goal already there. Done when: tests find the project's file byte for byte unchanged with that reason; and after two forced runs, the backup equal to the project's original bytes, the second result's `backups` empty, and its `goal_reason` saying the goal was already there.
 - [x] Keep recording the kit's digest, not the filled file's, for `AGENTS.md` in the install record (it is so already: the record holds the template's digest, and the TODO pointer appended by the todo kit reads as `project-changed` today), so a filled goal reads as the project's change. Done when: a test finds `AGENTS.md` reported `project-changed` by `forge.diff_project` after `init --goal`, and `identical` after `init` with no goal.
 - [x] Document `--goal` in `README.md` (New Project) with one example. Done when: `python forge.py init --help` and the README both name it.
-- [ ] Commit: `forge: init --goal writes the project's goal into AGENTS.md`
+- [x] Commit: `forge: init --goal writes the project's goal into AGENTS.md`
 
 **Corrected 2026-11-15 (validation):** measured against the tree. (1) The "Adapt this file" sentence also says to name where the code lives and which commands verify it, which a goal does not: that part stays. (2) The record item asked for a change that is already true: `provision` records the template's digest for `AGENTS.md` (`identical` after a plain `init`, `project-changed` once the todo kit's pointer is appended); the item now keeps it so and tests it. (3) `--force` rewrites the entry docs, so the goal is applied to the `AGENTS.md` it writes, and the file `--force` compares with to decide on a backup is the filled one, so a second identical run makes no second backup. (4) A refusal is a `ValueError` raised in `provision` before the first write, which `main` turns into one line and exit 2.
 
 **Corrected 2026-11-15 (plan review):** three gaps, all taken. (1) A goal written after the install had no retry: a failed write left the kit's file, which the next run preserved without the goal. A file still byte for byte the kit's is not yet the project's (the rule the PHP and Node kit's pin file follows), so the next `init --goal` fills it; a test makes the write fail and runs again. (2) One backup after two forced runs did not prove the original was kept: the backup's bytes, the second run's empty `backups` and the todo kit's pointer are tested. (3) Every outcome has its `goal_applied` and `goal_reason`, each tested.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; writing the goal into an existing `AGENTS.md` makes the unchanged-file test fail.
+
+> **Verified:** 2026-11-15 | §3 | f06cf398cd85f2751e5e6cacefbfc54faccd2acd
+> **Review:** `docs/reviews/d05-t01-s3.json`
 
 ## 4. `forge.py init --acceptance` for the todo kit's plan
 
