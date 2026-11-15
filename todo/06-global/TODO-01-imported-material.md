@@ -107,10 +107,14 @@ Once nothing loads from them, the old copies are a second source that can drift.
 
 ## 3. Retired GitHub repositories deleted
 
+> **Started:** 2026-11-15T23:19:34Z
+
 The roadmap's end-of-day status says both repositories can be deleted. Deleting a repository cannot be undone, so the owner does it.
 
+**Corrected 2026-11-16 (validation):** the owner already deleted both before this run: `gh repo view rizonetech/Claude` and `gh repo view rizonetech/Codex` print "Could not resolve to a Repository" (first measured 2026-11-15T22:05Z, again at 23:19Z, with a token that can see the organisation's repositories), so the third item is verified, not done, and the `operator` Need is answered (the owner also asked in the session for Phase 99 to be completed); it is now `attended`. The search found no git remote or submodule for either repository in 156 checkouts on Windows and in WSL, but the retired `rizonetech/Codex` is still the author link in the seven Codex `plugin.json` files and the clone source in `plugins/codex/atera/README.md:92`, and Claude Code in WSL still lists a `rizonetech` marketplace whose source, `rizonetech/claude-plugins`, no longer exists either (nothing is installed from it). Those are added below. Claude Code's own `githubRepoPaths` record in the Windows `~/.claude.json` still maps `rizonetech/claude` to the vanished `R:\Claude`: it is a local cache the CLI owns, neither a remote nor a source, and is left to Claude Code.
+
 **Phase:** 99
-**Needs:** operator
+**Needs:** attended
 **Surface:** no
 
 **Build order:**
@@ -120,6 +124,8 @@ The roadmap's end-of-day status says both repositories can be deleted. Deleting 
 
 - [ ] Confirm `git log origin/main --oneline -- global plugins` shows the import commits (`f06262c` and `0b36764`) and `git status -sb` shows `main` level with `origin/main`. Done when: both are true on the day of the deletion.
 - [ ] Search the owner's checkouts and the two agents' configuration for `rizonetech/Claude` and `rizonetech/Codex` as a git remote, a submodule or a marketplace source. Done when: none is found, or each is repointed first.
+- [ ] Point the author link in each `plugins/codex/<name>/plugin.json` and the clone step in `plugins/codex/atera/README.md` at `https://github.com/rizonetech/Conclave-SDK`, then refresh each installed Codex copy with `codex plugin add <name>@rizonetech`. Done when: `git grep "github.com/rizonetech/Codex"` prints nothing and the drift check prints nothing on Windows and in WSL. Cheaper substitute: leaving the dead link because nothing calls it must fail review; Codex shows it as the developer's link.
+- [ ] Remove Claude Code's dead `rizonetech` marketplace in WSL with `claude plugin marketplace remove rizonetech`. Done when: neither `~/.claude/plugins/known_marketplaces.json` nor `~/.claude/settings.json` in WSL names `rizonetech/claude-plugins`, and every enabled plugin is still installed. Cheaper substitute: editing the two files by hand must fail; the CLI owns them.
 - [ ] The owner deletes `rizonetech/Claude` and `rizonetech/Codex` on GitHub. Done when: `gh repo view rizonetech/Claude` and `gh repo view rizonetech/Codex` both report that the repository does not exist. Cheaper substitute: archiving them in place must fail; the roadmap's status is "can be deleted", and an archive is a second copy.
 - [ ] Update "The two retired repositories" in `docs/plans/2026-11-11-sdk-audit-and-roadmap.md` with the deletion date. Done when: the section says the repositories are deleted.
 - [ ] Commit: `docs: retired repositories deleted`
