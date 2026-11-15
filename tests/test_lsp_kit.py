@@ -992,7 +992,7 @@ class DocumentTests(InstalledProject):
                      "in it, a file no server serves) gets its usual answer this way too."):
             self.assertIn(said, text)
         # What the document says of a call sent that way is what the bridge does, for each kind of call.
-        self.servers(project, ("stub", "clean"))   # a server for .py files, which must not be started
+        self.servers(project, ("stub", "clean"))   # a server for .py files: a call on one needs it
         (project / "app.py").write_text("x = 1\n", encoding="utf-8")
         ended = ("The input ended before this call was answered, so it was not run to its end: a client keeps the "
                  "bridge's input open until it has read the answer.")
