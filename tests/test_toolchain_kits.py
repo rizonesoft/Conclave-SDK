@@ -676,6 +676,7 @@ class CppKitTests(ToolchainFixture):
         # itself, so that one is no mismatch: see the test that runs clangd.)
         self.compdb_pins(project, compdb={"path": "build/compile_commands.json"})
         self.clangd_file(project, "CompileFlags:\n  CompilationDatabase: .\n")
+        (project / "compile_commands.json").unlink()   # the fixture's, at the root: clangd would read it first
         self.assertEqual(self.clangd_checks(project)["clangd-config"][0], "ok")
         self.compdb_pins(project, compdb={"path": "out/compile_commands.json"})
         status, detail = self.clangd_checks(project)["clangd-config"]
@@ -692,6 +693,27 @@ class CppKitTests(ToolchainFixture):
                 self.assertEqual(self.clangd_checks(project)["clangd-config"][0], "ok")
         self.clangd_file(project, "CompileFlags:\n  CompilationDatabase: None\n")
         self.assertEqual(self.clangd_checks(project)["clangd-config"][0], "unexpected")
+        # Found by the review round: the build folder is where clangd looks second. A database left at the root
+        # from before the build moved out of the source tree is read first, and the watched one never.
+        self.clangd_file(project, "CompileFlags:\n  CompilationDatabase: .\n")
+        self.database(project, "build/compile_commands.json")
+        (project / "compile_commands.json").unlink(missing_ok=True)
+        self.assertEqual(self.clangd_checks(project)["clangd-config"],
+                         ("ok", ".clangd: CompilationDatabase ., whose build folder holds the database"))
+        self.database(project, "compile_commands.json")   # the old one
+        self.assertEqual(self.clangd_checks(project)["clangd-config"],
+                         ("unexpected", ".clangd names CompilationDatabase ., where clangd finds another "
+                                        "compile_commands.json before the one in build that the freshness check "
+                                        "watches: remove that one, or write `CompilationDatabase: build`"))
+        self.clangd_file(project, "CompileFlags:\n  CompilationDatabase: build\n")
+        self.assertEqual(self.clangd_checks(project)["clangd-config"][0], "ok")
+        # Found by the review round: a database under another file name is one clangd never reads.
+        self.compdb_pins(project, compdb={"path": "build/alternate.json"})
+        self.assertEqual(self.clangd_checks(project)["clangd-config"],
+                         ("unexpected", "clangd reads a database only from a file named compile_commands.json, and "
+                                        "the one the freshness check watches is build/alternate.json: clangd never "
+                                        "reads it"))
+        self.compdb_pins(project, compdb={"path": "build/compile_commands.json"})
         # A key of that name under another section is not the setting.
         self.compdb_pins(project, compdb={"path": "out/compile_commands.json"})
         self.clangd_file(project, "Index:\n  CompilationDatabase: out\n")
@@ -703,6 +725,11 @@ class CppKitTests(ToolchainFixture):
         told = "whether clangd reads the database in out cannot be told from the file: it must be given " \
                "`CompilationDatabase: out`"
         cases = [("CompileFlags:\n  CompilationDatabase: build\n---\nIf:\n  PathMatch: .*\\.h\n",
+                  "it holds more than one document"),
+                 # Found by the review round: a separator with a comment, and the end-of-document mark.
+                 ("CompileFlags:\n  CompilationDatabase: out\n--- # the headers\nCompileFlags:\n  Add: [-xc]\n",
+                  "it holds more than one document"),
+                 ("CompileFlags:\n  CompilationDatabase: out\n...\nCompileFlags:\n  Add: [-xc]\n",
                   "it holds more than one document"),
                  ("If:\n  PathMatch: src/.*\nCompileFlags:\n  CompilationDatabase: build\n", "it has a condition (`If:`)"),
                  ("CompileFlags: {CompilationDatabase: build}\n", "`CompileFlags` is not written as a block"),
@@ -783,6 +810,29 @@ class CppKitTests(ToolchainFixture):
         self.clangd_file(project, "CompileFlags:\n  CompilationDatabase: out\n")
         self.assertEqual(self.clangd_checks(project)["clangd-config"][0], "ok")
         self.assertEqual(diagnostics(), [])
+        # Found by the review round: the build folder is searched second. With an old database at the root
+        # (without the definition) and the watched one in build/, clangd reads the old one.
+        (project / ".clangd").write_bytes(seed)
+        (project / "out/compile_commands.json").rename(project / "build/compile_commands.json")
+        self.compdb_pins(project, compdb={"path": "build/compile_commands.json"})
+        old = dict(entry, arguments=["clang", "-c", "main.c"])
+        (project / "compile_commands.json").write_text(json.dumps([old]), encoding="utf-8")
+        self.assertEqual(self.clangd_checks(project)["clangd-config"][0], "unexpected")
+        shadowed = diagnostics()
+        self.assertTrue(any("the compile database was not read" in message.lower() for message in shadowed),
+                        "clangd read the database in build/ although the root holds one")
+        (project / "compile_commands.json").unlink()
+        self.assertEqual(self.clangd_checks(project)["clangd-config"][0], "ok")
+        self.assertEqual(diagnostics(), [])
+        # And a database under another file name is never read, whatever folder clangd is given.
+        (project / "build/compile_commands.json").rename(project / "build/alternate.json")
+        self.compdb_pins(project, compdb={"path": "build/alternate.json"})
+        self.clangd_file(project, "CompileFlags:\n  CompilationDatabase: build\n")
+        self.assertEqual(self.clangd_checks(project)["clangd-config"][0], "unexpected")
+        renamed = diagnostics()
+        self.assertTrue(any("the compile database was not read" in message.lower() for message in renamed), renamed)
+        print(f"clangd itself ({version}): errors with an old database at the root and the watched one in "
+              f"build/: {len(shadowed)}; with the database named alternate.json: {len(renamed)}")
         print(f"clangd itself ({version}): errors with a folder that has no database: {len(broken)}; with the "
               f"database in build/ and the seed's `.`: {len(in_build)}; with it in out/ and the seed's `.`: "
               f"{len(elsewhere)}; after `CompilationDatabase: out`: 0")

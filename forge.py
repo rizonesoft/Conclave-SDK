@@ -2190,6 +2190,7 @@ def _toolchain_module(kit: str, script: str = "toolchain-check.py") -> types.Mod
 
 
 CLANGD_CONFIG = ".clangd"
+CLANGD_DATABASE = "compile_commands.json"   # the one file name clangd reads a database from
 
 
 def _clangd_database(path: Path) -> tuple[str, str]:
@@ -2204,7 +2205,8 @@ def _clangd_database(path: Path) -> tuple[str, str]:
     except OSError as exc:
         return "unreadable", exc.strerror or str(exc)
     lines = [line.rstrip() for line in text.splitlines()]
-    if any(line.strip() == "---" for line in lines):
+    # A separator may carry a comment (`--- # the headers`), and `...` ends a document too.
+    if any(re.match(r"(---|\.\.\.)(\s.*)?$", line) for line in lines):
         return "unknown", "it holds more than one document"
     if any(re.match(r"If\s*:", line) for line in lines):
         return "unknown", "it has a condition (`If:`)"
@@ -2255,7 +2257,8 @@ def _doctor_clangd(target_root: Path, pin_file: dict, add_check) -> None:
     config = target_root / CLANGD_CONFIG
     if not config.is_file():
         return   # the kit's file check has already said it is missing
-    wanted = (target_root / root / pin_file["compdb"]["path"]).parent
+    database = target_root / root / pin_file["compdb"]["path"]
+    wanted = database.parent
     try:
         shown = wanted.resolve().relative_to(target_root.resolve()).as_posix()
     except ValueError:
@@ -2263,14 +2266,28 @@ def _doctor_clangd(target_root: Path, pin_file: dict, add_check) -> None:
     kind, value = _clangd_database(config)
     if kind == "unreadable":
         add_check("clangd-config", "unexpected", f"{CLANGD_CONFIG} cannot be read ({value})")
+    elif database.name != CLANGD_DATABASE:
+        # Whatever folder clangd is given, it reads a database only under this name.
+        add_check("clangd-config", "unexpected",
+                  f"clangd reads a database only from a file named {CLANGD_DATABASE}, and the one the freshness "
+                  f"check watches is {shown}/{database.name}: clangd never reads it")
     elif kind == "folder":
         named = Path(value) if Path(value).is_absolute() else target_root / value
         here = os.path.normcase(os.path.abspath(wanted))
-        # clangd finds the database in the folder it is given and in a `build` folder of it.
-        same = value != "None" and here in {os.path.normcase(os.path.abspath(folder))
-                                           for folder in (named, named / "build")}
-        if same:
+        direct = value != "None" and here == os.path.normcase(os.path.abspath(named))
+        # clangd looks in the folder it is given first, and in a `build` folder of it only when that has none.
+        through_build = value != "None" and here == os.path.normcase(os.path.abspath(named / "build"))
+        earlier = named / CLANGD_DATABASE
+        if direct:
             add_check("clangd-config", "ok", f"{CLANGD_CONFIG}: CompilationDatabase {value}, where the database is")
+        elif through_build and not earlier.is_file():
+            add_check("clangd-config", "ok",
+                      f"{CLANGD_CONFIG}: CompilationDatabase {value}, whose build folder holds the database")
+        elif through_build:
+            add_check("clangd-config", "unexpected",
+                      f"{CLANGD_CONFIG} names CompilationDatabase {value}, where clangd finds another "
+                      f"{CLANGD_DATABASE} before the one in {shown} that the freshness check watches: remove "
+                      f"that one, or write `CompilationDatabase: {shown}`")
         else:
             add_check("clangd-config", "unexpected",
                       f"{CLANGD_CONFIG} names CompilationDatabase {value}, and the database the freshness check "
