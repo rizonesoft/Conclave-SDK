@@ -2,7 +2,7 @@
 
 Additive overlay for a C or C++ project: it pins the build tools the project wants, tells the operator which are missing or too old, and never installs a tool or chooses a build system. The project keeps its own Makefile, Ninja files or CMake; the kit checks what they need.
 
-The kit is being built in sections (`todo/04-tooling/TODO-02-toolchain-kits.md`). What it installs today:
+What it installs:
 
 | File | What it is |
 | --- | --- |
@@ -14,10 +14,11 @@ The kit is being built in sections (`todo/04-tooling/TODO-02-toolchain-kits.md`)
 | `scripts/cc-cache.py` | Puts a compiler cache in front of the compilers a build names |
 | `scripts/cache-stats.py` | Prints the cache's hit rate; fails a rebuild that did not use the cache |
 | `scripts/tests/test_cc_cache.py` | The tests of both, with stub compilers and caches |
+| `.clangd` | clangd's configuration, seeded once: the compile database folder and its defaults |
 
 The pin file is the project's own from the first install: `forge.py` never overwrites it, and a project that already has one keeps it byte for byte.
 
-Still to come: the clangd seed and its entry in the LSP kit's server table (§5), and the `cpp-toolchain` skill and document (§7).
+Still to come: the `cpp-toolchain` skill and document (§7).
 
 ## Install
 
@@ -145,6 +146,16 @@ python scripts/cache-stats.py --cache sccache --json
 
 It reads the form each cache prints for a program (`ccache --print-stats`, `sccache --show-stats --stats-format json`; confirmed against ccache 4.12.3 and sccache 0.13.0 and 0.19.0 on 2026-11-15), runs the cache with no shell for a bounded time and output, and exits 3 with `--min-hit-rate` when the rate is below it or when no compile went through the cache at all. Exit 2, with one line saying which, when no cache is installed or the cache could not be started, failed, ran over a limit, printed something else, or did not reset.
 
+## clangd
+
+The kit seeds a `.clangd` at the project root and puts clangd in the LSP kit's server table, so the three agents reach it (`kits/lsp/README.md`).
+
+- **The seed.** `.clangd` holds what any C or C++ project needs and nothing of one project: `CompilationDatabase: .` (the folder that holds `compile_commands.json`), `Index: Background: Build`, and the two include diagnostics (`UnusedIncludes`, `MissingIncludes`) at clangd's own defaults, written out so a project sees where to set them. No target, no flag, no include path. It is the project's file from the first install: an existing `.clangd` is kept byte for byte.
+- **Keep clangd and the freshness check on one database.** clangd reads a relative `CompilationDatabase` from the folder `.clangd` is in; `scripts/compdb-check.py` reads `compdb.path` under the pin file's `root`. clangd finds the database in the folder it is given and in a `build` folder of it, so the seed's `.` also serves `"compdb": {"path": "build/compile_commands.json"}`. When the database is anywhere else (`out/compile_commands.json`, or a `root` of `engine`), write that folder in `.clangd` too (`CompilationDatabase: out`, `CompilationDatabase: engine`). The doctor's `clangd-config` says when clangd would not find the database the check watches.
+- **The server table.** With the `lsp` kit installed, the install adds the `cpp` preset's `clangd` to `.conclave/lsp.json`, rooted at the pin file's `root`, in whichever order the two kits are installed. A `clangd` entry the project already has is never changed; when it is not the preset's it is listed under `lsp_servers.differs`. Without the `lsp` kit nothing is written and the result names the command that installs it. Later, `python scripts/lsp-servers.py add cpp` (with `--root <folder>` for an app that is not at the project root) adds it by hand.
+
+Confirmed with clangd itself (22.1.3 on Windows 11 and 19.1.7 on Ubuntu, 2026-11-15): a file that compiles only with a definition the database gives has no diagnostic with the seed, with the database at the root or in `build/`, and the compiler's error when `.clangd` names a folder without the database or the database is in another folder (`out/`) while `.clangd` still says `.`.
+
 ## Doctor
 
 `python forge.py doctor <project> toolchain-cpp` reports:
@@ -154,6 +165,9 @@ It reads the form each cache prints for a program (`ccache --print-stats`, `scca
 - `tool:<name>` for each pinned tool: `ok` with the path found and its version; `setup_required` when a required tool is not ok, with the reason (not installed and how to install it, both versions when it is too old, or what went wrong when it was run); `optional` for the same on a tool the pin marks optional.
 
 - `compile-database`: `ok` with the database and its entry count when it is `current`; `setup_required` with the status and the reason for `missing`, `invalid`, `stale` and `unknown`, and the project's `regenerate` command when the pin file gives one. It reads the pin file's `compdb` and starts nothing.
+
+- `clangd-server`: `ok` when `.conclave/lsp.json` has a `clangd` server; `setup_required`, naming the command, when the project has no table (`python forge.py kit <project> lsp`) or the table has no `clangd` (`python scripts/lsp-servers.py add cpp`, with `--root` for a pin file whose `root` is not the project); `unexpected` when the table does not load.
+- `clangd-config`: `ok` when `.clangd` gives clangd the folder the compile database is in, or the folder above its `build` folder; `unexpected`, naming the folder to write, when it names another or `None`, or when `.clangd` cannot be read; `optional` when the file is in a form the doctor does not read (several documents, an `If:` condition, `CompileFlags` in flow style) or names no `CompilationDatabase`, saying which folder clangd must be given. Nothing is guessed from such a file, and it is never changed.
 
 `optional` is shown and never counted: `--strict` exits 3 only for a required tool, a missing file or a pin file that does not load, so a project that uses no compiler cache passes.
 

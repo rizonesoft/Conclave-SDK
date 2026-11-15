@@ -8,6 +8,7 @@ import json
 import os
 import pathlib
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -67,6 +68,9 @@ WEB_PINS = ".conclave/toolchain-web.json"
 THEN = 1_700_000_000_000_000_000   # the time a fixture's compile database is given, in nanoseconds
 LATER = THEN + 5_000_000_000
 LSP_TABLE = ".conclave/lsp.json"
+# Found before the fixtures narrow PATH to their stubs: the real clangd, for the one test that runs it.
+CLANGD = shutil.which("clangd")
+REAL_PATH = os.environ.get("PATH", "")
 
 
 def command_line(*argv):
@@ -189,11 +193,14 @@ class ToolchainFixture(unittest.TestCase):
 class CppKitTests(ToolchainFixture):
     """D04 T02 section 2: the toolchain-cpp kit's seed pins, its install and its doctor."""
 
-    def project(self, name="project", install=True, database=True):
-        """A project with a current compile database (section 3), so the doctor's other checks are read alone."""
+    def project(self, name="project", install=True, database=True, lsp=True):
+        """A project with a current compile database (section 3) and the lsp kit beside this one (section 5: the
+        table then holds clangd), so the doctor's other checks are read alone."""
         folder = super().project(name, install)
         if install and database:
             self.database(folder)
+        if install and lsp:
+            forge.apply_kit(folder, "lsp")
         return folder
 
     def database(self, project, rel="compile_commands.json", entries=None, when=THEN):
@@ -242,7 +249,7 @@ class CppKitTests(ToolchainFixture):
     # the install
 
     def test_init_and_kit_install_the_pins_and_the_check_and_record_them(self):
-        files = [PINS, "scripts/cache-stats.py", "scripts/cc-cache.py", "scripts/compdb-check.py",
+        files = [".clangd", PINS, "scripts/cache-stats.py", "scripts/cc-cache.py", "scripts/compdb-check.py",
                  "scripts/tests/test_cc_cache.py", "scripts/tests/test_compdb_check.py",
                  "scripts/tests/test_toolchain_check.py", "scripts/toolchain-check.py"]
         for name, argv in (("by-init", ("init", "{}", "--kit", self.KIT)), ("by-kit", ("kit", "{}", self.KIT))):
@@ -372,7 +379,7 @@ class CppKitTests(ToolchainFixture):
         self.assertEqual((code, checks["tool:compiler"]["status"]), (0, "optional"))
 
     def test_the_bare_doctor_starts_no_pinned_tool(self):
-        project = self.project()
+        project = self.project(lsp=False)
         self.stub("marked", "import pathlib, sys\n"
                             "with open(r'{dir}/ran', 'a') as mark:\n    mark.write('x')\n"
                             "print('marked v2.5')\n")
@@ -398,6 +405,8 @@ class CppKitTests(ToolchainFixture):
         self.prints("alpha", "alpha v2.5.1\n")
         self.compdb_pins(project, root="engine", compdb={"path": "build/compile_commands.json"})
         self.database(project, "engine/build/compile_commands.json")
+        (project / ".clangd").write_text("CompileFlags:" + chr(10) + "  CompilationDatabase: engine/build" + chr(10),
+                                         encoding="utf-8")   # clangd is given the folder the check watches
         # Decoys the doctor must not read: at the project root and in the working directory.
         self.database(project, "compile_commands.json", entries="not json")
         elsewhere = self.work / "elsewhere"
@@ -510,6 +519,274 @@ class CppKitTests(ToolchainFixture):
         self.assertIn("tool-pins", names)
         self.assertNotIn("compile-database", names)
 
+    # clangd (section 5)
+
+    def clangd_settings(self, text):
+        """The seed's settings, by a reader written for this test: `Section:` at the margin, `Key: value` under it."""
+        settings, section = {}, None
+        for line in text.splitlines():
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            key, _colon, value = line.strip().partition(":")
+            if not line[0].isspace():
+                section = key
+                self.assertEqual(value.strip(), "", f"{key} is not written as a block")
+            else:
+                settings[f"{section}.{key}"] = value.strip()
+        return settings
+
+    def test_the_seed_holds_what_is_common_to_any_project_and_nothing_of_one(self):
+        seed = (SDK_ROOT / "kits" / self.KIT / "templates/.clangd").read_text(encoding="utf-8")
+        self.assertEqual(self.clangd_settings(seed), {
+            "CompileFlags.CompilationDatabase": ".", "Index.Background": "Build",
+            "Diagnostics.UnusedIncludes": "Strict", "Diagnostics.MissingIncludes": "None"})
+        code = [line for line in seed.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+        for line in code:
+            for unwanted in ("--target", "-I", "Add:", "Remove:", "ClangTidy", "/", "\\", "-nostd", "-D"):
+                self.assertNotIn(unwanted, line, f"the seed holds something of one project: {line.strip()}")
+        self.assertEqual(forge._clangd_database(SDK_ROOT / "kits" / self.KIT / "templates/.clangd"), ("folder", "."))
+        # A fresh install has it, and a project's own is kept byte for byte.
+        fresh = self.project("fresh", lsp=False)
+        self.assertEqual((fresh / ".clangd").read_text(encoding="utf-8"), seed)
+        own = self.project("own", install=False)
+        (own / ".clangd").write_bytes(b"CompileFlags:\n  Add: [--target=x86_64-elf]\n")
+        result = forge.apply_kit(own, self.KIT)
+        self.assertIn(".clangd", result["preserved"])
+        self.assertEqual((own / ".clangd").read_bytes(), b"CompileFlags:\n  Add: [--target=x86_64-elf]\n")
+
+    def table(self, project):
+        return {server["name"]: server for server in forge._lsp_table_module().load_servers(project)}
+
+    def test_clangd_is_added_to_the_table_in_either_order_of_the_two_kits(self):
+        first = self.project("lsp-first", install=False)
+        forge.apply_kit(first, "lsp")
+        result = forge.apply_kit(first, self.KIT)
+        self.assertEqual(result["lsp_servers"], {"added": ["clangd"], "kept": [], "differs": []})
+        self.assertEqual(result["merge_needed"], [])
+        second = self.project("cpp-first", install=False)
+        result = forge.apply_kit(second, self.KIT)
+        # Without the lsp kit nothing is written, and the result names the command that installs it.
+        self.assertEqual(result["lsp_servers"], {"not_installed": f"python forge.py kit {second.as_posix()} lsp"})
+        self.assertFalse((second / LSP_TABLE).exists())
+        result = forge.apply_kit(second, "lsp")
+        self.assertEqual(result["lsp_servers"], {"added": ["clangd"], "kept": [], "differs": []})
+        self.assertEqual((second / LSP_TABLE).read_bytes(), (first / LSP_TABLE).read_bytes())
+        entry = self.table(first)["clangd"]
+        self.assertEqual((entry["command"], entry["root"], entry["extensions"][".c"]), (["clangd"], ".", "c"))
+        # A second install adds nothing, and a dry run writes nothing and names it.
+        self.assertEqual(forge.apply_kit(first, self.KIT)["lsp_servers"], {"added": [], "kept": ["clangd"],
+                                                                         "differs": []})
+        dry = self.project("dry", install=False)
+        forge.apply_kit(dry, "lsp")
+        before = self.snapshot(dry)
+        self.assertEqual(forge.apply_kit(dry, self.KIT, dry_run=True)["lsp_servers"]["added"], ["clangd"])
+        self.assertEqual(self.snapshot(dry), before)
+
+    def test_the_entry_is_rooted_at_the_pin_files_root_and_a_generated_plugin_follows(self):
+        project = self.project("rooted", install=False)
+        forge.apply_kit(project, "lsp")
+        (project / "engine").mkdir()
+        (project / ".conclave").mkdir(exist_ok=True)
+        (project / PINS).write_text(json.dumps({"schema_version": 1, "root": "engine", "tools": []}), encoding="utf-8")
+        plugin = forge._lsp_plugin_module()
+        plugin.write_plugin(project, [])
+        result = forge.apply_kit(project, self.KIT)
+        self.assertEqual(result["lsp_servers"]["added"], ["clangd"])
+        self.assertEqual(self.table(project)["clangd"]["root"], "engine")
+        listed = json.loads((project / plugin.FOLDER / plugin.SERVERS).read_text(encoding="utf-8"))
+        self.assertEqual(listed["clangd"]["workspaceFolder"], "${CLAUDE_PROJECT_DIR}/engine")
+
+    def test_a_projects_own_clangd_entry_is_never_changed_and_is_said_to_differ(self):
+        project = self.project("own-entry", install=False)
+        forge.apply_kit(project, "lsp")
+        own = {"name": "clangd", "command": ["clangd-19", "--background-index"], "extensions": {".c": "c"},
+               "install": "apt install clangd-19", "note": "the project's own"}
+        (project / LSP_TABLE).write_text(json.dumps({"schema_version": 1, "servers": [own]}), encoding="utf-8")
+        before = (project / LSP_TABLE).read_bytes()
+        result = forge.apply_kit(project, self.KIT)
+        self.assertEqual(result["lsp_servers"], {"added": [], "kept": ["clangd"], "differs": ["clangd"]})
+        self.assertEqual(result["merge_needed"], [])
+        self.assertEqual((project / LSP_TABLE).read_bytes(), before)
+        # A table that does not load is reported and left as it was.
+        (project / LSP_TABLE).write_text('{"schema_version": 1, "servers": [{"name": "x"}]}', encoding="utf-8")
+        before = (project / LSP_TABLE).read_bytes()
+        result = forge.apply_kit(project, self.KIT)
+        self.assertIn("server 'x': missing key", result["lsp_servers"]["refused"])
+        self.assertEqual(result["merge_needed"], [LSP_TABLE])
+        self.assertEqual((project / LSP_TABLE).read_bytes(), before)
+
+    def clangd_checks(self, project):
+        checks = {check["name"]: check for check in forge.doctor_repo(project, self.KIT)["checks"]}
+        self.assertIn("tool-pins", checks)   # the other checks are still reported
+        return {name: (check["status"], check["detail"]) for name, check in checks.items()
+                if name.startswith("clangd-")}
+
+    def test_the_doctor_says_whether_the_table_has_clangd_and_how_to_add_it(self):
+        project = self.project()
+        self.assertEqual(self.clangd_checks(project)["clangd-server"], ("ok", f"{LSP_TABLE}: clangd, in ."))
+        bare = self.project("no-lsp", lsp=False)
+        self.assertEqual(self.clangd_checks(bare)["clangd-server"],
+                         ("setup_required", f"no {LSP_TABLE}: install the lsp kit with python forge.py kit "
+                                            f"{bare.as_posix()} lsp"))
+        (project / LSP_TABLE).write_text('{"schema_version": 1, "servers": []}', encoding="utf-8")
+        self.assertEqual(self.clangd_checks(project)["clangd-server"],
+                         ("setup_required", f"{LSP_TABLE} has no clangd: python scripts/lsp-servers.py add cpp"))
+        (project / LSP_TABLE).write_text("{", encoding="utf-8")
+        status, detail = self.clangd_checks(project)["clangd-server"]
+        self.assertEqual(status, "unexpected")
+        self.assertTrue(detail.startswith(f"{LSP_TABLE}: "), detail)
+        # A pin file whose root is not the project: the command carries it, and the entry it writes is rooted there.
+        rooted = self.project("rooted")
+        (rooted / "engine").mkdir()
+        self.compdb_pins(rooted, root="engine")
+        (rooted / LSP_TABLE).write_text('{"schema_version": 1, "servers": []}', encoding="utf-8")
+        status, detail = self.clangd_checks(rooted)["clangd-server"]
+        command = "python scripts/lsp-servers.py add cpp --root engine"
+        self.assertEqual((status, detail), ("setup_required", f"{LSP_TABLE} has no clangd: {command}"))
+        ran = subprocess.run([sys.executable, "-B", *command.split()[1:]], cwd=rooted, capture_output=True, text=True,
+                             timeout=120, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        self.assertEqual(self.table(rooted)["clangd"]["root"], "engine")
+        self.assertEqual(self.clangd_checks(rooted)["clangd-server"], ("ok", f"{LSP_TABLE}: clangd, in engine"))
+        # The web kit has no such checks.
+        web = self.work / "web"
+        web.mkdir()
+        forge.apply_kit(web, "toolchain-web")
+        names = [check["name"] for check in forge.doctor_repo(web, "toolchain-web")["checks"]]
+        self.assertEqual([name for name in names if name.startswith("clangd")], [])
+
+    def clangd_file(self, project, text):
+        (project / ".clangd").write_bytes(text if isinstance(text, bytes) else text.encode("utf-8"))
+
+    def test_the_doctor_compares_the_folder_clangd_reads_with_the_folder_the_database_is_in(self):
+        project = self.project()
+        self.assertEqual(self.clangd_checks(project)["clangd-config"],
+                         ("ok", ".clangd: CompilationDatabase ., where the database is"))
+        # A nested app: the check reads engine/compile_commands.json, clangd would read the decoy at the root.
+        (project / "engine").mkdir()
+        self.compdb_pins(project, root="engine")
+        self.database(project, "engine/compile_commands.json")
+        status, detail = self.clangd_checks(project)["clangd-config"]
+        self.assertEqual(status, "unexpected")
+        self.assertEqual(detail, ".clangd names CompilationDatabase ., and the database the freshness check watches "
+                                 "is in engine: write `CompilationDatabase: engine`")
+        self.clangd_file(project, "CompileFlags:\n  CompilationDatabase: engine\n")
+        self.assertEqual(self.clangd_checks(project)["clangd-config"][0], "ok")
+        # The database in another folder. (A `build` folder of the folder clangd is given is searched by clangd
+        # itself, so that one is no mismatch: see the test that runs clangd.)
+        self.compdb_pins(project, compdb={"path": "build/compile_commands.json"})
+        self.clangd_file(project, "CompileFlags:\n  CompilationDatabase: .\n")
+        self.assertEqual(self.clangd_checks(project)["clangd-config"][0], "ok")
+        self.compdb_pins(project, compdb={"path": "out/compile_commands.json"})
+        status, detail = self.clangd_checks(project)["clangd-config"]
+        self.assertEqual((status, detail.endswith("write `CompilationDatabase: out`")), ("unexpected", True))
+        self.compdb_pins(project, compdb={"path": "build/compile_commands.json"})
+        self.clangd_file(project, "CompileFlags:\n  CompilationDatabase: src\n")
+        self.assertEqual(self.clangd_checks(project)["clangd-config"][0], "unexpected")
+        for text in ("CompileFlags:\n  CompilationDatabase: build\n", 'CompileFlags:\n  CompilationDatabase: "build"\n',
+                     "CompileFlags:\n  CompilationDatabase: 'build'   # the build folder\n",
+                     "# clangd\nCompileFlags:\n  Remove: [-Werror]\n  CompilationDatabase: build # here\nIndex:\n"
+                     "  Background: Build\n", "CompileFlags:\n  CompilationDatabase: ./build/\n"):
+            with self.subTest(text=text):
+                self.clangd_file(project, text)
+                self.assertEqual(self.clangd_checks(project)["clangd-config"][0], "ok")
+        self.clangd_file(project, "CompileFlags:\n  CompilationDatabase: None\n")
+        self.assertEqual(self.clangd_checks(project)["clangd-config"][0], "unexpected")
+        # A key of that name under another section is not the setting.
+        self.compdb_pins(project, compdb={"path": "out/compile_commands.json"})
+        self.clangd_file(project, "Index:\n  CompilationDatabase: out\n")
+        self.assertEqual(self.clangd_checks(project)["clangd-config"][0], "optional")
+
+    def test_a_clangd_file_the_doctor_cannot_read_that_way_is_said_and_never_guessed(self):
+        project = self.project()
+        self.compdb_pins(project, compdb={"path": "out/compile_commands.json"})
+        told = "whether clangd reads the database in out cannot be told from the file: it must be given " \
+               "`CompilationDatabase: out`"
+        cases = [("CompileFlags:\n  CompilationDatabase: build\n---\nIf:\n  PathMatch: .*\\.h\n",
+                  "it holds more than one document"),
+                 ("If:\n  PathMatch: src/.*\nCompileFlags:\n  CompilationDatabase: build\n", "it has a condition (`If:`)"),
+                 ("CompileFlags: {CompilationDatabase: build}\n", "`CompileFlags` is not written as a block"),
+                 ("Index:\n  Background: Build\n",
+                  "it names no `CompilationDatabase`, so clangd searches the folders above each source file"),
+                 ("CompileFlags:\n  CompilationDatabase: Ancestors\n",
+                  "it names no `CompilationDatabase`, so clangd searches the folders above each source file")]
+        for text, why in cases:
+            with self.subTest(why=why):
+                self.clangd_file(project, text)
+                before = (project / ".clangd").read_bytes()
+                self.assertEqual(self.clangd_checks(project)["clangd-config"], ("optional", f".clangd: {why}; {told}"))
+                self.assertEqual((project / ".clangd").read_bytes(), before)
+        self.clangd_file(project, b"CompileFlags:\n  CompilationDatabase: \xff\xfe\n")
+        status, detail = self.clangd_checks(project)["clangd-config"]
+        self.assertEqual(status, "unexpected")
+        self.assertTrue(detail.startswith(".clangd cannot be read (not UTF-8"), detail)
+        real = pathlib.Path.read_bytes
+
+        def read_bytes(path):
+            if path.name == ".clangd":
+                raise PermissionError(13, "Permission denied")
+            return real(path)
+
+        with unittest.mock.patch.object(pathlib.Path, "read_bytes", read_bytes):
+            self.assertEqual(self.clangd_checks(project)["clangd-config"],
+                             ("unexpected", ".clangd cannot be read (Permission denied)"))
+        # Absent: the kit's file check says it is missing, and there is no second line.
+        (project / ".clangd").unlink()
+        self.assertNotIn("clangd-config", self.clangd_checks(project))
+
+    @unittest.skipUnless(CLANGD, "needs clangd on PATH")
+    def test_clangd_itself_takes_its_flags_from_the_database_the_seed_names(self):
+        # A real clangd, a real PATH: the fixture's scratch PATH holds only stubs.
+        version = subprocess.run([CLANGD, "--version"], capture_output=True, text=True, timeout=60,
+                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.splitlines()[0]
+        project = self.project("real", database=False)
+        (project / "main.c").write_text("#ifndef FROM_DATABASE\n#error the compile database was not read\n#endif\n"
+                                        "int main(void) { return 0; }\n", encoding="utf-8")
+        entry = {"directory": str(project), "file": "main.c", "arguments": ["clang", "-DFROM_DATABASE", "-c", "main.c"]}
+
+        def diagnostics():
+            env = dict(os.environ, PATH=str(pathlib.Path(CLANGD).parent) + os.pathsep + REAL_PATH)
+            ran = subprocess.run([sys.executable, "-B", "scripts/lsp-diagnostics.py", "--server", "clangd", "main.c",
+                                  "--json", "--settle", "2"], cwd=project, env=env, capture_output=True, text=True,
+                                 timeout=300, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            report = json.loads(ran.stdout)
+            self.assertEqual(report["servers"]["clangd"]["status"], "ok", ran.stderr)
+            return [row["message"] for row in report["diagnostics"] if row["severity"] == "error"]
+
+        (project / "compile_commands.json").write_text(json.dumps([entry]), encoding="utf-8")
+        seeded = diagnostics()
+        print(f"\nclangd itself ({version}): with the seed and the database, errors: {seeded}")
+        self.assertEqual(seeded, [], "clangd did not take the definition from the database the seed names")
+        # The selection broken: a folder with no database.
+        seed = (project / ".clangd").read_bytes()
+        (project / "empty").mkdir()
+        self.clangd_file(project, "CompileFlags:\n  CompilationDatabase: empty\n")
+        broken = diagnostics()
+        self.assertTrue(any("the compile database was not read" in message.lower() for message in broken), broken)
+        # What the doctor's rule rests on, measured: given a folder, clangd finds the database in it and in its
+        # `build` subfolder, and nowhere else. So the seed's `.` works for a database in build/ ...
+        (project / ".clangd").write_bytes(seed)
+        (project / "build").mkdir()
+        (project / "compile_commands.json").rename(project / "build/compile_commands.json")
+        self.compdb_pins(project, compdb={"path": "build/compile_commands.json"})
+        self.assertEqual(self.clangd_checks(project)["clangd-config"][0], "ok")
+        in_build = diagnostics()
+        self.assertEqual(in_build, [], "clangd did not find the database in the build folder of the folder named")
+        # ... and not for one in any other folder, which is the case `clangd-config` reports.
+        (project / "out").mkdir()
+        (project / "build/compile_commands.json").rename(project / "out/compile_commands.json")
+        self.compdb_pins(project, compdb={"path": "out/compile_commands.json"})
+        self.assertEqual(self.clangd_checks(project)["clangd-config"][0], "unexpected")
+        elsewhere = diagnostics()
+        self.assertTrue(any("the compile database was not read" in message.lower() for message in elsewhere),
+                        elsewhere)
+        self.clangd_file(project, "CompileFlags:\n  CompilationDatabase: out\n")
+        self.assertEqual(self.clangd_checks(project)["clangd-config"][0], "ok")
+        self.assertEqual(diagnostics(), [])
+        print(f"clangd itself ({version}): errors with a folder that has no database: {len(broken)}; with the "
+              f"database in build/ and the seed's `.`: {len(in_build)}; with it in out/ and the seed's `.`: "
+              f"{len(elsewhere)}; after `CompilationDatabase: out`: 0")
+
     def test_the_readme_lists_every_file_every_seed_tool_and_the_optional_status(self):
         readme = (SDK_ROOT / "kits" / self.KIT / "README.md").read_text(encoding="utf-8")
         templates = SDK_ROOT / "kits" / self.KIT / "templates"
@@ -523,7 +800,8 @@ class CppKitTests(ToolchainFixture):
         for word in ("`optional`", "`setup_required`", "`tool-pins`", "`tool:<name>`", "`compile-database`",
                      "`compdb`", "`path`", "`build_files`", "`regenerate`", "`current`", "`stale`", "`unknown`",
                      "`invalid`", "`missing`", "compdb-check.py --json", "`BUILD_NO_CCACHE`", "cc-cache.py",
-                     "cache-stats.py --min-hit-rate", "`ccache`", "`sccache`"):
+                     "cache-stats.py --min-hit-rate", "`ccache`", "`sccache`", "`clangd-server`",
+                     "`clangd-config`", "`CompilationDatabase`", "lsp-servers.py add cpp"):
             self.assertIn(word, readme)
         self.assertIn("`compdb`", (SDK_ROOT / "kits/toolchain-web/README.md").read_text(encoding="utf-8"))
 

@@ -785,7 +785,7 @@ def apply_kit(
         # The table is filled once, below, after both kits' files are in place.
         with_lsp = apply_kit(target_root, "lsp", agent=agent, dry_run=dry_run, include=include, fill_table=False)
         result["lsp"] = {"installed": with_lsp["installed"], "preserved": with_lsp["preserved"]}
-    if kit_name in ("lsp", "toolchain-web", "laravel") and fill_table:
+    if kit_name in ("lsp", "toolchain-web", "toolchain-cpp", "laravel") and fill_table:
         servers = _fill_lsp_table(target_root, dry_run, installing=kit_name)
         if servers is not None:
             result["lsp_servers"] = servers
@@ -818,15 +818,18 @@ def _find_web_app_root(target_root: Path) -> str:
 
 def _fill_lsp_table(target_root: Path, dry_run: bool, installing: str | None = None) -> dict | None:
     """Add a stack's language servers to the project's LSP table for the stack kits it has: with the Laravel kit,
-    the `laravel` preset rooted at the folder that holds artisan; with toolchain-web, the `php` preset for an app
+    the `laravel` preset rooted at the folder that holds artisan; with toolchain-cpp, the `cpp` preset (clangd)
+    rooted at its pin file's `root`; with toolchain-web, the `php` preset for an app
     with composer.json and the `web` preset for one with package.json. It runs when any of those kits or the lsp
     kit is installed (`installing`), so their order does not matter.
 
     A server the table lacks is added. One it has is never changed, with one exception: an entry that is still, key
     for key, what another preset writes for that name (the `web` preset's tailwindcss, which has no Blade) is the
     kits' own, so the Laravel preset's entry replaces it; an entry the project changed is kept and, when it is not
-    the Laravel preset's, listed under `differs`. Returns None when the project has neither stack kit and none is
-    being installed, else what happened: {"added", "kept"} (with "replaced" and "differs" for a Laravel project),
+    the Laravel preset's, listed under `differs`; a `clangd` entry that is not the `cpp` preset's is listed there
+    too. Returns None when the project has no stack kit and none is
+    being installed, else what happened: {"added", "kept"} (with "replaced" and "differs" for a Laravel project,
+    "differs" for a C or C++ one),
     {"not_installed": the command that installs and fills the table}, {"refused": why the table does not load} or
     {"failed": why it could not be written, "retry": the command}."""
     pins = target_root / TOOLCHAIN_PINS["toolchain-web"]
@@ -834,7 +837,9 @@ def _fill_lsp_table(target_root: Path, dry_run: bool, installing: str | None = N
     laravel_app = None
     if installing == "laravel" or "laravel" in installed_kits(target_root):
         laravel_app = _find_laravel_app_root(target_root)
-    if not has_web and laravel_app is None:
+    cpp_pins = target_root / TOOLCHAIN_PINS["toolchain-cpp"]
+    has_cpp = cpp_pins.is_file() or installing == "toolchain-cpp"
+    if not has_web and laravel_app is None and not has_cpp:
         return None
     retry = f"python forge.py kit {target_root.as_posix()} lsp"
     table_there = (target_root / LSP_TABLE).is_file()
@@ -843,18 +848,25 @@ def _fill_lsp_table(target_root: Path, dry_run: bool, installing: str | None = N
         return {"not_installed": retry}
     table = _lsp_table_module()
     module = _toolchain_module("toolchain-web")
+    cpp_module = _toolchain_module("toolchain-cpp")
     try:
         servers = table.load_servers(target_root) if table_there else []
         web_root = None
         if has_web:
             web_root = module.load_pin_file(pins)["root"] if pins.is_file() else _find_web_app_root(target_root)
-    except (table.TableError, module.PinError) as exc:
+        cpp_root = None
+        if has_cpp:
+            # A dry run of that install has written no pin file yet: the seed's root, the project.
+            cpp_root = cpp_module.load_pin_file(cpp_pins)["root"] if cpp_pins.is_file() else "."
+    except (table.TableError, module.PinError, cpp_module.PinError) as exc:
         return {"refused": str(exc)}
     presets = table.load_presets(FORGE_ROOT / "kits/lsp/templates/scripts/lib/lsp_presets.json")
     # The Laravel preset first: its entries are the fuller ones, and the web presets then find them in place.
     wanted: list[tuple[str, str]] = []
     if laravel_app is not None:
         wanted.append(("laravel", laravel_app.relative_to(target_root).as_posix() or "."))
+    if cpp_root is not None:
+        wanted.append(("cpp", cpp_root))
     if web_root is not None:
         wanted += [(preset, web_root) for preset, manifest in (("php", "composer.json"), ("web", "package.json"))
                    if (target_root / web_root / manifest).is_file()]
@@ -888,6 +900,9 @@ def _fill_lsp_table(target_root: Path, dry_run: bool, installing: str | None = N
             if preset != "laravel" or table.stored(existing) == table.stored(entry):
                 if name not in added and name not in replaced:
                     kept.append(name)
+                    # The project's own clangd entry is kept, and said to differ from the kit's.
+                    if preset == "cpp" and table.stored(existing) != table.stored(entry):
+                        differs.append(name)
             elif a_presets_own(existing, app_root):
                 servers[by_name[name]] = entry
                 replaced.append(name)
@@ -898,12 +913,14 @@ def _fill_lsp_table(target_root: Path, dry_run: bool, installing: str | None = N
         try:
             table.write_servers(target_root, servers)
         except table.TableWriteError as exc:
-            again = installing if installing in ("laravel", "toolchain-web") else \
-                ("toolchain-web" if has_web else "laravel")
+            again = installing if installing in ("laravel", "toolchain-web", "toolchain-cpp") else \
+                ("toolchain-web" if has_web else "laravel" if laravel_app is not None else "toolchain-cpp")
             return {"failed": str(exc), "retry": f"python forge.py kit {target_root.as_posix()} {again}"}
     result = {"added": added, "kept": list(dict.fromkeys(kept))}
     if laravel_app is not None:
         result.update(replaced=replaced, differs=differs)
+    elif has_cpp:
+        result.update(differs=differs)
     if (added or replaced) and not dry_run:
         # A Claude Code plugin the project has generated follows the table; a project without one gets none.
         plugin = _lsp_plugin_module()
@@ -2172,6 +2189,98 @@ def _toolchain_module(kit: str, script: str = "toolchain-check.py") -> types.Mod
     return _TOOLCHAIN_MODULES[key]
 
 
+CLANGD_CONFIG = ".clangd"
+
+
+def _clangd_database(path: Path) -> tuple[str, str]:
+    """What a `.clangd` says of the compile database, read in one form only, the seed's: one YAML document with
+    `CompileFlags:` at the left margin and `CompilationDatabase:` indented under it. Returns ("folder", the value),
+    ("none", why clangd is then given no folder by this file), ("unknown", why the file cannot be read that way)
+    or ("unreadable", the system's reason). Nothing is guessed from a form this does not take."""
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except UnicodeDecodeError as exc:
+        return "unreadable", f"not UTF-8 ({exc.reason})"
+    except OSError as exc:
+        return "unreadable", exc.strerror or str(exc)
+    lines = [line.rstrip() for line in text.splitlines()]
+    if any(line.strip() == "---" for line in lines):
+        return "unknown", "it holds more than one document"
+    if any(re.match(r"If\s*:", line) for line in lines):
+        return "unknown", "it has a condition (`If:`)"
+    inside = False
+    for line in lines:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line[0].isspace():
+            head = re.match(r"CompileFlags\s*:\s*(.*)$", line)
+            inside = head is not None
+            if head and head.group(1).split("#", 1)[0].strip():
+                return "unknown", "`CompileFlags` is not written as a block"
+            continue
+        key = re.match(r"\s+CompilationDatabase\s*:\s*(.*)$", line) if inside else None
+        if key:
+            value = key.group(1)
+            quoted = re.match(r"""(["'])(.*)\1\s*(?:#.*)?$""", value)
+            value = quoted.group(2) if quoted else value.split(" #", 1)[0].strip()
+            if value in ("", "Ancestors"):
+                break
+            return "folder", value
+    return "none", "it names no `CompilationDatabase`, so clangd searches the folders above each source file"
+
+
+def _doctor_clangd(target_root: Path, pin_file: dict, add_check) -> None:
+    """The C and C++ kit's two checks of clangd's wiring, from files only. `clangd-server`: the project's table
+    has a `clangd` server. `clangd-config`: `.clangd` gives clangd, as `CompilationDatabase`, the folder that
+    compdb-check.py reads the database from. The two are compared as each program resolves them: clangd reads a
+    relative folder from the folder `.clangd` is in, and looks for the database in that folder and in its `build`
+    subfolder (measured with clangd 19.1.7 and 22.1.3); the check reads `<root>/<compdb.path>`."""
+    root = pin_file["root"]
+    if not (target_root / LSP_TABLE).is_file():
+        add_check("clangd-server", "setup_required",
+                  f"no {LSP_TABLE}: install the lsp kit with python forge.py kit {target_root.as_posix()} lsp")
+    else:
+        table = _lsp_table_module()
+        try:
+            entry = next((server for server in table.load_servers(target_root) if server["name"] == "clangd"), None)
+        except table.TableError as exc:
+            add_check("clangd-server", "unexpected", str(exc))
+        else:
+            if entry is not None:
+                add_check("clangd-server", "ok", f"{LSP_TABLE}: clangd, in {entry['root']}")
+            else:
+                where = "" if root == "." else f" --root {root}"
+                add_check("clangd-server", "setup_required",
+                          f"{LSP_TABLE} has no clangd: python scripts/lsp-servers.py add cpp{where}")
+    config = target_root / CLANGD_CONFIG
+    if not config.is_file():
+        return   # the kit's file check has already said it is missing
+    wanted = (target_root / root / pin_file["compdb"]["path"]).parent
+    try:
+        shown = wanted.resolve().relative_to(target_root.resolve()).as_posix()
+    except ValueError:
+        shown = wanted.as_posix()
+    kind, value = _clangd_database(config)
+    if kind == "unreadable":
+        add_check("clangd-config", "unexpected", f"{CLANGD_CONFIG} cannot be read ({value})")
+    elif kind == "folder":
+        named = Path(value) if Path(value).is_absolute() else target_root / value
+        here = os.path.normcase(os.path.abspath(wanted))
+        # clangd finds the database in the folder it is given and in a `build` folder of it.
+        same = value != "None" and here in {os.path.normcase(os.path.abspath(folder))
+                                           for folder in (named, named / "build")}
+        if same:
+            add_check("clangd-config", "ok", f"{CLANGD_CONFIG}: CompilationDatabase {value}, where the database is")
+        else:
+            add_check("clangd-config", "unexpected",
+                      f"{CLANGD_CONFIG} names CompilationDatabase {value}, and the database the freshness check "
+                      f"watches is in {shown}: write `CompilationDatabase: {shown}`")
+    else:
+        add_check("clangd-config", "optional",
+                  f"{CLANGD_CONFIG}: {value}; whether clangd reads the database in {shown} cannot be told from the "
+                  f"file: it must be given `CompilationDatabase: {shown}`")
+
+
 def _doctor_toolchain(target_root: Path, add_check, kit: str) -> None:
     """A toolchain kit's checks: each file the kit installs, the project's pin file (`tool-pins`), and each pinned
     tool as `tool:<name>`. A tool that is not ok is `setup_required` when the pin requires it and `optional` when
@@ -2205,6 +2314,7 @@ def _doctor_toolchain(target_root: Path, add_check, kit: str) -> None:
             again = compdb.regenerate_line(database)
             add_check("compile-database", "setup_required",
                       f"{database['status']}: {database['detail']}" + (f"; {again}" if again else ""))
+        _doctor_clangd(target_root, pin_file, add_check)
 
 
 # What a PHP or Node project says of its own runtime: (the pin it is compared with, the manifest, where in it).
