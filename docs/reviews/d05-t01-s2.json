@@ -1,0 +1,85 @@
+{
+  "ref": "D05 T01 \u00a72",
+  "title": "Git hygiene rules in the base kit",
+  "implementation_sha": "8f121903b73ab54328cfac47bc25184f3415759b",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/05-base/D05-T01-s2.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "tests.test_forge tests.test_kit_install 186 OK",
+    "tests.test_forge -k OperatingDirective 4 OK on Windows and WSL",
+    "CI run 43750150635 green on 8f12190"
+  ],
+  "completion": {
+    "report": "docs/reviews/05-base/D05-T01-s2.md",
+    "verdict": "reconciled",
+    "candidate": "8f121903b73ab54328cfac47bc25184f3415759b",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/05-base/D05-T01-s2.md",
+    "candidate": "6145718bc0af1d8a01b6f1bafc9f12578590caa6",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "6145718bc0af1d8a01b6f1bafc9f12578590caa6",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

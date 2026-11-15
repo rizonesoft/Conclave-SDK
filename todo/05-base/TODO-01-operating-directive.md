@@ -35,7 +35,7 @@ title: "TODO-01 -- Operating directive in the base kit"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Operating directive in the base `AGENTS.md` | -- | [x] |
-| 2 | §2 | Git hygiene rules in the base kit | §1 | [ ] |
+| 2 | §2 | Git hygiene rules in the base kit | §1 | [x] |
 | 3 | §3 | `forge.py init --goal` | §1, D01 T01 §2 | [ ] |
 | 4 | §4 | `forge.py init --acceptance` for the todo kit's plan | §3 | [ ] |
 
@@ -90,13 +90,16 @@ The second `base` row: work on main, and clean up branches and worktrees when wo
 - [x] Keep the rule a project can change: say in the section's first line that a project with a branch workflow replaces the first rule with its own. Done when: the line is there.
 - [x] Add the section to the test from §1 in `tests/test_forge.py` (`OperatingDirectiveTests`): each rule's statement written in the test, the section after Safety, and the SDK's own `AGENTS.md` holding the same section byte for byte, as it does the directive. Done when: removing the section from the template makes it fail, and so does removing any one rule while the heading stays.
 - [x] Add the section to the SDK's own `AGENTS.md` (which `self-sync` does not write) and run `python forge.py self-sync`. Done when: the SDK's section equals the template's and `python -m unittest tests.test_forge tests.test_kit_install` passes.
-- [ ] Commit: `base: git hygiene rules in AGENTS.md`
+- [x] Commit: `base: git hygiene rules in AGENTS.md`
 
 **Corrected 2026-11-15 (validation):** measured against the tree after `D05 T01 §1`. The template's sections are now Working rules, Operating directive, Safety, Skills, Subagents; Git goes after Safety, beside the other rules on what an agent may do. The SDK's own `AGENTS.md` carries the directive and Safety byte for byte since §1, so it carries Git the same way and the test holds all three, so the SDK never ships rules it does not keep. The test is the one §1 added, extended, and it holds each rule's text so an empty section fails it.
 
 **Corrected 2026-11-15 (plan review):** three gaps, all taken into the first item, and the test holds each. (1) The two branch rules contradicted each other for a squash merge or a cherry-pick: deleting is allowed when the content is verifiably on main, asking is for content that is not, and worktrees a subagent made are cleaned up too. (2) The staging rule kept only `git status`: reading the diff, committing safe side changes and refusing unsafe ones are in it. (3) "Confirm it landed" names its two commands and forbids hiding a hook's error.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; deleting the Git section from the template makes the test fail.
+
+> **Verified:** 2026-11-15 | §2 | 8f121903b73ab54328cfac47bc25184f3415759b
+> **Review:** `docs/reviews/d05-t01-s2.json`
 
 ## 3. `forge.py init --goal`
 
