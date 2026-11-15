@@ -472,6 +472,18 @@ class CppKitTests(ToolchainFixture):
             "name": "compile-database", "status": "setup_required",
             "detail": "unknown: compile_commands.json: 1 source file(s) it names cannot be inspected, so its "
                       "freshness cannot be told: locked/a.c (Permission denied)"})
+        # Found by the reconciliation: beside what makes the database stale, the file is still named.
+        entries = [{"directory": str(project), "file": name, "command": "cc -c x.c"}
+                   for name in ("locked/a.c", "deleted.c")]
+        self.database(project, entries=entries)
+        self.touch(project / "Makefile", LATER)
+        with unittest.mock.patch.object(pathlib.Path, "stat", stat):
+            code, _report, checks = self.doctor(project, "--strict")
+        self.assertEqual(code, 3)
+        self.assertEqual(checks["compile-database"]["detail"],
+                         "stale: compile_commands.json: older than Makefile; 1 source file(s) it names no longer "
+                         "exist: deleted.c; 1 source file(s) it names cannot be inspected: locked/a.c "
+                         "(Permission denied)")
 
     def test_the_compile_database_check_starts_nothing_and_is_the_cpp_kits_alone(self):
         project = self.project(database=False)

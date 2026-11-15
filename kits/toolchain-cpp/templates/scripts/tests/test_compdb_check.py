@@ -258,9 +258,10 @@ class FreshnessTests(Fixture):
         self.file("Makefile", "all:\n")
         self.assertEqual(self.both()[2], "compile_commands.json: a build file named by the pin file cannot be read, "
                                          "so its freshness cannot be told: gone.mk (it does not exist)")
-        # What is certain comes first: a newer build file is stale, whatever else cannot be read.
+        # What is certain sets the status, and what could not be read is still named.
         self.file("Makefile", "all:\n", when=LATER)
-        self.assertEqual(self.both()[1], "stale")
+        self.assertEqual(self.both()[1:3], ("stale", "compile_commands.json: older than Makefile; a build file named "
+                                                     "by the pin file cannot be read: gone.mk (it does not exist)"))
         # A usual build file the project does not have is no fault.
         self.pins()
         (self.project / "Makefile").unlink()
@@ -304,10 +305,16 @@ class FreshnessTests(Fixture):
                                      "freshness cannot be told: locked/a.c (Permission denied), locked/b.c "
                                      "(Permission denied)")
             self.assertEqual((report["entries"], report["gone"]), (4, []))
-            # What is certain comes first: a source file that is gone is stale.
+            # Found by the reconciliation: what is certain sets the status, and a file that could not be
+            # inspected is still named with its reason, beside a deleted source and beside a newer build file.
             self.database([self.entry("open.c"), self.entry("locked/a.c"), self.entry("deleted.c")])
+            hidden = "1 source file(s) it names cannot be inspected: locked/a.c (Permission denied)"
             self.assertEqual(self.both()[1:3], ("stale", "compile_commands.json: 1 source file(s) it names no "
-                                                         "longer exist: deleted.c"))
+                                                         f"longer exist: deleted.c; {hidden}"))
+            self.database([self.entry("open.c"), self.entry("locked/a.c")])
+            self.file("Makefile", "all:\n", when=LATER)
+            self.assertEqual(self.both()[1:3], ("stale", f"compile_commands.json: older than Makefile; {hidden}"))
+            (self.project / "Makefile").unlink()
         # A folder where a source file is named is not that file, and a name no system can hold is gone.
         (self.project / "folder.c").mkdir()
         self.database([self.entry("open.c"), self.entry("folder.c"), self.entry("nul\x00byte.c")])

@@ -168,26 +168,25 @@ def check_database(project, pin_file, path=None, build_files=None, read_limit=RE
             gone[source_file] = _shown(source_file, project)
     result["gone"] = list(gone.values())[:NAMED]
 
-    if result["newer"] or gone:
-        parts = []
-        if result["newer"]:
-            parts.append(f"older than {', '.join(result['newer'])}")
-        if gone:
-            more = f" and {len(gone) - NAMED} more" if len(gone) > NAMED else ""
-            parts.append(f"{len(gone)} source file(s) it names no longer exist: {', '.join(result['gone'])}{more}")
-        return ended("stale", f"{result['path']}: " + "; ".join(parts))
-    if unreadable or hidden:
-        parts = []
-        if unreadable:
-            origin = f"named by {source}" if source else "of the project"
-            parts.append(f"a build file {origin} cannot be read, so its freshness cannot be told: "
-                         f"{', '.join(unreadable)}")
-        if hidden:
-            names = list(hidden.values())
-            more = f" and {len(names) - NAMED} more" if len(names) > NAMED else ""
-            parts.append(f"{len(names)} source file(s) it names cannot be inspected, so its freshness cannot be "
-                         f"told: {', '.join(names[:NAMED])}{more}")
-        return ended("unknown", f"{result['path']}: " + "; ".join(parts))
+    # What is certain (stale) and what could not be told (unknown) are both reported, whichever sets the status:
+    # a stale database with a file that could not be inspected names that file too.
+    certain, untold = [], []
+    if result["newer"]:
+        certain.append(f"older than {', '.join(result['newer'])}")
+    if gone:
+        more = f" and {len(gone) - NAMED} more" if len(gone) > NAMED else ""
+        certain.append(f"{len(gone)} source file(s) it names no longer exist: {', '.join(result['gone'])}{more}")
+    so = "" if certain else ", so its freshness cannot be told"
+    if unreadable:
+        origin = f"named by {source}" if source else "of the project"
+        untold.append(f"a build file {origin} cannot be read{so}: {', '.join(unreadable)}")
+    if hidden:
+        names = list(hidden.values())
+        more = f" and {len(names) - NAMED} more" if len(names) > NAMED else ""
+        untold.append(f"{len(names)} source file(s) it names cannot be inspected{so}: "
+                      f"{', '.join(names[:NAMED])}{more}")
+    if certain or untold:
+        return ended("stale" if certain else "unknown", f"{result['path']}: " + "; ".join(certain + untold))
     count = "1 entry" if len(entries) == 1 else f"{len(entries)} entries"
     return ended("current", f"{result['path']}, {count}")
 
