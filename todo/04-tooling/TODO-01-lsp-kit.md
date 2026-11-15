@@ -2,7 +2,7 @@
 schema_version: 1
 id: lsp-kit
 domain: 04-tooling
-status: active
+status: done
 title: "TODO-01 -- LSP kit"
 ---
 
@@ -39,7 +39,7 @@ title: "TODO-01 -- LSP kit"
 | 4 | §4 | Laravel kit moved onto the shared client | §3 | [x] |
 | 5 | §5 | Claude Code plugin generated from the server table | §2 | [x] |
 | 6 | §6 | MCP bridge for Codex and Antigravity | §3 | [x] |
-| 7 | §7 | Language server skill and document for the three agents | §5, §6 | [ ] |
+| 7 | §7 | Language server skill and document for the three agents | §5, §6 | [x] |
 
 ## 1. LSP kit known to `forge.py`
 
@@ -282,13 +282,16 @@ The wiring is no use if an agent does not know it is there. A skill in each agen
 - [x] Make the installed document enough to set the servers up, without the SDK's README: how to load the generated plugin (`claude --plugin-dir .claude/lsp/conclave-lsp`, and `CLAUDE_CODE_PLUGIN_DIRS`), that no tool installs a server (the doctor names each missing one and how to install it), and how to bring a plugin back in step after the table was edited by hand (`lsp-servers.py plugin`; the doctor's `claude-plugin` says `unexpected` until then). Done when: a test follows the document's setup sequence in an installed project, taking each command from the document in order (add a preset, generate the plugin, the doctor, diagnostics on a file), and finds the plugin generated and the doctor's `claude-plugin` `ok`, then edits the table by hand, finds `unexpected`, runs the documented recovery and finds `ok`.
 - [x] Hold the skill's policy in all three installed copies, in a test of `tests/test_lsp_kit.py` that reads `.agents`, `.claude` and `.codex` after an install: each states when to use it (before calling a change done; to find a definition or the uses of a symbol), that the files checked are the ones the change touched, that a diagnostic at or above a server's own threshold fails the check, that `FAILED` and `PARTIAL` fail it too, that `SKIPPED` is not a pass, and that a file is never edited only to silence a diagnostic. Done when: the test passes for the three copies, and removing any one of those statements from the Claude file and regenerating makes it fail (shown by a mutation of each).
 - [x] Hold the document's commands and explanations to the scripts: each script builds its argument parser in a function (`build_parser`), the test parses every documented command line whole with it (so a missing required argument or an option that does not exist fails), the document must hold an example of each promised use (`add <preset>`, `list`, `remove`, `plugin`, diagnostics with `--staged`, with `--worktree`, with `--commit`, with paths, and with `--json`), and its table of outcomes is checked against real runs: stub servers are made to give a clean run, a failing diagnostic, a server that is not installed among two, none installed, a `FAILED` server and a `PARTIAL` one, and the exit code and the word the client prints for each must be the ones the document's table gives. Done when: that test passes, and a wrong exit code in the document's table, or a command with a missing argument, makes it fail.
-- [ ] Commit: `lsp: skill and document for the three agents`
+- [x] Commit: `lsp: skill and document for the three agents`
 
 **Corrected 2026-11-15 (validation):** measured today against the kit as §1 to §6 left it. (1) `docs/language-servers.md` exists since §6 (the bridge and its registration, each confirmed live); this section completes it and its test also covers `lsp-mcp-bridge.py`. (2) The copies are not written by hand: since `D01 T02 §6` the Claude file is the source and `forge.py skill-copies` generates the other two from it and the declared patches; only Codex's `agents/openai.yaml` is kept by hand. (3) The skill said "treat an error diagnostic as a failed check": since §3 each server has its own threshold (Tailwind and the Laravel server fail on warnings), and a `FAILED` or `PARTIAL` server is a failed check too. (4) The doctor item assumed the file checks know about agents. They do not (`_kit_file_checks` lists the kit's templates), and this kit is the first of those kits to ship agent folders: an install for one agent would be told two skills are missing. That is fixed where the list is made. (5) With a `.claude` folder in every Claude install, §5's rule for asking for the plugin changes what its tests set up; they are kept true. (6) The fresh-install test goes in `tests/test_lsp_kit.py` with the kit's other tests; running the kit's whole suite from the installed copy takes about two minutes, so that part is in the full suite, which CI runs on every push.
 
 **Corrected 2026-11-15 (plan review):** three gaps, all taken as the three items above the commit. (1) The installed document said how to generate the plugin and not how to load it, what must be installed first, or how to recover a plugin left behind the table; those lived only in the kit's README, which a project does not get. (2) A skill with frontmatter and two paths passed its checks: the policy itself is now asserted in the three installed copies, statement by statement. (3) Finding an option in a parser does not show that a documented command is valid or that its explanation is right: whole command lines are parsed, each promised example must exist, and the outcome table is checked against real runs.
 
 **Test checkpoint:** `python -m unittest tests.test_lsp_kit tests.test_skill_copies` ends `OK`; naming a command in `docs/language-servers.md` that the scripts lack makes the document test fail, and removing a template file from a scratch copy of the kit makes the fresh-install test fail.
+
+> **Verified:** 2026-11-15 | §7 | c259f76a002e9f1dab3491ddc6437157ec93819b
+> **Review:** `docs/reviews/d04-t01-s7.json`
 
 ## Verification
 

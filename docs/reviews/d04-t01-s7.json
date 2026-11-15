@@ -1,0 +1,86 @@
+{
+  "ref": "D04 T01 \u00a77",
+  "title": "Language server skill and document for the three agents",
+  "implementation_sha": "c259f76a002e9f1dab3491ddc6437157ec93819b",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/04-tooling/D04-T01-s7.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "kit suite 99 OK on Windows and WSL",
+    "tests.test_lsp_kit tests.test_skill_copies 64 OK",
+    "check-all --only tests 914 OK",
+    "CI run 43709038799 green on c259f76"
+  ],
+  "completion": {
+    "report": "docs/reviews/04-tooling/D04-T01-s7.md",
+    "verdict": "complete",
+    "candidate": "c259f76a002e9f1dab3491ddc6437157ec93819b",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/04-tooling/D04-T01-s7.md",
+    "candidate": "4ee2f815d62742dbe84e1046a799bbf6f55fe24b",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "4ee2f815d62742dbe84e1046a799bbf6f55fe24b",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}
