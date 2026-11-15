@@ -401,7 +401,8 @@ class ForgeProvisionTests(unittest.TestCase):
                 written = {p for p in project.rglob("*") if p.is_file()} - before - {project / forge.RECORD}
                 self.assertEqual(written, {dst for _src, dst, _rel, _generated in entries + brought})
                 for src, dst, rel, generated in entries + brought:
-                    if not generated and rel != forge.LSP_TABLE:
+                    # Only the Laravel install fills the table it brought; every other kit's files are the kit's.
+                    if not generated and not (kit == "laravel" and rel == forge.LSP_TABLE):
                         self.assertEqual(dst.read_bytes(), src.read_bytes(), rel)
 
     def test_laravel_kit_root_and_nested_platform_discovery_and_doctor(self):
