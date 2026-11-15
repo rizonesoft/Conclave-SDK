@@ -393,10 +393,15 @@ class ForgeProvisionTests(unittest.TestCase):
                 before = {p for p in project.rglob("*") if p.is_file()}
                 res = forge.apply_kit(project, kit, host=host)
                 self.assertEqual(sorted(res["installed"]), sorted(rel for _src, _dst, rel, _generated in entries))
+                # The Laravel kit brings the lsp kit with it (D04 T01 section 4): that kit's plan is written too,
+                # reported under `lsp`, and its table is then filled with the Laravel servers.
+                brought, _extra = forge.kit_plan(project, "lsp") if kit == "laravel" else ([], {})
+                self.assertEqual(sorted(res.get("lsp", {}).get("installed", [])),
+                                 sorted(rel for _src, _dst, rel, _generated in brought))
                 written = {p for p in project.rglob("*") if p.is_file()} - before - {project / forge.RECORD}
-                self.assertEqual(written, {dst for _src, dst, _rel, _generated in entries})
-                for src, dst, rel, generated in entries:
-                    if not generated:
+                self.assertEqual(written, {dst for _src, dst, _rel, _generated in entries + brought})
+                for src, dst, rel, generated in entries + brought:
+                    if not generated and rel != forge.LSP_TABLE:
                         self.assertEqual(dst.read_bytes(), src.read_bytes(), rel)
 
     def test_laravel_kit_root_and_nested_platform_discovery_and_doctor(self):
