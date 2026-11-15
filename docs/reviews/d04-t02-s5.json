@@ -1,0 +1,86 @@
+{
+  "ref": "D04 T02 \u00a75",
+  "title": "clangd seed and server table entry",
+  "implementation_sha": "e934bb13c9a40aca93b04b729b09e9c7f88fc900",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/04-tooling/D04-T02-s5.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "check-all --only kit-toolchain-cpp 88 pass on Windows and WSL",
+    "tests.test_toolchain_kits 45 OK on both, clangd 22.1.3 and 19.1.7 run",
+    "check-all --only tests 922 pass",
+    "CI run 43714774974 green on e934bb1"
+  ],
+  "completion": {
+    "report": "docs/reviews/04-tooling/D04-T02-s5.md",
+    "verdict": "complete",
+    "candidate": "e934bb13c9a40aca93b04b729b09e9c7f88fc900",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/04-tooling/D04-T02-s5.md",
+    "candidate": "e925b9d0e29f2d83a19d8a80c1bc4ea278bbd832",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "e925b9d0e29f2d83a19d8a80c1bc4ea278bbd832",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}
