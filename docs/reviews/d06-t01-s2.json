@@ -1,0 +1,86 @@
+{
+  "ref": "D06 T01 \u00a72",
+  "title": "Superseded copies under `R:/Bin` removed",
+  "implementation_sha": "5517e96fa5ae06cea8f3ca25397ce02be3fdcbed",
+  "date": "2026-11-16",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/06-global/D06-T01-s2.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "Test-Path R:\\Bin\\claude; Test-Path R:\\Bin\\codex -> False, False",
+    "python global/deploy.py (Windows, WSL login shell) -> 0 created, 0 updated, 18 unchanged, 0 skipped (both)",
+    "post-delete fresh-session call per section 1 matrix entry -> all answered as before; Windows Codex outlook-graph the owner-accepted exception",
+    "Manage-Cloud.ps1 -Action Status -> running, healthy, ready; provider task Disabled"
+  ],
+  "completion": {
+    "report": "docs/reviews/06-global/D06-T01-s2.md",
+    "verdict": "complete",
+    "candidate": "5517e96fa5ae06cea8f3ca25397ce02be3fdcbed",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/06-global/D06-T01-s2.md",
+    "candidate": "3571f79754b3dfa4d3ca5d1ff36b28ab1c28831b",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "3571f79754b3dfa4d3ca5d1ff36b28ab1c28831b",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}

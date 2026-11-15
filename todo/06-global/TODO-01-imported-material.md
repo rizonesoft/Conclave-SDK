@@ -35,7 +35,7 @@ title: "TODO-01 -- Imported material: plugins and retired repositories"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Plugins registered from `plugins/` | -- | [x] |
-| 2 | §2 | Superseded copies under `R:/Bin` removed | §1 | [ ] |
+| 2 | §2 | Superseded copies under `R:/Bin` removed | §1 | [x] |
 | 3 | §3 | Retired GitHub repositories deleted | §2 | [ ] |
 | 4 | §4 | Codex approval of the global hooks `deploy.py` writes | D02 T01 §3 | [x] |
 
@@ -98,9 +98,12 @@ Once nothing loads from them, the old copies are a second source that can drift.
 - [x] After the delete, call one read-only tool of each entry of §1's matrix from a fresh session of its agent, and read `plugins/codex/conclave/scripts/Manage-Cloud.ps1 -Action Status`, leaving the `Rizonetech Plugin Cloud Access` task disabled. Done when: every entry answers as it did in §1 (the owner-accepted Windows Codex `outlook-graph` exception aside, no new failure) and the Conclave status reads running. **Added 2026-11-16 (plan review):** `deploy.py` deploys rules, skills and hooks and exercises no plugin. Done 2026-11-16: Codex on Windows answered for `atera`, `bunny-net`, `conclave`, `domains-co-za`, `pressable` and `website-router` (10 of 13 sites, as in §1), `outlook-graph` as accepted; Codex in WSL `outlook-graph` ok; Claude Code on both systems `bunny-net` and `domains-co-za` ok; Conclave `running`, `healthy`, `ready`; the provider task `Disabled`.
 - [x] Replace the rollback statements in `global/README.md` (line 54) and `plugins/codex/README.md` (line 31) with the date the copies were deleted. Done when: neither README calls `R:\Bin` a rollback copy. Done: both now say the copy was deleted on 2026-11-16 and cite the inventory.
 - [x] Remove the sentence in `docs/plans/2026-11-11-sdk-audit-and-roadmap.md` (line 106) that says the copies are superseded and the registrations were not moved, replacing it with the date both were done. Done when: the roadmap's status matches the machine. Done: item 3 of "The two retired repositories" now dates both.
-- [ ] Commit: `docs: R:/Bin copies removed`
+- [x] Commit: `docs: R:/Bin copies removed`
 
 **Test checkpoint:** `Test-Path R:\Bin\claude` and `Test-Path R:\Bin\codex` both print `False`, and `python global/deploy.py` still deploys from this checkout without error on Windows and in WSL; after the delete, one read-only call per §1 matrix entry answers (the accepted Windows Codex `outlook-graph` exception aside) and the Conclave status reads running. A process or saved command still using `R:/Bin` shows in the search, and fails a call once the folders are gone.
+
+> **Verified:** 2026-11-16 | §2 | 5517e96fa5ae06cea8f3ca25397ce02be3fdcbed
+> **Review:** `docs/reviews/d06-t01-s2.json`
 
 ## 3. Retired GitHub repositories deleted
 
