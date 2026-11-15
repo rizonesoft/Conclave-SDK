@@ -827,6 +827,7 @@ class ForgeProvisionTests(unittest.TestCase):
 
     def test_no_em_or_en_dashes_anywhere(self):
         # Every text file the SDK ships or provisions: prose, code, comments, templates and config alike.
+        found = []
         for path in written_files():
             if not path.is_file():
                 continue
@@ -834,8 +835,13 @@ class ForgeProvisionTests(unittest.TestCase):
                 text = path.read_text(encoding="utf-8")
             except UnicodeDecodeError:
                 continue
-            self.assertNotIn("\u2014", text, f"em dash found in {path}")
-            self.assertNotIn("\u2013", text, f"en dash found in {path}")
+            # Each place is named by file and line: the whole text as the message pushed the failure's own
+            # heading out of the tail check-all keeps (2026-11-15).
+            for number, line in enumerate(text.splitlines(), 1):
+                for dash, name in (("\u2014", "em"), ("\u2013", "en")):
+                    if dash in line:
+                        found.append(f"{name} dash at {path.relative_to(FORGE_ROOT).as_posix()}:{number}")
+        self.assertEqual(found, [])
 
     def test_micro_todo_and_complete_plan_rules_present_across_all_agents(self):
         forge.provision(self.target, agent="all", with_todo=True, overwrite_existing_docs=True)

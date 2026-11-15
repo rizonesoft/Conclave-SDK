@@ -428,6 +428,22 @@ class CommandLineTests(Fixture):
         self.assertEqual(detail, "compile_commands.json: older than Makefile; 1 source file(s) asked for have no "
                                  "entry in it: lib/c.c")
 
+    def test_a_source_reached_through_a_link_is_the_same_file(self):
+        # Found by the review round: a build that names its sources through a linked folder.
+        self.file("src/a.c")
+        try:
+            os.symlink(self.project / "src", self.project / "src-link", target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"this system will not make a link here ({exc})")
+        self.database([self.entry("src-link/a.c")])
+        self.assertEqual(self.both("--source", "src/a.c")[:2], (0, "current"))
+        self.assertEqual(self.both("--source", "src-link/a.c")[:2], (0, "current"))
+        self.database([self.entry("src/a.c")])
+        self.assertEqual(self.both("--source", "src-link/a.c")[:2], (0, "current"))
+        self.file("src/b.c")
+        code, status, _detail, report = self.both("--source", "src-link/b.c")
+        self.assertEqual((status, report["unlisted"]), ("stale", ["src-link/b.c"]))
+
     def test_a_source_outside_the_project_is_bad_usage(self):
         self.database()
         for source in ("../elsewhere/x.c", str(self.elsewhere / "x.c"), "."):

@@ -315,6 +315,27 @@ class CommandLine(Stubs):
         self.assertIn("AssertionError: 2 != 3", out)
         self.assertIn("check-all: 1 of 2 suites passed", out)
 
+    def test_a_failed_suites_output_is_shown_whatever_the_console_can_encode(self):
+        # Found 2026-11-15: a failing suite printed a byte that is not UTF-8, the tail held U+FFFD, and a stdout
+        # redirected on Windows (cp1252) refused it, so check-all ended without saying which test failed.
+        body = ("import sys, unittest\nclass Bad(unittest.TestCase):\n    def test_fail(self):\n"
+                "        sys.stdout.buffer.write(b'odd byte \\xff here\\n')\n        sys.stdout.flush()\n"
+                "        self.fail('boom')\n")
+        table = [self.unittest_folder("odd", body)]
+        raw = io.BytesIO()
+        out = io.TextIOWrapper(raw, encoding="cp1252", newline="")
+        with mock.patch.object(forge, "SUITES", table), mock.patch.object(forge, "FORGE_ROOT", self.dir), \
+                mock.patch.object(forge, "EXCLUDED_TESTS", {}), contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(io.StringIO()):
+            code = forge.main(["check-all"])
+        out.flush()
+        text = raw.getvalue().decode("cp1252")
+        self.assertEqual(code, 1)
+        self.assertIn("the end of its output", text)
+        self.assertIn("odd byte \\ufffd here", text)
+        self.assertIn("AssertionError: boom", text)
+        self.assertIn("check-all: 0 of 1 suites passed", text)
+
     def test_all_passing_exits_0_and_shows_the_test_count(self):
         code, out, _ = self.main([self.unittest_folder("gated", GATED), self.passing("good")])
         self.assertEqual(code, 0)

@@ -24,7 +24,7 @@ The build files are those of `--build-file` (relative to `--root`), else the pin
 A build that finds its sources by itself (a glob in a Makefile or in CMake) changes no build file when a source is
 added, so the database stays `current` without the new file. `--source <file>` (relative to `--root`,
 repeatable) asks whether that file has an entry: after adding or moving a source and regenerating the database,
-name the file to prove it is there.
+name the file to prove it is there. A file is the same file under every name: links are followed on both sides.
 
 It exits 0 for `current`, 1 for any other status, 2 for bad usage or a pin file that does not load. It never
 regenerates the database: when the pin file gives the project's own command (`compdb.regenerate`), that command is
@@ -89,9 +89,19 @@ def _reason(exc):
     return exc.strerror or str(exc)
 
 
-def _same_file_key(path):
-    """A path as text two spellings of one file share: no `.` or `..`, and the system's own rule for case."""
+def _lexical_key(path):
+    """A path as written, without `.` and `..`, in the system's own case: where it is, whatever it links to."""
     return os.path.normcase(os.path.normpath(str(path)))
+
+
+def _same_file_key(path):
+    """A path as text every name of one file shares: links followed (a build may reach `src/a.c` through a linked
+    folder, and its entry is that file's all the same), no `.` or `..`, and the system's own rule for case. A
+    path the system will not resolve is compared as it is written."""
+    try:
+        return os.path.normcase(os.path.realpath(str(path)))
+    except (OSError, ValueError):
+        return _lexical_key(path)
 
 
 def check_database(project, pin_file, path=None, build_files=None, read_limit=READ_LIMIT, sources=None):
@@ -248,10 +258,12 @@ def main(argv=None):
     parser.add_argument("--json", action="store_true", help="print the report as one JSON document")
     args = parser.parse_args(argv)
     project = Path(args.root).resolve()
-    inside = _same_file_key(project) + os.sep
+    # Where the file is named, not where a link leads: a source reached through a link inside the project is the
+    # project's to ask about.
+    inside = _lexical_key(project) + os.sep
     for source in args.source or ():
-        if not (_same_file_key(project / source) + os.sep).startswith(inside) or \
-                _same_file_key(project / source) == _same_file_key(project):
+        if not (_lexical_key(project / source) + os.sep).startswith(inside) or \
+                _lexical_key(project / source) == _lexical_key(project):
             parser.error(f"--source {source} is not a file inside the project ({project.as_posix()})")
     pins = Path(args.pins) if args.pins else project / PINS
     module = _pins_module()

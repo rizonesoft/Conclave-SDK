@@ -1304,6 +1304,77 @@ class WebKitTests(ToolchainFixture):
         self.assertEqual(result["lsp_servers"], {"added": ["intelephense", "typescript", "tailwindcss"], "kept": []})
         self.assertEqual(self.snapshot(project), before)
 
+    def test_the_projects_own_package_manager_is_compared_with_the_pins_first_command(self):
+        # Found by the review round: the check reports the first installed command, pnpm before npm, whatever
+        # the project's lock file says.
+        project = self.project()
+        name = "constraint:package-manager"
+        self.assertNotIn(name, self.doctor(project)[2])   # nothing in the project names a manager
+        (project / "package.json").write_text(json.dumps({"name": "app"}), encoding="utf-8")
+        self.assertNotIn(name, self.doctor(project)[2])
+        (project / "package-lock.json").write_text("{}", encoding="utf-8")
+        check = self.doctor(project)[2][name]
+        self.assertEqual((check["status"], check["detail"]),
+                         ("unexpected", "the project uses npm (package-lock.json) and the pin prefers pnpm, which the "
+                                        "check reports where both are installed: put npm first in the "
+                                        "package-manager pin's commands"))
+        # The pin corrected as the check says: npm first.
+        pins = json.loads((project / WEB_PINS).read_text(encoding="utf-8"))
+        tool = next(tool for tool in pins["tools"] if tool["name"] == "package-manager")
+        tool["commands"].reverse()
+        (project / WEB_PINS).write_text(json.dumps(pins), encoding="utf-8")
+        check = self.doctor(project)[2][name]
+        self.assertEqual((check["status"], check["detail"]),
+                         ("ok", "the project uses npm (package-lock.json), the pin's first command"))
+        # Two managers named is a fault of the project, whichever the pin prefers.
+        (project / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\n", encoding="utf-8")
+        check = self.doctor(project)[2][name]
+        self.assertEqual((check["status"], check["detail"]),
+                         ("unexpected", "the project names more than one package manager: pnpm (pnpm-lock.yaml), npm "
+                                        "(package-lock.json); keep one"))
+        (project / "package-lock.json").unlink()
+        (project / "pnpm-lock.yaml").unlink()
+        # `packageManager` names it, with or without a version, and agrees with its lock file.
+        (project / "package.json").write_text(json.dumps({"packageManager": "npm@11.2.0+sha512.abc"}),
+                                              encoding="utf-8")
+        (project / "package-lock.json").write_text("{}", encoding="utf-8")
+        check = self.doctor(project)[2][name]
+        self.assertEqual((check["status"], check["detail"]),
+                         ("ok", "the project uses npm (packageManager in package.json, package-lock.json), the pin's "
+                                "first command"))
+        # A manager the pin does not name at all.
+        (project / "package-lock.json").unlink()
+        (project / "package.json").write_text(json.dumps({"packageManager": "yarn@4.5.0"}), encoding="utf-8")
+        check = self.doctor(project)[2][name]
+        self.assertEqual((check["status"], check["detail"]),
+                         ("unexpected", "the project uses yarn (packageManager in package.json) and the package-manager "
+                                        "pin names only npm, pnpm: add yarn as the pin's first command"))
+        # A manifest that cannot be used: the lock file still answers, and the other checks are reported.
+        (project / "package.json").write_text("{", encoding="utf-8")
+        (project / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\n", encoding="utf-8")
+        checks = self.doctor(project)[2]
+        self.assertEqual(checks[name]["status"], "unexpected")   # pnpm, and the pin now prefers npm
+        self.assertIn("put pnpm first", checks[name]["detail"])
+        self.assertIn("tool-pins", checks)
+        # No pin of that name: no check. The app's folder is the pin file's root.
+        nested = self.project("nested")
+        (nested / "platform").mkdir()
+        (nested / "platform/package-lock.json").write_text("{}", encoding="utf-8")
+        pins = json.loads((nested / WEB_PINS).read_text(encoding="utf-8"))
+        self.assertNotIn(name, self.doctor(nested)[2])   # the lock file is not in the root the pin file names
+        pins["root"] = "platform"
+        (nested / WEB_PINS).write_text(json.dumps(pins), encoding="utf-8")
+        self.assertEqual(self.doctor(nested)[2][name]["status"], "unexpected")
+        pins["tools"] = [tool for tool in pins["tools"] if tool["name"] != "package-manager"]
+        (nested / WEB_PINS).write_text(json.dumps(pins), encoding="utf-8")
+        self.assertNotIn(name, self.doctor(nested)[2])
+        # The C and C++ kit has no such check.
+        cpp = self.work / "cpp"
+        cpp.mkdir()
+        forge.apply_kit(cpp, "toolchain-cpp")
+        (cpp / "package-lock.json").write_text("{}", encoding="utf-8")
+        self.assertNotIn(name, {check["name"] for check in forge.doctor_repo(cpp, "toolchain-cpp")["checks"]})
+
     def test_the_readme_lists_every_file_tool_command_and_check(self):
         readme = (SDK_ROOT / "kits" / self.KIT / "README.md").read_text(encoding="utf-8")
         templates = SDK_ROOT / "kits" / self.KIT / "templates"
@@ -1316,7 +1387,8 @@ class WebKitTests(ToolchainFixture):
             for entry in tool["commands"]:
                 self.assertIn(f"`{entry['command']}`", readme)
         for word in ("`search`", "`root`", "`vendor/bin`", "`node_modules/.bin`", "`tool-pins`", "`tool:<name>`",
-                     "`constraint:php`", "`constraint:node`", "`optional`", "`unexpected`", "`php`", "`web`"):
+                     "`constraint:php`", "`constraint:node`", "`optional`", "`unexpected`", "`php`", "`web`",
+                     "`constraint:package-manager`", "`packageManager`", "`package-lock.json`"):
             self.assertIn(word, readme)
         for word in ("`search`", "`root`"):
             self.assertIn(word, (SDK_ROOT / "kits/toolchain-cpp/README.md").read_text(encoding="utf-8"))
@@ -1363,6 +1435,10 @@ SECTION_7 = {
             "`vendor/bin/phpstan`",
             "`node_modules/.bin/<tool>`",
             "Do not run, or install, a copy for the machine.",
+            "Use the project's package manager: the one `packageManager` in `package.json` names, else the one "
+            "whose lock file the app holds",
+            "The check's `package-manager` line says which one is installed, not which one the project uses.",
+            "Never install with another, and never switch a project from one to the other",
             "docs/toolchain-web.md",
         ],
     },
@@ -1435,8 +1511,8 @@ class DocumentTests(Section7Fixture):
                 self.assertIn(facts["pins"], text)
                 self.assertIn("What is left to the project", text)
                 for line in text.splitlines():
-                    self.assertNotIn("—", line)
-                    self.assertNotIn("–", line)
+                    self.assertNotIn(chr(0x2014), line)
+                    self.assertNotIn(chr(0x2013), line)
 
     def test_a_script_or_an_option_the_kit_lacks_is_found(self):
         project = self.install("toolchain-cpp")

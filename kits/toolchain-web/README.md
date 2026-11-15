@@ -70,6 +70,8 @@ python scripts/toolchain-check.py --pins .conclave/toolchain-web.json [--json] [
 - `tool:<name>` for each pinned tool: `ok` with the path found and its version, `setup_required` for a required tool that is not ok, `optional` (shown, never counted) for an optional one;
 - `constraint:php` and `constraint:node`, when the app's `composer.json` states `require.php` or its `package.json` states `engines.node` and the pin file has a tool of that name: `ok` with the constraint and the pin's minimum, or `unexpected` when the pin accepts a version the project's own manifest refuses, naming the pin to raise.
 
+- `constraint:package-manager`, when the app names a package manager (`packageManager` in `package.json`, or a lock file: `pnpm-lock.yaml`, `package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock`, `bun.lock`, `bun.lockb`) and the pin file has a `package-manager` tool: `ok` when that manager is the pin's first command; `unexpected`, naming the command to put first or to add, when it is not, because the check reports the first installed command and would name pnpm for an npm project on a machine with both; `unexpected` as well when the app names two managers.
+
 The lowest version a constraint allows is read from `^8.3`, `~8.3.0`, `>=8.3`, `8.3.*`, `20.x`, `>=8.2 <8.5` and alternatives joined by `||` (or Composer's `|`). A constraint of another form is `ok` and said to be not compared. A manifest that cannot be used (unreadable, not JSON, not an object) is `unexpected` with the reason, and the other checks are still reported.
 
 The doctor starts each pinned tool to ask its version, so `python forge.py doctor <project>` with no kit named does not run these checks: name the kit.

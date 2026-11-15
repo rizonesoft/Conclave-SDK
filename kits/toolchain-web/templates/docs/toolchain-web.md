@@ -39,7 +39,13 @@ Two keys at the top of the pin file say where the project keeps tools of its own
 
 `root` is the app's folder inside the project (`.` when left out). `search` lists folders inside it. A command is looked for in those folders first, then on `PATH`, and never in the working directory. So `phpstan`, `pint`, `phpcs` and a project's own `pnpm` are the ones Composer and the package manager installed for this project, at the versions its lock files hold. Run those, not a copy installed for the machine: `vendor/bin/phpstan`, `node_modules/.bin/tsc`.
 
-A tool under `vendor/bin` or `node_modules/.bin` that is reported missing is installed by the project's own install (`composer install`, `pnpm install` or `npm install`), which changes nothing outside the project.
+A tool under `vendor/bin` or `node_modules/.bin` that is reported missing is installed by the project's own install (`composer install`, or the install of the project's package manager), which changes nothing outside the project.
+
+## Which package manager
+
+The project's package manager is the one it names itself: `packageManager` in `package.json`, else the lock file the app holds (`pnpm-lock.yaml`: pnpm, `package-lock.json`: npm, `yarn.lock`: yarn). The check's `package-manager` line says which of the pin's commands is installed, the first it finds, and that is not the same question: on a machine with both pnpm and npm, a pin that names `pnpm` first reports pnpm for an npm project. Install with the project's manager only. Installing with another writes a second lock file and resolves a different set of dependencies.
+
+In an npm project, put `npm` first in the `package-manager` pin's `commands`. The doctor's `constraint:package-manager` says when the pin and the project disagree.
 
 ### Changing a pin
 
@@ -53,6 +59,8 @@ From a Conclave-SDK checkout, `python forge.py doctor <project> toolchain-web` r
 - `constraint:node`: the least Node the pin accepts against `engines.node` in its `package.json`.
 
 Each is `unexpected` when the pin accepts a version the project's own manifest refuses, and names the pin to raise. Raise the pin; the manifest is right.
+
+- `constraint:package-manager`: the manager the project names (`packageManager`, or its lock file) against the pin's first command. It is `unexpected` when they differ, naming the command to put first, and when the project holds the lock files of two managers.
 
 ## Language servers
 

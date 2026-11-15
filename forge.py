@@ -2322,6 +2322,7 @@ def _doctor_toolchain(target_root: Path, add_check, kit: str) -> None:
             add_check(f"tool:{tool['name']}", "optional" if tool["optional"] else "setup_required", tool["detail"])
     if kit == "toolchain-web":
         _doctor_web_constraints(target_root / pin_file["root"], pins, module, add_check)
+        _doctor_package_manager(target_root / pin_file["root"], pins, add_check)
     if kit == "toolchain-cpp":
         compdb = _toolchain_module(kit, "compdb-check.py")
         database = compdb.check_database(target_root, pin_file)   # reads, and starts nothing
@@ -2367,6 +2368,52 @@ def _lowest_allowed(constraint: str, compare) -> str | None:
         if lowest is None or compare(bound, lowest) < 0:
             lowest = bound
     return lowest
+
+
+# The lock file each package manager writes: what a project uses, whatever the machine has installed.
+LOCK_FILES = (("pnpm-lock.yaml", "pnpm"), ("package-lock.json", "npm"), ("npm-shrinkwrap.json", "npm"),
+              ("yarn.lock", "yarn"), ("bun.lock", "bun"), ("bun.lockb", "bun"))
+
+
+def _doctor_package_manager(app_root: Path, pins: list, add_check) -> None:
+    """`constraint:package-manager`: the package manager the project itself names (`packageManager` in its
+    package.json, and the lock files it holds) beside the `package-manager` pin. The check reports the first of
+    the pin's commands that is installed, so a pin whose first command is not the project's manager makes it
+    report the wrong one on a machine that has both: that is `unexpected`, as is a project that names more than
+    one. No pin of that name, or nothing in the project that names a manager, is no check."""
+    pin = next((pin for pin in pins if pin["name"] == "package-manager"), None)
+    if pin is None:
+        return
+    named: dict[str, list[str]] = {}
+    try:
+        data = json.loads((app_root / "package.json").read_bytes().decode("utf-8"))
+    except (OSError, ValueError, RecursionError):
+        data = None   # `constraint:node` says what is wrong with the manifest; the lock files are still read
+    field = data.get("packageManager") if isinstance(data, dict) else None
+    if isinstance(field, str) and re.fullmatch(r"[a-z][a-z0-9-]*(@.*)?", field.strip()):
+        named.setdefault(field.strip().split("@", 1)[0], []).append("packageManager in package.json")
+    for lock, manager in LOCK_FILES:
+        if (app_root / lock).is_file():
+            named.setdefault(manager, []).append(lock)
+    if not named:
+        return
+    check = "constraint:package-manager"
+    shown = ", ".join(f"{manager} ({', '.join(sources)})" for manager, sources in named.items())
+    if len(named) > 1:
+        add_check(check, "unexpected", f"the project names more than one package manager: {shown}; keep one")
+        return
+    (manager,) = named
+    commands = [entry["command"] for entry in pin["commands"]]
+    if commands[0] == manager:
+        add_check(check, "ok", f"the project uses {shown}, the pin's first command")
+    elif manager in commands:
+        add_check(check, "unexpected",
+                  f"the project uses {shown} and the pin prefers {commands[0]}, which the check reports where both "
+                  f"are installed: put {manager} first in the package-manager pin's commands")
+    else:
+        add_check(check, "unexpected",
+                  f"the project uses {shown} and the package-manager pin names only {', '.join(commands)}: add "
+                  f"{manager} as the pin's first command")
 
 
 def _doctor_web_constraints(app_root: Path, pins: list, module, add_check) -> None:
@@ -3245,6 +3292,14 @@ def check_all(full: bool = False, only=(), skip=(), suites: list[dict] | None = 
     return results
 
 
+def _print_encodable(text: str) -> None:
+    """Print a suite's output whatever stdout can hold: a character its encoding lacks is written as an escape.
+    A redirected stdout on Windows is cp1252, and a failed suite's tail (any bytes, decoded with replacement) must
+    never be lost to an encoding error: on 2026-11-15 one ended check-all before it showed which test failed."""
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    print(text.encode(encoding, errors="backslashreplace").decode(encoding, errors="replace"), flush=True)
+
+
 def _suite_line(result: dict) -> str:
     tests = "" if result["tests"] is None else f"  {result['tests']} tests"
     reason = "" if result["passed"] else f"  ({result['reason']})"
@@ -3359,7 +3414,8 @@ def _run(args: argparse.Namespace) -> int:
         skipped = [result for result in results if result["skipped"]]
         failed = [result for result in results if not result["passed"] and not result["skipped"]]
         for result in failed:
-            print(f"\n--- {result['name']}: {result['reason']}; the end of its output ---\n{result['tail']}", flush=True)
+            _print_encodable(f"\n--- {result['name']}: {result['reason']}; the end of its output ---\n"
+                             f"{result['tail']}")
         ran = len(results) - len(skipped)
         print(f"\ncheck-all: {ran - len(failed)} of {ran} suites passed"
               + (f", {len(skipped)} not run on this host" if skipped else ""))
