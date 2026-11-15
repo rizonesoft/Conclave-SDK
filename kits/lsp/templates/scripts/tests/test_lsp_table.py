@@ -1,5 +1,7 @@
 """The language server table: its rules, the presets, how a preset finds its app, the write, and lsp-servers.py."""
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import pathlib
@@ -21,6 +23,147 @@ spec.loader.exec_module(lsp_servers)
 TABLE = lsp_table.TABLE
 CLANGD = {"name": "clangd", "command": ["clangd", "--background-index"],
           "extensions": {".c": "c", ".h": "c", ".cpp": "cpp"}, "install": "apt install clangd"}
+
+
+# Every preset, resolved, in full: each value the kit promises a stack. The Laravel values are the ones the
+# Laravel kit's client held for its three servers (its SERVERS table, read 2026-11-15),
+# so a changed value fails here before it changes a project's diagnostics.
+EXPECTED_PRESETS = {'cpp': [{'name': 'clangd',
+          'command': ['clangd'],
+          'extensions': {'.c': 'c',
+                         '.h': 'c',
+                         '.cc': 'cpp',
+                         '.cpp': 'cpp',
+                         '.cxx': 'cpp',
+                         '.hh': 'cpp',
+                         '.hpp': 'cpp',
+                         '.hxx': 'cpp'},
+          'install': 'apt install clangd (Windows: winget install LLVM.LLVM)',
+          'root': '.',
+          'requires': None,
+          'init': {},
+          'settings': None,
+          'severity': 'error',
+          'settle': 5,
+          'note': 'reads compile_commands.json from the project root; without one it guesses the flags'}],
+ 'python': [{'name': 'basedpyright',
+             'command': ['basedpyright-langserver', '--stdio'],
+             'extensions': {'.py': 'python', '.pyi': 'python'},
+             'install': 'pipx install basedpyright (or: uv tool install basedpyright)',
+             'root': '.',
+             'requires': None,
+             'init': {},
+             'settings': None,
+             'severity': 'error',
+             'settle': 5,
+             'note': None}],
+ 'php': [{'name': 'intelephense',
+          'command': ['intelephense', '--stdio'],
+          'extensions': {'.php': 'php'},
+          'install': 'npm install -g intelephense',
+          'root': '.',
+          'requires': None,
+          'init': {},
+          'settings': None,
+          'severity': 'error',
+          'settle': 10,
+          'note': None}],
+ 'web': [{'name': 'typescript',
+          'command': ['typescript-language-server', '--stdio'],
+          'extensions': {'.ts': 'typescript',
+                         '.tsx': 'typescriptreact',
+                         '.js': 'javascript',
+                         '.jsx': 'javascriptreact',
+                         '.mjs': 'javascript',
+                         '.cjs': 'javascript'},
+          'install': 'npm install -g typescript-language-server typescript',
+          'root': '.',
+          'requires': None,
+          'init': {},
+          'settings': None,
+          'severity': 'error',
+          'settle': 5,
+          'note': None},
+         {'name': 'tailwindcss',
+          'command': ['tailwindcss-language-server', '--stdio'],
+          'extensions': {'.css': 'css',
+                         '.html': 'html',
+                         '.jsx': 'javascriptreact',
+                         '.tsx': 'typescriptreact',
+                         '.vue': 'vue'},
+          'install': 'npm install -g @tailwindcss/language-server',
+          'root': '.',
+          'requires': None,
+          'init': {},
+          'settings': None,
+          'severity': 'warning',
+          'settle': 5,
+          'note': 'its lint rules report at warning: two utilities setting one property is its main finding'}],
+ 'laravel': [{'name': 'laravel-lsp',
+              'command': ['laravel-lsp'],
+              'extensions': {'.php': 'php', '.blade.php': 'blade'},
+              'install': 'composer global require laravel/lsp',
+              'root': '.',
+              'requires': 'artisan',
+              'init': {'phpEnvironment': 'local', 'phpCommand': ['php'], 'pestGenerateDocBlocks': False},
+              'settings': None,
+              'severity': 'warning',
+              'settle': 8,
+              'note': 'string-keyed edges: route, config, view, env, middleware, policy; reports them at '
+                      'warning'},
+             {'name': 'intelephense',
+              'command': ['intelephense', '--stdio'],
+              'extensions': {'.php': 'php'},
+              'install': 'npm install -g intelephense',
+              'root': '.',
+              'requires': 'composer.json',
+              'init': {'storagePath': '${scratch}', 'clearCache': False},
+              'settings': {'intelephense': {'files': {'maxSize': 3000000,
+                                                      'exclude': ['**/node_modules/**',
+                                                                  '**/bower_components/**',
+                                                                  '**/vendor/**/{Tests,tests}/**',
+                                                                  '**/.git/**']},
+                                            'diagnostics': {'enable': True,
+                                                            'typeErrors': False,
+                                                            'argumentCount': True,
+                                                            'undefinedTypes': True,
+                                                            'undefinedFunctions': True,
+                                                            'undefinedConstants': True,
+                                                            'undefinedClassConstants': True,
+                                                            'undefinedMethods': True,
+                                                            'undefinedProperties': False,
+                                                            'undefinedVariables': True,
+                                                            'unusedSymbols': True,
+                                                            'unexpectedTokens': True,
+                                                            'duplicateSymbols': True,
+                                                            'deprecated': True}}},
+              'severity': 'error',
+              'settle': 10,
+              'note': 'on demand: Larastan and Pint own most of what it finds in a Laravel app'},
+             {'name': 'tailwindcss',
+              'command': ['tailwindcss-language-server', '--stdio'],
+              'extensions': {'.blade.php': 'blade', '.css': 'css', '.php': 'php'},
+              'install': 'npm install -g @tailwindcss/language-server',
+              'root': '.',
+              'requires': 'resources/css/app.css',
+              'init': {'userLanguages': {'blade': 'html'}},
+              'settings': {'tailwindCSS': {'validate': True,
+                                           'lint': {'cssConflict': 'warning',
+                                                    'invalidApply': 'error',
+                                                    'invalidScreen': 'error',
+                                                    'invalidVariant': 'error',
+                                                    'invalidConfigPath': 'error',
+                                                    'invalidTailwindDirective': 'error',
+                                                    'recommendedVariantOrder': 'warning',
+                                                    'suggestCanonicalClasses': 'ignore'},
+                                           'includeLanguages': {'blade': 'html', 'php': 'html'},
+                                           'emmetCompletions': False,
+                                           'showPixelEquivalents': True},
+                           'editor': {'tabSize': 4}},
+              'severity': 'warning',
+              'settle': 6,
+              'note': 'its lint rules report at warning: two utilities setting one property is its main '
+                      'finding'}]}
 
 
 class Fixture(unittest.TestCase):
@@ -208,6 +351,31 @@ class PresetTests(Fixture):
         path.write_text(json.dumps(document), encoding="utf-8")
         return path
 
+    def test_every_preset_resolves_to_exactly_the_configuration_the_kit_promises(self):
+        # Found by the completion review of D04 T01 section 2: asserting chosen values let a changed one through.
+        # Every key of every resolved server is compared, the general presets as well as Laravel's.
+        resolved = {name: body["servers"] for name, body in lsp_table.load_presets()["presets"].items()}
+        self.assertEqual(list(resolved), list(EXPECTED_PRESETS))
+        for preset, servers in EXPECTED_PRESETS.items():
+            for expected, found in zip(servers, resolved[preset]):
+                with self.subTest(preset=preset, server=expected["name"]):
+                    self.assertEqual(found, expected)
+            self.assertEqual(len(resolved[preset]), len(servers))
+
+    def test_one_changed_value_in_a_preset_fails_the_comparison(self):
+        # The comparison itself can fail: a scratch copy of the presets file with one nested value changed.
+        document = json.loads(lsp_table.PRESETS.read_text(encoding="utf-8"))
+        laravel = document["presets"]["laravel"]["servers"]
+        overrides = {item["server"]: item for item in laravel if isinstance(item, dict)}
+        overrides["tailwindcss"]["settings"]["tailwindCSS"]["includeLanguages"] = {}
+        overrides["intelephense"]["settings"]["intelephense"]["diagnostics"]["undefinedVariables"] = False
+        document["servers"]["typescript"]["extensions"][".ts"] = "javascript"
+        changed = lsp_table.load_presets(self.presets(document))["presets"]
+        self.assertNotEqual(changed["laravel"]["servers"][1], EXPECTED_PRESETS["laravel"][1])
+        self.assertNotEqual(changed["laravel"]["servers"][2], EXPECTED_PRESETS["laravel"][2])
+        self.assertNotEqual(changed["web"]["servers"][0], EXPECTED_PRESETS["web"][0])
+        self.assertEqual(changed["laravel"]["servers"][0], EXPECTED_PRESETS["laravel"][0])
+
     def test_the_five_presets_resolve_to_their_servers(self):
         loaded = lsp_table.load_presets()
         names = {name: [entry["name"] for entry in body["servers"]] for name, body in loaded["presets"].items()}
@@ -368,18 +536,47 @@ class WriteTests(Fixture):
         (entry,) = lsp_table.resolve_preset(self.root, "cpp")
         before = self.table.read_bytes()
         full, denied = OSError(28, "No space left on device"), PermissionError(13, "Access is denied")
-        failures = {"the temporary write": unittest.mock.patch.object(lsp_table.os, "fsync", side_effect=full),
-                    "the replacement": unittest.mock.patch.object(lsp_table.os, "replace", side_effect=denied)}
-        for name, failure in failures.items():
+        real_fdopen = os.fdopen
+
+        class DiskFull:
+            """The temporary file as a full disk leaves it: opened, and refusing the bytes."""
+
+            def __init__(self, *args, **kwargs):
+                self.file = real_fdopen(*args, **kwargs)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                self.file.close()
+
+            def write(self, data):
+                raise full
+
+        failures = {
+            "the write": (unittest.mock.patch.object(lsp_table.os, "fdopen", DiskFull), "No space left on device"),
+            "the flush to disk": (unittest.mock.patch.object(lsp_table.os, "fsync", side_effect=full),
+                                  "No space left on device"),
+            "the replacement": (unittest.mock.patch.object(lsp_table.os, "replace", side_effect=denied),
+                                "Access is denied"),
+        }
+        for name, (failure, reason) in failures.items():
             with self.subTest(failed=name):
+                out, err = io.StringIO(), io.StringIO()
                 with failure:
                     with self.assertRaises(lsp_table.TableWriteError) as caught:
                         lsp_table.write_servers(self.root, [entry])
-                    self.assertTrue(str(caught.exception).startswith(TABLE + ": cannot be written ("), caught.exception)
-                    code = lsp_servers.main(["add", "cpp"], root=self.root)
-                self.assertEqual(code, 1)
+                    self.assertEqual(str(caught.exception), f"{TABLE}: cannot be written ({reason})")
+                    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                        code = lsp_servers.main(["add", "cpp"], root=self.root)
+                # One line, naming the table and the system's reason; nothing claimed on standard output.
+                self.assertEqual((code, out.getvalue()), (1, ""))
+                self.assertEqual(err.getvalue(), f"lsp-servers: {TABLE}: cannot be written ({reason})\n")
                 self.assertEqual(self.table.read_bytes(), before)
                 self.assertEqual(sorted(path.name for path in self.table.parent.iterdir()), ["lsp.json"])
+        # And with nothing failing, the same command writes the table.
+        self.assertEqual(lsp_servers.main(["add", "cpp"], root=self.root), 0)
+        self.assertEqual([server["name"] for server in lsp_table.load_servers(self.root)], ["clangd"])
 
 
 class CommandLineTests(Fixture):
