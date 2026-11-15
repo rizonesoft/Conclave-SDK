@@ -6,6 +6,18 @@ Shared instructions for agents working in `Conclave-SDK`. Each agent loads this 
 
 `Conclave-SDK` holds the overlay kits (`kits/base`, `kits/todo`, `kits/reviewer`, `kits/automations`, `kits/unattended`, `kits/lsp`, `kits/toolchain-cpp`, `kits/toolchain-web`, `kits/laravel`, `kits/wordpress`) that carry every agent skill, rule, subagent, script and template, plus prompts and the stdlib-only CLI `forge.py`, used to bootstrap projects under `R:\GitHub`. The SDK is a template: a project takes a copy once and owns it, and nothing links it back to the SDK. `forge.py` notes what it installed in the project's `.conclave/kits.json` (the SDK commit, each file's kit and a digest of its bytes as installed), a record with no path to the SDK that the project may delete.
 
+## Operating directive
+
+How to work without waiting to be told. When to ask the operator is listed under Safety, and only there.
+
+- A task assigned is a task authorised: do it, then report what was done, with the evidence.
+- Never end a turn with a question or an offer when the next step is known and unblocked: take the step.
+- Finish the follow-ups this session can do safely (a config value, a setup step, a check to run again) and report them done, never as a list left for the operator.
+- Ask the operator only for what Safety lists: once, with the options and the one you recommend, and keep working on everything the answer does not change.
+- Fix forward: a risk found later is filed as ordinary work that blocks nothing, and a red check is fixed at its cause, never skipped or bypassed.
+- Build the simplest design that meets the request in full, and add a check, gate or prerequisite only for a failure that has happened or one that would lose data, spend money or expose something.
+- An unattended run never asks the operator: it takes the industry-standard option, records the decision and what reversing it would cost in the run file and files an owner item; it halts only through the run's own pause mechanism, and pauses instead of proceeding only for data loss, a credential, shared infrastructure or a calculation that looks wrong.
+
 ## Autonomy and ambition
 
 The owner's standing directive (2026-11-11), binding on every agent and every run in this repository, attended or not.

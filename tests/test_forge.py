@@ -889,6 +889,113 @@ class ForgeProvisionTests(unittest.TestCase):
                     )
 
 
+class OperatingDirectiveTests(unittest.TestCase):
+    """D05 T01 section 1: the operating directive in the base AGENTS.md, Safety's list, and the rule files' pointer."""
+
+    # What each rule must say, written here and not read from the template: a rule removed is a rule missed.
+    RULES = (
+        "A task assigned is a task authorised: do it, then report",
+        "Never end a turn with a question or an offer when the next step is known and unblocked",
+        "Finish the follow-ups this session can do safely",
+        "Ask the operator only for what Safety lists",
+        "Fix forward: a risk found later is filed as ordinary work that blocks nothing",
+        "a red check is fixed at its cause, never skipped",
+        "Build the simplest design that meets the request in full",
+        "An unattended run never asks the operator",
+        "records the decision and what reversing it would cost in the run file and files an owner item",
+        "halts only through the run's own pause mechanism",
+    )
+    PAUSES = ("data loss", "a credential", "shared infrastructure", "a calculation that looks wrong")
+    ASKS = ("dropping or overwriting data", "a force-push", "deleting outside the repository",
+            "creating, rotating or exposing a credential", "sending mail or a message to a person",
+            "a production change with real blast radius", "business context the repository lacks")
+    POINTER = ("- Work under the Operating directive in `AGENTS.md`: decide and act, and ask the operator only for what "
+               "its Safety section lists.")
+    RULE_FILES = {"claude": ".claude/rules/claude-output-and-safety.md", "gemini": ".agents/rules/agy-output-and-safety.md",
+                  "codex": ".codex/rules/codex-output-and-safety.md"}
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.work = pathlib.Path(self.tmp.name).resolve()
+
+    @staticmethod
+    def section(text, heading):
+        assert f"\n## {heading}\n" in text, f"no ## {heading}"
+        return text.split(f"\n## {heading}\n", 1)[1].split("\n## ", 1)[0]
+
+    def check_agents(self, text):
+        directive = self.section(text, "Operating directive")
+        items = [line for line in directive.splitlines() if line.startswith("- ")]
+        self.assertEqual(len(items), 7)
+        self.assertLess(len(directive.strip().splitlines()), 20)
+        for rule in self.RULES:
+            self.assertIn(rule, directive)
+        unattended = next(item for item in items if item.startswith("- An unattended run"))
+        for condition in self.PAUSES:
+            self.assertIn(condition, unattended)
+        safety = self.section(text, "Safety")
+        for case in self.ASKS:
+            self.assertIn(case, safety)
+        # "Ask the operator" means one thing: what Safety lists. No line asks before every change outside.
+        for line in (directive + safety).splitlines():
+            self.assertNotIn("changes something outside the repository", line)
+        self.assertLess(text.index("## Working rules"), text.index("## Operating directive"))
+        self.assertLess(text.index("## Operating directive"), text.index("## Safety"))
+
+    def init(self, name, *argv):
+        project = self.work / name
+        project.mkdir()
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = forge.main(["init", str(project), *argv])
+        self.assertEqual(code, 0, err.getvalue())
+        return project
+
+    def test_a_fresh_init_has_the_directive_and_each_agent_the_pointer(self):
+        project = self.init("all")
+        self.check_agents((project / "AGENTS.md").read_text(encoding="utf-8"))
+        for rel in self.RULE_FILES.values():
+            self.assertIn(self.POINTER, (project / rel).read_text(encoding="utf-8").splitlines(), rel)
+        single = self.init("claude-only", "--agent", "claude")
+        self.assertIn(self.POINTER, (single / self.RULE_FILES["claude"]).read_text(encoding="utf-8").splitlines())
+        for agent in ("gemini", "codex"):
+            self.assertFalse((single / self.RULE_FILES[agent]).exists())
+
+    def test_a_projects_own_agents_md_is_kept_and_shown_as_differing(self):
+        project = self.work / "own"
+        project.mkdir()
+        (project / "AGENTS.md").write_bytes(b"# Our own rules\n")
+        forge.provision(project, agent="all")
+        self.assertEqual((project / "AGENTS.md").read_bytes(), b"# Our own rules\n")
+        states = {item["path"]: item["state"] for item in forge.diff_project(project, "base")["kits"]["base"]["files"]}
+        self.assertEqual(states["AGENTS.md"], "differs")
+
+    def test_the_sdks_own_agents_md_holds_the_templates_section_byte_for_byte(self):
+        template = (FORGE_ROOT / "kits/base/templates/AGENTS.md").read_text(encoding="utf-8")
+        own = (FORGE_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        self.check_agents(template)
+        self.assertEqual(self.section(own, "Operating directive"), self.section(template, "Operating directive"))
+        self.assertIn("\n## Autonomy and ambition\n", own)   # the owner's fuller statement stays
+        for rel in self.RULE_FILES.values():   # the SDK's installed copy points at a section it has
+            self.assertIn(self.POINTER, (FORGE_ROOT / rel).read_text(encoding="utf-8").splitlines(), rel)
+
+    def test_a_section_without_its_rules_fails_the_check(self):
+        template = (FORGE_ROOT / "kits/base/templates/AGENTS.md").read_text(encoding="utf-8")
+        directive = self.section(template, "Operating directive")
+        lines = [line for line in directive.splitlines() if line.startswith("- ")]
+        for line in lines:
+            with self.subTest(removed=line[:40]):
+                with self.assertRaises(AssertionError):
+                    self.check_agents(template.replace(line + "\n", ""))
+        for condition in self.PAUSES:
+            with self.subTest(removed=condition):
+                with self.assertRaises(AssertionError):
+                    self.check_agents(template.replace(condition, "something else"))
+        with self.assertRaises(AssertionError):
+            self.check_agents(template.replace("\n## Operating directive\n", "\n## Something else\n"))
+
+
 class InstallRecordTests(unittest.TestCase):
     """`.conclave/kits.json`: what forge installed, as a note the project owns."""
 

@@ -15,10 +15,22 @@ This repository follows the Conclave-SDK 3-agent conventions. Adapt this file to
 - Never use em dashes or en dashes anywhere: prose, code, comments, commit messages and generated files.
 - Temporary files and full logs go to scratch, never the repository: `R:\scratch` on Windows, `/mnt/r/scratch` on WSL (the same folder), or the session scratchpad when one is given.
 
+## Operating directive
+
+How to work without waiting to be told. When to ask the operator is listed under Safety, and only there.
+
+- A task assigned is a task authorised: do it, then report what was done, with the evidence.
+- Never end a turn with a question or an offer when the next step is known and unblocked: take the step.
+- Finish the follow-ups this session can do safely (a config value, a setup step, a check to run again) and report them done, never as a list left for the operator.
+- Ask the operator only for what Safety lists: once, with the options and the one you recommend, and keep working on everything the answer does not change.
+- Fix forward: a risk found later is filed as ordinary work that blocks nothing, and a red check is fixed at its cause, never skipped or bypassed.
+- Build the simplest design that meets the request in full, and add a check, gate or prerequisite only for a failure that has happened or one that would lose data, spend money or expose something.
+- An unattended run never asks the operator: it takes the industry-standard option, records the decision and what reversing it would cost in the run file and files an owner item; it halts only through the run's own pause mechanism, and pauses instead of proceeding only for data loss, a credential, shared infrastructure or a calculation that looks wrong.
+
 ## Safety
 
-- Local reversible work in the repository needs no confirmation.
-- Ask the operator once before anything that sends, deletes, or changes something outside the repository: mail, production systems, cloud changes, SQL writes, dropping data, credentials.
+- Local reversible work in the repository needs no confirmation, and neither does work outside it that the task authorised and that can be undone (a config value, a setup step, a deploy the task asked for).
+- Ask the operator once before anything that destroys or exposes something, or that needs business context the repository lacks: dropping or overwriting data, a force-push, deleting outside the repository, creating, rotating or exposing a credential, sending mail or a message to a person, a SQL write or a production change with real blast radius.
 - When a command needs sudo, give the operator the exact command to run with `! sudo ...`. Never store the sudo password.
 - Never print, log, or commit a secret value.
 

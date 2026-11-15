@@ -6,3 +6,4 @@
 - Use atomic temporary-file-then-replace writes for all persistent data files.
 - Author and execute TODO work as small, single-responsibility sections with granular micro-step checklist items (`Done when:` and backticked path/symbol per item) toward a 100% complete development plan with zero silent drops or unowned controls.
 - End code change reports with a `Layer:` line identifying the owning module.
+- Work under the Operating directive in `AGENTS.md`: decide and act, and ask the operator only for what its Safety section lists.
