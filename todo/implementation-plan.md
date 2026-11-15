@@ -112,11 +112,11 @@ Sections: 7 | Checklist items: 58
 
 ### Phase 6: Tooling kits
 
-Sections: 14 | Checklist items: 84
+Sections: 14 | Checklist items: 85
 
 | Status | Reference  | Deliverable                                              | Needs | Items |
 | ------ | ---------- | -------------------------------------------------------- | ----- | ----- |
-| [ ]    | D04 T01 §1 | LSP kit known to `forge.py`                              | none  | 6     |
+| [ ]    | D04 T01 §1 | LSP kit known to `forge.py`                              | none  | 7     |
 | [ ]    | D04 T01 §2 | Server table `.conclave/lsp.json` with presets per stack | none  | 6     |
 | [ ]    | D04 T01 §3 | Diagnostics client that reads the server table           | none  | 7     |
 | [ ]    | D04 T01 §4 | Laravel kit moved onto the shared client                 | none  | 7     |
@@ -156,4 +156,4 @@ Sections: 3 | Checklist items: 16
 
 Progress: 62/85 verified sections, 6 ready to run now.
 
-Checklist: 495/626 items completed (includes Commit items).
+Checklist: 495/627 items completed (includes Commit items).
