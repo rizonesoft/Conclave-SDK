@@ -128,7 +128,7 @@ Sections: 14 | Checklist items: 104
 | [ ]    | D04 T02 §3 | Compile database freshness check                         | none  | 7     |
 | [ ]    | D04 T02 §4 | Compiler cache wrapper                                   | none  | 5     |
 | [ ]    | D04 T02 §5 | clangd seed and server table entry                       | none  | 4     |
-| [ ]    | D04 T02 §6 | `toolchain-web` kit with pins for PHP and Node tools     | none  | 10    |
+| [x]    | D04 T02 §6 | `toolchain-web` kit with pins for PHP and Node tools     | none  | 10    |
 | [ ]    | D04 T02 §7 | Toolchain skills and documents for the three agents      | none  | 7     |
 
 ### Phase 7: Operating directive
@@ -154,6 +154,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 66/85 verified sections, 9 ready to run now.
+Progress: 67/85 verified sections, 8 ready to run now.
 
-Checklist: 549/646 items completed (includes Commit items).
+Checklist: 550/646 items completed (includes Commit items).
