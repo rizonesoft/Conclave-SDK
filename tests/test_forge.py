@@ -1028,10 +1028,10 @@ class BosunPageTests(unittest.TestCase):
             self.assertIn(topic, text)
         last = text.rstrip().splitlines()[-1]
         self.assertRegex(last, r"^Checked against Bosun's `README\.md` at commit `[0-9a-f]{40}`, \d{4}-\d{2}-\d{2}\.$")
-        # The figures of the body: code, the last line (the commit and its date) and the rule's number left out.
+        # The figures of the whole body, its commands included (found by the completion review: `slots 999` passed
+        # when code was left out); only the last line (the commit and its date) and the rule's number are not figures.
         body = text.rstrip().rsplit("\n", 1)[0].replace("(section 11,", "(")
-        prose = re.sub(r"```.*?```|`[^`]*`", "", body, flags=re.DOTALL)
-        stated = set(re.findall(r"(?<![\w.])\d+(?![\w.])", prose))
+        stated = set(re.findall(r"(?<![\w.])\d+(?![\w.])", body))
         self.assertEqual(stated - self.FIGURES, set(), "the page states a figure Bosun's README does not")
         for line in text.splitlines():
             self.assertNotIn(chr(0x2014), line)
@@ -1053,6 +1053,8 @@ class BosunPageTests(unittest.TestCase):
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         self.assertEqual(shown.returncode, 0, shown.stderr.decode("utf-8", errors="replace"))
         readme = shown.stdout.decode("utf-8")
+        figures = set(re.findall(r"(?<![\w.])\d+(?![\w.])", readme))
+        self.assertEqual(self.FIGURES - figures, set(), "a figure the page may state is not in Bosun's README")
         for fact in ("2 slots by default, shared by Windows and WSL", "6 GB available on Windows",
                      "3 GB available inside the VM", "After 15 minutes a waiting job starts anyway", "at most 100 GB",
                      "exits 74", "enable-write-budget.sh", "counts writes to the Linux disk only",
