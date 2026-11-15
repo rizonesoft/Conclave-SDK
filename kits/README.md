@@ -2,7 +2,7 @@
 
 Reusable stack and agent overlays that Conclave-SDK copies into a new or existing repository for **Gemini / Antigravity (`.agents/`)**, **Claude Code (`.claude/`)**, and **OpenAI Codex (`.codex/`)**. They do not scaffold an application. They do not install global binaries. Each kit is additive: existing files stay byte-for-byte.
 
-Install **base** on every project (or run `python forge.py init <target>`). Add **todo** where work is planned in TODO files and **reviewer** where work gets independent review. Add **unattended** (after **todo**) where a `process-plan` run should keep going with nobody at the keyboard, and **lsp** where the agents should reach the stack's language servers (it is being built in `todo/04-tooling/TODO-01-lsp-kit.md` and holds the server table so far); the SDK installs neither in itself. Then install the stack kit that matches the app.
+Install **base** on every project (or run `python forge.py init <target>`). Add **todo** where work is planned in TODO files and **reviewer** where work gets independent review. Add **unattended** (after **todo**) where a `process-plan` run should keep going with nobody at the keyboard, **lsp** where the agents should reach the stack's language servers (being built in `todo/04-tooling/TODO-01-lsp-kit.md`: the server table and its presets so far) and **toolchain-cpp** where a C or C++ project wants its build tools pinned and checked (being built in `todo/04-tooling/TODO-02-toolchain-kits.md`: the pins and their check so far); the SDK installs none of the three in itself. Then install the stack kit that matches the app.
 
 ```powershell
 # Cross-platform via forge.py (supports --agent all|gemini|agy|claude|codex)
@@ -11,6 +11,7 @@ python forge.py kit /path/to/project todo
 python forge.py kit /path/to/project reviewer
 python forge.py kit /path/to/project unattended   # after todo; runs in Linux or WSL (tmux)
 python forge.py kit /path/to/project lsp          # the language server table
+python forge.py kit /path/to/project toolchain-cpp   # build tool pins for C and C++
 python forge.py kit /path/to/laravel-project laravel
 python forge.py kit /path/to/wordpress-project wordpress --host pressable   # or --host wpcom
 python forge.py doctor /path/to/project
@@ -29,7 +30,8 @@ python forge.py doctor /path/to/project
 | `reviewer/` | Reviewer pin, review dispatcher, review skill | Independent review |
 | `automations/` | Task list, runner, failure email, scheduler installers | Scheduled checks |
 | `unattended/` | Preflight, tmux launcher, heartbeat, shortcuts | Runs nobody watches (after `todo`) |
-| `lsp/` | Server table `.conclave/lsp.json` (client, plugin and bridge to come) | Language servers |
+| `lsp/` | Server table, presets, `lsp-servers.py` (client and wiring to come) | Language servers |
+| `toolchain-cpp/` | Build tool pins and `toolchain-check.py` | C or C++ project |
 | `laravel/` | Boost MCP, `boost.json`, LSP, `laravel-boost`, pre-push hook | Tree has `artisan` |
 | `wordpress/` | Site pin, pinned SSH/SFTP, WordPress MCP, DDEV, PHPCS | WordPress site project |
 

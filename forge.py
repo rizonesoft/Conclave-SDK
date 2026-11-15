@@ -7,8 +7,10 @@
     python forge.py update <target> [kit] [--only <path>]... [--no-scripts] [--kit-new] [--dry-run]
     python forge.py record <target> [kit] [--merged <path>]... [--dry-run]
     python forge.py drift [--projects <file>]
-    python forge.py doctor <target> [base|todo|reviewer|automations|unattended|lsp|laravel|wordpress] [--strict]
-        (no kit named: the Laravel or WordPress kit when the project is one, else base, plus lsp when installed)
+    python forge.py doctor <target> [base|todo|reviewer|automations|unattended|lsp|toolchain-cpp|laravel|
+                                     wordpress] [--strict]
+        (no kit named: the Laravel or WordPress kit when the project is one, else base, plus lsp when installed;
+        a toolchain kit starts each pinned tool to read its version, so it is checked only when named)
     python forge.py kits
     python forge.py check <target>
     python forge.py self-sync
@@ -191,7 +193,8 @@ AUTOMATIONS_SCRIPTS = tuple(f"{AUTOMATIONS_DIR}/{name}" for name in ("run.py", "
 
 
 UNATTENDED_MODULE = "scripts/lib/unattended.py"
-KIT_ORDER = ("base", "todo", "reviewer", "automations", "unattended", "lsp", "laravel", "wordpress")
+KIT_ORDER = ("base", "todo", "reviewer", "automations", "unattended", "lsp", "toolchain-cpp", "laravel",
+             "wordpress")
 BASE_SKILLS = ("authoring-skills", "local-tool-safety")
 AGENT_DIRS = (".agents", ".claude", ".codex")
 # A kit's version of a file the project changed, written beside it by `update --kit-new` for a hand merge, and the
@@ -207,6 +210,8 @@ SELF_PREFIXES = tuple(f"{d}/{kind}/" for d in AGENT_DIRS for kind in ("skills", 
 
 
 LSP_TABLE = ".conclave/lsp.json"  # the lsp kit's server table: the one list of a project's language servers
+# Each toolchain kit's pin file: the build tools a project wants and the least version of each.
+TOOLCHAIN_PINS = {"toolchain-cpp": ".conclave/toolchain-cpp.json"}
 
 
 def installed_kits(target_root: Path) -> list[str]:
@@ -229,6 +234,7 @@ def installed_kits(target_root: Path) -> list[str]:
         found.append("unattended")
     if (target_root / LSP_TABLE).is_file():
         found.append("lsp")
+    found.extend(kit for kit, pins in TOOLCHAIN_PINS.items() if (target_root / pins).is_file())
     if any_skill(("laravel-boost",)) or (target_root / "scripts/lsp-diagnostics.py").is_file():
         found.append("laravel")
     if (target_root / WORDPRESS_PIN).is_file() or any_skill(("wordpress-site-safety", "wordpress-connect")):
@@ -647,8 +653,8 @@ def apply_kit(
     host: str | None = None,
     include=None,
 ) -> dict:
-    """Apply an additive overlay kit ('base', 'todo', 'reviewer', 'automations', 'unattended', 'lsp', 'laravel',
-    'wordpress') for all or one agent without overwriting existing files.
+    """Apply an additive overlay kit ('base', 'todo', 'reviewer', 'automations', 'unattended', 'lsp',
+    'toolchain-cpp', 'laravel', 'wordpress') for all or one agent without overwriting existing files.
 
     A file that already exists is the project's and is never replaced: the kit is a template copied once, and the
     project adapts its copy from then on. `include(rel)` can leave paths out entirely.
@@ -1897,16 +1903,57 @@ def _lsp_table_module():
     return module
 
 
-def _doctor_lsp(target_root: Path, add_check) -> None:
-    """The lsp kit's checks: each file the kit installs is present (the list is the kit's own templates folder, so
-    a file the kit gains is checked without a second list), the server table loads, and each server it names is
-    installed."""
-    templates = FORGE_ROOT / "kits/lsp/templates"
+def _kit_file_checks(kit: str, target_root: Path, add_check) -> None:
+    """One check per file a kit installs, `ok` or `missing`. The list is the kit's own templates folder, so a file
+    the kit gains is checked without a second list."""
+    templates = FORGE_ROOT / "kits" / kit / "templates"
     for src in sorted(templates.rglob("*")):
         rel = src.relative_to(templates).as_posix()
         if src.is_file() and "__pycache__" not in src.parts and not rel.endswith(FORGE_SUFFIXES):
             path = target_root / rel
             add_check(rel, "ok" if path.is_file() else "missing", path.as_posix())
+
+
+_TOOLCHAIN_MODULES: dict[str, types.ModuleType] = {}
+
+
+def _toolchain_module(kit: str) -> types.ModuleType:
+    """A toolchain kit's toolchain-check.py, loaded from the kit (forge reads; the project's copy is the
+    project's), so the doctor checks a pin file exactly as the kit's own script does. Kept per file, so its limits
+    can be read back."""
+    path = FORGE_ROOT / "kits" / kit / "templates/scripts/toolchain-check.py"
+    key = str(path)
+    if key not in _TOOLCHAIN_MODULES:
+        module = types.ModuleType(f"_forge_toolchain_check_{kit.replace('-', '_')}")
+        module.__file__ = key
+        exec(compile(path.read_text(encoding="utf-8"), key, "exec"), module.__dict__)
+        _TOOLCHAIN_MODULES[key] = module
+    return _TOOLCHAIN_MODULES[key]
+
+
+def _doctor_toolchain(target_root: Path, add_check, kit: str) -> None:
+    """A toolchain kit's checks: each file the kit installs, the project's pin file (`tool-pins`), and each pinned
+    tool as `tool:<name>`. A tool that is not ok is `setup_required` when the pin requires it and `optional` when
+    it does not, whatever the cause, with the check script's own detail; `optional` is shown and never counted."""
+    _kit_file_checks(kit, target_root, add_check)
+    module = _toolchain_module(kit)
+    try:
+        pins = module.load_pins(target_root / TOOLCHAIN_PINS[kit])
+    except module.PinError as exc:
+        add_check("tool-pins", "missing", str(exc))
+        return
+    add_check("tool-pins", "ok", f"{TOOLCHAIN_PINS[kit]}: {', '.join(pin['name'] for pin in pins) or 'no tool'}")
+    for tool in module.check_tools(pins, time_limit=module.TIME_LIMIT, output_cap=module.OUTPUT_CAP):
+        if tool["status"] == "ok":
+            add_check(f"tool:{tool['name']}", "ok", f"{tool['command']} {tool['version']}")
+        else:
+            add_check(f"tool:{tool['name']}", "optional" if tool["optional"] else "setup_required", tool["detail"])
+
+
+def _doctor_lsp(target_root: Path, add_check) -> None:
+    """The lsp kit's checks: each file the kit installs is present, the server table loads, and each server it
+    names is installed."""
+    _kit_file_checks("lsp", target_root, add_check)
     table = _lsp_table_module()
     try:
         servers = table.load_servers(target_root)
@@ -1977,6 +2024,8 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
         _doctor_unattended(target_root, add_check)
     elif kit_name == "lsp":
         _doctor_lsp(target_root, add_check)
+    elif kit_name in TOOLCHAIN_PINS:
+        _doctor_toolchain(target_root, add_check, kit_name)
     elif kit_name == "todo":
         for agent_dir in (".agents", ".claude", ".codex"):
             for skill in TODO_SKILLS:
@@ -2708,16 +2757,16 @@ def main(argv: list[str] | None = None) -> int:
     p_init = sub.add_parser("init", help="Install the base kit plus only the kits named with --kit")
     p_init.add_argument("target", help="Target repository path")
     p_init.add_argument("--agent", choices=AGENT_CHOICES, default="all")
-    p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, reviewer, automations, unattended, lsp, laravel, "
-                             "wordpress)")
+    p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, reviewer, automations, unattended, lsp, "
+                             "toolchain-cpp, laravel, wordpress)")
     p_init.add_argument("--wp-host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
     p_init.add_argument("--no-scripts", action="store_true", help="Leave out the kits' scripts/ files")
     p_init.add_argument("--with-todo", action="store_true", help="Shorthand for --kit todo")
     p_init.add_argument("--force", action="store_true",
                         help="Replace AGENTS.md, GEMINI.md, CLAUDE.md and CODEX.md with the kit's, keeping each replaced one as <name>.replaced")
 
-    p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, todo, reviewer, automations, unattended, lsp, laravel, "
-                                          "wordpress) to a target repo")
+    p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, todo, reviewer, automations, unattended, lsp, "
+                                          "toolchain-cpp, laravel, wordpress) to a target repo")
     p_kit.add_argument("target", help="Target repository path")
     p_kit.add_argument("kit_name", choices=list_kits(), help="Kit name to apply")
     p_kit.add_argument("--agent", choices=AGENT_CHOICES, default="all", help="Install kit files for all agents or one agent")
