@@ -123,7 +123,7 @@ Sections: 14 | Checklist items: 91
 | [ ]    | D04 T01 §5 | Claude Code plugin generated from the server table       | none  | 5     |
 | [ ]    | D04 T01 §6 | MCP bridge for Codex and Antigravity                     | none  | 7     |
 | [ ]    | D04 T01 §7 | Language server skill and document for the three agents  | none  | 6     |
-| [ ]    | D04 T02 §1 | Tool pin file and the script that checks it              | none  | 8     |
+| [x]    | D04 T02 §1 | Tool pin file and the script that checks it              | none  | 8     |
 | [ ]    | D04 T02 §2 | `toolchain-cpp` kit with pins for the C and C++ tools    | none  | 6     |
 | [ ]    | D04 T02 §3 | Compile database freshness check                         | none  | 7     |
 | [ ]    | D04 T02 §4 | Compiler cache wrapper                                   | none  | 5     |
@@ -154,6 +154,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 63/85 verified sections, 6 ready to run now.
+Progress: 64/85 verified sections, 7 ready to run now.
 
-Checklist: 517/633 items completed (includes Commit items).
+Checklist: 518/633 items completed (includes Commit items).

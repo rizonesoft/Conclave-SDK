@@ -1,0 +1,86 @@
+{
+  "ref": "D04 T02 \u00a71",
+  "title": "Tool pin file and the script that checks it",
+  "implementation_sha": "47b7e32e0509d5e7bf02eaf28436ad7a9d26bbdb",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/04-tooling/D04-T02-s1.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s kits/toolchain-cpp/templates/scripts/tests -> Ran 30 tests, OK (Windows); Ran 30 tests, OK (skipped=3) on WSL",
+    "python forge.py check-all --only kit-toolchain-cpp --only kit-toolchain-web -> 2 of 2 suites passed",
+    "versions compared as strings -> the 1.10 test fails; only the direct child killed -> the child-gone tests fail",
+    "CI tests.yml run 43660191873 on 47b7e32e0509 -> success on quick suite (Windows), full suite (Linux), kit suites (Linux)"
+  ],
+  "completion": {
+    "report": "docs/reviews/04-tooling/D04-T02-s1.md",
+    "verdict": "reconciled",
+    "candidate": "47b7e32e0509d5e7bf02eaf28436ad7a9d26bbdb",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/04-tooling/D04-T02-s1.md",
+    "candidate": "03504d687f144622c3ba98def41c50ca3f5cc5a2",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "03504d687f144622c3ba98def41c50ca3f5cc5a2",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 6,
+  "pass_cap": 33
+}

@@ -34,7 +34,7 @@ title: "TODO-02 -- Toolchain kits"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Tool pin file and the script that checks it | -- | [ ] |
+| 1 | §1 | Tool pin file and the script that checks it | -- | [x] |
 | 2 | §2 | `toolchain-cpp` kit with pins for the C and C++ tools | §1 | [ ] |
 | 3 | §3 | Compile database freshness check | §2 | [ ] |
 | 4 | §4 | Compiler cache wrapper | §2 | [ ] |
@@ -64,7 +64,7 @@ Both kits need the same thing: a list of tools with the least version the projec
 - [x] Add `check_tools(pins)` and the command line to `toolchain-check.py`: every tool is checked whatever the one before it did; `--pins <file>` and `--json`; one line per tool (`<name>  <status>  <detail>`); exit 3 when a tool that is not `optional` is not `ok`; exit 2 with one line and no traceback on a pin file that does not load; nothing installed or written. Done when: tests run the script as a program and parse the JSON (`{"pins", "tools": [{"name", "status", "detail", "version", "command", "optional"}], "required_not_ok"}`), asserting exit 3 for a missing required tool with the tools after it still reported, exit 0 for a missing optional one (still shown as `setup_required`), and exit 2 with a one-line message for a malformed file and for a missing one.
 - [x] Keep one source for the script and its tests: `kits/toolchain-cpp/templates/scripts/toolchain-check.py` and `kits/toolchain-cpp/templates/scripts/tests/test_toolchain_check.py` are the files, and a test in a new `tests/test_toolchain_kits.py` asserts the copies under `kits/toolchain-web/templates/scripts/` are byte-identical. Done when: that test fails on a scratch copy of `kits/` with one byte of either copy changed.
 - [x] Add the suites `kit-toolchain-cpp` and `kit-toolchain-web` to `SUITES` in `forge.py` for the two `templates/scripts/tests` folders, and the two kit names to the list `tests/test_forge.py:291` expects of `forge.list_kits()` (a folder under `kits/` with a `templates/` folder is a kit from the moment it exists; the kits' pins, README files, `KIT_ORDER` entries and doctor branches come in §2 and §6). Done when: `python forge.py check-all --only kit-toolchain-cpp --only kit-toolchain-web` passes on Windows and in WSL and `tests.test_check_all` passes, which holds every test folder to a suite.
-- [ ] Commit: `toolchain: tool pin file and its check`
+- [x] Commit: `toolchain: tool pin file and its check`
 
 **Corrected 2026-11-15 (validation):** measured today. "Run it from `tests/test_forge.py`" is how kit tests ran before `D01 T02 §1`: a kit's tests are now a suite in `forge.SUITES`, and `tests/test_check_all.py` refuses a test folder no suite runs, so the two folders get suites. The copy under `kits/toolchain-web/` needs its tests too, or a project with only that kit has an untested script, so both files are held byte-identical. Creating `kits/toolchain-cpp/templates/` makes `forge.py kits` list the kit at once (`forge.list_kits`, `forge.py:86`), which `tests/test_forge.py:291` asserts, so that list changes here and not in §2. The pin's rules were looser than the faults a real file can hold (a second group, a pattern that does not compile, a path in `commands`), and `optional` had no default. `check_tool` left a tool that exits non-zero, one that floods and the window a console child opens on Windows unsaid. The command line had no outcome for a file that does not load.
 
@@ -73,6 +73,9 @@ Both kits need the same thing: a list of tools with the least version the projec
 **Corrected 2026-11-15 (round 1):** four inputs the items did not bound, each now refused or stopped. A `version_pattern` that backtracks without end ran outside every limit (the standard library cannot stop a match, nor a thread running one): the match runs in a second interpreter under a 5 second limit, and the tool is reported while the next is still checked. An interrupt while a tool was being waited on skipped the cleanup: the process tree is ended on every way out. A `min_version` or a captured version of thousands of digits passed the format and failed in the number conversion: a version is at most eight parts of at most nine digits. A pattern nested a thousand deep raised an error the loader did not turn into a refusal: compile failures of every kind are refusals, and a pattern is at most 500 characters.
 
 **Test checkpoint:** `python -m unittest discover -s kits/toolchain-cpp/templates/scripts/tests` ends `OK`; comparing versions as strings makes the `1.10` test fail, and killing only the direct child makes the child-gone tests fail.
+
+> **Verified:** 2026-11-15 | §1 | 47b7e32e0509d5e7bf02eaf28436ad7a9d26bbdb
+> **Review:** `docs/reviews/d04-t02-s1.json`
 
 ## 2. `toolchain-cpp` kit with pins for the C and C++ tools
 
