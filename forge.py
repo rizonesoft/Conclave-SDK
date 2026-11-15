@@ -234,7 +234,8 @@ def installed_kits(target_root: Path) -> list[str]:
     if (target_root / LSP_TABLE).is_file():
         found.append("lsp")
     found.extend(kit for kit, pins in TOOLCHAIN_PINS.items() if (target_root / pins).is_file())
-    if any_skill(("laravel-boost",)) or (target_root / "scripts/lsp-diagnostics.py").is_file():
+    # Not scripts/lsp-diagnostics.py: the LSP kit installs a file of that name too.
+    if any_skill(("laravel-boost",)) or (target_root / "docs/laravel-agent-tooling.md").is_file():
         found.append("laravel")
     if (target_root / WORDPRESS_PIN).is_file() or any_skill(("wordpress-site-safety", "wordpress-connect")):
         found.append("wordpress")

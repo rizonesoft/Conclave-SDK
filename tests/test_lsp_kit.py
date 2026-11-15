@@ -262,6 +262,20 @@ class LspKitTests(unittest.TestCase):
         self.assertEqual([name for name in checks if name.startswith("server:")], [])
         self.assertEqual(report["missing_or_setup_required"], 1)
 
+    def test_the_kits_diagnostics_client_does_not_make_a_project_a_laravel_project(self):
+        project = self.project()
+        forge.apply_kit(project, "lsp")
+        self.assertTrue((project / "scripts/lsp-diagnostics.py").is_file())
+        self.assertNotIn("laravel", forge.check_repo(project)["kits"])
+        laravel = self.project("laravel")
+        (laravel / "artisan").write_bytes(b"<?php\n")
+        forge.apply_kit(laravel, "laravel")
+        self.assertIn("laravel", forge.check_repo(laravel)["kits"])
+        # Detected by a file only that kit installs, also without its skills.
+        for agent in (".agents", ".claude", ".codex"):
+            shutil.rmtree(laravel / agent / "skills" / "laravel-boost")
+        self.assertIn("laravel", forge.check_repo(laravel)["kits"])
+
     def test_the_readme_names_every_key_every_preset_and_every_file(self):
         readme = (SDK_ROOT / "kits/lsp/README.md").read_text(encoding="utf-8")
         table = forge._lsp_table_module()
@@ -271,8 +285,12 @@ class LspKitTests(unittest.TestCase):
             self.assertIn(f"`{preset}`", readme, f"the README does not name the preset {preset}")
         for rel in kit_files():
             self.assertIn(f"`{rel}`", readme, f"the README does not list {rel}")
-        for command in ("lsp-servers.py list", "lsp-servers.py add", "lsp-servers.py remove"):
+        for command in ("lsp-servers.py list", "lsp-servers.py add", "lsp-servers.py remove",
+                        "lsp-diagnostics.py --all --staged", "lsp-diagnostics.py --server"):
             self.assertIn(command, readme)
+        for result in ("ok", "idle", "missing", "skipped", "failed", "partial"):
+            self.assertIn(f"| `{result}` |", readme, f"the README does not describe the result {result}")
+        self.assertIn("`${scratch}`", readme)
 
     def test_the_bare_doctor_adds_the_kit_to_a_stack_kits_checks(self):
         project = self.project()

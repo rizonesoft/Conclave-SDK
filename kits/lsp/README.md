@@ -10,11 +10,14 @@ The kit is being built in sections (`todo/04-tooling/TODO-01-lsp-kit.md`). What 
 | `scripts/lsp-servers.py` | `list`, `add <preset>` and `remove <name>` for the table |
 | `scripts/lib/lsp_table.py` | The table's rules: `load_servers`, the presets, the write |
 | `scripts/lib/lsp_presets.json` | The catalogue of servers and the presets per stack |
-| `scripts/tests/test_lsp_table.py` | The kit's own tests |
+| `scripts/lsp-diagnostics.py` | Runs the table's servers over files and reports their diagnostics |
+| `scripts/lib/lsp_client.py` | The LSP client: starts, contains and bounds one server, returns its result |
+| `scripts/tests/test_lsp_table.py` | The kit's own tests of the table |
+| `scripts/tests/test_lsp_diagnostics.py` | The kit's own tests of the client, against a stub language server |
 
 The table is the project's own file from the first install: `forge.py` never overwrites it, and a project that already has one keeps it byte for byte.
 
-Still to come, each reading the same table: the diagnostics client `scripts/lsp-diagnostics.py` (D04 T01 §3), a Claude Code plugin generated from the table (§5), an MCP bridge for Codex and Antigravity (§6), and the `language-servers` skill and document (§7).
+Still to come, each reading the same table: a Claude Code plugin generated from the table (§5), an MCP bridge for Codex and Antigravity (§6), and the `language-servers` skill and document (§7).
 
 ## Install
 
@@ -81,6 +84,45 @@ python scripts/lsp-servers.py remove tailwindcss        # delete one server
 ```
 
 `add` never changes an entry the project already has by that name: it prints which servers it added and which it kept, so a project's own command or settings survive a second `add` and a later preset. The `laravel` preset looks for `artisan` at the project root, then in `platform/`, then in the other first-level folders in name order, and writes that folder as each server's `root`; with no `artisan` anywhere it refuses and asks for `--root`. The table is written through a temporary file and a replace, and only when it changes. Exit 0 on success, 1 when the table cannot be written (it is then as it was), 2 for a table that does not load or a preset or server name that is not known.
+
+## Diagnostics
+
+```text
+python scripts/lsp-diagnostics.py --all --staged                  # every server, the staged files
+python scripts/lsp-diagnostics.py --all --worktree                # the files changed in the working tree
+python scripts/lsp-diagnostics.py --all --commit <sha>             # the files of a commit
+python scripts/lsp-diagnostics.py --server clangd src/main.c      # named servers (repeatable), named files
+```
+
+The table is the only list of servers: `--server` takes its names and an empty table is refused with how to add one. Give one input (`--staged`, `--worktree`, `--commit <sha>` or paths from the project root). Git is read with `-z`, so a file name with a space or outside ASCII arrives whole, and a git command that fails (an unknown revision, a folder that is no repository) ends the run with git's reason, never as an empty input. A file goes only to the servers that serve it: its name ends with one of the server's `extensions` (the longest suffix gives the language id, so `.blade.php` is not `.php`) and it lies under the server's `root`. The client is read-only: it opens documents in the server's memory and writes nothing to the project.
+
+`--severity <error|warning|information|hint>` and `--settle <seconds>` override each server's own `severity` and `settle`; `--timeout <seconds>` (default 240, or `LSP_DIAGNOSTICS_TIMEOUT`) is what a server gets for the whole run; `--json` prints one document (`servers`, `diagnostics`, `failing`, `exit`) for every run that gets past its arguments; `--verbose` shows the end of each server's standard error.
+
+Each server ends with one result, and a check that did not finish is never a pass:
+
+| Result | Meaning |
+| --- | --- |
+| `ok` | Every file it was sent was answered |
+| `idle` | No file of its kind in the input; the server is not started |
+| `missing` | Its program is not installed; the line carries the entry's `install` hint |
+| `skipped` | The file its entry `requires` is absent |
+| `failed` | Not contained, refused or never answered `initialize`, ended early, or hit a limit |
+| `partial` | It ran, and some file was not answered or could not be read; each is named |
+
+| Exit | When |
+| --- | --- |
+| 0 | Every server that ran finished, with no diagnostic at or above its threshold |
+| 1 | A diagnostic at or above a server's threshold, or a server that is `failed` or `partial` |
+| 2 | Bad usage, an unknown server, a git command that failed, or a table that does not load |
+| 3 | No requested server could check anything: each is `missing`, `skipped` or `failed` |
+
+The exit is the same with and without `--json`.
+
+A server is started with no shell and no console window and is contained before it runs: in a job object on Windows (started suspended, resumed once it is in the job), in its own session on POSIX. Its whole process tree is ended on every way out, a clean run and an interrupt included, and a server that cannot be contained is not run. At most 64 MiB is read from a server in a run, standard output and standard error together, and no message may announce more than 32 MiB; either limit stops the server and the result says which.
+
+`${scratch}` in an entry's `init` or `settings`, in any string at any depth, is replaced with a temporary folder outside the repository that exists for the run and is removed after it, so a server's index or cache (Intelephense's `storagePath`) never lands in the project.
+
+`scripts/lib/lsp_client.py` is the client itself (`run_server`, `Client`), for other tools that drive the table's servers.
 
 ## Doctor
 
