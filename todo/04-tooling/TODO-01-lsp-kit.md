@@ -41,6 +41,7 @@ title: "TODO-01 -- LSP kit"
 | 6 | §6 | MCP bridge for Codex and Antigravity | §3 | [x] |
 | 7 | §7 | Language server skill and document for the three agents | §5, §6 | [x] |
 | 8 | §8 | Bridge answers what arrived before its input ended | §6, §7 | [ ] |
+| 9 | §9 | Piped-call answers in the bridge's document | §8 | [ ] |
 
 ## 1. LSP kit known to `forge.py`
 
@@ -321,6 +322,27 @@ Found 2026-11-15 while running this file's Verification block in WSL with a real
 **Corrected 2026-11-15 (round 1):** two things. (1) The round found that every failure to write a reply was taken for a reader that had gone, with exit 0: only a closed pipe is that; any other failure (a full disk, an I/O error) is an answer lost, said on stderr with exit 1. (2) The kit suite then failed one run in three on a race of the section's own making: a `tools/call` with arguments that do not fit was answered `Unknown tool` or the input-ended error depending on whether the end of input had been seen. The rule moved from the message loop to where a server is reached (`Bridge.session`): whatever a call answers without a server (arguments that do not fit, a file outside the project, a file no server serves) is its answer whenever it is asked, and only a call that needs a server and was not answered when the input ended gets the input-ended error. That is what the first item's "a message that starts no server is answered as always" meant for a call too.
 
 **Test checkpoint:** `python forge.py check-all --only kit-lsp` passes and `python -m unittest tests.test_lsp_kit` ends `OK`; ending the bridge at the end of input as before makes the new kit test and the fresh-install test fail.
+
+## 9. Piped-call answers in the bridge's document
+
+> **Started:** 2026-11-15T16:40:11Z
+
+Filed 2026-11-15 by the completion review of §8 (P3, below the pin's blocking levels, so it takes no reconciliation and is filed): the line of `docs/language-servers.md` that tries the bridge by hand said that every `tools/call` sent that way is answered that the input ended, while the bridge gives a call answered without a server (arguments that do not fit, a file outside the project, a file no server serves) its usual answer. The fix was made the same day in `f3e9e6c`, before this section was filed; the section exists so that it is reviewed.
+
+**Phase:** 6
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Say in the document which piped calls are answered that the input ended. Done when: the hand-line test holds the sentences.
+2. Run one call of each kind through the installed bridge. Done when: the checkpoint passes.
+
+- [ ] In `kits/lsp/templates/docs/language-servers.md`, after the hand line, say that a piped `tools/call` that needs a language server is answered that the input ended and starts no server, and that a call answered without a server gets its usual answer. Done when: `test_the_line_that_tries_the_bridge_by_hand_prints_the_four_tools` in `tests/test_lsp_kit.py` finds both sentences and fails when the second is removed.
+- [ ] In the same test, send one `diagnostics` call of each kind through the installed bridge with the input then ended (a file not in the project, a file no server serves, a file the table's server serves) and require the exact answer of each. Done when: giving a call that needs no server the input-ended error makes the test fail on Windows and in WSL.
+- [ ] Commit: `lsp: the document says which piped calls are answered that the input ended`
+
+**Test checkpoint:** `python -m unittest tests.test_lsp_kit` ends `OK` on Windows and in WSL; removing the second sentence from the document makes the hand-line test fail.
 
 ## Verification
 
