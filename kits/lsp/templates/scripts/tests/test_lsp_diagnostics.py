@@ -517,6 +517,22 @@ class CommandLine(Fixture):
         self.assertEqual(report["exit"], code)
         return code, text, err, report
 
+    def assert_refused(self, expected, *argv):
+        """The run is refused in both forms: exit 2 and one line on standard error; nothing on standard output
+        as text, and one JSON document carrying the refusal with `--json`."""
+        for json_form in (False, True):
+            with self.subTest(argv=argv, json=json_form):
+                code, out, err = self.run_main(*argv, *(["--json"] if json_form else []))
+                self.assertEqual(code, 2)
+                self.assertEqual(len(err.splitlines()), 1, err)
+                self.assertTrue(err.startswith(f"lsp-diagnostics: {expected}"), err)
+                if not json_form:
+                    self.assertEqual(out, "")
+                    continue
+                report = json.loads(out)
+                self.assertEqual(report, {"servers": {}, "diagnostics": [], "failing": 0, "exit": 2,
+                                          "error": err[len("lsp-diagnostics: "):].rstrip("\n")})
+
 
 class CommandLineTests(CommandLine):
     def test_a_clean_run_and_a_failing_diagnostic(self):
@@ -528,7 +544,7 @@ class CommandLineTests(CommandLine):
         self.assertIn("lsp-diagnostics: 0 diagnostic(s) at or above threshold.", text)
         self.assertEqual(report, {"servers": {"stub": {"status": "ok", "reason": None, "files": 1, "unanswered": [],
                                                        "unread": []}},
-                                  "diagnostics": [], "failing": 0, "exit": 0})
+                                  "diagnostics": [], "failing": 0, "exit": 0, "error": None})
         code, text, _err, report = self.both_forms("--server", "stub", dirty.name)
         self.assertEqual(code, 1)
         self.assertIn("dirty.py:1:6  error       wrong here [stub]", text)
@@ -589,10 +605,8 @@ class CommandLineTests(CommandLine):
 
     def test_bad_usage_an_unknown_server_and_a_broken_or_empty_table_are_one_line_and_exit_2(self):
         (self.project / lsp_table.TABLE).write_text('{"schema_version": 1, "servers": []}', encoding="utf-8")
-        code, out, err = self.run_main("--all")
-        self.assertEqual((code, out), (2, ""))
-        self.assertEqual(err, "lsp-diagnostics: .conclave/lsp.json holds no server: add a stack's with "
-                              "python scripts/lsp-servers.py add <preset>\n")
+        self.assert_refused(".conclave/lsp.json holds no server: add a stack's with "
+                            "python scripts/lsp-servers.py add <preset>\n", "--all")
         self.server()
         path = self.file("a.py")
         cases = [(("--server", "gopls", path.name), "no server named 'gopls' in .conclave/lsp.json (it holds: stub)"),
@@ -602,17 +616,10 @@ class CommandLineTests(CommandLine):
                  (("--all", "missing.py"), "missing.py is not a file in the project"),
                  (("--all", "../outside.py"), "../outside.py is outside the project")]
         for argv, expected in cases:
-            for extra in ((), ("--json",)):
-                with self.subTest(argv=argv, extra=extra):
-                    code, out, err = self.run_main(*argv, *extra)
-                    self.assertEqual((code, out), (2, ""))
-                    self.assertEqual(len(err.splitlines()), 1, err)
-                    self.assertIn(f"lsp-diagnostics: {expected}", err)
+            self.assert_refused(expected, *argv)
         (self.project / lsp_table.TABLE).write_text('{"schema_version": 1, "servers": [{"name": "x"}]}',
                                                     encoding="utf-8")
-        code, out, err = self.run_main("--all", path.name)
-        self.assertEqual((code, out), (2, ""))
-        self.assertTrue(err.startswith("lsp-diagnostics: .conclave/lsp.json: server 'x': missing key"), err)
+        self.assert_refused(".conclave/lsp.json: server 'x': missing key", "--all", path.name)
 
     def test_the_script_runs_as_a_program_from_an_installed_layout(self):
         scripts = self.project / "scripts"
@@ -673,18 +680,12 @@ class GitInputTests(CommandLine):
         self.assertEqual(self.files("--worktree"), (1, [odd[0]]))
 
     def test_a_git_command_that_fails_is_refused_and_never_an_empty_input(self):
-        for extra in ((), ("--json",)):
-            code, out, err = self.run_main("--all", "--commit", "no-such-revision", *extra)
-            self.assertEqual((code, out), (2, ""))
-            self.assertEqual(len(err.splitlines()), 1, err)
-            self.assertTrue(err.startswith("lsp-diagnostics: git show failed: "), err)
+        self.assert_refused("git show failed: ", "--all", "--commit", "no-such-revision")
         shutil.rmtree(self.project / ".git", onerror=lambda function, path, _info: (os.chmod(path, 0o700),
                                                                                     function(path)))
         outside = unittest.mock.patch.dict(os.environ, {"GIT_CEILING_DIRECTORIES": str(self.dir)})
         with outside:
-            code, out, err = self.run_main("--all", "--staged")
-        self.assertEqual((code, out), (2, ""))
-        self.assertTrue(err.startswith("lsp-diagnostics: git diff failed: "), err)
+            self.assert_refused("git diff failed: ", "--all", "--staged")
 
 
 if __name__ == "__main__":

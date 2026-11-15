@@ -20,6 +20,9 @@ Exit codes:
   2  bad usage, an unknown server, a git command that failed, or a table that does not load
   3  no requested server could check anything: each is missing, skipped or failed
 
+With `--json` every run that gets past its arguments prints one JSON document on standard output (`servers`,
+`diagnostics`, `failing`, `exit`, `error`), a refused run (exit 2) included: its `error` is the refusal.
+
 Standard library only.
 """
 import argparse
@@ -85,6 +88,13 @@ def exit_code(results, failing):
     if failing or any(status in ("failed", "partial") for status in statuses):
         return 1
     return 0
+
+
+def document(results, rows, failing, code, error=None):
+    """The run as the one JSON document `--json` prints, for a refused run too (`error` is then the refusal)."""
+    return {"servers": {result["name"]: {key: result[key] for key in ("status", "reason", "files", "unanswered",
+                                                                      "unread")} for result in results},
+            "diagnostics": rows, "failing": failing, "exit": code, "error": error}
 
 
 def report_text(results, rows, failing, servers, verbose):
@@ -155,6 +165,9 @@ def main(argv=None, root=None):
             paths = named_paths(root, args.paths)
     except (Refused, lsp_table.TableError) as exc:
         print(f"lsp-diagnostics: {exc}", file=sys.stderr)
+        if args.json:
+            # A reader of the JSON form gets a document for a refusal too, never an empty output.
+            print(json.dumps(document([], [], 0, 2, str(exc)), indent=2))
         return 2
 
     results = [lsp_client.run_server(servers[name], root, paths, timeout=args.timeout, settle=args.settle)
@@ -166,10 +179,7 @@ def main(argv=None, root=None):
     rows.sort(key=lambda row: (row["server"], rank[row["severity"]], row["file"], row["line"]))
     code = exit_code(results, failing)
     if args.json:
-        print(json.dumps({
-            "servers": {result["name"]: {key: result[key] for key in ("status", "reason", "files", "unanswered",
-                                                                      "unread")} for result in results},
-            "diagnostics": rows, "failing": len(failing), "exit": code}, indent=2))
+        print(json.dumps(document(results, rows, len(failing), code), indent=2))
     else:
         if not paths:
             print("lsp-diagnostics: no file in the input.")
