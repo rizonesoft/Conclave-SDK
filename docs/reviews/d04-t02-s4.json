@@ -1,0 +1,85 @@
+{
+  "ref": "D04 T02 \u00a74",
+  "title": "Compiler cache wrapper",
+  "implementation_sha": "61174a929df4fbf6856560de4c07a5ac149f0722",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/04-tooling/D04-T02-s4.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s kits/toolchain-cpp/templates/scripts/tests (88 tests, OK on Windows and WSL; the statement evaluated in sh, PowerShell and cmd)",
+    "python -m unittest tests.test_toolchain_kits (37 tests, OK)",
+    "CI run 43704120417 on 9524093: success (tests-windows, tests-linux, kits-linux)"
+  ],
+  "completion": {
+    "report": "docs/reviews/04-tooling/D04-T02-s4.md",
+    "verdict": "reconciled",
+    "candidate": "61174a929df4fbf6856560de4c07a5ac149f0722",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/04-tooling/D04-T02-s4.md",
+    "candidate": "d6ff448751e0c46f4bc1f9404b73666ca6877c43",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "d6ff448751e0c46f4bc1f9404b73666ca6877c43",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 6,
+  "pass_cap": 33
+}

@@ -126,7 +126,7 @@ Sections: 14 | Checklist items: 136
 | [x]    | D04 T02 §1 | Tool pin file and the script that checks it              | none  | 8     |
 | [x]    | D04 T02 §2 | `toolchain-cpp` kit with pins for the C and C++ tools    | none  | 9     |
 | [x]    | D04 T02 §3 | Compile database freshness check                         | none  | 10    |
-| [ ]    | D04 T02 §4 | Compiler cache wrapper                                   | none  | 13    |
+| [x]    | D04 T02 §4 | Compiler cache wrapper                                   | none  | 13    |
 | [ ]    | D04 T02 §5 | clangd seed and server table entry                       | none  | 4     |
 | [x]    | D04 T02 §6 | `toolchain-web` kit with pins for PHP and Node tools     | none  | 10    |
 | [ ]    | D04 T02 §7 | Toolchain skills and documents for the three agents      | none  | 7     |
@@ -154,6 +154,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 72/85 verified sections, 7 ready to run now.
+Progress: 73/85 verified sections, 6 ready to run now.
 
-Checklist: 618/678 items completed (includes Commit items).
+Checklist: 619/678 items completed (includes Commit items).
