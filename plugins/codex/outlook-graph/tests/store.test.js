@@ -4,6 +4,9 @@ import { mkdtemp, readFile, writeFile, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   LinuxStore,
   WindowsStore,
@@ -86,6 +89,53 @@ test("missing systemd configuration has no plaintext or vault fallback", () => {
   assert.throws(() => new LinuxStore({}), /systemd/);
   assert.throws(() => validateRecord({}), /Invalid/);
 });
+const pwsh7Modules = join(
+  process.env.ProgramFiles || "C:\\Program Files",
+  "PowerShell",
+  "7",
+  "Modules",
+);
+test(
+  "the DPAPI helper works when PowerShell 7's modules come first on the inherited module path",
+  {
+    skip:
+      process.platform !== "win32" ||
+      !existsSync(join(pwsh7Modules, "Microsoft.PowerShell.Security")),
+  },
+  async (t) => {
+    // A Windows process started from WSL inherits the module path of whatever started wsl.exe, and
+    // the bridge cannot remove it, so the helper is run here with that path as the bridge passes it.
+    const root = await mkdtemp(join(tmpdir(), "graph-dpapi-path-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const env = {
+      ...process.env,
+      LOCALAPPDATA: root,
+      PSModulePath: `${pwsh7Modules};${join(process.env.SystemRoot || "C:\\Windows", "System32\\WindowsPowerShell\\v1.0\\Modules")}`,
+    };
+    const run = (action, input) =>
+      spawnSync(
+        join(
+          process.env.SystemRoot || "C:\\Windows",
+          "System32/WindowsPowerShell/v1.0/powershell.exe",
+        ),
+        [
+          "-NoLogo",
+          "-NoProfile",
+          "-NonInteractive",
+          "-File",
+          fileURLToPath(new URL("../scripts/dpapi-store.ps1", import.meta.url)),
+          "-Action",
+          action,
+        ],
+        { env, input: input ?? "", encoding: "utf8", windowsHide: true, timeout: 60000 },
+      );
+    const saved = run("save", JSON.stringify(record));
+    assert.equal(saved.status, 0, saved.stderr);
+    const loaded = run("load");
+    assert.equal(loaded.status, 0, loaded.stderr);
+    assert.deepEqual(JSON.parse(loaded.stdout.replace(/^\uFEFF/, "")), record);
+  },
+);
 test(
   "Windows DPAPI roundtrip, status and preserved non-secret settings",
   { skip: process.platform !== "win32" },

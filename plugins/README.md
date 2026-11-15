@@ -43,6 +43,17 @@ The Codex cloud plugins carry mail addresses, hostnames and connector identifier
 
 The Codex plugins are listed in one private catalogue, `codex/.agents/plugins/marketplace.json`, with paths relative to `codex/`: register it with `codex plugin marketplace add <SDK>\plugins\codex` and install a plugin by name.
 
+## Registered from this checkout
+
+Since 2026-11-16 every plugin above runs from this checkout and nothing runs from the retired `R:\Bin` copies. Claude Code runs the two Claude servers straight from `<SDK>\plugins\claude\<name>\dist\server.mjs`, on Windows and in WSL. Codex reads the `rizonetech` marketplace from `<SDK>\plugins\codex` (`/mnt/d/Conclave-SDK/plugins/codex` in WSL) and runs each plugin from the copy it installs under `~/.codex/plugins/cache/rizonetech/<name>/<version>`, so a change here reaches Codex only after `codex plugin add <name>@rizonetech` refreshes that copy. On the owner's machine Codex on Windows has the seven MCP plugins installed and Codex in WSL has `outlook-graph`; `codex/cloud-access` is scripts with no MCP server, so it has nothing to register.
+
+To register them on a new machine, on Windows and again in WSL:
+
+1. Clone the SDK, then run `python plugins/claude/scripts/register_claude.py` for the two Claude servers.
+2. Run `codex plugin marketplace add <SDK>\plugins\codex`, then `codex plugin add <name>@rizonetech` for each Codex plugin that system uses.
+3. Seed each plugin's encrypted credential store from the Conclave vault with its own import script (each plugin README names it), because the stores are bound to the Windows account and machine.
+4. Check: `register_claude.py --check` prints `ok`, and `echo '{"session_id":"<a new id each run>"}' | python global/codex/hooks/session_drift_check.py` prints nothing (it runs once per session id, and it compares the marketplace source and every installed copy's bundles, `scripts/`, source and MCP manifest with this checkout, and names what differs).
+
 ## Antigravity plugins
 
 General-purpose Antigravity bundles under `agy/` have no host or account bindings and install globally by mirroring into `.gemini/config/plugins/` through `global/deploy.py --agent agy`. Run `global/deploy.py --agent agy --check` to verify sync; `powertools` also checks for drift once per session against its deployed checkout.

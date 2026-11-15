@@ -90,15 +90,18 @@ def plugin_drift(home, sdk, deadline):
         if not versions:
             continue
         expected = {p.name: hashlib.sha256(p.read_bytes()).digest() for p in bundles}
+        # A bundled plugin still runs files from scripts/ (its launcher, its credential helper), so
+        # scripts/ is compared for every plugin and src/ for the ones that run their source.
+        watched = ('scripts',) if bundles else ('src', 'scripts')
+
+        def source_hashes(base):
+            return {p.relative_to(base).as_posix(): hashlib.sha256(p.read_bytes()).digest()
+                    for folder in watched for p in (base / folder).rglob('*')
+                    if p.is_file() and '__pycache__' not in p.parts}
         for version in versions:
-            if not bundles:
-                def source_hashes(base):
-                    return {p.relative_to(base).as_posix(): hashlib.sha256(p.read_bytes()).digest()
-                            for folder in ('src', 'scripts') for p in (base / folder).rglob('*')
-                            if p.is_file() and '__pycache__' not in p.parts}
-                if source_hashes(plugin) != source_hashes(version):
-                    problems.append(name + ': cached source differs from SDK')
-                    break
+            if source_hashes(plugin) != source_hashes(version):
+                problems.append(name + ': cached source differs from SDK')
+                break
             actual = {p.name: hashlib.sha256(p.read_bytes()).digest()
                       for p in (version / 'dist').glob('*.mjs')}
             if actual != expected:

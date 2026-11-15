@@ -7,6 +7,9 @@ $pointer=[IntPtr]::Zero
 $secure=$null
 $temporary=$null
 try {
+    # A process started from WSL inherits the module path of whatever started wsl.exe, which can list
+    # PowerShell 7's modules first; autoloading its Security module into this engine fails, so load this engine's own.
+    Import-Module -Name (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1')
     if (-not $env:LOCALAPPDATA) { throw 'Missing Windows profile' }
     $folder=Join-Path $env:LOCALAPPDATA 'Rizonetech/OutlookGraph'
     $path=Join-Path $folder 'session.dpapi'

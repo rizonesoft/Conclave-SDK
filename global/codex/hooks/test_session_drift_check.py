@@ -86,7 +86,18 @@ class DriftTests(unittest.TestCase):
 
     def test_scripts_are_not_source_inputs(self):
         self.write(self.plugin / 'scripts/test.js', 'test')
+        self.write(self.cache / 'scripts/test.js', 'test')
         os.utime(self.plugin / 'scripts/test.js', (time.time() + 10,) * 2)
+        self.assertEqual(self.check(), [])
+
+    def test_bundled_plugin_cached_scripts(self):
+        # A bundled plugin runs its launcher and credential helper from scripts/, so a stale cached
+        # copy is drift (found 2026-11-16: a fixed outlook-graph helper passed while the cache was old).
+        self.write(self.plugin / 'scripts/launch.mjs', 'launcher')
+        self.assertIn('cached source', self.check()[0])
+        self.write(self.cache / 'scripts/launch.mjs', 'old launcher')
+        self.assertIn('cached source', self.check()[0])
+        self.write(self.cache / 'scripts/launch.mjs', 'launcher')
         self.assertEqual(self.check(), [])
 
     def test_manifest(self):
