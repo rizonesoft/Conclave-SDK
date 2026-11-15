@@ -985,8 +985,29 @@ class DocumentTests(InstalledProject):
         self.assertEqual((reply["id"], [tool["name"] for tool in reply["result"]["tools"]]),
                          (1, ["diagnostics", "definition", "references", "hover"]))
         for said in ("It prints one line of JSON that names the four tools, and exits 0.",
-                     "a call needs the input kept open until its answer has been read"):
+                     "A `tools/call` that needs a language server is answered that the input ended",
+                     "no server is started for it",
+                     "A call answered without a server (arguments that do not fit, a file outside the project or not "
+                     "in it, a file no server serves) gets its usual answer this way too."):
             self.assertIn(said, text)
+        # What the document says of a call sent that way is what the bridge does, for each kind of call.
+        self.servers(project, ("stub", "clean"))   # a server for .py files, which must not be started
+        (project / "app.py").write_text("x = 1\n", encoding="utf-8")
+        ended = ("The input ended before this call was answered, so it was not run to its end: a client keeps the "
+                 "bridge's input open until it has read the answer.")
+        for arguments, answer in (({"file": "absent.py"}, "absent.py is not a file of the project"),
+                                  ({"file": "docs/language-servers.md"},
+                                   "No server of .conclave/lsp.json serves docs/language-servers.md."),
+                                  ({"file": "app.py"}, ended)):
+            with self.subTest(arguments=arguments):
+                message = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                                      "params": {"name": "diagnostics", "arguments": arguments}})
+                ran = subprocess.run([sys.executable, "-B", "scripts/lsp-mcp-bridge.py"], cwd=project,
+                                     input=message + "\n", capture_output=True, text=True, timeout=120,
+                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                self.assertEqual(ran.returncode, 0, ran.stderr)
+                (reply,) = [json.loads(out) for out in ran.stdout.splitlines() if out.strip()]
+                self.assertEqual(reply["result"]["content"][0]["text"], answer)
 
     def test_a_command_the_scripts_lack_does_not_parse(self):
         # What the test above would do with a wrong document: an option that is not there, a missing argument.
