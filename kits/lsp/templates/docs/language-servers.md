@@ -80,7 +80,7 @@ To try the bridge by hand, send it one request. The same line works in `sh` and 
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | python scripts/lsp-mcp-bridge.py
 ```
 
-It prints one line of JSON that names the four tools, and exits 0. The end of its input ends the bridge once it has answered what arrived before it, so a request sent this way is answered. A `tools/call` sent this way is answered that the input ended before the call could run: a call needs the input kept open until its answer has been read, which is how an agent holds it.
+It prints one line of JSON that names the four tools, and exits 0. The end of its input ends the bridge once it has answered what arrived before it, so a request sent this way is answered. A `tools/call` sent this way is answered that the input ended before the call could run: a call needs the input kept open until its answer has been read, which is how an agent holds it. When the reader of its output has gone, the bridge ends quietly with 0; when its output fails for another reason (a full disk), it says so on stderr and ends with 1.
 
 ## Registering the bridge
 

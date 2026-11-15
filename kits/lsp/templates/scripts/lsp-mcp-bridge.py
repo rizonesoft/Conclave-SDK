@@ -32,6 +32,7 @@ wait to be handled; more is refused or made to wait, never held. Standard librar
 """
 import argparse
 import collections
+import errno
 import hashlib
 import json
 import os
@@ -93,6 +94,15 @@ class ToolError(Exception):
     """A call that could not be answered: a tool result with `isError`."""
 
 
+class InputEnded(Exception):
+    """A call that would reach a language server after the bridge's input has ended. No server is started or
+    asked for it: the call is answered with INPUT_ENDED."""
+
+
+INPUT_ENDED = ("The input ended before this call was answered, so it was not run to its end: a client keeps the "
+               "bridge's input open until it has read the answer.")
+
+
 class Forbidden(Exception):
     """An LSP request that is not on the read-only allow-list. It is never written to a server."""
 
@@ -138,7 +148,8 @@ class Bridge:
         self.timeout = timeout
         self.stop = stop or threading.Event()
         self.halt = Halt(self.stop)
-        self.unread = False   # set when a reply could not be written: nobody reads the output
+        self.unread = False   # set when a reply could not be written: nothing more is written to the output
+        self.reached = False  # whether the call in hand has reached a server
         self.open_documents = open_documents
         self.outbox_limit = outbox_limit
         self.sessions = {}
@@ -165,7 +176,12 @@ class Bridge:
 
     def session(self, entry):
         """The running session of a server, started when there is none, or its entry changed, or it ended:
-        (session, None), or (None, why it is not running)."""
+        (session, None), or (None, why it is not running). Every call that needs a server comes through here
+        first: once the input has ended none is started or asked (InputEnded), and the call is marked as one that
+        reached a server, so `call` knows its result may have been cut short."""
+        if self.halt.ended.is_set():
+            raise InputEnded()
+        self.reached = True
         name = entry["name"]
         session = self.sessions.get(name)
         if session is not None and (session.entry != entry or not session.client.alive or session.client.failure):
@@ -411,7 +427,10 @@ class Bridge:
 
     def call(self, name, arguments):
         """One tool call: (text, whether it is an error). Raises InvalidParams for a tool that does not exist or
-        arguments that do not fit its schema."""
+        arguments that do not fit its schema. What needs no server is answered whenever it is asked (arguments
+        that do not fit, a file outside the project, a file no server serves). A call that needs one and was not
+        answered when the input ended, because it had not reached a server yet or was cut short while it waited
+        on one, is answered INPUT_ENDED: the same answer either way."""
         schema = next((tool["inputSchema"] for tool in TOOLS if tool["name"] == name), None)
         if schema is None:
             raise InvalidParams(f"Unknown tool: {name}")
@@ -426,12 +445,16 @@ class Bridge:
                 raise InvalidParams(f"{name}: {key} must be a path")
             if rule["type"] == "integer" and (type(value) is not int or value < 1):
                 raise InvalidParams(f"{name}: {key} must be a whole number from 1")
+        self.reached = False
         try:
-            if name == "diagnostics":
-                return self.diagnostics(arguments)
-            return self.position(name, arguments)
+            result = self.diagnostics(arguments) if name == "diagnostics" else self.position(name, arguments)
         except ToolError as exc:
-            return str(exc), True
+            result = str(exc), True
+        except InputEnded:
+            return INPUT_ENDED, True
+        if self.reached and self.halt.ended.is_set():
+            return INPUT_ENDED, True   # the wait on a server was cut: what it holds is not a whole answer
+        return result
 
 
 # ------------------------------------------------------------------ MCP
@@ -479,8 +502,13 @@ def handle(bridge, line):
     return _error(number, -32601, f"Method not found: {method}")
 
 
-INPUT_ENDED = ("The input ended before this call was answered, so it was not run to its end: a client keeps the "
-               "bridge's input open until it has read the answer.")
+def reader_gone(exc):
+    """Whether an error from writing the output means that its reader has gone (a closed pipe), and not that the
+    output itself failed (a full disk, an I/O error). Windows reports a pipe closed at the other end as an
+    invalid argument as well as a broken pipe."""
+    if isinstance(exc, (BrokenPipeError, ConnectionError)):
+        return True
+    return os.name == "nt" and isinstance(exc, OSError) and exc.errno == errno.EINVAL
 
 
 def serve(bridge, source, sink):
@@ -488,23 +516,33 @@ def serve(bridge, source, sink):
     nobody expected: 0, or 1 for such an error. Input is read on a thread of its own, so the end of input and a
     signal are seen while a call is waiting on a server. The servers are closed on every way out.
 
-    The end of input ends the bridge once what arrived before it is answered, in order: a message that starts
-    no server as always, and a `tools/call` that was not answered by then (waiting its turn, or cut short while it
-    waited on a server) with a tool error that says so. No server is started after the input has ended. A signal
-    ends the bridge at once, with nothing more answered, and so does an output nobody reads any more."""
+    The end of input ends the bridge once what arrived before it is answered, in order: whatever needs no server
+    as always, and a `tools/call` that needs one and was not answered by then (not yet at a server, or cut short
+    while it waited on one) with a tool error that says so, which `Bridge.call` decides. No server is started or
+    asked after the input has ended. A signal
+    ends the bridge at once, with nothing more answered, and so does an output nobody reads any more. An output
+    that fails for any other reason (a full disk, an I/O error) is an answer lost: it is said on stderr, with 1."""
     inbox = queue.Queue(maxsize=WAITING_LIMIT)
     in_hand = {"id": None}   # the request being handled, for a cancellation that names it
     ended = bridge.halt.ended
 
     def say(reply):
-        """Write one reply: False when nobody reads the output any more."""
+        """Write one reply: None when it is written, else the exit code to end with: 0 when nobody reads the
+        output any more (the agent has gone), 1 when the output failed, which is said on stderr."""
         try:
             sink.write((json.dumps(reply) + "\n").encode("utf-8"))
             sink.flush()
-        except (OSError, ValueError):
+        except ValueError:   # the output was closed in this process
             bridge.unread = True
-            return False
-        return True
+            return 0
+        except OSError as exc:
+            bridge.unread = True   # either way nothing more can be written to it
+            if reader_gone(exc):
+                return 0
+            print(f"lsp-mcp-bridge: stopped: the output could not be written ({exc.strerror or exc}), so an answer "
+                  "was lost", file=sys.stderr)
+            return 1
+        return None
 
     def cancels(line):
         """Whether a line is the agent cancelling the request in hand. It is read here, on the input's thread,
@@ -552,35 +590,27 @@ def serve(bridge, source, sink):
                     return 0   # the input has ended and everything that arrived is answered
             if line is not OVERSIZE and not line.strip():
                 continue
-            number, call = None, False
+            number = None
             if line is not OVERSIZE:
                 try:
-                    message = json.loads(line)
-                    number = message.get("id")
-                    call = message.get("method") == "tools/call" and "id" in message
+                    number = json.loads(line).get("id")
                 except (ValueError, AttributeError, RecursionError):
-                    number, call = None, False
+                    number = None
             bridge.halt.cancel.clear()
             in_hand["id"] = number
-            cut = {"jsonrpc": "2.0", "id": number,
-                   "result": {"content": [{"type": "text", "text": INPUT_ENDED}], "isError": True}}
-            if call and ended.is_set():
-                reply = cut   # it had not begun: no server is started for a call nobody may be waiting for
-            else:
-                try:
-                    reply = handle(bridge, line)
-                except Exception as exc:   # what state the servers are in is unknown: say so once, and end with them closed
-                    say(_error(number, -32603, f"Internal error: {type(exc).__name__}: {exc}"))
-                    print(f"lsp-mcp-bridge: stopped by an error: {type(exc).__name__}: {exc}", file=sys.stderr)
-                    return 1
-                if call and ended.is_set() and reply is not None and "result" in reply:
-                    reply = cut   # the input ended while it waited on a server: its result is not a whole one
+            try:
+                reply = handle(bridge, line)   # a call that needs a server after the input ended says so itself
+            except Exception as exc:   # what state the servers are in is unknown: say so once, and end with them closed
+                say(_error(number, -32603, f"Internal error: {type(exc).__name__}: {exc}"))   # 1 either way
+                print(f"lsp-mcp-bridge: stopped by an error: {type(exc).__name__}: {exc}", file=sys.stderr)
+                return 1
             in_hand["id"] = None
             # A call the agent cancelled is not answered (it has stopped listening for it), and nothing is after a
             # signal. The end of input silences nothing: whoever sent the message may still be reading.
             if reply is not None and not bridge.stop.is_set() and not bridge.halt.cancel.is_set():
-                if not say(reply):
-                    return 0   # nobody reads the output: the agent has gone
+                code = say(reply)
+                if code is not None:
+                    return code   # nobody reads the output (0), or it failed and an answer was lost (1)
     finally:
         bridge.stop.set()
         bridge.close()
@@ -633,7 +663,8 @@ def main(argv=None):
     bridge = Bridge(args.root or ROOT, timeout=args.timeout, stop=stop)
     code = serve(bridge, input_lines(sys.stdin.fileno()), sys.stdout.buffer)
     if bridge.unread:
-        # The output has no reader: point it at nothing, so the interpreter's own flush at exit does not fail.
+        # The output takes nothing more: point it at nothing, so the interpreter's own flush at exit does not
+        # fail a second time and change the exit code.
         try:
             os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         except OSError:

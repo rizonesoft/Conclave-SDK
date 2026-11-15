@@ -5,6 +5,7 @@ The language servers are stubs: one Python program, written here, that behaves a
 logs what it receives. The bridge is run as a process and spoken to in MCP, as an agent does.
 """
 import importlib.util
+import errno
 import io
 import json
 import os
@@ -990,7 +991,8 @@ class EndOfInputTests(Fixture):
                 self.assertEqual([tool["name"] for tool in replies[1]["result"]["tools"]],
                                  ["diagnostics", "definition", "references", "hover"])
 
-    def test_a_call_waiting_at_the_end_of_input_is_answered_that_it_was_not_run_and_starts_no_server(self):
+    def test_a_call_that_needs_a_server_at_the_end_of_input_is_answered_that_the_input_ended(self):
+        # Whichever comes first, the call reaching the server or the end of input being seen: the same answer.
         self.server()
         rel = self.file("a.py")
         call = {"jsonrpc": "2.0", "id": 7, "method": "tools/call",
@@ -1007,6 +1009,12 @@ class EndOfInputTests(Fixture):
 
     def test_every_kind_of_message_that_starts_no_server_is_answered_in_order_at_the_end_of_input(self):
         self.server()
+        for attempt in range(5):   # the same answers whenever the end of input is seen
+            with self.subTest(attempt=attempt):
+                self.mixed_batch()
+        self.assertEqual(self.log(kind="started"), [])   # no server was started for any of it
+
+    def mixed_batch(self):
         code, replies, err = self.batch(
             {"jsonrpc": "2.0", "id": 1, "method": "ping"},
             {"jsonrpc": "2.0", "id": 2, "method": "resources/list"},
@@ -1014,14 +1022,20 @@ class EndOfInputTests(Fixture):
             {"jsonrpc": "2.0", "method": "notifications/initialized"},
             "[1, 2]",
             {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "rename", "arguments": {}}},
-            {"jsonrpc": "2.0", "id": 4, "method": "ping"})
+            {"jsonrpc": "2.0", "id": 4, "method": "tools/call",
+             "params": {"name": "diagnostics", "arguments": {"file": "../outside.py"}}},
+            {"jsonrpc": "2.0", "id": 5, "method": "tools/call",
+             "params": {"name": "diagnostics", "arguments": {"file": "absent.py"}}},
+            {"jsonrpc": "2.0", "id": 6, "method": "ping"})
         self.assertEqual((code, err), (0, ""))
         self.assertEqual([(reply["id"], reply.get("error", {}).get("code")) for reply in replies],
-                         [(1, None), (2, -32601), (None, -32700), (None, -32600), (3, None), (4, None)])
+                         [(1, None), (2, -32601), (None, -32700), (None, -32600), (3, -32602), (4, None), (5, None),
+                          (6, None)])
         self.assertEqual(replies[0]["result"], {})
-        # A call is never run after the input has ended, whatever it names: it is told so.
-        self.assertEqual(replies[4]["result"]["content"][0]["text"], self.CUT)
-        self.assertEqual(self.log(kind="started"), [])   # no server was started for any of it
+        # What a call answers without a server is its answer whenever it is asked, the input ended or not.
+        self.assertEqual(replies[4]["error"]["message"], "Unknown tool: rename")
+        self.assertEqual([reply["result"]["content"][0]["text"] for reply in replies[5:7]],
+                         ["../outside.py is outside the project", "absent.py is not a file of the project"])
 
     def test_what_waits_behind_a_call_is_answered_when_the_input_ends_during_that_call(self):
         bridge, pids = self.waiting()
@@ -1063,6 +1077,26 @@ class EndOfInputTests(Fixture):
         self.assertEqual([reply["id"] for reply in replies], [1])   # once, and not dropped
         self.assertEqual(len(replies[0]["result"]["tools"]), 4)
 
+    def test_no_server_is_started_or_asked_for_a_call_once_the_input_has_ended(self):
+        # The answer alone does not show it: a server started and stopped at once would give the same one.
+        self.server(behaviour={"child": True})
+        rel = self.file("a.py")
+        bridge = self.in_process()
+        bridge.halt.ended.set()
+        started = unittest.mock.Mock(side_effect=AssertionError("a server was started after the input had ended"))
+        with unittest.mock.patch.object(lsp_client, "start_server", started):
+            self.assertEqual(bridge.call("diagnostics", {"file": rel}), (self.CUT, True))
+            self.assertEqual(bridge.call("hover", {"file": rel, "line": 1, "column": 1}), (self.CUT, True))
+        self.assertEqual((started.call_count, self.log(), bridge.sessions), (0, [], {}))
+        # One that was running before the input ended is not asked either: a changed file is not sent to it.
+        bridge.halt.ended.clear()
+        self.assertEqual(bridge.call("diagnostics", {"file": rel}), ("stub: clean", False))
+        asked = len(self.log())
+        self.file("a.py", "changed after the input ended\n")
+        bridge.halt.ended.set()
+        self.assertEqual(bridge.call("diagnostics", {"file": rel}), (self.CUT, True))
+        self.assertEqual(len(self.log()), asked)
+
     def test_an_output_nobody_reads_ends_the_bridge_quietly(self):
         class Closed(io.RawIOBase):
             def write(self, data):
@@ -1074,6 +1108,68 @@ class EndOfInputTests(Fixture):
         with unittest.mock.patch.object(sys, "stderr", io.StringIO()) as errors:
             code = bridge_module.serve(bridge, iter(lines), Closed())
         self.assertEqual((code, errors.getvalue(), bridge.unread), (0, "", True))
+
+    def test_an_output_that_fails_is_an_answer_lost_said_with_exit_1(self):
+        # Found by the review round: every failure to write was taken for a reader that had gone, with exit 0.
+        class Full(io.RawIOBase):
+            def write(self, data):
+                raise OSError(errno.ENOSPC, "No space left on device")
+
+        bridge = self.in_process()
+        lines = [json.dumps({"jsonrpc": "2.0", "id": number, "method": "ping"}).encode("utf-8") + b"\n"
+                 for number in (1, 2)]
+        with unittest.mock.patch.object(sys, "stderr", io.StringIO()) as errors:
+            code = bridge_module.serve(bridge, iter(lines), Full())
+        self.assertEqual(code, 1)
+        self.assertEqual(errors.getvalue(), "lsp-mcp-bridge: stopped: the output could not be written (No space left "
+                                            "on device), so an answer was lost\n")   # once: it ended there
+        # What a closed pipe looks like, on each system, and what it does not.
+        self.assertTrue(bridge_module.reader_gone(BrokenPipeError(errno.EPIPE, "Broken pipe")))
+        self.assertTrue(bridge_module.reader_gone(ConnectionResetError(errno.ECONNRESET, "reset")))
+        self.assertEqual(bridge_module.reader_gone(OSError(errno.EINVAL, "Invalid argument")), os.name == "nt")
+        for other in (errno.ENOSPC, errno.EIO, errno.EACCES):
+            self.assertFalse(bridge_module.reader_gone(OSError(other, "failed")))
+
+    @unittest.skipUnless(os.path.exists("/dev/full"), "needs /dev/full, a device that is always full")
+    def test_the_bridge_writing_to_a_full_device_exits_1_and_says_so_once(self):
+        self.server()
+        with open("/dev/full", "wb") as full:
+            ran = subprocess.run([sys.executable, "-B", str(BRIDGE), "--root", str(self.project)],
+                                 input=b'{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n', stdout=full,
+                                 stderr=subprocess.PIPE, timeout=120)
+        self.assertEqual(ran.returncode, 1)
+        self.assertEqual(ran.stderr.decode("utf-8"), "lsp-mcp-bridge: stopped: the output could not be written (No "
+                                                     "space left on device), so an answer was lost\n")
+
+    def test_a_reader_that_has_gone_ends_the_real_bridge_with_exit_0_and_nothing_on_stderr(self):
+        self.server()
+        # Its own process, with nothing reading its output in this one: closing a pipe that a thread is reading
+        # waits for that read on Windows.
+        windows = os.name == "nt"
+        proc = subprocess.Popen([sys.executable, "-B", str(BRIDGE), "--root", str(self.project)],
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                creationflags=subprocess.CREATE_NO_WINDOW if windows else 0)
+
+        def cleanup():
+            if proc.poll() is None:
+                proc.kill()   # it starts no server: tools/list needs none
+                proc.wait(timeout=30)
+            for stream in (proc.stdin, proc.stdout, proc.stderr):
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+
+        self.addCleanup(cleanup)
+        proc.stdout.close()   # the agent stopped reading
+        request = b'{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n'
+        try:
+            proc.stdin.write(request * 3)
+            proc.stdin.close()
+        except OSError:
+            pass   # it has ended already
+        self.assertEqual(proc.wait(timeout=30), 0)
+        self.assertEqual(proc.stderr.read().decode("utf-8"), "")
 
     @unittest.skipUnless(os.name == "posix", "signals that ask a process to stop are POSIX's")
     def test_a_signal_answers_nothing_that_was_still_waiting(self):
