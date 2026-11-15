@@ -41,7 +41,11 @@ title: "TODO-01 -- Imported material: plugins and retired repositories"
 
 ## 1. Plugins registered from `plugins/`
 
+> **Started:** 2026-11-15T22:19:23Z
+
 Each plugin's registration in the owner's Codex and Claude Code configuration is pointed at this checkout. The registrations are account-bound and live in the user's own configuration, so this is done with the owner present.
+
+**Corrected 2026-11-16 (validation):** the registrations moved before this section ran: the two Claude servers on 2026-11-14 (`eee7599`, `plugins/claude/scripts/register_claude.py`) and the Codex marketplace with its seven MCP plugins in `dbf6373`. Measured 2026-11-15: no Codex or Claude Code configuration on Windows or in WSL names `R:/Bin` or `/mnt/r/Bin`; `register_claude.py --check` prints `ok` on both systems; Codex's `rizonetech` marketplace is `\\?\D:\Conclave-SDK\plugins\codex` on Windows and `/mnt/d/Conclave-SDK/plugins/codex` in WSL, and Codex runs each plugin from its own install cache (`~/.codex/plugins/cache/rizonetech/<name>/<version>`) copied from that marketplace. The ten plugins are nine registrations: `codex/cloud-access` is scripts with no MCP server, so it has nothing to register. In WSL only `outlook-graph@rizonetech` is installed for Codex; the other Codex plugins are Windows-side. So the first and third items are verified rather than built, the second compares what is still under `R:/Bin` (§2 owns the full comparison), and the fourth is the live proof.
 
 **Phase:** 99
 **Needs:** attended
