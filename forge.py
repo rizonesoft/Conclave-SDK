@@ -1887,15 +1887,45 @@ def _systemd_user_manager(run=subprocess.run) -> tuple[str, str]:
 BARE_DOCTOR_ALSO = ("lsp",)
 
 
+def _lsp_table_module():
+    """The lsp kit's table module, loaded from the kit (forge reads; the project's copy is the project's), so the
+    doctor holds a table to the rules the kit's own tools hold it to."""
+    path = FORGE_ROOT / "kits/lsp/templates/scripts/lib/lsp_table.py"
+    module = types.ModuleType("_forge_lsp_table")
+    module.__file__ = str(path)
+    exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), module.__dict__)
+    return module
+
+
 def _doctor_lsp(target_root: Path, add_check) -> None:
-    """The lsp kit's checks: each file the kit installs is present. The list is the kit's own templates folder, so a
-    file a kit gains is checked without a second list."""
+    """The lsp kit's checks: each file the kit installs is present (the list is the kit's own templates folder, so
+    a file the kit gains is checked without a second list), the server table loads, and each server it names is
+    installed."""
     templates = FORGE_ROOT / "kits/lsp/templates"
     for src in sorted(templates.rglob("*")):
         rel = src.relative_to(templates).as_posix()
         if src.is_file() and "__pycache__" not in src.parts and not rel.endswith(FORGE_SUFFIXES):
             path = target_root / rel
             add_check(rel, "ok" if path.is_file() else "missing", path.as_posix())
+    table = _lsp_table_module()
+    try:
+        servers = table.load_servers(target_root)
+    except table.TableError as exc:
+        add_check("server-table", "missing", str(exc))
+        return
+    if not servers:
+        add_check("server-table", "ok", f"{LSP_TABLE} holds no server yet: add a stack's with "
+                                        "python scripts/lsp-servers.py add <preset>")
+    else:
+        add_check("server-table", "ok", f"{LSP_TABLE}: {', '.join(server['name'] for server in servers)}")
+    for server in servers:
+        program = server["command"][0]
+        found = shutil.which(program)
+        if found is None and ("/" in program or "\\" in program):
+            # A program named by a path is read from the folder the server runs in, as the client starts it.
+            local = target_root / server["root"] / program
+            found = local.as_posix() if local.is_file() else None
+        add_check(f"server:{server['name']}", "ok" if found else "setup_required", found or server["install"])
 
 
 def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
@@ -2308,6 +2338,7 @@ SUITES: list[dict] = [
     _unittest_suite("kit-unattended", "kits/unattended/templates/scripts/tests", 1800),
     _unittest_suite("kit-wordpress", "kits/wordpress/templates/scripts/tests", 1800),
     _unittest_suite("kit-wordpress-pressable", "kits/wordpress/hosts/pressable/templates/scripts/tests", 1800),
+    _unittest_suite("kit-lsp", "kits/lsp/templates/scripts/tests", 600),
     _unittest_suite("kit-toolchain-cpp", "kits/toolchain-cpp/templates/scripts/tests", 600),
     _unittest_suite("kit-toolchain-web", "kits/toolchain-web/templates/scripts/tests", 600),
     _unittest_suite("sdk-scripts", "scripts/tests", 1800),

@@ -1,0 +1,401 @@
+"""The language server table: its rules, the presets, how a preset finds its app, the write, and lsp-servers.py."""
+import importlib.util
+import json
+import os
+import pathlib
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+import unittest.mock
+
+SCRIPTS = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SCRIPTS / "lib"))
+import lsp_table  # noqa: E402
+
+spec = importlib.util.spec_from_file_location("lsp_servers", SCRIPTS / "lsp-servers.py")
+lsp_servers = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(lsp_servers)
+
+TABLE = lsp_table.TABLE
+CLANGD = {"name": "clangd", "command": ["clangd", "--background-index"],
+          "extensions": {".c": "c", ".h": "c", ".cpp": "cpp"}, "install": "apt install clangd"}
+
+
+class Fixture(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = pathlib.Path(tmp.name).resolve()
+        (self.root / ".conclave").mkdir()
+        self.table = self.root / TABLE
+        self.write({"schema_version": 1, "servers": []})
+
+    def write(self, document):
+        data = document if isinstance(document, bytes) else json.dumps(document).encode("utf-8")
+        self.table.write_bytes(data)
+        return self.table
+
+    def servers(self, *entries):
+        return self.write({"schema_version": 1, "servers": list(entries)})
+
+    def refusal(self):
+        with self.assertRaises(lsp_table.TableError) as caught:
+            lsp_table.load_servers(self.root)
+        self.assertTrue(str(caught.exception).startswith(TABLE + ": "), caught.exception)
+        return str(caught.exception)
+
+
+class LoadServersTests(Fixture):
+    def test_a_table_loads_with_its_defaults_filled_in(self):
+        self.assertEqual(lsp_table.load_servers(self.root), [])
+        full = dict(CLANGD, name="laravel-lsp", root="platform", requires="artisan", init={"a": 1},
+                    settings={"b": {"c": 2}}, severity="warning", settle=8.5, note="one line")
+        self.servers(CLANGD, full)
+        first, second = lsp_table.load_servers(self.root)
+        self.assertEqual(first, dict(CLANGD, root=".", requires=None, init={}, settings=None, severity="error",
+                                     settle=5, note=None))
+        self.assertEqual(second, full)
+
+    def test_a_file_that_is_not_a_table_is_refused_naming_it(self):
+        self.table.unlink()
+        self.assertIn("cannot be read", self.refusal())
+        self.write(b"\xff\xfe{}")
+        self.assertIn("not UTF-8", self.refusal())
+        denied = PermissionError(13, "Permission denied")
+        with unittest.mock.patch.object(pathlib.Path, "read_bytes", side_effect=denied):
+            self.assertIn("cannot be read (Permission denied)", self.refusal())
+        cases = {b"{": "not JSON", b"null": "an object with the keys", b"[]": "an object with the keys",
+                 b'{"schema_version": 1}': "missing key 'servers'",
+                 b'{"schema_version": 1, "servers": [], "extra": 1}': "unknown key 'extra'",
+                 b'{"schema_version": 2, "servers": []}': "schema_version: must be 1",
+                 b'{"schema_version": true, "servers": []}': "schema_version: must be 1",
+                 b'{"schema_version": 1, "servers": {}}': "servers: a list",
+                 b'{"schema_version": 1, "servers": ["clangd"]}': "server 1: a server is an object"}
+        for data, expected in cases.items():
+            with self.subTest(data=data):
+                self.write(data)
+                self.assertIn(expected, self.refusal())
+
+    def test_each_fault_in_an_entry_is_refused_naming_the_entry_and_the_key(self):
+        def entry(**changes):
+            return dict(CLANGD, **changes)
+
+        without = {key: value for key, value in CLANGD.items() if key != "install"}
+        cases = [
+            (entry(name="Clangd"), "server 1: name:"),
+            (entry(name=""), "server 1: name:"),
+            ({key: value for key, value in CLANGD.items() if key != "name"}, "server 1: name:"),
+            (entry(extra=1), "server 'clangd': unknown key 'extra'"),
+            (entry(language="c"), "server 'clangd': unknown key 'language'"),
+            (without, "server 'clangd': missing key 'install'"),
+            (entry(command="clangd --background-index"), "server 'clangd': command:"),
+            (entry(command=[]), "server 'clangd': command:"),
+            (entry(command=["clangd", ""]), "server 'clangd': command:"),
+            (entry(command=["clangd", 4]), "server 'clangd': command:"),
+            (entry(extensions=[".c", ".h"]), "server 'clangd': extensions:"),
+            (entry(extensions={}), "server 'clangd': extensions:"),
+            (entry(extensions={"c": "c"}), "server 'clangd': extensions: a suffix starts with a dot"),
+            (entry(extensions={".": "c"}), "server 'clangd': extensions: a suffix starts with a dot"),
+            (entry(extensions={".c": ""}), "server 'clangd': extensions: the language id of '.c'"),
+            (entry(extensions={".c": 3}), "server 'clangd': extensions: the language id of '.c'"),
+            (entry(install="one\ntwo"), "server 'clangd': install: a one-line hint"),
+            (entry(install=" "), "server 'clangd': install: a one-line hint"),
+            (entry(root="/srv/app"), "server 'clangd': root:"),
+            (entry(root="../elsewhere"), "server 'clangd': root:"),
+            (entry(root="C:/app"), "server 'clangd': root:"),
+            (entry(root="app\\src"), "server 'clangd': root:"),
+            (entry(requires="/etc/passwd"), "server 'clangd': requires:"),
+            (entry(requires="a/../../b"), "server 'clangd': requires:"),
+            (entry(severity="hint"), "server 'clangd': severity: error or warning"),
+            (entry(settle="5"), "server 'clangd': settle:"),
+            (entry(settle=True), "server 'clangd': settle:"),
+            (entry(settle=0), "server 'clangd': settle:"),
+            (entry(settle=121), "server 'clangd': settle:"),
+            (entry(init=[]), "server 'clangd': init: an object"),
+            (entry(settings="x"), "server 'clangd': settings: an object"),
+            (entry(note="a\nb"), "server 'clangd': note: one line"),
+        ]
+        for bad, expected in cases:
+            with self.subTest(expected=expected, entry=str(bad)[:50]):
+                self.servers(bad)
+                self.assertIn(expected, self.refusal())
+        self.servers(CLANGD, CLANGD)
+        self.assertIn("server 'clangd': name: used by two servers", self.refusal())
+
+
+class PresetTests(Fixture):
+    def presets(self, document):
+        path = self.root / "presets.json"
+        path.write_text(json.dumps(document), encoding="utf-8")
+        return path
+
+    def test_the_five_presets_resolve_to_their_servers(self):
+        loaded = lsp_table.load_presets()
+        names = {name: [entry["name"] for entry in body["servers"]] for name, body in loaded["presets"].items()}
+        self.assertEqual(names,
+                         {"cpp": ["clangd"], "python": ["basedpyright"], "php": ["intelephense"],
+                          "web": ["typescript", "tailwindcss"],
+                          "laravel": ["laravel-lsp", "intelephense", "tailwindcss"]})
+        self.assertEqual(sorted(loaded["servers"]), ["basedpyright", "clangd", "intelephense", "laravel-lsp",
+                                                     "tailwindcss", "typescript"])
+        self.assertEqual({name: body["root_marker"] for name, body in loaded["presets"].items()},
+                         {"cpp": None, "python": None, "php": None, "web": None, "laravel": "artisan"})
+
+    def test_a_general_preset_carries_nothing_that_belongs_to_laravel(self):
+        loaded = lsp_table.load_presets()["presets"]
+        typescript, tailwind = loaded["web"]["servers"]
+        self.assertEqual(typescript["command"], ["typescript-language-server", "--stdio"])
+        self.assertEqual(tailwind["command"], ["tailwindcss-language-server", "--stdio"])
+        self.assertEqual((tailwind["requires"], tailwind["init"], tailwind["settings"]), (None, {}, None))
+        self.assertNotIn(".blade.php", tailwind["extensions"])
+        self.assertEqual(tailwind["extensions"][".css"], "css")
+        (intelephense,) = loaded["php"]["servers"]
+        self.assertEqual((intelephense["requires"], intelephense["settings"], intelephense["severity"]),
+                         (None, None, "error"))
+        self.assertEqual(intelephense["extensions"], {".php": "php"})
+        (clangd,) = loaded["cpp"]["servers"]
+        self.assertEqual((clangd["extensions"][".c"], clangd["extensions"][".cpp"]), ("c", "cpp"))
+        (pyright,) = loaded["python"]["servers"]
+        self.assertEqual(pyright["command"], ["basedpyright-langserver", "--stdio"])
+
+    def test_the_laravel_preset_carries_what_the_laravel_client_held_for_its_servers(self):
+        laravel, intelephense, tailwind = lsp_table.load_presets()["presets"]["laravel"]["servers"]
+        self.assertEqual((laravel["command"], laravel["requires"], laravel["severity"], laravel["settle"]),
+                         (["laravel-lsp"], "artisan", "warning", 8))
+        self.assertEqual(laravel["init"], {"phpEnvironment": "local", "phpCommand": ["php"],
+                                           "pestGenerateDocBlocks": False})
+        self.assertEqual(laravel["extensions"], {".php": "php", ".blade.php": "blade"})
+        self.assertEqual((intelephense["requires"], intelephense["severity"], intelephense["settle"]),
+                         ("composer.json", "error", 10))
+        diagnostics = intelephense["settings"]["intelephense"]["diagnostics"]
+        self.assertEqual((diagnostics["typeErrors"], diagnostics["undefinedFunctions"]), (False, True))
+        self.assertEqual((tailwind["requires"], tailwind["severity"], tailwind["settle"]),
+                         ("resources/css/app.css", "warning", 6))
+        self.assertEqual(tailwind["init"], {"userLanguages": {"blade": "html"}})
+        self.assertEqual(tailwind["settings"]["tailwindCSS"]["lint"]["cssConflict"], "warning")
+        self.assertEqual(tailwind["extensions"], {".blade.php": "blade", ".css": "css", ".php": "php"})
+
+    def test_a_presets_file_with_a_fault_is_refused(self):
+        entry = {key: value for key, value in CLANGD.items() if key != "name"}
+        good = {"schema_version": 1, "servers": {"clangd": entry}, "presets": {"cpp": {"servers": ["clangd"]}}}
+        self.assertEqual(list(lsp_table.load_presets(self.presets(good))["presets"]), ["cpp"])
+        cases = [
+            (dict(good, presets={"cpp": {"servers": ["gopls"]}}), "names a server the catalogue lacks: 'gopls'"),
+            (dict(good, presets={"cpp": {"servers": [{"server": "clangd", "name": "other"}]}}), "cannot rename"),
+            (dict(good, presets={"cpp": {"servers": [{"server": "clangd", "extra": 1}]}}), "unknown key 'extra'"),
+            (dict(good, presets={"cpp": {"servers": ["clangd", "clangd"]}}), "listed twice"),
+            (dict(good, presets={"cpp": {"servers": []}}), "servers: a list of at least one server"),
+            (dict(good, presets={"cpp": {"servers": ["clangd"], "extra": 1}}), "an object with servers"),
+            (dict(good, presets={"cpp": {"servers": ["clangd"], "root_marker": "../artisan"}}), "root_marker:"),
+            (dict(good, servers={"clangd": dict(entry, extra=1)}), "server 'clangd': unknown key 'extra'"),
+            (dict(good, servers={"Clangd": entry}), "name:"),
+            (dict(good, extra=1), "unknown key 'extra'"),
+        ]
+        for document, expected in cases:
+            with self.subTest(expected=expected):
+                with self.assertRaises(lsp_table.TableError) as caught:
+                    lsp_table.load_presets(self.presets(document))
+                self.assertIn(expected, str(caught.exception))
+                self.assertTrue(str(caught.exception).startswith("presets.json: "), caught.exception)
+
+    def test_an_override_is_checked_like_any_entry_and_replaces_the_catalogue_value(self):
+        entry = {key: value for key, value in CLANGD.items() if key != "name"}
+        document = {"schema_version": 1, "servers": {"clangd": entry},
+                    "presets": {"cpp": {"servers": [{"server": "clangd", "settle": 30, "requires": "build.ninja"}]}}}
+        (resolved,) = lsp_table.load_presets(self.presets(document))["presets"]["cpp"]["servers"]
+        self.assertEqual((resolved["settle"], resolved["requires"], resolved["command"]),
+                         (30, "build.ninja", CLANGD["command"]))
+        document["presets"]["cpp"]["servers"][0]["settle"] = 500
+        with self.assertRaises(lsp_table.TableError) as caught:
+            lsp_table.load_presets(self.presets(document))
+        self.assertIn("preset 'cpp': server 'clangd': settle:", str(caught.exception))
+
+
+class RootTests(Fixture):
+    def app(self, folder):
+        base = self.root if folder == "." else self.root / folder
+        (base / "resources/css").mkdir(parents=True)
+        for rel in ("artisan", "composer.json", "resources/css/app.css"):
+            (base / rel).write_text("", encoding="utf-8")
+
+    def test_the_laravel_preset_finds_the_app_and_the_written_table_names_files_that_exist(self):
+        for folder in (".", "platform", "backend"):
+            with self.subTest(app=folder):
+                for leftover in ("artisan", "platform", "backend"):
+                    path = self.root / leftover
+                    if path.is_dir():
+                        shutil.rmtree(path)
+                    elif path.exists():
+                        path.unlink()
+                self.write({"schema_version": 1, "servers": []})
+                (self.root / "aaa-first-child").mkdir(exist_ok=True)  # an earlier child with no artisan is passed
+                self.app(folder)
+                self.assertEqual(lsp_servers.main(["add", "laravel"], root=self.root), 0)
+                loaded = lsp_table.load_servers(self.root)
+                self.assertEqual([entry["name"] for entry in loaded], ["laravel-lsp", "intelephense", "tailwindcss"])
+                for entry in loaded:
+                    self.assertEqual(entry["root"], folder)
+                    self.assertTrue((self.root / entry["root"]).is_dir())
+                    self.assertTrue((self.root / entry["root"] / entry["requires"]).is_file(), entry["requires"])
+                stored = json.loads(self.table.read_text(encoding="utf-8"))["servers"]
+                self.assertEqual("root" in stored[0], folder != ".")  # the default is not written
+
+    def test_platform_is_found_before_any_other_child(self):
+        self.app("aaa")
+        self.app("platform")
+        self.assertEqual(lsp_table.find_root(self.root, "artisan"), "platform")
+        self.app(".")
+        self.assertEqual(lsp_table.find_root(self.root, "artisan"), ".")
+
+    def test_a_project_with_no_app_is_refused_and_nothing_is_written(self):
+        before = self.table.read_bytes()
+        with self.assertRaises(lsp_table.TableError) as caught:
+            lsp_table.resolve_preset(self.root, "laravel")
+        self.assertIn("no folder of the project holds artisan", str(caught.exception))
+        self.assertIn("--root", str(caught.exception))
+        self.assertEqual(lsp_servers.main(["add", "laravel"], root=self.root), 2)
+        self.assertEqual(self.table.read_bytes(), before)
+
+    def test_the_root_option_wins_over_discovery_and_must_be_inside_the_project(self):
+        self.app("platform")
+        self.app("other")
+        entries = lsp_table.resolve_preset(self.root, "laravel", "other")
+        self.assertEqual({entry["root"] for entry in entries}, {"other"})
+        self.assertEqual({entry["root"] for entry in lsp_table.resolve_preset(self.root, "cpp", "other")}, {"other"})
+        self.assertEqual({entry["root"] for entry in lsp_table.resolve_preset(self.root, "cpp")}, {"."})
+        for bad in ("../outside", "/abs", "missing-folder"):
+            with self.subTest(root=bad):
+                with self.assertRaises(lsp_table.TableError) as caught:
+                    lsp_table.resolve_preset(self.root, "laravel", bad)
+                self.assertIn("--root: a folder inside the project", str(caught.exception))
+
+
+class WriteTests(Fixture):
+    def test_the_table_is_written_as_indented_json_and_only_when_it_changes(self):
+        (entry,) = lsp_table.resolve_preset(self.root, "cpp")
+        self.assertTrue(lsp_table.write_servers(self.root, [entry]))
+        text = self.table.read_text(encoding="utf-8")
+        self.assertTrue(text.endswith("}\n"))
+        self.assertIn('\n  "servers": [\n', text)
+        self.assertEqual(lsp_table.load_servers(self.root), [entry])
+        os.utime(self.table, (1_000_000_000, 1_000_000_000))
+        self.assertFalse(lsp_table.write_servers(self.root, [entry]))
+        self.assertEqual(self.table.stat().st_mtime, 1_000_000_000)
+        self.assertEqual(sorted(path.name for path in self.table.parent.iterdir()), ["lsp.json"])
+
+    def test_a_failed_write_leaves_the_table_and_no_temporary_file(self):
+        (entry,) = lsp_table.resolve_preset(self.root, "cpp")
+        before = self.table.read_bytes()
+        full, denied = OSError(28, "No space left on device"), PermissionError(13, "Access is denied")
+        failures = {"the temporary write": unittest.mock.patch.object(lsp_table.os, "fsync", side_effect=full),
+                    "the replacement": unittest.mock.patch.object(lsp_table.os, "replace", side_effect=denied)}
+        for name, failure in failures.items():
+            with self.subTest(failed=name):
+                with failure:
+                    with self.assertRaises(lsp_table.TableWriteError) as caught:
+                        lsp_table.write_servers(self.root, [entry])
+                    self.assertTrue(str(caught.exception).startswith(TABLE + ": cannot be written ("), caught.exception)
+                    code = lsp_servers.main(["add", "cpp"], root=self.root)
+                self.assertEqual(code, 1)
+                self.assertEqual(self.table.read_bytes(), before)
+                self.assertEqual(sorted(path.name for path in self.table.parent.iterdir()), ["lsp.json"])
+
+
+class CommandLineTests(Fixture):
+    """lsp-servers.py run as a program, from a copy laid out as the kit installs it (scripts/ beside .conclave/)."""
+
+    def setUp(self):
+        super().setUp()
+        scripts = self.root / "scripts"
+        (scripts / "lib").mkdir(parents=True)
+        for rel in ("lsp-servers.py", "lib/lsp_table.py", "lib/lsp_presets.json"):
+            (scripts / rel).write_bytes((SCRIPTS / rel).read_bytes())
+
+    def run_script(self, *argv):
+        return subprocess.run([sys.executable, "-B", str(self.root / "scripts/lsp-servers.py"), *argv],
+                              capture_output=True, text=True, timeout=60, cwd=self.root,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+    def names(self):
+        return [entry["name"] for entry in json.loads(self.table.read_text(encoding="utf-8"))["servers"]]
+
+    def test_list_shows_the_table_and_the_presets_and_writes_nothing(self):
+        before = self.table.read_bytes()
+        ran = self.run_script("list")
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        lines = ran.stdout.splitlines()
+        self.assertTrue(lines[0].startswith(f"{TABLE} holds no server."), lines[0])
+        self.assertIn("python scripts/lsp-servers.py add <preset>", lines[0])
+        self.assertEqual(lines[1:], ["Presets:", "  cpp  clangd", "  python  basedpyright", "  php  intelephense",
+                                     "  web  typescript, tailwindcss",
+                                     "  laravel  laravel-lsp, intelephense, tailwindcss"])
+        self.assertEqual(self.table.read_bytes(), before)
+        self.assertEqual(self.run_script("add", "cpp").returncode, 0)
+        populated = self.table.read_bytes()
+        lines = self.run_script("list").stdout.splitlines()
+        self.assertEqual(lines[0], f"Servers in {TABLE}:")
+        self.assertTrue(lines[1].startswith("  clangd  clangd  .c .h "), lines[1])
+        self.assertEqual(lines[2], "Presets:")
+        self.assertEqual(self.table.read_bytes(), populated)
+
+    def test_add_says_what_it_added_and_what_it_kept(self):
+        ran = self.run_script("add", "web")
+        self.assertEqual((ran.returncode, ran.stdout), (0, "added: typescript, tailwindcss\n"))
+        self.assertEqual(self.names(), ["typescript", "tailwindcss"])
+        os.utime(self.table, (1_000_000_000, 1_000_000_000))
+        before = self.table.read_bytes()
+        again = self.run_script("add", "web")
+        self.assertEqual((again.returncode, again.stdout),
+                         (0, "added: nothing\nkept as the project has them: typescript, tailwindcss\n"))
+        self.assertEqual((self.table.read_bytes(), self.table.stat().st_mtime), (before, 1_000_000_000))
+
+    def test_a_projects_edited_entry_is_kept_and_only_new_servers_are_added(self):
+        self.assertEqual(self.run_script("add", "php").returncode, 0)
+        document = json.loads(self.table.read_text(encoding="utf-8"))
+        document["servers"][0]["command"] = ["intelephense", "--stdio", "--the-projects-own-flag"]
+        document["servers"][0]["settle"] = 42
+        self.write(document)
+        for rel in ("artisan", "composer.json"):
+            (self.root / rel).write_text("", encoding="utf-8")
+        ran = self.run_script("add", "laravel")
+        self.assertEqual((ran.returncode, ran.stdout),
+                         (0, "added: laravel-lsp, tailwindcss\nkept as the project has them: intelephense\n"))
+        loaded = {entry["name"]: entry for entry in lsp_table.load_servers(self.root)}
+        self.assertEqual(list(loaded), ["intelephense", "laravel-lsp", "tailwindcss"])
+        self.assertEqual(loaded["intelephense"]["command"], ["intelephense", "--stdio", "--the-projects-own-flag"])
+        self.assertEqual(loaded["intelephense"]["settle"], 42)
+        self.assertIsNone(loaded["intelephense"]["settings"])  # Laravel's settings did not replace the project's
+
+    def test_remove_deletes_one_server(self):
+        self.run_script("add", "web")
+        ran = self.run_script("remove", "typescript")
+        self.assertEqual((ran.returncode, ran.stdout), (0, "removed: typescript\n"))
+        self.assertEqual(self.names(), ["tailwindcss"])
+
+    def test_an_unknown_name_or_a_broken_table_is_one_line_and_exit_2_with_nothing_written(self):
+        self.run_script("add", "cpp")
+        before = self.table.read_bytes()
+        refused = ((("add", "rust"), "unknown preset 'rust': the presets are cpp, laravel, php, python, web"),
+                   (("remove", "gopls"), "no server named 'gopls' in .conclave/lsp.json (it holds: clangd)"),
+                   (("add", "cpp", "--root", "../out"), "--root: a folder inside the project"))
+        for argv, expected in refused:
+            with self.subTest(argv=argv):
+                ran = self.run_script(*argv)
+                self.assertEqual((ran.returncode, ran.stdout), (2, ""))
+                self.assertEqual(len(ran.stderr.splitlines()), 1, ran.stderr)
+                self.assertIn(f"lsp-servers: {expected}", ran.stderr)
+                self.assertEqual(self.table.read_bytes(), before)
+        self.write(b'{"schema_version": 1, "servers": [{"name": "x"}]}')
+        broken = self.table.read_bytes()
+        for argv in (("list",), ("add", "cpp"), ("remove", "x")):
+            with self.subTest(argv=argv, table="broken"):
+                ran = self.run_script(*argv)
+                self.assertEqual((ran.returncode, ran.stdout), (2, ""))
+                self.assertTrue(ran.stderr.startswith(f"lsp-servers: {TABLE}: server 'x': missing key"), ran.stderr)
+                self.assertEqual(self.table.read_bytes(), broken)
+
+
+if __name__ == "__main__":
+    unittest.main()

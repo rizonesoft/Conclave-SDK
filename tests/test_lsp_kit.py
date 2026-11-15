@@ -5,6 +5,7 @@ The kit's own scripts are tested in the kit, under `kits/lsp/templates/scripts/t
 import contextlib
 import io
 import json
+import os
 import pathlib
 import shutil
 import sys
@@ -15,6 +16,9 @@ import unittest.mock
 SDK_ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SDK_ROOT))
 import forge  # noqa: E402
+
+SERVER = {"name": "stub-ls", "command": ["stub-ls", "--stdio"], "extensions": {".py": "python"},
+          "install": "install stub-ls by hand"}
 
 TABLE = ".conclave/lsp.json"
 
@@ -125,7 +129,7 @@ class LspKitTests(unittest.TestCase):
         report = json.loads(out)
         self.assertEqual((code, report["kit"], report["missing_or_setup_required"]), (0, "lsp", 0))
         self.assertEqual({name: check["status"] for name, check in self.checks(report).items()},
-                         {rel: "ok" for rel in kit_files()})
+                         {**{rel: "ok" for rel in kit_files()}, "server-table": "ok"})
         self.assertEqual(self.checks(report)[TABLE]["detail"], (project / TABLE).as_posix())
         (project / TABLE).unlink()
         code, out, _err = command_line("doctor", project, "lsp", "--strict")
@@ -164,12 +168,88 @@ class LspKitTests(unittest.TestCase):
         self.assertEqual((code, report["kit"], report["also"]), (0, "base", ["lsp"]))
         names = [check["name"] for check in report["checks"]]
         self.assertEqual(names[:len(bare["checks"])], [check["name"] for check in bare["checks"]])
-        self.assertEqual(names[len(bare["checks"]):], kit_files())
+        self.assertEqual(names[len(bare["checks"]):], kit_files() + ["server-table"])
         self.assertEqual(self.checks(report)[TABLE]["status"], "ok")
         # A named kit is that kit alone, as before.
         named = json.loads(command_line("doctor", project, "base")[1])
         self.assertNotIn("also", named)
         self.assertNotIn(TABLE, self.checks(named))
+
+    def table(self, project, *servers):
+        (project / TABLE).write_text(json.dumps({"schema_version": 1, "servers": list(servers)}), encoding="utf-8")
+
+    def stub_on_path(self, name):
+        """A program of that name on a PATH that holds nothing else."""
+        folder = self.work / "bin"
+        folder.mkdir(exist_ok=True)
+        launcher = folder / (f"{name}.cmd" if os.name == "nt" else name)
+        launcher.write_text("@exit /b 0\r\n" if os.name == "nt" else "#!/bin/sh\nexit 0\n", encoding="utf-8")
+        launcher.chmod(0o755)
+        env = {"PATH": str(folder), **({"PATHEXT": ".CMD"} if os.name == "nt" else {})}
+        patch = unittest.mock.patch.dict(os.environ, env)
+        patch.start()
+        self.addCleanup(patch.stop)
+        return launcher
+
+    def test_the_doctor_says_the_empty_table_holds_no_server_and_how_to_add_one(self):
+        project = self.project()
+        forge.apply_kit(project, "lsp")
+        check = self.checks(forge.doctor_repo(project, "lsp"))["server-table"]
+        self.assertEqual(check["status"], "ok")
+        self.assertIn("holds no server yet", check["detail"])
+        self.assertIn("python scripts/lsp-servers.py add <preset>", check["detail"])
+
+    def test_the_doctor_reports_each_server_installed_or_with_its_install_hint(self):
+        project = self.project()
+        forge.apply_kit(project, "lsp")
+        launcher = self.stub_on_path("stub-ls")
+        self.table(project, SERVER, dict(SERVER, name="absent-ls", command=["absent-ls"],
+                                         install="npm install -g absent-ls"))
+        for report in (forge.doctor_repo(project, "lsp"), forge.doctor_repo(project)):  # named, and the bare form
+            checks = self.checks(report)
+            self.assertEqual(checks["server-table"], {"name": "server-table", "status": "ok",
+                                                      "detail": f"{TABLE}: stub-ls, absent-ls"})
+            self.assertEqual(checks["server:stub-ls"]["status"], "ok")
+            self.assertTrue(os.path.samefile(checks["server:stub-ls"]["detail"], launcher))
+            self.assertEqual(checks["server:absent-ls"], {"name": "server:absent-ls", "status": "setup_required",
+                                                          "detail": "npm install -g absent-ls"})
+        code, _out, _err = command_line("doctor", project, "lsp", "--strict")
+        self.assertEqual(code, 3)
+
+    def test_a_server_named_by_a_path_is_looked_for_in_the_folder_it_runs_in(self):
+        project = self.project()
+        forge.apply_kit(project, "lsp")
+        self.stub_on_path("unrelated")
+        local = dict(SERVER, name="local-ls", command=["vendor/bin/local-ls"], root="app")
+        self.table(project, local)
+        self.assertEqual(self.checks(forge.doctor_repo(project, "lsp"))["server:local-ls"]["status"], "setup_required")
+        (project / "app/vendor/bin").mkdir(parents=True)
+        (project / "app/vendor/bin/local-ls").write_text("#!/bin/sh\n", encoding="utf-8")
+        check = self.checks(forge.doctor_repo(project, "lsp"))["server:local-ls"]
+        self.assertEqual((check["status"], check["detail"]), ("ok", (project / "app/vendor/bin/local-ls").as_posix()))
+
+    def test_a_table_that_does_not_load_is_reported_with_the_refusal_and_no_server_check(self):
+        project = self.project()
+        forge.apply_kit(project, "lsp")
+        self.table(project, dict(SERVER, command="stub-ls --stdio"))
+        report = forge.doctor_repo(project, "lsp")
+        checks = self.checks(report)
+        self.assertEqual(checks["server-table"]["status"], "missing")
+        self.assertIn(".conclave/lsp.json: server 'stub-ls': command:", checks["server-table"]["detail"])
+        self.assertEqual([name for name in checks if name.startswith("server:")], [])
+        self.assertEqual(report["missing_or_setup_required"], 1)
+
+    def test_the_readme_names_every_key_every_preset_and_every_file(self):
+        readme = (SDK_ROOT / "kits/lsp/README.md").read_text(encoding="utf-8")
+        table = forge._lsp_table_module()
+        for key in ("name", *table.REQUIRED, *table.DEFAULTS):
+            self.assertIn(f"`{key}`", readme, f"the README does not describe the table key {key}")
+        for preset in table.load_presets()["presets"]:
+            self.assertIn(f"`{preset}`", readme, f"the README does not name the preset {preset}")
+        for rel in kit_files():
+            self.assertIn(f"`{rel}`", readme, f"the README does not list {rel}")
+        for command in ("lsp-servers.py list", "lsp-servers.py add", "lsp-servers.py remove"):
+            self.assertIn(command, readme)
 
     def test_the_bare_doctor_adds_the_kit_to_a_stack_kits_checks(self):
         project = self.project()
