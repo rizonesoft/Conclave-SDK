@@ -1,0 +1,85 @@
+{
+  "ref": "D04 T02 \u00a78",
+  "title": "Optional tools named as optional in the check's text",
+  "implementation_sha": "197caede9f905fcd2897791ac5fa58a70e46877a",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/04-tooling/D04-T02-s8.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "check-all --only kit-toolchain-cpp --only kit-toolchain-web 95 and 39 pass on Windows and WSL",
+    "tests.test_toolchain_kits 59 OK on both",
+    "CI run 43726672850 green on 197caed"
+  ],
+  "completion": {
+    "report": "docs/reviews/04-tooling/D04-T02-s8.md",
+    "verdict": "complete",
+    "candidate": "197caede9f905fcd2897791ac5fa58a70e46877a",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/04-tooling/D04-T02-s8.md",
+    "candidate": "deeb15c5549c8a6cdead0d59d30b5021814ae8aa",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "deeb15c5549c8a6cdead0d59d30b5021814ae8aa",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}

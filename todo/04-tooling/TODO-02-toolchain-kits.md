@@ -2,7 +2,7 @@
 schema_version: 1
 id: toolchain-kits
 domain: 04-tooling
-status: active
+status: done
 title: "TODO-02 -- Toolchain kits"
 ---
 
@@ -41,7 +41,7 @@ title: "TODO-02 -- Toolchain kits"
 | 5 | §5 | clangd seed and server table entry | §3, D04 T01 §2 | [x] |
 | 6 | §6 | `toolchain-web` kit with pins for PHP and Node tools | §2, D04 T01 §2 | [x] |
 | 7 | §7 | Toolchain skills and documents for the three agents | §4, §5, §6 | [x] |
-| 8 | §8 | Optional tools named as optional in the check's text | §7 | [ ] |
+| 8 | §8 | Optional tools named as optional in the check's text | §7 | [x] |
 
 ## 1. Tool pin file and the script that checks it
 
@@ -305,9 +305,12 @@ Found 2026-11-15 while running this file's Verification block in WSL. For a miss
 - [x] In `main` of `kits/toolchain-cpp/templates/scripts/toolchain-check.py`, print `optional` in place of the status for a tool that is not `ok` and that the pin marks optional, leave the JSON document as it is (`status` and `optional` are separate keys there, and `forge.py` reads them), and say so in the script's docstring. Done when: tests in `scripts/tests/test_toolchain_check.py` find `optional` on the text line of an optional tool that is missing and of one that is too old, `setup_required` on a required one, `ok` on an optional one that is ok, exit 0 when only optional tools are not ok, and the JSON document of the same run unchanged in its keys and values.
 - [x] Copy the script and its test to `kits/toolchain-web/templates/scripts/` byte for byte. Done when: `SharedCheckTests` in `tests/test_toolchain_kits.py` passes.
 - [x] Say in `docs/toolchain-cpp.md`, `docs/toolchain-web.md` and both kit READMEs which word the text line carries in each case (`ok`, `setup_required`, `optional`). Done when: a test in `tests/test_toolchain_kits.py` runs the check in an installed project of each kit with one required and one optional tool missing and finds on the printed lines the words the document gives.
-- [ ] Commit: `toolchain: an optional tool that is not ok is printed as optional`
+- [x] Commit: `toolchain: an optional tool that is not ok is printed as optional`
 
 **Test checkpoint:** `python forge.py check-all --only kit-toolchain-cpp --only kit-toolchain-web` passes and `python -m unittest tests.test_toolchain_kits` ends `OK`; printing the status as before makes the kit's new test fail.
+
+> **Verified:** 2026-11-15 | §8 | 197caede9f905fcd2897791ac5fa58a70e46877a
+> **Review:** `docs/reviews/d04-t02-s8.json`
 
 ## Verification
 
