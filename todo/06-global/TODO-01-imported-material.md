@@ -2,7 +2,7 @@
 schema_version: 1
 id: imported-material
 domain: 06-global
-status: active
+status: done
 title: "TODO-01 -- Imported material: plugins and retired repositories"
 ---
 
@@ -36,7 +36,7 @@ title: "TODO-01 -- Imported material: plugins and retired repositories"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Plugins registered from `plugins/` | -- | [x] |
 | 2 | §2 | Superseded copies under `R:/Bin` removed | §1 | [x] |
-| 3 | §3 | Retired GitHub repositories deleted | §2 | [ ] |
+| 3 | §3 | Retired GitHub repositories deleted | §2 | [x] |
 | 4 | §4 | Codex approval of the global hooks `deploy.py` writes | D02 T01 §3 | [x] |
 
 ## 1. Plugins registered from `plugins/`
@@ -130,9 +130,12 @@ The roadmap's end-of-day status says both repositories can be deleted. Deleting 
 - [x] Remove Claude Code's dead `rizonetech` marketplace in WSL with `claude plugin marketplace remove rizonetech`. Done when: neither `~/.claude/plugins/known_marketplaces.json` nor `~/.claude/settings.json` in WSL names `rizonetech/claude-plugins`, and every enabled plugin is still installed. Cheaper substitute: editing the two files by hand must fail; the CLI owns them. Done 2026-11-16: "Successfully removed marketplace: rizonetech"; neither file names it; no enabled plugin is missing.
 - [x] The owner deletes `rizonetech/Claude` and `rizonetech/Codex` on GitHub. Done when: `gh repo view rizonetech/Claude` and `gh repo view rizonetech/Codex` both report that the repository does not exist. Cheaper substitute: archiving them in place must fail; the roadmap's status is "can be deleted", and an archive is a second copy. Verified 2026-11-16 (the owner deleted both before this section): each `gh repo view` prints "Could not resolve to a Repository".
 - [x] Update "The two retired repositories" in `docs/plans/2026-11-11-sdk-audit-and-roadmap.md` with the deletion date. Done when: the section says the repositories are deleted. Done: its 2026-11-16 status says so.
-- [ ] Commit: `docs: retired repositories deleted`
+- [x] Commit: `docs: retired repositories deleted`
 
 **Test checkpoint:** `gh repo view rizonetech/Claude` and `gh repo view rizonetech/Codex` each exit non-zero with "Could not resolve to a Repository".
+
+> **Verified:** 2026-11-16 | §3 | 900adae1b7b54e68714df3bedc6ebc319b05d022
+> **Review:** `docs/reviews/d06-t01-s3.json`
 
 ## 4. Codex approval of the global hooks `deploy.py` writes
 
