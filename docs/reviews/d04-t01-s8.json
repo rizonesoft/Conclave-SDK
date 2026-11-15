@@ -1,0 +1,87 @@
+{
+  "ref": "D04 T01 \u00a78",
+  "title": "Bridge answers what arrived before its input ended",
+  "implementation_sha": "c48fd1b423f07f48ef4a0792072b33ec33e564c7",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/04-tooling/D04-T01-s8.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "check-all --only kit-lsp 110 pass on Windows and WSL, twice each",
+    "tests.test_lsp_kit 36 OK on both",
+    "CI run 43735964822 attempt 2 green on c48fd1b"
+  ],
+  "completion": {
+    "report": "docs/reviews/04-tooling/D04-T01-s8.md",
+    "verdict": "filed",
+    "candidate": "c48fd1b423f07f48ef4a0792072b33ec33e564c7",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": [
+      "D04 T01 \u00a79"
+    ]
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/04-tooling/D04-T01-s8.md",
+    "candidate": "8aa159281433223da95509f5c12e65005dd099e5",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "8aa159281433223da95509f5c12e65005dd099e5",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}

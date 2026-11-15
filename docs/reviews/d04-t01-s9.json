@@ -1,0 +1,84 @@
+{
+  "ref": "D04 T01 \u00a79",
+  "title": "Piped-call answers in the bridge's document",
+  "implementation_sha": "b3b0250da9194b3c92e99fc24096404a2845b0fd",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/04-tooling/D04-T01-s9.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "tests.test_lsp_kit 36 OK on Windows and WSL",
+    "CI run 43738075343 green on 887c5c6, which is b3b0250 plus this section's findings record only"
+  ],
+  "completion": {
+    "report": "docs/reviews/04-tooling/D04-T01-s9.md",
+    "verdict": "complete",
+    "candidate": "b3b0250da9194b3c92e99fc24096404a2845b0fd",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/04-tooling/D04-T01-s9.md",
+    "candidate": "1f30da6b5a8a74230919dced723d4ca504b0c902",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "1f30da6b5a8a74230919dced723d4ca504b0c902",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}
