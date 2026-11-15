@@ -770,11 +770,15 @@ def _find_web_app_root(target_root: Path) -> str:
 def _set_web_app_root(target_root: Path, installed: list[str], dry_run: bool) -> str:
     """Name the app's folder in a toolchain-web pin file this install has just written, when the app is not at the
     project root: the tool folders, the constraints and the language servers are all read there. A pin file the
-    project already had is the project's and is never changed. Returns the folder found."""
+    project has changed is the project's and is never touched; one that is still the kit's seed byte for byte is
+    given its root too, which is how an install stopped between the copy and this step, or whose write here
+    failed, is completed by the next. Returns the folder found."""
     app_root = _find_web_app_root(target_root)
     pins = TOOLCHAIN_PINS["toolchain-web"]
-    if app_root != "." and pins in installed and not dry_run:
-        path = target_root / pins
+    path = target_root / pins
+    seed = FORGE_ROOT / "kits/toolchain-web/templates" / pins
+    if app_root != "." and not dry_run and path.is_file() and (pins in installed
+                                                             or path.read_bytes() == seed.read_bytes()):
         data = json.loads(path.read_text(encoding="utf-8"))
         ordered = {"schema_version": data["schema_version"], "root": app_root,
                    **{key: value for key, value in data.items() if key != "schema_version"}}
@@ -2042,21 +2046,36 @@ def _doctor_toolchain(target_root: Path, add_check, kit: str) -> None:
 
 # What a PHP or Node project says of its own runtime: (the pin it is compared with, the manifest, where in it).
 WEB_CONSTRAINTS = (("php", "composer.json", "require", "php"), ("node", "package.json", "engines", "node"))
-_CONSTRAINT = re.compile(r"(?:\^|~|>=|=)?\s*v?([0-9]{1,9}(?:\.[0-9]{1,9}){0,7})(?:\.[xX*])*(?:[\s,].*)?")
+_VERSION = r"v?([0-9]{1,9}(?:\.[0-9]{1,9}){0,7})(?:\.[xX*])*"
+_LOWER_BOUND = re.compile(r"(?:\^|~|>=|=)?" + _VERSION)   # ^8.3, ~8.3.0, >=8.3, =8.3.1, 8.3.*, 20.x, 8.3
+_UPPER_BOUND = re.compile(r"<=?" + _VERSION)               # <9, <=22: read, and no part of the lowest version
 
 
 def _lowest_allowed(constraint: str, compare) -> str | None:
     """The lowest version a Composer or npm constraint allows, or None for a form this does not read.
 
-    Each alternative (`a || b`, Composer's `a | b`) is read at its first comparator, which is its lower bound:
-    `^8.3`, `~8.3.0`, `>=8.3`, `8.3.*`, `20.x`, `>=8.2 <8.5`. The answer is the lowest among the alternatives."""
+    A constraint is alternatives (`a || b`, Composer's `a | b`), each a set of comparators that must all hold
+    (`>=8.2 <8.5`, `>=8.2, >=8.3`). An alternative's lowest version is the highest of its lower bounds; the
+    constraint's is the lowest among its alternatives. Every comparator is read: one this does not know (`>8.2`,
+    `!=8.2.5`, a hyphen range, a branch name), or an alternative with no lower bound, makes the answer None, so the
+    doctor says the constraint was not compared and never guesses."""
     lowest = None
     for alternative in re.split(r"\|\|?", constraint):
-        match = _CONSTRAINT.fullmatch(alternative.strip())
-        if match is None:
+        # `>= 8.2` is one comparator: an operator may be followed by spaces.
+        joined = re.sub(r"(\^|~|>=|<=|=|<|>)\s+", r"\1", alternative.strip())
+        comparators = [part for part in re.split(r"[\s,]+", joined) if part]
+        bound = None
+        for comparator in comparators:
+            lower = _LOWER_BOUND.fullmatch(comparator)
+            if lower:
+                if bound is None or compare(lower.group(1), bound) > 0:
+                    bound = lower.group(1)
+            elif not _UPPER_BOUND.fullmatch(comparator):
+                return None
+        if bound is None:
             return None
-        if lowest is None or compare(match.group(1), lowest) < 0:
-            lowest = match.group(1)
+        if lowest is None or compare(bound, lowest) < 0:
+            lowest = bound
     return lowest
 
 

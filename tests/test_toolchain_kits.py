@@ -464,6 +464,47 @@ class WebKitTests(ToolchainFixture):
         self.assertEqual(forge.apply_kit(dry, self.KIT, dry_run=True)["app_root"], "platform")
         self.assertFalse((dry / ".conclave").exists())
 
+    def test_a_pin_file_left_without_its_root_by_an_interrupted_install_is_repaired_on_the_next(self):
+        # Found by the round of D04 T02 section 6: the seed is copied and recorded, then the app's folder is written
+        # into it. An install stopped between the two, or a second write that fails, left a seed with no root that
+        # the retry kept as the project's own file.
+        project = self.project("interrupted", install=False)
+        self.manifest(project / "platform", "composer.json", {"require": {"php": "^8.3"}})
+        with unittest.mock.patch.object(forge, "_set_web_app_root", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                forge.apply_kit(project, self.KIT)
+        seed = (SDK_ROOT / "kits" / self.KIT / "templates" / WEB_PINS).read_bytes()
+        self.assertEqual((project / WEB_PINS).read_bytes(), seed)  # copied, recorded, and without its root
+        result = forge.apply_kit(project, self.KIT)
+        self.assertEqual(result["app_root"], "platform")
+        self.assertIn(WEB_PINS, result["preserved"])
+        self.assertEqual(self.module.load_pin_file(project / WEB_PINS)["root"], "platform")
+        # The same when the write of the root itself fails: the install says so, and the next one completes.
+        failing = self.project("failing", install=False)
+        self.manifest(failing / "platform", "package.json", {})
+        real = forge.atomic_write
+
+        def refuse_the_pin(path, data):
+            if str(path).endswith("toolchain-web.json") and b'"root"' in (data if isinstance(data, bytes)
+                                                                          else data.encode("utf-8")):
+                raise PermissionError(13, "Access is denied")
+            return real(path, data)
+
+        with unittest.mock.patch.object(forge, "atomic_write", refuse_the_pin):
+            code, out, err = command_line("kit", failing, self.KIT)
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("Access is denied", err)
+        self.assertEqual(forge.apply_kit(failing, self.KIT)["app_root"], "platform")
+        self.assertEqual(self.module.load_pin_file(failing / WEB_PINS)["root"], "platform")
+        # A pin file the project has changed is the project's: it is never given a root.
+        edited = self.project("edited", install=False)
+        forge.apply_kit(edited, self.KIT)
+        text = (edited / WEB_PINS).read_text(encoding="utf-8").replace('"8.2"', '"8.3"')
+        (edited / WEB_PINS).write_text(text, encoding="utf-8")
+        self.manifest(edited / "platform", "composer.json", {})
+        self.assertEqual(forge.apply_kit(edited, self.KIT)["app_root"], "platform")
+        self.assertEqual((edited / WEB_PINS).read_text(encoding="utf-8"), text)
+
     def test_the_kit_is_detected_by_its_own_pin_file_and_named_where_forge_lists_kits(self):
         project = self.project(install=False)
         forge.apply_kit(project, "toolchain-cpp")
@@ -592,6 +633,26 @@ class WebKitTests(ToolchainFixture):
         for constraint in ("*", "<9", ">8.2", "dev-main", "latest", "", "^8.3 || *", "8.x.y"):
             with self.subTest(unknown=constraint):
                 self.assertIsNone(forge._lowest_allowed(constraint, compare))
+
+    def test_every_comparator_of_a_constraint_is_read_not_only_the_first(self):
+        # Found by the round of D04 T02 section 6: `>=8.2 >=8.3` was read as 8.2, and the pin at 8.2 as fine.
+        compare = self.module.compare_versions
+        forms = {">=8.2 >=8.3": "8.3", ">=8.2, >=8.3": "8.3", ">=8.3 >=8.2": "8.3", "^8.2 >=8.2.5": "8.2.5",
+                 ">=8.2 <8.5": "8.2", "<8.5 >=8.2": "8.2", ">=8.2,<9": "8.2", ">=20 <=22": "20",
+                 ">=8.2 >=8.3 || ^8.4": "8.3", "^8.4 || >=8.2 >=8.3": "8.3", "~8.2.0 >=8.2.3 <8.3": "8.2.3"}
+        for constraint, lowest in forms.items():
+            with self.subTest(constraint=constraint):
+                self.assertEqual(forge._lowest_allowed(constraint, compare), lowest)
+        # A comparator the doctor does not read makes the whole constraint not compared, never a guess.
+        for constraint in (">=8.2 !=8.2.5", ">=8.2 >8.3", "8.2 - 8.4", ">=8.2 dev-main", "<9 <10", ">=8.2 ||"):
+            with self.subTest(unknown=constraint):
+                self.assertIsNone(forge._lowest_allowed(constraint, compare))
+        project = self.constraint_project("both-bounds", {"php": "8.2", "node": "18"}, {
+            "composer.json": {"require": {"php": ">=8.2 >=8.3"}}, "package.json": {"engines": {"node": ">=18 >=20"}}})
+        code, _report, checks = self.doctor(project, "--strict")
+        self.assertEqual(code, 3)
+        self.assertIn("raise min_version of the php pin to 8.3", checks["constraint:php"]["detail"])
+        self.assertIn("raise min_version of the node pin to 20", checks["constraint:node"]["detail"])
 
     def test_a_manifest_that_cannot_be_used_is_unexpected_and_the_rest_is_still_reported(self):
         cases = {b"{": "is not JSON in UTF-8", b"\xff\xfe{}": "is not JSON in UTF-8", b"null": "is not a JSON object",
