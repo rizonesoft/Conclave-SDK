@@ -464,7 +464,7 @@ class WebKitTests(ToolchainFixture):
         self.assertEqual(forge.apply_kit(dry, self.KIT, dry_run=True)["app_root"], "platform")
         self.assertFalse((dry / ".conclave").exists())
 
-    def test_a_nested_apps_pin_file_is_written_once_with_its_root_and_an_existing_one_is_never_changed(self):
+    def test_a_nested_apps_pin_file_is_written_once_with_its_root_and_a_seed_left_without_it_is_repaired(self):
         # Found by the round and the reconciliations of D04 T02 section 6. Copying the seed and adding the root in a
         # second step left a seed with no root when the install stopped between the two, and completing it later
         # meant changing a file the project already had. The file is written once, with its root.
@@ -505,17 +505,43 @@ class WebKitTests(ToolchainFixture):
         self.assertFalse((failing / WEB_PINS).exists())
         self.assertEqual(forge.apply_kit(failing, self.KIT)["app_root"], "platform")
         self.assertEqual(self.module.load_pin_file(failing / WEB_PINS)["root"], "platform")
-        # A pin file the project already has is never changed: not one it edited, and not one that is the seed.
-        for name, data in (("edited", seed.replace(b'"8.2"', b'"8.3"')), ("seed", seed)):
-            with self.subTest(existing=name):
-                owned = self.project(f"owned-{name}", install=False)
-                (owned / ".conclave").mkdir()
-                (owned / WEB_PINS).write_bytes(data)
-                self.manifest(owned / "platform", "composer.json", {})
-                kept = forge.apply_kit(owned, self.KIT)
-                self.assertEqual(kept["app_root"], "platform")
-                self.assertIn(WEB_PINS, kept["preserved"])
-                self.assertEqual((owned / WEB_PINS).read_bytes(), data)
+        # A pin file the project has changed in any way is never touched.
+        edited = self.project("owned-edited", install=False)
+        (edited / ".conclave").mkdir()
+        (edited / WEB_PINS).write_bytes(seed.replace(b'"8.2"', b'"8.3"'))
+        self.manifest(edited / "platform", "composer.json", {})
+        kept = forge.apply_kit(edited, self.KIT)
+        self.assertEqual(kept["app_root"], "platform")
+        self.assertIn(WEB_PINS, kept["preserved"])
+        self.assertNotIn("repaired", kept)
+        self.assertEqual((edited / WEB_PINS).read_bytes(), seed.replace(b'"8.2"', b'"8.3"'))
+        # The one exception: a pin file that is still the kit's seed byte for byte, in a project whose app is not at
+        # the root, is what an install stopped between the seed's copy and its root left behind. It is not yet the
+        # project's: the next install gives it its root and says so, as repaired, never as preserved or installed.
+        left = self.project("owned-seed", install=False)
+        (left / ".conclave").mkdir()
+        (left / WEB_PINS).write_bytes(seed)
+        self.manifest(left / "platform", "composer.json", {})
+        dry = forge.apply_kit(left, self.KIT, dry_run=True)
+        self.assertEqual(dry["repaired"], [WEB_PINS])
+        self.assertEqual((left / WEB_PINS).read_bytes(), seed)  # a dry run writes nothing
+        repaired = forge.apply_kit(left, self.KIT)
+        self.assertEqual((repaired["app_root"], repaired["repaired"]), ("platform", [WEB_PINS]))
+        self.assertNotIn(WEB_PINS, repaired["preserved"])
+        self.assertNotIn(WEB_PINS, repaired["installed"])
+        self.assertEqual(self.module.load_pin_file(left / WEB_PINS)["root"], "platform")
+        settled = forge.apply_kit(left, self.KIT)  # with its root it is the project's: preserved from then on
+        self.assertIn(WEB_PINS, settled["preserved"])
+        self.assertNotIn("repaired", settled)
+        # The same seed in a project whose app is at the root is simply the project's pin file: preserved.
+        flat = self.project("flat-seed", install=False)
+        (flat / ".conclave").mkdir()
+        (flat / WEB_PINS).write_bytes(seed)
+        self.manifest(flat, "composer.json", {})
+        unchanged = forge.apply_kit(flat, self.KIT)
+        self.assertIn(WEB_PINS, unchanged["preserved"])
+        self.assertNotIn("repaired", unchanged)
+        self.assertEqual((flat / WEB_PINS).read_bytes(), seed)
 
     def test_the_kit_is_detected_by_its_own_pin_file_and_named_where_forge_lists_kits(self):
         project = self.project(install=False)
