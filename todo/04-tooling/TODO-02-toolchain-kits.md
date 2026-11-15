@@ -40,7 +40,7 @@ title: "TODO-02 -- Toolchain kits"
 | 4 | §4 | Compiler cache wrapper | §2 | [x] |
 | 5 | §5 | clangd seed and server table entry | §3, D04 T01 §2 | [x] |
 | 6 | §6 | `toolchain-web` kit with pins for PHP and Node tools | §2, D04 T01 §2 | [x] |
-| 7 | §7 | Toolchain skills and documents for the three agents | §4, §5, §6 | [ ] |
+| 7 | §7 | Toolchain skills and documents for the three agents | §4, §5, §6 | [x] |
 | 8 | §8 | Optional tools named as optional in the check's text | §7 | [ ] |
 
 ## 1. Tool pin file and the script that checks it
@@ -276,13 +276,16 @@ Each kit gets a short document and a skill so an agent uses the pinned tools, th
 - [x] Create the `web-toolchain` skill for `kits/toolchain-web/` in the same three folders on the same rules: check before a mysterious failure, never install or upgrade PHP, Node, Composer or a package manager and never loosen `composer.json`'s `require.php` or `package.json`'s `engines.node` to fit the machine, use the tools of `vendor/bin` and `node_modules/.bin` that the pin file's `search` names. Done when: the same tests pass for it.
 - [x] Finish both kit READMEs: each lists every file under its `templates/` (the documents and the skill folders included), neither says "still to come", and each has a `Sources` section naming what was taken from RasterFold (`b33493346141f96b6b304cd3e0c393595382f056`) and Impossible OS (`17a762d39ccd1958cbe711901f645fd9b042e939`), file by file, and what was written new. Done when: a test walks each kit's `templates/` and finds every file (or its folder, for a skill) in that kit's README, and finds both commits in the C and C++ kit's.
 - [x] Add fresh-install tests for both kits to `tests/test_toolchain_kits.py`: `init --kit <kit>` into an empty folder, every file of the kit present and `ok` in the doctor, the files a project must have named in the test itself, the check script run in the installed copy, and (in the full suite, `CONCLAVE_FULL_TESTS=1`) the kit's own tests run from the installed copy. Done when: against a scratch copy of the kits each passes, and fails when the document, the Claude skill or a script is moved out of the kit.
-- [ ] Commit: `toolchain: skills and documents for both kits`
+- [x] Commit: `toolchain: skills and documents for both kits`
 
 **Corrected 2026-11-15 (validation):** measured today against the kits as they stand. (1) There is no `cc-cache.sh`: §4 shipped `scripts/cc-cache.py`, whose output the build's own shell evaluates, with `cache-stats.py` beside it; the document describes that. (2) "Every script it names exists" lets a document name a real script with an option it does not have. The test also reads each documented line's options from the script's own `--help`, and runs the lines that need no build. (3) The skills differ in nothing between the three agents, so they have no patch: the `.agents` and `.codex` copies are generated from the Claude file as everywhere else since `D01 T02 §6`, and only the Codex `agents/openai.yaml` is written by hand. The doctor checks an agent's files only for the agents the project was installed for (`D04 T01 §7`), so "ok in all three folders" holds for an install for all three. (4) The statements each skill must make are written out, with two the first plan lacked: never set `BUILD_NO_CCACHE` or edit `.clangd` or the database to get past a failure, and never loosen a manifest's version constraint to fit the machine. (5) The tests go in `tests/test_toolchain_kits.py` with the kits' others, not `tests/test_forge.py`, and the kits' own tests run from an installed copy in the full suite, as the LSP kit's do. (6) The READMEs already list the scripts; what is missing is the documents, the skills and the sources with their commits.
 
 **Corrected 2026-11-15 (plan review):** three gaps, all taken. (1) Regenerating only when the check says `stale` misses a source added to a build that finds its sources by itself: no build file changes, and the database reads `current` without the new file. The skill says to regenerate after every change of the source set, and the check gains `--source`, which answers whether a named file is in the database, so the read-back proves it. (2) The skill had no instruction for `missing` (the state of every fresh install), `invalid`, `unknown` or a pin file that does not load: each has one now, and diagnostics are trusted only after a `current` read-back. (3) Finding a documented option in `--help` does not show that the cache lines work: the document's blocks are run as written, in their own shells, with stubs, including a setup that fails.
 
 **Test checkpoint:** `python -m unittest tests.test_toolchain_kits tests.test_skill_copies` ends `OK`; naming a script or an option in `docs/toolchain-cpp.md` that the kit lacks makes the document test fail.
+
+> **Verified:** 2026-11-15 | §7 | a1bfbc327efce224ee6e49aff282a962f6764745
+> **Review:** `docs/reviews/d04-t02-s7.json`
 
 ## 8. Optional tools named as optional in the check's text
 
