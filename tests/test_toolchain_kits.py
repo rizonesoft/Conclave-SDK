@@ -18,18 +18,20 @@ sys.path.insert(0, str(SDK_ROOT))
 import forge  # noqa: E402
 
 PINS = ".conclave/toolchain-cpp.json"
-# One line of each program's real `--version` output, with where it was captured (2026-11-15). The Ubuntu forms
-# carry the distribution's prefix. mold and Ubuntu's lld are not installed on the machines this was written on:
-# their lines are the format those programs print, taken from their own documentation, and are marked so.
+# One line of each program's real `--version` output, with where it was captured (2026-11-15, Windows 11 and
+# Ubuntu 26.04 in WSL). The Ubuntu forms carry the distribution's prefix. mold and Ubuntu's lld are not installed
+# on that machine: each was run from its Ubuntu package (`apt download`, unpacked into scratch, nothing
+# installed), so their lines are captured output too.
 REAL_OUTPUT = {
     "ninja": [("1.13.2\n", "1.13.2", "ninja 1.13.2, Windows and Ubuntu")],
     "ccache": [("ccache version 4.12.3\n", "4.12.3", "ccache 4.12.3, Ubuntu")],
     "sccache": [("sccache 0.19.0\n", "0.19.0", "sccache 0.19.0, Windows")],
-    "mold": [("mold 2.30.0 (compatible with GNU ld)\n", "2.30.0", "mold's documented format, not captured here")],
+    "mold": [("mold 2.40.4 (compatible with GNU ld)\n", "2.40.4",
+              "mold 2.40.4, run from Ubuntu's package mold 2.40.4+dfsg-2.1ubuntu1")],
     "ld.lld": [("LLD 22.1.3 (https://github.com/llvm/llvm-project e9846648fd6183ee6d8cbdb4502213fcf902a211) "
                 "(compatible with GNU linkers)\n", "22.1.3", "LLD 22.1.3, Windows"),
                ("Ubuntu LLD 19.1.7 (compatible with GNU linkers)\n", "19.1.7",
-                "Ubuntu's lld format, not captured here")],
+                "LLD 19.1.7, run from Ubuntu's package lld-19 1:19.1.7-20ubuntu4")],
     "clangd": [("clangd version 22.1.3 (https://github.com/llvm/llvm-project "
                 "e9846648fd6183ee6d8cbdb4502213fcf902a211)\n", "22.1.3", "clangd 22.1.3, Windows"),
                ("Ubuntu clangd version 19.1.7 (20ubuntu4)\n", "19.1.7", "clangd 19.1.7, Ubuntu")],
