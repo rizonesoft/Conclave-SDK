@@ -2308,6 +2308,8 @@ SUITES: list[dict] = [
     _unittest_suite("kit-unattended", "kits/unattended/templates/scripts/tests", 1800),
     _unittest_suite("kit-wordpress", "kits/wordpress/templates/scripts/tests", 1800),
     _unittest_suite("kit-wordpress-pressable", "kits/wordpress/hosts/pressable/templates/scripts/tests", 1800),
+    _unittest_suite("kit-toolchain-cpp", "kits/toolchain-cpp/templates/scripts/tests", 600),
+    _unittest_suite("kit-toolchain-web", "kits/toolchain-web/templates/scripts/tests", 600),
     _unittest_suite("sdk-scripts", "scripts/tests", 1800),
     {"name": "agent-tiers", "kind": "command", "path": "scripts/verify-agent-tiers.mjs", "timeout": 300,
      "argv": ["node", "scripts/verify-agent-tiers.mjs"]},
