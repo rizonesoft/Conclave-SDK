@@ -482,19 +482,31 @@ class WebKitTests(ToolchainFixture):
         self.assertIn(WEB_PINS, result["preserved"])
         self.assertNotIn("repaired", result)
         self.assertEqual((project / WEB_PINS).read_bytes(), written)
-        # A fresh install lists the file as installed; it is the project's own from that write, not recorded.
+        # A fresh install lists the file as installed and records it like every installed file: its kit and the
+        # digest of the bytes written. `diff` then finds it identical to what the kit holds for this project, and
+        # `update` has nothing to do with it.
         fresh = self.project("fresh", install=False)
         self.manifest(fresh / "platform", "package.json", {})
         installed = forge.apply_kit(fresh, self.KIT)
         self.assertIn(WEB_PINS, installed["installed"])
-        self.assertNotIn(WEB_PINS, json.loads((fresh / forge.RECORD).read_text(encoding="utf-8"))["files"])
+        entry = json.loads((fresh / forge.RECORD).read_text(encoding="utf-8"))["files"][WEB_PINS]
+        self.assertEqual(entry, {"kit": self.KIT, "sha256": forge.file_digest((fresh / WEB_PINS).read_bytes())})
+        self.assertNotEqual((fresh / WEB_PINS).read_bytes(), seed)
+        code, out, err = command_line("diff", fresh, self.KIT)
+        self.assertEqual(code, 0, err)
+        states = {item["path"]: item["state"] for kit in json.loads(out)["kits"].values() for item in kit["files"]}
+        self.assertEqual(states[WEB_PINS], "identical")
+        rooted = (fresh / WEB_PINS).read_bytes()
+        code, _out, err = command_line("update", fresh, self.KIT)
+        self.assertEqual(code, 0, err)
+        self.assertEqual((fresh / WEB_PINS).read_bytes(), rooted)
         # When the one write fails nothing is left behind, the command says why, and the next install completes.
         failing = self.project("failing", install=False)
         self.manifest(failing / "platform", "package.json", {})
         real = forge.atomic_write
 
         def refuse_the_pin(path, data):
-            if str(path).endswith("toolchain-web.json"):
+            if pathlib.Path(path).name.startswith("toolchain-web.json"):  # the file, staged beside itself
                 raise PermissionError(13, "Access is denied")
             return real(path, data)
 
@@ -530,6 +542,8 @@ class WebKitTests(ToolchainFixture):
         self.assertNotIn(WEB_PINS, repaired["preserved"])
         self.assertNotIn(WEB_PINS, repaired["installed"])
         self.assertEqual(self.module.load_pin_file(left / WEB_PINS)["root"], "platform")
+        entry = json.loads((left / forge.RECORD).read_text(encoding="utf-8"))["files"][WEB_PINS]
+        self.assertEqual(entry, {"kit": self.KIT, "sha256": forge.file_digest((left / WEB_PINS).read_bytes())})
         settled = forge.apply_kit(left, self.KIT)  # with its root it is the project's: preserved from then on
         self.assertIn(WEB_PINS, settled["preserved"])
         self.assertNotIn("repaired", settled)
