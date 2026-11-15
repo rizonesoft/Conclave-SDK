@@ -360,6 +360,30 @@ class BoundTests(Fixture):
         for pid in self.pids():
             self.assertTrue(gone(pid), f"process {pid} outlived the check")
 
+    @unittest.skipUnless(os.name == "nt", "on POSIX the session exists before the program is executed")
+    def test_a_child_started_at_once_cannot_be_made_before_the_tool_is_contained(self):
+        # Found by the reconciliation of D04 T02 section 1: on Windows a tool put in its job after it started could
+        # already have a child outside the job. Here the job is made late on purpose: the tool must not have run.
+        real = tc._windows_job
+
+        def late(proc):
+            time.sleep(1.5)
+            return real(proc)
+
+        self.stub("ninja", "import os, subprocess, sys\n"
+                           "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'],\n"
+                           "                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,\n"
+                           "                         stderr=subprocess.DEVNULL)\n"
+                           "open(r'{dir}/pids', 'w').write(f'{os.getpid()} {child.pid}')\n"
+                           "print('1.11.1')\n")
+        with unittest.mock.patch.object(tc, "_windows_job", late):
+            started = time.monotonic()
+            result = tc.check_tool(self.tool(), time_limit=30)
+        self.assertGreater(time.monotonic() - started, 1.4)
+        self.assertEqual((result["status"], result["version"]), ("ok", "1.11.1"))
+        for pid in self.pids():
+            self.assertTrue(gone(pid), f"process {pid} was made before the job and outlived the check")
+
     def test_a_pattern_that_never_finishes_is_stopped_and_the_next_tool_is_checked(self):
         # Found by the round of D04 T02 section 1: the pattern ran outside every limit. `(?:a+)+([0-9])$` on a line
         # of a's with no digit backtracks for hours.

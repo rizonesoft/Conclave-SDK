@@ -1,0 +1,85 @@
+{
+  "ref": "D04 T01 \u00a71",
+  "title": "LSP kit known to `forge.py`",
+  "implementation_sha": "8a75c584c044defd9015a2cbd99fd796464824da",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/04-tooling/D04-T01-s1.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest tests.test_lsp_kit -> Ran 10 tests, OK",
+    "removing the .conclave/lsp.json detection from installed_kits -> test_the_kit_is_detected_by_its_table fails",
+    "CI tests.yml run 43656990290 on 8a75c584c044 -> success on quick suite (Windows), full suite (Linux), kit suites (Linux)"
+  ],
+  "completion": {
+    "report": "docs/reviews/04-tooling/D04-T01-s1.md",
+    "verdict": "complete",
+    "candidate": "8a75c584c044defd9015a2cbd99fd796464824da",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/04-tooling/D04-T01-s1.md",
+    "candidate": "b50028fb7981f265e3d737365bbc62404691bf33",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "b50028fb7981f265e3d737365bbc62404691bf33",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}

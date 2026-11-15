@@ -182,6 +182,28 @@ def _windows_job(proc):
     return job
 
 
+def _windows_resume(proc):
+    """Let a tool that was started suspended run. It is started suspended so that it is in its job before it can
+    start anything: a child made before the job existed would be outside it. True when the tool is running."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    ntdll = ctypes.WinDLL("ntdll")
+    ntdll.NtResumeProcess.restype = wintypes.LONG
+    ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
+    handle = kernel32.OpenProcess(0x0800, False, proc.pid)  # PROCESS_SUSPEND_RESUME
+    if not handle:
+        return False
+    try:
+        return ntdll.NtResumeProcess(handle) == 0
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def _windows_job_end(job):
     import ctypes
     from ctypes import wintypes
@@ -233,14 +255,20 @@ def run_bounded(argv, time_limit=TIME_LIMIT, output_cap=OUTPUT_CAP):
     with it on every way out."""
     windows = os.name == "nt"
     try:
-        # Its own process group on Windows and its own session on POSIX, so its whole tree can be ended.
+        # Contained before it runs, so its whole tree can be ended. POSIX: its own session, made before the
+        # program is executed. Windows: started suspended (CREATE_SUSPENDED), put in a job object, then resumed.
         proc = subprocess.Popen(
             argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            creationflags=(subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP) if windows else 0,
+            creationflags=(subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000004)
+            if windows else 0,
             start_new_session=not windows)
     except OSError as exc:
         return {"output": "", "exit": None, "stopped": None, "error": exc.strerror or str(exc)}
     job = _windows_job(proc) if windows else None
+    if windows and not _windows_resume(proc):
+        _end_tree(proc, job)
+        proc.stdout.close()
+        return {"output": "", "exit": None, "stopped": None, "error": "Windows did not let the program be resumed"}
     chunks, over = [], threading.Event()
 
     def read():
