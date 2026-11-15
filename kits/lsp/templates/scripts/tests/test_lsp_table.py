@@ -586,7 +586,7 @@ class CommandLineTests(Fixture):
         super().setUp()
         scripts = self.root / "scripts"
         (scripts / "lib").mkdir(parents=True)
-        for rel in ("lsp-servers.py", "lib/lsp_table.py", "lib/lsp_presets.json"):
+        for rel in ("lsp-servers.py", "lib/lsp_table.py", "lib/lsp_plugin.py", "lib/lsp_presets.json"):
             (scripts / rel).write_bytes((SCRIPTS / rel).read_bytes())
 
     def run_script(self, *argv):

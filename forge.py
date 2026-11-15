@@ -790,6 +790,8 @@ def apply_kit(
             result["lsp_servers"] = servers
             if "refused" in servers or "failed" in servers:
                 merge_needed.append(LSP_TABLE)
+            if "plugin_failed" in servers:
+                merge_needed.append(f"{_lsp_plugin_module().FOLDER}/{_lsp_plugin_module().SERVERS}")
     return result
 
 
@@ -901,6 +903,13 @@ def _fill_lsp_table(target_root: Path, dry_run: bool, installing: str | None = N
     result = {"added": added, "kept": list(dict.fromkeys(kept))}
     if laravel_app is not None:
         result.update(replaced=replaced, differs=differs)
+    if (added or replaced) and not dry_run:
+        # A Claude Code plugin the project has generated follows the table; a project without one gets none.
+        plugin = _lsp_plugin_module()
+        try:
+            plugin.refresh(target_root, table.load_servers(target_root))
+        except (plugin.PluginWriteError, table.TableError) as exc:
+            result.update(plugin_failed=str(exc), plugin_retry=plugin.COMMAND)
     return result
 
 
@@ -2109,6 +2118,16 @@ def _lsp_table_module():
     return module
 
 
+def _lsp_plugin_module():
+    """The lsp kit's plugin generator, loaded from the kit as the table module is, so the doctor compares a
+    project's Claude Code plugin with what the kit's own tool writes."""
+    path = FORGE_ROOT / "kits/lsp/templates/scripts/lib/lsp_plugin.py"
+    module = types.ModuleType("_forge_lsp_plugin")
+    module.__file__ = str(path)
+    exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), module.__dict__)
+    return module
+
+
 def _kit_file_checks(kit: str, target_root: Path, add_check) -> None:
     """One check per file a kit installs, `ok` or `missing`. The list is the kit's own templates folder, so a file
     the kit gains is checked without a second list."""
@@ -2273,6 +2292,19 @@ def _doctor_lsp(target_root: Path, add_check) -> None:
     for server in servers:
         found = table.find_program(target_root, server)  # the kit's own lookup: PATH, or the server's folder
         add_check(f"server:{server['name']}", "ok" if found else "setup_required", found or server["install"])
+    # The Claude Code plugin is generated from the table: in step with it, behind it, or never generated.
+    plugin = _lsp_plugin_module()
+    state = plugin.state(target_root, servers)
+    if state == "current":
+        add_check("claude-plugin", "ok", f"{plugin.FOLDER}: {', '.join(s['name'] for s in servers) or 'no server'}")
+    elif state == "differs":
+        add_check("claude-plugin", "unexpected", f"{plugin.FOLDER} is not what {LSP_TABLE} gives now: "
+                                                  f"regenerate it with {plugin.COMMAND}")
+    else:
+        # Asked for only where Claude Code is used and there is a server to run.
+        wanted = (target_root / ".claude").is_dir() and bool(servers)
+        add_check("claude-plugin", "setup_required" if wanted else "optional",
+                  f"not generated: {plugin.COMMAND} (Claude Code then runs the table's servers while it edits)")
 
 
 def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:

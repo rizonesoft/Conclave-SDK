@@ -12,12 +12,14 @@ The kit is being built in sections (`todo/04-tooling/TODO-01-lsp-kit.md`). What 
 | `scripts/lib/lsp_presets.json` | The catalogue of servers and the presets per stack |
 | `scripts/lsp-diagnostics.py` | Runs the table's servers over files and reports their diagnostics |
 | `scripts/lib/lsp_client.py` | The LSP client: starts, contains and bounds one server, returns its result |
+| `scripts/lib/lsp_plugin.py` | Generates the Claude Code plugin from the table |
 | `scripts/tests/test_lsp_table.py` | The kit's own tests of the table |
 | `scripts/tests/test_lsp_diagnostics.py` | The kit's own tests of the client, against a stub language server |
+| `scripts/tests/test_lsp_plugin.py` | The kit's own tests of the generated plugin |
 
 The table is the project's own file from the first install: `forge.py` never overwrites it, and a project that already has one keeps it byte for byte.
 
-Still to come, each reading the same table: a Claude Code plugin generated from the table (§5), an MCP bridge for Codex and Antigravity (§6), and the `language-servers` skill and document (§7).
+Still to come, each reading the same table: an MCP bridge for Codex and Antigravity (§6), and the `language-servers` skill and document (§7).
 
 ## Install
 
@@ -124,6 +126,39 @@ A server is started with no shell and no console window and is contained before 
 
 `scripts/lib/lsp_client.py` is the client itself (`run_server`, `Client`), for other tools that drive the table's servers.
 
+## Claude Code plugin
+
+Claude Code can run language servers itself while it edits, from a plugin. The kit generates that plugin from the table, so the table stays the only list of servers:
+
+```text
+python scripts/lsp-servers.py plugin        # writes .claude/lsp/conclave-lsp/ for the table's servers
+claude --plugin-dir .claude/lsp/conclave-lsp
+```
+
+`.claude/lsp/conclave-lsp/` holds `.claude-plugin/plugin.json` and `.lsp.json`, which maps each server's name to its entry. It is generated output: rewritten whole on every run, never merged, and anything else left in the folder is removed. Once a project has it, `lsp-servers.py add` and `remove` and a stack kit's install keep it in step with the table; a project that never ran `plugin` gets none. If the table changed and the plugin could not be written, the table keeps its change, the command exits 1 and names `python scripts/lsp-servers.py plugin`, which brings the plugin in step.
+
+What an entry becomes, using only the keys Claude Code documents (one unknown key makes it skip the whole file):
+
+| Table | `.lsp.json` |
+| --- | --- |
+| `command` | `command`, `args`: a name or absolute path as is, a relative one under the project |
+| `extensions` | `extensionToLanguage` |
+| `root` | `workspaceFolder`, as `${CLAUDE_PROJECT_DIR}/<root>`, when it is not `.` |
+| `init`, `settings` | `initializationOptions`, `settings`, when not empty |
+
+A string in `init` or `settings` that holds `${scratch}` is left out with its key, because Claude Code resolves variables in `command`, `args` and `workspaceFolder` only. `requires`, `severity`, `settle`, `note` and `install` have no key there and are not written.
+
+How Claude Code loads it, with the source of each statement:
+
+- `claude --plugin-dir .claude/lsp/conclave-lsp` loads it for one session. `claude --help` of Claude Code 2.1.325 on the machine this was written on (2026-11-15): "`--plugin-dir <path>` Load a plugin from a directory or .zip for this session only; a folder of plugins loads each child (repeatable: `--plugin-dir A --plugin-dir B.zip`)".
+- The environment variable `CLAUDE_CODE_PLUGIN_DIRS` names plugin folders for a run whose command line cannot be changed (`code.claude.com/docs/en/plugins/loading`).
+- The plugin installs no server: "Your plugin configures the connection but doesn't install the server binary" (`code.claude.com/docs/en/plugins/components`). Each program must be on `PATH`; `python forge.py doctor <project> lsp` says which are missing.
+- A server starts on the first edit of a file it serves, and Claude Code gives each extension to one server, the first registered (`code.claude.com/docs/en/plugins/components`). With the `laravel` preset `.php` goes to `laravel-lsp`, not to `intelephense` or `tailwindcss`. The generator writes what the table says and drops nothing; `plugin` names each shared extension and the server that gets it, and the order of the servers in the table decides.
+
+Verified live on 2026-11-15 with Claude Code 2.1.325 on Windows 11: a headless session (`claude -p`) loaded the generated plugin, once by `--plugin-dir` and once by `CLAUDE_CODE_PLUGIN_DIRS`, started both stub servers of a two-server table (one under a `root` of its own, started in that folder), gave each the file it serves, and was given each server's diagnostic back. The SDK's `tests/test_lsp_kit.py` holds that run; it starts a real Claude Code session, so it runs only with `CONCLAVE_LIVE_CLAUDE=1`. Not verified: a `.zip` of the plugin, and `--plugin-url`.
+
+The plugin gives Claude Code diagnostics while it edits. `scripts/lsp-diagnostics.py` remains the gate: it runs every server of the table on its files, whatever their extensions share, and has an exit code.
+
 ## Doctor
 
 `python forge.py doctor <project> lsp` reports:
@@ -131,6 +166,8 @@ A server is started with no shell and no console window and is contained before 
 - each file the kit installs, `ok` or `missing`;
 - `server-table`: `ok` with the servers it names (or that it holds none yet, and how to add one), `missing` with the refusal when the table does not load;
 - `server:<name>` for each server: `ok` with the path its program was found at, `setup_required` with its `install` hint when it is not installed. A program given as a path is looked for in the server's `root`.
+
+- `claude-plugin`: `ok` when `.claude/lsp/conclave-lsp/` is byte for byte what the table gives now; `unexpected`, naming `python scripts/lsp-servers.py plugin`, when it is not (the table was edited by hand since, or a file of the plugin is missing); and when no plugin was generated, `setup_required` naming that command for a project that has a `.claude` folder and a server in its table, `optional` otherwise. `optional` is shown and never counted.
 
 `python forge.py doctor <project>` with no kit named checks the project's stack kit or the base kit as before and, when this kit is installed, adds these checks and lists the kit under `also`.
 

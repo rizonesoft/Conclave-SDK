@@ -8,8 +8,10 @@ import json
 import os
 import pathlib
 import shutil
+import subprocess
 import sys
 import tempfile
+import types
 import unittest
 import unittest.mock
 
@@ -138,7 +140,7 @@ class LspKitTests(unittest.TestCase):
         report = json.loads(out)
         self.assertEqual((code, report["kit"], report["missing_or_setup_required"]), (0, "lsp", 0))
         self.assertEqual({name: check["status"] for name, check in self.checks(report).items()},
-                         {**{rel: "ok" for rel in kit_files()}, "server-table": "ok"})
+                         {**{rel: "ok" for rel in kit_files()}, "server-table": "ok", "claude-plugin": "optional"})
         self.assertEqual(self.checks(report)[TABLE]["detail"], (project / TABLE).as_posix())
         (project / TABLE).unlink()
         code, out, _err = command_line("doctor", project, "lsp", "--strict")
@@ -177,7 +179,7 @@ class LspKitTests(unittest.TestCase):
         self.assertEqual((code, report["kit"], report["also"]), (0, "base", ["lsp"]))
         names = [check["name"] for check in report["checks"]]
         self.assertEqual(names[:len(bare["checks"])], [check["name"] for check in bare["checks"]])
-        self.assertEqual(names[len(bare["checks"]):], kit_files() + ["server-table"])
+        self.assertEqual(names[len(bare["checks"]):], kit_files() + ["server-table", "claude-plugin"])
         self.assertEqual(self.checks(report)[TABLE]["status"], "ok")
         # A named kit is that kit alone, as before.
         named = json.loads(command_line("doctor", project, "base")[1])
@@ -297,6 +299,13 @@ class LspKitTests(unittest.TestCase):
         for result in ("ok", "idle", "missing", "skipped", "failed", "partial"):
             self.assertIn(f"| `{result}` |", readme, f"the README does not describe the result {result}")
         self.assertIn("`${scratch}`", readme)
+        # The Claude Code plugin (section 5): its folder, the command, how it is loaded and where that is said.
+        plugin = forge._lsp_plugin_module()
+        for word in (f"`{plugin.FOLDER}/`", "lsp-servers.py plugin", f"`{plugin.LOAD}`", "`CLAUDE_CODE_PLUGIN_DIRS`",
+                     "`claude-plugin`", "`unexpected`", "`optional`", "claude --help", "`.lsp.json`",
+                     "code.claude.com/docs/en/plugins/"):
+            self.assertIn(word, readme)
+        self.assertRegex(readme, r"Claude Code 2\.\d+\.\d+")
 
     def test_the_bare_doctor_adds_the_kit_to_a_stack_kits_checks(self):
         project = self.project()
@@ -335,6 +344,242 @@ class LspKitTests(unittest.TestCase):
             self.assertEqual(self.checks(report)["scripts/added-later.py"]["status"], "missing")
             self.assertEqual(report["missing_or_setup_required"], clean["missing_or_setup_required"] + 1)
             self.assertEqual(command_line("doctor", project, "--strict")[0], 3)
+
+
+# The stub language server of the live proof: it publishes one diagnostic carrying the marker it is given and
+# logs what Claude Code sends it.
+LIVE_STUB = r'''
+import json, sys
+
+marker, log = sys.argv[1], sys.argv[2]
+
+
+def note(text):
+    with open(log, "a", encoding="utf-8") as out:
+        out.write(text + "\n")
+
+
+def send(message):
+    body = json.dumps(message).encode("utf-8")
+    sys.stdout.buffer.write(b"Content-Length: %d\r\n\r\n" % len(body) + body)
+    sys.stdout.buffer.flush()
+
+
+note("started")
+while True:
+    length = None
+    while True:
+        line = sys.stdin.buffer.readline()
+        if not line:
+            sys.exit(0)
+        line = line.strip()
+        if not line:
+            break
+        if line.lower().startswith(b"content-length:"):
+            length = int(line.split(b":", 1)[1])
+    message = json.loads(sys.stdin.buffer.read(length))
+    method = message.get("method")
+    if method == "initialize":
+        note("root " + str(message["params"].get("rootUri")))
+        send({"jsonrpc": "2.0", "id": message["id"], "result": {"capabilities": {"textDocumentSync": 1}}})
+    elif method in ("textDocument/didOpen", "textDocument/didChange"):
+        uri = message["params"]["textDocument"]["uri"]
+        note("document " + uri)
+        send({"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": {"uri": uri, "diagnostics": [
+            {"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}, "severity": 1,
+             "source": "stub", "message": "planted diagnostic " + marker}]}})
+    elif method == "shutdown":
+        send({"jsonrpc": "2.0", "id": message["id"], "result": None})
+    elif method == "exit":
+        sys.exit(0)
+    elif "id" in message and method:
+        send({"jsonrpc": "2.0", "id": message["id"], "result": None})
+'''
+
+
+class ClaudePluginTests(unittest.TestCase):
+    """D04 T01 section 5: the doctor's `claude-plugin` check, the plugin following a stack kit's install, and the
+    plugin held against Claude Code itself."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.work = pathlib.Path(tmp.name).resolve()
+        self.plugin = forge._lsp_plugin_module()
+        self.table = forge._lsp_table_module()
+
+    def project(self, name="project", claude=True):
+        folder = self.work / name
+        folder.mkdir()
+        forge.apply_kit(folder, "lsp")
+        if claude:
+            (folder / ".claude").mkdir()   # a project that uses Claude Code
+        return folder
+
+    def tool(self, project, *argv):
+        ran = subprocess.run([sys.executable, "-B", str(project / "scripts/lsp-servers.py"), *argv], cwd=project,
+                             capture_output=True, text=True, timeout=120,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        return ran.stdout
+
+    def check(self, project, kit="lsp"):
+        checks = [check for check in forge.doctor_repo(project, kit)["checks"] if check["name"] == "claude-plugin"]
+        self.assertEqual(len(checks), 1, "the claude-plugin check is listed once")
+        return checks[0]["status"], checks[0]["detail"]
+
+    def listed(self, project):
+        return list(json.loads((project / self.plugin.FOLDER / self.plugin.SERVERS).read_text(encoding="utf-8")))
+
+    def test_the_doctor_says_whether_the_plugin_is_in_step_behind_or_never_generated(self):
+        command = "python scripts/lsp-servers.py plugin"
+        project = self.project()
+        self.assertTrue((project / ".claude").is_dir())
+        # No server yet: nothing to run, so the plugin is not asked for.
+        status, detail = self.check(project)
+        self.assertEqual(status, "optional")
+        self.assertIn(command, detail)
+        self.tool(project, "add", "cpp")
+        self.assertEqual(self.check(project)[0], "setup_required")   # a server, a .claude folder, no plugin
+        self.assertIn(command, self.check(project)[1])
+        self.tool(project, "plugin")
+        self.assertEqual(self.check(project), ("ok", ".claude/lsp/conclave-lsp: clangd"))
+        # The table edited by hand since: the plugin is behind it.
+        document = json.loads((project / TABLE).read_text(encoding="utf-8"))
+        document["servers"][0]["command"] = ["clangd-19"]
+        (project / TABLE).write_text(json.dumps(document), encoding="utf-8")
+        status, detail = self.check(project)
+        self.assertEqual(status, "unexpected")
+        self.assertEqual(detail, ".claude/lsp/conclave-lsp is not what .conclave/lsp.json gives now: regenerate it with "
+                                 + command)
+        self.tool(project, "plugin")
+        self.assertEqual(self.check(project)[0], "ok")
+        # One of its two files gone is behind too, not "never generated".
+        (project / self.plugin.FOLDER / self.plugin.MANIFEST).unlink()
+        self.assertEqual(self.check(project)[0], "unexpected")
+        # A project that does not use Claude Code is not asked for a Claude Code plugin.
+        other = self.project("codex-only", claude=False)
+        self.assertFalse((other / ".claude").exists())
+        self.tool(other, "add", "cpp")
+        self.assertEqual(self.check(other)[0], "optional")
+        report = forge.doctor_repo(other, "lsp")
+        counted = [check["name"] for check in report["checks"] if check["status"] in ("missing", "setup_required")]
+        self.assertEqual(report["missing_or_setup_required"], len(counted))   # `optional` is never counted
+        self.assertNotIn("claude-plugin", counted)
+        # A table that does not load: no plugin check, as no server check.
+        (other / TABLE).write_text("{", encoding="utf-8")
+        self.assertEqual([c for c in forge.doctor_repo(other, "lsp")["checks"] if c["name"] == "claude-plugin"], [])
+
+    def test_a_stack_kits_install_keeps_a_generated_plugin_in_step_and_makes_none_of_its_own(self):
+        project = self.project()
+        (project / "artisan").write_bytes(b"<?php\n")
+        self.tool(project, "plugin")
+        self.assertEqual(self.listed(project), [])
+        result = forge.apply_kit(project, "laravel")
+        self.assertEqual(self.listed(project), ["laravel-lsp", "intelephense", "tailwindcss"])
+        self.assertNotIn("plugin_failed", result["lsp_servers"])
+        self.assertEqual(self.check(project, "laravel")[0], "ok")   # the Laravel doctor lists it once too
+        # A project without a plugin gets none from the install.
+        fresh = self.work / "fresh"
+        fresh.mkdir()
+        (fresh / "artisan").write_bytes(b"<?php\n")
+        forge.apply_kit(fresh, "laravel")
+        self.assertFalse((fresh / self.plugin.FOLDER).exists())
+        self.assertEqual(self.check(fresh, "laravel")[0], "setup_required")
+
+    def test_an_install_that_cannot_regenerate_the_plugin_keeps_the_table_and_names_the_recovery(self):
+        project = self.project()
+        (project / "artisan").write_bytes(b"<?php\n")
+        self.tool(project, "plugin")
+        before = (project / self.plugin.FOLDER / self.plugin.SERVERS).read_bytes()
+        real = os.replace
+
+        def replace(source, target):
+            if pathlib.Path(target).name == ".lsp.json":
+                raise PermissionError(13, "Permission denied")
+            return real(source, target)
+
+        module = forge._lsp_plugin_module()
+        failing = types.SimpleNamespace(**{name: getattr(os, name) for name in dir(os) if not name.startswith("__")})
+        failing.replace = replace
+        module.os = failing
+        with unittest.mock.patch.object(forge, "_lsp_plugin_module", lambda: module):
+            result = forge.apply_kit(project, "laravel")
+        self.assertEqual(result["lsp_servers"]["added"], ["laravel-lsp", "intelephense", "tailwindcss"])
+        self.assertEqual(result["lsp_servers"]["plugin_failed"],
+                         ".claude/lsp/conclave-lsp/.lsp.json: cannot be written (Permission denied)")
+        self.assertEqual(result["lsp_servers"]["plugin_retry"], "python scripts/lsp-servers.py plugin")
+        self.assertEqual(result["merge_needed"], [".claude/lsp/conclave-lsp/.lsp.json"])
+        # The table kept its servers; the plugin's list is the earlier one, whole; the doctor says it is behind.
+        self.assertEqual(len(self.table.load_servers(project)), 3)
+        self.assertEqual((project / self.plugin.FOLDER / self.plugin.SERVERS).read_bytes(), before)
+        self.assertEqual(self.check(project)[0], "unexpected")
+        self.tool(project, "plugin")   # the recovery the result names
+        self.assertEqual(self.listed(project), ["laravel-lsp", "intelephense", "tailwindcss"])
+        self.assertEqual(self.check(project)[0], "ok")
+
+    @unittest.skipUnless(shutil.which("claude"), "needs Claude Code on PATH")
+    def test_claude_code_accepts_the_generated_plugin(self):
+        project = self.project()
+        (project / "artisan").write_bytes(b"<?php\n")
+        self.tool(project, "add", "laravel")
+        self.tool(project, "plugin")
+        ran = subprocess.run(["claude", "plugin", "validate", str(project / self.plugin.FOLDER)], cwd=project,
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180,
+                             shell=(os.name == "nt"),
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+
+    @unittest.skipUnless(os.environ.get("CONCLAVE_LIVE_CLAUDE") == "1" and shutil.which("claude"),
+                         "starts a real Claude Code session: set CONCLAVE_LIVE_CLAUDE=1 to run it")
+    def test_a_claude_code_session_starts_the_plugins_servers_and_is_given_their_diagnostics(self):
+        project = self.project()
+        (project / "api").mkdir()
+        stub = self.work / "stub.py"
+        stub.write_text(LIVE_STUB, encoding="utf-8")
+        markers = {"alpha": "MARK-ALPHA-41c7", "beta": "MARK-BETA-9e02"}
+        files = {"alpha": "notes.alpha", "beta": "api/style.beta"}
+        prompt = ("Use the Edit tool to append the line `second line` to the file notes.alpha, then to the file "
+                  "api/style.beta. Then reply DONE.")
+        for mode in ("--plugin-dir", "CLAUDE_CODE_PLUGIN_DIRS"):
+            with self.subTest(loaded_by=mode):
+                servers = [{"name": name, "command": [sys.executable, str(stub), markers[name],
+                                                      str(self.work / f"{name}-{mode.strip('-')}.log")],
+                            "extensions": {f".{name}": "plaintext"}, "install": "none",
+                            **({"root": "api"} if name == "beta" else {})} for name in markers]
+                (project / TABLE).write_text(json.dumps({"schema_version": 1, "servers": servers}), encoding="utf-8")
+                for rel in files.values():
+                    (project / rel).write_bytes(b"first line\n")
+                self.tool(project, "plugin")
+                folder = project / self.plugin.FOLDER
+                # The whole event stream, not the model's summary of it: what the session was given is in there,
+                # whatever the model then chooses to say.
+                argv = ["claude", "-p", prompt, "--model", "haiku", "--permission-mode", "acceptEdits",
+                        "--allowedTools", "Edit,Read", "--output-format", "stream-json", "--verbose"]
+                env = {key: value for key, value in os.environ.items()
+                       if key not in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID",
+                                      "CLAUDE_PROJECT_DIR")}
+                if mode == "--plugin-dir":
+                    argv += ["--plugin-dir", str(folder)]
+                else:
+                    env["CLAUDE_CODE_PLUGIN_DIRS"] = str(folder)
+                ran = subprocess.run(argv, cwd=project, env=env, capture_output=True, text=True, encoding="utf-8",
+                                     errors="replace", timeout=420,
+                                     shell=(os.name == "nt"), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                self.assertEqual(ran.returncode, 0, ran.stderr)
+                print(f"\nlive proof, loaded by {mode}:")
+                for name, rel in files.items():
+                    log = self.work / f"{name}-{mode.strip('-')}.log"
+                    text = log.read_text(encoding="utf-8") if log.is_file() else ""
+                    uri = (project / rel).resolve().as_uri()
+                    back = markers[name] in ran.stdout
+                    print(f"  {name}: started={'started' in text} document={uri in text} marker returned={back}")
+                    self.assertIn("started", text, f"Claude Code did not start the {name} server")
+                    self.assertIn(f"document {uri}", text, f"the {name} server was not given {rel}")
+                    self.assertTrue(back, f"the {name} server's diagnostic did not come back: {ran.stdout[:400]}")
+                # The server under a root of its own was started in that folder.
+                beta = (self.work / f"beta-{mode.strip('-')}.log").read_text(encoding="utf-8")
+                self.assertIn("root " + (project / "api").resolve().as_uri(), beta)
 
 
 if __name__ == "__main__":
