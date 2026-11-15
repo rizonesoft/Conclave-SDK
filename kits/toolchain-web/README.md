@@ -61,6 +61,8 @@ Intelephense is not pinned here. It is a language server with no version command
 python scripts/toolchain-check.py --pins .conclave/toolchain-web.json [--json] [--root <project>]
 ```
 
+Each line is the tool's name, one word and the detail: `ok`, `setup_required` for a required tool that is not ok, `optional` for a tool the pin marks optional that is not ok (`--json` keeps `status` and `optional` apart).
+
 ## Doctor
 
 `python forge.py doctor <project> toolchain-web` reports:

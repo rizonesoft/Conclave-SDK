@@ -72,7 +72,7 @@ python scripts/toolchain-check.py --pins .conclave/toolchain-cpp.json --json
 python scripts/toolchain-check.py --pins .conclave/toolchain-cpp.json --root /path/to/project
 ```
 
-It exits 3 when a tool that is not optional is not ok, 2 when the pin file does not load, 0 otherwise. Each tool is run with no shell, for at most 15 seconds and 64 KiB of output, and whatever it started is ended with it.
+Each line is the tool's name, one word and the detail: `ok`, `setup_required` for a required tool that is not ok, `optional` for a tool the pin marks optional that is not ok (`--json` keeps `status` and `optional` apart). It exits 3 when a tool that is not optional is not ok, 2 when the pin file does not load, 0 otherwise. Each tool is run with no shell, for at most 15 seconds and 64 KiB of output, and whatever it started is ended with it.
 
 ## The compile database
 

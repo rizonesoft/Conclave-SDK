@@ -28,8 +28,11 @@ compdb-check.py (each key optional; the files are read under `root`):
      "compdb": {"path": "build/compile_commands.json", "build_files": ["CMakeLists.txt", "src/flags.cmake"],
                 "regenerate": ["cmake", "-S", ".", "-B", "build"]}}
 
-It prints one line per tool and exits 3 when a tool that is not optional is not ok, 2 when the pin file does not
-load. It reads and reports: it installs nothing and writes nothing. Standard library only.
+It prints one line per tool (its name, one word, the detail) and exits 3 when a tool that is not optional is not
+ok, 2 when the pin file does not load. The word is `ok`, `setup_required` for a required tool that is not ok, and
+`optional` for a tool the pin marks optional that is not ok, so a reader never takes a tool the project may do
+without for setup it needs. `--json` keeps the two facts apart: `status` (`ok` or `setup_required`) and `optional`.
+It reads and reports: it installs nothing and writes nothing. Standard library only.
 """
 import argparse
 import json
@@ -512,7 +515,8 @@ def main(argv=None):
                          indent=2))
     else:
         for tool in tools:
-            print(f"{tool['name']}  {tool['status']}  {tool['detail']}")
+            word = "optional" if tool["optional"] and tool["status"] != "ok" else tool["status"]
+            print(f"{tool['name']}  {word}  {tool['detail']}")
     return 3 if required_not_ok else 0
 
 

@@ -505,6 +505,41 @@ class CommandLineTests(Fixture):
         report = json.loads(ran.stdout)
         self.assertEqual((report["required_not_ok"], report["tools"][0]["status"]), (0, "setup_required"))
 
+    def test_the_text_line_says_optional_for_an_optional_tool_that_is_not_ok(self):
+        # Found 2026-11-15 on a real project: a missing optional tool was printed `setup_required`, the word of a
+        # required one, and read as setup the project needs.
+        self.prints("old", "1.2\n")
+        self.prints("fine", "1.12.1\n")
+        pins = self.document(
+            {"name": "missing-optional", "commands": [dict(COMMAND, command="nowhere")], "install": "install it",
+             "optional": True},
+            {"name": "old-optional", "commands": [dict(COMMAND, command="old")], "install": "install it",
+             "optional": True},
+            {"name": "fine-optional", "commands": [dict(COMMAND, command="fine")], "install": "install it",
+             "optional": True},
+            {"name": "fine-required", "commands": [dict(COMMAND, command="fine")], "install": "install it"})
+        text = self.run_script("--pins", pins)
+        self.assertEqual(text.returncode, 0, text.stderr)   # only optional tools are not ok
+        words = [line.split("  ")[:2] for line in text.stdout.splitlines()]
+        self.assertEqual(words, [["missing-optional", "optional"], ["old-optional", "optional"],
+                                 ["fine-optional", "ok"], ["fine-required", "ok"]])
+        self.assertIn("not installed", text.stdout.splitlines()[0])
+        self.assertIn("1.2", text.stdout.splitlines()[1])
+        # The JSON document of the same pins keeps the two facts apart, as before.
+        report = json.loads(self.run_script("--pins", pins, "--json").stdout)
+        self.assertEqual([(tool["status"], tool["optional"]) for tool in report["tools"]],
+                         [("setup_required", True), ("setup_required", True), ("ok", True), ("ok", False)])
+        self.assertEqual(report["required_not_ok"], 0)
+        # A required tool that is not ok keeps its word, beside an optional one.
+        pins = self.document(
+            {"name": "missing-required", "commands": [dict(COMMAND, command="nowhere")], "install": "install it"},
+            {"name": "missing-optional", "commands": [dict(COMMAND, command="nowhere")], "install": "install it",
+             "optional": True})
+        text = self.run_script("--pins", pins)
+        self.assertEqual(text.returncode, 3)
+        self.assertEqual([line.split("  ")[:2] for line in text.stdout.splitlines()],
+                         [["missing-required", "setup_required"], ["missing-optional", "optional"]])
+
     def test_a_pin_file_that_does_not_load_is_one_line_and_exit_2(self):
         for name, data in (("malformed", '{"schema_version": 1, "tools": [{"name": "x"}]}'), ("missing", None)):
             with self.subTest(case=name):

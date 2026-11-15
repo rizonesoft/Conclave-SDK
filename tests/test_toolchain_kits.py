@@ -1570,6 +1570,30 @@ class DocumentTests(Section7Fixture):
                 for launcher in bin_folder.iterdir():
                     launcher.unlink()
 
+    def test_the_check_prints_the_words_the_documents_give_for_required_and_optional_tools(self):
+        # D04 T02 section 8: a real project showed a missing optional tool printed `setup_required`.
+        bin_folder = self.work / "empty-bin"
+        bin_folder.mkdir()
+        env = dict(os.environ, PATH=str(bin_folder), **({"PATHEXT": ".CMD;.EXE"} if os.name == "nt" else {}))
+        said = ("The word after the tool's name is `ok`, `setup_required` for a required tool that is not ok, or "
+                "`optional` for a tool the pin marks optional that is not ok")
+        for kit, facts in SECTION_7.items():
+            with self.subTest(kit=kit):
+                project = self.install(kit)
+                self.assertIn(said, (project / facts["document"]).read_text(encoding="utf-8"))
+                self.assertIn("`optional` for a tool the pin marks optional that is not ok",
+                              (SDK_ROOT / "kits" / kit / "README.md").read_text(encoding="utf-8"))
+                seed = json.loads((project / facts["pins"]).read_text(encoding="utf-8"))
+                marked = {tool["name"]: tool.get("optional", False) for tool in seed["tools"]}
+                self.assertIn(True, marked.values())
+                self.assertIn(False, marked.values())
+                # No tool is installed on this PATH: every line is `setup_required` or `optional`, by the pin.
+                code, out, _err = run_script(project, "scripts/toolchain-check.py", "--pins", facts["pins"], env=env)
+                self.assertEqual(code, 3)
+                words = dict(line.split("  ")[:2] for line in out.splitlines())
+                self.assertEqual(words, {name: "optional" if optional else "setup_required"
+                                         for name, optional in marked.items()})
+
     def test_the_compile_database_lines_run_with_the_answers_the_document_gives(self):
         project = self.install("toolchain-cpp")
         text = (project / "docs/toolchain-cpp.md").read_text(encoding="utf-8")

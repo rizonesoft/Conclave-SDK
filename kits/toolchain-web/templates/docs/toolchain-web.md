@@ -18,7 +18,7 @@ python scripts/toolchain-check.py --pins .conclave/toolchain-web.json
 python scripts/toolchain-check.py --pins .conclave/toolchain-web.json --json
 ```
 
-One line per tool: `ok` with the path found and its version, or why not (not installed, with the line that installs it; too old, with both versions; or what went wrong when it was run). It exits 0 when every required tool is ok, 3 when one is not, and 2 when the pin file does not load. A tool marked `optional` (the seed marks `phpstan`, `pint` and `phpcs`) is shown and never fails the check.
+One line per tool: `ok` with the path found and its version, or why not (not installed, with the line that installs it; too old, with both versions; or what went wrong when it was run). The word after the tool's name is `ok`, `setup_required` for a required tool that is not ok, or `optional` for a tool the pin marks optional that is not ok: an `optional` line is information, not setup the project needs. It exits 0 when every required tool is ok, 3 when one is not, and 2 when the pin file does not load. A tool marked `optional` (the seed marks `phpstan`, `pint` and `phpcs`) is shown and never fails the check.
 
 Run it first when an install, a build or a test fails for a reason the code does not explain: an old PHP or Node looks like a broken dependency.
 
