@@ -690,8 +690,16 @@ def apply_kit(
     record = load_record(target_root) or {"schema_version": 1, "kits": {}, "files": {}}
     if not dry_run:
         _recover(target_root, record)
+    # A toolchain-web pin file for an app that is not at the project root is written here, once, with the app's
+    # folder in it, and is the project's own from that write (it is not the kit's file byte for byte, so it is not
+    # recorded). Copying the seed and adding the root afterwards would leave a seed with no root if the install
+    # stopped between the two, which the next install would then have to change or leave wrong.
+    rooted_pin = _rooted_web_pin(target_root, plan, dry_run) if kit_name == "toolchain-web" else None
     copies: list[tuple[str, Path, bytes]] = []
     for src, dst, rel in plan:
+        if rel == rooted_pin:
+            installed.append(rel)
+            continue
         if dst.exists() or dst.is_symlink():
             preserved.append(rel)
             continue
@@ -737,12 +745,7 @@ def apply_kit(
     if kit_name == "todo" and not dry_run:
         result["pre_commit_hook"] = _enable_pre_commit_hook(target_root)
     if kit_name == "toolchain-web":
-        result["app_root"], rooted = _set_web_app_root(target_root, installed, dry_run)
-        pins = TOOLCHAIN_PINS[kit_name]
-        if rooted and pins in preserved:
-            # A seed left without its root by an earlier install was completed: it was written, not preserved.
-            preserved.remove(pins)
-            result["repaired"] = [pins]
+        result["app_root"] = _find_web_app_root(target_root)
     if kit_name in ("lsp", "toolchain-web"):
         servers = _fill_lsp_table(target_root, dry_run, installing_web=kit_name == "toolchain-web")
         if servers is not None:
@@ -772,24 +775,23 @@ def _find_web_app_root(target_root: Path) -> str:
     return "."
 
 
-def _set_web_app_root(target_root: Path, installed: list[str], dry_run: bool) -> tuple[str, bool]:
-    """Name the app's folder in a toolchain-web pin file this install has just written, when the app is not at the
-    project root: the tool folders, the constraints and the language servers are all read there. A pin file the
-    project has changed is the project's and is never touched; one that is still the kit's seed byte for byte is
-    given its root too, which is how an install stopped between the copy and this step, or whose write here
-    failed, is completed by the next. Returns the folder found and whether the pin file was written."""
-    app_root = _find_web_app_root(target_root)
+def _rooted_web_pin(target_root: Path, plan: list, dry_run: bool) -> str | None:
+    """Write the toolchain-web pin file of a project whose app is not at its root: the kit's seed with the app's
+    folder as `root`, in one write, so the tool folders, the constraints and the language servers are read there
+    from the first moment the file exists. Returns the file's path in the project when this install writes it (or
+    would, on a dry run), else None: an app at the root takes the seed as it is, and a pin file the project already
+    has is never changed."""
     pins = TOOLCHAIN_PINS["toolchain-web"]
     path = target_root / pins
-    seed = FORGE_ROOT / "kits/toolchain-web/templates" / pins
-    if app_root != "." and not dry_run and path.is_file() and (pins in installed
-                                                             or path.read_bytes() == seed.read_bytes()):
-        data = json.loads(path.read_text(encoding="utf-8"))
-        ordered = {"schema_version": data["schema_version"], "root": app_root,
-                   **{key: value for key, value in data.items() if key != "schema_version"}}
-        atomic_write(path, json.dumps(ordered, indent=2) + "\n")
-        return app_root, True
-    return app_root, False
+    app_root = _find_web_app_root(target_root)
+    if app_root == "." or path.exists() or path.is_symlink() or not any(rel == pins for _src, _dst, rel in plan):
+        return None
+    if not dry_run:
+        seed = json.loads((FORGE_ROOT / "kits/toolchain-web/templates" / pins).read_text(encoding="utf-8"))
+        rooted = {"schema_version": seed["schema_version"], "root": app_root,
+                  **{key: value for key, value in seed.items() if key != "schema_version"}}
+        atomic_write(path, json.dumps(rooted, indent=2) + "\n")
+    return pins
 
 
 def _fill_lsp_table(target_root: Path, dry_run: bool, installing_web: bool = False) -> dict | None:

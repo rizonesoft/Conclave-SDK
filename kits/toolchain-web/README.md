@@ -8,7 +8,7 @@ Additive overlay for a PHP or Node project, the Laravel and WordPress kits' proj
 | `scripts/toolchain-check.py` | Reads the pin file and reports each tool; installs and writes nothing |
 | `scripts/tests/test_toolchain_check.py` | The check's own tests, with stub tools |
 
-The check script and its tests are the same files the C and C++ kit ships, byte for byte; a project with both kits has them once. The pin file is the project's own from the first install: `forge.py` never overwrites one the project has changed. There is one exception, for a file that is not yet the project's: a pin file that is still the kit's seed byte for byte, in a project whose app is not at the root, is given its `root` (see Install).
+The check script and its tests are the same files the C and C++ kit ships, byte for byte; a project with both kits has them once. The pin file is the project's own from the first install: `forge.py` never changes one the project already has.
 
 ## Install
 
@@ -19,7 +19,7 @@ python forge.py doctor /path/to/project toolchain-web [--strict]
 
 `python forge.py init /path/to/project --kit toolchain-web` installs it with the base kit. The SDK does not install this kit in itself.
 
-The install looks for the app: the folder holding `composer.json` or `package.json` is the project root, else `platform/`, else the first other first-level folder in name order. When the app is not at the root, the pin file it has just written gets that folder as its `root`, and the result's `app_root` names it. Because of that one line the pin file may differ from the kit's from the start, which `forge.py diff` then reports as the project's own change. If an install is stopped after the seed is copied and before its `root` is written, or that write fails (the command then exits 1 with the reason), the next install completes it: a pin file that is still exactly the seed is given its `root` and listed under `repaired`, never under `preserved`. A pin file the project has edited in any way is left as it is.
+The install looks for the app: the folder holding `composer.json` or `package.json` is the project root, else `platform/`, else the first other first-level folder in name order. The result's `app_root` names it. When the app is not at the root and the project has no pin file yet, the install writes the pin file once, with that folder as its `root`: there is never a moment when the file exists without it, and if that write fails the command exits 1 with the reason and the next install completes. Such a pin file is the project's own from that write and is not in the install record (it is not the kit's file byte for byte), so `forge.py diff` reports it as differing from the kit's and `forge.py update` leaves it alone. A pin file the project already has is never changed, whatever it holds: to move its app's folder, edit its `root`.
 
 ## The pins
 
