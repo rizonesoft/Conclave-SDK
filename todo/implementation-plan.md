@@ -112,7 +112,7 @@ Sections: 7 | Checklist items: 58
 
 ### Phase 6: Tooling kits
 
-Sections: 14 | Checklist items: 112
+Sections: 14 | Checklist items: 113
 
 | Status | Reference  | Deliverable                                              | Needs | Items |
 | ------ | ---------- | -------------------------------------------------------- | ----- | ----- |
@@ -120,7 +120,7 @@ Sections: 14 | Checklist items: 112
 | [x]    | D04 T01 §2 | Server table `.conclave/lsp.json` with presets per stack | none  | 9     |
 | [x]    | D04 T01 §3 | Diagnostics client that reads the server table           | none  | 13    |
 | [ ]    | D04 T01 §4 | Laravel kit moved onto the shared client                 | none  | 8     |
-| [ ]    | D04 T01 §5 | Claude Code plugin generated from the server table       | none  | 9     |
+| [ ]    | D04 T01 §5 | Claude Code plugin generated from the server table       | none  | 10    |
 | [ ]    | D04 T01 §6 | MCP bridge for Codex and Antigravity                     | none  | 7     |
 | [ ]    | D04 T01 §7 | Language server skill and document for the three agents  | none  | 6     |
 | [x]    | D04 T02 §1 | Tool pin file and the script that checks it              | none  | 8     |
@@ -156,4 +156,4 @@ Sections: 3 | Checklist items: 16
 
 Progress: 69/85 verified sections, 9 ready to run now.
 
-Checklist: 568/654 items completed (includes Commit items).
+Checklist: 568/655 items completed (includes Commit items).
