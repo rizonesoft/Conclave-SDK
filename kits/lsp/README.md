@@ -13,13 +13,16 @@ The kit is being built in sections (`todo/04-tooling/TODO-01-lsp-kit.md`). What 
 | `scripts/lsp-diagnostics.py` | Runs the table's servers over files and reports their diagnostics |
 | `scripts/lib/lsp_client.py` | The LSP client: starts, contains and bounds one server, returns its result |
 | `scripts/lib/lsp_plugin.py` | Generates the Claude Code plugin from the table |
+| `scripts/lsp-mcp-bridge.py` | An MCP server giving an agent the table's servers, read-only |
+| `docs/language-servers.md` | For the project: the bridge's tools and how each agent registers it |
 | `scripts/tests/test_lsp_table.py` | The kit's own tests of the table |
 | `scripts/tests/test_lsp_diagnostics.py` | The kit's own tests of the client, against a stub language server |
 | `scripts/tests/test_lsp_plugin.py` | The kit's own tests of the generated plugin |
+| `scripts/tests/test_lsp_mcp_bridge.py` | The kit's own tests of the bridge, spoken to in MCP |
 
 The table is the project's own file from the first install: `forge.py` never overwrites it, and a project that already has one keeps it byte for byte.
 
-Still to come, each reading the same table: an MCP bridge for Codex and Antigravity (§6), and the `language-servers` skill and document (§7).
+Still to come: the `language-servers` skill for the three agents (§7).
 
 ## Install
 
@@ -159,6 +162,36 @@ Verified live on 2026-11-15 with Claude Code 2.1.325 on Windows 11: a headless s
 
 The plugin gives Claude Code diagnostics while it edits. `scripts/lsp-diagnostics.py` remains the gate: it runs every server of the table on its files, whatever their extensions share, and has an exit code.
 
+## MCP bridge
+
+Codex and Antigravity have no language server plugin. `scripts/lsp-mcp-bridge.py` is an MCP server (standard input and output, one JSON-RPC message a line, MCP 2025-06-18 and the two versions before it) that gives any agent the table's servers through four read-only tools: `diagnostics` (`file`), and `definition`, `references` and `hover` (`file`, `line`, `column`, counted from 1). `docs/language-servers.md`, installed in the project, has the registration for each agent, each confirmed by a real session (Claude Code 2.1.325, Codex 0.169.0, Antigravity 1.5.9; the SDK's `tests/test_lsp_kit.py` with `CONCLAVE_LIVE_AGENTS=1`).
+
+- **One answer for every outcome.** `diagnostics` asks every server that serves the file and says of each: clean, its diagnostics, `missing`, `skipped`, `failed` with the reason, or not answered in time. The other three ask the serving servers in the table's order until one gives an answer that is not empty, and name what each earlier one did. A call is an error only when no server could be asked. Each wait is bounded by `--timeout` (60 seconds a call) and the entry's `settle`.
+- **Servers stay running.** A server is started by the first call that needs it, exactly as `lsp-diagnostics.py` starts it (its program, its `requires` file, its `root`, `init`, `settings` and `${scratch}` folder), and reused. A file that changed since it was sent is sent again as a change. A server that ended, or whose table entry changed, is started again by the next call.
+- **Never older than the file.** After a file is opened or changed, only what the server publishes after that (and, where the server gives versions, for that version) is accepted; a server that publishes nothing for the new text is reported as not answered, never by its earlier result.
+- **Read-only by an allow-list.** The only requests the bridge can send a server are `initialize`, `shutdown`, `textDocument/hover`, `textDocument/definition` and `textDocument/references`. Any other is refused before anything is written, and a server that asks for an edit (`workspace/applyEdit`) is told it was not made.
+- **Bounded.** A server holds at most 64 open documents (the one used longest ago is closed for the next) and diagnostics are kept only for open ones. At most 64 MiB may wait to be written to a server: one that stops reading is ended, and started again by the next call. One message from a server may be 32 MiB.
+- **Ends with the agent.** Every server, with whatever it started, is ended when the bridge's input ends, on SIGTERM or an interrupt, and on an error, also in the middle of a call. On Windows a bridge that is killed outright leaves no server either (the job that holds a server ends it when its last handle closes). On POSIX a bridge killed with SIGKILL cannot end its servers; they end when their input closes.
+
+The bridge is written for this kit over `scripts/lib/lsp_client.py` and the table. The idea, the read-only boundary and the tool set come from Impossible OS's `scripts/lsp-mcp/` (commit `17a762d39ccd1958cbe711901f645fd9b042e939`); its code does not, because it is 24,515 lines that name five languages:
+
+| File | Lines | What it does | Generic? |
+| --- | --- | --- | --- |
+| `bridge.py` | 5,638 | The MCP server: six read-only tools, dispatch by file extension | Names its five languages |
+| `lsp_client.py` | 4,879 | The LSP client, process ownership, `_FORBIDDEN_LSP_METHODS` | Generic, with project paths |
+| `logger.py` | 460 | Structured logging for the bridge | Generic |
+| `mcp.json` | 22 | A copy of the registration for documentation | Names that project |
+| `servers/__init__.py` | 6 | Package marker | Generic |
+| `servers/asm_server.py` | 145 | Starts `asm-lsp` | Names that project |
+| `servers/bash_server.py` | 228 | Starts `bash-language-server` | Names that project |
+| `servers/clangd_server.py` | 188 | Starts `clangd` with that project's compile database | Names that project |
+| `servers/powershell_server.py` | 500 | Starts PowerShell Editor Services | Names that project |
+| `servers/python_server.py` | 268 | Starts `pyright` | Names that project |
+| `tests/test_boundary.sh` | 111 | Audits the source for write-capable methods | Names that project |
+| `tests/test_bridge.sh` | 12,070 | The bridge's test harness | Names that project |
+
+Its six tools include `workspace_symbol` and `document_symbol`, which this bridge does not have yet. Its deny-list of three methods (`textDocument/rename`, `workspace/applyEdit`, `workspace/executeCommand`) is an allow-list here, so a method nobody listed is refused too. Its per-language modules are the table's entries.
+
 ## Doctor
 
 `python forge.py doctor <project> lsp` reports:
@@ -167,6 +200,7 @@ The plugin gives Claude Code diagnostics while it edits. `scripts/lsp-diagnostic
 - `server-table`: `ok` with the servers it names (or that it holds none yet, and how to add one), `missing` with the refusal when the table does not load;
 - `server:<name>` for each server: `ok` with the path its program was found at, `setup_required` with its `install` hint when it is not installed. A program given as a path is looked for in the server's `root`.
 
+- `mcp-bridge`: `ok`, naming the entry, when the project's `.mcp.json` registers a server that runs `scripts/lsp-mcp-bridge.py`; `optional`, naming `docs/language-servers.md`, when there is no `.mcp.json` or it does not; `unexpected` when the file is not JSON. It is never `setup_required`: Codex and Antigravity register the bridge in the user's own configuration, which the doctor does not read, and `.mcp.json` is Claude Code's, which has the plugin.
 - `claude-plugin`: `ok` when `.claude/lsp/conclave-lsp/` is byte for byte what the table gives now; `unexpected`, naming `python scripts/lsp-servers.py plugin`, when it is not (the table was edited by hand since, or a file of the plugin is missing); and when no plugin was generated, `setup_required` naming that command for a project that has a `.claude` folder and a server in its table, `optional` otherwise. `optional` is shown and never counted.
 
 `python forge.py doctor <project>` with no kit named checks the project's stack kit or the base kit as before and, when this kit is installed, adds these checks and lists the kit under `also`.

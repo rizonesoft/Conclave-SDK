@@ -2282,6 +2282,35 @@ def _doctor_web_constraints(app_root: Path, pins: list, module, add_check) -> No
             add_check(check, "ok", f"{manifest} requires {name} {constraint}; the pin's minimum is {accepted}")
 
 
+MCP_BRIDGE = "scripts/lsp-mcp-bridge.py"
+MCP_BRIDGE_DOC = "docs/language-servers.md"
+
+
+def _doctor_mcp_bridge(target_root: Path, add_check) -> None:
+    """`mcp-bridge`: whether the project's `.mcp.json` registers the lsp kit's MCP bridge. Files only. It is
+    `ok` with the entry's name when one of its servers names the bridge's script, `unexpected` when the file is
+    not JSON, and `optional` otherwise, never `setup_required`: the bridge is for Codex and Antigravity, whose
+    registration is in the user's own configuration, which this does not read, and a project's `.mcp.json` is
+    Claude Code's, which has the plugin."""
+    where = f"how to register it for each agent: {MCP_BRIDGE_DOC}"
+    path = target_root / ".mcp.json"
+    if not path.is_file():
+        add_check("mcp-bridge", "optional", f"no .mcp.json; {where}")
+        return
+    try:
+        servers = json.loads(path.read_bytes().decode("utf-8")).get("mcpServers")
+    except (OSError, ValueError, AttributeError, RecursionError) as exc:
+        add_check("mcp-bridge", "unexpected", f".mcp.json cannot be read as JSON ({type(exc).__name__}); {where}")
+        return
+    for name, server in (servers.items() if isinstance(servers, dict) else ()):
+        arguments = server.get("args") if isinstance(server, dict) else None
+        named = [server.get("command"), *arguments] if isinstance(arguments, list) else []
+        if any(isinstance(item, str) and item.replace("\\", "/").endswith(MCP_BRIDGE) for item in named):
+            add_check("mcp-bridge", "ok", f".mcp.json registers it as {name}")
+            return
+    add_check("mcp-bridge", "optional", f".mcp.json does not register it; {where}")
+
+
 def _doctor_lsp(target_root: Path, add_check) -> None:
     """The lsp kit's checks: each file the kit installs is present, the server table loads, and each server it
     names is installed."""
@@ -2300,6 +2329,7 @@ def _doctor_lsp(target_root: Path, add_check) -> None:
     for server in servers:
         found = table.find_program(target_root, server)  # the kit's own lookup: PATH, or the server's folder
         add_check(f"server:{server['name']}", "ok" if found else "setup_required", found or server["install"])
+    _doctor_mcp_bridge(target_root, add_check)
     # The Claude Code plugin is generated from the table: in step with it, behind it, or never generated.
     plugin = _lsp_plugin_module()
     state = plugin.state(target_root, servers)

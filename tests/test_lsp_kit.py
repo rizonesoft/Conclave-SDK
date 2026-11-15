@@ -7,6 +7,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import shutil
 import signal
 import subprocess
@@ -141,7 +142,8 @@ class LspKitTests(unittest.TestCase):
         report = json.loads(out)
         self.assertEqual((code, report["kit"], report["missing_or_setup_required"]), (0, "lsp", 0))
         self.assertEqual({name: check["status"] for name, check in self.checks(report).items()},
-                         {**{rel: "ok" for rel in kit_files()}, "server-table": "ok", "claude-plugin": "optional"})
+                         {**{rel: "ok" for rel in kit_files()}, "server-table": "ok", "mcp-bridge": "optional",
+                          "claude-plugin": "optional"})
         self.assertEqual(self.checks(report)[TABLE]["detail"], (project / TABLE).as_posix())
         (project / TABLE).unlink()
         code, out, _err = command_line("doctor", project, "lsp", "--strict")
@@ -180,7 +182,7 @@ class LspKitTests(unittest.TestCase):
         self.assertEqual((code, report["kit"], report["also"]), (0, "base", ["lsp"]))
         names = [check["name"] for check in report["checks"]]
         self.assertEqual(names[:len(bare["checks"])], [check["name"] for check in bare["checks"]])
-        self.assertEqual(names[len(bare["checks"]):], kit_files() + ["server-table", "claude-plugin"])
+        self.assertEqual(names[len(bare["checks"]):], kit_files() + ["server-table", "mcp-bridge", "claude-plugin"])
         self.assertEqual(self.checks(report)[TABLE]["status"], "ok")
         # A named kit is that kit alone, as before.
         named = json.loads(command_line("doctor", project, "base")[1])
@@ -641,6 +643,158 @@ class ClaudePluginTests(unittest.TestCase):
                 alpha = (self.work / f"alpha-{mode.strip('-')}.log").read_text(encoding="utf-8")
                 for folder in [line[4:] for line in alpha.splitlines() if line.startswith("cwd ")]:
                     self.assertTrue(os.path.samefile(folder, project), f"the alpha server was started in {folder}")
+
+
+class McpBridgeTests(unittest.TestCase):
+    """D04 T01 section 6: the doctor's `mcp-bridge` check, the registration document, and the bridge held against
+    the three agents themselves."""
+
+    DOCUMENT = SDK_ROOT / "kits/lsp/templates/docs/language-servers.md"
+    BRIDGE = "scripts/lsp-mcp-bridge.py"
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.work = pathlib.Path(tmp.name).resolve()
+
+    def project(self, name="project"):
+        folder = self.work / name
+        folder.mkdir()
+        forge.apply_kit(folder, "lsp")
+        return folder
+
+    def check(self, project, kit="lsp"):
+        checks = [check for check in forge.doctor_repo(project, kit)["checks"] if check["name"] == "mcp-bridge"]
+        self.assertEqual(len(checks), 1, "the mcp-bridge check is listed once")
+        return checks[0]["status"], checks[0]["detail"]
+
+    def test_the_doctor_says_whether_the_projects_mcp_file_registers_the_bridge(self):
+        project = self.project()
+        where = "how to register it for each agent: docs/language-servers.md"
+        self.assertTrue((project / self.BRIDGE).is_file())
+        self.assertTrue((project / "docs/language-servers.md").is_file())
+        self.assertEqual(self.check(project), ("optional", f"no .mcp.json; {where}"))
+        mcp = project / ".mcp.json"
+        mcp.write_text(json.dumps({"mcpServers": {"laravel-boost": {"command": "php", "args": ["artisan", "boost:mcp"]}}}),
+                       encoding="utf-8")
+        self.assertEqual(self.check(project), ("optional", f".mcp.json does not register it; {where}"))
+        for entry in ({"command": "python", "args": [self.BRIDGE]},
+                      {"command": "python3", "args": ["-B", "./" + self.BRIDGE, "--timeout", "30"]},
+                      {"command": "py", "args": [str(project / "scripts" / "lsp-mcp-bridge.py")]}):
+            with self.subTest(entry=entry):
+                mcp.write_text(json.dumps({"mcpServers": {"boost": {"command": "php", "args": []}, "lsp": entry}}),
+                               encoding="utf-8")
+                self.assertEqual(self.check(project), ("ok", ".mcp.json registers it as lsp"))
+        # It is never setup_required, and optional is never counted.
+        report = forge.doctor_repo(project, "lsp")
+        self.assertEqual(report["missing_or_setup_required"], 0)
+        for text in ("{", "[]", '{"mcpServers": "x"}'):
+            with self.subTest(text=text):
+                mcp.write_text(text, encoding="utf-8")
+                status, detail = self.check(project)
+                self.assertEqual(status, "unexpected" if text != '{"mcpServers": "x"}' else "optional")
+                self.assertIn("docs/language-servers.md", detail)
+        # The Laravel doctor runs the same checks, once.
+        laravel = self.work / "laravel"
+        laravel.mkdir()
+        (laravel / "artisan").write_bytes(b"<?php\n")
+        forge.apply_kit(laravel, "laravel")
+        self.assertEqual(self.check(laravel, "laravel")[0], "optional")   # its .mcp.json holds Boost alone
+        # A table that does not load: no bridge check, as no server check.
+        (project / TABLE).write_text("{", encoding="utf-8")
+        self.assertEqual([c for c in forge.doctor_repo(project, "lsp")["checks"] if c["name"] == "mcp-bridge"], [])
+
+    def test_the_document_gives_each_agents_registration_with_its_version_and_source(self):
+        text = self.DOCUMENT.read_text(encoding="utf-8")
+        blocks = re.findall(r"```(\w+)\n(.*?)```", text, flags=re.DOTALL)
+        registrations = [body for _kind, body in blocks if "lsp-mcp-bridge.py" in body]
+        self.assertEqual(len(registrations), 5)   # Codex's command and its two tables, Antigravity's, Claude Code's
+        for body in registrations:
+            self.assertIn(self.BRIDGE, body)
+            self.assertIn("conclave-lsp", body)
+        self.assertIn("codex mcp add conclave-lsp -- python scripts/lsp-mcp-bridge.py", text)
+        self.assertIn("agy mcp add conclave-lsp python scripts/lsp-mcp-bridge.py", text)
+        self.assertEqual(json.loads(next(body for kind, body in blocks if kind == "json")),
+                         {"mcpServers": {"conclave-lsp": {"command": "python", "args": [self.BRIDGE]}}})
+        for agent, version, source in (("Codex", r"Codex 0\.\d+\.\d+", "codex mcp add --help"),
+                                       ("Antigravity", r"Antigravity 1\.\d+\.\d+", "agy mcp add --help"),
+                                       ("Claude Code", r"Claude Code 2\.\d+\.\d+", "--mcp-config")):
+            section = text.split(f"### {agent}\n", 1)[1].split("\n### ", 1)[0]
+            self.assertRegex(section, version, f"{agent}'s section names no version")
+            self.assertIn(source, section, f"{agent}'s section does not say where its entry was confirmed")
+        # The bridge's tools as the document lists them are the ones it offers, and no other.
+        bridge = pathlib.Path(SDK_ROOT / "kits/lsp/templates" / self.BRIDGE).read_text(encoding="utf-8")
+        tools = re.findall(r'_tool\("(\w+)"', bridge)
+        self.assertEqual(tools, ["diagnostics", "definition", "references", "hover"])
+        self.assertEqual(re.findall(r"^\| `(\w+)` \|", text, flags=re.MULTILINE), tools)
+        for word in ("default_tools_approval_mode", "CONCLAVE_LIVE_AGENTS=1", "read-only", TABLE):
+            self.assertIn(word, text)
+
+    @unittest.skipUnless(os.environ.get("CONCLAVE_LIVE_AGENTS") == "1",
+                         "starts real agent sessions: set CONCLAVE_LIVE_AGENTS=1 to run it")
+    def test_each_agent_finds_the_bridge_calls_its_tool_and_is_given_the_servers_answer(self):
+        python = pathlib.Path(sys.executable).as_posix()
+        env = {key: value for key, value in os.environ.items()
+               if key not in ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID", "CLAUDE_PROJECT_DIR")}
+        stub = self.work / "stub.py"
+        stub.write_text(LIVE_STUB, encoding="utf-8")
+        for agent in ("claude", "codex", "agy"):
+            with self.subTest(agent=agent):
+                if not shutil.which(agent):
+                    self.skipTest(f"{agent} is not on PATH")
+                version = run_claude([agent, "--version"], self.work, env)[1].strip().splitlines()[0]
+                project = self.project(agent)
+                marker, log = f"MARK-BRIDGE-{agent}", self.work / f"{agent}.log"
+                servers = [{"name": "alpha", "command": [sys.executable, str(stub), marker, str(log)],
+                            "extensions": {".alpha": "plaintext"}, "install": "none", "settle": 1}]
+                (project / TABLE).write_text(json.dumps({"schema_version": 1, "servers": servers}), encoding="utf-8")
+                (project / "notes.alpha").write_bytes(b"first line\n")
+                name = "conclave-lsp"
+                registered = None
+                if agent == "claude":
+                    # The entry of the document, in a file given for this run.
+                    config = self.work / "mcp.json"
+                    config.write_text(json.dumps({"mcpServers": {name: {"command": python, "args": [self.BRIDGE]}}}),
+                                      encoding="utf-8")
+                    how = "--mcp-config (the document's .mcp.json entry), for this run"
+                    argv = ["claude", "-p", "PROMPT", "--model", "haiku", "--mcp-config", str(config),
+                            "--strict-mcp-config", "--allowedTools", f"mcp__{name}__diagnostics",
+                            "--output-format", "stream-json", "--verbose"]
+                elif agent == "codex":
+                    # The table `codex mcp add` writes, given as overrides for this run.
+                    how = "the [mcp_servers.conclave-lsp] table with default_tools_approval_mode, by -c for this run"
+                    argv = ["codex", "exec", "--skip-git-repo-check", "-s", "read-only",
+                            "-c", f'mcp_servers.{name}.command="{python}"',
+                            "-c", f'mcp_servers.{name}.args=["{self.BRIDGE}"]',
+                            "-c", f'mcp_servers.{name}.default_tools_approval_mode="approve"', "PROMPT"]
+                else:
+                    # Antigravity has no registration for one run: the document's command, under a name of the
+                    # test's own, removed again whatever happens.
+                    name = "conclave-lsp-livetest"
+                    registered = run_claude(["agy", "mcp", "list"], project, env)[1]
+                    self.assertNotIn(name, registered)
+                    added = run_claude(["agy", "mcp", "add", name, python, self.BRIDGE], project, env)
+                    self.assertEqual(added[0], 0, added[1] + added[2])
+                    how = f"agy mcp add {name} (the document's command), removed after the run"
+                    argv = ["agy", "--print", "PROMPT", "--dangerously-skip-permissions", "--print-timeout", "240s"]
+                prompt = (f"Call the `diagnostics` tool of the MCP server `{name}` with the argument file set to "
+                          "notes.alpha, then reply with the tool's result text exactly as it was returned.")
+                try:
+                    code, out, err = run_claude([prompt if part == "PROMPT" else part for part in argv], project,
+                                                env, timeout=420)
+                finally:
+                    if registered is not None:
+                        run_claude(["agy", "mcp", "remove", name], project, env)
+                        self.assertEqual(run_claude(["agy", "mcp", "list"], project, env)[1], registered,
+                                         "Antigravity's MCP servers are not as they were before the test")
+                text = log.read_text(encoding="utf-8") if log.is_file() else ""
+                uri = (project / "notes.alpha").resolve().as_uri()
+                print(f"\nlive proof through {agent} ({version}); registered by {how}: bridge started the "
+                      f"server={'started' in text} document={uri in text} diagnostic returned={marker in out}")
+                self.assertEqual(code, 0, err[-600:])
+                self.assertIn("started", text, f"{agent} never started the bridge's server")
+                self.assertIn(f"document {uri}", text)
+                self.assertIn(marker, out, f"the diagnostic did not come back through {agent}: {out[-400:]}")
 
 
 if __name__ == "__main__":

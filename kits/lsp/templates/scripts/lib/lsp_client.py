@@ -101,6 +101,7 @@ def _windows_job(proc):
     job = kernel32.CreateJobObjectW(None, None)
     if not job:
         return None
+    _kill_on_close(kernel32, job)
     handle = kernel32.OpenProcess(0x0101, False, proc.pid)  # PROCESS_SET_QUOTA | PROCESS_TERMINATE
     assigned = bool(handle) and bool(kernel32.AssignProcessToJobObject(job, handle))
     if handle:
@@ -109,6 +110,32 @@ def _windows_job(proc):
         kernel32.CloseHandle(job)
         return None
     return job
+
+
+def _kill_on_close(kernel32, job):
+    """Make a job end its processes when its last handle closes, so a caller that is killed outright (a bridge
+    whose agent ends it without asking) leaves no server behind: the system closes the handle. Where the
+    system refuses the limit the job still holds the tree for `_end_tree`, as before."""
+    import ctypes
+    from ctypes import wintypes
+
+    class Basic(ctypes.Structure):
+        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
+                    ("SchedulingClass", wintypes.DWORD)]
+
+    class Extended(ctypes.Structure):
+        _fields_ = [("BasicLimitInformation", Basic), ("IoInfo", ctypes.c_uint64 * 6),
+                    ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+    limits = Extended()
+    limits.BasicLimitInformation.LimitFlags = 0x2000   # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    kernel32.SetInformationJobObject.restype = wintypes.BOOL
+    kernel32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    return bool(kernel32.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits)))
 
 
 def _windows_resume(proc):
@@ -170,14 +197,26 @@ def _end_tree(proc, job):
 class Client:
     """One running language server. Use as a context manager: leaving it ends the server's whole process tree."""
 
-    def __init__(self, entry, project, program, read_limit=READ_LIMIT, message_limit=MESSAGE_LIMIT):
+    def __init__(self, entry, project, program, read_limit=READ_LIMIT, message_limit=MESSAGE_LIMIT,
+                 outbox_limit=None, keep=None):
+        """`read_limit` caps what is read from the server in the client's life (None: no cap, for a caller that
+        keeps a server running; the cap on one message stays). `outbox_limit` caps the bytes waiting to be
+        written to it: a server that stops reading is ended when it is passed. `keep` is the set of document
+        URIs whose diagnostics are kept (None: every document's), which the caller changes as it opens and
+        closes documents."""
         self.entry = entry
         self.root = (Path(project) / entry["root"]).resolve()
         self.settings = entry["settings"]
         self.read_limit = read_limit
         self.message_limit = message_limit
+        self.outbox_limit = outbox_limit
+        self.keep = keep
         self.diagnostics = {}
+        self.published = {}       # uri -> (the order its last publication arrived in, the version it carried)
+        self.sequence = 0         # how many publications have arrived
         self.responses = {}
+        self._abandoned = set()   # requests given up on: their late responses are dropped
+        self._queued = 0          # bytes waiting to be written to the server
         self.failure = None       # why the client stopped reading the server, when it did
         self.stderr = b""
         self._read = 0
@@ -233,6 +272,8 @@ class Client:
     def _counted(self, size):
         """Count bytes read from the server; False once the run's limit is passed."""
         with self._count:
+            if self.read_limit is None:
+                return True
             self._read += size
             if self._read > self.read_limit and self.failure is None:
                 self.failure = f"was stopped: it wrote more than {self.read_limit} bytes"
@@ -243,9 +284,17 @@ class Client:
         header = f"Content-Length: {len(body)}\r\n\r\n".encode("ascii")
         # Queued, never written here: a server that has stopped reading would block the write for ever, past
         # every time limit. The caller's deadline runs from now, and ending the server's tree frees the writer.
+        data = header + body
         with self._count:
+            if self.outbox_limit is not None and self._queued + len(data) > self.outbox_limit:
+                # It has stopped reading: nothing more is queued for it, and its caller ends it.
+                self.failure = self.failure or (f"was stopped: it stopped reading (more than {self.outbox_limit} "
+                                                "bytes were waiting to be written to it)")
+                self._alive = False
+                return
             self._unsent += 1
-        self._outbox.put(header + body)
+            self._queued += len(data)
+        self._outbox.put(data)
 
     def _write_loop(self):
         while True:
@@ -260,6 +309,7 @@ class Client:
                 return
             with self._count:
                 self._unsent -= 1
+                self._queued -= len(data)
 
     def _read_loop(self):
         stream = self.proc.stdout
@@ -326,6 +376,11 @@ class Client:
             if not isinstance(uri, str) or not isinstance(found, list):
                 self.failure = self.failure or "sent a publishDiagnostics message that is not valid"
                 return
+            if self.keep is not None and uri not in self.keep:
+                return   # a document the caller does not have open: nothing of it is held
+            version = params.get("version")
+            self.sequence += 1
+            self.published[uri] = (self.sequence, version if type(version) is int else None)
             self.diagnostics[uri] = found
             return
         # A request from the server must be answered or the server may wait for ever. For
@@ -339,10 +394,16 @@ class Client:
                     items = [{}]
                 result = [self._config_for(item.get("section") if isinstance(item, dict) else None)
                           for item in items]
+            elif method == "workspace/applyEdit":
+                # This client reads. A server that asks for an edit is told it was not made.
+                result = {"applied": False, "failureReason": "this client is read-only"}
             self._send({"jsonrpc": "2.0", "id": message["id"], "result": result})
             return
         if "id" in message and method is None:
-            self.responses[message["id"]] = message
+            if message["id"] in self._abandoned:
+                self._abandoned.discard(message["id"])   # too late: its request was given up
+            else:
+                self.responses[message["id"]] = message
 
     def _config_for(self, section):
         node = self.settings or {}
@@ -357,8 +418,9 @@ class Client:
 
     # ---------------------------------------------------------------- protocol
 
-    def request(self, method, params, timeout=60.0):
-        """The server's response message to a request, or None when it did not answer in time or ended."""
+    def request(self, method, params, timeout=60.0, stop=None):
+        """The server's response message to a request, or None when it did not answer in time or ended, or when
+        `stop` (an event) was set while waiting."""
         self._id += 1
         number = self._id
         self._send({"jsonrpc": "2.0", "id": number, "method": method, "params": params})
@@ -368,7 +430,11 @@ class Client:
                 return self.responses.pop(number)
             if not self._alive:
                 return self.responses.pop(number, None)
+            if stop is not None and stop.is_set():
+                break
             time.sleep(0.02)
+        self._abandoned.add(number)   # a response that comes now is dropped, not kept
+        self.responses.pop(number, None)
         return None
 
     def notify(self, method, params):
@@ -384,8 +450,10 @@ class Client:
             "clientInfo": {"name": "conclave-lsp-diagnostics", "version": "1"},
             "initializationOptions": options,
             "capabilities": {
-                "textDocument": {"publishDiagnostics": {"relatedInformation": True},
-                                 "synchronization": {"dynamicRegistration": False}},
+                "textDocument": {"publishDiagnostics": {"relatedInformation": True, "versionSupport": True},
+                                 "synchronization": {"dynamicRegistration": False},
+                                 "hover": {"contentFormat": ["plaintext", "markdown"]},
+                                 "definition": {"linkSupport": False}, "references": {}},
                 "workspace": {"workspaceFolders": True, "configuration": True,
                               "didChangeConfiguration": {"dynamicRegistration": True}},
                 "window": {"workDoneProgress": True},
@@ -413,6 +481,17 @@ class Client:
         self.notify("textDocument/didOpen", {"textDocument": {"uri": uri, "languageId": language, "version": 1,
                                                               "text": text}})
         return uri
+
+    def change(self, uri, text, version):
+        """Tell the server an open document's whole text changed."""
+        self.notify("textDocument/didChange", {"textDocument": {"uri": uri, "version": version},
+                                               "contentChanges": [{"text": text}]})
+
+    def close_document(self, uri):
+        """Close a document in the server and drop what was kept of it."""
+        self.notify("textDocument/didClose", {"textDocument": {"uri": uri}})
+        self.diagnostics.pop(uri, None)
+        self.published.pop(uri, None)
 
     def close(self):
         """End the server and whatever it started, on every way out: asked politely first when it is still
@@ -445,6 +524,45 @@ def _result(entry, status, reason=None, files=0, rows=(), unanswered=(), unread=
             "unanswered": list(unanswered), "unread": list(unread), "stderr": stderr}
 
 
+def start_server(entry, project, timeout=90.0, **options):
+    """Start one server of the table, as a check and a long-lived caller both must: its program found, its
+    `requires` file present, `${scratch}` in its `init` and `settings` replaced by a temporary folder outside
+    the project, the process contained and initialized in its `root`. `options` go to `Client`.
+
+    Returns (status, reason, client, scratch, stderr): `ok` with the running client and the folder to remove
+    when it is closed (None when the entry names none), else `missing`, `skipped` or `failed` with the reason
+    and nothing left running."""
+    project = Path(project).resolve()
+    program = lsp_table.find_program(project, entry)
+    if program is None:
+        return "missing", f"not installed. Install: {entry['install']}", None, None, ""
+    if entry["requires"] and not (project / entry["root"] / entry["requires"]).is_file():
+        where = entry["requires"] if entry["root"] == "." else f"{entry['root']}/{entry['requires']}"
+        return "skipped", f"requires {where}", None, None, ""
+    scratch, client, started = None, None, False
+    try:
+        if uses_scratch(entry["init"]) or uses_scratch(entry["settings"]):
+            # Outside the repository: a server's index or cache never lands in the project.
+            scratch = tempfile.mkdtemp(prefix="conclave-lsp-")
+            entry = dict(entry, init=fill_scratch(entry["init"], scratch),
+                         settings=fill_scratch(entry["settings"], scratch))
+        try:
+            client = Client(entry, project, program, **options)
+        except ClientError as exc:
+            return "failed", str(exc), None, None, ""
+        refused = client.initialize(entry["init"], timeout=timeout)
+        if refused:
+            return "failed", refused, None, None, _text(client.stderr)
+        started = True
+        return "ok", None, client, scratch, ""
+    finally:
+        if not started:
+            if client is not None:
+                client.close()
+            if scratch is not None:
+                shutil.rmtree(scratch, ignore_errors=True)
+
+
 def run_server(entry, project, paths, timeout=240.0, settle=None, read_limit=READ_LIMIT,
                message_limit=MESSAGE_LIMIT):
     """Run one server of the table over `paths` and return its result (see the module's opening)."""
@@ -454,29 +572,12 @@ def run_server(entry, project, paths, timeout=240.0, settle=None, read_limit=REA
     mine = [(Path(path), language) for path in paths for language in [serves(entry, project, path)] if language]
     if not mine:
         return _result(entry, "idle")
-    program = lsp_table.find_program(project, entry)
-    if program is None:
-        return _result(entry, "missing", f"not installed. Install: {entry['install']}")
-    if entry["requires"] and not (project / entry["root"] / entry["requires"]).is_file():
-        where = entry["requires"] if entry["root"] == "." else f"{entry['root']}/{entry['requires']}"
-        return _result(entry, "skipped", f"requires {where}")
     settle = entry["settle"] if settle is None else settle
-    scratch = None
-    init, client = entry["init"], None
+    status, reason, client, scratch, stderr = start_server(entry, project, timeout=min(90.0, timeout),
+                                                           read_limit=read_limit, message_limit=message_limit)
+    if status != "ok":
+        return _result(entry, status, reason, len(mine) if status == "failed" else 0, stderr=stderr)
     try:
-        if uses_scratch(entry["init"]) or uses_scratch(entry["settings"]):
-            # Outside the repository: a server's index or cache never lands in the project.
-            scratch = tempfile.mkdtemp(prefix="conclave-lsp-")
-            entry = dict(entry, init=fill_scratch(entry["init"], scratch),
-                         settings=fill_scratch(entry["settings"], scratch))
-            init = entry["init"]
-        try:
-            client = Client(entry, project, program, read_limit, message_limit)
-        except ClientError as exc:
-            return _result(entry, "failed", str(exc), len(mine))
-        refused = client.initialize(init, timeout=min(90.0, timeout))
-        if refused:
-            return _result(entry, "failed", refused, len(mine), stderr=_text(client.stderr))
         uris, unread = {}, []
         for path, language in mine:
             try:
@@ -498,8 +599,7 @@ def run_server(entry, project, paths, timeout=240.0, settle=None, read_limit=REA
         failure = client.failure
         stderr = _text(client.stderr)
     finally:
-        if client is not None:
-            client.close()
+        client.close()
         if scratch is not None:
             shutil.rmtree(scratch, ignore_errors=True)
     rows, invalid = [], []
