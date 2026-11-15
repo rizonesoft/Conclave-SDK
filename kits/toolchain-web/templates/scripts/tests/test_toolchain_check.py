@@ -384,6 +384,48 @@ class BoundTests(Fixture):
         for pid in self.pids():
             self.assertTrue(gone(pid), f"process {pid} was made before the job and outlived the check")
 
+    RAN_MARK = "open(r'{dir}/ran', 'w').close()\nprint('1.11.1')\n"
+
+    @unittest.skipUnless(os.name == "nt", "the job object is how Windows contains a tool")
+    def test_a_tool_that_cannot_be_contained_is_never_run(self):
+        # Found by the second reconciliation of D04 T02 section 1: with no job the tool was resumed all the same.
+        self.stub("ninja", self.RAN_MARK)
+        started = []
+        real_resume = tc._windows_resume
+        for name, patches in (("no job", {"_windows_job": lambda proc: started.append(proc.pid)}),
+                              ("no resume", {"_windows_resume": lambda proc: started.append(proc.pid) or False})):
+            with self.subTest(case=name):
+                with contextlib.ExitStack() as stack:
+                    for attribute, replacement in patches.items():
+                        stack.enter_context(unittest.mock.patch.object(tc, attribute, replacement))
+                    result = tc.check_tool(self.tool(), time_limit=30)
+                self.assertEqual(result["status"], "setup_required")
+                self.assertIn("could not be started: Windows did not let the program be", result["detail"])
+                self.assertIn("so it was not run", result["detail"])
+                self.assertFalse((self.dir / "ran").exists(), "the tool ran outside a job")
+                self.assertTrue(gone(started[-1]), "the suspended process was left behind")
+        self.assertIs(tc._windows_resume, real_resume)
+        self.assertEqual(tc.check_tool(self.tool())["status"], "ok")  # and it runs once it can be contained
+        self.assertTrue((self.dir / "ran").exists())
+
+    @unittest.skipUnless(os.name == "nt", "the job object is how Windows contains a tool")
+    def test_an_interrupt_while_the_tool_is_being_contained_leaves_nothing(self):
+        # Same reconciliation: the job and the resume ran outside the cleanup.
+        self.stub("ninja", self.RAN_MARK)
+        started = []
+
+        def interrupted(proc):
+            started.append(proc.pid)
+            raise KeyboardInterrupt
+
+        for attribute in ("_windows_job", "_windows_resume"):
+            with self.subTest(interrupted=attribute):
+                with unittest.mock.patch.object(tc, attribute, interrupted):
+                    with self.assertRaises(KeyboardInterrupt):
+                        tc.check_tool(self.tool(), time_limit=30)
+                self.assertTrue(gone(started[-1]), "the process outlived the interrupted check")
+                self.assertFalse((self.dir / "ran").exists())
+
     def test_a_pattern_that_never_finishes_is_stopped_and_the_next_tool_is_checked(self):
         # Found by the round of D04 T02 section 1: the pattern ran outside every limit. `(?:a+)+([0-9])$` on a line
         # of a's with no digit backtracks for hours.

@@ -222,16 +222,10 @@ def _end_tree(proc, job=None):
     Each step may find the process already gone, which is the outcome wanted, so that is not an error here; the
     caller's result still says which limit was hit."""
     if os.name == "nt":
+        # With no job the tool was never resumed (run_bounded refuses to run what it cannot contain), so the
+        # suspended process ended below is the whole tree.
         if job is not None:
             _windows_job_end(job)
-        else:
-            # No job object could be made: the tree is reached through its root, which works while the root lives.
-            taskkill = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "taskkill.exe")
-            try:
-                subprocess.run([taskkill, "/T", "/F", "/PID", str(proc.pid)], capture_output=True, timeout=15,
-                               creationflags=subprocess.CREATE_NO_WINDOW)
-            except (OSError, subprocess.SubprocessError):
-                pass
     else:
         try:
             os.killpg(proc.pid, signal.SIGKILL)  # the tool leads its own session, so the group is its tree
@@ -264,11 +258,7 @@ def run_bounded(argv, time_limit=TIME_LIMIT, output_cap=OUTPUT_CAP):
             start_new_session=not windows)
     except OSError as exc:
         return {"output": "", "exit": None, "stopped": None, "error": exc.strerror or str(exc)}
-    job = _windows_job(proc) if windows else None
-    if windows and not _windows_resume(proc):
-        _end_tree(proc, job)
-        proc.stdout.close()
-        return {"output": "", "exit": None, "stopped": None, "error": "Windows did not let the program be resumed"}
+    job, reader, stopped, error = None, None, None, None
     chunks, over = [], threading.Event()
 
     def read():
@@ -287,28 +277,39 @@ def run_bounded(argv, time_limit=TIME_LIMIT, output_cap=OUTPUT_CAP):
                 over.set()
                 return
 
-    reader = threading.Thread(target=read, daemon=True)
-    stopped = None
     try:
-        reader.start()
-        deadline = time.monotonic() + time_limit
-        while reader.is_alive() and time.monotonic() < deadline:
-            reader.join(0.05)
-        if over.is_set():
-            stopped = "output"
-        elif reader.is_alive():
-            stopped = "time"
-        else:
-            try:
-                proc.wait(timeout=max(deadline - time.monotonic(), 0.05))
-            except subprocess.TimeoutExpired:
+        if windows:
+            # A tool that cannot be contained is not run at all: it stays suspended and is ended below.
+            job = _windows_job(proc)
+            if job is None:
+                error = "Windows did not let the program be put in a job object, so it was not run"
+            elif not _windows_resume(proc):
+                error = "Windows did not let the program be resumed, so it was not run"
+        if error is None:
+            reader = threading.Thread(target=read, daemon=True)
+            reader.start()
+            deadline = time.monotonic() + time_limit
+            while reader.is_alive() and time.monotonic() < deadline:
+                reader.join(0.05)
+            if over.is_set():
+                stopped = "output"
+            elif reader.is_alive():
                 stopped = "time"
+            else:
+                try:
+                    proc.wait(timeout=max(deadline - time.monotonic(), 0.05))
+                except subprocess.TimeoutExpired:
+                    stopped = "time"
     finally:
-        # Every way out, an interrupt (Ctrl+C) and a clean exit included: the tool leads its own session, so nothing
-        # else ends what it started, and a launcher can exit while a child it started runs on.
+        # Every way out from the moment the process exists, an interrupt (Ctrl+C) and a clean exit included: the
+        # tool leads its own session, so nothing else ends what it started, and a launcher can exit while a child
+        # it started runs on.
         _end_tree(proc, job)
-        reader.join(5)
+        if reader is not None:
+            reader.join(5)
         proc.stdout.close()
+    if error is not None:
+        return {"output": "", "exit": None, "stopped": None, "error": error}
     return {"output": b"".join(chunks).decode("utf-8", errors="replace"), "exit": proc.returncode,
             "stopped": stopped, "error": None}
 
