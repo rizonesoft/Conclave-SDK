@@ -737,7 +737,12 @@ def apply_kit(
     if kit_name == "todo" and not dry_run:
         result["pre_commit_hook"] = _enable_pre_commit_hook(target_root)
     if kit_name == "toolchain-web":
-        result["app_root"] = _set_web_app_root(target_root, installed, dry_run)
+        result["app_root"], rooted = _set_web_app_root(target_root, installed, dry_run)
+        pins = TOOLCHAIN_PINS[kit_name]
+        if rooted and pins in preserved:
+            # A seed left without its root by an earlier install was completed: it was written, not preserved.
+            preserved.remove(pins)
+            result["repaired"] = [pins]
     if kit_name in ("lsp", "toolchain-web"):
         servers = _fill_lsp_table(target_root, dry_run, installing_web=kit_name == "toolchain-web")
         if servers is not None:
@@ -767,12 +772,12 @@ def _find_web_app_root(target_root: Path) -> str:
     return "."
 
 
-def _set_web_app_root(target_root: Path, installed: list[str], dry_run: bool) -> str:
+def _set_web_app_root(target_root: Path, installed: list[str], dry_run: bool) -> tuple[str, bool]:
     """Name the app's folder in a toolchain-web pin file this install has just written, when the app is not at the
     project root: the tool folders, the constraints and the language servers are all read there. A pin file the
     project has changed is the project's and is never touched; one that is still the kit's seed byte for byte is
     given its root too, which is how an install stopped between the copy and this step, or whose write here
-    failed, is completed by the next. Returns the folder found."""
+    failed, is completed by the next. Returns the folder found and whether the pin file was written."""
     app_root = _find_web_app_root(target_root)
     pins = TOOLCHAIN_PINS["toolchain-web"]
     path = target_root / pins
@@ -783,7 +788,8 @@ def _set_web_app_root(target_root: Path, installed: list[str], dry_run: bool) ->
         ordered = {"schema_version": data["schema_version"], "root": app_root,
                    **{key: value for key, value in data.items() if key != "schema_version"}}
         atomic_write(path, json.dumps(ordered, indent=2) + "\n")
-    return app_root
+        return app_root, True
+    return app_root, False
 
 
 def _fill_lsp_table(target_root: Path, dry_run: bool, installing_web: bool = False) -> dict | None:

@@ -447,6 +447,7 @@ class WebKitTests(ToolchainFixture):
         project = self.project("twice", install=False)
         first = forge.apply_kit(project, self.KIT)
         self.assertEqual((first["installed"], first["app_root"]), (files, "."))
+        self.assertNotIn("repaired", first)
         before = self.snapshot(project)
         second = forge.apply_kit(project, self.KIT)
         self.assertEqual((second["installed"], second["preserved"]), ([], files))
@@ -477,8 +478,14 @@ class WebKitTests(ToolchainFixture):
         self.assertEqual((project / WEB_PINS).read_bytes(), seed)  # copied, recorded, and without its root
         result = forge.apply_kit(project, self.KIT)
         self.assertEqual(result["app_root"], "platform")
-        self.assertIn(WEB_PINS, result["preserved"])
+        # The seed was completed, so it is reported as repaired and never as preserved.
+        self.assertEqual(result["repaired"], [WEB_PINS])
+        self.assertNotIn(WEB_PINS, result["preserved"])
+        self.assertNotIn(WEB_PINS, result["installed"])
         self.assertEqual(self.module.load_pin_file(project / WEB_PINS)["root"], "platform")
+        settled = forge.apply_kit(project, self.KIT)  # and once it has its root it is the project's, preserved
+        self.assertIn(WEB_PINS, settled["preserved"])
+        self.assertNotIn("repaired", settled)
         # The same when the write of the root itself fails: the install says so, and the next one completes.
         failing = self.project("failing", install=False)
         self.manifest(failing / "platform", "package.json", {})
@@ -494,7 +501,8 @@ class WebKitTests(ToolchainFixture):
             code, out, err = command_line("kit", failing, self.KIT)
         self.assertEqual((code, out), (1, ""))
         self.assertIn("Access is denied", err)
-        self.assertEqual(forge.apply_kit(failing, self.KIT)["app_root"], "platform")
+        retried = forge.apply_kit(failing, self.KIT)
+        self.assertEqual((retried["app_root"], retried["repaired"]), ("platform", [WEB_PINS]))
         self.assertEqual(self.module.load_pin_file(failing / WEB_PINS)["root"], "platform")
         # A pin file the project has changed is the project's: it is never given a root.
         edited = self.project("edited", install=False)
@@ -502,7 +510,10 @@ class WebKitTests(ToolchainFixture):
         text = (edited / WEB_PINS).read_text(encoding="utf-8").replace('"8.2"', '"8.3"')
         (edited / WEB_PINS).write_text(text, encoding="utf-8")
         self.manifest(edited / "platform", "composer.json", {})
-        self.assertEqual(forge.apply_kit(edited, self.KIT)["app_root"], "platform")
+        kept = forge.apply_kit(edited, self.KIT)
+        self.assertEqual(kept["app_root"], "platform")
+        self.assertIn(WEB_PINS, kept["preserved"])
+        self.assertNotIn("repaired", kept)
         self.assertEqual((edited / WEB_PINS).read_text(encoding="utf-8"), text)
 
     def test_the_kit_is_detected_by_its_own_pin_file_and_named_where_forge_lists_kits(self):
