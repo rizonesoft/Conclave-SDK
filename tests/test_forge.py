@@ -909,6 +909,21 @@ class OperatingDirectiveTests(unittest.TestCase):
     ASKS = ("dropping or overwriting data", "a force-push", "deleting outside the repository",
             "creating, rotating or exposing a credential", "sending mail or a message to a person",
             "a production change with real blast radius", "business context the repository lacks")
+    # D05 T01 section 2: the Git section's rules, each as the source says it.
+    GIT_RULES = (
+        "A project with a branch workflow replaces the first rule with its own",
+        "Develop on the main branch: commit there, with no feature branch, unless the operator asks for a branch",
+        "read `git status --short` and enough of the diff to understand every dirty file",
+        "Commit a safe side change (small, not secret, not generated, not in conflict) with the next coherent commit",
+        "stop and say why before touching one that conflicts, holds a secret or looks unsafe or generated",
+        "Never discard changes with `git reset`, `checkout`, `restore` or `clean` unless asked for that exact cleanup",
+        "confirm it landed with `git log --oneline -1` and `git status --short`",
+        "never filter hook output in a way that hides an error",
+        "remove the worktrees you or a subagent created",
+        "delete branches that are merged or whose content is verifiably on main",
+        "prune dead worktree records",
+        "Never delete an unmerged branch whose content is not verifiably on main without asking",
+    )
     POINTER = ("- Work under the Operating directive in `AGENTS.md`: decide and act, and ask the operator only for what "
                "its Safety section lists.")
     RULE_FILES = {"claude": ".claude/rules/claude-output-and-safety.md", "gemini": ".agents/rules/agy-output-and-safety.md",
@@ -942,6 +957,15 @@ class OperatingDirectiveTests(unittest.TestCase):
             self.assertNotIn("changes something outside the repository", line)
         self.assertLess(text.index("## Working rules"), text.index("## Operating directive"))
         self.assertLess(text.index("## Operating directive"), text.index("## Safety"))
+        self.check_git(text)
+
+    def check_git(self, text):
+        git = self.section(text, "Git")
+        self.assertEqual(len([line for line in git.splitlines() if line.startswith("- ")]), 7)
+        for rule in self.GIT_RULES:
+            self.assertIn(rule, git)
+        self.assertNotIn("claude-code.md", git)   # a project does not have the owner's machine-level rules
+        self.assertLess(text.index("\n## Safety\n"), text.index("\n## Git\n"))
 
     def init(self, name, *argv):
         project = self.work / name
@@ -979,6 +1003,8 @@ class OperatingDirectiveTests(unittest.TestCase):
         # Found by the review round: the directive points at Safety, so the SDK has it, the same as the template's.
         self.assertEqual(self.section(own, "Safety"), self.section(template, "Safety"))
         self.assertLess(own.index("\n## Operating directive\n"), own.index("\n## Safety\n"))
+        self.assertEqual(self.section(own, "Git"), self.section(template, "Git"))   # D05 T01 section 2
+        self.check_git(own)
         self.assertIn("\n## Autonomy and ambition\n", own)   # the owner's fuller statement stays
         for rel in self.RULE_FILES.values():   # the SDK's installed copy points at a section it has
             self.assertIn(self.POINTER, (FORGE_ROOT / rel).read_text(encoding="utf-8").splitlines(), rel)
@@ -997,6 +1023,13 @@ class OperatingDirectiveTests(unittest.TestCase):
                     self.check_agents(template.replace(condition, "something else"))
         with self.assertRaises(AssertionError):
             self.check_agents(template.replace("\n## Operating directive\n", "\n## Something else\n"))
+        git = [line for line in self.section(template, "Git").splitlines() if line.startswith("- ")]
+        for line in git:
+            with self.subTest(removed=line[:40]):
+                with self.assertRaises(AssertionError):
+                    self.check_agents(template.replace(line + "\n", ""))
+        with self.assertRaises(AssertionError):
+            self.check_agents(template.replace("\n## Git\n", "\n## Version control\n"))
 
 
 class BosunPageTests(unittest.TestCase):

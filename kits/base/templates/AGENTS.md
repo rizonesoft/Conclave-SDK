@@ -34,6 +34,18 @@ How to work without waiting to be told. When to ask the operator is listed under
 - When a command needs sudo, give the operator the exact command to run with `! sudo ...`. Never store the sudo password.
 - Never print, log, or commit a secret value.
 
+## Git
+
+A project with a branch workflow replaces the first rule with its own; the others hold everywhere.
+
+- Develop on the main branch: commit there, with no feature branch, unless the operator asks for a branch in that task.
+- Before staging, read `git status --short` and enough of the diff to understand every dirty file: another session or a person may be editing.
+- Commit a safe side change (small, not secret, not generated, not in conflict) with the next coherent commit; stop and say why before touching one that conflicts, holds a secret or looks unsafe or generated.
+- Never discard changes with `git reset`, `checkout`, `restore` or `clean` unless asked for that exact cleanup.
+- After a commit, confirm it landed with `git log --oneline -1` and `git status --short`, and never filter hook output in a way that hides an error.
+- When work is finished, remove the worktrees you or a subagent created, delete branches that are merged or whose content is verifiably on main, and prune dead worktree records.
+- Never delete an unmerged branch whose content is not verifiably on main without asking.
+
 ## Skills
 
 - Antigravity skills live in `.agents/skills/<name>/`, Claude skills in `.claude/skills/<name>/`, and Codex skills in `.codex/skills/<name>/`, all as real files, never symlinks. Change all three together.
