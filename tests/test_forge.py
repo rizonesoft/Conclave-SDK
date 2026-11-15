@@ -1006,7 +1006,9 @@ class BosunPageTests(unittest.TestCase):
     # Each topic the page must cover, written here: a topic removed from the page is a topic missed.
     TOPICS = (
         "bosun run --", "bosun status", "bosun report --days 7",
-        "Wrap full builds and full test suites", "never wrap dev servers or watchers",
+        "Wrap full builds and full test suites", "Do not wrap quick commands", "never wrap dev servers or watchers",
+        # Found by the review round: these two were not held.
+        "Bosun is a separate tool beside Conclave", "nothing here requires it",
         "Run the command normally, without `bosun run --`",
         "2 slots by default, shared by Windows and WSL", "6 GB available on Windows", "3 GB available inside the VM",
         "After 15 minutes a waiting job starts anyway",
@@ -1045,7 +1047,12 @@ class BosunPageTests(unittest.TestCase):
                          "needs the Bosun checkout beside this one")
     def test_each_fact_on_the_page_is_in_bosuns_readme(self):
         bosun = pathlib.Path("D:/Bosun") if os.name == "nt" else pathlib.Path("/mnt/d/Bosun")
-        readme = (bosun / "README.md").read_text(encoding="utf-8")
+        # The README at the commit the page names, not whatever the checkout holds now (found by the review round).
+        commit = re.search(r"at commit `([0-9a-f]{40})`", self.PAGE.read_text(encoding="utf-8")).group(1)
+        shown = subprocess.run(["git", "-C", str(bosun), "show", f"{commit}:README.md"], capture_output=True, timeout=60,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.assertEqual(shown.returncode, 0, shown.stderr.decode("utf-8", errors="replace"))
+        readme = shown.stdout.decode("utf-8")
         for fact in ("2 slots by default, shared by Windows and WSL", "6 GB available on Windows",
                      "3 GB available inside the VM", "After 15 minutes a waiting job starts anyway", "at most 100 GB",
                      "exits 74", "enable-write-budget.sh", "counts writes to the Linux disk only",
