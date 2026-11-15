@@ -132,6 +132,8 @@ The base `AGENTS.md` asks the project to name what it is. `init --goal "<text>"`
 
 ## 4. `forge.py init --acceptance` for the todo kit's plan
 
+> **Started:** 2026-11-15T20:04:16Z
+
 The ambition ("finish 100 percent") belongs where the runner reads it: the acceptance bar in `todo/plan.json`. `init --acceptance "<bar>"` writes it when the todo kit is chosen.
 
 **Phase:** 7
@@ -144,11 +146,13 @@ The ambition ("finish 100 percent") belongs where the runner reads it: the accep
 2. Cover the refusals. Done when: the checkpoint passes.
 
 - [ ] Add `--acceptance <text>` to the `init` parser and an `acceptance` argument to `provision` in `forge.py`: set the `acceptance` key of the `todo/plan.json` this run created, written with `atomic_write` as JSON with the template's indentation. Done when: a test with `--kit todo --acceptance "Every screen in the SPEC works"` reads the key back and finds `title` and `phases` unchanged. Cheaper substitute: text substitution on the JSON file must fail the test whose bar contains a double quote.
-- [ ] Refuse `--acceptance` without the todo kit in `provision`, before any file is written, naming `--kit todo`. Done when: a test finds exit 2 and an empty target.
-- [ ] Leave an existing `todo/plan.json` alone in `provision`, saying in the result that the bar was not applied. Done when: a test finds the file byte for byte unchanged.
+- [ ] Refuse, in `provision` and before any file is written, `--acceptance` without the todo kit (naming `--kit todo`) and a bar `init` would not write, by the rules `--goal` follows since §3: empty, longer than 600 characters, more than one line or holding a control character, or holding an em or en dash (the bar is printed into the generated plan, which the writing rules cover). Done when: a test for each finds exit 2, the message, and an empty target.
+- [ ] Leave a project's own `todo/plan.json` alone in `provision`, saying in the result that the bar was not applied and why (`acceptance_applied` false, `acceptance_reason`), and fill one that is not yet the project's: the one this run installed, or one still byte for byte the kit's (what a run that failed before writing the bar leaves), by the rule `--goal` follows. Done when: a test finds a project's own file byte for byte unchanged with that reason, and a test whose write of the bar fails finds exit 1, the kit's file in place, and a second run filling it.
 - [ ] Prove the generated plan shows the bar: after the install, `python scripts/todo-graph.py plan --sync` writes a `todo/implementation-plan.md` whose acceptance line holds the text. Done when: a test on the fresh install finds it.
 - [ ] Document `--acceptance` in `README.md` and in `kits/todo/README.md`. Done when: both name it with one example.
 - [ ] Commit: `forge: init --acceptance sets the plan's acceptance bar`
+
+**Corrected 2026-11-15 (validation):** measured against the tree after §3. (1) `todo/plan.json` in the todo kit is two-space JSON with `acceptance: null`, and `todo-graph.py plan` prints a set bar as "The acceptance bar is <bar>" (`scripts/lib/todo_graph.py`), so the bar is written as JSON (`json.dumps`, two spaces, `ensure_ascii=False`, a final newline), never by replacing text. (2) §3's plan review showed what a value written after the install needs: a refusal of what it would not write, the result's `_applied` and `_reason`, and a retry for a file still the kit's; this section takes the same three, with the same limits. (3) The install record holds the kit's digest for `todo/plan.json`, so a filled bar reads as the project's change, as the goal does.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; accepting `--acceptance` without the todo kit makes its refusal test fail.
 
