@@ -140,7 +140,7 @@ Sections: 6 | Checklist items: 32
 
 | Status | Reference  | Deliverable                                          | Needs | Items |
 | ------ | ---------- | ---------------------------------------------------- | ----- | ----- |
-| [ ]    | D05 T01 §1 | Operating directive in the base `AGENTS.md`          | none  | 7     |
+| [x]    | D05 T01 §1 | Operating directive in the base `AGENTS.md`          | none  | 7     |
 | [ ]    | D05 T01 §2 | Git hygiene rules in the base kit                    | none  | 5     |
 | [ ]    | D05 T01 §3 | `forge.py init --goal`                               | none  | 7     |
 | [ ]    | D05 T01 §4 | `forge.py init --acceptance` for the todo kit's plan | none  | 6     |
@@ -157,6 +157,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 79/88 verified sections, 4 ready to run now.
+Progress: 80/88 verified sections, 5 ready to run now.
 
-Checklist: 657/694 items completed (includes Commit items).
+Checklist: 658/694 items completed (includes Commit items).

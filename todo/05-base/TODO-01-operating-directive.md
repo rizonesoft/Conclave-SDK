@@ -34,7 +34,7 @@ title: "TODO-01 -- Operating directive in the base kit"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Operating directive in the base `AGENTS.md` | -- | [ ] |
+| 1 | §1 | Operating directive in the base `AGENTS.md` | -- | [x] |
 | 2 | §2 | Git hygiene rules in the base kit | §1 | [ ] |
 | 3 | §3 | `forge.py init --goal` | §1, D01 T01 §2 | [ ] |
 | 4 | §4 | `forge.py init --acceptance` for the todo kit's plan | §3 | [ ] |
@@ -60,13 +60,16 @@ The directive becomes a section of the base `AGENTS.md`, written as rules with a
 - [x] Add one line to each of `kits/base/templates/.claude/rules/claude-output-and-safety.md`, `.agents/rules/agy-output-and-safety.md` and `.codex/rules/codex-output-and-safety.md` pointing at the directive in `AGENTS.md`. Done when: the three files carry the same sentence.
 - [x] Add a test to `tests/test_forge.py`: a fresh `init` has the section in `AGENTS.md`, holding each rule's statement (written in the test, one string per rule, the four pause conditions of the unattended rule among them), and the pointer in each agent's rule file; an `init --agent claude` has the pointer in its one rule file; a project whose `AGENTS.md` already exists keeps it byte for byte and `forge.diff_project` reports it as the project's own. Done when: removing the section from the template makes it fail, and so does removing any one rule (or one pause condition) while the heading and the pointers stay.
 - [x] Run `python forge.py self-sync` (it writes the three rule files into the SDK's installed copy) and add the same section to the SDK's own `AGENTS.md`, which `self-sync` does not write, beside its "Autonomy and ambition" section (the owner's fuller statement for this repository, which stays as it is). Done when: a test finds the SDK's section byte for byte the template's, so the two cannot drift, and the pointer in each of the SDK's three rule files names a section its `AGENTS.md` has.
-- [ ] Commit: `base: operating directive in AGENTS.md`
+- [x] Commit: `base: operating directive in AGENTS.md`
 
 **Corrected 2026-11-15 (validation):** measured against the tree. (1) Since this file was written the SDK's own `AGENTS.md` gained "Autonomy and ambition" (2026-11-11), the owner's statement of the directive for this repository; the template's section is the generic, testable form of the same rules, so the SDK carries both: its own section unchanged, and the template's section byte for byte (tested) so that the rule files' pointer, which `self-sync` installs into the SDK too, names a section the SDK's `AGENTS.md` has. (2) The rule files are installed per agent (`_rel_allowed_for_agent`), so the test covers an install for one agent too. (3) An existing `AGENTS.md` is never written (`ENTRY_DOCS`, recorded with the kit's digest since `D01 T01 §2`), which the Outcome promises and the test now checks. (4) Seven list items, not six: the unattended case is its own rule, as the third item asks.
 
 **Corrected 2026-11-15 (plan review):** three gaps, all taken. (1) The unattended rule left out its source's pause conditions (data loss, a credential, shared infrastructure, a calculation that looks wrong) and the owner item: both are in it now, with pausing set apart from proceeding. (2) Keeping Safety's line "ask the operator once before anything that ... changes something outside the repository" would contradict the directive's narrower conditions and its rule to finish safe follow-ups: Safety's trigger is revised so both sections ask for the same things. (3) Tests that look for the heading pass with an empty section: the test holds each rule's statement and each pause condition, and a removed rule must fail it.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; deleting the section from `kits/base/templates/AGENTS.md` makes the new test fail.
+
+> **Verified:** 2026-11-15 | §1 | bb0ea4736305fdd3b37a412a6c7a3101e824ae81
+> **Review:** `docs/reviews/d05-t01-s1.json`
 
 ## 2. Git hygiene rules in the base kit
 
