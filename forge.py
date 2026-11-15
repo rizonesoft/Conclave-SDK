@@ -7,7 +7,8 @@
     python forge.py update <target> [kit] [--only <path>]... [--no-scripts] [--kit-new] [--dry-run]
     python forge.py record <target> [kit] [--merged <path>]... [--dry-run]
     python forge.py drift [--projects <file>]
-    python forge.py doctor <target> [base|todo|reviewer|automations|unattended|laravel|wordpress] [--strict]
+    python forge.py doctor <target> [base|todo|reviewer|automations|unattended|lsp|laravel|wordpress] [--strict]
+        (no kit named: the Laravel or WordPress kit when the project is one, else base, plus lsp when installed)
     python forge.py kits
     python forge.py check <target>
     python forge.py self-sync
@@ -190,7 +191,7 @@ AUTOMATIONS_SCRIPTS = tuple(f"{AUTOMATIONS_DIR}/{name}" for name in ("run.py", "
 
 
 UNATTENDED_MODULE = "scripts/lib/unattended.py"
-KIT_ORDER = ("base", "todo", "reviewer", "automations", "unattended", "laravel", "wordpress")
+KIT_ORDER = ("base", "todo", "reviewer", "automations", "unattended", "lsp", "laravel", "wordpress")
 BASE_SKILLS = ("authoring-skills", "local-tool-safety")
 AGENT_DIRS = (".agents", ".claude", ".codex")
 # A kit's version of a file the project changed, written beside it by `update --kit-new` for a hand merge, and the
@@ -203,6 +204,9 @@ SELF_KITS = ("base", "todo", "reviewer", "automations")
 SELF_PREFIXES = tuple(f"{d}/{kind}/" for d in AGENT_DIRS for kind in ("skills", "rules")) + (
     ".claude/agents/", "scripts/", "bin/", "docs/", ".agents/hooks.json",
     ".codex/hooks.json") + AUTOMATIONS_SCRIPTS
+
+
+LSP_TABLE = ".conclave/lsp.json"  # the lsp kit's server table: the one list of a project's language servers
 
 
 def installed_kits(target_root: Path) -> list[str]:
@@ -223,6 +227,8 @@ def installed_kits(target_root: Path) -> list[str]:
         found.append("automations")
     if (target_root / UNATTENDED_MODULE).is_file() or (target_root / "scripts/unattended-run.py").is_file():
         found.append("unattended")
+    if (target_root / LSP_TABLE).is_file():
+        found.append("lsp")
     if any_skill(("laravel-boost",)) or (target_root / "scripts/lsp-diagnostics.py").is_file():
         found.append("laravel")
     if (target_root / WORDPRESS_PIN).is_file() or any_skill(("wordpress-site-safety", "wordpress-connect")):
@@ -641,7 +647,8 @@ def apply_kit(
     host: str | None = None,
     include=None,
 ) -> dict:
-    """Apply an additive overlay kit ('base', 'todo', 'reviewer', 'automations', 'laravel', 'wordpress') for all or one agent without overwriting existing files.
+    """Apply an additive overlay kit ('base', 'todo', 'reviewer', 'automations', 'unattended', 'lsp', 'laravel',
+    'wordpress') for all or one agent without overwriting existing files.
 
     A file that already exists is the project's and is never replaced: the kit is a template copied once, and the
     project adapts its copy from then on. `include(rel)` can leave paths out entirely.
@@ -1875,6 +1882,22 @@ def _systemd_user_manager(run=subprocess.run) -> tuple[str, str]:
     return "ok", f"{found} --user answers"
 
 
+# The kits the bare `doctor <target>` adds to the stack kit's checks when they are installed: only those whose
+# checks read files and PATH. The todo and reviewer branches start other programs, so they stay behind their name.
+BARE_DOCTOR_ALSO = ("lsp",)
+
+
+def _doctor_lsp(target_root: Path, add_check) -> None:
+    """The lsp kit's checks: each file the kit installs is present. The list is the kit's own templates folder, so a
+    file a kit gains is checked without a second list."""
+    templates = FORGE_ROOT / "kits/lsp/templates"
+    for src in sorted(templates.rglob("*")):
+        rel = src.relative_to(templates).as_posix()
+        if src.is_file() and "__pycache__" not in src.parts and not rel.endswith(FORGE_SUFFIXES):
+            path = target_root / rel
+            add_check(rel, "ok" if path.is_file() else "missing", path.as_posix())
+
+
 def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
     """Read-only stack health check for Laravel and/or WordPress overlays across all three agents."""
     target_root = Path(target_root).resolve()
@@ -1883,6 +1906,9 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
     def add_check(name: str, status: str, detail: str) -> None:
         checks.append({"name": name, "status": status, "detail": detail})
 
+    # With no kit named the doctor checks the project's stack kit, or base, and then the kits in BARE_DOCTOR_ALSO
+    # that are installed. A kit that is named is checked alone.
+    also: list[str] = []
     if kit_name is None:
         if _find_laravel_app_root(target_root) is not None:
             kit_name = "laravel"
@@ -1890,6 +1916,8 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
             kit_name = "wordpress"
         else:
             kit_name = "base"
+        found = installed_kits(target_root)
+        also = [kit for kit in BARE_DOCTOR_ALSO if kit in found and kit != kit_name]
 
     if kit_name == "laravel":
         app_root = _find_laravel_app_root(target_root)
@@ -1922,6 +1950,8 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
         _doctor_automations(target_root, add_check)
     elif kit_name == "unattended":
         _doctor_unattended(target_root, add_check)
+    elif kit_name == "lsp":
+        _doctor_lsp(target_root, add_check)
     elif kit_name == "todo":
         for agent_dir in (".agents", ".claude", ".codex"):
             for skill in TODO_SKILLS:
@@ -1943,10 +1973,15 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
             p = target_root / entry
             add_check(entry, "ok" if p.is_file() else "missing", p.as_posix())
 
+    for kit in also:
+        if kit == "lsp":
+            _doctor_lsp(target_root, add_check)
+
     missing_count = sum(1 for c in checks if c["status"] in ("missing", "setup_required", "unexpected"))
     return {
         "target": target_root.as_posix(),
         "kit": kit_name,
+        **({"also": also} if also else {}),
         "missing_or_setup_required": missing_count,
         "checks": checks,
     }
@@ -2645,14 +2680,16 @@ def main(argv: list[str] | None = None) -> int:
     p_init = sub.add_parser("init", help="Install the base kit plus only the kits named with --kit")
     p_init.add_argument("target", help="Target repository path")
     p_init.add_argument("--agent", choices=AGENT_CHOICES, default="all")
-    p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, reviewer, automations, unattended, laravel, wordpress)")
+    p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, reviewer, automations, unattended, lsp, laravel, "
+                             "wordpress)")
     p_init.add_argument("--wp-host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
     p_init.add_argument("--no-scripts", action="store_true", help="Leave out the kits' scripts/ files")
     p_init.add_argument("--with-todo", action="store_true", help="Shorthand for --kit todo")
     p_init.add_argument("--force", action="store_true",
                         help="Replace AGENTS.md, GEMINI.md, CLAUDE.md and CODEX.md with the kit's, keeping each replaced one as <name>.replaced")
 
-    p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, todo, reviewer, automations, unattended, laravel, wordpress) to a target repo")
+    p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, todo, reviewer, automations, unattended, lsp, laravel, "
+                                          "wordpress) to a target repo")
     p_kit.add_argument("target", help="Target repository path")
     p_kit.add_argument("kit_name", choices=list_kits(), help="Kit name to apply")
     p_kit.add_argument("--agent", choices=AGENT_CHOICES, default="all", help="Install kit files for all agents or one agent")

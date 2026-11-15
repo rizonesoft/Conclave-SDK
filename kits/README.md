@@ -2,7 +2,7 @@
 
 Reusable stack and agent overlays that Conclave-SDK copies into a new or existing repository for **Gemini / Antigravity (`.agents/`)**, **Claude Code (`.claude/`)**, and **OpenAI Codex (`.codex/`)**. They do not scaffold an application. They do not install global binaries. Each kit is additive: existing files stay byte-for-byte.
 
-Install **base** on every project (or run `python forge.py init <target>`). Add **todo** where work is planned in TODO files and **reviewer** where work gets independent review. Add **unattended** (after **todo**) where a `process-plan` run should keep going with nobody at the keyboard: it is being built in `todo/02-unattended/TODO-02-unattended-kit.md`, and the SDK does not install it in itself. Then install the stack kit that matches the app.
+Install **base** on every project (or run `python forge.py init <target>`). Add **todo** where work is planned in TODO files and **reviewer** where work gets independent review. Add **unattended** (after **todo**) where a `process-plan` run should keep going with nobody at the keyboard, and **lsp** where the agents should reach the stack's language servers (it is being built in `todo/04-tooling/TODO-01-lsp-kit.md` and holds the server table so far); the SDK installs neither in itself. Then install the stack kit that matches the app.
 
 ```powershell
 # Cross-platform via forge.py (supports --agent all|gemini|agy|claude|codex)
@@ -10,6 +10,7 @@ python forge.py kit /path/to/project base
 python forge.py kit /path/to/project todo
 python forge.py kit /path/to/project reviewer
 python forge.py kit /path/to/project unattended   # after todo; runs in Linux or WSL (tmux)
+python forge.py kit /path/to/project lsp          # the language server table
 python forge.py kit /path/to/laravel-project laravel
 python forge.py kit /path/to/wordpress-project wordpress --host pressable   # or --host wpcom
 python forge.py doctor /path/to/project
@@ -26,6 +27,9 @@ python forge.py doctor /path/to/project
 | `base/` | Agent overlay: the four entry docs, safety skills | Every new repository (not a stack) |
 | `todo/` | TODO skills, `todo-graph.py`, starter `todo/` tree | Work is planned in TODO files |
 | `reviewer/` | Reviewer pin, review dispatcher, review skill | Independent review |
+| `automations/` | Task list, runner, failure email, scheduler installers | Scheduled checks |
+| `unattended/` | Preflight, tmux launcher, heartbeat, shortcuts | Runs nobody watches (after `todo`) |
+| `lsp/` | Server table `.conclave/lsp.json` (client, plugin and bridge to come) | Language servers |
 | `laravel/` | Boost MCP, `boost.json`, LSP, `laravel-boost`, pre-push hook | Tree has `artisan` |
 | `wordpress/` | Site pin, pinned SSH/SFTP, WordPress MCP, DDEV, PHPCS | WordPress site project |
 
