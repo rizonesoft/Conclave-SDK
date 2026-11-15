@@ -996,8 +996,10 @@ class OperatingDirectiveTests(unittest.TestCase):
         self.assertEqual(states["AGENTS.md"], "differs")
 
     def test_the_sdks_own_agents_md_holds_the_templates_section_byte_for_byte(self):
-        template = (FORGE_ROOT / "kits/base/templates/AGENTS.md").read_text(encoding="utf-8")
-        own = (FORGE_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        # The bytes as they are: read_text would fold CRLF into LF and let line-ending drift pass (found by the
+        # completion review of D05 T01 section 2).
+        template = (FORGE_ROOT / "kits/base/templates/AGENTS.md").read_bytes().decode("utf-8")
+        own = (FORGE_ROOT / "AGENTS.md").read_bytes().decode("utf-8")
         self.check_agents(template)
         self.assertEqual(self.section(own, "Operating directive"), self.section(template, "Operating directive"))
         # Found by the review round: the directive points at Safety, so the SDK has it, the same as the template's.
