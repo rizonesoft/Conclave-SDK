@@ -41,6 +41,7 @@ title: "TODO-02 -- Toolchain kits"
 | 5 | §5 | clangd seed and server table entry | §3, D04 T01 §2 | [x] |
 | 6 | §6 | `toolchain-web` kit with pins for PHP and Node tools | §2, D04 T01 §2 | [x] |
 | 7 | §7 | Toolchain skills and documents for the three agents | §4, §5, §6 | [ ] |
+| 8 | §8 | Optional tools named as optional in the check's text | §7 | [ ] |
 
 ## 1. Tool pin file and the script that checks it
 
@@ -282,6 +283,26 @@ Each kit gets a short document and a skill so an agent uses the pinned tools, th
 **Corrected 2026-11-15 (plan review):** three gaps, all taken. (1) Regenerating only when the check says `stale` misses a source added to a build that finds its sources by itself: no build file changes, and the database reads `current` without the new file. The skill says to regenerate after every change of the source set, and the check gains `--source`, which answers whether a named file is in the database, so the read-back proves it. (2) The skill had no instruction for `missing` (the state of every fresh install), `invalid`, `unknown` or a pin file that does not load: each has one now, and diagnostics are trusted only after a `current` read-back. (3) Finding a documented option in `--help` does not show that the cache lines work: the document's blocks are run as written, in their own shells, with stubs, including a setup that fails.
 
 **Test checkpoint:** `python -m unittest tests.test_toolchain_kits tests.test_skill_copies` ends `OK`; naming a script or an option in `docs/toolchain-cpp.md` that the kit lacks makes the document test fail.
+
+## 8. Optional tools named as optional in the check's text
+
+Found 2026-11-15 while running this file's Verification block in WSL. For a missing tool the pin marks optional, `scripts/toolchain-check.py` prints `phpstan  setup_required  not installed ...`, the word it prints for a required tool. Its exit code (0) and the doctor (`optional`) are right, but an agent that reads the text reports an optional tool as setup the project needs, and the documents of §7 say an optional tool is shown and never fails the check.
+
+**Phase:** 6
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Print `optional` on the text line of an optional tool that is not ok. Done when: the kit's test of the text passes in both kits.
+2. Make the documents and READMEs say what each line shows. Done when: the checkpoint passes.
+
+- [ ] In `main` of `kits/toolchain-cpp/templates/scripts/toolchain-check.py`, print `optional` in place of the status for a tool that is not `ok` and that the pin marks optional, leave the JSON document as it is (`status` and `optional` are separate keys there, and `forge.py` reads them), and say so in the script's docstring. Done when: tests in `scripts/tests/test_toolchain_check.py` find `optional` on the text line of an optional tool that is missing and of one that is too old, `setup_required` on a required one, `ok` on an optional one that is ok, exit 0 when only optional tools are not ok, and the JSON document of the same run unchanged in its keys and values.
+- [ ] Copy the script and its test to `kits/toolchain-web/templates/scripts/` byte for byte. Done when: `SharedCheckTests` in `tests/test_toolchain_kits.py` passes.
+- [ ] Say in `docs/toolchain-cpp.md`, `docs/toolchain-web.md` and both kit READMEs which word the text line carries in each case (`ok`, `setup_required`, `optional`). Done when: a test in `tests/test_toolchain_kits.py` runs the check in an installed project of each kit with one required and one optional tool missing and finds on the printed lines the words the document gives.
+- [ ] Commit: `toolchain: an optional tool that is not ok is printed as optional`
+
+**Test checkpoint:** `python forge.py check-all --only kit-toolchain-cpp --only kit-toolchain-web` passes and `python -m unittest tests.test_toolchain_kits` ends `OK`; printing the status as before makes the kit's new test fail.
 
 ## Verification
 

@@ -112,7 +112,7 @@ Sections: 7 | Checklist items: 58
 
 ### Phase 6: Tooling kits
 
-Sections: 14 | Checklist items: 140
+Sections: 15 | Checklist items: 144
 
 | Status | Reference  | Deliverable                                              | Needs | Items |
 | ------ | ---------- | -------------------------------------------------------- | ----- | ----- |
@@ -130,6 +130,7 @@ Sections: 14 | Checklist items: 140
 | [x]    | D04 T02 §5 | clangd seed and server table entry                       | none  | 7     |
 | [x]    | D04 T02 §6 | `toolchain-web` kit with pins for PHP and Node tools     | none  | 10    |
 | [ ]    | D04 T02 §7 | Toolchain skills and documents for the three agents      | none  | 8     |
+| [ ]    | D04 T02 §8 | Optional tools named as optional in the check's text     | none  | 4     |
 
 ### Phase 7: Operating directive
 
@@ -154,6 +155,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 75/85 verified sections, 5 ready to run now.
+Progress: 75/86 verified sections, 5 ready to run now.
 
-Checklist: 634/682 items completed (includes Commit items).
+Checklist: 634/686 items completed (includes Commit items).
