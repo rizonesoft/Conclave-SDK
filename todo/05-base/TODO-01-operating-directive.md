@@ -41,6 +41,8 @@ title: "TODO-01 -- Operating directive in the base kit"
 
 ## 1. Operating directive in the base `AGENTS.md`
 
+> **Started:** 2026-11-15T18:02:00Z
+
 The directive becomes a section of the base `AGENTS.md`, written as rules with a test an agent can apply, not as ambition.
 
 **Phase:** 7
@@ -56,9 +58,11 @@ The directive becomes a section of the base `AGENTS.md`, written as rules with a
 - [ ] Reconcile the new section with the existing Safety section of `kits/base/templates/AGENTS.md` so the two do not contradict: Safety keeps the list of things that need the operator, and the directive points at it for "ask only when". Done when: the words "ask the operator" appear with one meaning in both sections.
 - [ ] State the unattended case in the section: an unattended run never asks, takes the industry-standard option, records the decision and what reversing it would cost, and stops only through the run's own pause mechanism. Done when: the item names where the decision is recorded (the run file) in one line.
 - [ ] Add one line to each of `kits/base/templates/.claude/rules/claude-output-and-safety.md`, `.agents/rules/agy-output-and-safety.md` and `.codex/rules/codex-output-and-safety.md` pointing at the directive in `AGENTS.md`. Done when: the three files carry the same sentence.
-- [ ] Add a test to `tests/test_forge.py`: a fresh `init` has the section in `AGENTS.md` and the pointer in each agent's rule file. Done when: removing the section from the template makes it fail.
-- [ ] Run `python forge.py self-sync` and add the same section to the SDK's own `AGENTS.md`, which `self-sync` does not write. Done when: `python -m unittest discover -s tests` passes and the SDK's `AGENTS.md` holds the section.
+- [ ] Add a test to `tests/test_forge.py`: a fresh `init` has the section in `AGENTS.md` and the pointer in each agent's rule file; an `init --agent claude` has the pointer in its one rule file; a project whose `AGENTS.md` already exists keeps it byte for byte and `forge.diff_project` reports it as the project's own. Done when: removing the section from the template makes it fail.
+- [ ] Run `python forge.py self-sync` (it writes the three rule files into the SDK's installed copy) and add the same section to the SDK's own `AGENTS.md`, which `self-sync` does not write, beside its "Autonomy and ambition" section (the owner's fuller statement for this repository, which stays as it is). Done when: a test finds the SDK's section byte for byte the template's, so the two cannot drift, and the pointer in each of the SDK's three rule files names a section its `AGENTS.md` has.
 - [ ] Commit: `base: operating directive in AGENTS.md`
+
+**Corrected 2026-11-15 (validation):** measured against the tree. (1) Since this file was written the SDK's own `AGENTS.md` gained "Autonomy and ambition" (2026-11-11), the owner's statement of the directive for this repository; the template's section is the generic, testable form of the same rules, so the SDK carries both: its own section unchanged, and the template's section byte for byte (tested) so that the rule files' pointer, which `self-sync` installs into the SDK too, names a section the SDK's `AGENTS.md` has. (2) The rule files are installed per agent (`_rel_allowed_for_agent`), so the test covers an install for one agent too. (3) An existing `AGENTS.md` is never written (`ENTRY_DOCS`, recorded with the kit's digest since `D01 T01 §2`), which the Outcome promises and the test now checks. (4) Seven list items, not six: the unattended case is its own rule, as the third item asks.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; deleting the section from `kits/base/templates/AGENTS.md` makes the new test fail.
 
