@@ -64,7 +64,7 @@ A suffix is matched against the end of a file's name and the longest match wins,
 
 The program, the first item of `command`, is found the same way by every tool. A bare name (`clangd`) is looked for on `PATH` and nowhere else, never in the working directory. A name with a folder in it (`vendor/bin/laravel-lsp`) is read from the server's `root`; an absolute path is read as it is. Either way it must be a file the system will execute.
 
-The value `${scratch}` in `init` or `settings` stands for a temporary folder outside the repository that the diagnostics client (§3) makes for the run and removes afterwards: the `laravel` preset gives it to Intelephense as its `storagePath`, so the server's index never lands in the project. Anything else in the file (an unknown key, a `command` given as one string, a duplicate name) is refused by every tool that reads the table, with a message naming the file, the server and the key.
+The value `${scratch}` in `init` or `settings` stands for a temporary folder outside the repository that the diagnostics client (§3) makes for the run and removes afterwards: the `laravel` preset gives it to Intelephense as its `storagePath`, so the server's index never lands in the project. `init` and `settings` may nest 32 levels of objects and lists, because every tool that reads them walks them. Anything else in the file (an unknown key, a `command` given as one string, a duplicate name) is refused by every tool that reads the table, with a message naming the file, the server and the key.
 
 ## Presets
 
@@ -135,7 +135,7 @@ python scripts/lsp-servers.py plugin        # writes .claude/lsp/conclave-lsp/ f
 claude --plugin-dir .claude/lsp/conclave-lsp
 ```
 
-`.claude/lsp/conclave-lsp/` holds `.claude-plugin/plugin.json` and `.lsp.json`, which maps each server's name to its entry. It is generated output: rewritten whole on every run, never merged, and anything else left in the folder is removed. Once a project has it, `lsp-servers.py add` and `remove` and a stack kit's install keep it in step with the table; a project that never ran `plugin` gets none. If the table changed and the plugin could not be written, the table keeps its change, the command exits 1 and names `python scripts/lsp-servers.py plugin`, which brings the plugin in step.
+`.claude/lsp/conclave-lsp/` holds `.claude-plugin/plugin.json` and `.lsp.json`, which maps each server's name to its entry. It is generated output: rewritten whole on every run, never merged, and anything else left in the folder is removed. Once a project has it, `lsp-servers.py add` and `remove` and a stack kit's install keep it in step with the table; a project that never ran `plugin` gets none. If the table changed and the plugin could not be written, the table keeps its change, the command exits 1 and names `python scripts/lsp-servers.py plugin`, which brings the plugin in step. `python forge.py kit` and `init` exit 1 as well when a stack kit's install could not write the table or the plugin; the result names what was left and the command to retry.
 
 What an entry becomes, using only the keys Claude Code documents (one unknown key makes it skip the whole file):
 

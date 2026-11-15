@@ -8,6 +8,7 @@ import json
 import os
 import pathlib
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -397,6 +398,34 @@ while True:
 '''
 
 
+def run_claude(argv, cwd, env=None, timeout=180):
+    """Run Claude Code and end its whole process tree on every way out (the timeout, an interrupt, a normal
+    end): (exit code, stdout, stderr). A session starts language servers and, on Windows, runs under a shell,
+    so stopping only the process started would leave the rest running."""
+    windows = os.name == "nt"
+    proc = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", shell=windows,
+                            start_new_session=not windows,
+                            creationflags=(subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP)
+                            if windows else 0)
+    try:
+        out, err = proc.communicate(timeout=timeout)
+        return proc.returncode, out, err
+    finally:
+        if windows:
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True,
+                           creationflags=subprocess.CREATE_NO_WINDOW)
+        else:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass   # the session ended and took its tree with it
+        try:
+            proc.communicate(timeout=30)
+        except (subprocess.TimeoutExpired, ValueError):
+            proc.kill()
+
+
 class ClaudePluginTests(unittest.TestCase):
     """D04 T01 section 5: the doctor's `claude-plugin` check, the plugin following a stack kit's install, and the
     plugin held against Claude Code itself."""
@@ -510,6 +539,29 @@ class ClaudePluginTests(unittest.TestCase):
                          ".claude/lsp/conclave-lsp/.lsp.json: cannot be written (Permission denied)")
         self.assertEqual(result["lsp_servers"]["plugin_retry"], "python scripts/lsp-servers.py plugin")
         self.assertEqual(result["merge_needed"], [".claude/lsp/conclave-lsp/.lsp.json"])
+        # Found by the review round: the command line said 0 for this. A caller that reads only the exit code
+        # must not take a plugin left behind, or a table that could not be written, for a finished install.
+        self.assertTrue(forge._lsp_write_failed(result))
+        self.assertTrue(forge._lsp_write_failed({"lsp_servers": {"failed": "x", "retry": "y"}}))
+        for fine in ({}, {"lsp_servers": None}, {"lsp_servers": {"added": [], "kept": []}},
+                     {"lsp_servers": {"refused": "the table does not load"}}):
+            self.assertFalse(forge._lsp_write_failed(fine))
+        other = self.project("cli")
+        (other / "artisan").write_bytes(b"<?php\n")
+        self.tool(other, "plugin")
+        with unittest.mock.patch.object(forge, "_lsp_plugin_module", lambda: module):
+            code, out, _err = command_line("kit", other, "laravel")
+        self.assertEqual(code, 1)
+        self.assertIn("plugin_failed", json.loads(out)["lsp_servers"])
+        self.assertEqual(command_line("kit", other, "laravel")[0], 0)   # nothing left to write: a success
+        fresh = self.work / "init"
+        fresh.mkdir()
+        (fresh / "artisan").write_bytes(b"<?php\n")
+        (fresh / ".claude/lsp/conclave-lsp").mkdir(parents=True)
+        (fresh / ".claude/lsp/conclave-lsp/.lsp.json").write_text("{}", encoding="utf-8")
+        with unittest.mock.patch.object(forge, "_lsp_plugin_module", lambda: module):
+            code, out, _err = command_line("init", fresh, "--kit", "laravel")
+        self.assertEqual(code, 1)
         # The table kept its servers; the plugin's list is the earlier one, whole; the doctor says it is behind.
         self.assertEqual(len(self.table.load_servers(project)), 3)
         self.assertEqual((project / self.plugin.FOLDER / self.plugin.SERVERS).read_bytes(), before)
@@ -524,11 +576,8 @@ class ClaudePluginTests(unittest.TestCase):
         (project / "artisan").write_bytes(b"<?php\n")
         self.tool(project, "add", "laravel")
         self.tool(project, "plugin")
-        ran = subprocess.run(["claude", "plugin", "validate", str(project / self.plugin.FOLDER)], cwd=project,
-                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180,
-                             shell=(os.name == "nt"),
-                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+        code, out, err = run_claude(["claude", "plugin", "validate", str(project / self.plugin.FOLDER)], project)
+        self.assertEqual(code, 0, out + err)
 
     @unittest.skipUnless(os.environ.get("CONCLAVE_LIVE_CLAUDE") == "1" and shutil.which("claude"),
                          "starts a real Claude Code session: set CONCLAVE_LIVE_CLAUDE=1 to run it")
@@ -563,9 +612,8 @@ class ClaudePluginTests(unittest.TestCase):
                     argv += ["--plugin-dir", str(folder)]
                 else:
                     env["CLAUDE_CODE_PLUGIN_DIRS"] = str(folder)
-                ran = subprocess.run(argv, cwd=project, env=env, capture_output=True, text=True, encoding="utf-8",
-                                     errors="replace", timeout=420,
-                                     shell=(os.name == "nt"), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                code, out, err = run_claude(argv, project, env, timeout=420)
+                ran = types.SimpleNamespace(returncode=code, stdout=out, stderr=err)
                 self.assertEqual(ran.returncode, 0, ran.stderr)
                 print(f"\nlive proof, loaded by {mode}:")
                 for name, rel in files.items():

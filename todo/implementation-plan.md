@@ -119,7 +119,7 @@ Sections: 14 | Checklist items: 113
 | [x]    | D04 T01 §1 | LSP kit known to `forge.py`                              | none  | 7     |
 | [x]    | D04 T01 §2 | Server table `.conclave/lsp.json` with presets per stack | none  | 9     |
 | [x]    | D04 T01 §3 | Diagnostics client that reads the server table           | none  | 13    |
-| [ ]    | D04 T01 §4 | Laravel kit moved onto the shared client                 | none  | 8     |
+| [x]    | D04 T01 §4 | Laravel kit moved onto the shared client                 | none  | 8     |
 | [ ]    | D04 T01 §5 | Claude Code plugin generated from the server table       | none  | 10    |
 | [ ]    | D04 T01 §6 | MCP bridge for Codex and Antigravity                     | none  | 7     |
 | [ ]    | D04 T01 §7 | Language server skill and document for the three agents  | none  | 6     |
@@ -154,6 +154,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 69/85 verified sections, 9 ready to run now.
+Progress: 70/85 verified sections, 8 ready to run now.
 
-Checklist: 577/655 items completed (includes Commit items).
+Checklist: 578/655 items completed (includes Commit items).

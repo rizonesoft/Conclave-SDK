@@ -2118,6 +2118,14 @@ def _lsp_table_module():
     return module
 
 
+def _lsp_write_failed(result: dict) -> bool:
+    """Whether a kit install could not write the server table, or the Claude Code plugin that follows it: the
+    files were installed, the result says what was left and how to retry, and the command line exits 1 so a
+    caller that reads only the exit code does not take a stale table or plugin for a finished install."""
+    servers = result.get("lsp_servers") or {}
+    return "failed" in servers or "plugin_failed" in servers
+
+
 def _lsp_plugin_module():
     """The lsp kit's plugin generator, loaded from the kit as the table module is, so the doctor compares a
     project's Claude Code plugin with what the kit's own tool writes."""
@@ -3204,7 +3212,7 @@ def _run(args: argparse.Namespace) -> int:
     if args.command == "kit":
         res = apply_kit(target, args.kit_name, agent=args.agent, dry_run=args.dry_run, host=args.host)
         print(json.dumps(res, indent=2))
-        return 0
+        return 1 if _lsp_write_failed(res) else 0
 
     if args.command == "diff":
         print(json.dumps(diff_project(target, args.kit_name, patch=args.patch), indent=2))
@@ -3240,7 +3248,7 @@ def _run(args: argparse.Namespace) -> int:
             overwrite_existing_docs=args.force,
         )
         print(json.dumps(res, indent=2))
-        return 0
+        return 1 if any(_lsp_write_failed(kit) for kit in res.get("kits", [])) else 0
 
     if args.command == "check":
         res = check_repo(target)

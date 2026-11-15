@@ -192,6 +192,31 @@ class FolderTests(Fixture):
         self.assertTrue(err.startswith("lsp-servers: .conclave/lsp.json: server 'x': missing key"), err)
         self.assertFalse(self.folder.exists())
 
+    def test_settings_nested_deeper_than_the_table_allows_are_refused_and_never_a_crash(self):
+        # Found by the review round: 600 nested objects loaded, then the generator ran out of stack.
+        def nested(levels):
+            value = 0
+            for _ in range(levels):
+                value = {"nested": value}
+            return value
+
+        for key in ("init", "settings"):
+            with self.subTest(key=key):
+                text = json.dumps({"schema_version": 1, "servers": [self.entry("deep", **{key: 1})]})
+                text = text.replace(f'"{key}": 1', f'"{key}": ' + '{"nested":' * 600 + "0" + "}" * 600)
+                (self.project / lsp_table.TABLE).write_text(text, encoding="utf-8")
+                code, out, err = self.run_main("plugin")
+                self.assertEqual((code, out), (2, ""))
+                self.assertEqual(err, f"lsp-servers: .conclave/lsp.json: server 'deep': {key}: nested deeper "
+                                      "than 32 levels\n")
+                self.assertFalse(self.folder.exists())
+        # The limit itself is allowed, lists count as levels, and what is allowed is carried whole.
+        self.assertFalse(lsp_table._too_deep(nested(32)))
+        self.assertTrue(lsp_table._too_deep(nested(33)))
+        self.assertTrue(lsp_table._too_deep({"a": [[[0]]]}, limit=3))
+        (server,) = self.table([self.entry("deep", init=nested(32))])
+        self.assertEqual(lsp_plugin.server_entry(server)["initializationOptions"], nested(32))
+
     def test_a_write_that_fails_leaves_the_earlier_list_whole(self):
         self.table([self.entry("alpha")])
         self.run_main("plugin")

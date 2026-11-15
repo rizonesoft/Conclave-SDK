@@ -24,6 +24,7 @@ DEFAULTS = {"root": ".", "requires": None, "init": {}, "settings": None, "severi
             "note": None}
 SEVERITIES = ("error", "warning")
 SETTLE_RANGE = (1, 120)
+NESTING = 32   # levels `init` and `settings` may nest: every tool that reads them walks them
 
 
 class TableError(ValueError):
@@ -45,6 +46,19 @@ def _inside(value):
 
 def _is_here(value):
     return isinstance(value, str) and bool(value) and "\\" not in value and not PurePosixPath(value).parts
+
+
+def _too_deep(value, limit=NESTING):
+    """Whether objects and lists nest deeper than `limit` in `value`. Walked with a list, not by calling itself:
+    the depth is the thing being measured."""
+    pending = [(value, 1)]
+    while pending:
+        item, depth = pending.pop()
+        if isinstance(item, (dict, list)):
+            if depth > limit:
+                return True
+            pending.extend((child, depth + 1) for child in (item.values() if isinstance(item, dict) else item))
+    return False
 
 
 def check_entry(where, name, entry):
@@ -85,6 +99,8 @@ def check_entry(where, name, entry):
             raise TableError(f"{where}: init: an object")
         if key == "settings" and value is not None and not isinstance(value, dict):
             raise TableError(f"{where}: settings: an object")
+        if key in ("init", "settings") and _too_deep(value):
+            raise TableError(f"{where}: {key}: nested deeper than {NESTING} levels")
         if key == "severity" and value not in SEVERITIES:
             raise TableError(f"{where}: severity: error or warning, not {value!r}")
         if key == "settle" and (isinstance(value, bool) or not isinstance(value, (int, float))

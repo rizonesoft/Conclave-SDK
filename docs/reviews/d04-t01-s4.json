@@ -1,0 +1,85 @@
+{
+  "ref": "D04 T01 \u00a74",
+  "title": "Laravel kit moved onto the shared client",
+  "implementation_sha": "9ebec620c82601c599a265703982c842de655ab7",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/04-tooling/D04-T01-s4.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest tests.test_laravel_kit tests.test_lsp_kit tests.test_kit_install (OK on Windows; 73 tests OK in WSL with the hook run against the retired client)",
+    "red CI run 43680125652 on 24423a2 (one stale test of tests/test_forge.py) fixed in cddf6a3 and e27f874, reviewed in docs/reviews/04-tooling/audit-d04-t01-s4.md",
+    "CI run 43684719647 on 33bebd2: success (tests-windows, tests-linux, kits-linux)"
+  ],
+  "completion": {
+    "report": "docs/reviews/04-tooling/D04-T01-s4.md",
+    "verdict": "reconciled",
+    "candidate": "9ebec620c82601c599a265703982c842de655ab7",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/04-tooling/D04-T01-s4.md",
+    "candidate": "af9548a529d677590fddc57f341b1f6a9bcd8531",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "af9548a529d677590fddc57f341b1f6a9bcd8531",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}
