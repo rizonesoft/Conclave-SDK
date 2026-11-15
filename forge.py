@@ -277,7 +277,8 @@ def kit_plan(target_root: Path, kit_name: str, *, agent: str = "all", host: str 
     plan: list[tuple[Path | None, Path, str, bool]] = []
 
     def add_tree(root: Path) -> None:
-        for src in sorted(root.rglob("*")):
+        # In the order of the paths as text, which is the same on every system (a Path sorts by its own rules).
+        for src in sorted(root.rglob("*"), key=lambda path: path.relative_to(root).as_posix()):
             if src.is_file():
                 rel = src.relative_to(root).as_posix()
                 # forge's own leftovers (a merge copy, a staged file) are never kit content, even inside a kit.
@@ -2138,10 +2139,16 @@ def _lsp_plugin_module():
 
 def _kit_file_checks(kit: str, target_root: Path, add_check) -> None:
     """One check per file a kit installs, `ok` or `missing`. The list is the kit's own templates folder, so a file
-    the kit gains is checked without a second list."""
+    the kit gains is checked without a second list. A file in an agent's folder is checked only for the agents
+    the project was installed for (the record's, else the agent folders it has): a project installed for one
+    agent is not told the other agents' skills are missing."""
     templates = FORGE_ROOT / "kits" / kit / "templates"
-    for src in sorted(templates.rglob("*")):
+    record = load_record(target_root) if (target_root / RECORD).is_file() else None
+    agents = _diff_agents(target_root, (record or {}).get("kits", {}).get(kit))
+    for src in sorted(templates.rglob("*"), key=lambda path: path.relative_to(templates).as_posix()):
         rel = src.relative_to(templates).as_posix()
+        if not any(_rel_allowed_for_agent(rel, agent) for agent in agents):
+            continue
         if src.is_file() and "__pycache__" not in src.parts and not rel.endswith(FORGE_SUFFIXES):
             path = target_root / rel
             add_check(rel, "ok" if path.is_file() else "missing", path.as_posix())

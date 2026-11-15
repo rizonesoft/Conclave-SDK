@@ -125,7 +125,8 @@ def report_text(results, rows, failing, servers, verbose):
     print(f"\nlsp-diagnostics: {len(failing)} diagnostic(s) at or above threshold.")
 
 
-def main(argv=None, root=None):
+def build_parser():
+    """The script's argument parser: what `main` parses with, and what a documented command must fit."""
     parser = argparse.ArgumentParser(prog="lsp-diagnostics.py",
                                      description="Run the project's language servers over files; report diagnostics.")
     parser.add_argument("paths", nargs="*", help="files, read from the project root")
@@ -142,7 +143,11 @@ def main(argv=None, root=None):
                         help="seconds a server gets for the whole run (default: 240)")
     parser.add_argument("--json", action="store_true", help="print the report as one JSON document")
     parser.add_argument("--verbose", action="store_true", help="show the end of each server's standard error")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv=None, root=None):
+    args = build_parser().parse_args(argv)
     root = Path(root or ROOT).resolve()
     forms = [form for form in ("staged", "worktree", "commit") if getattr(args, form)]
     try:

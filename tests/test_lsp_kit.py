@@ -3,11 +3,13 @@
 The kit's own scripts are tested in the kit, under `kits/lsp/templates/scripts/tests/`.
 """
 import contextlib
+import importlib.util
 import io
 import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -445,9 +447,8 @@ class ClaudePluginTests(unittest.TestCase):
     def project(self, name="project", claude=True):
         folder = self.work / name
         folder.mkdir()
-        forge.apply_kit(folder, "lsp")
-        if claude:
-            (folder / ".claude").mkdir()   # a project that uses Claude Code
+        # Installed for Claude Code (its skill makes the .claude folder), or for Codex alone.
+        forge.apply_kit(folder, "lsp", agent="claude" if claude else "codex")
         return folder
 
     def tool(self, project, *argv):
@@ -795,6 +796,402 @@ class McpBridgeTests(unittest.TestCase):
                 self.assertIn("started", text, f"{agent} never started the bridge's server")
                 self.assertIn(f"document {uri}", text)
                 self.assertIn(marker, out, f"the diagnostic did not come back through {agent}: {out[-400:]}")
+
+
+# A language server for the document and fresh-install tests. Its behaviour is the word in MODE: `clean` publishes
+# what the text holds (a diagnostic for each line with `E:`), `refuse` answers initialize with an error, and `half`
+# never answers for a file named skip.py.
+DOC_STUB = r'''
+import json, sys
+
+MODE = "{mode}"
+
+
+def send(message):
+    body = json.dumps(message).encode("utf-8")
+    sys.stdout.buffer.write(b"Content-Length: %d\r\n\r\n" % len(body) + body)
+    sys.stdout.buffer.flush()
+
+
+while True:
+    length = None
+    while True:
+        line = sys.stdin.buffer.readline()
+        if not line:
+            sys.exit(0)
+        line = line.strip()
+        if not line:
+            break
+        if line.lower().startswith(b"content-length:"):
+            length = int(line.split(b":", 1)[1])
+    message = json.loads(sys.stdin.buffer.read(length))
+    method = message.get("method")
+    if method == "initialize":
+        if MODE == "refuse":
+            send({{"jsonrpc": "2.0", "id": message["id"], "error": {{"code": -32002, "message": "no workspace here"}}}})
+        else:
+            send({{"jsonrpc": "2.0", "id": message["id"], "result": {{"capabilities": {{}}}}}})
+    elif method == "textDocument/didOpen":
+        document = message["params"]["textDocument"]
+        if MODE == "half" and document["uri"].endswith("skip.py"):
+            continue
+        found = [{{"range": {{"start": {{"line": number, "character": 0}}, "end": {{"line": number, "character": 1}}}},
+                  "severity": 1, "message": line.split("E:", 1)[1].strip()}}
+                 for number, line in enumerate(document["text"].splitlines()) if "E:" in line]
+        send({{"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
+              "params": {{"uri": document["uri"], "diagnostics": found}}}})
+    elif method == "shutdown":
+        send({{"jsonrpc": "2.0", "id": message["id"], "result": None}})
+    elif method == "exit":
+        sys.exit(0)
+    elif "id" in message and method:
+        send({{"jsonrpc": "2.0", "id": message["id"], "result": None}})
+'''
+
+KIT = "kits/lsp/templates"
+SKILL = "skills/language-servers/SKILL.md"
+# What the skill must tell an agent, whichever agent reads it. Each is a statement of the policy, not a keyword.
+POLICY = ("Before calling a change done: check the files the change touched.",
+          "To find where a symbol is defined or used: ask a server",
+          "Run the servers on the files the change touched, not on the whole project",
+          "A diagnostic at or above a server's own threshold fails the check",
+          "A `FAILED` or `PARTIAL` server fails the check too",
+          "`SKIPPED` is not a pass.",
+          "Never edit a file only to silence a diagnostic")
+
+
+def kit_script(name, root=None):
+    """A script of the kit, loaded as a module (its own parser and all)."""
+    path = (root or forge.FORGE_ROOT) / KIT / "scripts" / name
+    spec = importlib.util.spec_from_file_location("_kit_" + name.replace("-", "_").replace(".py", ""), path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class InstalledProject(unittest.TestCase):
+    """A project with the kit installed, stub language servers, and the installed scripts run as programs."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.work = pathlib.Path(tmp.name).resolve()
+
+    def install(self, name="project", **options):
+        folder = self.work / name
+        folder.mkdir()
+        forge.apply_kit(folder, "lsp", **options)
+        return folder
+
+    def stub(self, mode):
+        """The command of a stub language server behaving as `mode` says."""
+        path = self.work / f"server-{mode}.py"
+        path.write_text(DOC_STUB.format(mode=mode), encoding="utf-8")
+        return [sys.executable, str(path)]
+
+    def servers(self, project, *entries):
+        """Write the project's table: (name, mode or None for a program that is not installed)."""
+        servers = [{"name": name, "command": self.stub(mode) if mode else [f"no-such-{name}-anywhere"],
+                    "extensions": {".py": "python"}, "install": f"install {name} by hand", "settle": 1}
+                   for name, mode in entries]
+        (project / TABLE).write_text(json.dumps({"schema_version": 1, "servers": servers}), encoding="utf-8")
+
+    def run_script(self, project, *argv, env=None):
+        ran = subprocess.run([sys.executable, "-B", *[str(arg) for arg in argv]], cwd=project, env=env,
+                             capture_output=True, text=True, timeout=300,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return ran.returncode, ran.stdout, ran.stderr
+
+    def git(self, project, *args):
+        env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        subprocess.run(["git", "-C", str(project), *args], check=True, capture_output=True, env=env,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
+class DocumentTests(InstalledProject):
+    """D04 T01 section 7: the installed document's commands and explanations, held to the scripts."""
+
+    DOCUMENT = SDK_ROOT / KIT / "docs/language-servers.md"
+    SCRIPTS = ("lsp-servers.py", "lsp-diagnostics.py", "lsp-mcp-bridge.py")
+
+    def commands(self, section=None):
+        """Every command line of the kit's scripts in the document (or in one of its sections), in its order:
+        (script, arguments)."""
+        text = self.DOCUMENT.read_text(encoding="utf-8")
+        if section:
+            text = text.split(f"## {section}" + chr(10), 1)[1].split(chr(10) + "## ", 1)[0]
+        found = []
+        for match in re.finditer(r"python3? scripts/(lsp-[a-z-]+\.py)([^`\n\"\]]*)", text):
+            script, rest = match.group(1), match.group(2).split("#", 1)[0]
+            found.append((script, shlex.split(rest)))
+        return found
+
+    def test_every_documented_command_fits_its_scripts_own_parser_whole(self):
+        commands = self.commands()
+        self.assertEqual({script for script, _arguments in commands}, set(self.SCRIPTS))
+        presets = forge._lsp_table_module().load_presets()["presets"]
+        for script, arguments in commands:
+            with self.subTest(command=f"{script} {' '.join(arguments)}"):
+                parser = kit_script(script).build_parser()
+                with contextlib.redirect_stderr(io.StringIO()) as errors:
+                    try:
+                        parsed = parser.parse_args(arguments)
+                    except SystemExit:
+                        self.fail(f"the document's command does not parse: {errors.getvalue().strip()}")
+                if script == "lsp-servers.py" and parsed.command == "add":
+                    self.assertIn(parsed.preset, presets)
+        # Each use the document promises has an example.
+        lines = {f"{script} {' '.join(arguments)}" for script, arguments in commands}
+        for promised in ("lsp-servers.py add python", "lsp-servers.py list", "lsp-servers.py remove basedpyright",
+                         "lsp-servers.py plugin", "lsp-diagnostics.py --all --staged",
+                         "lsp-diagnostics.py --all --worktree", "lsp-diagnostics.py --all --commit HEAD",
+                         "lsp-diagnostics.py --server basedpyright src/app.py",
+                         "lsp-diagnostics.py --all --staged --json"):
+            self.assertIn(promised, lines, "the document has no example of this")
+        text = self.DOCUMENT.read_text(encoding="utf-8")
+        for preset in presets:
+            self.assertIn(f"`{preset}`", text, f"the document does not name the preset {preset}")
+
+    def test_a_command_the_scripts_lack_does_not_parse(self):
+        # What the test above would do with a wrong document: an option that is not there, a missing argument.
+        for script, arguments in (("lsp-servers.py", ["add"]), ("lsp-servers.py", ["install", "python"]),
+                                  ("lsp-diagnostics.py", ["--all", "--changed"]),
+                                  ("lsp-diagnostics.py", ["--all", "--commit"]), ("lsp-mcp-bridge.py", ["--port", "1"])):
+            with self.subTest(command=f"{script} {' '.join(arguments)}"):
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    kit_script(script).build_parser().parse_args(arguments)
+
+    @unittest.skipUnless(shutil.which("git"), "needs git")
+    def test_the_documents_setup_sequence_and_its_recovery_work_in_an_installed_project(self):
+        project = self.install()
+        setup = [arguments for script, arguments in self.commands("Setting up") if script == "lsp-servers.py"]
+        # The document's order: add a preset, list, remove a server, then generate the plugin (and its recovery).
+        self.assertEqual([arguments[0] for arguments in setup[:4]], ["add", "list", "remove", "plugin"])
+        for arguments in setup[:4]:
+            code, out, err = self.run_script(project, "scripts/lsp-servers.py", *arguments)
+            self.assertEqual(code, 0, f"lsp-servers.py {' '.join(arguments)}: {err}")
+        plugin = forge._lsp_plugin_module()
+        self.assertTrue((project / plugin.FOLDER / plugin.SERVERS).is_file())
+        checks = {check["name"]: check["status"] for check in forge.doctor_repo(project, "lsp")["checks"]}
+        self.assertEqual(checks["claude-plugin"], "ok")
+        # The table edited by hand: the plugin is behind it until the documented command is run again.
+        self.servers(project, ("basedpyright", "clean"))
+        checks = {check["name"]: check["status"] for check in forge.doctor_repo(project, "lsp")["checks"]}
+        self.assertEqual(checks["claude-plugin"], "unexpected")
+        text = self.DOCUMENT.read_text(encoding="utf-8")
+        self.assertIn("the plugin is behind it (the doctor's `claude-plugin` check says `unexpected`): run "
+                      "`python scripts/lsp-servers.py plugin` again", text)
+        self.assertEqual(self.run_script(project, "scripts/lsp-servers.py", "plugin")[0], 0)
+        checks = {check["name"]: check["status"] for check in forge.doctor_repo(project, "lsp")["checks"]}
+        self.assertEqual(checks["claude-plugin"], "ok")
+        for word in ("claude --plugin-dir .claude/lsp/conclave-lsp", "`CLAUDE_CODE_PLUGIN_DIRS`",
+                     "Nothing here installs one"):
+            self.assertIn(word, text)
+        # The diagnostics commands, each as the document writes it, against a server that runs.
+        (project / "src").mkdir()
+        (project / "src/app.py").write_text("x = 1\n", encoding="utf-8")
+        for args in (["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "T"],
+                     ["add", "-A"], ["commit", "-qm", "first"]):
+            self.git(project, *args)
+        (project / "src/app.py").write_text("x = 2\n", encoding="utf-8")
+        self.git(project, "add", "src/app.py")
+        checking = [arguments for script, arguments in self.commands("Checking a change")
+                    if script == "lsp-diagnostics.py" and arguments]
+        self.assertGreaterEqual(len(checking), 5)
+        for arguments in checking:
+            code, out, err = self.run_script(project, "scripts/lsp-diagnostics.py", *arguments, "--settle", "0.2")
+            # It ran as a check: clean, or with the diagnostics of the files it was given (a commit holds the
+            # kit's own files too). Never a refusal (2) or a run in which nothing could check (3).
+            self.assertIn(code, (0, 1), f"lsp-diagnostics.py {' '.join(arguments)}: {err}")
+
+    def test_the_documents_table_of_outcomes_is_what_the_client_does(self):
+        text = self.DOCUMENT.read_text(encoding="utf-8")
+        rows = re.findall(r"^\| ([^|]+) \| ([^|]+) \| (\d) \|$", text, flags=re.MULTILINE)
+        self.assertEqual(len(rows), 7, "the document's table of outcomes has seven runs")
+        project = self.install()
+        (project / "a.py").write_text("x = 1\n", encoding="utf-8")
+        (project / "bad.py").write_text("E: undefined name\n", encoding="utf-8")
+        (project / "skip.py").write_text("x = 1\n", encoding="utf-8")
+        # Each run of the table, in its order: (the table's servers, the arguments, the word the row names).
+        runs = [([("good", "clean")], ["--all", "a.py"], None),
+                ([("good", "clean")], ["--all", "bad.py"], None),
+                ([("absent", None), ("good", "clean")], ["--all", "a.py"], "SKIPPED"),
+                ([("absent", None)], ["--all", "a.py"], "SKIPPED"),
+                ([("broken", "refuse"), ("good", "clean")], ["--all", "a.py"], "FAILED"),
+                ([("half", "half")], ["--all", "a.py", "skip.py"], "PARTIAL"),
+                ([("good", "clean")], ["--server", "unknown", "a.py"], None)]
+        for (label, printed, code), (entries, arguments, word) in zip(rows, runs):
+            with self.subTest(run=label.strip()):
+                self.servers(project, *entries)
+                got, out, err = self.run_script(project, "scripts/lsp-diagnostics.py", *arguments, "--settle", "0.2",
+                                                "--timeout", "4")
+                self.assertEqual(got, int(code), f"the document says exit {code} for: {label.strip()}\n{out}{err}")
+                if word:
+                    self.assertIn(f"`{word}`", printed, f"the row does not name what the client prints: {word}")
+                    self.assertIn(f"{word} -- ", err)
+                for other in {"SKIPPED", "FAILED", "PARTIAL"} - {word}:
+                    self.assertNotIn(f"{other} -- ", err, f"the client printed {other} in a run the row does not say")
+        for word in ("SKIPPED", "FAILED", "PARTIAL"):
+            self.assertRegex(text, rf"`{word}` means ")
+
+
+class SkillTests(InstalledProject):
+    """D04 T01 section 7: the skill in the three agent folders, and the doctor's file checks by agent."""
+
+    FOLDERS = {".claude": "Claude Code", ".agents": "Antigravity", ".codex": "Codex"}
+
+    def test_the_policy_is_stated_in_each_installed_copy(self):
+        project = self.install()
+        for folder, agent in self.FOLDERS.items():
+            with self.subTest(agent=agent):
+                text = (project / folder / SKILL).read_text(encoding="utf-8")
+                front = text.split("---\n")[1]
+                self.assertIn("name: language-servers\n", front)
+                description = next(line for line in front.splitlines() if line.startswith("description: "))
+                self.assertIn("before calling a code change done", description)
+                self.assertIn("the definition or the uses of a symbol", description)
+                for statement in POLICY:
+                    self.assertIn(statement, text, f"{agent}'s skill does not say: {statement}")
+                for named in ("scripts/lsp-diagnostics.py", "docs/language-servers.md", TABLE, "--worktree",
+                              "--staged", "--commit"):
+                    self.assertIn(named, text)
+                self.assertLess(len(text.splitlines()), 60)
+
+    def test_each_copy_names_how_its_own_agent_reaches_the_servers(self):
+        project = self.install()
+        texts = {folder: (project / folder / SKILL).read_text(encoding="utf-8") for folder in self.FOLDERS}
+        self.assertIn("claude --plugin-dir .claude/lsp/conclave-lsp", texts[".claude"])
+        self.assertNotIn("lsp-mcp-bridge.py", texts[".claude"])
+        for folder, register in ((".agents", "agy mcp add conclave-lsp python scripts/lsp-mcp-bridge.py"),
+                                 (".codex", "codex mcp add conclave-lsp -- python scripts/lsp-mcp-bridge.py")):
+            self.assertIn(register, texts[folder])
+            self.assertNotIn("--plugin-dir", texts[folder], f"{folder} names the Claude Code plugin as its own")
+            for tool in ("`diagnostics`", "`definition`", "`references`", "`hover`"):
+                self.assertIn(tool, texts[folder])
+        # The copies differ from the Claude file only in that paragraph.
+        claude = texts[".claude"].splitlines()
+        for folder in (".agents", ".codex"):
+            differing = [number for number, (one, other) in enumerate(zip(claude, texts[folder].splitlines()))
+                         if one != other]
+            self.assertEqual(len(differing), 1, f"{folder} differs from the Claude file in more than its paragraph")
+        self.assertTrue((project / ".codex/skills/language-servers/agents/openai.yaml").is_file())
+        self.assertEqual([path.as_posix() for folder in (".claude", ".agents")
+                          for path in (project / folder).rglob("openai.yaml")], [])
+        self.assertEqual(forge.skill_copy_report(check=True), {"changed": [], "stray": []})
+
+    def test_the_doctor_checks_the_skills_of_the_agents_the_project_was_installed_for(self):
+        skills = {folder: f"{folder}/{SKILL}" for folder in self.FOLDERS}
+        project = self.install()
+        checks = {check["name"]: check["status"] for check in forge.doctor_repo(project, "lsp")["checks"]}
+        for rel in skills.values():
+            self.assertEqual(checks[rel], "ok")
+        self.assertEqual(checks[".codex/skills/language-servers/agents/openai.yaml"], "ok")
+        (project / skills[".agents"]).unlink()
+        checks = {check["name"]: check["status"] for check in forge.doctor_repo(project, "lsp")["checks"]}
+        self.assertEqual(checks[skills[".agents"]], "missing")
+        # Installed for one agent: that agent's skill, and nothing said of the others.
+        single = self.install("claude-only", agent="claude")
+        report = forge.doctor_repo(single, "lsp")
+        checks = {check["name"]: check["status"] for check in report["checks"]}
+        self.assertEqual(checks[skills[".claude"]], "ok")
+        for folder in (".agents", ".codex"):
+            self.assertFalse(any(name.startswith(folder + "/") for name in checks), f"{folder} is listed")
+        self.assertEqual([name for name, status in checks.items() if status == "missing"], [])
+        self.assertIn("scripts/lsp-diagnostics.py", checks)   # what is not an agent's is checked for every install
+
+    def test_the_readme_says_what_each_agent_gets(self):
+        readme = (SDK_ROOT / "kits/lsp/README.md").read_text(encoding="utf-8")
+        for agent, folder in (("Claude Code", ".claude"), ("Codex", ".codex"), ("Antigravity", ".agents")):
+            row = next((line for line in readme.splitlines() if line.startswith(f"| {agent} |")), None)
+            self.assertIsNotNone(row, f"the README has no row for {agent}")
+            self.assertIn(f"`{folder}/skills/language-servers`", row)
+            self.assertIn("lsp-diagnostics.py", row)
+        self.assertNotIn("Still to come", readme)
+        self.assertNotIn("being built in sections", readme)
+
+
+class FreshInstallTests(InstalledProject):
+    """D04 T01 section 7: a new project, from `init` to a diagnostic read back, with the kit as it is in the SDK."""
+
+    def setUp(self):
+        super().setUp()
+        self.bin = self.work / "bin"
+        self.bin.mkdir()
+        stub = self.stub("clean")
+        if os.name == "nt":
+            (self.bin / "basedpyright-langserver.cmd").write_text(f'@"{stub[0]}" "{stub[1]}" %*\r\n', encoding="utf-8")
+        else:
+            launcher = self.bin / "basedpyright-langserver"
+            launcher.write_text(f'#!/bin/sh\nexec "{stub[0]}" "{stub[1]}" "$@"\n', encoding="utf-8")
+            launcher.chmod(0o755)
+        self.env = dict(os.environ, PATH=str(self.bin) + os.pathsep + os.environ["PATH"])
+
+    def test_a_new_project_has_the_servers_from_init_to_a_diagnostic(self):
+        project = self.work / "new"
+        project.mkdir()
+        code, out, err = command_line("init", project, "--kit", "lsp")
+        self.assertEqual(code, 0, err)
+        code, out, err = self.run_script(project, "scripts/lsp-servers.py", "add", "python", env=self.env)
+        self.assertEqual((code, out), (0, "added: basedpyright\n"), err)
+        with unittest.mock.patch.dict(os.environ, {"PATH": self.env["PATH"]}):
+            report = forge.doctor_repo(project, "lsp")
+        checks = {check["name"]: check for check in report["checks"]}
+        for rel in kit_files(forge.FORGE_ROOT):
+            self.assertEqual(checks[rel]["status"], "ok", f"{rel} is not installed")
+        # What a project must have, written here and not read from the kit: a file gone from the kit is missed.
+        for rel in (TABLE, "docs/language-servers.md", "scripts/lsp-servers.py", "scripts/lsp-diagnostics.py",
+                    "scripts/lsp-mcp-bridge.py", "scripts/lib/lsp_table.py", "scripts/lib/lsp_client.py",
+                    "scripts/lib/lsp_plugin.py", "scripts/lib/lsp_presets.json",
+                    *[f"{folder}/{SKILL}" for folder in (".claude", ".agents", ".codex")],
+                    ".codex/skills/language-servers/agents/openai.yaml"):
+            self.assertTrue((project / rel).is_file(), f"a new project has no {rel}")
+        self.assertEqual(checks["server:basedpyright"]["status"], "ok")
+        self.assertEqual(checks["server-table"]["detail"], f"{TABLE}: basedpyright")
+        (project / "app.py").write_text("x = 1\nE: undefined name\n", encoding="utf-8")
+        code, out, err = self.run_script(project, "scripts/lsp-diagnostics.py", "--all", "app.py", "--settle", "0.2",
+                                         "--json", env=self.env)
+        self.assertEqual(code, 1, err)
+        document = json.loads(out)
+        self.assertEqual(document["servers"]["basedpyright"]["status"], "ok")
+        self.assertEqual([(row["file"], row["line"], row["message"]) for row in document["diagnostics"]],
+                         [("app.py", 2, "undefined name")])
+        # The plugin and the bridge of the installed copy start as well.
+        self.assertEqual(self.run_script(project, "scripts/lsp-servers.py", "plugin", env=self.env)[0], 0)
+        ran = subprocess.run([sys.executable, "-B", "scripts/lsp-mcp-bridge.py"], cwd=project, env=self.env,
+                             input='{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}\n', capture_output=True,
+                             text=True, timeout=120, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+
+    @unittest.skipUnless(os.environ.get("CONCLAVE_FULL_TESTS"), "slow: set CONCLAVE_FULL_TESTS=1 for the full suite")
+    def test_the_kits_own_tests_pass_from_the_installed_copy(self):
+        project = self.work / "new"
+        project.mkdir()
+        self.assertEqual(command_line("init", project, "--kit", "lsp")[0], 0)
+        ran = subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "-s", "scripts/tests", "-p",
+                              "test_lsp_*.py"], cwd=project, capture_output=True, text=True, timeout=1500,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.assertEqual(ran.returncode, 0, ran.stderr[-2000:])
+
+    def test_the_fresh_install_test_fails_when_a_template_file_is_gone_from_the_kit(self):
+        scratch = self.work / "sdk"
+        shutil.copytree(SDK_ROOT / "kits", scratch / "kits", ignore=shutil.ignore_patterns("__pycache__"))
+        name = "test_a_new_project_has_the_servers_from_init_to_a_diagnostic"
+        with unittest.mock.patch.object(forge, "FORGE_ROOT", scratch):
+            control = unittest.TestResult()
+            FreshInstallTests(name).run(control)
+            self.assertTrue(control.wasSuccessful(), control.failures + control.errors)
+            for rel in ("scripts/lib/lsp_client.py", "docs/language-servers.md", ".claude/" + SKILL):
+                with self.subTest(removed=rel):
+                    template = scratch / KIT / rel
+                    held = scratch / "held"
+                    shutil.move(template, held)
+                    try:
+                        removed = unittest.TestResult()
+                        FreshInstallTests(name).run(removed)
+                    finally:
+                        shutil.move(held, template)
+                    self.assertEqual(removed.testsRun, 1)
+                    self.assertFalse(removed.wasSuccessful(), f"the fresh install passed with {rel} gone from the kit")
 
 
 if __name__ == "__main__":

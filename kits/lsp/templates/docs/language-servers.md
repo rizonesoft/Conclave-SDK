@@ -6,6 +6,55 @@ The project's language servers are listed in one table, `.conclave/lsp.json` (`p
 - `python scripts/lsp-servers.py plugin` generates a Claude Code plugin, so Claude Code runs the servers while it edits.
 - `scripts/lsp-mcp-bridge.py` is an MCP server that gives any agent the servers, read-only. Codex and Antigravity have no language server plugin, so this is how they reach them.
 
+## Setting up
+
+1. Add the servers of the project's stack to the table. A preset is a stack's servers (`cpp`, `python`, `php`, `web`, `laravel`); `list` shows the table and the presets, and `remove` takes one server out.
+
+```text
+python scripts/lsp-servers.py add python
+python scripts/lsp-servers.py list
+python scripts/lsp-servers.py remove basedpyright
+```
+
+2. Install the servers. Nothing here installs one: each entry of the table carries the line that installs its server, `list` shows the table, and `python forge.py doctor <project> lsp` (run from the SDK) says which are missing. A server that is not installed is reported as `SKIPPED`, never as a pass.
+
+3. For Claude Code, generate the plugin and load it. The plugin is generated from the table; `claude --plugin-dir` loads it for a session, and the `CLAUDE_CODE_PLUGIN_DIRS` environment variable does the same where the command line cannot be changed.
+
+```text
+python scripts/lsp-servers.py plugin
+claude --plugin-dir .claude/lsp/conclave-lsp
+```
+
+Once the plugin exists, `add` and `remove` keep it in step with the table. After the table was edited by hand, the plugin is behind it (the doctor's `claude-plugin` check says `unexpected`): run `python scripts/lsp-servers.py plugin` again.
+
+4. For Codex and Antigravity, register the bridge (below).
+
+## Checking a change
+
+Run the servers on the files a change touched. Give one input: the staged files, the changed files, a commit's files, or paths.
+
+```text
+python scripts/lsp-diagnostics.py --all --staged
+python scripts/lsp-diagnostics.py --all --worktree
+python scripts/lsp-diagnostics.py --all --commit HEAD
+python scripts/lsp-diagnostics.py --server basedpyright src/app.py
+python scripts/lsp-diagnostics.py --all --staged --json
+```
+
+A file goes only to the servers that serve it. Each server ends with one outcome, and the exit code follows from them. A check that did not finish is never a pass.
+
+| Run | The client prints | Exit |
+| --- | --- | --- |
+| Every server finished, no diagnostic at or above its threshold | the diagnostics, if any | 0 |
+| A diagnostic at or above a server's threshold | the diagnostic | 1 |
+| One server not installed, another finished clean | `SKIPPED` for the one | 0 |
+| No requested server installed | `SKIPPED` for each | 3 |
+| A server could not finish, another finished clean | `FAILED` with the reason | 1 |
+| A server answered only some of its files | `PARTIAL` naming the files | 1 |
+| Bad usage, an unknown server, a table that does not load | one line saying which | 2 |
+
+`SKIPPED` means the server is not installed, or a file it requires is absent: nothing was checked by it. `FAILED` means it could not be run to the end (it would not start, refused, ended early or was stopped at a limit). `PARTIAL` means it ran and left some file unanswered or unread. Each server has its own threshold in the table (`severity`); `--severity` sets one for the run.
+
 ## The MCP bridge
 
 The bridge offers four tools, each read-only. `file` is a path from the project root; `line` and `column` count from 1, a column in characters, in what is asked and in what is answered, so a place the bridge returns can be given back to it.

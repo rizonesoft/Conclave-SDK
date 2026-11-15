@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "replace": [
+    {
+      "find": "Claude Code runs the same servers live through the generated plugin (`python scripts/lsp-servers.py plugin`, loaded with `claude --plugin-dir .claude/lsp/conclave-lsp`), so diagnostics arrive after each edit and a symbol can be looked up directly. This does not replace the check above, which runs every server of the table and has an exit code.",
+      "with": "Codex reaches the same servers through the MCP bridge (`scripts/lsp-mcp-bridge.py`, registered once with `codex mcp add conclave-lsp -- python scripts/lsp-mcp-bridge.py`). Its tools are read-only: `diagnostics` for one file, and `definition`, `references` and `hover` for a place in a file (`file`, `line`, `column`, counted from 1). Use them while you work. This does not replace the check above, which runs every server of the table and has an exit code."
+    }
+  ]
+}

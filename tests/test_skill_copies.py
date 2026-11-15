@@ -318,8 +318,8 @@ class RepositoryCopiesTests(unittest.TestCase):
         # A copy can only differ from its Claude file through a patch, so these are all the declared differences.
         patches = sorted(path.relative_to(SDK_ROOT).as_posix()
                          for path in SDK_ROOT.glob("kits/**/skill-patches/**/*.json"))
-        self.assertEqual({path.split("/")[1] for path in patches}, {"reviewer", "todo", "unattended"})
-        self.assertEqual(len(patches), 19)
+        self.assertEqual({path.split("/")[1] for path in patches}, {"lsp", "reviewer", "todo", "unattended"})
+        self.assertEqual(len(patches), 21)
         for rel in patches:
             self.assertTrue(forge.load_skill_patch(SDK_ROOT / rel)["replace"], f"{rel} declares no difference")
 

@@ -2,7 +2,7 @@
 
 Additive overlay that gives a project's three agents (Antigravity, Claude Code and Codex) the stack's language servers. One table, `.conclave/lsp.json`, names the servers; everything else in the kit reads it.
 
-The kit is being built in sections (`todo/04-tooling/TODO-01-lsp-kit.md`). What it installs today:
+What it installs:
 
 | File | What it is |
 | --- | --- |
@@ -19,10 +19,22 @@ The kit is being built in sections (`todo/04-tooling/TODO-01-lsp-kit.md`). What 
 | `scripts/tests/test_lsp_diagnostics.py` | The kit's own tests of the client, against a stub language server |
 | `scripts/tests/test_lsp_plugin.py` | The kit's own tests of the generated plugin |
 | `scripts/tests/test_lsp_mcp_bridge.py` | The kit's own tests of the bridge, spoken to in MCP |
+| `.claude/skills/language-servers/SKILL.md` | The skill for Claude Code: when to ask the servers and how |
+| `.agents/skills/language-servers/SKILL.md` | The same skill for Antigravity, naming the bridge |
+| `.codex/skills/language-servers/SKILL.md` | The same skill for Codex, naming the bridge |
+| `.codex/skills/language-servers/agents/openai.yaml` | Codex's interface entry for the skill |
 
 The table is the project's own file from the first install: `forge.py` never overwrites it, and a project that already has one keeps it byte for byte.
 
-Still to come: the `language-servers` skill for the three agents (§7).
+What each agent gets:
+
+| Agent | How it reaches the servers | Skill | Gate |
+| --- | --- | --- | --- |
+| Claude Code | The generated plugin, live; else the bridge | `.claude/skills/language-servers` | `lsp-diagnostics.py` |
+| Codex | The MCP bridge's four read-only tools | `.codex/skills/language-servers` | `lsp-diagnostics.py` |
+| Antigravity | The MCP bridge's four read-only tools | `.agents/skills/language-servers` | `lsp-diagnostics.py` |
+
+The skill is one text: the Claude file is its source and `python forge.py skill-copies` generates the other two from it and the differences declared in `kits/lsp/skill-patches/` (how that agent reaches the servers). It tells an agent to check the files a change touched before calling it done, to treat a diagnostic at or above a server's threshold and a `FAILED` or `PARTIAL` server as a failed check, never to read `SKIPPED` as a pass, and never to edit a file only to silence a diagnostic. An install for one agent (`--agent claude`) gets that agent's skill, and the doctor checks only that one.
 
 ## Install
 

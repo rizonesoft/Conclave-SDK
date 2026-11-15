@@ -577,14 +577,19 @@ def input_lines(descriptor, held=None):
         yield pending
 
 
-def main(argv=None):
+def build_parser():
+    """The script's argument parser: what `main` parses with, and what a documented command must fit."""
     parser = argparse.ArgumentParser(prog="lsp-mcp-bridge.py",
                                      description="An MCP server giving read-only access to the project's language "
                                                  "servers.")
     parser.add_argument("--root", help="the project (default: the folder above scripts/)")
     parser.add_argument("--timeout", type=float, default=TIMEOUT,
                         help=f"seconds one call may wait on a server (default: {TIMEOUT:g})")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
     stop = threading.Event()
     for name in ("SIGTERM", "SIGINT", "SIGBREAK"):
         if hasattr(signal, name):

@@ -113,7 +113,8 @@ def command_remove(root, name):
     return 0
 
 
-def main(argv=None, root=None):
+def build_parser():
+    """The script's argument parser: what `main` parses with, and what a documented command must fit."""
     parser = argparse.ArgumentParser(description="List and change the project's language server table.")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("list", help="print the table's servers and the presets on offer")
@@ -123,7 +124,11 @@ def main(argv=None, root=None):
     remove = commands.add_parser("remove", help="delete one server from the table")
     remove.add_argument("name")
     commands.add_parser("plugin", help="write the Claude Code plugin for the table's servers")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv=None, root=None):
+    args = build_parser().parse_args(argv)
     root = Path(root or ROOT)
     try:
         if args.command == "list":
