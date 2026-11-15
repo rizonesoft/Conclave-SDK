@@ -84,6 +84,26 @@ def alive(pid):
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
+    # Signal 0 also succeeds for a process that has died but is not yet reaped (a zombie), which a grandchild whose
+    # parent exited stays until init reaps it: on Linux its state is read, and a zombie has ended (CI went red on
+    # 2026-11-15 when a killed grandchild still read as running).
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return not sys.platform.startswith("linux")   # gone between the two looks on Linux; no /proc elsewhere
+    except OSError:
+        return True
+    return stat.rsplit(")", 1)[1].split()[0] != "Z"
+
+
+def ended_within(pid, seconds=10.0):
+    """Whether a process ends within `seconds`: a SIGKILL is delivered, not waited for, so the kill lands a moment
+    after the call that sends it returns."""
+    deadline = time.monotonic() + seconds
+    while alive(pid):
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.05)
     return True
 
 
@@ -355,7 +375,23 @@ class Trust(Project):
             trust_tool.trust(self.root)
         child = int((path.parent / (path.name + ".child")).read_text())
         self.addCleanup(end, child)
-        self.assertFalse(alive(child), f"the server's grandchild {child} outlived close()")
+        self.assertTrue(ended_within(child), f"the server's grandchild {child} outlived close()")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "zombies are read from /proc on Linux")
+    def test_a_dead_process_not_yet_reaped_is_not_alive(self):
+        # A zombie: a child that has exited and that its parent (this test) has not waited for yet.
+        proc = subprocess.Popen([sys.executable, "-c", "pass"])
+        self.addCleanup(proc.wait)
+        deadline = time.monotonic() + 10
+        while Path(f"/proc/{proc.pid}/stat").read_text(encoding="utf-8").rsplit(")", 1)[1].split()[0] != "Z":
+            self.assertLess(time.monotonic(), deadline, "the child never exited")
+            time.sleep(0.02)
+        os.kill(proc.pid, 0)   # signal 0 still finds it
+        self.assertFalse(alive(proc.pid))
+        sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        self.addCleanup(lambda: (sleeper.kill(), sleeper.wait()))
+        self.assertTrue(alive(sleeper.pid))
+        self.assertFalse(ended_within(sleeper.pid, 0.3))
 
     @unittest.skipUnless(os.name == "nt", "the job object and the suspended start are Windows-only")
     def test_a_launcher_cannot_run_before_it_is_in_the_job(self):
