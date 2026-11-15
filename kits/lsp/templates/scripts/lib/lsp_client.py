@@ -17,6 +17,7 @@ the server's memory and nothing is written to the project. Standard library only
 """
 import json
 import os
+import queue
 import shutil
 import signal
 import subprocess
@@ -181,7 +182,9 @@ class Client:
         self.stderr = b""
         self._read = 0
         self._id = 0
-        self._lock = threading.Lock()
+        self._outbox = queue.Queue()
+        self._unsent = 0          # messages queued and not yet written: a server that stopped reading keeps it above 0
+        self._writer = None
         self._count = threading.Lock()
         self._alive = True
         self._job = None
@@ -207,8 +210,10 @@ class Client:
                     raise ClientError("could not be resumed inside its job object, so it was not run")
             self._reader = threading.Thread(target=self._read_loop, daemon=True)
             self._errors = threading.Thread(target=self._stderr_loop, daemon=True)
+            self._writer = threading.Thread(target=self._write_loop, daemon=True)
             self._reader.start()
             self._errors.start()
+            self._writer.start()
         except BaseException:
             self.close()
             raise
@@ -236,12 +241,25 @@ class Client:
     def _send(self, payload):
         body = json.dumps(payload).encode("utf-8")
         header = f"Content-Length: {len(body)}\r\n\r\n".encode("ascii")
-        with self._lock:
+        # Queued, never written here: a server that has stopped reading would block the write for ever, past
+        # every time limit. The caller's deadline runs from now, and ending the server's tree frees the writer.
+        with self._count:
+            self._unsent += 1
+        self._outbox.put(header + body)
+
+    def _write_loop(self):
+        while True:
+            data = self._outbox.get()
+            if data is None:
+                return
             try:
-                self.proc.stdin.write(header + body)
+                self.proc.stdin.write(data)
                 self.proc.stdin.flush()
             except (OSError, ValueError):
                 self._alive = False
+                return
+            with self._count:
+                self._unsent -= 1
 
     def _read_loop(self):
         stream = self.proc.stdout
@@ -278,6 +296,8 @@ class Client:
                     continue
                 if isinstance(message, dict):
                     self._dispatch(message)
+                    if self.failure:
+                        return
         except (OSError, ValueError):
             return
         finally:
@@ -300,15 +320,23 @@ class Client:
     def _dispatch(self, message):
         method = message.get("method")
         if method == "textDocument/publishDiagnostics":
-            params = message.get("params") or {}
-            self.diagnostics[params.get("uri") or ""] = params.get("diagnostics") or []
+            params = message.get("params")
+            uri = params.get("uri") if isinstance(params, dict) else None
+            found = params.get("diagnostics", []) if isinstance(params, dict) else None
+            if not isinstance(uri, str) or not isinstance(found, list):
+                self.failure = self.failure or "sent a publishDiagnostics message that is not valid"
+                return
+            self.diagnostics[uri] = found
             return
         # A request from the server must be answered or the server may wait for ever. For
         # workspace/configuration the answer matters: Tailwind registers no linting without a settings object.
         if method and "id" in message:
             result = None
             if method == "workspace/configuration":
-                items = (message.get("params") or {}).get("items") or [{}]
+                params = message.get("params")
+                items = params.get("items") if isinstance(params, dict) else None
+                if not isinstance(items, list) or not items:
+                    items = [{}]
                 result = [self._config_for(item.get("section") if isinstance(item, dict) else None)
                           for item in items]
             self._send({"jsonrpc": "2.0", "id": message["id"], "result": result})
@@ -318,7 +346,7 @@ class Client:
 
     def _config_for(self, section):
         node = self.settings or {}
-        if not section:
+        if not isinstance(section, str) or not section:
             return node
         for part in section.split("."):
             if isinstance(node, dict) and part in node:
@@ -393,11 +421,16 @@ class Client:
             return
         self._closed = True
         try:
-            if self._alive and self.proc.poll() is None:
+            # Asked only when it is still reading what it is sent.
+            if self._alive and self.proc.poll() is None and self._unsent == 0:
                 self.request("shutdown", None, timeout=3.0)
                 self.notify("exit", None)
         finally:
             _end_tree(self.proc, self._job)
+            # The tree is gone, so a write that was blocked has failed and the writer can be told to stop.
+            self._outbox.put(None)
+            if self._writer is not None and self._writer.is_alive():
+                self._writer.join(timeout=10)
             for stream in (self.proc.stdin, self.proc.stdout, self.proc.stderr):
                 try:
                     stream.close()
@@ -416,15 +449,17 @@ def run_server(entry, project, paths, timeout=240.0, settle=None, read_limit=REA
                message_limit=MESSAGE_LIMIT):
     """Run one server of the table over `paths` and return its result (see the module's opening)."""
     project = Path(project).resolve()
+    # Its files first: a server with nothing to check is idle whether or not it is installed, so an input that
+    # holds none of its files is never reported as a server that could not run.
+    mine = [(Path(path), language) for path in paths for language in [serves(entry, project, path)] if language]
+    if not mine:
+        return _result(entry, "idle")
     program = lsp_table.find_program(project, entry)
     if program is None:
         return _result(entry, "missing", f"not installed. Install: {entry['install']}")
     if entry["requires"] and not (project / entry["root"] / entry["requires"]).is_file():
         where = entry["requires"] if entry["root"] == "." else f"{entry['root']}/{entry['requires']}"
         return _result(entry, "skipped", f"requires {where}")
-    mine = [(Path(path), language) for path in paths for language in [serves(entry, project, path)] if language]
-    if not mine:
-        return _result(entry, "idle")
     settle = entry["settle"] if settle is None else settle
     scratch = None
     init, client = entry["init"], None
@@ -467,17 +502,20 @@ def run_server(entry, project, paths, timeout=240.0, settle=None, read_limit=REA
             client.close()
         if scratch is not None:
             shutil.rmtree(scratch, ignore_errors=True)
-    rows = []
+    rows, invalid = [], []
     for uri, diagnostics in collected.items():
+        file = _relative(uris[uri], project)
         for item in diagnostics:
-            start = (item.get("range") or {}).get("start") or {}
-            rows.append({"server": entry["name"], "file": _relative(uris[uri], project),
-                         "line": start.get("line", 0) + 1, "column": start.get("character", 0) + 1,
-                         "severity": SEVERITY.get(item.get("severity") or 1, "error"),
-                         "code": str(item.get("code") or ""),
-                         "message": str(item.get("message") or "").replace("\n", " ").strip()})
+            try:
+                rows.append(_row(entry["name"], file, item))
+            except ValueError:
+                if file not in invalid:
+                    invalid.append(file)
     if failure:
         return _result(entry, "failed", failure, len(mine), rows, unanswered, unread, stderr)
+    if invalid:
+        return _result(entry, "failed", f"published a diagnostic that is not valid for {', '.join(invalid)}",
+                       len(mine), rows, unanswered, unread, stderr)
     if ended_early and unanswered:
         return _result(entry, "failed", f"ended before answering {len(unanswered)} of {len(uris)} file(s)",
                        len(mine), rows, unanswered, unread, stderr)
@@ -489,6 +527,29 @@ def run_server(entry, project, paths, timeout=240.0, settle=None, read_limit=REA
             parts.append(f"{len(unread)} file(s) could not be read: {', '.join(unread)}")
         return _result(entry, "partial", "; ".join(parts), len(mine), rows, unanswered, unread, stderr)
     return _result(entry, "ok", None, len(mine), rows, stderr=stderr)
+
+
+def _row(server, file, item):
+    """One diagnostic as a row of the report. Raises ValueError for one that is not a diagnostic: it was sent by a
+    program outside this one, so its shape is checked, never assumed."""
+    if not isinstance(item, dict):
+        raise ValueError("not an object")
+    span = item.get("range", {})
+    start = span.get("start", {}) if isinstance(span, dict) else None
+    if not isinstance(start, dict):
+        raise ValueError("no start position")
+    line, column = start.get("line", 0), start.get("character", 0)
+    severity = item.get("severity")
+    severity = 1 if severity is None else severity
+    for number in (line, column, severity):
+        if not isinstance(number, int) or isinstance(number, bool) or number < 0:
+            raise ValueError("not a number")
+    if severity not in SEVERITY:
+        raise ValueError("unknown severity")
+    code = item.get("code")
+    return {"server": server, "file": file, "line": line + 1, "column": column + 1,
+            "severity": SEVERITY[severity], "code": "" if code is None else str(code),
+            "message": str(item.get("message") or "").replace("\n", " ").strip()}
 
 
 def _relative(path, project):

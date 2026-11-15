@@ -126,11 +126,16 @@ while True:
                   "params": {"items": [{"section": section}]}})
         if config.get("after_init") == "exit":
             sys.exit(0)
+        if config.get("stop_reading"):
+            time.sleep(120)
     elif method == "textDocument/didOpen":
         document = message["params"]["textDocument"]
         if document["uri"].rsplit("/", 1)[-1] in config.get("skip", []):
             continue
-        found = diagnostics(document["text"])
+        if "raw_params" in config:
+            send({"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": config["raw_params"]})
+            continue
+        found = config["raw"] if "raw" in config else diagnostics(document["text"])
         publish(document["uri"], found)
         late = config.get("late")
         if late:
@@ -322,6 +327,38 @@ class SixResultsTests(Fixture):
         result = self.run_server(entry, self.file("notes.txt"))
         self.assertEqual((result["status"], result["files"]), ("idle", 0))
         self.assertEqual(self.log(), [])
+        # Also for a server that could not run: with nothing to check, that it is absent is not a failure.
+        missing = dict(self.server("absent"), command=["no-such-language-server-anywhere"])
+        needy = self.server("needy", requires="artisan")
+        for unable in (missing, needy):
+            self.assertEqual(self.run_server(unable, self.project / "notes.txt")["status"], "idle")
+            self.assertEqual(self.run_server(unable)["status"], "idle")
+
+    def test_a_diagnostic_that_is_not_one_makes_the_server_failed_and_never_crashes_the_run(self):
+        path = self.file("a.py")
+        start = {"line": 0, "character": 0}
+        cases = {"null": [None], "text": ["wrong"], "range": [{"range": "nowhere", "message": "m"}],
+                 "line": [{"range": {"start": {"line": "3", "character": 0}}, "message": "m"}],
+                 "negative": [{"range": {"start": {"line": -1, "character": 0}}, "message": "m"}],
+                 "severity": [{"range": {"start": start}, "severity": 9, "message": "m"}],
+                 "mixed": [{"range": {"start": start}, "severity": 1, "message": "real"}, None]}
+        for name, raw in cases.items():
+            with self.subTest(diagnostic=name):
+                result = self.run_server(self.server(f"bad-{name}", behaviour={"raw": raw}), path)
+                self.assertEqual((result["status"], result["reason"]),
+                                 ("failed", "published a diagnostic that is not valid for a.py"))
+        self.assertEqual([row["message"] for row in result["rows"]], ["real"])  # what was valid is kept
+        for name, behaviour in (("params", {"raw_params": ["not", "an", "object"]}),
+                                ("list", {"raw": "not a list"})):
+            with self.subTest(message=name):
+                result = self.run_server(self.server(f"odd-{name}", behaviour=behaviour), path)
+                self.assertEqual((result["status"], result["reason"]),
+                                 ("failed", "sent a publishDiagnostics message that is not valid"))
+        # A diagnostic with no severity or code is an error with no code; one with no range is at the file's start.
+        plain = self.run_server(self.server("plain", behaviour={"raw": [{"message": "bare"}]}), path)
+        self.assertEqual((plain["status"], plain["rows"]), ("ok", [
+            {"server": "plain", "file": "a.py", "line": 1, "column": 1, "severity": "error", "code": "",
+             "message": "bare"}]))
 
     def test_a_server_that_refuses_or_never_answers_initialize_has_failed(self):
         refusing = self.server("refusing", behaviour={"init": "error"})
@@ -381,6 +418,17 @@ class ContainmentTests(Fixture):
         result = self.run_server(entry, self.file("a.py"), timeout=3)
         self.assertLess(time.monotonic() - started, 20)
         self.assertEqual(result["status"], "partial")
+        for pid in self.pids():
+            self.assertTrue(gone(pid), f"process {pid} outlived the run")
+
+    def test_a_server_that_stops_reading_cannot_hold_the_run_past_its_time_limit(self):
+        entry = self.server(behaviour={"child": "silent", "stop_reading": True})
+        big = self.file("big.py", "value = 1\n" * 800_000)  # 8 MB: more than a pipe holds
+        started = time.monotonic()
+        result = self.run_server(entry, big, timeout=3)
+        self.assertLess(time.monotonic() - started, 15, "the write to a server that stopped reading held the run")
+        self.assertEqual((result["status"], result["reason"]),
+                         ("partial", "1 file(s) not answered within 3 seconds: big.py"))
         for pid in self.pids():
             self.assertTrue(gone(pid), f"process {pid} outlived the run")
 
@@ -525,11 +573,19 @@ class CommandLineTests(CommandLine):
         self.assertEqual(report["servers"]["half"]["unanswered"], ["b.py"])
 
     def test_no_file_of_any_servers_kind_is_a_pass_that_says_so(self):
+        # Also when a server of the table is not installed: it had nothing to check.
+        self.entries.append({"name": "absent", "command": ["no-such-language-server-anywhere"],
+                             "extensions": {".py": "python"}, "install": "npm install -g absent"})
         self.server()
-        code, text, _err, report = self.both_forms("--all", self.file("notes.txt").name)
-        self.assertEqual(code, 0)
+        code, text, err, report = self.both_forms("--all", self.file("notes.txt").name)
+        self.assertEqual((code, err), (0, ""))
         self.assertIn("stub           no file of its kind in this input", text)
-        self.assertEqual(report["servers"]["stub"]["status"], "idle")
+        self.assertEqual({name: entry["status"] for name, entry in report["servers"].items()},
+                         {"absent": "idle", "stub": "idle"})
+        code, text, err, report = self.both_forms("--all")
+        self.assertEqual((code, err), (0, ""))
+        self.assertIn("lsp-diagnostics: no file in the input.", text)
+        self.assertEqual((report["servers"]["absent"]["status"], report["diagnostics"]), ("idle", []))
 
     def test_bad_usage_an_unknown_server_and_a_broken_or_empty_table_are_one_line_and_exit_2(self):
         (self.project / lsp_table.TABLE).write_text('{"schema_version": 1, "servers": []}', encoding="utf-8")

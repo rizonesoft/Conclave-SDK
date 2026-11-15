@@ -103,7 +103,7 @@ Each server ends with one result, and a check that did not finish is never a pas
 | Result | Meaning |
 | --- | --- |
 | `ok` | Every file it was sent was answered |
-| `idle` | No file of its kind in the input; the server is not started |
+| `idle` | No file of its kind in the input: it is not started, installed or not |
 | `missing` | Its program is not installed; the line carries the entry's `install` hint |
 | `skipped` | The file its entry `requires` is absent |
 | `failed` | Not contained, refused or never answered `initialize`, ended early, or hit a limit |
@@ -118,7 +118,7 @@ Each server ends with one result, and a check that did not finish is never a pas
 
 The exit is the same with and without `--json`.
 
-A server is started with no shell and no console window and is contained before it runs: in a job object on Windows (started suspended, resumed once it is in the job), in its own session on POSIX. Its whole process tree is ended on every way out, a clean run and an interrupt included, and a server that cannot be contained is not run. At most 64 MiB is read from a server in a run, standard output and standard error together, and no message may announce more than 32 MiB; either limit stops the server and the result says which.
+A server is started with no shell and no console window and is contained before it runs: in a job object on Windows (started suspended, resumed once it is in the job), in its own session on POSIX. Its whole process tree is ended on every way out, a clean run and an interrupt included, and a server that cannot be contained is not run. At most 64 MiB is read from a server in a run, standard output and standard error together, and no message may announce more than 32 MiB; either limit stops the server and the result says which. What is sent to a server is queued and written beside the run, so a server that stops reading cannot hold the run past its time limit, and a diagnostic that is not one (a server's reply is checked, never assumed) makes that server `failed` with the file named.
 
 `${scratch}` in an entry's `init` or `settings`, in any string at any depth, is replaced with a temporary folder outside the repository that exists for the run and is removed after it, so a server's index or cache (Intelephense's `storagePath`) never lands in the project.
 
