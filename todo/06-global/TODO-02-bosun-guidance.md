@@ -70,6 +70,8 @@ Agents reach the queue rule through the global rules but have nowhere to read th
 
 ## 2. Queue rule parity test
 
+> **Started:** 2026-11-15T18:36:28Z
+
 The Codex rules lacked the queue bullets until 2026-11-12 while the Claude Code rules had them. A test keeps the shared bullets identical so a change to one file without the other fails.
 
 **Phase:** 7
@@ -80,9 +82,11 @@ The Codex rules lacked the queue bullets until 2026-11-12 while the Claude Code 
 
 1. Add the test. Done when: it passes on the current files and fails when one bullet is edited.
 
-- [ ] Add `test_queue_rules_match` to `global/tests/test_deploy.py`: read section 11 of `global/claude/rules/claude-code.md` and `global/codex/rules/codex.md`, extract the bullets starting `- **Heavy jobs queue.**` and `- **A child process never outlives its test.**`, and assert each is present once in both and byte-identical. Done when: `python -m unittest global.tests.test_deploy` passes.
-- [ ] Prove the test can fail by deleting the Codex "Heavy jobs queue" bullet in a scratch copy of the file the test reads. Done when: the test fails naming the missing bullet, and the file is restored byte for byte.
+- [x] Add `test_queue_rules_match` to `global/tests/test_deploy.py`: read section 11 of `global/claude/rules/claude-code.md` and `global/codex/rules/codex.md`, extract the bullets starting `- **Heavy jobs queue.**` and `- **A child process never outlives its test.**`, and assert each is present once in both and byte-identical. Done when: `python -m unittest global.tests.test_deploy` passes.
+- [x] Prove the test can fail by deleting the Codex "Heavy jobs queue" bullet in a scratch copy of the file the test reads. Done when: the test fails naming the missing bullet, and the file is restored byte for byte.
 - [ ] Commit: `global: test that the Claude Code and Codex queue rules match`
+
+**Corrected 2026-11-15 (build):** measured while building: both bullets are present once in section 11 of each file and byte for byte the same, so the test passes on the files as they are. `python -m unittest global.tests.test_deploy -k queue_rules` runs the two tests on Windows and in WSL (`global/tests` is read as a namespace package), and the whole folder is the `global-tests` suite of `check-all`. The failing case is proved twice: inside the test, on copies of the Codex file's text held in memory (a bullet missing, a bullet changed, a bullet repeated, section 11 renamed), each fault named; and once on the real file, each change restored byte for byte.
 
 **Test checkpoint:** `python -m unittest global.tests.test_deploy -k queue_rules` passes; removing either bullet from `global/codex/rules/codex.md` makes it fail.
 

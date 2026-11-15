@@ -425,5 +425,62 @@ class CodexHookApprovalTest(unittest.TestCase):
         self.assertEqual((ambient / "config.toml").read_text(encoding="utf-8"), "# the operator's own\n")
 
 
+# The bullets both agents' global rules must hold in section 11, byte for byte: the Codex rules lacked them until
+# 2026-11-12 while Claude Code's had them (D06 T02 section 2).
+QUEUE_BULLETS = ("- **Heavy jobs queue.**", "- **A child process never outlives its test.**")
+RULE_FILES = {"Claude Code": GLOBAL / "claude/rules/claude-code.md", "Codex": GLOBAL / "codex/rules/codex.md"}
+
+
+def section_11(text):
+    """The text of section 11 of a rules file (`## 11. ...` up to the next `## `)."""
+    parts = text.split("\n## 11. ", 1)
+    return "" if len(parts) == 1 else parts[1].split("\n## ", 1)[0]
+
+
+def queue_rule_faults(texts):
+    """What keeps the queue bullets from matching across the rules files ({agent: text}): each one missing from or
+    repeated in an agent's section 11, and each that differs between the agents."""
+    faults, found = [], {}
+    for agent, text in texts.items():
+        lines = section_11(text).splitlines()
+        for bullet in QUEUE_BULLETS:
+            matching = [line for line in lines if line.startswith(bullet)]
+            if len(matching) != 1:
+                faults.append(f"{agent}: section 11 holds {bullet} {len(matching)} times, not once")
+            else:
+                found.setdefault(bullet, {})[agent] = matching[0]
+    for bullet, by_agent in found.items():
+        if len(by_agent) == len(texts) and len(set(by_agent.values())) > 1:
+            faults.append(f"{bullet} differs between {' and '.join(by_agent)}")
+    return faults
+
+
+class QueueRuleParityTest(unittest.TestCase):
+    def test_queue_rules_match(self):
+        texts = {agent: path.read_text(encoding="utf-8") for agent, path in RULE_FILES.items()}
+        self.assertEqual(queue_rule_faults(texts), [])
+
+    def test_queue_rules_that_drift_are_named(self):
+        texts = {agent: path.read_text(encoding="utf-8") for agent, path in RULE_FILES.items()}
+        codex = texts["Codex"]
+        heavy = next(line for line in section_11(codex).splitlines() if line.startswith(QUEUE_BULLETS[0]))
+        child = next(line for line in section_11(codex).splitlines() if line.startswith(QUEUE_BULLETS[1]))
+        cases = [
+            (codex.replace(heavy + "\n", ""), ["Codex: section 11 holds - **Heavy jobs queue.** 0 times, not once"]),
+            (codex.replace(child + "\n", ""),
+             ["Codex: section 11 holds - **A child process never outlives its test.** 0 times, not once"]),
+            (codex.replace(heavy, heavy + " Also in WSL."), ["- **Heavy jobs queue.** differs between Claude Code and Codex"]),
+            (codex.replace(heavy + "\n", heavy + "\n" + heavy + "\n"),
+             ["Codex: section 11 holds - **Heavy jobs queue.** 2 times, not once"]),
+            (codex.replace("\n## 11. ", "\n## 12. "),
+             ["Codex: section 11 holds - **Heavy jobs queue.** 0 times, not once",
+              "Codex: section 11 holds - **A child process never outlives its test.** 0 times, not once"]),
+        ]
+        for changed, faults in cases:
+            with self.subTest(faults=faults):
+                self.assertNotEqual(changed, codex)
+                self.assertEqual(queue_rule_faults(dict(texts, Codex=changed)), faults)
+
+
 if __name__ == "__main__":
     unittest.main()
