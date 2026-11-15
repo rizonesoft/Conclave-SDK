@@ -976,6 +976,9 @@ class OperatingDirectiveTests(unittest.TestCase):
         own = (FORGE_ROOT / "AGENTS.md").read_text(encoding="utf-8")
         self.check_agents(template)
         self.assertEqual(self.section(own, "Operating directive"), self.section(template, "Operating directive"))
+        # Found by the review round: the directive points at Safety, so the SDK has it, the same as the template's.
+        self.assertEqual(self.section(own, "Safety"), self.section(template, "Safety"))
+        self.assertLess(own.index("\n## Operating directive\n"), own.index("\n## Safety\n"))
         self.assertIn("\n## Autonomy and ambition\n", own)   # the owner's fuller statement stays
         for rel in self.RULE_FILES.values():   # the SDK's installed copy points at a section it has
             self.assertIn(self.POINTER, (FORGE_ROOT / rel).read_text(encoding="utf-8").splitlines(), rel)

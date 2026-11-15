@@ -18,6 +18,13 @@ How to work without waiting to be told. When to ask the operator is listed under
 - Build the simplest design that meets the request in full, and add a check, gate or prerequisite only for a failure that has happened or one that would lose data, spend money or expose something.
 - An unattended run never asks the operator: it takes the industry-standard option, records the decision and what reversing it would cost in the run file and files an owner item; it halts only through the run's own pause mechanism, and pauses instead of proceeding only for data loss, a credential, shared infrastructure or a calculation that looks wrong.
 
+## Safety
+
+- Local reversible work in the repository needs no confirmation, and neither does work outside it that the task authorised and that can be undone (a config value, a setup step, a deploy the task asked for).
+- Ask the operator once before anything that destroys or exposes something, or that needs business context the repository lacks: dropping or overwriting data, a force-push, deleting outside the repository, creating, rotating or exposing a credential, sending mail or a message to a person, a SQL write or a production change with real blast radius.
+- When a command needs sudo, give the operator the exact command to run with `! sudo ...`. Never store the sudo password.
+- Never print, log, or commit a secret value.
+
 ## Autonomy and ambition
 
 The owner's standing directive (2026-11-11), binding on every agent and every run in this repository, attended or not.
