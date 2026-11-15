@@ -44,6 +44,8 @@ title: "TODO-02 -- Bosun guidance: reference page and rule parity"
 
 ## 1. Bosun reference page
 
+> **Started:** 2026-11-15T18:18:40Z
+
 Agents reach the queue rule through the global rules but have nowhere to read the details: what counts as heavy, what the exit codes mean, how to read `bosun status`. One short page in this checkout gives that, written from Bosun's own README so the two do not drift silently.
 
 **Phase:** 7
@@ -58,6 +60,8 @@ Agents reach the queue rule through the global rules but have nowhere to read th
 - [ ] Write `docs/bosun.md` with question-shaped headings: what Bosun is (a separate tool beside Conclave, never required); which commands to wrap (full builds and full test suites) and never wrap (quick commands, dev servers, watchers); `bosun run -- <command>`, `bosun status`, `bosun report --days 7`; exit 74 as the write budget stopping the job; the fallback of running the command normally when `bosun` is not on PATH. Done when: each statement matches Bosun's `README.md` at the commit named in the page's last line (or the facts copied into Inputs), and the page states no queue threshold Bosun's README does not.
 - [ ] Add `docs/bosun.md` to the table in `global/README.md` as the reference behind the section 11 queue bullets. Done when: the row is there and the link resolves.
 - [ ] Commit: `docs: Bosun reference page for the global queue rule`
+
+**Corrected 2026-11-15 (validation):** Bosun's checkout (`D:\Bosun`) is now at `99fd0410083f083164dc332e22bc6067805db5c3`, not `1f36ed2`; its README there still states every fact copied into Inputs, word for word, and adds `bosun config set` for the limits (slots, the memory the second slot needs on Windows and in the VM, the wait before a job starts anyway) and the WSL step that turns the write budget on (`sudo ~/.local/share/bosun/enable-write-budget.sh`, then `wsl --shutdown`; until then the budget is off in WSL). The page is written from the README at `99fd041` and names it, and says how the limits are changed and when the budget is off rather than leaving them out. The checkpoint's Windows `Select-String` is run as a Python check, so it runs on both systems.
 
 **Test checkpoint:** `python -c "import pathlib,sys; t=pathlib.Path('docs/bosun.md').read_text(encoding='utf-8'); sys.exit(0 if all(s in t for s in ('bosun run --','bosun status','74','not installed')) else 1)"` exits 0, and `Select-String -Path global/README.md -Pattern 'docs/bosun.md'` finds the link.
 
