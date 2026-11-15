@@ -350,7 +350,7 @@ class LspKitTests(unittest.TestCase):
 # The stub language server of the live proof: it publishes one diagnostic carrying the marker it is given and
 # logs what Claude Code sends it.
 LIVE_STUB = r'''
-import json, sys
+import json, os, sys
 
 marker, log = sys.argv[1], sys.argv[2]
 
@@ -358,6 +358,9 @@ marker, log = sys.argv[1], sys.argv[2]
 def note(text):
     with open(log, "a", encoding="utf-8") as out:
         out.write(text + "\n")
+
+
+note("cwd " + os.getcwd())
 
 
 def send(message):
@@ -625,9 +628,13 @@ class ClaudePluginTests(unittest.TestCase):
                     self.assertIn("started", text, f"Claude Code did not start the {name} server")
                     self.assertIn(f"document {uri}", text, f"the {name} server was not given {rel}")
                     self.assertTrue(back, f"the {name} server's diagnostic did not come back: {ran.stdout[:400]}")
-                # The server under a root of its own was started in that folder.
+                # The server under a root of its own is given that folder as its workspace root. Where Claude Code
+                # starts the process is its own choice: it is printed, for the record, and not asserted.
                 beta = (self.work / f"beta-{mode.strip('-')}.log").read_text(encoding="utf-8")
                 self.assertIn("root " + (project / "api").resolve().as_uri(), beta)
+                started_in = [line[4:] for line in beta.splitlines() if line.startswith("cwd ")]
+                print(f"  beta: workspace root=api, process started in "
+                      f"{'the root' if os.path.samefile(started_in[0], project / 'api') else 'the project'}")
 
 
 if __name__ == "__main__":
