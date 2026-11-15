@@ -266,6 +266,56 @@ class FreshnessTests(Fixture):
         (self.project / "Makefile").unlink()
         self.assertEqual(self.both()[1], "current")
 
+    def test_a_usual_build_file_whose_time_cannot_be_read_makes_the_freshness_unknown(self):
+        # Found by the review round: only an absent usual build file may be passed over. One the system will not
+        # give the time of (a link into a folder the user cannot enter) says nothing about freshness.
+        self.database()
+        self.file("Makefile", "all:\n")
+        real = pathlib.Path.stat
+
+        def stat(path, *args, **kwargs):
+            if path.name == "Makefile":
+                raise PermissionError(13, "Permission denied")
+            return real(path, *args, **kwargs)
+
+        with unittest.mock.patch.object(pathlib.Path, "stat", stat):
+            code, status, detail, _report = self.both()
+        self.assertEqual((code, status), (1, "unknown"))
+        self.assertEqual(detail, "compile_commands.json: a build file of the project cannot be read, so its "
+                                 "freshness cannot be told: Makefile (Permission denied)")
+
+    def test_a_database_larger_than_the_check_reads_is_unknown_and_never_loaded(self):
+        # Found by the review round: the database is the project's file, of any size.
+        self.database()
+        pin_file = cc._pins_module().load_pin_file(self.project / ".conclave/toolchain-cpp.json")
+        size = (self.project / "compile_commands.json").stat().st_size
+        self.assertEqual(cc.check_database(self.project, pin_file, read_limit=size)["status"], "current")
+        read = []
+
+        class Counting:
+            """The file, noting how many bytes each read asks for."""
+
+            def __init__(self, *args, **kwargs):
+                self.handle = open(*args, **kwargs)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                self.handle.close()
+
+            def read(self, count=-1):
+                read.append(count)
+                return self.handle.read(count)
+
+        with unittest.mock.patch.object(cc, "open", Counting, create=True):
+            result = cc.check_database(self.project, pin_file, read_limit=size - 1)
+        self.assertEqual((result["status"], result["entries"]), ("unknown", None))
+        self.assertEqual(result["detail"], f"compile_commands.json is larger than the {size - 1} bytes this check "
+                                           "reads, so it was not checked")
+        self.assertEqual(read, [size], "the check asked for more than its limit and one byte")
+        self.assertEqual(cc.READ_LIMIT, 256 * 1024 * 1024)
+
     def test_a_source_file_that_no_longer_exists_makes_it_stale_and_is_named(self):
         self.file("src/kept.c")
         self.database([self.entry("src/kept.c"), self.entry("src/deleted.c"), self.entry("src/deleted.c")])
@@ -337,7 +387,8 @@ class CommandLineTests(Fixture):
             for name in names:
                 if hasattr(os, name):
                     stack.enter_context(unittest.mock.patch.object(os, name, started))
-            line = "regenerate with: cmake -S . -B 'build dir'\n"
+            line = ("regenerate with (PowerShell): cmake -S '.' -B 'build dir'\n" if os.name == "nt"
+                    else "regenerate with (sh): cmake -S . -B 'build dir'\n")
             # Missing.
             code, out, _err = self.run_main()
             self.assertEqual((code, out), (1, "compile database: missing: compile_commands.json does not exist\n" + line))
@@ -355,6 +406,25 @@ class CommandLineTests(Fixture):
             self.assertEqual((code, out), (0, "compile database: current: compile_commands.json, 2 entries\n"))
         # The database was not written either.
         self.assertEqual((self.project / "compile_commands.json").stat().st_mtime_ns, THEN)
+
+    def test_the_regenerate_command_is_quoted_for_the_shell_it_names(self):
+        # Found by the review round: sh quoting pasted into PowerShell is a parser error for a quoted program.
+        program = "C:/Program Files/CMake/bin/cmake.exe"
+        arguments = [program, "-S", ".", "-B", "build", "-DVERSION=1.2", "it's"]
+        self.assertEqual(cc.shell_line(arguments, windows=True),
+                         ("PowerShell", "& 'C:/Program Files/CMake/bin/cmake.exe' -S '.' -B build "
+                                        "'-DVERSION=1.2' 'it''s'"))
+        self.assertEqual(cc.shell_line(arguments, windows=False),
+                         ("sh", "'C:/Program Files/CMake/bin/cmake.exe' -S . -B build -DVERSION=1.2 'it'\"'\"'s'"))
+        self.assertEqual(cc.shell_line(["make", "compdb"], windows=True), ("PowerShell", "make compdb"))
+        self.assertEqual(cc.shell_line(["tools\\gen", "build/out"], windows=True),
+                         ("PowerShell", "tools\\gen build/out"))
+        self.assertEqual(cc.shell_line(["tools\\gen.exe"], windows=True), ("PowerShell", "& 'tools\\gen.exe'"))
+        stale = {"status": "stale", "regenerate": ["make", "compdb"]}
+        self.assertEqual(cc.regenerate_line(stale, windows=True), "regenerate with (PowerShell): make compdb")
+        self.assertEqual(cc.regenerate_line(stale, windows=False), "regenerate with (sh): make compdb")
+        self.assertIsNone(cc.regenerate_line({"status": "current", "regenerate": ["make"]}))
+        self.assertIsNone(cc.regenerate_line({"status": "stale", "regenerate": []}))
 
 
 if __name__ == "__main__":

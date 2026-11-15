@@ -80,11 +80,11 @@ python scripts/compdb-check.py --build-file CMakeLists.txt --build-file cmake/fl
 | --- | --- |
 | `current` | It parses, every source file it names exists, and no build file is newer than it |
 | `stale` | A build file is newer than it, or a source file it names no longer exists (each named) |
-| `unknown` | A build file named by the pin file or `--build-file` cannot be read |
+| `unknown` | A build file cannot be read, or the database is larger than the check reads |
 | `invalid` | It cannot be read, is not a JSON list of entries, or an entry (named by number) is bad |
 | `missing` | There is no file at its path |
 
-It exits 0 for `current`, 1 for any other status, and 2 for bad usage or a pin file that does not load. `--json` prints one document (`path`, `status`, `detail`, `entries`, `newer`, `gone`, `regenerate`) for every run that gets past its arguments, a refused one included (`status` is then `refused`). An entry needs a `directory`, a `file` and a compile command (`command`, or `arguments` starting with the compiler), as the format requires; a relative `file` is read from its `directory`, and a relative `directory` from the database's folder. At most 20 missing source files are named and the rest are counted.
+It exits 0 for `current`, 1 for any other status, and 2 for bad usage or a pin file that does not load. `--json` prints one document (`path`, `status`, `detail`, `entries`, `newer`, `gone`, `regenerate`) for every run that gets past its arguments, a refused one included (`status` is then `refused`). An entry needs a `directory`, a `file` and a compile command (`command`, or `arguments` starting with the compiler), as the format requires; a relative `file` is read from its `directory`, and a relative `directory` from the database's folder. At most 20 missing source files are named and the rest are counted. At most 256 MiB of a database is read: a larger one is `unknown` and is never loaded. A usual build file that is absent is passed over; one whose time the system will not give makes the status `unknown`.
 
 The pin file says where the database is and what it must not be older than, under an optional `compdb` key (each key in it optional, each file read under the pin file's `root`):
 
@@ -97,7 +97,7 @@ The pin file says where the database is and what it must not be older than, unde
 
 - `path`: the database, `compile_commands.json` when left out. `--path`, read from `--root`, overrides it.
 - `build_files`: the files that change the compile flags. When left out, `build.ninja`, `Makefile` and `CMakeLists.txt` are compared where they exist, in the `root` and beside the database. A project with included makefiles or nested `CMakeLists.txt` files names them here, so the doctor sees them too. `--build-file` replaces the list for one run. A file named here that does not exist makes the status `unknown`, because freshness that cannot be told is not `current`.
-- `regenerate`: the project's own command that writes the database again, as a list of arguments. The check prints it (`regenerate with: ...`) for a database that is not current and never runs it: a check that builds is not read-only.
+- `regenerate`: the project's own command that writes the database again, as a list of arguments. The check prints it for a database that is not current, quoted for the shell of the system it runs on and saying which (`regenerate with (PowerShell): ...` on Windows, `regenerate with (sh): ...` elsewhere), and never runs it: a check that builds is not read-only. `--json` gives the arguments as the list they are.
 
 ## Doctor
 

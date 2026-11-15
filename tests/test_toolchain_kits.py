@@ -425,7 +425,8 @@ class CppKitTests(ToolchainFixture):
             self.assertEqual(checks["compile-database"]["status"], "setup_required")
             return checks["compile-database"]["detail"]
 
-        line = "; regenerate with: cmake -S . -B build"
+        line = ("; regenerate with (PowerShell): cmake -S '.' -B build" if os.name == "nt"
+                else "; regenerate with (sh): cmake -S . -B build")
         self.assertEqual(found(), "missing: compile_commands.json does not exist" + line)
         self.database(project, entries="[]")
         self.assertEqual(found(), "invalid: compile_commands.json holds no entry, so it describes no build" + line)
@@ -455,7 +456,7 @@ class CppKitTests(ToolchainFixture):
         self.compdb_pins(project, compdb={"regenerate": ["marked"]})
         self.prints("alpha", "alpha v2.5.1\n")
         _code, _report, checks = self.doctor(project)
-        self.assertIn("regenerate with: marked", checks["compile-database"]["detail"])
+        self.assertRegex(checks["compile-database"]["detail"], r"; regenerate with \((PowerShell|sh)\): marked$")
         self.assertFalse((self.work / "ran").exists(), "the doctor ran the regenerate command")
         # A pin file that does not load: no database check, as no tool check.
         (project / PINS).write_text('{"schema_version": 1, "tools": [], "compdb": {"path": "../x"}}',

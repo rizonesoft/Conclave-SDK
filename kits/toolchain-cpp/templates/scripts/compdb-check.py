@@ -10,7 +10,9 @@ file's `root` when it names none; `--path`, relative to `--root`, overrides it) 
 
     current   it parses, every source file it names exists, and no build file is newer than it
     stale     a build file is newer than it, or a source file it names no longer exists (each is named)
-    unknown   a build file named by the pin file or by --build-file cannot be read, so freshness cannot be told
+    unknown   a build file cannot be read (one named by the pin file or by --build-file that is absent, or any
+              whose time the system will not give), or the database is larger than this check reads, so
+              freshness cannot be told
     invalid   it cannot be read, is not a JSON list of entries, or holds an entry that is not one (the entry is
               named by its number)
     missing   there is no file at its path
@@ -20,11 +22,14 @@ The build files are those of `--build-file` (relative to `--root`), else the pin
 
 It exits 0 for `current`, 1 for any other status, 2 for bad usage or a pin file that does not load. It never
 regenerates the database: when the pin file gives the project's own command (`compdb.regenerate`), that command is
-printed and nothing is run. It reads and reports, and writes nothing. Standard library only.
+printed, quoted for the shell of the system it runs on and saying which (PowerShell on Windows, sh elsewhere), and
+nothing is run. It reads at most 256 MiB of a database, reports, and writes nothing. Standard library only.
 """
 import argparse
 import importlib.util
 import json
+import os
+import re
 import shlex
 import sys
 from pathlib import Path
@@ -32,6 +37,7 @@ from pathlib import Path
 PINS = ".conclave/toolchain-cpp.json"
 BUILD_FILES = ("build.ninja", "Makefile", "CMakeLists.txt")
 NAMED = 20   # the most files a report names; the rest are counted
+READ_LIMIT = 256 * 1024 * 1024   # bytes of a database this check reads: one larger is not checked, never loaded
 
 
 def _pins_module():
@@ -76,7 +82,7 @@ def _reason(exc):
     return exc.strerror or str(exc)
 
 
-def check_database(project, pin_file, path=None, build_files=None):
+def check_database(project, pin_file, path=None, build_files=None, read_limit=READ_LIMIT):
     """The state of the compile database of a project whose pin file is loaded: {"path", "status", "detail",
     "entries", "newer", "gone", "regenerate"}. `path` and `build_files`, relative to the project, override the pin
     file's. No fault of the file system raises: it is a status."""
@@ -92,12 +98,16 @@ def check_database(project, pin_file, path=None, build_files=None):
         return result
 
     try:
-        raw = database.read_bytes()
+        with open(database, "rb") as handle:
+            raw = handle.read(read_limit + 1)   # bounded: the file is whatever the project holds
         written = database.stat().st_mtime_ns
     except FileNotFoundError:
         return ended("missing", f"{result['path']} does not exist")
     except OSError as exc:
         return ended("invalid", f"{result['path']} cannot be read ({_reason(exc)})")
+    if len(raw) > read_limit:
+        return ended("unknown", f"{result['path']} is larger than the {read_limit} bytes this check reads, so it "
+                                "was not checked")
     try:
         entries = json.loads(raw.decode("utf-8"))
     except UnicodeDecodeError as exc:
@@ -120,16 +130,18 @@ def check_database(project, pin_file, path=None, build_files=None):
     elif compdb["build_files"] is not None:
         files, source = [base / file for file in compdb["build_files"]], "the pin file"
     else:
-        files, source = [folder / name for folder in (base, database.parent) for name in BUILD_FILES], None
+        # Each once: the database's folder is the root itself when the database is kept there.
+        usual = [folder / name for folder in (base, database.parent) for name in BUILD_FILES]
+        files, source = list(dict.fromkeys(usual)), None
     times, unreadable = {}, []
     for file in files:
         try:
             times[file] = file.stat().st_mtime_ns
         except OSError as exc:
-            if source is None:
-                continue   # a usual build file the project does not have is no fault
-            missing = isinstance(exc, FileNotFoundError)
-            unreadable.append(f"{_shown(file, project)} ({'it does not exist' if missing else _reason(exc)})")
+            absent = isinstance(exc, (FileNotFoundError, NotADirectoryError))
+            if source is None and absent:
+                continue   # a usual build file the project does not have is no fault; one it cannot read is
+            unreadable.append(f"{_shown(file, project)} ({'it does not exist' if absent else _reason(exc)})")
     result["newer"] = [_shown(file, project) for file, changed in times.items() if changed > written]
 
     gone = {}
@@ -153,18 +165,34 @@ def check_database(project, pin_file, path=None, build_files=None):
             parts.append(f"{len(gone)} source file(s) it names no longer exist: {', '.join(result['gone'])}{more}")
         return ended("stale", f"{result['path']}: " + "; ".join(parts))
     if unreadable:
-        return ended("unknown", f"{result['path']}: a build file named by {source} cannot be read, so its "
+        origin = f"named by {source}" if source else "of the project"
+        return ended("unknown", f"{result['path']}: a build file {origin} cannot be read, so its "
                                 f"freshness cannot be told: {', '.join(unreadable)}")
     count = "1 entry" if len(entries) == 1 else f"{len(entries)} entries"
     return ended("current", f"{result['path']}, {count}")
 
 
-def regenerate_line(result):
+_POWERSHELL_BARE = re.compile(r"[A-Za-z0-9_/\\-]+")
+
+
+def shell_line(arguments, windows):
+    """A command as one line that can be pasted into a shell, and which shell: PowerShell on Windows, sh
+    elsewhere. PowerShell: every argument that is not plain letters, digits, `_`, `-`, `/` and `\\` is put in
+    single quotes (an unquoted `-DNAME=1.2` is split at its dot), and a quoted program needs the call operator."""
+    if not windows:
+        return "sh", shlex.join(arguments)
+    quoted = [argument if _POWERSHELL_BARE.fullmatch(argument) else "'" + argument.replace("'", "''") + "'"
+              for argument in arguments]
+    return "PowerShell", ("& " if quoted[0] != arguments[0] else "") + " ".join(quoted)
+
+
+def regenerate_line(result, windows=None):
     """The project's own command that writes the database again, for a database that is not current, or None.
     It is shown, never run: a check that builds is not read-only."""
     if result["status"] == "current" or not result["regenerate"]:
         return None
-    return "regenerate with: " + shlex.join(result["regenerate"])
+    shell, line = shell_line(result["regenerate"], os.name == "nt" if windows is None else windows)
+    return f"regenerate with ({shell}): {line}"
 
 
 def main(argv=None):
