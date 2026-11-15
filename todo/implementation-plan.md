@@ -117,7 +117,7 @@ Sections: 14 | Checklist items: 97
 | Status | Reference  | Deliverable                                              | Needs | Items |
 | ------ | ---------- | -------------------------------------------------------- | ----- | ----- |
 | [x]    | D04 T01 §1 | LSP kit known to `forge.py`                              | none  | 7     |
-| [ ]    | D04 T01 §2 | Server table `.conclave/lsp.json` with presets per stack | none  | 9     |
+| [x]    | D04 T01 §2 | Server table `.conclave/lsp.json` with presets per stack | none  | 9     |
 | [ ]    | D04 T01 §3 | Diagnostics client that reads the server table           | none  | 7     |
 | [ ]    | D04 T01 §4 | Laravel kit moved onto the shared client                 | none  | 7     |
 | [ ]    | D04 T01 §5 | Claude Code plugin generated from the server table       | none  | 5     |
@@ -154,6 +154,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 64/85 verified sections, 6 ready to run now.
+Progress: 65/85 verified sections, 7 ready to run now.
 
-Checklist: 526/639 items completed (includes Commit items).
+Checklist: 527/639 items completed (includes Commit items).

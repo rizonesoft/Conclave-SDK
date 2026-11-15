@@ -34,7 +34,7 @@ title: "TODO-01 -- LSP kit"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | LSP kit known to `forge.py` | -- | [x] |
-| 2 | §2 | Server table `.conclave/lsp.json` with presets per stack | §1 | [ ] |
+| 2 | §2 | Server table `.conclave/lsp.json` with presets per stack | §1 | [x] |
 | 3 | §3 | Diagnostics client that reads the server table | §2 | [ ] |
 | 4 | §4 | Laravel kit moved onto the shared client | §3 | [ ] |
 | 5 | §5 | Claude Code plugin generated from the server table | §2 | [ ] |
@@ -96,7 +96,7 @@ One table names every language server the project uses: its command, the file ex
 - [x] Add per-server checks to `_doctor_lsp` in `forge.py`, after its file checks: the table loads under `load_servers` (the kit's module compiled from the SDK, as `_doctor_reviewer` does at `forge.py:1692`), reported as `server-table`; and each server is a check named `server:<name>`, `ok` with the path `shutil.which` finds for its program, `setup_required` with its `install` hint when none is found. Done when: tests in `tests/test_lsp_kit.py` cover a malformed table (`server-table` `missing` with the refusal, and no `server:` check), the empty table (`ok`, saying it holds no server and naming `lsp-servers.py add`), an installed stub server and a missing one, and the bare `forge.py doctor <project>` showing the same checks.
 - [x] Add `kits/lsp/templates/scripts/tests/test_lsp_table.py` and the suite `kit-lsp` to `SUITES` in `forge.py`. Done when: `python forge.py check-all --only kit-lsp` passes on Windows and in WSL and `tests.test_check_all` passes, which holds every test folder to a suite.
 - [x] Bring `kits/lsp/README.md` up to date: the table's keys with their defaults, the presets, the three `lsp-servers.py` commands and the doctor's new checks. Done when: a test in `tests/test_lsp_kit.py` finds every key `load_servers` accepts and every preset name in the README, and the README lists every file under `kits/lsp/templates/`.
-- [ ] Commit: `lsp: server table with presets per stack`
+- [x] Commit: `lsp: server table with presets per stack`
 
 **Corrected 2026-11-15 (validation):** measured today against the client the table must serve (`kits/laravel/templates/scripts/lsp-diagnostics.py:325`) and RasterFold's plugin file (`.claude/lsp/rasterfold-lsp/.lsp.json` at `b33493346141`). The entry was `{"name", "command", "extensions", "language", "install"}` with `extensions` a list: one `language` cannot serve clangd (`.c` is `c`, `.cpp` is `cpp`) and both consumers need the language per suffix (`textDocument/didOpen` in §3, `extensionToLanguage` in §5), so `extensions` is that map and `language` is gone. The Laravel client holds six more settings per server (`root`, `requires`, `init`, `configuration`, `severity`, `settle`) that §3 and §4 must keep or the Laravel servers change behaviour; the table has them as optional keys with defaults, decided here once so the format does not change under §3. The presets repeated entries (the `laravel` preset is "`laravel-lsp`, plus `php` and the Tailwind server"): they are names over one catalogue. The fault list named four faults; a file that cannot be read, structural faults and paths that leave the project are added, as the tool pin file's review found for the same shape (`D04 T02 §1`). `lsp-servers.py` had no outcome for an unknown server name or a table that does not load. "Run it from `tests/test_forge.py`" is a suite in `forge.SUITES` since `D01 T02 §1`. The doctor's line reference moved (`forge.py:454` is `:1692`). The README the kit ships described only §1.
 
@@ -105,6 +105,9 @@ One table names every language server the project uses: its command, the file ex
 **Corrected 2026-11-15 (round 1):** four findings, all fixed. A `root` of `./` crashed the loader, and a `requires` of `.` crashed it in place of a refusal: `.` and `./` are the project itself for `root` and a refusal for `requires`. The doctor looked a server's program up with `shutil.which`, which on Windows tries the working directory first, and fell back to any regular file: a program in an unrelated working directory, or a file with no execute permission, read `ok`. `find_program` in `lib/lsp_table.py` is now the one lookup (a bare name on `PATH` only; a name with a folder in it from the server's `root`; a file the system will execute), used by the doctor and, from §3, by the client. The `laravel` preset left out the storage folder the Laravel client gives Intelephense at run time: the preset carries it as the placeholder `${scratch}`, which §3 replaces with a temporary folder outside the repository.
 
 **Test checkpoint:** `python -m unittest discover -s kits/lsp/templates/scripts/tests` ends `OK`; making `add` replace an existing entry makes the edited-entry test fail.
+
+> **Verified:** 2026-11-15 | §2 | 30de93eebd6e7ea27abfb09ba5d843e4bfd25a3a
+> **Review:** `docs/reviews/d04-t01-s2.json`
 
 ## 3. Diagnostics client that reads the server table
 
