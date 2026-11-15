@@ -450,6 +450,29 @@ class CppKitTests(ToolchainFixture):
         self.assertEqual(found(), "unknown: compile_commands.json: a build file named by the pin file cannot be "
                                   "read, so its freshness cannot be told: cmake/flags.cmake (it does not exist)")
 
+    def test_a_source_file_the_system_will_not_show_is_reported_and_the_doctor_finishes(self):
+        # Found by the completion review of section 3: a permission error on a source file raised out of the
+        # check, so the doctor printed no report.
+        project = self.project(database=False)
+        self.prints("alpha", "alpha v2.5.1\n")
+        self.compdb_pins(project)
+        self.database(project, entries=[{"directory": str(project), "file": "locked/a.c", "command": "cc -c a.c"}])
+        real = pathlib.Path.stat
+
+        def stat(path, *args, **kwargs):
+            if path.parent.name == "locked":
+                raise PermissionError(13, "Permission denied")
+            return real(path, *args, **kwargs)
+
+        with unittest.mock.patch.object(pathlib.Path, "stat", stat):
+            code, report, checks = self.doctor(project, "--strict")
+        self.assertEqual((code, report["missing_or_setup_required"]), (3, 1))
+        self.assertEqual(checks["tool:alpha"]["status"], "ok")
+        self.assertEqual(checks["compile-database"], {
+            "name": "compile-database", "status": "setup_required",
+            "detail": "unknown: compile_commands.json: 1 source file(s) it names cannot be inspected, so its "
+                      "freshness cannot be told: locked/a.c (Permission denied)"})
+
     def test_the_compile_database_check_starts_nothing_and_is_the_cpp_kits_alone(self):
         project = self.project(database=False)
         self.stub("marked", "with open(r'{dir}/ran', 'a') as mark:\n    mark.write('x')\n")

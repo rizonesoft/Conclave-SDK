@@ -11,8 +11,8 @@ file's `root` when it names none; `--path`, relative to `--root`, overrides it) 
     current   it parses, every source file it names exists, and no build file is newer than it
     stale     a build file is newer than it, or a source file it names no longer exists (each is named)
     unknown   a build file cannot be read (one named by the pin file or by --build-file that is absent, or any
-              whose time the system will not give), or the database is larger than this check reads, so
-              freshness cannot be told
+              whose time the system will not give), a source file the database names cannot be inspected, or
+              the database is larger than this check reads, so freshness cannot be told
     invalid   it cannot be read, is not a JSON list of entries, or holds an entry that is not one (the entry is
               named by its number)
     missing   there is no file at its path
@@ -31,6 +31,7 @@ import json
 import os
 import re
 import shlex
+import stat
 import sys
 from pathlib import Path
 
@@ -144,7 +145,7 @@ def check_database(project, pin_file, path=None, build_files=None, read_limit=RE
             unreadable.append(f"{_shown(file, project)} ({'it does not exist' if absent else _reason(exc)})")
     result["newer"] = [_shown(file, project) for file, changed in times.items() if changed > written]
 
-    gone = {}
+    gone, hidden = {}, {}
     for entry in entries:
         directory = Path(entry["directory"])
         if not directory.is_absolute():
@@ -152,7 +153,18 @@ def check_database(project, pin_file, path=None, build_files=None, read_limit=RE
         source_file = Path(entry["file"])
         if not source_file.is_absolute():
             source_file = directory / source_file
-        if source_file not in gone and not source_file.is_file():
+        if source_file in gone or source_file in hidden:
+            continue
+        # Asked of the system directly: `is_file` raises for what the system refuses to show, and a file that
+        # cannot be inspected is neither there nor gone.
+        try:
+            there = stat.S_ISREG(source_file.stat().st_mode)
+        except (FileNotFoundError, NotADirectoryError, ValueError):
+            there = False
+        except OSError as exc:
+            hidden[source_file] = f"{_shown(source_file, project)} ({_reason(exc)})"
+            continue
+        if not there:
             gone[source_file] = _shown(source_file, project)
     result["gone"] = list(gone.values())[:NAMED]
 
@@ -164,10 +176,18 @@ def check_database(project, pin_file, path=None, build_files=None, read_limit=RE
             more = f" and {len(gone) - NAMED} more" if len(gone) > NAMED else ""
             parts.append(f"{len(gone)} source file(s) it names no longer exist: {', '.join(result['gone'])}{more}")
         return ended("stale", f"{result['path']}: " + "; ".join(parts))
-    if unreadable:
-        origin = f"named by {source}" if source else "of the project"
-        return ended("unknown", f"{result['path']}: a build file {origin} cannot be read, so its "
-                                f"freshness cannot be told: {', '.join(unreadable)}")
+    if unreadable or hidden:
+        parts = []
+        if unreadable:
+            origin = f"named by {source}" if source else "of the project"
+            parts.append(f"a build file {origin} cannot be read, so its freshness cannot be told: "
+                         f"{', '.join(unreadable)}")
+        if hidden:
+            names = list(hidden.values())
+            more = f" and {len(names) - NAMED} more" if len(names) > NAMED else ""
+            parts.append(f"{len(names)} source file(s) it names cannot be inspected, so its freshness cannot be "
+                         f"told: {', '.join(names[:NAMED])}{more}")
+        return ended("unknown", f"{result['path']}: " + "; ".join(parts))
     count = "1 entry" if len(entries) == 1 else f"{len(entries)} entries"
     return ended("current", f"{result['path']}, {count}")
 

@@ -80,11 +80,11 @@ python scripts/compdb-check.py --build-file CMakeLists.txt --build-file cmake/fl
 | --- | --- |
 | `current` | It parses, every source file it names exists, and no build file is newer than it |
 | `stale` | A build file is newer than it, or a source file it names no longer exists (each named) |
-| `unknown` | A build file cannot be read, or the database is larger than the check reads |
+| `unknown` | A build file or a named source file cannot be read, or the database is too large |
 | `invalid` | It cannot be read, is not a JSON list of entries, or an entry (named by number) is bad |
 | `missing` | There is no file at its path |
 
-It exits 0 for `current`, 1 for any other status, and 2 for bad usage or a pin file that does not load. `--json` prints one document (`path`, `status`, `detail`, `entries`, `newer`, `gone`, `regenerate`) for every run that gets past its arguments, a refused one included (`status` is then `refused`). An entry needs a `directory`, a `file` and a compile command (`command`, or `arguments` starting with the compiler), as the format requires; a relative `file` is read from its `directory`, and a relative `directory` from the database's folder. At most 20 missing source files are named and the rest are counted. At most 256 MiB of a database is read: a larger one is `unknown` and is never loaded. A usual build file that is absent is passed over; one whose time the system will not give makes the status `unknown`.
+It exits 0 for `current`, 1 for any other status, and 2 for bad usage or a pin file that does not load. `--json` prints one document (`path`, `status`, `detail`, `entries`, `newer`, `gone`, `regenerate`) for every run that gets past its arguments, a refused one included (`status` is then `refused`). An entry needs a `directory`, a `file` and a compile command (`command`, or `arguments` starting with the compiler), as the format requires; a relative `file` is read from its `directory`, and a relative `directory` from the database's folder. At most 20 missing source files are named and the rest are counted. At most 256 MiB of a database is read: a larger one is `unknown` and is never loaded. A usual build file that is absent is passed over; one whose time the system will not give makes the status `unknown`, as does a source file the system will not let the check inspect (each is named with the system's reason). No fault of the file system ends the check as an error.
 
 The pin file says where the database is and what it must not be older than, under an optional `compdb` key (each key in it optional, each file read under the pin file's `root`):
 

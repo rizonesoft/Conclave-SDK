@@ -284,6 +284,35 @@ class FreshnessTests(Fixture):
         self.assertEqual(detail, "compile_commands.json: a build file of the project cannot be read, so its "
                                  "freshness cannot be told: Makefile (Permission denied)")
 
+    def test_a_source_file_the_system_will_not_show_makes_the_freshness_unknown_and_never_raises(self):
+        # Found by the completion review: `Path.is_file` raises PermissionError, which left the check as a
+        # traceback with no JSON document.
+        self.file("open.c")
+        self.database([self.entry("open.c"), self.entry("locked/a.c"), self.entry("locked/b.c"),
+                       self.entry("locked/a.c")])
+        real = pathlib.Path.stat
+
+        def stat(path, *args, **kwargs):
+            if path.parent.name == "locked":
+                raise PermissionError(13, "Permission denied")
+            return real(path, *args, **kwargs)
+
+        with unittest.mock.patch.object(pathlib.Path, "stat", stat):
+            code, status, detail, report = self.both()
+            self.assertEqual((code, status), (1, "unknown"))
+            self.assertEqual(detail, "compile_commands.json: 2 source file(s) it names cannot be inspected, so its "
+                                     "freshness cannot be told: locked/a.c (Permission denied), locked/b.c "
+                                     "(Permission denied)")
+            self.assertEqual((report["entries"], report["gone"]), (4, []))
+            # What is certain comes first: a source file that is gone is stale.
+            self.database([self.entry("open.c"), self.entry("locked/a.c"), self.entry("deleted.c")])
+            self.assertEqual(self.both()[1:3], ("stale", "compile_commands.json: 1 source file(s) it names no "
+                                                         "longer exist: deleted.c"))
+        # A folder where a source file is named is not that file, and a name no system can hold is gone.
+        (self.project / "folder.c").mkdir()
+        self.database([self.entry("open.c"), self.entry("folder.c"), self.entry("nul\x00byte.c")])
+        self.assertEqual(self.both()[3]["gone"], ["folder.c", "nul\x00byte.c"])
+
     def test_a_database_larger_than_the_check_reads_is_unknown_and_never_loaded(self):
         # Found by the review round: the database is the project's file, of any size.
         self.database()
