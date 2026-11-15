@@ -43,6 +43,8 @@ title: "TODO-01 -- LSP kit"
 
 ## 1. LSP kit known to `forge.py`
 
+> **Started:** 2026-11-15T00:00:09Z
+
 The kit folder, its detection and its doctor branch.
 
 **Phase:** 6
@@ -54,14 +56,16 @@ The kit folder, its detection and its doctor branch.
 1. Create `kits/lsp/` with `README.md` and `templates/.conclave/lsp.json`. Done when: `python forge.py kits` lists `lsp`.
 2. Teach `forge.py` the kit. Done when: the checkpoint passes.
 
-- [ ] Create `kits/lsp/README.md` and `kits/lsp/templates/.conclave/lsp.json` holding `{"schema_version": 1, "servers": []}`. Done when: `python forge.py kits` prints `lsp`.
-- [ ] Add `lsp` to `KIT_ORDER` in `forge.py` before `laravel`, and to the kit names in the usage docstring and the `--kit` help texts. Done when: a test installs `init --kit lsp` and finds `.conclave/lsp.json`.
-- [ ] Detect the kit in `installed_kits` of `forge.py` by `.conclave/lsp.json`. Done when: a test finds `lsp` in `check_repo(...)["kits"]` after an install and not before.
-- [ ] Add an `lsp` branch to `doctor_repo` in `forge.py` that checks the kit's files are present (the per-server checks come in §2). Done when: a test finds `ok` for each file on a fresh install.
-- [ ] List the kit in `README.md`, `kits/README.md` and `AGENTS.md` (Purpose). Done when: the three name it with table rows within 120 characters.
+- [ ] Create `kits/lsp/README.md` and `kits/lsp/templates/.conclave/lsp.json` holding `{"schema_version": 1, "servers": []}`. Done when: `python forge.py kits` prints `lsp`, a test in a new `tests/test_lsp_kit.py` loads the template as that JSON object, and the list `tests/test_forge.py:291` expects of `forge.list_kits()` names `lsp`.
+- [ ] Add `lsp` to `KIT_ORDER` in `forge.py` before `laravel`, and to the kit names in the usage docstring (the `doctor` line), the `--kit` help of `init`, the help of `kit` and the docstring of `apply_kit`. Done when: tests in `tests/test_lsp_kit.py` install through `init --kit lsp` and through `kit <project> lsp` on the command line and find `.conclave/lsp.json`, find the file recorded under `lsp` in `.conclave/kits.json`, find a second install changing nothing, and find a project's own `.conclave/lsp.json` kept byte for byte and listed under `preserved`. Cheaper substitute: a kit `forge.py` installs without recording must fail the record test, because `diff` and `update` would then not know the file.
+- [ ] Detect the kit in `installed_kits` of `forge.py` by `.conclave/lsp.json`. Done when: a test in `tests/test_lsp_kit.py` finds `lsp` in `check_repo(...)["kits"]` after an install and not before, and not in a project that has only the Laravel kit.
+- [ ] Add an `lsp` branch to `doctor_repo` in `forge.py` that checks each file the kit installs is present, read from the kit's `templates/` so a file added by a later section is checked without a second list (the per-server checks come in §2). Done when: tests in `tests/test_lsp_kit.py` find `ok` for each file on a fresh install through `forge.py doctor <project> lsp`, `missing` with `--strict` exit 3 once `.conclave/lsp.json` is deleted, and a check for a file added to a scratch copy of the kit.
+- [ ] List the kit in `README.md` (the kits sentence and table), `kits/README.md` (the install block and the Layout table) and `AGENTS.md` (Purpose, and the sentence naming the kits the SDK does not install in itself). Done when: the three name it with table rows within 120 characters, each saying what the kit holds so far (the server table; the client, plugin and bridge come in §2 to §7), and `python -m unittest tests.test_forge -k markdown_table` passes.
 - [ ] Commit: `lsp: kit skeleton known to forge.py`
 
-**Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; removing `lsp` from `KIT_ORDER` makes the install test fail.
+**Corrected 2026-11-15 (validation):** measured today. `forge.list_kits()` lists any folder under `kits/` with a `templates/` folder and `tests/test_forge.py:291` asserts the exact list, so that test changes with the kit. The items named no test file; they go in a new `tests/test_lsp_kit.py`, not `tests/test_forge.py` (over ten minutes to run), so the checkpoint names it; before: "`python -m unittest discover -s tests -p test_forge.py` ends `OK`". "The kit names in the usage docstring and the `--kit` help texts" are four places, now named. The install item proved only that the file lands: the install record, a second install and a project's own table are what the other kits' installs are held to (`tests/test_kit_install.py`), so they are in. The doctor item would have needed a hand-kept file list that §2 to §7 each extend: it reads the kit's `templates/`. `AGENTS.md` also names the kits the SDK does not install in itself, where `lsp` belongs. Removing `lsp` from `KIT_ORDER` does not make an install fail (`init --kit` appends a kit that is not in the order), so the checkpoint's failure case is the one that does: removing the detection.
+
+**Test checkpoint:** `python -m unittest tests.test_lsp_kit` ends `OK`; removing the `.conclave/lsp.json` detection from `installed_kits` makes the detection test fail.
 
 ## 2. Server table `.conclave/lsp.json` with presets per stack
 
