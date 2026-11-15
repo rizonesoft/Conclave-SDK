@@ -11,10 +11,13 @@ The kit is being built in sections (`todo/04-tooling/TODO-02-toolchain-kits.md`)
 | `scripts/tests/test_toolchain_check.py` | The check's own tests, with stub tools |
 | `scripts/compdb-check.py` | Says whether the compile database can be trusted; runs and writes nothing |
 | `scripts/tests/test_compdb_check.py` | The compile database check's own tests |
+| `scripts/cc-cache.py` | Puts a compiler cache in front of the compilers a build names |
+| `scripts/cache-stats.py` | Prints the cache's hit rate; fails a rebuild that did not use the cache |
+| `scripts/tests/test_cc_cache.py` | The tests of both, with stub compilers and caches |
 
 The pin file is the project's own from the first install: `forge.py` never overwrites it, and a project that already has one keeps it byte for byte.
 
-Still to come: the compiler cache wrapper (§4), the clangd seed and its entry in the LSP kit's server table (§5), and the `cpp-toolchain` skill and document (§7).
+Still to come: the clangd seed and its entry in the LSP kit's server table (§5), and the `cpp-toolchain` skill and document (§7).
 
 ## Install
 
@@ -98,6 +101,49 @@ The pin file says where the database is and what it must not be older than, unde
 - `path`: the database, `compile_commands.json` when left out. `--path`, read from `--root`, overrides it.
 - `build_files`: the files that change the compile flags. When left out, `build.ninja`, `Makefile` and `CMakeLists.txt` are compared where they exist, in the `root` and beside the database. A project with included makefiles or nested `CMakeLists.txt` files names them here, so the doctor sees them too. `--build-file` replaces the list for one run. A file named here that does not exist makes the status `unknown`, because freshness that cannot be told is not `current`.
 - `regenerate`: the project's own command that writes the database again, as a list of arguments. The check prints it for a database that is not current, quoted for the shell of the system it runs on and saying which (`regenerate with (PowerShell): ...` on Windows, `regenerate with (sh): ...` elsewhere), and never runs it: a check that builds is not read-only. `--json` gives the arguments as the list they are.
+
+## The compiler cache
+
+A compiler cache (ccache or sccache) cuts the time and memory of a rebuild. `scripts/cc-cache.py` puts one in front of the compilers a build names, on Windows and on POSIX. A program cannot change its caller's `PATH`, so it writes the wrappers and prints the one statement that puts them first on `PATH`; the build script checks its exit and then evaluates that statement. In `sh`:
+
+```sh
+setup=$(python3 scripts/cc-cache.py cc c++) || exit 1
+eval "$setup"
+```
+
+In PowerShell:
+
+```powershell
+$setup = python scripts/cc-cache.py --shell powershell clang
+if ($LASTEXITCODE) { exit 1 }
+$setup | Invoke-Expression
+```
+
+In a batch file:
+
+```bat
+set "CC_CACHE_SETUP=%TEMP%\cc-cache-setup-%RANDOM%.cmd"
+python scripts\cc-cache.py --shell cmd clang > "%CC_CACHE_SETUP%" || exit /b 1
+call "%CC_CACHE_SETUP%"
+del "%CC_CACHE_SETUP%"
+```
+
+Checking the exit first matters: a plain `eval "$(...)"` would turn a setup that failed into a quiet success.
+
+- **The wrappers.** For each compiler found on `PATH` it writes a wrapper of that name that runs the cache with the real compiler's full path and the arguments given (a `sh` script on POSIX, a `.cmd` on Windows), into a folder of the project's own under the user's cache folder: `$XDG_CACHE_HOME` or `~/.cache`, `%LOCALAPPDATA%` on Windows, then `conclave/cc-cache/<12 hex of the project's path>/`. The real compiler is looked for with that folder left out, so a wrapper never reaches itself. A wrapper is rewritten only when its content would change.
+- **The cache.** `--cache ccache` or `--cache sccache`, else the first of the two on `PATH`. The folder records the choice, and `cache-stats.py` reads that cache.
+- **Opting out.** With `BUILD_NO_CCACHE` set, or no cache installed, every wrapper is removed and the output is a comment, so evaluating it changes nothing. A shell that already has the folder on `PATH` reaches the real compilers again, and a wrapper also stands aside by itself when it runs with `BUILD_NO_CCACHE` set or with the cache's program gone. A compiler no longer named, or no longer installed, loses its wrapper on the next run.
+- **Exit codes.** 0 also when there is nothing to wrap (a missing cache never breaks a build); 1 when a wrapper cannot be written, with nothing printed to evaluate; 2 for a compiler name that is not a bare name, or a path a `.cmd` cannot quote (one holding `"` or `%`).
+
+`scripts/cache-stats.py` says whether a rebuild used the cache:
+
+```text
+python scripts/cache-stats.py --zero                 # before the build: reset the statistics (read back to prove it)
+python scripts/cache-stats.py --min-hit-rate 60      # after it: hits, misses and the rate; exit 3 when below
+python scripts/cache-stats.py --cache sccache --json
+```
+
+It reads the form each cache prints for a program (`ccache --print-stats`, `sccache --show-stats --stats-format json`; confirmed against ccache 4.12.3 and sccache 0.13.0 and 0.19.0 on 2026-11-15), runs the cache with no shell for a bounded time and output, and exits 3 with `--min-hit-rate` when the rate is below it or when no compile went through the cache at all. Exit 2, with one line saying which, when no cache is installed or the cache could not be started, failed, ran over a limit, printed something else, or did not reset.
 
 ## Doctor
 

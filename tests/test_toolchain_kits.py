@@ -242,7 +242,8 @@ class CppKitTests(ToolchainFixture):
     # the install
 
     def test_init_and_kit_install_the_pins_and_the_check_and_record_them(self):
-        files = [PINS, "scripts/compdb-check.py", "scripts/tests/test_compdb_check.py",
+        files = [PINS, "scripts/cache-stats.py", "scripts/cc-cache.py", "scripts/compdb-check.py",
+                 "scripts/tests/test_cc_cache.py", "scripts/tests/test_compdb_check.py",
                  "scripts/tests/test_toolchain_check.py", "scripts/toolchain-check.py"]
         for name, argv in (("by-init", ("init", "{}", "--kit", self.KIT)), ("by-kit", ("kit", "{}", self.KIT))):
             with self.subTest(command=argv[0]):
@@ -521,7 +522,8 @@ class CppKitTests(ToolchainFixture):
                 self.assertIn(f"`{entry['command']}`", readme)
         for word in ("`optional`", "`setup_required`", "`tool-pins`", "`tool:<name>`", "`compile-database`",
                      "`compdb`", "`path`", "`build_files`", "`regenerate`", "`current`", "`stale`", "`unknown`",
-                     "`invalid`", "`missing`", "compdb-check.py --json"):
+                     "`invalid`", "`missing`", "compdb-check.py --json", "`BUILD_NO_CCACHE`", "cc-cache.py",
+                     "cache-stats.py --min-hit-rate", "`ccache`", "`sccache`"):
             self.assertIn(word, readme)
         self.assertIn("`compdb`", (SDK_ROOT / "kits/toolchain-web/README.md").read_text(encoding="utf-8"))
 
