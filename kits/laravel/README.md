@@ -43,9 +43,9 @@ The target may be the Laravel app itself (`artisan` at the root) or a monorepo w
 A Laravel project installed before the LSP kit has its own `scripts/lsp-diagnostics.py`, with its three servers in the code (`laravel`, `tailwind`, `php`), and a hook that passes those names. It moves to the shared client with the commands it already has, and its client and hook work together at every step:
 
 1. `python forge.py kit <project> laravel` brings the LSP kit (the table, the client's library) and keeps the project's client and hook as they are. `python forge.py diff <project> laravel` then reports the old client as `project-only`: the Laravel kit no longer ships it.
-2. `python forge.py update <project>` replaces a client the project never changed with the LSP kit's (`kit-newer` under `lsp`) and a hook it never changed with the new one.
+2. `python forge.py update <project>` replaces a client the project never changed with the LSP kit's (`kit-newer` under `lsp`) and a hook it never changed with the new one. The hook is written first, so an update stopped halfway leaves the new hook beside the old client, which work together.
 3. A client the project changed is left for a merge (`python forge.py update <project> --kit-new` writes the kit's beside it). The new hook works with either client: it passes the table's names to the LSP kit's client and the old names to a client that does not use `lsp_client`.
-4. A hook the project changed is left for a merge too, and while it still passes the old names the client is not replaced under it: `update` lists the client under `left` with the reason. Merge the hook, then update again.
+4. A hook the project changed is left for a merge too, and while it still passes the old names (in any form a shell takes them: after `--server`, after `--server=`, or quoted) the client is not replaced under it: `update` lists the client under `left` with the reason. Merge the hook, then update again.
 
 ## Operator globals
 

@@ -4,6 +4,7 @@ The kit brings the lsp kit with it, adds the `laravel` preset to the project's t
 the table, and carries a project from before the LSP kit onto the shared client with a client and a hook that
 work together at every step.
 """
+import hashlib
 import json
 import os
 import pathlib
@@ -27,41 +28,11 @@ LSP_KIT = SDK_ROOT / "kits/lsp/templates"
 LARAVEL_KIT = SDK_ROOT / "kits/laravel/templates"
 PRESET = ("laravel-lsp", "intelephense", "tailwindcss")
 
-# The hook the Laravel kit shipped before this section, byte for byte.
-OLD_HOOK = b'''#!/usr/bin/env bash
-# Source from the project's pre-push hook. Exit 3 (missing servers) is a skip,
-# not a pass: the caller must print SKIPPED. Laravel and Tailwind only;
-# Intelephense stays on demand.
-set -euo pipefail
-root=$(git rev-parse --show-toplevel)
-client="$root/scripts/lsp-diagnostics.py"
-if [ ! -f "$client" ]; then
-	printf 'laravel-lsp-pre-push: missing %s\\n' "$client" >&2
-	exit 0
-fi
-set +e
-python3 "$client" --server laravel --server tailwind --staged
-status=$?
-set -e
-if [ "$status" = 3 ]; then
-	printf 'laravel-lsp-pre-push: SKIPPED (language servers not installed)\\n' >&2
-	exit 0
-fi
-exit "$status"
-'''
-
-# A client of the generation before the LSP kit, as far as a hook can tell: its servers are in its code under the
-# old names, it refuses any other name, and it knows nothing of the table. It reports one diagnostic.
-OLD_CLIENT = b'''#!/usr/bin/env python3
-import argparse, sys
-SERVERS = {"laravel": None, "tailwind": None, "php": None}
-parser = argparse.ArgumentParser()
-parser.add_argument("--server", action="append", choices=tuple(SERVERS))
-parser.add_argument("--staged", action="store_true")
-args = parser.parse_args()
-print("old client: " + " ".join(args.server) + ": app.php:1:1 error stub diagnostic")
-sys.exit(1)
-'''
+# The client and the hook the Laravel kit shipped before this section (commit 5edd3ea), byte for byte: what a
+# project installed then still has.
+BEFORE = SDK_ROOT / "tests/fixtures/laravel-before-lsp"
+OLD_CLIENT = (BEFORE / "lsp-diagnostics.py").read_bytes()
+OLD_HOOK = (BEFORE / "laravel-lsp-pre-push.sh").read_bytes()
 
 # A language server for the hook and the Blade tests: it publishes one diagnostic for each line holding `E:` and
 # appends each opened document's language id to the file named by its first argument.
@@ -427,24 +398,42 @@ class DocumentTests(unittest.TestCase):
 
 
 class Migration(Fixture):
-    """A Laravel project installed before the LSP kit: its own client and the hook of that time."""
+    """A Laravel project installed before the LSP kit: the client and the hook of that time, the Laravel kit's
+    record, and nothing of the lsp kit."""
 
     def old_project(self, name="old"):
         project = self.project(name)
         forge.apply_kit(project, "laravel")
+        # Back to what that install left: no file and no record of the lsp kit, and the retired client and hook,
+        # recorded as the Laravel kit's with the digests of those bytes.
+        record = self.record(project)
+        for rel in [rel for rel, entry in record["files"].items() if entry["kit"] == "lsp"]:
+            (project / rel).unlink()
+            del record["files"][rel]
+        del record["kits"]["lsp"]
         (project / CLIENT).write_bytes(OLD_CLIENT)
         (project / HOOK).write_bytes(OLD_HOOK)
-        record = self.record(project)
-        # As that install recorded them: both files the Laravel kit's, with the digests of those bytes.
-        record["files"][CLIENT].update(kit="laravel", sha256=forge.file_digest(OLD_CLIENT))
-        record["files"][HOOK].update(kit="laravel", sha256=forge.file_digest(OLD_HOOK))
+        record["files"][HOOK]["sha256"] = forge.file_digest(OLD_HOOK)
+        record["files"][CLIENT] = dict(record["files"][HOOK], sha256=forge.file_digest(OLD_CLIENT))
         (project / ".conclave/kits.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+        kits = forge.check_repo(project)["kits"]
+        self.assertIn("laravel", kits)
+        self.assertNotIn("lsp", kits)
         return project
 
-    def left(self, result, *skip):
+    def migrated(self, name="old"):
+        """An old project after `forge.py kit <project> laravel`: the lsp kit beside the old client and hook."""
+        project = self.old_project(name)
+        result = forge.apply_kit(project, "laravel")
+        self.assertIn(CLIENT, result["lsp"]["preserved"])
+        self.assertIn(TABLE, result["lsp"]["installed"])
+        self.assertIn(HOOK, result["preserved"])
+        return project
+
+    def left(self, result):
         """What an update left, by path, without what every Laravel project has there: the table the install
         filled (the project's from then on), the generated .mcp.json, and the retired client under `laravel`."""
-        usual = {(TABLE, "project-changed"), (".mcp.json", "generated"), (CLIENT, "project-only"), *skip}
+        usual = {(TABLE, "project-changed"), (".mcp.json", "generated"), (CLIENT, "project-only")}
         return {item["path"]: item for item in result["left"] if (item["path"], item["state"]) not in usual}
 
     def states(self, project, kit):
@@ -452,27 +441,85 @@ class Migration(Fixture):
 
 
 class MigrationTests(Migration):
-    def test_the_old_client_is_project_only_for_laravel_and_kit_newer_for_lsp_and_update_replaces_the_pair(self):
+    def test_the_fixtures_are_the_retired_files(self):
+        # The client and the hook the Laravel kit shipped until this section (commit 5edd3ea), byte for byte: their
+        # git blob ids.
+        def blob(data):
+            return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+        self.assertEqual(blob(OLD_CLIENT), "0092efff2cdb21773da313c09d4b780d2f4487d3")
+        self.assertEqual(blob(OLD_HOOK), "d521590f90de4776e084263850ce407a596c8f2e")
+        self.assertNotIn(b"lsp_client", OLD_CLIENT)
+        self.assertIn(b'choices=tuple(SERVERS)', OLD_CLIENT)
+
+    def test_bringing_the_lsp_kit_keeps_the_old_client_and_hook_and_fills_the_table(self):
         project = self.old_project()
+        result = forge.apply_kit(project, "laravel")
+        self.assertEqual(result["installed"], [])
+        self.assertIn(HOOK, result["preserved"])
+        self.assertEqual(result["lsp"]["preserved"], [CLIENT])
+        for rel in (TABLE, "scripts/lib/lsp_client.py", "scripts/lib/lsp_table.py", "scripts/lsp-servers.py"):
+            self.assertIn(rel, result["lsp"]["installed"])
+        self.assertEqual(result["lsp_servers"]["added"], list(PRESET))
+        self.assertEqual(((project / CLIENT).read_bytes(), (project / HOOK).read_bytes()), (OLD_CLIENT, OLD_HOOK))
+        # The retired client is the Laravel kit's no longer, and the lsp kit's version of that file is newer.
         self.assertEqual(self.states(project, "laravel")[CLIENT], "project-only")
         self.assertEqual(self.states(project, "laravel")[HOOK], "kit-newer")
         self.assertEqual(self.states(project, "lsp")[CLIENT], "kit-newer")
-        result = forge.update_project(project)
+
+    def test_update_replaces_an_unchanged_pair_hook_first(self):
+        project = self.migrated()
+        order = []
+        real = forge._write_recorded
+
+        def recording(target, record, kit, *args, **kwargs):
+            order.append(kit)
+            return real(target, record, kit, *args, **kwargs)
+
+        with unittest.mock.patch.object(forge, "_write_recorded", recording):
+            result = forge.update_project(project)
+        self.assertLess(order.index("laravel"), order.index("lsp"), "the client was replaced before the hook")
         self.assertEqual(sorted(result["written"]), [HOOK, CLIENT])
         self.assertEqual(self.left(result), {})
         self.assertEqual((project / CLIENT).read_bytes(), (LSP_KIT / CLIENT).read_bytes())
         self.assertEqual((project / HOOK).read_bytes(), (LARAVEL_KIT / HOOK).read_bytes())
         self.assertEqual(self.record(project)["files"][CLIENT]["kit"], "lsp")
         self.assertEqual(self.states(project, "lsp")[CLIENT], "identical")
+        # A dry run of the same update names both and writes neither.
+        other = self.migrated("dry")
+        before = self.snapshot(other)
+        self.assertEqual(sorted(forge.update_project(other, dry_run=True)["written"]), [HOOK, CLIENT])
+        self.assertEqual(self.snapshot(other), before)
+
+    def test_an_update_stopped_between_the_two_leaves_a_pair_that_works_together(self):
+        # Found by the review round: with the client replaced first, a stop there left the old hook calling a
+        # client that refuses its names.
+        project = self.migrated()
+        real = forge._write_recorded
+
+        def stopped(target, record, kit, *args, **kwargs):
+            if kit == "lsp":
+                raise OSError(28, "No space left on device")
+            return real(target, record, kit, *args, **kwargs)
+
+        with unittest.mock.patch.object(forge, "_write_recorded", stopped):
+            with self.assertRaises(OSError):
+                forge.update_project(project)
+        # The new hook, which serves either client, beside the old client.
+        self.assertEqual((project / HOOK).read_bytes(), (LARAVEL_KIT / HOOK).read_bytes())
+        self.assertEqual((project / CLIENT).read_bytes(), OLD_CLIENT)
+        result = forge.update_project(project)
+        self.assertEqual(result["written"], [CLIENT])
+        self.assertEqual((project / CLIENT).read_bytes(), (LSP_KIT / CLIENT).read_bytes())
 
     def test_a_changed_client_is_left_for_a_merge_beside_the_new_hook(self):
-        project = self.old_project()
-        (project / CLIENT).write_bytes(OLD_CLIENT + b"# the project's own change\n")
+        project = self.migrated()
+        changed = OLD_CLIENT + b"# the project's own change\n"
+        (project / CLIENT).write_bytes(changed)
         result = forge.update_project(project)
         self.assertEqual(result["written"], [HOOK])
-        self.assertEqual({path: item["state"] for path, item in self.left(result).items()},
-                         {CLIENT: "both-changed"})
-        self.assertEqual((project / CLIENT).read_bytes(), OLD_CLIENT + b"# the project's own change\n")
+        self.assertEqual({path: item["state"] for path, item in self.left(result).items()}, {CLIENT: "both-changed"})
+        self.assertEqual((project / CLIENT).read_bytes(), changed)
         self.assertEqual((project / HOOK).read_bytes(), (LARAVEL_KIT / HOOK).read_bytes())
         # The merge copy comes from `update --kit-new`.
         self.assertFalse((project / (CLIENT + ".kit-new")).exists())
@@ -481,9 +528,8 @@ class MigrationTests(Migration):
         self.assertEqual((project / (CLIENT + ".kit-new")).read_bytes(), (LSP_KIT / CLIENT).read_bytes())
 
     def test_a_changed_hook_holds_the_client_back_until_the_hook_is_merged(self):
-        project = self.old_project()
-        changed = OLD_HOOK + b"# the project's own change\n"
-        (project / HOOK).write_bytes(changed)
+        project = self.migrated()
+        (project / HOOK).write_bytes(OLD_HOOK + b"# the project's own change\n")
         result = forge.update_project(project)
         self.assertEqual(result["written"], [])
         left = self.left(result)
@@ -493,7 +539,8 @@ class MigrationTests(Migration):
         self.assertEqual((project / CLIENT).read_bytes(), OLD_CLIENT, "the client was replaced under a hook that "
                                                                       "still passes the old names")
         # A dry run and a run for the lsp kit alone say the same and write nothing.
-        self.assertEqual(forge.update_project(project, dry_run=True)["written"], [])
+        dry = forge.update_project(project, dry_run=True)
+        self.assertEqual((dry["written"], self.left(dry)[CLIENT]["hint"]), ([], forge.UPDATE_HINT_HELD))
         alone = forge.update_project(project, "lsp")
         self.assertEqual((alone["written"], self.left(alone)[CLIENT]["hint"]), ([], forge.UPDATE_HINT_HELD))
         # Merged: the project's hook now passes the table's names (here, the kit's own bytes). The client follows.
@@ -502,13 +549,35 @@ class MigrationTests(Migration):
         self.assertEqual(result["written"], [CLIENT])
         self.assertEqual((project / CLIENT).read_bytes(), (LSP_KIT / CLIENT).read_bytes())
 
-    def test_a_hook_the_project_changed_that_passes_the_new_names_holds_nothing(self):
-        project = self.old_project()
-        (project / HOOK).write_bytes((LARAVEL_KIT / HOOK).read_bytes() + b"# the project's own line\n")
-        result = forge.update_project(project)
-        self.assertEqual(result["written"], [CLIENT])
-        # Outside the selection the hook is not replaced in this run, so an old one holds the client back.
-        other = self.old_project("selected")
+    def test_every_way_a_hook_passes_the_old_names_holds_the_client(self):
+        # Found by the review round: `--server=laravel` and a quoted name work with the old client as well.
+        call = b'python3 "$client" --server laravel --server tailwind --staged'
+        self.assertEqual(OLD_HOOK.count(call), 1)
+        forms = (b'python3 "$client" --server=laravel --server=tailwind --staged',
+                 b'python3 "$client" --server "laravel" --server "tailwind" --staged',
+                 b"python3 \"$client\" --server 'laravel' --staged",
+                 b'python3 "$client" --staged --server tailwind',
+                 b'python3 "$client" --server php "$@"')
+        for number, form in enumerate(forms):
+            with self.subTest(form=form):
+                project = self.migrated(f"form-{number}")
+                (project / HOOK).write_bytes(OLD_HOOK.replace(call, form))
+                result = forge.update_project(project)
+                self.assertEqual(result["written"], [])
+                self.assertEqual(self.left(result)[CLIENT]["hint"], forge.UPDATE_HINT_HELD)
+                self.assertEqual((project / CLIENT).read_bytes(), OLD_CLIENT)
+
+    def test_a_hook_that_passes_the_tables_names_holds_nothing(self):
+        for number, extra in enumerate((b"# the project's own line\n", b'echo "checked"\n')):
+            project = self.migrated(f"own-{number}")
+            (project / HOOK).write_bytes((LARAVEL_KIT / HOOK).read_bytes() + extra)
+            self.assertEqual(forge.update_project(project)["written"], [CLIENT])
+        # A hook with no server name at all (the project calls the client elsewhere) holds nothing either.
+        bare = self.migrated("bare")
+        (bare / HOOK).write_bytes(b"#!/bin/sh\nexit 0\n")
+        self.assertEqual(forge.update_project(bare)["written"], [CLIENT])
+        # Outside the selection the hook is not replaced in this run, so the old one holds the client back.
+        other = self.migrated("selected")
         result = forge.update_project(other, only=[CLIENT])
         self.assertEqual(result["written"], [])
         self.assertEqual({path: item.get("hint") for path, item in self.left(result).items()},
@@ -519,11 +588,15 @@ class MigrationTests(Migration):
 @unittest.skipUnless(os.name == "posix" and shutil.which("bash") and shutil.which("git") and shutil.which("python3"),
                      "the hook is a shell script that calls python3")
 class HookRunTests(Migration):
-    """The installed hook, run: with the LSP kit's client and stub servers, and in each state a migration passes
-    through."""
+    """The installed hook, run: with the LSP kit's client and stub servers, and with the retired client in each
+    state a migration passes through."""
 
     def repository(self, project):
-        env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        """A git repository in the project, and an environment whose PATH starts with a folder of stub programs."""
+        self.bin = self.work / "bin"
+        self.bin.mkdir(exist_ok=True)
+        env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1",
+                   PATH=str(self.bin) + os.pathsep + os.environ["PATH"])
         for args in (["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "T"]):
             subprocess.run(["git", "-C", str(project), *args], check=True, capture_output=True, env=env)
         return env
@@ -533,7 +606,7 @@ class HookRunTests(Migration):
         subprocess.run(["git", "-C", str(project), "add", name], check=True, capture_output=True, env=env)
 
     def push(self, project, env):
-        ran = subprocess.run(["bash", str(project / HOOK)], cwd=project, capture_output=True, text=True, timeout=120,
+        ran = subprocess.run(["bash", str(project / HOOK)], cwd=project, capture_output=True, text=True, timeout=180,
                              env=env)
         return ran.returncode, ran.stdout, ran.stderr
 
@@ -542,6 +615,14 @@ class HookRunTests(Migration):
         servers = [{"name": name, "command": command or [f"no-such-{name}-anywhere"], "extensions": {".php": "php"},
                     "install": f"install {name}", "settle": 1} for name in ("laravel-lsp", "tailwindcss")]
         (project / TABLE).write_text(json.dumps({"schema_version": 1, "servers": servers}), encoding="utf-8")
+
+    def laravel_lsp_on_path(self):
+        """A stub language server on PATH under the name the retired client starts: `laravel-lsp`."""
+        command, log = self.stub_server("old-laravel-lsp")
+        program = self.bin / "laravel-lsp"
+        program.write_text("#!/bin/sh\nexec " + " ".join(f'"{part}"' for part in command) + ' "$@"\n', encoding="utf-8")
+        program.chmod(0o755)
+        return log
 
     def test_the_hook_runs_the_tables_two_servers_on_the_staged_files(self):
         project = self.project()
@@ -563,26 +644,39 @@ class HookRunTests(Migration):
         self.assertEqual(code, 0)
         self.assertIn("laravel-lsp-pre-push: SKIPPED (language servers not installed)", err)
 
-    def test_the_new_hook_beside_a_changed_old_client_is_a_working_check(self):
-        project = self.old_project()
+    def test_the_retired_pair_goes_on_working_after_the_lsp_kit_is_brought(self):
+        project = self.migrated()
         env = self.repository(project)
+        log = self.laravel_lsp_on_path()
+        self.stage(project, env, "routes.php", "<?php\nE: Route [home] not found\n")
+        code, out, err = self.push(project, env)
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("Route [home] not found", out)
+        self.assertEqual(log.read_text(encoding="utf-8").split(), ["php"])
+
+    def test_the_new_hook_beside_a_changed_old_client_is_a_working_check(self):
+        project = self.migrated()
+        env = self.repository(project)
+        log = self.laravel_lsp_on_path()
         (project / CLIENT).write_bytes(OLD_CLIENT + b"# the project's own change\n")
         forge.update_project(project)
         self.assertEqual((project / HOOK).read_bytes(), (LARAVEL_KIT / HOOK).read_bytes())
-        self.stage(project, env, "app.php", "<?php\n")
+        self.stage(project, env, "routes.php", "<?php\nE: Route [home] not found\n")
         code, out, err = self.push(project, env)
         self.assertEqual(code, 1, out + err)   # the old client's diagnostic, not its refusal of a name (2)
-        self.assertIn("old client: laravel tailwind: app.php:1:1 error stub diagnostic", out)
+        self.assertIn("Route [home] not found", out)
+        self.assertEqual(log.read_text(encoding="utf-8").split(), ["php"])
 
     def test_a_changed_old_hook_goes_on_working_with_the_client_held_back(self):
-        project = self.old_project()
+        project = self.migrated()
         env = self.repository(project)
+        self.laravel_lsp_on_path()
         (project / HOOK).write_bytes(OLD_HOOK + b"# the project's own change\n")
         forge.update_project(project)
-        self.stage(project, env, "app.php", "<?php\n")
+        self.stage(project, env, "routes.php", "<?php\nE: Route [home] not found\n")
         code, out, err = self.push(project, env)
         self.assertEqual(code, 1, out + err)
-        self.assertIn("old client: laravel tailwind", out)
+        self.assertIn("Route [home] not found", out)
         # Had the client been replaced under it, the hook would have ended as a refusal.
         (project / CLIENT).write_bytes((LSP_KIT / CLIENT).read_bytes())
         code, out, err = self.push(project, env)

@@ -1,0 +1,85 @@
+{
+  "ref": "D04 T02 \u00a73",
+  "title": "Compile database freshness check",
+  "implementation_sha": "0bb56cc3527bbefdac4586ddea530d23807975eb",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/04-tooling/D04-T02-s3.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s kits/toolchain-cpp/templates/scripts/tests (62 tests, OK on Windows and WSL)",
+    "python -m unittest tests.test_toolchain_kits (37 tests, OK on Windows and WSL)",
+    "CI run 43677953722 on 0bb56cc: success (tests-windows, tests-linux, kits-linux)"
+  ],
+  "completion": {
+    "report": "docs/reviews/04-tooling/D04-T02-s3.md",
+    "verdict": "reconciled",
+    "candidate": "0bb56cc3527bbefdac4586ddea530d23807975eb",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/04-tooling/D04-T02-s3.md",
+    "candidate": "6c99de00119fd6c45f4b821f24dc74401c0f04b6",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "6c99de00119fd6c45f4b821f24dc74401c0f04b6",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 5,
+  "pass_cap": 33
+}
