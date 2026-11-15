@@ -440,8 +440,8 @@ class Client:
     def notify(self, method, params):
         self._send({"jsonrpc": "2.0", "method": method, "params": params})
 
-    def initialize(self, options, timeout):
-        """None when the server is initialized, else why it is not."""
+    def initialize(self, options, timeout, stop=None):
+        """None when the server is initialized, else why it is not. `stop` (an event) ends the wait."""
         response = self.request("initialize", {
             "processId": os.getpid(),
             "rootUri": self.root.as_uri(),
@@ -458,10 +458,12 @@ class Client:
                               "didChangeConfiguration": {"dynamicRegistration": True}},
                 "window": {"workDoneProgress": True},
             },
-        }, timeout=timeout)
+        }, timeout=timeout, stop=stop)
         if response is None:
             if self.failure:
                 return self.failure
+            if stop is not None and stop.is_set():
+                return "was stopped while it was being initialized"
             if not self._alive:
                 return "ended before answering initialize"
             return f"did not answer initialize within {timeout:g} seconds"
@@ -524,10 +526,11 @@ def _result(entry, status, reason=None, files=0, rows=(), unanswered=(), unread=
             "unanswered": list(unanswered), "unread": list(unread), "stderr": stderr}
 
 
-def start_server(entry, project, timeout=90.0, **options):
+def start_server(entry, project, timeout=90.0, stop=None, **options):
     """Start one server of the table, as a check and a long-lived caller both must: its program found, its
     `requires` file present, `${scratch}` in its `init` and `settings` replaced by a temporary folder outside
-    the project, the process contained and initialized in its `root`. `options` go to `Client`.
+    the project, the process contained and initialized in its `root`. `options` go to `Client`; `stop` (an
+    event) ends the wait for its initialization.
 
     Returns (status, reason, client, scratch, stderr): `ok` with the running client and the folder to remove
     when it is closed (None when the entry names none), else `missing`, `skipped` or `failed` with the reason
@@ -550,7 +553,7 @@ def start_server(entry, project, timeout=90.0, **options):
             client = Client(entry, project, program, **options)
         except ClientError as exc:
             return "failed", str(exc), None, None, ""
-        refused = client.initialize(entry["init"], timeout=timeout)
+        refused = client.initialize(entry["init"], timeout=timeout, stop=stop)
         if refused:
             return "failed", refused, None, None, _text(client.stderr)
         started = True

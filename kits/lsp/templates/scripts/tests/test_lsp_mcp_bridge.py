@@ -96,6 +96,8 @@ while True:
         scratch = (message["params"].get("initializationOptions") or {}).get("storagePath")
         if isinstance(scratch, str):
             record("scratch", {"path": scratch, "exists": os.path.isdir(scratch)})
+        if config.get("init") == "silent":
+            continue
         if config.get("init") == "error":
             send({"jsonrpc": "2.0", "id": message["id"], "error": {"code": -32002, "message": "no workspace here"}})
             continue
@@ -378,6 +380,104 @@ class ProtocolTests(Fixture):
         self.assertEqual(self.log(kind="started").__len__(), 1)
 
 
+class InputTests(Fixture):
+    def test_a_message_longer_than_the_limit_is_refused_and_none_of_it_is_held(self):
+        # Found by the review round: an unterminated message was kept whole, without end.
+        self.server()
+        rel = self.file("a.py")
+        bridge = self.bridge()
+        limit = bridge_module.MESSAGE_LIMIT
+        self.assertEqual(limit, 4 * 1024 * 1024)
+        bridge.proc.stdin.write(b"x" * (limit + 70_000))   # no end of line yet
+        bridge.proc.stdin.flush()
+        bridge.proc.stdin.write(b"y" * 10 + b"\n")
+        bridge.proc.stdin.flush()
+        reply = bridge.reply()
+        self.assertEqual(reply["error"], {"code": -32600,
+                                          "message": f"Invalid request: a message may be {limit} bytes"})
+        self.assertEqual(bridge.call("diagnostics", file=rel), ("stub: clean", False))   # it goes on
+        # The reader holds nothing of a line once it is past the limit.
+        read, write = os.pipe()
+        try:
+            held = []
+            lines = bridge_module.input_lines(read, held)
+            os.write(write, b"short\n")
+            self.assertEqual(next(lines), b"short")
+            # Three times the limit with no end of line, then its end, then an ordinary message.
+            threading.Thread(target=lambda: (os.write(write, b"z" * (3 * limit)), os.write(write, b"tail\nnext\n"),
+                                             os.close(write)), daemon=True).start()
+            self.assertIs(next(lines), bridge_module.OVERSIZE)
+            self.assertEqual(list(lines), [b"next"])
+            # It never held more than the limit and one read: the rest of the long message was let go.
+            self.assertLessEqual(held[0], limit + 65536)
+        finally:
+            os.close(read)
+        self.assertEqual(bridge_module.WAITING_LIMIT, 256)
+
+    def test_messages_that_arrive_faster_than_they_are_handled_wait_in_a_bounded_queue(self):
+        self.server(behaviour={"no_answer": True})
+        rel = self.file("a.py")
+        bridge = self.in_process(timeout=3)
+        sink = io.BytesIO()
+        pulled = []
+        held = threading.Event()
+        self.addCleanup(held.set)
+        call = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                           "params": {"name": "diagnostics", "arguments": {"file": rel}}}).encode("utf-8")
+
+        def source():
+            yield call   # the bridge is busy with this for its three seconds
+            for number in range(2, 2000):
+                pulled.append(number)
+                yield json.dumps({"jsonrpc": "2.0", "id": number, "method": "ping"}).encode("utf-8")
+            held.wait(60)
+
+        sizes = []
+        real = bridge.diagnostics
+
+        def watched(arguments):
+            result = real(arguments)
+            sizes.append(len(pulled))   # how far the reader got while the call was waiting
+            return result
+
+        bridge.diagnostics = watched
+        thread = threading.Thread(target=bridge_module.serve, args=(bridge, source(), sink), daemon=True)
+        thread.start()
+        deadline = time.monotonic() + 60
+        while len(sink.getvalue().splitlines()) < 1999 and time.monotonic() < deadline:
+            time.sleep(0.1)
+        bridge.stop.set()
+        thread.join(timeout=30)
+        # While the call waited, the reader was held at the queue's size, not run to the end of the input.
+        self.assertLessEqual(sizes[0], bridge_module.WAITING_LIMIT + 2)
+        replies = [json.loads(line) for line in sink.getvalue().decode("utf-8").splitlines()]
+        self.assertEqual([reply["id"] for reply in replies], list(range(1, 2000)))   # and nothing was lost
+
+    def test_a_call_the_agent_cancels_stops_waiting_and_is_not_answered(self):
+        # Found by the review round: the cancelled call held the bridge until its time limit.
+        self.server(behaviour={"no_answer": True})
+        rel = self.file("a.py")
+        bridge = self.bridge(timeout=120)
+        bridge.send({"jsonrpc": "2.0", "id": 41, "method": "tools/call",
+                     "params": {"name": "diagnostics", "arguments": {"file": rel}}})
+        deadline = time.monotonic() + 15
+        while not self.log(kind="open"):
+            self.assertLess(time.monotonic(), deadline, "the call never reached the server")
+            time.sleep(0.05)
+        # A cancellation for another request changes nothing; the one for this call ends its wait.
+        bridge.send({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 7}})
+        bridge.send({"jsonrpc": "2.0", "method": "notifications/cancelled",
+                     "params": {"requestId": 41, "reason": "the user moved on"}})
+        started = time.monotonic()
+        bridge.number = 41
+        self.assertEqual(bridge.rpc("ping", seconds=15)["result"], {})   # id 42: the next thing on the wire
+        self.assertLess(time.monotonic() - started, 10)
+        # The server is still the same one, and the next call is answered as usual.
+        text, failed = bridge.call("hover", file=rel, line=1, column=1)
+        self.assertEqual((text, failed), ("stub:\n  stub at 0:0", False))
+        self.assertEqual(len(self.log(kind="started")), 1)
+
+
 class ToolTests(Fixture):
     def test_diagnostics_definition_references_and_hover_are_read_back_as_project_places(self):
         self.server()
@@ -394,6 +494,19 @@ class ToolTests(Fixture):
         self.assertEqual([(pathlib.Path(item["uri"]).name, item["languageId"]) for item in opened],
                          [("app.py", "python")])
         self.assertEqual(bridge.end(), 0)
+
+    def test_a_place_the_bridge_returns_can_be_given_back_to_it(self):
+        # Found by the review round: columns went in as characters and came back as UTF-16 units.
+        self.server()
+        rel = self.file("wide.py", "\U0001f600a = 1\nE: \U0001f600\U0001f600 after\n")
+        bridge = self.bridge()
+        # The stub's definition is at UTF-16 offset 4 of line 1: the `=`, which is the 4th character.
+        self.assertEqual(bridge.call("definition", file=rel, line=2, column=1), ("stub:\n  wide.py:1:4", False))
+        # Given back, that column reaches the server as the offset it came from.
+        self.assertEqual(bridge.call("hover", file=rel, line=1, column=4), ("stub:\n  stub at 0:4", False))
+        self.assertEqual(bridge_module.characters("\U0001f600a = 1", 4), 3)
+        self.assertEqual(bridge_module.characters("plain", 3), 3)
+        self.assertEqual(bridge_module.characters("ab", 9), 2)   # past the end of the line: its length
 
     def test_a_column_is_sent_in_the_units_the_protocol_counts(self):
         self.server()
@@ -772,6 +885,22 @@ class ShutdownTests(Fixture):
         bridge, pids = self.waiting()
         bridge.proc.stdin.close()
         self.ended(bridge, pids)
+
+    def test_the_end_of_input_while_a_server_is_being_started_ends_the_bridge_and_that_server(self):
+        # Found by the review round: the wait for a server's initialization did not see the bridge stopping.
+        self.server(behaviour={"init": "silent", "child": True})
+        rel = self.file("a.py")
+        bridge = self.bridge(timeout=120)
+        bridge.send({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                     "params": {"name": "diagnostics", "arguments": {"file": rel}}})
+        pids = self.pids()
+        deadline = time.monotonic() + 10
+        while not self.log(kind="initialize"):
+            self.assertLess(time.monotonic(), deadline, "the server was never asked to initialize")
+            time.sleep(0.05)
+        bridge.proc.stdin.close()
+        self.ended(bridge, pids)
+        self.assertEqual(self.log(kind="open"), [])   # it was still being initialized
 
     @unittest.skipUnless(os.name == "posix", "signals that ask a process to stop are POSIX's")
     def test_a_signal_during_a_call_ends_the_bridge_and_its_servers(self):

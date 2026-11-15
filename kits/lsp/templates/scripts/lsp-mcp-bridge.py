@@ -12,7 +12,8 @@ standard input and output, one JSON-RPC message per line, and offers four tools:
     references    file, line, column    where it is used
     hover         file, line, column    what the server says of it
 
-`file` is a path inside the project; `line` and `column` count from 1. A file goes to the servers that serve it
+`file` is a path inside the project; `line` and `column` count from 1, a column in characters, in what is asked
+and in what is answered, so a place the bridge returns can be given back to it. A file goes to the servers that serve it
 (its suffix, under the server's `root`). `diagnostics` asks every one of them; the other three ask them in the
 table's order until one gives an answer that is not empty, and name what each earlier one did.
 
@@ -25,7 +26,9 @@ The bridge is read-only by an allow-list: the only requests it can send a server
 of it, and a server that asks for an edit is told it was not made.
 
 Every server is ended, with whatever it started, when the bridge ends: at the end of its input, on a signal, on
-an error. Standard library only.
+an error, also while a server is being started or a call is waiting. A call the agent cancels
+(`notifications/cancelled`) stops waiting at once and is not answered. One message may be 4 MiB and 256 may
+wait to be handled; more is refused or made to wait, never held. Standard library only.
 """
 import argparse
 import collections
@@ -51,6 +54,9 @@ VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")   # the MCP versions this 
 TIMEOUT = 60.0                      # seconds one call may wait on a server
 OPEN_DOCUMENTS = 64                 # documents kept open in one server
 OUTBOX_LIMIT = 64 * 1024 * 1024     # bytes that may wait to be written to one server
+MESSAGE_LIMIT = 4 * 1024 * 1024     # bytes one MCP message may be
+WAITING_LIMIT = 256                 # MCP messages that may wait to be handled
+OVERSIZE = object()                 # stands for a message that was longer than MESSAGE_LIMIT
 READ_ONLY_REQUESTS = frozenset({"initialize", "shutdown", "textDocument/hover", "textDocument/definition",
                                 "textDocument/references"})
 POSITION_TOOLS = {"definition": "textDocument/definition", "references": "textDocument/references",
@@ -91,6 +97,22 @@ class Forbidden(Exception):
     """An LSP request that is not on the read-only allow-list. It is never written to a server."""
 
 
+class Halt:
+    """What ends a wait: the bridge being told to stop, or the agent cancelling the call in hand."""
+
+    def __init__(self, stop):
+        self.stop = stop
+        self.cancel = threading.Event()
+
+    def is_set(self):
+        return self.stop.is_set() or self.cancel.is_set()
+
+
+def characters(line, units):
+    """How many characters of `line` come before the UTF-16 offset `units`, which is how LSP counts."""
+    return len(line.encode("utf-16-le")[:units * 2].decode("utf-16-le", errors="ignore"))
+
+
 class Session:
     """One running server and the documents the bridge has open in it."""
 
@@ -113,6 +135,7 @@ class Bridge:
         self.root = Path(root).resolve()
         self.timeout = timeout
         self.stop = stop or threading.Event()
+        self.halt = Halt(self.stop)
         self.open_documents = open_documents
         self.outbox_limit = outbox_limit
         self.sessions = {}
@@ -148,7 +171,7 @@ class Bridge:
             session = None
         if session is None:
             status, reason, client, scratch, _stderr = lsp_client.start_server(
-                entry, self.root, timeout=min(90.0, self.timeout), read_limit=None,
+                entry, self.root, timeout=min(90.0, self.timeout), stop=self.halt, read_limit=None,
                 outbox_limit=self.outbox_limit, keep=set())
             if status != "ok":
                 return None, f"{status}: {reason}"
@@ -166,7 +189,7 @@ class Bridge:
         if method not in READ_ONLY_REQUESTS:
             raise Forbidden(f"{method} is not a read-only request: this bridge sends only "
                             f"{', '.join(sorted(READ_ONLY_REQUESTS))}")
-        return session.client.request(method, params, timeout=self.timeout, stop=self.stop)
+        return session.client.request(method, params, timeout=self.timeout, stop=self.halt)
 
     def sync(self, session, path, language, text):
         """Make the server hold the file's text as it is now: opened the first time, sent as a change when it
@@ -211,7 +234,7 @@ class Bridge:
             deadline = time.monotonic() + self.timeout
             settle = session.entry["settle"]
             answered_at = None
-            while time.monotonic() < deadline and client.alive and not self.stop.is_set():
+            while time.monotonic() < deadline and client.alive and not self.halt.is_set():
                 if self.fresh(session, uri, document) is not None:
                     if answered_at is None:
                         answered_at = time.monotonic()
@@ -271,6 +294,10 @@ class Bridge:
                 continue
             try:
                 rows = [lsp_client._row(name, file, item) for item in found]
+                source = text.splitlines()
+                for row in rows:   # the server's column is in UTF-16 units: shown in characters
+                    if row["line"] <= len(source):
+                        row["column"] = characters(source[row["line"] - 1], row["column"] - 1) + 1
             except ValueError:
                 lines.append(f"{name}: failed: published a diagnostic that is not valid for {file}")
                 continue
@@ -351,11 +378,22 @@ class Bridge:
             if parsed.scheme == "file":
                 # file:///C:/x on Windows carries the drive after a slash.
                 where = where[1:] if len(where) > 2 and where[0] == "/" and where[2] == ":" else where
+                # The server counts the column in UTF-16 units; it is shown in characters, as it is asked.
+                source = self.lines(where)
+                if line < len(source):
+                    character = characters(source[line], character)
                 where = self.shown(where)
             place = f"{where}:{line + 1}:{character + 1}"
             if place not in found:
                 found.append(place)
         return found
+
+    def lines(self, path):
+        """The lines of a file a server pointed at, or none when it cannot be read."""
+        try:
+            return Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
+        except (OSError, ValueError):
+            return []
 
     def hover_text(self, result):
         """A hover result as lines of text: MarkupContent, a marked string, or a list of them."""
@@ -401,6 +439,8 @@ def _error(number, code, message):
 
 def handle(bridge, line):
     """The reply to one line of input, or None when it asks for none (a notification)."""
+    if line is OVERSIZE:
+        return _error(None, -32600, f"Invalid request: a message may be {MESSAGE_LIMIT} bytes")
     try:
         message = json.loads(line)
     except (ValueError, RecursionError):
@@ -440,45 +480,69 @@ def serve(bridge, source, sink):
     """Answer MCP messages from `source` on `sink` until the input ends, the bridge is told to stop, or an error
     nobody expected: 0, or 1 for such an error. Input is read on a thread of its own, so the end of input and a
     signal are seen while a call is waiting on a server. The servers are closed on every way out."""
-    inbox = queue.Queue()
+    inbox = queue.Queue(maxsize=WAITING_LIMIT)
+    in_hand = {"id": None}   # the request being handled, for a cancellation that names it
+
+    def cancels(line):
+        """Whether a line is the agent cancelling the request in hand. It is read here, on the input's thread,
+        because the call it cancels is what the main thread is busy with."""
+        if line is OVERSIZE or b"notifications/cancelled" not in line:
+            return False
+        try:
+            message = json.loads(line)
+            params = message.get("params")
+            return (message.get("method") == "notifications/cancelled" and in_hand["id"] is not None
+                    and params.get("requestId") == in_hand["id"])
+        except (ValueError, AttributeError, RecursionError):
+            return False
 
     def read():
         try:
             for line in source:
-                inbox.put(line)
+                if cancels(line):
+                    bridge.halt.cancel.set()
+                    continue
+                while not bridge.stop.is_set():
+                    try:
+                        inbox.put(line, timeout=0.2)   # full: the agent is made to wait, nothing piles up
+                        break
+                    except queue.Full:
+                        continue
         except (OSError, ValueError):
             pass
         finally:
             bridge.stop.set()
-            inbox.put(None)
 
     threading.Thread(target=read, daemon=True).start()
     try:
         while True:
+            if bridge.stop.is_set():
+                return 0   # the agent has gone (or a signal came): what was still waiting has no reader
             try:
                 line = inbox.get(timeout=0.2)
             except queue.Empty:
-                if bridge.stop.is_set():
-                    return 0
                 continue
-            if line is None:
-                return 0
-            if not line.strip():
+            if line is not OVERSIZE and not line.strip():
                 continue
+            number = None
+            if line is not OVERSIZE:
+                try:
+                    number = json.loads(line).get("id")
+                except (ValueError, AttributeError, RecursionError):
+                    number = None
+            bridge.halt.cancel.clear()
+            in_hand["id"] = number
             try:
                 reply = handle(bridge, line)
             except Exception as exc:   # what state the servers are in is unknown: say so once, and end with them closed
-                number = None
-                try:
-                    number = json.loads(line).get("id")
-                except (ValueError, AttributeError):
-                    pass
                 reply = _error(number, -32603, f"Internal error: {type(exc).__name__}: {exc}")
                 sink.write((json.dumps(reply) + "\n").encode("utf-8"))
                 sink.flush()
                 print(f"lsp-mcp-bridge: stopped by an error: {type(exc).__name__}: {exc}", file=sys.stderr)
                 return 1
-            if reply is not None and not bridge.stop.is_set():
+            in_hand["id"] = None
+            # A call the agent cancelled is not answered: it has stopped listening for it.
+            if reply is not None and not bridge.halt.is_set():
                 sink.write((json.dumps(reply) + "\n").encode("utf-8"))
                 sink.flush()
     finally:
@@ -486,20 +550,30 @@ def serve(bridge, source, sink):
         bridge.close()
 
 
-def input_lines(descriptor):
-    """The lines arriving on a file descriptor, read from it directly. The bridge ends while a thread is still
+def input_lines(descriptor, held=None):
+    """The lines arriving on a file descriptor, read from it directly, a line longer than MESSAGE_LIMIT as
+    OVERSIZE with none of it kept. The bridge ends while a thread is still
     waiting for input (a signal, an error); a buffered reader holds a lock for as long as it waits, which the
-    interpreter cannot take back at exit, so standard input is read without one."""
-    pending = b""
+    interpreter cannot take back at exit, so standard input is read without one. `held`, a list, is given the
+    most bytes this ever held at once (for the test of that bound)."""
+    pending, oversize = b"", False
     while True:
         chunk = os.read(descriptor, 65536)
         if not chunk:
             break
         pending += chunk
+        if held is not None:
+            held[:] = [max([len(pending), *held])]
         while b"\n" in pending:
             line, pending = pending.split(b"\n", 1)
-            yield line
-    if pending.strip():
+            yield OVERSIZE if oversize or len(line) > MESSAGE_LIMIT else line
+            oversize = False
+        if len(pending) > MESSAGE_LIMIT:
+            # A message with no end in sight: nothing more of it is held, and its line is refused when it ends.
+            pending, oversize = b"", True
+    if oversize:
+        yield OVERSIZE
+    elif pending.strip():
         yield pending
 
 

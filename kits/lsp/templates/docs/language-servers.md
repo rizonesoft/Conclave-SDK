@@ -8,7 +8,7 @@ The project's language servers are listed in one table, `.conclave/lsp.json` (`p
 
 ## The MCP bridge
 
-The bridge offers four tools, each read-only. `file` is a path from the project root; `line` and `column` count from 1.
+The bridge offers four tools, each read-only. `file` is a path from the project root; `line` and `column` count from 1, a column in characters, in what is asked and in what is answered, so a place the bridge returns can be given back to it.
 
 | Tool | Arguments | Answer |
 | --- | --- | --- |
@@ -17,7 +17,7 @@ The bridge offers four tools, each read-only. `file` is a path from the project 
 | `references` | `file`, `line`, `column` | Where the symbol is used, one `file:line:column` a line |
 | `hover` | `file`, `line`, `column` | What the server says of the symbol |
 
-It starts a server on the first call that needs it and keeps it running, sends a file again when it has changed, and ends every server when the agent ends the bridge. It cannot rename, format or apply an edit: the only requests it sends a server are `initialize`, `shutdown`, `textDocument/hover`, `textDocument/definition` and `textDocument/references`. It installs no server: `python forge.py doctor <project> lsp` says which are missing.
+It starts a server on the first call that needs it and keeps it running, sends a file again when it has changed, and ends every server when the agent ends the bridge. A call the agent cancels stops waiting at once. It cannot rename, format or apply an edit: the only requests it sends a server are `initialize`, `shutdown`, `textDocument/hover`, `textDocument/definition` and `textDocument/references`. It installs no server: `python forge.py doctor <project> lsp` says which are missing.
 
 ## Registering the bridge
 
