@@ -957,5 +957,132 @@ class ShutdownTests(Fixture):
             self.assertTrue(gone(pid), f"process {pid} outlived the bridge")
 
 
+class EndOfInputTests(Fixture):
+    """D04 T01 section 8: the end of input ends the bridge once what arrived before it is answered."""
+
+    waiting = ShutdownTests.waiting
+    ended = ShutdownTests.ended
+
+    CUT = ("The input ended before this call was answered, so it was not run to its end: a client keeps the bridge's "
+           "input open until it has read the answer.")
+
+    def batch(self, *messages, timeout=20):
+        """The bridge given all of `messages` and then the end of input at once, as `echo ... | bridge` gives them:
+        (exit code, the replies, what it wrote to stderr)."""
+        text = "".join((message if isinstance(message, str) else json.dumps(message)) + "\n" for message in messages)
+        ran = subprocess.run([sys.executable, "-B", str(BRIDGE), "--root", str(self.project), "--timeout",
+                              str(timeout)], input=text.encode("utf-8"), capture_output=True, timeout=120,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return ran.returncode, [json.loads(line) for line in ran.stdout.splitlines()], ran.stderr.decode("utf-8")
+
+    def test_messages_followed_at_once_by_the_end_of_input_are_answered(self):
+        # Found 2026-11-15: `echo '<tools/list>' | python scripts/lsp-mcp-bridge.py` printed nothing and exited 0.
+        self.server()
+        for attempt in range(5):   # the end of input and the message race: every time, not most times
+            with self.subTest(attempt=attempt):
+                code, replies, err = self.batch(
+                    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
+                    {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                    {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+                self.assertEqual((code, err), (0, ""))
+                self.assertEqual([reply["id"] for reply in replies], [1, 2])
+                self.assertEqual(replies[0]["result"]["serverInfo"]["name"], "conclave-lsp")
+                self.assertEqual([tool["name"] for tool in replies[1]["result"]["tools"]],
+                                 ["diagnostics", "definition", "references", "hover"])
+
+    def test_a_call_waiting_at_the_end_of_input_is_answered_that_it_was_not_run_and_starts_no_server(self):
+        self.server()
+        rel = self.file("a.py")
+        call = {"jsonrpc": "2.0", "id": 7, "method": "tools/call",
+                "params": {"name": "diagnostics", "arguments": {"file": rel}}}
+        for attempt in range(5):
+            with self.subTest(attempt=attempt):
+                code, replies, err = self.batch({"jsonrpc": "2.0", "id": 6, "method": "ping"}, call,
+                                                {"jsonrpc": "2.0", "id": 8, "method": "tools/list"})
+                self.assertEqual((code, err), (0, ""))
+                self.assertEqual([reply["id"] for reply in replies], [6, 7, 8])
+                self.assertEqual(replies[1]["result"], {"content": [{"type": "text", "text": self.CUT}],
+                                                        "isError": True})
+                self.assertEqual(len(replies[2]["result"]["tools"]), 4)
+
+    def test_every_kind_of_message_that_starts_no_server_is_answered_in_order_at_the_end_of_input(self):
+        self.server()
+        code, replies, err = self.batch(
+            {"jsonrpc": "2.0", "id": 1, "method": "ping"},
+            {"jsonrpc": "2.0", "id": 2, "method": "resources/list"},
+            "this is not json",
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            "[1, 2]",
+            {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "rename", "arguments": {}}},
+            {"jsonrpc": "2.0", "id": 4, "method": "ping"})
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual([(reply["id"], reply.get("error", {}).get("code")) for reply in replies],
+                         [(1, None), (2, -32601), (None, -32700), (None, -32600), (3, None), (4, None)])
+        self.assertEqual(replies[0]["result"], {})
+        # A call is never run after the input has ended, whatever it names: it is told so.
+        self.assertEqual(replies[4]["result"]["content"][0]["text"], self.CUT)
+        self.assertEqual(self.log(kind="started"), [])   # no server was started for any of it
+
+    def test_what_waits_behind_a_call_is_answered_when_the_input_ends_during_that_call(self):
+        bridge, pids = self.waiting()
+        rel = "a.py"
+        bridge.send({"jsonrpc": "2.0", "id": 50, "method": "tools/call",
+                     "params": {"name": "hover", "arguments": {"file": rel, "line": 1, "column": 1}}})
+        bridge.send({"jsonrpc": "2.0", "id": 51, "method": "tools/list"})
+        started = len(self.log(kind="started"))
+        bridge.proc.stdin.close()
+        replies = []
+        while True:
+            reply = bridge.reply(30)
+            if reply is None:
+                break
+            replies.append(reply)
+        self.assertEqual([reply["id"] for reply in replies], [bridge.number, 50, 51])
+        for cut in replies[:2]:   # the call in hand, cut short, and the one that had not begun
+            self.assertEqual(cut["result"], {"content": [{"type": "text", "text": self.CUT}], "isError": True})
+        self.assertEqual(len(replies[2]["result"]["tools"]), 4)
+        self.ended(bridge, pids)   # exit 0 in time, and the waiting call's server and its child are gone
+        self.assertEqual(len(self.log(kind="started")), started)   # the second call started no server
+
+    def test_the_end_of_input_while_a_message_is_being_handled_does_not_lose_its_answer(self):
+        bridge = self.in_process()
+        real = bridge_module.handle
+        held = []
+
+        def handle(inner, line):
+            # Held until the input has ended: the reply is then written after the end of input was seen.
+            held.append(inner.halt.ended.wait(30))
+            return real(inner, line)
+
+        sink = io.BytesIO()
+        lines = [json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}).encode("utf-8") + b"\n"]
+        with unittest.mock.patch.object(bridge_module, "handle", handle):
+            code = bridge_module.serve(bridge, iter(lines), sink)
+        replies = [json.loads(line) for line in sink.getvalue().decode("utf-8").splitlines()]
+        self.assertEqual((code, held), (0, [True]))
+        self.assertEqual([reply["id"] for reply in replies], [1])   # once, and not dropped
+        self.assertEqual(len(replies[0]["result"]["tools"]), 4)
+
+    def test_an_output_nobody_reads_ends_the_bridge_quietly(self):
+        class Closed(io.RawIOBase):
+            def write(self, data):
+                raise BrokenPipeError(32, "Broken pipe")
+
+        bridge = self.in_process()
+        lines = [json.dumps({"jsonrpc": "2.0", "id": number, "method": "ping"}).encode("utf-8") + b"\n"
+                 for number in (1, 2)]
+        with unittest.mock.patch.object(sys, "stderr", io.StringIO()) as errors:
+            code = bridge_module.serve(bridge, iter(lines), Closed())
+        self.assertEqual((code, errors.getvalue(), bridge.unread), (0, "", True))
+
+    @unittest.skipUnless(os.name == "posix", "signals that ask a process to stop are POSIX's")
+    def test_a_signal_answers_nothing_that_was_still_waiting(self):
+        bridge, pids = self.waiting()
+        bridge.send({"jsonrpc": "2.0", "id": 60, "method": "tools/list"})
+        os.kill(bridge.proc.pid, signal.SIGTERM)
+        self.ended(bridge, pids)
+        self.assertIsNone(bridge.reply(30))   # the output closed with no reply on it
+
+
 if __name__ == "__main__":
     unittest.main()

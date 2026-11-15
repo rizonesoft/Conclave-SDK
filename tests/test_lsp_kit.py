@@ -708,7 +708,11 @@ class McpBridgeTests(unittest.TestCase):
     def test_the_document_gives_each_agents_registration_with_its_version_and_source(self):
         text = self.DOCUMENT.read_text(encoding="utf-8")
         blocks = re.findall(r"```(\w+)\n(.*?)```", text, flags=re.DOTALL)
-        registrations = [body for _kind, body in blocks if "lsp-mcp-bridge.py" in body]
+        # The registrations: every block of the section that registers the bridge. (The line that tries the
+        # bridge by hand, in the section before it, names the script too and registers nothing.)
+        registering = text.split("## Registering the bridge" + chr(10), 1)[1]
+        registrations = [body for _kind, body in re.findall(r"```(\w+)\n(.*?)```", registering, flags=re.DOTALL)
+                         if "lsp-mcp-bridge.py" in body]
         self.assertEqual(len(registrations), 5)   # Codex's command and its two tables, Antigravity's, Claude Code's
         for body in registrations:
             self.assertIn(self.BRIDGE, body)
@@ -953,6 +957,37 @@ class DocumentTests(InstalledProject):
         for preset in presets:
             self.assertIn(f"`{preset}`", text, f"the document does not name the preset {preset}")
 
+    def test_the_line_that_tries_the_bridge_by_hand_prints_the_four_tools(self):
+        # D04 T01 section 8: this line printed nothing, because the end of input stopped the bridge first.
+        project = self.install()
+        text = (project / "docs/language-servers.md").read_text(encoding="utf-8")
+        (line,) = [line for line in text.splitlines() if line.startswith("echo '")]
+        self.assertTrue(line.endswith("| python scripts/lsp-mcp-bridge.py"), line)
+        folder = self.work / "python-on-path"
+        folder.mkdir()
+        if os.name == "nt":
+            shell = shutil.which("pwsh") or shutil.which("powershell")
+            if not shell:
+                self.skipTest("needs PowerShell")
+            argv = [shell, "-NoProfile", "-NonInteractive", "-Command", line]
+            path = str(pathlib.Path(sys.executable).parent)
+        else:
+            launcher = folder / "python"
+            launcher.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n', encoding="utf-8")
+            launcher.chmod(0o755)
+            argv = ["/bin/sh", "-c", line]
+            path = str(folder)
+        env = dict(os.environ, PATH=path + os.pathsep + os.environ["PATH"])
+        ran = subprocess.run(argv, cwd=project, env=env, capture_output=True, text=True, timeout=180,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        (reply,) = [json.loads(out) for out in ran.stdout.splitlines() if out.strip()]
+        self.assertEqual((reply["id"], [tool["name"] for tool in reply["result"]["tools"]]),
+                         (1, ["diagnostics", "definition", "references", "hover"]))
+        for said in ("It prints one line of JSON that names the four tools, and exits 0.",
+                     "a call needs the input kept open until its answer has been read"):
+            self.assertIn(said, text)
+
     def test_a_command_the_scripts_lack_does_not_parse(self):
         # What the test above would do with a wrong document: an option that is not there, a missing argument.
         for script, arguments in (("lsp-servers.py", ["add"]), ("lsp-servers.py", ["install", "python"]),
@@ -1195,12 +1230,16 @@ class FreshInstallTests(InstalledProject):
         self.assertEqual(document["servers"]["basedpyright"]["status"], "ok")
         self.assertEqual([(row["file"], row["line"], row["message"]) for row in document["diagnostics"]],
                          [("app.py", 2, "undefined name")])
-        # The plugin and the bridge of the installed copy start as well.
+        # The plugin of the installed copy is generated, and its bridge answers. (Until D04 T01 section 8 this
+        # asserted only exit 0, and passed while the bridge printed nothing for a request followed by the end of
+        # input.)
         self.assertEqual(self.run_script(project, "scripts/lsp-servers.py", "plugin", env=self.env)[0], 0)
         ran = subprocess.run([sys.executable, "-B", "scripts/lsp-mcp-bridge.py"], cwd=project, env=self.env,
                              input='{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}\n', capture_output=True,
                              text=True, timeout=120, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         self.assertEqual(ran.returncode, 0, ran.stderr)
+        self.assertEqual([tool["name"] for tool in json.loads(ran.stdout)["result"]["tools"]],
+                         ["diagnostics", "definition", "references", "hover"])
 
     @unittest.skipUnless(os.environ.get("CONCLAVE_FULL_TESTS"), "slow: set CONCLAVE_FULL_TESTS=1 for the full suite")
     def test_the_kits_own_tests_pass_from_the_installed_copy(self):

@@ -74,6 +74,14 @@ The bridge offers four tools, each read-only. `file` is a path from the project 
 
 It starts a server on the first call that needs it and keeps it running, sends a file again when it has changed, and ends every server when the agent ends the bridge. A call the agent cancels stops waiting at once. It cannot rename, format or apply an edit: the only requests it sends a server are `initialize`, `shutdown`, `textDocument/hover`, `textDocument/definition` and `textDocument/references`. It installs no server: `python forge.py doctor <project> lsp` says which are missing.
 
+To try the bridge by hand, send it one request. The same line works in `sh` and in PowerShell:
+
+```text
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | python scripts/lsp-mcp-bridge.py
+```
+
+It prints one line of JSON that names the four tools, and exits 0. The end of its input ends the bridge once it has answered what arrived before it, so a request sent this way is answered. A `tools/call` sent this way is answered that the input ended before the call could run: a call needs the input kept open until its answer has been read, which is how an agent holds it.
+
 ## Registering the bridge
 
 Each entry below runs `python scripts/lsp-mcp-bridge.py`. The path is relative, so it is read from the folder the agent is started in: start the agent at the project root, or give the script's full path. Where `python` is not Python 3 on the machine, name `python3`.
