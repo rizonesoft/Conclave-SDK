@@ -314,7 +314,7 @@ class ForgeProvisionTests(unittest.TestCase):
     # What each agent choice leaves out, written here and not read from forge: the other agents' folders and entry docs.
     AGENT_FILES = {"agy": (".agents/", "GEMINI.md"), "claude": (".claude/", "CLAUDE.md"), "codex": (".codex/", "CODEX.md")}
     LARAVEL_FILES = (
-        "scripts/lsp-diagnostics.py", "scripts/hooks/laravel-lsp-pre-push.sh", "docs/laravel-agent-tooling.md",
+        "scripts/hooks/laravel-lsp-pre-push.sh", "docs/laravel-agent-tooling.md",
         ".agents/skills/laravel-boost/SKILL.md", ".claude/skills/laravel-boost/SKILL.md",
         ".codex/skills/laravel-boost/SKILL.md", ".codex/skills/laravel-boost/agents/openai.yaml",
     )

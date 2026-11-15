@@ -117,13 +117,19 @@ class LspKitTests(unittest.TestCase):
         self.assertNotIn("lsp", forge.check_repo(project)["kits"])
         forge.apply_kit(project, "lsp")
         self.assertIn("lsp", forge.check_repo(project)["kits"])
-        # The Laravel kit's own client is not this kit.
+        # A client alone is not this kit (a Laravel project from before the kit has one).
+        alone = self.project("alone")
+        (alone / "scripts").mkdir()
+        shutil.copyfile(SDK_ROOT / "kits/lsp/templates/scripts/lsp-diagnostics.py",
+                        alone / "scripts/lsp-diagnostics.py")
+        self.assertNotIn("lsp", forge.check_repo(alone)["kits"])
+        # The Laravel kit brings this kit with it (D04 T01 section 4).
         laravel = self.project("laravel")
         (laravel / "artisan").write_bytes(b"<?php\n")
         forge.apply_kit(laravel, "laravel")
         kits = forge.check_repo(laravel)["kits"]
         self.assertIn("laravel", kits)
-        self.assertNotIn("lsp", kits)
+        self.assertIn("lsp", kits)
 
     def test_the_doctor_reports_each_file_the_kit_installs(self):
         project = self.project()
@@ -294,14 +300,20 @@ class LspKitTests(unittest.TestCase):
 
     def test_the_bare_doctor_adds_the_kit_to_a_stack_kits_checks(self):
         project = self.project()
-        (project / "artisan").write_bytes(b"<?php\n")
-        forge.apply_kit(project, "laravel")
+        forge.apply_kit(project, "wordpress")
         forge.apply_kit(project, "lsp")
         report = forge.doctor_repo(project)
-        self.assertEqual((report["kit"], report["also"]), ("laravel", ["lsp"]))
-        checks = self.checks(report)
-        self.assertEqual(checks["artisan"]["status"], "ok")
-        self.assertEqual(checks[TABLE]["status"], "ok")
+        self.assertEqual((report["kit"], report["also"]), ("wordpress", ["lsp"]))
+        self.assertEqual(self.checks(report)[TABLE]["status"], "ok")
+        # The Laravel kit runs this kit's checks in its own branch, so they are listed once and not under `also`.
+        laravel = self.project("laravel")
+        (laravel / "artisan").write_bytes(b"<?php\n")
+        forge.apply_kit(laravel, "laravel")
+        report = forge.doctor_repo(laravel)
+        self.assertEqual(report["kit"], "laravel")
+        self.assertNotIn("also", report)
+        names = [check["name"] for check in report["checks"]]
+        self.assertEqual((names.count(TABLE), names.count("server-table"), names.count("artisan")), (1, 1, 1))
 
     def test_a_failing_appended_check_is_counted_and_fails_strict(self):
         # Found by the round of D04 T01 section 1: the count must include the checks the bare form appends. The kit

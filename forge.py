@@ -295,8 +295,8 @@ def kit_plan(target_root: Path, kit_name: str, *, agent: str = "all", host: str 
         artisan_rel = (app_root / "artisan").relative_to(target_root).as_posix()
         extra["artisan"] = artisan_rel
         boost_rel = (app_root / "boost.json").relative_to(target_root).as_posix()
+        # The diagnostics client is the lsp kit's, which `apply_kit` installs with this kit.
         rel_items = [
-            "scripts/lsp-diagnostics.py",
             "scripts/hooks/laravel-lsp-pre-push.sh",
             "docs/laravel-agent-tooling.md",
             ".agents/skills/laravel-boost/SKILL.md",
@@ -676,10 +676,14 @@ def apply_kit(
     dry_run: bool = False,
     host: str | None = None,
     include=None,
+    fill_table: bool = True,
 ) -> dict:
     """Apply an additive overlay kit ('base', 'todo', 'reviewer', 'automations', 'unattended', 'lsp',
     'toolchain-cpp', 'toolchain-web', 'laravel', 'wordpress') for all or one agent without overwriting existing
     files.
+
+    The Laravel kit brings the lsp kit with it (the diagnostics client and the server table are that kit's), by
+    this same function, so its files are recorded under `lsp`; the result names them under `lsp`.
 
     A file that already exists is the project's and is never replaced: the kit is a template copied once, and the
     project adapts its copy from then on. `include(rel)` can leave paths out entirely.
@@ -776,8 +780,12 @@ def apply_kit(
         result["app_root"] = _find_web_app_root(target_root)
         if repaired:
             result["repaired"] = repaired
-    if kit_name in ("lsp", "toolchain-web"):
-        servers = _fill_lsp_table(target_root, dry_run, installing_web=kit_name == "toolchain-web")
+    if kit_name == "laravel":
+        # The table is filled once, below, after both kits' files are in place.
+        with_lsp = apply_kit(target_root, "lsp", agent=agent, dry_run=dry_run, include=include, fill_table=False)
+        result["lsp"] = {"installed": with_lsp["installed"], "preserved": with_lsp["preserved"]}
+    if kit_name in ("lsp", "toolchain-web", "laravel") and fill_table:
+        servers = _fill_lsp_table(target_root, dry_run, installing=kit_name)
         if servers is not None:
             result["lsp_servers"] = servers
             if "refused" in servers or "failed" in servers:
@@ -805,46 +813,95 @@ def _find_web_app_root(target_root: Path) -> str:
     return "."
 
 
-def _fill_lsp_table(target_root: Path, dry_run: bool, installing_web: bool = False) -> dict | None:
-    """Add a stack's language servers to the project's LSP table for the toolchain kits it has: with toolchain-web,
-    the `php` preset for an app with composer.json and the `web` preset for one with package.json. It runs when
-    either kit is installed, so their order does not matter. Only servers the table lacks are added; one it has is
-    never changed. Returns None when the project has no toolchain-web kit and none is being installed (a dry run
-    of that install has written no pin file yet), else what happened:
-    {"added", "kept"}, {"not_installed": the command that installs and fills the table}, {"refused": why the table
-    does not load} or {"failed": why it could not be written, "retry": the command}."""
+def _fill_lsp_table(target_root: Path, dry_run: bool, installing: str | None = None) -> dict | None:
+    """Add a stack's language servers to the project's LSP table for the stack kits it has: with the Laravel kit,
+    the `laravel` preset rooted at the folder that holds artisan; with toolchain-web, the `php` preset for an app
+    with composer.json and the `web` preset for one with package.json. It runs when any of those kits or the lsp
+    kit is installed (`installing`), so their order does not matter.
+
+    A server the table lacks is added. One it has is never changed, with one exception: an entry that is still, key
+    for key, what another preset writes for that name (the `web` preset's tailwindcss, which has no Blade) is the
+    kits' own, so the Laravel preset's entry replaces it; an entry the project changed is kept and, when it is not
+    the Laravel preset's, listed under `differs`. Returns None when the project has neither stack kit and none is
+    being installed, else what happened: {"added", "kept"} (with "replaced" and "differs" for a Laravel project),
+    {"not_installed": the command that installs and fills the table}, {"refused": why the table does not load} or
+    {"failed": why it could not be written, "retry": the command}."""
     pins = target_root / TOOLCHAIN_PINS["toolchain-web"]
-    if not pins.is_file() and not installing_web:
+    has_web = pins.is_file() or installing == "toolchain-web"
+    laravel_app = None
+    if installing == "laravel" or "laravel" in installed_kits(target_root):
+        laravel_app = _find_laravel_app_root(target_root)
+    if not has_web and laravel_app is None:
         return None
     retry = f"python forge.py kit {target_root.as_posix()} lsp"
-    if not (target_root / LSP_TABLE).is_file():
+    table_there = (target_root / LSP_TABLE).is_file()
+    # A dry run of the Laravel install has not written the table the lsp kit brings with it: it is read as empty.
+    if not table_there and not (dry_run and installing == "laravel"):
         return {"not_installed": retry}
     table = _lsp_table_module()
     module = _toolchain_module("toolchain-web")
     try:
-        servers = table.load_servers(target_root)
-        app_root = module.load_pin_file(pins)["root"] if pins.is_file() else _find_web_app_root(target_root)
+        servers = table.load_servers(target_root) if table_there else []
+        web_root = None
+        if has_web:
+            web_root = module.load_pin_file(pins)["root"] if pins.is_file() else _find_web_app_root(target_root)
     except (table.TableError, module.PinError) as exc:
         return {"refused": str(exc)}
-    app = target_root / app_root
-    wanted = [preset for preset, manifest in (("php", "composer.json"), ("web", "package.json"))
-              if (app / manifest).is_file()]
-    have = {server["name"] for server in servers}
     presets = table.load_presets(FORGE_ROOT / "kits/lsp/templates/scripts/lib/lsp_presets.json")
-    added, kept = [], []
-    for preset in wanted:
+    # The Laravel preset first: its entries are the fuller ones, and the web presets then find them in place.
+    wanted: list[tuple[str, str]] = []
+    if laravel_app is not None:
+        wanted.append(("laravel", laravel_app.relative_to(target_root).as_posix() or "."))
+    if web_root is not None:
+        wanted += [(preset, web_root) for preset, manifest in (("php", "composer.json"), ("web", "package.json"))
+                   if (target_root / web_root / manifest).is_file()]
+
+    def a_presets_own(existing: dict, app_root: str) -> bool:
+        """Whether a table entry is still exactly what a preset other than `laravel` writes for its name in the
+        Laravel app's folder. One rooted elsewhere, or with any key changed, is the project's choice."""
+        for other in presets["presets"]:
+            if other == "laravel":
+                continue
+            try:
+                candidates = table.resolve_preset(target_root, other, app_root, presets)
+            except table.TableError:
+                continue
+            if any(table.stored(entry) == table.stored(existing) for entry in candidates
+                   if entry["name"] == existing["name"]):
+                return True
+        return False
+
+    by_name = {server["name"]: index for index, server in enumerate(servers)}
+    added, replaced, kept, differs = [], [], [], []
+    for preset, app_root in wanted:
         for entry in table.resolve_preset(target_root, preset, app_root, presets):
-            if entry["name"] in have:
-                kept.append(entry["name"])
+            name = entry["name"]
+            if name not in by_name:
+                by_name[name] = len(servers)
+                servers.append(entry)
+                added.append(name)
+                continue
+            existing = servers[by_name[name]]
+            if preset != "laravel" or table.stored(existing) == table.stored(entry):
+                if name not in added and name not in replaced:
+                    kept.append(name)
+            elif a_presets_own(existing, app_root):
+                servers[by_name[name]] = entry
+                replaced.append(name)
             else:
-                added.append(entry)
-                have.add(entry["name"])
-    if added and not dry_run:
+                kept.append(name)
+                differs.append(name)
+    if (added or replaced) and not dry_run:
         try:
-            table.write_servers(target_root, servers + added)
+            table.write_servers(target_root, servers)
         except table.TableWriteError as exc:
-            return {"failed": str(exc), "retry": f"python forge.py kit {target_root.as_posix()} toolchain-web"}
-    return {"added": [entry["name"] for entry in added], "kept": kept}
+            again = installing if installing in ("laravel", "toolchain-web") else \
+                ("toolchain-web" if has_web else "laravel")
+            return {"failed": str(exc), "retry": f"python forge.py kit {target_root.as_posix()} {again}"}
+    result = {"added": added, "kept": list(dict.fromkeys(kept))}
+    if laravel_app is not None:
+        result.update(replaced=replaced, differs=differs)
+    return result
 
 
 # The todo kit's pre-commit hook (D01 T02 §7): git runs it only once `core.hooksPath` points at the folder it is
@@ -1152,6 +1209,34 @@ UPDATE_HINT_NO_RECORD = (
     "Without a record entry a differing file's installed bytes are unknown, so it is left. `forge.py record` adopts "
     "the files identical to the kit as installed; a differing file is merged by hand (`update --kit-new` helps).")
 UPDATE_HINT_GENERATED = "Generated by the kit, never copied: `forge.py kit <project> laravel` builds it."
+# The diagnostics client and the Laravel hook that calls it changed together (D04 T01 §4): the servers' names
+# moved into the table. The kit's hook serves either client; a hook from before does not, so the client is not
+# replaced under a hook the project changed that still passes the old names.
+LSP_CLIENT = "scripts/lsp-diagnostics.py"
+LARAVEL_HOOK = "scripts/hooks/laravel-lsp-pre-push.sh"
+OLD_SERVER_NAMES = re.compile(r"--server\s+(?:laravel|tailwind|php)(?=[\s)]|$)", re.MULTILINE)
+TABLE_SERVER_NAMES = re.compile(r"--server\s+(?:laravel-lsp|tailwindcss|intelephense)(?=[\s)]|$)", re.MULTILINE)
+UPDATE_HINT_HELD = (f"Held: {LARAVEL_HOOK} still passes the old client's server names and is the project's own "
+                    "version, so the client it calls is not replaced under it. Merge the hook first "
+                    "(`forge.py update <project> --kit-new` writes the kit's beside it), then update again.")
+
+
+def _hook_holds_client(target: Path, report: dict, chosen) -> bool:
+    """Whether the project's Laravel hook passes only the old client's server names and this update will not
+    replace it (the project changed it, or it is outside the selection). A hook that also passes the table's
+    names (the kit's own, which serves either client, or a project's merge of it) holds nothing."""
+    hook = target / LARAVEL_HOOK
+    if _unsafe_destination(target, LARAVEL_HOOK) or not hook.is_file():
+        return False
+    try:
+        text = hook.read_text(encoding="utf-8", errors="replace")
+        old = bool(OLD_SERVER_NAMES.search(text)) and not TABLE_SERVER_NAMES.search(text)
+    except OSError:
+        return False
+    states = [item["state"] for kit in report["kits"].values() for item in kit["files"]
+              if item["path"] == LARAVEL_HOOK]
+    replaced = chosen(LARAVEL_HOOK) and any(state == "kit-newer" for state in states)
+    return old and not replaced
 
 
 def _only_paths(only) -> list[str]:
@@ -1206,6 +1291,7 @@ def update_project(target_root: Path, kit_name: str | None = None, *, only=(), d
     written: list[str] = []
     left: list[dict] = []
     siblings: list[str] = []
+    held = _hook_holds_client(target, report, chosen)
     for name, kit in report["kits"].items():
         plan = sources[name]["plan"]
         copies: list[tuple[str, Path, bytes]] = []
@@ -1216,6 +1302,9 @@ def update_project(target_root: Path, kit_name: str | None = None, *, only=(), d
                 continue
             if plan.get(rel, False) is None:  # a generated entry has no source
                 left.append({"path": rel, "state": state, "hint": UPDATE_HINT_GENERATED})
+                continue
+            if held and rel == LSP_CLIENT and state == "kit-newer":
+                left.append({"path": rel, "state": state, "hint": UPDATE_HINT_HELD})
                 continue
             take = state in ("missing", "kit-newer") or (state == "project-removed" and bool(paths))
             if not take:
@@ -2196,7 +2285,9 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
         else:
             kit_name = "base"
         found = installed_kits(target_root)
-        also = [kit for kit in BARE_DOCTOR_ALSO if kit in found and kit != kit_name]
+        # The Laravel branch runs the lsp kit's checks itself, so they are not listed a second time.
+        also = [kit for kit in BARE_DOCTOR_ALSO if kit in found and kit != kit_name
+                and not (kit == "lsp" and kit_name == "laravel")]
 
     if kit_name == "laravel":
         app_root = _find_laravel_app_root(target_root)
@@ -2204,8 +2295,6 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
             add_check("artisan", "ok", (app_root / "artisan").as_posix())
         else:
             add_check("artisan", "missing", f"no artisan under {target_root.as_posix()}")
-        lsp_py = target_root / "scripts/lsp-diagnostics.py"
-        add_check("lsp-diagnostics.py", "ok" if lsp_py.is_file() else "missing", lsp_py.as_posix())
         boost_json = (app_root / "boost.json") if app_root else (target_root / "boost.json")
         add_check("boost.json", "ok" if boost_json.is_file() else "missing", boost_json.as_posix())
         boost_package = _composer_package_installed(app_root, "laravel/boost") if app_root else None
@@ -2214,13 +2303,9 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
         for agent_dir in (".agents", ".claude", ".codex"):
             sk = target_root / agent_dir / "skills/laravel-boost/SKILL.md"
             add_check(f"skill:{agent_dir}", "ok" if sk.is_file() else "missing", sk.as_posix())
-        for binary, hint in (
-            ("laravel-lsp", "composer global require laravel/lsp"),
-            ("tailwindcss-language-server", "npm install -g @tailwindcss/language-server"),
-            ("intelephense", "npm install -g intelephense"),
-        ):
-            found = shutil.which(binary)
-            add_check(binary, "ok" if found else "setup_required", found or hint)
+        # The client and the servers are the lsp kit's, which this kit brings: its files, the table, and each
+        # server the table names (the `laravel` preset's three on a fresh install).
+        _doctor_lsp(target_root, add_check)
     elif kit_name == "wordpress":
         _doctor_wordpress(target_root, add_check)
     elif kit_name == "reviewer":

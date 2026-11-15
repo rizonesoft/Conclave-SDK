@@ -75,7 +75,7 @@ Then open the project in Claude Code, Codex or Antigravity. Each agent finds its
 | `lsp` | Server table, presets per stack, `lsp-servers.py`; client and wiring to come | Language servers |
 | `toolchain-cpp` | Pins for Ninja, a compiler cache, a linker, clangd and a compiler; a check | C or C++ |
 | `toolchain-web` | Pins for PHP, Composer, Node, a package manager and static tools; a check | PHP or Node |
-| `laravel` | `boost.json`, `.mcp.json`, LSP diagnostics, `laravel-boost` | `artisan` exists |
+| `laravel` | `boost.json`, `.mcp.json`, `laravel-boost`, and the `lsp` kit with its servers | `artisan` exists |
 | `wordpress` | Site pin, SSH/SFTP, WordPress MCP, DDEV, PHPCS | A WordPress site |
 
 ## Commands

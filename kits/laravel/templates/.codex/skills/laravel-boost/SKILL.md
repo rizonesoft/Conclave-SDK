@@ -10,5 +10,5 @@ Boost is the MCP server registered as `laravel-boost` (`php <artisan> boost:mcp`
 1. Confirm `.env` points at a development database. Stop before calling `database-query` if it might be production.
 2. Prefer Boost tools (`search-docs`, `database-schema`, `last-error`, `application-info`) over guessing a framework API.
 3. Load Boost's `laravel-best-practices`, `pest-testing`, or `tailwindcss-development` when editing those surfaces.
-4. Gates still win: Pest, Pint, PHPStan, `scripts/lsp-diagnostics.py`.
+4. Gates still win: Pest, Pint, PHPStan, `scripts/lsp-diagnostics.py` (it runs the servers `.conclave/lsp.json` names: `--server laravel-lsp --server tailwindcss --staged`).
 5. Run `boost:install` only from the directory that contains `artisan`.

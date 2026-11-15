@@ -21,20 +21,21 @@ For a monorepo whose app lives in `platform/`, the args are `["platform/artisan"
 
 ## Language servers
 
-One client: `scripts/lsp-diagnostics.py`. Three servers:
+The client and the server table are the LSP kit's, which this kit brings with it: `scripts/lsp-diagnostics.py` runs the servers that `.conclave/lsp.json` names, and the table is the only list of them. The Laravel kit adds three, each rooted at the folder that holds `artisan`:
 
 | Server | Binary | Install | Gate? |
 | ------ | ------ | ------- | ----- |
-| laravel | `laravel-lsp` | `composer global require laravel/lsp` | yes (routes, config, views) |
-| tailwind | `tailwindcss-language-server` | `npm i -g @tailwindcss/language-server` | yes |
-| php | `intelephense` | `npm install -g intelephense` | no (on demand; PHPStan, Pint gate) |
+| `laravel-lsp` | `laravel-lsp` | `composer global require laravel/lsp` | yes (routes, config, views) |
+| `tailwindcss` | `tailwindcss-language-server` | `npm i -g @tailwindcss/language-server` | yes |
+| `intelephense` | `intelephense` | `npm install -g intelephense` | no (on demand; PHPStan, Pint gate) |
 
 ```bash
-python3 scripts/lsp-diagnostics.py --server laravel --server tailwind --staged
-python3 scripts/lsp-diagnostics.py --server php path/to/File.php
+python3 scripts/lsp-diagnostics.py --server laravel-lsp --server tailwindcss --staged
+python3 scripts/lsp-diagnostics.py --server intelephense path/to/File.php
+python3 scripts/lsp-servers.py list
 ```
 
-A missing binary is `SKIPPED` (exit 3 when every requested server is missing), never a silent pass.
+A server that is not installed is `SKIPPED` (exit 3 when no requested server could check anything), never a silent pass, and a server that could not finish its check fails the run. To change what a server is started with, edit its entry in `.conclave/lsp.json`; `scripts/hooks/laravel-lsp-pre-push.sh` runs the first two servers on the staged files.
 
 ## Doctor
 
@@ -42,4 +43,4 @@ A missing binary is `SKIPPED` (exit 3 when every requested server is missing), n
 python forge.py doctor . laravel
 ```
 
-Reports `ok` or `setup_required` for Boost, the three language servers, `artisan`, and `scripts/lsp-diagnostics.py`. It never installs anything.
+Reports `ok` or `setup_required` for Boost, `artisan`, the LSP kit's files, the server table (`server-table`) and each server it names (`server:laravel-lsp`, `server:tailwindcss`, `server:intelephense`). It never installs anything.

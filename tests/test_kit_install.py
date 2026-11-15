@@ -298,20 +298,31 @@ class KitInstallTests(unittest.TestCase):
         checks = {check["name"]: check for check in report["checks"]}
         self.assertEqual(checks["artisan"]["status"], "ok")
         self.assertEqual(checks["artisan"]["detail"], (project / "artisan").as_posix())
-        self.assertEqual(checks["lsp-diagnostics.py"]["status"], "ok")
+        # The client is the lsp kit's file, which the Laravel kit brings (D04 T01 section 4).
+        self.assertEqual(checks["scripts/lsp-diagnostics.py"]["status"], "ok")
         (project / "scripts/lsp-diagnostics.py").unlink()
         checks = {check["name"]: check["status"] for check in forge.doctor_repo(project, "laravel")["checks"]}
-        self.assertEqual(checks["lsp-diagnostics.py"], "missing")
+        self.assertEqual(checks["scripts/lsp-diagnostics.py"], "missing")
 
-    LARAVEL_CHECKS = {"artisan", "lsp-diagnostics.py", "boost.json", "laravel/boost", "laravel-lsp",
-                      "tailwindcss-language-server", "intelephense", "skill:.agents", "skill:.claude", "skill:.codex"}
+    # The client and the three servers are checked through the lsp kit since D04 T01 section 4: its files, the
+    # table, and each server the table names.
+    LARAVEL_CHECKS = {"artisan", "boost.json", "laravel/boost", "skill:.agents", "skill:.claude", "skill:.codex",
+                      "server-table", "server:laravel-lsp", "server:tailwindcss", "server:intelephense"}
     BOOST_HINT = "composer require --dev laravel/boost (dependency approval)"
 
     def boost_check(self, project):
         """The `laravel/boost` check of the Laravel doctor, after proving the report still holds every check the
         retired `kits/laravel/scripts/doctor.sh` reported."""
         checks = {check["name"]: check for check in forge.doctor_repo(project, "laravel")["checks"]}
-        self.assertEqual(set(checks), self.LARAVEL_CHECKS)
+        templates = SDK_ROOT / "kits/lsp/templates"
+        lsp_files = {path.relative_to(templates).as_posix() for path in templates.rglob("*")
+                     if path.is_file() and "__pycache__" not in path.parts}
+        self.assertIn("scripts/lsp-diagnostics.py", lsp_files)
+        expected = self.LARAVEL_CHECKS | lsp_files
+        if not (project / ".conclave/lsp.json").is_file():
+            # A project the kit was never installed in has no table, so no server is named to check.
+            expected = {name for name in expected if not name.startswith("server:")}
+        self.assertEqual(set(checks), expected)
         return checks["laravel/boost"]["status"], checks["laravel/boost"]["detail"]
 
     def test_laravel_doctor_reports_the_boost_package_composer_installed(self):
@@ -379,7 +390,15 @@ class KitInstallTests(unittest.TestCase):
                 installed.write_bytes(data)
                 self.assertEqual(self.boost_check(project), absent)
         installed.write_bytes(b'{"packages": [{"name": "laravel/boost"}]}')
-        with unittest.mock.patch.object(pathlib.Path, "read_text", side_effect=PermissionError("locked")):
+        real = pathlib.Path.read_text
+
+        def locked(path, *args, **kwargs):
+            # Composer's files only: the doctor also reads the SDK's own kit files, which are not the project's.
+            if path.name in ("installed.json", "composer.json"):
+                raise PermissionError("locked")
+            return real(path, *args, **kwargs)
+
+        with unittest.mock.patch.object(pathlib.Path, "read_text", locked):
             self.assertEqual(self.boost_check(project), absent)  # a file that cannot be read; the report goes on
         self.assertEqual(self.boost_check(project)[0], "ok")
         # With no artisan there is no app root to read.
@@ -626,7 +645,8 @@ class KitTemplateRemovalTests(unittest.TestCase):
     REMOVALS = {
         "automations": (".conclave/automations/run.py", "test_automations_keeps_the_task_list_and_installs_the_rest"),
         "base": ("scripts/verify-agent-tiers.mjs", "test_base_keeps_the_projects_files_and_installs_the_rest"),
-        "laravel": ("scripts/lsp-diagnostics.py", "test_laravel_keeps_agents_md_and_installs_at_the_app_root"),
+        "laravel": ("scripts/hooks/laravel-lsp-pre-push.sh",
+                    "test_laravel_keeps_agents_md_and_installs_at_the_app_root"),
         "reviewer": ("scripts/review_pin.py", "test_reviewer_keeps_the_pin_and_installs_runnable_tools"),
         "todo": ("todo/templates/TODO-template.md", "test_todo_keeps_the_plan_and_installs_a_runnable_graph"),
         "wordpress": ("phpcs.xml.dist", "test_wordpress_keeps_agents_md_and_installs_the_pressable_overlay"),
