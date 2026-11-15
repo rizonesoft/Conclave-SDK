@@ -100,6 +100,8 @@ The second `base` row: work on main, and clean up branches and worktrees when wo
 
 ## 3. `forge.py init --goal`
 
+> **Started:** 2026-11-15T19:05:11Z
+
 The base `AGENTS.md` asks the project to name what it is. `init --goal "<text>"` writes that into the file it creates, so the directive has something to aim at from the first session.
 
 **Phase:** 7
@@ -111,13 +113,15 @@ The base `AGENTS.md` asks the project to name what it is. `init --goal "<text>"`
 1. Add a goal placeholder to `kits/base/templates/AGENTS.md` and `--goal` to `init` in `forge.py`. Done when: a fresh `init --goal` writes the goal.
 2. Cover the cases where it must not write. Done when: the checkpoint passes.
 
-- [ ] Add `## Goal` as the first section of `kits/base/templates/AGENTS.md` holding one placeholder line, and remove the "Adapt this file" sentence it replaces. Done when: a fresh `init` with no `--goal` writes the placeholder line unchanged.
+- [ ] Add `## Goal` as the first section of `kits/base/templates/AGENTS.md` holding one placeholder line (the text `forge.py` holds as `GOAL_PLACEHOLDER`), and cut the "Adapt this file" sentence down to what the goal does not say (where the code lives and which commands verify it). Done when: a fresh `init` with no `--goal` writes the placeholder line unchanged under `## Goal`, and a test finds the template's line equal to `GOAL_PLACEHOLDER`.
 - [ ] Add `--goal <text>` to the `init` parser and a `goal` argument to `provision` in `forge.py`: replace the placeholder with the text in the `AGENTS.md` this run created. Done when: a test with `--goal "Ship the importer"` finds that sentence under `## Goal` and no placeholder. Cheaper substitute: appending the goal to the end of the file must fail the under-the-heading assertion.
 - [ ] Refuse a goal that is empty, longer than 600 characters, or contains a line break, an em dash or an en dash in `provision`, before any file is written. Done when: tests for each find exit 2 and an empty target.
-- [ ] Leave an existing `AGENTS.md` alone in `provision`: when `init --goal` runs on a project that already has the file (and `--force` is not given), nothing is written to it and the result says the goal was not applied and why. Done when: a test finds the file byte for byte unchanged and `goal_applied` false in the output.
-- [ ] Record the kit's digest, not the filled file's, for `AGENTS.md` in the install record (D01 T01 §2 records entry docs that way), so a filled goal reads as the project's change. Done when: a test finds `AGENTS.md` reported `project-changed` by `forge.diff_project` after `init --goal`, and `identical` after `init` with no goal.
+- [ ] Leave an existing `AGENTS.md` alone in `provision`: when `init --goal` runs on a project that already has the file and `--force` is not given, nothing is written to it and the result says the goal was not applied and why (`goal_applied` false, `goal_reason`); with `--force`, the `AGENTS.md` the run writes holds the goal, and a second identical `init --force --goal` backs nothing up again. Done when: a test finds the file byte for byte unchanged and `goal_applied` false, and one with `--force` finds the goal and a single `AGENTS.md.replaced` after two runs.
+- [ ] Keep recording the kit's digest, not the filled file's, for `AGENTS.md` in the install record (it is so already: the record holds the template's digest, and the TODO pointer appended by the todo kit reads as `project-changed` today), so a filled goal reads as the project's change. Done when: a test finds `AGENTS.md` reported `project-changed` by `forge.diff_project` after `init --goal`, and `identical` after `init` with no goal.
 - [ ] Document `--goal` in `README.md` (New Project) with one example. Done when: `python forge.py init --help` and the README both name it.
 - [ ] Commit: `forge: init --goal writes the project's goal into AGENTS.md`
+
+**Corrected 2026-11-15 (validation):** measured against the tree. (1) The "Adapt this file" sentence also says to name where the code lives and which commands verify it, which a goal does not: that part stays. (2) The record item asked for a change that is already true: `provision` records the template's digest for `AGENTS.md` (`identical` after a plain `init`, `project-changed` once the todo kit's pointer is appended); the item now keeps it so and tests it. (3) `--force` rewrites the entry docs, so the goal is applied to the `AGENTS.md` it writes, and the file `--force` compares with to decide on a backup is the filled one, so a second identical run makes no second backup. (4) A refusal is a `ValueError` raised in `provision` before the first write, which `main` turns into one line and exit 2.
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; writing the goal into an existing `AGENTS.md` makes the unchanged-file test fail.
 
