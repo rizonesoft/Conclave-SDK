@@ -1216,6 +1216,7 @@ LSP_CLIENT = "scripts/lsp-diagnostics.py"
 LARAVEL_HOOK = "scripts/hooks/laravel-lsp-pre-push.sh"
 # Every form a shell passes a name in: `--server laravel`, `--server=laravel`, `--server "laravel"`.
 _SERVER_ARGUMENT = r"--server(?:\s+|=)[\"']?(?:%s)[\"']?(?=[\s)]|$)"
+_SHELL_COMMENT = re.compile(r"(?:^|\s)#.*$")   # a whole-line comment, or one after a command
 OLD_SERVER_NAMES = re.compile(_SERVER_ARGUMENT % "laravel|tailwind|php", re.MULTILINE)
 TABLE_SERVER_NAMES = re.compile(_SERVER_ARGUMENT % "laravel-lsp|tailwindcss|intelephense", re.MULTILINE)
 UPDATE_HINT_HELD = (f"Held: {LARAVEL_HOOK} still passes the old client's server names and is the project's own "
@@ -1235,7 +1236,9 @@ def _hook_holds_client(target: Path) -> bool:
         text = hook.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return False
-    return bool(OLD_SERVER_NAMES.search(text)) and not TABLE_SERVER_NAMES.search(text)
+    # The hook's commands only: a comment that mentions a name (a note to migrate) passes nothing to the client.
+    code = "\n".join(_SHELL_COMMENT.sub("", line) for line in text.splitlines())
+    return bool(OLD_SERVER_NAMES.search(code)) and not TABLE_SERVER_NAMES.search(code)
 
 
 def _only_paths(only) -> list[str]:

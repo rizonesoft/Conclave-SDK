@@ -567,6 +567,29 @@ class MigrationTests(Migration):
                 self.assertEqual(self.left(result)[CLIENT]["hint"], forge.UPDATE_HINT_HELD)
                 self.assertEqual((project / CLIENT).read_bytes(), OLD_CLIENT)
 
+    def test_a_comment_that_names_the_tables_servers_does_not_release_the_client(self):
+        # Found by the completion review: a note to migrate, in an old hook the project edited, read as a hook
+        # that already passes the table's names.
+        call = b'python3 "$client" --server laravel --server tailwind --staged'
+        notes = (b"# TODO: migrate to --server laravel-lsp --server tailwindcss\n" + call,
+                 b"\t# --server laravel-lsp --server tailwindcss\n" + call,
+                 call + b"  # later: --server laravel-lsp --server tailwindcss")
+        for number, noted in enumerate(notes):
+            with self.subTest(note=noted[:40]):
+                project = self.migrated(f"note-{number}")
+                (project / HOOK).write_bytes(OLD_HOOK.replace(call, noted))
+                result = forge.update_project(project)
+                self.assertEqual(result["written"], [])
+                self.assertEqual(self.left(result)[CLIENT]["hint"], forge.UPDATE_HINT_HELD)
+                self.assertEqual((project / CLIENT).read_bytes(), OLD_CLIENT)
+        # And a comment that names the old servers, in a hook that passes the table's, holds nothing.
+        merged = self.migrated("merged")
+        new = (LARAVEL_KIT / HOOK).read_bytes()
+        only_new = new.replace(b"\tservers=(--server laravel --server tailwind)\n", b"\texit 0\n")
+        self.assertNotEqual(only_new, new)
+        (merged / HOOK).write_bytes(only_new + b"# was: --server laravel --server tailwind\n")
+        self.assertEqual(forge.update_project(merged)["written"], [CLIENT])
+
     def test_a_hook_that_passes_the_tables_names_holds_nothing(self):
         for number, extra in enumerate((b"# the project's own line\n", b'echo "checked"\n')):
             project = self.migrated(f"own-{number}")
