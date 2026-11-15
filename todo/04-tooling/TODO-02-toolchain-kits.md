@@ -35,7 +35,7 @@ title: "TODO-02 -- Toolchain kits"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Tool pin file and the script that checks it | -- | [x] |
-| 2 | §2 | `toolchain-cpp` kit with pins for the C and C++ tools | §1 | [ ] |
+| 2 | §2 | `toolchain-cpp` kit with pins for the C and C++ tools | §1 | [x] |
 | 3 | §3 | Compile database freshness check | §2 | [ ] |
 | 4 | §4 | Compiler cache wrapper | §2 | [ ] |
 | 5 | §5 | clangd seed and server table entry | §3, D04 T01 §2 | [ ] |
@@ -100,13 +100,16 @@ The kit, its seed pins for the tools the roadmap names (Ninja, ccache or sccache
 - [x] Keep the bare `forge.py doctor <project>` as it is for this kit: `toolchain-cpp` is not added to `BARE_DOCTOR_ALSO`, because its checks start each pinned program, and the usage text says the kit is checked by name. Done when: a test with a stub tool that leaves a mark each time it is run finds no mark and no `tool:` check after `forge.py doctor <project>` on a project with the kit, and finds both after the kit is named.
 - [x] Write `kits/toolchain-cpp/README.md`: what the kit installs today (the pin file, the check script and its tests), the pin format with one worked tool, the seed's five tools with their commands and minimums, how to change a pin, the doctor's checks and statuses, that the kit installs no tool and chooses no build system, and that the compile database check, the compiler cache wrapper, the clangd seed and the skill come in §3 to §7. Done when: a test finds every file under `kits/toolchain-cpp/templates/` and every tool name of the seed in the README.
 - [x] List the kit in `README.md` (the kits sentence and both tables), `kits/README.md` (the install block and the Layout table) and `AGENTS.md` (Purpose, and the sentence naming the kits the SDK does not install in itself). Done when: the three name it with table rows within 120 characters and `python -m unittest tests.test_forge -k markdown_table` passes.
-- [ ] Commit: `toolchain-cpp: kit, pins and doctor`
+- [x] Commit: `toolchain-cpp: kit, pins and doctor`
 
 **Corrected 2026-11-15 (validation):** measured today. The kit folder exists since §1 (the check script and its tests), so `forge.py kits` already lists it: this section adds the pin file, the README and what `forge.py` knows of the kit, and the build order's "Create `kits/toolchain-cpp/`" is that. The pin format changed in §1's plan review (each command carries its own version arguments, pattern and minimum), so the seed is written in it. The install item proved only that two files land; it is held to the record, a second install and a project's own file as the other kits are. The doctor item gave an optional tool that is not installed no status: `setup_required` would fail `--strict` for every project that uses no cache, and `ok` would say the opposite of the truth, so it is `optional`, shown and not counted (decision, default, cheap to reverse: one status name). The doctor branch is written once for both toolchain kits (§6 said "through the same code as §2"). The bare doctor's rule of `D04 T01 §1` (only kits whose checks read files and `PATH`) keeps this kit behind its name, which had no item. The kit's README was named in the build order and in no item. The tests go in `tests/test_toolchain_kits.py`, not `tests/test_forge.py` (over ten minutes to run); before: "`python -m unittest discover -s tests -p test_forge.py` ends `OK`". `forge.py:454` is `forge.py:1692`.
 
 **Corrected 2026-11-15 (plan review):** four gaps, all taken. (1) The doctor item mapped a missing and an outdated tool and left the script's other results (could not be started, a non-zero exit, unreadable output, the two limits) with no status: every result that is not `ok` maps by the tool's `optional` alone and keeps its detail. (2) A kept pin file did not prove the doctor reads it: a test edits the installed pin and watches the verdict follow. (3) "No `tool:` check" from the bare doctor did not prove no program was started: the stub leaves a mark. (4) The first build-order checkpoint was true before the section (the folder exists since §1), and the smoke command named paths the SDK root does not have: both are restated.
 
 **Test checkpoint:** `python -m unittest tests.test_toolchain_kits` ends `OK`; making the doctor report every tool `ok` makes the missing-tool test fail.
+
+> **Verified:** 2026-11-15 | §2 | 2cc494c80447f6d9c38e764a8815c5f660e493ac
+> **Review:** `docs/reviews/d04-t02-s2.json`
 
 ## 3. Compile database freshness check
 

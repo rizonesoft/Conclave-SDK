@@ -1,0 +1,87 @@
+{
+  "ref": "D04 T02 \u00a72",
+  "title": "`toolchain-cpp` kit with pins for the C and C++ tools",
+  "implementation_sha": "2cc494c80447f6d9c38e764a8815c5f660e493ac",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/04-tooling/D04-T02-s2.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest tests.test_toolchain_kits -> Ran 14 tests, OK (Windows and WSL)",
+    "making the doctor report every tool ok -> 7 tests fail",
+    "CI tests.yml run 43664706903 on 2cc494c80447 -> red on quick suite (Windows) and full suite (Linux): the doctor usage line, wrapped by this section, fails test_the_documents_name_the_kit_and_the_sdk_does_not_install_it",
+    "fix 32b3dbe (forge.py usage line), reviewed outside the section in docs/reviews/04-tooling/audit-d04-t02-s2.md (approve, HIGHEST none)",
+    "CI tests.yml run 43668357882 on 12f8814969ff (2cc494c with that fix) -> success on quick suite (Windows), full suite (Linux), kit suites (Linux)"
+  ],
+  "completion": {
+    "report": "docs/reviews/04-tooling/D04-T02-s2.md",
+    "verdict": "reconciled",
+    "candidate": "2cc494c80447f6d9c38e764a8815c5f660e493ac",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/04-tooling/D04-T02-s2.md",
+    "candidate": "f1251ec04a5bcc75e52ad2e99311257c5aa37fcc",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "f1251ec04a5bcc75e52ad2e99311257c5aa37fcc",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}
