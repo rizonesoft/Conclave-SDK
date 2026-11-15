@@ -985,8 +985,9 @@ class DocumentTests(InstalledProject):
         self.assertEqual((reply["id"], [tool["name"] for tool in reply["result"]["tools"]]),
                          (1, ["diagnostics", "definition", "references", "hover"]))
         for said in ("It prints one line of JSON that names the four tools, and exits 0.",
-                     "A `tools/call` that needs a language server is answered that the input ended",
-                     "no server is started for it",
+                     "A `tools/call` that needs a language server and is not answered when the input ends is "
+                     "answered that the input ended",
+                     "a server it had started is ended",
                      "A call answered without a server (arguments that do not fit, a file outside the project or not "
                      "in it, a file no server serves) gets its usual answer this way too."):
             self.assertIn(said, text)
