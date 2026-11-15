@@ -1,0 +1,85 @@
+{
+  "ref": "D04 T01 \u00a73",
+  "title": "Diagnostics client that reads the server table",
+  "implementation_sha": "c686e9df43f396e468ac53033ead0ec8bea48a04",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/04-tooling/D04-T01-s3.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s kits/lsp/templates/scripts/tests (51 tests, OK on Windows and WSL)",
+    "python -m unittest tests.test_lsp_kit (16 tests, OK)",
+    "CI run 43674847322 on c686e9d: success (tests-windows, tests-linux, kits-linux)"
+  ],
+  "completion": {
+    "report": "docs/reviews/04-tooling/D04-T01-s3.md",
+    "verdict": "reconciled",
+    "candidate": "c686e9df43f396e468ac53033ead0ec8bea48a04",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/04-tooling/D04-T01-s3.md",
+    "candidate": "1aea210707f99651ca624b85fcd02fba72470002",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "1aea210707f99651ca624b85fcd02fba72470002",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

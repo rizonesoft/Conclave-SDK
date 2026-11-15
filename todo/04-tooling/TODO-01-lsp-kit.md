@@ -35,7 +35,7 @@ title: "TODO-01 -- LSP kit"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | LSP kit known to `forge.py` | -- | [x] |
 | 2 | §2 | Server table `.conclave/lsp.json` with presets per stack | §1 | [x] |
-| 3 | §3 | Diagnostics client that reads the server table | §2 | [ ] |
+| 3 | §3 | Diagnostics client that reads the server table | §2 | [x] |
 | 4 | §4 | Laravel kit moved onto the shared client | §3 | [ ] |
 | 5 | §5 | Claude Code plugin generated from the server table | §2 | [ ] |
 | 6 | §6 | MCP bridge for Codex and Antigravity | §3 | [ ] |
@@ -136,13 +136,16 @@ The Laravel kit's client already speaks LSP over stdio with the standard library
 - [x] Refuse an empty table in `lsp-diagnostics.py` with one line naming `python scripts/lsp-servers.py add <preset>` and exit 2. Done when: a test with the shipped empty table finds that line and the exit.
 - [x] Detect the Laravel kit by a file only it installs, in `installed_kits` of `forge.py`: `scripts/lsp-diagnostics.py` is now a file of this kit too, and a project with the LSP kit alone would read as a Laravel project (`forge.py:226`). Done when: a test in `tests/test_lsp_kit.py` finds `laravel` absent from `check_repo(...)["kits"]` for a project with only the LSP kit and present for a Laravel install.
 - [x] Add `test_lsp_diagnostics.py` to the kit's tests (the `kit-lsp` suite) and list the new files, the client's commands, results, exit codes, limits and the `${scratch}` behaviour in `kits/lsp/README.md`. Done when: `python forge.py check-all --only kit-lsp` passes on Windows and in WSL and the README test of `tests/test_lsp_kit.py` passes.
-- [ ] Commit: `lsp: diagnostics client reads the server table`
+- [x] Commit: `lsp: diagnostics client reads the server table`
 
 **Corrected 2026-11-15 (validation):** measured today against the Laravel client (`kits/laravel/templates/scripts/lsp-diagnostics.py`, 677 lines) and what §2 decided. (1) The client was one file; §6's bridge is to drive servers "through the client code of §3", so the protocol client is a module, `lib/lsp_client.py`, and `lsp-diagnostics.py` is its command line. (2) §2 gave the table `root`, `requires`, `init`, `settings`, `severity`, `settle`, `note`, the `${scratch}` placeholder and `find_program`; the items here named only the server list and the suffix match, so the rest had no owner. (3) The suffix item said "whose `extensions` include its suffix": `extensions` is a map to language ids since §2, the longest suffix wins, and a file must also lie under the server's `root`. (4) The Laravel client reports a server whose `requires` file is missing as not installed (`:488`), which sends the reader to an install command for a server that is installed: it is its own outcome. (5) The containment item is written in the shape three reconciliations of `D04 T02 §1` settled (a child made before containment, a launcher that exits first, containment that fails, an interrupt). (6) `installed_kits` reads `scripts/lsp-diagnostics.py` as the Laravel kit (`forge.py:226`); from this section it is the LSP kit's file, so the detection moves to a file only the Laravel kit installs. The Laravel kit keeps its own copy of the client until §4 moves it onto this one: a project with both kits keeps whichever was installed first until then. (7) The test file was its own item with "the quick suite runs it": the kit's tests are the `kit-lsp` suite since §2.
 
 **Corrected 2026-11-15 (plan review):** six gaps, all taken, each a place where the Laravel client being lifted reports a check that did not happen as a pass. (1) It takes any response to `initialize` as success and reports `ok` after a server dies or leaves files unanswered: a server now has six results, and `failed` and `partial` cannot read as `ok`. (2) Its `--json` branch returns 0 when every server is missing and its empty-input branch prints text: the exit is set once from the results and every run prints JSON when asked. (3) Its git helper ignores git's exit and splits names on newlines, so an unknown revision is an empty input and a quoted non-ASCII name is dropped: git is checked and read with `-z`. (4) Its `open` swallows a read error and returns a URI: an unread file is named and makes its server `partial`. (5) Nothing proved `workspace/didChangeConfiguration`, the working directory, `settle` or the `note`: each has an assertion. (6) The containment proof lacked a normal completion, a containment refusal, the single-message limit and standard error, which the Laravel client lets through unbounded with `--verbose`. Decision (default, cheap to reverse: one line of the exit rule): a `failed` or `partial` server makes the run exit 1 even beside clean servers, because a pre-push check that could not finish must not let the push through.
 
 **Test checkpoint:** `python -m unittest discover -s kits/lsp/templates/scripts/tests` ends `OK`; sending every file to every server makes the suffix test fail. Killing only the direct child makes the child-gone tests fail.
+
+> **Verified:** 2026-11-15 | §3 | c686e9df43f396e468ac53033ead0ec8bea48a04
+> **Review:** `docs/reviews/d04-t01-s3.json`
 
 ## 4. Laravel kit moved onto the shared client
 
