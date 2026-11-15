@@ -2,7 +2,7 @@
 schema_version: 1
 id: bosun-guidance
 domain: 06-global
-status: active
+status: done
 title: "TODO-02 -- Bosun guidance: reference page and rule parity"
 ---
 
@@ -40,7 +40,7 @@ title: "TODO-02 -- Bosun guidance: reference page and rule parity"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Bosun reference page | -- | [x] |
-| 2 | §2 | Queue rule parity test | -- | [ ] |
+| 2 | §2 | Queue rule parity test | -- | [x] |
 
 ## 1. Bosun reference page
 
@@ -87,11 +87,14 @@ The Codex rules lacked the queue bullets until 2026-11-12 while the Claude Code 
 
 - [x] Add `test_queue_rules_match` to `global/tests/test_deploy.py`: read section 11 of `global/claude/rules/claude-code.md` and `global/codex/rules/codex.md`, extract the bullets starting `- **Heavy jobs queue.**` and `- **A child process never outlives its test.**`, and assert each is present once in both and byte-identical. Done when: `python -m unittest global.tests.test_deploy` passes.
 - [x] Prove the test can fail by deleting the Codex "Heavy jobs queue" bullet in a scratch copy of the file the test reads. Done when: the test fails naming the missing bullet, and the file is restored byte for byte.
-- [ ] Commit: `global: test that the Claude Code and Codex queue rules match`
+- [x] Commit: `global: test that the Claude Code and Codex queue rules match`
 
 **Corrected 2026-11-15 (build):** measured while building: both bullets are present once in section 11 of each file and byte for byte the same, so the test passes on the files as they are. `python -m unittest global.tests.test_deploy -k queue_rules` runs the two tests on Windows and in WSL (`global/tests` is read as a namespace package), and the whole folder is the `global-tests` suite of `check-all`. The failing case is proved twice: inside the test, on copies of the Codex file's text held in memory (a bullet missing, a bullet changed, a bullet repeated, section 11 renamed), each fault named; and once on the real file, each change restored byte for byte.
 
 **Test checkpoint:** `python -m unittest global.tests.test_deploy -k queue_rules` passes; removing either bullet from `global/codex/rules/codex.md` makes it fail.
+
+> **Verified:** 2026-11-15 | §2 | 6b746193ed3ac0466be7385ef3d81ca209a25bab
+> **Review:** `docs/reviews/d06-t02-s2.json`
 
 ## Verification
 

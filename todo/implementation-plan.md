@@ -145,7 +145,7 @@ Sections: 6 | Checklist items: 32
 | [ ]    | D05 T01 §3 | `forge.py init --goal`                               | none  | 7     |
 | [ ]    | D05 T01 §4 | `forge.py init --acceptance` for the todo kit's plan | none  | 6     |
 | [x]    | D06 T02 §1 | Bosun reference page                                 | none  | 4     |
-| [ ]    | D06 T02 §2 | Queue rule parity test                               | none  | 3     |
+| [x]    | D06 T02 §2 | Queue rule parity test                               | none  | 3     |
 
 ### Phase 99: Manual, operator only
 
@@ -157,6 +157,6 @@ Sections: 3 | Checklist items: 16
 | [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 82/88 verified sections, 3 ready to run now.
+Progress: 83/88 verified sections, 2 ready to run now.
 
-Checklist: 675/694 items completed (includes Commit items).
+Checklist: 676/694 items completed (includes Commit items).

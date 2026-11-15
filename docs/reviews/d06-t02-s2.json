@@ -1,0 +1,85 @@
+{
+  "ref": "D06 T02 \u00a72",
+  "title": "Queue rule parity test",
+  "implementation_sha": "6b746193ed3ac0466be7385ef3d81ca209a25bab",
+  "date": "2026-11-15",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/06-global/D06-T02-s2.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python -m unittest global.tests.test_deploy -k queue_rules 2 OK on Windows and WSL",
+    "check-all --only global-tests 27 pass on both",
+    "CI run 43748743621 attempt 2 green on 646db13, which is 6b74619 plus records only"
+  ],
+  "completion": {
+    "report": "docs/reviews/06-global/D06-T02-s2.md",
+    "verdict": "complete",
+    "candidate": "6b746193ed3ac0466be7385ef3d81ca209a25bab",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/06-global/D06-T02-s2.md",
+    "candidate": "43653a09891a7b1f36e3103eb1906dbf5d9d848a",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "43653a09891a7b1f36e3103eb1906dbf5d9d848a",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}
