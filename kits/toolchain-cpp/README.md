@@ -15,10 +15,15 @@ What it installs:
 | `scripts/cache-stats.py` | Prints the cache's hit rate; fails a rebuild that did not use the cache |
 | `scripts/tests/test_cc_cache.py` | The tests of both, with stub compilers and caches |
 | `.clangd` | clangd's configuration, seeded once: the compile database folder and its defaults |
+| `docs/toolchain-cpp.md` | The project's document: every command, and what is left to the project |
+| `.claude/skills/cpp-toolchain/SKILL.md` | The `cpp-toolchain` skill, for Claude Code |
+| `.agents/skills/cpp-toolchain/SKILL.md` | The same skill, for Antigravity |
+| `.codex/skills/cpp-toolchain/SKILL.md` | The same skill, for Codex |
+| `.codex/skills/cpp-toolchain/agents/openai.yaml` | Codex's interface file for the skill |
 
 The pin file is the project's own from the first install: `forge.py` never overwrites it, and a project that already has one keeps it byte for byte.
 
-Still to come: the `cpp-toolchain` skill and document (§7).
+The skill tells an agent to check before a build fails mysteriously, never to install or upgrade a tool or change a pin to get a build through, to regenerate the compile database after every change of the source set and read it back, and never to edit the database or `.clangd` to silence a diagnostic. Its three copies say the same; an install for one agent gets that agent's copy only.
 
 ## Install
 
@@ -78,17 +83,18 @@ python scripts/compdb-check.py                                   # one line: the
 python scripts/compdb-check.py --json
 python scripts/compdb-check.py --root /path/to/project --path build/compile_commands.json
 python scripts/compdb-check.py --build-file CMakeLists.txt --build-file cmake/flags.cmake
+python scripts/compdb-check.py --source src/new_file.c         # stale unless the database has an entry for it
 ```
 
 | Status | Meaning |
 | --- | --- |
 | `current` | It parses, every source file it names exists, and no build file is newer than it |
-| `stale` | A build file is newer than it, or a source file it names no longer exists (each named) |
+| `stale` | A build file is newer, a source it names is gone, or a `--source` has no entry |
 | `unknown` | A build file or a named source file cannot be read, or the database is too large |
 | `invalid` | It cannot be read, is not a JSON list of entries, or an entry (named by number) is bad |
 | `missing` | There is no file at its path |
 
-It exits 0 for `current`, 1 for any other status, and 2 for bad usage or a pin file that does not load. `--json` prints one document (`path`, `status`, `detail`, `entries`, `newer`, `gone`, `regenerate`) for every run that gets past its arguments, a refused one included (`status` is then `refused`). An entry needs a `directory`, a `file` and a compile command (`command`, or `arguments` starting with the compiler), as the format requires; a relative `file` is read from its `directory`, and a relative `directory` from the database's folder. At most 20 missing source files are named and the rest are counted. At most 256 MiB of a database is read: a larger one is `unknown` and is never loaded. A usual build file that is absent is passed over; one whose time the system will not give makes the status `unknown`, as does a source file the system will not let the check inspect (each is named with the system's reason). No fault of the file system ends the check as an error. What is certain sets the status and nothing is dropped: a `stale` database's detail also names each file that could not be read, with the reason.
+It exits 0 for `current`, 1 for any other status, and 2 for bad usage or a pin file that does not load. `--json` prints one document (`path`, `status`, `detail`, `entries`, `newer`, `gone`, `unlisted`, `regenerate`) for every run that gets past its arguments, a refused one included (`status` is then `refused`). An entry needs a `directory`, a `file` and a compile command (`command`, or `arguments` starting with the compiler), as the format requires; a relative `file` is read from its `directory`, and a relative `directory` from the database's folder. At most 20 missing source files are named and the rest are counted. At most 256 MiB of a database is read: a larger one is `unknown` and is never loaded. A usual build file that is absent is passed over; one whose time the system will not give makes the status `unknown`, as does a source file the system will not let the check inspect (each is named with the system's reason). No fault of the file system ends the check as an error. What is certain sets the status and nothing is dropped: a `stale` database's detail also names each file that could not be read, with the reason.
 
 The pin file says where the database is and what it must not be older than, under an optional `compdb` key (each key in it optional, each file read under the pin file's `root`):
 
@@ -146,6 +152,8 @@ python scripts/cache-stats.py --cache sccache --json
 
 It reads the form each cache prints for a program (`ccache --print-stats`, `sccache --show-stats --stats-format json`; confirmed against ccache 4.12.3 and sccache 0.13.0 and 0.19.0 on 2026-11-15), runs the cache with no shell for a bounded time and output, and exits 3 with `--min-hit-rate` when the rate is below it or when no compile went through the cache at all. Exit 2, with one line saying which, when no cache is installed or the cache could not be started, failed, ran over a limit, printed something else, or did not reset.
 
+A build that finds its sources by itself (a wildcard in a Makefile, a glob in CMake) changes no build file when a source is added, so the database stays `current` without the new file. `--source <file>` (relative to `--root`, repeatable) asks whether that file has an entry, matched through each entry's `directory` with the system's rule for case; a file without one is listed under `unlisted` and the status is `stale`. After adding or moving a source: regenerate, then name the file. A `--source` outside the project is exit 2.
+
 ## clangd
 
 The kit seeds a `.clangd` at the project root and puts clangd in the LSP kit's server table, so the three agents reach it (`kits/lsp/README.md`).
@@ -155,6 +163,14 @@ The kit seeds a `.clangd` at the project root and puts clangd in the LSP kit's s
 - **The server table.** With the `lsp` kit installed, the install adds the `cpp` preset's `clangd` to `.conclave/lsp.json`, rooted at the pin file's `root`, in whichever order the two kits are installed. A `clangd` entry the project already has is never changed; when it is not the preset's it is listed under `lsp_servers.differs`. Without the `lsp` kit nothing is written and the result names the command that installs it. Later, `python scripts/lsp-servers.py add cpp` (with `--root <folder>` for an app that is not at the project root) adds it by hand.
 
 Confirmed with clangd itself (22.1.3 on Windows 11 and 19.1.7 on Ubuntu, 2026-11-15): a file that compiles only with a definition the database gives has no diagnostic with the seed, with the database at the root or in `build/`, and the compiler's error when `.clangd` names a folder without the database or the database is in another folder (`out/`) while `.clangd` still says `.`.
+
+## Sources
+
+The kit generalises what two C projects each built for themselves. The approach is theirs; the code is new, because each of theirs was tied to one build.
+
+- RasterFold, at `b33493346141f96b6b304cd3e0c393595382f056`: `toolchain.json` (tools pinned by version, Ninja among them) and the preflight that checks them led to the pin file and `scripts/toolchain-check.py`; `scripts/gen-compdb.py` (`--check`, `--rebuild-stale`) led to `scripts/compdb-check.py`, which checks and leaves regenerating to the project; its `.clangd` gave the seed's `CompilationDatabase` and include diagnostics.
+- Impossible OS, at `17a762d39ccd1958cbe711901f645fd9b042e939`: the `PATH` wrapper that puts ccache in front of the compiler in `scripts/build.sh` led to `scripts/cc-cache.py`, for any compiler, either cache and three shells; `scripts/ci/check-compile-cache.py` led to `scripts/cache-stats.py`; its `.clangd` gave the seed's `Index` setting. Its Bear step is why the check never assumes how a database is made.
+- New in the kit: a version rule per command, tools looked for in the project's own folders, the `--source` question, the doctor's `clangd-server` and `clangd-config` checks, the document and the skill.
 
 ## Doctor
 

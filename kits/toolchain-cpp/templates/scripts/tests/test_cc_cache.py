@@ -19,7 +19,9 @@ import unittest
 import unittest.mock
 
 SCRIPTS = pathlib.Path(__file__).resolve().parents[1]
-README = SCRIPTS.parents[1] / "README.md"
+# The project's document, installed beside scripts/ (in the kit: templates/docs/), so these tests read the
+# same file from the kit and from an installed copy.
+DOCUMENT = SCRIPTS.parent / "docs/toolchain-cpp.md"
 
 
 def load(name):
@@ -454,14 +456,46 @@ class ShellTests(Fixture):
 
 
 class DocumentedLinesTests(Fixture):
-    """The build-script lines the README gives, run as they are written."""
+    """The build-script lines the project's document gives, run as they are written."""
 
     def block(self, language):
-        text = README.read_text(encoding="utf-8")
-        section = text.split("## The compiler cache\n", 1)[1].split("\n## ", 1)[0]
-        blocks = dict(re.findall(r"```(\w+)\n(.*?)```", section, flags=re.DOTALL))
-        self.assertIn(language, blocks, f"the README has no {language} block for the compiler cache")
+        blocks = dict(re.findall(r"```(\w+)\n(.*?)```", self.section(), flags=re.DOTALL))
+        self.assertIn(language, blocks, f"the document has no {language} block for the compiler cache")
         return blocks[language]
+
+    def section(self):
+        text = DOCUMENT.read_text(encoding="utf-8")
+        return text.split("## The compiler cache\n", 1)[1].split("\n## ", 1)[0]
+
+    def test_the_statistics_lines_read_the_cache_the_setup_chose(self):
+        self.compiler("cc")
+        self.cache("sccache")
+        self.assertEqual(self.setup("cc")[0], 0)
+        self.assertEqual(self.compile("cc", "-c", "x.c")[1][0]["cache"], "sccache")
+        # On PATH only now, and the first by preference: the statistics still read what the setup chose.
+        self.cache("ccache")
+        lines = [line.split()[2:] for line in self.section().splitlines()
+                 if line.startswith("python scripts/cache-stats.py")]
+        self.assertEqual(lines, [["--zero"], ["--min-hit-rate", "60"], ["--json"]])
+
+        def run(argv):
+            ran = subprocess.run([sys.executable, "-B", "scripts/cache-stats.py", *argv], cwd=self.project,
+                                 capture_output=True, text=True, timeout=120,
+                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            return ran.returncode, ran.stdout, ran.stderr
+
+        code, out, err = run(lines[1])   # the stub's captured figures: two hits, one miss
+        self.assertEqual((code, err), (0, ""))
+        self.assertTrue(out.startswith("sccache (") and out.endswith("hit rate 66.67%\n"), out)
+        code, out, err = run(lines[0])
+        self.assertEqual((code, err), (0, ""))
+        self.assertTrue(out.startswith("sccache (") and out.endswith("statistics reset\n"), out)
+        # After a reset and no compile: the document says exit 3.
+        code, out, err = run(lines[1])
+        self.assertEqual((code, err), (3, "cache-stats: no compile went through the cache\n"))
+        code, out, err = run(lines[2])
+        self.assertEqual(code, 0, err)
+        self.assertEqual((json.loads(out)["cache"], json.loads(out)["hits"]), ("sccache", 0))
 
     def unwritable(self):
         """A file where the wrapper folder's parent should be: the folder cannot be made."""

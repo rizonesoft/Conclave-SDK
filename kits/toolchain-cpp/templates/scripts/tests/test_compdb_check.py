@@ -77,7 +77,8 @@ class Fixture(unittest.TestCase):
         self.assertEqual((json_code, err), (code, ""))
         first = text.splitlines()[0]
         self.assertEqual(first, f"compile database: {report['status']}: {report['detail']}")
-        self.assertEqual(set(report), {"path", "status", "detail", "entries", "newer", "gone", "regenerate"})
+        self.assertEqual(set(report), {"path", "status", "detail", "entries", "newer", "gone", "unlisted",
+                                       "regenerate"})
         self.assertEqual(code, 0 if report["status"] == "current" else 1)
         return code, report["status"], report["detail"], report
 
@@ -88,7 +89,7 @@ class StatusTests(Fixture):
         code, status, detail, report = self.both()
         self.assertEqual((code, status, detail), (0, "current", "compile_commands.json, 2 entries"))
         self.assertEqual(report, {"path": "compile_commands.json", "status": "current", "detail": detail, "entries": 2,
-                                  "newer": [], "gone": [], "regenerate": []})
+                                  "newer": [], "gone": [], "unlisted": [], "regenerate": []})
         self.file("one.c")
         self.database([self.entry("one.c")])
         self.assertEqual(self.both()[2], "compile_commands.json, 1 entry")
@@ -393,6 +394,51 @@ class FreshnessTests(Fixture):
 
 
 class CommandLineTests(Fixture):
+    def test_a_source_asked_for_must_have_an_entry_whatever_the_build_files_say(self):
+        # A build that finds its sources by itself: a new source changes no build file.
+        self.file("Makefile", "SRC := $(wildcard src/*.c)\n", when=THEN - 10)
+        self.database()
+        self.file("src/new.c")
+        code, status, detail, report = self.both()
+        self.assertEqual((code, status, report["unlisted"]), (0, "current", []))
+        code, status, detail, report = self.both("--source", "src/new.c")
+        self.assertEqual((code, status), (1, "stale"))
+        self.assertEqual(detail, "compile_commands.json: 1 source file(s) asked for have no entry in it: src/new.c")
+        self.assertEqual(report["unlisted"], ["src/new.c"])
+        # One that is listed and one that is not, each asked for once however often it is named.
+        code, status, detail, report = self.both("--source", "src/a.c", "--source", "src/new.c", "--source",
+                                                 "src/new.c")
+        self.assertEqual((status, report["unlisted"]), ("stale", ["src/new.c"]))
+        # Regenerated: the database has its entry.
+        self.database([self.entry("src/a.c"), self.entry("src/b.c"), self.entry("src/new.c")])
+        self.assertEqual(self.both("--source", "src/new.c")[:2], (0, "current"))
+        self.assertEqual(self.both("--source", "src/./new.c", "--source", "src/../src/a.c")[:2], (0, "current"))
+
+    def test_a_source_is_matched_through_the_entrys_directory(self):
+        self.file("src/a.c")
+        self.file("lib/b.c")
+        self.database([self.entry("a.c", directory=str(self.project / "src")),
+                       self.entry("../lib/b.c", directory="src")])
+        self.assertEqual(self.both("--source", "src/a.c", "--source", "lib/b.c")[:2], (0, "current"))
+        code, status, detail, report = self.both("--source", "a.c")
+        self.assertEqual((status, report["unlisted"]), ("stale", ["a.c"]))
+        # It is one more certain fault beside the others, and each is named.
+        self.file("Makefile", when=THEN + 10**9)
+        detail = self.both("--source", "lib/c.c")[2]
+        self.assertEqual(detail, "compile_commands.json: older than Makefile; 1 source file(s) asked for have no "
+                                 "entry in it: lib/c.c")
+
+    def test_a_source_outside_the_project_is_bad_usage(self):
+        self.database()
+        for source in ("../elsewhere/x.c", str(self.elsewhere / "x.c"), "."):
+            with self.subTest(source=source):
+                out, err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
+                        self.assertRaises(SystemExit) as caught:
+                    cc.main(["--root", str(self.project), "--source", source])
+                self.assertEqual((caught.exception.code, out.getvalue()), (2, ""))
+                self.assertIn("is not a file inside the project", err.getvalue())
+
     def test_a_pin_file_that_does_not_load_is_refused_in_both_forms(self):
         self.database()
         (self.project / ".conclave/toolchain-cpp.json").write_text(
@@ -404,7 +450,7 @@ class CommandLineTests(Fixture):
         code, out, err = self.run_main("--json")
         self.assertEqual((code, err), (2, f"compdb-check: {expected}\n"))
         self.assertEqual(json.loads(out), {"path": None, "status": "refused", "detail": expected, "entries": None,
-                                           "newer": [], "gone": [], "regenerate": []})
+                                           "newer": [], "gone": [], "unlisted": [], "regenerate": []})
         (self.project / ".conclave/toolchain-cpp.json").unlink()
         code, out, err = self.run_main()
         self.assertEqual((code, out), (2, ""))

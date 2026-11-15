@@ -7,6 +7,13 @@ Additive overlay for a PHP or Node project, the Laravel and WordPress kits' proj
 | `.conclave/toolchain-web.json` | The pin file: each tool, the commands that satisfy it, the least version |
 | `scripts/toolchain-check.py` | Reads the pin file and reports each tool; installs and writes nothing |
 | `scripts/tests/test_toolchain_check.py` | The check's own tests, with stub tools |
+| `docs/toolchain-web.md` | The project's document: every command, and what is left to the project |
+| `.claude/skills/web-toolchain/SKILL.md` | The `web-toolchain` skill, for Claude Code |
+| `.agents/skills/web-toolchain/SKILL.md` | The same skill, for Antigravity |
+| `.codex/skills/web-toolchain/SKILL.md` | The same skill, for Codex |
+| `.codex/skills/web-toolchain/agents/openai.yaml` | Codex's interface file for the skill |
+
+The skill tells an agent to check before an install or a build fails mysteriously, never to install or upgrade a runtime or a package manager or change a pin to fit the machine, never to loosen `require.php` or `engines.node`, and to run the project's own tools from `vendor/bin` and `node_modules/.bin`. Its three copies say the same; an install for one agent gets that agent's copy only.
 
 The check script and its tests are the same files the C and C++ kit ships, byte for byte; a project with both kits has them once. The pin file is the project's own from the first install: `forge.py` never changes one the project has changed. There is one exception, for a file that is not yet the project's: a pin file that is still the kit's seed byte for byte, in a project whose app is not at the root, is given its `root` (see Install).
 
@@ -66,6 +73,10 @@ python scripts/toolchain-check.py --pins .conclave/toolchain-web.json [--json] [
 The lowest version a constraint allows is read from `^8.3`, `~8.3.0`, `>=8.3`, `8.3.*`, `20.x`, `>=8.2 <8.5` and alternatives joined by `||` (or Composer's `|`). A constraint of another form is `ok` and said to be not compared. A manifest that cannot be used (unreadable, not JSON, not an object) is `unexpected` with the reason, and the other checks are still reported.
 
 The doctor starts each pinned tool to ask its version, so `python forge.py doctor <project>` with no kit named does not run these checks: name the kit.
+
+## Sources
+
+The pin format and the check are the C and C++ kit's, which generalise RasterFold's `toolchain.json` (`b33493346141f96b6b304cd3e0c393595382f056`); see `kits/toolchain-cpp/README.md`. Nothing else here was taken from RasterFold or Impossible OS (`17a762d39ccd1958cbe711901f645fd9b042e939`), which are C projects: the seed's seven tools, the project's own tool folders (`root` and `search`), the comparison with `composer.json` and `package.json`, the document and the skill are new.
 
 ## Language servers
 

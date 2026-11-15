@@ -1,0 +1,4 @@
+interface:
+  display_name: "PHP and Node toolchain"
+  short_description: "Use the pinned runtimes, package managers and the project's own static tools; install nothing."
+  default_prompt: "Run python scripts/toolchain-check.py --pins .conclave/toolchain-web.json and report what it says. Never install or upgrade PHP, Node, Composer or a package manager, never change a pin to make the check pass, and never loosen require.php or engines.node to fit the machine: report the tool, the version found and the version wanted. Run static tools from vendor/bin and node_modules/.bin."

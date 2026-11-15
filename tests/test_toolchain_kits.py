@@ -7,6 +7,8 @@ import io
 import json
 import os
 import pathlib
+import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -249,7 +251,9 @@ class CppKitTests(ToolchainFixture):
     # the install
 
     def test_init_and_kit_install_the_pins_and_the_check_and_record_them(self):
-        files = [".clangd", PINS, "scripts/cache-stats.py", "scripts/cc-cache.py", "scripts/compdb-check.py",
+        files = [".agents/skills/cpp-toolchain/SKILL.md", ".clangd", ".claude/skills/cpp-toolchain/SKILL.md",
+                 ".codex/skills/cpp-toolchain/SKILL.md", ".codex/skills/cpp-toolchain/agents/openai.yaml", PINS,
+                 "docs/toolchain-cpp.md", "scripts/cache-stats.py", "scripts/cc-cache.py", "scripts/compdb-check.py",
                  "scripts/tests/test_cc_cache.py", "scripts/tests/test_compdb_check.py",
                  "scripts/tests/test_toolchain_check.py", "scripts/toolchain-check.py"]
         for name, argv in (("by-init", ("init", "{}", "--kit", self.KIT)), ("by-kit", ("kit", "{}", self.KIT))):
@@ -916,7 +920,9 @@ class WebKitTests(ToolchainFixture):
     # the install and the app's folder
 
     def test_init_and_kit_install_and_record_the_kit_and_keep_a_projects_own_pins(self):
-        files = [WEB_PINS, "scripts/tests/test_toolchain_check.py", "scripts/toolchain-check.py"]
+        files = [".agents/skills/web-toolchain/SKILL.md", ".claude/skills/web-toolchain/SKILL.md",
+                 ".codex/skills/web-toolchain/SKILL.md", ".codex/skills/web-toolchain/agents/openai.yaml", WEB_PINS,
+                 "docs/toolchain-web.md", "scripts/tests/test_toolchain_check.py", "scripts/toolchain-check.py"]
         for name, argv in (("by-init", ("init", "{}", "--kit", self.KIT)), ("by-kit", ("kit", "{}", self.KIT))):
             with self.subTest(command=argv[0]):
                 project = self.project(name, install=False)
@@ -1314,6 +1320,385 @@ class WebKitTests(ToolchainFixture):
             self.assertIn(word, readme)
         for word in ("`search`", "`root`"):
             self.assertIn(word, (SDK_ROOT / "kits/toolchain-cpp/README.md").read_text(encoding="utf-8"))
+
+RASTERFOLD = "b33493346141f96b6b304cd3e0c393595382f056"
+IMPOSSIBLE_OS = "17a762d39ccd1958cbe711901f645fd9b042e939"
+AGENT_FOLDERS = {".claude": "Claude Code", ".agents": "Antigravity", ".codex": "Codex"}
+# Each kit's document, skill, pin file, and the statements its skill must make.
+SECTION_7 = {
+    "toolchain-cpp": {
+        "document": "docs/toolchain-cpp.md", "skill": "cpp-toolchain", "pins": PINS,
+        "scripts": ["scripts/cache-stats.py", "scripts/cc-cache.py", "scripts/compdb-check.py",
+                    "scripts/toolchain-check.py"],
+        "statements": [
+            "Run the check first: `python scripts/toolchain-check.py --pins .conclave/toolchain-cpp.json`",
+            "Never install, upgrade or downgrade a pinned tool.",
+            "the version found and the version wanted",
+            "the operator installs it",
+            "Never change a pin to get a build through",
+            "Never set `BUILD_NO_CCACHE` to get past a failure",
+            "regenerate the database with the project's own command whatever the check says",
+            "`python scripts/compdb-check.py --source <file>`",
+            "Trust clangd's diagnostics only once that is `current`",
+            "`missing` (a fresh install has none): generate it with the project's command",
+            "record it as `compdb.regenerate`",
+            "`stale` or `invalid`: regenerate it. Never repair the file by hand.",
+            "`unknown`: make readable the file the detail names",
+            "Exit 2: the pin file does not load. Correct what the message names; never delete the file.",
+            "Never edit `compile_commands.json` or `.clangd` to silence a diagnostic",
+            "docs/toolchain-cpp.md",
+        ],
+    },
+    "toolchain-web": {
+        "document": "docs/toolchain-web.md", "skill": "web-toolchain", "pins": WEB_PINS,
+        "scripts": ["scripts/toolchain-check.py"],
+        "statements": [
+            "Run the check first: `python scripts/toolchain-check.py --pins .conclave/toolchain-web.json`",
+            "Never install, upgrade or downgrade PHP, Node, Composer or a package manager.",
+            "the version found and the version wanted",
+            "the operator installs it",
+            "Never change a pin to get past the check",
+            "Never loosen `require.php` in `composer.json` or `engines.node` in `package.json`",
+            "raise the pin",
+            "`vendor/bin/phpstan`",
+            "`node_modules/.bin/<tool>`",
+            "Do not run, or install, a copy for the machine.",
+            "docs/toolchain-web.md",
+        ],
+    },
+}
+SCRIPT_LINE = re.compile(r"python3?\s+scripts[/\\]([A-Za-z0-9_-]+\.py)([^\n]*)")
+
+
+def kit_templates(kit, root=None):
+    """Every file a kit installs, as the project sees it."""
+    templates = (root or SDK_ROOT) / "kits" / kit / "templates"
+    return sorted(path.relative_to(templates).as_posix() for path in templates.rglob("*")
+                  if path.is_file() and "__pycache__" not in path.parts)
+
+
+def run_script(project, script, *argv, env=None):
+    ran = subprocess.run([sys.executable, "-B", script, *argv], cwd=project, env=env, capture_output=True, text=True,
+                         timeout=180, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return ran.returncode, ran.stdout, ran.stderr
+
+
+def document_faults(project, text):
+    """What a document says that the project's scripts do not bear out: a script it names that is not there, and an
+    option on a `python scripts/<name>.py` line that the script's own `--help` does not list."""
+    faults, helps = [], {}
+    for name in sorted(set(re.findall(r"scripts[/\\]([A-Za-z0-9_-]+\.py)", text))):
+        if not (project / "scripts" / name).is_file():
+            faults.append(f"scripts/{name} is not in the project")
+    for name, rest in SCRIPT_LINE.findall(text):
+        if not (project / "scripts" / name).is_file():
+            continue
+        if name not in helps:
+            helps[name] = run_script(project, f"scripts/{name}", "--help")[1]
+        for option in re.findall(r"(?<![\w-])(--[a-z][a-z-]*)", rest.split("#", 1)[0]):
+            if not re.search(rf"(?<![\w-]){re.escape(option)}(?![\w-])", helps[name]):
+                faults.append(f"scripts/{name} has no {option}")
+    return faults
+
+
+class Section7Fixture(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.work = pathlib.Path(tmp.name).resolve()
+
+    def install(self, kit, name=None, lsp=False, **options):
+        folder = self.work / (name or kit)
+        folder.mkdir()
+        forge.apply_kit(folder, kit, **options)
+        if lsp:
+            forge.apply_kit(folder, "lsp", **options)
+        return folder
+
+    def statuses(self, project, kit):
+        return {check["name"]: check["status"] for check in forge.doctor_repo(project, kit)["checks"]}
+
+
+class DocumentTests(Section7Fixture):
+    """D04 T02 section 7: each kit's document, read in an installed project and held to the project's scripts."""
+
+    def test_every_script_and_option_a_document_names_is_the_projects(self):
+        for kit, facts in SECTION_7.items():
+            with self.subTest(kit=kit):
+                project = self.install(kit, lsp=True)   # the documents name the lsp kit's check, where it is installed
+                text = (project / facts["document"]).read_text(encoding="utf-8")
+                self.assertEqual(document_faults(project, text), [])
+                named = set(re.findall(r"scripts[/\\]([A-Za-z0-9_-]+\.py)", text))
+                for script in facts["scripts"]:
+                    self.assertIn(script.split("/")[1], named, f"the document does not name {script}")
+                self.assertGreater(len(SCRIPT_LINE.findall(text)), 2)
+                self.assertIn(facts["pins"], text)
+                self.assertIn("What is left to the project", text)
+                for line in text.splitlines():
+                    self.assertNotIn("—", line)
+                    self.assertNotIn("–", line)
+
+    def test_a_script_or_an_option_the_kit_lacks_is_found(self):
+        project = self.install("toolchain-cpp")
+        text = (project / "docs/toolchain-cpp.md").read_text(encoding="utf-8")
+        # Without the lsp kit, the one script of that kit the document names is the only thing missing.
+        self.assertEqual(document_faults(project, text), ["scripts/lsp-diagnostics.py is not in the project"])
+        text = text.replace("scripts/lsp-diagnostics.py", "the lsp kit's check")
+        self.assertEqual(document_faults(project, text), [])
+        self.assertEqual(document_faults(project, text + "\npython scripts/gen-compdb.py --check\n"),
+                         ["scripts/gen-compdb.py is not in the project"])
+        self.assertEqual(document_faults(project, text + "\npython scripts/compdb-check.py --rebuild-stale\n"),
+                         ["scripts/compdb-check.py has no --rebuild-stale"])
+        self.assertEqual(document_faults(project, text + "\npython scripts/compdb-check.py --sour x.c\n"),
+                         ["scripts/compdb-check.py has no --sour"])
+        self.assertEqual(document_faults(project, text + "\nsetup=$(python3 scripts/cc-cache.py --fast cc)\n"),
+                         ["scripts/cc-cache.py has no --fast"])
+
+    def lines(self, text, script):
+        return [shlex.split(line)[2:] for line in text.splitlines() if line.startswith(f"python scripts/{script}")]
+
+    def test_the_check_lines_run_in_an_installed_project_with_the_exit_codes_the_documents_state(self):
+        bin_folder = self.work / "bin"
+        bin_folder.mkdir()
+        env = dict(os.environ, PATH=str(bin_folder), **({"PATHEXT": ".CMD;.EXE"} if os.name == "nt" else {}))
+        tool = {"name": "alpha", "install": "install alpha by hand",
+                "commands": [{"command": "alpha", "version_args": ["--version"], "version_pattern": r"v([0-9.]+)",
+                              "min_version": "2.0"}]}
+        for kit, facts in SECTION_7.items():
+            with self.subTest(kit=kit):
+                project = self.install(kit)
+                text = (project / facts["document"]).read_text(encoding="utf-8")
+                for stated in ("exits 0 when every required tool is ok, 3 when one is not, and 2 when the pin file "
+                               "does not load",):
+                    self.assertIn(stated, text)
+                plain, as_json = self.lines(text, "toolchain-check.py")
+                self.assertEqual((plain, as_json), (["--pins", facts["pins"]], ["--pins", facts["pins"], "--json"]))
+                (project / facts["pins"]).write_text(json.dumps({"schema_version": 1, "tools": [tool]}),
+                                                     encoding="utf-8")
+                code, out, _err = run_script(project, "scripts/toolchain-check.py", *plain, env=env)
+                self.assertEqual(code, 3, out)   # alpha is not installed
+                self.assertIn("install alpha by hand", out)
+                code_file = self.work / "alpha-stub.py"
+                code_file.write_text("print('alpha v2.5.1')\n", encoding="utf-8")
+                if os.name == "nt":
+                    (bin_folder / "alpha.cmd").write_text(f'@"{sys.executable}" "{code_file}" %*\r\n', encoding="utf-8")
+                else:
+                    launcher = bin_folder / "alpha"
+                    launcher.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{code_file}" "$@"\n', encoding="utf-8")
+                    launcher.chmod(0o755)
+                code, out, _err = run_script(project, "scripts/toolchain-check.py", *as_json, env=env)
+                self.assertEqual(code, 0, out)
+                self.assertEqual([row["status"] for row in json.loads(out)["tools"]], ["ok"])
+                (project / facts["pins"]).write_text("{", encoding="utf-8")
+                self.assertEqual(run_script(project, "scripts/toolchain-check.py", *plain, env=env)[0], 2)
+                for launcher in bin_folder.iterdir():
+                    launcher.unlink()
+
+    def test_the_compile_database_lines_run_with_the_answers_the_document_gives(self):
+        project = self.install("toolchain-cpp")
+        text = (project / "docs/toolchain-cpp.md").read_text(encoding="utf-8")
+        plain, as_json, one, two = self.lines(text, "compdb-check.py")
+        self.assertEqual((plain, as_json, one), ([], ["--json"], ["--source", "src/new_file.c"]))
+        self.assertEqual(two, ["--source", "src/new_file.c", "--source", "src/moved_file.c"])
+        # The table's five statuses are the script's, and a fresh install is `missing`, as the document says.
+        table = dict(re.findall(r"^\| `(\w+)` \| ([^|]+) \|", text, flags=re.MULTILINE))
+        self.assertEqual(sorted(table), ["current", "invalid", "missing", "stale", "unknown"])
+        self.assertIn("after a fresh install", table["missing"])
+        code, out, _err = run_script(project, "scripts/compdb-check.py", *plain)
+        self.assertEqual((code, out.split(": ")[1]), (1, "missing"))
+        (project / "src").mkdir()
+        for name in ("a.c", "new_file.c", "moved_file.c"):
+            (project / "src" / name).write_text("int x;\n", encoding="utf-8")
+        entry = {"directory": str(project), "file": "src/a.c", "command": "cc -c src/a.c"}
+        (project / "compile_commands.json").write_text(json.dumps([entry]), encoding="utf-8")
+        code, out, _err = run_script(project, "scripts/compdb-check.py", *as_json)
+        self.assertEqual((code, json.loads(out)["status"]), (0, "current"))
+        # The case the document warns of: current, and without the new file.
+        code, out, _err = run_script(project, "scripts/compdb-check.py", *one)
+        self.assertEqual(code, 1)
+        self.assertIn("stale", out)
+        self.assertIn("src/new_file.c", out)
+        entries = [dict(entry, file=f"src/{name}", command=f"cc -c src/{name}")
+                   for name in ("a.c", "new_file.c", "moved_file.c")]
+        (project / "compile_commands.json").write_text(json.dumps(entries), encoding="utf-8")
+        self.assertEqual(run_script(project, "scripts/compdb-check.py", *two)[0], 0)
+        (project / "compile_commands.json").write_text("[", encoding="utf-8")
+        self.assertIn("invalid", run_script(project, "scripts/compdb-check.py", *plain)[1])
+        (project / PINS).write_text("{", encoding="utf-8")
+        self.assertEqual(run_script(project, "scripts/compdb-check.py", *plain)[0], 2)
+
+    def test_the_readmes_cache_lines_are_the_documents_which_the_kits_own_tests_run(self):
+        def blocks(path):
+            section = path.read_text(encoding="utf-8").split("## The compiler cache\n", 1)[1].split("\n## ", 1)[0]
+            return dict(re.findall(r"```(sh|powershell|bat)\n(.*?)```", section, flags=re.DOTALL))
+
+        kit = SDK_ROOT / "kits/toolchain-cpp"
+        document = blocks(kit / "templates/docs/toolchain-cpp.md")
+        self.assertEqual(sorted(document), ["bat", "powershell", "sh"])
+        self.assertEqual(blocks(kit / "README.md"), document)
+        tests = (kit / "templates/scripts/tests/test_cc_cache.py").read_text(encoding="utf-8")
+        self.assertIn('DOCUMENT = SCRIPTS.parent / "docs/toolchain-cpp.md"', tests)
+        for language in document:
+            self.assertIn(f'self.block("{language}")', tests)
+
+
+class ToolchainSkillTests(Section7Fixture):
+    """D04 T02 section 7: each kit's skill in the three agent folders, and the doctor's file checks by agent."""
+
+    def test_each_installed_copy_makes_every_statement_and_the_three_say_the_same(self):
+        for kit, facts in SECTION_7.items():
+            with self.subTest(kit=kit):
+                project = self.install(kit)
+                rel = f"skills/{facts['skill']}/SKILL.md"
+                texts = {folder: (project / folder / rel).read_text(encoding="utf-8") for folder in AGENT_FOLDERS}
+                for folder, agent in AGENT_FOLDERS.items():
+                    front = texts[folder].split("---\n")[1]
+                    self.assertIn(f"name: {facts['skill']}\n", front)
+                    self.assertIn("description: Use the project's pinned", front)
+                    self.assertIn("for no reason the code explains", front)
+                    for statement in facts["statements"]:
+                        self.assertIn(statement, texts[folder], f"{agent}'s skill does not say: {statement}")
+                    self.assertLess(len(texts[folder].splitlines()), 50)
+                    self.assertEqual(document_faults(project, texts[folder]), [])
+                self.assertEqual(texts[".agents"], texts[".claude"])
+                self.assertEqual(texts[".codex"], texts[".claude"])
+                interface = project / f".codex/skills/{facts['skill']}/agents/openai.yaml"
+                self.assertIn("Never install or upgrade", interface.read_text(encoding="utf-8"))
+                self.assertEqual([path.as_posix() for folder in (".claude", ".agents")
+                                  for path in (project / folder).rglob("openai.yaml")], [])
+        self.assertEqual(forge.skill_copy_report(check=True), {"changed": [], "stray": []})
+        self.assertEqual(sorted(SDK_ROOT.glob("kits/toolchain-*/skill-patches/**/*.json")), [])
+
+    def test_the_doctor_checks_the_skill_for_the_agents_the_project_was_installed_for(self):
+        for kit, facts in SECTION_7.items():
+            with self.subTest(kit=kit):
+                skills = {folder: f"{folder}/skills/{facts['skill']}/SKILL.md" for folder in AGENT_FOLDERS}
+                project = self.install(kit)
+                checks = self.statuses(project, kit)
+                for rel in (*skills.values(), f".codex/skills/{facts['skill']}/agents/openai.yaml",
+                            facts["document"]):
+                    self.assertEqual(checks[rel], "ok")
+                (project / skills[".agents"]).unlink()
+                (project / facts["document"]).unlink()
+                checks = self.statuses(project, kit)
+                self.assertEqual((checks[skills[".agents"]], checks[facts["document"]]), ("missing", "missing"))
+                # Installed for one agent: that agent's skill, and nothing said of the others.
+                single = self.install(kit, name=f"{kit}-claude-only", agent="claude")
+                checks = self.statuses(single, kit)
+                self.assertEqual(checks[skills[".claude"]], "ok")
+                for folder in (".agents", ".codex"):
+                    self.assertFalse((single / folder).exists(), f"{folder} was installed")
+                    self.assertFalse(any(name.startswith(folder + "/") for name in checks), f"{folder} is listed")
+                self.assertEqual(checks[facts["document"]], "ok")   # what is no agent's is in every install
+
+    def test_the_readmes_list_every_file_and_say_where_the_kits_came_from(self):
+        for kit, facts in SECTION_7.items():
+            with self.subTest(kit=kit):
+                readme = (SDK_ROOT / "kits" / kit / "README.md").read_text(encoding="utf-8")
+                for rel in kit_templates(kit):
+                    self.assertIn(f"`{rel}`", readme)
+                self.assertNotIn("Still to come", readme)
+                self.assertNotIn("being built in sections", readme)
+                sources = readme.split("## Sources\n", 1)[1].split("\n## ", 1)[0]
+                self.assertIn(RASTERFOLD, sources)
+                self.assertIn(IMPOSSIBLE_OS, sources)
+                self.assertIn("new", sources)
+        cpp = (SDK_ROOT / "kits/toolchain-cpp/README.md").read_text(encoding="utf-8")
+        sources = cpp.split("## Sources\n", 1)[1].split("\n## ", 1)[0]
+        for taken in ("`toolchain.json`", "`scripts/gen-compdb.py`", "`scripts/build.sh`",
+                      "`scripts/ci/check-compile-cache.py`", "`.clangd`"):
+            self.assertIn(taken, sources)
+        self.assertIn("`--source`", cpp)
+        self.assertIn("`unlisted`", cpp)
+
+
+class ToolchainFreshInstallTests(Section7Fixture):
+    """D04 T02 section 7: a new project, from `init` to the check run in it, with each kit as it is in the SDK."""
+
+    # What a project must have, written here and not read from the kit: a file gone from the kit is missed.
+    MUST_HAVE = {
+        "toolchain-cpp": [PINS, ".clangd", "docs/toolchain-cpp.md", "scripts/toolchain-check.py",
+                          "scripts/compdb-check.py", "scripts/cc-cache.py", "scripts/cache-stats.py",
+                          "scripts/tests/test_toolchain_check.py", "scripts/tests/test_compdb_check.py",
+                          "scripts/tests/test_cc_cache.py", ".claude/skills/cpp-toolchain/SKILL.md",
+                          ".agents/skills/cpp-toolchain/SKILL.md", ".codex/skills/cpp-toolchain/SKILL.md",
+                          ".codex/skills/cpp-toolchain/agents/openai.yaml"],
+        "toolchain-web": [WEB_PINS, "docs/toolchain-web.md", "scripts/toolchain-check.py",
+                          "scripts/tests/test_toolchain_check.py", ".claude/skills/web-toolchain/SKILL.md",
+                          ".agents/skills/web-toolchain/SKILL.md", ".codex/skills/web-toolchain/SKILL.md",
+                          ".codex/skills/web-toolchain/agents/openai.yaml"],
+    }
+
+    def fresh(self, kit):
+        project = self.work / f"new-{kit}"
+        project.mkdir()
+        code, _out, err = command_line("init", project, "--kit", kit)
+        self.assertEqual(code, 0, err)
+        return project
+
+    def check_install(self, kit):
+        project = self.fresh(kit)
+        checks = self.statuses(project, kit)
+        for rel in kit_templates(kit, forge.FORGE_ROOT):
+            self.assertEqual(checks.get(rel), "ok", f"{rel} is not installed")
+        for rel in self.MUST_HAVE[kit]:
+            self.assertTrue((project / rel).is_file(), f"a new project has no {rel}")
+        self.assertEqual(checks["tool-pins"], "ok")
+        # The check runs in the installed copy and reads the project's pin file.
+        code, out, err = run_script(project, "scripts/toolchain-check.py", "--pins", SECTION_7[kit]["pins"], "--json")
+        self.assertIn(code, (0, 3), err)
+        seed = json.loads((SDK_ROOT / "kits" / kit / "templates" / SECTION_7[kit]["pins"]).read_text("utf-8"))
+        self.assertEqual([row["name"] for row in json.loads(out)["tools"]], [tool["name"] for tool in seed["tools"]])
+        self.assertEqual(document_faults(project, (project / SECTION_7[kit]["document"]).read_text("utf-8")
+                                         .replace("scripts/lsp-diagnostics.py", "")), [])
+        if kit == "toolchain-cpp":
+            self.assertEqual(run_script(project, "scripts/compdb-check.py")[0], 1)   # missing: none was generated
+            self.assertEqual(run_script(project, "scripts/cache-stats.py", "--help")[0], 0)
+            self.assertEqual(run_script(project, "scripts/cc-cache.py", "--help")[0], 0)
+
+    def test_a_new_cpp_project_has_the_kit_whole_and_its_check_runs(self):
+        self.check_install("toolchain-cpp")
+
+    def test_a_new_web_project_has_the_kit_whole_and_its_check_runs(self):
+        self.check_install("toolchain-web")
+
+    @unittest.skipUnless(os.environ.get("CONCLAVE_FULL_TESTS"), "slow: set CONCLAVE_FULL_TESTS=1 for the full suite")
+    def test_each_kits_own_tests_pass_from_the_installed_copy(self):
+        for kit in SECTION_7:
+            with self.subTest(kit=kit):
+                project = self.fresh(kit)
+                ran = subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "-s", "scripts/tests"],
+                                     cwd=project, capture_output=True, text=True, timeout=1500,
+                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                self.assertEqual(ran.returncode, 0, ran.stderr[-2000:])
+                self.assertRegex(ran.stderr, r"Ran \d+ tests")
+
+    def test_a_fresh_install_test_fails_when_a_template_file_is_gone_from_its_kit(self):
+        scratch = self.work / "sdk"
+        shutil.copytree(SDK_ROOT / "kits", scratch / "kits", ignore=shutil.ignore_patterns("__pycache__"))
+        cases = {"toolchain-cpp": ("test_a_new_cpp_project_has_the_kit_whole_and_its_check_runs",
+                                   ("docs/toolchain-cpp.md", ".claude/skills/cpp-toolchain/SKILL.md",
+                                    "scripts/compdb-check.py", ".clangd")),
+                 "toolchain-web": ("test_a_new_web_project_has_the_kit_whole_and_its_check_runs",
+                                   ("docs/toolchain-web.md", ".claude/skills/web-toolchain/SKILL.md",
+                                    "scripts/toolchain-check.py"))}
+        with unittest.mock.patch.object(forge, "FORGE_ROOT", scratch):
+            for kit, (name, removals) in cases.items():
+                control = unittest.TestResult()
+                ToolchainFreshInstallTests(name).run(control)
+                self.assertTrue(control.wasSuccessful(), control.failures + control.errors)
+                for rel in removals:
+                    with self.subTest(kit=kit, removed=rel):
+                        template = scratch / "kits" / kit / "templates" / rel
+                        held = scratch / "held"
+                        shutil.move(template, held)
+                        try:
+                            removed = unittest.TestResult()
+                            ToolchainFreshInstallTests(name).run(removed)
+                        finally:
+                            shutil.move(held, template)
+                        self.assertEqual(removed.testsRun, 1)
+                        self.assertFalse(removed.wasSuccessful(), f"the fresh install passed with {rel} gone")
 
 
 if __name__ == "__main__":

@@ -2,14 +2,15 @@
 """Say whether the project's compile database (`compile_commands.json`) can be trusted.
 
     python scripts/compdb-check.py [--root <project>] [--pins <pin file>] [--path <database>]
-                                   [--build-file <file>]... [--json]
+                                   [--build-file <file>]... [--source <file>]... [--json]
 
 clangd is only as good as the compile database it reads: a stale one gives wrong diagnostics. This reads the
 database the pin file names (`compdb.path` in `.conclave/toolchain-cpp.json`, `compile_commands.json` under the pin
 file's `root` when it names none; `--path`, relative to `--root`, overrides it) and reports one status:
 
     current   it parses, every source file it names exists, and no build file is newer than it
-    stale     a build file is newer than it, or a source file it names no longer exists (each is named)
+    stale     a build file is newer than it, a source file it names no longer exists, or a source file asked
+              for with --source has no entry in it (each is named)
     unknown   a build file cannot be read (one named by the pin file or by --build-file that is absent, or any
               whose time the system will not give), a source file the database names cannot be inspected, or
               the database is larger than this check reads, so freshness cannot be told
@@ -19,6 +20,11 @@ file's `root` when it names none; `--path`, relative to `--root`, overrides it) 
 
 The build files are those of `--build-file` (relative to `--root`), else the pin file's `compdb.build_files`, else
 `build.ninja`, `Makefile` and `CMakeLists.txt` where they exist in the pin file's `root` and beside the database.
+
+A build that finds its sources by itself (a glob in a Makefile or in CMake) changes no build file when a source is
+added, so the database stays `current` without the new file. `--source <file>` (relative to `--root`,
+repeatable) asks whether that file has an entry: after adding or moving a source and regenerating the database,
+name the file to prove it is there.
 
 It exits 0 for `current`, 1 for any other status, 2 for bad usage or a pin file that does not load. It never
 regenerates the database: when the pin file gives the project's own command (`compdb.regenerate`), that command is
@@ -83,16 +89,23 @@ def _reason(exc):
     return exc.strerror or str(exc)
 
 
-def check_database(project, pin_file, path=None, build_files=None, read_limit=READ_LIMIT):
+def _same_file_key(path):
+    """A path as text two spellings of one file share: no `.` or `..`, and the system's own rule for case."""
+    return os.path.normcase(os.path.normpath(str(path)))
+
+
+def check_database(project, pin_file, path=None, build_files=None, read_limit=READ_LIMIT, sources=None):
     """The state of the compile database of a project whose pin file is loaded: {"path", "status", "detail",
-    "entries", "newer", "gone", "regenerate"}. `path` and `build_files`, relative to the project, override the pin
-    file's. No fault of the file system raises: it is a status."""
+    "entries", "newer", "gone", "unlisted", "regenerate"}. `path` and `build_files`, relative to the project,
+    override the pin file's. `sources`, relative to the project, are files that must each have an entry: one
+    without is listed under "unlisted" and makes the database stale. No fault of the file system raises: it is
+    a status."""
     project = Path(project).resolve()
     base = project / pin_file["root"]
     compdb = pin_file["compdb"]
     database = (project / path) if path is not None else (base / compdb["path"])
     result = {"path": _shown(database, project), "status": None, "detail": "", "entries": None, "newer": [],
-              "gone": [], "regenerate": list(compdb["regenerate"])}
+              "gone": [], "unlisted": [], "regenerate": list(compdb["regenerate"])}
 
     def ended(status, detail):
         result.update(status=status, detail=detail)
@@ -145,7 +158,7 @@ def check_database(project, pin_file, path=None, build_files=None, read_limit=RE
             unreadable.append(f"{_shown(file, project)} ({'it does not exist' if absent else _reason(exc)})")
     result["newer"] = [_shown(file, project) for file, changed in times.items() if changed > written]
 
-    gone, hidden = {}, {}
+    gone, hidden, listed = {}, {}, set()
     for entry in entries:
         directory = Path(entry["directory"])
         if not directory.is_absolute():
@@ -153,6 +166,7 @@ def check_database(project, pin_file, path=None, build_files=None, read_limit=RE
         source_file = Path(entry["file"])
         if not source_file.is_absolute():
             source_file = directory / source_file
+        listed.add(_same_file_key(source_file))
         if source_file in gone or source_file in hidden:
             continue
         # Asked of the system directly: `is_file` raises for what the system refuses to show, and a file that
@@ -167,6 +181,9 @@ def check_database(project, pin_file, path=None, build_files=None, read_limit=RE
         if not there:
             gone[source_file] = _shown(source_file, project)
     result["gone"] = list(gone.values())[:NAMED]
+    unlisted = [_shown(project / source, project) for source in dict.fromkeys(sources or ())
+                if _same_file_key(project / source) not in listed]
+    result["unlisted"] = unlisted[:NAMED]
 
     # What is certain (stale) and what could not be told (unknown) are both reported, whichever sets the status:
     # a stale database with a file that could not be inspected names that file too.
@@ -176,6 +193,10 @@ def check_database(project, pin_file, path=None, build_files=None, read_limit=RE
     if gone:
         more = f" and {len(gone) - NAMED} more" if len(gone) > NAMED else ""
         certain.append(f"{len(gone)} source file(s) it names no longer exist: {', '.join(result['gone'])}{more}")
+    if unlisted:
+        more = f" and {len(unlisted) - NAMED} more" if len(unlisted) > NAMED else ""
+        certain.append(f"{len(unlisted)} source file(s) asked for have no entry in it: "
+                       f"{', '.join(result['unlisted'])}{more}")
     so = "" if certain else ", so its freshness cannot be told"
     if unreadable:
         origin = f"named by {source}" if source else "of the project"
@@ -222,9 +243,16 @@ def main(argv=None):
     parser.add_argument("--path", help="the compile database, relative to the root (default: the pin file's)")
     parser.add_argument("--build-file", action="append", help="a file the database must not be older than, relative "
                                                               "to the root (repeatable; default: the pin file's)")
+    parser.add_argument("--source", action="append", help="a source file that must have an entry in the database, "
+                                                          "relative to the root (repeatable)")
     parser.add_argument("--json", action="store_true", help="print the report as one JSON document")
     args = parser.parse_args(argv)
     project = Path(args.root).resolve()
+    inside = _same_file_key(project) + os.sep
+    for source in args.source or ():
+        if not (_same_file_key(project / source) + os.sep).startswith(inside) or \
+                _same_file_key(project / source) == _same_file_key(project):
+            parser.error(f"--source {source} is not a file inside the project ({project.as_posix()})")
     pins = Path(args.pins) if args.pins else project / PINS
     module = _pins_module()
     try:
@@ -233,9 +261,9 @@ def main(argv=None):
         print(f"compdb-check: {exc}", file=sys.stderr)
         if args.json:
             print(json.dumps({"path": None, "status": "refused", "detail": str(exc), "entries": None, "newer": [],
-                              "gone": [], "regenerate": []}, indent=2))
+                              "gone": [], "unlisted": [], "regenerate": []}, indent=2))
         return 2
-    result = check_database(project, pin_file, path=args.path, build_files=args.build_file)
+    result = check_database(project, pin_file, path=args.path, build_files=args.build_file, sources=args.source)
     if args.json:
         print(json.dumps(result, indent=2))
     else:
