@@ -38,6 +38,7 @@ import subprocess
 import sys
 import tempfile
 import types
+import unicodedata
 
 FORGE_ROOT = Path(__file__).resolve().parent
 AGENT_CHOICES = ["all", "agy", "gemini", "claude", "codex"]
@@ -2633,8 +2634,10 @@ def _check_goal(goal: str | None) -> None:
         raise ValueError("--goal: the goal is empty")
     if len(goal) > GOAL_LIMIT:
         raise ValueError(f"--goal: the goal is {len(goal)} characters, more than {GOAL_LIMIT}")
-    if any(mark in goal for mark in ("\n", "\r", "\u2028", "\u2029")):
-        raise ValueError("--goal: the goal is one line, with no line break")
+    # Every character Python splits lines at, and every other control character (a tab, a form feed), found by
+    # the review round: NEL, a vertical tab and a form feed passed a check of four line breaks.
+    if goal.splitlines() != [goal] or any(unicodedata.category(c) in ("Cc", "Zl", "Zp") for c in goal):
+        raise ValueError("--goal: the goal is one line, with no line break or control character")
     if "\u2014" in goal or "\u2013" in goal:
         raise ValueError("--goal: the goal holds an em or en dash; use a comma, a colon or a full stop")
 
@@ -2729,8 +2732,14 @@ def provision(
     docs = {doc: ((base_templates / doc).read_bytes(), finished(doc))
             for doc in ENTRY_DOCS if overwrite_existing_docs and _rel_allowed_for_agent(doc, agent)
             and not (target_root / doc).is_symlink()}
+    def staged(doc: str) -> tuple[bytes, ...]:
+        """What a --force run leaves in a doc it replaced before it wrote the goal (the kit's bytes, in AGENTS.md
+        with the TODO pointer or without): the kit's, not the project's, so it is neither refused nor backed up."""
+        data = (base_templates / doc).read_bytes()
+        return (data, data + TODO_POINTER.encode("utf-8")) if doc == "AGENTS.md" and goal is not None else ()
+
     for doc, (_kit_bytes, final) in docs.items():
-        _check_backup(target_root, doc, final)
+        _check_backup(target_root, doc, final, staged(doc))
 
     kit_results = [apply_kit(target_root, kit_name, agent=agent, host=wordpress_host, include=include)
                    for kit_name in selected]
@@ -2749,7 +2758,9 @@ def provision(
             backup = target_root / (doc + REPLACED)
             # The project's doc is kept before anything replaces it; a backup already holding it is from a run that
             # failed after backing it up, and stays as it is.
-            if current is not None and not (backup.is_file() and backup.read_bytes() == current):
+            # A doc still holding the kit's bytes is what a run that failed before its goal left: the project's
+            # original is already in the backup, which is never written over with the kit's text.
+            if current is not None and current not in staged(doc) and not (backup.is_file() and backup.read_bytes() == current):
                 atomic_write(backup, current)
                 backups.append(doc + REPLACED)
             forced.append(doc)
@@ -2781,15 +2792,16 @@ def provision(
 REPLACED = ".replaced"
 
 
-def _check_backup(target_root: Path, doc: str, final: bytes) -> None:
+def _check_backup(target_root: Path, doc: str, final: bytes, staged: tuple[bytes, ...] = ()) -> None:
     """Refuse `init --force` before any file is written when the doc it would replace cannot be kept: its
     `<doc>.replaced` is a link, a folder, or a file holding other bytes (the only copy of an earlier version). A
-    backup holding the doc's own bytes is the one an interrupted run made, so the run may go on."""
+    backup holding the doc's own bytes is the one an interrupted run made, so the run may go on, and so may a doc
+    that holds what an interrupted run leaves in it (`staged`: the kit's bytes, before the goal was written)."""
     path = target_root / doc
     if path.exists() and not path.is_file():
         raise ValueError(f"{doc} is not a file; refusing to replace it")
     current = path.read_bytes() if path.is_file() else None
-    if current is None or current == final:
+    if current is None or current == final or current in staged:
         return
     backup = target_root / (doc + REPLACED)
     if _is_link(backup) or (backup.exists() and not backup.is_file()):

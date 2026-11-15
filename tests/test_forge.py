@@ -1157,6 +1157,12 @@ class InitGoalTests(unittest.TestCase):
     def test_a_goal_init_would_not_write_is_refused_before_anything_is_written(self):
         for goal, said in (("", "empty"), ("   ", "empty"), ("x" * 601, "601 characters, more than 600"),
                            ("Ship it\nthen more", "no line break"), ("Ship it\rthen more", "no line break"),
+                           # Found by the review round: separators and control characters the first check missed.
+                           ("Ship it" + chr(0x85) + "then more", "no line break"),
+                           ("Ship it" + chr(0x0B) + "then more", "no line break"),
+                           ("Ship it" + chr(0x0C) + "then more", "no line break"),
+                           ("Ship it" + chr(0x2028) + "then more", "no line break"),
+                           ("Ship\tit", "control character"),
                            ("Ship it " + chr(0x2014) + " fast", "em or en dash"),
                            ("Ship it " + chr(0x2013) + " fast", "em or en dash")):
             with self.subTest(goal=goal[:20]):
@@ -1222,6 +1228,26 @@ class InitGoalTests(unittest.TestCase):
         self.assertEqual(self.goal_line(project), self.GOAL)
         self.assertEqual((result["goal_applied"], result["goal_reason"]),
                          (True, "written into AGENTS.md, which was still the kit's file"))
+        # Found by the review round: the same failure under --force, after the project's own file was backed up. The
+        # same command run again fills the goal and keeps the original in the backup, with and without the todo kit.
+        for kits in ((), ("--kit", "todo")):
+            with self.subTest(forced_with=kits):
+                forced = self.work / f"retry-forced{len(kits)}"
+                forced.mkdir()
+                (forced / "AGENTS.md").write_bytes(b"# Our own rules\n")
+                argv = (*kits, "--force", "--goal", self.GOAL)
+                with unittest.mock.patch.object(forge, "atomic_write", failing):
+                    self.assertEqual(self.init(forced, *argv)[0], 1)
+                self.assertEqual((forced / "AGENTS.md.replaced").read_bytes(), b"# Our own rules\n")
+                self.assertNotIn(self.GOAL, (forced / "AGENTS.md").read_text(encoding="utf-8"))
+                code, again, err = self.init(forced, *argv)
+                self.assertEqual(code, 0, err)
+                self.assertEqual(self.goal_line(forced), self.GOAL)
+                self.assertEqual(again["backups"], [])
+                self.assertEqual((forced / "AGENTS.md.replaced").read_bytes(), b"# Our own rules\n")
+                self.assertEqual(sorted(p.name for p in forced.glob("AGENTS.md*")), ["AGENTS.md", "AGENTS.md.replaced"])
+                if kits:
+                    self.assertEqual((forced / "AGENTS.md").read_text(encoding="utf-8").count("## TODO workflow"), 1)
         # The same with the todo kit's pointer already appended: still the kit's file.
         pointed = self.work / "retry-todo"
         with unittest.mock.patch.object(forge, "atomic_write", failing):
