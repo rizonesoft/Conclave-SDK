@@ -51,11 +51,14 @@ A tool is satisfied by the first of its commands found on `PATH`, and each comma
 }
 ```
 
+A pin file may also name where a project keeps tools of its own: `root`, the app's folder inside the project (`.` when left out), and `search`, a list of folders inside it. A command is looked for in those folders first, then on `PATH`, and never in the working directory. The seed names none, because C and C++ tools are installed for the machine; the PHP and Node kit's seed uses them for `vendor/bin` and `node_modules/.bin`.
+
 To change a pin, edit `.conclave/toolchain-cpp.json`: raise a `min_version`, name the binary the project builds with (`clang-19` in place of `clang`), set `optional` to `false` for a tool the project cannot build without, or add a tool. `command` is a bare program name, never a path; `version_pattern` is a regular expression with exactly one group, which must capture dotted numbers; `install` is one line. The check refuses a pin file that breaks these rules, naming the file, the tool and the key.
 
 ```powershell
 python scripts/toolchain-check.py --pins .conclave/toolchain-cpp.json          # one line per tool
 python scripts/toolchain-check.py --pins .conclave/toolchain-cpp.json --json
+python scripts/toolchain-check.py --pins .conclave/toolchain-cpp.json --root /path/to/project
 ```
 
 It exits 3 when a tool that is not optional is not ok, 2 when the pin file does not load, 0 otherwise. Each tool is run with no shell, for at most 15 seconds and 64 KiB of output, and whatever it started is ended with it.

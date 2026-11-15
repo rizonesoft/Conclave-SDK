@@ -7,7 +7,7 @@
     python forge.py update <target> [kit] [--only <path>]... [--no-scripts] [--kit-new] [--dry-run]
     python forge.py record <target> [kit] [--merged <path>]... [--dry-run]
     python forge.py drift [--projects <file>]
-    python forge.py doctor <target> [base|todo|reviewer|automations|unattended|lsp|toolchain-cpp|laravel|wordpress] [--strict]
+    python forge.py doctor <target> [base|todo|reviewer|automations|unattended|lsp|toolchain-cpp|toolchain-web|laravel|wordpress] [--strict]
         (no kit named: the Laravel or WordPress kit when the project is one, else base, plus lsp when installed;
         a toolchain kit starts each pinned tool to read its version, so it is checked only when named)
     python forge.py kits
@@ -192,8 +192,8 @@ AUTOMATIONS_SCRIPTS = tuple(f"{AUTOMATIONS_DIR}/{name}" for name in ("run.py", "
 
 
 UNATTENDED_MODULE = "scripts/lib/unattended.py"
-KIT_ORDER = ("base", "todo", "reviewer", "automations", "unattended", "lsp", "toolchain-cpp", "laravel",
-             "wordpress")
+KIT_ORDER = ("base", "todo", "reviewer", "automations", "unattended", "lsp", "toolchain-cpp", "toolchain-web",
+             "laravel", "wordpress")
 BASE_SKILLS = ("authoring-skills", "local-tool-safety")
 AGENT_DIRS = (".agents", ".claude", ".codex")
 # A kit's version of a file the project changed, written beside it by `update --kit-new` for a hand merge, and the
@@ -210,7 +210,7 @@ SELF_PREFIXES = tuple(f"{d}/{kind}/" for d in AGENT_DIRS for kind in ("skills", 
 
 LSP_TABLE = ".conclave/lsp.json"  # the lsp kit's server table: the one list of a project's language servers
 # Each toolchain kit's pin file: the build tools a project wants and the least version of each.
-TOOLCHAIN_PINS = {"toolchain-cpp": ".conclave/toolchain-cpp.json"}
+TOOLCHAIN_PINS = {"toolchain-cpp": ".conclave/toolchain-cpp.json", "toolchain-web": ".conclave/toolchain-web.json"}
 
 
 def installed_kits(target_root: Path) -> list[str]:
@@ -653,7 +653,8 @@ def apply_kit(
     include=None,
 ) -> dict:
     """Apply an additive overlay kit ('base', 'todo', 'reviewer', 'automations', 'unattended', 'lsp',
-    'toolchain-cpp', 'laravel', 'wordpress') for all or one agent without overwriting existing files.
+    'toolchain-cpp', 'toolchain-web', 'laravel', 'wordpress') for all or one agent without overwriting existing
+    files.
 
     A file that already exists is the project's and is never replaced: the kit is a template copied once, and the
     project adapts its copy from then on. `include(rel)` can leave paths out entirely.
@@ -735,7 +736,92 @@ def apply_kit(
         result["codex_hook"] = _approve_codex_hook(target_root)
     if kit_name == "todo" and not dry_run:
         result["pre_commit_hook"] = _enable_pre_commit_hook(target_root)
+    if kit_name == "toolchain-web":
+        result["app_root"] = _set_web_app_root(target_root, installed, dry_run)
+    if kit_name in ("lsp", "toolchain-web"):
+        servers = _fill_lsp_table(target_root, dry_run, installing_web=kit_name == "toolchain-web")
+        if servers is not None:
+            result["lsp_servers"] = servers
+            if "refused" in servers or "failed" in servers:
+                merge_needed.append(LSP_TABLE)
     return result
+
+
+WEB_MANIFESTS = ("composer.json", "package.json")
+
+
+def _find_web_app_root(target_root: Path) -> str:
+    """The folder of a PHP or Node project that holds its manifest (composer.json or package.json), relative to
+    the project: the root, then `platform/`, then the first other first-level folder in name order. `.` when none
+    does."""
+    def holds(folder: Path) -> bool:
+        return any((folder / manifest).is_file() for manifest in WEB_MANIFESTS)
+
+    if holds(target_root):
+        return "."
+    if holds(target_root / "platform"):
+        return "platform"
+    for child in sorted(path for path in target_root.iterdir() if path.is_dir() and not path.is_symlink()):
+        if not child.name.startswith(".") and child.name not in ("vendor", "node_modules") and holds(child):
+            return child.name
+    return "."
+
+
+def _set_web_app_root(target_root: Path, installed: list[str], dry_run: bool) -> str:
+    """Name the app's folder in a toolchain-web pin file this install has just written, when the app is not at the
+    project root: the tool folders, the constraints and the language servers are all read there. A pin file the
+    project already had is the project's and is never changed. Returns the folder found."""
+    app_root = _find_web_app_root(target_root)
+    pins = TOOLCHAIN_PINS["toolchain-web"]
+    if app_root != "." and pins in installed and not dry_run:
+        path = target_root / pins
+        data = json.loads(path.read_text(encoding="utf-8"))
+        ordered = {"schema_version": data["schema_version"], "root": app_root,
+                   **{key: value for key, value in data.items() if key != "schema_version"}}
+        atomic_write(path, json.dumps(ordered, indent=2) + "\n")
+    return app_root
+
+
+def _fill_lsp_table(target_root: Path, dry_run: bool, installing_web: bool = False) -> dict | None:
+    """Add a stack's language servers to the project's LSP table for the toolchain kits it has: with toolchain-web,
+    the `php` preset for an app with composer.json and the `web` preset for one with package.json. It runs when
+    either kit is installed, so their order does not matter. Only servers the table lacks are added; one it has is
+    never changed. Returns None when the project has no toolchain-web kit and none is being installed (a dry run
+    of that install has written no pin file yet), else what happened:
+    {"added", "kept"}, {"not_installed": the command that installs and fills the table}, {"refused": why the table
+    does not load} or {"failed": why it could not be written, "retry": the command}."""
+    pins = target_root / TOOLCHAIN_PINS["toolchain-web"]
+    if not pins.is_file() and not installing_web:
+        return None
+    retry = f"python forge.py kit {target_root.as_posix()} lsp"
+    if not (target_root / LSP_TABLE).is_file():
+        return {"not_installed": retry}
+    table = _lsp_table_module()
+    module = _toolchain_module("toolchain-web")
+    try:
+        servers = table.load_servers(target_root)
+        app_root = module.load_pin_file(pins)["root"] if pins.is_file() else _find_web_app_root(target_root)
+    except (table.TableError, module.PinError) as exc:
+        return {"refused": str(exc)}
+    app = target_root / app_root
+    wanted = [preset for preset, manifest in (("php", "composer.json"), ("web", "package.json"))
+              if (app / manifest).is_file()]
+    have = {server["name"] for server in servers}
+    presets = table.load_presets(FORGE_ROOT / "kits/lsp/templates/scripts/lib/lsp_presets.json")
+    added, kept = [], []
+    for preset in wanted:
+        for entry in table.resolve_preset(target_root, preset, app_root, presets):
+            if entry["name"] in have:
+                kept.append(entry["name"])
+            else:
+                added.append(entry)
+                have.add(entry["name"])
+    if added and not dry_run:
+        try:
+            table.write_servers(target_root, servers + added)
+        except table.TableWriteError as exc:
+            return {"failed": str(exc), "retry": f"python forge.py kit {target_root.as_posix()} toolchain-web"}
+    return {"added": [entry["name"] for entry in added], "kept": kept}
 
 
 # The todo kit's pre-commit hook (D01 T02 §7): git runs it only once `core.hooksPath` points at the folder it is
@@ -1937,16 +2023,88 @@ def _doctor_toolchain(target_root: Path, add_check, kit: str) -> None:
     _kit_file_checks(kit, target_root, add_check)
     module = _toolchain_module(kit)
     try:
-        pins = module.load_pins(target_root / TOOLCHAIN_PINS[kit])
+        pin_file = module.load_pin_file(target_root / TOOLCHAIN_PINS[kit])
     except module.PinError as exc:
         add_check("tool-pins", "missing", str(exc))
         return
+    pins = pin_file["tools"]
     add_check("tool-pins", "ok", f"{TOOLCHAIN_PINS[kit]}: {', '.join(pin['name'] for pin in pins) or 'no tool'}")
-    for tool in module.check_tools(pins, time_limit=module.TIME_LIMIT, output_cap=module.OUTPUT_CAP):
+    # The project's own tool folders (vendor/bin, node_modules/.bin) are read under the app the pin file names.
+    folders = module.search_folders(target_root, pin_file)
+    for tool in module.check_tools(pins, time_limit=module.TIME_LIMIT, output_cap=module.OUTPUT_CAP, folders=folders):
         if tool["status"] == "ok":
             add_check(f"tool:{tool['name']}", "ok", f"{tool['command']} {tool['version']}")
         else:
             add_check(f"tool:{tool['name']}", "optional" if tool["optional"] else "setup_required", tool["detail"])
+    if kit == "toolchain-web":
+        _doctor_web_constraints(target_root / pin_file["root"], pins, module, add_check)
+
+
+# What a PHP or Node project says of its own runtime: (the pin it is compared with, the manifest, where in it).
+WEB_CONSTRAINTS = (("php", "composer.json", "require", "php"), ("node", "package.json", "engines", "node"))
+_CONSTRAINT = re.compile(r"(?:\^|~|>=|=)?\s*v?([0-9]{1,9}(?:\.[0-9]{1,9}){0,7})(?:\.[xX*])*(?:[\s,].*)?")
+
+
+def _lowest_allowed(constraint: str, compare) -> str | None:
+    """The lowest version a Composer or npm constraint allows, or None for a form this does not read.
+
+    Each alternative (`a || b`, Composer's `a | b`) is read at its first comparator, which is its lower bound:
+    `^8.3`, `~8.3.0`, `>=8.3`, `8.3.*`, `20.x`, `>=8.2 <8.5`. The answer is the lowest among the alternatives."""
+    lowest = None
+    for alternative in re.split(r"\|\|?", constraint):
+        match = _CONSTRAINT.fullmatch(alternative.strip())
+        if match is None:
+            return None
+        if lowest is None or compare(match.group(1), lowest) < 0:
+            lowest = match.group(1)
+    return lowest
+
+
+def _doctor_web_constraints(app_root: Path, pins: list, module, add_check) -> None:
+    """`constraint:php` and `constraint:node`: the project's own runtime constraint beside the pin of that name. A
+    pin that accepts a version the project's manifest refuses is `unexpected`; a manifest that cannot be used is
+    `unexpected` with the reason; a constraint of a form this does not read is `ok`, said to be not compared."""
+    for name, manifest, section, key in WEB_CONSTRAINTS:
+        pin = next((pin for pin in pins if pin["name"] == name), None)
+        path = app_root / manifest
+        if pin is None or not path.is_file():
+            continue
+        check = f"constraint:{name}"
+        try:
+            data = json.loads(path.read_bytes().decode("utf-8"))
+        except OSError as exc:
+            add_check(check, "unexpected", f"{manifest} cannot be read ({exc.strerror or exc}), so it was not compared")
+            continue
+        except (ValueError, RecursionError) as exc:  # not UTF-8 (UnicodeDecodeError) or not JSON
+            add_check(check, "unexpected", f"{manifest} is not JSON in UTF-8 ({exc}), so it was not compared")
+            continue
+        if not isinstance(data, dict):
+            add_check(check, "unexpected", f"{manifest} is not a JSON object, so it was not compared")
+            continue
+        if section not in data:
+            continue
+        if not isinstance(data[section], dict):
+            add_check(check, "unexpected", f"{manifest}: {section} is not an object, so it was not compared")
+            continue
+        if key not in data[section]:
+            continue
+        constraint = data[section][key]
+        if not isinstance(constraint, str) or not constraint.strip():
+            add_check(check, "unexpected", f"{manifest}: {section}.{key} is not a version constraint as text")
+            continue
+        accepted = pin["commands"][0]["min_version"]
+        for entry in pin["commands"][1:]:
+            if module.compare_versions(entry["min_version"], accepted) < 0:
+                accepted = entry["min_version"]
+        lowest = _lowest_allowed(constraint, module.compare_versions)
+        if lowest is None:
+            add_check(check, "ok", f"{manifest} requires {name} {constraint!r}, a form the doctor does not compare "
+                                   f"with the pin's minimum {accepted}")
+        elif module.compare_versions(accepted, lowest) < 0:
+            add_check(check, "unexpected", f"{manifest} requires {name} {constraint} and the pin accepts {accepted}: "
+                                           f"raise min_version of the {name} pin to {lowest}")
+        else:
+            add_check(check, "ok", f"{manifest} requires {name} {constraint}; the pin's minimum is {accepted}")
 
 
 def _doctor_lsp(target_root: Path, add_check) -> None:
@@ -2757,7 +2915,7 @@ def main(argv: list[str] | None = None) -> int:
     p_init.add_argument("target", help="Target repository path")
     p_init.add_argument("--agent", choices=AGENT_CHOICES, default="all")
     p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, reviewer, automations, unattended, lsp, "
-                             "toolchain-cpp, laravel, wordpress)")
+                             "toolchain-cpp, toolchain-web, laravel, wordpress)")
     p_init.add_argument("--wp-host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
     p_init.add_argument("--no-scripts", action="store_true", help="Leave out the kits' scripts/ files")
     p_init.add_argument("--with-todo", action="store_true", help="Shorthand for --kit todo")
@@ -2765,7 +2923,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="Replace AGENTS.md, GEMINI.md, CLAUDE.md and CODEX.md with the kit's, keeping each replaced one as <name>.replaced")
 
     p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, todo, reviewer, automations, unattended, lsp, "
-                                          "toolchain-cpp, laravel, wordpress) to a target repo")
+                                          "toolchain-cpp, toolchain-web, laravel, wordpress) to a target repo")
     p_kit.add_argument("target", help="Target repository path")
     p_kit.add_argument("kit_name", choices=list_kits(), help="Kit name to apply")
     p_kit.add_argument("--agent", choices=AGENT_CHOICES, default="all", help="Install kit files for all agents or one agent")

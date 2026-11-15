@@ -528,6 +528,122 @@ class CommandLineTests(Fixture):
         self.assertEqual(self.snapshot(), before)
 
 
+class SearchFolderTests(Fixture):
+    """D04 T02 section 6: a project's own tool folders (`vendor/bin`, `node_modules/.bin`), and a lookup that never
+    reads the working directory."""
+
+    def local_tool(self, folder, name, text):
+        """A tool in a folder of the project, as Composer and npm install them: a launcher beside its script."""
+        folder.mkdir(parents=True, exist_ok=True)
+        code = folder / f"{name}-stub.py"
+        code.write_text(f"import sys\nsys.stdout.write({text!r})\n", encoding="utf-8")
+        if os.name == "nt":
+            launcher = folder / f"{name}.bat"
+            launcher.write_text(f'@"{sys.executable}" "{code}" %*\r\n', encoding="utf-8")
+        else:
+            launcher = folder / name
+            launcher.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{code}" "$@"\n', encoding="utf-8")
+            launcher.chmod(0o755)
+        return launcher
+
+    def setUp(self):
+        super().setUp()
+        if os.name == "nt":
+            os.environ["PATHEXT"] = ".CMD;.EXE;.BAT"  # restored with PATH by the fixture's patch
+        self.project = self.dir / "project"
+        self.project.mkdir()
+
+    def document(self, **top):
+        return {"schema_version": 1, "tools": [self.tool("phpstan", [dict(COMMAND, command="phpstan",
+                                                                         version_pattern=r"Tool ([0-9.]+)",
+                                                                         min_version="1.10")])], **top}
+
+    def test_a_pin_file_names_the_apps_folder_and_its_tool_folders(self):
+        loaded = tc.load_pin_file(self.pins(self.document(root="platform", search=["vendor/bin", "node_modules/.bin"])))
+        self.assertEqual((loaded["root"], loaded["search"]), ("platform", ["vendor/bin", "node_modules/.bin"]))
+        self.assertEqual([tool["name"] for tool in loaded["tools"]], ["phpstan"])
+        plain = tc.load_pin_file(self.pins(self.document()))
+        self.assertEqual((plain["root"], plain["search"]), (".", []))
+        self.assertEqual(tc.load_pins(self.pins(self.document(search=["vendor/bin"]))), loaded["tools"])
+        self.assertEqual(tc.search_folders(self.project, loaded),
+                         [self.project / "platform/vendor/bin", self.project / "platform/node_modules/.bin"])
+
+    def test_a_root_or_a_search_folder_outside_the_project_is_refused(self):
+        cases = [({"root": "/srv/app"}, "root:"), ({"root": "../app"}, "root:"), ({"root": "C:/app"}, "root:"),
+                 ({"root": 7}, "root:"), ({"root": "app\\src"}, "root:"),
+                 ({"search": "vendor/bin"}, "search: a list"), ({"search": ["/usr/bin"]}, "search: a folder"),
+                 ({"search": ["../bin"]}, "search: a folder"), ({"search": [3]}, "search: a folder"),
+                 ({"search": ["."]}, "search: a folder"), ({"extra": 1}, "unknown key 'extra'")]
+        for top, expected in cases:
+            with self.subTest(top=top):
+                path = self.pins(self.document(**top))
+                with self.assertRaises(tc.PinError) as caught:
+                    tc.load_pin_file(path)
+                self.assertTrue(str(caught.exception).startswith(path.as_posix() + ": " + expected), caught.exception)
+
+    def test_a_tool_is_found_in_the_projects_folder_before_path(self):
+        pin_file = tc.load_pin_file(self.pins(self.document(search=["vendor/bin"])))
+        folders = tc.search_folders(self.project, pin_file)
+        (pin,) = pin_file["tools"]
+        nowhere = tc.check_tool(pin, folders=folders)
+        self.assertEqual(nowhere["status"], "setup_required")
+        self.assertIn("not installed (phpstan not in the project's tool folders or on PATH). Install:",
+                      nowhere["detail"])
+        self.prints("phpstan", "PHPStan - PHP Static Analysis Tool 1.11.0\n")  # on PATH
+        on_path = tc.check_tool(pin, folders=folders)
+        self.assertEqual((on_path["status"], on_path["version"]), ("ok", "1.11.0"))
+        local = self.local_tool(self.project / "vendor/bin", "phpstan", "PHPStan - PHP Static Analysis Tool 2.3.5\n")
+        found = tc.check_tool(pin, folders=folders)  # the project's own copy wins
+        self.assertEqual((found["status"], found["version"]), ("ok", "2.3.5"))
+        self.assertTrue(os.path.samefile(found["command"], local))
+
+    def test_a_nested_apps_tools_are_found_from_an_unrelated_working_directory(self):
+        pins = self.pins(self.document(root="platform", search=["vendor/bin"]))
+        self.local_tool(self.project / "platform/vendor/bin", "phpstan", "PHPStan - PHP Static Analysis Tool 2.3.5\n")
+        elsewhere = self.dir / "elsewhere"
+        elsewhere.mkdir()
+        ran = subprocess.run([sys.executable, "-B", str(SCRIPT), "--pins", str(pins), "--root", str(self.project),
+                              "--json"], capture_output=True, text=True, timeout=120, cwd=elsewhere,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        self.assertEqual(json.loads(ran.stdout)["tools"][0]["version"], "2.3.5")
+        # Without --root the folders are read under the working directory, which holds no such tool.
+        ran = subprocess.run([sys.executable, "-B", str(SCRIPT), "--pins", str(pins), "--json"], capture_output=True,
+                             text=True, timeout=120, cwd=elsewhere,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.assertEqual((ran.returncode, json.loads(ran.stdout)["tools"][0]["status"]), (3, "setup_required"))
+
+    def test_a_file_in_the_working_directory_named_like_a_pinned_tool_is_never_run(self):
+        # Found while adding the search folders: the standard lookup tries the working directory first on Windows,
+        # so a file there named like a pinned tool was started as that tool.
+        marker = self.dir / "ran"
+        here = self.dir / "here"
+        here.mkdir()
+        code = here / "stub.py"
+        code.write_text(f"open(r'{marker.as_posix()}', 'w').close()\nprint('1.11.1')\n", encoding="utf-8")
+        if os.name == "nt":
+            (here / "ninja.cmd").write_text(f'@"{sys.executable}" "{code}" %*\r\n', encoding="utf-8")
+        else:
+            (here / "ninja").write_text(f'#!/bin/sh\nexec "{sys.executable}" "{code}" "$@"\n', encoding="utf-8")
+            (here / "ninja").chmod(0o755)
+        held = os.getcwd()
+        os.chdir(here)
+        try:
+            self.assertIsNone(tc.find_command("ninja"))
+            result = tc.check_tool(self.tool())
+        finally:
+            os.chdir(held)
+        self.assertEqual(result["status"], "setup_required")
+        self.assertIn("not installed", result["detail"])
+        self.assertFalse(marker.exists(), "a file in the working directory was run as the pinned tool")
+
+    @unittest.skipIf(os.name == "nt", "Windows has no execute permission to withhold")
+    def test_a_file_the_system_will_not_execute_is_not_the_tool(self):
+        local = self.local_tool(self.project / "vendor/bin", "phpstan", "PHPStan - PHP Static Analysis Tool 2.3.5\n")
+        local.chmod(0o644)
+        self.assertIsNone(tc.find_command("phpstan", [self.project / "vendor/bin"]))
+
+
 class InProcessTests(Fixture):
     def test_main_prints_the_same_report_in_process(self):
         self.prints("ninja", "1.11.1\n")

@@ -46,4 +46,6 @@ python forge.py doctor /path/to/project wordpress [--strict]
 
 ## Operator globals
 
+The `toolchain-web` kit checks PHP, Composer, Node and a package manager against pins the project owns (`python forge.py kit <project> toolchain-web`, then `python forge.py doctor <project> toolchain-web`). This kit's own PHP_CodeSniffer lives in `tools/phpcs`, which that kit's `search` folders do not read: add `tools/phpcs/vendor/bin` to `search` in `.conclave/toolchain-web.json` to have it checked.
+
 `sshpass` (`apt install sshpass`) for every host; DDEV and Docker on Pressable projects; user-scoped WP-CLI where local WP-CLI is wanted (never an unverified PHAR in the repo); `composer install` in `tools/phpcs` after dependency approval. Credentials live in the Conclave vault and are read through `conclave-op`; no helper prints one.

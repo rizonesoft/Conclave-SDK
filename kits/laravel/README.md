@@ -30,6 +30,8 @@ The target may be the Laravel app itself (`artisan` at the root) or a monorepo w
 
 ## Operator globals
 
+The `toolchain-web` kit checks the tools this kit relies on (PHP, Composer, Node, a package manager, and PHPStan, Pint and PHP_CodeSniffer in the app's `vendor/bin`) against pins the project owns, and compares the pins with `composer.json`'s own PHP constraint: `python forge.py kit <project> toolchain-web`, then `python forge.py doctor <project> toolchain-web`.
+
 ```bash
 composer global require laravel/lsp
 npm install -g @tailwindcss/language-server intelephense

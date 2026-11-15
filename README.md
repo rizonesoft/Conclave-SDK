@@ -27,7 +27,7 @@
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
-Conclave-SDK is the central repository of overlay kits that carry agent skills, rules and subagent definitions (`base`, `todo`, `reviewer`, `automations`, `unattended`, `lsp`, `toolchain-cpp`, `laravel`, `wordpress`), prompts, plugins, templates, and the canonical TODO graph tooling (`todo-graph.py`).
+Conclave-SDK is the central repository of overlay kits that carry agent skills, rules and subagent definitions (`base`, `todo`, `reviewer`, `automations`, `unattended`, `lsp`, `toolchain-cpp`, `toolchain-web`, `laravel`, `wordpress`), prompts, plugins, templates, and the canonical TODO graph tooling (`todo-graph.py`).
 
 It is designed to be imported into any **new** or **existing** repository by **Google Antigravity / Gemini (`gemini` / `agy`)**, **Claude Code (`claude`)**, and **OpenAI Codex (`codex`)**:
 
@@ -74,6 +74,7 @@ Then open the project in Claude Code, Codex or Antigravity. Each agent finds its
 | `unattended` | Preflight, tmux launcher, heartbeat, shortcuts, `unattended-run` skill | Runs nobody watches |
 | `lsp` | Server table, presets per stack, `lsp-servers.py`; client and wiring to come | Language servers |
 | `toolchain-cpp` | Pins for Ninja, a compiler cache, a linker, clangd and a compiler; a check | C or C++ |
+| `toolchain-web` | Pins for PHP, Composer, Node, a package manager and static tools; a check | PHP or Node |
 | `laravel` | `boost.json`, `.mcp.json`, LSP diagnostics, `laravel-boost` | `artisan` exists |
 | `wordpress` | Site pin, SSH/SFTP, WordPress MCP, DDEV, PHPCS | A WordPress site |
 
@@ -233,6 +234,7 @@ On Windows, `pwsh scripts/start-run.ps1` starts a Claude Code session in this ch
 | `kits/unattended/` | A run kept going in tmux, with its preflight (not in the SDK itself). |
 | `kits/lsp/` | Language servers for the three agents, being built (not in the SDK itself). |
 | `kits/toolchain-cpp/` | Build tool pins and their check for C and C++ (not in the SDK itself). |
+| `kits/toolchain-web/` | Tool pins and their check for PHP and Node (not in the SDK itself). |
 | `kits/laravel/`, `kits/wordpress/` | Stack kits. |
 | `prompts/` | Copy-pasteable prompts to import Conclave-SDK from Gemini, Claude, or Codex. |
 | `plugins/` | Account-bound Codex and Claude plugins that belong to no kit (never installed). |

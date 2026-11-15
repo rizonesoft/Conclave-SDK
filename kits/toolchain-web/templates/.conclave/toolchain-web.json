@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "search": [
+    "vendor/bin",
+    "node_modules/.bin"
+  ],
+  "tools": [
+    {
+      "name": "php",
+      "commands": [
+        {
+          "command": "php",
+          "version_args": [
+            "--version"
+          ],
+          "version_pattern": "PHP ([0-9]+(?:\\.[0-9]+)*)",
+          "min_version": "8.2"
+        }
+      ],
+      "install": "apt install php-cli (Windows: winget install PHP.PHP.8.4)"
+    },
+    {
+      "name": "composer",
+      "commands": [
+        {
+          "command": "composer",
+          "version_args": [
+            "--version"
+          ],
+          "version_pattern": "Composer version ([0-9]+(?:\\.[0-9]+)*)",
+          "min_version": "2.5"
+        }
+      ],
+      "install": "https://getcomposer.org/download/ (Windows: the Composer-Setup.exe on that page)"
+    },
+    {
+      "name": "node",
+      "commands": [
+        {
+          "command": "node",
+          "version_args": [
+            "--version"
+          ],
+          "version_pattern": "^v([0-9]+(?:\\.[0-9]+)*)",
+          "min_version": "20"
+        }
+      ],
+      "install": "https://nodejs.org/en/download (Windows: winget install OpenJS.NodeJS.LTS)"
+    },
+    {
+      "name": "package-manager",
+      "commands": [
+        {
+          "command": "pnpm",
+          "version_args": [
+            "--version"
+          ],
+          "version_pattern": "^([0-9]+(?:\\.[0-9]+)+)",
+          "min_version": "9"
+        },
+        {
+          "command": "npm",
+          "version_args": [
+            "--version"
+          ],
+          "version_pattern": "^([0-9]+(?:\\.[0-9]+)+)",
+          "min_version": "9"
+        }
+      ],
+      "install": "npm comes with Node; for pnpm: corepack enable pnpm"
+    },
+    {
+      "name": "phpstan",
+      "commands": [
+        {
+          "command": "phpstan",
+          "version_args": [
+            "--version"
+          ],
+          "version_pattern": "PHPStan - PHP Static Analysis Tool ([0-9]+(?:\\.[0-9]+)*)",
+          "min_version": "1.10"
+        }
+      ],
+      "install": "composer require --dev phpstan/phpstan (dependency approval)",
+      "optional": true
+    },
+    {
+      "name": "pint",
+      "commands": [
+        {
+          "command": "pint",
+          "version_args": [
+            "--version"
+          ],
+          "version_pattern": "Pint ([0-9]+(?:\\.[0-9]+)*)",
+          "min_version": "1.0"
+        }
+      ],
+      "install": "composer require --dev laravel/pint (dependency approval)",
+      "optional": true
+    },
+    {
+      "name": "phpcs",
+      "commands": [
+        {
+          "command": "phpcs",
+          "version_args": [
+            "--version"
+          ],
+          "version_pattern": "PHP_CodeSniffer version ([0-9]+(?:\\.[0-9]+)*)",
+          "min_version": "3.7"
+        }
+      ],
+      "install": "composer require --dev squizlabs/php_codesniffer (dependency approval)",
+      "optional": true
+    }
+  ]
+}

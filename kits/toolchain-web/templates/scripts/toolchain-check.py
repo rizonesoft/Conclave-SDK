@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check the build tools a project pins: which are installed, and whether each is new enough.
 
-    python scripts/toolchain-check.py --pins .conclave/toolchain-cpp.json [--json]
+    python scripts/toolchain-check.py --pins .conclave/toolchain-cpp.json [--json] [--root <project>]
 
 The pin file names each tool, the commands that satisfy it in order of preference and, for each command, how to
 ask its version and the least version the project accepts:
@@ -14,6 +14,13 @@ ask its version and the least version the project accepts:
                               "version_pattern": "sccache ([0-9.]+)", "min_version": "0.5"}],
                 "install": "apt install ccache", "optional": true}]}
 
+A pin file may also name where the project keeps tools of its own, which no PATH reaches:
+
+    {"schema_version": 1, "root": "platform", "search": ["vendor/bin", "node_modules/.bin"], "tools": [...]}
+
+`root` is the app's folder inside the project (`.` when left out) and `search` lists folders inside it; a command
+is looked for there first, then on PATH, and never in the working directory.
+
 It prints one line per tool and exits 3 when a tool that is not optional is not ok, 2 when the pin file does not
 load. It reads and reports: it installs nothing and writes nothing. Standard library only.
 """
@@ -21,13 +28,12 @@ import argparse
 import json
 import os
 import re
-import shutil
 import signal
 import subprocess
 import sys
 import threading
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 TIME_LIMIT = 15.0        # seconds a tool gets to print its version
 OUTPUT_CAP = 64 * 1024   # bytes read from a tool before it is stopped
@@ -43,6 +49,7 @@ ARGUMENT = re.compile(r"[A-Za-z0-9=_./:+-]+")
 # output to refuse, not a number to convert.
 VERSION = re.compile(r"[0-9]{1,9}(?:\.[0-9]{1,9}){0,7}")
 TOP_KEYS = {"schema_version", "tools"}
+TOP_OPTIONAL = {"root", "search"}
 TOOL_KEYS = {"name", "commands", "install", "optional"}
 COMMAND_KEYS = {"command", "version_args", "version_pattern", "min_version"}
 
@@ -91,10 +98,24 @@ def _load_command(where, entry):
     return {"command": name, "version_args": list(args), "version_pattern": pattern, "min_version": minimum}
 
 
+def _inside(value):
+    """Whether a folder named in a pin file stays inside the project: relative, with no `..` and no drive."""
+    if not isinstance(value, str) or not value or "\\" in value:
+        return False
+    parts = PurePosixPath(value).parts
+    return not value.startswith("/") and ".." not in parts and not (parts and ":" in parts[0])
+
+
 def load_pins(path):
     """The tools a pin file names, checked: a list of {"name", "commands", "install", "optional"}.
 
     Raises PinError, naming the file and what is wrong with it, for anything the format does not allow."""
+    return load_pin_file(path)["tools"]
+
+
+def load_pin_file(path):
+    """A pin file, checked: {"tools": [...], "root": the app's folder inside the project, "search": the folders
+    inside it where the project keeps tools of its own}."""
     where = Path(path).as_posix()
     try:
         data = json.loads(Path(path).read_bytes().decode("utf-8"))
@@ -106,9 +127,18 @@ def load_pins(path):
         raise PinError(f"{where}: not JSON ({exc})") from exc
     if not isinstance(data, dict):
         raise PinError(f"{where}: a pin file is an object with the keys schema_version and tools")
-    _keys(where, data, TOP_KEYS)
+    _keys(where, data, TOP_KEYS, TOP_OPTIONAL)
     if type(data["schema_version"]) is not int or data["schema_version"] != 1:
         raise PinError(f"{where}: schema_version: must be 1")
+    root = data.get("root", ".")
+    if not _inside(root):
+        raise PinError(f"{where}: root: the app's folder inside the project, not {root!r}")
+    search = data.get("search", [])
+    if not isinstance(search, list):
+        raise PinError(f"{where}: search: a list of folders inside the project")
+    for folder in search:
+        if not _inside(folder) or not PurePosixPath(folder).parts:
+            raise PinError(f"{where}: search: a folder inside the project, not {folder!r}")
     if not isinstance(data["tools"], list):
         raise PinError(f"{where}: tools: a list of tools")
     tools, seen = [], set()
@@ -133,7 +163,35 @@ def load_pins(path):
         if not isinstance(optional, bool):
             raise PinError(f"{tool_where}: optional: true or false")
         tools.append({"name": name, "commands": commands, "install": install, "optional": optional})
-    return tools
+    return {"tools": tools, "root": PurePosixPath(root).as_posix(),
+            "search": [PurePosixPath(folder).as_posix() for folder in search]}
+
+
+def search_folders(project, pin_file):
+    """The folders a loaded pin file's commands are looked for in before PATH, under the project root."""
+    base = Path(project) / pin_file["root"]
+    return [base / folder for folder in pin_file["search"]]
+
+
+def find_command(name, folders=()):
+    """The file a command is, or None: the first of `folders` that holds it, then PATH. Never the working
+    directory, which on Windows the standard lookup tries first: a file there named like a pinned tool is not that
+    tool. It must be a file the system will execute; on Windows the PATHEXT suffixes are tried, which is how the
+    `.bat` and `.cmd` launchers of Composer and npm are found."""
+    windows = os.name == "nt"
+    suffixes = [ext for ext in os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(os.pathsep) if ext] \
+        if windows else []
+    names = [name]
+    if windows and Path(name).suffix.upper() not in {ext.upper() for ext in suffixes}:
+        names = [name + ext for ext in suffixes]
+    places = [Path(folder) for folder in folders]
+    places += [Path(folder) for folder in os.environ.get("PATH", "").split(os.pathsep) if folder]
+    for folder in places:
+        for candidate in names:
+            path = folder / candidate
+            if path.is_file() and os.access(path, os.X_OK):
+                return str(path)
+    return None
 
 
 def parse_version(text):
@@ -336,18 +394,20 @@ def search_bounded(pattern, text, limit=None):
         return None
 
 
-def check_tool(pin, time_limit=TIME_LIMIT, output_cap=OUTPUT_CAP):
+def check_tool(pin, time_limit=TIME_LIMIT, output_cap=OUTPUT_CAP, folders=()):
     """One pinned tool: {"name", "status", "detail", "version", "command", "optional"}, `status` being `ok` or
-    `setup_required`. The first of its commands found on PATH is the one checked, against its own minimum."""
+    `setup_required`. The first of its commands found (in `folders`, then on PATH) is the one checked, against
+    its own minimum."""
     result = {"name": pin["name"], "status": "setup_required", "detail": "", "version": None, "command": None,
               "optional": pin["optional"]}
     for entry in pin["commands"]:
-        path = shutil.which(entry["command"])
+        path = find_command(entry["command"], folders)
         if path:
             break
     else:
         names = ", ".join(entry["command"] for entry in pin["commands"])
-        result["detail"] = f"not installed ({names} not on PATH). Install: {pin['install']}"
+        looked = "in the project's tool folders or on PATH" if folders else "on PATH"
+        result["detail"] = f"not installed ({names} not {looked}). Install: {pin['install']}"
         return result
     result["command"] = path
     shown = " ".join([path, *entry["version_args"]])
@@ -379,22 +439,24 @@ def check_tool(pin, time_limit=TIME_LIMIT, output_cap=OUTPUT_CAP):
     return result
 
 
-def check_tools(pins, time_limit=TIME_LIMIT, output_cap=OUTPUT_CAP):
+def check_tools(pins, time_limit=TIME_LIMIT, output_cap=OUTPUT_CAP, folders=()):
     """Every pinned tool, in the file's order: one that fails never stops the next from being checked."""
-    return [check_tool(pin, time_limit, output_cap) for pin in pins]
+    return [check_tool(pin, time_limit, output_cap, folders) for pin in pins]
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Check the build tools a pin file names. Installs nothing.")
     parser.add_argument("--pins", required=True, help="the pin file, for example .conclave/toolchain-cpp.json")
     parser.add_argument("--json", action="store_true", help="print the report as JSON")
+    parser.add_argument("--root", default=".", help="the project the pin file's root and search folders are read "
+                                                    "under (default: the working directory)")
     args = parser.parse_args(argv)
     try:
-        pins = load_pins(args.pins)
+        pin_file = load_pin_file(args.pins)
     except PinError as exc:
         print(f"toolchain-check: {exc}", file=sys.stderr)
         return 2
-    tools = check_tools(pins)
+    tools = check_tools(pin_file["tools"], folders=search_folders(Path(args.root).resolve(), pin_file))
     required_not_ok = sum(1 for tool in tools if tool["status"] != "ok" and not tool["optional"])
     if args.json:
         print(json.dumps({"pins": Path(args.pins).as_posix(), "tools": tools, "required_not_ok": required_not_ok},

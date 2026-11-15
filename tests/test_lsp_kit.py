@@ -71,7 +71,10 @@ class LspKitTests(unittest.TestCase):
 
     def test_the_kit_is_named_wherever_forge_lists_its_kits(self):
         # The usage text and the help of each command that takes a kit name.
-        self.assertIn("|lsp|", (forge.__doc__ or "").replace("[", "|").replace("]", "|"))
+        (usage,) = [line for line in (forge.__doc__ or "").splitlines() if "forge.py doctor" in line]
+        self.assertIn("|lsp|", usage.replace("[", "|").replace("]", "|"))
+        for kit in forge.KIT_ORDER:  # every kit on that one line, which a test of the unattended kit reads too
+            self.assertIn(kit, usage, "the doctor usage line omits a kit")
         for command in ("init", "kit"):
             code, out, _err = command_line(command, "--help")
             self.assertEqual(code, 0)
