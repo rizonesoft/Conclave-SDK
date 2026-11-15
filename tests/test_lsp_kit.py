@@ -72,7 +72,7 @@ class LspKitTests(unittest.TestCase):
             code, out, _err = command_line(command, "--help")
             self.assertEqual(code, 0)
             self.assertIn("lsp", out, command)
-        self.assertIn("'lsp'", forge.apply_kit.__doc__)
+        self.assertIn("'lsp'", forge.apply_kit.__doc__ or "")
 
     def test_init_and_kit_install_the_table_and_record_it(self):
         for name, argv in (("by-init", ("init", "{project}", "--kit", "lsp")), ("by-kit", ("kit", "{project}", "lsp"))):
@@ -181,12 +181,27 @@ class LspKitTests(unittest.TestCase):
         checks = self.checks(report)
         self.assertEqual(checks["artisan"]["status"], "ok")
         self.assertEqual(checks[TABLE]["status"], "ok")
-        # The count is of every check shown, the appended ones too.
-        (project / TABLE).write_text("{}", encoding="utf-8")
-        (project / "boost.json").unlink()
-        counted = forge.doctor_repo(project)
-        missing = [c for c in counted["checks"] if c["status"] in ("missing", "setup_required", "unexpected")]
-        self.assertEqual(counted["missing_or_setup_required"], len(missing))
+
+    def test_a_failing_appended_check_is_counted_and_fails_strict(self):
+        # Found by the round of D04 T01 section 1: the count must include the checks the bare form appends. The kit
+        # is detected by its table, so the failing check is a second kit file, from a scratch copy of the kit.
+        scratch = self.work / "sdk"
+        shutil.copytree(SDK_ROOT / "kits", scratch / "kits", ignore=shutil.ignore_patterns("__pycache__"))
+        added = scratch / "kits/lsp/templates/scripts/added-later.py"
+        added.parent.mkdir(parents=True, exist_ok=True)
+        added.write_text("print('later')\n", encoding="utf-8")
+        project = self.project()
+        with unittest.mock.patch.object(forge, "FORGE_ROOT", scratch):
+            forge.apply_kit(project, "base")
+            forge.apply_kit(project, "lsp")
+            clean = forge.doctor_repo(project)
+            self.assertEqual(command_line("doctor", project, "--strict")[0], 0)
+            (project / "scripts/added-later.py").unlink()
+            report = forge.doctor_repo(project)
+            self.assertEqual(report["also"], ["lsp"])
+            self.assertEqual(self.checks(report)["scripts/added-later.py"]["status"], "missing")
+            self.assertEqual(report["missing_or_setup_required"], clean["missing_or_setup_required"] + 1)
+            self.assertEqual(command_line("doctor", project, "--strict")[0], 3)
 
 
 if __name__ == "__main__":
