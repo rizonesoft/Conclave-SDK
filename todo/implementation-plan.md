@@ -149,14 +149,14 @@ Sections: 6 | Checklist items: 32
 
 ### Phase 99: Manual, operator only
 
-Sections: 3 | Checklist items: 19
+Sections: 3 | Checklist items: 21
 
 | Status | Reference  | Deliverable                              | Needs    | Items |
 | ------ | ---------- | ---------------------------------------- | -------- | ----- |
 | [x]    | D06 T01 §1 | Plugins registered from `plugins/`       | attended | 9     |
-| [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | operator | 5     |
+| [ ]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | attended | 7     |
 | [ ]    | D06 T01 §3 | Retired GitHub repositories deleted      | operator | 5     |
 
-Progress: 86/88 verified sections, 0 ready to run now.
+Progress: 86/88 verified sections, 1 ready to run now.
 
-Checklist: 687/697 items completed (includes Commit items).
+Checklist: 687/699 items completed (includes Commit items).

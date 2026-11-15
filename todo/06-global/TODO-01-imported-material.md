@@ -75,24 +75,30 @@ Each plugin's registration in the owner's Codex and Claude Code configuration is
 
 ## 2. Superseded copies under `R:/Bin` removed
 
+> **Started:** 2026-11-15T22:59:21Z
+
 Once nothing loads from them, the old copies are a second source that can drift. They are deleted by the owner, after proof that their content is in this repository.
 
+**Corrected 2026-11-16 (validation):** the `operator` Need is answered. The owner said in the attended session of 2026-11-16, before this section started, "please delete R:\Bin\claude and R:\Bin\codex" and then "Then complete phase 99", so the agent deletes the folders on that go-ahead once the comparison and the search are clean; the Need is now `attended`. The comparison is done and committed: `docs/reviews/06-global/D06-T01-bin-comparison.md` names all 88 files with no identical blob in the repository (28 differ only in lines naming the old folders, 9 are the old repositories' glue and logs, 51 are derived, local or backup material). Two statements in the repository call the copies a rollback that will no longer exist (`global/README.md:54`, `plugins/codex/README.md:31`), and the roadmap sentence moved to line 106; both are added below. Two vendor notes beside the tunnel client (`configuration.md`, `onboarding.md`) exist nowhere else, so they are kept beside the extracted client in this checkout's git-ignored `plugins/codex/.local/tunnel-client/` before the delete.
+
 **Phase:** 99
-**Needs:** operator
+**Needs:** attended
 **Surface:** no
 
 **Build order:**
 
-1. Prove the content of `R:/Bin/claude` and `R:/Bin/codex` is in `global/` and `plugins/` at `origin/main`. Done when: the comparison lists no file that exists only under `R:/Bin`.
-2. The owner deletes the two folders. Done when: the checkpoint passes.
+1. Prove the content of `R:/Bin/claude` and `R:/Bin/codex` is in `global/` and `plugins/` at `origin/main`. Done when: the comparison lists no file that exists only under `R:/Bin` unaccounted for.
+2. Delete the two folders on the owner's go-ahead. Done when: the checkpoint passes.
 
-- [ ] Compare `R:/Bin/claude` and `R:/Bin/codex` with `global/` and `plugins/` at `origin/main`, file by file, ignoring line endings and the old folder names, and list every file that is only under `R:/Bin` or differs. Done when: the list is empty, or each listed file is one the roadmap says was left out on purpose (the repositories' own glue, the deployment logs, the brand permission drafts, the client site list). Cheaper substitute: comparing folder sizes must fail review.
+- [ ] Compare `R:/Bin/claude` and `R:/Bin/codex` with `global/` and `plugins/` at `origin/main`, file by file, ignoring line endings and the old folder names, and list every file that is only under `R:/Bin` or differs. Done when: the list is empty, or each listed file is one the roadmap says was left out on purpose (the repositories' own glue, the deployment logs, the brand permission drafts, the client site list) or is derived, local or backup material named in `docs/reviews/06-global/D06-T01-bin-comparison.md`. Cheaper substitute: comparing folder sizes must fail review.
 - [ ] Search the home folder's agent configuration, the scheduled tasks and the systemd user units on Windows and in WSL for any remaining path under `R:/Bin/claude` or `R:/Bin/codex`. Done when: none is found, or each is repointed first.
-- [ ] The owner deletes `R:/Bin/claude` and `R:/Bin/codex`. Done when: neither folder exists. Cheaper substitute: an agent deleting them without the owner's go-ahead in that session must fail; this is a deletion outside the repository.
-- [ ] Remove the sentence in `docs/plans/2026-11-11-sdk-audit-and-roadmap.md` (line 104) that says the copies are superseded and the registrations were not moved, replacing it with the date both were done. Done when: the roadmap's status matches the machine.
+- [ ] Copy `R:/Bin/codex/.local/tunnel-client/configuration.md` and `onboarding.md` into `plugins/codex/.local/tunnel-client/`. Done when: both are there byte for byte (SHA-256) and `git check-ignore` reports them ignored. Cheaper substitute: committing them must fail; `.local/` is local material.
+- [ ] Delete `R:/Bin/claude` and `R:/Bin/codex` on the owner's go-ahead recorded above. Done when: neither folder exists. Cheaper substitute: an agent deleting them without the owner's go-ahead in that session must fail; this is a deletion outside the repository.
+- [ ] Replace the rollback statements in `global/README.md` (line 54) and `plugins/codex/README.md` (line 31) with the date the copies were deleted. Done when: neither README calls `R:\Bin` a rollback copy.
+- [ ] Remove the sentence in `docs/plans/2026-11-11-sdk-audit-and-roadmap.md` (line 106) that says the copies are superseded and the registrations were not moved, replacing it with the date both were done. Done when: the roadmap's status matches the machine.
 - [ ] Commit: `docs: R:/Bin copies removed`
 
-**Test checkpoint:** `Test-Path R:\Bin\claude` and `Test-Path R:\Bin\codex` both print `False`, and `python global/deploy.py` still deploys from this checkout without error.
+**Test checkpoint:** `Test-Path R:\Bin\claude` and `Test-Path R:\Bin\codex` both print `False`, and `python global/deploy.py` still deploys from this checkout without error on Windows and in WSL.
 
 ## 3. Retired GitHub repositories deleted
 
