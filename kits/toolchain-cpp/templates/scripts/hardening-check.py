@@ -35,7 +35,8 @@ How an entry is read, as the compiler would read it:
   `-fcf-protection` is `-fcf-protection=full`.
 
 The built binaries are what the linker wrote, and the only proof of control-flow guard, shadow-stack compatibility
-and address randomisation. `binaries` names them (files under `root`, `*` allowed in a file name) and `image` the
+and address randomisation. `binaries` names them (files under `root`, `*` allowed in a file name, names matched by the system's rule for
+case) and `image` the
 properties each must have, read from the headers with no outside tool (at most 64 MiB of a file):
 
     PE    DYNAMIC_BASE, HIGH_ENTROPY_VA (not applicable to a 32-bit image), NX_COMPAT, GUARD_CF, CET_COMPAT
@@ -443,6 +444,11 @@ class Image:
             raise Malformed(f"{what} at offset {offset} lies past the end of the file")
         return struct.unpack_from(fmt, self.data, offset)[0]
 
+    def within(self, offset, size, what):
+        """Refuse a range the file declares but does not hold: a truncated copy is no proof of what was built."""
+        if offset < 0 or offset + size > len(self.data):
+            raise Malformed(f"{what} at offset {offset} ({size} bytes) lies past the end of the file")
+
     def string(self, offset, what, limit=4096):
         if offset < 0 or offset >= len(self.data):
             raise Malformed(f"{what} at offset {offset} lies past the end of the file")
@@ -469,6 +475,7 @@ def read_pe(image):
         raise Malformed(f"the optional header magic at offset {optional} is {magic:#x}, neither PE32 nor PE32+")
     plus = magic == 0x20B
     dll = read(optional + 70, 2, "<H", "the DLL characteristics")
+    image_base = read(optional + 24, 8, "<Q", "the image base") if plus else read(optional + 28, 4, "<I", "the image base")
     count_at = optional + (108 if plus else 92)
     directories = min(read(count_at, 4, "<I", "the data directory count"), 16)
     if count_at + 4 + 8 * directories > optional + optional_size:
@@ -480,6 +487,8 @@ def read_pe(image):
         address = read(at + 12, 4, "<I", f"section {number + 1}")
         raw_size = read(at + 16, 4, "<I", f"section {number + 1}")
         raw_at = read(at + 20, 4, "<I", f"section {number + 1}")
+        if raw_size:
+            image.within(raw_at, raw_size, f"section {number + 1}'s contents")
         sections.append((address, max(virtual_size, raw_size), raw_at, raw_size))
 
     def offset_of(rva, what):
@@ -513,7 +522,8 @@ def read_pe(image):
             entry = at + 28 * number
             if read(entry + 12, 4, "<I", "a debug entry") == DEBUG_EX_DLLCHARACTERISTICS:
                 raw = read(entry + 24, 4, "<I", "a debug entry")
-                cet = bool(read(raw, 4, "<I", "the extended DLL characteristics") & CET_COMPAT_BIT)
+                if raw:   # 0: the entry's data is not in the file
+                    cet = bool(read(raw, 4, "<I", "the extended DLL characteristics") & CET_COMPAT_BIT)
     found["CET_COMPAT"] = cet
     libraries = []
     for index, width, name_field, what in ((1, 20, 12, "an import"), (13, 32, 4, "a delay import")):
@@ -526,6 +536,8 @@ def read_pe(image):
             name_rva = read(entry + name_field, 4, "<I", f"{what}'s name")
             if not name_rva:
                 break
+            if index == 13 and not plus and not read(entry, 4, "<I", "a delay import's attributes") & 1:
+                name_rva -= image_base   # the first, 32-bit delay import format holds addresses, not offsets
             libraries.append(image.string(offset_of(name_rva, f"{what}'s name"), f"{what}'s name"))
     return dict(found, guard_functions=guard_functions, libraries=libraries)
 
@@ -555,6 +567,8 @@ def read_elf(image):
         else:
             offset, vaddr, filesz = (read(at + field, 4, word, f"program header {number + 1}") for field in (4, 8, 16))
             flags = read(at + 24, 4, e + "I", f"program header {number + 1}")
+        if filesz:
+            image.within(offset, filesz, f"the contents of program header {number + 1}")
         segments.append((p_type, flags, offset, vaddr, filesz))
 
     def offset_of(vaddr, what):
@@ -583,12 +597,18 @@ def read_elf(image):
     libraries, protector = [], None
     if DT_STRTAB in values:
         start = offset_of(values[DT_STRTAB], "the dynamic string table")
-        length = values.get(DT_STRSZ, 0)
-        if start + length > len(image.data):
+        length = values.get(DT_STRSZ)
+        if length is not None and start + length > len(image.data):
             raise Malformed(f"the dynamic string table at offset {start} runs past the end of the file")
-        libraries = [image.string(start + value, "a needed library's name") for tag, value in tags
-                     if tag == DT_NEEDED]
-        protector = b"\0__stack_chk_fail\0" in b"\0" + image.data[start:start + length]
+        for tag, value in tags:
+            if tag != DT_NEEDED:
+                continue
+            if length is not None and value >= length:
+                raise Malformed(f"a needed library's name at offset {start + value} lies past the end of the dynamic "
+                                "string table")
+            libraries.append(image.string(start + value, "a needed library's name"))
+        if length is not None:   # without its size the table cannot be searched, so the answer is not known
+            protector = b"\0__stack_chk_fail\0" in b"\0" + image.data[start:start + length]
     stack = [segment for segment in segments if segment[0] == PT_GNU_STACK]
     return {"PIE": e_type == 3 and (PT_INTERP in types or bool(flags_1 & DF_1_PIE)),
             "RELRO": PT_GNU_RELRO in types,
@@ -677,7 +697,7 @@ def _matches(base, patterns):
                 unmatched.append(pattern)
             continue
         try:
-            names = sorted(entry for entry in os.listdir(folder) if fnmatch.fnmatchcase(entry, rel.name)
+            names = sorted(entry for entry in os.listdir(folder) if fnmatch.fnmatch(entry, rel.name)
                            and os.path.isfile(folder / entry))
         except OSError:
             names = []
@@ -688,11 +708,16 @@ def _matches(base, patterns):
     return found, unmatched
 
 
+def _same_folder(one, other):
+    """Two folders under the root compared by the system's rule for case, as fnmatch.fnmatch compares names."""
+    return os.path.normcase(str(one)) == os.path.normcase(str(other))
+
+
 def _exempt(path, base, patterns):
     rel = PurePosixPath(os.path.relpath(path, base).replace(os.sep, "/"))
     for pattern in patterns:
         target = PurePosixPath(pattern)
-        if rel.parent == target.parent and fnmatch.fnmatchcase(rel.name, target.name):
+        if _same_folder(rel.parent, target.parent) and fnmatch.fnmatch(rel.name, target.name):
             return True
     return False
 
@@ -749,7 +774,12 @@ def overall(compile_result, image_result):
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="hardening-check.py",
                                      description="Say whether the project's compile commands and built binaries "
-                                                 "carry its declared hardening. Runs nothing.")
+                                                 "carry its declared hardening. Runs nothing.",
+                                     epilog="A sanitizer runtime is found by the library a binary imports or needs, "
+                                            "or, linked in, by its option variable (ASAN_OPTIONS and the like) in "
+                                            "the file. Limit: a runtime linked in without that string in the file "
+                                            "is not found. Patterns in binaries and test_binaries match file names "
+                                            "by the system's rule for case.")
     parser.add_argument("--root", default=".", help="the project (default: the working directory)")
     parser.add_argument("--pins", help=f"the pin file (default: {PINS} under the root)")
     parser.add_argument("--json", action="store_true", help="print the policy and the result as one JSON document")

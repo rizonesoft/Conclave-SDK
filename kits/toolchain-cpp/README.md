@@ -23,6 +23,7 @@ What it installs:
 | `scripts/tests/fixtures/pe-delay.exe.bin` | A real binary the hardening check's tests read; never run |
 | `scripts/tests/fixtures/pe-hardened.exe.bin` | A real binary the hardening check's tests read; never run |
 | `scripts/tests/fixtures/pe-plain.exe.bin` | A real binary the hardening check's tests read; never run |
+| `scripts/tests/fixtures/pe32-delay.exe.bin` | A real binary the hardening check's tests read; never run |
 | `scripts/tests/fixtures/pe32-hardened.exe.bin` | A real binary the hardening check's tests read; never run |
 | `scripts/cc-cache.py` | Puts a compiler cache in front of the compilers a build names |
 | `scripts/cache-stats.py` | Prints the cache's hit rate; fails a rebuild that did not use the cache |

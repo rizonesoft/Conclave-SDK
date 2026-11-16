@@ -358,6 +358,8 @@ PE_EXPECTED = {
                                "GUARD_CF": True, "CET_COMPAT": False}, 9),
     "pe-delay.exe.bin": ({"DYNAMIC_BASE": True, "HIGH_ENTROPY_VA": True, "NX_COMPAT": True, "GUARD_CF": False,
                           "CET_COMPAT": False}, 0),
+    "pe32-delay.exe.bin": ({"DYNAMIC_BASE": True, "HIGH_ENTROPY_VA": "not applicable", "NX_COMPAT": True,
+                            "GUARD_CF": False, "CET_COMPAT": False}, 0),
 }
 CRT = ["KERNEL32.dll", "VCRUNTIME140.dll"]
 ELF_EXPECTED = {
@@ -494,6 +496,31 @@ class ImagePolicyTests(ImageFixture):
         self.assertEqual(self.image()[:2][0], 0)
 
 
+class CaseTests(ImageFixture):
+    def test_patterns_match_names_by_the_systems_rule_for_case(self):
+        # Round 1 of the review: on Windows `*.exe` missed SANITIZED.EXE, so a sanitizer build escaped the check.
+        self.binary("pe-hardened.exe.bin", "build/release.exe")
+        self.binary("pe-asan.exe.bin", "build/SANITIZED.EXE")
+        self.image_policy(["build/*.exe"], ["DYNAMIC_BASE"])
+        code, image, _text = self.image()
+        names = [entry["path"] for entry in image["binaries"]]
+        if os.name == "nt":
+            self.assertEqual((code, names), (3, ["build/SANITIZED.EXE", "build/release.exe"]))
+            self.image_policy(["build/*.exe"], ["DYNAMIC_BASE"], test_binaries=["BUILD/sanitized.exe"])
+            self.assertEqual(self.image()[0], 0)
+        else:
+            self.assertEqual((code, names), (0, ["build/release.exe"]))
+        self.assertEqual(hc.fnmatch.fnmatch("SANITIZED.EXE", "*.exe"), os.path.normcase("A") == "a")
+
+    def test_the_help_states_the_detection_limit(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
+            hc.main(["--help"])
+        text = " ".join(out.getvalue().split())
+        self.assertIn("Limit: a runtime linked in without that string in the file is not found.", text)
+        self.assertIn("by the system's rule for case", text)
+
+
 class SanitizerTests(ImageFixture):
     def test_a_sanitizer_runtime_is_refused_by_its_library_or_its_option_variable(self):
         cases = [("pe-asan.exe.bin", "clang_rt.asan_dynamic-x86_64.dll"), ("elf-asan.bin", "libasan.so.8"),
@@ -537,15 +564,43 @@ class BoundTests(ImageFixture):
         self.assertEqual(len([line for line in text.splitlines() if line.startswith("  ")]), 1)
         return path
 
-    def test_no_truncation_of_any_fixture_makes_the_reader_raise(self):
+    @staticmethod
+    def contents_end(data):
+        """Where the last range of file contents the image declares ends, read here without the reader: the
+        sections' raw data of a PE image, the segments' file contents of an ELF one."""
+        if data[:4] == b"\x7fELF":
+            phoff, phentsize, phnum = (struct.unpack_from(f, data, o)[0] for f, o in (("<Q", 32), ("<H", 54),
+                                                                                   ("<H", 56)))
+            return max(struct.unpack_from("<Q", data, phoff + phentsize * n + 8)[0]
+                       + struct.unpack_from("<Q", data, phoff + phentsize * n + 32)[0] for n in range(phnum))
+        lfanew = struct.unpack_from("<I", data, 0x3C)[0]
+        count, optional_size = struct.unpack_from("<H", data, lfanew + 6)[0], struct.unpack_from("<H", data,
+                                                                                                  lfanew + 20)[0]
+        table = lfanew + 24 + optional_size
+        return max(struct.unpack_from("<I", data, table + 40 * n + 20)[0]
+                   + struct.unpack_from("<I", data, table + 40 * n + 16)[0] for n in range(count))
+
+    def test_a_truncated_copy_of_any_fixture_is_refused_and_never_raises(self):
+        # Round 1 of the review: a copy cut short (an interrupted artifact upload) passed while its headers held.
         for name in list(PE_EXPECTED) + list(ELF_EXPECTED):
             data = fixture_bytes(name)
+            needed = self.contents_end(data)
+            self.assertLessEqual(needed, len(data), name)
             with self.subTest(name=name):
                 path = self.project / "cut.bin"
-                for end in range(0, len(data), 256):
+                for end in list(range(0, needed, 256)) + [needed - 1]:
                     path.write_bytes(data[:end])
-                    found = hc.inspect_binary(path, "cut.bin", ["GUARD_CF", "PIE", "STACK_PROTECTOR"], False)
-                    self.assertIn(found["status"], ("ok", "missing", "unknown", "invalid"))
+                    found = hc.inspect_binary(path, "cut.bin", ["GUARD_CF", "PIE", "NX_STACK"], False)
+                    self.assertEqual(found["status"], "invalid", f"{name} cut at {end}: {found['detail']}")
+                path.write_bytes(data[:needed])
+                self.assertNotEqual(hc.inspect_binary(path, "cut.bin", ["NX_STACK"], False)["status"], "invalid")
+
+    def test_the_static_fixture_cut_to_1024_bytes_is_invalid(self):
+        self.binary("elf-static.bin", data=fixture_bytes("elf-static.bin")[:1024])
+        self.image_policy(["build/elf-static"], ["NX_STACK"])
+        code, image, _text = self.image()
+        self.assertEqual((code, image["binaries"][0]["status"]), (1, "invalid"))
+        self.assertIn("lies past the end of the file", image["binaries"][0]["detail"])
 
     def test_offsets_past_the_end_inside_valid_images_are_invalid_naming_the_offset(self):
         pe = bytearray(fixture_bytes("pe-hardened.exe.bin"))
@@ -646,6 +701,66 @@ class CombinedTests(ImageFixture):
         self.assertEqual(text.splitlines(), ["hardening:compile: none: no policy declared: add a `hardening` key to "
                                              "the pin file (docs/toolchain-cpp.md, Memory safety)",
                                              "hardening:image: none: no policy declared"])
+
+
+class EditedImageTests(ImageFixture):
+    """Real fixtures with one field changed, for what the toolchains here do not produce (the writer's own review
+    of section 2)."""
+
+    def pe_directory(self, data, index):
+        lfanew = struct.unpack_from("<I", data, 0x3C)[0]
+        optional = lfanew + 24
+        plus = struct.unpack_from("<H", data, optional)[0] == 0x20B
+        return struct.unpack_from("<II", data, optional + (112 if plus else 96) + 8 * index)
+
+    def pe_offset(self, data, rva):
+        lfanew = struct.unpack_from("<I", data, 0x3C)[0]
+        count, optional_size = struct.unpack_from("<H", data, lfanew + 6)[0], struct.unpack_from("<H", data,
+                                                                                                  lfanew + 20)[0]
+        table = lfanew + 24 + optional_size
+        for number in range(count):
+            size, address, _raw_size, raw = struct.unpack_from("<IIII", data, table + 40 * number + 8)
+            if address <= rva < address + size:
+                return raw + rva - address
+        raise AssertionError(f"no section holds {rva:#x}")
+
+    def test_a_debug_entry_whose_data_is_not_in_the_file_is_not_read_from_offset_0(self):
+        data = bytearray(fixture_bytes("pe-hardened.exe.bin"))
+        rva, size = self.pe_directory(data, 6)
+        at = self.pe_offset(data, rva)
+        for number in range(size // 28):
+            entry = at + 28 * number
+            if struct.unpack_from("<I", data, entry + 12)[0] == hc.DEBUG_EX_DLLCHARACTERISTICS:
+                struct.pack_into("<I", data, entry + 24, 0)
+        # Offset 0 holds "MZ", whose low bit is set: read there, the binary would pass as CET compatible.
+        self.assertEqual(hc.read_pe(hc.Image(bytes(data), False))["CET_COMPAT"], False)
+
+    def test_a_delay_import_of_the_first_format_names_its_dll_by_address(self):
+        # The first delay import format, of 32-bit images built before Visual C++ 7, holds addresses.
+        data = bytearray(fixture_bytes("pe32-delay.exe.bin"))
+        self.assertEqual(hc.read_pe(hc.Image(bytes(data), False))["libraries"][-1], "USER32.dll")
+        rva, _size = self.pe_directory(data, 13)
+        at = self.pe_offset(data, rva)
+        lfanew = struct.unpack_from("<I", data, 0x3C)[0]
+        image_base = struct.unpack_from("<I", data, lfanew + 24 + 28)[0]
+        self.assertEqual(image_base, 0x400000)
+        name_rva = struct.unpack_from("<I", data, at + 4)[0]
+        struct.pack_into("<I", data, at, 0)                       # attributes: the address-based format
+        struct.pack_into("<I", data, at + 4, name_rva + image_base)
+        self.assertEqual(hc.read_pe(hc.Image(bytes(data), False))["libraries"][-1], "USER32.dll")
+
+    def test_a_string_table_without_its_size_leaves_the_stack_protector_unknown(self):
+        data = bytearray(fixture_bytes("elf-hardened.bin"))
+        phoff, phentsize, phnum = (struct.unpack_from(f, data, o)[0] for f, o in (("<Q", 32), ("<H", 54), ("<H", 56)))
+        dynamic = next(struct.unpack_from("<Q", data, phoff + phentsize * n + 8)[0] for n in range(phnum)
+                       if struct.unpack_from("<I", data, phoff + phentsize * n)[0] == hc.PT_DYNAMIC)
+        for number in range(64):
+            if struct.unpack_from("<q", data, dynamic + 16 * number)[0] == hc.DT_STRSZ:
+                struct.pack_into("<q", data, dynamic + 16 * number, 0x6FFFFE00)   # a tag no reader knows
+                break
+        found = hc.read_elf(hc.Image(bytes(data), False))
+        self.assertIsNone(found["STACK_PROTECTOR"])
+        self.assertEqual(found["libraries"], ["libc.so.6"])
 
 
 class ReadOnlyTests(Fixture):

@@ -259,7 +259,8 @@ class CppKitTests(ToolchainFixture):
                  "scripts/tests/fixtures/elf-plain.bin", "scripts/tests/fixtures/elf-static.bin",
                  "scripts/tests/fixtures/elf-ubsan-static.bin.gz", "scripts/tests/fixtures/pe-asan.exe.bin",
                  "scripts/tests/fixtures/pe-delay.exe.bin", "scripts/tests/fixtures/pe-hardened.exe.bin",
-                 "scripts/tests/fixtures/pe-plain.exe.bin", "scripts/tests/fixtures/pe32-hardened.exe.bin",
+                 "scripts/tests/fixtures/pe-plain.exe.bin", "scripts/tests/fixtures/pe32-delay.exe.bin",
+                 "scripts/tests/fixtures/pe32-hardened.exe.bin",
                  "scripts/tests/test_cc_cache.py", "scripts/tests/test_compdb_check.py",
                  "scripts/tests/test_hardening_check.py", "scripts/tests/test_toolchain_check.py",
                  "scripts/toolchain-check.py"]

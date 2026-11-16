@@ -29,6 +29,7 @@ void _start(void) { __asm__ volatile ("mov $60, %eax\n xor %edi, %edi\n syscall"
 | `pe-plain.exe.bin` | MSVC 19.52.37029, x64, Windows 11 | see below |
 | `pe32-hardened.exe.bin` | MSVC 19.52.37029, x86, Windows 11 | see below |
 | `pe-delay.exe.bin` | MSVC 19.52.37029, x64, Windows 11 (`delay.c`) | see below |
+| `pe32-delay.exe.bin` | MSVC 19.52.37029, x86, Windows 11 (`delay.c`) | see below |
 | `pe-asan.exe.bin` | clang-cl 22.1.3, Visual Studio 18, x64 | see below |
 | `elf-hardened.bin` | GCC 15.2.0, x86-64, Ubuntu 26.04 in WSL | see below |
 | `elf-plain.bin` | GCC 15.2.0, x86-64, Ubuntu 26.04 in WSL | see below |
@@ -41,6 +42,7 @@ cl /nologo /O1 /MD /guard:cf /GS probe.c /Fe:pe-hardened.exe /link /guard:cf /CE
 cl /nologo /O1 /MD /GS- probe.c /Fe:pe-plain.exe /link /CETCOMPAT:NO /DYNAMICBASE:NO /HIGHENTROPYVA:NO /NXCOMPAT:NO /FIXED
 cl /nologo /O1 /MD /guard:cf probe.c /Fe:pe32-hardened.exe /link /guard:cf /DYNAMICBASE /NXCOMPAT        (x86 tools)
 cl /nologo /O1 /MD delay.c /Fe:pe-delay.exe /link user32.lib delayimp.lib /DELAYLOAD:user32.dll
+cl /nologo /O1 /MD delay.c /Fe:pe32-delay.exe /link user32.lib delayimp.lib /DELAYLOAD:user32.dll        (x86 tools)
 clang-cl /nologo /O1 /MD -fsanitize=address probe.c /Fe:pe-asan.exe
 gcc -O1 -fPIE -pie -fstack-protector-all -Wl,-z,relro,-z,now,-z,noexecstack probe.c -o elf-hardened
 gcc -O1 -no-pie -fno-PIE -fno-stack-protector -Wl,-z,norelro,-z,lazy,-z,execstack probe.c -o elf-plain
@@ -59,6 +61,7 @@ What `dumpbin /headers /loadconfig /imports` (Visual Studio 18) reported:
 | `pe-asan.exe.bin` | yes | yes | yes | no | no | 0 | `clang_rt.asan_dynamic-x86_64.dll` |
 | `pe32-hardened.exe.bin` | yes | not in a 32-bit image | yes | yes | no | 9 | none |
 | `pe-delay.exe.bin` | yes | yes | yes | no | no | 0 | none; `USER32.dll` is delay-loaded |
+| `pe32-delay.exe.bin` | yes | not in a 32-bit image | yes | no | no | 0 | none; `USER32.dll` delay-loaded |
 
 What `readelf -hW`, `readelf -lW`, `readelf -dW` and `readelf --dyn-syms -W` (GNU binutils, Ubuntu 26.04) reported:
 
@@ -69,5 +72,7 @@ What `readelf -hW`, `readelf -lW`, `readelf -dW` and `readelf --dyn-syms -W` (GN
 | `elf-asan.bin` | DYN, PIE, with INTERP | yes | yes (`FLAGS` and `FLAGS_1`) | RW | yes | `libasan.so.8`, `libc.so.6` |
 | `elf-ubsan-static.bin.gz` | DYN, PIE, with INTERP | yes | yes | RW | yes | `libm.so.6`, `libgcc_s.so.1`, `libc.so.6` |
 | `elf-static.bin` | EXEC, no INTERP, no DYNAMIC | no | no | RW | no dynamic string table | none |
+
+`pe32-delay.exe.bin`'s image base is 0x400000, which its test uses to rewrite the delay import into the older format that holds addresses.
 
 The runtime linked into `elf-ubsan-static` leaves no needed library: what names it is the runtime's own option variable, `UBSAN_OPTIONS`, as a NUL-terminated string in the file (`grep -c UBSAN_OPTIONS` finds it; none of the other fixtures holds a sanitizer option variable).
