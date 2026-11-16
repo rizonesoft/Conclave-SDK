@@ -579,6 +579,22 @@ class RunTest(unittest.TestCase):
         self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
         self.assertIn("with no marker", again.stdout)
 
+    def test_a_stop_waits_out_a_brief_hold_of_the_launch_lock(self):
+        # The heartbeat holds the launch lock for a moment on every tick; a stop that met it was refused (CI red on
+        # 2026-11-14 and 2026-11-16 in test_an_ordinary_start_runs_one_heartbeat_and_stop_removes_it).
+        self.assertEqual(self.launcher("start").returncode, 0)
+        holder = subprocess.Popen([sys.executable, "-c", (
+            "import importlib.util, time\n"
+            f"spec = importlib.util.spec_from_file_location('u', {str(self.root / 'scripts/lib/unattended.py')!r})\n"
+            "u = importlib.util.module_from_spec(spec); spec.loader.exec_module(u)\n"
+            f"with u.launch_lock({str(self.root)!r}):\n"
+            "    print('held', flush=True); time.sleep(1)\n")], stdout=subprocess.PIPE, text=True,
+            creationflags=windowless())
+        self.addCleanup(lambda: (holder.kill(), holder.wait(), holder.stdout.close()))
+        self.assertEqual(holder.stdout.readline().strip(), "held")
+        self.assert_stopped()
+        self.assertTrue(self.wait_session_gone("demo-run"), "the stop that waited for the lock ended the run")
+
     def test_stop_keeps_another_sessions_guard_and_follows_the_marker_over_a_renamed_profile(self):
         self.assertEqual(self.launcher("start").returncode, 0)
         self.acquire("someone-else")

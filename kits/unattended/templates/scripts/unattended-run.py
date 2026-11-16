@@ -79,6 +79,10 @@ STOP_GRACE_SECONDS = 10
 KILL_WAIT_SECONDS = 30
 # How long `stop` tries to record the run's end (state, health, notice) itself before handing it to the heartbeat.
 STOP_RECORD_SECONDS = 10
+# How long `stop` waits for the launch lock: the heartbeat holds it for a moment to write each tick's records, and a
+# stop that met that write was refused (CI red on 2026-11-14 and 2026-11-16, test_an_ordinary_start_runs_one_heartbeat
+# _and_stop_removes_it). A launch that holds it longer still refuses the stop.
+STOP_LOCK_WAIT_SECONDS = 5
 # The run `stop` ended, kept in the heartbeat's tmux session environment (memory, no disk): the heartbeat records
 # that end when `stop` could not, and keeps trying until the disk takes it.
 STOPPED = "CONCLAVE_UNATTENDED_STOPPED"
@@ -957,7 +961,7 @@ def stop(root: Path, out=None) -> int:
               file=out)
         return 2
     profile = lib.load_profile(root)
-    with lib.launch_lock(root):
+    with lib.launch_lock(root, wait=STOP_LOCK_WAIT_SECONDS):
         marker, problem = read_marker(root)
         if problem:
             print(f"stop: {problem}; stopping the profile's sessions", file=out)

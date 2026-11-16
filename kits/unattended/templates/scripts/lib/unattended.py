@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import time
 
 SCHEMA_VERSION = 1
 PROFILE = ".conclave/unattended.json"
@@ -344,31 +345,37 @@ class LaunchError(RuntimeError):
 
 
 @contextlib.contextmanager
-def launch_lock(root):
-    """Hold `build/unattended-launch.lock` exclusively for the launch, without waiting: a second launch while the
-    first holds it is refused naming the lock. The kernel releases it when the launcher exits, however it exits.
+def launch_lock(root, wait: float = 0.0):
+    """Hold `build/unattended-launch.lock` exclusively. With no `wait` it is taken without waiting: a second launch
+    while the first holds it is refused naming the lock. With `wait` it is tried again until that many seconds have
+    passed, for a caller that must not be refused by a holder's brief write (the heartbeat takes it for each tick's
+    records), and refused the same way after that. The kernel releases it when the holder exits, however it exits.
     The run lives in tmux, on Linux and in WSL (flock); on Windows, where the kit's tick tests run, its first byte is
     locked instead (msvcrt.locking)."""
     path = Path(root) / LAUNCH_LOCK
     path.parent.mkdir(parents=True, exist_ok=True)
     handle = open(path, "a+b")
     locked = False
+    deadline = time.monotonic() + wait
     try:
-        try:
-            if os.name == "nt":
-                import msvcrt
+        while not locked:
+            try:
+                if os.name == "nt":
+                    import msvcrt
 
-                handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
 
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            locked = True
-        except (BlockingIOError, PermissionError, OSError) as exc:
-            if isinstance(exc, (BlockingIOError, PermissionError)) or getattr(exc, "errno", None) in (13, 36):
-                raise LaunchError(f"{LAUNCH_LOCK} is held: another launch is under way") from None
-            raise
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                locked = True
+            except (BlockingIOError, PermissionError, OSError) as exc:
+                if not (isinstance(exc, (BlockingIOError, PermissionError)) or getattr(exc, "errno", None) in (13, 36)):
+                    raise
+                if time.monotonic() >= deadline:
+                    raise LaunchError(f"{LAUNCH_LOCK} is held: another launch is under way") from None
+                time.sleep(0.05)
         yield path
     finally:
         if locked and os.name == "nt":

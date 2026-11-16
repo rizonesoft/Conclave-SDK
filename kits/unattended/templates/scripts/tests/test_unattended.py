@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import unittest.mock
 
@@ -377,6 +378,36 @@ class LaunchLockTest(unittest.TestCase):
         holder.wait()
         with unattended.launch_lock(self.root) as path:  # the kernel let go when the holder died
             self.assertEqual(path, self.root / "build" / "unattended-launch.lock")
+
+    def hold(self, seconds):
+        holder = subprocess.Popen([sys.executable, "-c", (
+            "import importlib.util, sys, time\n"
+            f"spec = importlib.util.spec_from_file_location('u', {str(SCRIPTS / 'lib' / 'unattended.py')!r})\n"
+            "u = importlib.util.module_from_spec(spec); spec.loader.exec_module(u)\n"
+            f"with u.launch_lock({str(self.root)!r}):\n"
+            f"    print('held', flush=True); time.sleep({seconds})\n")], stdout=subprocess.PIPE, text=True,
+            creationflags=windowless())
+        self.addCleanup(lambda: (holder.kill(), holder.wait(), holder.stdout.close()))
+        self.assertEqual(holder.stdout.readline().strip(), "held")
+        return holder
+
+    def test_a_wait_takes_the_lock_once_a_brief_holder_lets_go(self):
+        # The heartbeat holds the lock for a moment on every tick, and a `stop` that met it was refused (CI red on
+        # 2026-11-14 and 2026-11-16): a caller that waits takes it when the holder lets go.
+        self.hold(1)
+        started = time.monotonic()
+        with unattended.launch_lock(self.root, wait=10) as path:
+            self.assertEqual(path, self.root / "build" / "unattended-launch.lock")
+        self.assertLess(time.monotonic() - started, 9)
+
+    def test_a_wait_still_refuses_a_holder_that_outlasts_it(self):
+        self.hold(60)
+        started = time.monotonic()
+        with self.assertRaises(unattended.LaunchError) as caught:
+            with unattended.launch_lock(self.root, wait=0.5):
+                self.fail("the lock was taken while another process held it")
+        self.assertIn("build/unattended-launch.lock", str(caught.exception))
+        self.assertGreaterEqual(time.monotonic() - started, 0.5)
 
     def test_the_lock_is_released_when_the_block_ends(self):
         with unattended.launch_lock(self.root):
