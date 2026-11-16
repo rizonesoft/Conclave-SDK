@@ -75,6 +75,10 @@ A project states what it builds with, and the check holds its compile commands t
 
 ## 2. Image Properties of Built Binaries
 
+> **Started:** 2026-11-16T19:30:58Z
+
+**Corrected 2026-11-16:** before its start, in `3b07dd2`: the fixtures are real linker output (MSVC 19.52, clang-cl and GCC 15.2) checked against `dumpbin` and `readelf`, a property that does not apply to a binary's format is not applicable and a binary none of whose required properties applies is `unknown`, delay-loaded imports are read, the image result has its own line and the exit combines both, and the checkpoint names the kit suite, as §1's plan review found `tests.test_toolchain_kits` runs it only under `CONCLAVE_FULL_TESTS`.
+
 What the linker wrote is the only proof of control-flow guard, shadow-stack compatibility and address randomisation, and compile flags prove none of them: Isotone learned that and reads `dumpbin`, which only exists where Visual Studio does. This section reads the headers directly, so the same check runs on Windows, in WSL and on a CI runner with no toolchain installed.
 
 **Phase:** 6
