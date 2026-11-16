@@ -24,8 +24,14 @@ How an entry is read, as the compiler would read it:
   `ccache` or `sccache` launcher, is `cl` or `clang-cl`, wherever it runs) by `/DNAME[=VALUE]` or `/D NAME[=VALUE]` too (`#` standing for `=` there,
   as cl reads it); `-DNAME` is `NAME=1`;
 - an option is met by the same argument, and on an MSVC-style entry a `/` option by its `-` spelling too;
+- only what the compiler itself reads counts: nothing after cl's `/link`, no `-Wl,`, `-Wa,` or `-Wp,` argument, and
+  no value of an option that takes the next argument (`-Xlinker`, `-Xclang`, `-o`, `-I` and the like);
 - the last occurrence wins: a later `-UNAME`, `-U NAME`, `/UNAME`, `/U NAME` or other value undoes a definition, and
-  the `-fno-` form of an `-f` option, `/option-` or another value of a `-name=value` option undoes an option.
+  the `-fno-` form of an `-f` option, `/option-` or another value of a `-name=value` option undoes an option;
+- option families are read as GCC and Clang read them: the last stack protector option sets the level, and a
+  stronger level meets a weaker requirement (`-fstack-protector-all` meets `-fstack-protector-strong`, a later
+  `-fno-stack-protector` undoes both); the values of `-fsanitize=` add up and `-fno-sanitize=` takes them away;
+  `-fcf-protection` is `-fcf-protection=full`.
 
 It prints one line with the status, then one line per requirement (`ok`, or `missing` with how many entries lack
 it and the first of them). The status is `ok`; `missing` (exit 3); `unknown` (exit 1) when the database is not
@@ -174,62 +180,119 @@ def _definition(text, windows_form):
     return name, (value if equals else "1")
 
 
-def _undoes(argument, option, windows):
-    """Whether `argument` turns `option` off."""
-    spellings = [option] + (["-" + option[1:]] if windows and option.startswith("/") else [])
-    for spelling in spellings:
-        if spelling.startswith("-fno-") and argument == "-f" + spelling[5:]:
-            return True
-        if spelling.startswith("-f") and not spelling.startswith("-fno-") and argument == "-fno-" + spelling[2:]:
-            return True
-        if windows and spelling[0] in "/-" and argument == spelling + "-":
-            return True
-        if spelling.startswith("-") and not spelling.startswith("-Wl,") and "=" in spelling:
-            prefix = spelling.split("=", 1)[0] + "="
-            if argument.startswith(prefix) and argument != spelling:
-                return True
-    return False
+# Options whose next argument is their value, never a flag of the compiler's own: that value is skipped, so a
+# `-Xlinker -D_GLIBCXX_ASSERTIONS` (passed to the linker) or an `-o /guard:cf` meets nothing.
+TAKES_VALUE = {"-o", "-x", "-I", "-L", "-l", "-MF", "-MT", "-MQ", "-MJ", "-include", "-imacros", "-isystem",
+               "-iquote", "-idirafter", "-iprefix", "-iwithprefix", "-isysroot", "--sysroot", "-target", "--target",
+               "-arch", "-Xlinker", "-Xassembler", "-Xpreprocessor", "-Xclang", "-mllvm", "-Xopenmp-target", "-z",
+               "-T", "-u", "-e", "-aux-info", "-dumpdir", "-dumpbase", "--param"}
+MSVC_TAKES_VALUE = {"/I", "-I", "/FI", "-FI", "/AI", "-AI", "/FU", "-FU", "/external:I", "-external:I", "/Tc", "/Tp"}
+# The stack protector's levels, as GCC and Clang read them: the last of the family sets the level.
+STACK_PROTECTOR = {"-fno-stack-protector": 0, "-fstack-protector-explicit": 1, "-fstack-protector": 2,
+                   "-fstack-protector-strong": 3, "-fstack-protector-all": 4}
+# A bare option that means one value of its `=` family.
+ALIASES = {"-fcf-protection": "-fcf-protection=full"}
+# Options whose values add up rather than replace each other, with the option that takes values away.
+LISTS = {"-fsanitize=": "-fno-sanitize=", "-fsanitize-trap=": "-fno-sanitize-trap=",
+         "-fsanitize-recover=": "-fno-sanitize-recover="}
 
 
-def carries(arguments, requirement, windows):
-    """Whether a compile command's arguments (the compiler first) leave `requirement` in force at their end."""
-    arguments = arguments[1:]
+def compiler_arguments(arguments, msvc):
+    """The arguments the compiler itself reads, in order, without the compiler: a separated `-D NAME` or `-U NAME`
+    (and `/D`, `/U` on an MSVC-style entry) joined into one, each option's own value skipped, a `-Wl,` or `-Wa,`
+    argument (the linker's or the assembler's) left out, and nothing after cl's `/link` (the linker's)."""
+    owned, i = [], 1
+    while i < len(arguments):
+        argument = arguments[i]
+        if msvc and argument.lower() in ("/link", "-link"):
+            break
+        joined = ("-D", "-U") + (("/D", "/U") if msvc else ())
+        if argument in joined:
+            if i + 1 < len(arguments):
+                owned.append(argument + arguments[i + 1])
+            i += 2
+            continue
+        if argument in TAKES_VALUE or (msvc and argument in MSVC_TAKES_VALUE) or argument.startswith("-Xarch_"):
+            i += 2
+            continue
+        if not argument.startswith(("-Wl,", "-Wa,", "-Wp,")):
+            owned.append(argument)
+        i += 1
+    return owned
+
+
+def _definition_state(owned, name, msvc):
+    defined = None
+    for argument in owned:
+        head = argument[:2]
+        if head == "-U" or (msvc and head == "/U"):
+            if argument[2:] == name:
+                defined = None
+        elif head == "-D" or (msvc and head == "/D"):
+            parsed = _definition(argument[2:], head == "/D")
+            if parsed and parsed[0] == name:
+                defined = parsed[1]
+    return defined
+
+
+def _canonical(argument, msvc):
+    """One spelling of an option: cl's `-` form as its `/` form, and a bare alias as its `=` value."""
+    if msvc and argument.startswith("-") and not argument.startswith("--"):
+        slash = "/" + argument[1:]
+        if not argument.startswith(("-f", "-m", "-D", "-U", "-I", "-X")):
+            argument = slash
+    return ALIASES.get(argument, argument)
+
+
+def _option_state(owned, requirement, msvc):
+    """Whether the option `requirement` is in force after the arguments the compiler reads, under the option
+    families GCC, Clang and cl apply: the stack protector's levels (a stronger level meets a weaker requirement),
+    list options whose values add up (`-fsanitize=`), `-name=value` options whose last value wins, `-fname` against
+    `-fno-name`, and cl's `/option` against `/option-`."""
+    wanted = _canonical(requirement, msvc)
+    if wanted in STACK_PROTECTOR:
+        level = 0
+        for argument in owned:
+            level = STACK_PROTECTOR.get(argument, level)
+        required = STACK_PROTECTOR[wanted]
+        return level == 0 if required == 0 else level >= required
+    for adds, takes in LISTS.items():
+        if wanted.startswith(adds):
+            values = set()
+            for argument in owned:
+                if argument.startswith(adds):
+                    values |= set(argument[len(adds):].split(","))
+                elif argument.startswith(takes):
+                    values -= set(argument[len(takes):].split(","))
+            return set(wanted[len(adds):].split(",")) <= values
+    family = wanted.split("=", 1)[0] if wanted.startswith("-") and "=" in wanted else None
+    state = False
+    for argument in owned:
+        spelled = _canonical(argument, msvc)
+        if spelled == wanted:
+            state = True
+        elif family and spelled.startswith(family + "="):
+            state = False   # another value of the same option
+        elif wanted.startswith("-fno-") and spelled == "-f" + wanted[5:]:
+            state = False
+        elif wanted.startswith("-f") and spelled in ("-fno-" + wanted[2:], "-fno-" + (family or wanted)[2:]):
+            state = False
+        elif msvc and wanted[0] == "/" and spelled == wanted + "-":
+            state = False
+    return state
+
+
+def carries(arguments, requirement, msvc):
+    """Whether a compile command's arguments (the compiler first) leave `requirement` in force at their end, as
+    the compiler reads them (compiler_arguments)."""
+    owned = compiler_arguments(arguments, msvc)
     if requirement[:2] in ("-D", "/D") and _definition(requirement[2:], requirement[0] == "/"):
         requirement = requirement[2:]   # a definition written with its option: held to the same rules
     if requirement[0] in "-/":
-        state = False
-        spellings = {requirement} | ({"-" + requirement[1:]} if windows and requirement.startswith("/") else set())
-        for argument in arguments:
-            if argument in spellings:
-                state = True
-            elif _undoes(argument, requirement, windows):
-                state = False
-        return state
+        return _option_state(owned, requirement, msvc)
     name, value = _definition(requirement, False)
-    exact = "=" in requirement
-    defined, i = None, 0
-    prefixes = ("-D", "/D") if windows else ("-D",)
-    undefines = ("-U", "/U") if windows else ("-U",)
-    while i < len(arguments):
-        argument = arguments[i]
-        head = argument[:2]
-        if head in prefixes or head in undefines:
-            if len(argument) == 2:
-                if i + 1 >= len(arguments):
-                    break
-                text, i = arguments[i + 1], i + 2
-            else:
-                text, i = argument[2:], i + 1
-            if head in undefines:
-                if text == name:
-                    defined = None
-                continue
-            parsed = _definition(text, head == "/D")
-            if parsed and parsed[0] == name:
-                defined = parsed[1]
-            continue
-        i += 1
-    return defined is not None and (not exact or defined == value)
+    defined = _definition_state(owned, name, msvc)
+    return defined is not None and ("=" not in requirement or defined == value)
 
 
 def _key(path):

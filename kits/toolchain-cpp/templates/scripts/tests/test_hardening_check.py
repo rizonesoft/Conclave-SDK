@@ -137,7 +137,11 @@ class MatchTests(Fixture):
                  ("_MSVC_STL_HARDENING", "cl.exe", ["/D_MSVC_STL_HARDENING=1"], ["/U_MSVC_STL_HARDENING"]),
                  ("_MSVC_STL_HARDENING", "cl.exe", ["/D", "_MSVC_STL_HARDENING=1"], ["/U", "_MSVC_STL_HARDENING"]),
                  (STL, "cl.exe", [f"/D{STL}"], ["/D_MSVC_STL_HARDENING=0"]),
-                 ("-fstack-protector-strong", "g++", ["-fstack-protector-strong"], ["-fno-stack-protector-strong"]),
+                 ("-fstack-protector-strong", "g++", ["-fstack-protector-strong"], ["-fno-stack-protector"]),
+                 ("-fstack-protector-strong", "clang++", ["-fstack-protector-strong"], ["-fstack-protector"]),
+                 ("-fsanitize=address", "clang++", ["-fsanitize=address"], ["-fno-sanitize=address"]),
+                 ("-fcf-protection=full", "gcc", ["-fcf-protection"], ["-fcf-protection=none"]),
+                 ("-fcf-protection", "gcc", ["-fcf-protection=full"], ["-fno-cf-protection"]),
                  ("/guard:cf", "cl.exe", ["/guard:cf"], ["/guard:cf-"]),
                  ("-ftrivial-auto-var-init=zero", "clang++", ["-ftrivial-auto-var-init=zero"],
                   ["-ftrivial-auto-var-init=uninitialized"])]
@@ -147,6 +151,36 @@ class MatchTests(Fixture):
                     self.policy(requirement)
                     self.database([self.entry("src/a.cpp", flags, compiler=compiler)])
                     self.assertEqual(self.both()[0], expected)
+
+    def test_only_what_the_compiler_itself_reads_counts(self):
+        # Round 1 of the review: what the linker, the assembler or an option's own value takes is not a flag.
+        cases = [("/guard:cf", "cl.exe", ["/c", "src/a.cpp", "/link", "/guard:cf"], 3),
+                 ("/guard:cf", "cl.exe", ["/guard:cf", "/c", "src/a.cpp", "/link", "/guard:cf-"], 0),
+                 ("_GLIBCXX_ASSERTIONS", "clang++", ["-Xlinker", "-D_GLIBCXX_ASSERTIONS"], 3),
+                 ("_GLIBCXX_ASSERTIONS", "clang++", ["-Xclang", "-D_GLIBCXX_ASSERTIONS"], 3),
+                 ("-fstack-protector-strong", "g++", ["-Wl,-fstack-protector-strong"], 3),
+                 ("_GLIBCXX_ASSERTIONS", "g++", ["-o", "-D_GLIBCXX_ASSERTIONS"], 3),
+                 ("_GLIBCXX_ASSERTIONS", "g++", ["-I", "inc", "-D", "_GLIBCXX_ASSERTIONS"], 0)]
+        for requirement, compiler, flags, expected in cases:
+            with self.subTest(requirement=requirement, flags=flags):
+                self.policy(requirement)
+                self.database([self.entry("src/a.cpp", flags, compiler=compiler)])
+                self.assertEqual(self.both()[0], expected)
+
+    def test_option_families_as_the_compilers_read_them(self):
+        cases = [("-fstack-protector-strong", ["-fstack-protector-all"], 0),   # a stronger level meets it
+                 ("-fstack-protector-strong", ["-fstack-protector"], 3),
+                 ("-fstack-protector", ["-fstack-protector-strong"], 0),
+                 ("-fstack-protector", ["-fstack-protector-explicit"], 3),
+                 ("-fsanitize=address", ["-fsanitize=address", "-fsanitize=undefined"], 0),   # values add up
+                 ("-fsanitize=address,undefined", ["-fsanitize=undefined", "-fsanitize=address"], 0),
+                 ("-fsanitize=address,undefined", ["-fsanitize=address,undefined", "-fno-sanitize=undefined"], 3),
+                 ("-ftrivial-auto-var-init=zero", ["-ftrivial-auto-var-init=zero", "-O2"], 0)]
+        for requirement, flags, expected in cases:
+            with self.subTest(requirement=requirement, flags=flags):
+                self.policy(requirement)
+                self.database([self.entry("src/a.cpp", flags, compiler="clang++")])
+                self.assertEqual(self.both()[0], expected)
 
     def test_each_spelling_of_a_definition_and_an_option(self):
         cases = [("_GLIBCXX_ASSERTIONS", "g++", ["-D_GLIBCXX_ASSERTIONS=1"], 0),     # a bare name: any value
