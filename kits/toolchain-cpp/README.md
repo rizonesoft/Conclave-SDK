@@ -11,6 +11,8 @@ What it installs:
 | `scripts/tests/test_toolchain_check.py` | The check's own tests, with stub tools |
 | `scripts/compdb-check.py` | Says whether the compile database can be trusted; runs and writes nothing |
 | `scripts/tests/test_compdb_check.py` | The compile database check's own tests |
+| `scripts/hardening-check.py` | Holds the project's own compile commands to its declared hardening; runs nothing |
+| `scripts/tests/test_hardening_check.py` | The hardening check's own tests, with stored databases |
 | `scripts/cc-cache.py` | Puts a compiler cache in front of the compilers a build names |
 | `scripts/cache-stats.py` | Prints the cache's hit rate; fails a rebuild that did not use the cache |
 | `scripts/tests/test_cc_cache.py` | The tests of both, with stub compilers and caches |

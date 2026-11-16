@@ -28,6 +28,12 @@ compdb-check.py (each key optional; the files are read under `root`):
      "compdb": {"path": "build/compile_commands.json", "build_files": ["CMakeLists.txt", "src/flags.cmake"],
                 "regenerate": ["cmake", "-S", ".", "-B", "build"]}}
 
+A pin file may declare the memory-safety hardening the project builds with, for hardening-check.py (`sources` and
+`exclude` are folders under `root`; `sources` is `["."]` when left out):
+
+    {"schema_version": 1, "tools": [...],
+     "hardening": {"compile": ["_MSVC_STL_HARDENING=1", "/guard:cf"], "sources": ["src"], "exclude": ["src/vendor"]}}
+
 It prints one line per tool (its name, one word, the detail) and exits 3 when a tool that is not optional is not
 ok, 2 when the pin file does not load. The word is `ok`, `setup_required` for a required tool that is not ok, and
 `optional` for a tool the pin marks optional that is not ok, so a reader never takes a tool the project may do
@@ -59,8 +65,11 @@ ARGUMENT = re.compile(r"[A-Za-z0-9=_./:+-]+")
 # output to refuse, not a number to convert.
 VERSION = re.compile(r"[0-9]{1,9}(?:\.[0-9]{1,9}){0,7}")
 TOP_KEYS = {"schema_version", "tools"}
-TOP_OPTIONAL = {"root", "search", "compdb"}
+TOP_OPTIONAL = {"root", "search", "compdb", "hardening"}
 COMPDB_KEYS = ("path", "build_files", "regenerate")
+HARDENING_KEYS = ("compile", "sources", "exclude")
+# A definition as the policy names it: NAME or NAME=VALUE. An option starts with - or /.
+DEFINITION = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(=.*)?", re.DOTALL)
 COMPDB_PATH = "compile_commands.json"
 TOOL_KEYS = {"name", "commands", "install", "optional"}
 COMMAND_KEYS = {"command", "version_args", "version_pattern", "min_version"}
@@ -152,6 +161,7 @@ def load_pin_file(path):
         if not _inside(folder) or not PurePosixPath(folder).parts:
             raise PinError(f"{where}: search: a folder inside the project, not {folder!r}")
     compdb = _load_compdb(where, data)
+    hardening = _load_hardening(where, data)
     if not isinstance(data["tools"], list):
         raise PinError(f"{where}: tools: a list of tools")
     tools, seen = [], set()
@@ -177,7 +187,50 @@ def load_pin_file(path):
             raise PinError(f"{tool_where}: optional: true or false")
         tools.append({"name": name, "commands": commands, "install": install, "optional": optional})
     return {"tools": tools, "root": PurePosixPath(root).as_posix(),
-            "search": [PurePosixPath(folder).as_posix() for folder in search], "compdb": compdb}
+            "search": [PurePosixPath(folder).as_posix() for folder in search], "compdb": compdb,
+            "hardening": hardening}
+
+
+def _load_hardening(where, data):
+    """A pin file's `hardening`, checked, or None when it declares none: {"compile": the definitions (`NAME` or
+    `NAME=VALUE`) and options (starting with `-` or `/`) every compile command of the project's own sources must
+    carry, "sources": the folders under `root` that are the project's own, "exclude": the folders under them that
+    are not}. hardening-check.py reads it; nothing here chooses a project's flags."""
+    if "hardening" not in data:
+        return None
+    where = f"{where}: hardening"
+    policy = data["hardening"]
+    if not isinstance(policy, dict):
+        raise PinError(f"{where}: an object with the key compile and the optional keys sources, exclude")
+    _keys(where, policy, ("compile",), HARDENING_KEYS[1:])
+    required = policy["compile"]
+    if not isinstance(required, list) or not required:
+        raise PinError(f"{where}: compile: a list of at least one definition or option")
+    for entry in required:
+        if not isinstance(entry, str) or not entry.strip() or entry != entry.strip() or "\n" in entry \
+                or "\r" in entry:
+            raise PinError(f"{where}: compile: each entry is a definition or option on one line without spaces "
+                           f"around it, not {entry!r}")
+        if entry[0] not in "-/" and not DEFINITION.fullmatch(entry):
+            raise PinError(f"{where}: compile: {entry!r} is neither a definition (NAME or NAME=VALUE) nor an "
+                           "option (starting with - or /)")
+        if entry in ("-D", "/D", "-U", "/U"):
+            raise PinError(f"{where}: compile: {entry!r} names no definition: write the definition itself")
+    if len(set(required)) != len(required):
+        raise PinError(f"{where}: compile: {next(e for e in required if required.count(e) > 1)!r} is listed twice")
+    loaded = {"compile": list(required), "sources": ["."], "exclude": []}
+    for key in HARDENING_KEYS[1:]:
+        if key not in policy:
+            continue
+        folders = policy[key]
+        if not isinstance(folders, list) or (key == "sources" and not folders):
+            raise PinError(f"{where}: {key}: a list of folders inside the project"
+                           + (", at least one" if key == "sources" else ""))
+        for folder in folders:
+            if not _inside(folder):
+                raise PinError(f"{where}: {key}: a folder inside the project, not {folder!r}")
+        loaded[key] = [PurePosixPath(folder).as_posix() for folder in folders]
+    return loaded
 
 
 def _load_compdb(where, data):

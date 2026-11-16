@@ -727,6 +727,56 @@ class CompdbKeyTests(Fixture):
                                 caught.exception)
 
 
+class HardeningKeyTests(Fixture):
+    """D04 T03 section 1: the pin file's `hardening`, which hardening-check.py reads."""
+
+    def document(self, **top):
+        return {"schema_version": 1, "tools": [self.tool()], **top}
+
+    def test_a_pin_file_without_hardening_has_none_and_one_with_it_loads_the_policy(self):
+        plain = tc.load_pin_file(self.pins(self.document()))
+        self.assertIsNone(plain["hardening"])
+        loaded = tc.load_pin_file(self.pins(self.document(hardening={"compile": ["_MSVC_STL_HARDENING=1"]})))
+        self.assertEqual(loaded["hardening"], {"compile": ["_MSVC_STL_HARDENING=1"], "sources": ["."], "exclude": []})
+        policy = {"compile": ["_GLIBCXX_ASSERTIONS", "-fstack-protector-strong", "/guard:cf", "_FORTIFY_SOURCE=3"],
+                  "sources": ["src", "lib/core"], "exclude": ["src/vendor"]}
+        path = self.pins(self.document(hardening=policy))
+        loaded = tc.load_pin_file(path)
+        self.assertEqual(loaded["hardening"], policy)
+        self.assertEqual(loaded["tools"], plain["tools"])
+        self.prints("ninja", "1.11.1\n")
+        (tool,) = tc.check_tools(tc.load_pins(path))
+        self.assertEqual((tool["name"], tool["status"]), ("ninja", "ok"))
+
+    def test_a_hardening_the_format_does_not_allow_is_refused_naming_the_file_and_the_key(self):
+        cases = [(["-fstack-protector"], "an object with the key compile"),
+                 ({}, "missing key 'compile'"),
+                 ({"compile": ["A"], "binaries": ["x.exe"]}, "unknown key 'binaries'"),
+                 ({"compile": []}, "compile: a list of at least one definition or option"),
+                 ({"compile": "_GLIBCXX_ASSERTIONS"}, "compile: a list of at least one definition or option"),
+                 ({"compile": ["A", 3]}, "compile: each entry is a definition or option on one line"),
+                 ({"compile": [""]}, "compile: each entry is a definition or option on one line"),
+                 ({"compile": [" -fPIE"]}, "compile: each entry is a definition or option on one line"),
+                 ({"compile": ["-D\nX"]}, "compile: each entry is a definition or option on one line"),
+                 ({"compile": ["1BAD"]}, "compile: '1BAD' is neither a definition"),
+                 ({"compile": ["-D"]}, "compile: '-D' names no definition"),
+                 ({"compile": ["A", "A"]}, "compile: 'A' is listed twice"),
+                 ({"compile": ["A"], "sources": []}, "sources: a list of folders inside the project, at least one"),
+                 ({"compile": ["A"], "sources": "src"}, "sources: a list of folders inside the project"),
+                 ({"compile": ["A"], "sources": ["../other"]}, "sources: a folder inside the project, not '../other'"),
+                 ({"compile": ["A"], "sources": ["/srv/src"]}, "sources: a folder inside the project"),
+                 ({"compile": ["A"], "exclude": ["C:/vendor"]}, "exclude: a folder inside the project"),
+                 ({"compile": ["A"], "exclude": ["src\\vendor"]}, "exclude: a folder inside the project"),
+                 ({"compile": ["A"], "exclude": [5]}, "exclude: a folder inside the project, not 5")]
+        for hardening, expected in cases:
+            with self.subTest(hardening=hardening):
+                path = self.pins(self.document(hardening=hardening))
+                with self.assertRaises(tc.PinError) as caught:
+                    tc.load_pin_file(path)
+                self.assertTrue(str(caught.exception).startswith(f"{path.as_posix()}: hardening: {expected}"),
+                                caught.exception)
+
+
 class InProcessTests(Fixture):
     def test_main_prints_the_same_report_in_process(self):
         self.prints("ninja", "1.11.1\n")

@@ -254,8 +254,9 @@ class CppKitTests(ToolchainFixture):
         files = [".agents/skills/cpp-toolchain/SKILL.md", ".clangd", ".claude/skills/cpp-toolchain/SKILL.md",
                  ".codex/skills/cpp-toolchain/SKILL.md", ".codex/skills/cpp-toolchain/agents/openai.yaml", PINS,
                  "docs/toolchain-cpp.md", "scripts/cache-stats.py", "scripts/cc-cache.py", "scripts/compdb-check.py",
-                 "scripts/tests/test_cc_cache.py", "scripts/tests/test_compdb_check.py",
-                 "scripts/tests/test_toolchain_check.py", "scripts/toolchain-check.py"]
+                 "scripts/hardening-check.py", "scripts/tests/test_cc_cache.py", "scripts/tests/test_compdb_check.py",
+                 "scripts/tests/test_hardening_check.py", "scripts/tests/test_toolchain_check.py",
+                 "scripts/toolchain-check.py"]
         for name, argv in (("by-init", ("init", "{}", "--kit", self.KIT)), ("by-kit", ("kit", "{}", self.KIT))):
             with self.subTest(command=argv[0]):
                 project = self.project(name, install=False)
