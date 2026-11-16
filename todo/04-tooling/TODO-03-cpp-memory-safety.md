@@ -33,7 +33,7 @@ title: "TODO-03 -- Memory-safety checks in the C and C++ toolchain kit"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Hardening policy in the pin file, checked on compile commands | -- | [ ] |
+| 1 | §1 | Hardening policy in the pin file, checked on compile commands | -- | [x] |
 | 2 | §2 | Image properties read from built Windows and Linux binaries | §1 | [ ] |
 | 3 | §3 | Doctor rows for the hardening checks | §2 | [ ] |
 | 4 | §4 | Skill and document guidance, with the measured options | §2 | [ ] |
@@ -64,11 +64,14 @@ A project states what it builds with, and the check holds its compile commands t
 - [x] Leave sources outside `sources` or under `exclude` unchecked, and count them in the output. Done when: a database whose only unhardened entry is under an excluded folder passes and prints the count excluded.
 - [x] Report as `unknown` (exit 1, one line saying which), never as a pass: a compile database that is missing, invalid or larger than the 256 MiB the compile database check reads, and a policy that no first-party entry falls under. Done when: each case exits 1 with one line saying which.
 - [x] Add `kits/toolchain-cpp/templates/scripts/tests/test_hardening_check.py` covering the cases above with stored databases, and add the script and its test to the kit's installed file list in `tests/test_toolchain_kits.py`. Done when: `python -m unittest discover -s kits/toolchain-cpp/templates/scripts/tests -p "test_*.py"` and `python -m unittest tests.test_toolchain_kits` pass, and `test_hardening_check.py`, run directly, fails when the per-source matching is replaced by a whole-file search.
-- [ ] Commit: `toolchain-cpp: a declared hardening policy, checked on the compile commands`
+- [x] Commit: `toolchain-cpp: a declared hardening policy, checked on the compile commands`
 
 **Test checkpoint:** `python -m unittest discover -s kits/toolchain-cpp/templates/scripts/tests -p "test_*.py"` (the kit's own suite, which runs `test_hardening_check.py`; `tests.test_toolchain_kits` runs the installed copies only under `CONCLAVE_FULL_TESTS`) and `python -m unittest tests.test_toolchain_kits` pass with the new cases, and the case with one unhardened first-party source fails when the matching is made a whole-file search.
 
 **Corrected 2026-11-16 (plan review at `c803d34`):** the freshness check, the MSVC `/U` and separated `/D` and `/U` forms, the response-file refusals and a checkpoint that runs the new tests were added to the items above; before, the checkpoint named only `tests.test_toolchain_kits`.
+
+> **Verified:** 2026-11-16 | §1 | 53257225adbb432d76079e386f8b3ef30e172962
+> **Review:** `docs/reviews/d04-t03-s1.json`
 
 ## 2. Image Properties of Built Binaries
 

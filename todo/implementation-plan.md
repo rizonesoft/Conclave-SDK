@@ -133,7 +133,7 @@ Sections: 21 | Checklist items: 179
 | [x]    | D04 T02 §6 | `toolchain-web` kit with pins for PHP and Node tools     | none  | 10    |
 | [x]    | D04 T02 §7 | Toolchain skills and documents for the three agents      | none  | 8     |
 | [x]    | D04 T02 §8 | Optional tools named as optional in the check's text     | none  | 4     |
-| [ ]    | D04 T03 §1 | Hardening Policy in the Pin File                         | none  | 10    |
+| [x]    | D04 T03 §1 | Hardening Policy in the Pin File                         | none  | 10    |
 | [ ]    | D04 T03 §2 | Image Properties of Built Binaries                       | none  | 8     |
 | [ ]    | D04 T03 §3 | Doctor Rows for the Hardening Checks                     | none  | 4     |
 | [ ]    | D04 T03 §4 | Skill and Document Guidance                              | none  | 6     |
@@ -161,6 +161,6 @@ Sections: 3 | Checklist items: 27
 | [x]    | D06 T01 §2 | Superseded copies under `R:/Bin` removed | attended | 9     |
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 
-Progress: 88/92 verified sections, 1 ready to run now.
+Progress: 89/92 verified sections, 1 ready to run now.
 
-Checklist: 714/733 items completed (includes Commit items).
+Checklist: 715/733 items completed (includes Commit items).

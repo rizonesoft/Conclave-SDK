@@ -1,0 +1,87 @@
+{
+  "ref": "D04 T03 \u00a71",
+  "title": "Hardening Policy in the Pin File",
+  "implementation_sha": "53257225adbb432d76079e386f8b3ef30e172962",
+  "date": "2026-11-16",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/04-tooling/D04-T03-s1.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python forge.py check-all --only kit-toolchain-cpp -> PASS 122 tests (Windows); WSL python3 -m unittest test_hardening_check test_toolchain_check test_compdb_check -> Ran 95 OK",
+    "CI tests.yml at 5325722 -> success, quick (Windows), kit suites (Linux) and full suite (Linux), https://github.com/rizonetech/Conclave-SDK/actions/runs/43931485051",
+    "mutation: per-entry matching made a whole-file search -> 26 failures in test_hardening_check, restored"
+  ],
+  "completion": {
+    "report": "docs/reviews/04-tooling/D04-T03-s1.md",
+    "verdict": "filed",
+    "candidate": "53257225adbb432d76079e386f8b3ef30e172962",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": [
+      "D04 T03 \u00a74"
+    ]
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/04-tooling/D04-T03-s1.md",
+    "candidate": "c803d34ef5a1b5fe6a9e6c210057664e42ddab58",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "c803d34ef5a1b5fe6a9e6c210057664e42ddab58",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}
