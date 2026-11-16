@@ -1,0 +1,85 @@
+{
+  "ref": "D04 T03 \u00a72",
+  "title": "Image Properties of Built Binaries",
+  "implementation_sha": "07db3f6ee73c69e47b36f3fd1db399af9c2a27e9",
+  "date": "2026-11-16",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/04-tooling/D04-T03-s2.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python forge.py check-all --only kit-toolchain-cpp -> PASS 150 tests (Windows); WSL python3 -m unittest test_hardening_check test_toolchain_check test_compdb_check -> Ran 123 OK",
+    "CI tests.yml at 07db3f6 -> success, quick (Windows), kit suites (Linux) and full suite (Linux), https://github.com/rizonetech/Conclave-SDK/actions/runs/43951102258",
+    "mutations: DLL characteristics skipped -> 10 failures; no option-variable evidence -> static UBSan case fails; both restored"
+  ],
+  "completion": {
+    "report": "docs/reviews/04-tooling/D04-T03-s2.md",
+    "verdict": "reconciled",
+    "candidate": "07db3f6ee73c69e47b36f3fd1db399af9c2a27e9",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/04-tooling/D04-T03-s2.md",
+    "candidate": "d849a55e144297fc0645c46698b186fe6607b67d",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "d849a55e144297fc0645c46698b186fe6607b67d",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

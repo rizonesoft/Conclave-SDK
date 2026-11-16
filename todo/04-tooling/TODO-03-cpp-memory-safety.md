@@ -34,7 +34,7 @@ title: "TODO-03 -- Memory-safety checks in the C and C++ toolchain kit"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Hardening policy in the pin file, checked on compile commands | -- | [x] |
-| 2 | §2 | Image properties read from built Windows and Linux binaries | §1 | [ ] |
+| 2 | §2 | Image properties read from built Windows and Linux binaries | §1 | [x] |
 | 3 | §3 | Doctor rows for the hardening checks | §2 | [ ] |
 | 4 | §4 | Skill and document guidance, with the measured options | §2 | [ ] |
 
@@ -99,11 +99,14 @@ What the linker wrote is the only proof of control-flow guard, shadow-stack comp
 - [x] Refuse a binary that carries a sanitizer runtime unless a `test_binaries` pattern names it: an imported, delay-loaded or needed library whose name contains `asan`, `ubsan`, `tsan` or `msan`, or, for a runtime linked statically, that runtime's own option variable (`ASAN_OPTIONS`, `UBSAN_OPTIONS`, `TSAN_OPTIONS`, `MSAN_OPTIONS`, `HWASAN_OPTIONS`) as a NUL-terminated string in the bytes read. A `test_binaries` match lifts only this refusal: the binary is still held to `image`. State the limit in the script's help: a static runtime without its option variable in the file is not found. Done when: the clang-cl AddressSanitizer fixture exits 3 naming `clang_rt.asan_dynamic-x86_64.dll`, the GCC AddressSanitizer fixture names `libasan.so.8`, the static UndefinedBehaviorSanitizer fixture names `UBSAN_OPTIONS`, and the clang-cl fixture under `test_binaries` exits 3 for a missing `GUARD_CF` and 0 with `image` it meets. Cheaper substitute: trusting that nobody ships a sanitizer build tree.
 - [x] Bound the reader: at most 64 MiB of a file is read; a header, table or string the image needs that lies past what was read is `unknown` when the file is larger than that and `invalid` naming the offset when the file ends there; a file that cannot be read is `unknown` naming the reason; no input makes the script raise. Done when: tests feed a truncated copy of each fixture at every 256th byte, offsets set past the end inside otherwise valid PE and ELF fixtures (`e_lfanew`, a section count, `e_phoff`, a load configuration address, a string offset), a file of zeros, a text file and a directory, each ending with one line per binary and exit 1, and a fixture read under a patched 4 KiB limit is `unknown` saying the limit.
 - [x] Report the image result on a `hardening:image:` line beside the `hardening:compile:` one, with one line per binary (`ok`, the missing properties, the sanitizer evidence, or why it is unknown or invalid), and in `--json` as `compile` and `image` objects with one entry per binary and an overall `status`. The two checks run independently (an unknown compile database never stops the image check); the exit is 3 when either has a missing requirement, else 1 when either is unknown, else 0; a policy without `compile` prints `hardening:compile: none` and one without `binaries` `hardening:image: none`. Done when: tests cover compile missing with image unknown (exit 3), compile unknown with image ok (exit 1, the image line still printed), a compile-only and an image-only policy, and the JSON document's per-binary entries.
-- [ ] Commit: `toolchain-cpp: image hardening read from PE and ELF headers`
+- [x] Commit: `toolchain-cpp: image hardening read from PE and ELF headers`
 
 **Test checkpoint:** `python -m unittest discover -s kits/toolchain-cpp/templates/scripts/tests -p "test_*.py"` (the kit's own suite, which runs `test_hardening_check.py`) and `python -m unittest tests.test_toolchain_kits` pass with the PE, ELF, sanitizer-import and malformed-file cases, and the control-flow guard case fails when the reader is made to skip the DLL characteristics.
 
 **Corrected 2026-11-16 (plan review at `d849a55`):** static sanitizer runtimes found by their option variable, the JSON document and the combined outcomes, the policy contract (property names, empty and absent keys, unmatched patterns, `test_binaries`, `compile` made optional), the fixtures in the README's file table, and tests for the 32-bit, unknown, bound and malformed-offset states were added to the items above.
+
+> **Verified:** 2026-11-16 | §2 | 07db3f6ee73c69e47b36f3fd1db399af9c2a27e9
+> **Review:** `docs/reviews/d04-t03-s2.json`
 
 ## 3. Doctor Rows for the Hardening Checks
 
