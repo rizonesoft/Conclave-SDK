@@ -6,6 +6,7 @@ Governing plans: [docs/plans/2026-11-11-sdk-audit-and-roadmap.md](../docs/plans/
 
 | Domain | File | Scope |
 | ------ | ---- | ----- |
+| 04 | 04-tooling/TODO-03-cpp-memory-safety.md | Hardening policy, compile and image checks, doctor rows, guidance |
 
 ## Completed TODOs
 

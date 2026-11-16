@@ -2,6 +2,7 @@
 
 | File | Scope | Status |
 | ---- | ----- | ------ |
+| TODO-03-cpp-memory-safety.md | Hardening policy, compile and image checks, doctor rows, guidance | active |
 
 ## Completed
 
