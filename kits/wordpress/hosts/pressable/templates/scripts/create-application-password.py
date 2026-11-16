@@ -3,7 +3,7 @@
 
     python3 scripts/create-application-password.py example-wordpress --title "Example Production WordPress MCP"
 
-Generalised from rizonetech-com and jmrgroup-coza. The connection is a `basic` entry under `mcp` in
+Generalised from two production sites. The connection is a `basic` entry under `mcp` in
 .conclave/wordpress-site.json with `url`, `username` and `wordpress_user_id` set; its `application_password_uuid`
 stays null until this script prints it. The password is created over the pinned private SSH channel
 (scripts/lib/site_ssh.py), never through a Pressable command, because Pressable's operation logs capture command output.

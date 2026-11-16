@@ -17,7 +17,7 @@ Not stated yet: replace this line with the project's goal in one sentence (`pyth
 - Fix at the owning layer: a setting in its setting, behaviour in the code that produces it, data in the data. No output filters that hide a problem. Code changes end the report with a `Layer:` line.
 - Markdown prose is never hard-wrapped: one line per paragraph and per list item. Every Markdown table row stays `<= 120` characters so raw `.md` files never wrap.
 - Never use em dashes or en dashes anywhere: prose, code, comments, commit messages and generated files.
-- Temporary files and full logs go to scratch, never the repository: `R:\scratch` on Windows, `/mnt/r/scratch` on WSL (the same folder), or the session scratchpad when one is given.
+- Temporary files and full logs go to scratch, never the repository: the session scratchpad when one is given, otherwise the folder `paths.scratch` names in `.conclave/local.toml`, otherwise the operating system's temporary folder.
 
 ## Operating directive
 

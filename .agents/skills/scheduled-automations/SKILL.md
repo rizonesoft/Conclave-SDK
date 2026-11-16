@@ -9,7 +9,7 @@ Every scheduled job lives in `.conclave/automations/tasks.json`. The installers 
 
 ## Add or change a task
 
-1. If `tasks.json` still has `"folder": null`, set it to the project's folder (`"\\Isotone\\"`). Every task name then starts with the folder name in lower case and a hyphen (`isotone-`).
+1. If `tasks.json` still has `"folder": null`, set it to the project's folder (`"\\Demo\\"`). Every task name then starts with the folder name in lower case and a hyphen (`demo-`).
 2. Write the check as a script in this repository that exits 0 when all is well and non-zero, with one line saying why, when it is not. Give it tests. A check that cannot reach its source exits 2 (unverified), never 0.
 3. Add the entry: `name`, a one-line `description`, `command` (`["python", "scripts/<check>.py", ...]`), `trigger` (`{"weekly": "Monday", "at": "07:00"}` or `{"at_logon_delay_minutes": 3, "every_minutes": 60}`) and `timeout_minutes`.
 4. Add its row to the README's "What runs" table: task, when, what it runs, and when it fails.

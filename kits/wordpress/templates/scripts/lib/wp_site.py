@@ -1,18 +1,44 @@
 """The one place that names this project's WordPress site: `.conclave/wordpress-site.json`.
 
-Installed by the Conclave-SDK WordPress kit; the reference site is rizonetech-com. Every helper reads the pin through
-this module. A malformed pin is refused outright. A value the setup has not filled in yet is `null`, and `require`
-names it instead of guessing. Credentials are read from the Conclave vault by immutable item id, never by title.
+Installed by the Conclave-SDK WordPress kit. Every helper reads the pin through this module. A malformed pin is
+refused outright. A value the setup has not filled in yet is `null`, and `require` names it instead of guessing.
+Credentials are read from the vault by immutable item id, never by title. Which vault, and which command line tool
+reads it, are this owner's settings: `[vault] name` and `cli` in `.conclave/local.toml` (ignored by git; the template
+is `.conclave/local.example.toml`), `Conclave` and `conclave-op` on PATH when unset.
 """
 import json
 from pathlib import Path
 import re
 import subprocess
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 PIN = ROOT / ".conclave" / "wordpress-site.json"
-OP = "/home/derickpayne/.local/bin/conclave-op"
-VAULT = "Conclave"
+LOCAL = ROOT / ".conclave" / "local.toml"
+
+
+def vault_settings(path=LOCAL):
+    """(cli, name) from `[vault]` in `.conclave/local.toml`; a missing file or key keeps its default, and a file
+    that is not TOML or a value that is not a plain non-empty string is refused."""
+    try:
+        with open(path, "rb") as handle:
+            table = tomllib.load(handle).get("vault", {})
+    except FileNotFoundError:
+        table = {}
+    except (OSError, ValueError) as error:
+        raise ValueError(f"{path}: not readable as TOML ({error})") from None
+    if not isinstance(table, dict):
+        raise ValueError(f"{path}: [vault] must be a table")
+    found = []
+    for key, default in (("cli", "conclave-op"), ("name", "Conclave")):
+        value = table.get(key, default)
+        if not isinstance(value, str) or not value.strip() or any(char in value for char in "\r\n\0"):
+            raise ValueError(f"{path}: vault.{key} must be a non-empty string")
+        found.append(value)
+    return tuple(found)
+
+
+OP, VAULT = vault_settings()
 
 HOSTS = ("pressable", "wpcom")
 ENVIRONMENTS = ("production", "staging")

@@ -1239,10 +1239,10 @@ class Graph(Tree):
             "D00 T01 §1",
             "| [ ] | D00 T01 §1 | A | none | 2 |",
             "todo/00-workspace/TODO-01-a.md §1",
-            r"R:\GitHub\Project\todo\00-workspace\TODO-01-a.md §1",
+            r"C:\work\Project\todo\00-workspace\TODO-01-a.md §1",
         ):
             self.assertEqual(tg.extract_ref(query, rows), ("D00 T01 §1", 0))
-        self.assertEqual(tg.extract_ref(r"R:\GitHub\Project\todo\00-workspace\TODO-01-a.md §9", rows),
+        self.assertEqual(tg.extract_ref(r"C:\work\Project\todo\00-workspace\TODO-01-a.md §9", rows),
                          ("D00 T01 §9", 1))
         self.assertEqual(tg.extract_ref("no reference here", rows), (None, 2))
 

@@ -5,7 +5,7 @@ description: "Connect a WordPress project to its one live site on Pressable or W
 
 # Connect a WordPress project to its site
 
-The reference is rizonetech-com (`/home/derickpayne/www/rizonetech-com`, Pressable; `docs/production-access.md`). jmrgroup-coza (`docs/connections.md`) is the closest production-only port. Follow `wordpress-site-safety` throughout: every write to the live site or the host (a password reset, enabling the MCP, an Application Password) needs the owner's approval first, and no secret is ever printed, put in an argument or written to the repository.
+The reference is the project `wordpress.reference` names in `.conclave/local.toml` (a Pressable site; its `docs/production-access.md` records the whole setup), and the project `wordpress.port_source` names in `.conclave/local.toml` (its `docs/connections.md`) is the closest production-only port. Both are optional: where one is unset, work from this skill alone. Follow `wordpress-site-safety` throughout: every write to the live site or the host (a password reset, enabling the MCP, an Application Password) needs the owner's approval first, and no secret is ever printed, put in an argument or written to the repository.
 
 ## 1. Bind the site and fill the pin
 
@@ -31,10 +31,10 @@ Then add the SSH host key once (`ssh-keyscan -t ed25519 <ssh_host> >> ~/.ssh/kno
   1. `<site>-pressable`, `scheme: bearer`, `url: https://mcp.pressable.com`, `item`: the account's shared Pressable MCP token item (reuse it; never create a second).
   2. `<site>-wordpress`, `scheme: basic`, `url: <url>/wp-json/mcp/mcp-adapter-default-server`, `username` and `wordpress_user_id` from `bin/wp-remote user list --role=administrator`.
 
-  With approval, enable the adapter with Pressable `toggle_site_wordpress_mcp` (Pressable installs and updates `mcp-adapter`). If Elementor 4.3+ is active and `bin/wp-remote option get elementor_mcp_enabled` is missing or false, Elementor removes the adapter's default server: set the option to `1` after a backup (rizonetech-com, "The Elementor 4.3 trap"). With approval, run `python3 scripts/create-application-password.py <site>-wordpress --title "<Site> Production WordPress MCP"` and put the printed UUID into `application_password_uuid` and the item id into `item`. Prove both with `python3 scripts/check-mcp.py`.
+  With approval, enable the adapter with Pressable `toggle_site_wordpress_mcp` (Pressable installs and updates `mcp-adapter`). If Elementor 4.3+ is active and `bin/wp-remote option get elementor_mcp_enabled` is missing or false, Elementor removes the adapter's default server: set the option to `1` after a backup (the reference project's "The Elementor 4.3 trap"). With approval, run `python3 scripts/create-application-password.py <site>-wordpress --title "<Site> Production WordPress MCP"` and put the printed UUID into `application_password_uuid` and the item id into `item`. Prove both with `python3 scripts/check-mcp.py`.
 - **WordPress.com:** the WordPress.com connector (user scope) is the WordPress MCP. Confirm `wpcom-user-sites` reports `mcp_access: available` for the site. Add nothing to `.mcp.json` and never install `mcp-adapter`, unless the owner asks for the site's own MCP servers (the MCP Adapter or Elementor MCP) beside the connector: then pin each as a `basic` entry whose url is on the pinned site under `/wp-json/`, with its Application Password in a new vault item, and port `mcp-headers.py`, `check-mcp.py`, `create-application-password.py` and `lib/mcp_http.py` from `hosts/pressable/templates/scripts/` as road-diamond-com did. `wp_site.py` refuses any other url and every `bearer` entry on a WordPress.com pin.
 
-If the site still has Novamira, ask before removing it and follow jmrgroup-coza's "Novamira removal" recipe; never install it.
+If the site still has Novamira, ask before removing it and follow the port source's "Novamira removal" recipe; never install it.
 
 ## 4. Local DDEV (Pressable; WordPress.com Atomic on request)
 
@@ -44,8 +44,8 @@ WordPress.com sites get no DDEV unless the owner asks for the mirror on an Atomi
 bin/ddev config --project-type=wordpress --docroot=public --php-version=<x.y> --database=mariadb:<x.y> --router-http-port=8088 --router-https-port=8448
 ```
 
-`.ddev/providers/production.yaml` refuses every push. Port `scripts/production-sync.py` from jmrgroup-coza: keep its read-only command allowlist and pinned rsync, and rewrite its list of private post types, tables and upload folders for this site, so personal data stays on the server. Back up the local database (`bin/ddev snapshot`) before the first `bin/ddev pull production -y`.
+`.ddev/providers/production.yaml` refuses every push. Port `scripts/production-sync.py` from the port source: keep its read-only command allowlist and pinned rsync, and rewrite its list of private post types, tables and upload folders for this site, so personal data stays on the server. Back up the local database (`bin/ddev snapshot`) before the first `bin/ddev pull production -y`.
 
 ## 5. Record it
 
-Write `docs/connections.md` the way jmrgroup-coza does: how the environments work, the verified site identity (with the date), the Conclave items by immutable id and what each is for, the MCP clients, the commands, and open findings with evidence. Finish with `python3 forge.py doctor <repo> wordpress` showing no `missing` and no `setup_required` other than what the doc says is pending.
+Write `docs/connections.md` the way the port source does: how the environments work, the verified site identity (with the date), the Conclave items by immutable id and what each is for, the MCP clients, the commands, and open findings with evidence. Finish with `python3 forge.py doctor <repo> wordpress` showing no `missing` and no `setup_required` other than what the doc says is pending.

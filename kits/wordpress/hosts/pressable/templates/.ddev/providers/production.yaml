@@ -1,7 +1,7 @@
 # The live Pressable site pinned in .conclave/wordpress-site.json. Local DDEV is its mirror.
 # Commands run on the host through scripts/production-sync.py, which uses the pinned SSH identity
 # (scripts/lib/site_ssh.py) and only ever reads the live site. That script is ported per site from
-# jmrgroup-coza, because which tables and uploads hold personal data differs per site; until it exists
+# the project `wordpress.port_source` names in `.conclave/local.toml`, because which tables and uploads hold personal data differs per site; until it exists
 # `bin/ddev pull production` fails and `forge.py doctor` reports it as setup_required.
 #   bin/ddev pull production -y   replaces the LOCAL database, uploads, plugins and themes
 #   bin/ddev push production      refuses: deploy project code with a backed-up, SHA-256-checked deploy script

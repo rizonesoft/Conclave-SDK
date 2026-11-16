@@ -1,6 +1,6 @@
 """Site-pinned SSH, SFTP and rsync, with the Conclave password passed to sshpass through a private pipe.
 
-Generalised from rizonetech-com and jmrgroup-coza by the Conclave-SDK WordPress kit. The site, the vault item and
+Generalised from two production sites by the Conclave-SDK WordPress kit. The site, the vault item and
 the expected identity all come from `.conclave/wordpress-site.json` (scripts/lib/wp_site.py). The item is refused when
 any pinned field drifts, so a swapped or edited item can never point a command at another site. The password never
 reaches an argument, the environment, the output or a log.

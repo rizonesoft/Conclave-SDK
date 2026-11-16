@@ -7,11 +7,12 @@ run.py calls `send_failure` when a task exits non-zero or times out, so a failed
 wrapper that saw it fail, whatever the command printed. The email carries the task, its exit, its start and
 finish, the tail of that run's log, and how to run it again on this machine's scheduler.
 
-It goes through SMTP2GO's `/v3/email/send` from the Rizonetech website sender, the verified sender and key every
-Conclave project's automations use (Rizonesoft is a brand of Rizonetech). The key is read at send time from the
-Conclave vault item "Rizonetech SMTP2GO (website mail)" through `conclave-op` (in WSL when this runs on Windows),
-for this run only: never written to disk, an argument, or the output. SMTP2GO answers a refused send with HTTP 200
-and `succeeded: 0`, so anything but one success and no failures is a refusal.
+It goes through SMTP2GO's `/v3/email/send`. Who sends it, who receives it and which vault item holds the key are
+this owner's settings, read from `[alert]` in `.conclave/local.toml` (`sender`, `to`, `key_item`; the template is
+`.conclave/local.example.toml`), and the email is refused while one is unset. The key is read at send time through
+the vault tool `[vault] cli` names (`conclave-op` by default, in WSL when this runs on Windows), for this run only:
+never written to disk, an argument, or the output. SMTP2GO answers a refused send with HTTP 200 and `succeeded: 0`,
+so anything but one success and no failures is a refusal.
 """
 
 from __future__ import annotations
@@ -19,27 +20,55 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import shlex
 import socket
 import subprocess
 import sys
+import tomllib
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.normpath(os.path.join(HERE, "..", ".."))
-ITEM = "op://Conclave/jq2q47sqbpdwacivbjead5rrku"
+LOCAL = os.path.join(".conclave", "local.toml")
 ENDPOINT = "https://api.smtp2go.com/v3/email/send"
-SENDER = "website@rizonetech.com"
-TO = "rizonetech@gmail.com"
 LOG_LINES = 60
+ADDRESS = re.compile(r"[^@\s<>\"',;]+@[^@\s<>\"',;]+")
+KEY_ITEM = re.compile(r"op://[A-Za-z0-9 ._-]+/[A-Za-z0-9 ._-]+")
 
 
 class Refused(Exception):
     pass
 
 
-def key(run=subprocess.run, windows: bool = os.name == "nt") -> str:
+def settings(root: str = REPO) -> dict:
+    """This owner's `sender`, `to`, `key_item` and vault `cli` from `.conclave/local.toml`. Refuses, naming the key,
+    while the file is missing or malformed or a value is unset or not of its shape: nothing is guessed."""
+    path = os.path.join(root, LOCAL)
+    try:
+        with open(path, "rb") as fh:
+            data = tomllib.load(fh)
+    except FileNotFoundError:
+        raise Refused(f"{LOCAL} is missing: copy .conclave/local.example.toml to it and set [alert]") from None
+    except (OSError, ValueError) as error:
+        raise Refused(f"{LOCAL} is not readable as TOML ({error})") from None
+    alert, vault = data.get("alert", {}), data.get("vault", {})
+    if not isinstance(alert, dict) or not isinstance(vault, dict):
+        raise Refused(f"{LOCAL}: [alert] and [vault] must be tables")
+    found = {"cli": vault.get("cli", "conclave-op")}
+    for name, shape in (("sender", ADDRESS), ("to", ADDRESS), ("key_item", KEY_ITEM)):
+        value = alert.get(name, "")
+        if not isinstance(value, str) or not shape.fullmatch(value):
+            raise Refused(f"{LOCAL}: set alert.{name} (see .conclave/local.example.toml)")
+        found[name] = value
+    if not isinstance(found["cli"], str) or not found["cli"].strip() or any(c in found["cli"] for c in "\r\n\0"):
+        raise Refused(f"{LOCAL}: vault.cli must be a command name or a path")
+    return found
+
+
+def key(config: dict, run=subprocess.run, windows: bool = os.name == "nt") -> str:
     """The API key, refused unless it has SMTP2GO's shape ("api-" and 32 letters or digits); never echoed."""
-    read = f'conclave-op read "{ITEM}/credential"'
+    read = f'{shlex.quote(config["cli"])} read {shlex.quote(config["key_item"] + "/credential")}'
     command = ["wsl.exe", "-e", "bash", "-lc", read] if windows else ["bash", "-lc", read]
     result = run(command, capture_output=True, text=True, timeout=90,
                  creationflags=0x08000000 if windows else 0)  # CREATE_NO_WINDOW: run.py has no console
@@ -51,9 +80,9 @@ def key(run=subprocess.run, windows: bool = os.name == "nt") -> str:
     return value
 
 
-def sender(folder: str) -> str:
-    """`\\Isotone\\` sends as "Isotone automations <website@rizonetech.com>"."""
-    return f"{folder.strip(chr(92))} automations <{SENDER}>"
+def sender(folder: str, address: str) -> str:
+    """`\\Demo\\` sends as "Demo automations <address>"."""
+    return f"{folder.strip(chr(92))} automations <{address}>"
 
 
 def rerun(name: str, folder: str, windows: bool) -> list[str]:
@@ -86,9 +115,9 @@ def message(name: str, task: dict, outcome: dict, tail: str, host: str, folder: 
     return f"Automation failed: {name} on {host}", body
 
 
-def send(api_key: str, subject: str, body: str, from_: str, opener=urllib.request.urlopen) -> str:
+def send(api_key: str, subject: str, body: str, from_: str, to: str, opener=urllib.request.urlopen) -> str:
     """Post the email; refuse anything but one success and no failures."""
-    payload = json.dumps({"sender": from_, "to": [TO], "subject": subject, "text_body": body}).encode()
+    payload = json.dumps({"sender": from_, "to": [to], "subject": subject, "text_body": body}).encode()
     request = urllib.request.Request(ENDPOINT, data=payload, method="POST", headers={
         "Content-Type": "application/json", "Accept": "application/json", "X-Smtp2go-Api-Key": api_key})
     with opener(request, timeout=60) as response:
@@ -99,9 +128,10 @@ def send(api_key: str, subject: str, body: str, from_: str, opener=urllib.reques
 
 
 def send_failure(name: str, task: dict, outcome: dict, tail: str, folder: str, run=subprocess.run,
-                 opener=urllib.request.urlopen, host: str | None = None) -> str:
+                 opener=urllib.request.urlopen, host: str | None = None, root: str = REPO) -> str:
+    config = settings(root)
     subject, body = message(name, task, outcome, tail, host or socket.gethostname(), folder)
-    return send(key(run), subject, body, sender(folder), opener)
+    return send(key(config, run), subject, body, sender(folder, config["sender"]), config["to"], opener)
 
 
 def tail_of(path: str, lines: int = LOG_LINES) -> str:
@@ -114,7 +144,7 @@ def tail_of(path: str, lines: int = LOG_LINES) -> str:
 
 def main(argv=None, run=subprocess.run, opener=urllib.request.urlopen, host=None, root=REPO) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("name", help="the task that failed, e.g. isotone-dotnet-ga")
+    p.add_argument("name", help="the task that failed, e.g. demo-packages")
     p.add_argument("--dry-run", action="store_true", help="print the email; read no key and send nothing")
     args = p.parse_args(argv)
     with open(os.path.join(root, ".conclave", "automations", "tasks.json"), encoding="utf-8") as fh:
@@ -130,16 +160,17 @@ def main(argv=None, run=subprocess.run, opener=urllib.request.urlopen, host=None
     except (OSError, ValueError):
         outcome = {}
     tail = tail_of(os.path.join(root, outcome["log"])) if outcome.get("log") else ""
-    if args.dry_run:
-        subject, body = message(args.name, task, outcome, tail, host or socket.gethostname(), folder)
-        print(f"From: {sender(folder)}\nTo: {TO}\nSubject: {subject}\n\n{body}")
-        return 0
     try:
-        email_id = send_failure(args.name, task, outcome, tail, folder, run, opener, host)
+        config = settings(root)
+        if args.dry_run:
+            subject, body = message(args.name, task, outcome, tail, host or socket.gethostname(), folder)
+            print(f"From: {sender(folder, config['sender'])}\nTo: {config['to']}\nSubject: {subject}\n\n{body}")
+            return 0
+        email_id = send_failure(args.name, task, outcome, tail, folder, run, opener, host, root)
     except (Refused, OSError, ValueError, subprocess.TimeoutExpired) as error:
         print(f"alert not sent: {error}", file=sys.stderr)
         return 1
-    print(f"alert sent to {TO} for {args.name} (SMTP2GO email {email_id})")
+    print(f"alert sent to {config['to']} for {args.name} (SMTP2GO email {email_id})")
     return 0
 
 

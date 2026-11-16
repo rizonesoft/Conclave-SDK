@@ -202,8 +202,8 @@ def launcher_in(command: list[str], shell: str | None = None, quoted: list[bool]
 def load_manifest(path: str, launchers: bool = True) -> dict:
     """tasks.json as {"folder", "prefix", "tasks" by name}, refused unless every entry is well formed.
 
-    `folder` is the project's Task Scheduler folder (`\\Isotone\\`), and every task name starts with the folder's
-    name in lower case and a hyphen (`isotone-`), so two projects never share a folder or a unit name. A freshly
+    `folder` is the project's Task Scheduler folder (`\\Demo\\`), and every task name starts with the folder's
+    name in lower case and a hyphen (`demo-`), so two projects never share a folder or a unit name. A freshly
     installed kit has `folder: null` and no tasks until the project names its folder. A task that invokes a run
     launcher is refused, unless `launchers` is False: an installer removing a schedule only needs its shape.
     """
@@ -218,7 +218,7 @@ def load_manifest(path: str, launchers: bool = True) -> dict:
         return {"folder": None, "prefix": None, "tasks": {}}
     match = FOLDER.fullmatch(folder) if isinstance(folder, str) else None
     if not match:
-        raise TaskError("tasks.json folder must be one Task Scheduler folder, like \\Isotone\\")
+        raise TaskError("tasks.json folder must be one Task Scheduler folder, like \\Demo\\")
     prefix = match.group(1).lower() + "-"
     name_rule = re.compile(re.escape(prefix) + r"[a-z0-9][a-z0-9-]*")
     out: dict[str, dict] = {}
@@ -426,8 +426,11 @@ def main(argv: list[str], root: str = REPO, popen=subprocess.Popen, alerter=None
         return 0
     alert = _alert_module()
     try:
-        (alerter or alert.send_failure)(argv[0], task, outcome, alert.tail_of(os.path.join(root, outcome["log"])),
-                                        manifest["folder"])
+        tail = alert.tail_of(os.path.join(root, outcome["log"]))
+        if alerter:
+            alerter(argv[0], task, outcome, tail, manifest["folder"])
+        else:  # the owner's sender, recipient and key item come from this project's .conclave/local.toml
+            alert.send_failure(argv[0], task, outcome, tail, manifest["folder"], root=root)
     except Exception as error:  # the run already failed; an unsent alert must still show, as exit 3
         with open(os.path.join(root, outcome["log"]), "a", encoding="utf-8") as fh:
             fh.write(f"\nrun.py: alert not sent: {type(error).__name__}: {error}\n")

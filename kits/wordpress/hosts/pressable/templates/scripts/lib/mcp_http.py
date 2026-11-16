@@ -1,4 +1,4 @@
-"""Minimal streamable-HTTP MCP client for diagnostics and setup, generalised from rizonetech-com and jmrgroup-coza.
+"""Minimal streamable-HTTP MCP client for diagnostics and setup, generalised from two production sites.
 
 Headers come from scripts/mcp-headers.py in-process, so no credential reaches an argument, a log or stdout. The URL of
 each connection is the `url` of its entry under `mcp` in `.conclave/wordpress-site.json`.

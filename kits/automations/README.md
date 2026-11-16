@@ -1,6 +1,6 @@
 # Automations kit
 
-Additive overlay that gives a project scheduled jobs that report their own failures: one task list, one runner that logs every run and emails the operator when one fails, installers for Windows Task Scheduler and for systemd user timers on Linux and WSL, and a skill for Gemini (`.agents/`), Claude (`.claude/`) and Codex (`.codex/`). Generalized from Isotone's `.conclave/automations/` (2026-10-19), which was itself adapted from the Rizonetech systemd automations; Isotone's `tasks.json` loads unchanged.
+Additive overlay that gives a project scheduled jobs that report their own failures: one task list, one runner that logs every run and emails the operator when one fails, installers for Windows Task Scheduler and for systemd user timers on Linux and WSL, and a skill for Gemini (`.agents/`), Claude (`.claude/`) and Codex (`.codex/`). Generalized from Demo's `.conclave/automations/` (2026-10-19), which was itself adapted from the Rizonetech systemd automations; Demo's `tasks.json` loads unchanged.
 
 ## What lands
 
@@ -21,7 +21,7 @@ Every file is copied once and is the project's from then on. "Never" means the p
 
 ## The task list
 
-`folder` is the project's Task Scheduler folder (`"\\Isotone\\"`), and every task name starts with its name in lower case and a hyphen (`isotone-`), so two projects never share a folder or a unit name. A task has exactly `name`, a one-line `description`, `command` (`python` and a script in the repository), `trigger` and `timeout_minutes`.
+`folder` is the project's Task Scheduler folder (`"\\Demo\\"`), and every task name starts with its name in lower case and a hyphen (`demo-`), so two projects never share a folder or a unit name. A task has exactly `name`, a one-line `description`, `command` (`python` and a script in the repository), `trigger` and `timeout_minutes`.
 
 | Trigger | Task Scheduler | systemd |
 | --- | --- | --- |
@@ -41,4 +41,4 @@ Then set `folder` in `tasks.json`, add the tasks, and run the project's installe
 
 ## Failure email
 
-Every failed run (non-zero exit, timeout, or a command that cannot start) emails `rizonetech@gmail.com` from `website@rizonetech.com` as "`<Folder>` automations", with the exit, the last 60 lines of the run's log, and how to run it again. The SMTP2GO key is read from the Conclave vault item "Rizonetech SMTP2GO (website mail)" at send time and never stored. An alert that cannot be sent makes the run exit 3 and is recorded at the end of its log.
+Every failed run (non-zero exit, timeout, or a command that cannot start) emails the operator as "`<Folder>` automations", with the exit, the last 60 lines of the run's log, and how to run it again. The sender, the recipient and the vault item that holds the SMTP2GO key are this owner's settings: `alert.sender`, `alert.to` and `alert.key_item` in `.conclave/local.toml` (ignored by git; the base kit's `.conclave/local.example.toml` is its template), and the alert refuses to send while one is unset. The key is read at send time and never stored. An alert that cannot be sent makes the run exit 3 and is recorded at the end of its log.

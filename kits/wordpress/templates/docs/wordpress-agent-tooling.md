@@ -1,6 +1,6 @@
 # WordPress agent tooling
 
-Every WordPress project Conclave starts or adopts gets this overlay. rizonetech-com (`/home/derickpayne/www/rizonetech-com`, Pressable) is the reference site; its `docs/production-access.md` records the whole setup, and jmrgroup-coza's `docs/connections.md` is the closest production-only port. The `wordpress-connect` skill walks through the setup.
+Every WordPress project Conclave starts or adopts gets this overlay. The reference site is the project `wordpress.reference` names in `.conclave/local.toml`; its `docs/production-access.md` records the whole setup, and the `docs/connections.md` of the project `wordpress.port_source` names in `.conclave/local.toml` is the closest production-only port. The `wordpress-connect` skill walks through the setup.
 
 ## Bind one site first
 
@@ -32,7 +32,7 @@ A WordPress.com site uses the WordPress.com connector instead and gets no `mcp-a
 
 ## DDEV (Pressable; WordPress.com Atomic on request)
 
-`.ddev/providers/production.yaml` pulls through `scripts/production-sync.py` and refuses every push. That script is ported per site from jmrgroup-coza, because which tables and uploads hold personal data differs per site. `bin/ddev` and `bin/wp` run DDEV with fresh Docker group membership.
+`.ddev/providers/production.yaml` pulls through `scripts/production-sync.py` and refuses every push. That script is ported per site from the port source, because which tables and uploads hold personal data differs per site. `bin/ddev` and `bin/wp` run DDEV with fresh Docker group membership.
 
 ## PHPCS
 

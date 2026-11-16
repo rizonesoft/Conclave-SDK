@@ -120,6 +120,37 @@ class Pin(unittest.TestCase):
                 wp_site.secret({"password": bad})
 
 
+class VaultSettings(unittest.TestCase):
+    """Which vault and which tool reads it are the owner's settings, never a path written into the kit."""
+
+    def test_the_vault_and_its_tool_come_from_local_toml_with_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            local = Path(tmp) / "local.toml"
+            self.assertEqual(wp_site.vault_settings(local), ("conclave-op", "Conclave"), "no settings file")
+            local.write_text('[paths]\nscratch = "x"\n', encoding="utf-8")
+            self.assertEqual(wp_site.vault_settings(local), ("conclave-op", "Conclave"), "no [vault] table")
+            local.write_text('[vault]\ncli = "/opt/tools/op"\nname = "Team"\n', encoding="utf-8")
+            self.assertEqual(wp_site.vault_settings(local), ("/opt/tools/op", "Team"))
+            for bad in ('[vault]\ncli = ""\n', "[vault]\nname = 7\n", "vault = 1\n", "[vault\n"):
+                local.write_text(bad, encoding="utf-8")
+                with self.subTest(bad=bad), self.assertRaises(ValueError):
+                    wp_site.vault_settings(local)
+
+    def test_no_script_names_a_home_folder(self):
+        scripts = Path(wp_site.__file__).resolve().parents[1]
+        for source in sorted(scripts.rglob("*.py")):
+            if source.parent.name != "tests":
+                self.assertNotRegex(source.read_text(encoding="utf-8"), r"/home/\w|[A-Za-z]:\\\\?Users", source.name)
+
+    def test_the_vault_read_runs_the_configured_tool(self):
+        stdout = json.dumps({"id": ITEM, "fields": []})
+        with patch.object(wp_site, "OP", "/opt/tools/op"), patch.object(wp_site, "VAULT", "Team"), \
+                patch.object(wp_site.subprocess, "run",
+                             return_value=subprocess.CompletedProcess([], 0, stdout, "")) as run:
+            wp_site.vault_fields(ITEM)
+        self.assertEqual(run.call_args[0][0][:1] + run.call_args[0][0][4:6], ["/opt/tools/op", "--vault", "Team"])
+
+
 class Identity(unittest.TestCase):
     def connect(self, stdout, site=None):
         with patch.object(wp_site.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout, "")) as run:

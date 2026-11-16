@@ -17,7 +17,7 @@ HAIKU_OK = {
 }
 
 
-# Copied byte for byte from R:\GitHub\Isotone\.claude\agents\isotone-reviewer.md, the shape Claude Code's per-agent hooks take.
+# Copied byte for byte from a production project's reviewer agent, the shape Claude Code's per-agent hooks take.
 ISOTONE_HOOKS = r'''hooks:
   PreToolUse:
     - matcher: "Bash|PowerShell"

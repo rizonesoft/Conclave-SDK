@@ -1,6 +1,6 @@
 # WordPress kit
 
-Additive overlay that connects a WordPress project to its one live site on Pressable or WordPress.com: a site pin, SSH/SFTP through a pinned Conclave credential, the WordPress MCP and, on Pressable (or a WordPress.com Atomic site that asks for one), a pull-only DDEV mirror. It also brings PHPCS WordPress-Extra wiring and the `wordpress-site-safety` and `wordpress-connect` skills for Gemini (`.agents/`), Claude (`.claude/`) and Codex (`.codex/`). rizonetech-com is the reference site.
+Additive overlay that connects a WordPress project to its one live site on Pressable or WordPress.com: a site pin, SSH/SFTP through a pinned Conclave credential, the WordPress MCP and, on Pressable (or a WordPress.com Atomic site that asks for one), a pull-only DDEV mirror. It also brings PHPCS WordPress-Extra wiring and the `wordpress-site-safety` and `wordpress-connect` skills for Gemini (`.agents/`), Claude (`.claude/`) and Codex (`.codex/`). No site, vault or owner is named in the kit: the vault and its tool come from `[vault]` in `.conclave/local.toml`, and the projects the setup is modelled on from `[wordpress]` there (the base kit's `.conclave/local.example.toml` is the template).
 
 The kit copies files and never installs WordPress, WP-CLI, PHPCS, DDEV or a plugin. A local WordPress tree is optional: on Pressable the `wordpress-connect` skill creates it with DDEV, and a WordPress.com site has none unless the owner asks for the mirror on an Atomic site (SSH), as road-diamond-com did. Install `kits/base` (or `python forge.py init`) first when the repo should speak the full agent contract.
 
@@ -33,7 +33,7 @@ Pressable only (`hosts/pressable/templates/`):
 | `.ddev/providers/production.yaml`, `bin/ddev`, `bin/wp` | Pull-only DDEV provider and wrappers |
 | `scripts/tests/test_pressable_access.py` | Header helper and setup helper refusal tests |
 
-The DDEV pull itself, `scripts/production-sync.py`, is ported per site from jmrgroup-coza, because which tables and uploads hold personal data differs per site. The doctor reports it as `setup_required` until it exists.
+The DDEV pull itself, `scripts/production-sync.py`, is ported per site from the project `wordpress.port_source` names in `.conclave/local.toml`, because which tables and uploads hold personal data differs per site. The doctor reports it as `setup_required` until it exists.
 
 ## Install
 

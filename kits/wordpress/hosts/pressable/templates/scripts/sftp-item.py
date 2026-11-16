@@ -3,7 +3,7 @@
 
     python3 scripts/sftp-item.py --title "Example Production SSH SFTP"
 
-Generalised from rizonetech-com and jmrgroup-coza. A reset replaces the live site's SFTP/SSH password: anything still
+Generalised from two production sites. A reset replaces the live site's SFTP/SSH password: anything still
 using the old one stops working, so run it only with the owner's approval, and never when a working item exists.
 
 It speaks MCP to Pressable's control plane through the pinned `bearer` connection (.conclave/wordpress-site.json),

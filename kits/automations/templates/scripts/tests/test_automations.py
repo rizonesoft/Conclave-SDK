@@ -107,7 +107,7 @@ class Manifest(unittest.TestCase):
         good = {"schema_version": 1, "folder": "\\Demo\\", "tasks": []}
         first = fixture_task("demo-check")
         cases = {
-            "another project's name": {**first, "name": "rizonetech-x"},
+            "another project's name": {**first, "name": "other-x"},
             "bare prefix": {**first, "name": "demo-"},
             "extra key": {**first, "enabled": True},
             "empty command": {**first, "command": []},
@@ -471,7 +471,40 @@ class Alert(unittest.TestCase):
     TASK = {"description": "Check the packages", "command": ["python", "scripts/check-packages.py"]}
     OUTCOME = {"exit": 1, "started": "2026-10-19T05:15:00Z", "finished": "2026-10-19T05:16:00Z",
                "log": "build/automations/demo-packages/x.log", "timed_out": False}
+    CONFIG = {"cli": "conclave-op", "sender": "alerts@example.com", "to": "owner@example.com",
+              "key_item": "op://Vault/item1"}
+    LOCAL = ('[alert]\nsender = "alerts@example.com"\nto = "owner@example.com"\nkey_item = "op://Vault/item1"\n')
 
+    def test_the_owners_settings_come_from_local_toml_and_nothing_is_guessed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            local = Path(tmp) / ".conclave" / "local.toml"
+            local.parent.mkdir()
+            with self.assertRaisesRegex(alert.Refused, "local.toml is missing"):
+                alert.settings(tmp)
+            local.write_text(self.LOCAL, encoding="utf-8")
+            self.assertEqual(alert.settings(tmp), self.CONFIG)
+            local.write_text(self.LOCAL + '[vault]\ncli = "/opt/vault tools/op"\n', encoding="utf-8")
+            self.assertEqual(alert.settings(tmp)["cli"], "/opt/vault tools/op")
+            for name, bad in (("sender", '""'), ("to", '"no address"'), ("key_item", '"item1"'), ("to", "7")):
+                lines = [line for line in self.LOCAL.splitlines() if not line.startswith(name + " ")]
+                local.write_text("\n".join(lines + [f"{name} = {bad}"]) + "\n", encoding="utf-8")
+                with self.subTest(name=name, bad=bad), self.assertRaisesRegex(alert.Refused, f"set alert.{name}"):
+                    alert.settings(tmp)
+            local.write_text("[alert\n", encoding="utf-8")
+            with self.assertRaisesRegex(alert.Refused, "not readable as TOML"):
+                alert.settings(tmp)
+        source = (Path(alert.__file__)).read_text(encoding="utf-8")
+        self.assertIsNone(re.search(r"[\w.]+@[\w-]+\.\w+|op://[a-z0-9]", source, re.I), "an owner's value in alert.py")
+
+    def test_a_vault_tool_path_with_a_space_is_one_shell_word(self):
+        seen = []
+
+        def vault(command, **kw):
+            seen.append(command[-1])
+            return subprocess.CompletedProcess(command, 0, stdout="api-" + "D" * 32, stderr="")
+
+        alert.key({**self.CONFIG, "cli": "/opt/vault tools/op"}, vault, windows=False)
+        self.assertEqual(seen, ["'/opt/vault tools/op' read op://Vault/item1/credential"])
     def test_the_message_names_the_task_its_exit_its_log_tail_and_the_rerun(self):
         subject, body = alert.message("demo-packages", self.TASK, self.OUTCOME, "pkg 1.0 High", "PC", "\\Demo\\",
                                       windows=True)
@@ -485,7 +518,7 @@ class Alert(unittest.TestCase):
         self.assertIn("timed out", timed)
 
     def test_the_sender_is_named_for_the_folder(self):
-        self.assertEqual(alert.sender("\\Isotone\\"), "Isotone automations <website@rizonetech.com>")
+        self.assertEqual(alert.sender("\\Demo\\", "alerts@example.com"), "Demo automations <alerts@example.com>")
 
     def test_a_send_smtp2go_refused_is_a_refusal(self):
         class Response(io.BytesIO):
@@ -502,29 +535,31 @@ class Alert(unittest.TestCase):
 
         refused = json.dumps({"data": {"succeeded": 0, "failed": 1, "failures": ["bad sender"]}}).encode()
         with self.assertRaises(alert.Refused):
-            alert.send("api-" + "a" * 32, "s", "b", "Demo automations <x@y>", opener=opener(refused))
+            alert.send("api-" + "a" * 32, "s", "b", "Demo automations <x@y>", "to@example.com", opener=opener(refused))
         ok = json.dumps({"data": {"succeeded": 1, "failed": 0, "email_id": "E1"}}).encode()
-        self.assertEqual(alert.send("api-" + "a" * 32, "s", "b", "Demo automations <x@y>", opener=opener(ok)), "E1")
+        self.assertEqual(alert.send("api-" + "a" * 32, "s", "b", "Demo automations <x@y>", "to@example.com", opener=opener(ok)), "E1")
         self.assertEqual(sent[-1]["sender"], "Demo automations <x@y>")
+        self.assertEqual(sent[-1]["to"], ["to@example.com"])
 
     def test_a_key_without_the_smtp2go_shape_is_refused(self):
         def vault(value, code=0):
             return lambda *a, **kw: subprocess.CompletedProcess(a, code, stdout=value, stderr="")
 
-        self.assertEqual(alert.key(vault("api-" + "B" * 32 + "\n")), "api-" + "B" * 32)
+        self.assertEqual(alert.key(self.CONFIG, vault("api-" + "B" * 32 + "\n")), "api-" + "B" * 32)
         for bad, code in (("", 0), ("api-short", 0), ("x" * 36, 0), ("api-" + "B" * 32, 1)):
             with self.subTest(bad=bad[:8], code=code), self.assertRaises(alert.Refused):
-                alert.key(vault(bad, code))
+                alert.key(self.CONFIG, vault(bad, code))
 
     def test_the_key_is_read_through_wsl_on_windows_and_directly_elsewhere(self):
         seen = []
 
         def vault(command, **kw):
             seen.append((command[0], kw["creationflags"]))
+            self.assertEqual(command[-1], "conclave-op read op://Vault/item1/credential")
             return subprocess.CompletedProcess(command, 0, stdout="api-" + "C" * 32, stderr="")
 
-        alert.key(vault, windows=True)
-        alert.key(vault, windows=False)
+        alert.key(self.CONFIG, vault, windows=True)
+        alert.key(self.CONFIG, vault, windows=False)
         self.assertEqual(seen, [("wsl.exe", 0x08000000), ("bash", 0)])
 
     def test_a_dry_run_reads_no_key(self):
@@ -533,6 +568,7 @@ class Alert(unittest.TestCase):
             (root / ".conclave" / "automations").mkdir(parents=True)
             (root / ".conclave" / "automations" / "tasks.json").write_text(json.dumps(
                 {"schema_version": 1, "folder": "\\Demo\\", "tasks": [fixture_task("demo-ga")]}), encoding="utf-8")
+            (root / ".conclave" / "local.toml").write_text(self.LOCAL, encoding="utf-8")
 
             def no_vault(*_a, **_kw):
                 raise AssertionError("a dry run must not read the vault")
@@ -544,7 +580,7 @@ class Alert(unittest.TestCase):
             finally:
                 sys.stdout = saved
             self.assertEqual(code, 0)
-            self.assertIn("From: Demo automations <website@rizonetech.com>", out.getvalue())
+            self.assertIn("From: Demo automations <alerts@example.com>\nTo: owner@example.com\n", out.getvalue())
             self.assertIn("Subject: Automation failed: demo-ga on PC", out.getvalue())
 
 

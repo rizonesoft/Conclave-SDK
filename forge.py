@@ -37,6 +37,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 import types
 import unicodedata
 
@@ -202,11 +203,11 @@ AGENT_DIRS = (".agents", ".claude", ".codex")
 KIT_NEW = ".kit-new"
 FORGE_SUFFIXES = (KIT_NEW, ".forge-new", ".forge-replace")
 # The kits the SDK installs in itself (AGENTS.md), and the files of theirs `self-sync` keeps current there: skills,
-# rules, subagents, scripts and the automations runner. The SDK's own docs, plan and pins are its project files.
+# rules, subagents, scripts, the automations runner and the local settings template. The SDK's own docs, plan and pins are its project files.
 SELF_KITS = ("base", "todo", "reviewer", "automations")
 SELF_PREFIXES = tuple(f"{d}/{kind}/" for d in AGENT_DIRS for kind in ("skills", "rules")) + (
     ".claude/agents/", "scripts/", "bin/", "docs/", ".agents/hooks.json",
-    ".codex/hooks.json") + AUTOMATIONS_SCRIPTS
+    ".codex/hooks.json", ".conclave/local.example.toml", ".conclave/.gitignore") + AUTOMATIONS_SCRIPTS
 
 
 LSP_TABLE = ".conclave/lsp.json"  # the lsp kit's server table: the one list of a project's language servers
@@ -1462,7 +1463,7 @@ def record_project(target_root: Path, kit_name: str | None = None, *, dry_run: b
     return {"target": target.as_posix(), "dry_run": dry_run, "recorded": recorded, "skipped": skipped}
 
 
-PROJECTS = ".conclave/projects.json"
+LOCAL = ".conclave/local.toml"  # this machine's and this owner's settings, ignored by git
 # What the weekly drift report counts, in its line's order: (label, the diff states it counts). Any of them fails it.
 DRIFT_COUNTS = (
     ("can update", ("kit-newer",)),
@@ -1476,28 +1477,30 @@ DRIFT_SHOWN = 20
 
 
 def load_projects(path: Path) -> list[dict]:
-    """The projects the drift report covers, from `{"schema_version": 1, "projects": [{"name", "windows", "posix"}]}`:
-    each with a name and a path for at least one system. Refuses with a ValueError naming the file and the entry."""
+    """The projects the drift report covers, from the `[[projects]]` tables of `.conclave/local.toml` (`name`, and a
+    `windows` path, a `posix` path or both): where a project lives is this machine's fact, so the list is never
+    committed. Returns each as `{"name", "windows", "posix"}`, a path left out being None; no `[[projects]]` is an
+    empty list. Refuses with a ValueError naming the file and the entry."""
     path = Path(path)
 
     def fault(what: str) -> ValueError:
         return ValueError(f"{path}: {what}")
 
     try:
-        data = json.loads(path.read_bytes().decode("utf-8"))
+        data = tomllib.loads(path.read_bytes().decode("utf-8"))
+    except FileNotFoundError:
+        raise fault("missing: copy .conclave/local.example.toml to it and list the projects") from None
     except (OSError, ValueError, RecursionError) as exc:
-        raise fault(f"not readable as UTF-8 JSON ({exc})") from None
-    if not isinstance(data, dict) or set(data) != {"schema_version", "projects"}:
-        raise fault("needs exactly the keys projects and schema_version")
-    if data["schema_version"] != 1 or isinstance(data["schema_version"], bool):
-        raise fault(f"schema_version must be 1, not {data['schema_version']!r}")
-    if not isinstance(data["projects"], list):
-        raise fault("projects must be a list")
+        raise fault(f"not readable as UTF-8 TOML ({exc})") from None
+    listed = data.get("projects", [])
+    if not isinstance(listed, list):
+        raise fault("projects must be [[projects]] tables")
+    projects: list[dict] = []
     seen: set[str] = set()
-    for index, entry in enumerate(data["projects"]):
+    for index, entry in enumerate(listed):
         where = f"projects[{index}]"
-        if not isinstance(entry, dict) or set(entry) != {"name", "windows", "posix"}:
-            raise fault(f"{where} needs exactly the keys name, posix and windows")
+        if not isinstance(entry, dict) or "name" not in entry or set(entry) - {"name", "windows", "posix"}:
+            raise fault(f"{where} needs a name and only the keys name, posix and windows")
         if not isinstance(entry["name"], str) or not entry["name"].strip():
             raise fault(f"{where}.name must be a non-empty string")
         where = f"{where} ({entry['name']})"
@@ -1505,11 +1508,12 @@ def load_projects(path: Path) -> list[dict]:
             raise fault(f"{where}: the name appears twice")
         seen.add(entry["name"])
         for key in ("windows", "posix"):
-            if entry[key] is not None and (not isinstance(entry[key], str) or not entry[key]):
-                raise fault(f"{where}.{key} must be null or a non-empty path")
-        if entry["windows"] is None and entry["posix"] is None:
+            if key in entry and (not isinstance(entry[key], str) or not entry[key]):
+                raise fault(f"{where}.{key} must be a non-empty path")
+        if "windows" not in entry and "posix" not in entry:
             raise fault(f"{where}: needs a windows or a posix path")
-    return data["projects"]
+        projects.append({"name": entry["name"], "windows": entry.get("windows"), "posix": entry.get("posix")})
+    return projects
 
 
 def drift_report(projects: list[dict], *, system: str | None = None) -> list[dict]:
@@ -1655,7 +1659,7 @@ def _doctor_wordpress(target_root: Path, add_check) -> None:
                   ddev_config.as_posix() if ddev_config.is_file() else "wordpress-connect step 4: bin/ddev config")
         sync = target_root / "scripts/production-sync.py"
         add_check("production-sync", "ok" if sync.is_file() else "setup_required",
-                  sync.as_posix() if sync.is_file() else "wordpress-connect step 4: port from jmrgroup-coza")
+                  sync.as_posix() if sync.is_file() else "wordpress-connect step 4: port it for this site")
     elif host == "wpcom":
         ddev_dir = target_root / ".ddev"
         add_check("no-ddev", "unexpected" if ddev_dir.exists() else "ok",
@@ -3487,7 +3491,7 @@ def main(argv: list[str] | None = None) -> int:
                        help="Record a hand merge from PATH.kit-new (relative to the project; repeatable), then remove the copy")
 
     p_drift = sub.add_parser("drift", help="Report which listed projects have kit files to update or merge (exit 3 if any)")
-    p_drift.add_argument("--projects", default=None, help=f"The project list (default: the SDK's {PROJECTS})")
+    p_drift.add_argument("--projects", default=None, help=f"The project list (default: the SDK's {LOCAL})")
 
     sub.add_parser("kits", help="List available overlay kits")
     p_self = sub.add_parser("self-sync", help="Refresh the SDK's own installed copy of base, todo, reviewer and automations")
@@ -3548,7 +3552,7 @@ def _run(args: argparse.Namespace) -> int:
         return 1 if failed else 0
 
     if args.command == "drift":
-        lines, drifted = drift_lines(drift_report(load_projects(Path(args.projects or FORGE_ROOT / PROJECTS))))
+        lines, drifted = drift_lines(drift_report(load_projects(Path(args.projects or FORGE_ROOT / LOCAL))))
         print("\n".join(lines))
         # Exit 3 is the report: the automations runner emails a non-zero exit with the tail of this output.
         return 3 if drifted else 0

@@ -1078,10 +1078,11 @@ class BosunPageTests(unittest.TestCase):
         self.assertEqual(len(links), 1)
         self.assertEqual((readme.parent / links[0]).resolve(), self.PAGE.resolve())
 
-    @unittest.skipUnless((pathlib.Path("D:/Bosun/README.md") if os.name == "nt" else pathlib.Path("/mnt/d/Bosun/README.md")).is_file(),
-                         "needs the Bosun checkout beside this one")
+    BOSUN = FORGE_ROOT.parent / "Bosun"
+
+    @unittest.skipUnless((BOSUN / "README.md").is_file(), "needs the Bosun checkout beside this one")
     def test_each_fact_on_the_page_is_in_bosuns_readme(self):
-        bosun = pathlib.Path("D:/Bosun") if os.name == "nt" else pathlib.Path("/mnt/d/Bosun")
+        bosun = self.BOSUN
         # The README at the commit the page names, not whatever the checkout holds now (found by the review round).
         commit = re.search(r"at commit `([0-9a-f]{40})`", self.PAGE.read_text(encoding="utf-8")).group(1)
         shown = subprocess.run(["git", "-C", str(bosun), "show", f"{commit}:README.md"], capture_output=True, timeout=60,
@@ -3063,9 +3064,15 @@ class KitNewTests(KitFixture, unittest.TestCase):
 class DriftTests(KitFixture, unittest.TestCase):
     """`forge.py drift`: the weekly report of which listed projects have kit files to update, merge or adopt."""
 
+    @staticmethod
+    def toml(projects):
+        """`[[projects]]` tables: a JSON string or number is the same TOML value, and a None key is left out."""
+        return "".join("[[projects]]\n" + "".join(f"{key} = {json.dumps(value)}\n" for key, value in entry.items()
+                                                    if value is not None) for entry in projects)
+
     def projects_file(self, projects):
-        path = pathlib.Path(self.tmp.name) / "projects.json"
-        path.write_text(json.dumps({"schema_version": 1, "projects": projects}), encoding="utf-8")
+        path = pathlib.Path(self.tmp.name) / "local.toml"
+        path.write_text(self.toml(projects), encoding="utf-8")
         return path
 
     def entry(self, name, path):
@@ -3081,20 +3088,26 @@ class DriftTests(KitFixture, unittest.TestCase):
         good = [self.entry("One", self.target), {"name": "Two", "windows": None, "posix": "~/two"}]
         self.assertEqual(forge.load_projects(self.projects_file(good)), good)
         bad = {
-            "a missing name": [{"windows": "x", "posix": None}],
+            "needs a name": [{"windows": "x", "posix": None}],
             "the name appears twice": [self.entry("One", "a"), self.entry("One", "b")],
             "needs a windows or a posix path": [{"name": "One", "windows": None, "posix": None}],
-            "needs exactly the keys name": [{"name": "One", "windows": "a", "posix": None, "extra": 1}],
+            "only the keys name": [{"name": "One", "windows": "a", "posix": None, "extra": 1}],
             "name must be a non-empty string": [{"name": 7, "windows": "a", "posix": None}],
-            "posix must be null or a non-empty path": [{"name": "One", "windows": None, "posix": 3}],
+            "posix must be a non-empty path": [{"name": "One", "windows": None, "posix": 3}],
         }
         for why, projects in bad.items():
             with self.assertRaises(ValueError, msg=why) as caught:
                 forge.load_projects(self.projects_file(projects))
-            self.assertIn("projects.json", str(caught.exception), why)
-        path = pathlib.Path(self.tmp.name) / "projects.json"
-        path.write_text(json.dumps({"schema_version": 2, "projects": []}), encoding="utf-8")
-        with self.assertRaisesRegex(ValueError, "schema_version must be 1"):
+            self.assertIn("local.toml", str(caught.exception), why)
+            self.assertIn(why, str(caught.exception))
+        path = pathlib.Path(self.tmp.name) / "local.toml"
+        path.write_text('[paths]\nscratch = "x"\n', encoding="utf-8")
+        self.assertEqual(forge.load_projects(path), [], "a settings file that lists no project")
+        path.write_text("[[projects\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "not readable as UTF-8 TOML"):
+            forge.load_projects(path)
+        path.unlink()
+        with self.assertRaisesRegex(ValueError, r"missing: copy \.conclave/local\.example\.toml"):
             forge.load_projects(path)
         with self.assertRaisesRegex(ValueError, r"projects\[0\] \(One\)\.windows"):
             forge.load_projects(self.projects_file([{"name": "One", "windows": "", "posix": "a"}]))
@@ -3179,8 +3192,7 @@ class DriftTests(KitFixture, unittest.TestCase):
         shutil.copytree(FORGE_ROOT / ".conclave/automations", sdk / ".conclave/automations",
                         ignore=shutil.ignore_patterns("__pycache__"))
         self.six_state_fixture()
-        (sdk / forge.PROJECTS).write_text(json.dumps({"schema_version": 1, "projects": [
-            self.entry("Drifted", self.target)]}), encoding="utf-8")
+        (sdk / forge.LOCAL).write_text(self.toml([self.entry("Drifted", self.target)]), encoding="utf-8")
         spec = importlib.util.spec_from_file_location("sdk_run", sdk / ".conclave/automations/run.py")
         assert spec is not None and spec.loader is not None
         run = importlib.util.module_from_spec(spec)
@@ -3216,16 +3228,19 @@ class DriftTests(KitFixture, unittest.TestCase):
         self.assertIn("RasterFold: 0 can update, 0 need a merge, 45 unrecorded, 50 missing", tail)
         self.assertIn("Impossible OS: 0 can update, 0 need a merge, 8 unrecorded, 27 missing", tail)
 
-    def test_the_sdks_own_list_and_task_are_in_place(self):
-        projects = forge.load_projects(FORGE_ROOT / forge.PROJECTS)
-        # Impossible OS left the list on 2026-11-16: it built its own todo workflow and owns its copy.
-        self.assertEqual([p["name"] for p in projects], ["RasterFold"])
+    def test_the_sdks_own_task_is_in_place_and_no_project_path_is_committed(self):
+        tracked = subprocess.run(["git", "-C", str(FORGE_ROOT), "ls-files", ".conclave"], capture_output=True, text=True,
+                                 timeout=60, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.split()
+        self.assertIn(".conclave/local.example.toml", tracked)
+        for gone in (forge.LOCAL, ".conclave/projects.json"):
+            self.assertNotIn(gone, tracked, "a machine's paths are committed")
+        self.assertEqual(forge.load_projects(FORGE_ROOT / ".conclave/local.example.toml"), [])
         tasks = json.loads((FORGE_ROOT / ".conclave/automations/tasks.json").read_text(encoding="utf-8"))["tasks"]
         drift = next(t for t in tasks if t["name"] == "conclave-sdk-drift")
         self.assertEqual((drift["command"], drift["trigger"], drift["timeout_minutes"]),
                          (["python", "forge.py", "drift"], {"weekly": "Monday", "at": "07:30"}, 10))
         for readme in ("README.md", ".conclave/automations/README.md"):
-            self.assertIn(".conclave/projects.json", (FORGE_ROOT / readme).read_text(encoding="utf-8"), readme)
+            self.assertIn(forge.LOCAL, (FORGE_ROOT / readme).read_text(encoding="utf-8"), readme)
 
 
 class InitPlanningTests(KitFixture, unittest.TestCase):
