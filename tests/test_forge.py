@@ -3218,7 +3218,8 @@ class DriftTests(KitFixture, unittest.TestCase):
 
     def test_the_sdks_own_list_and_task_are_in_place(self):
         projects = forge.load_projects(FORGE_ROOT / forge.PROJECTS)
-        self.assertEqual([p["name"] for p in projects], ["RasterFold", "Impossible OS"])
+        # Impossible OS left the list on 2026-11-16: it built its own todo workflow and owns its copy.
+        self.assertEqual([p["name"] for p in projects], ["RasterFold"])
         tasks = json.loads((FORGE_ROOT / ".conclave/automations/tasks.json").read_text(encoding="utf-8"))["tasks"]
         drift = next(t for t in tasks if t["name"] == "conclave-sdk-drift")
         self.assertEqual((drift["command"], drift["trigger"], drift["timeout_minutes"]),
