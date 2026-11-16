@@ -254,7 +254,13 @@ class CppKitTests(ToolchainFixture):
         files = [".agents/skills/cpp-toolchain/SKILL.md", ".clangd", ".claude/skills/cpp-toolchain/SKILL.md",
                  ".codex/skills/cpp-toolchain/SKILL.md", ".codex/skills/cpp-toolchain/agents/openai.yaml", PINS,
                  "docs/toolchain-cpp.md", "scripts/cache-stats.py", "scripts/cc-cache.py", "scripts/compdb-check.py",
-                 "scripts/hardening-check.py", "scripts/tests/test_cc_cache.py", "scripts/tests/test_compdb_check.py",
+                 "scripts/hardening-check.py", "scripts/tests/fixtures/README.md",
+                 "scripts/tests/fixtures/elf-asan.bin", "scripts/tests/fixtures/elf-hardened.bin",
+                 "scripts/tests/fixtures/elf-plain.bin", "scripts/tests/fixtures/elf-static.bin",
+                 "scripts/tests/fixtures/elf-ubsan-static.bin.gz", "scripts/tests/fixtures/pe-asan.exe.bin",
+                 "scripts/tests/fixtures/pe-delay.exe.bin", "scripts/tests/fixtures/pe-hardened.exe.bin",
+                 "scripts/tests/fixtures/pe-plain.exe.bin", "scripts/tests/fixtures/pe32-hardened.exe.bin",
+                 "scripts/tests/test_cc_cache.py", "scripts/tests/test_compdb_check.py",
                  "scripts/tests/test_hardening_check.py", "scripts/tests/test_toolchain_check.py",
                  "scripts/toolchain-check.py"]
         for name, argv in (("by-init", ("init", "{}", "--kit", self.KIT)), ("by-kit", ("kit", "{}", self.KIT))):

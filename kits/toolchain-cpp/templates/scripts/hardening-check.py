@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Say whether the project's own compile commands carry the memory-safety hardening its pin file declares.
+"""Say whether the project's own compile commands and built binaries carry the memory-safety hardening its pin
+file declares.
 
     python scripts/hardening-check.py [--root <project>] [--pins <pin file>] [--json]
 
@@ -33,22 +34,43 @@ How an entry is read, as the compiler would read it:
   `-fno-stack-protector` undoes both); the values of `-fsanitize=` add up and `-fno-sanitize=` takes them away;
   `-fcf-protection` is `-fcf-protection=full`.
 
-It prints one line with the status, then one line per requirement (`ok`, or `missing` with how many entries lack
-it and the first of them). The status is `ok`; `missing` (exit 3); `unknown` (exit 1) when the database is not
-`current` by scripts/compdb-check.py (stale, missing, invalid or too large: its detail and its regenerate line are
-printed), a response file or command cannot be read faithfully, or no entry falls under the policy's sources;
-`none` (exit 0) when no policy is declared. It exits 2 for bad usage or a pin file that does not load. `--json`
-prints the loaded policy and the result as one document. It reads and reports: it writes nothing and runs nothing.
-Standard library only.
+The built binaries are what the linker wrote, and the only proof of control-flow guard, shadow-stack compatibility
+and address randomisation. `binaries` names them (files under `root`, `*` allowed in a file name) and `image` the
+properties each must have, read from the headers with no outside tool (at most 64 MiB of a file):
+
+    PE    DYNAMIC_BASE, HIGH_ENTROPY_VA (not applicable to a 32-bit image), NX_COMPAT, GUARD_CF, CET_COMPAT
+    ELF   PIE, RELRO, BIND_NOW (full RELRO is RELRO and BIND_NOW), NX_STACK, STACK_PROTECTOR (unknown with no
+          dynamic string table to tell it)
+
+A property of the other format is not applicable, and a binary none of whose required properties applies is
+`unknown`. A binary that carries a sanitizer runtime is refused (a sanitizer build is a test build) unless a
+`test_binaries` pattern names it, which lifts only that refusal: the evidence is an imported, delay-loaded or needed
+library whose name holds `asan`, `ubsan`, `tsan` or `msan`, or, for a runtime linked in, its own option variable
+(`ASAN_OPTIONS` and the like) as a string in the file. Limit: a runtime linked in without that string in the file
+is not found.
+
+It prints a `hardening:compile:` line with its status, then one line per requirement (`ok`, or `missing` with how
+many entries lack it and the first of them), then a `hardening:image:` line, then one line per binary. The compile
+status is `ok`, `missing`, `unknown` when the database is not `current` by scripts/compdb-check.py (stale, missing,
+invalid or too large: its detail and its regenerate line are printed), a response file or command cannot be read
+faithfully, or no entry falls under the policy's sources, or `none` when no `compile` is declared. The image status
+is `ok`, `missing` (a property is false or a sanitizer runtime is refused), `unknown` (a pattern names no file, a
+file cannot be read or told) or `none`; a binary that is no valid image is `invalid`, naming the offset. The two run
+independently. It exits 3 when either has a missing requirement, else 1 when either is unknown, else 0; 2 for bad
+usage or a pin file that does not load. `--json` prints the loaded policy, the overall `status` and the `compile`
+and `image` results as one document. It reads and reports: it writes nothing and runs nothing. Standard library
+only.
 """
 import argparse
+import fnmatch
 import importlib.util
 import json
 import os
 import re
 import shlex
+import struct
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 PINS = ".conclave/toolchain-cpp.json"
 RESPONSE_LIMIT = 1024 * 1024   # bytes of one response file this check reads
@@ -317,7 +339,7 @@ def msvc_style(arguments):
     return bool(programs) and programs[0] in MSVC_DRIVERS
 
 
-def check_hardening(project, pin_file, compdb, read_limit=None):
+def check_compile(project, pin_file, compdb, read_limit=None):
     """The result of the policy of a loaded pin file against its compile database: {"status", "detail",
     "database", "checked", "excluded", "outside", "requirements", "regenerate"}. `compdb` is the loaded
     compdb-check module."""
@@ -328,6 +350,9 @@ def check_hardening(project, pin_file, compdb, read_limit=None):
     if policy is None:
         result.update(status="none", detail="no policy declared: add a `hardening` key to the pin file "
                                              "(docs/toolchain-cpp.md, Memory safety)")
+        return result
+    if not policy["compile"]:
+        result.update(status="none", detail="no compile requirement declared")
         return result
     entries = []
     state = compdb.check_database(project, pin_file, entries_out=entries,
@@ -387,10 +412,344 @@ def check_hardening(project, pin_file, compdb, read_limit=None):
     return result
 
 
+# The built binaries (D04 T03 section 2): what the linker wrote, read from the PE and ELF headers.
+
+IMAGE_LIMIT = 64 * 1024 * 1024   # bytes of one binary this check reads
+PE_PROPERTIES = ("DYNAMIC_BASE", "HIGH_ENTROPY_VA", "NX_COMPAT", "GUARD_CF", "CET_COMPAT")
+ELF_PROPERTIES = ("PIE", "RELRO", "BIND_NOW", "NX_STACK", "STACK_PROTECTOR")
+PE_FLAGS = {"HIGH_ENTROPY_VA": 0x0020, "DYNAMIC_BASE": 0x0040, "NX_COMPAT": 0x0100, "GUARD_CF": 0x4000}
+DEBUG_EX_DLLCHARACTERISTICS, CET_COMPAT_BIT = 20, 0x0001
+PT_LOAD, PT_DYNAMIC, PT_INTERP, PT_GNU_STACK, PT_GNU_RELRO = 1, 2, 3, 0x6474E551, 0x6474E552
+DT_NULL, DT_NEEDED, DT_STRTAB, DT_STRSZ, DT_BIND_NOW, DT_FLAGS, DT_FLAGS_1 = 0, 1, 5, 10, 24, 30, 0x6FFFFFFB
+DF_BIND_NOW, DF_1_NOW, DF_1_PIE = 0x8, 0x1, 0x08000000
+SANITIZER_WORDS = ("asan", "ubsan", "tsan", "msan")
+# The option variable each sanitizer runtime reads at start: in the file when the runtime is linked into it.
+SANITIZER_OPTIONS = (b"ASAN_OPTIONS", b"UBSAN_OPTIONS", b"TSAN_OPTIONS", b"MSAN_OPTIONS", b"HWASAN_OPTIONS")
+NOT_APPLICABLE = "not applicable"
+
+
+class Malformed(ValueError):
+    """A header or table that is not what its format says: the message names the offset."""
+
+
+class Image:
+    """The bytes read of one binary, and whether the file goes on past them."""
+
+    def __init__(self, data, cut):
+        self.data, self.cut = data, cut
+
+    def read(self, offset, size, fmt, what):
+        if offset < 0 or offset + size > len(self.data):
+            raise Malformed(f"{what} at offset {offset} lies past the end of the file")
+        return struct.unpack_from(fmt, self.data, offset)[0]
+
+    def string(self, offset, what, limit=4096):
+        if offset < 0 or offset >= len(self.data):
+            raise Malformed(f"{what} at offset {offset} lies past the end of the file")
+        end = self.data.find(b"\0", offset, offset + limit)
+        if end < 0:
+            raise Malformed(f"{what} at offset {offset} is not terminated")
+        return self.data[offset:end].decode("latin-1")
+
+
+def read_pe(image):
+    """A PE image's properties: each of PE_PROPERTIES true, false or NOT_APPLICABLE, "guard_functions", and
+    "libraries" (the imported and delay-loaded DLLs). Raises Malformed."""
+    read = image.read
+    e_lfanew = read(0x3C, 4, "<I", "the PE header offset")
+    read(e_lfanew, 4, "<I", "the PE header")   # it must lie inside what was read
+    if image.data[e_lfanew:e_lfanew + 4] != b"PE\0\0":
+        raise Malformed(f"no PE signature at offset {e_lfanew}")
+    coff = e_lfanew + 4
+    sections_count = read(coff + 2, 2, "<H", "the section count")
+    optional_size = read(coff + 16, 2, "<H", "the optional header size")
+    optional = coff + 20
+    magic = read(optional, 2, "<H", "the optional header magic")
+    if magic not in (0x10B, 0x20B):
+        raise Malformed(f"the optional header magic at offset {optional} is {magic:#x}, neither PE32 nor PE32+")
+    plus = magic == 0x20B
+    dll = read(optional + 70, 2, "<H", "the DLL characteristics")
+    count_at = optional + (108 if plus else 92)
+    directories = min(read(count_at, 4, "<I", "the data directory count"), 16)
+    if count_at + 4 + 8 * directories > optional + optional_size:
+        raise Malformed(f"the data directories at offset {count_at + 4} run past the optional header")
+    sections = []
+    for number in range(sections_count):
+        at = optional + optional_size + 40 * number
+        virtual_size = read(at + 8, 4, "<I", f"section {number + 1}")
+        address = read(at + 12, 4, "<I", f"section {number + 1}")
+        raw_size = read(at + 16, 4, "<I", f"section {number + 1}")
+        raw_at = read(at + 20, 4, "<I", f"section {number + 1}")
+        sections.append((address, max(virtual_size, raw_size), raw_at, raw_size))
+
+    def offset_of(rva, what):
+        for address, size, raw_at, raw_size in sections:
+            if address <= rva < address + size and rva - address < raw_size:
+                return raw_at + rva - address
+        raise Malformed(f"{what} (address {rva:#x}) is in no section of the file")
+
+    def directory(index):
+        if index >= directories:
+            return 0, 0
+        at = count_at + 4 + 8 * index
+        return read(at, 4, "<I", "a data directory"), read(at + 4, 4, "<I", "a data directory")
+
+    found = {name: bool(dll & bit) for name, bit in PE_FLAGS.items()}
+    if not plus:
+        found["HIGH_ENTROPY_VA"] = NOT_APPLICABLE   # a 32-bit image has no 64-bit address space to spread over
+    guard_functions = 0
+    rva, size = directory(10)
+    if rva and size:
+        at = offset_of(rva, "the load configuration")
+        length = read(at, 4, "<I", "the load configuration size")
+        field, width = (0x88, 8) if plus else (0x54, 4)
+        if length >= field + width:
+            guard_functions = read(at + field, width, "<Q" if plus else "<I", "the guard function count")
+    cet = False
+    rva, size = directory(6)
+    if rva and size:
+        at = offset_of(rva, "the debug directory")
+        for number in range(min(size // 28, 64)):
+            entry = at + 28 * number
+            if read(entry + 12, 4, "<I", "a debug entry") == DEBUG_EX_DLLCHARACTERISTICS:
+                raw = read(entry + 24, 4, "<I", "a debug entry")
+                cet = bool(read(raw, 4, "<I", "the extended DLL characteristics") & CET_COMPAT_BIT)
+    found["CET_COMPAT"] = cet
+    libraries = []
+    for index, width, name_field, what in ((1, 20, 12, "an import"), (13, 32, 4, "a delay import")):
+        rva, size = directory(index)
+        if not (rva and size):
+            continue
+        at = offset_of(rva, f"the table of {what}s")
+        for number in range(4096):
+            entry = at + width * number
+            name_rva = read(entry + name_field, 4, "<I", f"{what}'s name")
+            if not name_rva:
+                break
+            libraries.append(image.string(offset_of(name_rva, f"{what}'s name"), f"{what}'s name"))
+    return dict(found, guard_functions=guard_functions, libraries=libraries)
+
+
+def read_elf(image):
+    """An ELF image's properties: each of ELF_PROPERTIES true, false or None (STACK_PROTECTOR, when there is no
+    dynamic string table to tell it), and "libraries" (the needed ones). Raises Malformed."""
+    read = image.read
+    klass, order = read(4, 1, "B", "the ELF class"), read(5, 1, "B", "the ELF byte order")
+    if klass not in (1, 2) or order not in (1, 2):
+        raise Malformed("the ELF class or byte order at offset 4 is not one the format defines")
+    e, wide = ("<" if order == 1 else ">"), klass == 2
+    word, size = (e + "Q", 8) if wide else (e + "I", 4)
+    e_type = read(16, 2, e + "H", "the ELF type")
+    phoff = read(32 if wide else 28, size, word, "the program header offset")
+    phentsize = read(54 if wide else 42, 2, e + "H", "the program header size")
+    phnum = read(56 if wide else 44, 2, e + "H", "the program header count")
+    if phnum and phentsize < (56 if wide else 32):
+        raise Malformed(f"the program header size at offset {54 if wide else 42} is {phentsize}, too small")
+    segments = []
+    for number in range(phnum):
+        at = phoff + phentsize * number
+        p_type = read(at, 4, e + "I", f"program header {number + 1}")
+        if wide:
+            flags = read(at + 4, 4, e + "I", f"program header {number + 1}")
+            offset, vaddr, filesz = (read(at + field, 8, word, f"program header {number + 1}") for field in (8, 16, 32))
+        else:
+            offset, vaddr, filesz = (read(at + field, 4, word, f"program header {number + 1}") for field in (4, 8, 16))
+            flags = read(at + 24, 4, e + "I", f"program header {number + 1}")
+        segments.append((p_type, flags, offset, vaddr, filesz))
+
+    def offset_of(vaddr, what):
+        for p_type, _flags, offset, start, filesz in segments:
+            if p_type == PT_LOAD and start <= vaddr < start + filesz:
+                return offset + vaddr - start
+        raise Malformed(f"{what} (address {vaddr:#x}) is in no loaded segment")
+
+    types = {segment[0] for segment in segments}
+    tags = []
+    for p_type, _flags, offset, _vaddr, filesz in segments:
+        if p_type != PT_DYNAMIC:
+            continue
+        step = 16 if wide else 8
+        for number in range(min(filesz // step, 4096)):
+            at = offset + step * number
+            tag = read(at, size, (e + "q") if wide else (e + "i"), "a dynamic entry")
+            if tag == DT_NULL:
+                break
+            tags.append((tag, read(at + size, size, word, "a dynamic entry")))
+        break
+    values = {}
+    for tag, value in tags:
+        values.setdefault(tag, value)
+    flags, flags_1 = values.get(DT_FLAGS, 0), values.get(DT_FLAGS_1, 0)
+    libraries, protector = [], None
+    if DT_STRTAB in values:
+        start = offset_of(values[DT_STRTAB], "the dynamic string table")
+        length = values.get(DT_STRSZ, 0)
+        if start + length > len(image.data):
+            raise Malformed(f"the dynamic string table at offset {start} runs past the end of the file")
+        libraries = [image.string(start + value, "a needed library's name") for tag, value in tags
+                     if tag == DT_NEEDED]
+        protector = b"\0__stack_chk_fail\0" in b"\0" + image.data[start:start + length]
+    stack = [segment for segment in segments if segment[0] == PT_GNU_STACK]
+    return {"PIE": e_type == 3 and (PT_INTERP in types or bool(flags_1 & DF_1_PIE)),
+            "RELRO": PT_GNU_RELRO in types,
+            "BIND_NOW": DT_BIND_NOW in values or bool(flags & DF_BIND_NOW) or bool(flags_1 & DF_1_NOW),
+            "NX_STACK": bool(stack) and not stack[0][1] & 1,
+            "STACK_PROTECTOR": protector, "libraries": libraries}
+
+
+def inspect_binary(path, shown, required, exempt, limit=None):
+    """One binary held to the `image` properties: {"path", "format", "status", "detail", "properties",
+    "missing", "sanitizers"}. Status: ok, missing (a required property is false, or a sanitizer runtime is in a
+    binary `test_binaries` does not name), unknown, or invalid. Never raises."""
+    limit = IMAGE_LIMIT if limit is None else limit
+    result = {"path": shown, "format": None, "status": None, "detail": "", "properties": {}, "missing": [],
+              "sanitizers": []}
+
+    def ended(status, detail):
+        result.update(status=status, detail=detail)
+        return result
+
+    try:
+        with open(path, "rb") as handle:
+            data = handle.read(limit + 1)
+    except OSError as exc:
+        return ended("unknown", f"{shown} cannot be read ({exc.strerror or exc})")
+    image = Image(data[:limit], len(data) > limit)
+    try:
+        if image.data[:4] == b"\x7fELF":
+            result["format"], found = "elf", read_elf(image)
+        elif image.data[:2] == b"MZ":
+            result["format"], found = "pe", read_pe(image)
+        else:
+            return ended("invalid", f"{shown} is neither a PE nor an ELF image (offset 0)")
+    except Malformed as exc:
+        if image.cut:
+            return ended("unknown", f"{shown}: {exc}: the file is larger than the {limit} bytes this check reads")
+        return ended("invalid", f"{shown}: {exc}")
+    except (struct.error, ValueError, IndexError, OverflowError) as exc:
+        return ended("invalid", f"{shown}: a header this check cannot read ({type(exc).__name__}: {exc})")
+    own = PE_PROPERTIES if result["format"] == "pe" else ELF_PROPERTIES
+    result["sanitizers"] = [name for name in found["libraries"] if any(w in name.lower() for w in SANITIZER_WORDS)]
+    result["sanitizers"] += [name.decode() for name in SANITIZER_OPTIONS if b"\0" + name + b"\0" in image.data]
+    untold = []
+    for name in required:
+        value = found.get(name, NOT_APPLICABLE) if name in own else NOT_APPLICABLE
+        result["properties"][name] = "ok" if value is True else "missing" if value is False else \
+            "unknown" if value is None else NOT_APPLICABLE
+        if value is False:
+            result["missing"].append(name)
+        elif value is None:
+            untold.append(name)
+    applicable = [name for name in required if result["properties"][name] != NOT_APPLICABLE]
+    refused = result["sanitizers"] and not exempt
+    named = []
+    if result["missing"]:
+        named.append(f"lacks {', '.join(result['missing'])}")
+    if refused:
+        named.append(f"carries a sanitizer runtime ({', '.join(result['sanitizers'])}); a sanitizer build is a "
+                     "test build: name it in test_binaries if it is one")
+    if named:
+        return ended("missing", f"{shown} ({result['format'].upper()}) " + "; ".join(named))
+    if untold:
+        return ended("unknown", f"{shown}: {', '.join(untold)} cannot be told from this file (no dynamic string "
+                                "table)")
+    if required and not applicable:
+        return ended("unknown", f"{shown} is {result['format'].upper()}, and none of the required properties "
+                                f"({', '.join(required)}) applies to it")
+    told = f"{len(applicable)} propert{'y' if len(applicable) == 1 else 'ies'}"
+    exempted = " (a test binary: its sanitizer runtime is allowed)" if result["sanitizers"] and exempt else ""
+    return ended("ok", f"{shown} ({result['format'].upper()}): {told}{exempted}")
+
+
+def _matches(base, patterns):
+    """The files `binaries` patterns name under `base` ({path: pattern}, in order), and the patterns that name
+    nothing. `*` is allowed in the file name only. A pattern without `*` names its path even when it is not a
+    file, so a directory or an unreadable file is reported, never skipped."""
+    found, unmatched = {}, []
+    for pattern in patterns:
+        rel = PurePosixPath(pattern)
+        folder = base.joinpath(*rel.parts[:-1]) if len(rel.parts) > 1 else base
+        if "*" not in rel.name:
+            path = folder / rel.name
+            if os.path.lexists(path):
+                found.setdefault(path, pattern)
+            else:
+                unmatched.append(pattern)
+            continue
+        try:
+            names = sorted(entry for entry in os.listdir(folder) if fnmatch.fnmatchcase(entry, rel.name)
+                           and os.path.isfile(folder / entry))
+        except OSError:
+            names = []
+        for name in names:
+            found.setdefault(folder / name, pattern)
+        if not names:
+            unmatched.append(pattern)
+    return found, unmatched
+
+
+def _exempt(path, base, patterns):
+    rel = PurePosixPath(os.path.relpath(path, base).replace(os.sep, "/"))
+    for pattern in patterns:
+        target = PurePosixPath(pattern)
+        if rel.parent == target.parent and fnmatch.fnmatchcase(rel.name, target.name):
+            return True
+    return False
+
+
+def check_images(project, pin_file, limit=None):
+    """The built binaries a loaded pin file's policy names, each held to its `image` properties: {"status",
+    "detail", "binaries", "unmatched"}."""
+    project = Path(project).resolve()
+    policy = pin_file["hardening"]
+    result = {"status": None, "detail": "", "binaries": [], "unmatched": []}
+    if policy is None:
+        result.update(status="none", detail="no policy declared")
+        return result
+    if not policy["binaries"]:
+        result.update(status="none", detail="no binaries declared")
+        return result
+    base = project / pin_file["root"]
+    found, result["unmatched"] = _matches(base, policy["binaries"])
+    for path in found:
+        shown = Path(os.path.normpath(str(path))).relative_to(project).as_posix()
+        if os.path.isdir(path):
+            result["binaries"].append({"path": shown, "format": None, "status": "unknown",
+                                       "detail": f"{shown} is a folder, not a binary", "properties": {},
+                                       "missing": [], "sanitizers": []})
+            continue
+        result["binaries"].append(inspect_binary(path, shown, policy["image"],
+                                                 _exempt(path, base, policy["test_binaries"]), limit))
+    states = [entry["status"] for entry in result["binaries"]]
+    counts = ", ".join(f"{states.count(state)} {state}" for state in ("ok", "missing", "unknown", "invalid")
+                       if states.count(state))
+    unmatched = f"; {len(result['unmatched'])} pattern(s) name no file: {', '.join(result['unmatched'])}" \
+        if result["unmatched"] else ""
+    if "missing" in states:
+        status = "missing"
+    elif result["unmatched"] or "unknown" in states or "invalid" in states:
+        status = "unknown"
+    else:
+        status = "ok"
+    result.update(status=status, detail=f"{len(states)} binar{'y' if len(states) == 1 else 'ies'}"
+                                        f"{': ' + counts if counts else ''}{unmatched}")
+    return result
+
+
+def overall(compile_result, image_result):
+    """The one status of both checks: missing when either has a missing requirement, else unknown when either is
+    unknown, else ok when either is ok, else none."""
+    states = (compile_result["status"], image_result["status"])
+    for status in ("missing", "unknown", "ok"):
+        if status in states:
+            return status
+    return "none"
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="hardening-check.py",
-                                     description="Say whether the project's compile commands carry its declared "
-                                                 "hardening. Runs nothing.")
+                                     description="Say whether the project's compile commands and built binaries "
+                                                 "carry its declared hardening. Runs nothing.")
     parser.add_argument("--root", default=".", help="the project (default: the working directory)")
     parser.add_argument("--pins", help=f"the pin file (default: {PINS} under the root)")
     parser.add_argument("--json", action="store_true", help="print the policy and the result as one JSON document")
@@ -403,22 +762,31 @@ def main(argv=None):
     except module.PinError as exc:
         print(f"hardening-check: {exc}", file=sys.stderr)
         if args.json:
-            print(json.dumps({"policy": None, "status": "refused", "detail": str(exc)}, indent=2))
+            print(json.dumps({"policy": None, "status": "refused", "detail": str(exc), "compile": None,
+                              "image": None}, indent=2))
         return 2
-    result = check_hardening(project, pin_file, _sibling("compdb-check.py", "_compdb_check"))
+    compiled = check_compile(project, pin_file, _sibling("compdb-check.py", "_compdb_check"))
+    images = check_images(project, pin_file)
+    status = overall(compiled, images)
     if args.json:
-        print(json.dumps({"policy": pin_file["hardening"], **result}, indent=2))
-    else:
-        print(f"hardening:compile: {result['status']}: {result['detail']}")
-        for item in result["requirements"]:
-            if item["status"] == "ok":
-                print(f"  ok       {item['requirement']}")
-            else:
-                print(f"  missing  {item['requirement']}: on {item['lacking']} entr"
-                      f"{'y' if item['lacking'] == 1 else 'ies'}, first {item['first']}")
-        if result["regenerate"]:
-            print(result["regenerate"])
-    return EXIT[result["status"]]
+        print(json.dumps({"policy": pin_file["hardening"], "status": status, "compile": compiled, "image": images},
+                         indent=2))
+        return EXIT[status]
+    print(f"hardening:compile: {compiled['status']}: {compiled['detail']}")
+    for item in compiled["requirements"]:
+        if item["status"] == "ok":
+            print(f"  ok       {item['requirement']}")
+        else:
+            print(f"  missing  {item['requirement']}: on {item['lacking']} entr"
+                  f"{'y' if item['lacking'] == 1 else 'ies'}, first {item['first']}")
+    if compiled["regenerate"]:
+        print(compiled["regenerate"])
+    print(f"hardening:image: {images['status']}: {images['detail']}")
+    for entry in images["binaries"]:
+        print(f"  {entry['status']:<8} {entry['detail']}")
+    for pattern in images["unmatched"]:
+        print(f"  unknown  {pattern} names no file")
+    return EXIT[status]
 
 
 if __name__ == "__main__":

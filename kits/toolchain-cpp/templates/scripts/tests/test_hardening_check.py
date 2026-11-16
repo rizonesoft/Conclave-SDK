@@ -1,11 +1,14 @@
-"""hardening-check.py: a project's declared hardening held to its compile commands (D04 T03 section 1): how each
-entry's flags are read, which entries are the project's own, what is unknown, the output and the exit codes."""
+"""hardening-check.py: a project's declared hardening held to its compile commands (D04 T03 section 1) and to its
+built binaries (section 2): how each entry's flags are read, which entries are the project's own, what the PE and ELF
+readers report for real linker output, what is unknown, the output and the exit codes."""
 import contextlib
+import gzip
 import importlib.util
 import io
 import json
 import os
 import pathlib
+import struct
 import subprocess
 import sys
 import tempfile
@@ -72,10 +75,15 @@ class Fixture(unittest.TestCase):
         """The check as text and as JSON: (exit, status, the text, the JSON document). The two must agree."""
         code, text, err = self.run_main()
         json_code, document, _err = self.run_main("--json")
-        report = json.loads(document)
+        whole = json.loads(document)
+        self.assertEqual(set(whole), {"policy", "status", "compile", "image"})
+        report = dict(whole["compile"], policy=whole["policy"], image=whole["image"])
         self.assertEqual((json_code, err), (code, ""))
         self.assertEqual(text.splitlines()[0], f"hardening:compile: {report['status']}: {report['detail']}")
-        self.assertEqual(code, {"ok": 0, "none": 0, "unknown": 1, "missing": 3}[report["status"]])
+        self.assertIn(f"hardening:image: {whole['image']['status']}: {whole['image']['detail']}", text.splitlines())
+        self.assertEqual(code, {"ok": 0, "none": 0, "unknown": 1, "missing": 3}[whole["status"]])
+        if whole["image"]["status"] == "none":
+            self.assertEqual(whole["status"], report["status"])
         return code, report["status"], text, report
 
     def policy(self, *required, **keys):
@@ -95,8 +103,8 @@ class PolicyTests(Fixture):
         self.database([self.entry("src/a.cpp", [f"/D{STL}", "/guard:cf"], compiler="cl.exe")])
         code, status, _text, report = self.both()
         self.assertEqual((code, status), (0, "ok"))
-        self.assertEqual(report["policy"], {"compile": [STL, "/guard:cf"], "sources": ["."],
-                                            "exclude": ["third_party"]})
+        self.assertEqual(report["policy"], {"compile": [STL, "/guard:cf"], "sources": ["."], "exclude": ["third_party"],
+                                            "binaries": [], "image": [], "test_binaries": []})
 
     def test_a_policy_that_does_not_load_exits_2_with_the_loaders_refusal(self):
         path = self.pins({"compile": [STL, 7]})
@@ -116,7 +124,7 @@ class MatchTests(Fixture):
         code, status, text, report = self.both()
         self.assertEqual((code, status), (0, "ok"))
         self.assertEqual(report["checked"], 3)
-        self.assertEqual(text.splitlines()[1:], [f"  ok       {STL}", "  ok       /guard:cf"])
+        self.assertEqual(text.splitlines()[1:3], [f"  ok       {STL}", "  ok       /guard:cf"])
 
     def test_one_unhardened_first_party_source_exits_3_naming_the_requirement_and_the_source(self):
         # The other entries carry it, so a search over the whole file would pass.
@@ -275,7 +283,7 @@ class UnknownTests(Fixture):
         self.database([self.entry("src/a.cpp", ["-D_GLIBCXX_ASSERTIONS"])])
         pin_file = hc._sibling("toolchain-check.py", "tc").load_pin_file(self.project / hc.PINS)
         compdb = hc._sibling("compdb-check.py", "cc")
-        result = hc.check_hardening(self.project, pin_file, compdb, read_limit=16)
+        result = hc.check_compile(self.project, pin_file, compdb, read_limit=16)
         self.assertEqual(result["status"], "unknown")
         self.assertIn("is larger than the 16 bytes this check reads", result["detail"])
         self.assertEqual(compdb.READ_LIMIT, 256 * 1024 * 1024)   # the default it reads up to
@@ -288,7 +296,7 @@ class UnknownTests(Fixture):
         self.assertEqual((code, status), (1, "unknown"))
         self.assertIn("the compile database is stale", report["detail"])
         self.assertIn("older than CMakeLists.txt", report["detail"])
-        self.assertRegex(text.splitlines()[-1], r"^regenerate with \((PowerShell|sh)\): cmake -B build$")
+        self.assertRegex(text.splitlines()[1], r"^regenerate with \((PowerShell|sh)\): cmake -B build$")
 
 
 class ResponseFileTests(Fixture):
@@ -335,6 +343,309 @@ class ResponseFileTests(Fixture):
         code, status, _text, report = self.both()
         self.assertEqual((code, status), (1, "unknown"))
         self.assertIn("the command of src/a.cpp: ", report["detail"])
+
+
+FIXTURES = SCRIPTS / "tests" / "fixtures"
+# What dumpbin and readelf reported for each fixture (fixtures/README.md), as the readers name it.
+PE_EXPECTED = {
+    "pe-hardened.exe.bin": ({"DYNAMIC_BASE": True, "HIGH_ENTROPY_VA": True, "NX_COMPAT": True, "GUARD_CF": True,
+                             "CET_COMPAT": True}, 10),
+    "pe-plain.exe.bin": ({"DYNAMIC_BASE": False, "HIGH_ENTROPY_VA": False, "NX_COMPAT": False, "GUARD_CF": False,
+                          "CET_COMPAT": False}, 0),
+    "pe-asan.exe.bin": ({"DYNAMIC_BASE": True, "HIGH_ENTROPY_VA": True, "NX_COMPAT": True, "GUARD_CF": False,
+                         "CET_COMPAT": False}, 0),
+    "pe32-hardened.exe.bin": ({"DYNAMIC_BASE": True, "HIGH_ENTROPY_VA": "not applicable", "NX_COMPAT": True,
+                               "GUARD_CF": True, "CET_COMPAT": False}, 9),
+    "pe-delay.exe.bin": ({"DYNAMIC_BASE": True, "HIGH_ENTROPY_VA": True, "NX_COMPAT": True, "GUARD_CF": False,
+                          "CET_COMPAT": False}, 0),
+}
+CRT = ["KERNEL32.dll", "VCRUNTIME140.dll"]
+ELF_EXPECTED = {
+    "elf-hardened.bin": ({"PIE": True, "RELRO": True, "BIND_NOW": True, "NX_STACK": True, "STACK_PROTECTOR": True},
+                         ["libc.so.6"]),
+    "elf-plain.bin": ({"PIE": False, "RELRO": False, "BIND_NOW": False, "NX_STACK": False, "STACK_PROTECTOR": False},
+                      ["libc.so.6"]),
+    "elf-asan.bin": ({"PIE": True, "RELRO": True, "BIND_NOW": True, "NX_STACK": True, "STACK_PROTECTOR": True},
+                     ["libasan.so.8", "libc.so.6"]),
+    "elf-ubsan-static.bin.gz": ({"PIE": True, "RELRO": True, "BIND_NOW": True, "NX_STACK": True,
+                                 "STACK_PROTECTOR": True}, ["libm.so.6", "libgcc_s.so.1", "libc.so.6"]),
+    "elf-static.bin": ({"PIE": False, "RELRO": False, "BIND_NOW": False, "NX_STACK": True, "STACK_PROTECTOR": None},
+                       []),
+}
+
+
+def fixture_bytes(name):
+    data = (FIXTURES / name).read_bytes()
+    return gzip.decompress(data) if name.endswith(".gz") else data
+
+
+class ImageFixture(Fixture):
+    def binary(self, name, rel=None, data=None):
+        """A fixture (or `data`) placed in the project at `rel` (default: build/<its name without .bin>)."""
+        rel = rel or "build/" + name.removesuffix(".gz").removesuffix(".bin")
+        path = self.project / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(fixture_bytes(name) if data is None else data)
+        return path
+
+    def image_policy(self, binaries, image=None, test_binaries=None, **keys):
+        policy = {"binaries": list(binaries), **keys}
+        if image is not None:
+            policy["image"] = list(image)
+        if test_binaries is not None:
+            policy["test_binaries"] = list(test_binaries)
+        self.pins(policy)
+
+    def image(self):
+        """(exit, the image result, the text) from the command line, text and JSON agreeing."""
+        code, text, _err = self.run_main()
+        json_code, document, _err = self.run_main("--json")
+        whole = json.loads(document)
+        self.assertEqual(json_code, code)
+        self.assertIn(f"hardening:image: {whole['image']['status']}: {whole['image']['detail']}", text.splitlines())
+        for entry in whole["image"]["binaries"]:
+            self.assertIn(f"  {entry['status']:<8} {entry['detail']}", text.splitlines())
+        return code, whole["image"], text
+
+
+class ReaderTests(ImageFixture):
+    def test_the_pe_reader_reports_what_dumpbin_reported(self):
+        for name, (properties, guarded) in PE_EXPECTED.items():
+            with self.subTest(name=name):
+                found = hc.read_pe(hc.Image(fixture_bytes(name), False))
+                self.assertEqual({key: found[key] for key in properties}, properties)
+                self.assertEqual(found["guard_functions"], guarded)
+                self.assertEqual(found["libraries"][:0], [])
+                for dll in CRT:
+                    self.assertIn(dll, found["libraries"])
+        self.assertIn("clang_rt.asan_dynamic-x86_64.dll", hc.read_pe(hc.Image(fixture_bytes("pe-asan.exe.bin"),
+                                                                              False))["libraries"])
+        delay = hc.read_pe(hc.Image(fixture_bytes("pe-delay.exe.bin"), False))["libraries"]
+        self.assertEqual(delay[-1], "USER32.dll")   # the delay import table is read after the import table
+        self.assertNotIn("USER32.dll", delay[:-1])
+
+    def test_the_elf_reader_reports_what_readelf_reported(self):
+        for name, (properties, needed) in ELF_EXPECTED.items():
+            with self.subTest(name=name):
+                found = hc.read_elf(hc.Image(fixture_bytes(name), False))
+                self.assertEqual({key: found[key] for key in properties}, properties)
+                self.assertEqual(found["libraries"], needed)
+
+    def test_the_two_readers_name_exactly_the_properties_the_pin_file_takes(self):
+        tc = hc._sibling("toolchain-check.py", "tc")
+        self.assertEqual(tc.IMAGE_PROPERTIES, hc.PE_PROPERTIES + hc.ELF_PROPERTIES)
+
+
+class ImagePolicyTests(ImageFixture):
+    def test_each_binary_a_pattern_matches_is_checked_and_only_the_failing_one_named(self):
+        self.binary("pe-hardened.exe.bin", "build/app-hardened.exe")
+        self.binary("pe-plain.exe.bin", "build/app-plain.exe")
+        self.image_policy(["build/app-*.exe"], ["GUARD_CF"])
+        code, image, text = self.image()
+        self.assertEqual((code, image["status"]), (3, "missing"))
+        self.assertEqual([(entry["path"], entry["status"]) for entry in image["binaries"]],
+                         [("build/app-hardened.exe", "ok"), ("build/app-plain.exe", "missing")])
+        self.assertIn("build/app-plain.exe (PE) lacks GUARD_CF", text)
+        self.assertNotIn("build/app-hardened.exe (PE) lacks", text)
+
+    def test_every_property_of_a_hardened_binary_passes(self):
+        self.binary("pe-hardened.exe.bin")
+        self.binary("elf-hardened.bin")
+        self.image_policy(["build/pe-hardened.exe", "build/elf-hardened"], list(hc.PE_PROPERTIES + hc.ELF_PROPERTIES))
+        code, image, _text = self.image()
+        self.assertEqual((code, image["status"]), (0, "ok"))
+        pe, elf = image["binaries"]
+        self.assertEqual(set(pe["properties"].values()), {"ok", "not applicable"})
+        self.assertEqual(pe["properties"]["PIE"], "not applicable")
+        self.assertEqual(elf["properties"]["GUARD_CF"], "not applicable")
+
+    def test_a_pattern_that_names_no_file_is_unknown(self):
+        self.binary("pe-hardened.exe.bin")
+        self.image_policy(["build/pe-hardened.exe", "build/missing-*.exe", "out/app.exe"], ["GUARD_CF"])
+        code, image, text = self.image()
+        self.assertEqual((code, image["status"], image["unmatched"]), (1, "unknown", ["build/missing-*.exe",
+                                                                                      "out/app.exe"]))
+        self.assertIn("  unknown  out/app.exe names no file", text)
+
+    def test_high_entropy_does_not_apply_to_a_32_bit_image(self):
+        self.binary("pe32-hardened.exe.bin")
+        self.image_policy(["build/pe32-hardened.exe"], ["GUARD_CF", "HIGH_ENTROPY_VA"])
+        code, image, _text = self.image()
+        self.assertEqual((code, image["binaries"][0]["properties"]), (0, {"GUARD_CF": "ok",
+                                                                          "HIGH_ENTROPY_VA": "not applicable"}))
+
+    def test_a_binary_none_of_whose_required_properties_applies_is_unknown(self):
+        self.binary("elf-hardened.bin")
+        self.image_policy(["build/elf-hardened"], ["GUARD_CF"])
+        code, image, _text = self.image()
+        self.assertEqual((code, image["binaries"][0]["status"]), (1, "unknown"))
+        self.assertIn("none of the required properties (GUARD_CF) applies", image["binaries"][0]["detail"])
+
+    def test_a_stack_protector_that_cannot_be_told_is_unknown(self):
+        self.binary("elf-static.bin")
+        self.image_policy(["build/elf-static"], ["STACK_PROTECTOR", "NX_STACK"])
+        code, image, _text = self.image()
+        self.assertEqual((code, image["binaries"][0]["properties"]), (1, {"STACK_PROTECTOR": "unknown",
+                                                                          "NX_STACK": "ok"}))
+
+    def test_binaries_alone_are_still_refused_a_sanitizer_runtime(self):
+        self.binary("pe-hardened.exe.bin")
+        self.image_policy(["build/pe-hardened.exe"])
+        self.assertEqual(self.image()[:2][0], 0)
+
+
+class SanitizerTests(ImageFixture):
+    def test_a_sanitizer_runtime_is_refused_by_its_library_or_its_option_variable(self):
+        cases = [("pe-asan.exe.bin", "clang_rt.asan_dynamic-x86_64.dll"), ("elf-asan.bin", "libasan.so.8"),
+                 ("elf-ubsan-static.bin.gz", "UBSAN_OPTIONS")]
+        for name, evidence in cases:
+            with self.subTest(name=name):
+                path = self.binary(name)
+                self.image_policy([path.relative_to(self.project).as_posix()])
+                code, image, text = self.image()
+                self.assertEqual((code, image["binaries"][0]["status"]), (3, "missing"))
+                self.assertEqual(image["binaries"][0]["sanitizers"], [evidence])
+                self.assertIn(f"carries a sanitizer runtime ({evidence})", text)
+        for name in ("pe-hardened.exe.bin", "pe-delay.exe.bin", "elf-hardened.bin", "elf-plain.bin",
+                     "elf-static.bin", "pe32-hardened.exe.bin", "pe-plain.exe.bin"):
+            with self.subTest(clean=name):
+                found = hc.inspect_binary(self.binary(name), name, [], False)
+                self.assertEqual((found["status"], found["sanitizers"]), ("ok", []))
+
+    def test_a_test_binary_may_carry_one_and_is_still_held_to_image(self):
+        self.binary("pe-asan.exe.bin", "build/unit_test.exe")
+        self.image_policy(["build/*.exe"], ["GUARD_CF"], test_binaries=["build/*_test.exe"])
+        code, image, text = self.image()
+        self.assertEqual((code, image["binaries"][0]["missing"]), (3, ["GUARD_CF"]))
+        self.assertNotIn("carries a sanitizer runtime", text)
+        self.image_policy(["build/*.exe"], ["DYNAMIC_BASE", "NX_COMPAT"], test_binaries=["build/*_test.exe"])
+        code, image, _text = self.image()
+        self.assertEqual((code, image["status"]), (0, "ok"))
+        self.assertIn("its sanitizer runtime is allowed", image["binaries"][0]["detail"])
+        self.image_policy(["build/*.exe"], ["DYNAMIC_BASE"], test_binaries=["other/*_test.exe"])
+        self.assertEqual(self.image()[0], 3)   # a pattern under another folder lifts nothing
+
+
+class BoundTests(ImageFixture):
+    def assert_one_line(self, data, rel, expected_status, needle):
+        path = self.binary("pe-hardened.exe.bin", rel, data=data) if data is not None else self.project / rel
+        self.image_policy([rel], ["GUARD_CF"] if rel.endswith(".exe") else ["PIE"])
+        code, image, text = self.image()
+        (entry,) = image["binaries"]
+        self.assertEqual((code, entry["status"]), (1, expected_status), entry["detail"])
+        self.assertIn(needle, entry["detail"])
+        self.assertEqual(len([line for line in text.splitlines() if line.startswith("  ")]), 1)
+        return path
+
+    def test_no_truncation_of_any_fixture_makes_the_reader_raise(self):
+        for name in list(PE_EXPECTED) + list(ELF_EXPECTED):
+            data = fixture_bytes(name)
+            with self.subTest(name=name):
+                path = self.project / "cut.bin"
+                for end in range(0, len(data), 256):
+                    path.write_bytes(data[:end])
+                    found = hc.inspect_binary(path, "cut.bin", ["GUARD_CF", "PIE", "STACK_PROTECTOR"], False)
+                    self.assertIn(found["status"], ("ok", "missing", "unknown", "invalid"))
+
+    def test_offsets_past_the_end_inside_valid_images_are_invalid_naming_the_offset(self):
+        pe = bytearray(fixture_bytes("pe-hardened.exe.bin"))
+        lfanew = struct.unpack_from("<I", pe, 0x3C)[0]
+        optional = lfanew + 24
+        cases = [("e_lfanew", 0x3C, "<I", 0x7FFFFF00, "past the end"),
+                 ("section count", lfanew + 6, "<H", 0xFFFF, "past the end"),
+                 ("load configuration address", optional + 112 + 8 * 10, "<I", 0x7FFF0000, "in no section")]
+        for what, at, fmt, value, needle in cases:
+            with self.subTest(what=what):
+                data = bytearray(pe)
+                struct.pack_into(fmt, data, at, value)
+                self.assert_one_line(bytes(data), "build/app.exe", "invalid", needle)
+        elf = bytearray(fixture_bytes("elf-hardened.bin"))
+        data = bytearray(elf)
+        struct.pack_into("<Q", data, 32, 0x7FFFFFFF0000)   # e_phoff
+        self.assert_one_line(bytes(data), "build/app", "invalid", "past the end")
+        found = hc.read_elf(hc.Image(bytes(elf), False))
+        self.assertEqual(found["libraries"], ["libc.so.6"])
+        # A needed library's name moved past the end of the string table and the file.
+        data = bytearray(elf)
+        phoff, phentsize, phnum = (struct.unpack_from(f, elf, o)[0] for f, o in (("<Q", 32), ("<H", 54), ("<H", 56)))
+        for number in range(phnum):
+            at = phoff + phentsize * number
+            if struct.unpack_from("<I", elf, at)[0] == hc.PT_DYNAMIC:
+                dynamic = struct.unpack_from("<Q", elf, at + 8)[0]
+        for number in range(64):
+            tag = struct.unpack_from("<q", elf, dynamic + 16 * number)[0]
+            if tag == hc.DT_NEEDED:
+                struct.pack_into("<Q", data, dynamic + 16 * number + 8, 0x7FFFFFF0)
+                break
+        self.assert_one_line(bytes(data), "build/app", "invalid", "past the end")
+
+    def test_files_that_are_no_image_are_one_line_each(self):
+        self.assert_one_line(bytes(4096), "build/zeros.exe", "invalid", "neither a PE nor an ELF image")
+        self.assert_one_line(b"#!/bin/sh\necho not a binary\n", "build/script.exe", "invalid", "neither a PE")
+        (self.project / "build/folder.exe").mkdir(parents=True)
+        self.assert_one_line(None, "build/folder.exe", "unknown", "is a folder, not a binary")
+
+    def test_a_file_that_cannot_be_read_is_unknown_with_the_reason(self):
+        path = self.binary("pe-hardened.exe.bin")
+        real = open
+
+        def refusing(file, *args, **kwargs):
+            if pathlib.Path(file) == path:
+                raise PermissionError(13, "Permission denied")
+            return real(file, *args, **kwargs)
+
+        with unittest.mock.patch("builtins.open", refusing):
+            found = hc.inspect_binary(path, "build/pe-hardened.exe", ["GUARD_CF"], False)
+        self.assertEqual((found["status"], found["detail"]), ("unknown", "build/pe-hardened.exe cannot be read "
+                                                                         "(Permission denied)"))
+
+    def test_a_binary_larger_than_the_read_limit_is_unknown_saying_the_limit(self):
+        path = self.binary("elf-ubsan-static.bin.gz")
+        found = hc.inspect_binary(path, "build/elf-ubsan-static", ["PIE"], False, limit=4096)
+        self.assertEqual(found["status"], "unknown", found["detail"])
+        self.assertIn("larger than the 4096 bytes this check reads", found["detail"])
+        self.assertEqual(hc.IMAGE_LIMIT, 64 * 1024 * 1024)
+
+
+class CombinedTests(ImageFixture):
+    def test_a_missing_compile_requirement_and_an_unknown_image_exit_3(self):
+        self.pins({"compile": ["_GLIBCXX_ASSERTIONS"], "binaries": ["build/none.exe"], "image": ["GUARD_CF"]})
+        self.database([self.entry("src/a.cpp", [])])
+        code, image, text = self.image()
+        self.assertEqual((code, image["status"]), (3, "unknown"))
+        self.assertTrue(text.startswith("hardening:compile: missing: "))
+
+    def test_an_unknown_compile_database_does_not_stop_the_image_check(self):
+        self.binary("pe-hardened.exe.bin")
+        self.pins({"compile": ["_GLIBCXX_ASSERTIONS"], "binaries": ["build/pe-hardened.exe"], "image": ["GUARD_CF"]})
+        code, image, text = self.image()
+        self.assertEqual((code, image["status"]), (1, "ok"))
+        self.assertTrue(text.startswith("hardening:compile: unknown: the compile database is missing"))
+        _code, document, _err = self.run_main("--json")
+        whole = json.loads(document)
+        self.assertEqual((whole["status"], whole["compile"]["status"], whole["image"]["status"]),
+                         ("unknown", "unknown", "ok"))
+        self.assertEqual(whole["image"]["binaries"][0]["properties"], {"GUARD_CF": "ok"})
+        self.assertEqual(whole["image"]["binaries"][0]["format"], "pe")
+
+    def test_a_compile_only_and_an_image_only_policy(self):
+        self.policy("_GLIBCXX_ASSERTIONS")
+        self.database([self.entry("src/a.cpp", ["-D_GLIBCXX_ASSERTIONS"])])
+        code, image, _text = self.image()
+        self.assertEqual((code, image["status"], image["detail"]), (0, "none", "no binaries declared"))
+        self.binary("elf-hardened.bin")
+        self.image_policy(["build/elf-hardened"], ["PIE", "BIND_NOW"])
+        code, image, text = self.image()
+        self.assertEqual((code, image["status"]), (0, "ok"))
+        self.assertTrue(text.startswith("hardening:compile: none: no compile requirement declared"))
+
+    def test_no_policy_prints_none_for_both(self):
+        self.pins()
+        code, text, _err = self.run_main()
+        self.assertEqual(code, 0)
+        self.assertEqual(text.splitlines(), ["hardening:compile: none: no policy declared: add a `hardening` key to "
+                                             "the pin file (docs/toolchain-cpp.md, Memory safety)",
+                                             "hardening:image: none: no policy declared"])
 
 
 class ReadOnlyTests(Fixture):

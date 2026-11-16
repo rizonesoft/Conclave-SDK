@@ -12,7 +12,18 @@ What it installs:
 | `scripts/compdb-check.py` | Says whether the compile database can be trusted; runs and writes nothing |
 | `scripts/tests/test_compdb_check.py` | The compile database check's own tests |
 | `scripts/hardening-check.py` | Holds the project's own compile commands to its declared hardening; runs nothing |
-| `scripts/tests/test_hardening_check.py` | The hardening check's own tests, with stored databases |
+| `scripts/tests/test_hardening_check.py` | The hardening check's own tests, with stored databases and binaries |
+| `scripts/tests/fixtures/README.md` | How each fixture was built and what `dumpbin` and `readelf` reported |
+| `scripts/tests/fixtures/elf-asan.bin` | A real binary the hardening check's tests read; never run |
+| `scripts/tests/fixtures/elf-hardened.bin` | A real binary the hardening check's tests read; never run |
+| `scripts/tests/fixtures/elf-plain.bin` | A real binary the hardening check's tests read; never run |
+| `scripts/tests/fixtures/elf-static.bin` | A real binary the hardening check's tests read; never run |
+| `scripts/tests/fixtures/elf-ubsan-static.bin.gz` | A real binary the hardening check's tests read; never run |
+| `scripts/tests/fixtures/pe-asan.exe.bin` | A real binary the hardening check's tests read; never run |
+| `scripts/tests/fixtures/pe-delay.exe.bin` | A real binary the hardening check's tests read; never run |
+| `scripts/tests/fixtures/pe-hardened.exe.bin` | A real binary the hardening check's tests read; never run |
+| `scripts/tests/fixtures/pe-plain.exe.bin` | A real binary the hardening check's tests read; never run |
+| `scripts/tests/fixtures/pe32-hardened.exe.bin` | A real binary the hardening check's tests read; never run |
 | `scripts/cc-cache.py` | Puts a compiler cache in front of the compilers a build names |
 | `scripts/cache-stats.py` | Prints the cache's hit rate; fails a rebuild that did not use the cache |
 | `scripts/tests/test_cc_cache.py` | The tests of both, with stub compilers and caches |
