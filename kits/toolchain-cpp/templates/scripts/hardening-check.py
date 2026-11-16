@@ -595,6 +595,9 @@ def read_elf(image):
         values.setdefault(tag, value)
     flags, flags_1 = values.get(DT_FLAGS, 0), values.get(DT_FLAGS_1, 0)
     libraries, protector = [], None
+    if DT_NEEDED in values and DT_STRTAB not in values:
+        raise Malformed("the dynamic section names needed libraries but no dynamic string table to read their "
+                        "names from, so what the binary loads cannot be told")
     if DT_STRTAB in values:
         start = offset_of(values[DT_STRTAB], "the dynamic string table")
         length = values.get(DT_STRSZ)

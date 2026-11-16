@@ -749,6 +749,24 @@ class EditedImageTests(ImageFixture):
         struct.pack_into("<I", data, at + 4, name_rva + image_base)
         self.assertEqual(hc.read_pe(hc.Image(bytes(data), False))["libraries"][-1], "USER32.dll")
 
+    def test_needed_libraries_without_a_string_table_are_never_a_pass(self):
+        # The completion review of section 2: with DT_STRTAB gone, the AddressSanitizer build passed with no
+        # library and so no sanitizer named.
+        data = bytearray(fixture_bytes("elf-asan.bin"))
+        phoff, phentsize, phnum = (struct.unpack_from(f, data, o)[0] for f, o in (("<Q", 32), ("<H", 54), ("<H", 56)))
+        dynamic = next(struct.unpack_from("<Q", data, phoff + phentsize * n + 8)[0] for n in range(phnum)
+                       if struct.unpack_from("<I", data, phoff + phentsize * n)[0] == hc.PT_DYNAMIC)
+        for number in range(64):
+            if struct.unpack_from("<q", data, dynamic + 16 * number)[0] == hc.DT_STRTAB:
+                struct.pack_into("<q", data, dynamic + 16 * number, 0x6FFFFE00)   # a tag no reader knows
+                break
+        self.binary("elf-asan.bin", "build/app", data=bytes(data))
+        self.image_policy(["build/app"], ["NX_STACK"])
+        code, image, _text = self.image()
+        entry = image["binaries"][0]
+        self.assertEqual((code, entry["status"]), (1, "invalid"))
+        self.assertIn("names needed libraries but no dynamic string table", entry["detail"])
+
     def test_a_string_table_without_its_size_leaves_the_stack_protector_unknown(self):
         data = bytearray(fixture_bytes("elf-hardened.bin"))
         phoff, phentsize, phnum = (struct.unpack_from(f, data, o)[0] for f, o in (("<Q", 32), ("<H", 54), ("<H", 56)))
