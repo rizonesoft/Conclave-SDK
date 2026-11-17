@@ -2,13 +2,14 @@
 
 Reusable stack and agent overlays that Conclave-SDK copies into a new or existing repository for **Gemini / Antigravity (`.agents/`)**, **Claude Code (`.claude/`)**, and **OpenAI Codex (`.codex/`)**. They do not scaffold an application. They do not install global binaries. Each kit is additive: existing files stay byte-for-byte.
 
-Install **base** on every project (or run `python forge.py init <target>`). Add **todo** where work is planned in TODO files and **reviewer** where work gets independent review. Add **unattended** (after **todo**) where a `process-plan` run should keep going with nobody at the keyboard, **lsp** where the agents should reach the stack's language servers (being built in `todo/04-tooling/TODO-01-lsp-kit.md`: the server table and its presets so far) **toolchain-cpp** where a C or C++ project wants its build tools pinned and checked (being built in `todo/04-tooling/TODO-02-toolchain-kits.md`: the pins and their check so far) and **toolchain-web** where a PHP or Node project wants the same for its runtimes, package managers and static tools; the SDK installs none of the four in itself. Then install the stack kit that matches the app.
+Install **base** on every project (or run `python forge.py init <target>`). Add **todo** where work is planned in TODO files and **reviewer** where work gets independent review. Add **launchers** where the owner wants the project's desktop links on Windows (being built in `todo/07-launchers/TODO-01-project-launchers.md`: the profile so far), **unattended** (after **todo**) where a `process-plan` run should keep going with nobody at the keyboard, **lsp** where the agents should reach the stack's language servers (being built in `todo/04-tooling/TODO-01-lsp-kit.md`: the server table and its presets so far) **toolchain-cpp** where a C or C++ project wants its build tools pinned and checked (being built in `todo/04-tooling/TODO-02-toolchain-kits.md`: the pins and their check so far) and **toolchain-web** where a PHP or Node project wants the same for its runtimes, package managers and static tools; the SDK installs none of the five in itself. Then install the stack kit that matches the app.
 
 ```powershell
 # Cross-platform via forge.py (supports --agent all|gemini|agy|claude|codex)
 python forge.py kit /path/to/project base
 python forge.py kit /path/to/project todo
 python forge.py kit /path/to/project reviewer
+python forge.py kit /path/to/project launchers    # desktop links on Windows
 python forge.py kit /path/to/project unattended   # after todo; runs in Linux or WSL (tmux)
 python forge.py kit /path/to/project lsp          # the language server table
 python forge.py kit /path/to/project toolchain-cpp   # build tool pins for C and C++
@@ -30,6 +31,7 @@ python forge.py doctor /path/to/project
 | `todo/` | TODO skills, `todo-graph.py`, starter `todo/` tree | Work is planned in TODO files |
 | `reviewer/` | Reviewer pin, review dispatcher, review skill | Independent review |
 | `automations/` | Task list, runner, failure email, scheduler installers | Scheduled checks |
+| `launchers/` | Desktop link profile for agents, commands and the site | Desktop links on Windows |
 | `unattended/` | Preflight, tmux launcher, heartbeat, shortcuts | Runs nobody watches (after `todo`) |
 | `lsp/` | Server table, presets, `lsp-servers.py` (client and wiring to come) | Language servers |
 | `toolchain-cpp/` | Build tool pins and `toolchain-check.py` | C or C++ project |

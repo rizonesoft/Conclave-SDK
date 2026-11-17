@@ -7,7 +7,7 @@
     python forge.py update <target> [kit] [--only <path>]... [--no-scripts] [--kit-new] [--dry-run]
     python forge.py record <target> [kit] [--merged <path>]... [--dry-run]
     python forge.py drift [--projects <file>]
-    python forge.py doctor <target> [base|todo|reviewer|automations|unattended|lsp|toolchain-cpp|toolchain-web|laravel|wordpress] [--strict]
+    python forge.py doctor <target> [base|todo|reviewer|automations|launchers|unattended|lsp|toolchain-cpp|toolchain-web|laravel|wordpress] [--strict]
         (no kit named: the Laravel or WordPress kit when the project is one, else base, plus lsp when installed;
         a toolchain kit starts each pinned tool to read its version, so it is checked only when named)
     python forge.py kits
@@ -194,8 +194,9 @@ AUTOMATIONS_SCRIPTS = tuple(f"{AUTOMATIONS_DIR}/{name}" for name in ("run.py", "
 
 
 UNATTENDED_MODULE = "scripts/lib/unattended.py"
-KIT_ORDER = ("base", "todo", "reviewer", "automations", "unattended", "lsp", "toolchain-cpp", "toolchain-web",
-             "laravel", "wordpress")
+KIT_ORDER = ("base", "todo", "reviewer", "automations", "launchers", "unattended", "lsp", "toolchain-cpp",
+             "toolchain-web", "laravel", "wordpress")
+LAUNCHERS_PROFILE = ".conclave/launchers.json"  # the launchers kit's profile: the title, icon, agents and links
 BASE_SKILLS = ("authoring-skills", "local-tool-safety")
 AGENT_DIRS = (".agents", ".claude", ".codex")
 # A kit's version of a file the project changed, written beside it by `update --kit-new` for a hand merge, and the
@@ -231,6 +232,8 @@ def installed_kits(target_root: Path) -> list[str]:
         found.append("reviewer")
     if any_skill(("scheduled-automations",)) or (target_root / AUTOMATIONS_DIR / "run.py").is_file():
         found.append("automations")
+    if (target_root / LAUNCHERS_PROFILE).is_file():
+        found.append("launchers")
     if (target_root / UNATTENDED_MODULE).is_file() or (target_root / "scripts/unattended-run.py").is_file():
         found.append("unattended")
     if (target_root / LSP_TABLE).is_file():
@@ -681,9 +684,9 @@ def apply_kit(
     include=None,
     fill_table: bool = True,
 ) -> dict:
-    """Apply an additive overlay kit ('base', 'todo', 'reviewer', 'automations', 'unattended', 'lsp',
-    'toolchain-cpp', 'toolchain-web', 'laravel', 'wordpress') for all or one agent without overwriting existing
-    files.
+    """Apply an additive overlay kit ('base', 'todo', 'reviewer', 'automations', 'launchers', 'unattended',
+    'lsp', 'toolchain-cpp', 'toolchain-web', 'laravel', 'wordpress') for all or one agent without overwriting
+    existing files.
 
     The Laravel kit brings the lsp kit with it (the diagnostics client and the server table are that kit's), by
     this same function, so its files are recorded under `lsp`; the result names them under `lsp`.
@@ -2593,6 +2596,17 @@ def _doctor_lsp(target_root: Path, add_check) -> None:
                   f"not generated: {plugin.COMMAND} (Claude Code then runs the table's servers while it edits)")
 
 
+def _doctor_launchers(target_root: Path, add_check) -> None:
+    """The launchers kit's checks, from files only. `profile`: the project's `.conclave/launchers.json`, which the
+    kit installs and the shortcut script reads."""
+    profile = target_root / LAUNCHERS_PROFILE
+    if profile.is_file():
+        add_check("profile", "ok", LAUNCHERS_PROFILE)
+    else:
+        add_check("profile", "setup_required",
+                  f"no {LAUNCHERS_PROFILE}: install the kit with python forge.py kit {target_root.as_posix()} launchers")
+
+
 def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
     """Read-only stack health check for Laravel and/or WordPress overlays across all three agents."""
     target_root = Path(target_root).resolve()
@@ -2639,6 +2653,8 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
         _doctor_reviewer(target_root, add_check)
     elif kit_name == "automations":
         _doctor_automations(target_root, add_check)
+    elif kit_name == "launchers":
+        _doctor_launchers(target_root, add_check)
     elif kit_name == "unattended":
         _doctor_unattended(target_root, add_check)
     elif kit_name == "lsp":
@@ -3503,7 +3519,7 @@ def main(argv: list[str] | None = None) -> int:
     p_init = sub.add_parser("init", help="Install the base kit plus only the kits named with --kit")
     p_init.add_argument("target", help="Target repository path")
     p_init.add_argument("--agent", choices=AGENT_CHOICES, default="all")
-    p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, reviewer, automations, unattended, lsp, "
+    p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, reviewer, automations, launchers, unattended, lsp, "
                              "toolchain-cpp, toolchain-web, laravel, wordpress)")
     p_init.add_argument("--wp-host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
     p_init.add_argument("--no-scripts", action="store_true", help="Leave out the kits' scripts/ files")
@@ -3517,8 +3533,9 @@ def main(argv: list[str] | None = None) -> int:
     p_init.add_argument("--force", action="store_true",
                         help="Replace AGENTS.md, GEMINI.md, CLAUDE.md and CODEX.md with the kit's, keeping each replaced one as <name>.replaced")
 
-    p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, todo, reviewer, automations, unattended, lsp, "
-                                          "toolchain-cpp, toolchain-web, laravel, wordpress) to a target repo")
+    p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, todo, reviewer, automations, launchers, "
+                                          "unattended, lsp, toolchain-cpp, toolchain-web, laravel, wordpress) "
+                                          "to a target repo")
     p_kit.add_argument("target", help="Target repository path")
     p_kit.add_argument("kit_name", choices=list_kits(), help="Kit name to apply")
     p_kit.add_argument("--agent", choices=AGENT_CHOICES, default="all", help="Install kit files for all agents or one agent")

@@ -289,8 +289,8 @@ class ForgeProvisionTests(unittest.TestCase):
 
     def test_list_kits_and_base_kit_additive_preservation_and_per_agent_import(self):
         self.assertEqual(forge.list_kits(),
-                         ["automations", "base", "laravel", "lsp", "reviewer", "todo", "toolchain-cpp", "toolchain-web",
-                          "unattended", "wordpress"])
+                         ["automations", "base", "laravel", "launchers", "lsp", "reviewer", "todo", "toolchain-cpp",
+                          "toolchain-web", "unattended", "wordpress"])
         (self.target / "AGENTS.md").write_text("locally tuned\n", encoding="utf-8")
         dry = forge.apply_kit(self.target, "base", dry_run=True)
         self.assertTrue(dry["dry_run"])
@@ -3458,6 +3458,67 @@ class ForceBackupTests(KitFixture, unittest.TestCase):
             self.assertIn(step, readme)
 
 
+class LaunchersKitTests(unittest.TestCase):
+    """The launchers kit's skeleton: known to forge.py, installed, detected and doctored (D07 T01 section 1)."""
+
+    PROFILE = {"schema_version": 1, "title": None, "icon": None, "agents": ["claude"], "skip_permissions": False,
+               "links": []}
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.target = pathlib.Path(self._tmp.name).resolve() / "project"
+        self.target.mkdir()
+
+    def checks(self, target=None):
+        return {c["name"]: c for c in forge.doctor_repo(target or self.target, "launchers")["checks"]}
+
+    def test_launchers_is_listed_and_its_profile_template_is_exactly_the_seed(self):
+        self.assertIn("launchers", forge.list_kits())
+        template = FORGE_ROOT / "kits/launchers/templates" / forge.LAUNCHERS_PROFILE
+        self.assertEqual(json.loads(template.read_text(encoding="utf-8")), self.PROFILE)
+
+    def test_launchers_dry_run_lists_the_profile_and_writes_nothing(self):
+        dry = forge.apply_kit(self.target, "launchers", dry_run=True)
+        self.assertIn(forge.LAUNCHERS_PROFILE, dry["installed"])
+        self.assertEqual(list(self.target.iterdir()), [])
+
+    def test_launchers_install_records_the_profile_and_is_detected_after_it_and_not_before(self):
+        self.assertNotIn("launchers", forge.installed_kits(self.target))
+        forge.apply_kit(self.target, "launchers")
+        self.assertEqual(json.loads((self.target / forge.LAUNCHERS_PROFILE).read_text(encoding="utf-8")), self.PROFILE)
+        record = json.loads((self.target / ".conclave/kits.json").read_text(encoding="utf-8"))
+        self.assertEqual(record["files"][forge.LAUNCHERS_PROFILE]["kit"], "launchers")
+        self.assertIn("launchers", forge.installed_kits(self.target))
+
+    def test_launchers_doctor_profile_row_is_setup_required_until_installed(self):
+        row = self.checks()["profile"]
+        self.assertEqual(row["status"], "setup_required")
+        self.assertIn("python forge.py kit", row["detail"])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = forge.main(["doctor", str(self.target), "launchers", "--strict"])
+        self.assertEqual(code, 3)
+        forge.apply_kit(self.target, "launchers")
+        self.assertEqual(self.checks()["profile"]["status"], "ok")
+
+    def test_launchers_is_named_in_the_usage_the_help_and_the_documents(self):
+        (doctor_line,) = [line for line in forge.__doc__.splitlines() if "forge.py doctor" in line]
+        self.assertIn("|launchers|", doctor_line)
+        parser_help = io.StringIO()
+        with contextlib.redirect_stdout(parser_help), self.assertRaises(SystemExit):
+            forge.main(["--help"])
+        self.assertRegex(parser_help.getvalue(), r"automations, launchers,\s+unattended")
+        self.assertIn("'launchers'", forge.apply_kit.__doc__)
+        readme = (FORGE_ROOT / "kits/launchers/README.md").read_text(encoding="utf-8")
+        for words in ("desktop links", "needs no other kit", "Windows", "`wsl.exe`", "| `.conclave/launchers.json` |"):
+            self.assertIn(words, readme)
+        self.assertIn("| `launchers/` |", (FORGE_ROOT / "kits/README.md").read_text(encoding="utf-8"))
+        agents = (FORGE_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertIn("`kits/launchers`", agents)
+        self.assertIn("The `launchers`, `unattended`,", agents)
+
+
 class UnattendedKitTests(unittest.TestCase):
     """The unattended kit's skeleton: known to forge.py, installed, detected and doctored (D02 T02 §1)."""
 
@@ -3481,8 +3542,10 @@ class UnattendedKitTests(unittest.TestCase):
         self.assertEqual(module.SCHEMA_VERSION, 1)
 
     def test_it_sits_after_automations_and_init_writes_todo_first(self):
+        # automations, then launchers (whose renderer the unattended kit uses), then unattended (D07 T01 section 1).
         order = list(forge.KIT_ORDER)
-        self.assertEqual(order.index("unattended"), order.index("automations") + 1)
+        self.assertEqual(order.index("launchers"), order.index("automations") + 1)
+        self.assertEqual(order.index("unattended"), order.index("launchers") + 1)
         written = forge.provision(self.target, kits=["unattended", "todo"])["written"]
         self.assertLess(written.index("scripts/todo-graph.py"), written.index("scripts/lib/unattended.py"))
 
