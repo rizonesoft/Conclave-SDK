@@ -54,3 +54,33 @@ LENS quality: clean
 LENS optimization: clean
 HIGHEST: P2
 OVERALL: needs-attention
+
+## Round 3: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-17T16:35:15Z
+- Candidate: 517d786ee2ccfcc46fefa028858fb2c8cff56ddc
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 19
+- Digest: 5a0131b587154f50
+
+Two P2 findings remain in `--rerun`:
+
+- **The idle check misses older active runs.** At `kits/todo/templates/scripts/ci_status.py:385`, it checks only the newest 10 runs. An older running build can fall outside that window after newer pending runs are cancelled. An in-memory reproduction against the candidate submitted three reruns despite an active run, then returned exit 4. Query unfinished runs independently of the newest-run window.
+- **An idle snapshot does not guarantee execution.** Between the check at line 385 and submission at line 398, another push can occupy the concurrency group. The rerun can subsequently be cancelled while pending, but line 405 already consumes its allowance. Three such cancellations still leave a closed section unable to stamp. Preserve a recovery route for attempts cancelled without a verdict, and remove the unsupported “no later push can drop it” guarantee.
+
+The paired-run exception itself is sound as a procedural rule. It can cover a defect the section caused: “fixed outside the section” describes the repair’s separate review, not the defect’s origin. Citing the original red preserves that history. It does not authorize stamping an unfixed failure: the green commit must contain the reviewed repair and preserve the section’s reviewed files and TODO section apart from that repair.
+
+All six template/installed stamp paragraphs match. `AGENTS.md:64` agrees on paired evidence and preservation. Post-push reporting and red-first repair remain required. These are procedural evidence obligations, not automated CI validation by `stamp`.
+
+Reviewed at `517d786`; no files changed. Verification included an in-memory reproduction, not live GitHub execution.
+
+LENS adversarial: findings
+LENS integration: findings
+LENS source-defect: findings
+LENS consistency: clean
+LENS quality: findings
+LENS optimization: clean
+HIGHEST: P2
+OVERALL: needs-attention

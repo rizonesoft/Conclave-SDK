@@ -298,6 +298,8 @@ class PagedGh:
                 return 1, "", "HTTP 502"
             runs = sorted(self.runs.get(args[args.index("--workflow") + 1], []), key=lambda r: r["createdAt"],
                           reverse=True)
+            if "--status" in args:
+                runs = [r for r in runs if r["status"] == args[args.index("--status") + 1]]
             if "--commit" in args:
                 runs = [r for r in runs if r["headSha"] == args[args.index("--commit") + 1]]
             if "--created" in args:   # GitHub's own filter: a range of UTC times, both ends included
@@ -563,17 +565,36 @@ class Rerun(unittest.TestCase):
             code = ci.main(["--rerun", commit], runner=fake, root=self.root)
         return code, out.getvalue()
 
-    def test_the_candidates_own_run_is_rerun_three_times_at_most(self):
+    def test_a_rerun_counts_once_it_reaches_a_verdict_three_at_most(self):
         fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD), attempt_run(8, 8)]})
         for n in (1, 2, 3):
             code, said = self.rerun(fake)
             self.assertEqual(code, 0, said)
-            self.assertIn(f"rerun {n} of 3", said)
+            self.assertIn(f"{n - 1} of 3 reruns have reached a verdict", said)
+            fake.runs["build.yml"][0] = attempt_run(7, 7, conclusion="failure", sha=SHA_OLD, attempt=n + 1)
         self.assertEqual(fake.reruns(), ["7", "7", "7"], "only the candidate's own run, never the tip's")
         code, said = self.rerun(fake)
         self.assertEqual(code, 4)
-        self.assertIn("write it as open in the run file", said)
+        self.assertIn("a failure to repair", said)
         self.assertEqual(fake.reruns(), ["7", "7", "7"])
+
+    def test_a_rerun_a_push_dropped_is_started_again_uncounted(self):
+        fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD)]})
+        for _ in range(5):
+            code, said = self.rerun(fake)
+            self.assertEqual(code, 0, said)
+            self.assertIn("0 of 3 reruns have reached a verdict", said)
+            run = fake.runs["build.yml"][0]
+            fake.runs["build.yml"][0] = attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD, attempt=run["attempt"] + 1)
+        self.assertEqual(len(fake.reruns()), 5)
+
+    def test_an_older_running_run_keeps_the_queue_busy(self):
+        # The stamp-evidence review: a running build older than the newest ten runs still holds the queue.
+        fake = PagedGh({"build.yml": [attempt_run(7, 1, conclusion="cancelled", sha=SHA_OLD),
+                                      attempt_run(8, 2, status="in_progress")] +
+                                     [attempt_run(n, n) for n in range(9, 30)]})
+        code, said = self.rerun(fake)
+        self.assertEqual((code, fake.reruns()), (5, []))
 
     def test_the_candidate_is_found_however_many_runs_came_after_it(self):
         # Reconciliation 5 P2: a cancelled candidate followed by 60 newer runs.
@@ -596,7 +617,7 @@ class Rerun(unittest.TestCase):
         fake.runs["build.yml"][1] = attempt_run(8, 2)
         code, said = self.rerun(fake)
         self.assertEqual((code, fake.reruns()), (0, ["7"]))
-        self.assertIn("rerun 1 of 3", said)
+        self.assertIn("0 of 3 reruns have reached a verdict", said)
 
     def test_a_green_or_running_candidate_is_left_and_a_refused_rerun_is_reported(self):
         self.assertIn("nothing to rerun", self.rerun(PagedGh({"build.yml": [attempt_run(7, 7, sha=SHA_OLD)]}))[1])
