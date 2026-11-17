@@ -3617,28 +3617,33 @@ class RendererMoveTests(unittest.TestCase):
         self.assertEqual(self.record()["files"][forge.LAUNCHERS_RENDERER]["kit"], "launchers")
 
     def test_an_old_record_keeps_each_moved_files_digest_and_state(self):
-        old = self.old_install()
-        digests = {rel: old["files"][rel]["sha256"] for rel in self.MOVED}
-        before = (self.target / forge.RECORD).read_bytes()
-        launchers, unattended = self.states("launchers"), self.states("unattended")
-        for rel in self.MOVED:
-            self.assertEqual(launchers[rel], "identical", rel)
-            self.assertNotIn(rel, unattended)   # never a file no kit ships (project-only)
-        self.assertEqual(launchers[forge.LAUNCHERS_PROFILE], "missing")
-        # The project edits the renderer and deletes its test: each keeps its digest, so the states stay true.
-        (self.target / self.MOVED[0]).write_bytes((self.target / self.MOVED[0]).read_bytes() + b"# the project's\n")
-        (self.target / self.MOVED[1]).unlink()
-        launchers = self.states("launchers")
-        self.assertEqual((launchers[self.MOVED[0]], launchers[self.MOVED[1]]), ("project-changed", "project-removed"))
-        forge.update_project(self.target, dry_run=True)
-        self.assertEqual((self.target / forge.RECORD).read_bytes(), before, "diff and a dry run never write")
-        result = forge.update_project(self.target)
-        self.assertNotIn(self.MOVED[0], result["written"])
-        self.assertNotIn(self.MOVED[1], result["written"])   # project-removed is written only when --only names it
-        record = self.record()
-        for rel in self.MOVED:
-            self.assertEqual(record["files"][rel], {"kit": "launchers", "sha256": digests[rel]}, rel)
-        self.assertEqual(self.states("launchers")[self.MOVED[0]], "project-changed")
+        # Every moved file, as installed, edited by the project and deleted by it (completion review of D07 T01
+        # section 3): each keeps its recorded digest, so diff tells the three apart; diff and a dry run write
+        # nothing; and update moves the entry under launchers without taking the project's edit or deletion.
+        edits = {"identical": lambda path: None,
+                 "project-changed": lambda path: path.write_bytes(path.read_bytes() + b"# the project's\n"),
+                 "project-removed": lambda path: path.unlink()}
+        root = self.target
+        for index, (rel, (state, edit)) in enumerate((r, c) for r in self.MOVED for c in edits.items()):
+            with self.subTest(path=rel, state=state):
+                self.target = root.parent / f"case-{index}"
+                self.target.mkdir()
+                old = self.old_install()
+                digest = old["files"][rel]["sha256"]
+                edit(self.target / rel)
+                before = (self.target / forge.RECORD).read_bytes()
+                launchers, unattended = self.states("launchers"), self.states("unattended")
+                self.assertEqual(launchers[rel], state)
+                self.assertNotIn(rel, unattended)   # never a file no kit ships (project-only)
+                self.assertEqual(launchers[forge.LAUNCHERS_PROFILE], "missing")
+                forge.update_project(self.target, dry_run=True)
+                self.assertEqual((self.target / forge.RECORD).read_bytes(), before, "diff and a dry run never write")
+                result = forge.update_project(self.target)
+                self.assertNotIn(rel, result["written"])   # project-removed is written only when --only names it
+                self.assertEqual(self.record()["files"][rel], {"kit": "launchers", "sha256": digest})
+                self.assertEqual(self.states("launchers")[rel], state)
+                self.assertEqual((self.target / rel).exists(), state != "project-removed")
+        self.target = root
 
     def test_an_update_with_nothing_to_write_still_moves_the_record(self):
         old = self.old_install(keep_launchers_files=True)
