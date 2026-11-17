@@ -2999,7 +2999,7 @@ class ThreePassStamp(Stamp):
         restored = self.commit("restore the promise")
         self.passed("reconciliation", restored)
         self.stamp3(restored, verdict="reconciled")
-    def restored_after_a_complete_reconciliation(self, restore=True, change=True):
+    def restored_after_a_complete_reconciliation(self, restore=True, change=True, ask=None):
         """Plan, round, failed completion, a reconciliation that ends complete (HIGHEST: none) on a candidate that
         changed the promise (or not), then one on a candidate that restores it (or not). D01 T02 §11."""
         todo = self.root / "todo/00-workspace/TODO-01-a.md"
@@ -3014,12 +3014,16 @@ class ThreePassStamp(Stamp):
             changed = self.commit("reword the section")
         else:
             changed = self.build("repair")
+        if ask:
+            ask("reconciliation", changed)
         self.passed("reconciliation", changed)
         if restore:
             todo.write_text(text, encoding="utf-8")
             restored = self.commit("restore the promise")
         else:
             restored = self.build("another repair")
+        if ask:
+            ask("reconciliation", restored)
         self.passed("reconciliation", restored)
         return restored
 
@@ -3041,6 +3045,34 @@ class ThreePassStamp(Stamp):
             with self.subTest("a real complete before it (the promise unchanged): no further pass"):
                 sha = self.restored_after_a_complete_reconciliation(restore=False, change=False)
                 self.stamp3_refuses(sha, "only the last reconciliation", verdict="reconciled")
+        finally:
+            type(self).PIN_TEXT = THREE_PASS_PIN
+
+    def test_the_dispatched_recovery_chain_stamps(self):
+        # Completion review of D01 T02 §11: one chain, each reconciliation first asked of the dispatcher's own order
+        # check on this repository (with the todo library beside it, as an install has it), then stamped and read back.
+        self.tearDown()
+        type(self).PIN_TEXT = THREE_PASS_PIN.replace("pass_cap = 45", 'pass_cap = 45\nblocking = ["P1", "P2"]')
+        try:
+            self.setUp()
+            dispatch = tg.review_dispatch()
+            (self.root / "scripts/lib").mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(SCRIPTS / "lib/todo_graph.py", self.root / "scripts/lib/todo_graph.py")
+            schedule = tg.committed_pin(self.root, self.start, "D00 T01 §1")["schedule"]
+            asked = []
+
+            def ask(kind, candidate):
+                dispatch.check_three_pass_order(kind, str(self.root / self.FILE), candidate, schedule)
+                asked.append(candidate)
+            with unittest.mock.patch.object(dispatch, "ROOT", self.root):
+                restored = self.restored_after_a_complete_reconciliation(ask=ask)
+                self.assertEqual(asked[-1], restored)
+                # The chain is settled now: the dispatcher takes no further pass.
+                with self.assertRaises(dispatch.Refused):
+                    ask("reconciliation", self.build("one more"))
+            data = self.stamp3(restored, verdict="reconciled")
+            self.assertEqual((data["passes_spent"], data["completion"]["candidate"]), (5, restored))
+            self.assertTrue(tg.graph(self.root)["D00 T01 §1"].done)
         finally:
             type(self).PIN_TEXT = THREE_PASS_PIN
 
