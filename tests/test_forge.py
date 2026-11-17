@@ -3508,7 +3508,13 @@ class LaunchersKitTests(unittest.TestCase):
         parser_help = io.StringIO()
         with contextlib.redirect_stdout(parser_help), self.assertRaises(SystemExit):
             forge.main(["--help"])
-        self.assertRegex(parser_help.getvalue(), r"automations, launchers,\s+unattended")
+        self.assertRegex(parser_help.getvalue(), r"automations, launchers,\s+unattended")   # the kit command's help
+        for command, shown in (("init", r"automations, launchers,\s+unattended"),   # its --kit help
+                               ("kit", r"\{[^}]*\blaunchers\b[^}]*\}"), ("doctor", r"\{[^}]*\blaunchers\b[^}]*\}")):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), self.assertRaises(SystemExit):
+                forge.main([command, "--help"])
+            self.assertRegex(out.getvalue(), shown, command)
         self.assertIn("'launchers'", forge.apply_kit.__doc__)
         readme = (FORGE_ROOT / "kits/launchers/README.md").read_text(encoding="utf-8")
         for words in ("desktop links", "needs no other kit", "Windows", "`wsl.exe`", "| `.conclave/launchers.json` |"):
