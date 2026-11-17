@@ -1,0 +1,84 @@
+{
+  "ref": "D07 T01 \u00a71",
+  "title": "Launchers kit known to `forge.py`",
+  "implementation_sha": "a4baad6ff3f933528718fdcc49edd1def76cdf49",
+  "date": "2026-11-17",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/07-launchers/D07-T01-s1.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python -m unittest tests.test_forge -k launchers -k after_automations -> Ran 6 tests, OK; launchers out of KIT_ORDER, out of the help, a template key removed, launchers after unattended, each fail it",
+    "CI at a4baad6 -> red (argparse broke toolchain-cpp at its hyphen in init --help, a forge help-wrap defect the longer kit list exposed); fixed in 64d0e74 and 13adc08 (reviewed, docs/reviews/01-forge/forge-help-wrap.md: approve); tests.yml run 44017347947 green at c675b7d"
+  ],
+  "completion": {
+    "report": "docs/reviews/07-launchers/D07-T01-s1.md",
+    "verdict": "reconciled",
+    "candidate": "a4baad6ff3f933528718fdcc49edd1def76cdf49",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/07-launchers/D07-T01-s1.md",
+    "candidate": "caf7c0d3815bd037e72d93361421fa899c542f52",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "caf7c0d3815bd037e72d93361421fa899c542f52",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

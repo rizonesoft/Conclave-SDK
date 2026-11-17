@@ -43,7 +43,7 @@ title: "TODO-01 -- Project launchers: one desktop shape for every project"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Launchers kit known to `forge.py` | -- | [ ] |
+| 1 | §1 | Launchers kit known to `forge.py` | -- | [x] |
 | 2 | §2 | Launcher profile `.conclave/launchers.json` and its loader | §1 | [ ] |
 | 3 | §3 | Icon renderer owned by the launchers kit | §1 | [ ] |
 | 4 | §4 | Rounded-square overlay icons | §3 | [ ] |
@@ -80,6 +80,9 @@ A kit that `forge.py` does not list cannot be installed, diffed or checked. This
 - [x] Commit: `launchers: a new kit known to forge.py`
 
 **Test checkpoint:** `python -m unittest tests.test_forge -k launchers` and `python -m unittest tests.test_forge -k after_automations` end `OK`; removing `launchers` from `KIT_ORDER`, from the help text or from the template's keys makes them fail.
+
+> **Verified:** 2026-11-17 | §1 | a4baad6ff3f933528718fdcc49edd1def76cdf49
+> **Review:** `docs/reviews/d07-t01-s1.json`
 
 ## 2. Launcher profile `.conclave/launchers.json` and its loader
 
