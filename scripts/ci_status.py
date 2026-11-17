@@ -5,7 +5,7 @@
     python scripts/ci_status.py --json           # the same report as one JSON object
     python scripts/ci_status.py --workflow build.yml --branch main
     python scripts/ci_status.py --since-last     # every run that finished since the last read, each failure named
-    python scripts/ci_status.py --rerun <commit> # rerun a stamp candidate's own cancelled or failed run, at most 3 times
+    python scripts/ci_status.py --rerun <commit> # rerun a stamp candidate's own run a newer push cancelled
 
 For each watched workflow it reads the last 10 runs with `gh run list` and reports the latest completed run (green, red or cancelled), its verdict,
 and how many newer runs are still queued or in progress. A cancelled run carries no verdict (a newer push usually
@@ -358,7 +358,8 @@ def describe_since(report):
 
 
 def rerun(runner, workflows, branch, commit, root):
-    """Rerun the candidate's own latest run per workflow when it was cancelled or red. Returns (lines, exit code)."""
+    """Rerun the candidate's own latest run per workflow when a push cancelled it (a red one goes to red first).
+    Returns (lines, exit code)."""
     path = Path(root) / RERUNS
     counts, note = _load_state(path)
     lines = [f"ci-status: {note}"] if note else []
@@ -424,7 +425,7 @@ def main(argv=None, runner=run_gh, root=ROOT):
                         help="a workflow file in .github/workflows/ (repeatable; default: .conclave/ci.json, else all)")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--since-last", action="store_true", help="every run that finished since the last read")
-    mode.add_argument("--rerun", metavar="COMMIT", help="rerun this commit's own cancelled or failed runs")
+    mode.add_argument("--rerun", metavar="COMMIT", help="rerun this commit's own runs a newer push cancelled")
     args = parser.parse_args(argv)
     directory = Path(root) / ".github" / "workflows"
     try:

@@ -115,3 +115,36 @@ LENS quality: clean
 LENS optimization: clean
 HIGHEST: P2
 OVERALL: needs-attention
+
+## Round 5: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-17T16:41:52Z
+- Candidate: 1bd7111858ebf0736a2f28a777619257f56f9e7b
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 22
+- Digest: 4eede6a8a90b29ed
+
+**P2: Repeated infrastructure failures still lack a completion route.** `kits/todo/templates/scripts/ci_status.py:384-389` refuses every red rerun and delegates to `process-phase` step 3. That skill permits one infrastructure rerun, then declares a second red a real failure (`kits/todo/templates/.claude/skills/process-phase/SKILL.md:57`). If both attempts fail during an external outage that later clears, there is no code repair to review, so the paired-run exception cannot apply either. Provide an explicit retry route after verified infrastructure recovery, preserving the failed evidence.
+
+**P3: Rerun help still describes the removed behavior.** `kits/todo/templates/scripts/ci_status.py:8`, `:361` and `:427` advertise failed-run retries, and line 8 still promises a three-attempt cap. Update these descriptions and the installed copy to match cancelled-only, uncapped retries.
+
+Otherwise, the paired-evidence rule is sound as a procedural obligation:
+
+- It can cover a defect the section itself caused. “Fixed outside the section” describes the repair’s review route, not the defect’s origin. Requiring the original red prevents legitimately hiding that history.
+- It does not authorize an unfixed failure: the green commit must contain the reviewed repair and preserve the section’s reviewed files and TODO section apart from it.
+- All six installed/template stamp paragraphs are identical. `AGENTS.md:64` agrees on paired evidence and preservation.
+- Status-filtered queries cover older active runs. The idle check is not atomic, but cancellation races no longer exhaust a retry allowance.
+- `stamp` still records evidence strings rather than independently validating CI.
+
+Reviewed the specified commit without changing files. In-memory probes confirmed red refusal, busy exit 5, and five successive idle cancelled-run retries. No live GitHub reruns were performed.
+
+LENS adversarial: findings
+LENS integration: findings
+LENS source-defect: findings
+LENS consistency: findings
+LENS quality: findings
+LENS optimization: clean
+HIGHEST: P2
+OVERALL: needs-attention
