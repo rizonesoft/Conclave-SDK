@@ -153,7 +153,7 @@ Sections: 6 | Checklist items: 32
 
 ### Phase 8: Project launchers
 
-Sections: 14 | Checklist items: 107
+Sections: 14 | Checklist items: 113
 
 | Status | Reference  | Deliverable                                                      | Needs        | Items |
 | ------ | ---------- | ---------------------------------------------------------------- | ------------ | ----- |
@@ -161,7 +161,7 @@ Sections: 14 | Checklist items: 107
 | [x]    | D07 T01 §2 | Launcher profile `.conclave/launchers.json` and its loader       | none         | 7     |
 | [x]    | D07 T01 §3 | Icon renderer owned by the launchers kit                         | none         | 12    |
 | [x]    | D07 T01 §4 | Rounded-square overlay icons                                     | none         | 9     |
-| [ ]    | D07 T01 §5 | Desktop links that open the project in an agent                  | windows-host | 13    |
+| [ ]    | D07 T01 §5 | Desktop links that open the project in an agent                  | windows-host | 19    |
 | [ ]    | D07 T01 §6 | Declared links that run a command or open a URL                  | windows-host | 7     |
 | [ ]    | D07 T01 §7 | Campaign links under the project's title, icon read from a share | windows-host | 6     |
 | [ ]    | D07 T01 §8 | Operator page and `project-launchers` skill                      | none         | 6     |
@@ -208,4 +208,4 @@ Sections: 4 | Checklist items: 33
 
 Progress: 96/123 verified sections, 4 ready to run now.
 
-Checklist: 790/952 items completed (includes Commit items).
+Checklist: 790/958 items completed (includes Commit items).
