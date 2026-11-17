@@ -156,12 +156,20 @@ MSVC, with the image read from the linked `.exe`:
                "image": ["DYNAMIC_BASE", "HIGH_ENTROPY_VA", "NX_COMPAT", "GUARD_CF", "CET_COMPAT"]}}
 ```
 
-Clang with libc++, llvm-mingw included:
+Clang with libc++ on llvm-mingw (Windows), where Control Flow Guard and the shadow stack are Windows image properties:
 
 ```json
 {"hardening": {"compile": ["_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST", "-fstack-protector-strong",
                            "-ftrivial-auto-var-init=zero", "-mguard=cf"], "sources": ["src"],
                "binaries": ["build/*.exe"], "image": ["DYNAMIC_BASE", "NX_COMPAT", "GUARD_CF", "CET_COMPAT"]}}
+```
+
+Clang on Linux, with libstdc++ (its default there; with `-stdlib=libc++`, the libc++ macro replaces `_GLIBCXX_ASSERTIONS`). `-mguard=cf` is refused for a Linux target:
+
+```json
+{"hardening": {"compile": ["_GLIBCXX_ASSERTIONS", "-fstack-protector-strong", "-ftrivial-auto-var-init=zero",
+                           "_FORTIFY_SOURCE=3", "-fPIE"], "sources": ["src"], "binaries": ["build/app"],
+               "image": ["PIE", "RELRO", "BIND_NOW", "NX_STACK", "STACK_PROTECTOR"]}}
 ```
 
 GCC with libstdc++, on Linux:
@@ -177,7 +185,7 @@ GCC with libstdc++, on Linux:
 
 ### The options, and where each was measured
 
-Clang rows hold for Clang with libc++, llvm-mingw included, and GCC rows for GCC with libstdc++ on Linux. Each was proved by the result it changes beside a build without it: a probe that commits the error on purpose ends in the option's own trap, a probe reads the value an initialising option sets, or `hardening-check.py` reads the property from the linked image.
+Clang rows hold for Clang on Linux and on llvm-mingw unless a row says llvm-mingw only, the libc++ macro only with libc++ (llvm-mingw's default, `-stdlib=libc++` elsewhere); GCC rows hold for GCC with libstdc++ on Linux. Each was proved by the result it changes beside a build without it: a probe that commits the error on purpose ends in the option's own trap, a probe reads the value an initialising option sets, or `hardening-check.py` reads the property from the linked image.
 
 | Family | Option | Effect | Measured on |
 | --- | --- | --- | --- |
@@ -185,11 +193,11 @@ Clang rows hold for Clang with libc++, llvm-mingw included, and GCC rows for GCC
 | MSVC | `/guard:cf` (compile and link) | Control Flow Guard | MSVC 19.52 (image flag) |
 | MSVC | `/CETCOMPAT` (link) | Shadow stack compatible | MSVC 19.52 (image flag) |
 | MSVC | `/sdl` | Extra checks; an uninitialised read becomes error C4700 | MSVC 19.52 |
-| Clang | `-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST` | Library bounds checks | llvm-mingw 23.1.1 |
+| Clang | `-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST` | libc++ bounds checks | llvm-mingw 23.1.1 |
 | Clang | `-fstack-protector-strong` | Stack protector | Clang 19.1.7 on Linux; not on llvm-mingw |
 | Clang | `-ftrivial-auto-var-init=zero` | Locals start as zero | Clang 19.1.7 on Linux; not on llvm-mingw |
-| Clang | `-mguard=cf` | Control Flow Guard (llvm-mingw) | llvm-mingw 23.1.1 (image flag) |
-| Clang | `-Wl,-Xlink=-cetcompat` | Shadow stack; lld refuses `-Wl,--cetcompat` | llvm-mingw 23.1.1 |
+| Clang | `-mguard=cf` | Control Flow Guard; llvm-mingw only | llvm-mingw 23.1.1 (image flag) |
+| Clang | `-Wl,-Xlink=-cetcompat` | Shadow stack; llvm-mingw only (not `-Wl,--cetcompat`) | llvm-mingw 23.1.1 |
 | GCC | `-D_GLIBCXX_ASSERTIONS` | Library bounds checks; ends with exit 134 | GCC 15.2.0 |
 | GCC | `-fstack-protector-strong` | Stack protector (`stack smashing detected`) | GCC 15.2.0, Clang 19.1.7 |
 | GCC | `-D_FORTIFY_SOURCE=2` or `=3` | Checked string and memory calls | GCC 15.2.0, Clang 19.1.7 (glibc) |

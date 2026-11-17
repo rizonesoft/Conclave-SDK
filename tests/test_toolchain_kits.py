@@ -694,7 +694,7 @@ class CppKitTests(ToolchainFixture):
 
     def test_memory_safety_worked_examples_hold_through_the_loader_and_the_check(self):
         blocks = re.findall(r"```json\n(.*?)```", self.memory_safety_section(), re.S)
-        self.assertEqual(len(blocks), 3, "one worked policy per compiler family")
+        self.assertEqual(len(blocks), len(MemorySafetyCompilerTests.FAMILIES), "one worked policy per family")
         loader = self.module
         compdb = forge._toolchain_module(self.KIT, "compdb-check.py")
         check = forge._toolchain_module(self.KIT, "hardening-check.py")
@@ -1735,6 +1735,41 @@ class Section7Fixture(unittest.TestCase):
 
     def statuses(self, project, kit):
         return {check["name"]: check["status"] for check in forge.doctor_repo(project, kit)["checks"]}
+
+
+class MemorySafetyCompilerTests(unittest.TestCase):
+    """D04 T03 section 4, from its round: each worked policy in the document is accepted by a real compiler of its
+    family, so an example cannot name an option its compiler refuses (`-mguard=cf` for a Linux target was one).
+    Each example runs on the first of its drivers this host has, and is skipped where none is installed."""
+
+    # (the words the line above the example starts with, the drivers to try, the arguments before the flags)
+    FAMILIES = (("MSVC", ("cl", "clang-cl"), ("/nologo", "/Zs")),
+                ("Clang with libc++ on llvm-mingw", ("clang++",), ("--target=x86_64-w64-mingw32", "-fsyntax-only")),
+                ("Clang on Linux", ("clang++",), ("--target=x86_64-linux-gnu", "-fsyntax-only")),
+                ("GCC with libstdc++", ("g++",), ("-fsyntax-only",)))
+
+    def test_memory_safety_each_example_is_accepted_by_a_compiler_of_its_family(self):
+        text = (SDK_ROOT / "kits/toolchain-cpp/templates/docs/toolchain-cpp.md").read_text(encoding="utf-8")
+        start = text.index("\n## Memory safety\n")
+        text = text[start:text.index("\n## ", start + 1)]
+        found = re.findall(r"\n([^\n]+)\n\n```json\n(.*?)```", text, re.S)
+        self.assertEqual([lead.split(",")[0].split(" (")[0].rstrip(":") for lead, _block in found],
+                         [family for family, _drivers, _args in self.FAMILIES])
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        source = pathlib.Path(tmp.name) / "main.cpp"
+        source.write_text("int main() { return 0; }\n", encoding="utf-8")
+        for (family, drivers, args), (_lead, block) in zip(self.FAMILIES, found):
+            with self.subTest(family=family):
+                driver = next((shutil.which(name) for name in drivers if shutil.which(name)), None)
+                if driver is None:
+                    self.skipTest(f"no {' or '.join(drivers)} on this host")
+                required = json.loads(block)["hardening"]["compile"]
+                msvc = args[0].startswith("/")
+                flags = [item if item[0] in "-/" else ("/D" if msvc else "-D") + item for item in required]
+                result = subprocess.run([driver, *args, *flags, str(source)], capture_output=True, text=True,
+                                        timeout=120, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                self.assertEqual(result.returncode, 0, f"{driver} refused {flags}: {result.stderr[-400:]}")
 
 
 class DocumentTests(Section7Fixture):
