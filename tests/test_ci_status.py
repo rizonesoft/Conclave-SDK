@@ -739,6 +739,16 @@ class Rerun(unittest.TestCase):
         self.assertIn("recovery runs it lists cannot be read", out.getvalue())
         self.assertEqual((self.root / ci.CURSOR).read_bytes(), before)
 
+    def test_rerun_leaves_an_unreadable_registry_as_it_is(self):
+        # The stamp-evidence review, round 13.
+        (self.root / ci.RERUNS).parent.mkdir(parents=True, exist_ok=True)
+        (self.root / ci.RERUNS).write_text("{broken", encoding="utf-8")
+        fake = PagedGh({"build.yml": [attempt_run(7, 7, sha=SHA_OLD)]})
+        code, said = self.rerun(fake)
+        self.assertEqual(code, 3)
+        self.assertIn("left as it is", said)
+        self.assertEqual((self.root / ci.RERUNS).read_text(encoding="utf-8"), "{broken")
+
     def test_a_red_candidate_is_repaired_not_rerun(self):
         # The stamp-evidence review, round 4: a red has its verdict; reruns for infrastructure belong to red first.
         fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="failure", sha=SHA_OLD)]})

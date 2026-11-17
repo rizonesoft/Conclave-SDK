@@ -423,7 +423,10 @@ def rerun(runner, workflows, branch, commit, root, infrastructure=False):
     without `infrastructure` is not rerun: it has its verdict and is repaired red first. Returns (lines, exit code)."""
     path = Path(root) / RERUNS
     counts, note = _load_state(path)
-    lines = [f"ci-status: {note}"] if note else []
+    if note:
+        # It lists the recovery tags --since-last reads: never replaced while it cannot be read.
+        raise Unavailable(f"{note.split(';')[0]}; it is left as it is, and nothing is rerun (repair or remove the file)")
+    lines = []
     code = 0
     for workflow in workflows:
         # Asked for by commit, so no number of newer runs can push the candidate's own run out of reach.

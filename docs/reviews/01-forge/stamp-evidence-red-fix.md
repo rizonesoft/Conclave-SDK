@@ -384,3 +384,36 @@ LENS quality: findings
 LENS optimization: clean
 HIGHEST: P2
 OVERALL: needs-attention
+
+## Round 13: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-17T17:04:38Z
+- Candidate: ce873ce56d3fa73aef1e4b88b3c5e6cb318dd0cb
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 22
+- Digest: 423408fd4e0e947d
+
+The stamp rule is sound, but the recovery script has one P2 evidence-loss defect.
+
+- **P2: `--rerun` can erase the recovery registry after a read failure.** In [ci_status.py](/D:/Conclave-SDK/kits/todo/templates/scripts/ci_status.py:425), an unreadable registry becomes `{}` plus a warning. Execution continues, and line 489 overwrites the registry, even when the candidate is already green and nothing was rerun. I reproduced this against the pinned source with in-memory mocks: exit `0`, replacement registry `{}`. Subsequent `--since-last` calls cannot discover the previously registered recovery tags, so their failures can go unnoticed. Preserve the registry and return unknown, as `since_last` already does. The installed script has the same defect.
+
+The requested policy checks:
+
+- **A red caused by the section remains visible.** The exception requires citing its original red run. “Fixed outside the section” describes the separately reviewed repair, not an exemption for section-caused defects.
+- **An unfixed failure does not qualify.** The green commit must contain the reviewed repair and preserve the section’s reviewed files and TODO section apart from that repair. An unrelated green tip is insufficient.
+- **The original stamping deadlock is removed.** A closed review chain can use the separately reviewed repair’s green evidence. Cancellation no longer exhausts a fixed retry allowance. Idle-queue retries remain conditional on a later retry when the queue clears; they do not guarantee eventual completion under continuous activity.
+- **The wording agrees.** The relevant policy paragraphs are identical across all three agents’ template copies, and their installed copies match. AGENTS.md states the same evidence exception.
+- **The additional infrastructure retry is reasonable.** It requires renewed infrastructure evidence, an indication that the outage cleared, and retention of every red attempt. It does not authorize retrying an unexplained product failure until green.
+
+Reviewed the specified range and pinned files. Changed nothing; validation was static inspection plus the isolated reproduction above, without live CI mutations.
+
+LENS adversarial: findings
+LENS integration: findings
+LENS source-defect: clean
+LENS consistency: findings
+LENS quality: findings
+LENS optimization: clean
+HIGHEST: P2
+OVERALL: needs-attention
