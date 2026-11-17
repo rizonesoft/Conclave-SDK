@@ -153,14 +153,14 @@ Sections: 6 | Checklist items: 32
 
 ### Phase 8: Project launchers
 
-Sections: 14 | Checklist items: 100
+Sections: 14 | Checklist items: 101
 
 | Status | Reference  | Deliverable                                                      | Needs        | Items |
 | ------ | ---------- | ---------------------------------------------------------------- | ------------ | ----- |
 | [x]    | D07 T01 §1 | Launchers kit known to `forge.py`                                | none         | 9     |
 | [x]    | D07 T01 §2 | Launcher profile `.conclave/launchers.json` and its loader       | none         | 7     |
 | [x]    | D07 T01 §3 | Icon renderer owned by the launchers kit                         | none         | 12    |
-| [ ]    | D07 T01 §4 | Rounded-square overlay icons                                     | none         | 8     |
+| [ ]    | D07 T01 §4 | Rounded-square overlay icons                                     | none         | 9     |
 | [ ]    | D07 T01 §5 | Desktop links that open the project in an agent                  | windows-host | 11    |
 | [ ]    | D07 T01 §6 | Declared links that run a command or open a URL                  | windows-host | 7     |
 | [ ]    | D07 T01 §7 | Campaign links under the project's title, icon read from a share | windows-host | 6     |
@@ -208,4 +208,4 @@ Sections: 4 | Checklist items: 33
 
 Progress: 95/123 verified sections, 4 ready to run now.
 
-Checklist: 771/945 items completed (includes Commit items).
+Checklist: 771/946 items completed (includes Commit items).
