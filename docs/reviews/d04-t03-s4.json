@@ -1,0 +1,85 @@
+{
+  "ref": "D04 T03 \u00a74",
+  "title": "Skill and Document Guidance",
+  "implementation_sha": "7b1cb8aa5d6ff4862ecdf35cd4e7fd31bb1b34c4",
+  "date": "2026-11-17",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/04-tooling/D04-T03-s4.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest tests.test_toolchain_kits -k memory_safety -> Ran 5 tests, OK (skipped=1, no g++ here); an invalid example, a removed skill rule and an invented option each fail it",
+    "python -m unittest tests.test_skill_copies -> OK; fails on a stale copy",
+    "python forge.py check-all on CI -> tests.yml run 44002143037 green at 7b1cb8a"
+  ],
+  "completion": {
+    "report": "docs/reviews/04-tooling/D04-T03-s4.md",
+    "verdict": "reconciled",
+    "candidate": "7b1cb8aa5d6ff4862ecdf35cd4e7fd31bb1b34c4",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/04-tooling/D04-T03-s4.md",
+    "candidate": "ef52431c32895bf3a16d77c56cbb1e94afe9f24e",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "ef52431c32895bf3a16d77c56cbb1e94afe9f24e",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 5,
+  "pass_cap": 33
+}

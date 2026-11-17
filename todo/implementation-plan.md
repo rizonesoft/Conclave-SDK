@@ -136,7 +136,7 @@ Sections: 21 | Checklist items: 189
 | [x]    | D04 T03 §1 | Hardening Policy in the Pin File                         | none  | 10    |
 | [x]    | D04 T03 §2 | Image Properties of Built Binaries                       | none  | 10    |
 | [x]    | D04 T03 §3 | Doctor Rows for the Hardening Checks                     | none  | 9     |
-| [ ]    | D04 T03 §4 | Skill and Document Guidance                              | none  | 9     |
+| [x]    | D04 T03 §4 | Skill and Document Guidance                              | none  | 9     |
 
 ### Phase 7: Operating directive
 
@@ -183,6 +183,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 91/107 verified sections, 3 ready to run now.
+Progress: 92/107 verified sections, 2 ready to run now.
 
 Checklist: 743/841 items completed (includes Commit items).

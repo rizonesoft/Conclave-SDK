@@ -2,7 +2,7 @@
 schema_version: 1
 id: cpp-memory-safety
 domain: 04-tooling
-status: active
+status: done
 title: "TODO-03 -- Memory-safety checks in the C and C++ toolchain kit"
 ---
 
@@ -36,7 +36,7 @@ title: "TODO-03 -- Memory-safety checks in the C and C++ toolchain kit"
 | 1 | §1 | Hardening policy in the pin file, checked on compile commands | -- | [x] |
 | 2 | §2 | Image properties read from built Windows and Linux binaries | §1 | [x] |
 | 3 | §3 | Doctor rows for the hardening checks | §2 | [x] |
-| 4 | §4 | Skill and document guidance, with the measured options | §2 | [ ] |
+| 4 | §4 | Skill and document guidance, with the measured options | §2 | [x] |
 
 ## 1. Hardening Policy in the Pin File
 
@@ -167,6 +167,9 @@ A check says what is missing; the skill says what to do about it. The guidance c
 - [x] Commit: `toolchain-cpp: memory-safety guidance with the measured options`
 
 **Test checkpoint:** `python -m unittest tests.test_toolchain_kits -k memory_safety` passes and fails when a worked example in the document is broken or a skill rule is removed; the skill-copies test (`python -m unittest tests.test_skill_copies`) fails when the Claude skill file is changed without regenerating the copies; `python forge.py check-all` is green on CI for the stamped commit.
+
+> **Verified:** 2026-11-17 | §4 | 7b1cb8aa5d6ff4862ecdf35cd4e7fd31bb1b34c4
+> **Review:** `docs/reviews/d04-t03-s4.json`
 
 ## Verification
 
