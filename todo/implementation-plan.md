@@ -172,6 +172,29 @@ Sections: 14 | Checklist items: 94
 | [ ]    | D07 T02 §5 | WordPress link in the launcher profile                           | none         | 4     |
 | [ ]    | D07 T02 §6 | `wordpress-connect` step and tooling page                        | none         | 5     |
 
+### Phase 9: Design and safety lenses across projects
+
+Sections: 16 | Checklist items: 96
+
+| Status | Reference   | Deliverable                                                | Needs        | Items |
+| ------ | ----------- | ---------------------------------------------------------- | ------------ | ----- |
+| [ ]    | D00 T03 §1  | Design Lens by Path and Fidelity on Every Prompt           | none         | 10    |
+| [ ]    | D00 T03 §2  | Thread-Safety and Memory-Safety Lenses in the Template Pin | none         | 6     |
+| [ ]    | D00 T03 §3  | Kit Refresh in Every Listed Project                        | windows-host | 7     |
+| [ ]    | D00 T03 §4  | Agent Entrypoints, Hooks and Native Skill Folders          | windows-host | 7     |
+| [ ]    | D00 T03 §5  | Design Contract Rule in Every Project                      | windows-host | 6     |
+| [ ]    | D00 T03 §6  | Design Paths in Every Three-Pass Pin                       | windows-host | 5     |
+| [ ]    | D00 T03 §7  | Design Lint Where a Project Has None                       | windows-host | 7     |
+| [ ]    | D00 T03 §8  | Resolute on Three-Pass                                     | windows-host | 6     |
+| [ ]    | D00 T03 §9  | C++ Lens Entries in the C++ Projects                       | windows-host | 5     |
+| [ ]    | D00 T03 §10 | Reviewer Scripts Current in the WSL Project                | none         | 5     |
+| [ ]    | D00 T03 §11 | Surface Validation in the Custom Graphs                    | windows-host | 4     |
+| [ ]    | D00 T03 §12 | Stamp Gate Planned in Each Custom Graph's Project          | windows-host | 5     |
+| [ ]    | D00 T03 §13 | Concurrency and Lifetime Checks in the Clang-Tidy Ratchet  | windows-host | 6     |
+| [ ]    | D00 T03 §14 | Sanitizer Test Configuration                               | windows-host | 5     |
+| [ ]    | D00 T03 §15 | Bounded C++ Hot-Spot Audit                                 | windows-host | 5     |
+| [ ]    | D00 T03 §16 | Read-Only Verification Across the Projects                 | windows-host | 7     |
+
 ### Phase 99: Manual, operator only
 
 Sections: 4 | Checklist items: 33
@@ -183,6 +206,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 94/107 verified sections, 2 ready to run now.
+Progress: 94/123 verified sections, 3 ready to run now.
 
-Checklist: 759/843 items completed (includes Commit items).
+Checklist: 759/939 items completed (includes Commit items).

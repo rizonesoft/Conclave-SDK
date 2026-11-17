@@ -2,6 +2,7 @@
 
 | File | Scope | Status |
 | ---- | ----- | ------ |
+| TODO-03-design-and-safety-lenses.md | Design and safety lenses by path, in every project | active |
 
 ## Completed
 

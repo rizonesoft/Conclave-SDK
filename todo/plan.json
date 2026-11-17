@@ -11,6 +11,7 @@
     "6": "Tooling kits",
     "7": "Operating directive",
     "8": "Project launchers",
+    "9": "Design and safety lenses across projects",
     "99": "Manual, operator only"
   },
   "phase_list": [
@@ -23,6 +24,7 @@
     6,
     7,
     8,
+    9,
     99
   ]
 }

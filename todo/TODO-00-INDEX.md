@@ -6,6 +6,7 @@ Governing plans: [docs/plans/2026-11-11-sdk-audit-and-roadmap.md](../docs/plans/
 
 | Domain | File | Scope |
 | ------ | ---- | ----- |
+| 00 | 00-reviewer/TODO-03-design-and-safety-lenses.md | Design and safety lenses by path, in every project |
 | 07 | 07-launchers/TODO-01-project-launchers.md | Launchers kit: profile, overlay icons, agent and site links |
 | 07 | 07-launchers/TODO-02-wordpress-dashboard-login.md | One-use ticket login: plugin, opener, install, removal |
 
