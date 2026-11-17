@@ -5,9 +5,11 @@
  * stdout when the script ends, however it ends (the plugin's `exit` after the redirect, `wp_die`, or the end).
  *
  * The case: `plugins` (the plugin files to load, in order), `query` (absent, or the value of `conclave_ticket`,
- * which may be an array), `option` (absent, or the stored ticket), `delete_result` (what `delete_option` returns
- * when the option is there: false stands for a request that lost the race to another), `users` (by ID: `login` and
- * `caps`), `run_init` (whether to run the `init` callbacks). The report: every call in order, the options left and
+ * which may be an array), `option` (absent, or the stored ticket), `gone_before_delete` (another request removed
+ * the ticket between this one's read and its delete), `replace_before_delete` (another request used the ticket and
+ * the opener stored this newer one in that gap), `users` (by ID: `login` and `caps`), `run_init` (whether to run the
+ * `init` callbacks). The options table holds each value serialized, as WordPress's does, and `$wpdb` reads and deletes
+ * against it. The report: every call in order, the options left and
  * the `init` callbacks registered.
  *
  * @package Conclave
@@ -63,6 +65,64 @@ function do_action( $hook, ...$args ) {
 	harness_record( 'do_action', array_merge( array( $hook ), $described ) );
 }
 
+/**
+ * The two `$wpdb` calls the plugin makes, against the options table above.
+ */
+class Harness_Wpdb {
+	public $options = 'wp_options';
+
+	public function prepare( $sql, ...$args ) {
+		return array( $sql, $args );
+	}
+
+	public function get_var( $query ) {
+		$name = $query[1][0];
+		harness_record( 'wpdb_get_var', array( $name ) );
+		return array_key_exists( $name, $GLOBALS['harness_options'] ) ? serialize( $GLOBALS['harness_options'][ $name ] ) : null;
+	}
+
+	public function query( $query ) {
+		$name  = $query[1][0];
+		$value = isset( $query[1][1] ) ? $query[1][1] : null;
+		$case                 = $GLOBALS['harness_case'];
+		if ( ! empty( $case['gone_before_delete'] ) ) {
+			unset( $GLOBALS['harness_options'][ $name ] );
+		}
+		if ( array_key_exists( 'replace_before_delete', $case ) ) {
+			$GLOBALS['harness_options'][ $name ] = $case['replace_before_delete'];
+		}
+		harness_record( 'wpdb_delete', array( $name ) );
+		if ( 'DELETE FROM wp_options WHERE option_name = %s' === $query[0] ) {
+			// By name only, as delete_option does: whatever ticket is there now goes.
+			$had = array_key_exists( $name, $GLOBALS['harness_options'] );
+			unset( $GLOBALS['harness_options'][ $name ] );
+			return $had ? 1 : 0;
+		}
+		if ( 'DELETE FROM wp_options WHERE option_name = %s AND option_value = %s' !== $query[0] ) {
+			return false;
+		}
+		if ( array_key_exists( $name, $GLOBALS['harness_options'] ) && serialize( $GLOBALS['harness_options'][ $name ] ) === $value ) {
+			unset( $GLOBALS['harness_options'][ $name ] );
+			return 1;
+		}
+		return 0;
+	}
+}
+$GLOBALS['wpdb'] = new Harness_Wpdb();
+
+function maybe_unserialize( $value ) {
+	if ( ! is_string( $value ) ) {
+		return $value;
+	}
+	$out = @unserialize( $value );
+	return ( false === $out && 'b:0;' !== $value ) ? $value : $out;
+}
+
+function wp_cache_delete( $key, $group = '' ) {
+	harness_record( 'wp_cache_delete', array( $key, $group ) );
+	return true;
+}
+
 function get_option( $name, $default = false ) {
 	harness_record( 'get_option', array( $name ) );
 	return array_key_exists( $name, $GLOBALS['harness_options'] ) ? $GLOBALS['harness_options'][ $name ] : $default;
@@ -72,9 +132,6 @@ function delete_option( $name ) {
 	harness_record( 'delete_option', array( $name ) );
 	$had = array_key_exists( $name, $GLOBALS['harness_options'] );
 	unset( $GLOBALS['harness_options'][ $name ] );
-	if ( $had && array_key_exists( 'delete_result', $GLOBALS['harness_case'] ) ) {
-		return $GLOBALS['harness_case']['delete_result'];
-	}
 	return $had;
 }
 

@@ -36,11 +36,18 @@ def code_of(text: str) -> str:
 
 # Each property the plugin's safety rests on: (what it is, a check on the code, a copy with that one property broken).
 def _delete_before_compare(code):
-    return 0 <= code.find("delete_option(") < code.find("hash_equals(")
+    return 0 <= code.find("DELETE FROM") < code.find("hash_equals(")
 
 
-def _delete_result_checked(code):
-    return re.search(r"true\s*!==\s*delete_option\(", code) is not None
+def _delete_bound_to_the_ticket_read(code):
+    # Removed by name and by the exact value read (round 1: the Options API deletes by name only), and only the
+    # request that removed one row goes on.
+    return ("WHERE option_name = %s AND option_value = %s\", CONCLAVE_TICKET_OPTION, $raw" in code
+            and re.search(r"1\s*!==\s*\$removed", code) is not None and "delete_option(" not in code)
+
+
+HASH_CHECK = ("\t\tif ( ! hash_equals( $ticket['hash'], hash( 'sha256', $token ) ) ) {\n"
+              "\t\t\tconclave_ticket_login_refuse();\n\t\t}\n")
 
 
 def _hash_equals_not_equality(code):
@@ -50,11 +57,10 @@ def _hash_equals_not_equality(code):
 PROPERTIES = {
     "the ticket is deleted before the hash is compared": (
         _delete_before_compare,
-        lambda text: text.replace("if ( true !== delete_option( CONCLAVE_TICKET_OPTION ) ) {\n\t\t\tconclave_ticket_login_refuse();\n\t\t}\n", "", 1)
-        .replace("\t\t$user = get_userdata(", "\t\tif ( true !== delete_option( CONCLAVE_TICKET_OPTION ) ) {\n\t\t\tconclave_ticket_login_refuse();\n\t\t}\n\t\t$user = get_userdata(", 1)),
-    "the delete's result decides": (
-        _delete_result_checked,
-        lambda text: text.replace("if ( true !== delete_option( CONCLAVE_TICKET_OPTION ) ) {", "delete_option( CONCLAVE_TICKET_OPTION );\n\t\tif ( false ) {", 1)),
+        lambda text: text.replace(HASH_CHECK, "", 1).replace("\t\tglobal $wpdb;\n", HASH_CHECK + "\t\tglobal $wpdb;\n", 1)),
+    "the delete is bound to the ticket read, and decides": (
+        _delete_bound_to_the_ticket_read,
+        lambda text: text.replace("if ( 1 !== $removed ) {", "if ( false ) {", 1)),
     "the hash is compared with hash_equals, never ==": (
         _hash_equals_not_equality,
         lambda text: text.replace("! hash_equals( $ticket['hash'], hash( 'sha256', $token ) )", "$ticket['hash'] !== hash( 'sha256', $token )", 1)),
@@ -106,12 +112,13 @@ class TextTest(unittest.TestCase):
         self.assertNotRegex(self.text, r"[\w.-]+@[\w-]+\.\w+")
         self.assertNotRegex(self.text, r"\b[\w-]+\.(?:com|net|org|co\.za|io|site|test)\b")
 
-    def test_every_nonce_ignore_gives_its_reason(self):
+    def test_every_phpcs_ignore_is_a_nonce_read_with_its_reason(self):
+        # The two reads of the query (the ticket is the proof); the direct queries are WordPress-Extra clean and
+        # carry their reason as the WORKAROUND line (round 1: the Options API has no compare-and-delete).
         ignores = re.findall(r"phpcs:ignore ([^\n]*)", self.text)
-        self.assertEqual(len(ignores), 2)
-        for line in ignores:
-            self.assertTrue(line.startswith("WordPress.Security.NonceVerification.Recommended -- the one-use ticket"))
-
+        nonce = "WordPress.Security.NonceVerification.Recommended -- the one-use ticket is the proof"
+        self.assertEqual([line.startswith(nonce) for line in ignores], [True, True])
+        self.assertIn("WORKAROUND: the Options API (the owning layer) has no compare-and-delete", self.text)
 
 @unittest.skipUnless(PHP, "the behaviour tests run the plugin under PHP, which is not on this machine's PATH")
 class BehaviourTest(unittest.TestCase):
@@ -147,8 +154,8 @@ class BehaviourTest(unittest.TestCase):
 
     def test_a_valid_ticket_logs_the_user_in_once_and_redirects(self):
         report = self.run_case(query=TOKEN, option=self.ticket(), users=ADMIN)
-        self.assertEqual(report["names"], ["add_action", "nocache_headers", "get_option", "delete_option",
-                                           "get_userdata", "user_can", "wp_set_current_user", "wp_set_auth_cookie",
+        self.assertEqual(report["names"], ["add_action", "nocache_headers", "wpdb_get_var", "wpdb_delete",
+                                           "wp_cache_delete", "get_userdata", "user_can", "wp_set_current_user", "wp_set_auth_cookie",
                                            "do_action", "wp_safe_redirect"])
         calls = dict((c[0], c[1]) for c in report["calls"])
         self.assertEqual(calls["user_can"], [7, "manage_options"])
@@ -169,7 +176,7 @@ class BehaviourTest(unittest.TestCase):
             "a user that does not exist": dict(query=TOKEN, option=self.ticket(user=8)),
             "a user without manage_options": dict(query=TOKEN, option=self.ticket(),
                                                   users={"7": {"login": "editor", "caps": ["read"]}}),
-            "a delete that lost the race": dict(query=TOKEN, option=self.ticket(), delete_result=False),
+            "a ticket another request removed first": dict(query=TOKEN, option=self.ticket(), gone_before_delete=True),
             "an option that is not an array": dict(query=TOKEN, option=HASH),
             "an option without its user": dict(query=TOKEN, option={"hash": HASH, "expires": int(time.time()) + 60}),
             "a hash that is not a string": dict(query=TOKEN, option=self.ticket(hash=["x"])),
@@ -185,6 +192,14 @@ class BehaviourTest(unittest.TestCase):
                 messages = {c[1][0] for c in report["calls"] if c[0] == "wp_die"}
                 self.assertEqual(messages, {"This login link is not valid. Make a new one with "
                                             "scripts/open-dashboard.py."}, why)
+
+    def test_an_old_redemption_never_uses_up_a_newer_ticket(self):
+        # Round 1: request X reads ticket A; request Y redeems A; the opener stores B; X's delete must not remove B
+        # and log in with A.
+        newer = self.ticket(hash=hashlib.sha256(b"b" * 64).hexdigest())
+        report = self.run_case(query=TOKEN, option=self.ticket(), replace_before_delete=newer, users=ADMIN)
+        self.assert_refused(report, "a redemption of a ticket replaced since it was read")
+        self.assertEqual(report["options"].get("conclave_login_ticket"), newer, "the newer ticket was used up")
 
     def test_a_wrong_token_uses_the_ticket_up(self):
         first = self.run_case(query="f" * 64, option=self.ticket(), users=ADMIN)
