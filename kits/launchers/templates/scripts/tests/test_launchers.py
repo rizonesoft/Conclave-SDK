@@ -230,6 +230,32 @@ class ShowTests(Fixture):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(json.loads(done.stdout), profile)
 
+    def test_powershell_reads_the_profile_back_through_convertfrom_json(self):
+        # The shortcut script (section 5) reads `show` this way; its values must arrive whole.
+        pwsh = shutil.which("pwsh") or shutil.which("powershell")
+        if pwsh is None:
+            self.skipTest("no PowerShell on this host")
+        profile = self.valid(title="Caf\u00e9 Site")
+        self.write(profile)
+        # PowerShell writes to a pipe in the console's code page unless told otherwise.
+        command = ("[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); "
+                   f"& '{sys.executable}' '{SCRIPT}' show --root '{self.project}' | ConvertFrom-Json | "
+                   "ConvertTo-Json -Depth 5 -Compress")
+        done = subprocess.run([pwsh, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command],
+                              capture_output=True, text=True, encoding="utf-8", timeout=120, creationflags=NO_WINDOW)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(json.loads(done.stdout), profile)
+
+    @unittest.skipIf(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), "needs POSIX permissions")
+    def test_show_refuses_an_unreadable_profile_with_exit_1_and_no_traceback(self):
+        self.write(self.valid())
+        self.path.chmod(0)
+        self.addCleanup(self.path.chmod, 0o644)
+        done = self.run_show("--root", str(self.project))
+        self.assertEqual((done.returncode, done.stdout), (1, ""))
+        self.assertIn("cannot be read", done.stderr)
+        self.assertNotIn("Traceback", done.stderr)
+
     def test_show_refuses_on_stderr_with_exit_1_and_no_traceback(self):
         cases = [("malformed", lambda: self.write(self.valid(title=None)), "title: must be set"),
                  ("folder", lambda: self.path.mkdir(), "is a folder"),
