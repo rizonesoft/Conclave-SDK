@@ -2190,7 +2190,7 @@ def _toolchain_module(kit: str, script: str = "toolchain-check.py") -> types.Mod
     path = FORGE_ROOT / "kits" / kit / "templates/scripts" / script
     key = str(path)
     if key not in _TOOLCHAIN_MODULES:
-        name = f"{kit}_{script.removesuffix('.py')}".replace("-", "_")
+        name = f"{kit}_{script.removesuffix('.py')}".replace("-", "_").replace("/", "_")
         module = types.ModuleType(f"_forge_{name}")
         module.__file__ = key
         exec(compile(path.read_text(encoding="utf-8"), key, "exec"), module.__dict__)
@@ -2599,13 +2599,21 @@ def _doctor_lsp(target_root: Path, add_check) -> None:
 
 def _doctor_launchers(target_root: Path, add_check) -> None:
     """The launchers kit's checks, from files only. `profile`: the project's `.conclave/launchers.json`, which the
-    kit installs and the shortcut script reads."""
+    kit installs and the shortcut script reads, held to the kit's own loader (`scripts/lib/launchers.py`): `ok` with
+    the title, `setup_required` with the loader's refusal (a fresh install's unset title among them) or with the
+    install command when there is no file."""
     profile = target_root / LAUNCHERS_PROFILE
-    if profile.is_file():
-        add_check("profile", "ok", LAUNCHERS_PROFILE)
-    else:
+    if not profile.exists():
         add_check("profile", "setup_required",
                   f"no {LAUNCHERS_PROFILE}: install the kit with python forge.py kit {target_root.as_posix()} launchers")
+        return
+    loader = _toolchain_module("launchers", "lib/launchers.py")
+    try:
+        loaded = loader.load_profile(profile, target_root)
+    except loader.ProfileError as exc:
+        add_check("profile", "setup_required", str(exc))
+        return
+    add_check("profile", "ok", f"{LAUNCHERS_PROFILE}: {loaded['title']}")
 
 
 def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
@@ -3134,6 +3142,7 @@ SUITES: list[dict] = [
     _unittest_suite("tests", "tests", 3600),
     _unittest_suite("kit-automations", "kits/automations/templates/scripts/tests", 1800),
     _unittest_suite("kit-reviewer", "kits/reviewer/templates/scripts/tests", 1800),
+    _unittest_suite("kit-launchers", "kits/launchers/templates/scripts/tests", 600),
     _unittest_suite("kit-unattended", "kits/unattended/templates/scripts/tests", 1800),
     _unittest_suite("kit-wordpress", "kits/wordpress/templates/scripts/tests", 1800),
     _unittest_suite("kit-wordpress-pressable", "kits/wordpress/hosts/pressable/templates/scripts/tests", 1800),

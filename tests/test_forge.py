@@ -3500,7 +3500,20 @@ class LaunchersKitTests(unittest.TestCase):
             code = forge.main(["doctor", str(self.target), "launchers", "--strict"])
         self.assertEqual(code, 3)
         forge.apply_kit(self.target, "launchers")
-        self.assertEqual(self.checks()["profile"]["status"], "ok")
+        # D07 T01 section 2: held to the kit's loader, so a fresh install's unset title is named.
+        row = self.checks()["profile"]
+        self.assertEqual(row["status"], "setup_required")
+        self.assertIn(": title: must be set", row["detail"])
+        (self.target / "icon.png").write_bytes(b"\x89PNG")
+        profile = dict(self.PROFILE, title="Example Site", icon="icon.png")
+        (self.target / forge.LAUNCHERS_PROFILE).write_text(json.dumps(profile), encoding="utf-8")
+        self.assertEqual(self.checks()["profile"], {"name": "profile", "status": "ok",
+                                                    "detail": f"{forge.LAUNCHERS_PROFILE}: Example Site"})
+        (self.target / forge.LAUNCHERS_PROFILE).unlink()
+        (self.target / forge.LAUNCHERS_PROFILE).mkdir()
+        row = self.checks()["profile"]
+        self.assertEqual(row["status"], "setup_required")
+        self.assertIn("is a folder, not a file", row["detail"])
 
     def test_launchers_and_every_kit_stay_whole_in_the_help_at_any_width(self):
         # CI red on 2026-11-17 (c24fcdf): adding launchers made argparse break `toolchain-cpp` at its hyphen.

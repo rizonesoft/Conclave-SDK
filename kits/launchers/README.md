@@ -11,9 +11,15 @@ It needs no other kit. The links are Windows shortcuts, so they are written on W
 | File | What it is |
 | ---- | ---------- |
 | `.conclave/launchers.json` | The profile: the title, the icon, the agents that get a link, and further links |
+| `scripts/lib/launchers.py` | `load_profile` and `show`: the profile, every key checked (stdlib only) |
+| `scripts/tests/test_launchers.py` | The loader's tests: one per refusal, and `show` |
 
 ## Doctor
 
 `python forge.py doctor <project> launchers` reports:
 
-- `profile`: `ok` when `.conclave/launchers.json` is there, `setup_required` with the install command when it is not.
+- `profile`: `ok` with the title when `.conclave/launchers.json` loads through the kit's `scripts/lib/launchers.py`; `setup_required` with the loader's refusal (a fresh install's unset `title` among them), or with the install command when there is no file.
+
+## The profile
+
+`schema_version` (1), `title` (the name the links carry: 1 to 60 characters a Windows file name can hold, not starting or ending with a space or ending with a dot), `icon` (a `.png` or `.ico` file in the project, relative to it and not reached through a link), `agents` (one or more of `claude`, `codex`, `agy`, each once), `skip_permissions` (true or false) and `links` (each `label`, `mark` of `wordpress` or `site`, and one of `run`, a one-line command, or `url`, an `https://` address or `http://` on `localhost` or a `.test` or `.site` name). A label is 1 to 30 characters under the title's rule, unique without regard to case and by the icon file it names, and never an agent's link or a word ending `campaign`. `python scripts/lib/launchers.py show` prints the checked profile as one line of JSON, or the refusal with exit 1.
