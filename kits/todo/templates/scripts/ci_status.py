@@ -30,7 +30,9 @@ commit or a push.
 
 `--rerun <commit>` reruns, with `gh run rerun`, the latest run of each watched workflow on that commit when a newer
 push cancelled it or it failed, so a stamp candidate gets a verdict of its own; the count is kept per commit in
-`build/ci-status-reruns.json`, and a fourth rerun is refused (exit 4). Evidence never moves to another commit.
+`build/ci-status-reruns.json`, and a fourth rerun is refused (exit 4). It reruns only when no run of the workflow is
+queued or running, so the rerun starts at once and no later push can drop it; a busy queue is exit 5, try again at the
+next boundary, and is not counted. Evidence never moves to another commit.
 
 Exit 0: no watched workflow is red. Exit 1: at least one is red (the workflow, the commit, the run's URL and its
 failed jobs are printed). Exit 2: bad usage. Exit 3: `gh` is missing, not authenticated, or failed, so the state is
@@ -377,6 +379,14 @@ def rerun(runner, workflows, branch, commit, root):
         state = verdict_of(run) if run.get("status") == "completed" else "running"
         if state in ("green", "running"):
             lines.append(f"{workflow}: {commit[:12]} is {state} ({run.get('url')}); nothing to rerun")
+            continue
+        # Only on an idle queue: a rerun queued behind another run can be dropped by the next push (the concurrency
+        # group keeps one pending run), but one that starts at once runs to its verdict. A busy queue is "try again".
+        busy = [r for r in list_runs(runner, workflow, branch, PAGES[0]) if r.get("status") != "completed"]
+        if busy:
+            lines.append(f"{workflow}: {len(busy)} run(s) still queued or running ({busy[0].get('url')}); rerun "
+                         f"{commit[:12]} when the queue is idle, so no push can drop it (not counted)")
+            code = max(code, 5) if code != 4 else code
             continue
         key = f"{commit}|{workflow}"
         done = int(counts.get(key, {}).get("reruns", 0))

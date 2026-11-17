@@ -583,6 +583,21 @@ class Rerun(unittest.TestCase):
         self.assertEqual(code, 0, said)
         self.assertEqual(fake.reruns(), ["7"])
 
+    def test_a_busy_queue_is_try_again_and_not_counted(self):
+        # The stamp-evidence review: a rerun queued behind another run could be dropped by the next push, so one is
+        # started only on an idle queue, where it runs to its verdict.
+        fake = PagedGh({"build.yml": [attempt_run(7, 1, conclusion="cancelled", sha=SHA_OLD),
+                                      attempt_run(8, 2, status="in_progress")]})
+        for _ in range(4):
+            code, said = self.rerun(fake)
+            self.assertEqual(code, 5, said)
+            self.assertIn("when the queue is idle", said)
+        self.assertEqual(fake.reruns(), [])
+        fake.runs["build.yml"][1] = attempt_run(8, 2)
+        code, said = self.rerun(fake)
+        self.assertEqual((code, fake.reruns()), (0, ["7"]))
+        self.assertIn("rerun 1 of 3", said)
+
     def test_a_green_or_running_candidate_is_left_and_a_refused_rerun_is_reported(self):
         self.assertIn("nothing to rerun", self.rerun(PagedGh({"build.yml": [attempt_run(7, 7, sha=SHA_OLD)]}))[1])
         refused = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="failure", sha=SHA_OLD)]}, rerun_code=1)
