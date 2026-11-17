@@ -275,11 +275,11 @@ class RealProcess(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout)["error"], "gh is not installed or not on PATH")
 
 
-def attempt_run(n, minute=0, status="completed", conclusion="success", sha=SHA_NEW, attempt=1):
-    """A run with its creation minute (so pages and horizons can be tested) and its attempt number."""
+def attempt_run(n, minute=0, status="completed", conclusion="success", sha=SHA_NEW, attempt=1, day="2026-10-23"):
+    """A run with its creation day and minute (so the date ranges can be tested) and its attempt number."""
     return {"databaseId": n, "headSha": sha, "status": status, "conclusion": conclusion if status == "completed" else "",
-            "url": f"https://github.com/o/r/actions/runs/{n}", "createdAt": f"2026-10-23T{minute // 60:02d}:{minute % 60:02d}:00Z",
-            "event": "push", "attempt": attempt}
+            "url": f"https://github.com/o/r/actions/runs/{n}",
+            "createdAt": f"{day}T{minute // 60 % 24:02d}:{minute % 60:02d}:00Z", "event": "push", "attempt": attempt}
 
 
 class PagedGh:
@@ -298,6 +298,9 @@ class PagedGh:
                 return 1, "", "HTTP 502"
             runs = sorted(self.runs.get(args[args.index("--workflow") + 1], []), key=lambda r: r["createdAt"],
                           reverse=True)
+            if "--created" in args:   # GitHub's own filter: a day range, both ends included
+                first, last = args[args.index("--created") + 1].split("..")
+                runs = [r for r in runs if first <= r["createdAt"][:10] <= last]
             return 0, json.dumps(runs[:limit]), ""
         if args[:2] == ["run", "view"] and "jobs" not in args:
             return 0, json.dumps(getattr(self, "views", {})[int(args[2])]), ""
@@ -322,6 +325,11 @@ class SinceLast(unittest.TestCase):
     written only after a read that printed everything (D01 T02 §8)."""
 
     def setUp(self):
+        # A fixed clock: the fixture runs are dated, so the tests must not depend on the day they run.
+        from datetime import datetime, timezone
+        clock = unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 1, tzinfo=timezone.utc))
+        clock.start()
+        self.addCleanup(clock.stop)
         self._tmp = Scratch()
         self.root = Path(self._tmp.name)
         workspace(self.root, workflows=("build.yml",))
@@ -373,19 +381,29 @@ class SinceLast(unittest.TestCase):
         code, report = self.read(fake)
         self.assertEqual((code, self.new(report)), (1, [(6, 1, "red"), (6, 2, "green")]))
 
-    def test_every_run_of_the_last_thirty_days_is_listed_whatever_their_number(self):
-        # Round 1 and the completion review: no page cap; a failure among more than a thousand new runs is reported.
+    def test_every_run_since_the_reach_is_listed_whatever_their_number(self):
+        # No page cap: a failure among more than a thousand new runs is reported; each list is a day range.
         fake = PagedGh({"build.yml": [attempt_run(1, 1)]})
         self.read(fake)
-        fake.runs["build.yml"] += [attempt_run(2, 2, conclusion="failure")] + [attempt_run(n, n) for n in range(3, 1010)]
+        fake.runs["build.yml"] += [attempt_run(2, 2, conclusion="failure")] + \
+            [attempt_run(n, n, day=f"2026-10-{20 + n % 5:02d}") for n in range(3, 1010)]
         code, report = self.read(fake)
         self.assertEqual(code, 1)
         self.assertIn((2, 1, "red"), self.new(report))
         calls = [c for c in fake.calls if c[:2] == ["run", "list"]]
-        self.assertTrue(all("--created" in c and c[c.index("--limit") + 1] == str(ci.LIST_LIMIT) for c in calls))
-        self.assertTrue(all(c[c.index("--created") + 1].startswith(">=") for c in calls))
+        self.assertTrue(all(".." in c[c.index("--created") + 1] for c in calls))
 
-    def test_a_list_cut_short_at_its_limit_leaves_the_state_and_says_so(self):
+    def test_a_full_range_is_split_until_each_list_fits(self):
+        fake = PagedGh({"build.yml": [attempt_run(1, 1, day="2026-10-20")]})
+        with unittest.mock.patch.object(ci, "LIST_LIMIT", 5):
+            self.read(fake)
+            fake.runs["build.yml"] += [attempt_run(n, n, day=f"2026-10-{20 + n % 4:02d}",
+                                                   conclusion="failure" if n == 9 else "success") for n in range(2, 14)]
+            code, report = self.read(fake)
+        self.assertEqual(code, 1)
+        self.assertEqual(sorted(i[0] for i in self.new(report)), list(range(2, 14)))
+
+    def test_one_day_with_more_runs_than_a_list_holds_leaves_the_state_and_says_so(self):
         fake = PagedGh({"build.yml": [attempt_run(1, 1)]})
         self.read(fake)
         before = self.cursor()
@@ -394,8 +412,20 @@ class SinceLast(unittest.TestCase):
         with unittest.mock.patch.object(ci, "LIST_LIMIT", 5), redirect_stdout(out):
             code = ci.main(["--since-last"], runner=fake, root=self.root)
         self.assertEqual(code, 3)
-        self.assertIn("more than one read lists", out.getvalue())
+        self.assertIn("more than one list holds", out.getvalue())
         self.assertEqual(self.cursor(), before)
+
+    def test_a_rerun_of_a_run_created_long_before_the_read_is_reported(self):
+        # Reconciliation 2 P1, the reviewer's case moved earlier: run 1 created October 10 and reported green on November 1;
+        # rerun November 8 (within GitHub's 30 days) and failed; read November 17, 38 days after it was created.
+        from datetime import datetime, timezone
+        fake = PagedGh({"build.yml": [attempt_run(1, 1, day="2026-10-10")]})
+        with unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 1, tzinfo=timezone.utc)):
+            self.read(fake)
+        fake.runs["build.yml"] = [attempt_run(1, 1, day="2026-10-10", conclusion="failure", attempt=2)]
+        with unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 17, tzinfo=timezone.utc)):
+            code, report = self.read(fake)
+        self.assertEqual((code, self.new(report)), (1, [(1, 2, "red")]))
 
     def test_a_rerun_of_an_older_run_far_down_the_list_is_reported_once(self):
         # Reconciliation 1 P1, the reviewer's own case: run 1 reported green, 58 newer runs reported, then run 1 is

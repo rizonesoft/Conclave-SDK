@@ -17,14 +17,16 @@ results gate main), else every `.yml` and `.yaml` file in `.github/workflows/`.
 
 Runs still queued or in progress are named with their commit and URL, older ones included.
 
-`--since-last` lists every run of each watched workflow on the branch created in the last 30 days (GitHub reruns a
-run only within 30 days of its creation) and reports each attempt that finished since the last read, by run ID and
-attempt, keeping in `build/ci-status-cursor.json` (per branch and workflow) the highest attempt reported for each
-run. So a failure followed by a green, a run that finishes after a newer one, and a rerun of any run, however far down
-the list, are each seen once, a rerun's earlier attempts read too. The state is written after the read printed
-everything, and never when a read failed or a list came back cut short (exit 3); an unreadable state is said and
-read as a first read, which reports the latest completed run and everything after it. The process-phase skill reads
-it after every push; nothing in it refuses or holds back a commit or a push.
+`--since-last` lists every run of each watched workflow on the branch created from 35 days before the last read to
+today (GitHub reruns a run only within 30 days of its creation, and a run lasts at most 35 days, so any run that can
+have finished or been rerun since the last read was created in that range), splitting a date range whose list is full,
+and reports each attempt that finished since the last read, by run ID and attempt; `build/ci-status-cursor.json` keeps
+per branch and workflow the time of the read and the highest attempt reported for each run. So a failure followed by a
+green, a run that finishes after a newer one, and a rerun of any run are each seen once, however many runs came
+between, a rerun's earlier attempts read too. The state is written after the read printed everything, and never when
+a read failed (exit 3); an unreadable state is said and read as a first read, which reports the latest completed run
+and everything after it. The process-phase skill reads it after every push; nothing in it refuses or holds back a
+commit or a push.
 
 `--rerun <commit>` reruns, with `gh run rerun`, the latest run of each watched workflow on that commit when a newer
 push cancelled it or it failed, so a stamp candidate gets a verdict of its own; the count is kept per commit in
@@ -51,8 +53,10 @@ CURSOR = Path("build") / "ci-status-cursor.json"
 RERUNS = Path("build") / "ci-status-reruns.json"
 PAGES = (10, 50)   # --rerun looks for the candidate's run among the newest 50
 MAX_RERUNS = 3
-RERUN_DAYS = 30   # GitHub reruns a workflow run only within 30 days of its creation
-LIST_LIMIT = 5000
+# A run can still change after a read when it was created at most this long before it: GitHub reruns a run only
+# within 30 days of its creation, and a run lasts at most 35 days.
+REACH_DAYS = 35
+LIST_LIMIT = 1000   # runs per `gh run list` call; a fuller date range is split until each fits
 LIMIT = 10
 GREEN = {"success", "neutral", "skipped"}
 # A run that was stopped before it judged the commit: no verdict either way.
@@ -222,39 +226,60 @@ def _attempt_conclusion(runner, run_id, attempt):
     return view.get("status"), view.get("conclusion"), view.get("html_url") or view.get("url")
 
 
-def since_last(runner, workflows, branch, root, now=None):
+def _now():
+    return datetime.now(timezone.utc)
+
+
+def list_created(runner, workflow, branch, first, last):
+    """Every run of the workflow on the branch created from day `first` to day `last` (dates), whatever their number:
+    a range whose list fills LIST_LIMIT is split in two and each half listed, down to one day, which must fit."""
+    runs = gh_json(runner, ["run", "list", "--branch", branch, "--workflow", workflow, "--created",
+                            f"{first.isoformat()}..{last.isoformat()}", "--limit", str(LIST_LIMIT), "--json", FIELDS])
+    if not isinstance(runs, list) or not all(isinstance(r, dict) for r in runs):
+        raise Unavailable(f"gh run list for {workflow} did not return a list of runs")
+    if len(runs) < LIST_LIMIT:
+        return runs
+    if first >= last:
+        raise Unavailable(f"{workflow} has {LIST_LIMIT} or more runs created on {first.isoformat()}, more than one "
+                          f"list holds; the cursor is left where it was, so nothing is skipped")
+    middle = first + (last - first) // 2
+    return list_created(runner, workflow, branch, first, middle) + \
+        list_created(runner, workflow, branch, middle + timedelta(days=1), last)
+
+
+def since_last(runner, workflows, branch, root):
     """The new completed attempts since the last read, the pending runs, the new state and the exit code.
 
-    GitHub reruns a run only within RERUN_DAYS of its creation, so every read lists every run of the workflow on the
-    branch created in that window, whatever their number, and compares each run's attempt with the highest attempt
-    already reported for it (kept per branch and workflow). Each attempt above it that has finished is reported once,
-    earlier attempts of a rerun read through `gh api`: a failure followed by a green, a run that finishes after a
-    newer one and a rerun of any run, however far down the list, are all seen. A list that comes back cut short
-    raises Unavailable (exit 3) with the state untouched."""
+    Every read lists every run of the workflow on the branch created from REACH_DAYS before the last read (before now
+    on a first read) to today: any run that can have finished, or been rerun, since the last read was created in
+    that range. Each run's attempt is compared with the highest attempt already reported for it (kept per branch and
+    workflow, with the time of the read), and each attempt above it that has finished is reported once, a rerun's
+    earlier attempts read through `gh api`. So a failure followed by a green, a run that finishes after a newer one
+    and a rerun of any run are all seen, however many runs came between. Nothing is cut short: a date range whose
+    list is full is split (`list_created`)."""
     path = Path(root) / CURSOR
     state, note = _load_state(path)
     new_state = dict(state)
     report = {"branch": branch, "workflows": [], "note": note}
     failed = False
-    since = (now or datetime.now(timezone.utc)) - timedelta(days=RERUN_DAYS)
+    now = _now()
     for workflow in workflows:
         key = f"{branch}|{workflow}"
         saved = state.get(key)
         reported = {str(k): int(v) for k, v in (saved.get("reported", {}) if saved else {}).items()}
-        runs = gh_json(runner, ["run", "list", "--branch", branch, "--workflow", workflow, "--created",
-                                f">={since.strftime('%Y-%m-%d')}", "--limit", str(LIST_LIMIT), "--json", FIELDS])
-        if not isinstance(runs, list) or not all(isinstance(r, dict) for r in runs):
-            raise Unavailable(f"gh run list for {workflow} did not return a list of runs")
-        if len(runs) >= LIST_LIMIT:
-            raise Unavailable(f"{workflow} has {LIST_LIMIT} or more runs in {RERUN_DAYS} days, more than one read "
-                              f"lists; the cursor is left where it was, so nothing is skipped")
-        runs = sorted(runs, key=lambda r: str(r.get("createdAt") or ""))
+        try:
+            read_at = datetime.strptime(saved["read_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        except (TypeError, KeyError, ValueError):
+            read_at = now
+        first = (min(read_at, now) - timedelta(days=REACH_DAYS)).date()
+        runs = sorted(list_created(runner, workflow, branch, first, now.date()),
+                      key=lambda r: str(r.get("createdAt") or ""))
         if saved is None:
             # A first read: the latest completed run and everything after it; what came before counts as reported.
             completed = [r for r in runs if r.get("status") == "completed"]
-            first = str(completed[-1].get("createdAt") or "") if completed else ""
+            start_at = str(completed[-1].get("createdAt") or "") if completed else ""
             for r in completed:
-                if str(r.get("createdAt") or "") < first:
+                if str(r.get("createdAt") or "") < start_at:
                     reported[str(r.get("databaseId"))] = int(r.get("attempt") or 1)
         new = []
         for run in runs:
@@ -278,8 +303,11 @@ def since_last(runner, workflows, branch, root, now=None):
                         item["failed_jobs"] = failed_jobs(runner, run_id)
                 new.append(item)
                 reported[run_id] = n
-        listed = {str(r.get("databaseId")) for r in runs}
-        new_state[key] = {"reported": {k: v for k, v in sorted(reported.items()) if k in listed}}
+        # Kept for every run the next read can list (created up to REACH_DAYS before this read).
+        keep_from = (now - timedelta(days=REACH_DAYS)).strftime("%Y-%m-%d")
+        kept = {str(r.get("databaseId")) for r in runs if str(r.get("createdAt") or "")[:10] >= keep_from}
+        new_state[key] = {"read_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                          "reported": {k: v for k, v in sorted(reported.items()) if k in kept}}
         report["workflows"].append({"workflow": workflow, "new": new,
                                     "pending": pending_of(sorted(runs, key=lambda r: str(r.get("createdAt") or ""),
                                                                  reverse=True))})
