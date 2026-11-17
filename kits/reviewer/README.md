@@ -6,14 +6,14 @@ Additive overlay that gives a project independent review by a different model: o
 
 | Work written by | `--writer` | Reviewer |
 | --- | --- | --- |
-| Claude Code | `claude` | `astra`: GPT-6 Astra through `codex` |
-| Antigravity | `agy` (or `gemini`) | `astra`: GPT-6 Astra through `codex` |
+| Claude Code | `claude` | `astra`: GPT-6.2 Astra through `codex` |
+| Antigravity | `agy` (or `gemini`) | `astra`: GPT-6.2 Astra through `codex` |
 
-Claude Code and Antigravity are the two writers. Codex is reviewer only, through `astra` (`gpt-6-astra`, read-only sandbox). The default pin has no Codex writer route and no Antigravity reviewer. Astra uses medium effort for plan and initial round reviews, then low for completion and reconciliation. Routes, lenses and pass limits otherwise retain their existing behavior.
+Claude Code and Antigravity are the two writers. Codex is reviewer only, through `astra` (`gpt-6.2-astra`, read-only sandbox). The default pin has no Codex writer route and no Antigravity reviewer. Astra uses medium effort for plan and initial round reviews, then low for completion and reconciliation. Routes, lenses and pass limits otherwise retain their existing behavior.
 
 | Reviewer | CLI | Model | Effort |
 | --- | --- | --- | --- |
-| `astra` | `codex exec`, read-only sandbox | `gpt-6-astra` | `medium`, then `low` |
+| `astra` | `codex exec`, read-only sandbox | `gpt-6.2-astra` | `medium`, then `low` |
 
 A route names exactly one reviewer, never of the writer's own model family: the pin refuses anything else. A reviewer that cannot review is no review, and no other reviewer runs in its place.
 

@@ -1,6 +1,6 @@
 # The same reviewers as the shipped pin, in a layout load_pin accepts and the editor does not edit.
 schema_version = 1
-reviewers = { astra = { cli = "codex", model = "gpt-6-astra", effort = "medium" }, "gemini" = { cli = "agy", model = "gemini-4-argon-high" } }
+reviewers = { astra = { cli = "codex", model = "gpt-6.2-astra", effort = "medium" }, "gemini" = { cli = "agy", model = "gemini-4-argon-high" } }
 
 [routes]
 claude = [

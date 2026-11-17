@@ -465,7 +465,7 @@ class KitInstallTests(unittest.TestCase):
         self.assert_runs(project, "scripts/review-dispatch.py", "--check-pin")
         pin = (project / ".conclave/reviewers.toml").read_text(encoding="utf-8").splitlines()
         # A new install starts on three-pass and routes the two writers to Astra.
-        for line in ('model = "gpt-6-astra"', 'claude = ["astra"]', 'agy = ["astra"]',
+        for line in ('model = "gpt-6.2-astra"', 'claude = ["astra"]', 'agy = ["astra"]',
                      'policy = "three-pass"'):
             self.assertIn(line, pin)
         # Codex only reviews (no writer route, no Carbon reviewer), no route under Antigravity's other name,

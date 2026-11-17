@@ -30,7 +30,7 @@ class TemplateRoutes(unittest.TestCase):
         self.assertEqual(pin["routes"], {"claude": ["astra"], "agy": ["astra"]})
         self.assertEqual(set(pin["reviewers"]), {"astra"})
         self.assertEqual(pin["reviewers"]["astra"]["cli"], "codex")
-        self.assertEqual(pin["reviewers"]["astra"]["model"], "gpt-6-astra")
+        self.assertEqual(pin["reviewers"]["astra"]["model"], "gpt-6.2-astra")
         for kind, effort in (("plan", "medium"), ("round", "medium"),
                              ("completion", "low"), ("reconciliation", "low")):
             self.assertEqual(review_pin.scheduled(pin["schedule"], kind, [], False)["effort"], effort)
@@ -52,7 +52,7 @@ class TemplateDispatch(_kit_tests.Harness):
                 codex="say", say=self.REPLY)
             self.assertEqual(result.returncode, 0, (result.stderr, summary))
             self.assertEqual((summary["reviewer"], summary["model"], summary["effort"]),
-                             ("astra", "gpt-6-astra", "medium"))
+                             ("astra", "gpt-6.2-astra", "medium"))
         self.assertTrue(all(call["cli"] == "codex" for call in self.calls()))
 
     def test_codex_writer_is_refused_without_invoking_a_reviewer(self):

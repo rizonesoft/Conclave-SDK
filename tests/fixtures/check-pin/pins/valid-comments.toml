@@ -12,10 +12,10 @@
 
 schema_version = 1 # schema_version kept
 
-# GPT-6 Astra through the Codex CLI, read-only sandbox.
+# GPT-6.2 Astra through the Codex CLI, read-only sandbox.
 [reviewers.astra] # reviewers.astra kept
 cli = "codex" # cli kept
-model = "gpt-6-astra" # model kept
+model = "gpt-6.2-astra" # model kept
 effort = "medium" # effort kept
 
 # Gemini 4 through the Antigravity CLI in plan mode and its sandbox. The

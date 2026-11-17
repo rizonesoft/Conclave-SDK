@@ -12,7 +12,7 @@
 
 schema_version = 1
 
-# GPT-6 Astra through the Codex CLI, read-only sandbox.
+# GPT-6.2 Astra through the Codex CLI, read-only sandbox.
 [reviewers.astra]
 cli = "codex"
 model = "GPT 6 Astra"
