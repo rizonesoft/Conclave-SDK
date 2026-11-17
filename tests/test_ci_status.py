@@ -404,6 +404,22 @@ class SinceLast(unittest.TestCase):
         code, report = self.read(fake)
         self.assertEqual((code, self.new(report)), (1, [(1, 2, "red")]))
 
+    def test_a_rerun_of_a_red_run_started_elsewhere_is_read_off_the_list(self):
+        # Completion review P1: someone reruns an older red run through GitHub after newer runs pushed it off the list.
+        fake = PagedGh({"build.yml": [attempt_run(1, 1, conclusion="failure")]})
+        self.assertEqual(self.read(fake)[0], 1)
+        fake.runs["build.yml"] = [attempt_run(n, n) for n in range(2, 60)]
+        fake.views = {1: attempt_run(1, 1, conclusion="failure", attempt=2)}
+        code, report = self.read(fake)
+        self.assertEqual(code, 1)
+        self.assertIn((1, 2, "red"), self.new(report))
+        code, report = self.read(fake)
+        self.assertNotIn((1, 2, "red"), self.new(report), "reported once")
+        fake.views = {1: attempt_run(1, 1, attempt=3)}
+        code, report = self.read(fake)
+        self.assertIn((1, 3, "green"), self.new(report))
+        self.assertNotIn("1", json.loads(self.cursor())["main|build.yml"]["watching"], "a green rerun ends the watch")
+
     def test_a_run_the_rerun_command_started_is_read_off_the_list(self):
         fake = PagedGh({"build.yml": [attempt_run(1, 1, conclusion="cancelled", sha=SHA_OLD)]})
         self.read(fake)
@@ -536,6 +552,17 @@ class Placement(unittest.TestCase):
                 with self.subTest(skill=skill, anchor=anchor):
                     (holder,) = [p for p in paragraphs if anchor in p]
                     self.assertIn("ci_status.py --since-last", holder)
+
+    def test_each_park_and_closeout_reads_after_its_push(self):
+        # Completion review P2: a read before the final push does not see the run that push starts.
+        for skill, anchor in (("process-plan", "then end with `--reason park` the same way"),
+                              ("process-phase", "the phase parks: write a column-0"),
+                              ("process-phase", "## Closeout run=<run id>")):
+            text = (self.SKILLS / skill / "SKILL.md").read_text(encoding="utf-8")
+            (holder,) = [p for p in text.split("\n\n") if anchor in p]
+            push = holder.index("push", holder.index("--since-last"))
+            with self.subTest(skill=skill, anchor=anchor):
+                self.assertGreater(holder.index("ci_status.py --since-last` once more", push), push)
 
     def test_no_skill_holds_a_commit_or_a_push_for_ci(self):
         import re

@@ -21,7 +21,8 @@ Runs still queued or in progress are named with their commit and URL, older ones
 workflow): the creation time of the oldest run still unfinished at the last read, else the newest run then listed.
 It reports each completed attempt it has not reported before, by run ID and attempt (a rerun's earlier attempts are
 read too), so a failure followed by a green, a run that finishes after a newer one, or a failed rerun of a run already
-reported are each seen once; the runs `--rerun` started are read by ID until they finish. It pages (50, 200, 1000 runs) until it passes the horizon, and with more than 1000 unread runs it says so and
+reported are each seen once; the runs `--rerun` started, and every run whose last attempt was red or cancelled
+(for seven days), are read by ID, so a rerun of them is seen wherever it is on the list. It pages (50, 200, 1000 runs) until it passes the horizon, and with more than 1000 unread runs it says so and
 leaves the state as it was (exit 3) rather than skip any. The state is written after the
 read printed everything, and never when a read failed; an unreadable state is said and read as a first read, which
 reports the latest completed run and everything after it. The process-phase skill reads it after every push; nothing
@@ -37,7 +38,7 @@ unknown; that is never treated as green. The red-first policy that consumes this
 Stdlib only; the `gh` runner is injectable for tests.
 """
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -52,6 +53,7 @@ CURSOR = Path("build") / "ci-status-cursor.json"
 RERUNS = Path("build") / "ci-status-reruns.json"
 PAGES = (50, 200, 1000)
 MAX_RERUNS = 3
+WATCH_DAYS = 7   # how long a red or cancelled run is read by ID for a rerun
 LIMIT = 10
 GREEN = {"success", "neutral", "skipped"}
 # A run that was stopped before it judged the commit: no verdict either way.
@@ -235,11 +237,15 @@ def since_last(runner, workflows, branch, root):
     reruns, _ = _load_state(Path(root) / RERUNS)
     report = {"branch": branch, "workflows": [], "note": note}
     failed = False
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     for workflow in workflows:
         key = f"{branch}|{workflow}"
         saved = state.get(key)
         horizon = saved.get("horizon") if saved else None
         reported = {str(k): int(v) for k, v in (saved.get("reported", {}) if saved else {}).items()}
+        # Runs whose last reported attempt was red or cancelled, by ID with when that was reported: the ones someone
+        # reruns. They are read by ID for WATCH_DAYS, so a rerun is seen even after newer runs push them off the list.
+        watching = dict(saved.get("watching", {})) if saved else {}
         runs = []
         for limit in PAGES:
             runs = list_runs(runner, workflow, branch, limit)
@@ -250,10 +256,13 @@ def since_last(runner, workflows, branch, root):
                 raise Unavailable(f"more than {PAGES[-1]} runs of {workflow} since the last read; the cursor is left "
                                   f"where it was, so nothing is skipped (read them with gh run list)")
         listed = {str(r.get("databaseId")) for r in runs}
-        # The runs --rerun started, read by ID when they are not on the list any more.
-        for entry_key, entry in reruns.items():
-            if entry_key.endswith(f"|{workflow}") and str(entry.get("run")) not in listed and entry.get("run"):
-                view = gh_json(runner, ["run", "view", str(entry["run"]), "--json", FIELDS])
+        # The runs --rerun started and the red or cancelled runs being watched, read by ID when they are not on the
+        # list any more.
+        off_list = [str(e.get("run")) for k, e in reruns.items() if k.endswith(f"|{workflow}") and e.get("run")]
+        off_list += list(watching)
+        for run_id in dict.fromkeys(off_list):
+            if run_id not in listed:
+                view = gh_json(runner, ["run", "view", run_id, "--json", FIELDS])
                 if isinstance(view, dict):
                     runs.append(view)
                     listed.add(str(view.get("databaseId")))
@@ -290,11 +299,18 @@ def since_last(runner, workflows, branch, root):
                         item["failed_jobs"] = failed_jobs(runner, run_id)
                 new.append(item)
                 reported[run_id] = n
+                if verdict in ("red", "cancelled"):
+                    watching[run_id] = now   # watched for WATCH_DAYS from when it was reported
+                else:
+                    watching.pop(run_id, None)
         # Every run still unfinished: the next read starts at the oldest of them, so each is read until it finishes.
         unfinished = [str(r.get("createdAt") or "") for r in runs if r.get("status") != "completed"]
         newest = max((str(r.get("createdAt") or "") for r in runs), default=horizon or "")
         next_horizon = min(unfinished) if unfinished else newest
-        new_state[key] = {"horizon": next_horizon, "reported": {k: v for k, v in sorted(reported.items()) if k in listed}}
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=WATCH_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        watching = {k: v for k, v in sorted(watching.items()) if v >= cutoff}
+        new_state[key] = {"horizon": next_horizon, "watching": watching,
+                          "reported": {k: v for k, v in sorted(reported.items()) if k in listed or k in watching}}
         report["workflows"].append({"workflow": workflow, "new": new, "pending": pending_of(runs)})
     code = 1 if failed else 0
     report["exit"] = code
