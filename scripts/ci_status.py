@@ -57,6 +57,7 @@ MAX_RERUNS = 3
 # within 30 days of its creation, and a run lasts at most 35 days.
 REACH_DAYS = 35
 LIST_LIMIT = 1000   # runs per `gh run list` call; a fuller date range is split until each fits
+SINCE_PAGES = (10, 50, 200)   # the pages tried before a full list
 LIMIT = 10
 GREEN = {"success", "neutral", "skipped"}
 # A run that was stopped before it judged the commit: no verdict either way.
@@ -237,13 +238,14 @@ def list_created(runner, workflow, branch, first, last):
     """Every run of the workflow on the branch created from `first` to `last` (UTC datetimes, both included), whatever
     their number: a range whose list fills LIST_LIMIT is split in two and each half listed, down to one second, which
     would need LIST_LIMIT runs created in the same second to fill."""
-    runs = gh_json(runner, ["run", "list", "--branch", branch, "--workflow", workflow, "--created",
-                            f"{first.strftime(STAMP)}..{last.strftime(STAMP)}", "--limit", str(LIST_LIMIT),
-                            "--json", FIELDS])
-    if not isinstance(runs, list) or not all(isinstance(r, dict) for r in runs):
-        raise Unavailable(f"gh run list for {workflow} did not return a list of runs")
-    if len(runs) < LIST_LIMIT:
-        return runs
+    for limit in (*SINCE_PAGES, LIST_LIMIT):   # pages of 10, 50 and 200, then a full list, until one is not full
+        runs = gh_json(runner, ["run", "list", "--branch", branch, "--workflow", workflow, "--created",
+                                f"{first.strftime(STAMP)}..{last.strftime(STAMP)}", "--limit", str(limit),
+                                "--json", FIELDS])
+        if not isinstance(runs, list) or not all(isinstance(r, dict) for r in runs):
+            raise Unavailable(f"gh run list for {workflow} did not return a list of runs")
+        if len(runs) < limit:
+            return runs
     if last - first < timedelta(seconds=1):
         raise Unavailable(f"{workflow} has {LIST_LIMIT} or more runs created at {first.strftime(STAMP)}; the cursor is "
                           f"left where it was, so nothing is skipped")
@@ -273,11 +275,16 @@ def since_last(runner, workflows, branch, root):
         key = f"{branch}|{workflow}"
         saved = state.get(key)
         reported = {str(k): int(v) for k, v in (saved.get("reported", {}) if saved else {}).items()}
-        try:
-            read_at = datetime.strptime(saved["read_at"], STAMP).replace(tzinfo=timezone.utc)
-        except (TypeError, KeyError, ValueError):
-            read_at = now
-        first = (min(read_at, now) - timedelta(days=REACH_DAYS)).replace(microsecond=0)
+        def when(field):
+            try:
+                return datetime.strptime(saved[field], STAMP).replace(tzinfo=timezone.utc)
+            except (TypeError, KeyError, ValueError):
+                return None
+        # The horizon (the creation time of the oldest run unfinished at the last read, else that read's time) and
+        # the read's time; a cursor written before `read_at` existed holds only its horizon, which reaches no less far.
+        horizon = when("horizon") if saved else None
+        read_at = (when("read_at") if saved else None) or horizon or now
+        first = min(horizon or read_at, min(read_at, now) - timedelta(days=REACH_DAYS)).replace(microsecond=0)
         runs = list_created(runner, workflow, branch, first, now.replace(microsecond=0))
         if saved is None:
             # A first read (or one after an unreadable state) also takes the newest runs wherever they are, so a
@@ -285,6 +292,11 @@ def since_last(runner, workflows, branch, root):
             known = {str(r.get("databaseId")) for r in runs}
             runs += [r for r in list_runs(runner, workflow, branch, PAGES[0]) if str(r.get("databaseId")) not in known]
         runs = sorted(runs, key=lambda r: str(r.get("createdAt") or ""))
+        if saved is not None and "reported" not in saved and horizon is not None:
+            # A cursor of the earlier format: what was created before its horizon and finished was reported then.
+            for r in runs:
+                if str(r.get("createdAt") or "") < horizon.strftime(STAMP) and r.get("status") == "completed":
+                    reported[str(r.get("databaseId"))] = int(r.get("attempt") or 1)
         if saved is None:
             # A first read: the latest completed run and everything after it; what came before counts as reported.
             completed = [r for r in runs if r.get("status") == "completed"]
@@ -317,7 +329,8 @@ def since_last(runner, workflows, branch, root):
         # Kept for every run the next read can list (created up to REACH_DAYS before this read).
         keep_from = (now - timedelta(days=REACH_DAYS)).strftime("%Y-%m-%d")
         kept = {str(r.get("databaseId")) for r in runs if str(r.get("createdAt") or "")[:10] >= keep_from}
-        new_state[key] = {"read_at": now.strftime(STAMP),
+        unfinished = [str(r.get("createdAt") or "") for r in runs if r.get("status") != "completed"]
+        new_state[key] = {"read_at": now.strftime(STAMP), "horizon": min(unfinished) if unfinished else now.strftime(STAMP),
                           "reported": {k: v for k, v in sorted(reported.items()) if k in kept}}
         report["workflows"].append({"workflow": workflow, "new": new,
                                     "pending": pending_of(sorted(runs, key=lambda r: str(r.get("createdAt") or ""),

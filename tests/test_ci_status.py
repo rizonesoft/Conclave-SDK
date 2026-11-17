@@ -395,7 +395,7 @@ class SinceLast(unittest.TestCase):
 
     def test_a_full_range_is_split_until_each_list_fits(self):
         fake = PagedGh({"build.yml": [attempt_run(1, 1, day="2026-10-20")]})
-        with unittest.mock.patch.object(ci, "LIST_LIMIT", 5):
+        with unittest.mock.patch.object(ci, "LIST_LIMIT", 5), unittest.mock.patch.object(ci, "SINCE_PAGES", ()):
             self.read(fake)
             fake.runs["build.yml"] += [attempt_run(n, n, day=f"2026-10-{20 + n % 4:02d}",
                                                    conclusion="failure" if n == 9 else "success") for n in range(2, 14)]
@@ -406,7 +406,7 @@ class SinceLast(unittest.TestCase):
     def test_a_full_day_is_split_down_to_the_second(self):
         # Reconciliation 3 P2: a day with more runs than one list holds is split by the hour, the minute, the second.
         fake = PagedGh({"build.yml": [attempt_run(1, 1)]})
-        with unittest.mock.patch.object(ci, "LIST_LIMIT", 5):
+        with unittest.mock.patch.object(ci, "LIST_LIMIT", 5), unittest.mock.patch.object(ci, "SINCE_PAGES", ()):
             self.read(fake)
             fake.runs["build.yml"] += [attempt_run(n, n, conclusion="failure" if n == 7 else "success")
                                        for n in range(2, 12)]
@@ -420,7 +420,7 @@ class SinceLast(unittest.TestCase):
         before = self.cursor()
         fake.runs["build.yml"] += [attempt_run(n, 5) for n in range(2, 9)]   # seven runs created in one second
         out = io.StringIO()
-        with unittest.mock.patch.object(ci, "LIST_LIMIT", 5), redirect_stdout(out):
+        with unittest.mock.patch.object(ci, "LIST_LIMIT", 5), unittest.mock.patch.object(ci, "SINCE_PAGES", ()), redirect_stdout(out):
             code = ci.main(["--since-last"], runner=fake, root=self.root)
         self.assertEqual(code, 3)
         self.assertIn("the cursor is left where it was", out.getvalue())
@@ -431,6 +431,27 @@ class SinceLast(unittest.TestCase):
         fake = PagedGh({"build.yml": [attempt_run(1, 1, day="2026-09-01", conclusion="failure")]})
         code, report = self.read(fake)
         self.assertEqual((code, self.new(report)), (1, [(1, 1, "red")]))
+
+    def test_a_cursor_of_the_earlier_format_keeps_what_it_had_not_read(self):
+        # Reconciliation 4 P1: a cursor with only a horizon (September 1) and an unread failure after it.
+        from datetime import datetime, timezone
+        (self.root / ci.CURSOR).parent.mkdir(parents=True)
+        (self.root / ci.CURSOR).write_text(json.dumps({"main|build.yml": {"horizon": "2026-09-01T00:00:00Z",
+                                                                          "seen": []}}), encoding="utf-8")
+        fake = PagedGh({"build.yml": [attempt_run(1, 1, day="2026-08-31"),
+                                      attempt_run(2, 1, day="2026-09-02", conclusion="failure")]})
+        with unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 17, tzinfo=timezone.utc)):
+            code, report = self.read(fake)
+        self.assertEqual((code, self.new(report)), (1, [(2, 1, "red")]))
+
+    def test_the_lists_page_ten_fifty_and_two_hundred_before_a_full_list(self):
+        fake = PagedGh({"build.yml": [attempt_run(1, 1)]})
+        self.read(fake)
+        fake.runs["build.yml"] += [attempt_run(n, n) for n in range(2, 80)]
+        fake.calls.clear()
+        self.read(fake)
+        limits = [c[c.index("--limit") + 1] for c in fake.calls if c[:2] == ["run", "list"]]
+        self.assertEqual(limits, ["10", "50", "200"])
 
     def test_a_rerun_of_a_run_created_long_before_the_read_is_reported(self):
         # Reconciliation 2 P1, the reviewer's case moved earlier: run 1 created October 10 and reported green on November 1;
