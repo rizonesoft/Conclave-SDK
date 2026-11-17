@@ -205,7 +205,24 @@ Clang rows hold for Clang on Linux and on llvm-mingw unless a row says llvm-ming
 
 ### The probes
 
-The programs and commands that measured the table, to repeat on another compiler before relying on a row. Each runs beside its control, and the option holds only when the two results differ as shown. `A` stands for a 69-character argument (`AAAA...`).
+The programs and commands that measured the table, run 2026-11-16 and 2026-11-17, to repeat on another compiler before relying on a row. Each runs beside its control, and the option holds only when the two results differ as shown. `A` stands for a 69-character argument (`AAAA...`); `cc` is `gcc` or `clang`.
+
+`oob.cpp` reads past the end of a `std::vector`, for the library bounds checks:
+
+```cpp
+#include <vector>
+#include <cstdio>
+int main(int argc, char **) { std::vector<int> v(4); std::printf("%d\n", v[argc + 7]); return 0; }
+```
+
+```text
+cl /nologo /EHsc /O2 oob.cpp /Fe:msvc0.exe                                  # msvc0.exe exits 0
+cl /nologo /EHsc /O2 /D_MSVC_STL_HARDENING=1 oob.cpp /Fe:msvc1.exe          # msvc1.exe exits 0xC0000409
+x86_64-w64-mingw32-clang++ -O2 oob.cpp -o oob0.exe                          # exits 0
+x86_64-w64-mingw32-clang++ -O2 -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST oob.cpp -o oob1.exe   # exits 0xC000001D
+g++ -O2 oob.cpp -o g0 && ./g0                                               # exits 0
+g++ -O2 -D_GLIBCXX_ASSERTIONS oob.cpp -o g1 && ./g1                         # stl_vector.h assertion, exit 134
+```
 
 `smash.c` overruns a stack buffer:
 
@@ -217,9 +234,10 @@ int main(int argc, char **argv) { f(argc > 1 ? argv[1] : "x"); return 0; }
 ```
 
 ```text
-cc -O0 -fno-stack-protector smash.c -o s0 && ./s0 A        # segmentation fault, exit 139
-cc -O0 -fstack-protector-strong smash.c -o s1 && ./s1 A    # *** stack smashing detected ***, exit 134
+cc -O0 -fno-stack-protector smash.c -o s0 && ./s0 A                         # segmentation fault, exit 139
+cc -O0 -fstack-protector-strong smash.c -o s1 && ./s1 A                     # *** stack smashing detected ***, exit 134
 cc -O2 -fno-stack-protector -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 smash.c -o f0 && ./f0 A   # exit 139
+cc -O2 -fno-stack-protector -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2 smash.c -o f2 && ./f2 A   # *** buffer overflow detected ***, exit 134
 cc -O2 -fno-stack-protector -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3 smash.c -o f3 && ./f3 A   # *** buffer overflow detected ***, exit 134
 ```
 
@@ -233,8 +251,8 @@ int main(int argc, char **argv) { (void)argv; dirty(); printf("%d\n", g(argc)); 
 ```
 
 ```text
-cc -O0 uninit.c -o u0 && ./u0                              # stack contents (2067949718 on GCC 15.2.0)
-cc -O0 -ftrivial-auto-var-init=zero uninit.c -o u1 && ./u1 # 0
+cc -O0 uninit.c -o u0 && ./u0                                               # stack contents (2067949718 on GCC 15.2.0)
+cc -O0 -ftrivial-auto-var-init=zero uninit.c -o u1 && ./u1                  # 0
 ```
 
 `sdl.c` reads an uninitialised local, for MSVC:
@@ -245,11 +263,30 @@ int main(void) { int x; printf("%d\n", x); return 0; }
 ```
 
 ```text
-cl /nologo sdl.c        # warning C4700, and it builds
-cl /nologo /sdl sdl.c   # error C4700, and it does not
+cl /nologo sdl.c                                                            # warning C4700, and it builds
+cl /nologo /sdl sdl.c                                                       # error C4700, and it does not
 ```
 
-Full RELRO is read from the image: build `smash.c` with `cc -O1 -fPIE -pie -Wl,-z,relro,-z,now` and with `-Wl,-z,relro,-z,lazy`, name both in `binaries` with `"image": ["RELRO", "BIND_NOW"]`, and `python scripts/hardening-check.py` finds BIND_NOW only on the first.
+The link properties are read from the image by `scripts/hardening-check.py`, with a pin file that names the binaries built in `build/`:
+
+```text
+gcc -O1 -fPIE -pie -Wl,-z,relro,-z,now smash.c -o build/full
+gcc -O1 -fPIE -pie -Wl,-z,relro,-z,lazy smash.c -o build/lazy
+x86_64-w64-mingw32-clang -O1 smash.c -o build/plain.exe
+x86_64-w64-mingw32-clang -O1 -mguard=cf smash.c -o build/cfg.exe
+x86_64-w64-mingw32-clang -O1 -Wl,-Xlink=-cetcompat smash.c -o build/cet.exe
+x86_64-w64-mingw32-clang -O1 -Wl,--cetcompat smash.c -o build/x.exe         # lld: error: unknown argument: --cetcompat
+
+.conclave/toolchain-cpp.json:
+{"schema_version": 1, "tools": [],
+ "hardening": {"binaries": ["build/full", "build/lazy"], "image": ["RELRO", "BIND_NOW"]}}
+python scripts/hardening-check.py   # build/full ok; build/lazy (ELF) lacks BIND_NOW; exit 3
+
+with "binaries": ["build/plain.exe", "build/cfg.exe", "build/cet.exe"], "image": ["GUARD_CF", "CET_COMPAT"]:
+python scripts/hardening-check.py   # plain.exe lacks both; cfg.exe lacks CET_COMPAT; cet.exe lacks GUARD_CF
+```
+
+MSVC's `/guard:cf` and `/CETCOMPAT` were read the same way, from images built by the commands in `scripts/tests/fixtures/README.md` (`pe-hardened.exe` and its control `pe-plain.exe`), and confirmed with `dumpbin`.
 ### What hardening does not cover
 
 Hardening covers bounds and control flow, not object lifetime: a use after free or a double free is found by a sanitizer test build (`-fsanitize=address`) and by fuzzing, and neither ships. Name a sanitizer build in `test_binaries`; a sanitizer runtime in any other binary is a finding. A hardened process that hits a check ends at once and reaches no handler inside the process, so a shipped program needs a way for its next start to say that the last run stopped.
