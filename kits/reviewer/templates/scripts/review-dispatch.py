@@ -1268,7 +1268,12 @@ def contract_changed(record_path, before, after):
         # Registered before it runs: its dataclasses look their module up there while being defined.
         sys.modules[spec.name] = module
         spec.loader.exec_module(module)
-        return not module.reconciliation_settles(ROOT, ref, before, after)
+        settles = getattr(module, "reconciliation_settles", None)
+        if settles is not None:
+            return not settles(ROOT, ref, before, after)
+        # A todo kit from before D01 T02 §11 (the kits update apart): its section_contract answers the same question.
+        contract = getattr(module, "section_contract", None)
+        return contract is not None and contract(ROOT, before, ref) != contract(ROOT, after, ref)
     except (ValueError, OSError, ImportError, SyntaxError):
         # The library's refusal (a section it cannot find, a commit without the file) or one that does not load: no
         # contract to compare, so the order stands as the findings file alone says.

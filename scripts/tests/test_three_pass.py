@@ -231,6 +231,26 @@ class Chain(ThreePass):
         self.refused("reconciliation", restored, "already returned complete")
         self.assertNotEqual(built, restored)
 
+    def test_an_older_todo_library_beside_the_dispatcher_never_crashes_it(self):
+        # Round 1 of D01 T02 §11: the reviewer kit updates apart from the todo kit, so the library beside the
+        # dispatcher may predate reconciliation_settles, or hold neither function.
+        for library, takes_another in (
+                ("def section_contract(root, sha, ref):\n    return sha\n", True),   # the promise differs per commit
+                ("X = 1\n", False)):
+            with self.subTest(library=library.splitlines()[0]):
+                self.tearDown()
+                self.setUp()
+                (self.repo / "scripts/lib").mkdir(exist_ok=True)
+                (self.repo / "scripts/lib/todo_graph.py").write_text(library, encoding="utf-8")
+                self.to_completion()
+                changed = self.commit("reworded", {"todo/x.md": "x\n"})
+                self.ok("reconciliation", changed)
+                later = self.commit("later", {"todo/x.md": "y\n"})
+                if takes_another:
+                    self.ok("reconciliation", later)
+                else:
+                    self.refused("reconciliation", later, "already returned complete")
+
     def lock_path(self, record):
         module = self.module()
         with unittest.mock.patch.object(module.tempfile, "gettempdir", return_value=str(self.scratch)):
