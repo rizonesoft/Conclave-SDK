@@ -686,6 +686,32 @@ class Rerun(unittest.TestCase):
                     codes.append(ci.main(["--since-last"], runner=fake, root=self.root))
         self.assertEqual(codes, [1, 0, 0, 0], "the tag's red is reported once")
 
+    def test_a_candidate_with_no_run_of_its_own_gets_a_fresh_run(self):
+        # The stamp-evidence review, round 10: the original run was deleted, or never ran.
+        fake = PagedGh({"build.yml": [attempt_run(8, 8)]})
+        code, said = self.rerun(fake)
+        self.assertEqual(code, 0, said)
+        self.assertIn(["workflow", "run", "build.yml", "--ref", f"ci/{SHA_OLD}"], fake.calls)
+
+    def test_every_run_on_the_tag_is_read_however_many(self):
+        # Round 10: one failure followed by five cancelled fresh runs.
+        from datetime import datetime, timezone
+        fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD, day="2026-09-01")]})
+        with unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 1, tzinfo=timezone.utc)):
+            self.rerun(fake)
+            out = io.StringIO()
+            with redirect_stdout(out):
+                ci.main(["--since-last"], runner=fake, root=self.root)
+            fake.runs["build.yml"] += [dict(attempt_run(20, 1, conclusion="failure", sha=SHA_OLD, day="2026-11-01"),
+                                            branch=f"ci/{SHA_OLD}")] + \
+                [dict(attempt_run(20 + n, 1 + n, conclusion="cancelled", sha=SHA_OLD, day="2026-11-01"),
+                      branch=f"ci/{SHA_OLD}") for n in range(1, 6)]
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = ci.main(["--since-last"], runner=fake, root=self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("runs/20", out.getvalue())
+
     def test_a_red_candidate_is_repaired_not_rerun(self):
         # The stamp-evidence review, round 4: a red has its verdict; reruns for infrastructure belong to red first.
         fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="failure", sha=SHA_OLD)]})

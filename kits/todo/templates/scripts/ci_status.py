@@ -297,9 +297,12 @@ def since_last(runner, workflows, branch, root):
         tag_runs = set()
         for entry_key, entry in reruns.items():
             if entry_key.endswith(f"|{workflow}") and entry.get("tag"):
+                # The tag's whole history: its runs are few, and none may be skipped.
                 tagged = gh_json(runner, ["run", "list", "--branch", entry["tag"], "--workflow", workflow, "--limit",
-                                          "5", "--json", FIELDS])
+                                          str(LIST_LIMIT), "--json", FIELDS])
                 tagged = tagged if isinstance(tagged, list) else []
+                if len(tagged) >= LIST_LIMIT:
+                    raise Unavailable(f"{entry['tag']} has {LIST_LIMIT} or more runs; the cursor is left where it was")
                 tag_runs |= {str(r.get("databaseId")) for r in tagged}
                 runs += [r for r in tagged if str(r.get("databaseId")) not in {str(x.get("databaseId")) for x in runs}]
         if saved is None:
@@ -426,8 +429,11 @@ def rerun(runner, workflows, branch, commit, root, infrastructure=False):
         runs = sorted((r for r in runs if r.get("headSha") == commit), key=lambda r: str(r.get("createdAt") or ""),
                       reverse=True)
         if not runs:
-            lines.append(f"{workflow}: no run of {commit[:12]}")
-            code = max(code, 1)
+            # No run of its own on the branch (deleted, or never run): the fresh run of the exact commit on its tag.
+            line, more = _fresh_run(runner, workflow, commit, counts, path, infrastructure)
+            lines.append(f"{workflow}: no run of {commit[:12]} on {branch}")
+            lines.append(line)
+            code = max(code, more)
             continue
         run = runs[0]
         key = f"{commit}|{workflow}"

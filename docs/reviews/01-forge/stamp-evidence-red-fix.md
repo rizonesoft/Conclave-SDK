@@ -283,3 +283,38 @@ LENS quality: findings
 LENS optimization: clean
 HIGHEST: P2
 OVERALL: needs-attention
+
+## Round 10: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-17T16:56:57Z
+- Candidate: 026c5ea1b7a07131c4dae8efb9b7819c66536329
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 24
+- Digest: a9065bf319979677
+
+The paired-evidence rule is sound procedurally, but two P2 recovery gaps remain at `026c5ea`.
+
+1. **P2: Recovery-tag failures can go unnoticed.** [ci_status.py:300](D:/Conclave-SDK/kits/todo/templates/scripts/ci_status.py:300) reads only the latest five tag runs. Repeated fresh dispatches can push an unread failure outside that window. An in-memory probe with one failure followed by five cancellations returned exit 0 and omitted the failure. Read tag history through the cursor with pagination, preserving every unreported attempt.
+
+2. **P2: A missing original run prevents recovery.** [ci_status.py:428](D:/Conclave-SDK/kits/todo/templates/scripts/ci_status.py:428) exits before reaching the fresh-run fallback when the candidate has no main-branch run. If that run was deleted, or never existed, repeated calls cannot obtain evidence, even though the exact-commit dispatch mechanism exists. A probe confirmed exit 1 with no dispatch. Consult existing recovery runs and permit fresh exact-commit execution in this case.
+
+On the requested rule questions:
+
+- A section-caused defect can qualify, but its original red must remain cited. “Fixed outside the section” describes the repair’s review route, not the defect’s origin.
+- An unfixed failure does not qualify: the green commit must contain the reviewed repair and preserve the section’s reviewed files and TODO section apart from it. This is a procedural requirement, not automated evidence validation.
+- Idle-queue checks reduce cancellation risk but are not atomic. Unlimited cancellation retries remove the previous retry-cap blockage; finding 2 still leaves a completion gap.
+- All six installed/template stamp paragraphs match. All six red-first paragraphs match, and AGENTS.md agrees.
+- Step 3’s additional infrastructure retry after demonstrated recovery is sound for the stated outage case and explicitly retains failed evidence.
+
+Reviewed pinned files with in-memory probes. No files changed or live workflows started.
+
+LENS adversarial: findings
+LENS integration: findings
+LENS source-defect: findings
+LENS consistency: clean
+LENS quality: findings
+LENS optimization: clean
+HIGHEST: P2
+OVERALL: needs-attention
