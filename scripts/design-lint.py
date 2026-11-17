@@ -89,7 +89,6 @@ DEFAULT_EXCLUDE_PREFIXES = (
     "assets/brand/",
     "assets/icons/",
     "reference/",
-    "resolute_au3/",
     "docs/",
     "todo/",
     "scripts/",
@@ -132,7 +131,8 @@ EMOJI_RE = re.compile(
 
 URL_RE = re.compile(r"https?://[^\s\"'<>`]+")
 ANCHOR_RE = re.compile(r"[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}#[A-Za-z0-9_-]+")
-HEX_STR_RE = re.compile(r"(?<![\w/:.?=&-])#(?:[0-9A-Fa-f]{8}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{3,4})(?![\w-])")
+HEX_STR_RE = re.compile(r"(?<![\w/.-])#(?:[0-9A-Fa-f]{8}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{3,4})(?![\w-])")
+CSS_CUSTOM_PROP_INLINE_RE = re.compile(r"--[A-Za-z0-9_-]+\s*:[^;{}\n]+")
 
 # XAML patterns
 XAML_HEX_ATTR_RE = re.compile(
@@ -312,7 +312,15 @@ def _raise_cfg(msg: str):
     raise ConfigError(msg)
 
 
-def _auto_detect_mode(root: Path) -> str:
+def _auto_detect_mode(root: Path, index_paths: set[str] | None = None) -> str:
+    if index_paths is not None:
+        for marker in STRICT_MARKERS:
+            if marker in index_paths or any(p.startswith(marker + "/") for p in index_paths):
+                return "strict"
+        for marker in THEME_ONLY_MARKERS:
+            if marker in index_paths:
+                return "theme-only"
+        return "off"
     for marker in STRICT_MARKERS:
         if (root / marker).exists():
             return "strict"
@@ -322,10 +330,13 @@ def _auto_detect_mode(root: Path) -> str:
     return "off"
 
 
-def resolve_config(root: Path, staged_texts: dict[str, str] | None = None) -> dict:
+def resolve_config(root: Path, staged: bool = False) -> dict:
     cfg_text: str | None = None
-    if staged_texts is not None and CONFIG_PATH in staged_texts:
-        cfg_text = staged_texts[CONFIG_PATH]
+    index_paths: set[str] | None = None
+    if staged:
+        index_paths = _index_paths(root)
+        if CONFIG_PATH in index_paths:
+            cfg_text = _read_index_text(root, CONFIG_PATH)
     elif (root / CONFIG_PATH).is_file():
         try:
             cfg_text = (root / CONFIG_PATH).read_text(encoding="utf-8")
@@ -337,7 +348,7 @@ def resolve_config(root: Path, staged_texts: dict[str, str] | None = None) -> di
 
     return {
         "schema_version": 1,
-        "mode": _auto_detect_mode(root),
+        "mode": _auto_detect_mode(root, index_paths),
         "contract": "",
         "ui_roots": [],
         "exclude": [],
@@ -471,13 +482,21 @@ def _has_exemption(raw_lines: list[str], lineno: int, rule: str) -> bool:
 
 
 def _has_nonzero_number(expr: str) -> bool:
-    nums = re.findall(r"[-+]?[0-9]+(?:\.[0-9]+)?", expr)
+    nums = re.findall(
+        r"(?<![A-Za-z0-9_$.-])[-+]?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)"
+        r"(?=(?:[fFdDmM]|px|rem|em|pt)?(?:[^A-Za-z0-9_]|$))",
+        expr,
+    )
     return any(float(v) != 0.0 for v in nums)
 
 
 def _mask_urls_and_anchors(line: str) -> str:
     masked = URL_RE.sub(lambda m: " " * len(m.group(0)), line)
     return ANCHOR_RE.sub(lambda m: " " * len(m.group(0)), masked)
+
+
+def _mask_css_custom_props(line: str) -> str:
+    return CSS_CUSTOM_PROP_INLINE_RE.sub(lambda m: " " * len(m.group(0)), line)
 
 
 def lint_content(rel_posix: str, raw_text: str, mode: str) -> list[dict]:
@@ -580,19 +599,20 @@ def lint_content(rel_posix: str, raw_text: str, mode: str) -> list[dict]:
         for idx, line in enumerate(clean_lines, 1):
             if CSS_CUSTOM_PROP_DEF_RE.match(line):
                 continue
-            masked = _mask_urls_and_anchors(line)
+            css_line = _mask_css_custom_props(line)
+            masked = _mask_urls_and_anchors(css_line)
             for m in HEX_STR_RE.finditer(masked):
                 add(idx, "color-literal", f"raw hex color {m.group(0)}")
-            for m in CSS_FUNC_COLOR_RE.finditer(line):
+            for m in CSS_FUNC_COLOR_RE.finditer(css_line):
                 if "var(" not in m.group(1).lower():
                     add(idx, "color-literal", f"raw functional color '{m.group(0)}'")
             if strict:
-                if CSS_FONT_FAMILY_RE.search(line):
+                if CSS_FONT_FAMILY_RE.search(css_line):
                     add(idx, "font-family-literal", "literal font-family instead of var(--...)")
-                m_fs = CSS_FONT_SIZE_RE.search(line)
+                m_fs = CSS_FONT_SIZE_RE.search(css_line)
                 if m_fs and re.search(r"[1-9][0-9.]*\s*(?:px|rem|em|pt)\b", m_fs.group(1), re.I):
                     add(idx, "font-size-literal", f"literal font-size '{m_fs.group(1).strip()}'")
-                for m_sp in CSS_SPACING_PROP_RE.finditer(line):
+                for m_sp in CSS_SPACING_PROP_RE.finditer(css_line):
                     val = re.sub(r"var\([^)]*\)", "", m_sp.group(1))
                     if re.search(r"[1-9][0-9.]*\s*(?:px|rem|em)\b", val, re.I):
                         add(idx, "spacing-radius-literal", f"literal spacing/radius '{m_sp.group(1).strip()}'")
@@ -604,16 +624,17 @@ def lint_content(rel_posix: str, raw_text: str, mode: str) -> list[dict]:
     for idx, line in enumerate(clean_lines, 1):
         if CSS_CUSTOM_PROP_DEF_RE.match(line):
             continue
-        masked = _mask_urls_and_anchors(line)
+        css_line = _mask_css_custom_props(line)
+        masked = _mask_urls_and_anchors(css_line)
         for m in HEX_STR_RE.finditer(masked):
             add(idx, "color-literal", f"raw hex color {m.group(0)}")
         for m in CSS_FUNC_COLOR_RE.finditer(masked):
             if "var(" not in m.group(1).lower():
                 add(idx, "color-literal", f"raw functional color '{m.group(0)}'")
         if strict:
-            if CSS_FONT_FAMILY_RE.search(line) or JS_FONT_FAMILY_RE.search(line):
+            if CSS_FONT_FAMILY_RE.search(css_line) or JS_FONT_FAMILY_RE.search(line):
                 add(idx, "font-family-literal", "literal font-family instead of token")
-            m_cfs = CSS_FONT_SIZE_RE.search(line)
+            m_cfs = CSS_FONT_SIZE_RE.search(css_line)
             if m_cfs and re.search(r"[1-9][0-9.]*\s*(?:px|rem|em|pt)\b", m_cfs.group(1), re.I):
                 add(idx, "font-size-literal", f"literal font-size '{m_cfs.group(1).strip()}'")
             m_jfs = JS_FONT_SIZE_RE.search(line)
@@ -621,7 +642,7 @@ def lint_content(rel_posix: str, raw_text: str, mode: str) -> list[dict]:
                 num = m_jfs.group(1) or m_jfs.group(3)
                 if _has_nonzero_number(num):
                     add(idx, "font-size-literal", f"literal fontSize '{num}'")
-            for m_sp in CSS_SPACING_PROP_RE.finditer(line):
+            for m_sp in CSS_SPACING_PROP_RE.finditer(css_line):
                 val = re.sub(r"var\([^)]*\)", "", m_sp.group(1))
                 if re.search(r"[1-9][0-9.]*\s*(?:px|rem|em)\b", val, re.I):
                     add(idx, "spacing-radius-literal", f"literal spacing/radius '{m_sp.group(1).strip()}'")
@@ -648,18 +669,34 @@ def _git(root: Path, *args: str, binary: bool = False) -> subprocess.CompletedPr
     )
 
 
-def _staged_entries(root: Path) -> dict[str, str]:
+def _index_paths(root: Path) -> set[str]:
+    listed = _git(root, "ls-files", "-z", binary=True)
+    if listed.returncode != 0:
+        raise ConfigError(f"git ls-files failed: {listed.stderr.decode('utf-8', 'replace').strip()}")
+    return {p.decode("utf-8", "replace") for p in listed.stdout.split(b"\x00") if p}
+
+
+def _read_index_text(root: Path, rel: str) -> str:
+    shown = _git(root, "show", f":{rel}", binary=True)
+    if shown.returncode != 0:
+        raise ConfigError(f"cannot read staged :{rel}: {shown.stderr.decode('utf-8', 'replace').strip()}")
+    return shown.stdout.decode("utf-8", "replace")
+
+
+def _staged_ui_entries(root: Path, cfg: dict) -> tuple[list[str], dict[str, str]]:
     listed = _git(root, "diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR", binary=True)
     if listed.returncode != 0:
         raise ConfigError(f"git diff --cached failed: {listed.stderr.decode('utf-8', 'replace').strip()}")
-    rels = [p.decode("utf-8", "replace") for p in listed.stdout.split(b"\x00") if p]
-    blobs: dict[str, str] = {}
-    for rel in rels:
+    changed_rels = [p.decode("utf-8", "replace") for p in listed.stdout.split(b"\x00") if p]
+    targets: dict[str, str] = {}
+    for rel in sorted(changed_rels):
+        if not is_candidate_ui_file(rel, cfg):
+            continue
         shown = _git(root, "show", f":{rel}", binary=True)
         if shown.returncode != 0:
             continue
-        blobs[rel] = shown.stdout.decode("utf-8", "replace")
-    return blobs
+        targets[rel] = shown.stdout.decode("utf-8", "replace")
+    return changed_rels, targets
 
 
 def _parse_baseline(raw_text: str, label: str) -> dict:
@@ -802,8 +839,7 @@ def run(argv: list[str] | None = None) -> int:
 
     root = Path.cwd().resolve()
     try:
-        staged_blobs = _staged_entries(root) if args.staged else None
-        cfg = resolve_config(root, staged_blobs)
+        cfg = resolve_config(root, staged=args.staged)
     except ConfigError as exc:
         print(f"design-lint: {exc}", file=sys.stderr)
         return 2
@@ -815,13 +851,22 @@ def run(argv: list[str] | None = None) -> int:
     baseline_path = root / baseline_rel
 
     try:
-        if staged_blobs is not None and baseline_rel in staged_blobs:
-            baseline_data = _parse_baseline(staged_blobs[baseline_rel], f":{baseline_rel}")
+        if args.staged:
+            index_set = _index_paths(root)
+            baseline_data = _parse_baseline(_read_index_text(root, baseline_rel), f":{baseline_rel}") if baseline_rel in index_set else None
         else:
             baseline_data = _load_baseline_disk(baseline_path)
     except ConfigError as exc:
         print(f"design-lint: {exc}", file=sys.stderr)
         return 2
+
+    changed_rels: list[str] = []
+    if args.staged:
+        try:
+            changed_rels, targets = _staged_ui_entries(root, cfg)
+        except ConfigError as exc:
+            print(f"design-lint: {exc}", file=sys.stderr)
+            return 2
 
     if args.base:
         try:
@@ -834,7 +879,7 @@ def run(argv: list[str] | None = None) -> int:
             for msg in growth_faults:
                 print(msg)
             return 1
-    elif staged_blobs is not None and baseline_rel in staged_blobs:
+    elif args.staged and baseline_rel in changed_rels:
         head_check = _git(root, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
         if head_check.returncode == 0:
             try:
@@ -848,9 +893,7 @@ def run(argv: list[str] | None = None) -> int:
                     print(msg)
                 return 1
 
-    if staged_blobs is not None:
-        targets = {rel: text for rel, text in sorted(staged_blobs.items()) if is_candidate_ui_file(rel, cfg)}
-    else:
+    if not args.staged:
         targets = _gather_worktree_files(root, cfg)
 
     all_findings: list[dict] = []

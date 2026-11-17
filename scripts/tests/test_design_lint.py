@@ -244,7 +244,8 @@ class StackRuleTests(DesignLintHarness):
             ":root {\n"
             "  --brand-blue: #2da4de;\n"
             "  --ink: #0f3247;\n"
-            "}\n",
+            "}\n"
+            ":root { --inline-ink: #123456; }\n",
         )
         self.write(
             "src/ui/good.css",
@@ -261,6 +262,14 @@ class StackRuleTests(DesignLintHarness):
             'export const link1 = "docs/design.md#abcdef";\n'
             'export const link2 = "https://example.com/#123456";\n',
         )
+        self.write(
+            "src/ui/token_identifiers.cs",
+            "var m = new Thickness(Tokens.Space4);\nvar r = new CornerRadius(Tokens.Radius2);\n",
+        )
+        self.write(
+            "src/ui/token_identifiers.cpp",
+            "auto rr = D2D1::RoundedRect(rect, tokens::radius4, tokens::radius4);\n",
+        )
         ok = self.run_lint()
         self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
 
@@ -272,11 +281,13 @@ class StackRuleTests(DesignLintHarness):
             "  font-family: Inter, sans-serif;\n"
             "  font-size: 14px;\n"
             "  padding: 12px;\n"
-            "}\n",
+            "}\n"
+            ".compact{color:#123456;}\n"
+            ":root { --ok: #abcdef; color: #ff0000; }\n",
         )
         bad = self.run_lint()
         self.assertEqual(bad.returncode, 1, bad.stdout + bad.stderr)
-        self.assertEqual(bad.stdout.count(":color-literal:"), 2, bad.stdout)
+        self.assertEqual(bad.stdout.count(":color-literal:"), 4, bad.stdout)
         self.assertIn(":font-family-literal:", bad.stdout)
         self.assertIn(":font-size-literal:", bad.stdout)
         self.assertIn(":spacing-radius-literal:", bad.stdout)
@@ -293,7 +304,7 @@ class ScopingAndExemptionTests(DesignLintHarness):
             "assets/brand/preview.css",
             "assets/icons/icon.css",
             "reference/old.css",
-            "resolute_au3/old.css",
+            "legacy_au3/old.css",
             "tests/ui_test.css",
             "src/tokens/palette.css",
             "Themes/Generic.xaml",
@@ -303,6 +314,7 @@ class ScopingAndExemptionTests(DesignLintHarness):
             "schema_version": 1,
             "mode": "strict",
             "contract": "DESIGN.md",
+            "exclude": ["legacy_au3/"],
             "generated": ["src/ui/generated-theme.css"],
         })
         self.write("src/ui/generated-theme.css", ".x { color: #112233; }\n")
@@ -389,6 +401,22 @@ class BaselineAndStagedTests(DesignLintHarness):
         self.write("src/ui/panel.css", ".a {\n  color: var(--ink);\n  font-size: var(--text-sm);\n}\n")
         staged_still_bad = self.run_lint("--staged")
         self.assertEqual(staged_still_bad.returncode, 1)
+
+        # Unstaged working-tree config/baseline overrides must NEVER bypass --staged
+        self.git("reset", "HEAD", "src/ui/panel.css")
+        self.write_json(".conclave/design-lint.json", {"schema_version": 1, "mode": "strict", "contract": "DESIGN.md"})
+        self.git("add", ".conclave/design-lint.json")
+        self.git("commit", "-qm", "commit config")
+        self.write("src/ui/panel.css", ".a {\n  color: #111111;\n  background: #222222;\n  font-size: 14px;\n}\n")
+        self.git("add", "src/ui/panel.css")
+        self.write_json(".conclave/design-lint.json", {"schema_version": 1, "mode": "off"})
+        self.write_json(".conclave/design-lint-baseline.json", {
+            "schema_version": 1,
+            "counts": {"src/ui/panel.css": {"color-literal": 99, "font-size-literal": 99}},
+            "history": [{"at": "2026-11-17T00:00:00Z", "reason": "unstaged bypass"}],
+        })
+        staged_still_strict = self.run_lint("--staged")
+        self.assertEqual(staged_still_strict.returncode, 1, staged_still_strict.stdout + staged_still_strict.stderr)
 
 
 if __name__ == "__main__":
