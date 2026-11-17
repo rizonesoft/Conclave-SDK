@@ -318,3 +318,36 @@ LENS quality: findings
 LENS optimization: clean
 HIGHEST: P2
 OVERALL: needs-attention
+
+## Round 11: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-17T16:59:40Z
+- Candidate: 118df328b6492601a51ee0884ee873d1cabab880
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 22
+- Digest: 4e522f39d3a31535
+
+The paired-evidence rule is sound procedurally, but the candidate still has a P2 monitoring defect.
+
+**P2: A tracked recovery failure can be silently marked as reported.** [ci_status.py:307](D:/Conclave-SDK/kits/todo/templates/scripts/ci_status.py:307) merges recovery-tag runs into main’s history. On a first read, or after cursor corruption, lines 319-325 mark every completed run older than the newest completion as already reported. If a recovery run fails and a newer main run succeeds, the recovery failure disappears without being printed. An in-memory probe against `118df328` returned exit 0, printed only the green run, and marked both runs reported. Exempt tracked recovery runs from that first-read suppression and add a regression test.
+
+On the requested questions:
+
+- **Section-caused red:** It can qualify, but cannot legitimately be hidden. The original red must be cited. “Fixed outside the section” describes the repair’s review route, not the defect’s origin.
+- **Unfixed failure:** It does not qualify. The green commit must contain the reviewed repair and preserve the section’s reviewed files and TODO section apart from that repair. This is a procedural requirement, not automated evidence validation.
+- **Ability to finish:** Removing the retry cap and adding exact-commit recovery addresses the previous permanent refusals. Idle-queue checks reduce cancellation risk but cannot guarantee progress under continuous queue activity; retries still require an eventual idle opportunity.
+- **Consistency:** All six installed/template stamp paragraphs match, as do all six red-first paragraphs. `AGENTS.md` agrees with both rules; the installed script matches its template.
+- **Infrastructure retry:** Step 3’s additional retry after demonstrated outage recovery is sound and explicitly retains each red as evidence.
+
+Reviewed pinned files with an in-memory probe. No files changed or live workflows started.
+
+LENS adversarial: findings
+LENS integration: findings
+LENS source-defect: findings
+LENS consistency: clean
+LENS quality: findings
+LENS optimization: clean
+HIGHEST: P2
+OVERALL: needs-attention

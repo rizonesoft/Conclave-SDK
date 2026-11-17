@@ -321,7 +321,8 @@ def since_last(runner, workflows, branch, root):
             completed = [r for r in runs if r.get("status") == "completed"]
             start_at = str(completed[-1].get("createdAt") or "") if completed else ""
             for r in completed:
-                if str(r.get("createdAt") or "") < start_at:
+                # Never a recovery tag's run: --rerun started it for evidence, so its verdict is always reported.
+                if str(r.get("createdAt") or "") < start_at and str(r.get("databaseId")) not in tag_runs:
                     reported[str(r.get("databaseId"))] = int(r.get("attempt") or 1)
         new = []
         for run in runs:

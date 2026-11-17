@@ -712,6 +712,18 @@ class Rerun(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("runs/20", out.getvalue())
 
+    def test_a_first_read_never_takes_a_recovery_failure_as_reported(self):
+        # The stamp-evidence review, round 11: a recovery run failed, a newer main run passed, then a first read.
+        fake = PagedGh({"build.yml": [attempt_run(8, 8)]})
+        self.rerun(fake)   # no run of its own: a fresh run on the tag, which notes the tag
+        fake.runs["build.yml"] = [dict(attempt_run(9, 9, conclusion="failure", sha=SHA_OLD), branch=f"ci/{SHA_OLD}"),
+                                  attempt_run(10, 10)]
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = ci.main(["--since-last"], runner=fake, root=self.root)
+        self.assertEqual(code, 1, out.getvalue())
+        self.assertIn("runs/9", out.getvalue())
+
     def test_a_red_candidate_is_repaired_not_rerun(self):
         # The stamp-evidence review, round 4: a red has its verdict; reruns for infrastructure belong to red first.
         fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="failure", sha=SHA_OLD)]})
