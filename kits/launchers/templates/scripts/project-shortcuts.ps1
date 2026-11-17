@@ -49,9 +49,9 @@ if ($Project -match '^\\\\wsl(?:\.localhost|\$)\\([^\\]+)\\?(.*)$') {
 if ($null -ne $linux) {
   $linux = ($linux -replace '/+', '/').TrimEnd('/')
   if (-not $linux) { $linux = '/' }
-  $identity = "wsl:${Distro}:$linux"   # Linux paths keep their case
+  # Linux paths keep their case (/srv/Site and /srv/site are two projects); distro names ignore it.
+  $identity = "wsl:$($Distro.ToLowerInvariant()):$linux"
   $name = Split-Path $linux -Leaf
-  $keyText = $identity
 } else {
   if ($Remove) {
     $Project = [IO.Path]::GetFullPath($Project).TrimEnd('\')   # removal works when the folder is gone
@@ -61,19 +61,19 @@ if ($null -ne $linux) {
     # ProviderPath: .Path keeps PowerShell's provider prefix on some paths, which no other program reads.
     $Project = $found.ProviderPath.TrimEnd('\')
   }
-  $identity = $Project
+  $identity = $Project.ToLowerInvariant()   # Windows paths ignore case
   $name = Split-Path $Project -Leaf
-  $keyText = $Project.ToLowerInvariant()   # Windows paths ignore case
 }
 if (-not $IconDir) { $IconDir = Join-Path $env:LOCALAPPDATA $name }
 $mark = "conclave-launcher: $identity"
 $sha = [System.Security.Cryptography.SHA256]::Create()
-$key = -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($keyText))[0..3] | ForEach-Object { $_.ToString('x2') })
+# Every comparison of an identity below is exact (-ceq): PowerShell's -eq ignores case.
+$key = -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($identity))[0..3] | ForEach-Object { $_.ToString('x2') })
 
 function Get-Owned {
   $shell = New-Object -ComObject WScript.Shell
   Get-ChildItem -LiteralPath $ShortcutDir -Filter '*.lnk' -File -ErrorAction Ignore |
-    Where-Object { $shell.CreateShortcut($_.FullName).Description -eq $mark }
+    Where-Object { $shell.CreateShortcut($_.FullName).Description -ceq $mark }
 }
 
 # --- removal: needs nothing but the identity ----------------------------------------------------------------------
@@ -135,7 +135,7 @@ foreach ($agent in $launch.agents) {
   # A name another project or anything else holds is never written over.
   if (Test-Path -LiteralPath $link) {
     $holder = if (Test-Path -LiteralPath $link -PathType Leaf) { $shell.CreateShortcut($link).Description } else { '' }
-    if ($holder -ne $mark) { Refuse "'$link' is already there and is not this project's link" }
+    if ($holder -cne $mark) { Refuse "'$link' is already there and is not this project's link" }
   }
   $command = if ($launch.skip_permissions) { "$agent $($skipFlags[$agent])" } else { $agent }
   if ($null -ne $linux) {
@@ -188,6 +188,13 @@ try {
   exit 1
 }
 $moved = [System.Collections.Generic.List[object]]::new()   # (destination, backup or null), to put back on a failure
+# A link of this project's that this run does not write (an agent taken out of the profile, an earlier title) goes,
+# with its icon, so the desktop holds exactly what the profile names: moved aside in the same step as the new files.
+$written = @($plan | ForEach-Object { $_.Link }) + @($staged | ForEach-Object { $_.Temp })   # this run's own files
+$kept = @($plan | ForEach-Object { Split-Path $_.Icon -Leaf })
+$stale = @(Get-Owned | Where-Object { $written -cnotcontains $_.FullName } | ForEach-Object { $_.FullName }) +
+         @(Get-ChildItem -LiteralPath $IconDir -Filter "launcher-*-$key.ico" -File -ErrorAction Ignore |
+           Where-Object { $kept -cnotcontains $_.Name } | ForEach-Object { $_.FullName })
 try {
   foreach ($s in $staged) {
     $backup = $null
@@ -200,6 +207,11 @@ try {
     Move-Item -LiteralPath $s.Temp -Destination $s.Dest
     $entry.Placed = $true
   }
+  foreach ($old in $stale) {
+    $backup = "$old.$PID.old"
+    Move-Item -LiteralPath $old -Destination $backup
+    $moved.Add([pscustomobject]@{ Dest = $old; Backup = $backup; Placed = $false })
+  }
 } catch {
   $why = $_.Exception.Message
   $moved.Reverse()
@@ -208,23 +220,10 @@ try {
     if ($m.Backup) { Move-Item -LiteralPath $m.Backup -Destination $m.Dest -Force -ErrorAction Ignore }
   }
   Unstage
-  "project-shortcuts: a link or icon could not be put in place ($why); every earlier link and icon is kept"
+  "project-shortcuts: a link or icon could not be put in place or removed ($why); every earlier link and icon is kept"
   exit 1
 }
 foreach ($m in $moved) { if ($m.Backup) { Remove-Item -LiteralPath $m.Backup -Force -ErrorAction Ignore } }
 foreach ($item in $plan) { "link written: $($item.Link)" }
-
-# A link of this project's that this run did not write (an agent taken out of the profile, an earlier title) goes,
-# with its icon, so the desktop holds exactly what the profile names.
-$written = @($plan | ForEach-Object { $_.Link })
-foreach ($old in @(Get-Owned | Where-Object { $written -notcontains $_.FullName })) {
-  Remove-Item -LiteralPath $old.FullName -Force
-  "removed: $($old.FullName)"
-}
-$kept = @($plan | ForEach-Object { Split-Path $_.Icon -Leaf })
-foreach ($old in @(Get-ChildItem -LiteralPath $IconDir -Filter "launcher-*-$key.ico" -File -ErrorAction Ignore |
-                   Where-Object { $kept -notcontains $_.Name })) {
-  Remove-Item -LiteralPath $old.FullName -Force
-  "removed: $($old.FullName)"
-}
+foreach ($old in $stale) { "removed: $old" }
 exit 0

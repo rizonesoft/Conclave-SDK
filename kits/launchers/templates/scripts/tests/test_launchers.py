@@ -313,6 +313,8 @@ class WindowlessTest(unittest.TestCase):
         value = flags[0]
         if isinstance(value, ast.Call):
             return getattr(value.func, "id", "") == "windowless" or getattr(value.func, "attr", "") == "windowless"
+        if isinstance(value, ast.BinOp) and isinstance(value.op, ast.BitOr):   # NO_WINDOW | SUSPENDED: a job's child
+            return any(isinstance(side, ast.Name) and side.id == "NO_WINDOW" for side in (value.left, value.right))
         return isinstance(value, ast.Name) and value.id == "NO_WINDOW"
 
     def problems(self, text: str, name: str) -> list[str]:
@@ -349,6 +351,9 @@ class WindowlessTest(unittest.TestCase):
                                  ["sample.py:1 starts a process without the no-window flag"])
         self.assertEqual(self.problems("subprocess.run(['x'], creationflags=NO_WINDOW)\n", "ok.py"), [])
         self.assertEqual(self.problems("subprocess.run(['x'], creationflags=windowless())\n", "ok.py"), [])
+        self.assertEqual(self.problems("subprocess.Popen(['x'], creationflags=NO_WINDOW | SUSPENDED)\n", "ok.py"), [])
+        self.assertEqual(self.problems("subprocess.Popen(['x'], creationflags=SUSPENDED | 4)\n", "x.py"),
+                         ["x.py:1 starts a process without the no-window flag"])
 
 
 if __name__ == "__main__":

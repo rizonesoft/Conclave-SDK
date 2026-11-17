@@ -8,6 +8,7 @@ wherever a real bash is.
 from __future__ import annotations
 
 import base64
+import ctypes
 import importlib.util
 import json
 import os
@@ -22,6 +23,64 @@ import unittest
 SCRIPTS = Path(__file__).resolve().parents[1]
 PWSH = shutil.which("pwsh")
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+SUSPENDED = 0x4  # CREATE_SUSPENDED: the child joins its job object before it can start anything
+
+
+class _Limits(ctypes.Structure):
+    _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                ("LimitFlags", ctypes.c_uint32), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", ctypes.c_uint32),
+                ("Affinity", ctypes.c_size_t), ("PriorityClass", ctypes.c_uint32), ("SchedulingClass", ctypes.c_uint32)]
+
+
+class _ExtendedLimits(ctypes.Structure):
+    _fields_ = [("BasicLimitInformation", _Limits), ("IoInfo", ctypes.c_uint64 * 6),
+                ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+
+def run_tree(command, timeout, **kwargs):
+    """subprocess.run that ends the child's whole tree, never only the child: on Windows the child starts suspended
+    inside a job object that kills every process in it when closed, elsewhere in a session of its own whose group is
+    killed. The owner's rule: a child process never outlives its test (an orphaned child filled C: on 2026-11-08)."""
+    stdin = kwargs.pop("input", None)
+    if os.name != "nt":
+        proc = subprocess.Popen(command, start_new_session=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, creationflags=NO_WINDOW, **kwargs)
+        try:
+            out, err = proc.communicate(stdin, timeout=timeout)
+        finally:
+            if proc.poll() is None:
+                os.killpg(proc.pid, 9)
+                proc.wait()
+        return subprocess.CompletedProcess(command, proc.returncode, out, err)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.restype = ctypes.c_void_p
+    kernel32.SetInformationJobObject.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+    kernel32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    kernel32.TerminateJobObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    ntdll = ctypes.WinDLL("ntdll")
+    ntdll.NtResumeProcess.argtypes = [ctypes.c_void_p]
+    job = kernel32.CreateJobObjectW(None, None)
+    limits = _ExtendedLimits()
+    limits.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    kernel32.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits))
+    try:
+        proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, creationflags=NO_WINDOW | SUSPENDED, **kwargs)
+        try:
+            handle = ctypes.c_void_p(int(proc._handle))
+            if not kernel32.AssignProcessToJobObject(job, handle):
+                raise ctypes.WinError(ctypes.get_last_error())
+            ntdll.NtResumeProcess(handle)
+            out, err = proc.communicate(stdin, timeout=timeout)
+        finally:
+            kernel32.TerminateJobObject(job, 1)
+            proc.wait()
+    finally:
+        kernel32.CloseHandle(job)
+    return subprocess.CompletedProcess(command, proc.returncode, out, err)
 CSC = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Microsoft.NET/Framework64/v4.0.30319/csc.exe"
 # The stand-in for wsl.exe: it lists two distros, says whether a folder exists (all do but those in STUB_WSL_MISSING),
 # fails everything with STUB_WSL_FAIL set, and records every call.
@@ -80,8 +139,8 @@ class ProjectShortcutsTest(unittest.TestCase):
         cls.wt_dir = Path(cls._shared.name) / "terminal"
         cls.wt_dir.mkdir()
         (cls.wt_dir / "recorder.cs").write_text(STUB_WT, encoding="utf-8")
-        built = subprocess.run([str(CSC), "/nologo", f"/out:{cls.wt_dir / 'wt.exe'}", str(cls.wt_dir / "recorder.cs")],
-                               capture_output=True, text=True, timeout=120, creationflags=NO_WINDOW)
+        built = run_tree([str(CSC), "/nologo", f"/out:{cls.wt_dir / 'wt.exe'}", str(cls.wt_dir / "recorder.cs")],
+                         timeout=120)
         assert built.returncode == 0, built.stdout + built.stderr
         cls.icon_png = renderer().write_png(64, 64, bytearray(b"\x10\x22\x1a\xff" * 64 * 64))
 
@@ -136,24 +195,21 @@ class ProjectShortcutsTest(unittest.TestCase):
         command = [PWSH, "-NoProfile", "-NonInteractive", "-File", str(project / "scripts/project-shortcuts.ps1"),
                    "-ShortcutDir", str(self.desk), "-IconDir", str(self.icons), "-Wsl", str(self.wsl),
                    "-Python", sys.executable, *args]
-        return subprocess.run(command, capture_output=True, text=True, timeout=300, creationflags=NO_WINDOW,
-                              env=self.env(terminal, **extra))
+        return run_tree(command, timeout=300, env=self.env(terminal, **extra))
 
     def read_link(self, title="Example Site", agent="claude"):
         path = self.desk / f"{title} ({LABELS[agent]}).lnk"
         script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:LINK_PATH); "
                   "@{target = $s.TargetPath; arguments = $s.Arguments; icon = $s.IconLocation; "
                   "description = $s.Description; workdir = $s.WorkingDirectory} | ConvertTo-Json -Compress")
-        done = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True,
-                              text=True, timeout=60, env={**os.environ, "LINK_PATH": str(path)},
-                              creationflags=NO_WINDOW)
+        done = run_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], timeout=60,
+                        env={**os.environ, "LINK_PATH": str(path)})
         return json.loads(done.stdout)
 
     def run_link(self, link, terminal=True, stdin="", **extra):
         """Start the link's target with its arguments, as the shell would, from its working folder."""
-        return subprocess.run(f'"{link["target"]}" {link["arguments"]}', cwd=link["workdir"], input=stdin,
-                              capture_output=True, text=True, timeout=120, creationflags=NO_WINDOW,
-                              env=self.env(terminal, **extra))
+        return run_tree(f'"{link["target"]}" {link["arguments"]}', timeout=120, cwd=link["workdir"], input=stdin,
+                        env=self.env(terminal, **extra))
 
     def terminal_calls(self):
         calls = []
@@ -207,7 +263,7 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(done.returncode, 1, done.stdout)
         self.assertIn("is already there and is not this project's link; nothing was written", done.stdout)
         self.assertEqual((self.desk / "Example Site (Claude).lnk").read_bytes(), before)
-        self.assertEqual(self.read_link()["description"], f"conclave-launcher: {other}")
+        self.assertEqual(self.read_link()["description"], f"conclave-launcher: {str(other).lower()}")
 
     # --- the WSL form -----------------------------------------------------------------------------------------------
 
@@ -218,7 +274,7 @@ class ProjectShortcutsTest(unittest.TestCase):
         link = self.read_link()
         self.assertEqual(Path(link["target"]), self.wt_dir / "wt.exe")
         self.assertEqual(link["workdir"], os.environ["USERPROFILE"])
-        self.assertEqual(link["description"], "conclave-launcher: wsl:Debian:/home/me/site")
+        self.assertEqual(link["description"], "conclave-launcher: wsl:debian:/home/me/site")
         icon = Path(link["icon"].rsplit(",", 1)[0])
         self.assertRegex(icon.name, r"^launcher-claude-[0-9a-f]{8}\.ico$")
         self.assertEqual(icon.parent, self.icons)
@@ -321,9 +377,24 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(self.links(), ["Debian Site (Claude).lnk"])
         self.assertEqual(len(list(self.icons.iterdir())), 1)
         done = self.run_script("-Project", "\\\\wsl$\\Debian\\srv\\site\\", "-Remove")
-        self.assertIn("1 link(s) and 1 icon(s) of wsl:Debian:/srv/site removed", done.stdout)
+        self.assertIn("1 link(s) and 1 icon(s) of wsl:debian:/srv/site removed", done.stdout)
         self.assertEqual(self.links(), [])
         self.assertEqual(list(self.icons.iterdir()), [])
+
+    def test_two_linux_paths_that_differ_in_case_are_two_projects(self):
+        # Round 1 P1: PowerShell's -eq ignored case, so /srv/Site pruned and removed /srv/site's links.
+        upper = self.make_project("upper", dict(PROFILE, title="Upper Site"))
+        self.assertEqual(self.run_script("-Project", "/srv/site", "-Distro", "Ubuntu").returncode, 0)
+        done = self.run_script("-Project", "/srv/Site", "-Distro", "ubuntu", project=upper)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.links(), ["Example Site (Claude).lnk", "Upper Site (Claude).lnk"])
+        gone = self.run_script("-Project", "/srv/Site", "-Distro", "Ubuntu", "-Remove", project=upper)
+        self.assertIn("1 link(s) and 1 icon(s)", gone.stdout)
+        self.assertEqual(self.links(), ["Example Site (Claude).lnk"])
+        same = self.make_project("same", PROFILE)   # the same title as /srv/site's, in another case
+        refused = self.run_script("-Project", "/srv/SITE", "-Distro", "Ubuntu", project=same)
+        self.assertEqual(refused.returncode, 1, refused.stdout)
+        self.assertIn("is not this project's link", refused.stdout)
 
     def test_remove_takes_this_projects_links_and_icons_and_nothing_else(self):
         other = self.make_project("other-site", dict(PROFILE, title="Other Site"))
@@ -331,11 +402,10 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(self.run_script(project=other).returncode, 0)
         campaign = self.desk / "My Site's Claude campaign.lnk"
         shutil.copyfile(self.desk / "Example Site (Claude).lnk", campaign)
-        subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command",
+        run_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command",
                         "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:LINK_PATH); "
                         "$s.Description = 'conclave-unattended: ' + $env:PROJECT; $s.Save()"],
-                       env={**os.environ, "LINK_PATH": str(campaign), "PROJECT": str(self.project)},
-                       capture_output=True, timeout=60, creationflags=NO_WINDOW)
+                       env={**os.environ, "LINK_PATH": str(campaign), "PROJECT": str(self.project)}, timeout=60)
         count = len(list(self.icons.iterdir()))
         done = self.run_script("-Remove")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
@@ -385,6 +455,14 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertIn("could not be put in place", done.stdout)
         self.assertEqual({p.name: p.read_bytes() for p in [*self.desk.iterdir(), *self.icons.iterdir()]}, before)
         self.assertEqual(self.leftovers(), [])
+        # A stale link that cannot be removed (round 1 P2): the new links are put back with the rest.
+        self.write_profile(self.project, dict(PROFILE, title="Renamed Site"))
+        with open(self.desk / "Example Site (Codex).lnk", "rb"):
+            done = self.run_script()
+        self.assertEqual(done.returncode, 1, done.stdout)
+        self.assertIn("could not be put in place or removed", done.stdout)
+        self.assertEqual({p.name: p.read_bytes() for p in [*self.desk.iterdir(), *self.icons.iterdir()]}, before)
+        self.assertEqual(self.leftovers(), [])
 
 
 def find_bash():
@@ -415,9 +493,8 @@ class InteractiveShellTest(unittest.TestCase):
                                            "conclave_wrapper() { echo wrapped; }\n", encoding="utf-8", newline="\n")
 
     def bash(self, flags, command, stdin=""):
-        return subprocess.run([BASH, flags, command], input=stdin, capture_output=True, text=True, timeout=60,
-                              cwd=self.home, creationflags=NO_WINDOW,
-                              env={**os.environ, "HOME": str(self.home), "BASH_ENV": ""})
+        return run_tree([BASH, flags, command], timeout=60, input=stdin, cwd=self.home,
+                        env={**os.environ, "HOME": str(self.home), "BASH_ENV": ""})
 
     def test_the_wrapper_is_reached_by_an_interactive_login_shell_only(self):
         self.assertIn("wrapped", self.bash("-lic", "conclave_wrapper").stdout)
