@@ -579,59 +579,6 @@ class Rerun(unittest.TestCase):
             code = ci.main(["--rerun", commit, *flags], runner=fake, root=self.root)
         return code, out.getvalue()
 
-    def test_a_run_past_the_rerun_window_gets_a_fresh_run_on_a_tag(self):
-        # The stamp-evidence review, round 6: GitHub reruns a run only within 30 days of it.
-        from datetime import datetime, timezone
-        fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD, day="2026-09-01")]})
-        with unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 17, tzinfo=timezone.utc)):
-            code, said = self.rerun(fake)
-        self.assertEqual((code, fake.reruns()), (0, []))
-        self.assertIn(["api", "repos/{owner}/{repo}/git/refs", "-f", f"ref=refs/tags/ci/{SHA_OLD}", "-f",
-                       f"sha={SHA_OLD}"], fake.calls)
-        self.assertIn(["workflow", "run", "build.yml", "--ref", f"ci/{SHA_OLD}"], fake.calls)
-        self.assertIn("past GitHub's rerun window", said)
-
-    def test_the_fresh_run_on_the_tag_is_reused_never_dispatched_twice(self):
-        # The stamp-evidence review, round 7: a second dispatch would cancel the first on a non-main ref.
-        from datetime import datetime, timezone
-        old = attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD, day="2026-09-01")
-        fake = PagedGh({"build.yml": [old, dict(attempt_run(9, 9, status="in_progress", sha=SHA_OLD), branch=f"ci/{SHA_OLD}")]})
-        with unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 17, tzinfo=timezone.utc)):
-            code, said = self.rerun(fake)
-            self.assertNotIn(["workflow", "run", "build.yml", "--ref", f"ci/{SHA_OLD}"], fake.calls)
-            self.assertIn("is running", said)
-            fake.runs["build.yml"][1] = dict(attempt_run(9, 9, conclusion="failure", sha=SHA_OLD), branch=f"ci/{SHA_OLD}")
-            code, said = self.rerun(fake)
-        self.assertEqual(code, 1)
-        self.assertIn("is red", said)
-        self.assertNotIn(["workflow", "run", "build.yml", "--ref", f"ci/{SHA_OLD}"], fake.calls)
-
-    def test_a_tag_that_points_elsewhere_is_not_used(self):
-        from datetime import datetime, timezone
-        fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD, day="2026-09-01")]})
-        fake.tag_at = SHA_NEW
-        with unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 17, tzinfo=timezone.utc)):
-            code, said = self.rerun(fake)
-        self.assertEqual(code, 1)
-        self.assertIn("not used", said)
-        self.assertNotIn(["workflow", "run", "build.yml", "--ref", f"ci/{SHA_OLD}"], fake.calls)
-
-    def test_since_last_reports_the_fresh_run_on_the_tag(self):
-        from datetime import datetime, timezone
-        fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD, day="2026-09-01")]})
-        with unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 17, tzinfo=timezone.utc)):
-            self.rerun(fake)
-            out = io.StringIO()
-            with redirect_stdout(out):
-                ci.main(["--since-last"], runner=fake, root=self.root)
-            fake.runs["build.yml"].append(dict(attempt_run(9, 9, conclusion="failure", sha=SHA_OLD, day="2026-11-16"),
-                                               branch=f"ci/{SHA_OLD}"))
-            out = io.StringIO()
-            with redirect_stdout(out):
-                code = ci.main(["--since-last"], runner=fake, root=self.root)
-        self.assertEqual(code, 1)
-        self.assertIn("red at aaaaaaaaaaaa https://github.com/o/r/actions/runs/9", out.getvalue())
-
     def test_an_infrastructure_red_is_rerun_or_run_afresh(self):
         # The stamp-evidence review, round 8: the red-first rule's infrastructure rerun, inside and past the window.
         from datetime import datetime, timezone
@@ -639,115 +586,12 @@ class Rerun(unittest.TestCase):
         code, said = self.rerun(fake, "--infrastructure")
         self.assertEqual(code, 0, said)
         self.assertIn(["run", "rerun", "7", "--failed"], fake.calls)
-        old = PagedGh({"build.yml": [attempt_run(8, 8, conclusion="failure", sha=SHA_OLD, day="2026-09-01")]})
-        with unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 17, tzinfo=timezone.utc)):
-            code, said = self.rerun(old, "--infrastructure")
-        self.assertIn(["workflow", "run", "build.yml", "--ref", f"ci/{SHA_OLD}"], old.calls)
 
-    def test_a_rerun_github_refuses_gets_a_fresh_run_and_the_tag_is_noted_first(self):
-        # The tag is noted before the dispatch: here the next workflow's query fails after the dispatch, and the
-        # process ends without its closing write.
-        workspace(self.root, workflows=("build.yml", "plan.yml"))
-        fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD)]}, rerun_code=1)
-        fake.fail_workflows = {"plan.yml"}
-        out = io.StringIO()
-        with redirect_stdout(out):
-            code = ci.main(["--rerun", SHA_OLD], runner=fake, root=self.root)
-        self.assertEqual(code, 3)
-        self.assertIn(["workflow", "run", "build.yml", "--ref", f"ci/{SHA_OLD}"], fake.calls)
-        state = json.loads((self.root / ci.RERUNS).read_text(encoding="utf-8"))
-        self.assertEqual(state[f"{SHA_OLD}|build.yml"]["tag"], f"ci/{SHA_OLD}")
-
-    def test_an_infrastructure_red_on_the_tag_is_rerun_there(self):
-        # The stamp-evidence review, round 9: the fresh run itself fails in an outage, and is rerun after it clears.
-        from datetime import datetime, timezone
-        fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD, day="2026-09-01"),
-                                      dict(attempt_run(9, 9, conclusion="failure", sha=SHA_OLD, day="2026-11-16"),
-                                           branch=f"ci/{SHA_OLD}")]})
-        with unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 17, tzinfo=timezone.utc)):
-            code, said = self.rerun(fake, "--infrastructure")
-        self.assertEqual(code, 0, said)
-        self.assertIn(["run", "rerun", "9", "--failed"], fake.calls)
-
-    def test_a_red_on_the_tag_is_reported_once_whatever_its_age(self):
-        from datetime import datetime, timezone
-        fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD, day="2026-09-01")]})
-        with unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 1, tzinfo=timezone.utc)):
-            self.rerun(fake)
-        fake.runs["build.yml"].append(dict(attempt_run(9, 9, conclusion="failure", sha=SHA_OLD, day="2026-11-02"),
-                                           branch=f"ci/{SHA_OLD}"))
-        codes = []
-        # The last two reads are more than 35 days after the run on the tag: its record must be kept all the same.
-        for when in (datetime(2026, 11, 3, tzinfo=timezone.utc), datetime(2026, 11, 20, tzinfo=timezone.utc),
-                     datetime(2026, 12, 28, tzinfo=timezone.utc), datetime(2026, 12, 29, tzinfo=timezone.utc)):
-            with unittest.mock.patch.object(ci, "_now", return_value=when):
-                out = io.StringIO()
-                with redirect_stdout(out):
-                    codes.append(ci.main(["--since-last"], runner=fake, root=self.root))
-        self.assertEqual(codes, [1, 0, 0, 0], "the tag's red is reported once")
-
-    def test_a_candidate_with_no_run_of_its_own_gets_a_fresh_run(self):
-        # The stamp-evidence review, round 10: the original run was deleted, or never ran.
+    def test_a_candidate_with_no_run_of_its_own_is_written_as_open(self):
         fake = PagedGh({"build.yml": [attempt_run(8, 8)]})
         code, said = self.rerun(fake)
-        self.assertEqual(code, 0, said)
-        self.assertIn(["workflow", "run", "build.yml", "--ref", f"ci/{SHA_OLD}"], fake.calls)
-
-    def test_every_run_on_the_tag_is_read_however_many(self):
-        # Round 10: one failure followed by five cancelled fresh runs.
-        from datetime import datetime, timezone
-        fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD, day="2026-09-01")]})
-        with unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 1, tzinfo=timezone.utc)):
-            self.rerun(fake)
-            out = io.StringIO()
-            with redirect_stdout(out):
-                ci.main(["--since-last"], runner=fake, root=self.root)
-            fake.runs["build.yml"] += [dict(attempt_run(20, 1, conclusion="failure", sha=SHA_OLD, day="2026-11-01"),
-                                            branch=f"ci/{SHA_OLD}")] + \
-                [dict(attempt_run(20 + n, 1 + n, conclusion="cancelled", sha=SHA_OLD, day="2026-11-01"),
-                      branch=f"ci/{SHA_OLD}") for n in range(1, 6)]
-            out = io.StringIO()
-            with redirect_stdout(out):
-                code = ci.main(["--since-last"], runner=fake, root=self.root)
-        self.assertEqual(code, 1)
-        self.assertIn("runs/20", out.getvalue())
-
-    def test_a_first_read_never_takes_a_recovery_failure_as_reported(self):
-        # The stamp-evidence review, round 11: a recovery run failed, a newer main run passed, then a first read.
-        fake = PagedGh({"build.yml": [attempt_run(8, 8)]})
-        self.rerun(fake)   # no run of its own: a fresh run on the tag, which notes the tag
-        fake.runs["build.yml"] = [dict(attempt_run(9, 9, conclusion="failure", sha=SHA_OLD), branch=f"ci/{SHA_OLD}"),
-                                  attempt_run(10, 10)]
-        out = io.StringIO()
-        with redirect_stdout(out):
-            code = ci.main(["--since-last"], runner=fake, root=self.root)
-        self.assertEqual(code, 1, out.getvalue())
-        self.assertIn("runs/9", out.getvalue())
-
-    def test_an_unreadable_recovery_registry_is_an_unknown_state(self):
-        # The stamp-evidence review, round 12.
-        fake = PagedGh({"build.yml": [attempt_run(8, 8)]})
-        out = io.StringIO()
-        with redirect_stdout(out):
-            ci.main(["--since-last"], runner=fake, root=self.root)
-        before = (self.root / ci.CURSOR).read_bytes()
-        (self.root / ci.RERUNS).write_text("{broken", encoding="utf-8")
-        out = io.StringIO()
-        with redirect_stdout(out):
-            code = ci.main(["--since-last"], runner=fake, root=self.root)
-        self.assertEqual(code, 3)
-        self.assertIn("recovery runs it lists cannot be read", out.getvalue())
-        self.assertEqual((self.root / ci.CURSOR).read_bytes(), before)
-
-    def test_rerun_leaves_an_unreadable_registry_as_it_is(self):
-        # The stamp-evidence review, round 13.
-        (self.root / ci.RERUNS).parent.mkdir(parents=True, exist_ok=True)
-        (self.root / ci.RERUNS).write_text("{broken", encoding="utf-8")
-        fake = PagedGh({"build.yml": [attempt_run(7, 7, sha=SHA_OLD)]})
-        code, said = self.rerun(fake)
-        self.assertEqual(code, 3)
-        self.assertIn("left as it is", said)
-        self.assertEqual((self.root / ci.RERUNS).read_text(encoding="utf-8"), "{broken")
+        self.assertEqual((code, fake.reruns()), (1, []))
+        self.assertIn("write it in the run file as open", said)
 
     def test_a_red_candidate_is_repaired_not_rerun(self):
         # The stamp-evidence review, round 4: a red has its verdict; reruns for infrastructure belong to red first.
@@ -761,7 +605,7 @@ class Rerun(unittest.TestCase):
         for _ in range(5):
             code, said = self.rerun(fake)
             self.assertEqual(code, 0, said)
-            self.assertIn(", a run a push cancelled", said)
+            self.assertIn("(a run a push cancelled)", said)
             run = fake.runs["build.yml"][0]
             fake.runs["build.yml"][0] = attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD, attempt=run["attempt"] + 1)
         self.assertEqual(len(fake.reruns()), 5)
@@ -795,15 +639,14 @@ class Rerun(unittest.TestCase):
         fake.runs["build.yml"][1] = attempt_run(8, 2)
         code, said = self.rerun(fake)
         self.assertEqual((code, fake.reruns()), (0, ["7"]))
-        self.assertIn("rerun 1, a run a push cancelled", said)
+        self.assertIn("(a run a push cancelled)", said)
 
     def test_a_green_or_running_candidate_is_left_and_a_refused_rerun_is_reported(self):
         self.assertIn("nothing to rerun", self.rerun(PagedGh({"build.yml": [attempt_run(7, 7, sha=SHA_OLD)]}))[1])
         refused = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD)]}, rerun_code=1)
         code, said = self.rerun(refused)
-        self.assertEqual(code, 0, said)   # a rerun GitHub refuses gets a fresh run of the commit instead
-        self.assertIn("was refused (the run cannot be rerun); a fresh run of the commit instead", said)
-        self.assertIn(["workflow", "run", "build.yml", "--ref", f"ci/{SHA_OLD}"], refused.calls)
+        self.assertEqual(code, 1, said)   # GitHub's refusal is said, and the candidate is written as open
+        self.assertIn("was refused (the run cannot be rerun); write aaaaaaaaaaaa in the run file as open", said)
 
     def test_a_short_commit_is_a_usage_error(self):
         with self.assertRaises(SystemExit), redirect_stdout(io.StringIO()), \

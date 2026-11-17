@@ -29,14 +29,11 @@ and everything after it. The process-phase skill reads it after every push; noth
 commit or a push.
 
 `--rerun <commit>` reruns, with `gh run rerun`, the latest run of each watched workflow on that commit when a newer
-push cancelled it, so a stamp candidate gets a verdict of its own; the reruns are noted per commit in
-`build/ci-status-reruns.json`. It reruns only when GitHub lists no run of the workflow on the branch queued or running
-(a busy queue is exit 5: try again at the next boundary), and a rerun dropped all the same is started again, as often
-as that happens. Where GitHub will not rerun it (past its 30-day window, its rerun limit,
-or a refusal) the commit gets a fresh run on a tag `ci/<commit>` made through the API (its exact tree), the tag noted
-before the dispatch so --since-last reads that run; a run already on the tag is reused, and a tag that points
-elsewhere is not used. A red run is rerun only with `--infrastructure` (the red-first rule's infrastructure rerun);
-otherwise it has its verdict and is repaired (exit 1). Evidence never moves to another commit.
+push cancelled it (or, with `--infrastructure`, when it is red from an infrastructure failure: the red-first rule's
+rerun), only when GitHub lists nothing of the workflow on the branch queued or running (a busy queue is exit 5: try
+again at the next boundary). Where GitHub will not rerun it (older than its 30-day window, or its rerun limit) it
+says so (exit 1) and the candidate is written in the run file as open, for the operator; evidence never moves to
+another commit.
 
 Exit 0: no watched workflow is red. Exit 1: at least one is red (the workflow, the commit, the run's URL and its
 failed jobs are printed). Exit 2: bad usage. Exit 3: `gh` is missing, not authenticated, or failed, so the state is
@@ -56,12 +53,10 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = Path(".conclave") / "ci.json"
 FIELDS = "databaseId,headSha,status,conclusion,url,createdAt,event,attempt"
 CURSOR = Path("build") / "ci-status-cursor.json"
-RERUNS = Path("build") / "ci-status-reruns.json"
 PAGES = (10,)   # a first read's newest runs
 # A run can still change after a read when it was created at most this long before it: GitHub reruns a run only
 # within 30 days of its creation, and a run lasts at most 35 days.
 REACH_DAYS = 35
-RERUN_WINDOW_DAYS = 29   # a day inside GitHub's 30, so a rerun is never refused for its age
 LIST_LIMIT = 1000   # runs per `gh run list` call; a fuller date range is split until each fits
 SINCE_PAGES = (10, 50, 200)   # the pages tried before a full list
 LIMIT = 10
@@ -292,23 +287,6 @@ def since_last(runner, workflows, branch, root):
         read_at = (when("read_at") if saved else None) or horizon or now
         first = min(horizon or read_at, min(read_at, now) - timedelta(days=REACH_DAYS)).replace(microsecond=0)
         runs = list_created(runner, workflow, branch, first, now.replace(microsecond=0))
-        # The fresh runs --rerun started on a recovery tag, read beside the branch's own.
-        reruns, broken = _load_state(Path(root) / RERUNS)
-        if broken:
-            # Without it the recovery tags cannot be found: an unknown state, never a quiet green.
-            raise Unavailable(f"{broken.split(';')[0]}; the recovery runs it lists cannot be read, so the cursor is left "
-                              f"where it was (repair or remove the file)")
-        tag_runs = set()
-        for entry_key, entry in reruns.items():
-            if entry_key.endswith(f"|{workflow}") and entry.get("tag"):
-                # The tag's whole history: its runs are few, and none may be skipped.
-                tagged = gh_json(runner, ["run", "list", "--branch", entry["tag"], "--workflow", workflow, "--limit",
-                                          str(LIST_LIMIT), "--json", FIELDS])
-                tagged = tagged if isinstance(tagged, list) else []
-                if len(tagged) >= LIST_LIMIT:
-                    raise Unavailable(f"{entry['tag']} has {LIST_LIMIT} or more runs; the cursor is left where it was")
-                tag_runs |= {str(r.get("databaseId")) for r in tagged}
-                runs += [r for r in tagged if str(r.get("databaseId")) not in {str(x.get("databaseId")) for x in runs}]
         if saved is None:
             # A first read (or one after an unreadable state) also takes the newest runs wherever they are, so a
             # repository idle for longer than the reach still reports its latest verdict.
@@ -325,8 +303,7 @@ def since_last(runner, workflows, branch, root):
             completed = [r for r in runs if r.get("status") == "completed"]
             start_at = str(completed[-1].get("createdAt") or "") if completed else ""
             for r in completed:
-                # Never a recovery tag's run: --rerun started it for evidence, so its verdict is always reported.
-                if str(r.get("createdAt") or "") < start_at and str(r.get("databaseId")) not in tag_runs:
+                if str(r.get("createdAt") or "") < start_at:
                     reported[str(r.get("databaseId"))] = int(r.get("attempt") or 1)
         new = []
         for run in runs:
@@ -352,8 +329,7 @@ def since_last(runner, workflows, branch, root):
                 reported[run_id] = n
         # Kept for every run the next read can list (created up to REACH_DAYS before this read).
         keep_from = (now - timedelta(days=REACH_DAYS)).strftime("%Y-%m-%d")
-        # And every run on a recovery tag, read whatever its age, so its attempts are never reported twice.
-        kept = {str(r.get("databaseId")) for r in runs if str(r.get("createdAt") or "")[:10] >= keep_from} | tag_runs
+        kept = {str(r.get("databaseId")) for r in runs if str(r.get("createdAt") or "")[:10] >= keep_from}
         unfinished = [str(r.get("createdAt") or "") for r in runs if r.get("status") != "completed"]
         new_state[key] = {"read_at": now.strftime(STAMP), "horizon": min(unfinished) if unfinished else now.strftime(STAMP),
                           "reported": {k: v for k, v in sorted(reported.items()) if k in kept}}
@@ -380,52 +356,11 @@ def describe_since(report):
     return lines
 
 
-def _fresh_run(runner, workflow, commit, counts, path, infrastructure=False):
-    """A fresh run of the commit, dispatched on a tag `ci/<commit>` pointing at it: the commit's exact tree, for when
-    GitHub will not rerun its run (past the 30-day window, or its rerun limit reached). The tag is noted in the state
-    before anything is dispatched, so --since-last reads its runs even if this process stops right after. A run already
-    on the tag is reused (a second dispatch would cancel it); a tag already there is used only when it points at the
-    commit. Returns (line, exit code)."""
-    tag = f"ci/{commit}"
-    key = f"{commit}|{workflow}"
-    counts[key] = {**counts.get(key, {}), "tag": tag}
-    _write_atomic(path, counts)
-    on_tag = gh_json(runner, ["run", "list", "--branch", tag, "--workflow", workflow, "--limit", "5", "--json", FIELDS])
-    on_tag = sorted((r for r in (on_tag if isinstance(on_tag, list) else []) if r.get("headSha") == commit),
-                    key=lambda r: str(r.get("createdAt") or ""), reverse=True)
-    if on_tag and (on_tag[0].get("status") != "completed" or verdict_of(on_tag[0]) in ("green", "red")):
-        state = verdict_of(on_tag[0]) if on_tag[0].get("status") == "completed" else "running"
-        if not (state == "red" and infrastructure):
-            return f"{workflow}: {commit[:12]}'s fresh run on {tag} is {state} ({on_tag[0].get('url')})", \
-                (1 if state == "red" else 0)
-        # The red-first rule's infrastructure rerun, of the fresh run itself; its red attempt stays on record.
-        again, out, err = runner(["run", "rerun", str(on_tag[0].get("databaseId")), "--failed"])
-        if again == 0:
-            return f"{workflow}: reran {commit[:12]}'s fresh run on {tag} ({on_tag[0].get('url')}), an infrastructure red", 0
-    made, out, err = runner(["api", "repos/{owner}/{repo}/git/refs", "-f", f"ref=refs/tags/{tag}", "-f", f"sha={commit}"])
-    if made != 0:
-        ref = gh_json(runner, ["api", f"repos/{{owner}}/{{repo}}/git/ref/tags/{tag}"])
-        target = ref.get("object", {}).get("sha") if isinstance(ref, dict) else None
-        if target != commit:
-            return f"{workflow}: the tag {tag} points at {str(target)[:12]}, not {commit[:12]}; not used", 1
-    done, out, err = runner(["workflow", "run", workflow, "--ref", tag])
-    if done != 0:
-        reason = (err or out or "").strip().splitlines()
-        return (f"{workflow}: gh workflow run on {tag} was refused: "
-                f"{(reason[0] if reason else 'no output')[:MAX_MESSAGE]}", 1)
-    return f"{workflow}: started a fresh run of {commit[:12]} on the tag {tag}, which --since-last reports", 0
-
-
-def rerun(runner, workflows, branch, commit, root, infrastructure=False):
+def rerun(runner, workflows, branch, commit, infrastructure=False):
     """Rerun the candidate's own latest run per workflow when a push cancelled it, or, with `infrastructure`, when it
-    is red from an infrastructure failure (the red-first rule's rerun). On an idle queue only; where GitHub will not
-    rerun it (past the 30-day window, its rerun limit, or a refusal), a fresh run of the same commit on a tag. A red run
-    without `infrastructure` is not rerun: it has its verdict and is repaired red first. Returns (lines, exit code)."""
-    path = Path(root) / RERUNS
-    counts, note = _load_state(path)
-    if note:
-        # It lists the recovery tags --since-last reads: never replaced while it cannot be read.
-        raise Unavailable(f"{note.split(';')[0]}; it is left as it is, and nothing is rerun (repair or remove the file)")
+    is red from an infrastructure failure (the red-first rule's rerun), with `gh run rerun`, only when nothing of the
+    workflow on the branch is queued or running. Where GitHub will not rerun it (older than its 30-day window, or its
+    rerun limit), it says so and the candidate is written in the run file as open. Returns (lines, exit code)."""
     lines = []
     code = 0
     for workflow in workflows:
@@ -437,26 +372,20 @@ def rerun(runner, workflows, branch, commit, root, infrastructure=False):
         runs = sorted((r for r in runs if r.get("headSha") == commit), key=lambda r: str(r.get("createdAt") or ""),
                       reverse=True)
         if not runs:
-            # No run of its own on the branch (deleted, or never run): the fresh run of the exact commit on its tag.
-            line, more = _fresh_run(runner, workflow, commit, counts, path, infrastructure)
-            lines.append(f"{workflow}: no run of {commit[:12]} on {branch}")
-            lines.append(line)
-            code = max(code, more)
+            lines.append(f"{workflow}: no run of {commit[:12]} on {branch}; write it in the run file as open")
+            code = max(code, 1)
             continue
         run = runs[0]
-        key = f"{commit}|{workflow}"
         state = verdict_of(run) if run.get("status") == "completed" else "running"
         if state in ("green", "running"):
             lines.append(f"{workflow}: {commit[:12]} is {state} ({run.get('url')}); nothing to rerun")
             continue
         if state == "red" and not infrastructure:
             lines.append(f"{workflow}: {commit[:12]} is red ({run.get('url')}); repair it red first (process-phase "
-                         f"step 3; an infrastructure failure is rerun with --rerun {commit[:12]}... --infrastructure)")
+                         f"step 3; an infrastructure failure is rerun with --rerun <commit> --infrastructure)")
             code = max(code, 1)
             continue
-        # Only on an idle queue (nothing of the workflow on the branch queued, waiting or running, asked of GitHub by
-        # status): a rerun queued behind another run is the one a push drops; one dropped all the same is started
-        # again, as often as that happens.
+        # Only on an idle queue (asked of GitHub by status): a rerun queued behind another run is the one a push drops.
         busy = []
         for status in ("queued", "waiting", "pending", "requested", "in_progress"):
             listed = gh_json(runner, ["run", "list", "--branch", branch, "--workflow", workflow, "--status", status,
@@ -467,29 +396,16 @@ def rerun(runner, workflows, branch, commit, root, infrastructure=False):
                          f"{commit[:12]} when the queue is idle")
             code = max(code, 5)
             continue
-        created = str(run.get("createdAt") or "")
-        if created and created < (_now() - timedelta(days=RERUN_WINDOW_DAYS)).strftime(STAMP):
-            line, more = _fresh_run(runner, workflow, commit, counts, path, infrastructure)
-            lines.append(f"{workflow}: {commit[:12]}'s run ({run.get('url')}) is past GitHub's rerun window")
-            lines.append(line)
-            code = max(code, more)
-            continue
-        result, out, err = runner(["run", "rerun", str(run.get("databaseId")),
-                                   *(["--failed"] if state == "red" else [])])
+        result, out, err = runner(["run", "rerun", str(run.get("databaseId")), *(["--failed"] if state == "red" else [])])
         if result != 0:
             reason = (err or out or "").strip().splitlines()
             lines.append(f"{workflow}: gh run rerun {run.get('databaseId')} was refused "
-                         f"({(reason[0] if reason else 'no output')[:MAX_MESSAGE]}); a fresh run of the commit instead")
-            line, more = _fresh_run(runner, workflow, commit, counts, path, infrastructure)
-            lines.append(line)
-            code = max(code, more)
+                         f"({(reason[0] if reason else 'no output')[:MAX_MESSAGE]}); write {commit[:12]} in the run "
+                         f"file as open")
+            code = max(code, 1)
             continue
-        entry = dict(counts.get(key, {}))
-        entry.update({"run": run.get("databaseId"), "reruns": int(entry.get("reruns", 0)) + 1})
-        counts[key] = entry
         why = "an infrastructure red" if state == "red" else "a run a push cancelled"
-        lines.append(f"{workflow}: reran {run.get('url')} on {commit[:12]} (rerun {entry['reruns']}, {why})")
-    _write_atomic(path, counts)
+        lines.append(f"{workflow}: reran {run.get('url')} on {commit[:12]} ({why})")
     return lines, code
 
 
@@ -520,7 +436,7 @@ def main(argv=None, runner=run_gh, root=ROOT):
         parser.error("--rerun takes a full 40-character commit")
     try:
         if args.rerun is not None:
-            lines, code = rerun(runner, workflows, args.branch, args.rerun, root, args.infrastructure)
+            lines, code = rerun(runner, workflows, args.branch, args.rerun, args.infrastructure)
             print("\n".join(lines))
             return code
         if args.since_last:

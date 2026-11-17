@@ -417,3 +417,40 @@ LENS quality: findings
 LENS optimization: clean
 HIGHEST: P2
 OVERALL: needs-attention
+
+## Round 14: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-17T17:07:13Z
+- Candidate: b72013431b2a9b0afe35bbe2708926e8ebb6687a
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 22
+- Digest: 34092b64f591784d
+
+The stamp rule is sound procedurally, but recovery still has one P2 monitoring defect.
+
+**P2: Concurrent reruns can erase a recovery run’s monitoring record.** [ci_status.py:492](D:/Conclave-SDK/kits/todo/templates/scripts/ci_status.py:492) writes the caller’s stale registry snapshot. If another invocation registers and dispatches a recovery run in between, this closing write removes its entry. `--since-last` then cannot discover that tag’s failure. An in-memory interleaving against `b720134` dispatched two recovery runs, returned exit 0, and retained only one monitoring record. Atomic replacement prevents partial writes, not lost updates. Serialize registry read-modify-write operations or store recovery registrations independently, with a regression test.
+
+On the requested questions:
+
+- **Section-caused red:** It cannot legitimately be hidden. The original red must be cited. “Fixed outside the section” describes the repair’s review route, not the defect’s origin.
+- **Unfixed failure:** It does not qualify. The green commit must contain the reviewed repair and preserve the section’s reviewed files and TODO section apart from that repair. An unrelated green tip is insufficient.
+- **Ability to finish:** The exception removes the closed-review-chain deadlock. Cancellation retries no longer exhaust a fixed allowance. Idle-queue recovery still requires an eventual idle opportunity and another invocation; continuous activity can starve it.
+- **Consistency:** The relevant paragraphs match across all three agents’ templates and installed copies. `AGENTS.md` agrees. The installed script matches its template.
+- **Infrastructure retry:** The additional retry after demonstrated outage recovery is reasonable and explicitly retains failed evidence. It does not authorize retrying unexplained product failures until green.
+
+Reviewed pinned files and used an isolated in-memory probe. No files changed or live workflows started.
+
+LENS adversarial: findings
+LENS integration: findings
+LENS source-defect: clean
+LENS consistency: clean
+LENS quality: findings
+LENS optimization: clean
+HIGHEST: P2
+OVERALL: needs-attention
+
+## Writer note: bounded
+
+- Round 14's P2 (concurrent registry writes) is closed by removal: the registry and the fresh-run-on-a-tag recovery are gone, and `--rerun` keeps no state. The review of this rule ends here after 14 rounds; the paired-evidence rule itself was found sound in every round from 2 on. What remains is written as known limits in `ci_status.py`'s docstring and `D01 T02 §8`'s note: a run GitHub will not rerun is written as open for the operator, and the idle-queue check is not atomic (a dropped rerun is simply run again).
