@@ -112,7 +112,7 @@ Sections: 7 | Checklist items: 58
 
 ### Phase 6: Tooling kits
 
-Sections: 21 | Checklist items: 186
+Sections: 21 | Checklist items: 188
 
 | Status | Reference  | Deliverable                                              | Needs | Items |
 | ------ | ---------- | -------------------------------------------------------- | ----- | ----- |
@@ -136,7 +136,7 @@ Sections: 21 | Checklist items: 186
 | [x]    | D04 T03 §1 | Hardening Policy in the Pin File                         | none  | 10    |
 | [x]    | D04 T03 §2 | Image Properties of Built Binaries                       | none  | 10    |
 | [x]    | D04 T03 §3 | Doctor Rows for the Hardening Checks                     | none  | 9     |
-| [ ]    | D04 T03 §4 | Skill and Document Guidance                              | none  | 6     |
+| [ ]    | D04 T03 §4 | Skill and Document Guidance                              | none  | 8     |
 
 ### Phase 7: Operating directive
 
@@ -185,4 +185,4 @@ Sections: 4 | Checklist items: 33
 
 Progress: 91/107 verified sections, 3 ready to run now.
 
-Checklist: 734/838 items completed (includes Commit items).
+Checklist: 734/840 items completed (includes Commit items).
