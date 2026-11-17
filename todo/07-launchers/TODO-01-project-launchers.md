@@ -225,6 +225,8 @@ The everyday links are told from the campaign links by the corner shape: a round
 
 ## 6. Declared links that run a command or open a URL
 
+> **Started:** 2026-11-17T19:10Z
+
 The third link of the shape differs per project: a WordPress project opens its dashboard through a command (`T02`), a Laravel or static project opens its site. Both are entries in the profile's `links`, written by the same script.
 
 **Phase:** 8
@@ -236,8 +238,8 @@ The third link of the shape differs per project: a WordPress project opens its d
 1. Write the command form. Done when: a `run` entry is read back with the arguments in Inputs.
 2. Write the URL form and extend removal. Done when: the checkpoint passes.
 
-- [ ] Write `<Title> (<label>).lnk` in `scripts/project-shortcuts.ps1` for each `run` entry of a project in WSL, in the command-link form of Inputs, with `<what failed>` reading `<label> did not start`, each argument single-quoted for PowerShell with quotes doubled. Done when: the test reads the link back and runs its target and arguments, windowless, against the stand-in, which records exactly `-d <distro> --cd <linux path> --exec bash -lc <command with the failure tail>`. Cheaper substitute: `wt.exe ... bash -lc`, where a failure closes the window before it can be read.
-- [ ] Write the `run` form for a project on a Windows drive: `pwsh.exe -NoLogo -NoProfile -Command` running the command in the project folder, with the same wait for Enter on a non-zero exit. Done when: a test reads it back and a failing command leaves the stand-in's record of the wait.
+- [ ] Write `<Title> (<label>).lnk` in `scripts/project-shortcuts.ps1` for each `run` entry of a project in WSL, in the command-link form of Inputs, with `<what failed>` reading `<label> did not start`, each argument single-quoted for PowerShell with quotes doubled. Done when: the test reads the link back and runs its target and arguments, windowless, against the stand-in, which records exactly `-d <distro> --cd <linux path> --exec bash -lc <command with the failure tail>`. **Corrected 2026-11-17:** also, a stand-in `wsl.exe` that fails leaves the window open with `<label>: WSL could not open the project (exit <n>): the reason is above. Press Enter to close.` until Enter, read with the suite's `Interactive` helper (the Inputs form handles a WSL failure, which the item did not test). Cheaper substitute: `wt.exe ... bash -lc`, where a failure closes the window before it can be read.
+- [ ] Write the `run` form for a project on a Windows drive: `pwsh.exe -NoLogo -NoProfile -Command` running the command in the project folder, with the same wait for Enter on a non-zero exit. Done when: a test reads it back, runs it and finds the command ran in the project folder; a command that exits non-zero, or throws, shows `<label> did not start: the reason is above. Press Enter to close.` and the window stays open until Enter, and one that succeeds closes without waiting. **Corrected 2026-11-17:** it said "a failing command leaves the stand-in's record of the wait", which names nothing a test can read.
 - [ ] Write each `url` entry as a link whose target is `rundll32.exe` with the arguments `url.dll,FileProtocolHandler <url>`, so no console window appears. Done when: the test reads the target and the URL back, and nothing in the suite starts the link.
 - [ ] Render each entry's icon with `campaign-icon.py overlay <icon> <mark>` into `launcher-<label slug>-<key>.ico`, the slug being the label in lower case with every run of other characters as one hyphen. Done when: two entries with different marks get two icon files.
 - [ ] Delete, on every run, a link carrying this project's mark that the profile no longer declares, with its icon. Done when: a test writes a link, drops the entry from the profile, runs the script again and finds the link gone.
