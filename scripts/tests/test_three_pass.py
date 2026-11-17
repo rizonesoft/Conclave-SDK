@@ -58,6 +58,57 @@ PIN = textwrap.dedent('''\
     paths = ["src/kernel/"]
 ''')
 RECORD = "docs/reviews/00-core/D00-T01-s1.md"
+TODO_FILE = """---
+schema_version: 1
+id: core
+domain: 00-core
+status: active
+title: "TODO-01 -- Core"
+---
+
+# TODO-01 -- Core
+
+> **Goal:** g.
+
+> **Current state:** c.
+
+## Inputs
+
+- i
+
+## Outcome
+
+- o
+
+**Adjacency:** all=not-applicable (fixture)
+
+## Implementation Order
+
+| Order | Section | Deliverable | Depends On | Status |
+| ----- | ------- | ----------- | ---------- | ------ |
+| 1 | §1 | Thing | -- | [ ] |
+
+## 1. Thing
+
+> **Started:** 2026-11-17T00:00Z
+
+**Phase:** 0
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Do it. Done when: it shows.
+
+- [x] Work.
+- [ ] Commit: `x: thing`
+
+**Test checkpoint:** `true` exits 0; {how}.
+
+## Verification
+
+- v
+"""
 
 
 def reply(kind, lenses, top="none", gaps=False):
@@ -214,13 +265,16 @@ class Chain(ThreePass):
         (self.repo / "scripts/lib").mkdir(exist_ok=True)
         shutil.copy(library, self.repo / "scripts/lib/todo_graph.py")
         todo = "todo/00-core/TODO-01-core.md"
-        section = ("# TODO-01 -- Core\n\n## 1. Thing\n\n- [ ] Do a. Done when: a.\n\n"
-                   "**Test checkpoint:** `t` ends OK; {how}.\n\n## Verification\n\n- `t`\n")
+        # A whole TODO file the stamp accepts: the section's checklist done but its Commit, its Started line at the
+        # commit the plan review reads, and the indexes that list it.
+        section = TODO_FILE.replace("{how}", "{how}")
+        indexes = {"todo/00-core/INDEX.md": "# Index\n- TODO-01-core.md\n",
+                   "todo/TODO-00-INDEX.md": "# Index\n- 00-core/TODO-01-core.md\n"}
         # Under a pin with blocking levels (plan review P1 of D01 T02 §11): the complete reconciliation declares
         # HIGHEST: none, which the blocking rule alone would also have refused to follow.
         blocking = PIN.replace("pass_cap = 5", 'pass_cap = 5\nblocking = ["P1", "P2"]')
         self.base = self.commit("section", {todo: section.format(how="a mutation fails it"),
-                                            ".conclave/reviewers.toml": blocking})
+                                            ".conclave/reviewers.toml": blocking, **indexes})
         built = self.to_completion()
         # Changed in its promise (the checkpoint), not by a dated note: the stamp would refuse this candidate.
         changed = self.commit("reworded", {todo: section.format(how="another mutation fails it")})
@@ -230,6 +284,20 @@ class Chain(ThreePass):
         self.ok("reconciliation", restored)
         self.refused("reconciliation", restored, "already returned complete")
         self.assertNotEqual(built, restored)
+        # And it goes on to stamp (completion review of D01 T02 §11): the library's own stamp, then the graph reads the
+        # receipt back.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("todo_graph_under_test", self.repo / "scripts/lib/todo_graph.py")
+        graph = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = graph
+        spec.loader.exec_module(graph)
+        record = RECORD
+        receipt = graph.stamp(self.repo, "D00 T01 §1", restored, [{"round": 1, "report": record, "verdict": "clean"}],
+                              ["true -> ok"], "2026-11-17", completion={"report": record, "verdict": "reconciled"},
+                              plan=record)
+        data = json.loads((self.repo / receipt).read_text(encoding="utf-8"))
+        self.assertEqual((data["passes_spent"], data["completion"]["candidate"]), (5, restored))
+        self.assertTrue(graph.graph(self.repo)["D00 T01 §1"].done)
 
     def test_an_older_todo_library_beside_the_dispatcher_never_crashes_it(self):
         # Round 1 of D01 T02 §11: the reviewer kit updates apart from the todo kit, so the library beside the
