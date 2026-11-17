@@ -213,3 +213,38 @@ LENS quality: findings
 LENS optimization: clean
 HIGHEST: P2
 OVERALL: needs-attention
+
+## Round 8: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-17T16:49:46Z
+- Candidate: d8f9f7d3ea29fb1e4f7414c6e826cebb4f678326
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 24
+- Digest: 16240f587ac3824b
+
+The paired-evidence rule is sound procedurally, but recovery still has two P2 gaps at `d8f9f7d`.
+
+1. **P2: A recovery run can escape monitoring after an abort.** In `kits/todo/templates/scripts/ci_status.py:425`, the recovery tag is recorded only in memory; dispatch happens at line 444, but persistence waits until line 466, after all workflows finish processing. If a subsequent workflow query fails, or the process stops after dispatch, `--since-last` has no record of the tag to monitor. Its run can fail unnoticed. An in-memory probe confirmed a successful dispatch followed by a second-workflow error without any state save. Persist the monitoring record before dispatch.
+
+2. **P2: Some candidates still have no completion route.** The fresh-run fallback at `ci_status.py:417` handles only sufficiently old cancelled runs. An infrastructure-red run older than GitHub’s rerun window is rejected at line 396 and directed to a rerun that GitHub cannot perform. Likewise, a cancelled run that reaches GitHub’s 50-rerun limit within that window repeatedly fails at line 454 without reaching the fallback. Extend exact-commit recovery to these cases while retaining every failed attempt. [GitHub documents both limits](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs?tool=cli).
+
+On the requested policy questions:
+
+- A section-caused failure can qualify, but cannot legitimately be hidden: its original red must be cited. “Fixed outside the section” describes the repair’s review route, not the defect’s origin.
+- An unfixed failure does not qualify. The green commit must contain the reviewed repair and preserve the section’s reviewed files and TODO section apart from that repair. This remains a procedural requirement, not independently enforced evidence validation.
+- All six template/installed stamp paragraphs match. All six red-first paragraphs match. `AGENTS.md` agrees on preservation and infrastructure retries.
+- Idle-queue checks reduce cancellation risk but are not atomic. Retrying cancellations is reasonable; the recovery gaps above prevent the promised completion guarantee.
+- Step 3’s additional retry after demonstrated outage recovery is sound and retains failed evidence, but does not resolve an expired infrastructure-red run.
+
+Read-only review with in-memory probes. No files changed or live workflows started.
+
+LENS adversarial: findings
+LENS integration: findings
+LENS source-defect: findings
+LENS consistency: clean
+LENS quality: findings
+LENS optimization: clean
+HIGHEST: P2
+OVERALL: needs-attention

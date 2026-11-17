@@ -292,6 +292,8 @@ class PagedGh:
 
     def __call__(self, args):
         self.calls.append(args)
+        if args[:2] == ["run", "list"] and args[args.index("--workflow") + 1] in getattr(self, "fail_workflows", ()):
+            return 1, "", "HTTP 502"
         if args[:2] == ["run", "list"]:
             limit = int(args[args.index("--limit") + 1])
             if self.fail_limit is not None and limit >= self.fail_limit:
@@ -318,7 +320,7 @@ class PagedGh:
         if args[0] == "api" and "/git/ref/tags/" in args[1]:
             return 0, json.dumps({"object": {"sha": self.tag_at}}), ""
         if args[:2] == ["workflow", "run"]:
-            return 0, "", ""
+            return (0, "", "") if not getattr(self, "workflow_code", 0) else (1, "", "dispatch refused")
         if args[0] == "api":
             run_id, attempt = args[1].split("/runs/")[1].split("/attempts/")
             status, conclusion = self.attempts[(int(run_id), int(attempt))]
@@ -571,10 +573,10 @@ class Rerun(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def rerun(self, fake, commit=SHA_OLD):
+    def rerun(self, fake, *flags, commit=SHA_OLD):
         out = io.StringIO()
         with redirect_stdout(out):
-            code = ci.main(["--rerun", commit], runner=fake, root=self.root)
+            code = ci.main(["--rerun", commit, *flags], runner=fake, root=self.root)
         return code, out.getvalue()
 
     def test_a_run_past_the_rerun_window_gets_a_fresh_run_on_a_tag(self):
@@ -630,6 +632,32 @@ class Rerun(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("red at aaaaaaaaaaaa https://github.com/o/r/actions/runs/9", out.getvalue())
 
+    def test_an_infrastructure_red_is_rerun_or_run_afresh(self):
+        # The stamp-evidence review, round 8: the red-first rule's infrastructure rerun, inside and past the window.
+        from datetime import datetime, timezone
+        fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="failure", sha=SHA_OLD)]})
+        code, said = self.rerun(fake, "--infrastructure")
+        self.assertEqual(code, 0, said)
+        self.assertIn(["run", "rerun", "7", "--failed"], fake.calls)
+        old = PagedGh({"build.yml": [attempt_run(8, 8, conclusion="failure", sha=SHA_OLD, day="2026-09-01")]})
+        with unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 17, tzinfo=timezone.utc)):
+            code, said = self.rerun(old, "--infrastructure")
+        self.assertIn(["workflow", "run", "build.yml", "--ref", f"ci/{SHA_OLD}"], old.calls)
+
+    def test_a_rerun_github_refuses_gets_a_fresh_run_and_the_tag_is_noted_first(self):
+        # The tag is noted before the dispatch: here the next workflow's query fails after the dispatch, and the
+        # process ends without its closing write.
+        workspace(self.root, workflows=("build.yml", "plan.yml"))
+        fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD)]}, rerun_code=1)
+        fake.fail_workflows = {"plan.yml"}
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = ci.main(["--rerun", SHA_OLD], runner=fake, root=self.root)
+        self.assertEqual(code, 3)
+        self.assertIn(["workflow", "run", "build.yml", "--ref", f"ci/{SHA_OLD}"], fake.calls)
+        state = json.loads((self.root / ci.RERUNS).read_text(encoding="utf-8"))
+        self.assertEqual(state[f"{SHA_OLD}|build.yml"]["tag"], f"ci/{SHA_OLD}")
+
     def test_a_red_candidate_is_repaired_not_rerun(self):
         # The stamp-evidence review, round 4: a red has its verdict; reruns for infrastructure belong to red first.
         fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="failure", sha=SHA_OLD)]})
@@ -642,7 +670,7 @@ class Rerun(unittest.TestCase):
         for _ in range(5):
             code, said = self.rerun(fake)
             self.assertEqual(code, 0, said)
-            self.assertIn("of a run a push cancelled", said)
+            self.assertIn(", a run a push cancelled", said)
             run = fake.runs["build.yml"][0]
             fake.runs["build.yml"][0] = attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD, attempt=run["attempt"] + 1)
         self.assertEqual(len(fake.reruns()), 5)
@@ -676,15 +704,15 @@ class Rerun(unittest.TestCase):
         fake.runs["build.yml"][1] = attempt_run(8, 2)
         code, said = self.rerun(fake)
         self.assertEqual((code, fake.reruns()), (0, ["7"]))
-        self.assertIn("rerun 1 of a run a push cancelled", said)
+        self.assertIn("rerun 1, a run a push cancelled", said)
 
     def test_a_green_or_running_candidate_is_left_and_a_refused_rerun_is_reported(self):
         self.assertIn("nothing to rerun", self.rerun(PagedGh({"build.yml": [attempt_run(7, 7, sha=SHA_OLD)]}))[1])
         refused = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD)]}, rerun_code=1)
         code, said = self.rerun(refused)
-        self.assertEqual(code, 1)
-        self.assertIn("was refused: the run cannot be rerun", said)
-        self.assertFalse((self.root / ci.RERUNS).exists() and "reruns" in (self.root / ci.RERUNS).read_text())
+        self.assertEqual(code, 0, said)   # a rerun GitHub refuses gets a fresh run of the commit instead
+        self.assertIn("was refused (the run cannot be rerun); a fresh run of the commit instead", said)
+        self.assertIn(["workflow", "run", "build.yml", "--ref", f"ci/{SHA_OLD}"], refused.calls)
 
     def test_a_short_commit_is_a_usage_error(self):
         with self.assertRaises(SystemExit), redirect_stdout(io.StringIO()), \
