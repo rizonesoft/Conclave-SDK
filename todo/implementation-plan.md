@@ -153,11 +153,11 @@ Sections: 6 | Checklist items: 32
 
 ### Phase 8: Project launchers
 
-Sections: 14 | Checklist items: 93
+Sections: 14 | Checklist items: 94
 
 | Status | Reference  | Deliverable                                                      | Needs        | Items |
 | ------ | ---------- | ---------------------------------------------------------------- | ------------ | ----- |
-| [ ]    | D07 T01 §1 | Launchers kit known to `forge.py`                                | none         | 8     |
+| [ ]    | D07 T01 §1 | Launchers kit known to `forge.py`                                | none         | 9     |
 | [ ]    | D07 T01 §2 | Launcher profile `.conclave/launchers.json` and its loader       | none         | 7     |
 | [ ]    | D07 T01 §3 | Icon renderer owned by the launchers kit                         | none         | 7     |
 | [ ]    | D07 T01 §4 | Rounded-square overlay icons                                     | none         | 7     |
@@ -185,4 +185,4 @@ Sections: 4 | Checklist items: 33
 
 Progress: 92/107 verified sections, 2 ready to run now.
 
-Checklist: 743/842 items completed (includes Commit items).
+Checklist: 743/843 items completed (includes Commit items).
