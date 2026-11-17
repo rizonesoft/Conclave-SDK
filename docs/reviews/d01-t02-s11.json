@@ -1,0 +1,84 @@
+{
+  "ref": "D01 T02 \u00a711",
+  "title": "Stamp of a chain whose contract was restored after reconciliation",
+  "implementation_sha": "04bd0faf628b3e597439b0fdb1e134f439197d31",
+  "date": "2026-11-17",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/01-forge/D01-T02-s11.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "CI tests.yml run 44111946997 at 04bd0fa -> red, quick suite (Windows): the launchers shortcut tests compared paths by spelling under the Windows runner's 8.3 temp path, fixed outside the section in 40a7604, 33fc631 and ed8b242, reviewed in docs/reviews/07-launchers/shortcut-tests-folder-spelling.md",
+    "CI tests.yml run 44146268169 at 5c3ec43 -> quick suite (Windows), full suite (Linux) 1/3, 2/3, 3/3, kit suites (Linux): success; the section's files are unchanged from 04bd0fa"
+  ],
+  "completion": {
+    "report": "docs/reviews/01-forge/D01-T02-s11.md",
+    "verdict": "reconciled",
+    "candidate": "04bd0faf628b3e597439b0fdb1e134f439197d31",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/01-forge/D01-T02-s11.md",
+    "candidate": "d192a7945e66458dbcd775936ded76bcf5d5a84f",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "d192a7945e66458dbcd775936ded76bcf5d5a84f",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 5,
+  "pass_cap": 33
+}

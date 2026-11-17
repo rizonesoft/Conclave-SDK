@@ -1,8 +1,9 @@
 # The SDK's test suites, each run through `python forge.py check-all` (its SUITES table is the one list of them), in CI
 # so the local loop stays fast (AGENTS.md, "Test cadence"): the quick suite on
-# Windows, the full suite (the quick suite plus the stamp tests and the reviewer kit's suite) on Linux, and every
-# kit's own suite on Linux, where tmux lets the unattended kit's run tests run. scripts/ci_status.py reads these runs
-# at every section boundary; a red main comes first.
+# Windows, the full suite (the quick suite plus the stamp tests and the reviewer kit's suite) on Linux in three parallel
+# shards, and every kit's own suite on Linux, where tmux lets the unattended kit's run tests run.
+# scripts/ci_status.py --since-last reads these runs after every push and at every section boundary; a red main comes
+# first.
 name: tests
 
 on:

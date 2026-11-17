@@ -1,0 +1,84 @@
+{
+  "ref": "D07 T02 \u00a71",
+  "title": "Ticket login plugin in the WordPress kit",
+  "implementation_sha": "ee283634d61c432e1effb3480d8147c599cac40b",
+  "date": "2026-11-17",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/07-launchers/D07-T02-s1.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "CI: ee28363 has no run of its own (it was pushed with later commits, and a push runs only its newest commit)",
+    "CI tests.yml run 44146268169 at 5c3ec43 -> quick suite (Windows), full suite (Linux) 1/3, 2/3, 3/3, kit suites (Linux): success; the section's files (kits/wordpress, its TODO file) are unchanged from ee28363"
+  ],
+  "completion": {
+    "report": "docs/reviews/07-launchers/D07-T02-s1.md",
+    "verdict": "reconciled",
+    "candidate": "ee283634d61c432e1effb3480d8147c599cac40b",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/07-launchers/D07-T02-s1.md",
+    "candidate": "f3e06199f5c516b084982d0734a7f00c79a0541f",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "f3e06199f5c516b084982d0734a7f00c79a0541f",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 5,
+  "pass_cap": 33
+}

@@ -41,9 +41,9 @@ title: "TODO-02 -- One gate and one skill source"
 | 5 | §5 | Skill copy generator with per-agent patches | -- | [x] |
 | 6 | §6 | Committed skill copies equal to the generator's output | §5 | [x] |
 | 7 | §7 | Pre-commit hook enabled at install and checked by doctor | -- | [x] |
-| 8 | §8 | CI read after every push, every new failure reported | -- | [ ] |
+| 8 | §8 | CI read after every push, every new failure reported | -- | [x] |
 | 9 | §10 | Linux full suite split into parallel jobs | -- | [ ] |
-| 10 | §11 | Stamp of a chain whose contract was restored after reconciliation | -- | [ ] |
+| 10 | §11 | Stamp of a chain whose contract was restored after reconciliation | -- | [x] |
 
 ## 1. `forge.py check-all` over every suite
 
@@ -313,6 +313,9 @@ The owner's rule of 2026-11-17: a red CI must never go unnoticed, and the system
 
 **Test checkpoint:** `python -m unittest tests.test_ci_status` ends `OK`; advancing the cursor past a failure that was not printed, or reporting a run once by its newest attempt only, makes it fail.
 
+> **Verified:** 2026-11-17 | §8 | d4fb453f9a23d978896991775e0e2bf1d2bf6ee6
+> **Review:** `docs/reviews/d01-t02-s8.json`
+
 ## 10. Linux full suite split into parallel jobs
 
 The full suite on Linux is the longest job (29 minutes on run 44083965196, against 19 for Windows and 15 for the kit suites), so it sets how long every candidate waits. Split by test module across parallel jobs, it runs the same tests in less time and changes no verdict.
@@ -357,6 +360,9 @@ The full suite on Linux is the longest job (29 minutes on run 44083965196, again
 - [x] Commit: `todo: a chain whose contract was restored after reconciliation can stamp`
 
 **Test checkpoint:** `CONCLAVE_FULL_TESTS=1 python -m unittest tests.test_todo_graph -k reconcil` (the stamp tests skip without the variable, and must run here, none skipped) and `python forge.py check-all --only kit-reviewer` pass; dropping the shared predicate from `three_pass_ok` makes the end-to-end stamp test fail. **Planned 2026-11-17** (plan review P2).
+
+> **Verified:** 2026-11-17 | §11 | 04bd0faf628b3e597439b0fdb1e134f439197d31
+> **Review:** `docs/reviews/d01-t02-s11.json`
 
 ## Verification
 

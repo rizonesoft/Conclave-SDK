@@ -1,0 +1,84 @@
+{
+  "ref": "D07 T01 \u00a75",
+  "title": "Desktop links that open the project in an agent",
+  "implementation_sha": "1dd6c56e908666ab8e9eac1b696de4e1cb46d1fa",
+  "date": "2026-11-17",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/07-launchers/D07-T01-s5.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "CI tests.yml run 44102408097 at 1dd6c56 -> cancelled by a newer push; the next run (44110009103 at 62801e0) went red on this section's stale-link check, fixed outside the section in ef25ac0 and 5a8f097, reviewed in docs/reviews/07-launchers/project-shortcuts-path-spelling.md",
+    "CI tests.yml run 44146268169 at 5c3ec43 -> quick suite (Windows), full suite (Linux) 1/3, 2/3, 3/3, kit suites (Linux): success; it holds that fix and the section's own files otherwise as reviewed"
+  ],
+  "completion": {
+    "report": "docs/reviews/07-launchers/D07-T01-s5.md",
+    "verdict": "reconciled",
+    "candidate": "1dd6c56e908666ab8e9eac1b696de4e1cb46d1fa",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/07-launchers/D07-T01-s5.md",
+    "candidate": "241aa300e6af33e186c23908cb4c878e013293d9",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "241aa300e6af33e186c23908cb4c878e013293d9",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

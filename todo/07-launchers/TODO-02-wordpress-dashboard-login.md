@@ -44,7 +44,7 @@ title: "TODO-02 -- WordPress dashboard login by one-use ticket"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Ticket login plugin in the WordPress kit | -- | [ ] |
+| 1 | §1 | Ticket login plugin in the WordPress kit | -- | [x] |
 | 2 | §2 | Dashboard opener `scripts/open-dashboard.py` | §1 | [ ] |
 | 3 | §3 | Plugin install, status and removal on the pinned site | §1 | [ ] |
 | 4 | §4 | Doctor rows and host refusals for the ticket login | §2, §3 | [ ] |
@@ -81,6 +81,9 @@ The plugin is the half of the design that runs on the site. It is one small file
 - [x] Commit: `wordpress: the one-use ticket login plugin`
 
 **Test checkpoint:** `python -m unittest discover -s kits/wordpress/templates/scripts/tests -p "test_ticket_login.py"` ends `OK` with the harness tests run (PHP present); moving `delete_option` below `hash_equals`, or ignoring its return value, in the plugin makes it fail. **Corrected 2026-11-17** (completion review P3): since round 1 the ticket is consumed by a `DELETE` of its row by name and exact value (`$wpdb`), not `delete_option`, so where this checkpoint and the items above say `delete_option` and its return value they read that `DELETE FROM` and its count of removed rows (`1 !== $removed`); the checkpoint's mutations are moving the `DELETE FROM` below `hash_equals`, deleting by name only, or ignoring the count, each of which makes it fail.
+
+> **Verified:** 2026-11-17 | §1 | ee283634d61c432e1effb3480d8147c599cac40b
+> **Review:** `docs/reviews/d07-t02-s1.json`
 
 ## 2. Dashboard opener `scripts/open-dashboard.py`
 

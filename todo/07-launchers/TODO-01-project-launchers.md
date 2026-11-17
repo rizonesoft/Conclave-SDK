@@ -47,7 +47,7 @@ title: "TODO-01 -- Project launchers: one desktop shape for every project"
 | 2 | §2 | Launcher profile `.conclave/launchers.json` and its loader | §1 | [x] |
 | 3 | §3 | Icon renderer owned by the launchers kit | §1 | [x] |
 | 4 | §4 | Rounded-square overlay icons | §3 | [x] |
-| 5 | §5 | Desktop links that open the project in an agent | §2, §4 | [ ] |
+| 5 | §5 | Desktop links that open the project in an agent | §2, §4 | [x] |
 | 6 | §6 | Declared links that run a command or open a URL | §5 | [ ] |
 | 7 | §7 | Campaign links under the project's title, icon read from a share | §2, §3 | [ ] |
 | 8 | §8 | Operator page and `project-launchers` skill | §6, §7 | [ ] |
@@ -219,6 +219,9 @@ The everyday links are told from the campaign links by the corner shape: a round
 - [x] Commit: `launchers: desktop links that open the project in an agent`
 
 **Test checkpoint:** `python -m unittest discover -s kits/launchers/templates/scripts/tests -p "test_project_shortcuts.py"` ends `OK` on Windows; changing `bash -lic` to `bash -lc` in the script makes it fail, as does deriving the identity without the distro.
+
+> **Verified:** 2026-11-17 | §5 | 1dd6c56e908666ab8e9eac1b696de4e1cb46d1fa
+> **Review:** `docs/reviews/d07-t01-s5.json`
 
 ## 6. Declared links that run a command or open a URL
 

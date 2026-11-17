@@ -109,9 +109,9 @@ Sections: 10 | Checklist items: 71
 | [x]    | D01 T02 §5  | Skill copy generator with per-agent patches                       | none  | 9     |
 | [x]    | D01 T02 §6  | Committed skill copies equal to the generator's output            | none  | 8     |
 | [x]    | D01 T02 §7  | Pre-commit hook enabled at install and checked by doctor          | none  | 10    |
-| [ ]    | D01 T02 §8  | CI read after every push, every new failure reported              | none  | 6     |
+| [x]    | D01 T02 §8  | CI read after every push, every new failure reported              | none  | 6     |
 | [ ]    | D01 T02 §10 | Linux full suite split into parallel jobs                         | none  | 4     |
-| [ ]    | D01 T02 §11 | Stamp of a chain whose contract was restored after reconciliation | none  | 3     |
+| [x]    | D01 T02 §11 | Stamp of a chain whose contract was restored after reconciliation | none  | 3     |
 
 ### Phase 6: Tooling kits
 
@@ -164,11 +164,11 @@ Sections: 14 | Checklist items: 113
 | [x]    | D07 T01 §2 | Launcher profile `.conclave/launchers.json` and its loader       | none         | 7     |
 | [x]    | D07 T01 §3 | Icon renderer owned by the launchers kit                         | none         | 12    |
 | [x]    | D07 T01 §4 | Rounded-square overlay icons                                     | none         | 9     |
-| [ ]    | D07 T01 §5 | Desktop links that open the project in an agent                  | windows-host | 19    |
+| [x]    | D07 T01 §5 | Desktop links that open the project in an agent                  | windows-host | 19    |
 | [ ]    | D07 T01 §6 | Declared links that run a command or open a URL                  | windows-host | 7     |
 | [ ]    | D07 T01 §7 | Campaign links under the project's title, icon read from a share | windows-host | 6     |
 | [ ]    | D07 T01 §8 | Operator page and `project-launchers` skill                      | none         | 6     |
-| [ ]    | D07 T02 §1 | Ticket login plugin in the WordPress kit                         | none         | 10    |
+| [x]    | D07 T02 §1 | Ticket login plugin in the WordPress kit                         | none         | 10    |
 | [ ]    | D07 T02 §2 | Dashboard opener `scripts/open-dashboard.py`                     | none         | 8     |
 | [ ]    | D07 T02 §3 | Plugin install, status and removal on the pinned site            | none         | 7     |
 | [ ]    | D07 T02 §4 | Doctor rows and host refusals for the ticket login               | none         | 4     |
@@ -209,6 +209,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 96/126 verified sections, 7 ready to run now.
+Progress: 100/126 verified sections, 6 ready to run now.
 
 Checklist: 822/971 items completed (includes Commit items).
