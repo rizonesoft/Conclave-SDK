@@ -663,6 +663,28 @@ class CppKitTests(ToolchainFixture):
         self.assertIn("build/gone names no file", detail)
         self.assertNotIn("more", detail)
 
+    def test_hardening_compile_an_unreadable_entry_does_not_hide_a_finding(self):
+        # Found by this section's round: the finding on src/a.c was dropped and --strict passed.
+        project = self.hardened_project(entries=(("src/a.c", ()), ("src/b.c", ("@build/missing.rsp",))),
+                                        compile=["-fstack-protector-strong"])
+        code, _report, checks = self.doctor(project, "--strict")
+        self.assertEqual(code, 3, checks)
+        self.assertEqual(checks["hardening:compile"]["status"], "setup_required")
+        detail = checks["hardening:compile"]["detail"]
+        self.assertIn("-fstack-protector-strong missing on 1 entry, first src/a.c", detail)
+        self.assertIn("response file build/missing.rsp of src/b.c cannot be read", detail)
+
+    def test_hardening_image_unmatched_patterns_are_named_once_and_bounded(self):
+        names = [f"build/absent-{n}" for n in range(5)]
+        project = self.hardened_project(binaries=names)
+        _code, _report, checks = self.doctor(project)
+        detail = checks["hardening:image"]["detail"]
+        self.assertEqual(checks["hardening:image"]["status"], "unknown")
+        for rel in names[:3]:
+            self.assertEqual(detail.count(rel), 1, detail)
+        self.assertNotIn(names[3], detail)
+        self.assertTrue(detail.endswith("; and 2 more"), detail)
+
     def test_hardening_image_names_three_binaries_and_counts_the_rest(self):
         names = [f"build/app{n}" for n in range(4)]
         project = self.hardened_project(binaries=names, image=["PIE"])

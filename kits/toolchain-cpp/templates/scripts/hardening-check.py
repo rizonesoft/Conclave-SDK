@@ -342,12 +342,14 @@ def msvc_style(arguments):
 
 def check_compile(project, pin_file, compdb, read_limit=None):
     """The result of the policy of a loaded pin file against its compile database: {"status", "detail",
-    "database", "checked", "excluded", "outside", "requirements", "regenerate"}. `compdb` is the loaded
-    compdb-check module."""
+    "database", "checked", "excluded", "outside", "unreadable", "requirements", "regenerate"}. `compdb` is the
+    loaded compdb-check module. An entry whose command cannot be read (a missing response file, an unbalanced
+    quote) is counted in `unreadable` and the others are still checked: a requirement a readable entry lacks is
+    `missing` whatever the unreadable ones hold, and only with no such finding is the result `unknown`."""
     project = Path(project).resolve()
     policy = pin_file["hardening"]
     result = {"status": None, "detail": "", "database": None, "checked": 0, "excluded": 0, "outside": 0,
-              "requirements": [], "regenerate": None}
+              "unreadable": 0, "requirements": [], "regenerate": None}
     if policy is None:
         result.update(status="none", detail="no policy declared: add a `hardening` key to the pin file "
                                              "(docs/toolchain-cpp.md, Memory safety)")
@@ -369,6 +371,7 @@ def check_compile(project, pin_file, compdb, read_limit=None):
     exclude = [_key(base / folder) for folder in policy["exclude"]]
     database = compdb.database_path(project, pin_file)
     lacking = {requirement: [] for requirement in policy["compile"]}
+    unreadable = []
     for entry in entries:
         source = compdb.entry_source(entry, database)
         source_key = _key(source)
@@ -387,8 +390,9 @@ def check_compile(project, pin_file, compdb, read_limit=None):
         try:
             arguments = entry_arguments(entry, directory, windows, shown)
         except Unreadable as exc:
-            result.update(status="unknown", detail=f"{exc}, so its flags cannot be told")
-            return result
+            # The other entries are still read: a requirement one of them lacks is a finding whatever this one is.
+            unreadable.append(str(exc))
+            continue
         forms = msvc_style(arguments)
         for requirement in policy["compile"]:
             if not carries(arguments, requirement, forms):
@@ -404,9 +408,16 @@ def check_compile(project, pin_file, compdb, read_limit=None):
                                        "lacking": len(missing), "first": missing[0] if missing else None})
     short = [item for item in result["requirements"] if item["status"] == "missing"]
     checked = f"{result['checked']} first-party entr{'y' if result['checked'] == 1 else 'ies'}"
+    result["unreadable"] = len(unreadable)
+    untold = ""
+    if unreadable:
+        many = f"{len(unreadable)} entries cannot be read; first: " if len(unreadable) > 1 else ""
+        untold = f"{many}{unreadable[0]}, so its flags cannot be told"
     if short:
         result.update(status="missing", detail=f"{state['path']}: {len(short)} of {len(lacking)} requirement(s) "
-                                               f"missing on {checked}; {counted}")
+                                               f"missing on {checked}; {counted}" + (f"; {untold}" if untold else ""))
+    elif unreadable:
+        result.update(status="unknown", detail=untold)
     else:
         result.update(status="ok", detail=f"{state['path']}: {len(lacking)} requirement(s) on {checked}; "
                                           f"{counted}")
@@ -751,8 +762,8 @@ def check_images(project, pin_file, limit=None):
     states = [entry["status"] for entry in result["binaries"]]
     counts = ", ".join(f"{states.count(state)} {state}" for state in ("ok", "missing", "unknown", "invalid")
                        if states.count(state))
-    unmatched = f"; {len(result['unmatched'])} pattern(s) name no file: {', '.join(result['unmatched'])}" \
-        if result["unmatched"] else ""
+    # A count only: each pattern is named once, on its own line by main() and in the doctor's bounded list.
+    unmatched = f"; {len(result['unmatched'])} pattern(s) name no file" if result["unmatched"] else ""
     if "missing" in states:
         status = "missing"
     elif result["unmatched"] or "unknown" in states or "invalid" in states:

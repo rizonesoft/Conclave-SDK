@@ -335,6 +335,24 @@ class ResponseFileTests(Fixture):
                 self.assertIn(expected, report["detail"])
                 self.assertTrue(report["detail"].endswith("so its flags cannot be told"), report["detail"])
 
+    def test_an_unreadable_entry_keeps_a_confirmed_finding_on_another(self):
+        # Found by D04 T03 section 3's round: one unreadable entry made the whole check unknown, so a source
+        # compiled without a requirement passed --strict.
+        self.policy("_GLIBCXX_ASSERTIONS")
+        self.database([self.entry("src/a.cpp", []), self.entry("src/b.cpp", ["@build/missing.rsp"]),
+                       self.entry("src/c.cpp", ["@build/gone.rsp"])])
+        code, status, text, report = self.both()
+        self.assertEqual((code, status, report["unreadable"]), (3, "missing", 2))
+        self.assertIn("  missing  _GLIBCXX_ASSERTIONS: on 1 entry, first src/a.cpp", text)
+        self.assertIn("; 2 entries cannot be read; first: response file build/missing.rsp of src/b.cpp cannot be read",
+                      report["detail"])
+        # With every readable entry hardened, the unreadable one leaves the answer unknown.
+        self.database([self.entry("src/a.cpp", ["-D_GLIBCXX_ASSERTIONS"]),
+                       self.entry("src/b.cpp", ["@build/missing.rsp"])])
+        code, status, _text, report = self.both()
+        self.assertEqual((code, status, report["unreadable"]), (1, "unknown", 1))
+        self.assertTrue(report["detail"].endswith("so its flags cannot be told"), report["detail"])
+
     def test_an_unbalanced_quote_in_a_command_is_unknown(self):
         self.policy("_GLIBCXX_ASSERTIONS")
         self.file("src/a.cpp")
@@ -468,6 +486,9 @@ class ImagePolicyTests(ImageFixture):
         self.assertEqual((code, image["status"], image["unmatched"]), (1, "unknown", ["build/missing-*.exe",
                                                                                       "out/app.exe"]))
         self.assertIn("  unknown  out/app.exe names no file", text)
+        # The summary counts the patterns; each is named once, on its own line.
+        self.assertTrue(image["detail"].endswith("; 2 pattern(s) name no file"), image["detail"])
+        self.assertEqual(text.count("out/app.exe"), 1)
 
     def test_high_entropy_does_not_apply_to_a_32_bit_image(self):
         self.binary("pe32-hardened.exe.bin")
