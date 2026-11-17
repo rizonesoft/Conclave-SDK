@@ -298,6 +298,8 @@ class PagedGh:
                 return 1, "", "HTTP 502"
             runs = sorted(self.runs.get(args[args.index("--workflow") + 1], []), key=lambda r: r["createdAt"],
                           reverse=True)
+            if "--commit" in args:
+                runs = [r for r in runs if r["headSha"] == args[args.index("--commit") + 1]]
             if "--created" in args:   # GitHub's own filter: a range of UTC times, both ends included
                 first, last = args[args.index("--created") + 1].split("..")
                 runs = [r for r in runs if first <= r["createdAt"] <= last]
@@ -572,6 +574,14 @@ class Rerun(unittest.TestCase):
         self.assertEqual(code, 4)
         self.assertIn("write it as open in the run file", said)
         self.assertEqual(fake.reruns(), ["7", "7", "7"])
+
+    def test_the_candidate_is_found_however_many_runs_came_after_it(self):
+        # Reconciliation 5 P2: a cancelled candidate followed by 60 newer runs.
+        fake = PagedGh({"build.yml": [attempt_run(7, 1, conclusion="cancelled", sha=SHA_OLD)] +
+                                     [attempt_run(n, n) for n in range(8, 68)]})
+        code, said = self.rerun(fake)
+        self.assertEqual(code, 0, said)
+        self.assertEqual(fake.reruns(), ["7"])
 
     def test_a_green_or_running_candidate_is_left_and_a_refused_rerun_is_reported(self):
         self.assertIn("nothing to rerun", self.rerun(PagedGh({"build.yml": [attempt_run(7, 7, sha=SHA_OLD)]}))[1])

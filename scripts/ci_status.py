@@ -51,7 +51,7 @@ CONFIG = Path(".conclave") / "ci.json"
 FIELDS = "databaseId,headSha,status,conclusion,url,createdAt,event,attempt"
 CURSOR = Path("build") / "ci-status-cursor.json"
 RERUNS = Path("build") / "ci-status-reruns.json"
-PAGES = (10, 50)   # --rerun looks for the candidate's run among the newest 50
+PAGES = (10,)   # a first read's newest runs
 MAX_RERUNS = 3
 # A run can still change after a read when it was created at most this long before it: GitHub reruns a run only
 # within 30 days of its creation, and a run lasts at most 35 days.
@@ -362,9 +362,15 @@ def rerun(runner, workflows, branch, commit, root):
     lines = [f"ci-status: {note}"] if note else []
     code = 0
     for workflow in workflows:
-        runs = [r for r in list_runs(runner, workflow, branch, PAGES[1]) if r.get("headSha") == commit]
+        # Asked for by commit, so no number of newer runs can push the candidate's own run out of reach.
+        runs = gh_json(runner, ["run", "list", "--branch", branch, "--workflow", workflow, "--commit", commit,
+                                "--limit", "20", "--json", FIELDS])
+        if not isinstance(runs, list) or not all(isinstance(r, dict) for r in runs):
+            raise Unavailable(f"gh run list for {workflow} did not return a list of runs")
+        runs = sorted((r for r in runs if r.get("headSha") == commit), key=lambda r: str(r.get("createdAt") or ""),
+                      reverse=True)
         if not runs:
-            lines.append(f"{workflow}: no run of {commit[:12]} in the last {PAGES[1]} runs")
+            lines.append(f"{workflow}: no run of {commit[:12]}")
             code = max(code, 1)
             continue
         run = runs[0]
