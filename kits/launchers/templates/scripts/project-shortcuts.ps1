@@ -190,11 +190,13 @@ try {
 $moved = [System.Collections.Generic.List[object]]::new()   # (destination, backup or null), to put back on a failure
 # A link of this project's that this run does not write (an agent taken out of the profile, an earlier title) goes,
 # with its icon, so the desktop holds exactly what the profile names: moved aside in the same step as the new files.
-$written = @($plan | ForEach-Object { $_.Link }) + @($staged | ForEach-Object { $_.Temp })   # this run's own files
+# Compared by file name in the folder, never by full path: the folder may be spelled another way than the one the
+# file system reports (a short 8.3 name, a .. segment), which once made this run's own temporary links look stale.
+$written = @($plan | ForEach-Object { Split-Path $_.Link -Leaf }) + @($staged | ForEach-Object { Split-Path $_.Temp -Leaf })
 $kept = @($plan | ForEach-Object { Split-Path $_.Icon -Leaf })
-$stale = @(Get-Owned | Where-Object { $written -cnotcontains $_.FullName } | ForEach-Object { $_.FullName }) +
+$stale = @(Get-Owned | Where-Object { $written -notcontains $_.Name } | ForEach-Object { $_.FullName }) +
          @(Get-ChildItem -LiteralPath $IconDir -Filter "launcher-*-$key.ico" -File -ErrorAction Ignore |
-           Where-Object { $kept -cnotcontains $_.Name } | ForEach-Object { $_.FullName })
+           Where-Object { $kept -notcontains $_.Name } | ForEach-Object { $_.FullName })
 try {
   foreach ($s in $staged) {
     $backup = $null

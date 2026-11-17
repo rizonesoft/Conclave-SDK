@@ -252,10 +252,10 @@ class ProjectShortcutsTest(unittest.TestCase):
         return {**os.environ, "PATH": path, "STUB_WSL_LOG": str(self.wsl_log), "STUB_WT_LOG": str(self.wt_log),
                 "STUB_AGENT_LOG": str(self.agent_log), **extra}
 
-    def run_script(self, *args, project=None, terminal=True, **extra):
+    def run_script(self, *args, project=None, terminal=True, desk=None, icons=None, **extra):
         project = project or self.project
         command = [PWSH, "-NoProfile", "-NonInteractive", "-File", str(project / "scripts/project-shortcuts.ps1"),
-                   "-ShortcutDir", str(self.desk), "-IconDir", str(self.icons), "-Wsl", str(self.wsl),
+                   "-ShortcutDir", str(desk or self.desk), "-IconDir", str(icons or self.icons), "-Wsl", str(self.wsl),
                    "-Python", sys.executable, *args]
         return run_tree(command, timeout=300, env=self.env(terminal, **extra))
 
@@ -502,6 +502,24 @@ class ProjectShortcutsTest(unittest.TestCase):
         refused = self.run_script("-Project", "/srv/SITE", "-Distro", "Ubuntu", project=same)
         self.assertEqual(refused.returncode, 1, refused.stdout)
         self.assertIn("is not this project's link", refused.stdout)
+
+    def test_a_folder_spelled_another_way_still_writes_and_keeps_its_links(self):
+        # CI red on 2026-11-17 (62801e0): the runner's temp folder resolved under a short 8.3 name, so the script's
+        # own temporary links, compared by full path, looked stale and were moved away before they were placed.
+        self.desk.mkdir()
+        self.icons.mkdir()
+        desk, icons = self.desk / ".." / "desk", self.icons / ".." / "icons"
+        for terminal in (True, False):
+            with self.subTest(terminal=terminal):
+                self.write_profile(self.project, dict(PROFILE, agents=["claude", "codex"]))
+                done = self.run_script(terminal=terminal, desk=desk, icons=icons)
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertEqual(self.links(), ["Example Site (Claude).lnk", "Example Site (Codex).lnk"])
+                self.assertEqual(self.leftovers(), [])
+        self.write_profile(self.project, dict(PROFILE, agents=["claude"]))
+        done = self.run_script(desk=desk, icons=icons)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.links(), ["Example Site (Claude).lnk"], "a stale link is still found and removed")
 
     def test_remove_takes_this_projects_links_and_icons_and_nothing_else(self):
         other = self.make_project("other-site", dict(PROFILE, title="Other Site"))
