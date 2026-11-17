@@ -3140,6 +3140,7 @@ def skill_copies(check: bool = False, root: Path | None = None) -> list[str]:
 # `path` is the folder or script a suite stands on, `timeout` its limit in seconds; a `unittest` suite must run a test.
 SUITES: list[dict] = [
     _unittest_suite("tests", "tests", 3600),
+    _unittest_suite("kit-base", "kits/base/templates/scripts/tests", 600),
     _unittest_suite("kit-automations", "kits/automations/templates/scripts/tests", 1800),
     _unittest_suite("kit-reviewer", "kits/reviewer/templates/scripts/tests", 1800),
     _unittest_suite("kit-launchers", "kits/launchers/templates/scripts/tests", 600),

@@ -459,6 +459,24 @@ class InstallAndDoctor(unittest.TestCase):
         self.assertEqual(forge.apply_kit(project, "todo")["pre_commit_hook"], "enabled")
         self.assertEqual(self.hooks_path(project), "scripts/hooks")
 
+    def test_pre_commit_blocks_staged_design_lint_violation_and_passes_when_tokenized(self):
+        project = self.repository()
+        forge.apply_kit(project, "todo")
+        shutil.copyfile(REPO / "kits/base/templates/scripts/design-lint.py", project / "scripts/design-lint.py")
+        (project / "DESIGN.md").write_text("# Design\n", encoding="utf-8")
+        (project / "src/ui").mkdir(parents=True)
+        panel = project / "src/ui/panel.css"
+        panel.write_text(".bad {\n  color: #ff0000;\n}\n", encoding="utf-8")
+        self.git(project, "add", "DESIGN.md", "src/ui/panel.css", "scripts/design-lint.py")
+        bad = subprocess.run(["git", "-C", str(project), "commit", "-qm", "bad ui"], capture_output=True, text=True)
+        self.assertNotEqual(bad.returncode, 0, bad.stdout + bad.stderr)
+        self.assertIn("color-literal", bad.stdout + bad.stderr)
+
+        panel.write_text(".good {\n  color: var(--ink);\n}\n", encoding="utf-8")
+        self.git(project, "add", "src/ui/panel.css")
+        good = subprocess.run(["git", "-C", str(project), "commit", "-qm", "good ui"], capture_output=True, text=True)
+        self.assertEqual(good.returncode, 0, good.stdout + good.stderr)
+
 
 class HookFile(unittest.TestCase):
     def test_the_hook_is_tracked_as_executable(self):

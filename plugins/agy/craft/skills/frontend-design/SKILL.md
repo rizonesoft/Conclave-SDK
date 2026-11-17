@@ -10,7 +10,7 @@ Approach every UI task like a principal design engineer responsible for giving t
 
 ## Project design contract first
 
-Check the workspace for `DESIGN.md` or files under `design/` before making visual choices. When the project defines palette, typography, tokens, spacing, or component rules, follow that contract strictly. When it leaves axes open or no design system exists, design deliberately for the subject matter below.
+Check the workspace for `DESIGN.md`, `design/SPEC.md`, `docs/design/SPEC.md`, `docs/design-contract.md`, `standards/design-contract.md`, or files under `design/` and `docs/design/` before making visual choices. When the project defines palette, typography, tokens, spacing, or component rules, follow that contract strictly and run `python scripts/design-lint.py` before committing whenever present. When it leaves axes open or no design system exists, design deliberately for the subject matter below.
 
 ## Ground decisions in the subject
 

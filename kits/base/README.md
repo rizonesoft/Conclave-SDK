@@ -19,6 +19,9 @@ templates/
     .gitignore
   docs/
   scripts/
+    design-lint.py
+    tests/
+      test_design_lint.py
     verify-agent-tiers.mjs
 ```
 
@@ -54,7 +57,7 @@ No kit file names a machine's folder, an owner's address or a vault item. Those 
 | `alert.sender`, `alert.to`, `alert.key_item` | The automations kit's failure email | None: it refuses to send |
 | `wordpress.reference`, `wordpress.port_source` | The `wordpress-connect` skill | None: the skill stands alone |
 
-The template `docs/` folder holds the skill/rule structure document. Under `scripts/`, `verify-agent-tiers.mjs` checks that every Claude agent definition in `.claude/agents/` pins an explicit model, that no agent can edit files (an explicit `tools:` list with no edit tools), that an elevated tier records why, and that a Haiku agent meets every condition of the near-mechanical allowance in `AGENTS.md` (reading frontmatter as a closed subset of YAML: flat `key: value` pairs plus one skipped `hooks:` block, refusing everything else).
+The template `docs/` folder holds the skill/rule structure document. Under `scripts/`, `verify-agent-tiers.mjs` checks that every Claude agent definition in `.claude/agents/` pins an explicit model, that no agent can edit files (an explicit `tools:` list with no edit tools), that an elevated tier records why, and that a Haiku agent meets every condition of the near-mechanical allowance in `AGENTS.md` (reading frontmatter as a closed subset of YAML: flat `key: value` pairs plus one skipped `hooks:` block, refusing everything else), and `design-lint.py` (tested by `scripts/tests/test_design_lint.py`) enforces the two-tier static design token and theme check (`strict` zero-raw-literal mode on custom token-system repositories, `theme-only` raw-color mode on accepted-look native repositories, `off` when no design contract exists) backed by a shrink-only `.conclave/design-lint-baseline.json`.
 
 ## Subagents across the three writers
 

@@ -864,6 +864,13 @@ class ForgeProvisionTests(unittest.TestCase):
             groom_text = (self.target / agent_dir / "skills/groom-plan/SKILL.md").read_text(encoding="utf-8")
             self.assertIn("100% complete, shippable product", groom_text)
             self.assertIn("five-part rule", groom_text)
+        agy_rule = (self.target / ".agents/rules/agy-output-and-safety.md").read_text(encoding="utf-8")
+        self.assertIn("plan one TODO section per `exit_plan_mode` handoff", agy_rule)
+        self.assertIn("scripts/design-lint.py", agy_rule)
+        for skill in ("process-plan", "process-phase", "process-todo-section"):
+            agy_skill = (self.target / ".agents/skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+            self.assertIn("Orchestrator (Carbon)", agy_skill)
+            self.assertIn("exit_plan_mode", agy_skill)
 
     def test_markdown_table_descriptions_within_88_chars_and_rows_do_not_wrap(self):
         for md in written_files():

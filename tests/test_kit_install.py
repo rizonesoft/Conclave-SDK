@@ -262,12 +262,15 @@ class KitInstallTests(unittest.TestCase):
         for rel, data in own.items():
             self.assertEqual((project / rel).read_bytes(), data, rel)
         self.assert_files(project, *(f"{agent_dir}/skills/authoring-skills/SKILL.md" for agent_dir in AGENT_DIRS))
-        self.assert_files(project, "scripts/verify-agent-tiers.mjs")
+        self.assert_files(project, "scripts/verify-agent-tiers.mjs", "scripts/design-lint.py",
+                          "scripts/tests/test_design_lint.py")
         # Retired with the native Antigravity orchestrator (D00 T02 section 3): neither may come back.
         self.assertFalse((project / ".agents/agents").exists())
         self.assertFalse((project / "scripts/agy-subagent.py").exists())
         self.assert_mode(project, ".claude/skills/authoring-skills/SKILL.md", 0o644)
         self.assert_mode(project, "scripts/verify-agent-tiers.mjs", 0o755)
+        self.assert_mode(project, "scripts/design-lint.py", 0o755)
+        self.assert_runs(project, "scripts/design-lint.py", "--self-test")
 
     # laravel
 

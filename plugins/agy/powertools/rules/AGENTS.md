@@ -45,3 +45,9 @@ Applies alongside repository `AGENTS.md` and `GEMINI.md` files, where repository
 - Add original value with primary sources, first-hand detail, E-E-A-T signals (named author, honest limits, review date), sourced figures, and never include a line claiming AI wrote or assisted with the article.
 - Claude researches, writes, and rewrites articles; Antigravity and Codex only review (facts, AI-sounding prose, SEO) and suggest without rewriting the text, and never use humanizer or paraphrasing tools.
 - Run `article_check.py` (or the repository's `scripts/article-check.py`) on every draft and written-back post, fixing every `FAIL` and answering every `WARN`.
+
+## 8. Orchestrator (Carbon) Cadence and Design Contracts
+
+- Under Orchestrator (Carbon), Carbon plans one TODO section per `exit_plan_mode` handoff (reading the section and the repository's design contract, verifying claims against the codebase, and naming exact tokens, shared `Chrome:` controls, states, and visual gates), and sets `Re-plan if:` so Hydrogen hands back to Carbon after each section's `stamp` and `ci_status.py` check before resolving the next ready row whether `Surface` is `yes` or `no`.
+- Hand back immediately mid-section to Carbon whenever a needed design token or shared `Chrome:` control is missing, the pinned reviewer returns `COMPLETION: gaps` or a `P1` or `P2` architectural or design-contract finding, or Hydrogen fails twice on the same fix.
+- Run `python scripts/design-lint.py` before committing UI edits whenever present (`strict` zero-raw-literal mode with shrink-only baseline on custom token-system apps, `theme-only` raw-color mode on accepted-look native apps like `ScratchPad`), fix every finding using tokens or theme resources, and never grow a baseline without operator approval.
