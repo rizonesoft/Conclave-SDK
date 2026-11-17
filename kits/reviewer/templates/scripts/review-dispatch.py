@@ -1254,10 +1254,10 @@ def section_ref(record_path):
 
 
 def contract_changed(record_path, before, after):
-    """Whether the section's contract (the todo kit's `section_contract`: its text with ticks, stamp lines and dated
-    correction notes set aside) differs between two commits. `stamp` refuses a reconciliation whose candidate changed
-    it, so such a reconciliation cannot settle the chain even when it ended complete. False when the todo kit's
-    library is not beside this script or cannot answer: then nothing here knows the section."""
+    """Whether a reconciliation that ended complete on `after` leaves the chain unsettled, by the todo kit's own rule
+    (`reconciliation_settles`, which `stamp` applies too): its candidate's section contract differs from the failed
+    completion's on `before`. False when the todo kit's library is not beside this script or cannot answer: then
+    nothing here knows the section."""
     path = ROOT / "scripts" / "lib" / "todo_graph.py"
     ref = section_ref(record_path)
     if ref is None or not path.is_file():
@@ -1268,7 +1268,7 @@ def contract_changed(record_path, before, after):
         # Registered before it runs: its dataclasses look their module up there while being defined.
         sys.modules[spec.name] = module
         spec.loader.exec_module(module)
-        return module.section_contract(ROOT, before, ref) != module.section_contract(ROOT, after, ref)
+        return not module.reconciliation_settles(ROOT, ref, before, after)
     except (ValueError, OSError, ImportError, SyntaxError):
         # The library's refusal (a section it cannot find, a commit without the file) or one that does not load: no
         # contract to compare, so the order stands as the findings file alone says.

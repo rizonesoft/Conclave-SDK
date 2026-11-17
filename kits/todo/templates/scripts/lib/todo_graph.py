@@ -536,7 +536,10 @@ def completion_record(root, completion, ref, stamp_sha, commits=None):
               if dispatch.returned_one_pass(e, "reconciliation")]
     final = passed[-1] if passed else entry
     for earlier in passed[:-1]:
-        require(ending(earlier) == "RECONCILIATION: gaps",
+        # One that ended complete on a changed promise settled nothing (`reconciliation_settles`), so a later one
+        # follows it; any other complete ends the chain.
+        require(ending(earlier) == "RECONCILIATION: gaps"
+                or not reconciliation_settles(root, ref, entry["candidate"], earlier["candidate"]),
                 f"only the last reconciliation in {report} may end RECONCILIATION: complete: {ref}")
     if verdict == "reconciled":
         require(bool(passed), f"completion verdict reconciled needs a returned ## Reconciliation review in {report}: {ref}")
@@ -790,6 +793,14 @@ def section_contract(root, sha, ref):
     return re.sub(r"\n{3,}", "\n\n", body).rstrip()
 
 
+def reconciliation_settles(root, ref, failed_candidate, candidate):
+    """Whether a reconciliation that ended complete settles the section's chain: only when its candidate holds the
+    promise the failed completion reviewed (`section_contract`). One that ended complete on a changed promise cannot
+    be stamped, so it settles nothing: the dispatcher takes another reconciliation after it, and `three_pass_ok`
+    reads the chain the same way. One rule for both (D01 T02 §11, after D07 T02 §1 could not stamp, 2026-11-17)."""
+    return section_contract(root, candidate, ref) == section_contract(root, failed_candidate, ref)
+
+
 def three_pass_ok(root, data, ref, found):
     """The three-pass chain: one plan review, exactly one returned round naming its candidate, one completion review,
     then reconciliations up to the section pin's `pass_cap` returned passes in all, each run after the pass before on
@@ -829,8 +840,13 @@ def three_pass_ok(root, data, ref, found):
     worst = [dispatch.review_pin.declared_highest(e["review"]) for e in tail]
     stall = dispatch.review_pin.no_progress_cap(schedule)
     for i in range(len(passed)):
-        require(ended_gaps(tail[i]), f"a reconciliation follows a pass that returned gaps, not one that was complete: {ref}")
-        require("blocking" not in schedule or dispatch.review_pin.blocks(schedule, worst[i]),
+        # A reconciliation before this one that ended complete on a changed promise settled nothing; it is held to
+        # neither the gaps rule nor the blocking levels, since it raised no finding to reconcile.
+        unsettled = i > 0 and not ended_gaps(tail[i]) and not reconciliation_settles(
+            root, ref, completion["candidate"], tail[i]["candidate"])
+        require(ended_gaps(tail[i]) or unsettled,
+                f"a reconciliation follows a pass that returned gaps, not one that was complete: {ref}")
+        require(unsettled or "blocking" not in schedule or dispatch.review_pin.blocks(schedule, worst[i]),
                 f"a reconciliation followed a pass whose worst finding ({worst[i]}) is below the pin's blocking "
                 f"levels; its findings are filed, not reviewed again: {ref}")
         if stall is not None:

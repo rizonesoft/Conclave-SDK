@@ -2999,6 +2999,51 @@ class ThreePassStamp(Stamp):
         restored = self.commit("restore the promise")
         self.passed("reconciliation", restored)
         self.stamp3(restored, verdict="reconciled")
+    def restored_after_a_complete_reconciliation(self, restore=True, change=True):
+        """Plan, round, failed completion, a reconciliation that ends complete (HIGHEST: none) on a candidate that
+        changed the promise (or not), then one on a candidate that restores it (or not). D01 T02 §11."""
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        self.passed("plan", self.start)
+        self.tick_work()
+        sha = self.build()
+        self.passed("round", sha)
+        self.passed("completion", sha, "P2", True)
+        text = todo.read_text(encoding="utf-8")
+        if change:
+            todo.write_text(text.replace("- [x] Work.", "- [x] Work, but less of it.", 1), encoding="utf-8")
+            changed = self.commit("reword the section")
+        else:
+            changed = self.build("repair")
+        self.passed("reconciliation", changed)
+        if restore:
+            todo.write_text(text, encoding="utf-8")
+            restored = self.commit("restore the promise")
+        else:
+            restored = self.build("another repair")
+        self.passed("reconciliation", restored)
+        return restored
+
+    def test_a_promise_restored_after_a_complete_reconciliation_stamps(self):
+        self.tearDown()
+        type(self).PIN_TEXT = THREE_PASS_PIN.replace("pass_cap = 45", 'pass_cap = 45\nblocking = ["P1", "P2"]')
+        try:
+            self.setUp()
+            with self.subTest("restored: stamps, and the receipt validates"):
+                restored = self.restored_after_a_complete_reconciliation()
+                data = self.stamp3(restored, verdict="reconciled")
+                self.assertEqual((data["passes_spent"], data["completion"]["candidate"]), (5, restored))
+                self.assertTrue(tg.graph(self.root)["D00 T01 §1"].done)   # the graph reads the receipt back
+            self.setUp_again()
+            with self.subTest("still changed after the second reconciliation: refused"):
+                sha = self.restored_after_a_complete_reconciliation(restore=False)
+                self.stamp3_refuses(sha, "the section's contract changed", verdict="reconciled")
+            self.setUp_again()
+            with self.subTest("a real complete before it (the promise unchanged): no further pass"):
+                sha = self.restored_after_a_complete_reconciliation(restore=False, change=False)
+                self.stamp3_refuses(sha, "only the last reconciliation", verdict="reconciled")
+        finally:
+            type(self).PIN_TEXT = THREE_PASS_PIN
+
     def test_a_complete_footer_never_overrides_a_blocking_finding(self):
         # Round 1 of D00 T01 §3: HIGHEST: P1 then COMPLETION: complete stamped as complete.
         with self.subTest("completion"):

@@ -216,7 +216,11 @@ class Chain(ThreePass):
         todo = "todo/00-core/TODO-01-core.md"
         section = ("# TODO-01 -- Core\n\n## 1. Thing\n\n- [ ] Do a. Done when: a.\n\n"
                    "**Test checkpoint:** `t` ends OK; {how}.\n\n## Verification\n\n- `t`\n")
-        self.base = self.commit("section", {todo: section.format(how="a mutation fails it")})
+        # Under a pin with blocking levels (plan review P1 of D01 T02 §11): the complete reconciliation declares
+        # HIGHEST: none, which the blocking rule alone would also have refused to follow.
+        blocking = PIN.replace("pass_cap = 5", 'pass_cap = 5\nblocking = ["P1", "P2"]')
+        self.base = self.commit("section", {todo: section.format(how="a mutation fails it"),
+                                            ".conclave/reviewers.toml": blocking})
         built = self.to_completion()
         # Changed in its promise (the checkpoint), not by a dated note: the stamp would refuse this candidate.
         changed = self.commit("reworded", {todo: section.format(how="another mutation fails it")})
