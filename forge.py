@@ -3515,7 +3515,7 @@ class _WholeWordFormatter(argparse.RawDescriptionHelpFormatter):
     as `toolchain-cpp` over two lines once the kit list grew (CI red on 2026-11-17 at c24fcdf)."""
 
     def _split_lines(self, text, width):
-        return textwrap.wrap(" ".join(text.split()), width, break_on_hyphens=False)
+        return textwrap.wrap(" ".join(text.split()), width, break_on_hyphens=False, break_long_words=False)
 
 
 class _Parser(argparse.ArgumentParser):

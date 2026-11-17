@@ -3504,16 +3504,19 @@ class LaunchersKitTests(unittest.TestCase):
 
     def test_launchers_and_every_kit_stay_whole_in_the_help_at_any_width(self):
         # CI red on 2026-11-17 (c24fcdf): adding launchers made argparse break `toolchain-cpp` at its hyphen.
+        # Each of these lists every kit in its help: the root (the kit command's line), init (--kit), kit and
+        # doctor (the kit name's choices).
         for columns in ("60", "80", "100", "140"):
             for command in ([], ["init"], ["kit"], ["doctor"]):
                 out = io.StringIO()
                 with unittest.mock.patch.dict(os.environ, {"COLUMNS": columns}), contextlib.redirect_stdout(out), \
-                        self.assertRaises(SystemExit):
+                        self.assertRaises(SystemExit) as ended:
                     forge.main([*command, "--help"])
+                self.assertEqual(ended.exception.code, 0)
                 text = out.getvalue()
                 for kit in forge.KIT_ORDER:
-                    if "-" in kit and kit in " ".join(text.split()):
-                        self.assertIn(kit, text, f"{command} at {columns} columns breaks {kit}")
+                    self.assertRegex(text, rf"(?<![\w-]){re.escape(kit)}(?![\w-])",
+                                     f"{command} at {columns} columns does not show {kit} whole")
                 self.assertNotRegex(text, r"[a-z]-\n", f"{command} at {columns} columns breaks a word at a hyphen")
 
     def test_launchers_is_named_in_the_usage_the_help_and_the_documents(self):
