@@ -54,7 +54,11 @@ title: "TODO-01 -- Project launchers: one desktop shape for every project"
 
 ## 1. Launchers kit known to `forge.py`
 
-A kit that `forge.py` does not list cannot be installed, diffed or checked. This section adds the empty kit and its plumbing, so each later section only adds files to it.
+A kit that `forge.py` does not list cannot be installed, diffed or checked. This section adds the kit, its first file and its plumbing, so each later section only adds files to it.
+
+> **Started:** 2026-11-17T03:10Z
+
+**Corrected 2026-11-17:** `list_kits` in `forge.py` lists a kit only when its `templates/` folder exists, and git keeps no empty folder, so an empty kit is never listed; and `check-all` cannot run a `kit-launchers` suite before its test folder exists. The profile template (from §2) is therefore the kit's first file here, and the suite is added in §2 with the kit's first test.
 
 **Phase:** 8
 **Needs:** none
@@ -62,7 +66,7 @@ A kit that `forge.py` does not list cannot be installed, diffed or checked. This
 
 **Build order:**
 
-1. Create the kit folder with its README. Done when: `python forge.py kits` lists `launchers`.
+1. Create the kit folder with its README and its first file. Done when: `list_kits()` in `forge.py` returns `launchers`.
 2. Teach install, detection and the doctor about it. Done when: the checkpoint passes.
 
 - [ ] Create `kits/launchers/README.md` saying what the kit is for, that it needs no other kit, that it runs on Windows and starts WSL projects through `wsl.exe`, and listing its files as later sections add them. Done when: the Markdown format check passes on it. Cheaper substitute: a paragraph in `kits/unattended/README.md`, which would leave a project without unattended runs no way to get the links.
@@ -70,7 +74,8 @@ A kit that `forge.py` does not list cannot be installed, diffed or checked. This
 - [ ] Extend the installed-kit detection in `forge.py` (the function that appends `unattended` near line 235) to report `launchers` when `.conclave/launchers.json` exists. Done when: a test in `tests/test_forge.py` finds `launchers` detected in a project that has the file and absent in one that does not.
 - [ ] Add a `launchers` branch to `doctor_repo` in `forge.py` with one row for now, `profile`, that is `setup_required` while the file is missing. Done when: `python forge.py doctor <scratch project> launchers` prints the row and exits as the other kits do for `setup_required`. Cheaper substitute: no doctor branch, which would let a half-installed kit report healthy.
 - [ ] Add the kit to the table in `kits/README.md`, to the kit list in the Purpose paragraph of `AGENTS.md`, and to the sentence there naming the kits the SDK does not install in itself. Done when: `python -m unittest tests.test_forge -k markdown_table` passes and both files name the kit.
-- [ ] Add the kit's script tests to `SUITES` in `forge.py` as `kit-launchers`, in the shape of the unattended kit's suite. Done when: `python forge.py check-all --only kit-launchers` runs and reports the suite, empty for now.
+- [ ] Add `kits/launchers/templates/.conclave/launchers.json` with exactly these keys: `schema_version` (1), `title` (null), `icon` (null), `agents` (`["claude"]`), `skip_permissions` (false), `links` (`[]`). Done when: the file loads as JSON, holds no project's name, and `python forge.py kit <scratch project> launchers` writes it and records it under `launchers` in `.conclave/kits.json`. Cheaper substitute: keys in `.conclave/unattended.json`, which a project without that kit does not have. **Corrected 2026-11-17:** moved here from §2, as the kit's first file.
+- [ ] Add the kit to the kit list a test in `tests/test_forge.py` holds (`list_kits()`), after `laravel`. Done when: that test passes with `launchers` in the list.
 - [ ] Commit: `launchers: a new kit known to forge.py`
 
 **Test checkpoint:** `python -m unittest tests.test_forge -k launchers` ends `OK`; removing `launchers` from `KIT_ORDER` makes it fail.
@@ -88,7 +93,7 @@ Everything a project chooses about its links lives in one tracked file: the titl
 1. Write the template and the loader. Done when: the loader returns the template's profile once `title` and `icon` are set.
 2. Refuse every malformed profile by name. Done when: the checkpoint passes.
 
-- [ ] Add `kits/launchers/templates/.conclave/launchers.json` with exactly these keys: `schema_version` (1), `title` (null), `icon` (null), `agents` (`["claude"]`), `skip_permissions` (false), `links` (`[]`). Done when: the file loads as JSON and holds no project's name. Cheaper substitute: keys in `.conclave/unattended.json`, which a project without that kit does not have.
+- [ ] Add the kit's script tests to `SUITES` in `forge.py` as `kit-launchers`, in the shape of the unattended kit's suite. Done when: `python forge.py check-all --only kit-launchers` runs the suite. **Corrected 2026-11-17:** moved here from §1, which has no test folder yet; the profile template this item held moved to §1.
 - [ ] Add `load_profile(path)` to a new `kits/launchers/templates/scripts/lib/launchers.py`, standard library only, returning the validated profile. Done when: it returns a dict for a valid file and raises `ValueError` naming the file for one that is not JSON or not an object.
 - [ ] Refuse in `load_profile`, each with a message naming the key: an unknown key; a `schema_version` other than 1; a `title` that is null, empty, over 60 characters, or holds any of `\ / : * ? " < > |` or a control character; an `icon` that is null, absolute, leaves the project, is reached through a link, does not exist, or does not end in `.png` or `.ico`; `agents` that is empty, repeats a name or names anything but `claude`, `codex`, `agy`; a `skip_permissions` that is not a boolean. Done when: one test per refusal in `kits/launchers/templates/scripts/tests/test_launchers.py` passes. Cheaper substitute: defaulting a bad value silently, which would write a link the project did not ask for.
 - [ ] Validate `links` in `load_profile`: a list of objects, each with exactly `label`, `mark` and one of `run` or `url`; `label` 1 to 30 characters under the title's character rule, unique without regard to case, and never `Claude`, `Codex`, `Antigravity` or a word ending `campaign`; `mark` one of `wordpress` or `site`; `run` a non-empty single line; `url` matching `https://` plus a host, or `http://` on `localhost` or a name ending `.test` or `.site`, with no whitespace. Done when: one test per rule passes, including a valid entry of each kind.
