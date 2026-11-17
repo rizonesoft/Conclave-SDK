@@ -18,10 +18,20 @@ import time
 import unittest
 
 SCRIPTS = Path(__file__).resolve().parents[1]
-# The launchers kit's renderer, which this kit brings (D07 T01 section 3): beside these scripts in an installed
-# project, in that kit's own folder in the SDK.
-RENDERER = next(path for path in (SCRIPTS / "campaign-icon.py",
-                                  SCRIPTS.parents[2] / "launchers/templates/scripts/campaign-icon.py") if path.is_file())
+
+
+def renderer_for(scripts):
+    """The launchers kit's renderer, which this kit brings (D07 T01 section 3): beside these scripts in an installed
+    project, in that kit's own folder in the SDK otherwise. The SDK's folder is reached only when the local file is
+    absent, through `.parent`, which stops at the drive, so a project at a drive's top (`D:\\Example\\scripts`) is
+    never asked for a third parent it does not have."""
+    local = scripts / "campaign-icon.py"
+    if local.is_file():
+        return local
+    return scripts.parent.parent.parent / "launchers" / "templates" / "scripts" / "campaign-icon.py"
+
+
+RENDERER = renderer_for(SCRIPTS)
 PWSH = shutil.which("pwsh")
 # The stand-in for wsl.exe: it lists two distros, translates a Windows path, says whether a folder exists (all do but
 # those in STUB_WSL_MISSING), and records every call; with STUB_WSL_FAIL set it fails everything.
@@ -56,6 +66,24 @@ def load(name, path):
     spec.loader.exec_module(module)
     return module
 
+
+
+class RendererPathTest(unittest.TestCase):
+    """Round 1 of D07 T01 section 3: the renderer is found beside an installed project's scripts at any depth."""
+
+    def test_a_project_at_the_top_of_a_drive_finds_its_own_renderer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scripts = Path(tmp) / "scripts"
+            scripts.mkdir()
+            (scripts / "campaign-icon.py").write_text("", encoding="utf-8")
+            self.assertEqual(renderer_for(scripts), scripts / "campaign-icon.py")
+        top = Path(Path.cwd().anchor) / "Example" / "scripts"   # two parents only, and no renderer there
+        self.assertEqual(renderer_for(top).name, "campaign-icon.py")
+
+    def test_the_kit_tree_takes_the_launchers_kits_renderer(self):
+        if SCRIPTS.parent.name == "templates":
+            self.assertEqual(RENDERER, SCRIPTS.parents[2] / "launchers/templates/scripts/campaign-icon.py")
+            self.assertTrue(RENDERER.is_file())
 
 @unittest.skipUnless(os.name == "nt" and PWSH, "a .lnk shortcut and WScript.Shell are Windows's (PowerShell 7)")
 class ShortcutTest(unittest.TestCase):
