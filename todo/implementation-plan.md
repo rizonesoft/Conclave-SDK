@@ -98,7 +98,7 @@ Sections: 4 | Checklist items: 24
 
 ### Phase 5: One gate and one skill source
 
-Sections: 10 | Checklist items: 69
+Sections: 10 | Checklist items: 71
 
 | Status | Reference   | Deliverable                                                       | Needs | Items |
 | ------ | ----------- | ----------------------------------------------------------------- | ----- | ----- |
@@ -109,7 +109,7 @@ Sections: 10 | Checklist items: 69
 | [x]    | D01 T02 §5  | Skill copy generator with per-agent patches                       | none  | 9     |
 | [x]    | D01 T02 §6  | Committed skill copies equal to the generator's output            | none  | 8     |
 | [x]    | D01 T02 §7  | Pre-commit hook enabled at install and checked by doctor          | none  | 10    |
-| [ ]    | D01 T02 §8  | CI read after every push, every new failure reported              | none  | 4     |
+| [ ]    | D01 T02 §8  | CI read after every push, every new failure reported              | none  | 6     |
 | [ ]    | D01 T02 §10 | Linux full suite split into parallel jobs                         | none  | 4     |
 | [ ]    | D01 T02 §11 | Stamp of a chain whose contract was restored after reconciliation | none  | 3     |
 
@@ -211,4 +211,4 @@ Sections: 4 | Checklist items: 33
 
 Progress: 96/126 verified sections, 7 ready to run now.
 
-Checklist: 812/969 items completed (includes Commit items).
+Checklist: 812/971 items completed (includes Commit items).
