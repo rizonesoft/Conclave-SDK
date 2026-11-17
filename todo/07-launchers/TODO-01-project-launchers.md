@@ -48,7 +48,7 @@ title: "TODO-01 -- Project launchers: one desktop shape for every project"
 | 3 | §3 | Icon renderer owned by the launchers kit | §1 | [x] |
 | 4 | §4 | Rounded-square overlay icons | §3 | [x] |
 | 5 | §5 | Desktop links that open the project in an agent | §2, §4 | [x] |
-| 6 | §6 | Declared links that run a command or open a URL | §5 | [ ] |
+| 6 | §6 | Declared links that run a command or open a URL | §5 | [x] |
 | 7 | §7 | Campaign links under the project's title, icon read from a share | §2, §3 | [ ] |
 | 8 | §8 | Operator page and `project-launchers` skill | §6, §7 | [ ] |
 
@@ -247,6 +247,9 @@ The third link of the shape differs per project: a WordPress project opens its d
 - [x] Commit: `launchers: declared links that run a command or open a URL`
 
 **Test checkpoint:** `python -m unittest discover -s kits/launchers/templates/scripts/tests -p "test_project_shortcuts.py" -k declared` ends `OK` on Windows; dropping the `|| { ...; read -r _; }` tail from the command makes it fail.
+
+> **Verified:** 2026-11-18 | §6 | bfd6ce45246ad29989d1fd843c2a023e843e28fb
+> **Review:** `docs/reviews/d07-t01-s6.json`
 
 ## 7. Campaign links under the project's title, icon read from a share
 

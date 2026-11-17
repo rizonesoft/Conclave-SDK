@@ -165,7 +165,7 @@ Sections: 14 | Checklist items: 113
 | [x]    | D07 T01 §3 | Icon renderer owned by the launchers kit                         | none         | 12    |
 | [x]    | D07 T01 §4 | Rounded-square overlay icons                                     | none         | 9     |
 | [x]    | D07 T01 §5 | Desktop links that open the project in an agent                  | windows-host | 19    |
-| [ ]    | D07 T01 §6 | Declared links that run a command or open a URL                  | windows-host | 7     |
+| [x]    | D07 T01 §6 | Declared links that run a command or open a URL                  | windows-host | 7     |
 | [ ]    | D07 T01 §7 | Campaign links under the project's title, icon read from a share | windows-host | 6     |
 | [ ]    | D07 T01 §8 | Operator page and `project-launchers` skill                      | none         | 6     |
 | [x]    | D07 T02 §1 | Ticket login plugin in the WordPress kit                         | none         | 10    |
@@ -209,6 +209,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 101/126 verified sections, 5 ready to run now.
+Progress: 102/126 verified sections, 4 ready to run now.
 
 Checklist: 829/971 items completed (includes Commit items).

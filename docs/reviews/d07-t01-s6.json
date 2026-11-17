@@ -1,0 +1,84 @@
+{
+  "ref": "D07 T01 \u00a76",
+  "title": "Declared links that run a command or open a URL",
+  "implementation_sha": "bfd6ce45246ad29989d1fd843c2a023e843e28fb",
+  "date": "2026-11-18",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/07-launchers/D07-T01-s6.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s kits/launchers/templates/scripts/tests -p test_project_shortcuts.py -k declared -> 6 tests OK on Windows, real Bash, no skips; the WSL failure-tail mutation fails 3; the whole file under an 8.3 TEMP -> 28 tests OK",
+    "CI tests.yml run 44162824896 at bfd6ce4 -> cancelled by a newer push; run 44163337396 at fc2c6ec (bfd6ce4 plus its reconciliation record) -> quick suite (Windows), full suite (Linux) 1/3, 2/3, 3/3, kit suites (Linux): success"
+  ],
+  "completion": {
+    "report": "docs/reviews/07-launchers/D07-T01-s6.md",
+    "verdict": "reconciled",
+    "candidate": "bfd6ce45246ad29989d1fd843c2a023e843e28fb",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/07-launchers/D07-T01-s6.md",
+    "candidate": "fa5936b0d9cb75e75d8778086e0e6766d6673528",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "fa5936b0d9cb75e75d8778086e0e6766d6673528",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}
