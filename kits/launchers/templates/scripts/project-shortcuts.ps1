@@ -15,10 +15,12 @@
 # -NoExit -Command <agent>`. Without Windows Terminal the link starts PowerShell itself, which for a WSL project runs
 # wsl.exe and, if WSL fails, says so and waits for Enter. An agent that does not start says so and waits for Enter too.
 #
-# A `run` entry opens in PowerShell. For a project in WSL it runs `wsl.exe -d <distro> --cd <linux path> --exec bash
-# -lc <command> || { echo '<label> did not start: ...'; read -r _; }` (PowerShell starts wsl.exe with --exec, so the
-# login shell parses the command once); for a project on a Windows drive it runs the command in the project folder.
-# Either way a failure stays on screen until Enter. A `url` entry's link starts `rundll32.exe url.dll,
+# A `run` entry opens in PowerShell. The command is never spliced into the code that watches it, so its own syntax (an
+# `exit`, a trailing comment or `;`) cannot break that code. For a project in WSL the link runs `wsl.exe -d <distro>
+# --cd <linux path> --exec bash -lc '(eval "$1") || { echo '<label> did not start: ...'; read -r _; }' bash
+# <command>`: the login shell gets the command as its first argument and runs it in a subshell. For a project on a
+# Windows drive it runs the command in a child PowerShell (-EncodedCommand) in the project folder. Either way a
+# failure stays on screen until Enter. A `url` entry's link starts `rundll32.exe url.dll,
 # FileProtocolHandler <url>`, which opens the browser with no console window.
 #
 # Each project has one identity: its distro and Linux path for a project in WSL (however the path was written), or its
@@ -188,18 +190,22 @@ foreach ($entry in @($launch.links)) {
   } else {
     $failed = "$($entry.label) did not start: the reason is above. Press Enter to close."
     if ($null -ne $linux) {
-      $bash = "$($entry.run) || { echo $(BashQuote $failed); read -r _; }"
-      $wslWords = @('-d', $Distro, '--cd', $linux, '--exec', 'bash', '-lc', $bash)
+      $bash = "(eval `"`$1`") || { echo $(BashQuote $failed); read -r _; }"
+      $wslWords = @('-d', $Distro, '--cd', $linux, '--exec', 'bash', '-lc', $bash, 'bash', $entry.run)
       $wslFailed = PSQuote "$($entry.label): WSL could not open the project (exit "
-      $code = "& $(PSQuote $Wsl) $(($wslWords | ForEach-Object { PSQuote $_ }) -join ' '); if (`$LASTEXITCODE -ne 0) { " +
+      # Standard passing, stated: the command reaches wsl.exe with its quotes whatever the default mode does to them.
+      $code = "`$PSNativeCommandArgumentPassing = 'Standard'; " +
+        "& $(PSQuote $Wsl) $(($wslWords | ForEach-Object { PSQuote $_ }) -join ' '); if (`$LASTEXITCODE -ne 0) { " +
         "Write-Host ($wslFailed + `$LASTEXITCODE + '): the reason is above. Press Enter to close.'); " +
         "[void][Console]::ReadLine() }"
       $workdir = $env:USERPROFILE
     } else {
-      # A command that throws is caught, and one that exits non-zero sets $LASTEXITCODE: either way it waits.
-      $code = "`$ErrorActionPreference = 'Stop'; `$LASTEXITCODE = 0; `$ok = `$true; " +
-        "try { $($entry.run) } catch { Write-Host `$_; `$ok = `$false }; " +
-        "if (-not `$ok -or `$LASTEXITCODE -ne 0) { Write-Host $(PSQuote $failed); [void][Console]::ReadLine() }"
+      # The child PowerShell parses and runs the command alone: a parse error, a throw or an exit of its own ends the
+      # child with a non-zero code, which this waits on.
+      $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(
+        "`$ErrorActionPreference = 'Stop'`n$($entry.run)`n"))
+      $code = "& $(PSQuote $pwshExe) -NoLogo -NoProfile -EncodedCommand $encoded; if (`$LASTEXITCODE -ne 0) { " +
+        "Write-Host $(PSQuote $failed); [void][Console]::ReadLine() }"
       $workdir = $Project
     }
     $target = $pwshExe

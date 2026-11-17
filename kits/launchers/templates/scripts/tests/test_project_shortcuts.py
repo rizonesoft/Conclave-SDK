@@ -203,10 +203,11 @@ def find_bash():
 BASH = find_bash()
 
 
-def declared_bash(command, label):
-    """A WSL `run` entry's Bash command: the label quoted for Bash inside the failure message (D07 T01 section 6)."""
+def declared_bash(label):
+    """A WSL `run` entry's Bash supervisor, which gets the command as its first argument: the label quoted for Bash
+    inside the failure message (D07 T01 section 6)."""
     message = f"{label} did not start: the reason is above. Press Enter to close.".replace("'", "'\\''")
-    return f"{command} || {{ echo '{message}'; read -r _; }}"
+    return f"(eval \"$1\") || {{ echo '{message}'; read -r _; }}"
 
 
 DECLARED = [{"label": "Owner's Dashboard", "mark": "wordpress", "run": "wp admin"},
@@ -649,7 +650,7 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
         self.assertEqual([json.loads(line) for line in self.wsl_log.read_text(encoding="utf-8").splitlines()],
                          [["-d", "Ubuntu", "--cd", "/srv/my site's", "--exec", "bash", "-lc",
-                           declared_bash("wp admin", "Owner's Dashboard")]])
+                           declared_bash("Owner's Dashboard"), "bash", "wp admin"]])
         waiting = Interactive(f'"{link["target"]}" {link["arguments"]}', cwd=link["workdir"],
                               env=self.env(STUB_WSL_FAIL="1"))
         try:
@@ -664,34 +665,41 @@ class ProjectShortcutsTest(unittest.TestCase):
 
     @unittest.skipUnless(BASH, "the declared command is run by a real bash (Git's on Windows)")
     def test_the_declared_bash_command_runs_whole_in_a_real_bash_with_an_apostrophe_in_its_label(self):
-        self.declared_profile([dict(DECLARED[0], run="echo ran-fine"),
-                               {"label": "Bob's Failing Tool", "mark": "site", "run": "conclave-no-such-tool"}])
+        # Commands whose own syntax a splice would break (round 1): a trailing `;`, a comment, an `exit`.
+        self.declared_profile([dict(DECLARED[0], run="printf 'ran-fine\\n'; # done;"),
+                               {"label": "Bob's Failing Tool", "mark": "site", "run": "conclave-no-such-tool"},
+                               {"label": "Exits", "mark": "site", "run": "exit 3"}])
         self.assertEqual(self.run_script("-Project", "/srv/site", "-Distro", "Ubuntu").returncode, 0)
         self.wsl_log.unlink()
-        for name in ("Example Site (Owner's Dashboard)", "Example Site (Bob's Failing Tool)"):
+        for name in ("Example Site (Owner's Dashboard)", "Example Site (Bob's Failing Tool)", "Example Site (Exits)"):
             self.assertEqual(self.run_link(self.read_named(name)).returncode, 0)
-        commands = [json.loads(line)[-1] for line in self.wsl_log.read_text(encoding="utf-8").splitlines()]
+        calls = [json.loads(line) for line in self.wsl_log.read_text(encoding="utf-8").splitlines()]
+        words = [call[call.index("-lc") + 1:] for call in calls]
         env = {**os.environ, "HOME": str(self.base), "BASH_ENV": ""}
-        fine = run_tree([BASH, "-lc", commands[0]], timeout=60, input="", cwd=self.base, env=env)
+        fine = run_tree([BASH, "-lc", *words[0]], timeout=60, input="", cwd=self.base, env=env)
         self.assertEqual((fine.returncode, fine.stdout.strip().splitlines()[-1]), (0, "ran-fine"), fine.stderr)
         self.assertNotIn("did not start", fine.stdout)
-        waiting = Interactive([BASH, "-lc", commands[1]], cwd=self.base, env=env)
-        try:
-            self.assertTrue(waiting.wait_for("Bob's Failing Tool did not start: the reason is above. Press Enter to "
-                                             "close."), waiting.text())
-            time.sleep(2)
-            self.assertIsNone(waiting.proc.poll(), "the shell ended before Enter")
-            waiting.enter()
-            self.assertEqual(waiting.proc.wait(timeout=30), 0, "read -r took the Enter")
-        finally:
-            waiting.close()
+        for label, said in (("Bob's Failing Tool", words[1]), ("Exits", words[2])):
+            with self.subTest(label=label):
+                waiting = Interactive([BASH, "-lc", *said], cwd=self.base, env=env)
+                try:
+                    self.assertTrue(waiting.wait_for(f"{label} did not start: the reason is above. Press Enter to "
+                                                     "close."), waiting.text())
+                    time.sleep(2)
+                    self.assertIsNone(waiting.proc.poll(), "the shell ended before Enter")
+                    waiting.enter()
+                    self.assertEqual(waiting.proc.wait(timeout=30), 0, "read -r took the Enter")
+                finally:
+                    waiting.close()
 
     def test_a_declared_run_link_on_a_windows_drive_runs_in_the_project_and_waits_on_a_failure(self):
         log = self.base / "ran.log"
         self.declared_profile([
-            {"label": "Where", "mark": "site", "run": f"(Get-Location).ProviderPath | Out-File -LiteralPath '{log}'"},
+            {"label": "Where", "mark": "site",
+             "run": f"(Get-Location).ProviderPath | Out-File -LiteralPath '{log}' # a trailing comment (round 1)"},
             {"label": "Exits", "mark": "site", "run": "cmd /c exit 3"},
-            {"label": "Throws", "mark": "site", "run": "throw 'boom'"}])
+            {"label": "Throws", "mark": "site", "run": "throw 'boom'"},
+            {"label": "Quits", "mark": "site", "run": "exit 3"}])
         done = self.run_script(terminal=False)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         where = self.read_named("Example Site (Where)")
@@ -706,7 +714,7 @@ class ProjectShortcutsTest(unittest.TestCase):
         finally:
             quiet.close()
         self.assertEqual(folder(log.read_text(encoding="utf-8-sig").strip()), folder(self.project))
-        for label in ("Exits", "Throws"):
+        for label in ("Exits", "Throws", "Quits"):
             with self.subTest(label=label):
                 link = self.read_named(f"Example Site ({label})")
                 waiting = Interactive(f'"{link["target"]}" {link["arguments"]}', cwd=link["workdir"],
