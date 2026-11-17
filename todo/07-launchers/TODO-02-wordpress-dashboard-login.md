@@ -56,6 +56,8 @@ title: "TODO-02 -- WordPress dashboard login by one-use ticket"
 
 The plugin is the half of the design that runs on the site. It is one small file with no settings and no key, and it must pass the kit's own PHPCS ruleset. It ships in the kit under a neutral name, in a folder outside any WordPress tree, because a project on this kit may have no local tree at all.
 
+> **Started:** 2026-11-17T12:36Z
+
 **Phase:** 8
 **Needs:** none
 **Surface:** no
