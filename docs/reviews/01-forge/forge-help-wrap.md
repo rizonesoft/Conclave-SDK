@@ -22,3 +22,26 @@ LENS consistency: clean
 LENS quality: findings
 LENS optimization: clean
 HIGHEST: P3
+
+## Round 2: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-17T04:27:15Z
+- Candidate: 13adc080ba091366306b0cac0fe6a49bbbdcd6f8
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 12
+- Digest: 88a3db816925cb73
+
+No findings. All 16 help-screen checks pass. Restoring argparse’s original wrapper makes the regression fail on a hyphen break.
+
+Verified subcommand formatter inheritance, width-respecting wrapping, intact long words, and preserved raw descriptions, epilogs, usage and choices. Raw text and oversized words can exceed the width as intended.
+
+LENS adversarial: clean
+LENS integration: clean
+LENS source-defect: clean
+LENS consistency: clean
+LENS quality: clean
+LENS optimization: clean
+HIGHEST: none
+OVERALL: approve
