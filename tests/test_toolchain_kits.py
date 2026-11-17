@@ -531,7 +531,156 @@ class CppKitTests(ToolchainFixture):
         self.assertIn("tool-pins", names)
         self.assertNotIn("compile-database", names)
 
-    # clangd (section 5)
+    # the hardening rows (D04 T03 section 3)
+
+    FLAGS = ("-fstack-protector-strong", "-D_GLIBCXX_ASSERTIONS")
+
+    def hardened_project(self, name="project", entries=(("src/a.c", FLAGS),), **hardening):
+        """A project whose compile database holds `entries` (path, flags) and whose pin file has `hardening`."""
+        project = self.project(name, database=False)
+        self.prints("alpha", "alpha v2.5.1\n")
+        rows = []
+        for rel, flags in entries:
+            (project / rel).parent.mkdir(parents=True, exist_ok=True)
+            (project / rel).write_text("int f(void) { return 0; }\n", encoding="utf-8")
+            rows.append({"directory": str(project), "file": rel, "command": " ".join(["cc", *flags, "-c", rel])})
+        self.database(project, entries=rows)
+        self.compdb_pins(project, **({"hardening": hardening} if hardening else {}))
+        return project
+
+    def place(self, project, fixture, rel):
+        """An installed fixture image copied into the project at `rel`."""
+        target = project / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((project / "scripts/tests/fixtures" / fixture).read_bytes())
+
+    def test_hardening_with_no_policy_is_optional_and_passes_strict(self):
+        project = self.hardened_project()
+        code, _report, checks = self.doctor(project, "--strict")
+        self.assertEqual(code, 0, checks)
+        self.assertEqual(checks["hardening-policy"]["status"], "optional")
+        self.assertIn("add a `hardening` key", checks["hardening-policy"]["detail"])
+        self.assertNotIn("hardening:compile", checks)
+        self.assertNotIn("hardening:image", checks)
+
+    def test_hardening_a_refused_policy_is_missing_beside_the_pin_file(self):
+        project = self.hardened_project(compile=["-D"])
+        code, _report, checks = self.doctor(project, "--strict")
+        self.assertEqual(code, 3)
+        self.assertEqual(checks["hardening-policy"]["status"], "missing")
+        self.assertIn(": hardening: compile: '-D' names no definition", checks["hardening-policy"]["detail"])
+        self.assertEqual(checks["tool-pins"]["status"], "missing")
+        # A file refused before its policy is read says nothing of the policy.
+        self.compdb_pins(project, root="../x", hardening={"compile": ["-fPIE"]})
+        _code, _report, checks = self.doctor(project)
+        self.assertNotIn("hardening-policy", checks)
+
+    def test_hardening_compile_ok_and_an_unhardened_source_named(self):
+        project = self.hardened_project(compile=list(self.FLAGS), sources=["src"])
+        code, _report, checks = self.doctor(project, "--strict")
+        self.assertEqual(code, 0, checks)
+        self.assertEqual(checks["hardening:compile"]["status"], "ok")
+        self.assertEqual(checks["hardening-policy"],
+                         {"name": "hardening-policy", "status": "ok",
+                          "detail": "2 compile requirement(s) on 1 first-party entry; 0 binary pattern(s) matching "
+                                    "0 binaries"})
+        self.assertEqual(checks["hardening:image"]["status"], "optional")
+        project = self.hardened_project(name="two", entries=(("src/a.c", self.FLAGS), ("src/b.c", self.FLAGS[1:])),
+                                        compile=list(self.FLAGS))
+        code, _report, checks = self.doctor(project, "--strict")
+        self.assertEqual(code, 3)
+        self.assertEqual(checks["hardening:compile"]["status"], "setup_required")
+        self.assertTrue(checks["hardening:compile"]["detail"].endswith(
+            ": -fstack-protector-strong missing on 1 entry, first src/b.c"), checks["hardening:compile"])
+
+    def test_hardening_compile_names_three_findings_and_counts_the_rest(self):
+        wanted = ["-fstack-protector-strong", "-fPIE", "-D_GLIBCXX_ASSERTIONS", "-D_FORTIFY_SOURCE=2"]
+        project = self.hardened_project(entries=(("src/a.c", ()),), compile=wanted)
+        code, _report, checks = self.doctor(project, "--strict")
+        self.assertEqual(code, 3)
+        detail = checks["hardening:compile"]["detail"]
+        for name in wanted[:3]:
+            self.assertIn(f"{name} missing on 1 entry, first src/a.c", detail)
+        self.assertNotIn("_FORTIFY_SOURCE", detail)
+        self.assertTrue(detail.endswith("; and 1 more"), detail)
+
+    def test_hardening_compile_is_unknown_and_uncounted_on_a_stale_database(self):
+        project = self.hardened_project(compile=list(self.FLAGS))
+        self.touch(project / "Makefile", THEN + 10**9)
+        code, _report, checks = self.doctor(project, "--strict")
+        self.assertEqual(checks["hardening:compile"]["status"], "unknown")
+        self.assertIn("the compile database is stale", checks["hardening:compile"]["detail"])
+        # Counted once, as the compile database's own row.
+        self.assertEqual(checks["compile-database"]["status"], "setup_required")
+        self.assertEqual(_report["missing_or_setup_required"], 1)
+        self.assertEqual(code, 3)
+
+    def test_hardening_image_ok_missing_and_optional_compile(self):
+        project = self.hardened_project(binaries=["build/app"], image=["PIE", "RELRO"])
+        self.place(project, "elf-hardened.bin", "build/app")
+        code, _report, checks = self.doctor(project, "--strict")
+        self.assertEqual(code, 0, checks)
+        self.assertEqual(checks["hardening:image"], {"name": "hardening:image", "status": "ok",
+                                                     "detail": "1 binary: 1 ok"})
+        self.assertEqual(checks["hardening:compile"]["status"], "optional")
+        self.assertIn("1 binary pattern(s) matching 1 binary", checks["hardening-policy"]["detail"])
+        self.place(project, "elf-plain.bin", "build/app")
+        code, _report, checks = self.doctor(project, "--strict")
+        self.assertEqual(code, 3)
+        self.assertEqual(checks["hardening:image"]["status"], "setup_required")
+        self.assertIn("build/app (ELF) lacks PIE, RELRO", checks["hardening:image"]["detail"])
+
+    def test_hardening_image_a_sanitizer_only_binary_is_refused_until_named_a_test_binary(self):
+        project = self.hardened_project(binaries=["build/app"], image=["PIE"])
+        self.place(project, "elf-asan.bin", "build/app")
+        code, _report, checks = self.doctor(project, "--strict")
+        self.assertEqual(code, 3)
+        self.assertEqual(checks["hardening:image"]["status"], "setup_required")
+        self.assertIn("build/app (ELF) carries a sanitizer runtime (libasan.so.8)", checks["hardening:image"]["detail"])
+        self.compdb_pins(project, hardening={"binaries": ["build/app"], "image": ["PIE"],
+                                             "test_binaries": ["build/app"]})
+        code, _report, checks = self.doctor(project, "--strict")
+        self.assertEqual(code, 0, checks)
+        self.assertEqual(checks["hardening:image"]["status"], "ok")
+
+    def test_hardening_image_a_pattern_naming_no_file_is_unknown_and_passes_strict(self):
+        project = self.hardened_project(binaries=["build/app"])
+        code, _report, checks = self.doctor(project, "--strict")
+        self.assertEqual(code, 0, checks)
+        self.assertEqual(checks["hardening:image"]["status"], "unknown")
+        self.assertTrue(checks["hardening:image"]["detail"].endswith(": build/app names no file"),
+                        checks["hardening:image"])
+
+    def test_hardening_image_a_mixed_result_keeps_every_diagnostic(self):
+        project = self.hardened_project(binaries=["build/app", "build/notes", "build/gone"], image=["PIE"])
+        self.place(project, "elf-plain.bin", "build/app")
+        (project / "build/notes").write_text("not an image\n", encoding="utf-8")
+        code, _report, checks = self.doctor(project, "--strict")
+        self.assertEqual(code, 3)
+        detail = checks["hardening:image"]["detail"]
+        self.assertEqual(checks["hardening:image"]["status"], "setup_required")
+        self.assertLess(detail.index("build/app (ELF) lacks PIE"), detail.index("build/notes is neither"))
+        self.assertIn("build/gone names no file", detail)
+        self.assertNotIn("more", detail)
+
+    def test_hardening_image_names_three_binaries_and_counts_the_rest(self):
+        names = [f"build/app{n}" for n in range(4)]
+        project = self.hardened_project(binaries=names, image=["PIE"])
+        for rel in names:
+            self.place(project, "elf-plain.bin", rel)
+        _code, _report, checks = self.doctor(project)
+        detail = checks["hardening:image"]["detail"]
+        self.assertEqual(detail.count("lacks PIE"), 3)
+        self.assertTrue(detail.endswith("; and 1 more"), detail)
+
+    def test_hardening_rows_start_nothing(self):
+        project = self.hardened_project(compile=list(self.FLAGS), binaries=["build/app"])
+        self.stub("marked", "with open(r'{dir}/ran', 'a') as mark:\n    mark.write('x')\n")
+        self.compdb_pins(project, compdb={"regenerate": ["marked"]}, hardening={"compile": list(self.FLAGS)})
+        self.touch(project / "Makefile", THEN + 10**9)
+        _code, _report, checks = self.doctor(project)
+        self.assertIn("marked", checks["hardening:compile"]["detail"])
+        self.assertFalse((self.work / "ran").exists(), "the doctor's hardening rows ran a command")
 
     def clangd_settings(self, text):
         """The seed's settings, by a reader written for this test: `Section:` at the margin, `Key: value` under it."""

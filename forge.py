@@ -2315,6 +2315,10 @@ def _doctor_toolchain(target_root: Path, add_check, kit: str) -> None:
         pin_file = module.load_pin_file(target_root / TOOLCHAIN_PINS[kit])
     except module.PinError as exc:
         add_check("tool-pins", "missing", str(exc))
+        if kit == "toolchain-cpp" and \
+                str(exc).startswith(f"{(target_root / TOOLCHAIN_PINS[kit]).as_posix()}: hardening"):
+            # The loader refuses the whole file at a policy it cannot read, so the policy is reported refused.
+            add_check("hardening-policy", "missing", str(exc))
         return
     pins = pin_file["tools"]
     add_check("tool-pins", "ok", f"{TOOLCHAIN_PINS[kit]}: {', '.join(pin['name'] for pin in pins) or 'no tool'}")
@@ -2337,7 +2341,65 @@ def _doctor_toolchain(target_root: Path, add_check, kit: str) -> None:
             again = compdb.regenerate_line(database)
             add_check("compile-database", "setup_required",
                       f"{database['status']}: {database['detail']}" + (f"; {again}" if again else ""))
+        _doctor_hardening(target_root, pin_file, compdb, add_check)
         _doctor_clangd(target_root, pin_file, add_check)
+
+
+HARDENING_NAMED = 3   # findings a hardening row names before it counts the rest
+
+
+def _named(findings: list[str]) -> str:
+    """The first HARDENING_NAMED findings, then how many more there are."""
+    shown = "; ".join(findings[:HARDENING_NAMED])
+    rest = len(findings) - HARDENING_NAMED
+    return shown + (f"; and {rest} more" if rest > 0 else "")
+
+
+def _doctor_hardening(target_root: Path, pin_file: dict, compdb, add_check) -> None:
+    """The C and C++ kit's memory-safety rows, from the kit's hardening-check.py, which only reads files.
+    `hardening-policy`: whether a policy is declared and what it covered. `hardening:compile` and `hardening:image`
+    (only with a policy): `ok`; `setup_required` naming the first findings; `unknown` when the database is not
+    current, nothing is under the sources, a binary cannot be read or a pattern names no file; `optional` when the
+    policy declares no such half. `unknown` and `optional` are not counted: a stale database already counts as
+    `compile-database`, and a binary not built yet is no fault of the build."""
+    policy = pin_file["hardening"]
+    if policy is None:
+        add_check("hardening-policy", "optional",
+                  f"no policy declared: add a `hardening` key to {TOOLCHAIN_PINS['toolchain-cpp']} "
+                  "(docs/toolchain-cpp.md, Memory safety)")
+        return
+    check = _toolchain_module("toolchain-cpp", "hardening-check.py")
+    compiled = check.check_compile(target_root, pin_file, compdb)
+    images = check.check_images(target_root, pin_file)
+    binaries = images["binaries"]
+    add_check("hardening-policy", "ok",
+              f"{len(policy['compile'])} compile requirement(s) on {compiled['checked']} first-party entr"
+              f"{'y' if compiled['checked'] == 1 else 'ies'}; {len(policy['binaries'])} binary pattern(s) matching "
+              f"{len(binaries)} binar{'y' if len(binaries) == 1 else 'ies'}")
+    if compiled["status"] == "none":
+        add_check("hardening:compile", "optional", compiled["detail"])
+    elif compiled["status"] == "missing":
+        short = [f"{item['requirement']} missing on {item['lacking']} entr{'y' if item['lacking'] == 1 else 'ies'}, "
+                 f"first {item['first']}" for item in compiled["requirements"] if item["status"] == "missing"]
+        add_check("hardening:compile", "setup_required", f"{compiled['detail']}: {_named(short)}")
+    elif compiled["status"] == "ok":
+        add_check("hardening:compile", "ok", compiled["detail"])
+    else:
+        again = f"; {compiled['regenerate']}" if compiled["regenerate"] else ""
+        add_check("hardening:compile", "unknown", compiled["detail"] + again)
+    if images["status"] == "none":
+        add_check("hardening:image", "optional", images["detail"])
+        return
+    if images["status"] == "ok":
+        add_check("hardening:image", "ok", images["detail"])
+        return
+    # Missing binaries first, then every other one that is not ok and each pattern naming no file, so a mixed
+    # result drops no diagnostic without counting it.
+    findings = [entry["detail"] for entry in binaries if entry["status"] == "missing"]
+    findings += [entry["detail"] for entry in binaries if entry["status"] not in ("ok", "missing")]
+    findings += [f"{pattern} names no file" for pattern in images["unmatched"]]
+    add_check("hardening:image", "setup_required" if images["status"] == "missing" else "unknown",
+              f"{images['detail']}: {_named(findings)}")
 
 
 # What a PHP or Node project says of its own runtime: (the pin it is compared with, the manifest, where in it).
