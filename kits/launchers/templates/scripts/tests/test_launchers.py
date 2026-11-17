@@ -282,7 +282,8 @@ class WindowlessTest(unittest.TestCase):
 
     SCRIPTS = HERE.parent
     # The kit's own Python files: in an installed project scripts/ also holds the other kits' files, which are theirs.
-    KIT_FILES = ("campaign-icon.py", "lib/launchers.py", "tests/test_campaign_icon.py", "tests/test_launchers.py")
+    KIT_FILES = ("campaign-icon.py", "lib/launchers.py", "tests/test_campaign_icon.py", "tests/test_launchers.py",
+                 "tests/test_project_shortcuts.py")
 
     @staticmethod
     def starts(tree):
