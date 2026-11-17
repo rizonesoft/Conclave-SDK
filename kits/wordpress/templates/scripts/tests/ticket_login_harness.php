@@ -7,7 +7,7 @@
  * The case: `plugins` (the plugin files to load, in order), `query` (absent, or the value of `conclave_ticket`,
  * which may be an array), `option` (absent, or the stored ticket), `gone_before_delete` (another request removed
  * the ticket between this one's read and its delete), `replace_before_delete` (another request used the ticket and
- * the opener stored this newer one in that gap), `users` (by ID: `login` and `caps`), `run_init` (whether to run the
+ * the opener stored this newer one in that gap), `delete_fails` (the database refuses the DELETE), `users` (by ID: `login` and `caps`), `run_init` (whether to run the
  * `init` callbacks). The options table holds each value serialized, as WordPress's does, and `$wpdb` reads and deletes
  * against it. The report: every call in order, the options left and
  * the `init` callbacks registered.
@@ -92,6 +92,9 @@ class Harness_Wpdb {
 			$GLOBALS['harness_options'][ $name ] = $case['replace_before_delete'];
 		}
 		harness_record( 'wpdb_delete', array( $name ) );
+		if ( ! empty( $case['delete_fails'] ) ) {
+			return false;   // the database refused the DELETE: the ticket stays where it is
+		}
 		if ( 'DELETE FROM wp_options WHERE option_name = %s' === $query[0] ) {
 			// By name only, as delete_option does: whatever ticket is there now goes.
 			$had = array_key_exists( $name, $GLOBALS['harness_options'] );

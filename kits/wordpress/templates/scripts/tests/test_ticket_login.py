@@ -193,6 +193,14 @@ class BehaviourTest(unittest.TestCase):
                 self.assertEqual(messages, {"This login link is not valid. Make a new one with "
                                             "scripts/open-dashboard.py."}, why)
 
+    def test_a_delete_the_database_refuses_logs_nobody_in(self):
+        # Completion review: the DELETE itself fails (wpdb returns false) and the ticket stays on the site.
+        report = self.run_case(query=TOKEN, option=self.ticket(), delete_fails=True, users=ADMIN)
+        self.assert_refused(report, "a delete the database refused")
+        left = report["options"].get("conclave_login_ticket")
+        self.assertIsNotNone(left, "the ticket did not stay where it was")
+        self.assertEqual((left["hash"], left["user"]), (HASH, 7))
+
     def test_an_old_redemption_never_uses_up_a_newer_ticket(self):
         # Round 1: request X reads ticket A; request Y redeems A; the opener stores B; X's delete must not remove B
         # and log in with A.

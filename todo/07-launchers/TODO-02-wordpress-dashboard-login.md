@@ -80,7 +80,9 @@ The plugin is the half of the design that runs on the site. It is one small file
 - [x] List the plugin in the file tables of `kits/wordpress/README.md` (every host) with its role in under 88 characters. Done when: the Markdown format check passes.
 - [x] Commit: `wordpress: the one-use ticket login plugin`
 
-**Test checkpoint:** `python -m unittest discover -s kits/wordpress/templates/scripts/tests -p "test_ticket_login.py"` ends `OK` with the harness tests run (PHP present); moving `delete_option` below `hash_equals`, or ignoring its return value, in the plugin makes it fail.
+**Corrected 2026-11-17** (completion review P3): since round 1 the ticket is consumed by a `DELETE` of its row by name and exact value (`$wpdb`), not `delete_option`; where an item above says `delete_option(` and its return value, it now reads that `DELETE FROM` and its count of removed rows (`1 !== $removed`), which the text tests hold.
+
+**Test checkpoint:** `python -m unittest discover -s kits/wordpress/templates/scripts/tests -p "test_ticket_login.py"` ends `OK` with the harness tests run (PHP present); moving the `DELETE FROM` below `hash_equals`, deleting by name only, or ignoring its count of removed rows in the plugin makes it fail.
 
 ## 2. Dashboard opener `scripts/open-dashboard.py`
 
