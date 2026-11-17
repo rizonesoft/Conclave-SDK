@@ -2,7 +2,7 @@
 schema_version: 1
 id: gates-and-skill-source
 domain: 01-forge
-status: active
+status: done
 title: "TODO-02 -- One gate and one skill source"
 ---
 
@@ -42,7 +42,7 @@ title: "TODO-02 -- One gate and one skill source"
 | 6 | §6 | Committed skill copies equal to the generator's output | §5 | [x] |
 | 7 | §7 | Pre-commit hook enabled at install and checked by doctor | -- | [x] |
 | 8 | §8 | CI read after every push, every new failure reported | -- | [x] |
-| 9 | §10 | Linux full suite split into parallel jobs | -- | [ ] |
+| 9 | §10 | Linux full suite split into parallel jobs | -- | [x] |
 | 10 | §11 | Stamp of a chain whose contract was restored after reconciliation | -- | [x] |
 
 ## 1. `forge.py check-all` over every suite
@@ -339,6 +339,9 @@ The full suite on Linux is the longest job (29 minutes on run 44083965196, again
 - [x] Commit: `ci: the Linux full suite runs in parallel shards`
 
 **Test checkpoint:** `python -m unittest tests.test_check_all` ends `OK`; dropping a module from the shard split makes it fail.
+
+> **Verified:** 2026-11-17 | §10 | de763d44af2a0739d9eb52b3400ee2458033ab6b
+> **Review:** `docs/reviews/d01-t02-s10.json`
 
 ## 11. Stamp of a chain whose contract was restored after reconciliation
 

@@ -110,7 +110,7 @@ Sections: 10 | Checklist items: 71
 | [x]    | D01 T02 §6  | Committed skill copies equal to the generator's output            | none  | 8     |
 | [x]    | D01 T02 §7  | Pre-commit hook enabled at install and checked by doctor          | none  | 10    |
 | [x]    | D01 T02 §8  | CI read after every push, every new failure reported              | none  | 6     |
-| [ ]    | D01 T02 §10 | Linux full suite split into parallel jobs                         | none  | 4     |
+| [x]    | D01 T02 §10 | Linux full suite split into parallel jobs                         | none  | 4     |
 | [x]    | D01 T02 §11 | Stamp of a chain whose contract was restored after reconciliation | none  | 3     |
 
 ### Phase 6: Tooling kits
@@ -209,6 +209,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 100/126 verified sections, 6 ready to run now.
+Progress: 101/126 verified sections, 5 ready to run now.
 
 Checklist: 822/971 items completed (includes Commit items).
