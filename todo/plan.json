@@ -1,6 +1,6 @@
 {
   "title": "Conclave-SDK implementation plan",
-  "acceptance": "`docs/plans/2026-11-11-sdk-audit-and-roadmap.md` (recommendations 1 to 9, the kits table and the retired repositories); Phase 0 was held to `docs/plans/2026-11-11-three-pass-review.md` (requirements R1 to R15).",
+  "acceptance": "`docs/plans/2026-11-11-sdk-audit-and-roadmap.md` (recommendations 1 to 9, the kits table, the retired repositories and the project launchers); Phase 0 was held to `docs/plans/2026-11-11-three-pass-review.md` (requirements R1 to R15).",
   "phases": {
     "0": "Three-pass review",
     "1": "Install record, diff and update",
@@ -10,6 +10,19 @@
     "5": "One gate and one skill source",
     "6": "Tooling kits",
     "7": "Operating directive",
+    "8": "Project launchers",
     "99": "Manual, operator only"
-  }
+  },
+  "phase_list": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    99
+  ]
 }

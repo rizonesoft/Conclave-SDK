@@ -1,12 +1,14 @@
 # TODO-00 -- Root Index
 
-Governing plans: [docs/plans/2026-11-11-sdk-audit-and-roadmap.md](../docs/plans/2026-11-11-sdk-audit-and-roadmap.md) for domains 00 (TODO-02) to 06, and [docs/plans/2026-11-11-three-pass-review.md](../docs/plans/2026-11-11-three-pass-review.md) for TODO-01 of domain 00. Generated plan: [implementation-plan.md](./implementation-plan.md).
+Governing plans: [docs/plans/2026-11-11-sdk-audit-and-roadmap.md](../docs/plans/2026-11-11-sdk-audit-and-roadmap.md) for domains 00 (TODO-02) to 07, and [docs/plans/2026-11-11-three-pass-review.md](../docs/plans/2026-11-11-three-pass-review.md) for TODO-01 of domain 00. Generated plan: [implementation-plan.md](./implementation-plan.md).
 
 ## Active TODOs
 
 | Domain | File | Scope |
 | ------ | ---- | ----- |
 | 04 | 04-tooling/TODO-03-cpp-memory-safety.md | Hardening policy, compile and image checks, doctor rows, guidance |
+| 07 | 07-launchers/TODO-01-project-launchers.md | Launchers kit: profile, overlay icons, agent and site links |
+| 07 | 07-launchers/TODO-02-wordpress-dashboard-login.md | One-use ticket login: plugin, opener, install, removal |
 
 ## Completed TODOs
 
