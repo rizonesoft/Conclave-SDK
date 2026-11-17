@@ -179,6 +179,12 @@ FLAGS = {"claude": "--dangerously-skip-permissions", "codex": "--dangerously-byp
          "agy": "--dangerously-skip-permissions"}
 
 
+def folder(path):
+    """A folder as a folder: Windows reports one by its long name or an 8.3 short one (RUNNER~1 on GitHub's runners,
+    PROGRA~1), so working folders are compared resolved, never by spelling."""
+    return Path(path).resolve()
+
+
 def bash_command(agent, skip=False):
     command = f"{agent} {FLAGS[agent]}" if skip else agent
     return (f"{command} || (echo '{LABELS[agent]} did not start: the reason is above. Press Enter to close.'"
@@ -343,7 +349,7 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertTrue(icon.is_file())
         self.assertEqual(self.run_link(link).returncode, 0)
         (call,) = self.terminal_calls()
-        self.assertEqual(call["cwd"], os.environ["USERPROFILE"])
+        self.assertEqual(folder(call["cwd"]), folder(os.environ["USERPROFILE"]))
         self.assertEqual(call["argv"], [str(self.wsl), "-d", "Debian", "--cd", "/home/me/site", "--exec", "bash",
                                         "-lic", bash_command("claude")])
 
@@ -385,7 +391,7 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(link["workdir"], str(self.project))
         self.run_link(link)
         (call,) = self.terminal_calls()
-        self.assertEqual(call["cwd"], str(self.project))
+        self.assertEqual(folder(call["cwd"]), folder(self.project))
         self.assertEqual(call["argv"][:2], ["-d", str(self.project)])
         self.assertEqual(Path(call["argv"][2]).name.lower(), "pwsh.exe")
         self.assertEqual(call["argv"][3:], ["-NoLogo", "-NoExit", "-Command", "claude"])
@@ -401,7 +407,7 @@ class ProjectShortcutsTest(unittest.TestCase):
         agent, cwd = self.agent_log.read_text(encoding="utf-8").split("|")[:2]
         # The same folder, compared as a folder: cmd reports its long name where the test's path may hold a short
         # 8.3 one (CI red at 92a02a1: RUNNER~1 against runneradmin).
-        self.assertEqual((agent, Path(cwd).resolve()), ("claude", self.project.resolve()))
+        self.assertEqual((agent, folder(cwd)), ("claude", folder(self.project)))
 
     # --- the agent command ------------------------------------------------------------------------------------------
 
@@ -447,7 +453,8 @@ class ProjectShortcutsTest(unittest.TestCase):
                                 bash_command("codex", skip)]
                     if terminal:
                         (call,) = self.terminal_calls()
-                        self.assertEqual((call["cwd"], call["argv"]), (os.environ["USERPROFILE"], [str(self.wsl), *expected]))
+                        self.assertEqual((folder(call["cwd"]), call["argv"]),
+                                         (folder(os.environ["USERPROFILE"]), [str(self.wsl), *expected]))
                     else:
                         calls = [json.loads(line) for line in self.wsl_log.read_text(encoding="utf-8").splitlines()]
                         self.assertEqual(calls[-1], expected)   # after the script's own -l and test -d calls
@@ -455,13 +462,13 @@ class ProjectShortcutsTest(unittest.TestCase):
                     command = ["codex", FLAGS["codex"]] if skip else ["codex"]
                     if terminal:
                         (call,) = self.terminal_calls()
-                        self.assertEqual(call["cwd"], str(project))
+                        self.assertEqual(folder(call["cwd"]), folder(project))
                         self.assertEqual(call["argv"][:2], ["-d", str(project)])
                         self.assertEqual(call["argv"][3:], ["-NoLogo", "-NoExit", "-Command", " ".join(command)])
                     else:
                         agent, cwd, args = self.agent_log.read_text(encoding="utf-8").strip().split("|")
-                        self.assertEqual((agent, Path(cwd).resolve(), args.strip()),
-                                         ("codex", project.resolve(), " ".join(command[1:])))
+                        self.assertEqual((agent, folder(cwd), args.strip()),
+                                         ("codex", folder(project), " ".join(command[1:])))
 
     def test_the_flags_are_the_ones_the_unattended_run_passes(self):
         run = SCRIPTS.parents[2] / "unattended/templates/scripts/unattended-run.py"
