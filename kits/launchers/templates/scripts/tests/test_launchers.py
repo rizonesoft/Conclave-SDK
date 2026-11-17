@@ -275,6 +275,53 @@ class ShowTests(Fixture):
 
 
 
+class TitleTests(Fixture):
+    """`title`, which the unattended kit's campaign links read (D07 T01 section 7)."""
+
+    def run_title(self):
+        return subprocess.run([sys.executable, str(SCRIPT), "title", "--root", str(self.project)], capture_output=True,
+                              text=True, timeout=60, creationflags=NO_WINDOW)
+
+    def test_a_titled_profile_gives_its_title_as_json(self):
+        self.write(self.valid(title="Café Site"))
+        self.assertEqual(launchers.campaign_title(self.project), "Café Site")
+        done = self.run_title()
+        self.assertEqual((done.returncode, done.stderr), (0, ""))
+        self.assertEqual(json.loads(done.stdout), "Café Site")
+        self.assertTrue(done.stdout.isascii())
+
+    def test_no_profile_and_the_installed_template_give_null(self):
+        # The kit's own template in the SDK; an installed project's copy may already be filled in, so it gets the
+        # template's text as the kit ships it.
+        shipped = HERE.parents[1] / ".conclave" / "launchers.json"
+        template = shipped.read_text(encoding="utf-8") if HERE.parents[1].name == "templates" else json.dumps(
+            {"schema_version": 1, "title": None, "icon": None, "agents": ["claude"], "skip_permissions": False,
+             "links": []})
+        for name, make in (("missing", lambda: None),
+                           ("the kit's template", lambda: self.write(template)),
+                           ("title unset, the rest filled in", lambda: self.write(self.valid(title=None)))):
+            with self.subTest(case=name):
+                self.path.unlink(missing_ok=True)
+                make()
+                self.assertIsNone(launchers.campaign_title(self.project))
+                done = self.run_title()
+                self.assertEqual((done.returncode, done.stdout.strip(), done.stderr), (0, "null", ""))
+
+    def test_any_other_refused_profile_is_refused_with_the_loaders_message(self):
+        for name, profile, words in (("bad title", self.valid(title=" x"), "title: must not start or end"),
+                                     ("titled, icon unset", self.valid(icon=None), "icon: must be set"),
+                                     ("not JSON", "{", "not JSON"),
+                                     ("not an object", "[]", "a profile is an object")):
+            with self.subTest(case=name):
+                self.write(profile)
+                with self.assertRaises(launchers.ProfileError):
+                    launchers.campaign_title(self.project)
+                done = self.run_title()
+                self.assertEqual((done.returncode, done.stdout), (1, ""))
+                self.assertIn(words, done.stderr)
+                self.assertNotIn("Traceback", done.stderr)
+
+
 class WindowlessTest(unittest.TestCase):
     """Every process the kit starts, from its scripts and from its tests, opens no console window on Windows (the
     owner's rule of 2026-11-12: a launcher test never opens a window). D07 T01 section 3 moved the renderer and its

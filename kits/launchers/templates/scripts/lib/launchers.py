@@ -2,8 +2,11 @@
 """The launcher profile, `.conclave/launchers.json`: what a project chooses about its desktop links.
 
     python scripts/lib/launchers.py show [--root <project>]
+    python scripts/lib/launchers.py title [--root <project>]
 
-`show` prints the validated profile as one line of JSON, or the refusal on stderr with exit 1. The root is the project
+`show` prints the validated profile as one line of JSON, or the refusal on stderr with exit 1. `title` prints the
+title the campaign links carry as one line of JSON (`campaign_title`): the title, or `null` when the project has no
+profile or has not set its title yet, and the refusal on stderr with exit 1 for any other profile `show` refuses. The root is the project
 this script is installed in (two folders above `scripts/lib/`) unless `--root` names another. Standard library only.
 
 The profile holds nothing about one machine (the distro, the desktop folder, the user's name): those are the
@@ -235,19 +238,39 @@ def load_profile(path, root=None) -> dict:
             "skip_permissions": skip, "links": [dict(link) for link in links]}
 
 
+def campaign_title(root) -> str | None:
+    """The title the unattended kit's campaign links carry (D07 T01 section 7), or None when the project has no
+    profile or its `title` is still null, as the kit's template installs it: the unattended kit brings this kit, so
+    every install of it holds that template until the owner fills it in, and its campaign links keep the folder's
+    name until then. Any other profile is held to `load_profile`, which raises ProfileError for one it refuses."""
+    root = Path(root)
+    path = root / PROFILE
+    if not os.path.lexists(path):
+        return None
+    try:
+        data = json.loads(path.read_bytes().decode("utf-8"))
+    except (OSError, ValueError, RecursionError):
+        data = None  # load_profile names the fault
+    if isinstance(data, dict) and "title" in data and data["title"] is None:
+        return None
+    return load_profile(path, root)["title"]
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="launchers.py", description="Read the launcher profile.")
     sub = parser.add_subparsers(dest="command", required=True)
     show = sub.add_parser("show", help="print the validated profile as one line of JSON")
     show.add_argument("--root", help="the project (default: the one this script is installed in)")
+    title = sub.add_parser("title", help="print the campaign links' title as JSON, null when none is set")
+    title.add_argument("--root", help="the project (default: the one this script is installed in)")
     args = parser.parse_args(argv)
     root = Path(args.root) if args.root else Path(__file__).resolve().parents[2]
     try:
-        profile = load_profile(root / PROFILE, root)
+        result = campaign_title(root) if args.command == "title" else load_profile(root / PROFILE, root)
     except ProfileError as exc:
         print(f"launchers: {exc}", file=sys.stderr)
         return 1
-    print(json.dumps(profile, separators=(",", ":")))  # ASCII, so any console code page reads it
+    print(json.dumps(result, separators=(",", ":")))  # ASCII, so any console code page reads it
     return 0
 
 

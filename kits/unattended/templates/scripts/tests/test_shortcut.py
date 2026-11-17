@@ -6,6 +6,7 @@ the real desktop: every link goes to a scratch folder.
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -32,6 +33,19 @@ def renderer_for(scripts):
 
 
 RENDERER = renderer_for(SCRIPTS)
+
+
+def loader_for(scripts):
+    """The launchers kit's profile loader, which this kit brings with the renderer (D07 T01 section 7): beside these
+    scripts in an installed project, in that kit's own folder in the SDK otherwise."""
+    local = scripts / "lib" / "launchers.py"
+    if local.is_file():
+        return local
+    return scripts.parent.parent.parent / "launchers" / "templates" / "scripts" / "lib" / "launchers.py"
+
+
+LOADER = loader_for(SCRIPTS)
+PROVIDER = "Microsoft.PowerShell.Core\\FileSystem::"  # what Resolve-Path's .Path puts before a file on a share
 PWSH = shutil.which("pwsh")
 # The stand-in for wsl.exe: it lists two distros, translates a Windows path, says whether a folder exists (all do but
 # those in STUB_WSL_MISSING), and records every call; with STUB_WSL_FAIL set it fails everything.
@@ -85,8 +99,9 @@ class RendererPathTest(unittest.TestCase):
             self.assertEqual(RENDERER, SCRIPTS.parents[2] / "launchers/templates/scripts/campaign-icon.py")
             self.assertTrue(RENDERER.is_file())
 
-@unittest.skipUnless(os.name == "nt" and PWSH, "a .lnk shortcut and WScript.Shell are Windows's (PowerShell 7)")
-class ShortcutTest(unittest.TestCase):
+class ShortcutFixture(unittest.TestCase):
+    """The scratch project, the stand-in for wsl.exe and the helpers every shortcut test uses; it holds no test."""
+
     PROFILE = {"schema_version": 1, "name": "demo", "agent": "claude", "model": "opus", "effort": "medium",
                "prompt_file": "docs/unattended-prompt.md", "branch": "main", "skip_permissions": True, "tools": [],
                "min_disk_gb": 1, "min_ram_gb": 1, "tick_seconds": 300, "idle_minutes": 45, "stall_hours": 6,
@@ -101,6 +116,7 @@ class ShortcutTest(unittest.TestCase):
             (self.project / "scripts" / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(SCRIPTS / rel, self.project / "scripts" / rel)
         shutil.copyfile(RENDERER, self.project / "scripts" / "campaign-icon.py")
+        shutil.copyfile(LOADER, self.project / "scripts" / "lib" / "launchers.py")
         (self.project / ".conclave").mkdir()
         (self.project / "docs").mkdir()
         (self.project / "docs" / "unattended-prompt.md").write_text("Run the plan.\n", encoding="utf-8")
@@ -108,6 +124,8 @@ class ShortcutTest(unittest.TestCase):
         icon_module = load("campaign_icon_for_shortcut", RENDERER)
         self.icon = base / "brand.png"
         self.icon.write_bytes(icon_module.write_png(256, 256, bytearray(bytes((16, 34, 26, 255)) * 256 * 256)))
+        (self.project / "assets").mkdir()
+        shutil.copyfile(self.icon, self.project / "assets" / "icon.png")
         self.desk, self.icons = base / "desk", base / "icons"
         stub = base / "stub_wsl.py"
         stub.write_text(STUB_WSL, encoding="utf-8")
@@ -120,9 +138,20 @@ class ShortcutTest(unittest.TestCase):
     def write_profile(self, profile):
         (self.project / ".conclave" / "unattended.json").write_text(json.dumps(profile), encoding="utf-8")
 
-    def shortcut(self, *args, **env):
-        command = [PWSH, "-NoProfile", "-NonInteractive", "-File", str(self.project / "scripts" / "unattended-shortcut.ps1"),
-                   "-ShortcutDir", str(self.desk), "-IconDir", str(self.icons),
+    def write_launchers(self, title, project=None):
+        """The launchers kit's profile, `title` being a string, None (unset, as the kit installs it) or raw text."""
+        path = (project or self.project) / ".conclave" / "launchers.json"
+        if isinstance(title, str) and title.startswith("RAW:"):
+            path.write_text(title[4:], encoding="utf-8")
+            return
+        path.write_text(json.dumps({"schema_version": 1, "title": title, "icon": "assets/icon.png",
+                                    "agents": ["claude"], "skip_permissions": False, "links": []}),
+                        encoding="utf-8")
+
+    def shortcut(self, *args, project=None, icon_dir=True, **env):
+        project = project or self.project
+        command = [PWSH, "-NoProfile", "-NonInteractive", "-File", str(project / "scripts" / "unattended-shortcut.ps1"),
+                   "-ShortcutDir", str(self.desk), *(["-IconDir", str(self.icons)] if icon_dir else []),
                    "-Wsl", str(self.wsl), "-Python", sys.executable, *args]
         return subprocess.run(command, capture_output=True, text=True, timeout=180, env={**self.env, **env},
                               creationflags=windowless())
@@ -154,6 +183,9 @@ class ShortcutTest(unittest.TestCase):
         return subprocess.run(f'"{link["target"]}" {link["arguments"]}', input="\n", capture_output=True, text=True,
                               timeout=120, env={**self.env, **env}, creationflags=windowless())
 
+
+@unittest.skipUnless(os.name == "nt" and PWSH, "a .lnk shortcut and WScript.Shell are Windows's (PowerShell 7)")
+class ShortcutTest(ShortcutFixture):
     def test_one_link_per_runner_hands_wsl_the_start_command_of_that_runner(self):
         # The command itself (it starts the run, and waits for Enter when it cannot) is the Linux entry's, run in bash
         # by DesktopEntryTest; the live proof in the findings file ran it through the real wsl.exe.
@@ -265,6 +297,246 @@ class ShortcutTest(unittest.TestCase):
         """The WSL path the stand-in gives this project, for the long and the short spelling of the temp folder."""
         paths = {str(self.project), os.path.realpath(self.project)}
         return ["/mnt/" + p[0].lower() + p[2:].replace("\\", "/") for p in paths]
+
+
+@unittest.skipUnless(os.name == "nt" and PWSH, "a .lnk shortcut and WScript.Shell are Windows's (PowerShell 7)")
+class CampaignTitleTest(ShortcutFixture):
+    """D07 T01 section 7: the campaign links carry the launcher profile's title, read an icon from a share, keep one
+    identity per project, and replace a set of links whole or not at all."""
+
+    def snapshot(self):
+        """Every file in the desktop and icon folders, by name, with its bytes."""
+        return {p.relative_to(p.parents[1]).as_posix(): p.read_bytes()
+                for folder in (self.desk, self.icons) if folder.exists() for p in folder.iterdir() if p.is_file()}
+
+    def set_description(self, path, text):
+        done = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command",
+                               "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:LINK_PATH); "
+                               "$s.Description = $env:LINK_MARK; $s.Save()"],
+                              capture_output=True, text=True, timeout=60,
+                              env={**os.environ, "LINK_PATH": str(path), "LINK_MARK": text}, creationflags=windowless())
+        self.assertEqual(done.returncode, 0, done.stderr)
+
+    def rendered(self, agent):
+        return self.rendered_from(self.icon, agent)
+
+    def second_project(self, title):
+        other = Path(self._tmp.name) / "Other"
+        shutil.copytree(self.project, other)
+        self.write_launchers(title, other)
+        return other
+
+    def test_a_rename_with_a_provider_qualified_icon_writes_the_titled_set_and_nothing_else(self):
+        self.install()
+        self.assertEqual(self.links(), ["My Proj's Carbon campaign.lnk", "My Proj's Claude campaign.lnk"])
+        self.write_launchers("Demo Site")
+        done = self.shortcut("-Distro", "Ubuntu", "-Icon", PROVIDER + str(self.icon))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.links(), ["Demo Site Carbon campaign.lnk", "Demo Site Claude campaign.lnk"])
+        self.assertEqual(len(list(self.icons.glob("campaign-*.ico"))), 2)
+        self.assertEqual(len(list(self.icons.iterdir())), 2)
+        for label, agent in (("Carbon", "agy"), ("Claude", "claude")):
+            with self.subTest(agent):
+                link = self.read_link(self.desk / f"Demo Site {label} campaign.lnk")
+                self.assertEqual(Path(link["icon"].rsplit(",", 1)[0]).read_bytes(), self.rendered(agent))
+                self.log.unlink()
+                ran = self.activate(link)
+                self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+                self.assertEqual(self.calls()[0][-1], self.run.start_command(agent))
+                self.assertEqual(self.calls()[0][:2], ["-d", "Ubuntu"])
+
+    def test_a_provider_qualified_project_is_named_by_its_plain_path(self):
+        self.install()
+        plain = self.read_link(self.desk / "My Proj's Claude campaign.lnk")["description"]
+        shutil.rmtree(self.desk)
+        self.log.unlink()
+        done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", PROVIDER + str(self.project))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        mark = self.read_link(self.desk / "My Proj's Claude campaign.lnk")["description"]
+        self.assertEqual(mark, plain)
+        self.assertNotIn("::", mark)
+        translated = next(c for c in self.calls() if c[3:5] == ["wslpath", "-a"])
+        self.assertNotIn("::", translated[5])
+
+    def test_the_title_names_the_links_exactly_whatever_its_script(self):
+        self.write_launchers("\u6771\u4eac")
+        self.install()
+        self.assertEqual(self.links(), ["\u6771\u4eac Carbon campaign.lnk", "\u6771\u4eac Claude campaign.lnk"])
+
+    def test_an_unset_title_keeps_the_folders_name(self):
+        for label, text in (("unset", None), ("the kit's template", "RAW:" + json.dumps(
+                {"schema_version": 1, "title": None, "icon": None, "agents": ["claude"], "skip_permissions": False,
+                 "links": []}))):
+            with self.subTest(label):
+                shutil.rmtree(self.desk, ignore_errors=True)
+                self.write_launchers(text)
+                self.install()
+                self.assertEqual(self.links(), ["My Proj's Carbon campaign.lnk", "My Proj's Claude campaign.lnk"])
+
+    def test_a_refused_profile_or_a_missing_loader_changes_nothing_and_says_why(self):
+        self.install()
+        before = self.snapshot()
+        loader = self.project / "scripts" / "lib" / "launchers.py"
+        cases = (("a bad title", lambda: self.write_launchers(" x"), "title: must not start or end with a space"),
+                 ("not JSON", lambda: self.write_launchers("RAW:{"), "not JSON"),
+                 ("no loader", lambda: loader.unlink(),
+                  "there is no scripts/lib/launchers.py (python forge.py kit <project> unattended installs it)"))
+        for label, make, said in cases:
+            with self.subTest(label):
+                self.write_launchers("Demo Site")
+                make()
+                done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon))
+                self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+                self.assertIn("unattended-shortcut: the launcher profile cannot be read: ", done.stdout)
+                self.assertIn(said, done.stdout)
+                self.assertIn("nothing was written", done.stdout)
+                self.assertNotIn("Traceback", done.stdout + done.stderr)
+                self.assertEqual(self.snapshot(), before)
+
+    def test_remove_works_with_the_launcher_profile_broken_or_its_loader_gone(self):
+        for label in ("malformed", "no loader"):
+            with self.subTest(label):
+                self.install()
+                self.write_launchers("RAW:{")
+                if label == "no loader":
+                    (self.project / "scripts" / "lib" / "launchers.py").unlink()
+                done = self.shortcut("-Remove")
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertEqual((self.links(), list(self.icons.glob("*.ico"))), ([], []))
+                shutil.copyfile(LOADER, self.project / "scripts" / "lib" / "launchers.py")
+                (self.project / ".conclave" / "launchers.json").unlink()
+
+    def test_a_dropped_runner_takes_its_link_and_badge_and_keeps_the_others(self):
+        self.write_launchers("Demo Site")
+        self.install()
+        claude = [p for p in self.icons.iterdir() if p.name.startswith("campaign-claude-")]
+        self.write_profile({**self.PROFILE, "runners": {}})
+        self.install()
+        self.assertEqual(self.links(), ["Demo Site Claude campaign.lnk"])
+        self.assertEqual(list(self.icons.iterdir()), claude)
+
+    def test_a_name_held_by_another_file_is_refused_and_a_retry_writes_the_whole_set(self):
+        self.install()  # the folder-named set, which a rename must keep until it can replace it whole
+        for label in ("another project's link", "a folder"):
+            with self.subTest(label):
+                blocker = self.desk / "Demo Site Carbon campaign.lnk"  # the second runner's new name
+                if label == "a folder":
+                    blocker.mkdir()
+                else:
+                    shutil.copyfile(self.desk / "My Proj's Claude campaign.lnk", blocker)
+                    self.set_description(blocker, "conclave-unattended: D:\\elsewhere")
+                before = self.snapshot()
+                self.write_launchers("Demo Site")
+                done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon))
+                self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+                self.assertIn("the shortcut name 'Demo Site Carbon campaign.lnk' is held by a file this project did "
+                              "not write", done.stdout)
+                self.assertEqual(self.snapshot(), before)
+                self.assertEqual([p.name for p in self.desk.iterdir() if ".tmp" in p.name], [])
+                self.assertEqual([p.name for p in self.icons.iterdir() if ".tmp" in p.name], [])
+                shutil.rmtree(blocker) if blocker.is_dir() else blocker.unlink()
+                (self.project / ".conclave" / "launchers.json").unlink()
+        self.write_launchers("Demo Site")
+        self.install()
+        self.assertEqual(self.links(), ["Demo Site Carbon campaign.lnk", "Demo Site Claude campaign.lnk"])
+        self.assertEqual(len(list(self.icons.iterdir())), 2)
+
+    def test_a_failure_on_the_second_runner_leaves_the_previous_set_whole(self):
+        self.install()  # the folder-named set, from the first icon
+        before = self.snapshot()
+        icon_module = load("campaign_icon_for_partial", RENDERER)
+        other = Path(self._tmp.name) / "other.png"
+        other.write_bytes(icon_module.write_png(256, 256, bytearray(bytes((200, 40, 40, 255)) * 256 * 256)))
+        # A renderer that draws the first runner's badge and fails on the second's (agy, after claude).
+        installed = self.project / "scripts" / "campaign-icon.py"
+        installed.write_text("import runpy, sys\n"
+                             "if sys.argv[1:2] == ['badge'] and sys.argv[3:4] == ['agy']:\n    sys.exit(1)\n"
+                             f"sys.argv[0] = {str(RENDERER)!r}\nrunpy.run_path(sys.argv[0], run_name='__main__')\n",
+                             encoding="utf-8")
+        self.write_launchers("Demo Site")
+        done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(other))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("the icon for Demo Site Carbon campaign could not be rendered", done.stdout)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual([p.name for p in [*self.desk.iterdir(), *self.icons.iterdir()] if ".tmp" in p.name], [])
+        shutil.copyfile(RENDERER, installed)
+        done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(other))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.links(), ["Demo Site Carbon campaign.lnk", "Demo Site Claude campaign.lnk"])
+        self.assertEqual(sorted(p.read_bytes() for p in self.icons.iterdir()),
+                         sorted(self.rendered_from(other, agent) for agent in ("agy", "claude")))
+
+    def rendered_from(self, icon, agent):
+        out = Path(self._tmp.name) / f"expected-{icon.stem}-{agent}.ico"
+        done = subprocess.run([sys.executable, "-B", str(RENDERER), "badge", str(icon), agent, str(out)],
+                              capture_output=True, text=True, timeout=120, creationflags=windowless())
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return out.read_bytes()
+
+    def test_one_linux_path_in_two_distros_is_two_projects(self):
+        self.write_launchers("Alpha")
+        other = self.second_project("Beta")
+        linux = ["-Icon", str(self.icon), "-Project", "/home/x/demo"]
+        self.assertEqual(self.shortcut("-Distro", "Ubuntu", *linux).returncode, 0)
+        done = self.shortcut("-Distro", "Debian", *linux, project=other)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        beta = {k: v for k, v in self.snapshot().items() if "Beta" in k}
+        self.assertEqual(len(beta), 2)
+        beta_icons = sorted(self.read_link(self.desk / f"Beta {r} campaign.lnk")["icon"] for r in ("Carbon", "Claude"))
+        theirs = {k: v for k, v in self.snapshot().items() if k.startswith("icons/") and
+                  any(Path(i.rsplit(",", 1)[0]).name == k[6:] for i in beta_icons)}
+        self.assertEqual(len(theirs), 2)
+        self.write_launchers("Alpha Two")
+        self.write_profile({**self.PROFILE, "runners": {}})
+        for step in (["-Distro", "Ubuntu", *linux], ["-Remove", "-Distro", "Ubuntu", "-Project", "/home/x/demo"]):
+            with self.subTest(step[0]):
+                done = self.shortcut(*step)
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                now = self.snapshot()
+                self.assertEqual({k: now.get(k) for k in beta}, beta)
+                self.assertEqual({k: now.get(k) for k in theirs}, theirs)
+        self.assertEqual(self.links(), ["Beta Carbon campaign.lnk", "Beta Claude campaign.lnk"])
+        done = self.shortcut("-Remove", "-Project", "/home/x/demo")
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("-Project '/home/x/demo' is a Linux path: -Distro names the distro it is in", done.stdout)
+
+    def test_links_and_badges_under_the_old_mark_and_key_are_replaced(self):
+        # What the script wrote before for `-Project /home/x/demo`: the folder-named set under the path as typed, and
+        # its badges under that path's key.
+        linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/demo"]
+        self.assertEqual(self.shortcut(*linux).returncode, 0)
+        old_key = hashlib.sha256(b"/home/x/demo").hexdigest()[:8]
+        for link in self.desk.glob("*.lnk"):
+            self.set_description(link, "conclave-unattended: /home/x/demo")
+        for badge in self.icons.glob("campaign-*.ico"):
+            badge.rename(badge.with_name(f"{badge.name.split('-')[0]}-{badge.name.split('-')[1]}-{old_key}.ico"))
+        self.assertEqual(self.links(), ["demo Carbon campaign.lnk", "demo Claude campaign.lnk"])
+        # A titled link under the old mark is this project's too, so it is replaced, not refused as another's.
+        shutil.copyfile(self.desk / "demo Claude campaign.lnk", self.desk / "Demo Site Claude campaign.lnk")
+        self.write_launchers("Demo Site")
+        done = self.shortcut(*linux)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.links(), ["Demo Site Carbon campaign.lnk", "Demo Site Claude campaign.lnk"])
+        self.assertEqual(list(self.icons.glob(f"campaign-*-{old_key}.ico")), [])
+        self.assertFalse((self.icons / f"campaign-claude-{old_key}.ico").exists())
+        new_key = hashlib.sha256(b"\\\\wsl.localhost\\ubuntu\\home\\x\\demo").hexdigest()[:8]
+        mark = self.read_link(self.desk / "Demo Site Claude campaign.lnk")["description"]
+        self.assertEqual(mark, "conclave-unattended: \\\\wsl.localhost\\Ubuntu\\home\\x\\demo")
+        self.assertTrue((self.icons / f"campaign-claude-{new_key}.ico").is_file())
+
+    def test_the_default_icon_folder_is_named_by_the_folder_never_the_title(self):
+        local = Path(self._tmp.name) / "local"
+        local.mkdir()
+        env = {"LOCALAPPDATA": str(local)}
+        for title in (None, "Demo Site"):
+            self.write_launchers(title)
+            done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon), icon_dir=False, **env)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertEqual(len(list((local / "My Proj's").glob("campaign-*.ico"))), 2)
+        done = self.shortcut("-Remove", icon_dir=False, **env)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(list((local / "My Proj's").iterdir()), [])
+        self.assertFalse((local / "Demo Site").exists())
 
 
 if __name__ == "__main__":
