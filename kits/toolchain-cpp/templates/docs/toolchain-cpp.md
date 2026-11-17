@@ -13,6 +13,7 @@ The build itself is the project's. Nothing here chooses a build system, writes a
 | `scripts/compdb-check.py` | Says whether `compile_commands.json` can be trusted; runs and writes nothing |
 | `scripts/cc-cache.py` | Puts ccache or sccache in front of the compilers a build names |
 | `scripts/cache-stats.py` | Prints the cache's hit rate; can fail a rebuild that did not use the cache |
+| `scripts/hardening-check.py` | Says whether compile commands and built binaries carry the declared hardening |
 | `.clangd` | clangd's configuration: where the compile database is |
 
 ## Are the tools there?
@@ -121,6 +122,83 @@ python scripts/cache-stats.py --json
 
 `--zero` resets the statistics before a build. After it, the second line prints hits, misses and the rate, and exits 3 when the rate is below the figure or no compile went through the cache at all. It reads the cache the setup chose.
 
+## Memory safety
+
+A C or C++ program can be built so that the commonest memory errors end the process at once instead of corrupting it: bounds checks in the standard library, a stack protector, control-flow guards and an image the loader can randomise. The project declares the hardening it builds with in the pin file's `hardening` key, and one command says whether the compile commands and the built binaries really carry it:
+
+```text
+python scripts/hardening-check.py
+python scripts/hardening-check.py --json
+```
+
+It reads `compile_commands.json` and the binaries the policy names, and runs and writes nothing. It exits 0 when every requirement holds (`ok`) or nothing is required (`none`), 1 when an answer cannot be told (`unknown`), 3 when a requirement is missing, and 2 when the pin file does not load. The first line is the compile check, then one line per requirement; then the image check, then one line per binary:
+
+```text
+hardening:compile: none: no policy declared: add a `hardening` key to the pin file (docs/toolchain-cpp.md, Memory safety)
+hardening:compile: ok: compile_commands.json: 3 requirement(s) on 12 first-party entries; 4 excluded, 0 outside the sources
+hardening:compile: missing: compile_commands.json: 1 of 3 requirement(s) missing on 12 first-party entries; 4 excluded, 0 outside the sources
+hardening:compile: unknown: the compile database is stale, so the flags it holds may not be the build's: ...
+```
+
+### The policy
+
+`compile` lists what every compile command of the project's own sources must carry: a definition (`NAME` or `NAME=VALUE`, matched in its `-D` or `/D` form) or an option (starting with `-` or `/`). `sources` are the project's own folders under the pin file's `root` (default `.`), and `exclude` the folders under them that are not (vendored code). `binaries` lists the built files to read (a `*` is allowed in the file name), `image` the properties each must have, and `test_binaries` the built files allowed a sanitizer runtime. A policy declares `compile`, `binaries` or both; a build is shippable only under both.
+
+How a command is read: the last occurrence of an option wins (`-fstack-protector-strong ... -fno-stack-protector` lacks it); `-fno-stack-protector` undoes every stack protector level, and a stronger level satisfies a weaker one (`-fstack-protector-all` carries `-fstack-protector-strong`); `-U` after `-D` removes a definition; a response file (`@flags.rsp`) is read; the `/` spellings are read for `cl` and `clang-cl` only, after a ccache or sccache launcher; arguments for the linker (`-Wl,...`) are not compile flags. An entry whose command cannot be read (a missing response file, an unbalanced quote) is counted and the others are still checked: a requirement a readable entry lacks is `missing` whatever the unreadable one holds.
+
+The check reads what each command passes, not what a compiler turns on by itself. Ubuntu's GCC 15.2.0 enables `-fstack-protector-strong`, `_FORTIFY_SOURCE=3`, PIE and `-z now` without a flag, and Ubuntu's Clang 19.1.7 does not: declare each option the project depends on in its own build, so the binary is the same on any compiler, and the check sees it.
+
+MSVC, with the image read from the linked `.exe`:
+
+```json
+{"hardening": {"compile": ["_MSVC_STL_HARDENING=1", "/guard:cf", "/sdl"], "sources": ["src"],
+               "binaries": ["build/Release/*.exe"],
+               "image": ["DYNAMIC_BASE", "HIGH_ENTROPY_VA", "NX_COMPAT", "GUARD_CF", "CET_COMPAT"]}}
+```
+
+Clang with libc++, llvm-mingw included:
+
+```json
+{"hardening": {"compile": ["_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST", "-fstack-protector-strong",
+                           "-ftrivial-auto-var-init=zero", "-mguard=cf"], "sources": ["src"],
+               "binaries": ["build/*.exe"], "image": ["DYNAMIC_BASE", "NX_COMPAT", "GUARD_CF", "CET_COMPAT"]}}
+```
+
+GCC with libstdc++, on Linux:
+
+```json
+{"hardening": {"compile": ["_GLIBCXX_ASSERTIONS", "-fstack-protector-strong", "_FORTIFY_SOURCE=3", "-fPIE"],
+               "sources": ["src"], "exclude": ["src/third_party"], "binaries": ["build/app"],
+               "image": ["PIE", "RELRO", "BIND_NOW", "NX_STACK", "STACK_PROTECTOR"],
+               "test_binaries": ["build/tests/*"]}}
+```
+
+`_FORTIFY_SOURCE` works only with optimisation (`-O1` or higher); where the compiler predefines it, write `-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3` so the build does not warn of a redefinition.
+
+### The options, and where each was measured
+
+Clang rows hold for Clang with libc++, llvm-mingw included, and GCC rows for GCC with libstdc++ on Linux. Each was proved by the result it changes beside a build without it: a probe that commits the error on purpose ends in the option's own trap, a probe reads the value an initialising option sets, or `hardening-check.py` reads the property from the linked image.
+
+| Family | Option | Effect | Measured on |
+| --- | --- | --- | --- |
+| MSVC | `/D_MSVC_STL_HARDENING=1` | Library bounds checks; ends the process | MSVC 19.52 (`0xC0000409`) |
+| MSVC | `/guard:cf` (compile and link) | Control Flow Guard | MSVC 19.52 (image flag) |
+| MSVC | `/CETCOMPAT` (link) | Shadow stack compatible | MSVC 19.52 (image flag) |
+| MSVC | `/sdl` | Extra checks; an uninitialised read becomes error C4700 | MSVC 19.52 |
+| Clang | `-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST` | Library bounds checks | llvm-mingw 23.1.1 |
+| Clang | `-fstack-protector-strong` | Stack protector | Clang 19.1.7 on Linux; not on llvm-mingw |
+| Clang | `-ftrivial-auto-var-init=zero` | Locals start as zero | Clang 19.1.7 on Linux; not on llvm-mingw |
+| Clang | `-mguard=cf` | Control Flow Guard (llvm-mingw) | llvm-mingw 23.1.1 (image flag) |
+| Clang | `-Wl,-Xlink=-cetcompat` | Shadow stack; lld refuses `-Wl,--cetcompat` | llvm-mingw 23.1.1 |
+| GCC | `-D_GLIBCXX_ASSERTIONS` | Library bounds checks; ends with exit 134 | GCC 15.2.0 |
+| GCC | `-fstack-protector-strong` | Stack protector (`stack smashing detected`) | GCC 15.2.0, Clang 19.1.7 |
+| GCC | `-D_FORTIFY_SOURCE=2` or `=3` | Checked string and memory calls | GCC 15.2.0, Clang 19.1.7 (glibc) |
+| GCC | `-Wl,-z,relro,-z,now` | Full RELRO | GCC 15.2.0 (image) |
+
+### What hardening does not cover
+
+Hardening covers bounds and control flow, not object lifetime: a use after free or a double free is found by a sanitizer test build (`-fsanitize=address`) and by fuzzing, and neither ships. Name a sanitizer build in `test_binaries`; a sanitizer runtime in any other binary is a finding. A hardened process that hits a check ends at once and reaches no handler inside the process, so a shipped program needs a way for its next start to say that the last run stopped.
+
 ## What is left to the project
 
 - The build system and every build command: Make, Ninja, CMake or anything else.
@@ -128,4 +206,4 @@ python scripts/cache-stats.py --json
 - Installing and upgrading tools. The check names what is missing and how to install it; a person installs it.
 - Target flags, include paths and clang-tidy checks in `.clangd`.
 
-From a Conclave-SDK checkout, `python forge.py doctor <project> toolchain-cpp` reports all of the above in one list: each file, each pinned tool, the compile database, and whether clangd is wired to it.
+From a Conclave-SDK checkout, `python forge.py doctor <project> toolchain-cpp` reports all of the above in one list: each file, each pinned tool, the compile database, whether clangd is wired to it, and the hardening policy (`hardening-policy`, then `hardening:compile` and `hardening:image` when one is declared). The doctor passes `--strict` with `unknown` hardening rows, so it is no release gate: a build is shippable when `python scripts/hardening-check.py` exits 0 with status `ok`.

@@ -685,6 +685,69 @@ class CppKitTests(ToolchainFixture):
         self.assertNotIn(names[3], detail)
         self.assertTrue(detail.endswith("; and 2 more"), detail)
 
+    # the memory-safety guidance (D04 T03 section 4)
+
+    def memory_safety_section(self):
+        text = (SDK_ROOT / "kits" / self.KIT / "templates/docs/toolchain-cpp.md").read_text(encoding="utf-8")
+        start = text.index("\n## Memory safety\n")
+        return text[start:text.index("\n## ", start + 1)]
+
+    def test_memory_safety_worked_examples_hold_through_the_loader_and_the_check(self):
+        blocks = re.findall(r"```json\n(.*?)```", self.memory_safety_section(), re.S)
+        self.assertEqual(len(blocks), 3, "one worked policy per compiler family")
+        loader = self.module
+        compdb = forge._toolchain_module(self.KIT, "compdb-check.py")
+        check = forge._toolchain_module(self.KIT, "hardening-check.py")
+        for number, block in enumerate(blocks):
+            example = json.loads(block)
+            with self.subTest(example=number):
+                project = self.work / f"example{number}"
+                (project / ".conclave").mkdir(parents=True)
+                pins = project / PINS
+                pins.write_text(json.dumps({"schema_version": 1, "tools": [], **example}), encoding="utf-8")
+                pin_file = loader.load_pin_file(pins)
+                required = pin_file["hardening"]["compile"]
+                msvc = any(item.startswith("/") for item in required)
+                define = "/D" if msvc else "-D"
+                flags = [item if item[0] in "-/" else define + item for item in required]
+                source = f"{pin_file['hardening']['sources'][0]}/main.cpp"
+                (project / source).parent.mkdir(parents=True, exist_ok=True)
+                (project / source).write_text("int main() { return 0; }\n", encoding="utf-8")
+                for carried, wanted in ((flags, "ok"), (flags[1:], "missing")):
+                    self.database(project, entries=[{"directory": str(project), "file": source,
+                                                     "arguments": ["cl.exe" if msvc else "c++", *carried, "-c",
+                                                                   source]}])
+                    result = check.check_compile(project, pin_file, compdb)
+                    self.assertEqual(result["status"], wanted, result["detail"])
+
+    def test_memory_safety_the_documented_lines_are_the_scripts_own(self):
+        project = self.project()
+        self.compdb_pins(project)
+        script = project / "scripts/hardening-check.py"
+        out = subprocess.run([sys.executable, str(script), "--root", str(project)], capture_output=True, text=True,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=120)
+        first = out.stdout.splitlines()[0]
+        self.assertTrue(first.startswith("hardening:compile: none: no policy declared"), first)
+        self.assertIn("\n" + first + "\n", self.memory_safety_section())
+
+    def test_memory_safety_every_option_row_says_where_it_was_measured(self):
+        rows = [line for line in self.memory_safety_section().splitlines()
+                if line.startswith("| ") and not line.startswith(("| Family", "| ---"))]
+        self.assertGreaterEqual(len(rows), 13)
+        for row in rows:
+            measured = row.strip("|").split("|")[-1].strip()
+            self.assertRegex(measured, r"[0-9]+\.[0-9]+|not on", row)
+
+    def test_memory_safety_the_skill_carries_the_four_rules(self):
+        skill = (SDK_ROOT / "kits" / self.KIT / "templates/.claude/skills/cpp-toolchain/SKILL.md").read_text(
+            encoding="utf-8")
+        rules = skill[skill.index("## Memory safety"):skill.index("## The cache")]
+        for words in ("beside a control build without it, never by reading the flag back",
+                      "a sanitizer only in a test preset",
+                      "exits 0 with status `ok`, under a policy that declares both `compile` and `binaries`",
+                      "Plan a crash message with any hardening that ships"):
+            self.assertIn(words, rules)
+
     def test_hardening_image_names_three_binaries_and_counts_the_rest(self):
         names = [f"build/app{n}" for n in range(4)]
         project = self.hardened_project(binaries=names, image=["PIE"])

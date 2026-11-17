@@ -178,6 +178,10 @@ The kit seeds a `.clangd` at the project root and puts clangd in the LSP kit's s
 
 Confirmed with clangd itself (22.1.3 on Windows 11 and 19.1.7 on Ubuntu, 2026-11-15): a file that compiles only with a definition the database gives has no diagnostic with the seed, with the database at the root or in `build/`, and the compiler's error when `.clangd` names a folder without the database or the database is in another folder (`out/`) while `.clangd` still says `.`.
 
+## Memory safety
+
+A project declares the hardening it builds with in the pin file's `hardening` key: `compile` (the definitions and options every compile command of its own `sources` must carry, less `exclude`), `binaries` (the built files to read), `image` (the properties each must have: `DYNAMIC_BASE`, `HIGH_ENTROPY_VA`, `NX_COMPAT`, `GUARD_CF` and `CET_COMPAT` for PE, `PIE`, `RELRO`, `BIND_NOW`, `NX_STACK` and `STACK_PROTECTOR` for ELF) and `test_binaries` (the sanitizer builds, the only binaries allowed a sanitizer runtime). `python scripts/hardening-check.py` (`--json` for one document) holds the compile database and the binaries to it, reading the PE and ELF headers itself, and exits 0 for `ok` or `none`, 1 for `unknown`, 3 for `missing` and 2 when the pin file does not load. It never chooses a project's flags or edits its build. The installed `docs/toolchain-cpp.md` has a worked policy for MSVC, Clang with libc++ and GCC with libstdc++, the options of each family with the compiler version each was measured on, and the limits: hardening covers bounds and control flow, not object lifetime, which a sanitizer test build and fuzzing find. The skill adds the rules: prove an option by the result it changes beside a control build, a sanitizer only in a test preset, shippable only on status `ok` under a policy with both halves, and a crash message with any hardening that ships.
+
 ## Sources
 
 The kit generalises what two C projects each built for themselves. The approach is theirs; the code is new, because each of theirs was tied to one build.
