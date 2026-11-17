@@ -253,6 +253,8 @@ The third link of the shape differs per project: a WordPress project opens its d
 
 ## 7. Campaign links under the project's title, icon read from a share
 
+> **Started:** 2026-11-18T01:40Z
+
 Two faults in the campaign link, both found on the first project that used the whole shape. Its name is the folder's (`<folder> <Runner> campaign`) while the other links carry the title, and its icon cannot be read from a `\\wsl.localhost` share.
 
 **Phase:** 8
@@ -266,12 +268,14 @@ Two faults in the campaign link, both found on the first project that used the w
 
 - [ ] Add a test to `kits/unattended/templates/scripts/tests/test_shortcut.py` that passes `-Icon` as a provider-qualified path (`Microsoft.PowerShell.Core\FileSystem::<scratch>\icon.png`, which is what `Resolve-Path` returns for a file on a share). Done when: it fails on the current script with the renderer unable to open the file.
 - [ ] Change `kits/unattended/templates/scripts/unattended-shortcut.ps1` line 123 to `(Resolve-Path -LiteralPath $Icon).ProviderPath`, with a comment saying why. Done when: the test above passes. Cheaper substitute: stripping the prefix with a string replace, which breaks on the next provider.
-- [ ] Name each campaign link `<title> <Runner> campaign.lnk` when `.conclave/launchers.json` loads through `scripts/lib/launchers.py show`, and by the folder's name as now when the file is missing; a profile that exists and is refused stops the script with the loader's message. Done when: one test per case reads the link's name back.
-- [ ] Remove, on a run that renames, the link this project wrote under the old name, found by its mark as `Get-Owned` already does. Done when: a test writes the link without a profile, adds the profile, runs again and finds one link, under the title.
+- [ ] Resolve `-Project` the same way in `unattended-shortcut.ps1` (line 35 keeps `$found.Path`, with the same prefix for a project on a share that is not a WSL one). Done when: a test passes `-Project` as `Microsoft.PowerShell.Core\FileSystem::<project>` and the link's mark and the `wslpath` call carry the plain path; it fails on `.Path`. **Corrected 2026-11-18:** added; the item above named only the icon, and the project path has the same fault.
+- [ ] Add `launchers.py title [--root]` to `kits/launchers/templates/scripts/lib/launchers.py` (`campaign_title`): it prints the profile's title when the profile loads; prints nothing, exit 0, when `.conclave/launchers.json` is missing or its `title` is `null` (the kit's template as installed); and refuses any other profile with `load_profile`'s message, exit 1. Done when: `test_launchers.py` holds each of the four cases (titled, missing, unset title, refused). **Corrected 2026-11-18:** added. The item below said a refused profile stops the script, but the unattended kit brings the launchers kit, whose template ships `title: null`, which `load_profile` refuses: every install that has not yet set a title would lose its campaign links (the run file of 2026-11-17 recorded it at the operator's stop).
+- [ ] Name each campaign link `<title> <Runner> campaign.lnk` when `scripts/lib/launchers.py title` prints a title, and by the folder's name as now when it prints nothing; a profile it refuses stops the script with the loader's message and writes nothing; a profile present with no `scripts/lib/launchers.py` beside the script is refused with the install command. Done when: one test per case (titled, no profile, unset title, refused, loader missing) reads the link names back, or finds none. **Corrected 2026-11-18:** it read the title through `show`, which refuses the unset title every fresh install carries.
+- [ ] Remove, on a run that renames, the link this project wrote under the old name, found by its mark as `Get-Owned` already does. A link of this project's that the run does not write (a runner dropped from the run profile) goes the same way, with its badge, as `project-shortcuts.ps1` already does for its links. Done when: a test writes the link without a profile, adds the profile, runs again and finds one link, under the title; a second test drops a runner and finds its link and badge gone and the others kept. **Corrected 2026-11-18:** the dropped runner added, one rule for both.
 - [ ] Keep `start_command` in `scripts/unattended-run.py` and the link's arguments equal, as the existing test holds. Done when: that test still passes unchanged.
 - [ ] Commit: `unattended: campaign links take the project's title and read an icon from a share`
 
-**Test checkpoint:** `python forge.py check-all --only kit-unattended` passes on Windows; restoring `.Path` on line 123 makes the provider-path test fail.
+**Test checkpoint:** `python forge.py check-all --only kit-unattended` and `python forge.py check-all --only kit-launchers` pass on Windows; restoring `.Path` on the icon line, or on the project line, makes its provider-path test fail; making `title` refuse an unset title makes the unset-title tests fail. **Corrected 2026-11-18:** the launchers kit's suite added, which now holds `title`.
 
 ## 8. Operator page and `project-launchers` skill
 
