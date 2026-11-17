@@ -98,7 +98,7 @@ Sections: 4 | Checklist items: 24
 
 ### Phase 5: One gate and one skill source
 
-Sections: 11 | Checklist items: 76
+Sections: 10 | Checklist items: 69
 
 | Status | Reference   | Deliverable                                                       | Needs | Items |
 | ------ | ----------- | ----------------------------------------------------------------- | ----- | ----- |
@@ -109,10 +109,9 @@ Sections: 11 | Checklist items: 76
 | [x]    | D01 T02 §5  | Skill copy generator with per-agent patches                       | none  | 9     |
 | [x]    | D01 T02 §6  | Committed skill copies equal to the generator's output            | none  | 8     |
 | [x]    | D01 T02 §7  | Pre-commit hook enabled at install and checked by doctor          | none  | 10    |
-| [ ]    | D01 T02 §8  | No new row on a red main or after three pushes with no CI verdict | none  | 7     |
-| [ ]    | D01 T02 §9  | Fast record check for pushes that change only records             | none  | 4     |
+| [ ]    | D01 T02 §8  | CI read after every push, every new failure reported              | none  | 4     |
 | [ ]    | D01 T02 §10 | Linux full suite split into parallel jobs                         | none  | 4     |
-| [ ]    | D01 T02 §11 | Stamp evidence from CI of a records-only neighbour                | none  | 3     |
+| [ ]    | D01 T02 §11 | Stamp of a chain whose contract was restored after reconciliation | none  | 3     |
 
 ### Phase 6: Tooling kits
 
@@ -210,6 +209,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 96/127 verified sections, 6 ready to run now.
+Progress: 96/126 verified sections, 7 ready to run now.
 
-Checklist: 790/976 items completed (includes Commit items).
+Checklist: 790/969 items completed (includes Commit items).

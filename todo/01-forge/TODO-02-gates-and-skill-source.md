@@ -41,10 +41,9 @@ title: "TODO-02 -- One gate and one skill source"
 | 5 | §5 | Skill copy generator with per-agent patches | -- | [x] |
 | 6 | §6 | Committed skill copies equal to the generator's output | §5 | [x] |
 | 7 | §7 | Pre-commit hook enabled at install and checked by doctor | -- | [x] |
-| 8 | §8 | No new row on a red main or after three pushes with no CI verdict | -- | [ ] |
-| 9 | §9 | Fast record check for pushes that change only records | §8 | [ ] |
-| 10 | §10 | Linux full suite split into parallel jobs | -- | [ ] |
-| 11 | §11 | Stamp evidence from CI of a records-only neighbour | §9 | [ ] |
+| 8 | §8 | CI read after every push, every new failure reported | -- | [ ] |
+| 9 | §10 | Linux full suite split into parallel jobs | -- | [ ] |
+| 10 | §11 | Stamp of a chain whose contract was restored after reconciliation | -- | [ ] |
 
 ## 1. `forge.py check-all` over every suite
 
@@ -288,34 +287,11 @@ The todo kit's `scripts/hooks/pre-commit` refuses a commit that would turn the p
 > **Verified:** 2026-11-15 | §7 | d46c3add1d05bcb7c37d5544c4ea3bf75bab3648
 > **Review:** `docs/reviews/d01-t02-s7.json`
 
-## 8. No new row on a red main or after three pushes with no CI verdict
+## 8. CI read after every push, every new failure reported
 
-The owner's rule of 2026-11-17: CI must never be red after a push and go unnoticed, and never more than three pushes may go by without a verdict. Today `scripts/ci_status.py` is read only at section boundaries, and GitHub drops a pending run when a newer push arrives (the `concurrency` group in `.github/workflows/tests.yml`), so a commit can reach main untested and a red can sit through several pushes. Measured 2026-11-17: of the 14 runs started on main after 11:00Z, 8 were cancelled before they ran.
+The owner's rule of 2026-11-17: a red CI must never go unnoticed, and the system that guarantees it stays as it is: every stamp cites a green run of the exact commit it stamps, and a red main is repaired before any new row (`AGENTS.md`, Test cadence). What changes is how soon a red is seen. `scripts/ci_status.py` is read only at section boundaries and reports one decisive run per workflow, so a run that failed and was followed by a green one before the next read is never reported, and a section's several pushes go by unread.
 
-The rule is held where work starts, never at the push. The owner reported on 2026-11-17 that the same rule as a gate on pushing, in another repository, left 20 commits that could not be pushed after a few days and nearly deadlocked it: the push that would have produced the verdict, or carried the fix, was the push the gate refused. So no hook, check or skill here ever refuses a commit or a push because of CI; the runner instead may not claim a new row while main is red or while three pushes have gone without a verdict, and it obtains the missing verdict itself. A red is never a halt: the runner repairs it first, then moves on (owner, 2026-11-17).
-
-**Phase:** 5
-**Needs:** none
-**Surface:** no
-
-**Build order:**
-
-1. Count, in `ci_status.py`, the pushes since main's last verdict, and gate on it. Done when: `--gate` exits by the state and is tested.
-2. Make the runner obtain a verdict instead of waiting forever, and hold the rule in the skills. Done when: the checkpoint passes.
-
-- [ ] Add a `pushes since the last verdict` count to `kits/todo/templates/scripts/ci_status.py` (the SDK's `scripts/ci_status.py` is its installed copy, refreshed by `python forge.py self-sync`): the commits on `origin/main` after the newest commit whose watched workflow run completed (success or failure, never cancelled), printed with that commit and its verdict, and `--json` carrying it. Done when: a test with a stub `gh` (runs completed, cancelled and pending on known commits) reads the count and the last verdict back. Cheaper substitute: counting only cancelled runs, which misses pushes whose run is still pending.
-- [ ] Add `--gate` to `ci_status.py`: exit 0 when main's last verdict is green and fewer than three pushes have none, 1 when it is red, 4 when three or more pushes have none (naming them and any run in progress), 3 when the state cannot be read. Done when: a test per exit code passes with a stub `gh`.
-- [ ] Add `--settle` to `ci_status.py` for exit 4: when no run of the watched workflow is queued or in progress for the tip of `origin/main`, start one with `gh workflow run <workflow> --ref main` (the workflow's `workflow_dispatch`), then wait for that run, bounded by 30 minutes of queue plus the workflow's longest job `timeout-minutes`, printing its verdict; it dispatches at most once per call and never loops, and a run cancelled or not finished within the bound is reported as no verdict with exit 4. Done when: a test with a stub `gh` finds a dispatch when nothing covers the tip, none when a run is in progress, and a bounded wait that ends with the verdict or a timeout message.
-- [ ] Hold the rule in `process-phase` and `process-plan` (the Claude skills, the copies through `python forge.py skill-copies`) and in the heartbeat prompt: before claiming a row run `ci_status.py --gate`; exit 1 makes the repair the next row, never a wait: read the failed job's log, rerun once for an infrastructure failure, otherwise fix it at the owning layer with a regression test, push the fix (the push is never held), run `--settle` for the fix's verdict, and claim the next row as soon as it is green; exit 4 runs `--settle`, then acts on its verdict; exit 3 is recorded and retried at the next boundary. Every one of these is bounded, so the run can neither loop nor stall: two `--settle` calls in a row without a verdict, two exit 3 in a row, or the same failure still red after three fix pushes, each writes a Critical event and ends the run through an escalation park (a column-0 `PARKED ... escalation:` line naming the red or the missing verdict), which the operator sees, instead of waiting or retrying again. Nothing in them refuses, delays or holds back a commit or a push because of CI, and the runner pushes each commit as it lands: no step holds commits back to protect a CI run. Done when: `python forge.py skill-copies --check` passes, a test finds `--gate`, `--settle` and the three escalation bounds in each skill and the heartbeat prompt, and a test finds no instruction in them to hold a commit or a push.
-- [ ] Prove no deadlock: a test in `tests/test_ci_status.py` takes a scratch clone with a bare remote and a stub `gh` reporting red and no verdict, and finds that a commit and a push both go through while `--gate` exits 1 and then 4. Done when: it passes, and fails when a pre-push hook that runs `--gate` is installed in the clone. Cheaper substitute: a pre-push or pre-commit gate on CI, which the owner's deadlock rules out.
-- [ ] Name the rule in `AGENTS.md` (Test cadence) and the todo kit's `docs/todo-workflow.md`, the deadlock lesson with it, and run `python forge.py self-sync`. Done when: the Markdown format check and `python -m unittest tests.test_forge -k self_sync` pass.
-- [ ] Commit: `todo: no new row on a red main or after three pushes with no CI verdict`
-
-**Test checkpoint:** `python -m unittest tests.test_ci_status` ends `OK`; letting `--gate` exit 0 with three pushes without a verdict makes it fail, and so does a hook that refuses a push.
-
-## 9. Fast record check for pushes that change only records
-
-About half the pushes of a section change only records (a plan correction, a review's findings, a stamp), yet each runs the full matrix (29 minutes on Linux, measured 2026-11-17 on run 44083965196) and takes the one CI slot, so a code candidate waits behind it or is dropped. A records-only push needs only the checks records can break: the Markdown format check and the plan gates.
+**Corrected 2026-11-17 (owner, after an audit and Astra's review in `docs/reviews/01-forge/ci-speedup-audit.md`):** this section first planned a gate on new rows with a push count, a dispatched settlement and escalation parks, and the first §9 and §11 a records-only CI path and stamps citing a neighbour commit's run (both dropped; the number 9 stays unused, and 11 now holds the stamp repair the review found). The review found nine ways those could hide a red, loop or leave a stamp with no route; the owner chose to keep the old system and only the speed-ups that change no verdict. Nothing here refuses, delays or holds a commit or a push: in another repository a gate on pushing left 20 commits that could not be pushed and nearly deadlocked it.
 
 **Phase:** 5
 **Needs:** none
@@ -323,19 +299,19 @@ About half the pushes of a section change only records (a plan correction, a rev
 
 **Build order:**
 
-1. Name the record paths once. Done when: one list is read by the workflow and the tooling.
-2. Route a records-only push to a fast job. Done when: the checkpoint passes.
+1. Report every failure since the last read. Done when: `ci_status.py --since-last` is tested.
+2. Read it after every push and at the end of a run. Done when: the checkpoint passes.
 
-- [ ] Add the record paths (`todo/`, `docs/reviews/`, `docs/phase-runs/`) as the default `records` list in `kits/todo/templates/scripts/ci_status.py`, which a project may replace with `records` in its optional `.conclave/ci.json`, with a reader that says whether a commit range touches only them. Done when: tests find a range of records only, one with a code file, and one with a renamed file out of a record folder each classified right.
-- [ ] Add a `records` job to `.github/workflows/tests.yml`, outside the suites' concurrency group, that runs the Markdown format check, `python scripts/todo-graph.py validate` and `plan --check`, and make the three suite jobs skip when the push's whole range (`github.event.before` to `github.sha`) is records only; a range with any code file, a new branch or a force push (no `before` in the history) is code, and a `workflow_dispatch` run always runs the suites. Done when: a test reads the workflow and finds the job, its commands and the skip condition reading the same list.
-- [ ] Read a records-only run in `ci_status.py` as a records verdict and never as the suites' (GitHub counts skipped jobs as success): the suites' verdict for a commit is the run that ran them on it or on its nearest code ancestor, a red or missing one stays red or missing whatever records runs follow, and a records-only push counts toward §8's three only while its code ancestor has no suites verdict. Done when: `ci_status.py` tests find a records-only push on a red code ancestor reported red, one on an untested code ancestor counted as no verdict, and a mixed range classified as code.
-- [ ] Commit: `ci: a push that changes only records runs the record checks alone`
+- [ ] Add `--since-last` to `kits/todo/templates/scripts/ci_status.py` (the SDK's `scripts/ci_status.py` is its installed copy, refreshed by `python forge.py self-sync`): it keeps the newest run it has reported in `build/ci-status-cursor.json` (written atomically), lists every run of the watched workflows that completed since, each attempt counted, paging past the first page when needed, names each failure (commit, run URL, failed jobs) and advances the cursor only after printing them; exit 1 when any of them, or the latest completed run, failed. Done when: tests with a stub `gh` find a failure followed by a green both reported, a second read report nothing new, a run's failed first attempt and green rerun both reported, and a cursor file that cannot be written leave the cursor where it was and say so.
+- [ ] Rerun a commit's run that a newer push cancelled when a stamp needs that commit, once, with `gh run rerun <id>` (the same commit, never `main`'s tip); a second cancellation is recorded and the next run of a later commit decides. Done when: a test with a stub `gh` finds one rerun, the run ID and commit kept, and no second rerun.
+- [ ] Read `ci_status.py --since-last` after every push in `process-todo-section`, `review-todo-section`, `process-phase` and the heartbeat (the Claude skills, the copies through `python forge.py skill-copies`), and at a run's closeout or park, where a run still in progress is written into the closeout as open with its URL; a reported failure makes its repair the next step, as the red-first rule already says. Done when: `python forge.py skill-copies --check` passes and a test finds `--since-last` in each skill, the heartbeat prompt and the closeout step, and no instruction in them to hold a commit or a push.
+- [ ] Commit: `todo: CI is read after every push and every new failure is reported`
 
-**Test checkpoint:** `python -m unittest tests.test_ci_status tests.test_forge -k workflow` ends `OK`; a code file in the range makes the classifier say not records-only.
+**Test checkpoint:** `python -m unittest tests.test_ci_status` ends `OK`; advancing the cursor past a failure that was not printed makes it fail.
 
 ## 10. Linux full suite split into parallel jobs
 
-The full suite on Linux is the longest job (29 minutes on run 44083965196, against 19 for Windows and 15 for the kit suites), so it sets how long every candidate waits. Split by test module across parallel jobs, it runs the same tests in less time.
+The full suite on Linux is the longest job (29 minutes on run 44083965196, against 19 for Windows and 15 for the kit suites), so it sets how long every candidate waits. Split by test module across parallel jobs, it runs the same tests in less time and changes no verdict.
 
 **Phase:** 5
 **Needs:** none
@@ -353,9 +329,9 @@ The full suite on Linux is the longest job (29 minutes on run 44083965196, again
 
 **Test checkpoint:** `python -m unittest tests.test_check_all` ends `OK`; dropping a module from the shard split makes it fail.
 
-## 11. Stamp evidence from CI of a records-only neighbour
+## 11. Stamp of a chain whose contract was restored after reconciliation
 
-A stamp must cite a green run of the commit it stamps (`AGENTS.md`, Test cadence). Once §9 sends records-only pushes to the fast job, a candidate that ends on a records commit (a writer note, a review's findings) gets no full run of its own, and while a run waits a newer push drops it. The same code is under test in a green run of any commit whose difference from the stamped one is records only, in either direction.
+`d595ec6` let the dispatcher take another reconciliation after one that ended complete on a candidate whose section contract had changed (D07 T02 §1, which `stamp` then refused and the dispatcher would not review again). Astra's review (`docs/reviews/01-forge/ci-speedup-audit.md`, finding 1, P1) found the chain still cannot stamp: `three_pass_ok` in `scripts/lib/todo_graph.py` refuses a chain in which a reconciliation before the last returned complete, and holds the last pass's predecessor to the blocking levels. The dispatcher and the stamp must share one rule.
 
 **Phase:** 5
 **Needs:** none
@@ -363,14 +339,14 @@ A stamp must cite a green run of the commit it stamps (`AGENTS.md`, Test cadence
 
 **Build order:**
 
-1. Find the covering run. Done when: `ci_status.py` names it for a commit.
-2. Accept it in the stamp's evidence and the rule. Done when: the checkpoint passes.
+1. One predicate for "a complete reconciliation that settles nothing". Done when: both tools call it.
+2. Prove the chain end to end through `stamp`. Done when: the checkpoint passes.
 
-- [ ] Add `--covers <commit>` to `kits/todo/templates/scripts/ci_status.py`: the newest green full run (every suite job) of a commit whose diff from `<commit>` touches only the record paths of §9, printed with its URL and commit, and only when the stamped commit's own `records` check (§9) or full run is green too, exit 1 naming why when none. Done when: tests with a stub `gh` find a run on a records-only descendant, one on a records-only ancestor, and refuse one across a code change and one whose stamped commit's records check is red.
-- [ ] Amend the Test cadence paragraph of `AGENTS.md` and the stamp step of the `review-todo-section` skill (all three agents' copies through `python forge.py skill-copies`): a stamp's `--check` cites the run `ci_status.py --covers <stamped commit>` names. Done when: `python forge.py skill-copies --check` and the Markdown format check pass, and `git grep -n "covers" -- AGENTS.md kits/todo/templates/.claude/skills/review-todo-section/SKILL.md` finds both.
-- [ ] Commit: `todo: a stamp cites CI of a records-only neighbour`
+- [ ] Move the rule into `kits/todo/templates/scripts/lib/todo_graph.py` as one function (a reconciliation that ended complete settles the chain only when the candidate's `section_contract` equals the failed completion's), call it from `three_pass_ok` for every reconciliation before the last, and from `review-dispatch.py`'s `contract_changed` path, with the pass cap, the ancestry and the last pass on the stamped commit held as before. Done when: a stamp test builds plan, round, failed completion, a complete reconciliation on a changed contract and a complete one on the restored contract, stamps it, and validates the receipt.
+- [ ] Refuse the same chain when the restoring reconciliation leaves the contract changed, and when an earlier complete reconciliation had the contract unchanged (no extra pass after a real complete). Done when: two stamp tests find each refused naming why, and `test_a_complete_reconciliation_on_a_changed_contract_takes_another` goes on to stamp.
+- [ ] Commit: `todo: a chain whose contract was restored after reconciliation can stamp`
 
-**Test checkpoint:** `python -m unittest tests.test_ci_status` ends `OK`; letting `--covers` cross a code change makes it fail.
+**Test checkpoint:** `python -m unittest tests.test_todo_graph -k reconcil` and `python forge.py check-all --only kit-reviewer` pass; dropping the shared predicate from `three_pass_ok` makes the end-to-end stamp test fail.
 
 ## Verification
 
