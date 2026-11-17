@@ -11,10 +11,14 @@ It needs no other kit, and the `unattended` kit brings it with it, since that ki
 | File | What it is |
 | ---- | ---------- |
 | `.conclave/launchers.json` | The profile: the title, the icon, the agents that get a link, and further links |
-| `scripts/campaign-icon.py` | The icon renderer: the project's icon with its runner's badge (stdlib only) |
+| `scripts/campaign-icon.py` | The icon renderer: a runner's round badge or a link's rounded-square overlay (stdlib) |
 | `scripts/lib/launchers.py` | `load_profile` and `show`: the profile, every key checked (stdlib only) |
-| `scripts/tests/test_campaign_icon.py` | The renderer's tests: PNG and ICO read back, the badge and its sizes |
+| `scripts/tests/test_campaign_icon.py` | The renderer's tests: PNG and ICO, the badge, each overlay mark, refusals |
 | `scripts/tests/test_launchers.py` | The loader's tests (one per refusal, and `show`), and no window opened |
+
+## Icons
+
+`python scripts/campaign-icon.py overlay <base.png or .ico> <mark> <target.ico>` draws an everyday link's icon: the project's icon with a rounded square in the bottom right, in the mark's colour on a white outline, and the mark in white from 32 pixels up. The marks are `claude`, `codex` and `agy` (the runners' colours and logos), `wordpress` (the WordPress logo, `#21759B`) and `site` (a globe, `#2563EB`). `badge` draws a campaign link's round runner badge. An unknown mark or a target that is not `.ico` exits 2 with the usage text, a base that is neither PNG nor ICO exits 1, and neither writes anything.
 
 ## Doctor
 

@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
-"""Render a campaign launcher's icon: the project's own icon with its runner's badge in the corner.
+"""Render a launcher's icon: the project's own icon with a runner's badge or a link's overlay in the corner.
 
     python campaign-icon.py badge <base.png or .ico> <runner> <target.ico>
+    python campaign-icon.py overlay <base.png or .ico> <mark> <target.ico>
     python campaign-icon.py frames <large.png> <small.png> <target.ico>
 
 `badge` draws, on every frame of the project's icon, a circle in the runner's colour with a white outline at the
 bottom right, and from 32 pixels up the runner's mark in white inside it: Claude Code's orange spark for `claude`,
 Antigravity's blue sparkle for `agy` (the Carbon runner), Codex's green for `codex`. `frames` builds a Windows icon
 from two large renders of a project's icon, the detailed one for 96 pixels and up and the heavy one below.
+`overlay` marks an everyday link (one a person opens, where a campaign link starts a run): a rounded square where the
+badge is a circle, in the mark's colour on a white outline, with the mark in white from 32 pixels up. Its marks are the
+three runners' (`claude`, `codex`, `agy`), `wordpress` and `site` (a globe drawn here).
 
 The marks are the official Claude symbol and Google Gemini sparkle (path data from their Wikimedia Commons files,
 Claude_AI_symbol.svg and Google_Gemini_icon_2025.svg), trademarks of Anthropic and Google, drawn only into a
-launcher icon on the operator's own machine; the Codex badge carries the OpenAI blossom logo. Everything here is the Python
+launcher icon on the operator's own machine; the Codex badge carries the OpenAI blossom logo. The `wordpress`
+mark is the WordPress logo (Wikimedia Commons, WordPress_blue_logo.svg), the WordPress Foundation's trademark, drawn
+the same way and only there. Everything here is the Python
 standard library: PNG is read and written with zlib, the marks are rasterised from their path data, and every edge
 is supersampled.
 """
@@ -26,6 +32,7 @@ import sys
 import zlib
 
 USAGE = ("usage: campaign-icon.py badge <base.png or .ico> <claude|agy|codex> <target.ico>\n"
+         "       campaign-icon.py overlay <base.png or .ico> <claude|agy|codex|wordpress|site> <target.ico>\n"
          "       campaign-icon.py frames <large.png> <small.png> <target.ico>")
 SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
 SMALL_UP_TO = 64  # frames up to this size come from the heavier small drawing, where thin lines would close up
@@ -42,6 +49,33 @@ MARKS = {
     "claude": ("0 0 100 100", "m19.6 66.5 19.7-11 .3-1-.3-.5h-1l-3.3-.2-11.2-.3L14 53l-9.5-.5-2.4-.5L0 49l.2-1.5 2-1.3 2.9.2 6.3.5 9.5.6 6.9.4L38 49.1h1.6l.2-.7-.5-.4-.4-.4L29 41l-10.6-7-5.6-4.1-3-2-1.5-2-.6-4.2 2.7-3 3.7.3.9.2 3.7 2.9 8 6.1L37 36l1.5 1.2.6-.4.1-.3-.7-1.1L33 25l-6-10.4-2.7-4.3-.7-2.6c-.3-1-.4-2-.4-3l3.1-4.2L28 0l4.2.6L33.8 2l2.6 6 4.1 9.3L47 29.9l2 3.8 1 3.4.3 1h.7v-.5l.5-7.2 1-8.7 1-11.2.3-3.2 1.6-3.8 3-2L61 2.6l2 2.9-.3 1.8-1.1 7.7L59 27.1l-1.5 8.2h.9l1-1.1 4.1-5.4 6.9-8.6 3-3.5L77 13l2.3-1.8h4.3l3.1 4.7-1.4 4.9-4.4 5.6-3.7 4.7-5.3 7.1-3.2 5.7.3.4h.7l12-2.6 6.4-1.1 7.6-1.3 3.5 1.6.4 1.6-1.4 3.4-8.2 2-9.6 2-14.3 3.3-.2.1.2.3 6.4.6 2.8.2h6.8l12.6 1 3.3 2 1.9 2.7-.3 2-5.1 2.6-6.8-1.6-16-3.8-5.4-1.3h-.8v.4l4.6 4.5 8.3 7.5L89 80.1l.5 2.4-1.3 2-1.4-.2-9.2-7-3.6-3-8-6.8h-.5v.7l1.8 2.7 9.8 14.7.5 4.5-.7 1.4-2.6 1-2.7-.6-5.8-8-6-9-4.7-8.2-.5.4-2.9 30.2-1.3 1.5-3 1.2-2.5-2-1.4-3 1.4-6.2 1.6-8 1.3-6.4 1.2-7.9.7-2.6v-.2H49L43 72l-9 12.3-7.2 7.6-1.7.7-3-1.5.3-2.8L24 86l10-12.8 6-7.9 4-4.6-.1-.5h-.3L17.2 77.4l-4.7.6-2-2 .2-3 1-1 8-5.5Z"),
     "gemini": ("0 0 65 65", "M32.447 0c.68 0 1.273.465 1.439 1.125a38.904 38.904 0 001.999 5.905c2.152 5 5.105 9.376 8.854 13.125 3.751 3.75 8.126 6.703 13.125 8.855a38.98 38.98 0 005.906 1.999c.66.166 1.124.758 1.124 1.438 0 .68-.464 1.273-1.125 1.439a38.902 38.902 0 00-5.905 1.999c-5 2.152-9.375 5.105-13.125 8.854-3.749 3.751-6.702 8.126-8.854 13.125a38.973 38.973 0 00-2 5.906 1.485 1.485 0 01-1.438 1.124c-.68 0-1.272-.464-1.438-1.125a38.913 38.913 0 00-2-5.905c-2.151-5-5.103-9.375-8.854-13.125-3.75-3.749-8.125-6.702-13.125-8.854a38.973 38.973 0 00-5.905-2A1.485 1.485 0 010 32.448c0-.68.465-1.272 1.125-1.438a38.903 38.903 0 005.905-2c5-2.151 9.376-5.104 13.125-8.854 3.75-3.749 6.703-8.125 8.855-13.125a38.972 38.972 0 001.999-5.905A1.485 1.485 0 0132.447 0z"),
 }
+
+
+
+def _globe() -> str:
+    """The `site` mark, drawn here and nobody's trademark: a globe of one circle, an upright ellipse and three
+    horizontal lines, as fill path data in a 24-unit box (each ring an outer outline and an inner one wound the other
+    way, so the nonzero fill leaves its inside open)."""
+    def ring(rx_out: float, ry_out: float, rx_in: float, ry_in: float) -> str:
+        def oval(rx: float, ry: float, sweep: int) -> str:
+            return (f"M{12 - rx:g} 12a{rx:g} {ry:g} 0 1 {sweep} {2 * rx:g} 0"
+                    f"a{rx:g} {ry:g} 0 1 {sweep} {-2 * rx:g} 0z")
+        return oval(rx_out, ry_out, 1) + oval(rx_in, ry_in, 0)
+
+    lines = ""
+    for y in (6.5, 12.0, 17.5):
+        half = math.sqrt(9.6 ** 2 - (y - 12) ** 2)
+        lines += f"M{12 - half:.3f} {y - 0.9:g}H{12 + half:.3f}V{y + 0.9:g}H{12 - half:.3f}z"
+    return ring(11, 11, 9.2, 9.2) + ring(4.6, 11, 2.8, 9.2) + lines
+
+
+MARKS["site"] = ("0 0 24 24", _globe())
+# The WordPress logo, the W in its ring: Wikimedia Commons, WordPress_blue_logo.svg, its five paths joined, each opening with an absolute M (and the third its first line written as a relative l) as it does on its own. The
+# WordPress Foundation's trademark, drawn only into a launcher icon on the operator's own machine.
+MARKS["wordpress"] = ("0 0 122.52 122.523", "M8.708 61.26c0 20.802 12.089 38.779 29.619 47.298l-25.069-68.686c-2.916 6.536-4.55 13.769-4.55 21.388z" "M96.74 58.608c0-6.495-2.333-10.993-4.334-14.494-2.664-4.329-5.161-7.995-5.161-12.324 0-4.831 3.664-9.328 8.825-9.328.233 0 .454.029.681.042-9.35-8.566-21.807-13.796-35.489-13.796-18.36 0-34.513 9.42-43.91 23.688 1.233.037 2.395.063 3.382.063 5.497 0 14.006-.667 14.006-.667 2.833-.167 3.167 3.994.337 4.329 0 0-2.847.335-6.015.501l19.138 56.925 11.501-34.493-8.188-22.434c-2.83-.166-5.511-.501-5.511-.501-2.832-.166-2.5-4.496.332-4.329 0 0 8.679.667 13.843.667 5.496 0 14.006-.667 14.006-.667 2.835-.167 3.168 3.994.337 4.329 0 0-2.853.335-6.015.501l18.992 56.494 5.242-17.517c2.272-7.269 4.001-12.49 4.001-16.989z" "M62.184 65.857l-15.768 45.819c4.708 1.384 9.687 2.141 14.846 2.141 6.12 0 11.989-1.058 17.452-2.979-.141-.225-.269-.464-.374-.724z" "M107.376 36.046c.226 1.674.354 3.471.354 5.404 0 5.333-.996 11.328-3.996 18.824l-16.053 46.413c15.624-9.111 26.133-26.038 26.133-45.426.001-9.137-2.333-17.729-6.438-25.215z" "M61.262 0c-33.779 0-61.262 27.481-61.262 61.26 0 33.783 27.483 61.263 61.262 61.263 33.778 0 61.265-27.48 61.265-61.263-.001-33.779-27.487-61.26-61.265-61.26zm0 119.715c-32.23 0-58.453-26.223-58.453-58.455 0-32.23 26.222-58.451 58.453-58.451 32.229 0 58.45 26.221 58.45 58.451 0 32.232-26.221 58.455-58.45 58.455z")
+# An everyday link's mark: (the filled square's colour, the mark drawn in white). The agents keep their runner
+# colours; WordPress is its own blue, and a site link the globe.
+OVERLAYS = {**RUNNERS, "wordpress": ("#21759B", "wordpress"), "site": ("#2563EB", "site")}
 
 
 # --- PNG ---------------------------------------------------------------------------------------------------------
@@ -411,17 +445,57 @@ def frame_at(frames: dict, size: int) -> bytearray:
     return resize(width, height, rgba, size)
 
 
+def rounded_square(x: float, y: float, side: float, radius: float, steps: int = 16) -> list[tuple[float, float]]:
+    """A square from (x, y), `side` wide, its corners rounded with `radius`, as one clockwise polygon."""
+    points = []
+    for cx, cy, start in ((x + side - radius, y + radius, -90), (x + side - radius, y + side - radius, 0),
+                          (x + radius, y + side - radius, 90), (x + radius, y + radius, 180)):
+        for k in range(steps + 1):
+            a = math.radians(start + 90 * k / steps)
+            points.append((cx + radius * math.cos(a), cy + radius * math.sin(a)))
+    return points
+
+
+def overlay_frame(size: int, rgba: bytearray, mark: str) -> bytearray:
+    """`rgba` (a `size`-square frame) with an everyday link's mark in the bottom right: a rounded square, where a
+    campaign link's badge is a circle. The geometry is the first project's, drawn at 512 pixels and scaled: a white
+    outline square at 222 (286 wide, corners of 70), the mark's colour inside it at 236 (272 wide, corners of 60),
+    and from MARK_FROM pixels up the mark in white, centred at 372 in a box 186 wide."""
+    out = bytearray(rgba)
+    fill, drawn = OVERLAYS[mark]
+    k = size / 512
+    blend(out, size, coverage([rounded_square(222 * k, 222 * k, 286 * k, 70 * k)], size, 1, 0, 0), (255, 255, 255))
+    blend(out, size, coverage([rounded_square(236 * k, 236 * k, 272 * k, 60 * k)], size, 1, 0, 0), hex_colour(fill))
+    if size >= MARK_FROM:
+        box, path = MARKS[drawn]
+        bx, by, bw, bh = (float(v) for v in box.split())
+        scale = 186 * k / max(bw, bh)
+        left, top = 372 * k - (bx + bw / 2) * scale, 372 * k - (by + bh / 2) * scale
+        blend(out, size, coverage(flatten_path(path), size, scale, left, top), (255, 255, 255))
+    return out
+
+
 def write_atomic(target: Path, data: bytes) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_name(target.name + f".{os.getpid()}.tmp")
-    temporary.write_bytes(data)
-    os.replace(temporary, target)
+    try:
+        temporary.write_bytes(data)
+        os.replace(temporary, target)
+    except BaseException:
+        temporary.unlink(missing_ok=True)   # a failed write leaves the old icon and no half-written file
+        raise
 
 
 def badge(source: Path, runner: str, target: Path) -> None:
     fill, mark = RUNNERS[runner]
     frames = base_frames(source)
     out = [(size, write_png(size, size, badge_frame(size, frame_at(frames, size), fill, mark))) for size in SIZES]
+    write_atomic(target, pack_ico(out))
+
+
+def overlay(source: Path, mark: str, target: Path) -> None:
+    frames = base_frames(source)
+    out = [(size, write_png(size, size, overlay_frame(size, frame_at(frames, size), mark))) for size in SIZES]
     write_atomic(target, pack_ico(out))
 
 
@@ -438,6 +512,9 @@ def main(argv: list[str]) -> int:
     try:
         if len(argv) == 4 and argv[0] == "badge" and argv[2] in RUNNERS:
             badge(Path(argv[1]), argv[2], Path(argv[3]))
+            return 0
+        if len(argv) == 4 and argv[0] == "overlay" and argv[2] in OVERLAYS and argv[3].lower().endswith(".ico"):
+            overlay(Path(argv[1]), argv[2], Path(argv[3]))
             return 0
         if len(argv) == 4 and argv[0] == "frames":
             build_frames(Path(argv[1]), Path(argv[2]), Path(argv[3]))

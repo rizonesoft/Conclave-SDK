@@ -1,4 +1,4 @@
-"""Tests of `scripts/campaign-icon.py`: a campaign launcher's icon, the project's icon with its runner's badge."""
+"""Tests of `scripts/campaign-icon.py`: a launcher's icon, the project's icon with a runner's badge or a link's overlay."""
 from __future__ import annotations
 
 import importlib.util
@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 SCRIPT = Path(__file__).resolve().parents[1] / "campaign-icon.py"
 _spec = importlib.util.spec_from_file_location("campaign_icon", SCRIPT)
@@ -129,6 +130,142 @@ class BadgeTest(unittest.TestCase):
             self.assertEqual(bad.returncode, 2)
             self.assertIn("usage: campaign-icon.py", bad.stderr)
 
+
+class OverlayTest(unittest.TestCase):
+    """An everyday link's icon: the project's icon with a rounded square in the corner (D07 T01 section 4)."""
+
+    @staticmethod
+    def frame(mark, size=256):
+        return icon.overlay_frame(size, solid(size), mark)
+
+    def test_the_rounded_square_sits_bottom_right_on_a_white_outline_and_leaves_the_rest(self):
+        out = self.frame("claude")
+        orange = icon.hex_colour("#D97757")
+        # 256 is half the 512 geometry: the outline square from 111, the filled one from 118 to 254, corners of 30.
+        self.assertTrue(close(pixel(out, 256, 124, 186), (*orange, 255)), "no fill at the square's centre-left")
+        self.assertTrue(close(pixel(out, 256, 114, 186)[:3], (255, 255, 255), 30), "no white outline on the left")
+        self.assertEqual(pixel(out, 256, 0, 0), (*TILE, 255), "the base icon changed outside the overlay")
+        self.assertEqual(pixel(out, 256, 100, 186), (*TILE, 255), "the overlay reaches past its outline")
+        # Inside the rounded corner and outside any circle in the same box: a round badge would leave the tile here.
+        self.assertTrue(close(pixel(out, 256, 128, 128), (*orange, 255)), "the corner is not square")
+
+    def test_each_mark_has_its_colour_and_a_white_mark_inside_from_32_pixels(self):
+        def whites(out, size):
+            return sum(1 for i in range(size * size) if out[i * 4:i * 4 + 3] == bytearray((255, 255, 255)))
+        colours = {"claude": "#D97757", "codex": "#10A37F", "agy": "#4C8DF6", "wordpress": "#21759B",
+                   "site": "#2563EB"}
+        self.assertEqual(set(icon.OVERLAYS), set(colours))
+        for mark, colour in colours.items():
+            with self.subTest(mark=mark):
+                self.assertEqual(icon.OVERLAYS[mark][0], colour)
+                out = self.frame(mark)
+                self.assertTrue(close(pixel(out, 256, 124, 186), (*icon.hex_colour(colour), 255)), mark)
+                # The mark: white inside the filled square (118 to 254 at 256 pixels), beyond the outline's own.
+                inside = sum(1 for y in range(140, 232) for x in range(140, 232)
+                             if out[(y * 256 + x) * 4:(y * 256 + x) * 4 + 3] == bytearray((255, 255, 255)))
+                self.assertGreater(inside, 400, f"no {mark} mark in white")
+        plain = icon.overlay_frame(16, solid(16), "site")
+        self.assertLessEqual(whites(plain, 16), whites(icon.overlay_frame(16, solid(16), "claude"), 16) + 2,
+                             "a mark was drawn below 32 pixels")
+
+    def run_overlay(self, base, mark, target):
+        return subprocess.run([sys.executable, "-B", str(SCRIPT), "overlay", str(base), mark, str(target)],
+                              capture_output=True, text=True, timeout=600, creationflags=windowless())
+
+    def test_the_command_writes_an_icon_with_every_size(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "base.png"
+            base.write_bytes(icon.write_png(256, 256, solid(256)))
+            target = Path(tmp) / "out" / "launcher-site.ico"
+            done = self.run_overlay(base, "site", target)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(sorted(icon.read_ico(target.read_bytes())), list(icon.SIZES))
+            self.assertEqual([p.name for p in target.parent.iterdir()], ["launcher-site.ico"], "a temporary file")
+            self.assertIn("campaign-icon.py overlay <base.png or .ico>", icon.USAGE)
+
+    def test_every_saved_icon_carries_its_own_mark_from_a_png_or_an_ico_base(self):
+        # Plan review P1 of D07 T01 section 4: proven on the command's decoded output, not on overlay_frame alone.
+        def whites(rgba, size, box=None):
+            x0, y0, x1, y1 = box or (0, 0, size, size)
+            return {(x, y) for y in range(y0, y1) for x in range(x0, x1)
+                    if rgba[(y * size + x) * 4:(y * size + x) * 4 + 3] == bytearray((255, 255, 255))}
+        with tempfile.TemporaryDirectory() as tmp:
+            png = Path(tmp) / "base.png"
+            png.write_bytes(icon.write_png(256, 256, solid(256)))
+            ico = Path(tmp) / "base.ico"
+            ico.write_bytes(icon.pack_ico([(s, icon.write_png(s, s, solid(s))) for s in (16, 48, 256)]))
+            patterns = {}
+            for base in (png, ico):
+                for mark, (colour, _drawn) in icon.OVERLAYS.items():
+                    with self.subTest(base=base.suffix, mark=mark):
+                        target = Path(tmp) / f"{base.suffix[1:]}-{mark}.ico"
+                        done = self.run_overlay(base, mark, target)
+                        self.assertEqual(done.returncode, 0, done.stderr)
+                        frames = icon.read_ico(target.read_bytes())
+                        self.assertEqual(sorted(frames), list(icon.SIZES))
+                        big = frames[256][2]
+                        self.assertTrue(close(pixel(big, 256, 124, 186), (*icon.hex_colour(colour), 255)), mark)
+                        self.assertEqual(pixel(big, 256, 0, 0), (*TILE, 255))
+                        mark_box = whites(big, 256, (140, 140, 232, 232))   # the 186 box at 512, inside the fill
+                        self.assertGreater(len(mark_box), 400, f"no {mark} mark")
+                        patterns.setdefault(mark, mark_box)
+                        self.assertEqual(patterns[mark], mark_box, "a PNG and an ICO base drew different marks")
+                        with unittest.mock.patch.object(icon, "MARK_FROM", 10 ** 6):
+                            plain = {s: icon.overlay_frame(s, solid(s), mark) for s in (24, 32)}
+                        # At 32 pixels a mark is anti-aliased into few pure whites: count the pixels it lightens.
+                        lighter = sum(1 for i in range(32 * 32)
+                                      if min(frames[32][2][i * 4:i * 4 + 3]) >= min(plain[32][i * 4:i * 4 + 3]) + 40)
+                        self.assertGreater(lighter, 15, f"no {mark} mark at MARK_FROM")
+                        self.assertEqual(frames[24][2], plain[24], f"a {mark} mark below MARK_FROM")
+            marks = list(patterns)
+            for i, one in enumerate(marks):
+                for other in marks[i + 1:]:
+                    self.assertGreater(len(patterns[one] ^ patterns[other]), 300, f"{one} and {other} look alike")
+
+    def test_a_bad_mark_base_or_target_is_refused_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp) / "base.png"
+            base.write_bytes(icon.write_png(64, 64, solid(64)))
+            text = Path(tmp) / "base.txt"
+            text.write_text("not an image\n", encoding="utf-8")
+            cases = {"an unknown mark": (base, "drupal", "a.ico", 2, "usage: campaign-icon.py"),
+                     "a base that is neither PNG nor ICO": (text, "site", "b.ico", 1, "campaign-icon: not a PNG"),
+                     "a target that is not .ico": (base, "site", "c.png", 2, "usage: campaign-icon.py")}
+            for case, (source, mark, name, code, said) in cases.items():
+                for existing in (None, b"the project's own icon"):
+                    with self.subTest(case=case, existing=existing is not None):
+                        folder = Path(tmp) / f"{name[0]}-{'kept' if existing else 'new'}"
+                        target = folder / name
+                        if existing:
+                            folder.mkdir(exist_ok=True)
+                            target.write_bytes(existing)
+                        done = self.run_overlay(source, mark, target)
+                        self.assertEqual(done.returncode, code, done.stderr)
+                        self.assertIn(said, done.stderr)
+                        self.assertNotIn("Traceback", done.stderr)
+                        if existing:
+                            self.assertEqual(target.read_bytes(), existing, f"{case} changed the target")
+                        else:
+                            self.assertFalse(target.exists(), f"{case} wrote {target}")
+                        left = sorted(p.name for p in folder.iterdir()) if folder.exists() else []
+                        self.assertEqual(left, [name] if existing else [], f"{case} left a file")
+
+    def test_a_failed_write_leaves_the_old_icon_and_no_temporary_file(self):
+        def half_written(path, data):
+            with open(path, "wb") as handle:
+                handle.write(data[:2])   # some bytes reach the disk before the failure
+            raise OSError("disk full")
+        for case, patch in (("the rename fails", unittest.mock.patch.object(icon.os, "replace",
+                                                                             side_effect=OSError("disk full"))),
+                            ("the write fails part way", unittest.mock.patch.object(Path, "write_bytes",
+                                                                                    half_written))):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                target = Path(tmp) / "launcher.ico"
+                target.write_bytes(b"old")
+                with patch, self.assertRaises(OSError):
+                    icon.write_atomic(target, b"new icon")
+                self.assertEqual(target.read_bytes(), b"old")
+                self.assertEqual([p.name for p in Path(tmp).iterdir()], ["launcher.ico"])
 
 if __name__ == "__main__":
     unittest.main()
