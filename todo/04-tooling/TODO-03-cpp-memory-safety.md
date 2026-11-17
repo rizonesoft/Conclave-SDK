@@ -35,7 +35,7 @@ title: "TODO-03 -- Memory-safety checks in the C and C++ toolchain kit"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Hardening policy in the pin file, checked on compile commands | -- | [x] |
 | 2 | §2 | Image properties read from built Windows and Linux binaries | §1 | [x] |
-| 3 | §3 | Doctor rows for the hardening checks | §2 | [ ] |
+| 3 | §3 | Doctor rows for the hardening checks | §2 | [x] |
 | 4 | §4 | Skill and document guidance, with the measured options | §2 | [ ] |
 
 ## 1. Hardening Policy in the Pin File
@@ -136,6 +136,9 @@ The doctor is where an operator sees a project's state in one screen, so a proje
 - [x] Commit: `forge: the doctor reports a project's hardening policy`
 
 **Test checkpoint:** `python -m unittest tests.test_toolchain_kits -k hardening` passes with the three policy states, both rows in every state, the mixed and sanitizer cases and the `--strict` cases; it fails when the `hardening:compile` row is made to print `ok` unconditionally, and when it is made to print `setup_required` unconditionally.
+
+> **Verified:** 2026-11-17 | §3 | 086a5d0acf91de5cf9daba365d7c2d90734fcf22
+> **Review:** `docs/reviews/d04-t03-s3.json`
 
 ## 4. Skill and Document Guidance
 
