@@ -293,6 +293,8 @@ The owner's rule of 2026-11-17: a red CI must never go unnoticed, and the system
 
 **Corrected 2026-11-17 (owner, after an audit and Astra's review in `docs/reviews/01-forge/ci-speedup-audit.md`):** this section first planned a gate on new rows with a push count, a dispatched settlement and escalation parks, and the first §9 and §11 a records-only CI path and stamps citing a neighbour commit's run (both dropped; the number 9 stays unused, and 11 now holds the stamp repair the review found). The review found nine ways those could hide a red, loop or leave a stamp with no route; the owner chose to keep the old system and only the speed-ups that change no verdict. Nothing here refuses, delays or holds a commit or a push: in another repository a gate on pushing left 20 commits that could not be pushed and nearly deadlocked it.
 
+> **Started:** 2026-11-17T15:30Z
+
 **Phase:** 5
 **Needs:** none
 **Surface:** no
