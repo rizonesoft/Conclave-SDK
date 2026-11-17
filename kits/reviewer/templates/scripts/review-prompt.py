@@ -14,7 +14,9 @@ value the kind has no place for: exit 2, a message on stderr, and nothing writte
 Without `--ref` the lines that name the TODO section and its file are dropped; with `--ref` and no `--todo`, the file
 comes from `scripts/todo-graph.py resolve`, and with `--ref` and no `--findings` the section's findings file is
 `<receipts>/<NN-domain>/D<NN>-T<NN>-s<N>.md`, `<receipts>` being `todo/plan.json`'s `layout.receipts` (`docs/reviews`
-by default, read by `scripts/review_layout.py`). Prints the output path and exits 0. Stdlib only; writes are atomic.
+by default, read by `scripts/review_layout.py`). Every kind has a Fidelity line: `--fidelity` fills it, and with
+`--ref`, no `--fidelity` and `scripts/todo-graph.py` beside this script it is the section's own `**Fidelity:**` value
+on `Surface: yes` (a `Surface: yes` section naming none is refused) and `none (Surface: no)` otherwise. Prints the output path and exits 0. Stdlib only; writes are atomic.
 """
 from __future__ import annotations
 
@@ -66,19 +68,56 @@ def read_template(kind: str) -> str:
     return body.lstrip("\n")
 
 
-def resolve_todo(ref: str) -> str:
-    graph = Path(__file__).resolve().parent / "todo-graph.py"
-    if not graph.is_file():
-        raise Refused(f"--todo is needed: {graph.name} is not beside this script to look up {ref}")
+GRAPH = Path(__file__).resolve().parent / "todo-graph.py"
+
+
+def resolve_section(ref: str, option: str) -> tuple[dict, int]:
+    """What `todo-graph.py resolve` prints for the section, and its exit code. `option` is the one the writer gives
+    instead when the lookup cannot answer."""
+    if not GRAPH.is_file():
+        raise Refused(f"{option} is needed: {GRAPH.name} is not beside this script to look up {ref}")
     try:
-        result = subprocess.run([sys.executable, "-B", str(graph), "resolve", ref], capture_output=True, text=True,
-                                timeout=60)
-        path = json.loads(result.stdout).get("path")
-    except (OSError, subprocess.SubprocessError, ValueError, AttributeError) as error:
-        raise Refused(f"--todo is needed: looking up {ref} failed ({error})")
+        result = subprocess.run([sys.executable, "-B", str(GRAPH), "resolve", ref], capture_output=True, text=True,
+                                timeout=60, encoding="utf-8", errors="replace")  # the graph prints UTF-8
+        data = json.loads(result.stdout)
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
+        raise Refused(f"{option} is needed: looking up {ref} failed ({error})")
+    if not isinstance(data, dict):
+        raise Refused(f"{option} is needed: {GRAPH.name} resolve {ref!r} printed no section")
+    return data, result.returncode
+
+
+def resolve_todo(ref: str) -> str:
+    data, code = resolve_section(ref, "--todo")
+    path = data.get("path")
     if not isinstance(path, str) or not path:
-        raise Refused(f"--todo is needed: {graph.name} resolve {ref!r} named no file (exit {result.returncode})")
+        raise Refused(f"--todo is needed: {GRAPH.name} resolve {ref!r} named no file (exit {code})")
     return path
+
+
+def section_field(body: str, name: str) -> str | None:
+    """The one value of a `**Name:** value` line of a section (as todo-graph.py reads them), or None."""
+    values = re.findall(r"^(?:> )?\*\*" + re.escape(name) + r":\*\*[ \t]*(\S.*)$", body, re.M)
+    return values[0].strip() if len(values) == 1 else None
+
+
+def resolve_fidelity(ref: str) -> str | None:
+    """The design source the section itself names, so the reviewer reads the contract the section was planned
+    against without the writer retyping it: its `**Fidelity:**` value on `Surface: yes`, None (the template's
+    `none (Surface: no)`) on `Surface: no`. A `Surface: yes` section that names none is refused, never sent to the
+    reviewer as a section without a surface. Without todo-graph.py beside this script, or from one whose `resolve`
+    gives no section body, there is nothing to read and the default stands."""
+    if not GRAPH.is_file():
+        return None
+    body = resolve_section(ref, "--fidelity")[0].get("body")
+    if not isinstance(body, str):
+        return None
+    if section_field(body, "Surface") != "yes":
+        return None
+    fidelity = section_field(body, "Fidelity")
+    if not fidelity:
+        raise Refused(f"--fidelity is needed: {ref} has Surface: yes and names no one Fidelity design source")
+    return fidelity
 
 
 def section_findings(ref: str) -> str:
@@ -256,6 +295,9 @@ def run(args: argparse.Namespace) -> Path:
         todo = resolve_todo(args.ref)
     if not args.findings and args.ref and "`<docs/reviews/" in body:
         args.findings = section_findings(args.ref)
+    given_fidelity = args.fidelity
+    if args.fidelity is None and args.ref and FIDELITY_SPAN in body:
+        args.fidelity = resolve_fidelity(args.ref)
     gates = None
     if args.gates is not None:
         try:
@@ -267,7 +309,7 @@ def run(args: argparse.Namespace) -> Path:
     text, used, unresolved = fill(body, args, todo, gates)
     if unresolved:
         raise Refused("no value for " + "; ".join(unresolved))
-    given = {"--base": args.base, "--ref": args.ref, "--todo": args.todo, "--fidelity": args.fidelity,
+    given = {"--base": args.base, "--ref": args.ref, "--todo": args.todo, "--fidelity": given_fidelity,
              "--purpose": args.purpose, "--governing": args.governing, "--gates": args.gates,
              "--findings": args.findings, "--failed": args.failed, "--last": given_last}
     # A value the template has no place for is refused, never dropped silently.
@@ -293,7 +335,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", help="the first commit before the range: the prompt names <base>..<candidate>")
     parser.add_argument("--ref", help="the TODO section, 'D00 T01 §7'; without it the TODO lines are dropped")
     parser.add_argument("--todo", help="the TODO file; found with todo-graph.py resolve when --ref is given")
-    parser.add_argument("--fidelity", help=f"the design source the section names (default: {DEFAULT_FIDELITY})")
+    parser.add_argument("--fidelity",
+                        help="the design source the section names, on every kind; with --ref and todo-graph.py it is "
+                             f"read from the section's Fidelity field (default: {DEFAULT_FIDELITY})")
     parser.add_argument("--purpose", help="one or two sentences on what the change is for (round, completion)")
     parser.add_argument("--governing", help="the spec, plan or design file that applies (all but round need it too)")
     parser.add_argument("--gates", help="a file holding the gate output (reconciliation)")

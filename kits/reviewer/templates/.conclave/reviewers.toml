@@ -89,3 +89,18 @@ lenses = ["adversarial", "integration", "plan-delivery", "record"]
 # lenses = ["concurrency"]
 # passes = ["round", "reconciliation"]
 # paths = ["src/kernel/", "include/kernel/"]
+#
+# A project with a UI names its UI, style, asset, icon and design contract
+# folders here, so a section that changes one is reviewed through `design`
+# whatever its Surface field says (the round's `design` is the one lens an
+# entry may repeat), and its plan review through `design-plan`:
+#
+# [[schedule.conditional]]
+# lenses = ["design"]
+# passes = ["round", "reconciliation"]
+# paths = ["src/ui/", "assets/", "design/"]
+#
+# [[schedule.conditional]]
+# lenses = ["design-plan"]
+# passes = ["plan"]
+# paths = ["src/ui/", "assets/", "design/"]

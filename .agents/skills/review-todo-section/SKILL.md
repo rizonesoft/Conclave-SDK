@@ -50,7 +50,7 @@ Work the three questions across the diff and its blast radius. Fix what you find
 - An error path that throws, aborts or swallows instead of returning the project's typed error, or a failure reported as success.
 - Work on the wrong thread, mutable state shared across threads, or unbounded recursion or allocation on hostile input.
 - A file write that is not temp-then-replace, or an original modified in place.
-- A hard-coded colour, size or string where design tokens or settings own it, or a control without an accessible name.
+- A hard-coded colour, size or string where design tokens or settings own it, or a control without an accessible name. The project's design contract rule (`.agents/rules/design-contract.md` or `.claude/rules/design-contract.md`, else `AGENTS.md`) names its contract, token source, static lint and rendered check: on a section that touched a surface, run both checks and confirm the commit body quotes both outputs.
 - A setting nothing reads, a command nothing reaches, or a link or automation that acts without asking.
 - A test that passes without exercising the behavior.
 
@@ -59,10 +59,10 @@ Work the three questions across the diff and its blast radius. Fix what you find
 The passes run in this order for the section's findings file (`<receipts>/<NN-domain>/D<NN>-T<NN>-s<N>.md`, `<receipts>` being `layout.receipts` in `todo/plan.json`, `docs/reviews` by default). Each pass is on a commit descending from the one before, the dispatcher refuses a pass out of order before a reviewer runs, and it refuses a second pass while one is running. Commit the pin before the section's plan review: the section runs under the pin committed at that review's candidate.
 
 1. **Plan review**, before the build (`process-todo-section` step 3a): `--kind plan --candidate <commit holding the section>`.
-2. **The round**, after the build, its gates and its commit. Fill the prompt into a scratch file from `docs/review-round-prompt.md` with `review-prompt.py` (the candidate, the section through `--ref`, what the change is for and the governing documents), then run it with the candidate (required) and your own agent as the writer, adding `--surface` on a `Surface: yes` section so the `design` lens joins:
+2. **The round**, after the build, its gates and its commit. Fill the prompt into a scratch file from `docs/review-round-prompt.md` with `review-prompt.py` (the candidate, the section through `--ref`, what the change is for and the governing documents), then run it with the candidate (required) and your own agent as the writer, adding `--surface` on a `Surface: yes` section so the `design` lens joins. `--fidelity` is the design source the section's `**Fidelity:**` field names, on every pass: leave it out on `Surface: no`, and left out with `--ref` the filler reads it from the section and refuses a `Surface: yes` section that names none. A section that changed a file under the pin's `[[schedule.conditional]]` design paths gets the `design` lens on its round and its reconciliations whatever its Surface says, and the stamp refuses a pass recorded without it, so never drop `--surface` or reword a section to `Surface: no` to avoid the lens:
 
 ```bash
-python3 scripts/review-prompt.py --kind round --candidate <full tip SHA> --ref "D<NN> T<NN> §<N>" [--fidelity <design source>] --purpose "<one or two sentences>" --governing <the spec or plan> --out <scratch-round-prompt.md>
+python3 scripts/review-prompt.py --kind round --candidate <full tip SHA> --ref "D<NN> T<NN> §<N>" --fidelity <design source> --purpose "<one or two sentences>" --governing <the spec or plan> --out <scratch-round-prompt.md>
 python3 scripts/review-dispatch.py --kind round --candidate <full tip SHA> --writer <claude|codex|agy> [--surface] --prompt <scratch-round-prompt.md> --record <receipts>/<NN-domain>/D<NN>-T<NN>-s<N>.md
 ```
 
@@ -70,7 +70,7 @@ python3 scripts/review-dispatch.py --kind round --candidate <full tip SHA> --wri
 3. **The completion review** of the final candidate: prompt from `docs/completion-review-prompt.md`, filled by `review-prompt.py` (the candidate SHA, the section and its TODO file's Goal and Outcome through `--ref`, the design source named in Fidelity as `--fidelity` (leave it out on `Surface: no`), what the feature is for and the governing documents):
 
 ```bash
-python3 scripts/review-prompt.py --kind completion --candidate <full tip SHA> --ref "D<NN> T<NN> §<N>" [--fidelity <design source>] --purpose "<one or two sentences>" --governing <the spec or plan> --out <scratch-completion-prompt.md>
+python3 scripts/review-prompt.py --kind completion --candidate <full tip SHA> --ref "D<NN> T<NN> §<N>" --fidelity <design source> --purpose "<one or two sentences>" --governing <the spec or plan> --out <scratch-completion-prompt.md>
 python3 scripts/review-dispatch.py --kind completion --candidate <full tip SHA> --writer <claude|codex|agy> --prompt <scratch-completion-prompt.md> --record <receipts>/<NN-domain>/D<NN>-T<NN>-s<N>.md
 ```
 
@@ -78,7 +78,7 @@ python3 scripts/review-dispatch.py --kind completion --candidate <full tip SHA> 
 4. **Reconciliation after gaps.** On `COMPLETION: gaps` the stamp is blocked and the failed review stays on record. Implement every in-scope gap in new commits without changing what the section promises (its checklist text: the stamp compares it between the failed completion and each reconciliation), add one line per gap under the review (`- Implemented: <gap> in <commit>`), re-run the gates, then run a reconciliation on the new tip with a prompt filled from `docs/reconciliation-review-prompt.md` (put the gate output in a file for `--gates`; after a reconciliation that returned gaps add `--last <the SHA that reconciliation reviewed>`, otherwise `--last` defaults to `--failed`):
 
 ```bash
-python3 scripts/review-prompt.py --kind reconciliation --candidate <full new tip SHA> --ref "D<NN> T<NN> §<N>" --failed <the failed completion's SHA> --findings <receipts>/<NN-domain>/D<NN>-T<NN>-s<N>.md --gates <scratch-gates.txt> --governing <the spec or plan> --out <scratch-reconciliation-prompt.md>
+python3 scripts/review-prompt.py --kind reconciliation --candidate <full new tip SHA> --ref "D<NN> T<NN> §<N>" --fidelity <design source> --failed <the failed completion's SHA> --findings <receipts>/<NN-domain>/D<NN>-T<NN>-s<N>.md --gates <scratch-gates.txt> --governing <the spec or plan> --out <scratch-reconciliation-prompt.md>
 python3 scripts/review-dispatch.py --kind reconciliation --candidate <full new tip SHA> --writer <claude|codex|agy> --prompt <scratch-reconciliation-prompt.md> --record <receipts>/<NN-domain>/D<NN>-T<NN>-s<N>.md
 ```
 

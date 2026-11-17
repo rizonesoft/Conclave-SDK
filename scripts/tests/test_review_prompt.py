@@ -128,6 +128,17 @@ class FillEachKind(Filler):
         self.assertIn("- Fidelity: `none (Surface: no)`.", self.ok("round", "--ref", REF))
         self.assertIn("- Fidelity: `design/SPEC.md`.", self.ok("round", "--ref", REF, "--fidelity", "design/SPEC.md"))
 
+    def test_every_kind_takes_fidelity_and_names_it_on_its_candidate(self):
+        # The reconciliation prompt had no Fidelity line, so a repair of a surface was reviewed with no design source.
+        for kind in KINDS:
+            with self.subTest(kind):
+                extra = ["--ref", REF] + (["--todo", TODO] if kind in ("plan", "completion") else [])
+                text = self.ok(kind, *extra, "--fidelity", "docs/design/contract.md")
+                candidate = text.partition("## Candidate")[2].partition("\n## ")[0]
+                self.assertIn("- Fidelity: `docs/design/contract.md`.", candidate)
+                self.assertNotIn("none (Surface: no)", text)
+                self.assertIn("- Fidelity: `none (Surface: no)`.", self.ok(kind, *extra))
+
     def test_single_commit_versus_range(self):
         single = self.ok("round", "--ref", REF)
         self.assertIn(f"- Commit or range: `{CAND}` (inspect", single)
@@ -216,7 +227,7 @@ class Refusals(Filler):
         self.refused("plan", "no place for --purpose", "--purpose", "x")
         self.refused("plan", "no place for --base", "--base", BASE)
         self.refused("round", "no place for --gates", "--gates", str(self.gates))
-        self.refused("reconciliation", "no place for --fidelity", "--ref", REF, "--fidelity", "x")
+        self.refused("reconciliation", "no place for --purpose", "--ref", REF, "--purpose", "x")
 
     def test_missing_template(self):
         (self.root / "docs" / "review-round-prompt.md").unlink()
@@ -395,6 +406,66 @@ class TodoLookup(Filler):
     def test_unresolvable_section_asks_for_todo(self):
         message = self.refused("plan", "--todo is needed", "--ref", "D09 T09 §9")
         self.assertIn("named no file", message)
+
+
+class FidelityLookup(Filler):
+    """`--ref` without `--fidelity` reads the section's own Surface and Fidelity through todo-graph.py resolve."""
+    graph = textwrap.dedent('''\
+        import json, sys
+        BODIES = {
+            "D00 T01 §7": "## 7. A surface\\n\\n**Surface:** yes\\n**Fidelity:** `docs/design/contract.md` section 4\\n",
+            "D00 T01 §8": "## 8. No surface\\n\\n**Surface:** no\\n",
+            "D00 T01 §9": "## 9. A surface with no source\\n\\n**Surface:** yes\\n**Job:** Open a file.\\n",
+            "D00 T02 §1": "## 1. Quoted fields\\n\\n> **Surface:** yes\\n> **Fidelity:** docs/design/mockup.md\\n",
+        }
+        ref = sys.argv[2] if sys.argv[1:2] == ["resolve"] and len(sys.argv) == 3 else None
+        if ref == "D00 T03 §1":
+            print(json.dumps({"ref": ref, "path": "todo/00-x/TODO-03-z.md", "exit": 0}))
+            sys.exit(0)
+        if ref not in BODIES:
+            print("TODO refused: no such section: " + str(ref), file=sys.stderr)
+            sys.exit(1)
+        print(json.dumps({"ref": ref, "path": "todo/00-x/TODO-01-y.md", "body": BODIES[ref], "exit": 3}))
+        sys.exit(3)
+        ''')
+
+    def extra(self, kind, ref):
+        return ["--ref", ref] + (["--findings", "f.md"] if kind == "reconciliation" else [])
+
+    def test_a_surface_sections_fidelity_is_read_on_every_kind(self):
+        for kind in KINDS:
+            with self.subTest(kind):
+                text = self.ok(kind, *self.extra(kind, REF))
+                self.assertIn("- Fidelity: `docs/design/contract.md` section 4.", text)
+                self.assertNotIn("none (Surface: no)", text)
+                self.assertEqual(PLACEHOLDER.findall(text), [])
+                quoted = self.ok(kind, *self.extra(kind, "D00 T02 §1"))
+                self.assertIn("- Fidelity: `docs/design/mockup.md`.", quoted)
+
+    def test_a_section_without_a_surface_keeps_the_default(self):
+        for kind in KINDS:
+            with self.subTest(kind):
+                self.assertIn("- Fidelity: `none (Surface: no)`.", self.ok(kind, *self.extra(kind, "D00 T01 §8")))
+
+    def test_a_surface_section_without_a_fidelity_is_refused_never_sent_as_no_surface(self):
+        for kind in KINDS:
+            with self.subTest(kind):
+                message = self.refused(kind, "--fidelity is needed", *self.extra(kind, "D00 T01 §9"))
+                self.assertIn("Surface: yes", message)
+                self.assertIn("D00 T01 §9", message)
+
+    def test_an_explicit_fidelity_wins_and_needs_no_lookup(self):
+        for ref in (REF, "D00 T01 §9"):
+            with self.subTest(ref):
+                text = self.ok("round", "--ref", ref, "--fidelity", "design/other.md")
+                self.assertIn("- Fidelity: `design/other.md`.", text)
+
+    def test_a_section_the_graph_cannot_resolve_is_refused(self):
+        message = self.refused("round", "--fidelity is needed", "--ref", "D09 T09 §9")
+        self.assertIn("looking up D09 T09 §9 failed", message)
+
+    def test_a_graph_that_prints_no_body_keeps_the_default(self):
+        self.assertIn("- Fidelity: `none (Surface: no)`.", self.ok("round", "--ref", "D00 T03 §1"))
 
 
 class NoGraph(Filler):

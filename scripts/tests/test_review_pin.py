@@ -234,6 +234,44 @@ class ThreePass(Cases):
         reconciliation = load(THREE_PASS)["schedule"]["reconciliation"]["lenses"]
         self.assertEqual(reconciliation, ["adversarial", "plan-delivery", "record"])
 
+    def test_a_conditional_entry_gives_the_round_its_surface_gated_design_by_path(self):
+        # A pin that keeps `design` in the round for --surface could not also name it in a conditional entry, so a
+        # `Surface: no` section that changed a UI file was reviewed without the lens.
+        base = ["adversarial", "integration", "quality"]
+        owned = THREE_PASS.replace('lenses = ["adversarial", "integration", "quality"]',
+                                   'lenses = ["adversarial", "integration", "quality", "design"]')
+        # The round owns it now, so the fixture's entry can no longer hand it to plan.
+        self.refuses(owned, "gives the plan pass the lens design, which belongs to round")
+        entry = 'lenses = ["design"]\npasses = ["plan", "round"]'
+        both = owned.replace(entry, 'lenses = ["design"]\npasses = ["round", "reconciliation"]')
+        schedule = load(both)["schedule"]
+        self.assertEqual(review_pin.faults(data=both.encode("utf-8")), [])
+        lenses = review_pin.lenses_for
+        self.assertEqual(lenses(schedule, "round", ["src/app/x.c"], False), base)
+        self.assertEqual(lenses(schedule, "round", ["src/app/x.c"], True), base + ["design"])
+        self.assertEqual(lenses(schedule, "round", ["src/ui/a.c"], False), base + ["design"])
+        self.assertEqual(lenses(schedule, "round", ["src/ui/a.c"], True), base + ["design"])
+        self.assertEqual(review_pin.scheduled(schedule, "round", [], False, ["src/ui/a.c"])["lenses"],
+                         base + ["design"])
+        reconciliation = ["adversarial", "plan-delivery", "record"]
+        self.assertEqual(lenses(schedule, "reconciliation", ["src/app/x.c"], True), reconciliation)
+        self.assertEqual(lenses(schedule, "reconciliation", ["src/ui/a.c"], False), reconciliation + ["design"])
+        # The plan review's counterpart is a built-in lens of its own, so the round keeps `design`.
+        planned = both + '\n[[schedule.conditional]]\nlenses = ["design-plan"]\npasses = ["plan"]\npaths = ["src/ui/"]\n'
+        self.assertEqual(lenses(load(planned)["schedule"], "plan", ["src/ui/a.c"]), ["plan", "design-plan"])
+        self.assertEqual(lenses(load(planned)["schedule"], "plan", ["src/app/x.c"]), ["plan"])
+        # Only the surface-gated lens: any other lens the round always has is still a repeat, and another pass's
+        # lens is still another pass's.
+        moved = 'lenses = ["design"]\npasses = ["round", "reconciliation"]'
+        self.refuses(both.replace(moved, 'lenses = ["quality"]\npasses = ["round"]'),
+                     "repeats the lens quality, which the round pass always has")
+        self.refuses(both.replace(moved, 'lenses = ["design"]\npasses = ["completion"]'),
+                     "gives the completion pass the lens design, which belongs to round")
+        for name in ("design", "source-defect", "design-plan"):
+            self.assertNotIn("design/SPEC.md", review_pin.LENSES[name], "a lens names no project's contract path")
+        self.assertIn("Fidelity", review_pin.LENSES["design"])
+        self.assertIn("Fidelity", review_pin.LENSES["source-defect"])
+
     def test_extra_lenses_are_declared_with_their_question(self):
         schedule = load(THREE_PASS)["schedule"]
         self.assertIn("concurrency", review_pin.lens_table(schedule))
@@ -747,6 +785,20 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(len(with_paths.stdout.splitlines()), 4)
         completion = self.run_cli(THREE_PASS, "--lenses", "completion")
         self.assertEqual([line.split(":")[0] for line in completion.stdout.splitlines()], ["plan-delivery", "record"])
+
+    def test_no_surface_lists_design_only_for_a_file_under_a_conditional_path(self):
+        def names(done):
+            return [line.split(":")[0] for line in done.stdout.splitlines()]
+        gated = THREE_PASS.replace('"integration", "quality"]', '"integration", "quality", "design"]').replace(
+            'lenses = ["design"]\npasses = ["plan", "round"]', 'lenses = ["design"]\npasses = ["round"]')
+        self.assertIn("design", names(self.run_cli(gated, "--lenses", "round")))
+        self.assertNotIn("design", names(self.run_cli(gated, "--lenses", "round", "--no-surface")))
+        self.assertNotIn("design", names(self.run_cli(gated, "--lenses", "round", "--no-surface", "--paths", "a.c")))
+        self.assertEqual(names(self.run_cli(gated, "--lenses", "round", "--no-surface", "--paths", "src/ui/a.c")),
+                         ["adversarial", "integration", "quality", "design"])
+        refused = self.run_cli(gated, "--check", "--no-surface")
+        self.assertEqual(refused.returncode, 2)
+        self.assertIn("--no-surface goes with --lenses", refused.stderr)
 
     def test_caps_prints_the_configured_caps(self):
         self.assertEqual(self.run_cli(THREE_PASS, "--caps").stdout, "pass_cap 45\nno_progress_cap 3\n")

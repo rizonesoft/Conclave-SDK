@@ -2910,6 +2910,65 @@ class ThreePassStamp(Stamp):
         finally:
             type(self).PIN_TEXT = THREE_PASS_PIN
 
+    def ui_build(self, message="ui build"):
+        (self.root / "src/ui").mkdir(parents=True, exist_ok=True)
+        (self.root / "src/ui/a.txt").write_text(message + "\n", encoding="utf-8")
+        return self.commit(message)
+
+    def test_a_surface_no_section_that_changed_a_design_path_needs_the_design_lens_to_stamp(self):
+        # The fixture section is `Surface: no`. A pin that keeps `design` in the round for --surface and also names
+        # it in a conditional entry holds any section that changed a file under the entry's paths to the lens.
+        gated = THREE_PASS_PIN.replace('lenses = ["adversarial", "integration"] }]',
+                                       'lenses = ["adversarial", "integration", "design"] }]')
+        self.assertNotEqual(gated, THREE_PASS_PIN)
+        self.tearDown()
+        type(self).PIN_TEXT = gated + ('\n[[schedule.conditional]]\nlenses = ["design"]\n'
+                                       'passes = ["round", "reconciliation"]\npaths = ["src/ui/"]\n')
+        with_design = ["adversarial", "integration", "design"]
+        repaired = ["adversarial", "plan-delivery", "record", "design"]
+        try:
+            self.setUp()
+            with self.subTest("no file under the paths: Surface: no still means no design lens"):
+                self.passed("plan", self.start)
+                self.tick_work()
+                sha = self.build()
+                self.passed("round", sha, lenses=with_design)
+                self.passed("completion", sha)
+                self.stamp3_refuses(sha, "the schedule expects medium with ['adversarial', 'integration']")
+            self.setUp_again()
+            with self.subTest("a UI file changed and the round has no LENS design"):
+                self.passed("plan", self.start)
+                self.tick_work()
+                sha = self.ui_build()
+                self.passed("round", sha)
+                self.passed("completion", sha)
+                self.stamp3_refuses(sha, f"the schedule expects medium with {with_design}")
+            self.setUp_again()
+            with self.subTest("the round has it and the reconciliation does not"):
+                self.passed("plan", self.start)
+                self.tick_work()
+                sha = self.ui_build()
+                self.passed("round", sha, lenses=with_design)
+                self.passed("completion", sha, "P2", True)
+                fixed = self.build("repair")
+                self.passed("reconciliation", fixed)
+                self.stamp3_refuses(fixed, f"the schedule expects medium with {repaired}", verdict="reconciled")
+            self.setUp_again()
+            with self.subTest("LENS design: clean on the round and the reconciliation stamps"):
+                self.passed("plan", self.start)
+                self.tick_work()
+                sha = self.ui_build()
+                self.passed("round", sha, lenses=with_design)
+                self.passed("completion", sha, "P2", True)
+                fixed = self.build("repair")
+                self.passed("reconciliation", fixed, lenses=repaired)
+                data = self.stamp3(fixed, verdict="reconciled")
+                self.assertEqual(data["schedule"]["conditional"][0]["lenses"], ["design"])
+                found = (self.root / self.FILE).read_text(encoding="utf-8")
+                self.assertEqual(found.count("LENS design: clean"), 2)
+        finally:
+            type(self).PIN_TEXT = THREE_PASS_PIN
+
     def test_a_changed_promise_between_the_completion_and_its_reconciliation_refuses(self):
         todo = self.root / "todo/00-workspace/TODO-01-a.md"
         self.passed("plan", self.start)
