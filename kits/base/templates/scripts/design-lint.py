@@ -132,7 +132,7 @@ EMOJI_RE = re.compile(
 URL_RE = re.compile(r"https?://[^\s\"'<>`]+")
 ANCHOR_RE = re.compile(r"[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}#[A-Za-z0-9_-]+")
 HEX_STR_RE = re.compile(r"(?<![\w/.-])#(?:[0-9A-Fa-f]{8}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{3,4})(?![\w-])")
-CUSTOM_PROP_START_RE = re.compile(r"(?:(?<=^)|(?<=[;{}\"'\s=]))--[A-Za-z0-9_-]+\s*:")
+CUSTOM_PROP_START_RE = re.compile(r"(?:(?<=^)|(?<=[;{}\"'\s=`]))--[A-Za-z0-9_-]+\s*:")
 
 # XAML patterns
 XAML_HEX_ATTR_RE = re.compile(
@@ -544,7 +544,9 @@ def _mask_css_custom_props(line: str, *, web: bool = False) -> str:
                         quote = None
                     i += 1
                 else:
-                    if ch in "\"'":
+                    if ch == "\\":
+                        i = min(i + 2, n)
+                    elif ch in "\"'":
                         quote = ch
                         i += 1
                     elif ch in ";{}":

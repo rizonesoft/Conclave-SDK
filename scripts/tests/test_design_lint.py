@@ -260,7 +260,8 @@ class StackRuleTests(DesignLintHarness):
         self.write(
             "src/ui/Links.tsx",
             'export const link1 = "docs/design.md#abcdef";\n'
-            'export const link2 = "https://example.com/#123456";\n',
+            'export const link2 = "https://example.com/#123456";\n'
+            "export const cssTpl = `--brand: #abcdef;`;\n",
         )
         self.write(
             "src/ui/token_identifiers.cs",
@@ -284,7 +285,8 @@ class StackRuleTests(DesignLintHarness):
             "}\n"
             ".compact{color:#123456;}\n"
             ":root { --ok: #abcdef; color: #ff0000; }\n"
-            '.escaped { --label: "a\\""; color: #ff0000; --other: "b"; }\n',
+            '.escaped { --label: "a\\""; color: #ff0000; --other: "b"; }\n'
+            '.unquoted_escape { --label: foo\\"; color: #ff0000; }\n',
         )
         self.write(
             "src/ui/panel.html",
@@ -301,8 +303,10 @@ class StackRuleTests(DesignLintHarness):
         )
         bad = self.run_lint()
         self.assertEqual(bad.returncode, 1, bad.stdout + bad.stderr)
-        self.assertEqual(bad.stdout.count(":color-literal:"), 7, bad.stdout)
+        self.assertEqual(bad.stdout.count(":color-literal:"), 8, bad.stdout)
         self.assertIn("src/ui/bad.css:9:color-literal:", bad.stdout)
+        self.assertIn("src/ui/bad.css:10:color-literal:", bad.stdout)
+        self.assertIn("src/ui/bad.css:11:color-literal:", bad.stdout)
         self.assertIn("src/ui/panel.html:1:color-literal:", bad.stdout)
         self.assertIn("src/ui/panel.html:2:color-literal:", bad.stdout)
         self.assertIn(":font-family-literal:", bad.stdout)
