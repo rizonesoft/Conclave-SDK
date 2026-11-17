@@ -86,6 +86,11 @@ class Interactive:
         elif self.proc.poll() is None:
             os.killpg(self.proc.pid, 9)
         self.proc.wait(timeout=30)
+        # The pipes close with the child, once the reader has taken the last of its output.
+        self.reader.join(timeout=10)
+        for pipe in (self.proc.stdin, self.proc.stdout):
+            if not pipe.closed:
+                pipe.close()
 
 
 class _Limits(ctypes.Structure):
