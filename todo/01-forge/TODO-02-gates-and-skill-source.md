@@ -333,6 +333,8 @@ The full suite on Linux is the longest job (29 minutes on run 44083965196, again
 
 `d595ec6` let the dispatcher take another reconciliation after one that ended complete on a candidate whose section contract had changed (D07 T02 §1, which `stamp` then refused and the dispatcher would not review again). Astra's review (`docs/reviews/01-forge/ci-speedup-audit.md`, finding 1, P1) found the chain still cannot stamp: `three_pass_ok` in `scripts/lib/todo_graph.py` refuses a chain in which a reconciliation before the last returned complete, and holds the last pass's predecessor to the blocking levels. The dispatcher and the stamp must share one rule.
 
+> **Started:** 2026-11-17T14:25Z
+
 **Phase:** 5
 **Needs:** none
 **Surface:** no
