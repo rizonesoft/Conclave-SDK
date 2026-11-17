@@ -21,7 +21,8 @@ Runs still queued or in progress are named with their commit and URL, older ones
 workflow): the creation time of the oldest run still unfinished at the last read, else the newest run then listed.
 It reports each completed attempt it has not reported before, by run ID and attempt (a rerun's earlier attempts are
 read too), so a failure followed by a green, a run that finishes after a newer one, or a failed rerun of a run already
-reported are each seen once. It pages (10, 50, 200 runs) until it passes the horizon. The state is written after the
+reported are each seen once; the runs `--rerun` started are read by ID until they finish. It pages (50, 200, 1000 runs) until it passes the horizon, and with more than 1000 unread runs it says so and
+leaves the state as it was (exit 3) rather than skip any. The state is written after the
 read printed everything, and never when a read failed; an unreadable state is said and read as a first read, which
 reports the latest completed run and everything after it. The process-phase skill reads it after every push; nothing
 in it refuses or holds back a commit or a push.
@@ -49,7 +50,7 @@ CONFIG = Path(".conclave") / "ci.json"
 FIELDS = "databaseId,headSha,status,conclusion,url,createdAt,event,attempt"
 CURSOR = Path("build") / "ci-status-cursor.json"
 RERUNS = Path("build") / "ci-status-reruns.json"
-PAGES = (10, 50, 200)
+PAGES = (50, 200, 1000)
 MAX_RERUNS = 3
 LIMIT = 10
 GREEN = {"success", "neutral", "skipped"}
@@ -221,59 +222,79 @@ def _attempt_conclusion(runner, run_id, attempt):
 
 
 def since_last(runner, workflows, branch, root):
-    """The new completed attempts since the saved horizon, the pending runs, the new state and the exit code."""
+    """The new completed attempts since the last read, the pending runs, the new state and the exit code.
+
+    Per branch and workflow the state keeps a horizon (the creation time of the oldest run still unfinished at the
+    last read, else the newest run then listed) and, for each run it has seen, the highest attempt it reported. A run
+    is read again whenever its attempt number is above that, so a rerun of an older run is reported too, and the runs
+    `--rerun` started are read by ID even when newer runs push them off the list. Reading pages until it passes the
+    horizon, it raises Unavailable (exit 3, state untouched) rather than skip runs it could not reach."""
     path = Path(root) / CURSOR
     state, note = _load_state(path)
     new_state = dict(state)
+    reruns, _ = _load_state(Path(root) / RERUNS)
     report = {"branch": branch, "workflows": [], "note": note}
     failed = False
     for workflow in workflows:
         key = f"{branch}|{workflow}"
         saved = state.get(key)
         horizon = saved.get("horizon") if saved else None
-        seen = set(saved.get("seen", [])) if saved else set()
+        reported = {str(k): int(v) for k, v in (saved.get("reported", {}) if saved else {}).items()}
         runs = []
         for limit in PAGES:
             runs = list_runs(runner, workflow, branch, limit)
             if horizon is None or len(runs) < limit or str(runs[-1].get("createdAt") or "") < horizon:
                 break
-        completed = [r for r in runs if r.get("status") == "completed"]
-        if horizon is None:   # a first read: the latest completed run and everything after it
-            start = str(completed[0].get("createdAt") or "") if completed else ""
-            window = [r for r in runs if str(r.get("createdAt") or "") >= start]
         else:
-            window = [r for r in runs if str(r.get("createdAt") or "") >= horizon]
+            if runs and str(runs[-1].get("createdAt") or "") >= horizon:
+                raise Unavailable(f"more than {PAGES[-1]} runs of {workflow} since the last read; the cursor is left "
+                                  f"where it was, so nothing is skipped (read them with gh run list)")
+        listed = {str(r.get("databaseId")) for r in runs}
+        # The runs --rerun started, read by ID when they are not on the list any more.
+        for entry_key, entry in reruns.items():
+            if entry_key.endswith(f"|{workflow}") and str(entry.get("run")) not in listed and entry.get("run"):
+                view = gh_json(runner, ["run", "view", str(entry["run"]), "--json", FIELDS])
+                if isinstance(view, dict):
+                    runs.append(view)
+                    listed.add(str(view.get("databaseId")))
+        if horizon is None:
+            # A first read: the latest completed run and everything after it; what came before counts as reported.
+            completed = sorted((r for r in runs if r.get("status") == "completed"),
+                               key=lambda r: str(r.get("createdAt") or ""), reverse=True)
+            first = str(completed[0].get("createdAt") or "") if completed else ""
+            for r in runs:
+                if str(r.get("createdAt") or "") < first and r.get("status") == "completed":
+                    reported[str(r.get("databaseId"))] = int(r.get("attempt") or 1)
         new = []
-        for run in sorted((r for r in window if r.get("status") == "completed"),
-                          key=lambda r: str(r.get("createdAt") or "")):
+        for run in sorted(runs, key=lambda r: str(r.get("createdAt") or "")):
+            run_id = str(run.get("databaseId"))
             attempts = int(run.get("attempt") or 1)
-            for n in range(1, attempts + 1):
-                tag = f"{run.get('databaseId')}:{n}"
-                if tag in seen:
-                    continue
+            done = reported.get(run_id, 0)
+            if horizon is not None and run_id not in reported and str(run.get("createdAt") or "") < horizon:
+                continue   # older than the last read and never listed then: read before this state began
+            for n in range(done + 1, attempts + 1):
                 if n == attempts:
+                    if run.get("status") != "completed":
+                        break
                     conclusion, url = run.get("conclusion"), run.get("url")
                 else:
-                    status, conclusion, url = _attempt_conclusion(runner, run.get("databaseId"), n)
+                    status, conclusion, url = _attempt_conclusion(runner, run_id, n)
                     if status != "completed":
-                        continue
+                        break
                 verdict = verdict_of({"conclusion": conclusion})
                 item = {"run": run.get("databaseId"), "attempt": n, "headSha": run.get("headSha"), "url": url,
                         "verdict": verdict}
                 if verdict == "red":
                     failed = True
                     if n == attempts:
-                        item["failed_jobs"] = failed_jobs(runner, run.get("databaseId"))
+                        item["failed_jobs"] = failed_jobs(runner, run_id)
                 new.append(item)
-                seen.add(tag)
-        # Every run still unfinished, the window's or older (a first read starts at the latest completed run): the next
-        # read starts at the oldest of them, so each is read again until it has a verdict.
+                reported[run_id] = n
+        # Every run still unfinished: the next read starts at the oldest of them, so each is read until it finishes.
         unfinished = [str(r.get("createdAt") or "") for r in runs if r.get("status") != "completed"]
-        newest = str(runs[0].get("createdAt") or "") if runs else (horizon or "")
+        newest = max((str(r.get("createdAt") or "") for r in runs), default=horizon or "")
         next_horizon = min(unfinished) if unfinished else newest
-        kept = {f"{r.get('databaseId')}:{n}" for r in runs if str(r.get("createdAt") or "") >= next_horizon
-                for n in range(1, int(r.get("attempt") or 1) + 1)}
-        new_state[key] = {"horizon": next_horizon, "seen": sorted(seen & kept)}
+        new_state[key] = {"horizon": next_horizon, "reported": {k: v for k, v in sorted(reported.items()) if k in listed}}
         report["workflows"].append({"workflow": workflow, "new": new, "pending": pending_of(runs)})
     code = 1 if failed else 0
     report["exit"] = code

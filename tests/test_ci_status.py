@@ -299,6 +299,8 @@ class PagedGh:
             runs = sorted(self.runs.get(args[args.index("--workflow") + 1], []), key=lambda r: r["createdAt"],
                           reverse=True)
             return 0, json.dumps(runs[:limit]), ""
+        if args[:2] == ["run", "view"] and "jobs" not in args:
+            return 0, json.dumps(getattr(self, "views", {})[int(args[2])]), ""
         if args[:2] == ["run", "view"]:
             return 0, json.dumps({"jobs": [{"name": "suite", "status": "completed", "conclusion": "failure",
                                             "url": "job"}]}), ""
@@ -374,12 +376,46 @@ class SinceLast(unittest.TestCase):
     def test_a_failure_on_the_second_page_is_reported(self):
         fake = PagedGh({"build.yml": [attempt_run(1, 1)]})
         self.read(fake)
-        fake.runs["build.yml"] += [attempt_run(2, 2, conclusion="failure")] + [attempt_run(n, n) for n in range(3, 15)]
+        fake.runs["build.yml"] += [attempt_run(2, 2, conclusion="failure")] + [attempt_run(n, n) for n in range(3, 60)]
         code, report = self.read(fake)
         self.assertEqual(code, 1)
         self.assertIn((2, 1, "red"), self.new(report))
-        self.assertIn(["run", "list", "--branch", "main", "--workflow", "build.yml", "--limit", "50", "--json",
+        self.assertIn(["run", "list", "--branch", "main", "--workflow", "build.yml", "--limit", "200", "--json",
                        ci.FIELDS], fake.calls)
+
+    def test_more_unread_runs_than_the_last_page_leave_the_state_and_say_so(self):
+        # Round 1 P1: a failure beyond the last page must never be skipped with the cursor moved past it.
+        fake = PagedGh({"build.yml": [attempt_run(1, 1)]})
+        self.read(fake)
+        before = self.cursor()
+        fake.runs["build.yml"] += [attempt_run(2, 2, conclusion="failure")] + [attempt_run(n, n) for n in range(3, 1010)]
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = ci.main(["--since-last"], runner=fake, root=self.root)
+        self.assertEqual(code, 3)
+        self.assertIn("more than 1000 runs", out.getvalue())
+        self.assertEqual(self.cursor(), before)
+
+    def test_a_rerun_of_an_older_run_is_reported(self):
+        # Round 1 P1: run 1 and a newer run 2 were read; run 1 is rerun (its creation time stays old) and fails.
+        fake = PagedGh({"build.yml": [attempt_run(1, 1), attempt_run(2, 2)]})
+        self.read(fake)
+        fake.runs["build.yml"][0] = attempt_run(1, 1, conclusion="failure", attempt=2)
+        code, report = self.read(fake)
+        self.assertEqual((code, self.new(report)), (1, [(1, 2, "red")]))
+
+    def test_a_run_the_rerun_command_started_is_read_off_the_list(self):
+        fake = PagedGh({"build.yml": [attempt_run(1, 1, conclusion="cancelled", sha=SHA_OLD)]})
+        self.read(fake)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            ci.main(["--rerun", SHA_OLD], runner=fake, root=self.root)
+        # Many newer runs push it off the first page; its rerun failed.
+        fake.runs["build.yml"] = [attempt_run(n, n) for n in range(2, 60)]
+        fake.views = {1: attempt_run(1, 1, conclusion="failure", sha=SHA_OLD, attempt=2)}
+        code, report = self.read(fake)
+        self.assertEqual(code, 1)
+        self.assertIn((1, 2, "red"), self.new(report))
 
     def test_each_workflow_and_branch_keeps_its_own_state(self):
         workspace(self.root, workflows=("build.yml", "plan.yml"))
@@ -488,8 +524,9 @@ class Placement(unittest.TestCase):
     SKILLS = REPO / "kits" / "todo" / "templates" / ".claude" / "skills"
     WHERE = {"process-todo-section": ["Push each commit as it lands"],
              "review-todo-section": ["Push each commit as it lands", "--rerun <stamped commit>"],
-             "process-phase": ["Then check CI, red first", "## Closeout run=<run id>"],
-             "process-plan": ["after each stamp is pushed", "7. Run `<python> scripts/ci_status.py --since-last`."]}
+             "process-phase": ["Then check CI, red first", "## Closeout run=<run id>", "the phase parks: write a column-0"],
+             "process-plan": ["after each stamp is pushed", "7. Run `<python> scripts/ci_status.py --since-last`.",
+                             "then end with `--reason park` the same way"]}
 
     def test_each_read_sits_in_its_push_or_closeout_paragraph(self):
         for skill, anchors in self.WHERE.items():
