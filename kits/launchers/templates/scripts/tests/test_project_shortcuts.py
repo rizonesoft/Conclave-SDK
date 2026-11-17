@@ -18,12 +18,74 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 PWSH = shutil.which("pwsh")
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 SUSPENDED = 0x4  # CREATE_SUSPENDED: the child joins its job object before it can start anything
+
+
+class Interactive:
+    """A child started as run_tree starts it (its whole tree ends with it), whose stdin stays open: a test reads its
+    output as it comes, sees whether it is still waiting, and sends Enter when it chooses."""
+
+    def __init__(self, command, **kwargs):
+        self.job = None
+        if os.name == "nt":
+            self.kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            self.kernel32.CreateJobObjectW.restype = ctypes.c_void_p
+            self.kernel32.SetInformationJobObject.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p,
+                                                              ctypes.c_uint32]
+            self.kernel32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+            self.kernel32.TerminateJobObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+            self.kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+            self.job = self.kernel32.CreateJobObjectW(None, None)
+            limits = _ExtendedLimits()
+            limits.BasicLimitInformation.LimitFlags = 0x2000
+            self.kernel32.SetInformationJobObject(self.job, 9, ctypes.byref(limits), ctypes.sizeof(limits))
+            self.proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                         stderr=subprocess.STDOUT, text=True, creationflags=NO_WINDOW | SUSPENDED,
+                                         **kwargs)
+            handle = ctypes.c_void_p(int(self.proc._handle))
+            self.kernel32.AssignProcessToJobObject(self.job, handle)
+            ntdll = ctypes.WinDLL("ntdll")
+            ntdll.NtResumeProcess.argtypes = [ctypes.c_void_p]
+            ntdll.NtResumeProcess(handle)
+        else:
+            self.proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                         stderr=subprocess.STDOUT, text=True, start_new_session=True,
+                                         creationflags=NO_WINDOW, **kwargs)
+        self.output = []
+        self.reader = threading.Thread(target=lambda: self.output.extend(iter(lambda: self.proc.stdout.read(1), "")),
+                                       daemon=True)
+        self.reader.start()
+
+    def text(self):
+        return "".join(self.output)
+
+    def wait_for(self, needle, timeout=60):
+        end = time.monotonic() + timeout
+        while needle not in self.text():
+            if time.monotonic() > end or (self.proc.poll() is not None and not self.reader.is_alive()):
+                return False
+            time.sleep(0.1)
+        return True
+
+    def enter(self):
+        self.proc.stdin.write("\n")
+        self.proc.stdin.flush()
+        self.proc.stdin.close()
+
+    def close(self):
+        if self.job is not None:
+            self.kernel32.TerminateJobObject(self.job, 1)
+            self.kernel32.CloseHandle(self.job)
+        elif self.proc.poll() is None:
+            os.killpg(self.proc.pid, 9)
+        self.proc.wait(timeout=30)
 
 
 class _Limits(ctypes.Structure):
@@ -301,9 +363,17 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
         self.assertEqual([json.loads(line) for line in self.wsl_log.read_text(encoding="utf-8").splitlines()],
                          [["-d", "Ubuntu", "--cd", "/srv/my site's", "--exec", "bash", "-lic", bash_command("claude")]])
-        failed = self.run_link(link, terminal=False, stdin="\n", STUB_WSL_FAIL="1")
-        self.assertIn("WSL could not open the project (exit 4): the reason is above. Press Enter to close.",
-                      failed.stdout)
+        waiting = Interactive(f'"{link["target"]}" {link["arguments"]}', cwd=link["workdir"],
+                              env=self.env(False, STUB_WSL_FAIL="1"))
+        try:
+            self.assertTrue(waiting.wait_for("WSL could not open the project (exit 4): the reason is above. "
+                                             "Press Enter to close."), waiting.text())
+            time.sleep(2)
+            self.assertIsNone(waiting.proc.poll(), "the window closed before Enter")
+            waiting.enter()
+            self.assertEqual(waiting.proc.wait(timeout=30), 0)
+        finally:
+            waiting.close()
 
     # --- the Windows form -------------------------------------------------------------------------------------------
 
@@ -351,6 +421,43 @@ class ProjectShortcutsTest(unittest.TestCase):
                       PATH=str(self.agents) + os.pathsep + self.plain_path)
         self.assertEqual(self.agent_log.read_text(encoding="utf-8").split("|")[2].strip(),
                          "--dangerously-bypass-approvals-and-sandbox")
+
+    def test_every_form_runs_the_agent_with_the_flag_only_when_asked(self):
+        # Completion review: WSL and Windows projects, with and without Windows Terminal, the permission flag both
+        # ways, each link run and what it handed on read where it arrived.
+        agent_path = str(self.agents) + os.pathsep + self.plain_path
+        for form, terminal, skip in [(f, t, s) for f in ("wsl", "windows") for t in (True, False) for s in (False, True)]:
+            with self.subTest(form=form, terminal=terminal, skip_permissions=skip):
+                title = f"{form} {'wt' if terminal else 'plain'} {'skip' if skip else 'ask'}"
+                project = self.make_project(title, dict(PROFILE, title=title, agents=["codex"], skip_permissions=skip))
+                for log in (self.wt_log, self.wsl_log, self.agent_log):
+                    if log.exists():
+                        log.unlink()
+                where = ("-Project", f"/srv/{title.replace(' ', '-')}", "-Distro", "Ubuntu") if form == "wsl" else ()
+                done = self.run_script(*where, project=project, terminal=terminal)
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                link = self.read_link(title=title, agent="codex")
+                ran = self.run_link(link, terminal=terminal, PATH=agent_path if not terminal else self.env()["PATH"])
+                self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+                if form == "wsl":
+                    expected = ["-d", "Ubuntu", "--cd", f"/srv/{title.replace(' ', '-')}", "--exec", "bash", "-lic",
+                                bash_command("codex", skip)]
+                    if terminal:
+                        (call,) = self.terminal_calls()
+                        self.assertEqual((call["cwd"], call["argv"]), (os.environ["USERPROFILE"], [str(self.wsl), *expected]))
+                    else:
+                        calls = [json.loads(line) for line in self.wsl_log.read_text(encoding="utf-8").splitlines()]
+                        self.assertEqual(calls[-1], expected)   # after the script's own -l and test -d calls
+                else:
+                    command = ["codex", FLAGS["codex"]] if skip else ["codex"]
+                    if terminal:
+                        (call,) = self.terminal_calls()
+                        self.assertEqual(call["cwd"], str(project))
+                        self.assertEqual(call["argv"][:2], ["-d", str(project)])
+                        self.assertEqual(call["argv"][3:], ["-NoLogo", "-NoExit", "-Command", " ".join(command)])
+                    else:
+                        agent, cwd, args = self.agent_log.read_text(encoding="utf-8").strip().split("|")
+                        self.assertEqual((agent, cwd, args.strip()), ("codex", str(project), " ".join(command[1:])))
 
     def test_the_flags_are_the_ones_the_unattended_run_passes(self):
         run = SCRIPTS.parents[2] / "unattended/templates/scripts/unattended-run.py"
@@ -502,9 +609,17 @@ class InteractiveShellTest(unittest.TestCase):
 
     def test_an_agent_that_does_not_start_says_so_and_waits_for_enter(self):
         command = bash_command("claude").replace("claude ||", "conclave-no-such-agent ||", 1)
-        done = self.bash("-lic", command, stdin="\n")
-        self.assertIn("Claude did not start: the reason is above. Press Enter to close.", done.stdout)
-        self.assertEqual(done.returncode, 0, "read -r took the Enter")
+        waiting = Interactive([BASH, "-lic", command], cwd=self.home,
+                              env={**os.environ, "HOME": str(self.home), "BASH_ENV": ""})
+        try:
+            self.assertTrue(waiting.wait_for("Claude did not start: the reason is above. Press Enter to close."),
+                            waiting.text())
+            time.sleep(2)
+            self.assertIsNone(waiting.proc.poll(), "the shell ended before Enter")
+            waiting.enter()
+            self.assertEqual(waiting.proc.wait(timeout=30), 0, "read -r took the Enter")
+        finally:
+            waiting.close()
 
 
 if __name__ == "__main__":
