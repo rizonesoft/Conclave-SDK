@@ -3504,6 +3504,16 @@ class LaunchersKitTests(unittest.TestCase):
         self.assertEqual(record["files"][forge.LAUNCHERS_PROFILE]["kit"], "launchers")
         self.assertIn("launchers", forge.installed_kits(self.target))
 
+    def test_launchers_doctor_links_row_counts_agent_and_declared_links(self):
+        # D07 T01 section 6: two agents and one declared entry are three links.
+        forge.apply_kit(self.target, "launchers")
+        (self.target / "icon.png").write_bytes(b"\x89PNG")
+        profile = dict(self.PROFILE, title="Example Site", icon="icon.png", agents=["claude", "codex"],
+                       links=[{"label": "Dashboard", "mark": "wordpress", "run": "wp admin"}])
+        (self.target / forge.LAUNCHERS_PROFILE).write_text(json.dumps(profile), encoding="utf-8")
+        self.assertEqual(self.checks()["links"], {"name": "links", "status": "ok",
+                                                  "detail": "3 links: 2 agent, 1 declared (D07 T01 section 6)"})
+
     def test_launchers_doctor_profile_row_is_setup_required_until_installed(self):
         row = self.checks()["profile"]
         self.assertEqual(row["status"], "setup_required")

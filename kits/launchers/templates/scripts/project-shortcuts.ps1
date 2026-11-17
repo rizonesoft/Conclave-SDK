@@ -1,6 +1,8 @@
 # Puts "<Title> (<Agent>)" links on the Windows desktop, one per agent the launcher profile names
-# (.conclave/launchers.json): a double-click opens a terminal in the project with the agent running. Each icon is the
-# project's own icon with the agent's mark in a rounded square in its corner, rendered on this machine.
+# (.conclave/launchers.json): a double-click opens a terminal in the project with the agent running. Beside them goes
+# one "<Title> (<label>)" link per entry of the profile's `links`: a `run` entry runs its command in the project, a
+# `url` entry opens its address in the default browser. Each icon is the project's own icon with the agent's or the
+# entry's mark in a rounded square in its corner, rendered on this machine.
 #
 #   pwsh scripts/project-shortcuts.ps1                    a project on a Windows drive, or one opened from its
 #                                                         \\wsl.localhost\<distro>\ path (the distro is read from it)
@@ -12,6 +14,12 @@
 # its "not interactive: return" guard. A project on a Windows drive opens as `wt.exe -d <project> pwsh.exe -NoLogo
 # -NoExit -Command <agent>`. Without Windows Terminal the link starts PowerShell itself, which for a WSL project runs
 # wsl.exe and, if WSL fails, says so and waits for Enter. An agent that does not start says so and waits for Enter too.
+#
+# A `run` entry opens in PowerShell. For a project in WSL it runs `wsl.exe -d <distro> --cd <linux path> --exec bash
+# -lc <command> || { echo '<label> did not start: ...'; read -r _; }` (PowerShell starts wsl.exe with --exec, so the
+# login shell parses the command once); for a project on a Windows drive it runs the command in the project folder.
+# Either way a failure stays on screen until Enter. A `url` entry's link starts `rundll32.exe url.dll,
+# FileProtocolHandler <url>`, which opens the browser with no console window.
 #
 # Each project has one identity: its distro and Linux path for a project in WSL (however the path was written), or its
 # full Windows path. The links carry it in their description, which is how this script finds its own links, and the
@@ -124,6 +132,8 @@ function Quote([string]$arg) {
 }
 # A PowerShell string literal of any text.
 function PSQuote([string]$text) { "'" + $text.Replace("'", "''") + "'" }
+# A Bash single-quoted word of any text (a quote inside it closes the word, writes an escaped quote and reopens it).
+function BashQuote([string]$text) { "'" + $text.Replace("'", "'\''") + "'" }
 
 $wt = (Get-Command wt.exe -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
 $pwshExe = (Get-Process -Id $PID).Path  # the PowerShell 7 that runs this script runs the links too
@@ -157,8 +167,47 @@ foreach ($agent in $launch.agents) {
     $arguments = ($words | ForEach-Object { Quote $_ }) -join ' '
     $workdir = $Project
   }
-  $plan += [pscustomobject]@{ Agent = $agent; Label = $label; Link = $link; Target = $target; Arguments = $arguments
+  $plan += [pscustomobject]@{ Mark = $agent; Label = $label; Link = $link; Target = $target; Arguments = $arguments
                               Workdir = $workdir; Icon = (Join-Path $IconDir "launcher-$agent-$key.ico") }
+}
+# The profile's declared links (its loader has checked each: a label no agent or other entry uses, a known mark, and a
+# one-line command or an http(s) address with no whitespace).
+foreach ($entry in @($launch.links)) {
+  $label = "$($launch.title) ($($entry.label))"
+  $link = Join-Path $ShortcutDir "$label.lnk"
+  if (Test-Path -LiteralPath $link) {
+    $holder = if (Test-Path -LiteralPath $link -PathType Leaf) { $shell.CreateShortcut($link).Description } else { '' }
+    if ($holder -cne $mark) { Refuse "'$link' is already there and is not this project's link" }
+  }
+  # The icon's name: the label in lower case, each run of other characters one hyphen (launchers.py's slug).
+  $slug = ($entry.label.ToLowerInvariant() -creplace '[^a-z0-9]+', '-').Trim('-')
+  if ($entry.PSObject.Properties['url']) {
+    $target = Join-Path $env:SystemRoot 'System32\rundll32.exe'
+    $arguments = "url.dll,FileProtocolHandler $($entry.url)"
+    $workdir = $env:USERPROFILE
+  } else {
+    $failed = "$($entry.label) did not start: the reason is above. Press Enter to close."
+    if ($null -ne $linux) {
+      $bash = "$($entry.run) || { echo $(BashQuote $failed); read -r _; }"
+      $wslWords = @('-d', $Distro, '--cd', $linux, '--exec', 'bash', '-lc', $bash)
+      $wslFailed = PSQuote "$($entry.label): WSL could not open the project (exit "
+      $code = "& $(PSQuote $Wsl) $(($wslWords | ForEach-Object { PSQuote $_ }) -join ' '); if (`$LASTEXITCODE -ne 0) { " +
+        "Write-Host ($wslFailed + `$LASTEXITCODE + '): the reason is above. Press Enter to close.'); " +
+        "[void][Console]::ReadLine() }"
+      $workdir = $env:USERPROFILE
+    } else {
+      # A command that throws is caught, and one that exits non-zero sets $LASTEXITCODE: either way it waits.
+      $code = "`$ErrorActionPreference = 'Stop'; `$LASTEXITCODE = 0; `$ok = `$true; " +
+        "try { $($entry.run) } catch { Write-Host `$_; `$ok = `$false }; " +
+        "if (-not `$ok -or `$LASTEXITCODE -ne 0) { Write-Host $(PSQuote $failed); [void][Console]::ReadLine() }"
+      $workdir = $Project
+    }
+    $target = $pwshExe
+    $arguments = "-NoLogo -NoProfile -Command $(Quote $code)"
+  }
+  $plan += [pscustomobject]@{ Mark = $entry.mark; Label = $label; Link = $link; Target = $target
+                              Arguments = $arguments; Workdir = $workdir
+                              Icon = (Join-Path $IconDir "launcher-$slug-$key.ico") }
 }
 
 # --- write: everything staged, then moved into place together ----------------------------------------------------
@@ -170,7 +219,7 @@ try {
   foreach ($item in $plan) {
     $iconTemp = "$($item.Icon).$PID.tmp.ico"
     $staged.Add([pscustomobject]@{ Temp = $iconTemp; Dest = $item.Icon })
-    $out = & $Python -B $renderer overlay $brand $item.Agent $iconTemp 2>&1
+    $out = & $Python -B $renderer overlay $brand $item.Mark $iconTemp 2>&1
     if ($LASTEXITCODE -ne 0) { throw "the icon for $($item.Label) could not be rendered: $(($out | Out-String).Trim())" }
     $linkTemp = Join-Path $ShortcutDir "$($item.Label).$PID.tmp.lnk"
     $staged.Add([pscustomobject]@{ Temp = $linkTemp; Dest = $item.Link })

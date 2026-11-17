@@ -191,6 +191,28 @@ def bash_command(agent, skip=False):
             " && read -r _)")
 
 
+def find_bash():
+    """A real bash: Git's on Windows (System32's starts WSL instead), the system's elsewhere."""
+    if os.name == "nt":
+        git = shutil.which("git")
+        candidates = [Path(git).resolve().parents[1] / "bin/bash.exe"] if git else []
+        return next((str(c) for c in candidates if c.is_file()), None)
+    return shutil.which("bash")
+
+
+BASH = find_bash()
+
+
+def declared_bash(command, label):
+    """A WSL `run` entry's Bash command: the label quoted for Bash inside the failure message (D07 T01 section 6)."""
+    message = f"{label} did not start: the reason is above. Press Enter to close.".replace("'", "'\\''")
+    return f"{command} || {{ echo '{message}'; read -r _; }}"
+
+
+DECLARED = [{"label": "Owner's Dashboard", "mark": "wordpress", "run": "wp admin"},
+            {"label": "Site", "mark": "site", "url": "https://example.com/wp-admin/?a=1&b=2"}]
+
+
 def renderer():
     spec = importlib.util.spec_from_file_location("campaign_icon_for_links", SCRIPTS / "campaign-icon.py")
     module = importlib.util.module_from_spec(spec)
@@ -602,17 +624,148 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual({p.name: p.read_bytes() for p in [*self.desk.iterdir(), *self.icons.iterdir()]}, before)
         self.assertEqual(self.leftovers(), [])
 
+    # --- declared links (D07 T01 section 6) -------------------------------------------------------------------------
 
-def find_bash():
-    """A real bash: Git's on Windows (System32's starts WSL instead), the system's elsewhere."""
-    if os.name == "nt":
-        git = shutil.which("git")
-        candidates = [Path(git).resolve().parents[1] / "bin/bash.exe"] if git else []
-        return next((str(c) for c in candidates if c.is_file()), None)
-    return shutil.which("bash")
+    def read_named(self, name):
+        script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:LINK_PATH); "
+                  "@{target = $s.TargetPath; arguments = $s.Arguments; icon = $s.IconLocation; "
+                  "description = $s.Description; workdir = $s.WorkingDirectory} | ConvertTo-Json -Compress")
+        done = run_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], timeout=60,
+                        env={**os.environ, "LINK_PATH": str(self.desk / f"{name}.lnk")})
+        return json.loads(done.stdout)
 
+    def declared_profile(self, links):
+        self.write_profile(self.project, dict(PROFILE, links=links))
 
-BASH = find_bash()
+    def test_a_declared_run_link_in_wsl_runs_its_command_through_wsl_and_holds_a_failure(self):
+        self.declared_profile(DECLARED[:1])
+        done = self.run_script("-Project", "/srv/my site's", "-Distro", "Ubuntu")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        link = self.read_named("Example Site (Owner's Dashboard)")
+        self.assertEqual(Path(link["target"]).name.lower(), "pwsh.exe")
+        self.assertEqual(folder(link["workdir"]), folder(os.environ["USERPROFILE"]))
+        self.wsl_log.unlink()
+        ran = self.run_link(link)
+        self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+        self.assertEqual([json.loads(line) for line in self.wsl_log.read_text(encoding="utf-8").splitlines()],
+                         [["-d", "Ubuntu", "--cd", "/srv/my site's", "--exec", "bash", "-lc",
+                           declared_bash("wp admin", "Owner's Dashboard")]])
+        waiting = Interactive(f'"{link["target"]}" {link["arguments"]}', cwd=link["workdir"],
+                              env=self.env(STUB_WSL_FAIL="1"))
+        try:
+            self.assertTrue(waiting.wait_for("Owner's Dashboard: WSL could not open the project (exit 4): the reason "
+                                             "is above. Press Enter to close."), waiting.text())
+            time.sleep(2)
+            self.assertIsNone(waiting.proc.poll(), "the window closed before Enter")
+            waiting.enter()
+            self.assertEqual(waiting.proc.wait(timeout=30), 0)
+        finally:
+            waiting.close()
+
+    @unittest.skipUnless(BASH, "the declared command is run by a real bash (Git's on Windows)")
+    def test_the_declared_bash_command_runs_whole_in_a_real_bash_with_an_apostrophe_in_its_label(self):
+        self.declared_profile([dict(DECLARED[0], run="echo ran-fine"),
+                               {"label": "Bob's Failing Tool", "mark": "site", "run": "conclave-no-such-tool"}])
+        self.assertEqual(self.run_script("-Project", "/srv/site", "-Distro", "Ubuntu").returncode, 0)
+        self.wsl_log.unlink()
+        for name in ("Example Site (Owner's Dashboard)", "Example Site (Bob's Failing Tool)"):
+            self.assertEqual(self.run_link(self.read_named(name)).returncode, 0)
+        commands = [json.loads(line)[-1] for line in self.wsl_log.read_text(encoding="utf-8").splitlines()]
+        env = {**os.environ, "HOME": str(self.base), "BASH_ENV": ""}
+        fine = run_tree([BASH, "-lc", commands[0]], timeout=60, input="", cwd=self.base, env=env)
+        self.assertEqual((fine.returncode, fine.stdout.strip().splitlines()[-1]), (0, "ran-fine"), fine.stderr)
+        self.assertNotIn("did not start", fine.stdout)
+        waiting = Interactive([BASH, "-lc", commands[1]], cwd=self.base, env=env)
+        try:
+            self.assertTrue(waiting.wait_for("Bob's Failing Tool did not start: the reason is above. Press Enter to "
+                                             "close."), waiting.text())
+            time.sleep(2)
+            self.assertIsNone(waiting.proc.poll(), "the shell ended before Enter")
+            waiting.enter()
+            self.assertEqual(waiting.proc.wait(timeout=30), 0, "read -r took the Enter")
+        finally:
+            waiting.close()
+
+    def test_a_declared_run_link_on_a_windows_drive_runs_in_the_project_and_waits_on_a_failure(self):
+        log = self.base / "ran.log"
+        self.declared_profile([
+            {"label": "Where", "mark": "site", "run": f"(Get-Location).ProviderPath | Out-File -LiteralPath '{log}'"},
+            {"label": "Exits", "mark": "site", "run": "cmd /c exit 3"},
+            {"label": "Throws", "mark": "site", "run": "throw 'boom'"}])
+        done = self.run_script(terminal=False)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        where = self.read_named("Example Site (Where)")
+        self.assertEqual(Path(where["target"]).name.lower(), "pwsh.exe")
+        self.assertTrue(where["arguments"].startswith("-NoLogo -NoProfile -Command "), where["arguments"])
+        self.assertEqual(folder(where["workdir"]), folder(self.project))
+        # Success closes without waiting: no Enter is sent.
+        quiet = Interactive(f'"{where["target"]}" {where["arguments"]}', cwd=where["workdir"], env=self.env(False))
+        try:
+            self.assertEqual(quiet.proc.wait(timeout=60), 0, quiet.text())
+            self.assertNotIn("did not start", quiet.text())
+        finally:
+            quiet.close()
+        self.assertEqual(folder(log.read_text(encoding="utf-8-sig").strip()), folder(self.project))
+        for label in ("Exits", "Throws"):
+            with self.subTest(label=label):
+                link = self.read_named(f"Example Site ({label})")
+                waiting = Interactive(f'"{link["target"]}" {link["arguments"]}', cwd=link["workdir"],
+                                      env=self.env(False))
+                try:
+                    self.assertTrue(waiting.wait_for(f"{label} did not start: the reason is above. Press Enter to "
+                                                     "close."), waiting.text())
+                    time.sleep(2)
+                    self.assertIsNone(waiting.proc.poll(), "the window closed before Enter")
+                    waiting.enter()
+                    waiting.proc.wait(timeout=30)
+                finally:
+                    waiting.close()
+
+    def test_a_declared_url_link_opens_through_rundll32_and_is_never_started_here(self):
+        self.declared_profile(DECLARED[1:])
+        done = self.run_script()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        link = self.read_named("Example Site (Site)")
+        self.assertEqual(folder(link["target"]), folder(Path(os.environ["SystemRoot"]) / "System32/rundll32.exe"))
+        self.assertEqual(link["arguments"], "url.dll,FileProtocolHandler https://example.com/wp-admin/?a=1&b=2")
+        self.assertTrue(link["description"].startswith("conclave-launcher: "))
+
+    def test_declared_icons_are_each_the_renderer_output_for_their_own_mark(self):
+        self.declared_profile(DECLARED)
+        done = self.run_script()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        icons = {}
+        for name, mark in (("Owner's Dashboard", "wordpress"), ("Site", "site"), ("Claude", "claude")):
+            link = self.read_named(f"Example Site ({name})")
+            path, _, index = link["icon"].rpartition(",")
+            self.assertEqual(index, "0")
+            expected = self.base / f"expected-{mark}.ico"
+            made = run_tree([sys.executable, "-B", str(SCRIPTS / "campaign-icon.py"), "overlay",
+                             str(self.project / "assets/icon.png"), mark, str(expected)], timeout=120)
+            self.assertEqual(made.returncode, 0, made.stdout + made.stderr)
+            self.assertEqual(Path(path).read_bytes(), expected.read_bytes(), name)
+            icons[name] = Path(path).name
+        self.assertTrue(icons["Owner's Dashboard"].startswith("launcher-owner-s-dashboard-"), icons)
+        self.assertTrue(icons["Site"].startswith("launcher-site-"), icons)
+        self.assertEqual(len(set(icons.values())), 3)
+
+    def test_a_declared_link_dropped_from_the_profile_goes_with_its_icon_and_the_rest_stay(self):
+        self.declared_profile(DECLARED)
+        self.assertEqual(self.run_script().returncode, 0)
+        self.assertEqual(self.links(), ["Example Site (Claude).lnk", "Example Site (Owner's Dashboard).lnk",
+                                        "Example Site (Site).lnk"])
+        kept = {name: self.read_named(f"Example Site ({name})")["icon"].rpartition(",")[0]
+                for name in ("Claude", "Site")}
+        self.declared_profile(DECLARED[1:])
+        done = self.run_script()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.links(), ["Example Site (Claude).lnk", "Example Site (Site).lnk"])
+        self.assertEqual(sorted(p.name for p in self.icons.iterdir()), sorted(Path(p).name for p in kept.values()))
+        self.assertEqual(self.leftovers(), [])
+        removed = self.run_script("-Remove")
+        self.assertEqual(removed.returncode, 0, removed.stdout)
+        self.assertEqual((self.links(), list(self.icons.iterdir())), ([], []))
+
 
 
 @unittest.skipUnless(BASH, "the shell tests need a real bash (Git's on Windows)")

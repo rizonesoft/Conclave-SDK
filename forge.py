@@ -2657,7 +2657,8 @@ def _doctor_launchers(target_root: Path, add_check) -> None:
     kit installs and the shortcut script reads, held to the kit's own loader (`scripts/lib/launchers.py`): `ok` with
     the title, `setup_required` with the loader's refusal (a fresh install's unset title among them) or with the
     install command when there is no file. `renderer`: `scripts/campaign-icon.py`, which draws every link's icon
-    (D07 T01 section 3)."""
+    (D07 T01 section 3). `links`, with a readable profile: how many links the shortcut script writes from it, one
+    per agent and one per declared entry."""
     renderer = target_root / LAUNCHERS_RENDERER
     add_check("renderer", "ok" if renderer.is_file() and not _is_link(renderer) else "setup_required",
               renderer.as_posix() if renderer.is_file() and not _is_link(renderer) else
@@ -2674,6 +2675,8 @@ def _doctor_launchers(target_root: Path, add_check) -> None:
         add_check("profile", "setup_required", str(exc))
         return
     add_check("profile", "ok", f"{LAUNCHERS_PROFILE}: {loaded['title']}")
+    agents, declared = len(loaded["agents"]), len(loaded["links"])
+    add_check("links", "ok", f"{agents + declared} links: {agents} agent, {declared} declared (D07 T01 section 6)")
 
 
 def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
