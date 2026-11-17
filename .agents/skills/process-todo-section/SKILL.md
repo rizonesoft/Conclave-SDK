@@ -124,6 +124,8 @@ Commit the section work (in one or more commits as steps complete), recording th
 <plan corrections, if any>
 ```
 
+Push each commit as it lands, never holding one back for CI, then read `python scripts/ci_status.py --since-last`: it names every run that finished since the last read, each failure with its commit, URL and failed jobs, and the runs still going. A reported failure is the next step, red first (`process-phase` step 3). It only reports: nothing here refuses or delays a commit or a push.
+
 Then invoke `review-todo-section` on the same ref. It runs the review passes the pin's schedule sets. Under a three-pass pin: one round (`--kind round --candidate <tip>`), your fixes and a gate rerun, the completion review of the final candidate (`--kind completion`), and a reconciliation (`--kind reconciliation`) after each pass that returns gaps. Under a rotation pin: the one-pass completion and excellence review first (`--kind completion`), then the regular rounds. Either way, implement every in-scope gap and excellence item in this section and file the rest through `add-todo`. Review writes the stamp through `stamp --plan --completion`, which flips the row and syncs the plan. Commit the stamp and the regenerated plan as the stamp commit (`todo: stamp <ref>`).
 
 ### 8. Report

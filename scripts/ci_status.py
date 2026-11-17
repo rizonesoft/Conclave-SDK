@@ -4,6 +4,8 @@
     python scripts/ci_status.py                  # the watched workflows on main
     python scripts/ci_status.py --json           # the same report as one JSON object
     python scripts/ci_status.py --workflow build.yml --branch main
+    python scripts/ci_status.py --since-last     # every run that finished since the last read, each failure named
+    python scripts/ci_status.py --rerun <commit> # rerun a stamp candidate's own cancelled or failed run, at most 3 times
 
 For each watched workflow it reads the last 10 runs with `gh run list` and reports the latest completed run (green, red or cancelled), its verdict,
 and how many newer runs are still queued or in progress. A cancelled run carries no verdict (a newer push usually
@@ -13,12 +15,28 @@ verdict is `none`. For a red verdict it names the failed jobs from `gh run view 
 The watched workflows are the `--workflow` arguments, else the `workflows` list in `.conclave/ci.json` (the ones whose
 results gate main), else every `.yml` and `.yaml` file in `.github/workflows/`.
 
+Runs still queued or in progress are named with their commit and URL, older ones included.
+
+`--since-last` reads every run created since a horizon kept in `build/ci-status-cursor.json` (per branch and
+workflow): the creation time of the oldest run still unfinished at the last read, else the newest run then listed.
+It reports each completed attempt it has not reported before, by run ID and attempt (a rerun's earlier attempts are
+read too), so a failure followed by a green, a run that finishes after a newer one, or a failed rerun of a run already
+reported are each seen once. It pages (10, 50, 200 runs) until it passes the horizon. The state is written after the
+read printed everything, and never when a read failed; an unreadable state is said and read as a first read, which
+reports the latest completed run and everything after it. The process-phase skill reads it after every push; nothing
+in it refuses or holds back a commit or a push.
+
+`--rerun <commit>` reruns, with `gh run rerun`, the latest run of each watched workflow on that commit when a newer
+push cancelled it or it failed, so a stamp candidate gets a verdict of its own; the count is kept per commit in
+`build/ci-status-reruns.json`, and a fourth rerun is refused (exit 4). Evidence never moves to another commit.
+
 Exit 0: no watched workflow is red. Exit 1: at least one is red (the workflow, the commit, the run's URL and its
 failed jobs are printed). Exit 2: bad usage. Exit 3: `gh` is missing, not authenticated, or failed, so the state is
 unknown; that is never treated as green. The red-first policy that consumes this is in the `process-phase` skill.
 Stdlib only; the `gh` runner is injectable for tests.
 """
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -28,7 +46,11 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = Path(".conclave") / "ci.json"
-FIELDS = "databaseId,headSha,status,conclusion,url,createdAt,event"
+FIELDS = "databaseId,headSha,status,conclusion,url,createdAt,event,attempt"
+CURSOR = Path("build") / "ci-status-cursor.json"
+RERUNS = Path("build") / "ci-status-reruns.json"
+PAGES = (10, 50, 200)
+MAX_RERUNS = 3
 LIMIT = 10
 GREEN = {"success", "neutral", "skipped"}
 # A run that was stopped before it judged the commit: no verdict either way.
@@ -101,22 +123,32 @@ def verdict_of(run):
 
 def brief(run):
     return None if run is None else {k: run.get(k) for k in ("databaseId", "headSha", "status", "conclusion", "url",
-                                                              "createdAt", "event")}
+                                                              "createdAt", "event", "attempt")}
 
 
-def workflow_status(runner, workflow, branch):
-    runs = gh_json(runner, ["run", "list", "--branch", branch, "--workflow", workflow, "--limit", str(LIMIT),
+def list_runs(runner, workflow, branch, limit=LIMIT):
+    runs = gh_json(runner, ["run", "list", "--branch", branch, "--workflow", workflow, "--limit", str(limit),
                             "--json", FIELDS])
     if not isinstance(runs, list) or not all(isinstance(r, dict) for r in runs):
         raise Unavailable(f"gh run list for {workflow} did not return a list of runs")
-    runs = sorted(runs, key=lambda r: str(r.get("createdAt") or ""), reverse=True)
+    return sorted(runs, key=lambda r: str(r.get("createdAt") or ""), reverse=True)
+
+
+def pending_of(runs):
+    """Every run still queued or in progress, newest first, with its commit and URL."""
+    return [brief(r) for r in runs if r.get("status") != "completed"]
+
+
+def workflow_status(runner, workflow, branch):
+    runs = list_runs(runner, workflow, branch)
     completed = [r for r in runs if r.get("status") == "completed"]
     latest = completed[0] if completed else None
     decisive = next((r for r in completed if verdict_of(r) != "cancelled"), None)
     newer = [r for r in runs if r.get("status") != "completed"
              and (latest is None or str(r.get("createdAt") or "") > str(latest.get("createdAt") or ""))]
     entry = {"workflow": workflow, "verdict": verdict_of(decisive), "latest_completed": brief(latest),
-             "latest_completed_state": verdict_of(latest), "verdict_run": brief(decisive), "in_progress": len(newer)}
+             "latest_completed_state": verdict_of(latest), "verdict_run": brief(decisive), "in_progress": len(newer),
+             "pending": pending_of(runs)}
     if entry["verdict"] == "red":
         entry["failed_jobs"] = failed_jobs(runner, decisive.get("databaseId"))
     return entry
@@ -150,9 +182,154 @@ def describe(entry):
         lines.append(f"  latest completed run was cancelled: {entry['latest_completed']['url']}")
     if entry["in_progress"]:
         lines.append(f"  {entry['in_progress']} newer run(s) still queued or in progress")
+    for run in entry.get("pending", []):
+        lines.append(f"  still running: {(run.get('headSha') or '')[:12]} {run.get('status')} {run.get('url')}")
     for job in entry.get("failed_jobs", []):
         lines.append(f"  failed job: {job['name']} ({job['conclusion']}) {job['url'] or ''}".rstrip())
     return lines
+
+
+def _write_atomic(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(temporary, path)
+    except OSError:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def _load_state(path):
+    """(state, note): the saved state, or {} with why when there is none or it cannot be read."""
+    if not path.exists():
+        return {}, None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or not all(isinstance(v, dict) for v in data.values()):
+            raise ValueError("not an object of objects")
+        return data, None
+    except (OSError, ValueError) as exc:
+        return {}, f"{path.name} could not be read ({exc}); read as a first read, and replaced after this read"
+
+
+def _attempt_conclusion(runner, run_id, attempt):
+    view = gh_json(runner, ["api", f"repos/{{owner}}/{{repo}}/actions/runs/{run_id}/attempts/{attempt}"])
+    if not isinstance(view, dict):
+        raise Unavailable(f"gh api for run {run_id} attempt {attempt} did not return an object")
+    return view.get("status"), view.get("conclusion"), view.get("html_url") or view.get("url")
+
+
+def since_last(runner, workflows, branch, root):
+    """The new completed attempts since the saved horizon, the pending runs, the new state and the exit code."""
+    path = Path(root) / CURSOR
+    state, note = _load_state(path)
+    new_state = dict(state)
+    report = {"branch": branch, "workflows": [], "note": note}
+    failed = False
+    for workflow in workflows:
+        key = f"{branch}|{workflow}"
+        saved = state.get(key)
+        horizon = saved.get("horizon") if saved else None
+        seen = set(saved.get("seen", [])) if saved else set()
+        runs = []
+        for limit in PAGES:
+            runs = list_runs(runner, workflow, branch, limit)
+            if horizon is None or len(runs) < limit or str(runs[-1].get("createdAt") or "") < horizon:
+                break
+        completed = [r for r in runs if r.get("status") == "completed"]
+        if horizon is None:   # a first read: the latest completed run and everything after it
+            start = str(completed[0].get("createdAt") or "") if completed else ""
+            window = [r for r in runs if str(r.get("createdAt") or "") >= start]
+        else:
+            window = [r for r in runs if str(r.get("createdAt") or "") >= horizon]
+        new = []
+        for run in sorted((r for r in window if r.get("status") == "completed"),
+                          key=lambda r: str(r.get("createdAt") or "")):
+            attempts = int(run.get("attempt") or 1)
+            for n in range(1, attempts + 1):
+                tag = f"{run.get('databaseId')}:{n}"
+                if tag in seen:
+                    continue
+                if n == attempts:
+                    conclusion, url = run.get("conclusion"), run.get("url")
+                else:
+                    status, conclusion, url = _attempt_conclusion(runner, run.get("databaseId"), n)
+                    if status != "completed":
+                        continue
+                verdict = verdict_of({"conclusion": conclusion})
+                item = {"run": run.get("databaseId"), "attempt": n, "headSha": run.get("headSha"), "url": url,
+                        "verdict": verdict}
+                if verdict == "red":
+                    failed = True
+                    if n == attempts:
+                        item["failed_jobs"] = failed_jobs(runner, run.get("databaseId"))
+                new.append(item)
+                seen.add(tag)
+        # Every run still unfinished, the window's or older (a first read starts at the latest completed run): the next
+        # read starts at the oldest of them, so each is read again until it has a verdict.
+        unfinished = [str(r.get("createdAt") or "") for r in runs if r.get("status") != "completed"]
+        newest = str(runs[0].get("createdAt") or "") if runs else (horizon or "")
+        next_horizon = min(unfinished) if unfinished else newest
+        kept = {f"{r.get('databaseId')}:{n}" for r in runs if str(r.get("createdAt") or "") >= next_horizon
+                for n in range(1, int(r.get("attempt") or 1) + 1)}
+        new_state[key] = {"horizon": next_horizon, "seen": sorted(seen & kept)}
+        report["workflows"].append({"workflow": workflow, "new": new, "pending": pending_of(runs)})
+    code = 1 if failed else 0
+    report["exit"] = code
+    return report, new_state, code
+
+
+def describe_since(report):
+    lines = [f"ci-status: {report['note']}"] if report.get("note") else []
+    for entry in report["workflows"]:
+        if not entry["new"] and not entry["pending"]:
+            lines.append(f"{entry['workflow']}: nothing new since the last read")
+        for item in entry["new"]:
+            again = f" (attempt {item['attempt']})" if item["attempt"] > 1 else ""
+            lines.append(f"{entry['workflow']}: {item['verdict']}{again} at {(item['headSha'] or '')[:12]} {item['url']}")
+            for job in item.get("failed_jobs", []):
+                lines.append(f"  failed job: {job['name']} ({job['conclusion']}) {job['url'] or ''}".rstrip())
+        for run in entry["pending"]:
+            lines.append(f"{entry['workflow']}: still running at {(run.get('headSha') or '')[:12]} {run.get('url')}")
+    return lines
+
+
+def rerun(runner, workflows, branch, commit, root):
+    """Rerun the candidate's own latest run per workflow when it was cancelled or red. Returns (lines, exit code)."""
+    path = Path(root) / RERUNS
+    counts, note = _load_state(path)
+    lines = [f"ci-status: {note}"] if note else []
+    code = 0
+    for workflow in workflows:
+        runs = [r for r in list_runs(runner, workflow, branch, PAGES[1]) if r.get("headSha") == commit]
+        if not runs:
+            lines.append(f"{workflow}: no run of {commit[:12]} in the last {PAGES[1]} runs")
+            code = max(code, 1)
+            continue
+        run = runs[0]
+        state = verdict_of(run) if run.get("status") == "completed" else "running"
+        if state in ("green", "running"):
+            lines.append(f"{workflow}: {commit[:12]} is {state} ({run.get('url')}); nothing to rerun")
+            continue
+        key = f"{commit}|{workflow}"
+        done = int(counts.get(key, {}).get("reruns", 0))
+        if done >= MAX_RERUNS:
+            lines.append(f"{workflow}: {commit[:12]} was rerun {done} times already ({run.get('url')}); not again: "
+                         f"write it as open in the run file")
+            code = 4
+            continue
+        result, out, err = runner(["run", "rerun", str(run.get("databaseId"))])
+        if result != 0:
+            reason = (err or out or "").strip().splitlines()
+            lines.append(f"{workflow}: gh run rerun {run.get('databaseId')} was refused: "
+                         f"{(reason[0] if reason else 'no output')[:MAX_MESSAGE]}")
+            code = max(code, 1) if code != 4 else code
+            continue
+        counts[key] = {"reruns": done + 1, "run": run.get("databaseId")}
+        lines.append(f"{workflow}: reran {run.get('url')} on {commit[:12]} (rerun {done + 1} of {MAX_RERUNS})")
+    _write_atomic(path, counts)
+    return lines, code
 
 
 def main(argv=None, runner=run_gh, root=ROOT):
@@ -161,6 +338,9 @@ def main(argv=None, runner=run_gh, root=ROOT):
     parser.add_argument("--branch", default="main", help="the branch whose runs are read (default main)")
     parser.add_argument("--workflow", action="append", dest="workflows",
                         help="a workflow file in .github/workflows/ (repeatable; default: .conclave/ci.json, else all)")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--since-last", action="store_true", help="every run that finished since the last read")
+    mode.add_argument("--rerun", metavar="COMMIT", help="rerun this commit's own cancelled or failed runs")
     args = parser.parse_args(argv)
     directory = Path(root) / ".github" / "workflows"
     try:
@@ -171,7 +351,22 @@ def main(argv=None, runner=run_gh, root=ROOT):
     if missing or not workflows or not args.branch.strip():
         parser.error(f"no such workflow in .github/workflows/: {', '.join(missing)}" if missing
                      else "no workflow to watch, or an empty --branch")
+    if args.rerun is not None and not (len(args.rerun) == 40 and all(c in "0123456789abcdef" for c in args.rerun)):
+        parser.error("--rerun takes a full 40-character commit")
     try:
+        if args.rerun is not None:
+            lines, code = rerun(runner, workflows, args.branch, args.rerun, root)
+            print("\n".join(lines))
+            return code
+        if args.since_last:
+            result, new_state, code = since_last(runner, workflows, args.branch, root)
+            print(json.dumps(result, indent=2) if args.json else "\n".join(describe_since(result)))
+            sys.stdout.flush()
+            try:
+                _write_atomic(Path(root) / CURSOR, new_state)   # only after everything was printed
+            except OSError as exc:
+                print(f"ci-status: the cursor could not be written ({exc}); the next read reports these runs again")
+            return code
         result, code = report(runner, workflows, args.branch)
     except Unavailable as exc:
         if args.json:

@@ -275,5 +275,240 @@ class RealProcess(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout)["error"], "gh is not installed or not on PATH")
 
 
+def attempt_run(n, minute=0, status="completed", conclusion="success", sha=SHA_NEW, attempt=1):
+    """A run with its creation minute (so pages and horizons can be tested) and its attempt number."""
+    return {"databaseId": n, "headSha": sha, "status": status, "conclusion": conclusion if status == "completed" else "",
+            "url": f"https://github.com/o/r/actions/runs/{n}", "createdAt": f"2026-10-23T{minute // 60:02d}:{minute % 60:02d}:00Z",
+            "event": "push", "attempt": attempt}
+
+
+class PagedGh:
+    """A gh with pages (the `--limit` newest runs), earlier attempts through `gh api`, reruns, and failures on demand.
+    `runs` and `attempts` may be changed between calls to play out what CI did meanwhile."""
+
+    def __init__(self, runs=None, attempts=None, fail_limit=None, rerun_code=0):
+        self.runs, self.attempts, self.fail_limit, self.rerun_code = runs or {}, attempts or {}, fail_limit, rerun_code
+        self.calls = []
+
+    def __call__(self, args):
+        self.calls.append(args)
+        if args[:2] == ["run", "list"]:
+            limit = int(args[args.index("--limit") + 1])
+            if self.fail_limit is not None and limit >= self.fail_limit:
+                return 1, "", "HTTP 502"
+            runs = sorted(self.runs.get(args[args.index("--workflow") + 1], []), key=lambda r: r["createdAt"],
+                          reverse=True)
+            return 0, json.dumps(runs[:limit]), ""
+        if args[:2] == ["run", "view"]:
+            return 0, json.dumps({"jobs": [{"name": "suite", "status": "completed", "conclusion": "failure",
+                                            "url": "job"}]}), ""
+        if args[0] == "api":
+            run_id, attempt = args[1].split("/runs/")[1].split("/attempts/")
+            status, conclusion = self.attempts[(int(run_id), int(attempt))]
+            return 0, json.dumps({"status": status, "conclusion": conclusion,
+                                  "html_url": f"https://github.com/o/r/actions/runs/{run_id}/attempts/{attempt}"}), ""
+        if args[:2] == ["run", "rerun"]:
+            return (0, "", "") if self.rerun_code == 0 else (self.rerun_code, "", "the run cannot be rerun")
+        raise AssertionError(args)
+
+    def reruns(self):
+        return [c[2] for c in self.calls if c[:2] == ["run", "rerun"]]
+
+
+class SinceLast(unittest.TestCase):
+    """`--since-last`: every completed attempt since the last read, once; the state kept per branch and workflow,
+    written only after a read that printed everything (D01 T02 §8)."""
+
+    def setUp(self):
+        self._tmp = Scratch()
+        self.root = Path(self._tmp.name)
+        workspace(self.root, workflows=("build.yml",))
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def read(self, fake, *argv):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = ci.main(["--json", "--since-last", *argv], runner=fake, root=self.root)
+        return code, json.loads(out.getvalue().split("\nci-status:")[0])
+
+    def new(self, report, workflow="build.yml"):
+        entry = next(e for e in report["workflows"] if e["workflow"] == workflow)
+        return [(i["run"], i["attempt"], i["verdict"]) for i in entry["new"]]
+
+    def cursor(self):
+        return (self.root / ci.CURSOR).read_bytes()
+
+    def test_a_run_that_finishes_after_a_newer_one_is_reported_when_it_finishes(self):
+        fake = PagedGh({"build.yml": [attempt_run(1, 1, status="in_progress"), attempt_run(2, 2)]})
+        code, report = self.read(fake)
+        self.assertEqual((code, self.new(report)), (0, [(2, 1, "green")]))
+        self.assertEqual([r["databaseId"] for r in report["workflows"][0]["pending"]], [1])
+        fake.runs["build.yml"][0] = attempt_run(1, 1, conclusion="failure")
+        code, report = self.read(fake)
+        self.assertEqual((code, self.new(report)), (1, [(1, 1, "red")]))
+        code, report = self.read(fake)
+        self.assertEqual((code, self.new(report)), (0, []))
+
+    def test_a_failure_followed_by_a_green_before_the_read_is_still_reported(self):
+        fake = PagedGh({"build.yml": [attempt_run(1, 1)]})
+        self.read(fake)
+        fake.runs["build.yml"] += [attempt_run(2, 2, conclusion="failure"), attempt_run(3, 3)]
+        code, report = self.read(fake)
+        self.assertEqual((code, self.new(report)), (1, [(2, 1, "red"), (3, 1, "green")]))
+
+    def test_every_attempt_of_a_rerun_is_reported_once(self):
+        fake = PagedGh({"build.yml": [attempt_run(5, 5)]})
+        self.read(fake)
+        # A later rerun of a run already reported green failed.
+        fake.runs["build.yml"] = [attempt_run(5, 5, conclusion="failure", attempt=2)]
+        code, report = self.read(fake)
+        self.assertEqual((code, self.new(report)), (1, [(5, 2, "red")]))
+        # A run whose first attempt failed and whose rerun went green, both unseen: the failure is read through the API.
+        fake.runs["build.yml"].append(attempt_run(6, 6, attempt=2))
+        fake.attempts[(6, 1)] = ("completed", "failure")
+        code, report = self.read(fake)
+        self.assertEqual((code, self.new(report)), (1, [(6, 1, "red"), (6, 2, "green")]))
+
+    def test_a_failure_on_the_second_page_is_reported(self):
+        fake = PagedGh({"build.yml": [attempt_run(1, 1)]})
+        self.read(fake)
+        fake.runs["build.yml"] += [attempt_run(2, 2, conclusion="failure")] + [attempt_run(n, n) for n in range(3, 15)]
+        code, report = self.read(fake)
+        self.assertEqual(code, 1)
+        self.assertIn((2, 1, "red"), self.new(report))
+        self.assertIn(["run", "list", "--branch", "main", "--workflow", "build.yml", "--limit", "50", "--json",
+                       ci.FIELDS], fake.calls)
+
+    def test_each_workflow_and_branch_keeps_its_own_state(self):
+        workspace(self.root, workflows=("build.yml", "plan.yml"))
+        fake = PagedGh({"build.yml": [attempt_run(1, 1)], "plan.yml": [attempt_run(2, 2, conclusion="failure")]})
+        code, report = self.read(fake, "--workflow", "build.yml")
+        self.assertEqual(code, 0)
+        code, report = self.read(fake, "--workflow", "plan.yml")
+        self.assertEqual((code, self.new(report, "plan.yml")), (1, [(2, 1, "red")]))
+        state = json.loads(self.cursor())
+        self.assertEqual(sorted(state), ["main|build.yml", "main|plan.yml"])
+
+    def test_an_unreadable_state_is_said_and_read_as_a_first_read(self):
+        (self.root / ci.CURSOR).parent.mkdir(parents=True)
+        (self.root / ci.CURSOR).write_text("{not json", encoding="utf-8")
+        fake = PagedGh({"build.yml": [attempt_run(1, 1, conclusion="failure"), attempt_run(2, 2)]})
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = ci.main(["--since-last"], runner=fake, root=self.root)
+        self.assertIn("could not be read", out.getvalue())
+        self.assertIn("read as a first read", out.getvalue())
+        self.assertEqual(code, 0, "a first read reports the latest completed run and what follows it")
+        self.assertEqual(sorted(json.loads(self.cursor())), ["main|build.yml"])
+
+    def test_a_page_that_fails_leaves_the_state_as_it_was(self):
+        fake = PagedGh({"build.yml": [attempt_run(1, 1)]})
+        self.read(fake)
+        before = self.cursor()
+        fake.runs["build.yml"] += [attempt_run(n, n) for n in range(2, 14)]
+        fake.fail_limit = 50
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = ci.main(["--since-last"], runner=fake, root=self.root)
+        self.assertEqual(code, 3)
+        self.assertEqual(self.cursor(), before)
+
+    def test_a_cursor_that_cannot_be_written_is_said_and_the_runs_come_again(self):
+        (self.root / ci.CURSOR).mkdir(parents=True)   # a folder where the file goes
+        fake = PagedGh({"build.yml": [attempt_run(1, 1, conclusion="failure")]})
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = ci.main(["--since-last"], runner=fake, root=self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("the cursor could not be written", out.getvalue())
+        self.assertTrue((self.root / ci.CURSOR).is_dir())
+
+    def test_pending_runs_are_named_with_their_commit_and_url(self):
+        fake = PagedGh({"build.yml": [attempt_run(1, 1, status="queued", sha=SHA_OLD), attempt_run(2, 2)]})
+        out = io.StringIO()
+        with redirect_stdout(out):
+            ci.main([], runner=fake, root=self.root)
+        self.assertIn(f"still running: {SHA_OLD[:12]} queued https://github.com/o/r/actions/runs/1", out.getvalue())
+        out = io.StringIO()
+        with redirect_stdout(out):
+            ci.main(["--json"], runner=fake, root=self.root)
+        pending = json.loads(out.getvalue())["workflows"][0]["pending"]
+        self.assertEqual([(r["databaseId"], r["headSha"], r["url"]) for r in pending],
+                         [(1, SHA_OLD, "https://github.com/o/r/actions/runs/1")])
+
+
+class Rerun(unittest.TestCase):
+    """`--rerun <commit>`: the candidate's own run, never the tip's; three at most, the count kept across calls."""
+
+    def setUp(self):
+        self._tmp = Scratch()
+        self.root = Path(self._tmp.name)
+        workspace(self.root, workflows=("build.yml",))
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def rerun(self, fake, commit=SHA_OLD):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = ci.main(["--rerun", commit], runner=fake, root=self.root)
+        return code, out.getvalue()
+
+    def test_the_candidates_own_run_is_rerun_three_times_at_most(self):
+        fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD), attempt_run(8, 8)]})
+        for n in (1, 2, 3):
+            code, said = self.rerun(fake)
+            self.assertEqual(code, 0, said)
+            self.assertIn(f"rerun {n} of 3", said)
+        self.assertEqual(fake.reruns(), ["7", "7", "7"], "only the candidate's own run, never the tip's")
+        code, said = self.rerun(fake)
+        self.assertEqual(code, 4)
+        self.assertIn("write it as open in the run file", said)
+        self.assertEqual(fake.reruns(), ["7", "7", "7"])
+
+    def test_a_green_or_running_candidate_is_left_and_a_refused_rerun_is_reported(self):
+        self.assertIn("nothing to rerun", self.rerun(PagedGh({"build.yml": [attempt_run(7, 7, sha=SHA_OLD)]}))[1])
+        refused = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="failure", sha=SHA_OLD)]}, rerun_code=1)
+        code, said = self.rerun(refused)
+        self.assertEqual(code, 1)
+        self.assertIn("was refused: the run cannot be rerun", said)
+        self.assertFalse((self.root / ci.RERUNS).exists() and "reruns" in (self.root / ci.RERUNS).read_text())
+
+    def test_a_short_commit_is_a_usage_error(self):
+        with self.assertRaises(SystemExit), redirect_stdout(io.StringIO()), \
+                unittest.mock.patch("sys.stderr", io.StringIO()):
+            ci.main(["--rerun", "abc"], runner=PagedGh(), root=self.root)
+
+
+class Placement(unittest.TestCase):
+    """The read sits in the step that pushes and in the closeout, in each runner skill and the heartbeat prompt, and
+    nothing in them holds a commit or a push back for CI (D01 T02 §8)."""
+    SKILLS = REPO / "kits" / "todo" / "templates" / ".claude" / "skills"
+    WHERE = {"process-todo-section": ["Push each commit as it lands"],
+             "review-todo-section": ["Push each commit as it lands", "--rerun <stamped commit>"],
+             "process-phase": ["Then check CI, red first", "## Closeout run=<run id>"],
+             "process-plan": ["after each stamp is pushed", "7. Run `<python> scripts/ci_status.py --since-last`."]}
+
+    def test_each_read_sits_in_its_push_or_closeout_paragraph(self):
+        for skill, anchors in self.WHERE.items():
+            text = (self.SKILLS / skill / "SKILL.md").read_text(encoding="utf-8")
+            paragraphs = text.split("\n\n")
+            for anchor in anchors:
+                with self.subTest(skill=skill, anchor=anchor):
+                    (holder,) = [p for p in paragraphs if anchor in p]
+                    self.assertIn("ci_status.py --since-last", holder)
+
+    def test_no_skill_holds_a_commit_or_a_push_for_ci(self):
+        import re
+        for skill in self.WHERE:
+            text = (self.SKILLS / skill / "SKILL.md").read_text(encoding="utf-8")
+            with self.subTest(skill=skill):
+                self.assertIsNone(re.search(r"(?i)\b(?:do not|don't) push\b|\bwait for (?:ci|the run) before "
+                                            r"(?:pushing|committing)|\bhold(?:ing)? (?:back )?(?:a|the|each) "
+                                            r"(?:commit|push)", text))
+
+
 if __name__ == "__main__":
     unittest.main()
