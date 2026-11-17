@@ -398,7 +398,10 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(link["arguments"], "-NoLogo -NoExit -Command claude")
         env_path = str(self.agents) + os.pathsep + self.plain_path
         self.run_link(link, terminal=False, PATH=env_path)
-        self.assertEqual(self.agent_log.read_text(encoding="utf-8").split("|")[:2], ["claude", str(self.project)])
+        agent, cwd = self.agent_log.read_text(encoding="utf-8").split("|")[:2]
+        # The same folder, compared as a folder: cmd reports its long name where the test's path may hold a short
+        # 8.3 one (CI red at 92a02a1: RUNNER~1 against runneradmin).
+        self.assertEqual((agent, Path(cwd).resolve()), ("claude", self.project.resolve()))
 
     # --- the agent command ------------------------------------------------------------------------------------------
 
@@ -457,7 +460,8 @@ class ProjectShortcutsTest(unittest.TestCase):
                         self.assertEqual(call["argv"][3:], ["-NoLogo", "-NoExit", "-Command", " ".join(command)])
                     else:
                         agent, cwd, args = self.agent_log.read_text(encoding="utf-8").strip().split("|")
-                        self.assertEqual((agent, cwd, args.strip()), ("codex", str(project), " ".join(command[1:])))
+                        self.assertEqual((agent, Path(cwd).resolve(), args.strip()),
+                                         ("codex", project.resolve(), " ".join(command[1:])))
 
     def test_the_flags_are_the_ones_the_unattended_run_passes(self):
         run = SCRIPTS.parents[2] / "unattended/templates/scripts/unattended-run.py"
