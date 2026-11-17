@@ -737,7 +737,9 @@ class RealTable(unittest.TestCase):
     def test_the_workflow_runs_its_suites_through_check_all(self):
         text = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
         runs = [line.split("run:", 1)[1].strip() for line in text.splitlines() if "run:" in line and "forge.py check-all" in line]
-        self.assertEqual(runs, ["python forge.py check-all --only tests", "python forge.py check-all --full --only tests",
+        # The full suite runs as three shards of one matrix job (D01 T02 §10).
+        self.assertEqual(runs, ["python forge.py check-all --only tests",
+                                "python forge.py check-all --full --only tests --shard ${{ matrix.shard }}",
                                 "python forge.py check-all --full --skip tests"])
         self.assertNotIn("unittest discover", text)
         self.assertNotIn("CONCLAVE_FULL_TESTS", text, "--full is the one place the full run is asked for")
