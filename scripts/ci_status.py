@@ -29,11 +29,11 @@ and everything after it. The process-phase skill reads it after every push; noth
 commit or a push.
 
 `--rerun <commit>` reruns, with `gh run rerun`, the latest run of each watched workflow on that commit when a newer
-push cancelled it or it failed, so a stamp candidate gets a verdict of its own; the count is kept per commit in
+push cancelled it, so a stamp candidate gets a verdict of its own; the reruns are noted per commit in
 `build/ci-status-reruns.json`. It reruns only when GitHub lists no run of the workflow on the branch queued or running
-(a busy queue is exit 5: try again at the next boundary), and a rerun counts once it reaches a verdict, so one a push
-dropped is simply started again; after three verdicts a fourth rerun is refused (exit 4: the red is a failure to
-repair, red first). Evidence never moves to another commit.
+(a busy queue is exit 5: try again at the next boundary), and a rerun dropped all the same is started again, as often
+as that happens. A red run is not rerun here: it has its verdict, and the red-first rule repairs it (exit 1). Evidence
+never moves to another commit.
 
 Exit 0: no watched workflow is red. Exit 1: at least one is red (the workflow, the commit, the run's URL and its
 failed jobs are printed). Exit 2: bad usage. Exit 3: `gh` is missing, not authenticated, or failed, so the state is
@@ -55,7 +55,6 @@ FIELDS = "databaseId,headSha,status,conclusion,url,createdAt,event,attempt"
 CURSOR = Path("build") / "ci-status-cursor.json"
 RERUNS = Path("build") / "ci-status-reruns.json"
 PAGES = (10,)   # a first read's newest runs
-MAX_RERUNS = 3
 # A run can still change after a read when it was created at most this long before it: GitHub reruns a run only
 # within 30 days of its creation, and a run lasts at most 35 days.
 REACH_DAYS = 35
@@ -378,21 +377,19 @@ def rerun(runner, workflows, branch, commit, root):
             continue
         run = runs[0]
         key = f"{commit}|{workflow}"
-        entry = dict(counts.get(key, {}))
-        # A rerun counts once it reaches a verdict: the attempt this command started, if it has finished other than
-        # cancelled, is counted now; one a push dropped before it ran is not, and is simply started again.
-        started = entry.get("started")
-        if started and int(run.get("attempt") or 1) >= int(started) and run.get("status") == "completed":
-            if verdict_of(run) != "cancelled":
-                entry["reruns"] = int(entry.get("reruns", 0)) + 1
-            entry.pop("started", None)
-            counts[key] = entry
         state = verdict_of(run) if run.get("status") == "completed" else "running"
         if state in ("green", "running"):
             lines.append(f"{workflow}: {commit[:12]} is {state} ({run.get('url')}); nothing to rerun")
             continue
-        # Only on an idle queue (no run of the workflow on the branch queued, waiting or running, asked of GitHub by
-        # status, not read off the newest runs): a rerun queued behind another run is the one a push drops.
+        if state == "red":
+            # A red has its verdict: it is repaired red first, where one rerun covers an infrastructure failure.
+            lines.append(f"{workflow}: {commit[:12]} is red ({run.get('url')}); not a cancelled run: repair it red "
+                         f"first (process-phase step 3, one rerun for an infrastructure failure)")
+            code = max(code, 1) if code != 4 else code
+            continue
+        # Cancelled: no verdict yet. Only on an idle queue (nothing of the workflow on the branch queued, waiting or
+        # running, asked of GitHub by status), since a rerun queued behind another run is the one a push drops; a
+        # rerun dropped all the same is simply started again, as often as that happens.
         busy = []
         for status in ("queued", "waiting", "pending", "requested", "in_progress"):
             listed = gh_json(runner, ["run", "list", "--branch", branch, "--workflow", workflow, "--status", status,
@@ -400,14 +397,8 @@ def rerun(runner, workflows, branch, commit, root):
             busy += listed if isinstance(listed, list) else []
         if busy:
             lines.append(f"{workflow}: {len(busy)} run(s) still queued or running ({busy[0].get('url')}); rerun "
-                         f"{commit[:12]} when the queue is idle (not counted)")
+                         f"{commit[:12]} when the queue is idle")
             code = max(code, 5) if code != 4 else code
-            continue
-        done = int(entry.get("reruns", 0))
-        if done >= MAX_RERUNS:
-            lines.append(f"{workflow}: {commit[:12]} reached a verdict on {done} reruns already ({run.get('url')}); "
-                         f"not again: its red is a failure to repair, red first")
-            code = 4
             continue
         result, out, err = runner(["run", "rerun", str(run.get("databaseId"))])
         if result != 0:
@@ -416,11 +407,11 @@ def rerun(runner, workflows, branch, commit, root):
                          f"{(reason[0] if reason else 'no output')[:MAX_MESSAGE]}")
             code = max(code, 1) if code != 4 else code
             continue
-        entry.update({"run": run.get("databaseId"), "started": int(run.get("attempt") or 1) + 1,
-                      "reruns": done})
+        entry = dict(counts.get(key, {}))
+        entry.update({"run": run.get("databaseId"), "reruns": int(entry.get("reruns", 0)) + 1})
         counts[key] = entry
-        lines.append(f"{workflow}: reran {run.get('url')} on {commit[:12]} ({done} of {MAX_RERUNS} reruns have "
-                     f"reached a verdict; a rerun counts once it does)")
+        lines.append(f"{workflow}: reran {run.get('url')} on {commit[:12]} (rerun {entry['reruns']} of a run a push "
+                     f"cancelled)")
     _write_atomic(path, counts)
     return lines, code
 

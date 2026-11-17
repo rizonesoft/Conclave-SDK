@@ -84,3 +84,34 @@ LENS quality: findings
 LENS optimization: clean
 HIGHEST: P2
 OVERALL: needs-attention
+
+## Round 4: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-17T16:38:20Z
+- Candidate: b97e21843ab91323e53d9bb7a6d1e01a1dc1f6ae
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 20
+- Digest: 21bdddfbc31430b4
+
+**P2: Infrastructure failures can still exhaust the completion route.** At `kits/todo/templates/scripts/ci_status.py:406-411`, three completed failed reruns permanently block another attempt. If those failures came from an infrastructure outage that subsequently clears, the candidate still cannot obtain green evidence through `--rerun`. The paired-run exception requires a reviewed repair, which an external outage’s recovery need not produce. An in-memory reproduction confirmed exit 4 after three failures. Provide an explicit recovery route after verified infrastructure recovery, preserving all failed evidence.
+
+Otherwise, the rule is sound as a procedural obligation:
+
+- It can cover a defect the section caused, but cannot legitimately hide it: the stamp must cite the original red and the reviewed repair’s green run.
+- It does not authorize stamping an unfixed failure. The green commit must contain the repair and preserve the section’s reviewed files and TODO section apart from that repair.
+- All six installed/template agent paragraphs match exactly. `AGENTS.md:64` agrees.
+- Status-filtered queries cover older active runs. Cancelled attempts no longer exhaust the allowance, so cancellation races remain recoverable.
+- Evidence selection remains procedural; `stamp` does not independently validate CI evidence.
+
+Reviewed the specified commit without changing files. Verification used in-memory probes, not live GitHub reruns.
+
+LENS adversarial: findings
+LENS integration: findings
+LENS source-defect: findings
+LENS consistency: clean
+LENS quality: clean
+LENS optimization: clean
+HIGHEST: P2
+OVERALL: needs-attention
