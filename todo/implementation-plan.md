@@ -159,7 +159,7 @@ Sections: 14 | Checklist items: 99
 | ------ | ---------- | ---------------------------------------------------------------- | ------------ | ----- |
 | [x]    | D07 T01 §1 | Launchers kit known to `forge.py`                                | none         | 9     |
 | [x]    | D07 T01 §2 | Launcher profile `.conclave/launchers.json` and its loader       | none         | 7     |
-| [ ]    | D07 T01 §3 | Icon renderer owned by the launchers kit                         | none         | 12    |
+| [x]    | D07 T01 §3 | Icon renderer owned by the launchers kit                         | none         | 12    |
 | [ ]    | D07 T01 §4 | Rounded-square overlay icons                                     | none         | 7     |
 | [ ]    | D07 T01 §5 | Desktop links that open the project in an agent                  | windows-host | 11    |
 | [ ]    | D07 T01 §6 | Declared links that run a command or open a URL                  | windows-host | 7     |
@@ -206,6 +206,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 94/123 verified sections, 3 ready to run now.
+Progress: 95/123 verified sections, 4 ready to run now.
 
 Checklist: 771/944 items completed (includes Commit items).

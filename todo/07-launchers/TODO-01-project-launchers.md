@@ -45,7 +45,7 @@ title: "TODO-01 -- Project launchers: one desktop shape for every project"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Launchers kit known to `forge.py` | -- | [x] |
 | 2 | §2 | Launcher profile `.conclave/launchers.json` and its loader | §1 | [x] |
-| 3 | §3 | Icon renderer owned by the launchers kit | §1 | [ ] |
+| 3 | §3 | Icon renderer owned by the launchers kit | §1 | [x] |
 | 4 | §4 | Rounded-square overlay icons | §3 | [ ] |
 | 5 | §5 | Desktop links that open the project in an agent | §2, §4 | [ ] |
 | 6 | §6 | Declared links that run a command or open a URL | §5 | [ ] |
@@ -145,6 +145,9 @@ Both the campaign links and the everyday links draw an icon from the project's o
 - [x] Commit: `launchers: the icon renderer moves here and the unattended kit brings it`
 
 **Test checkpoint:** `python forge.py check-all --only kit-launchers` and `python forge.py check-all --only kit-unattended` both pass; restoring a copy of the renderer under `kits/unattended/templates/scripts/` makes a test in `tests/test_forge.py` fail by naming the duplicate.
+
+> **Verified:** 2026-11-17 | §3 | e97223af705b6464f053a8d2d6fb2ce9ed21920e
+> **Review:** `docs/reviews/d07-t01-s3.json`
 
 ## 4. Rounded-square overlay icons
 

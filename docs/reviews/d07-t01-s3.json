@@ -1,0 +1,84 @@
+{
+  "ref": "D07 T01 \u00a73",
+  "title": "Icon renderer owned by the launchers kit",
+  "implementation_sha": "e97223af705b6464f053a8d2d6fb2ce9ed21920e",
+  "date": "2026-11-17",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/07-launchers/D07-T01-s3.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python forge.py check-all --only kit-launchers --only kit-unattended -> PASS kit-launchers 32 tests, PASS kit-unattended 223 tests, check-all: 2 of 2 suites passed",
+    "CI tests.yml run 44077115189 at e97223a -> quick suite (Windows), full suite (Linux), kit suites (Linux): success"
+  ],
+  "completion": {
+    "report": "docs/reviews/07-launchers/D07-T01-s3.md",
+    "verdict": "reconciled",
+    "candidate": "e97223af705b6464f053a8d2d6fb2ce9ed21920e",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/07-launchers/D07-T01-s3.md",
+    "candidate": "1cfaf720f98e6c6c6a20ea08c5bd084a0771aebf",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "1cfaf720f98e6c6c6a20ea08c5bd084a0771aebf",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}
