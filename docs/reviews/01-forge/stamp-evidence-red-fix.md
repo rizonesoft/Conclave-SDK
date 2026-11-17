@@ -178,3 +178,38 @@ LENS quality: clean
 LENS optimization: clean
 HIGHEST: P2
 OVERALL: needs-attention
+
+## Round 7: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-17T16:46:59Z
+- Candidate: ac951dd3ec763dfff159ff976dfaa7ec6205304e
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 24
+- Digest: 9b96d84e0aa5240b
+
+The paired-evidence rule is sound procedurally, but the new expired-run fallback has two P2 findings.
+
+1. **P2: Tag runs escape monitoring and repeat-call protection.** At `kits/todo/templates/scripts/ci_status.py:422`, the fallback dispatches on `ci/<commit>` without recording or subsequently checking that run. Normal `--since-last` and repeated `--rerun <commit>` calls still query `main`. A tag run can fail unnoticed; another invocation dispatches again even while its predecessor runs. With `tests.yml` cancelling in-progress runs outside main, repeated recovery attempts can prevent completion. Persist the recovery run identity, include it in normal reporting, and reuse its pending or completed result before dispatching again.
+
+2. **P2: An existing tag is trusted without verifying its commit.** At `kits/todo/templates/scripts/ci_status.py:415`, “already exists” permits dispatch without resolving the tag. A pre-existing or moved tag can execute another commit while the tool describes it as the candidate’s exact tree. Verify the resolved tag and resulting run’s `headSha` against the requested SHA before accepting evidence. GitHub dispatch uses the selected branch or tag. [GitHub documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch).
+
+On the requested policy questions:
+
+- A section-caused defect may use the exception, but its original red must remain cited. “Fixed outside the section” describes the repair’s review route, not the defect’s origin.
+- An unfixed failure does not qualify: the green commit must contain the reviewed repair and preserve the section’s reviewed files and TODO section apart from that repair.
+- Idle-queue checks reduce cancellation risk but are not atomic. Unlimited cancelled-run retries remove the former retry-cap blockage; the tag lifecycle issues above still undermine completion.
+- All six template/installed stamp paragraphs match. All six red-first paragraphs match. `AGENTS.md` agrees on paired evidence and the additional infrastructure retry after recovery.
+- Step 3’s recovery retry is sound for the stated outage case and retains failed evidence.
+
+Read-only review at `ac951dd`. In-memory probes confirmed two successive tag dispatches, no existing-tag lookup, and queries restricted to `main`. No files changed or live workflows started.
+
+LENS adversarial: findings
+LENS integration: findings
+LENS source-defect: findings
+LENS consistency: clean
+LENS quality: findings
+LENS optimization: clean
+HIGHEST: P2
+OVERALL: needs-attention

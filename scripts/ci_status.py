@@ -291,6 +291,14 @@ def since_last(runner, workflows, branch, root):
         read_at = (when("read_at") if saved else None) or horizon or now
         first = min(horizon or read_at, min(read_at, now) - timedelta(days=REACH_DAYS)).replace(microsecond=0)
         runs = list_created(runner, workflow, branch, first, now.replace(microsecond=0))
+        # The fresh runs --rerun started on a recovery tag, read beside the branch's own.
+        reruns, _ = _load_state(Path(root) / RERUNS)
+        for entry_key, entry in reruns.items():
+            if entry_key.endswith(f"|{workflow}") and entry.get("tag"):
+                tagged = gh_json(runner, ["run", "list", "--branch", entry["tag"], "--workflow", workflow, "--limit",
+                                          "5", "--json", FIELDS])
+                runs += [r for r in (tagged if isinstance(tagged, list) else [])
+                         if str(r.get("databaseId")) not in {str(x.get("databaseId")) for x in runs}]
         if saved is None:
             # A first read (or one after an unreadable state) also takes the newest runs wherever they are, so a
             # repository idle for longer than the reach still reports its latest verdict.
@@ -408,17 +416,31 @@ def rerun(runner, workflows, branch, commit, root):
         created = str(run.get("createdAt") or "")
         if created and created < (_now() - timedelta(days=RERUN_WINDOW_DAYS)).strftime(STAMP):
             # Past GitHub's rerun window: a fresh run of the same commit, dispatched on a tag pointing at it, which
-            # runs the commit's exact tree in a concurrency group of its own. The cancelled run stays on record.
+            # runs the commit's exact tree. The cancelled run stays on record; the tag's run is noted for --since-last.
             tag = f"ci/{commit}"
+            on_tag = gh_json(runner, ["run", "list", "--branch", tag, "--workflow", workflow, "--limit", "5",
+                                      "--json", FIELDS])
+            on_tag = sorted((r for r in (on_tag if isinstance(on_tag, list) else []) if r.get("headSha") == commit),
+                            key=lambda r: str(r.get("createdAt") or ""), reverse=True)
+            counts[key] = {**counts.get(key, {}), "tag": tag}
+            if on_tag and (on_tag[0].get("status") != "completed" or verdict_of(on_tag[0]) in ("green", "red")):
+                # Never a second dispatch while one runs (it would cancel it) or once one has its verdict.
+                state_on_tag = verdict_of(on_tag[0]) if on_tag[0].get("status") == "completed" else "running"
+                lines.append(f"{workflow}: {commit[:12]}'s fresh run on {tag} is {state_on_tag} ({on_tag[0].get('url')})")
+                if state_on_tag == "red":
+                    code = max(code, 1) if code != 4 else code
+                continue
             made, out, err = runner(["api", "repos/{owner}/{repo}/git/refs", "-f", f"ref=refs/tags/{tag}",
                                      "-f", f"sha={commit}"])
-            exists = made != 0 and "already exists" in (err or out or "")
-            if made != 0 and not exists:
-                reason = (err or out or "").strip().splitlines()
-                lines.append(f"{workflow}: the tag {tag} could not be made: "
-                             f"{(reason[0] if reason else 'no output')[:MAX_MESSAGE]}")
-                code = max(code, 1) if code != 4 else code
-                continue
+            if made != 0:
+                # A tag already there is used only when it points at this very commit.
+                ref = gh_json(runner, ["api", f"repos/{{owner}}/{{repo}}/git/ref/tags/{tag}"])
+                target = ref.get("object", {}).get("sha") if isinstance(ref, dict) else None
+                if target != commit:
+                    lines.append(f"{workflow}: the tag {tag} points at {str(target)[:12]}, not {commit[:12]}; "
+                                 f"not used")
+                    code = max(code, 1) if code != 4 else code
+                    continue
             done, out, err = runner(["workflow", "run", workflow, "--ref", tag])
             if done != 0:
                 reason = (err or out or "").strip().splitlines()
@@ -427,7 +449,7 @@ def rerun(runner, workflows, branch, commit, root):
                 code = max(code, 1) if code != 4 else code
                 continue
             lines.append(f"{workflow}: {commit[:12]}'s run ({run.get('url')}) is past GitHub's rerun window; started "
-                         f"a fresh run of it on the tag {tag} (read it with python scripts/ci_status.py --branch {tag})")
+                         f"a fresh run of it on the tag {tag}, which --since-last reports")
             continue
         result, out, err = runner(["run", "rerun", str(run.get("databaseId"))])
         if result != 0:

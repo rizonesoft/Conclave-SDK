@@ -298,6 +298,8 @@ class PagedGh:
                 return 1, "", "HTTP 502"
             runs = sorted(self.runs.get(args[args.index("--workflow") + 1], []), key=lambda r: r["createdAt"],
                           reverse=True)
+            if "--branch" in args:   # a run without a "branch" key is main's
+                runs = [r for r in runs if r.get("branch", "main") == args[args.index("--branch") + 1]]
             if "--status" in args:
                 runs = [r for r in runs if r["status"] == args[args.index("--status") + 1]]
             if "--commit" in args:
@@ -312,7 +314,9 @@ class PagedGh:
             return 0, json.dumps({"jobs": [{"name": "suite", "status": "completed", "conclusion": "failure",
                                             "url": "job"}]}), ""
         if args[:2] == ["api", "repos/{owner}/{repo}/git/refs"]:
-            return 0, "{}", ""
+            return (0, "{}", "") if getattr(self, "tag_at", None) is None else (1, "", "Reference already exists")
+        if args[0] == "api" and "/git/ref/tags/" in args[1]:
+            return 0, json.dumps({"object": {"sha": self.tag_at}}), ""
         if args[:2] == ["workflow", "run"]:
             return 0, "", ""
         if args[0] == "api":
@@ -584,6 +588,47 @@ class Rerun(unittest.TestCase):
                        f"sha={SHA_OLD}"], fake.calls)
         self.assertIn(["workflow", "run", "build.yml", "--ref", f"ci/{SHA_OLD}"], fake.calls)
         self.assertIn("past GitHub's rerun window", said)
+
+    def test_the_fresh_run_on_the_tag_is_reused_never_dispatched_twice(self):
+        # The stamp-evidence review, round 7: a second dispatch would cancel the first on a non-main ref.
+        from datetime import datetime, timezone
+        old = attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD, day="2026-09-01")
+        fake = PagedGh({"build.yml": [old, dict(attempt_run(9, 9, status="in_progress", sha=SHA_OLD), branch=f"ci/{SHA_OLD}")]})
+        with unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 17, tzinfo=timezone.utc)):
+            code, said = self.rerun(fake)
+            self.assertNotIn(["workflow", "run", "build.yml", "--ref", f"ci/{SHA_OLD}"], fake.calls)
+            self.assertIn("is running", said)
+            fake.runs["build.yml"][1] = dict(attempt_run(9, 9, conclusion="failure", sha=SHA_OLD), branch=f"ci/{SHA_OLD}")
+            code, said = self.rerun(fake)
+        self.assertEqual(code, 1)
+        self.assertIn("is red", said)
+        self.assertNotIn(["workflow", "run", "build.yml", "--ref", f"ci/{SHA_OLD}"], fake.calls)
+
+    def test_a_tag_that_points_elsewhere_is_not_used(self):
+        from datetime import datetime, timezone
+        fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD, day="2026-09-01")]})
+        fake.tag_at = SHA_NEW
+        with unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 17, tzinfo=timezone.utc)):
+            code, said = self.rerun(fake)
+        self.assertEqual(code, 1)
+        self.assertIn("not used", said)
+        self.assertNotIn(["workflow", "run", "build.yml", "--ref", f"ci/{SHA_OLD}"], fake.calls)
+
+    def test_since_last_reports_the_fresh_run_on_the_tag(self):
+        from datetime import datetime, timezone
+        fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD, day="2026-09-01")]})
+        with unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 17, tzinfo=timezone.utc)):
+            self.rerun(fake)
+            out = io.StringIO()
+            with redirect_stdout(out):
+                ci.main(["--since-last"], runner=fake, root=self.root)
+            fake.runs["build.yml"].append(dict(attempt_run(9, 9, conclusion="failure", sha=SHA_OLD, day="2026-11-16"),
+                                               branch=f"ci/{SHA_OLD}"))
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = ci.main(["--since-last"], runner=fake, root=self.root)
+        self.assertEqual(code, 1)
+        self.assertIn("red at aaaaaaaaaaaa https://github.com/o/r/actions/runs/9", out.getvalue())
 
     def test_a_red_candidate_is_repaired_not_rerun(self):
         # The stamp-evidence review, round 4: a red has its verdict; reruns for infrastructure belong to red first.
