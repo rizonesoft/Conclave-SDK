@@ -505,7 +505,8 @@ class ProjectShortcutsTest(unittest.TestCase):
 
     def test_a_folder_spelled_another_way_still_writes_and_keeps_its_links(self):
         # CI red on 2026-11-17 (62801e0): the runner's temp folder resolved under a short 8.3 name, so the script's
-        # own temporary links, compared by full path, looked stale and were moved away before they were placed.
+        # own temporary links, compared by full path, were listed as stale; once renamed into place they could not be
+        # moved aside, and the whole run rolled back.
         self.desk.mkdir()
         self.icons.mkdir()
         desk, icons = self.desk / ".." / "desk", self.icons / ".." / "icons"
