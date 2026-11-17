@@ -153,6 +153,10 @@ Both the campaign links and the everyday links draw an icon from the project's o
 
 The everyday links are told from the campaign links by the corner shape: a rounded square for a link a person uses, a circle for a run. The first project drew its overlays by hand in SVG. This section draws them in the renderer, so any project's icon gets them.
 
+> **Started:** 2026-11-17T11:52Z
+
+**Corrected 2026-11-17:** three facts of the renderer the plan did not match. It already ends a usage error (a mark or runner it does not know, a malformed command) with the usage text and exit 2, which a test holds for `badge`, and an unreadable base with `campaign-icon: <fault>` and exit 1; the refusals keep that split instead of exit 1 for all. The Commons file holds the W inside its ring as five separate paths, each opening with a relative `m` that is absolute on its own; the mark is the whole logo, the paths joined with each opening `M` (the third's first line written as an explicit `l`, which it was implicitly). And `write_atomic` leaves its temporary file behind when the write or the rename fails, which every `overlay` call would now share: it removes it.
+
 **Phase:** 8
 **Needs:** none
 **Surface:** no
@@ -165,9 +169,10 @@ The everyday links are told from the campaign links by the corner shape: a round
 - [ ] Add an `overlay` command to `kits/launchers/templates/scripts/campaign-icon.py`: `campaign-icon.py overlay <base.png or .ico> <mark> <target.ico>`, writing every size in `SIZES` atomically through `write_atomic`. Done when: the command writes an icon that `read_ico` reads back with all ten sizes, and the usage text names it.
 - [ ] Draw the overlay on each frame with the geometry in Inputs, scaled from 512 pixels: a white outline square, the filled square in the mark's colour inside it, and from `MARK_FROM` pixels up the mark in white. Done when: a test on a 256 pixel frame finds the mark's colour at the filled square's centre-left, white on the outline, and the base icon's own pixel at the top left corner. Cheaper substitute: reusing `badge_frame`'s circle, which would make an everyday link look like a campaign link.
 - [ ] Give `overlay` the marks `claude`, `codex` and `agy` from the existing `RUNNERS` and `MARKS` tables, with the same colours. Done when: a test renders all three and finds each one's colour.
-- [ ] Add the `wordpress` mark: the WordPress logo's W from the path data of Wikimedia Commons `WordPress_blue_logo.svg`, colour `#21759B`, with its source and the trademark note (the WordPress Foundation's mark, drawn only into a launcher icon on the operator's own machine) in the module docstring beside the others. Done when: a test finds `#21759B` in the overlay and white pixels inside it at 256 pixels.
+- [ ] Add the `wordpress` mark: the WordPress logo (the W in its ring, **Corrected 2026-11-17**) from the path data of Wikimedia Commons `WordPress_blue_logo.svg`, colour `#21759B`, with its source and the trademark note (the WordPress Foundation's mark, drawn only into a launcher icon on the operator's own machine) in the module docstring beside the others. Done when: a test finds `#21759B` in the overlay and white pixels inside it at 256 pixels.
 - [ ] Add the `site` mark, drawn by this module and nobody's trademark: a globe of one circle, an upright ellipse and three horizontal lines, colour `#2563EB`. Done when: a test finds the colour and white pixels inside it at 256 pixels.
-- [ ] Refuse an unknown mark, a base that is not a PNG or ICO, and a target that does not end in `.ico`, each with the usage text and exit 1, writing nothing. Done when: three tests in `scripts/tests/test_campaign_icon.py` pass, each asserting the target does not exist afterwards.
+- [ ] Refuse an unknown mark, a base that is not a PNG or ICO, and a target that does not end in `.ico`, writing nothing: the mark and the target with the usage text and exit 2, the base with `campaign-icon: not a PNG` and exit 1. Done when: three tests in `scripts/tests/test_campaign_icon.py` pass, each asserting the target does not exist afterwards. **Corrected 2026-11-17:** exit 2 for a usage error, as `badge` does.
+- [ ] Make `write_atomic` in `campaign-icon.py` remove its temporary file when the write or the rename fails. Done when: a test that makes `os.replace` fail finds the old icon unchanged and no other file in its folder. **Corrected 2026-11-17:** added.
 - [ ] Commit: `launchers: rounded-square overlay icons with agent, WordPress and site marks`
 
 **Test checkpoint:** `python -m unittest discover -s kits/launchers/templates/scripts/tests -p "test_campaign_icon.py"` ends `OK`; drawing the overlay with `circle` in place of the rounded square makes the corner-pixel test fail.
