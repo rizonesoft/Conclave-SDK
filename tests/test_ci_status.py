@@ -334,6 +334,35 @@ class PagedGh:
         return [c[2] for c in self.calls if c[:2] == ["run", "rerun"]]
 
 
+class Shards(unittest.TestCase):
+    """A sharded full suite (D01 T02 §10): the run's own conclusion folds its jobs in, so one red shard is a red run
+    naming that shard, and a cancelled shard leaves the run with no verdict."""
+
+    def setUp(self):
+        self._tmp = Scratch()
+        self.root = Path(self._tmp.name)
+        workspace(self.root, workflows=("tests.yml",))
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_one_red_shard_is_a_red_run_naming_it_and_a_cancelled_one_no_verdict(self):
+        jobs = [{"name": f"full suite (Linux) {k}/3", "status": "completed",
+                 "conclusion": "failure" if k == 2 else "success", "url": f"job{k}"} for k in (1, 2, 3)]
+        fake = FakeGh({"tests.yml": [run(5, conclusion="failure")]}, jobs={5: jobs})
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = ci.main(["--json"], runner=fake, root=self.root)
+        report = json.loads(out.getvalue())["workflows"][0]
+        self.assertEqual((code, report["verdict"]), (1, "red"))
+        self.assertEqual([j["name"] for j in report["failed_jobs"]], ["full suite (Linux) 2/3"])
+        fake = FakeGh({"tests.yml": [run(6, conclusion="cancelled")]})
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = ci.main(["--json"], runner=fake, root=self.root)
+        self.assertEqual((code, json.loads(out.getvalue())["workflows"][0]["verdict"]), (0, "none"))
+
+
 class SinceLast(unittest.TestCase):
     """`--since-last`: every completed attempt since the last read, once; the state kept per branch and workflow,
     written only after a read that printed everything (D01 T02 §8)."""

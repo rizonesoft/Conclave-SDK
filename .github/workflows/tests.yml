@@ -40,9 +40,16 @@ jobs:
         run: python forge.py check-all --only tests
 
   full-linux:
-    name: full suite (Linux)
+    # The full suite in three parallel shards of tests/ (forge.py check-all --shard, D01 T02 §10): the same tests,
+    # each shard on its own runner. fail-fast is off so one red shard never cancels the others, and the run is red when
+    # any shard is.
+    name: full suite (Linux) ${{ matrix.shard }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/3", "2/3", "3/3"]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -56,8 +63,8 @@ jobs:
           sudo apt-get install -y -q tmux
           git config --global user.email ci@example.invalid
           git config --global user.name ci
-      - name: Full suite
-        run: python forge.py check-all --full --only tests
+      - name: Full suite, one shard
+        run: python forge.py check-all --full --only tests --shard ${{ matrix.shard }}
 
   kits-linux:
     name: kit suites (Linux)

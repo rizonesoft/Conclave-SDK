@@ -3526,14 +3526,50 @@ def _run_suite(suite: dict, env: dict, cwd: Path) -> dict:
     return done()
 
 
+# A shard of a unittest suite (D01 T02 §10): the named modules loaded with the suite's folder first on the path, as
+# `unittest discover -s <folder>` loads them, and run by the same runner, so it prints the same `Ran N tests` line and
+# exits non-zero on any failure or error (an import error included).
+SHARD_RUNNER = """import sys, unittest
+folder, names = sys.argv[1], sys.argv[2:]
+sys.path.insert(0, folder)
+suite = unittest.defaultTestLoader.loadTestsFromNames(names)
+result = unittest.TextTestRunner().run(suite)
+sys.exit(0 if result.wasSuccessful() else 1)
+"""
+
+
+def parse_shard(text: str) -> tuple[int, int]:
+    """`K/N` as (K, N), 1 <= K <= N; anything else is a ValueError naming the form."""
+    match = re.fullmatch(r"([1-9][0-9]*)/([1-9][0-9]*)", text or "")
+    if not match or int(match[1]) > int(match[2]):
+        raise ValueError(f"--shard takes K/N with 1 <= K <= N, not {text!r}")
+    return int(match[1]), int(match[2])
+
+
+def shard_modules(folder: Path, k: int, n: int) -> list[str]:
+    """The module names of shard `k` of `n` of the test files (`test*.py`) in a suite's folder: the files assigned
+    largest first to the lightest shard by size, so the shards take about the same time, deterministically (equal
+    sizes go by name). Every file is in exactly one shard."""
+    files = sorted(folder.glob("test*.py"), key=lambda f: (-f.stat().st_size, f.name))
+    loads = [0] * n
+    shards: list[list[str]] = [[] for _ in range(n)]
+    for path in files:
+        lightest = min(range(n), key=lambda i: (loads[i], i))
+        shards[lightest].append(path.stem)
+        loads[lightest] += path.stat().st_size
+    return sorted(shards[k - 1])
+
+
 def check_all(full: bool = False, only=(), skip=(), suites: list[dict] | None = None, root: Path | None = None,
-              on_result=None, excluded: dict[str, str] | None = None) -> list[dict]:
+              on_result=None, excluded: dict[str, str] | None = None, shard: tuple[int, int] | None = None) -> list[dict]:
     """Run every suite (those named by `only`, less those named by `skip`), each to its end whatever the one before
     did, and return each one's result. Before any suite runs, validates that every test file in `root` is owned by
     the full suite table or explicitly listed with a reason in `excluded`, raising `UnownedTestsError` otherwise.
     A suite this host cannot run is returned as skipped, neither passed nor failed. An unknown name raises ValueError
     before any suite starts. `full` sets CONCLAVE_FULL_TESTS=1 for the suites; otherwise it is removed, whatever this
-    process's own environment holds."""
+    process's own environment holds. With `shard` (K, N), each unittest suite runs only its shard K of N
+    (`shard_modules`), a shard holding no test file of a suite is returned as skipped, and a suite of another kind
+    runs whole in shard 1 only."""
     table = SUITES if suites is None else suites
     target_root = FORGE_ROOT if root is None else root
     excluded_map = EXCLUDED_TESTS if excluded is None else excluded
@@ -3556,8 +3592,25 @@ def check_all(full: bool = False, only=(), skip=(), suites: list[dict] | None = 
     for suite in table:
         if (only and suite["name"] not in only) or suite["name"] in skip:
             continue
+        if shard is not None:
+            k, n = shard
+            if suite["kind"] != "unittest":
+                if k != 1:
+                    continue
+            else:
+                modules = shard_modules(Path(target_root) / suite["path"], k, n)
+                if not modules:
+                    results.append({"name": suite["name"], "passed": False, "skipped": True, "exit": None,
+                                    "tests": None, "reason": f"shard {k}/{n} holds no test file of this suite",
+                                    "tail": "", "seconds": 0.0, "modules": []})
+                    if on_result:
+                        on_result(results[-1])
+                    continue
+                suite = {**suite, "argv": [sys.executable, "-B", "-c", SHARD_RUNNER, suite["path"], *modules]}
         if _runs_here(suite):
             results.append(_run_suite(suite, env, target_root))
+            if shard is not None and suite["kind"] == "unittest":
+                results[-1]["modules"] = suite["argv"][5:]
         else:  # never counted as passed, and always shown
             results.append({"name": suite["name"], "passed": False, "skipped": True, "exit": None, "tests": None,
                             "reason": "runs on POSIX only; CI's Linux job runs it", "tail": "", "seconds": 0.0})
@@ -3668,6 +3721,7 @@ def main(argv: list[str] | None = None) -> int:
     p_all.add_argument("--full", action="store_true", help="Set CONCLAVE_FULL_TESTS=1: the gated stamp and adoption tests run too")
     p_all.add_argument("--only", action="append", default=[], metavar="NAME", help="Only this suite (repeatable)")
     p_all.add_argument("--skip", action="append", default=[], metavar="NAME", help="Every suite but this one (repeatable)")
+    p_all.add_argument("--shard", metavar="K/N", help="Run shard K of N of each unittest suite's test files (CI's parallel jobs)")
 
     p_check = sub.add_parser("check", help="Inspect a target repository's agent setup")
     p_check.add_argument("target", help="Target repository path")
@@ -3702,8 +3756,18 @@ def _run(args: argparse.Namespace) -> int:
         return 1 if args.check and (report["changed"] or report["stray"]) else 0
 
     if args.command == "check-all":
-        results = check_all(full=args.full, only=args.only, skip=args.skip,
-                            on_result=lambda result: print(_suite_line(result), flush=True))
+        try:
+            shard = parse_shard(args.shard) if args.shard is not None else None
+        except ValueError as exc:
+            print(f"forge.py: error: {exc}", file=sys.stderr)
+            return 2
+
+        def show(result):
+            if "modules" in result:
+                print(f"shard {args.shard} of {result['name']}: {', '.join(result['modules']) or 'no test file'}",
+                      flush=True)
+            print(_suite_line(result), flush=True)
+        results = check_all(full=args.full, only=args.only, skip=args.skip, on_result=show, shard=shard)
         skipped = [result for result in results if result["skipped"]]
         failed = [result for result in results if not result["passed"] and not result["skipped"]]
         for result in failed:

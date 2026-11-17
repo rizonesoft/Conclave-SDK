@@ -378,6 +378,129 @@ class CommandLine(Stubs):
             self.assertFalse(self.ran("a"))
 
 
+# A test module that records each test it runs, by id, in the file RAN_LOG names (D01 T02 §10).
+RECORDING = r"""import os, unittest
+
+
+class {cls}(unittest.TestCase):
+    def setUp(self):
+        with open(os.environ["RAN_LOG"], "a", encoding="utf-8") as log:
+            log.write(self.id() + "\n")
+
+    def test_one(self):
+        pass
+
+    def test_two(self):
+        pass
+
+    @unittest.skipUnless(os.environ.get("CONCLAVE_FULL_TESTS"), "the full run only")
+    def test_full_only(self):
+        pass
+"""
+
+
+class Shard(Stubs):
+    """`check-all --shard K/N`: each unittest suite's test files split into N shards that together run exactly what
+    the whole suite runs (D01 T02 §10)."""
+
+    def suite_of(self, name, modules, sizes=None):
+        folder = self.dir / name
+        folder.mkdir()
+        for i, module in enumerate(modules):
+            body = RECORDING.replace("{cls}", module.title().replace("_", ""))
+            (folder / f"{module}.py").write_text(body + "\n" * ((sizes or {}).get(module, i)), encoding="utf-8")
+        return {"name": name, "kind": "unittest", "path": name, "timeout": 120,
+                "argv": [sys.executable, "-B", "-m", "unittest", "discover", "-s", name]}
+
+    def ran_ids(self, log):
+        return sorted(log.read_text(encoding="utf-8").split()) if log.exists() else []
+
+    def test_every_file_is_in_exactly_one_shard(self):
+        suite = self.suite_of("suite", [f"test_m{i}" for i in range(7)])
+        folder = self.dir / suite["path"]
+        for n in (1, 2, 3, 7, 9):
+            shards = [forge.shard_modules(folder, k, n) for k in range(1, n + 1)]
+            flat = [m for s in shards for m in s]
+            self.assertEqual(sorted(flat), sorted(f"test_m{i}" for i in range(7)), n)
+            self.assertEqual(len(flat), len(set(flat)), n)
+            self.assertEqual(shards, [forge.shard_modules(folder, k, n) for k in range(1, n + 1)], "deterministic")
+
+    def test_a_malformed_shard_is_refused(self):
+        for text in ("0/2", "3/2", "1", "a/b", "1/0", ""):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                forge.parse_shard(text)
+        code, out, err = self.main([self.suite_of("suite", ["test_a"])], "--shard", "3/2")
+        self.assertEqual(code, 2)
+        self.assertIn("--shard takes K/N", err)
+
+    def test_the_shards_run_exactly_the_tests_discovery_runs_gated_ones_included(self):
+        suite = self.suite_of("suite", ["test_a", "test_b", "test_c", "test_d", "test_e"])
+        whole, parts = self.dir / "whole.log", self.dir / "parts.log"
+        with mock.patch.dict(os.environ, {"RAN_LOG": str(whole)}):
+            [result] = self.run_all([suite], full=True)
+        self.assertTrue(result["passed"], result)
+        with mock.patch.dict(os.environ, {"RAN_LOG": str(parts)}):
+            for k in (1, 2, 3):
+                [result] = self.run_all([suite], full=True, shard=(k, 3))
+                self.assertTrue(result["passed"], result)
+                self.assertTrue(result["modules"])
+        self.assertEqual(self.ran_ids(parts), self.ran_ids(whole))
+        self.assertIn("test_a.TestA.test_full_only", self.ran_ids(parts))
+
+    def test_a_failure_or_an_import_error_fails_its_shard(self):
+        suites = []
+        for name, body in (("assertion", "import unittest\n\nclass T(unittest.TestCase):\n"
+                                         "    def test_x(self):\n        self.assertEqual(2, 3)\n"),
+                           ("importing", "import no_such_module_here\n")):
+            folder = self.dir / name
+            folder.mkdir()
+            (folder / "test_only.py").write_text(body, encoding="utf-8")
+            suites.append({"name": name, "kind": "unittest", "path": name, "timeout": 60,
+                           "argv": [sys.executable, "-B", "-m", "unittest", "discover", "-s", name]})
+        for result in self.run_all(suites, shard=(1, 1)):
+            with self.subTest(suite=result["name"]):
+                self.assertFalse(result["passed"], result)
+                self.assertFalse(result["skipped"])
+
+    def test_an_empty_shard_is_skipped_and_a_shard_that_runs_nothing_fails(self):
+        suite = self.suite_of("suite", ["test_a"])
+        folder = self.dir / "empty"
+        folder.mkdir()
+        (folder / "test_nothing.py").write_text("x = 1\n", encoding="utf-8")
+        empty = {"name": "empty", "kind": "unittest", "path": "empty", "timeout": 60,
+                 "argv": [sys.executable, "-B", "-m", "unittest", "discover", "-s", "empty"]}
+        [result] = self.run_all([suite, empty], shard=(2, 2), only=["suite"])
+        self.assertEqual((result["passed"], result["skipped"]), (False, True))
+        self.assertIn("holds no test file", result["reason"])
+        [result] = self.run_all([suite, empty], shard=(1, 1), only=["empty"])
+        self.assertEqual((result["passed"], result["skipped"], result["reason"]), (False, False, "no tests ran"))
+
+    def test_a_suite_of_another_kind_runs_whole_in_shard_one_only(self):
+        command = self.passing("cmd")
+        self.assertEqual([r["name"] for r in self.run_all([command], shard=(1, 3))], ["cmd"])
+        self.assertEqual(self.run_all([command], shard=(2, 3)), [])
+
+    def test_the_shards_cover_every_file_the_inventory_gives_the_suite(self):
+        # Inventory and shards agree: a module left out of every shard would be a test file no CI job runs.
+        folder = ROOT / "tests"
+        n = 3
+        union = {m for k in range(1, n + 1) for m in forge.shard_modules(folder, k, n)}
+        self.assertEqual(union, {f.stem for f in folder.glob("test*.py")})
+
+
+class Workflow(unittest.TestCase):
+    """The Linux full suite runs in three parallel shards (D01 T02 §10)."""
+
+    def test_the_full_suite_is_a_matrix_of_three_shards_each_with_its_own_part(self):
+        text = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
+        job = text[text.index("  full-linux:"):text.index("  kits-linux:")]
+        self.assertIn("fail-fast: false", job)
+        self.assertRegex(job, r'shard: \["1/3", "2/3", "3/3"\]')
+        self.assertIn("name: full suite (Linux) ${{ matrix.shard }}", job)
+        self.assertIn("run: python forge.py check-all --full --only tests --shard ${{ matrix.shard }}", job)
+        self.assertNotIn("run: python forge.py check-all --full --only tests\n", job)
+
+
 class Inventory(Stubs):
     def _write(self, rel, text=""):
         path = self.dir / rel
