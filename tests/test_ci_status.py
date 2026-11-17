@@ -311,6 +311,10 @@ class PagedGh:
         if args[:2] == ["run", "view"]:
             return 0, json.dumps({"jobs": [{"name": "suite", "status": "completed", "conclusion": "failure",
                                             "url": "job"}]}), ""
+        if args[:2] == ["api", "repos/{owner}/{repo}/git/refs"]:
+            return 0, "{}", ""
+        if args[:2] == ["workflow", "run"]:
+            return 0, "", ""
         if args[0] == "api":
             run_id, attempt = args[1].split("/runs/")[1].split("/attempts/")
             status, conclusion = self.attempts[(int(run_id), int(attempt))]
@@ -549,9 +553,13 @@ class SinceLast(unittest.TestCase):
 
 
 class Rerun(unittest.TestCase):
-    """`--rerun <commit>`: the candidate's own run, never the tip's; three at most, the count kept across calls."""
+    """`--rerun <commit>`: the candidate's own cancelled run, never the tip's, on an idle queue; a red goes to red first."""
 
     def setUp(self):
+        from datetime import datetime, timezone
+        clock = unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 1, tzinfo=timezone.utc))
+        clock.start()
+        self.addCleanup(clock.stop)
         self._tmp = Scratch()
         self.root = Path(self._tmp.name)
         workspace(self.root, workflows=("build.yml",))
@@ -564,6 +572,18 @@ class Rerun(unittest.TestCase):
         with redirect_stdout(out):
             code = ci.main(["--rerun", commit], runner=fake, root=self.root)
         return code, out.getvalue()
+
+    def test_a_run_past_the_rerun_window_gets_a_fresh_run_on_a_tag(self):
+        # The stamp-evidence review, round 6: GitHub reruns a run only within 30 days of it.
+        from datetime import datetime, timezone
+        fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD, day="2026-09-01")]})
+        with unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 17, tzinfo=timezone.utc)):
+            code, said = self.rerun(fake)
+        self.assertEqual((code, fake.reruns()), (0, []))
+        self.assertIn(["api", "repos/{owner}/{repo}/git/refs", "-f", f"ref=refs/tags/ci/{SHA_OLD}", "-f",
+                       f"sha={SHA_OLD}"], fake.calls)
+        self.assertIn(["workflow", "run", "build.yml", "--ref", f"ci/{SHA_OLD}"], fake.calls)
+        self.assertIn("past GitHub's rerun window", said)
 
     def test_a_red_candidate_is_repaired_not_rerun(self):
         # The stamp-evidence review, round 4: a red has its verdict; reruns for infrastructure belong to red first.

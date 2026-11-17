@@ -148,3 +148,33 @@ LENS quality: findings
 LENS optimization: clean
 HIGHEST: P2
 OVERALL: needs-attention
+
+## Round 6: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-17T16:43:51Z
+- Candidate: 9a855c3ff372215abbbb29b159497d2a931fc741
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 19
+- Digest: fb175fecdc891b68
+
+Two findings remain at `9a855c3`:
+
+- **P2: Cancelled candidates can still become permanently unstamppable.** `kits/todo/templates/.claude/skills/review-todo-section/SKILL.md:168` relies on retrying the original run indefinitely. GitHub permits reruns only within 30 days of the initial run. Once that expires, `ci_status.py:404-410` reports refusal without a recovery route. A cancelled candidate has neither green evidence nor the repaired-red exception. Define a fresh execution route for the exact reviewed candidate, preserving its original evidence. [GitHub rerun limits](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs?tool=cli).
+- **P3: Infrastructure retry instructions disagree.** `AGENTS.md:64` and `ci_status.py:387-388` still say one infrastructure rerun, while `process-phase/SKILL.md:57` now permits another after verified recovery. Align these descriptions so callers do not stop at the older limit.
+
+The paired-evidence exception itself is sound as a procedural rule. It can cover a defect the section caused, but requires citing that original red. It does not authorize an unfixed failure: the green commit must contain the reviewed repair and preserve the section’s reviewed files and TODO section apart from that repair. Evidence selection remains procedural, not independently validated by `stamp`.
+
+All six template/installed stamp paragraphs match, and AGENTS.md agrees on their preservation conditions. All six red-first paragraphs also match. The new outage-recovery sentence addresses the previous second-red blockage while retaining failed evidence.
+
+Status-filtered idle checks cover older active runs. Cancellation races remain possible, but no longer exhaust a local retry allowance. In-memory probes confirmed red refusal, busy exit 5, idle submission and refusal reporting. No files changed or live reruns performed.
+
+LENS adversarial: findings
+LENS integration: findings
+LENS source-defect: findings
+LENS consistency: findings
+LENS quality: clean
+LENS optimization: clean
+HIGHEST: P2
+OVERALL: needs-attention

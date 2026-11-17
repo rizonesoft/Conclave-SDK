@@ -32,8 +32,10 @@ commit or a push.
 push cancelled it, so a stamp candidate gets a verdict of its own; the reruns are noted per commit in
 `build/ci-status-reruns.json`. It reruns only when GitHub lists no run of the workflow on the branch queued or running
 (a busy queue is exit 5: try again at the next boundary), and a rerun dropped all the same is started again, as often
-as that happens. A red run is not rerun here: it has its verdict, and the red-first rule repairs it (exit 1). Evidence
-never moves to another commit.
+as that happens. A run past GitHub's 30-day rerun window gets a fresh run of the same commit instead,
+dispatched on a tag `ci/<commit>` made through the API (the commit's exact tree, in a concurrency group of its own),
+the cancelled run kept on record. A red run is not rerun here: it has its verdict, and the red-first rule repairs it
+(exit 1). Evidence never moves to another commit.
 
 Exit 0: no watched workflow is red. Exit 1: at least one is red (the workflow, the commit, the run's URL and its
 failed jobs are printed). Exit 2: bad usage. Exit 3: `gh` is missing, not authenticated, or failed, so the state is
@@ -58,6 +60,7 @@ PAGES = (10,)   # a first read's newest runs
 # A run can still change after a read when it was created at most this long before it: GitHub reruns a run only
 # within 30 days of its creation, and a run lasts at most 35 days.
 REACH_DAYS = 35
+RERUN_WINDOW_DAYS = 29   # a day inside GitHub's 30, so a rerun is never refused for its age
 LIST_LIMIT = 1000   # runs per `gh run list` call; a fuller date range is split until each fits
 SINCE_PAGES = (10, 50, 200)   # the pages tried before a full list
 LIMIT = 10
@@ -383,9 +386,10 @@ def rerun(runner, workflows, branch, commit, root):
             lines.append(f"{workflow}: {commit[:12]} is {state} ({run.get('url')}); nothing to rerun")
             continue
         if state == "red":
-            # A red has its verdict: it is repaired red first, where one rerun covers an infrastructure failure.
+            # A red has its verdict: it is repaired red first, where an infrastructure failure is rerun.
             lines.append(f"{workflow}: {commit[:12]} is red ({run.get('url')}); not a cancelled run: repair it red "
-                         f"first (process-phase step 3, one rerun for an infrastructure failure)")
+                         f"first (process-phase step 3: an infrastructure failure is rerun, once more after an "
+                         f"outage clears)")
             code = max(code, 1) if code != 4 else code
             continue
         # Cancelled: no verdict yet. Only on an idle queue (nothing of the workflow on the branch queued, waiting or
@@ -400,6 +404,30 @@ def rerun(runner, workflows, branch, commit, root):
             lines.append(f"{workflow}: {len(busy)} run(s) still queued or running ({busy[0].get('url')}); rerun "
                          f"{commit[:12]} when the queue is idle")
             code = max(code, 5) if code != 4 else code
+            continue
+        created = str(run.get("createdAt") or "")
+        if created and created < (_now() - timedelta(days=RERUN_WINDOW_DAYS)).strftime(STAMP):
+            # Past GitHub's rerun window: a fresh run of the same commit, dispatched on a tag pointing at it, which
+            # runs the commit's exact tree in a concurrency group of its own. The cancelled run stays on record.
+            tag = f"ci/{commit}"
+            made, out, err = runner(["api", "repos/{owner}/{repo}/git/refs", "-f", f"ref=refs/tags/{tag}",
+                                     "-f", f"sha={commit}"])
+            exists = made != 0 and "already exists" in (err or out or "")
+            if made != 0 and not exists:
+                reason = (err or out or "").strip().splitlines()
+                lines.append(f"{workflow}: the tag {tag} could not be made: "
+                             f"{(reason[0] if reason else 'no output')[:MAX_MESSAGE]}")
+                code = max(code, 1) if code != 4 else code
+                continue
+            done, out, err = runner(["workflow", "run", workflow, "--ref", tag])
+            if done != 0:
+                reason = (err or out or "").strip().splitlines()
+                lines.append(f"{workflow}: gh workflow run on {tag} was refused: "
+                             f"{(reason[0] if reason else 'no output')[:MAX_MESSAGE]}")
+                code = max(code, 1) if code != 4 else code
+                continue
+            lines.append(f"{workflow}: {commit[:12]}'s run ({run.get('url')}) is past GitHub's rerun window; started "
+                         f"a fresh run of it on the tag {tag} (read it with python scripts/ci_status.py --branch {tag})")
             continue
         result, out, err = runner(["run", "rerun", str(run.get("databaseId"))])
         if result != 0:
