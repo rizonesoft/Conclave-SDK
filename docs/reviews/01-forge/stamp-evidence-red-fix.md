@@ -248,3 +248,38 @@ LENS quality: findings
 LENS optimization: clean
 HIGHEST: P2
 OVERALL: needs-attention
+
+## Round 9: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-17T16:53:36Z
+- Candidate: 2581ce19e9a7da6051cc5bcfff8c066be4c1d6c7
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 24
+- Digest: f66ef33c141c59c1
+
+The paired-evidence rule is sound procedurally, but CI recovery still has two P2 defects.
+
+1. **P2: Infrastructure retry cannot recover a failed tag run.** At [ci_status.py:385](/D:/Conclave-SDK/kits/todo/templates/scripts/ci_status.py:385), `_fresh_run` returns an existing red tag run without retrying it. `--infrastructure` never reaches this helper. If the fresh run fails during an outage, the documented retry after recovery repeatedly returns exit 1. An in-memory probe confirmed zero rerun or dispatch requests. Pass the infrastructure intent through and retry the tag run while preserving its failed evidence.
+
+2. **P2: Old tag failures are reported repeatedly as new failures.** At [ci_status.py:299](/D:/Conclave-SDK/kits/todo/templates/scripts/ci_status.py:299), tag runs are fetched regardless of age, but lines 344-348 discard their reported-attempt records after 35 days. Subsequent reads rediscover the same red indefinitely, including after its repair. A probe returned exit 0 for an already reported failure, then exit 1 on both following reads. Retain deduplication records for tag runs that remain eligible for retrieval.
+
+On the requested policy questions:
+
+- A section-caused failure can qualify, but cannot legitimately be hidden: its original red run must remain cited. “Fixed outside the section” describes the repair’s review route, not the defect’s origin.
+- An unfixed failure does not qualify. The green commit must contain the reviewed repair and preserve the section’s reviewed files and TODO section apart from that repair. This is a procedural requirement, not automated evidence validation.
+- Idle-queue checks reduce cancellation risk but are not atomic. Unlimited cancellation retries remove the former cap blockage; finding 1 still prevents the documented completion route.
+- All six template and installed stamp paragraphs match. All six red-first paragraphs match, and `AGENTS.md` agrees.
+- Step 3’s additional infrastructure retry after demonstrated recovery is sound and retains failed evidence, but finding 1 prevents it from working for recovery-tag failures.
+
+Reviewed at `2581ce19` using static inspection and in-memory probes. No files changed or live workflows started.
+
+LENS adversarial: findings
+LENS integration: findings
+LENS source-defect: findings
+LENS consistency: clean
+LENS quality: findings
+LENS optimization: clean
+HIGHEST: P2
+OVERALL: needs-attention

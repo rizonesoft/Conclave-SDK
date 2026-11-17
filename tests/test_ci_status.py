@@ -658,6 +658,34 @@ class Rerun(unittest.TestCase):
         state = json.loads((self.root / ci.RERUNS).read_text(encoding="utf-8"))
         self.assertEqual(state[f"{SHA_OLD}|build.yml"]["tag"], f"ci/{SHA_OLD}")
 
+    def test_an_infrastructure_red_on_the_tag_is_rerun_there(self):
+        # The stamp-evidence review, round 9: the fresh run itself fails in an outage, and is rerun after it clears.
+        from datetime import datetime, timezone
+        fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD, day="2026-09-01"),
+                                      dict(attempt_run(9, 9, conclusion="failure", sha=SHA_OLD, day="2026-11-16"),
+                                           branch=f"ci/{SHA_OLD}")]})
+        with unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 17, tzinfo=timezone.utc)):
+            code, said = self.rerun(fake, "--infrastructure")
+        self.assertEqual(code, 0, said)
+        self.assertIn(["run", "rerun", "9", "--failed"], fake.calls)
+
+    def test_a_red_on_the_tag_is_reported_once_whatever_its_age(self):
+        from datetime import datetime, timezone
+        fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="cancelled", sha=SHA_OLD, day="2026-09-01")]})
+        with unittest.mock.patch.object(ci, "_now", return_value=datetime(2026, 11, 1, tzinfo=timezone.utc)):
+            self.rerun(fake)
+        fake.runs["build.yml"].append(dict(attempt_run(9, 9, conclusion="failure", sha=SHA_OLD, day="2026-11-02"),
+                                           branch=f"ci/{SHA_OLD}"))
+        codes = []
+        # The last two reads are more than 35 days after the run on the tag: its record must be kept all the same.
+        for when in (datetime(2026, 11, 3, tzinfo=timezone.utc), datetime(2026, 11, 20, tzinfo=timezone.utc),
+                     datetime(2026, 12, 28, tzinfo=timezone.utc), datetime(2026, 12, 29, tzinfo=timezone.utc)):
+            with unittest.mock.patch.object(ci, "_now", return_value=when):
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    codes.append(ci.main(["--since-last"], runner=fake, root=self.root))
+        self.assertEqual(codes, [1, 0, 0, 0], "the tag's red is reported once")
+
     def test_a_red_candidate_is_repaired_not_rerun(self):
         # The stamp-evidence review, round 4: a red has its verdict; reruns for infrastructure belong to red first.
         fake = PagedGh({"build.yml": [attempt_run(7, 7, conclusion="failure", sha=SHA_OLD)]})

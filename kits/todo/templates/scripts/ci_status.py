@@ -294,12 +294,14 @@ def since_last(runner, workflows, branch, root):
         runs = list_created(runner, workflow, branch, first, now.replace(microsecond=0))
         # The fresh runs --rerun started on a recovery tag, read beside the branch's own.
         reruns, _ = _load_state(Path(root) / RERUNS)
+        tag_runs = set()
         for entry_key, entry in reruns.items():
             if entry_key.endswith(f"|{workflow}") and entry.get("tag"):
                 tagged = gh_json(runner, ["run", "list", "--branch", entry["tag"], "--workflow", workflow, "--limit",
                                           "5", "--json", FIELDS])
-                runs += [r for r in (tagged if isinstance(tagged, list) else [])
-                         if str(r.get("databaseId")) not in {str(x.get("databaseId")) for x in runs}]
+                tagged = tagged if isinstance(tagged, list) else []
+                tag_runs |= {str(r.get("databaseId")) for r in tagged}
+                runs += [r for r in tagged if str(r.get("databaseId")) not in {str(x.get("databaseId")) for x in runs}]
         if saved is None:
             # A first read (or one after an unreadable state) also takes the newest runs wherever they are, so a
             # repository idle for longer than the reach still reports its latest verdict.
@@ -342,7 +344,8 @@ def since_last(runner, workflows, branch, root):
                 reported[run_id] = n
         # Kept for every run the next read can list (created up to REACH_DAYS before this read).
         keep_from = (now - timedelta(days=REACH_DAYS)).strftime("%Y-%m-%d")
-        kept = {str(r.get("databaseId")) for r in runs if str(r.get("createdAt") or "")[:10] >= keep_from}
+        # And every run on a recovery tag, read whatever its age, so its attempts are never reported twice.
+        kept = {str(r.get("databaseId")) for r in runs if str(r.get("createdAt") or "")[:10] >= keep_from} | tag_runs
         unfinished = [str(r.get("createdAt") or "") for r in runs if r.get("status") != "completed"]
         new_state[key] = {"read_at": now.strftime(STAMP), "horizon": min(unfinished) if unfinished else now.strftime(STAMP),
                           "reported": {k: v for k, v in sorted(reported.items()) if k in kept}}
@@ -369,7 +372,7 @@ def describe_since(report):
     return lines
 
 
-def _fresh_run(runner, workflow, commit, counts, path):
+def _fresh_run(runner, workflow, commit, counts, path, infrastructure=False):
     """A fresh run of the commit, dispatched on a tag `ci/<commit>` pointing at it: the commit's exact tree, for when
     GitHub will not rerun its run (past the 30-day window, or its rerun limit reached). The tag is noted in the state
     before anything is dispatched, so --since-last reads its runs even if this process stops right after. A run already
@@ -384,8 +387,13 @@ def _fresh_run(runner, workflow, commit, counts, path):
                     key=lambda r: str(r.get("createdAt") or ""), reverse=True)
     if on_tag and (on_tag[0].get("status") != "completed" or verdict_of(on_tag[0]) in ("green", "red")):
         state = verdict_of(on_tag[0]) if on_tag[0].get("status") == "completed" else "running"
-        return f"{workflow}: {commit[:12]}'s fresh run on {tag} is {state} ({on_tag[0].get('url')})", \
-            (1 if state == "red" else 0)
+        if not (state == "red" and infrastructure):
+            return f"{workflow}: {commit[:12]}'s fresh run on {tag} is {state} ({on_tag[0].get('url')})", \
+                (1 if state == "red" else 0)
+        # The red-first rule's infrastructure rerun, of the fresh run itself; its red attempt stays on record.
+        again, out, err = runner(["run", "rerun", str(on_tag[0].get("databaseId")), "--failed"])
+        if again == 0:
+            return f"{workflow}: reran {commit[:12]}'s fresh run on {tag} ({on_tag[0].get('url')}), an infrastructure red", 0
     made, out, err = runner(["api", "repos/{owner}/{repo}/git/refs", "-f", f"ref=refs/tags/{tag}", "-f", f"sha={commit}"])
     if made != 0:
         ref = gh_json(runner, ["api", f"repos/{{owner}}/{{repo}}/git/ref/tags/{tag}"])
@@ -447,7 +455,7 @@ def rerun(runner, workflows, branch, commit, root, infrastructure=False):
             continue
         created = str(run.get("createdAt") or "")
         if created and created < (_now() - timedelta(days=RERUN_WINDOW_DAYS)).strftime(STAMP):
-            line, more = _fresh_run(runner, workflow, commit, counts, path)
+            line, more = _fresh_run(runner, workflow, commit, counts, path, infrastructure)
             lines.append(f"{workflow}: {commit[:12]}'s run ({run.get('url')}) is past GitHub's rerun window")
             lines.append(line)
             code = max(code, more)
@@ -458,7 +466,7 @@ def rerun(runner, workflows, branch, commit, root, infrastructure=False):
             reason = (err or out or "").strip().splitlines()
             lines.append(f"{workflow}: gh run rerun {run.get('databaseId')} was refused "
                          f"({(reason[0] if reason else 'no output')[:MAX_MESSAGE]}); a fresh run of the commit instead")
-            line, more = _fresh_run(runner, workflow, commit, counts, path)
+            line, more = _fresh_run(runner, workflow, commit, counts, path, infrastructure)
             lines.append(line)
             code = max(code, more)
             continue
