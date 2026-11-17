@@ -37,6 +37,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import tomllib
 import types
 import unicodedata
@@ -3509,11 +3510,23 @@ def _suite_line(result: dict) -> str:
     return f"{word}  {result['name']}  {result['seconds']:.1f}s{tests}{reason}"
 
 
+class _WholeWordFormatter(argparse.RawDescriptionHelpFormatter):
+    """Help text wrapped at spaces only: argparse's own wrapper also breaks at a hyphen, which split a kit name such
+    as `toolchain-cpp` over two lines once the kit list grew (CI red on 2026-11-17 at c24fcdf)."""
+
+    def _split_lines(self, text, width):
+        return textwrap.wrap(" ".join(text.split()), width, break_on_hyphens=False)
+
+
+class _Parser(argparse.ArgumentParser):
+    """forge.py's parser and each of its subcommands', all with the whole-word help formatter."""
+
+    def __init__(self, *args, formatter_class=_WholeWordFormatter, **kwargs):
+        super().__init__(*args, formatter_class=formatter_class, **kwargs)
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
+    parser = _Parser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_init = sub.add_parser("init", help="Install the base kit plus only the kits named with --kit")
