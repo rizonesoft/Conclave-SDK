@@ -50,7 +50,9 @@ def _name_fault(text: str, limit: int) -> str | None:
         return "must not be empty"
     if len(text) > limit:
         return f"must be at most {limit} characters, not {len(text)}"
-    if text != text.strip(" "):
+    if not text.strip():
+        return "must not be only spaces"
+    if text != text.strip():
         return "must not start or end with a space"
     if text.endswith("."):
         return "must not end with a dot"
@@ -130,9 +132,13 @@ def load_profile(path, root=None) -> dict:
         raise fault("icon", f"must be a string, not {type(icon).__name__}")
     if not icon.strip():
         raise fault("icon", "must not be empty")
-    if PurePosixPath(icon).is_absolute() or PureWindowsPath(icon).is_absolute() or PureWindowsPath(icon).drive:
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in icon):
+        raise fault("icon", f"must not hold a control character, not {icon!r}")
+    # Either separator: `\\dir\\icon.png` is rooted on Windows, and on any system it must not leave the project.
+    normalized = icon.replace("\\", "/")
+    if PurePosixPath(normalized).is_absolute() or PureWindowsPath(icon).anchor:
         raise fault("icon", f"must be relative to the project, not {icon!r}")
-    relative = PurePosixPath(icon.replace("\\", "/"))
+    relative = PurePosixPath(normalized)
     if ".." in relative.parts or not relative.parts:
         raise fault("icon", f"must stay inside the project, not {icon!r}")
     if relative.suffix.lower() not in ICON_SUFFIXES:
@@ -141,10 +147,16 @@ def load_profile(path, root=None) -> dict:
         raise fault("icon", f"{icon} is reached through a link; name the file itself")
     target = root / relative
     try:
+        inside = os.path.commonpath([os.path.abspath(root), os.path.abspath(target)]) == os.path.abspath(root)
+    except ValueError:  # another drive
+        inside = False
+    if not inside:
+        raise fault("icon", f"must stay inside the project, not {icon!r}")
+    try:
         mode = target.stat().st_mode
     except FileNotFoundError:
         raise fault("icon", f"{icon} does not exist in the project") from None
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         raise fault("icon", f"{icon} cannot be read ({exc.strerror or exc})") from None
     if not stat.S_ISREG(mode):
         raise fault("icon", f"{icon} is not a file")

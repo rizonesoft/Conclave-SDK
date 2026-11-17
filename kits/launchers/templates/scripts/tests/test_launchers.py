@@ -103,7 +103,8 @@ class KeyTests(Fixture):
                              ("x" * 61, "at most 60"), (" Site", "start or end with a space"),
                              ("Site ", "start or end with a space"), ("Site.", "end with a dot"),
                              ("A/B", "'/'"), ("A:B", "':'"), ('A"B', "'\"'"), ("A|B", "'|'"), ("A\x07B", "'\\x07'"),
-                             ("A\x7fB", "'\\x7f'")):
+                             ("A\x7fB", "'\\x7f'"), ("\u00a0", "only spaces"), ("\u00a0Site", "start or end"),
+                             ("Site\t", "start or end")):
             with self.subTest(value=value):
                 self.refused(self.valid(title=value), "title:", words)
         self.assertEqual(self.load(self.valid(title="x" * 60))["title"], "x" * 60)
@@ -116,7 +117,11 @@ class KeyTests(Fixture):
         for value, words in ((None, "must be set"), (3, "must be a string"), ("", "must not be empty"),
                              ("/abs/icon.png", "relative to the project"), ("C:/icon.png", "relative to the project"),
                              ("../outside.png", "inside the project"), ("assets/missing.png", "does not exist"),
-                             ("assets/icon.svg", ".png or .ico"), ("assets/folder.png", "is not a file")):
+                             ("assets/icon.svg", ".png or .ico"), ("assets/folder.png", "is not a file"),
+                             # Found by this section's round: rooted on Windows, and a NUL that stat() raises on.
+                             ("\\outside.png", "relative to the project"), ("\\..\\outside.png", "relative to"),
+                             ("assets\\..\\..\\outside.png", "inside the project"),
+                             ("bad\u0000.png", "control character"), ("bad\n.png", "control character")):
             with self.subTest(value=value):
                 self.refused(self.valid(icon=value), "icon:", words)
         self.assertEqual(self.load(self.valid(icon="assets/icon.png"))["icon"], "assets/icon.png")
@@ -166,7 +171,7 @@ class LinkTests(Fixture):
                              ("A/B", "'/'"), ("Claude", "an agent's link"), ("codex", "an agent's link"),
                              ("Antigravity", "an agent's link"), ("Nightly campaign", "ends in campaign"),
                              ("Run Campaign", "ends in campaign"), ("Agy", "an agent's icon"),
-                             ("---", "no letter or digit")):
+                             ("---", "no letter or digit"), ("\u00a0", "only spaces")):
             with self.subTest(value=value):
                 self.refused(self.link(label=value), "links[1].label:", words)
         self.assertEqual(self.load(self.link(label="x" * 30))["links"][0]["label"], "x" * 30)
