@@ -18,6 +18,10 @@ import time
 import unittest
 
 SCRIPTS = Path(__file__).resolve().parents[1]
+# The launchers kit's renderer, which this kit brings (D07 T01 section 3): beside these scripts in an installed
+# project, in that kit's own folder in the SDK.
+RENDERER = next(path for path in (SCRIPTS / "campaign-icon.py",
+                                  SCRIPTS.parents[2] / "launchers/templates/scripts/campaign-icon.py") if path.is_file())
 PWSH = shutil.which("pwsh")
 # The stand-in for wsl.exe: it lists two distros, translates a Windows path, says whether a folder exists (all do but
 # those in STUB_WSL_MISSING), and records every call; with STUB_WSL_FAIL set it fails everything.
@@ -65,14 +69,15 @@ class ShortcutTest(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         base = Path(self._tmp.name)
         self.project = base / "My Proj's"  # a space and a quote
-        for rel in ("lib/unattended.py", "campaign-icon.py", "unattended-shortcut.ps1"):
+        for rel in ("lib/unattended.py", "unattended-shortcut.ps1"):
             (self.project / "scripts" / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(SCRIPTS / rel, self.project / "scripts" / rel)
+        shutil.copyfile(RENDERER, self.project / "scripts" / "campaign-icon.py")
         (self.project / ".conclave").mkdir()
         (self.project / "docs").mkdir()
         (self.project / "docs" / "unattended-prompt.md").write_text("Run the plan.\n", encoding="utf-8")
         self.write_profile(self.PROFILE)
-        icon_module = load("campaign_icon_for_shortcut", SCRIPTS / "campaign-icon.py")
+        icon_module = load("campaign_icon_for_shortcut", RENDERER)
         self.icon = base / "brand.png"
         self.icon.write_bytes(icon_module.write_png(256, 256, bytearray(bytes((16, 34, 26, 255)) * 256 * 256)))
         self.desk, self.icons = base / "desk", base / "icons"

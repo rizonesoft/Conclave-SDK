@@ -13,7 +13,7 @@
 #
 # Each shortcut's icon is the SDK's mark (assets/brand/conclave-sdk.ico) with its runner's badge in the corner, as
 # Office's and Isotone's campaign launchers carry it: rendered on this machine into %LOCALAPPDATA%\Conclave-SDK by the
-# unattended kit's stdlib renderer (kits/unattended/templates/scripts/campaign-icon.py), never into the repository.
+# launchers kit's stdlib renderer (kits/launchers/templates/scripts/campaign-icon.py), never into the repository.
 #
 # The goal is a Claude Code /goal, which is checked after every turn: the plan finished through the process-plan
 # skill. That skill starts the run guard itself (scripts/campaign_guard.py and a heartbeat inside the session), so this
@@ -76,7 +76,7 @@ $title = ($shortcuts | Where-Object { $_.Runner -eq $Runner }).Name
 if ($InstallShortcut) {
   $pwsh = (Get-Process -Id $PID).Path
   $brand = Join-Path $repo 'assets\brand\conclave-sdk.ico'
-  $renderer = Join-Path $repo 'kits\unattended\templates\scripts\campaign-icon.py'
+  $renderer = Join-Path $repo 'kits\launchers\templates\scripts\campaign-icon.py'
   # The one shortcut this file wrote before the runners split (2026-11-12), named for neither runner.
   $retired = @((Join-Path $ShortcutDir 'Conclave-SDK unattended run.lnk'),
               (Join-Path $ShortcutDir 'Conclave-SDK Codex campaign.lnk'))

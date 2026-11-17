@@ -746,9 +746,9 @@ class WindowlessTest(unittest.TestCase):
                 yield node.lineno, None
 
     # The kit's own Python files: in an installed project scripts/ also holds the other kits' files, which are theirs.
-    KIT_FILES = ("campaign-icon.py", "lib/unattended.py", "tests/test_campaign_icon.py", "tests/test_document.py",
-                 "tests/test_preflight.py", "tests/test_run.py", "tests/test_shortcut.py", "tests/test_unattended.py",
-                 "unattended-preflight.py", "unattended-run.py")
+    # The renderer and its tests are the launchers kit's (D07 T01 section 3), checked by that kit's own suite.
+    KIT_FILES = ("lib/unattended.py", "tests/test_document.py", "tests/test_preflight.py", "tests/test_run.py",
+                 "tests/test_shortcut.py", "tests/test_unattended.py", "unattended-preflight.py", "unattended-run.py")
 
     def test_the_kit_file_list_is_complete_in_the_kit_itself(self):
         if SCRIPTS.parent.name != "templates":

@@ -4,20 +4,23 @@ Gives any project the same family of Windows desktop links: `<Title> (<Agent>)` 
 
 ## What it needs and how to install it
 
-It needs no other kit. The links are Windows shortcuts, so they are written on Windows; a project that lives in WSL is opened through `wsl.exe`, and a project on a Windows drive through PowerShell. Install it with `python forge.py kit <project> launchers`, set the project's title and icon in `.conclave/launchers.json`, and check it with `python forge.py doctor <project> launchers`. The SDK does not install this kit in itself (`SELF_KITS` in `forge.py`).
+It needs no other kit, and the `unattended` kit brings it with it, since that kit's campaign shortcuts draw their icons with this kit's renderer. The links are Windows shortcuts, so they are written on Windows; a project that lives in WSL is opened through `wsl.exe`, and a project on a Windows drive through PowerShell. Install it with `python forge.py kit <project> launchers`, set the project's title and icon in `.conclave/launchers.json`, and check it with `python forge.py doctor <project> launchers`. The SDK does not install this kit in itself (`SELF_KITS` in `forge.py`).
 
 ## What it installs
 
 | File | What it is |
 | ---- | ---------- |
 | `.conclave/launchers.json` | The profile: the title, the icon, the agents that get a link, and further links |
+| `scripts/campaign-icon.py` | The icon renderer: the project's icon with its runner's badge (stdlib only) |
 | `scripts/lib/launchers.py` | `load_profile` and `show`: the profile, every key checked (stdlib only) |
-| `scripts/tests/test_launchers.py` | The loader's tests: one per refusal, and `show` |
+| `scripts/tests/test_campaign_icon.py` | The renderer's tests: PNG and ICO read back, the badge and its sizes |
+| `scripts/tests/test_launchers.py` | The loader's tests (one per refusal, and `show`), and no window opened |
 
 ## Doctor
 
 `python forge.py doctor <project> launchers` reports:
 
+- `renderer`: `ok` when `scripts/campaign-icon.py` is there, `setup_required` with the install command when it is not.
 - `profile`: `ok` with the title when `.conclave/launchers.json` loads through the kit's `scripts/lib/launchers.py`; `setup_required` with the loader's refusal (a fresh install's unset `title` among them), or with the install command when there is no file.
 
 ## The profile

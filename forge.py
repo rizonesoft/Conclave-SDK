@@ -198,6 +198,17 @@ UNATTENDED_MODULE = "scripts/lib/unattended.py"
 KIT_ORDER = ("base", "todo", "reviewer", "automations", "launchers", "unattended", "lsp", "toolchain-cpp",
              "toolchain-web", "laravel", "wordpress")
 LAUNCHERS_PROFILE = ".conclave/launchers.json"  # the launchers kit's profile: the title, icon, agents and links
+LAUNCHERS_RENDERER = "scripts/campaign-icon.py"  # the launchers kit's icon renderer, which the unattended kit uses
+# A kit that installs another with it, by the same `apply_kit`, so the other's files are recorded under its own name.
+# The Laravel kit's `lsp` has its own branch (the server table is filled once, after both). D07 T01 section 3.
+BROUGHT_KITS = {"unattended": "launchers"}
+# Files that moved from one kit to another, by path: (the kit that shipped it, the kit that ships it now). A record
+# written before the move names the old kit and is read as naming the new one (`_move_entries`), so `diff` and
+# `update` keep its digest. D07 T01 section 3.
+KIT_MOVES = {
+    LAUNCHERS_RENDERER: ("unattended", "launchers"),
+    "scripts/tests/test_campaign_icon.py": ("unattended", "launchers"),
+}
 BASE_SKILLS = ("authoring-skills", "local-tool-safety")
 AGENT_DIRS = (".agents", ".claude", ".codex")
 # A kit's version of a file the project changed, written beside it by `update --kit-new` for a hand merge, and the
@@ -473,7 +484,28 @@ def load_record(target_root: Path) -> dict | None:
         raise ValueError(f"{RECORD}: nested too deeply to be an install record") from None
     except (OSError, ValueError) as exc:  # a decoding error and a JSON error are both ValueErrors
         raise ValueError(f"{RECORD}: not readable as UTF-8 JSON ({exc})") from None
-    return _check_record(data)
+    return _move_entries(_check_record(data))
+
+
+def _move_entries(record: dict) -> dict:
+    """The record with each file of KIT_MOVES that it names under the kit that used to ship it named under the kit
+    that ships it now, its digest kept. The new kit gains an entry with the old kit's agents and commit when the
+    record has none. Every reader sees the move; a run that writes the record keeps it."""
+    for rel, (old, new) in KIT_MOVES.items():
+        entry = record["files"].get(rel)
+        if entry is None or entry["kit"] != old:
+            continue
+        if new not in record["kits"]:
+            was = record["kits"][old]
+            record["kits"][new] = {"sdk_commit": was["sdk_commit"], "agents": list(was["agents"]), "host": None}
+        entry["kit"] = new
+    return record
+
+
+def _record_on_disk(target_root: Path) -> dict | None:
+    """The record as the file holds it, before `_move_entries`: what `update` compares to decide whether to write."""
+    path = Path(target_root) / RECORD
+    return json.loads(path.read_bytes().decode("utf-8")) if path.is_file() else None
 
 
 def write_record(target_root: Path, record: dict) -> None:
@@ -690,7 +722,9 @@ def apply_kit(
     existing files.
 
     The Laravel kit brings the lsp kit with it (the diagnostics client and the server table are that kit's), by
-    this same function, so its files are recorded under `lsp`; the result names them under `lsp`.
+    this same function, so its files are recorded under `lsp`; the result names them under `lsp`. The unattended
+    kit brings the launchers kit (its shortcuts draw their icons with that kit's renderer) the same way, named under
+    `launchers` (BROUGHT_KITS).
 
     A file that already exists is the project's and is never replaced: the kit is a template copied once, and the
     project adapts its copy from then on. `include(rel)` can leave paths out entirely.
@@ -715,8 +749,13 @@ def apply_kit(
     if include is not None:
         plan = [(src, dst, rel) for src, dst, rel in plan if include(rel)]
 
-    # Preflight all planned destinations for symlink-parent traversal before writing any file
-    for _src, dst, rel in plan:
+    # Preflight all planned destinations for symlink-parent traversal before writing any file, the brought kit's too
+    brought_plan = []
+    if kit_name in BROUGHT_KITS:
+        brought_plan = [(src, dst, rel) for src, dst, rel, generated in
+                        kit_plan(target_root, BROUGHT_KITS[kit_name], agent=agent)[0]
+                        if not generated and (include is None or include(rel))]
+    for _src, dst, rel in plan + brought_plan:
         if dst.exists() or dst.is_symlink():
             continue
         if _has_unsafe_parent(target_root, rel):
@@ -791,6 +830,10 @@ def apply_kit(
         # The table is filled once, below, after both kits' files are in place.
         with_lsp = apply_kit(target_root, "lsp", agent=agent, dry_run=dry_run, include=include, fill_table=False)
         result["lsp"] = {"installed": with_lsp["installed"], "preserved": with_lsp["preserved"]}
+    if kit_name in BROUGHT_KITS:
+        brought = BROUGHT_KITS[kit_name]
+        with_brought = apply_kit(target_root, brought, agent=agent, dry_run=dry_run, include=include)
+        result[brought] = {"installed": with_brought["installed"], "preserved": with_brought["preserved"]}
     if kit_name in ("lsp", "toolchain-web", "toolchain-cpp", "laravel") and fill_table:
         servers = _fill_lsp_table(target_root, dry_run, installing=kit_name)
         if servers is not None:
@@ -1185,6 +1228,9 @@ def _diff_kits(target_root: Path, kit_name: str | None, *, patch: bool) -> tuple
     record = load_record(target_root)
     recorded_kits = record["kits"] if record else {}
     present = set(recorded_kits) | set(installed_kits(target_root))
+    # A kit another brings is there wherever that one is, so an install from before it was brought still has its files
+    # (the renderer an unattended install shipped before D07 T01 section 3) reported by the kit that ships them now.
+    present |= {BROUGHT_KITS[name] for name in present if name in BROUGHT_KITS}
     if kit_name is not None:
         if kit_name not in list_kits():
             raise ValueError(f"Unknown kit '{kit_name}'. Available kits: {', '.join(list_kits())}")
@@ -1323,6 +1369,10 @@ def update_project(target_root: Path, kit_name: str | None = None, *, only=(), d
         _recover(target, load_record(target) or {"schema_version": 1, "kits": {}, "files": {}})
     report, sources = _diff_kits(target, kit_name, patch=True)
     record = load_record(target) or {"schema_version": 1, "kits": {}, "files": {}}
+    # A record from before a file moved kits is read as naming the new one (`_move_entries`); it is written so here,
+    # even when no file is, so the next reader of the file itself (another tool, a person) sees the move too.
+    if not dry_run and (target / RECORD).is_file() and _record_on_disk(target) != record:
+        write_record(target, record)
     written: list[str] = []
     left: list[dict] = []
     siblings: list[str] = []
@@ -1984,6 +2034,11 @@ def _doctor_unattended(target_root: Path, add_check, system: str | None = None) 
             except (OSError, ValueError, KeyError, TypeError):
                 pass
         add_check(rel, "ok" if path.is_file() else "missing", path.as_posix())
+    # The shortcuts draw their icons with the launchers kit's renderer, which this kit brings (D07 T01 section 3).
+    renderer = target_root / LAUNCHERS_RENDERER
+    add_check(LAUNCHERS_RENDERER, "ok" if renderer.is_file() else "missing",
+              renderer.as_posix() if renderer.is_file() else
+              f"{renderer.as_posix()} (the launchers kit's: python forge.py kit {target_root.as_posix()} unattended)")
     for agent_dir in AGENT_DIRS:
         sk = target_root / agent_dir / "skills/unattended-run/SKILL.md"
         add_check(f"skill:unattended-run:{agent_dir}", "ok" if sk.is_file() else "missing", sk.as_posix())
@@ -2601,7 +2656,12 @@ def _doctor_launchers(target_root: Path, add_check) -> None:
     """The launchers kit's checks, from files only. `profile`: the project's `.conclave/launchers.json`, which the
     kit installs and the shortcut script reads, held to the kit's own loader (`scripts/lib/launchers.py`): `ok` with
     the title, `setup_required` with the loader's refusal (a fresh install's unset title among them) or with the
-    install command when there is no file."""
+    install command when there is no file. `renderer`: `scripts/campaign-icon.py`, which draws every link's icon
+    (D07 T01 section 3)."""
+    renderer = target_root / LAUNCHERS_RENDERER
+    add_check("renderer", "ok" if renderer.is_file() and not _is_link(renderer) else "setup_required",
+              renderer.as_posix() if renderer.is_file() and not _is_link(renderer) else
+              f"no {LAUNCHERS_RENDERER}: install the kit with python forge.py kit {target_root.as_posix()} launchers")
     profile = target_root / LAUNCHERS_PROFILE
     if not profile.exists():
         add_check("profile", "setup_required",
@@ -2833,6 +2893,7 @@ def provision(
         raise ValueError(f"Target must be a folder, or a path that does not exist yet: {target_root}")
 
     chosen = ["base", *(["todo"] if with_todo else []), *(kits or [])]
+    chosen += [BROUGHT_KITS[k] for k in chosen if k in BROUGHT_KITS]   # planned and preflighted with the rest
     selected = [k for k in KIT_ORDER if k in chosen] + [k for k in dict.fromkeys(chosen) if k not in KIT_ORDER]
     if acceptance is not None and "todo" not in selected:
         raise ValueError("--acceptance: the bar is written into the todo kit's plan; add --kit todo")

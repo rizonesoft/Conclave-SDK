@@ -395,9 +395,13 @@ class ForgeProvisionTests(unittest.TestCase):
                 self.assertEqual(sorted(res["installed"]), sorted(rel for _src, _dst, rel, _generated in entries))
                 # The Laravel kit brings the lsp kit with it (D04 T01 section 4): that kit's plan is written too,
                 # reported under `lsp`, and its table is then filled with the Laravel servers.
-                brought, _extra = forge.kit_plan(project, "lsp") if kit == "laravel" else ([], {})
-                self.assertEqual(sorted(res.get("lsp", {}).get("installed", [])),
+                # The unattended kit brings the launchers kit the same way (D07 T01 section 3), under `launchers`.
+                other = {"laravel": "lsp", "unattended": "launchers"}.get(kit)
+                brought, _extra = forge.kit_plan(project, other) if other else ([], {})
+                self.assertEqual(sorted(res.get(other, {}).get("installed", [])) if other else [],
                                  sorted(rel for _src, _dst, rel, _generated in brought))
+                if kit == "unattended":
+                    self.assertIn(forge.LAUNCHERS_RENDERER, res["launchers"]["installed"])
                 written = {p for p in project.rglob("*") if p.is_file()} - before - {project / forge.RECORD}
                 self.assertEqual(written, {dst for _src, dst, _rel, _generated in entries + brought})
                 for src, dst, rel, generated in entries + brought:
@@ -3560,6 +3564,135 @@ class LaunchersKitTests(unittest.TestCase):
         agents = (FORGE_ROOT / "AGENTS.md").read_text(encoding="utf-8")
         self.assertIn("`kits/launchers`", agents)
         self.assertIn("The `launchers`, `unattended`,", agents)
+
+
+class RendererMoveTests(unittest.TestCase):
+    """The icon renderer belongs to the launchers kit, the unattended kit brings it, and an install from before the
+    move keeps its record true (D07 T01 section 3)."""
+
+    MOVED = (forge.LAUNCHERS_RENDERER, "scripts/tests/test_campaign_icon.py")
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.target = pathlib.Path(self._tmp.name).resolve() / "project"
+        self.target.mkdir()
+
+    def record(self):
+        return json.loads((self.target / forge.RECORD).read_text(encoding="utf-8"))
+
+    def states(self, kit):
+        return {f["path"]: f["state"] for f in forge.diff_project(self.target)["kits"].get(kit, {}).get("files", [])}
+
+    def old_install(self, keep_launchers_files=False):
+        """An unattended install as it was before the move: the renderer and its test recorded under `unattended`,
+        and no launchers kit in the record (nor its other files, unless kept on disk, unrecorded)."""
+        forge.apply_kit(self.target, "unattended")
+        record = self.record()
+        for rel in [r for r, e in record["files"].items() if e["kit"] == "launchers"]:
+            if rel in self.MOVED:
+                record["files"][rel]["kit"] = "unattended"
+            else:
+                del record["files"][rel]
+                if not keep_launchers_files:
+                    (self.target / rel).unlink()
+        del record["kits"]["launchers"]
+        (self.target / forge.RECORD).write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return record
+
+    def test_the_unattended_install_brings_the_renderer_recorded_under_launchers(self):
+        result = forge.apply_kit(self.target, "unattended")
+        self.assertIn(forge.LAUNCHERS_RENDERER, result["launchers"]["installed"])
+        self.assertNotIn(forge.LAUNCHERS_RENDERER, result["installed"])
+        record = self.record()
+        for rel in self.MOVED:
+            self.assertEqual(record["files"][rel]["kit"], "launchers", rel)
+        self.assertEqual(record["kits"]["launchers"]["agents"], record["kits"]["unattended"]["agents"])
+        renderer = FORGE_ROOT / "kits/launchers/templates" / forge.LAUNCHERS_RENDERER
+        self.assertEqual((self.target / forge.LAUNCHERS_RENDERER).read_bytes(), renderer.read_bytes())
+
+    def test_init_with_the_unattended_kit_writes_the_launchers_kit_once(self):
+        written = forge.provision(self.target, kits=["todo", "unattended"])["written"]
+        self.assertEqual(written.count(forge.LAUNCHERS_RENDERER), 1)
+        self.assertEqual(self.record()["files"][forge.LAUNCHERS_RENDERER]["kit"], "launchers")
+
+    def test_an_old_record_keeps_each_moved_files_digest_and_state(self):
+        old = self.old_install()
+        digests = {rel: old["files"][rel]["sha256"] for rel in self.MOVED}
+        before = (self.target / forge.RECORD).read_bytes()
+        launchers, unattended = self.states("launchers"), self.states("unattended")
+        for rel in self.MOVED:
+            self.assertEqual(launchers[rel], "identical", rel)
+            self.assertNotIn(rel, unattended)   # never a file no kit ships (project-only)
+        self.assertEqual(launchers[forge.LAUNCHERS_PROFILE], "missing")
+        # The project edits the renderer and deletes its test: each keeps its digest, so the states stay true.
+        (self.target / self.MOVED[0]).write_bytes((self.target / self.MOVED[0]).read_bytes() + b"# the project's\n")
+        (self.target / self.MOVED[1]).unlink()
+        launchers = self.states("launchers")
+        self.assertEqual((launchers[self.MOVED[0]], launchers[self.MOVED[1]]), ("project-changed", "project-removed"))
+        forge.update_project(self.target, dry_run=True)
+        self.assertEqual((self.target / forge.RECORD).read_bytes(), before, "diff and a dry run never write")
+        result = forge.update_project(self.target)
+        self.assertNotIn(self.MOVED[0], result["written"])
+        self.assertNotIn(self.MOVED[1], result["written"])   # project-removed is written only when --only names it
+        record = self.record()
+        for rel in self.MOVED:
+            self.assertEqual(record["files"][rel], {"kit": "launchers", "sha256": digests[rel]}, rel)
+        self.assertEqual(self.states("launchers")[self.MOVED[0]], "project-changed")
+
+    def test_an_update_with_nothing_to_write_still_moves_the_record(self):
+        old = self.old_install(keep_launchers_files=True)
+        result = forge.update_project(self.target)
+        self.assertEqual(result["written"], [])
+        record = self.record()
+        for rel in self.MOVED:
+            self.assertEqual(record["files"][rel], {"kit": "launchers", "sha256": old["files"][rel]["sha256"]}, rel)
+        self.assertEqual(record["kits"]["launchers"],
+                         {"sdk_commit": old["kits"]["unattended"]["sdk_commit"],
+                          "agents": old["kits"]["unattended"]["agents"], "host": None})
+
+    def test_an_old_install_with_no_record_reports_the_renderer_under_launchers(self):
+        self.old_install()
+        (self.target / forge.RECORD).unlink()
+        self.assertFalse((self.target / forge.LAUNCHERS_PROFILE).exists())
+        self.assertEqual(self.states("launchers")[forge.LAUNCHERS_RENDERER], "identical")
+        self.assertNotIn(forge.LAUNCHERS_RENDERER, self.states("unattended"))
+
+    def test_both_doctors_report_the_renderer(self):
+        def rows(kit):
+            return {c["name"]: c for c in forge.doctor_repo(self.target, kit)["checks"]}
+        self.assertEqual(rows("launchers")["renderer"]["status"], "setup_required")
+        self.assertIn("python forge.py kit", rows("launchers")["renderer"]["detail"])
+        self.assertEqual(rows("unattended")[forge.LAUNCHERS_RENDERER]["status"], "missing")
+        forge.apply_kit(self.target, "unattended")
+        self.assertEqual(rows("launchers")["renderer"]["status"], "ok")
+        self.assertEqual(rows("unattended")[forge.LAUNCHERS_RENDERER]["status"], "ok")
+
+    # Two kits ship the same file only on purpose: the toolchain kits share their check (tests/test_toolchain_kits.py).
+    SHARED = {"scripts/toolchain-check.py": {"toolchain-cpp", "toolchain-web"},
+              "scripts/tests/test_toolchain_check.py": {"toolchain-cpp", "toolchain-web"}}
+
+    @staticmethod
+    def duplicates(kits_root):
+        owners: dict[str, set] = {}
+        for kit in sorted(p for p in kits_root.iterdir() if (p / "templates").is_dir()):
+            templates = kit / "templates"
+            for path in templates.rglob("*"):
+                if path.is_file() and "__pycache__" not in path.parts:
+                    owners.setdefault(path.relative_to(templates).as_posix(), set()).add(kit.name)
+        return {rel: kits for rel, kits in owners.items()
+                if len(kits) > 1 and kits != RendererMoveTests.SHARED.get(rel)}
+
+    def test_no_file_is_shipped_by_two_kits(self):
+        self.assertEqual(self.duplicates(FORGE_ROOT / "kits"), {})
+
+    def test_the_duplicate_check_names_a_renderer_copy_left_in_the_unattended_kit(self):
+        kits = pathlib.Path(self._tmp.name) / "kits"
+        for kit, rel in (("launchers", forge.LAUNCHERS_RENDERER), ("unattended", forge.LAUNCHERS_RENDERER),
+                         ("toolchain-cpp", "scripts/toolchain-check.py"), ("toolchain-web", "scripts/toolchain-check.py")):
+            (kits / kit / "templates" / rel).parent.mkdir(parents=True, exist_ok=True)
+            (kits / kit / "templates" / rel).write_text("x\n", encoding="utf-8")
+        self.assertEqual(self.duplicates(kits), {forge.LAUNCHERS_RENDERER: {"launchers", "unattended"}})
 
 
 class UnattendedKitTests(unittest.TestCase):

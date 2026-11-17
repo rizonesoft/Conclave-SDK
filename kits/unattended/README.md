@@ -6,7 +6,7 @@ A run never restarts itself: it starts only when its operator starts it, and `st
 
 ## What it needs and how to install it
 
-It needs the `todo` kit (the run guard, `scripts/campaign_guard.py`, and the graph library the ship count reads, `scripts/lib/todo_graph.py`) and tmux, so the run lives on Linux and in WSL; on Windows the shortcuts start it through `wsl.exe`. Install it after the todo kit with `python forge.py kit <project> unattended`, set `name`, `model` and `effort` in `.conclave/unattended.json` (the template leaves them `null`, and the loader refuses them until set, except Antigravity Orchestrator models `gemini-pro-orchestrator` and `gemini-pro-orchestrator-*`, which require `"effort": null`), and check the machine with `python forge.py doctor <project> unattended`. The SDK does not install this kit in itself (`SELF_KITS` in `forge.py`).
+It needs the `todo` kit (the run guard, `scripts/campaign_guard.py`, and the graph library the ship count reads, `scripts/lib/todo_graph.py`) and tmux, so the run lives on Linux and in WSL; on Windows the shortcuts start it through `wsl.exe`. It brings the `launchers` kit with it, whose `scripts/campaign-icon.py` draws each shortcut's icon, so installing this kit installs that one too (recorded under `launchers` in `.conclave/kits.json`). Install it after the todo kit with `python forge.py kit <project> unattended`, set `name`, `model` and `effort` in `.conclave/unattended.json` (the template leaves them `null`, and the loader refuses them until set, except Antigravity Orchestrator models `gemini-pro-orchestrator` and `gemini-pro-orchestrator-*`, which require `"effort": null`), and check the machine with `python forge.py doctor <project> unattended`. The SDK does not install this kit in itself (`SELF_KITS` in `forge.py`).
 
 ## What it installs
 
@@ -15,7 +15,6 @@ It needs the `todo` kit (the run guard, `scripts/campaign_guard.py`, and the gra
 | `.conclave/unattended.json` | The run profile: agent, model, effort, runners, prompt, thresholds, preflight checks |
 | `docs/unattended-prompt.md` | The seed prompt the run starts with, naming no project |
 | `docs/unattended-run.md` | The operator's page: start, watch, stop, shortcuts, the heartbeat, each message |
-| `scripts/campaign-icon.py` | A launcher's icon: the project's icon with its runner's badge (stdlib only) |
 | `scripts/unattended-run.py` | `start`, `status`, `attach`, `stop`, `heartbeat`, `shortcut`: the run in tmux |
 | `scripts/unattended-preflight.py` | One PASS or FAIL line per precondition; exit 1 on any FAIL (Linux, WSL) |
 | `scripts/unattended-shortcut.ps1` | Windows desktop shortcuts, one per runner, that start the run in WSL |

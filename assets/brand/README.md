@@ -23,8 +23,8 @@ The Conclave-SDK mark is the Conclave Agent OS mark in green: the same dark tile
 
 ## Launcher icons
 
-`pwsh scripts/start-run.ps1 -InstallShortcut` writes "Conclave-SDK Claude campaign" and "Conclave-SDK Carbon campaign" to the desktop, in the shape Office's and Isotone's campaign launchers have: the mark with the runner's badge in the bottom right (Claude Code's orange spark, Antigravity's blue Carbon sparkle). Their icons are rendered on the machine into `%LOCALAPPDATA%\Conclave-SDK` by `kits/unattended/templates/scripts/campaign-icon.py badge` and are never committed.
+`pwsh scripts/start-run.ps1 -InstallShortcut` writes "Conclave-SDK Claude campaign" and "Conclave-SDK Carbon campaign" to the desktop, in the shape Office's and Isotone's campaign launchers have: the mark with the runner's badge in the bottom right (Claude Code's orange spark, Antigravity's blue Carbon sparkle). Their icons are rendered on the machine into `%LOCALAPPDATA%\Conclave-SDK` by `kits/launchers/templates/scripts/campaign-icon.py badge` (the launchers kit's renderer) and are never committed.
 
 ## Rendering
 
-The SVG files are the source. Each was drawn once at 1024 pixels in headless Chrome, and the PNG and ICO files were made from those renders by `campaign-icon.py` (area resizing, standard library only): `campaign-icon.py frames <large.png> <small.png> conclave-sdk.ico` takes the small drawing up to 64 pixels. They are committed so that nothing in the repository needs an image library. Render them again only when an SVG changes.
+The SVG files are the source. Each was drawn once at 1024 pixels in headless Chrome, and the PNG and ICO files were made from those renders by the launchers kit's `campaign-icon.py` (`kits/launchers/templates/scripts/`; area resizing, standard library only): `campaign-icon.py frames <large.png> <small.png> conclave-sdk.ico` takes the small drawing up to 64 pixels. They are committed so that nothing in the repository needs an image library. Render them again only when an SVG changes.

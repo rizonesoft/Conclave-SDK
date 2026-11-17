@@ -1,5 +1,6 @@
 """The launcher profile and its loader, `scripts/lib/launchers.py` (D07 T01 section 2)."""
 
+import ast
 import importlib.util
 import json
 import os
@@ -271,6 +272,82 @@ class ShowTests(Fixture):
                 self.assertEqual((done.returncode, done.stdout), (1, ""))
                 self.assertIn(words, done.stderr)
                 self.assertNotIn("Traceback", done.stderr)
+
+
+
+class WindowlessTest(unittest.TestCase):
+    """Every process the kit starts, from its scripts and from its tests, opens no console window on Windows (the
+    owner's rule of 2026-11-12: a launcher test never opens a window). D07 T01 section 3 moved the renderer and its
+    tests here, out of the unattended kit's check."""
+
+    SCRIPTS = HERE.parent
+    # The kit's own Python files: in an installed project scripts/ also holds the other kits' files, which are theirs.
+    KIT_FILES = ("campaign-icon.py", "lib/launchers.py", "tests/test_campaign_icon.py", "tests/test_launchers.py")
+
+    @staticmethod
+    def starts(tree):
+        """Each start through subprocess.run or subprocess.Popen, with the call whose keywords configure it: the call
+        itself, or the callback registration it is handed to (`addCleanup(subprocess.run, ...)`), or None for an alias
+        (`start = subprocess.run`), which hides its starts."""
+        parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Attribute) and node.attr in ("run", "Popen")
+                    and isinstance(node.value, ast.Name) and node.value.id == "subprocess"):
+                continue
+            parent = parents.get(node)
+            if isinstance(parent, ast.Call) and parent.func is node:
+                yield node.lineno, parent
+            elif isinstance(parent, ast.Call) and node in parent.args:
+                if getattr(parent.func, "attr", "") in ("addCleanup", "callback", "submit"):
+                    yield node.lineno, parent
+            elif isinstance(parent, (ast.Assign, ast.AnnAssign, ast.keyword, ast.Return)):
+                yield node.lineno, None
+
+    @staticmethod
+    def windowless_flag(call) -> bool:
+        """Whether a start passes the no-window flag: `creationflags=windowless()` or `creationflags=NO_WINDOW`."""
+        flags = [k.value for k in (call.keywords if call else []) if k.arg == "creationflags"]
+        if not flags:
+            return False
+        value = flags[0]
+        if isinstance(value, ast.Call):
+            return getattr(value.func, "id", "") == "windowless" or getattr(value.func, "attr", "") == "windowless"
+        return isinstance(value, ast.Name) and value.id == "NO_WINDOW"
+
+    def problems(self, text: str, name: str) -> list[str]:
+        lines = text.splitlines()
+        found = []
+        for line, call in self.starts(ast.parse(text)):
+            if "window-exempt:" in lines[line - 1]:
+                continue  # the reason is on the line, as the owner's launcher-test hook asks
+            if not self.windowless_flag(call):
+                found.append(f"{name}:{line} starts a process without the no-window flag")
+        return found
+
+    def test_the_kit_file_list_is_complete_in_the_kit_itself(self):
+        if self.SCRIPTS.parent.name != "templates":
+            self.skipTest("an installed copy: scripts/ holds other kits' files too")
+        found = sorted(p.relative_to(self.SCRIPTS).as_posix() for p in self.SCRIPTS.rglob("*.py")
+                       if "__pycache__" not in p.parts)
+        self.assertEqual(found, sorted(self.KIT_FILES), "a kit file is missing from WindowlessTest.KIT_FILES")
+
+    def test_every_process_the_kit_starts_gets_no_window(self):
+        problems, seen = [], 0
+        for name in self.KIT_FILES:
+            text = (self.SCRIPTS / name).read_text(encoding="utf-8")
+            seen += sum(1 for _ in self.starts(ast.parse(text)))
+            problems += self.problems(text, name)
+        self.assertEqual(problems, [])
+        self.assertGreaterEqual(seen, 4)
+
+    def test_the_check_names_a_start_without_the_flag(self):
+        for source in ("subprocess.run(['x'], timeout=30)\n", "t.addCleanup(subprocess.run, ['x'])\n",
+                       "subprocess.Popen(['x'], creationflags=0)\n", "start = subprocess.run\n"):
+            with self.subTest(source=source):
+                self.assertEqual(self.problems(source, "sample.py"),
+                                 ["sample.py:1 starts a process without the no-window flag"])
+        self.assertEqual(self.problems("subprocess.run(['x'], creationflags=NO_WINDOW)\n", "ok.py"), [])
+        self.assertEqual(self.problems("subprocess.run(['x'], creationflags=windowless())\n", "ok.py"), [])
 
 
 if __name__ == "__main__":
