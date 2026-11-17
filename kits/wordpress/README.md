@@ -15,10 +15,12 @@ Every host (`templates/`):
 | `scripts/lib/site_ssh.py` | Pinned SSH, SFTP and rsync; password on a private pipe to `sshpass` |
 | `bin/wp-remote`, `scripts/site-access.py` | WP-CLI on the live site; SSH/SFTP runner and `check` |
 | `scripts/tests/test_site_access.py` | Pin and identity refusal tests (no network) |
+| `tools/ticket-login/conclave-ticket-login.php` | Plugin that logs the admin in from a one-use ticket; holds no key |
+| `scripts/tests/test_ticket_login.py`, `ticket_login_harness.php` | The plugin's text and behaviour tests (PHP CLI) |
 | `.{agents,claude,codex}/skills/wordpress-site-safety/` | Site-safety rules |
 | `.{agents,claude,codex}/skills/wordpress-connect/` | The setup runbook |
 | `docs/wordpress-agent-tooling.md` | How the pieces fit |
-| `phpcs.xml.dist`, `tools/phpcs/composer.json` | WordPress-Extra ruleset and isolated toolchain |
+| `phpcs.xml.dist`, `tools/phpcs/composer.json` | WordPress-Extra ruleset for site code, and its toolchain |
 | `scripts/hooks/wordpress-phpcs-pre-push.sh` | Pre-push PHPCS run over the whole tree |
 
 Pressable only (`hosts/pressable/templates/`):

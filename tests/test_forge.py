@@ -606,6 +606,8 @@ class ForgeProvisionTests(unittest.TestCase):
             scripts = pathlib.Path(tmp) / "scripts"
             shutil.copytree(kit / "templates/scripts", scripts)
             shutil.copytree(kit / "hosts/pressable/templates/scripts", scripts, dirs_exist_ok=True)
+            # The ticket login's tests read the plugin where an install puts it, beside scripts/ (D07 T02 section 1).
+            shutil.copytree(kit / "templates/tools/ticket-login", pathlib.Path(tmp) / "tools/ticket-login")
             result = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", str(scripts / "tests")],
                                     capture_output=True, text=True, timeout=120)
         self.assertEqual(result.returncode, 0, result.stderr[-2000:])

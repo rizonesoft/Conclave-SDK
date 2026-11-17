@@ -6,4 +6,6 @@
   <exclude-pattern>*/vendor/*</exclude-pattern>
   <exclude-pattern>*/node_modules/*</exclude-pattern>
   <exclude-pattern>*/tools/phpcs/*</exclude-pattern>
+  <!-- The kit's test tooling (the ticket login's WordPress stand-ins), not site code. -->
+  <exclude-pattern>*/scripts/tests/*</exclude-pattern>
 </ruleset>
