@@ -293,7 +293,11 @@ def since_last(runner, workflows, branch, root):
         first = min(horizon or read_at, min(read_at, now) - timedelta(days=REACH_DAYS)).replace(microsecond=0)
         runs = list_created(runner, workflow, branch, first, now.replace(microsecond=0))
         # The fresh runs --rerun started on a recovery tag, read beside the branch's own.
-        reruns, _ = _load_state(Path(root) / RERUNS)
+        reruns, broken = _load_state(Path(root) / RERUNS)
+        if broken:
+            # Without it the recovery tags cannot be found: an unknown state, never a quiet green.
+            raise Unavailable(f"{broken.split(';')[0]}; the recovery runs it lists cannot be read, so the cursor is left "
+                              f"where it was (repair or remove the file)")
         tag_runs = set()
         for entry_key, entry in reruns.items():
             if entry_key.endswith(f"|{workflow}") and entry.get("tag"):

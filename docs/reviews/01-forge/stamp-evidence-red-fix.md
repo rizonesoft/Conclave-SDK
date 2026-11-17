@@ -351,3 +351,36 @@ LENS quality: findings
 LENS optimization: clean
 HIGHEST: P2
 OVERALL: needs-attention
+
+## Round 12: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-17T17:02:13Z
+- Candidate: aa4439f54c9c78fa02edbe3c60bdd752c805bc50
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 22
+- Digest: 5212f66a9cbcab3d
+
+The paired-evidence rule is sound procedurally, but one P2 monitoring defect remains.
+
+**P2: An unreadable recovery registry silently hides recovery failures.** At [ci_status.py:296](D:/Conclave-SDK/kits/todo/templates/scripts/ci_status.py:296), `since_last()` discards `_load_state()`’s error note. An unreadable `build/ci-status-reruns.json` therefore removes recovery tags from monitoring without warning. An in-memory probe reported the recovery red with a valid registry, but returned exit 0 and only main’s green with an unreadable registry. Treat this as unknown monitoring state, preserve the cursor, and report the error until recovery-tag discovery is restored.
+
+On the requested questions:
+
+- **Section-caused red:** It can qualify, but cannot legitimately be hidden. The original red must remain cited; “fixed outside the section” describes the repair’s review route, not the defect’s origin.
+- **Unfixed failure:** It does not qualify. The green commit must contain the reviewed repair and preserve the section’s reviewed files and TODO section apart from that repair. This is procedural evidence validation, not automated enforcement.
+- **Ability to finish:** Removing the retry cap and adding exact-commit recovery avoids the former permanent refusals. Idle checks are not atomic, and continuous queue activity can still starve retries; progress requires an eventual idle opportunity.
+- **Consistency:** All six template/installed stamp paragraphs match, as do the six red-first paragraphs. `AGENTS.md` agrees. The installed script matches its template.
+- **Infrastructure retry:** The additional retry after demonstrated outage recovery is sound and retains failed evidence. The registry defect above compromises monitoring of recovery runs.
+
+Reviewed pinned files at `aa4439f` with an in-memory probe. No files changed or live workflows started.
+
+LENS adversarial: findings
+LENS integration: findings
+LENS source-defect: findings
+LENS consistency: clean
+LENS quality: findings
+LENS optimization: clean
+HIGHEST: P2
+OVERALL: needs-attention
