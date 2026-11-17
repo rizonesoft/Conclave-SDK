@@ -49,3 +49,37 @@ LENS quality: clean
 LENS optimization: clean
 HIGHEST: none
 OVERALL: approve
+
+## Round 3: astra (`gpt-6-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-17T18:18:53Z
+- Candidate: ed8b24259ef99f413dc2af8f774a9b824a20a21a
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 23
+- Digest: d979d5db074ef742
+
+The launcher-test fix is correct at its owning layer: expectations should compare filesystem destinations, not long versus 8.3 spelling. No launcher-script change is needed.
+
+At `ed8b242`, the changed assertions cover both Terminal targets, the Windows shortcut working directory, both `-d <project>` checks, and the conflicting project’s description path.
+
+The remaining literal comparisons do not follow the same normalization path:
+
+- `link["workdir"]` for WSL receives `USERPROFILE` directly.
+- `icon.parent` receives the supplied `IconDir` through `Join-Path`.
+- WSL executable arguments preserve the explicitly supplied `self.wsl` string.
+- Linux paths and command text correctly retain exact comparisons.
+
+Resolving paths does not equate genuinely different destination directories. It also accepts symlink or junction aliases pointing to the same directory, consistent with this working-folder contract. Agent identities, flags and command arguments remain independently checked.
+
+Read-only source review; no files changed and tests were not rerun. An in-memory COM probe was blocked by PowerShell’s constrained language mode, so shortcut-field preservation was not independently reproduced here.
+
+LENS adversarial: clean
+LENS integration: clean
+LENS source-defect: clean
+LENS consistency: clean
+LENS quality: clean
+LENS optimization: clean
+HIGHEST: none
+OVERALL: approve
