@@ -132,10 +132,7 @@ EMOJI_RE = re.compile(
 URL_RE = re.compile(r"https?://[^\s\"'<>`]+")
 ANCHOR_RE = re.compile(r"[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}#[A-Za-z0-9_-]+")
 HEX_STR_RE = re.compile(r"(?<![\w/.-])#(?:[0-9A-Fa-f]{8}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{3,4})(?![\w-])")
-CSS_CUSTOM_PROP_INLINE_RE = re.compile(
-    r"--[A-Za-z0-9_-]+\s*:(?:[^;{}\n\"']|\"[^\"\n]*\"|'[^'\n]*')*"
-)
-WEB_CUSTOM_PROP_INLINE_RE = re.compile(r"--[A-Za-z0-9_-]+\s*:[^;{}\"'`<>\n]+")
+CUSTOM_PROP_START_RE = re.compile(r"(?:(?<=^)|(?<=[;{}\"'\s=]))--[A-Za-z0-9_-]+\s*:")
 
 # XAML patterns
 XAML_HEX_ATTR_RE = re.compile(
@@ -498,9 +495,66 @@ def _mask_urls_and_anchors(line: str) -> str:
     return ANCHOR_RE.sub(lambda m: " " * len(m.group(0)), masked)
 
 
+def _is_unquoted_html_attr(line: str, start: int) -> bool:
+    j = start - 1
+    while j >= 0 and line[j] in " \t":
+        j -= 1
+    while j >= 0:
+        ch = line[j]
+        if ch in "\"'`<>{}":
+            return False
+        if ch == "=":
+            return True
+        if ch.isspace():
+            return False
+        j -= 1
+    return False
+
+
 def _mask_css_custom_props(line: str, *, web: bool = False) -> str:
-    pattern = WEB_CUSTOM_PROP_INLINE_RE if web else CSS_CUSTOM_PROP_INLINE_RE
-    return pattern.sub(lambda m: " " * len(m.group(0)), line)
+    n = len(line)
+    out = list(line)
+    pos = 0
+    while pos < n:
+        m = CUSTOM_PROP_START_RE.search(line, pos)
+        if not m:
+            break
+        start = m.start()
+        i = m.end()
+        if web:
+            unquoted_attr = _is_unquoted_html_attr(line, start)
+            while i < n:
+                ch = line[i]
+                if ch in ";{}<>\"'`":
+                    break
+                if unquoted_attr and ch.isspace():
+                    break
+                i += 1
+        else:
+            quote: str | None = None
+            escaped = False
+            while i < n:
+                ch = line[i]
+                if quote is not None:
+                    if escaped:
+                        escaped = False
+                    elif ch == "\\":
+                        escaped = True
+                    elif ch == quote:
+                        quote = None
+                    i += 1
+                else:
+                    if ch in "\"'":
+                        quote = ch
+                        i += 1
+                    elif ch in ";{}":
+                        break
+                    else:
+                        i += 1
+        for k in range(start, i):
+            out[k] = " "
+        pos = max(i, m.end())
+    return "".join(out)
 
 
 def lint_content(rel_posix: str, raw_text: str, mode: str) -> list[dict]:

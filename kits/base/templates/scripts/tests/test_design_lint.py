@@ -283,11 +283,13 @@ class StackRuleTests(DesignLintHarness):
             "  padding: 12px;\n"
             "}\n"
             ".compact{color:#123456;}\n"
-            ":root { --ok: #abcdef; color: #ff0000; }\n",
+            ":root { --ok: #abcdef; color: #ff0000; }\n"
+            '.escaped { --label: "a\\""; color: #ff0000; --other: "b"; }\n',
         )
         self.write(
             "src/ui/panel.html",
-            '<div style="--gap: 0"><span style="color: #ff0000">Text</span></div>\n',
+            '<div style="--gap: 0"><span style="color: #ff0000">Text</span></div>\n'
+            "<table style=--gap:0 bgcolor=#ff0000><tr><td>Text</td></tr></table>\n",
         )
         self.write(
             "src/ui/BadPanel.cs",
@@ -299,8 +301,10 @@ class StackRuleTests(DesignLintHarness):
         )
         bad = self.run_lint()
         self.assertEqual(bad.returncode, 1, bad.stdout + bad.stderr)
-        self.assertEqual(bad.stdout.count(":color-literal:"), 5, bad.stdout)
+        self.assertEqual(bad.stdout.count(":color-literal:"), 7, bad.stdout)
+        self.assertIn("src/ui/bad.css:9:color-literal:", bad.stdout)
         self.assertIn("src/ui/panel.html:1:color-literal:", bad.stdout)
+        self.assertIn("src/ui/panel.html:2:color-literal:", bad.stdout)
         self.assertIn(":font-family-literal:", bad.stdout)
         self.assertIn(":font-size-literal:", bad.stdout)
         self.assertEqual(bad.stdout.count(":spacing-radius-literal:"), 4, bad.stdout)
