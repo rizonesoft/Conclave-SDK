@@ -19,8 +19,8 @@ Runs still queued or in progress are named with their commit and URL, older ones
 
 `--since-last` lists every run of each watched workflow on the branch created from 35 days before the last read to
 today (GitHub reruns a run only within 30 days of its creation, and a run lasts at most 35 days, so any run that can
-have finished or been rerun since the last read was created in that range), splitting a date range whose list is full,
-and reports each attempt that finished since the last read, by run ID and attempt; `build/ci-status-cursor.json` keeps
+have finished or been rerun since the last read was created in that range), splitting a range whose list is full down to the second,
+(a first read also takes the newest runs wherever they are) and reports each attempt that finished since the last read, by run ID and attempt; `build/ci-status-cursor.json` keeps
 per branch and workflow the time of the read and the highest attempt reported for each run. So a failure followed by a
 green, a run that finishes after a newer one, and a rerun of any run are each seen once, however many runs came
 between, a rerun's earlier attempts read too. The state is written after the read printed everything, and never when
@@ -230,21 +230,27 @@ def _now():
     return datetime.now(timezone.utc)
 
 
+STAMP = "%Y-%m-%dT%H:%M:%SZ"
+
+
 def list_created(runner, workflow, branch, first, last):
-    """Every run of the workflow on the branch created from day `first` to day `last` (dates), whatever their number:
-    a range whose list fills LIST_LIMIT is split in two and each half listed, down to one day, which must fit."""
+    """Every run of the workflow on the branch created from `first` to `last` (UTC datetimes, both included), whatever
+    their number: a range whose list fills LIST_LIMIT is split in two and each half listed, down to one second, which
+    would need LIST_LIMIT runs created in the same second to fill."""
     runs = gh_json(runner, ["run", "list", "--branch", branch, "--workflow", workflow, "--created",
-                            f"{first.isoformat()}..{last.isoformat()}", "--limit", str(LIST_LIMIT), "--json", FIELDS])
+                            f"{first.strftime(STAMP)}..{last.strftime(STAMP)}", "--limit", str(LIST_LIMIT),
+                            "--json", FIELDS])
     if not isinstance(runs, list) or not all(isinstance(r, dict) for r in runs):
         raise Unavailable(f"gh run list for {workflow} did not return a list of runs")
     if len(runs) < LIST_LIMIT:
         return runs
-    if first >= last:
-        raise Unavailable(f"{workflow} has {LIST_LIMIT} or more runs created on {first.isoformat()}, more than one "
-                          f"list holds; the cursor is left where it was, so nothing is skipped")
-    middle = first + (last - first) // 2
+    if last - first < timedelta(seconds=1):
+        raise Unavailable(f"{workflow} has {LIST_LIMIT} or more runs created at {first.strftime(STAMP)}; the cursor is "
+                          f"left where it was, so nothing is skipped")
+    middle = first + (last - first) / 2
+    middle = middle.replace(microsecond=0)
     return list_created(runner, workflow, branch, first, middle) + \
-        list_created(runner, workflow, branch, middle + timedelta(days=1), last)
+        list_created(runner, workflow, branch, middle + timedelta(seconds=1), last)
 
 
 def since_last(runner, workflows, branch, root):
@@ -268,12 +274,17 @@ def since_last(runner, workflows, branch, root):
         saved = state.get(key)
         reported = {str(k): int(v) for k, v in (saved.get("reported", {}) if saved else {}).items()}
         try:
-            read_at = datetime.strptime(saved["read_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            read_at = datetime.strptime(saved["read_at"], STAMP).replace(tzinfo=timezone.utc)
         except (TypeError, KeyError, ValueError):
             read_at = now
-        first = (min(read_at, now) - timedelta(days=REACH_DAYS)).date()
-        runs = sorted(list_created(runner, workflow, branch, first, now.date()),
-                      key=lambda r: str(r.get("createdAt") or ""))
+        first = (min(read_at, now) - timedelta(days=REACH_DAYS)).replace(microsecond=0)
+        runs = list_created(runner, workflow, branch, first, now.replace(microsecond=0))
+        if saved is None:
+            # A first read (or one after an unreadable state) also takes the newest runs wherever they are, so a
+            # repository idle for longer than the reach still reports its latest verdict.
+            known = {str(r.get("databaseId")) for r in runs}
+            runs += [r for r in list_runs(runner, workflow, branch, PAGES[0]) if str(r.get("databaseId")) not in known]
+        runs = sorted(runs, key=lambda r: str(r.get("createdAt") or ""))
         if saved is None:
             # A first read: the latest completed run and everything after it; what came before counts as reported.
             completed = [r for r in runs if r.get("status") == "completed"]
@@ -306,7 +317,7 @@ def since_last(runner, workflows, branch, root):
         # Kept for every run the next read can list (created up to REACH_DAYS before this read).
         keep_from = (now - timedelta(days=REACH_DAYS)).strftime("%Y-%m-%d")
         kept = {str(r.get("databaseId")) for r in runs if str(r.get("createdAt") or "")[:10] >= keep_from}
-        new_state[key] = {"read_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        new_state[key] = {"read_at": now.strftime(STAMP),
                           "reported": {k: v for k, v in sorted(reported.items()) if k in kept}}
         report["workflows"].append({"workflow": workflow, "new": new,
                                     "pending": pending_of(sorted(runs, key=lambda r: str(r.get("createdAt") or ""),
