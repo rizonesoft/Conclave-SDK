@@ -46,7 +46,7 @@ title: "TODO-01 -- Project launchers: one desktop shape for every project"
 | 1 | §1 | Launchers kit known to `forge.py` | -- | [x] |
 | 2 | §2 | Launcher profile `.conclave/launchers.json` and its loader | §1 | [x] |
 | 3 | §3 | Icon renderer owned by the launchers kit | §1 | [x] |
-| 4 | §4 | Rounded-square overlay icons | §3 | [ ] |
+| 4 | §4 | Rounded-square overlay icons | §3 | [x] |
 | 5 | §5 | Desktop links that open the project in an agent | §2, §4 | [ ] |
 | 6 | §6 | Declared links that run a command or open a URL | §5 | [ ] |
 | 7 | §7 | Campaign links under the project's title, icon read from a share | §2, §3 | [ ] |
@@ -177,6 +177,9 @@ The everyday links are told from the campaign links by the corner shape: a round
 - [x] Commit: `launchers: rounded-square overlay icons with agent, WordPress and site marks`
 
 **Test checkpoint:** `python -m unittest discover -s kits/launchers/templates/scripts/tests -p "test_campaign_icon.py"` ends `OK`; drawing the overlay with `circle` in place of the rounded square makes the corner-pixel test fail.
+
+> **Verified:** 2026-11-17 | §4 | 5e8353045b4d0efca2dcf4809b8e2b795cc1b451
+> **Review:** `docs/reviews/d07-t01-s4.json`
 
 ## 5. Desktop links that open the project in an agent
 

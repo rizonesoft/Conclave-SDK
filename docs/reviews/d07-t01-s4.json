@@ -1,0 +1,84 @@
+{
+  "ref": "D07 T01 \u00a74",
+  "title": "Rounded-square overlay icons",
+  "implementation_sha": "5e8353045b4d0efca2dcf4809b8e2b795cc1b451",
+  "date": "2026-11-17",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/07-launchers/D07-T01-s4.md",
+      "verdict": "clean"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s kits/launchers/templates/scripts/tests -p \"test_campaign_icon.py\" -> Ran 15 tests, OK; a circle in place of the rounded square fails the corner test",
+    "CI tests.yml run 44083965196 at 5e83530 -> quick suite (Windows), full suite (Linux), kit suites (Linux): success"
+  ],
+  "completion": {
+    "report": "docs/reviews/07-launchers/D07-T01-s4.md",
+    "verdict": "complete",
+    "candidate": "5e8353045b4d0efca2dcf4809b8e2b795cc1b451",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/07-launchers/D07-T01-s4.md",
+    "candidate": "d398dccc6a3db2191ee8942beaf413944c52ef98",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "d398dccc6a3db2191ee8942beaf413944c52ef98",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}
