@@ -317,6 +317,10 @@ The owner's rule of 2026-11-17: a red CI must never go unnoticed, and the system
 
 The full suite on Linux is the longest job (29 minutes on run 44083965196, against 19 for Windows and 15 for the kit suites), so it sets how long every candidate waits. Split by test module across parallel jobs, it runs the same tests in less time and changes no verdict.
 
+> **Started:** 2026-11-17T17:17Z
+
+**Corrected 2026-11-17:** two facts the plan did not match. A workflow run's conclusion already folds its jobs in: with `fail-fast: false` one red shard makes the run `failure` and a cancelled one makes it `cancelled` (no verdict), so `ci_status.py` reads a sharded run right as it is, and what it owes is naming the red shard among the failed jobs, which `failed_jobs` already does. And the test folders hold their test files flat, with no packages, so a shard is a set of files, run by a small standard-library runner that puts the suite's folder first on the path and loads those modules, as `discover -s <folder>` does, printing the same `Ran N tests` line. Shard counts are 3 for the Linux full suite; a suite of another kind runs whole in shard 1 only.
+
 **Phase:** 5
 **Needs:** none
 **Surface:** no
@@ -327,7 +331,7 @@ The full suite on Linux is the longest job (29 minutes on run 44083965196, again
 2. Run the shards in parallel in CI. Done when: the checkpoint passes.
 
 - [ ] Add `--shard K/N` to `python forge.py check-all` for a unittest suite: the suite's test modules split into N groups balanced by the size of each file, deterministic, the module list printed with each shard. Done when: a test runs all N shards of a fixture suite and finds every module in exactly one, and `--shard 0/2` or `3/2` refused.
-- [ ] Replace the `full suite (Linux)` job in `.github/workflows/tests.yml` with a matrix of shards (`fail-fast: false`, so one red shard never cancels the rest), each named `full suite (Linux) K/N`, and teach `ci_status.py` to read the full suite as green only when every shard of the matrix finished green, red when any is red, and no verdict when any is missing or cancelled. Done when: a test reads the workflow's matrix and its `fail-fast: false`, and `ci_status.py` tests report one red shard as red naming it and one missing shard as no verdict.
+- [ ] Replace the `full suite (Linux)` job in `.github/workflows/tests.yml` with a matrix of shards (`fail-fast: false`, so one red shard never cancels the rest), each named `full suite (Linux) K/N`, and teach `ci_status.py` to read the full suite as green only when every shard of the matrix finished green, red when any is red, and no verdict when any is missing or cancelled. **Corrected 2026-11-17:** the runs own conclusion already reads that way; `ci_status.py` changes nothing and its tests prove it, naming the red shard. Done when: a test reads the workflow's matrix and its `fail-fast: false`, and `ci_status.py` tests report one red shard as red naming it and one missing shard as no verdict.
 - [ ] Keep the test inventory whole: `forge.py`'s check that every test file is owned by a suite counts each sharded module once. Done when: `python -m unittest tests.test_forge -k inventory` passes, and fails with a module left out of every shard.
 - [ ] Commit: `ci: the Linux full suite runs in parallel shards`
 
