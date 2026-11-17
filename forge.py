@@ -3578,6 +3578,14 @@ def check_all(full: bool = False, only=(), skip=(), suites: list[dict] | None = 
     if unknown:
         raise ValueError(f"unknown suite {', '.join(unknown)} (the suites are: {', '.join(names)})")
     problems = _inventory_problems(target_root, table, excluded_map)
+    if shard is not None:
+        # Every test file of a sharded suite must fall in one of its shards, or no CI job would run it.
+        for suite in table:
+            if suite["kind"] == "unittest":
+                folder = Path(target_root) / suite["path"]
+                covered = {m for k in range(1, shard[1] + 1) for m in shard_modules(folder, k, shard[1])}
+                problems += [f"{suite['path']}/{f.name}: left out of every shard of {suite['name']}"
+                             for f in sorted(folder.glob("test*.py")) if f.stem not in covered]
     if problems:
         raise UnownedTestsError("check-all: repository test inventory check failed:\n"
                                 + "\n".join(f"  {item}" for item in problems))

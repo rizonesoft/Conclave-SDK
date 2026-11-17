@@ -480,6 +480,16 @@ class Shard(Stubs):
         self.assertEqual([r["name"] for r in self.run_all([command], shard=(1, 3))], ["cmd"])
         self.assertEqual(self.run_all([command], shard=(2, 3)), [])
 
+    def test_a_file_left_out_of_every_shard_fails_the_inventory_check(self):
+        # The completion review of D01 T02 §10: the inventory refuses, before any suite runs.
+        suite = self.suite_of("suite", ["test_a", "test_b", "test_c"])
+        real = forge.shard_modules
+        with mock.patch.object(forge, "shard_modules",
+                               side_effect=lambda folder, k, n: [m for m in real(folder, k, n) if m != "test_b"]):
+            with self.assertRaises(forge.UnownedTestsError) as caught:
+                self.run_all([suite], shard=(1, 2))
+        self.assertIn("suite/test_b.py: left out of every shard of suite", str(caught.exception))
+
     def test_the_shards_cover_every_file_the_inventory_gives_the_suite(self):
         # Inventory and shards agree: a module left out of every shard would be a test file no CI job runs.
         folder = ROOT / "tests"
