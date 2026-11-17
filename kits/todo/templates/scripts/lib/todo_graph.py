@@ -876,7 +876,9 @@ def three_pass_ok(root, data, ref, found):
     # candidates in between are not held to it (D02 T02 §5, 2026-11-12).
     promised = section_contract(root, completion["candidate"], ref)
     require(not passed or section_contract(root, sha, ref) == promised,
-            f"the section's contract changed between the failed completion and its reconciliation: {ref}")
+            f"the section's contract changed between the failed completion and its reconciliation: {ref} (restore "
+            f"the promised text, writing any correction as a dated ' **Corrected YYYY-MM-DD:** ...' note at the end "
+            f"of the line it corrects, commit, and run another reconciliation, which the dispatcher then takes)")
 
 
 def receipt_data_ok(data, ref, stamp_sha, root=None, building=False, commits=None, surface=None):

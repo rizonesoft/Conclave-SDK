@@ -15,6 +15,8 @@ import unittest.mock
 # The scratch repository and the fake reviewer CLIs; unittest discovery puts this folder on sys.path.
 from test_review_dispatch import Harness
 
+SCRIPTS_DIR = Path(__file__).resolve().parents[1]
+
 PIN = textwrap.dedent('''\
     schema_version = 1
 
@@ -195,6 +197,35 @@ class Chain(ThreePass):
         repaired = self.commit("repair", {"src/app/a.py": "x = 2\n"})
         self.ok("reconciliation", repaired)
         self.refused("reconciliation", repaired, "already returned complete")
+
+    def test_a_complete_reconciliation_on_a_changed_contract_takes_another(self):
+        # D07 T02 §1, 2026-11-17: a reconciliation ended complete on a candidate whose section text had changed since
+        # the failed completion; `stamp` refused it and the dispatcher refused every further pass, so the section
+        # could never stamp. The todo kit's library, beside the dispatcher, now tells the dispatcher so.
+        # Beside the dispatcher in an installed project; in the SDK, the todo kit's own copy (reached through
+        # .parent, which stops at the drive, so a shallow installed copy is never asked for a parent it lacks).
+        library = SCRIPTS_DIR / "lib/todo_graph.py"
+        if not library.is_file():
+            library = SCRIPTS_DIR.parent.parent.parent / "todo/templates/scripts/lib/todo_graph.py"
+        if not library.is_file():
+            library = None
+        if library is None:
+            self.skipTest("the todo kit's scripts/lib/todo_graph.py is not beside this reviewer kit")
+        (self.repo / "scripts/lib").mkdir(exist_ok=True)
+        shutil.copy(library, self.repo / "scripts/lib/todo_graph.py")
+        todo = "todo/00-core/TODO-01-core.md"
+        section = ("# TODO-01 -- Core\n\n## 1. Thing\n\n- [ ] Do a. Done when: a.\n\n"
+                   "**Test checkpoint:** `t` ends OK; {how}.\n\n## Verification\n\n- `t`\n")
+        self.base = self.commit("section", {todo: section.format(how="a mutation fails it")})
+        built = self.to_completion()
+        # Changed in its promise (the checkpoint), not by a dated note: the stamp would refuse this candidate.
+        changed = self.commit("reworded", {todo: section.format(how="another mutation fails it")})
+        self.ok("reconciliation", changed)
+        restored = self.commit("restored", {todo: section.format(how="a mutation fails it").replace(
+            "fails it.", "fails it. **Corrected 2026-11-17:** the mutation is named in the findings file.")})
+        self.ok("reconciliation", restored)
+        self.refused("reconciliation", restored, "already returned complete")
+        self.assertNotEqual(built, restored)
 
     def lock_path(self, record):
         module = self.module()

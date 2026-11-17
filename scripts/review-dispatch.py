@@ -1247,6 +1247,34 @@ def lock_section(record_path, timeout):
     atexit.register(_release_held)
 
 
+def section_ref(record_path):
+    """`D<NN> T<NN> §<N>` for a section's findings file (`.../D07-T02-s1.md`), or None."""
+    m = re.fullmatch(r"D(\d{2})-T(\d{2})-s([1-9]\d*)\.md", Path(record_path).name)
+    return f"D{m[1]} T{m[2]} §{m[3]}" if m else None
+
+
+def contract_changed(record_path, before, after):
+    """Whether the section's contract (the todo kit's `section_contract`: its text with ticks, stamp lines and dated
+    correction notes set aside) differs between two commits. `stamp` refuses a reconciliation whose candidate changed
+    it, so such a reconciliation cannot settle the chain even when it ended complete. False when the todo kit's
+    library is not beside this script or cannot answer: then nothing here knows the section."""
+    path = ROOT / "scripts" / "lib" / "todo_graph.py"
+    ref = section_ref(record_path)
+    if ref is None or not path.is_file():
+        return False
+    try:
+        spec = importlib.util.spec_from_file_location("_dispatch_todo_graph", path)
+        module = importlib.util.module_from_spec(spec)
+        # Registered before it runs: its dataclasses look their module up there while being defined.
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module.section_contract(ROOT, before, ref) != module.section_contract(ROOT, after, ref)
+    except (ValueError, OSError, ImportError, SyntaxError):
+        # The library's refusal (a section it cannot find, a commit without the file) or one that does not load: no
+        # contract to compare, so the order stands as the findings file alone says.
+        return False
+
+
 def check_three_pass_order(kind, record_path, candidate, schedule):
     """The order of a three-pass section's passes: the plan review, one round on a candidate descending from it, one
     completion review, then reconciliations only after a completion that returned gaps, each on a candidate
@@ -1288,11 +1316,17 @@ def check_three_pass_order(kind, record_path, candidate, schedule):
         if len(rounds) != 1 or len(completions) != 1 or not ended_gaps(completions[0]):
             raise Refused("a reconciliation follows one round and a completion review that returned gaps")
         chain = [completions[0], *reconciled]
-        if not ended_gaps(chain[-1]):
+        # A reconciliation that ended complete on a candidate whose contract differs from the failed completion's
+        # cannot be stamped (`stamp` compares the two), so it settles nothing: the section takes another
+        # reconciliation, on a candidate that restores the contract. Without this a section would be stuck for good
+        # (D07 T02 §1, 2026-11-17).
+        unsettled = not ended_gaps(chain[-1]) and contract_changed(record_path, completions[0]["candidate"],
+                                                                    chain[-1]["candidate"])
+        if not ended_gaps(chain[-1]) and not unsettled:
             raise Refused("the section's reconciliation already returned complete; it needs no further pass")
         worst = [declared_highest(e["review"]) for e in chain]
         # Only a pin that names its blocking levels ends the loop this way; without the key every gap is repaired.
-        if "blocking" in schedule and not review_pin.blocks(schedule, worst[-1]):
+        if "blocking" in schedule and not unsettled and not review_pin.blocks(schedule, worst[-1]):
             raise Refused(f"the last pass's worst finding is {worst[-1]}, below the pin's blocking levels "
                           f"({', '.join(schedule['blocking'])}): file its findings and stamp; it takes no further pass")
         cap = pass_cap(schedule)
