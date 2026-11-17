@@ -373,28 +373,42 @@ class SinceLast(unittest.TestCase):
         code, report = self.read(fake)
         self.assertEqual((code, self.new(report)), (1, [(6, 1, "red"), (6, 2, "green")]))
 
-    def test_a_failure_on_the_second_page_is_reported(self):
+    def test_every_run_of_the_last_thirty_days_is_listed_whatever_their_number(self):
+        # Round 1 and the completion review: no page cap; a failure among more than a thousand new runs is reported.
         fake = PagedGh({"build.yml": [attempt_run(1, 1)]})
         self.read(fake)
-        fake.runs["build.yml"] += [attempt_run(2, 2, conclusion="failure")] + [attempt_run(n, n) for n in range(3, 60)]
+        fake.runs["build.yml"] += [attempt_run(2, 2, conclusion="failure")] + [attempt_run(n, n) for n in range(3, 1010)]
         code, report = self.read(fake)
         self.assertEqual(code, 1)
         self.assertIn((2, 1, "red"), self.new(report))
-        self.assertIn(["run", "list", "--branch", "main", "--workflow", "build.yml", "--limit", "200", "--json",
-                       ci.FIELDS], fake.calls)
+        calls = [c for c in fake.calls if c[:2] == ["run", "list"]]
+        self.assertTrue(all("--created" in c and c[c.index("--limit") + 1] == str(ci.LIST_LIMIT) for c in calls))
+        self.assertTrue(all(c[c.index("--created") + 1].startswith(">=") for c in calls))
 
-    def test_more_unread_runs_than_the_last_page_leave_the_state_and_say_so(self):
-        # Round 1 P1: a failure beyond the last page must never be skipped with the cursor moved past it.
+    def test_a_list_cut_short_at_its_limit_leaves_the_state_and_says_so(self):
         fake = PagedGh({"build.yml": [attempt_run(1, 1)]})
         self.read(fake)
         before = self.cursor()
-        fake.runs["build.yml"] += [attempt_run(2, 2, conclusion="failure")] + [attempt_run(n, n) for n in range(3, 1010)]
+        fake.runs["build.yml"] += [attempt_run(n, n) for n in range(2, 9)]
         out = io.StringIO()
-        with redirect_stdout(out):
+        with unittest.mock.patch.object(ci, "LIST_LIMIT", 5), redirect_stdout(out):
             code = ci.main(["--since-last"], runner=fake, root=self.root)
         self.assertEqual(code, 3)
-        self.assertIn("more than 1000 runs", out.getvalue())
+        self.assertIn("more than one read lists", out.getvalue())
         self.assertEqual(self.cursor(), before)
+
+    def test_a_rerun_of_an_older_run_far_down_the_list_is_reported_once(self):
+        # Reconciliation 1 P1, the reviewer's own case: run 1 reported green, 58 newer runs reported, then run 1 is
+        # rerun outside this tool and fails.
+        fake = PagedGh({"build.yml": [attempt_run(1, 1)]})
+        self.read(fake)
+        fake.runs["build.yml"] += [attempt_run(n, n) for n in range(2, 60)]
+        self.read(fake)
+        fake.runs["build.yml"][0] = attempt_run(1, 1, conclusion="failure", attempt=2)
+        code, report = self.read(fake)
+        self.assertEqual((code, self.new(report)), (1, [(1, 2, "red")]))
+        code, report = self.read(fake)
+        self.assertEqual((code, self.new(report)), (0, []), "reported once")
 
     def test_a_rerun_of_an_older_run_is_reported(self):
         # Round 1 P1: run 1 and a newer run 2 were read; run 1 is rerun (its creation time stays old) and fails.
@@ -403,35 +417,6 @@ class SinceLast(unittest.TestCase):
         fake.runs["build.yml"][0] = attempt_run(1, 1, conclusion="failure", attempt=2)
         code, report = self.read(fake)
         self.assertEqual((code, self.new(report)), (1, [(1, 2, "red")]))
-
-    def test_a_rerun_of_a_red_run_started_elsewhere_is_read_off_the_list(self):
-        # Completion review P1: someone reruns an older red run through GitHub after newer runs pushed it off the list.
-        fake = PagedGh({"build.yml": [attempt_run(1, 1, conclusion="failure")]})
-        self.assertEqual(self.read(fake)[0], 1)
-        fake.runs["build.yml"] = [attempt_run(n, n) for n in range(2, 60)]
-        fake.views = {1: attempt_run(1, 1, conclusion="failure", attempt=2)}
-        code, report = self.read(fake)
-        self.assertEqual(code, 1)
-        self.assertIn((1, 2, "red"), self.new(report))
-        code, report = self.read(fake)
-        self.assertNotIn((1, 2, "red"), self.new(report), "reported once")
-        fake.views = {1: attempt_run(1, 1, attempt=3)}
-        code, report = self.read(fake)
-        self.assertIn((1, 3, "green"), self.new(report))
-        self.assertNotIn("1", json.loads(self.cursor())["main|build.yml"]["watching"], "a green rerun ends the watch")
-
-    def test_a_run_the_rerun_command_started_is_read_off_the_list(self):
-        fake = PagedGh({"build.yml": [attempt_run(1, 1, conclusion="cancelled", sha=SHA_OLD)]})
-        self.read(fake)
-        out = io.StringIO()
-        with redirect_stdout(out):
-            ci.main(["--rerun", SHA_OLD], runner=fake, root=self.root)
-        # Many newer runs push it off the first page; its rerun failed.
-        fake.runs["build.yml"] = [attempt_run(n, n) for n in range(2, 60)]
-        fake.views = {1: attempt_run(1, 1, conclusion="failure", sha=SHA_OLD, attempt=2)}
-        code, report = self.read(fake)
-        self.assertEqual(code, 1)
-        self.assertIn((1, 2, "red"), self.new(report))
 
     def test_each_workflow_and_branch_keeps_its_own_state(self):
         workspace(self.root, workflows=("build.yml", "plan.yml"))

@@ -17,16 +17,14 @@ results gate main), else every `.yml` and `.yaml` file in `.github/workflows/`.
 
 Runs still queued or in progress are named with their commit and URL, older ones included.
 
-`--since-last` reads every run created since a horizon kept in `build/ci-status-cursor.json` (per branch and
-workflow): the creation time of the oldest run still unfinished at the last read, else the newest run then listed.
-It reports each completed attempt it has not reported before, by run ID and attempt (a rerun's earlier attempts are
-read too), so a failure followed by a green, a run that finishes after a newer one, or a failed rerun of a run already
-reported are each seen once; the runs `--rerun` started, and every run whose last attempt was red or cancelled
-(for seven days), are read by ID, so a rerun of them is seen wherever it is on the list. It pages (50, 200, 1000 runs) until it passes the horizon, and with more than 1000 unread runs it says so and
-leaves the state as it was (exit 3) rather than skip any. The state is written after the
-read printed everything, and never when a read failed; an unreadable state is said and read as a first read, which
-reports the latest completed run and everything after it. The process-phase skill reads it after every push; nothing
-in it refuses or holds back a commit or a push.
+`--since-last` lists every run of each watched workflow on the branch created in the last 30 days (GitHub reruns a
+run only within 30 days of its creation) and reports each attempt that finished since the last read, by run ID and
+attempt, keeping in `build/ci-status-cursor.json` (per branch and workflow) the highest attempt reported for each
+run. So a failure followed by a green, a run that finishes after a newer one, and a rerun of any run, however far down
+the list, are each seen once, a rerun's earlier attempts read too. The state is written after the read printed
+everything, and never when a read failed or a list came back cut short (exit 3); an unreadable state is said and
+read as a first read, which reports the latest completed run and everything after it. The process-phase skill reads
+it after every push; nothing in it refuses or holds back a commit or a push.
 
 `--rerun <commit>` reruns, with `gh run rerun`, the latest run of each watched workflow on that commit when a newer
 push cancelled it or it failed, so a stamp candidate gets a verdict of its own; the count is kept per commit in
@@ -51,9 +49,10 @@ CONFIG = Path(".conclave") / "ci.json"
 FIELDS = "databaseId,headSha,status,conclusion,url,createdAt,event,attempt"
 CURSOR = Path("build") / "ci-status-cursor.json"
 RERUNS = Path("build") / "ci-status-reruns.json"
-PAGES = (50, 200, 1000)
+PAGES = (10, 50)   # --rerun looks for the candidate's run among the newest 50
 MAX_RERUNS = 3
-WATCH_DAYS = 7   # how long a red or cancelled run is read by ID for a rerun
+RERUN_DAYS = 30   # GitHub reruns a workflow run only within 30 days of its creation
+LIST_LIMIT = 5000
 LIMIT = 10
 GREEN = {"success", "neutral", "skipped"}
 # A run that was stopped before it judged the commit: no verdict either way.
@@ -223,65 +222,45 @@ def _attempt_conclusion(runner, run_id, attempt):
     return view.get("status"), view.get("conclusion"), view.get("html_url") or view.get("url")
 
 
-def since_last(runner, workflows, branch, root):
+def since_last(runner, workflows, branch, root, now=None):
     """The new completed attempts since the last read, the pending runs, the new state and the exit code.
 
-    Per branch and workflow the state keeps a horizon (the creation time of the oldest run still unfinished at the
-    last read, else the newest run then listed) and, for each run it has seen, the highest attempt it reported. A run
-    is read again whenever its attempt number is above that, so a rerun of an older run is reported too, and the runs
-    `--rerun` started are read by ID even when newer runs push them off the list. Reading pages until it passes the
-    horizon, it raises Unavailable (exit 3, state untouched) rather than skip runs it could not reach."""
+    GitHub reruns a run only within RERUN_DAYS of its creation, so every read lists every run of the workflow on the
+    branch created in that window, whatever their number, and compares each run's attempt with the highest attempt
+    already reported for it (kept per branch and workflow). Each attempt above it that has finished is reported once,
+    earlier attempts of a rerun read through `gh api`: a failure followed by a green, a run that finishes after a
+    newer one and a rerun of any run, however far down the list, are all seen. A list that comes back cut short
+    raises Unavailable (exit 3) with the state untouched."""
     path = Path(root) / CURSOR
     state, note = _load_state(path)
     new_state = dict(state)
-    reruns, _ = _load_state(Path(root) / RERUNS)
     report = {"branch": branch, "workflows": [], "note": note}
     failed = False
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    since = (now or datetime.now(timezone.utc)) - timedelta(days=RERUN_DAYS)
     for workflow in workflows:
         key = f"{branch}|{workflow}"
         saved = state.get(key)
-        horizon = saved.get("horizon") if saved else None
         reported = {str(k): int(v) for k, v in (saved.get("reported", {}) if saved else {}).items()}
-        # Runs whose last reported attempt was red or cancelled, by ID with when that was reported: the ones someone
-        # reruns. They are read by ID for WATCH_DAYS, so a rerun is seen even after newer runs push them off the list.
-        watching = dict(saved.get("watching", {})) if saved else {}
-        runs = []
-        for limit in PAGES:
-            runs = list_runs(runner, workflow, branch, limit)
-            if horizon is None or len(runs) < limit or str(runs[-1].get("createdAt") or "") < horizon:
-                break
-        else:
-            if runs and str(runs[-1].get("createdAt") or "") >= horizon:
-                raise Unavailable(f"more than {PAGES[-1]} runs of {workflow} since the last read; the cursor is left "
-                                  f"where it was, so nothing is skipped (read them with gh run list)")
-        listed = {str(r.get("databaseId")) for r in runs}
-        # The runs --rerun started and the red or cancelled runs being watched, read by ID when they are not on the
-        # list any more.
-        off_list = [str(e.get("run")) for k, e in reruns.items() if k.endswith(f"|{workflow}") and e.get("run")]
-        off_list += list(watching)
-        for run_id in dict.fromkeys(off_list):
-            if run_id not in listed:
-                view = gh_json(runner, ["run", "view", run_id, "--json", FIELDS])
-                if isinstance(view, dict):
-                    runs.append(view)
-                    listed.add(str(view.get("databaseId")))
-        if horizon is None:
+        runs = gh_json(runner, ["run", "list", "--branch", branch, "--workflow", workflow, "--created",
+                                f">={since.strftime('%Y-%m-%d')}", "--limit", str(LIST_LIMIT), "--json", FIELDS])
+        if not isinstance(runs, list) or not all(isinstance(r, dict) for r in runs):
+            raise Unavailable(f"gh run list for {workflow} did not return a list of runs")
+        if len(runs) >= LIST_LIMIT:
+            raise Unavailable(f"{workflow} has {LIST_LIMIT} or more runs in {RERUN_DAYS} days, more than one read "
+                              f"lists; the cursor is left where it was, so nothing is skipped")
+        runs = sorted(runs, key=lambda r: str(r.get("createdAt") or ""))
+        if saved is None:
             # A first read: the latest completed run and everything after it; what came before counts as reported.
-            completed = sorted((r for r in runs if r.get("status") == "completed"),
-                               key=lambda r: str(r.get("createdAt") or ""), reverse=True)
-            first = str(completed[0].get("createdAt") or "") if completed else ""
-            for r in runs:
-                if str(r.get("createdAt") or "") < first and r.get("status") == "completed":
+            completed = [r for r in runs if r.get("status") == "completed"]
+            first = str(completed[-1].get("createdAt") or "") if completed else ""
+            for r in completed:
+                if str(r.get("createdAt") or "") < first:
                     reported[str(r.get("databaseId"))] = int(r.get("attempt") or 1)
         new = []
-        for run in sorted(runs, key=lambda r: str(r.get("createdAt") or "")):
+        for run in runs:
             run_id = str(run.get("databaseId"))
             attempts = int(run.get("attempt") or 1)
-            done = reported.get(run_id, 0)
-            if horizon is not None and run_id not in reported and str(run.get("createdAt") or "") < horizon:
-                continue   # older than the last read and never listed then: read before this state began
-            for n in range(done + 1, attempts + 1):
+            for n in range(reported.get(run_id, 0) + 1, attempts + 1):
                 if n == attempts:
                     if run.get("status") != "completed":
                         break
@@ -299,19 +278,11 @@ def since_last(runner, workflows, branch, root):
                         item["failed_jobs"] = failed_jobs(runner, run_id)
                 new.append(item)
                 reported[run_id] = n
-                if verdict in ("red", "cancelled"):
-                    watching[run_id] = now   # watched for WATCH_DAYS from when it was reported
-                else:
-                    watching.pop(run_id, None)
-        # Every run still unfinished: the next read starts at the oldest of them, so each is read until it finishes.
-        unfinished = [str(r.get("createdAt") or "") for r in runs if r.get("status") != "completed"]
-        newest = max((str(r.get("createdAt") or "") for r in runs), default=horizon or "")
-        next_horizon = min(unfinished) if unfinished else newest
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=WATCH_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        watching = {k: v for k, v in sorted(watching.items()) if v >= cutoff}
-        new_state[key] = {"horizon": next_horizon, "watching": watching,
-                          "reported": {k: v for k, v in sorted(reported.items()) if k in listed or k in watching}}
-        report["workflows"].append({"workflow": workflow, "new": new, "pending": pending_of(runs)})
+        listed = {str(r.get("databaseId")) for r in runs}
+        new_state[key] = {"reported": {k: v for k, v in sorted(reported.items()) if k in listed}}
+        report["workflows"].append({"workflow": workflow, "new": new,
+                                    "pending": pending_of(sorted(runs, key=lambda r: str(r.get("createdAt") or ""),
+                                                                 reverse=True))})
     code = 1 if failed else 0
     report["exit"] = code
     return report, new_state, code
