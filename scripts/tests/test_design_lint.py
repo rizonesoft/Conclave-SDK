@@ -264,7 +264,7 @@ class StackRuleTests(DesignLintHarness):
         )
         self.write(
             "src/ui/token_identifiers.cs",
-            "var m = new Thickness(Tokens.Space4);\nvar r = new CornerRadius(Tokens.Radius2);\n",
+            "var m = new Thickness(Tokens.Space4 - Tokens.Space2);\nvar r = new CornerRadius(Tokens.Radius2);\n",
         )
         self.write(
             "src/ui/token_identifiers.cpp",
@@ -285,12 +285,28 @@ class StackRuleTests(DesignLintHarness):
             ".compact{color:#123456;}\n"
             ":root { --ok: #abcdef; color: #ff0000; }\n",
         )
+        self.write(
+            "src/ui/panel.html",
+            '<div style="--gap: 0"><span style="color: #ff0000">Text</span></div>\n',
+        )
+        self.write(
+            "src/ui/BadPanel.cs",
+            "var a = new Thickness(1e2);\nvar b = new Thickness(Tokens.Space4-4);\n",
+        )
+        self.write(
+            "src/ui/bad_panel.cpp",
+            "auto rr = D2D1::RoundedRect(rect, 1e1f, 1e1f);\n",
+        )
         bad = self.run_lint()
         self.assertEqual(bad.returncode, 1, bad.stdout + bad.stderr)
-        self.assertEqual(bad.stdout.count(":color-literal:"), 4, bad.stdout)
+        self.assertEqual(bad.stdout.count(":color-literal:"), 5, bad.stdout)
+        self.assertIn("src/ui/panel.html:1:color-literal:", bad.stdout)
         self.assertIn(":font-family-literal:", bad.stdout)
         self.assertIn(":font-size-literal:", bad.stdout)
-        self.assertIn(":spacing-radius-literal:", bad.stdout)
+        self.assertEqual(bad.stdout.count(":spacing-radius-literal:"), 4, bad.stdout)
+        self.assertIn("src/ui/BadPanel.cs:1:spacing-radius-literal:", bad.stdout)
+        self.assertIn("src/ui/BadPanel.cs:2:spacing-radius-literal:", bad.stdout)
+        self.assertIn("src/ui/bad_panel.cpp:1:spacing-radius-literal:", bad.stdout)
 
 
 class ScopingAndExemptionTests(DesignLintHarness):

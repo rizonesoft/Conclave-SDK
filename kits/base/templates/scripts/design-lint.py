@@ -132,7 +132,10 @@ EMOJI_RE = re.compile(
 URL_RE = re.compile(r"https?://[^\s\"'<>`]+")
 ANCHOR_RE = re.compile(r"[A-Za-z0-9_./-]+\.[A-Za-z0-9]{1,8}#[A-Za-z0-9_-]+")
 HEX_STR_RE = re.compile(r"(?<![\w/.-])#(?:[0-9A-Fa-f]{8}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{3,4})(?![\w-])")
-CSS_CUSTOM_PROP_INLINE_RE = re.compile(r"--[A-Za-z0-9_-]+\s*:[^;{}\n]+")
+CSS_CUSTOM_PROP_INLINE_RE = re.compile(
+    r"--[A-Za-z0-9_-]+\s*:(?:[^;{}\n\"']|\"[^\"\n]*\"|'[^'\n]*')*"
+)
+WEB_CUSTOM_PROP_INLINE_RE = re.compile(r"--[A-Za-z0-9_-]+\s*:[^;{}\"'`<>\n]+")
 
 # XAML patterns
 XAML_HEX_ATTR_RE = re.compile(
@@ -483,7 +486,7 @@ def _has_exemption(raw_lines: list[str], lineno: int, rule: str) -> bool:
 
 def _has_nonzero_number(expr: str) -> bool:
     nums = re.findall(
-        r"(?<![A-Za-z0-9_$.-])[-+]?(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)"
+        r"(?<![A-Za-z0-9_$.])(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?"
         r"(?=(?:[fFdDmM]|px|rem|em|pt)?(?:[^A-Za-z0-9_]|$))",
         expr,
     )
@@ -495,8 +498,9 @@ def _mask_urls_and_anchors(line: str) -> str:
     return ANCHOR_RE.sub(lambda m: " " * len(m.group(0)), masked)
 
 
-def _mask_css_custom_props(line: str) -> str:
-    return CSS_CUSTOM_PROP_INLINE_RE.sub(lambda m: " " * len(m.group(0)), line)
+def _mask_css_custom_props(line: str, *, web: bool = False) -> str:
+    pattern = WEB_CUSTOM_PROP_INLINE_RE if web else CSS_CUSTOM_PROP_INLINE_RE
+    return pattern.sub(lambda m: " " * len(m.group(0)), line)
 
 
 def lint_content(rel_posix: str, raw_text: str, mode: str) -> list[dict]:
@@ -624,7 +628,7 @@ def lint_content(rel_posix: str, raw_text: str, mode: str) -> list[dict]:
     for idx, line in enumerate(clean_lines, 1):
         if CSS_CUSTOM_PROP_DEF_RE.match(line):
             continue
-        css_line = _mask_css_custom_props(line)
+        css_line = _mask_css_custom_props(line, web=True)
         masked = _mask_urls_and_anchors(css_line)
         for m in HEX_STR_RE.finditer(masked):
             add(idx, "color-literal", f"raw hex color {m.group(0)}")
