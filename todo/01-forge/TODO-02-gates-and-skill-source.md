@@ -2,7 +2,7 @@
 schema_version: 1
 id: gates-and-skill-source
 domain: 01-forge
-status: done
+status: active
 title: "TODO-02 -- One gate and one skill source"
 ---
 
@@ -41,6 +41,10 @@ title: "TODO-02 -- One gate and one skill source"
 | 5 | §5 | Skill copy generator with per-agent patches | -- | [x] |
 | 6 | §6 | Committed skill copies equal to the generator's output | §5 | [x] |
 | 7 | §7 | Pre-commit hook enabled at install and checked by doctor | -- | [x] |
+| 8 | §8 | No new row on a red main or after three pushes with no CI verdict | -- | [ ] |
+| 9 | §9 | Fast record check for pushes that change only records | §8 | [ ] |
+| 10 | §10 | Linux full suite split into parallel jobs | -- | [ ] |
+| 11 | §11 | Stamp evidence from CI of a records-only neighbour | §9 | [ ] |
 
 ## 1. `forge.py check-all` over every suite
 
@@ -283,6 +287,90 @@ The todo kit's `scripts/hooks/pre-commit` refuses a commit that would turn the p
 
 > **Verified:** 2026-11-15 | §7 | d46c3add1d05bcb7c37d5544c4ea3bf75bab3648
 > **Review:** `docs/reviews/d01-t02-s7.json`
+
+## 8. No new row on a red main or after three pushes with no CI verdict
+
+The owner's rule of 2026-11-17: CI must never be red after a push and go unnoticed, and never more than three pushes may go by without a verdict. Today `scripts/ci_status.py` is read only at section boundaries, and GitHub drops a pending run when a newer push arrives (the `concurrency` group in `.github/workflows/tests.yml`), so a commit can reach main untested and a red can sit through several pushes. Measured 2026-11-17: of the 14 runs started on main after 11:00Z, 8 were cancelled before they ran.
+
+The rule is held where work starts, never at the push. The owner reported on 2026-11-17 that the same rule as a gate on pushing, in another repository, left 20 commits that could not be pushed after a few days and nearly deadlocked it: the push that would have produced the verdict, or carried the fix, was the push the gate refused. So no hook, check or skill here ever refuses a commit or a push because of CI; the runner instead may not claim a new row while main is red or while three pushes have gone without a verdict, and it obtains the missing verdict itself.
+
+**Phase:** 5
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Count, in `ci_status.py`, the pushes since main's last verdict, and gate on it. Done when: `--gate` exits by the state and is tested.
+2. Make the runner obtain a verdict instead of waiting forever, and hold the rule in the skills. Done when: the checkpoint passes.
+
+- [ ] Add a `pushes since the last verdict` count to `kits/todo/templates/scripts/ci_status.py` (the SDK's `scripts/ci_status.py` is its installed copy, refreshed by `python forge.py self-sync`): the commits on `origin/main` after the newest commit whose watched workflow run completed (success or failure, never cancelled), printed with that commit and its verdict, and `--json` carrying it. Done when: a test with a stub `gh` (runs completed, cancelled and pending on known commits) reads the count and the last verdict back. Cheaper substitute: counting only cancelled runs, which misses pushes whose run is still pending.
+- [ ] Add `--gate` to `ci_status.py`: exit 0 when main's last verdict is green and fewer than three pushes have none, 1 when it is red, 4 when three or more pushes have none (naming them and any run in progress), 3 when the state cannot be read. Done when: a test per exit code passes with a stub `gh`.
+- [ ] Add `--settle` to `ci_status.py` for exit 4: when no run of the watched workflow is queued or in progress for the tip of `origin/main`, start one with `gh workflow run <workflow> --ref main` (the workflow's `workflow_dispatch`), then wait for that run, bounded by the workflow's longest job `timeout-minutes`, printing its verdict. Done when: a test with a stub `gh` finds a dispatch when nothing covers the tip, none when a run is in progress, and a bounded wait that ends with the verdict or a timeout message.
+- [ ] Hold the rule in `process-phase` and `process-plan` (the Claude skills, the copies through `python forge.py skill-copies`) and in the heartbeat prompt: before claiming a row run `ci_status.py --gate`; exit 1 is the existing red-first repair; exit 4 runs `--settle`, then acts on its verdict; exit 3 is recorded and retried at the next boundary, and two in a row are a Critical event; and nothing in them refuses, delays or holds back a commit or a push because of CI. Done when: `python forge.py skill-copies --check` passes and a test finds `--gate` and `--settle` in each skill and the heartbeat prompt.
+- [ ] Prove no deadlock: a test in `tests/test_ci_status.py` takes a scratch clone with a bare remote and a stub `gh` reporting red and no verdict, and finds that a commit and a push both go through while `--gate` exits 1 and then 4. Done when: it passes, and fails when a pre-push hook that runs `--gate` is installed in the clone. Cheaper substitute: a pre-push or pre-commit gate on CI, which the owner's deadlock rules out.
+- [ ] Name the rule in `AGENTS.md` (Test cadence) and the todo kit's `docs/todo-workflow.md`, the deadlock lesson with it, and run `python forge.py self-sync`. Done when: the Markdown format check and `python -m unittest tests.test_forge -k self_sync` pass.
+- [ ] Commit: `todo: no new row on a red main or after three pushes with no CI verdict`
+
+**Test checkpoint:** `python -m unittest tests.test_ci_status` ends `OK`; letting `--gate` exit 0 with three pushes without a verdict makes it fail, and so does a hook that refuses a push.
+
+## 9. Fast record check for pushes that change only records
+
+About half the pushes of a section change only records (a plan correction, a review's findings, a stamp), yet each runs the full matrix (29 minutes on Linux, measured 2026-11-17 on run 44083965196) and takes the one CI slot, so a code candidate waits behind it or is dropped. A records-only push needs only the checks records can break: the Markdown format check and the plan gates.
+
+**Phase:** 5
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Name the record paths once. Done when: one list is read by the workflow and the tooling.
+2. Route a records-only push to a fast job. Done when: the checkpoint passes.
+
+- [ ] Add the record paths (`todo/`, `docs/reviews/`, `docs/phase-runs/`) as the default `records` list in `kits/todo/templates/scripts/ci_status.py`, which a project may replace with `records` in its optional `.conclave/ci.json`, with a reader that says whether a commit range touches only them. Done when: tests find a range of records only, one with a code file, and one with a renamed file out of a record folder each classified right.
+- [ ] Add a `records` job to `.github/workflows/tests.yml`, outside the suites' concurrency group, that runs the Markdown format check, `python scripts/todo-graph.py validate` and `plan --check`, and make the three suite jobs skip (reported as skipped, never as passed) when the push's range is records only. Done when: a test reads the workflow and finds the job, its commands and the skip condition reading the same list.
+- [ ] Count a records-only push's `records` verdict as a verdict for §8 only when the suites' last verdict on its nearest code ancestor is green. Done when: a `ci_status.py` test finds a records-only push on a red code ancestor still reported red.
+- [ ] Commit: `ci: a push that changes only records runs the record checks alone`
+
+**Test checkpoint:** `python -m unittest tests.test_ci_status tests.test_forge -k workflow` ends `OK`; a code file in the range makes the classifier say not records-only.
+
+## 10. Linux full suite split into parallel jobs
+
+The full suite on Linux is the longest job (29 minutes on run 44083965196, against 19 for Windows and 15 for the kit suites), so it sets how long every candidate waits. Split by test module across parallel jobs, it runs the same tests in less time.
+
+**Phase:** 5
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Give `check-all` a shard option. Done when: the shards together run exactly the suite's tests.
+2. Run the shards in parallel in CI. Done when: the checkpoint passes.
+
+- [ ] Add `--shard K/N` to `python forge.py check-all` for a unittest suite: the suite's test modules split into N groups balanced by the size of each file, deterministic, the module list printed with each shard. Done when: a test runs all N shards of a fixture suite and finds every module in exactly one, and `--shard 0/2` or `3/2` refused.
+- [ ] Replace the `full suite (Linux)` job in `.github/workflows/tests.yml` with a matrix of shards, each named `full suite (Linux) K/N`, and teach `scripts/ci_status.py` to read every shard's result as the full suite's. Done when: a test reads the workflow's matrix, and a `ci_status.py` test with one red shard reports the full suite red naming that shard.
+- [ ] Keep the test inventory whole: `forge.py`'s check that every test file is owned by a suite counts each sharded module once. Done when: `python -m unittest tests.test_forge -k inventory` passes, and fails with a module left out of every shard.
+- [ ] Commit: `ci: the Linux full suite runs in parallel shards`
+
+**Test checkpoint:** `python -m unittest tests.test_check_all` ends `OK`; dropping a module from the shard split makes it fail.
+
+## 11. Stamp evidence from CI of a records-only neighbour
+
+A stamp must cite a green run of the commit it stamps (`AGENTS.md`, Test cadence). Once §9 sends records-only pushes to the fast job, a candidate that ends on a records commit (a writer note, a review's findings) gets no full run of its own, and while a run waits a newer push drops it. The same code is under test in a green run of any commit whose difference from the stamped one is records only, in either direction.
+
+**Phase:** 5
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Find the covering run. Done when: `ci_status.py` names it for a commit.
+2. Accept it in the stamp's evidence and the rule. Done when: the checkpoint passes.
+
+- [ ] Add `--covers <commit>` to `kits/todo/templates/scripts/ci_status.py`: the newest green full run (every suite job) of a commit whose diff from `<commit>` touches only the record paths of §9, printed with its URL and commit, exit 1 naming why when none. Done when: tests with a stub `gh` find a run on a records-only descendant, one on a records-only ancestor, and refuse one across a code change.
+- [ ] Amend the Test cadence paragraph of `AGENTS.md` and the stamp step of the `review-todo-section` skill (all three agents' copies through `python forge.py skill-copies`): a stamp's `--check` cites the run `ci_status.py --covers <stamped commit>` names. Done when: `python forge.py skill-copies --check` and the Markdown format check pass, and `git grep -n "covers" -- AGENTS.md kits/todo/templates/.claude/skills/review-todo-section/SKILL.md` finds both.
+- [ ] Commit: `todo: a stamp cites CI of a records-only neighbour`
+
+**Test checkpoint:** `python -m unittest tests.test_ci_status` ends `OK`; letting `--covers` cross a code change makes it fail.
 
 ## Verification
 

@@ -98,17 +98,21 @@ Sections: 4 | Checklist items: 24
 
 ### Phase 5: One gate and one skill source
 
-Sections: 7 | Checklist items: 58
+Sections: 11 | Checklist items: 76
 
-| Status | Reference  | Deliverable                                              | Needs | Items |
-| ------ | ---------- | -------------------------------------------------------- | ----- | ----- |
-| [x]    | D01 T02 §1 | `forge.py check-all` over every suite                    | none  | 8     |
-| [x]    | D01 T02 §2 | Test inventory that refuses a test no suite runs         | none  | 5     |
-| [x]    | D01 T02 §3 | Install assertions moved from bash to the Python suite   | none  | 6     |
-| [x]    | D01 T02 §4 | Bash installers and their tests retired                  | none  | 12    |
-| [x]    | D01 T02 §5 | Skill copy generator with per-agent patches              | none  | 9     |
-| [x]    | D01 T02 §6 | Committed skill copies equal to the generator's output   | none  | 8     |
-| [x]    | D01 T02 §7 | Pre-commit hook enabled at install and checked by doctor | none  | 10    |
+| Status | Reference   | Deliverable                                                       | Needs | Items |
+| ------ | ----------- | ----------------------------------------------------------------- | ----- | ----- |
+| [x]    | D01 T02 §1  | `forge.py check-all` over every suite                             | none  | 8     |
+| [x]    | D01 T02 §2  | Test inventory that refuses a test no suite runs                  | none  | 5     |
+| [x]    | D01 T02 §3  | Install assertions moved from bash to the Python suite            | none  | 6     |
+| [x]    | D01 T02 §4  | Bash installers and their tests retired                           | none  | 12    |
+| [x]    | D01 T02 §5  | Skill copy generator with per-agent patches                       | none  | 9     |
+| [x]    | D01 T02 §6  | Committed skill copies equal to the generator's output            | none  | 8     |
+| [x]    | D01 T02 §7  | Pre-commit hook enabled at install and checked by doctor          | none  | 10    |
+| [ ]    | D01 T02 §8  | No new row on a red main or after three pushes with no CI verdict | none  | 7     |
+| [ ]    | D01 T02 §9  | Fast record check for pushes that change only records             | none  | 4     |
+| [ ]    | D01 T02 §10 | Linux full suite split into parallel jobs                         | none  | 4     |
+| [ ]    | D01 T02 §11 | Stamp evidence from CI of a records-only neighbour                | none  | 3     |
 
 ### Phase 6: Tooling kits
 
@@ -206,6 +210,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 96/123 verified sections, 4 ready to run now.
+Progress: 96/127 verified sections, 6 ready to run now.
 
-Checklist: 790/958 items completed (includes Commit items).
+Checklist: 790/976 items completed (includes Commit items).
