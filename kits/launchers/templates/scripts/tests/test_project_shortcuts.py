@@ -331,7 +331,8 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(done.returncode, 1, done.stdout)
         self.assertIn("is already there and is not this project's link; nothing was written", done.stdout)
         self.assertEqual((self.desk / "Example Site (Claude).lnk").read_bytes(), before)
-        self.assertEqual(self.read_link()["description"], f"conclave-launcher: {str(other).lower()}")
+        mark, _, where = self.read_link()["description"].partition(": ")
+        self.assertEqual((mark, folder(where)), ("conclave-launcher", folder(other)))
 
     # --- the WSL form -----------------------------------------------------------------------------------------------
 
@@ -340,7 +341,7 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(self.links(), ["Example Site (Claude).lnk"])
         link = self.read_link()
-        self.assertEqual(Path(link["target"]), self.wt_dir / "wt.exe")
+        self.assertEqual(folder(link["target"]), folder(self.wt_dir / "wt.exe"))
         self.assertEqual(link["workdir"], os.environ["USERPROFILE"])
         self.assertEqual(link["description"], "conclave-launcher: wsl:debian:/home/me/site")
         icon = Path(link["icon"].rsplit(",", 1)[0])
@@ -387,12 +388,12 @@ class ProjectShortcutsTest(unittest.TestCase):
         done = self.run_script()
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         link = self.read_link()
-        self.assertEqual(Path(link["target"]), self.wt_dir / "wt.exe")
-        self.assertEqual(link["workdir"], str(self.project))
+        self.assertEqual(folder(link["target"]), folder(self.wt_dir / "wt.exe"))
+        self.assertEqual(folder(link["workdir"]), folder(self.project))
         self.run_link(link)
         (call,) = self.terminal_calls()
         self.assertEqual(folder(call["cwd"]), folder(self.project))
-        self.assertEqual(call["argv"][:2], ["-d", str(self.project)])
+        self.assertEqual((call["argv"][0], folder(call["argv"][1])), ("-d", folder(self.project)))
         self.assertEqual(Path(call["argv"][2]).name.lower(), "pwsh.exe")
         self.assertEqual(call["argv"][3:], ["-NoLogo", "-NoExit", "-Command", "claude"])
 
@@ -463,7 +464,7 @@ class ProjectShortcutsTest(unittest.TestCase):
                     if terminal:
                         (call,) = self.terminal_calls()
                         self.assertEqual(folder(call["cwd"]), folder(project))
-                        self.assertEqual(call["argv"][:2], ["-d", str(project)])
+                        self.assertEqual((call["argv"][0], folder(call["argv"][1])), ("-d", folder(project)))
                         self.assertEqual(call["argv"][3:], ["-NoLogo", "-NoExit", "-Command", " ".join(command)])
                     else:
                         agent, cwd, args = self.agent_log.read_text(encoding="utf-8").strip().split("|")
