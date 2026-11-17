@@ -110,7 +110,11 @@ What the linker wrote is the only proof of control-flow guard, shadow-stack comp
 
 ## 3. Doctor Rows for the Hardening Checks
 
+> **Started:** 2026-11-17T01:10Z
+
 The doctor is where an operator sees a project's state in one screen, so a project that declared a policy sees whether it holds.
+
+**Corrected 2026-11-17:** the plan put the tests in `tests/test_forge.py`, but the toolchain doctor's tests and their fixture (`CppKitTests`) live in `tests/test_toolchain_kits.py`; the checkpoint named `tests.test_forge`. And `load_pin_file` refuses the whole pin file when `hardening` does not load, so the doctor has no policy to report beside a loaded file: the refusal already makes `tool-pins` `missing`, and the policy row reads that refusal. The plan also left open what a check that declares only one half (`compile` or `binaries`) shows for the other, and whether `unknown` counts.
 
 **Phase:** 6
 **Needs:** none
@@ -118,14 +122,18 @@ The doctor is where an operator sees a project's state in one screen, so a proje
 
 **Build order:**
 
-1. Add the rows in `forge.py` `doctor_repo` for `toolchain-cpp`. Done when: the three states print as below.
+1. Add the rows in `forge.py` `_doctor_toolchain` for `toolchain-cpp`, after `compile-database`, reading the result of `check_compile` and `check_images` from the kit's `scripts/hardening-check.py`. Done when: the three policy states and the two check rows print as below.
+2. Document the rows in the kit's `README.md` `## Doctor` list. Done when: the checkpoint passes.
 
-- [ ] Add a `hardening-policy` row: `optional` with one line saying how to declare one when the pin file has no `hardening` key, `ok` with the counts of compile entries and binaries it covers, `missing` with the refusal when the key does not load. Done when: `python forge.py doctor <project> toolchain-cpp` prints each for a fixture project in `tests/test_forge.py`.
-- [ ] Add `hardening:compile` and `hardening:image` rows running the check read-only: `ok`, `setup_required` naming the first three findings and the count of the rest, or `unknown` when the database or a binary is not there. Done when: a fixture project with one unhardened source shows `setup_required` naming it, and `--strict` exits 3 for it.
-- [ ] Keep `optional` uncounted by `--strict`, as the kit's other optional rows are. Done when: a project with no `hardening` key passes `--strict`.
+- [ ] Add a `hardening-policy` row in `_doctor_toolchain`: `optional` with one line saying how to declare a policy (the key and `docs/toolchain-cpp.md`) when the pin file has no `hardening` key; `ok` with the number of compile requirements and binary patterns declared and what they covered (first-party entries checked, binaries found); `missing` with the loader's refusal when the pin file is refused at its `hardening` key, beside the `tool-pins` row that refusal already makes `missing`. Done when: `python forge.py doctor <project> toolchain-cpp` prints each for a fixture project in `tests/test_toolchain_kits.py`.
+- [ ] Add a `hardening:compile` row from `check_compile`, only when a policy is declared: `ok` with the check's detail; `setup_required` naming the first three missing requirements, each with its entry count and first source, then `and <n> more` for the rest; `unknown` with the check's detail when the database is not current or no entry is under the sources; `optional` when the policy declares no `compile`. Done when: a fixture project with one unhardened source shows `setup_required` naming the requirement and that source, and `--strict` exits 3 for it.
+- [ ] Add a `hardening:image` row from `check_images` the same way: `setup_required` naming the first three binaries with a missing property and the count of the rest, `unknown` when a pattern names no file or a binary cannot be read, `optional` when the policy declares no `binaries`. Done when: a fixture project whose `binaries` pattern names an image without the required property shows `setup_required` naming it, and one whose pattern names no file shows `unknown`.
+- [ ] Keep `optional` and `unknown` uncounted by `--strict`: `optional` as the kit's other optional rows are, and `unknown` because a database that is not current already counts through `compile-database`, and a binary not built yet is not a failure of the build. Done when: a project with no `hardening` key passes `--strict`, and one whose only open row is a pattern naming no file passes it too. Decision recorded: reversing it (counting `unknown`) fails `--strict` on every project checked before its first build.
+- [ ] Start nothing: both checks only read files. Done when: a test with a `regenerate` command that writes a mark file finds no mark after the doctor.
+- [ ] Add the three rows to the `## Doctor` list in `kits/toolchain-cpp/README.md`, with each status and what it says. Done when: the list names `hardening-policy`, `hardening:compile` and `hardening:image`.
 - [ ] Commit: `forge: the doctor reports a project's hardening policy`
 
-**Test checkpoint:** `python -m unittest tests.test_forge` passes with the three policy states and the `--strict` cases, and the unhardened-source case fails when the row is made to print `ok` unconditionally.
+**Test checkpoint:** `python -m unittest tests.test_toolchain_kits -k hardening` passes with the three policy states, the two check rows and the `--strict` cases, and the unhardened-source case fails when the `hardening:compile` row is made to print `ok` unconditionally.
 
 ## 4. Skill and Document Guidance
 
