@@ -203,6 +203,53 @@ Clang rows hold for Clang on Linux and on llvm-mingw unless a row says llvm-ming
 | GCC | `-D_FORTIFY_SOURCE=2` or `=3` | Checked string and memory calls | GCC 15.2.0, Clang 19.1.7 (glibc) |
 | GCC | `-Wl,-z,relro,-z,now` | Full RELRO | GCC 15.2.0 (image) |
 
+### The probes
+
+The programs and commands that measured the table, to repeat on another compiler before relying on a row. Each runs beside its control, and the option holds only when the two results differ as shown. `A` stands for a 69-character argument (`AAAA...`).
+
+`smash.c` overruns a stack buffer:
+
+```c
+#include <string.h>
+#include <stdio.h>
+__attribute__((noinline)) void f(const char *s) { char buf[8]; strcpy(buf, s); puts(buf); }
+int main(int argc, char **argv) { f(argc > 1 ? argv[1] : "x"); return 0; }
+```
+
+```text
+cc -O0 -fno-stack-protector smash.c -o s0 && ./s0 A        # segmentation fault, exit 139
+cc -O0 -fstack-protector-strong smash.c -o s1 && ./s1 A    # *** stack smashing detected ***, exit 134
+cc -O2 -fno-stack-protector -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 smash.c -o f0 && ./f0 A   # exit 139
+cc -O2 -fno-stack-protector -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3 smash.c -o f3 && ./f3 A   # *** buffer overflow detected ***, exit 134
+```
+
+`uninit.c` fills the stack, then reads a local it never set:
+
+```c
+#include <stdio.h>
+__attribute__((noinline)) int g(int c) { int x; if (c > 5) x = 1; return x; }
+__attribute__((noinline)) void dirty(void) { volatile int junk[64]; for (int i = 0; i < 64; i++) junk[i] = 0x5a5a5a5a; }
+int main(int argc, char **argv) { (void)argv; dirty(); printf("%d\n", g(argc)); return 0; }
+```
+
+```text
+cc -O0 uninit.c -o u0 && ./u0                              # stack contents (2067949718 on GCC 15.2.0)
+cc -O0 -ftrivial-auto-var-init=zero uninit.c -o u1 && ./u1 # 0
+```
+
+`sdl.c` reads an uninitialised local, for MSVC:
+
+```c
+#include <stdio.h>
+int main(void) { int x; printf("%d\n", x); return 0; }
+```
+
+```text
+cl /nologo sdl.c        # warning C4700, and it builds
+cl /nologo /sdl sdl.c   # error C4700, and it does not
+```
+
+Full RELRO is read from the image: build `smash.c` with `cc -O1 -fPIE -pie -Wl,-z,relro,-z,now` and with `-Wl,-z,relro,-z,lazy`, name both in `binaries` with `"image": ["RELRO", "BIND_NOW"]`, and `python scripts/hardening-check.py` finds BIND_NOW only on the first.
 ### What hardening does not cover
 
 Hardening covers bounds and control flow, not object lifetime: a use after free or a double free is found by a sanitizer test build (`-fsanitize=address`) and by fuzzing, and neither ships. Name a sanitizer build in `test_binaries`; a sanitizer runtime in any other binary is a finding. A hardened process that hits a check ends at once and reaches no handler inside the process, so a shipped program needs a way for its next start to say that the last run stopped.
