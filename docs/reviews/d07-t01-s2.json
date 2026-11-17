@@ -1,0 +1,84 @@
+{
+  "ref": "D07 T01 \u00a72",
+  "title": "Launcher profile `.conclave/launchers.json` and its loader",
+  "implementation_sha": "4cab4cfa9ea13f22d363d300ec632fe8ad25203f",
+  "date": "2026-11-17",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/07-launchers/D07-T01-s2.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest discover -s kits/launchers/templates/scripts/tests -p test_launchers.py -> Ran 20 tests, OK (skipped=2, POSIX permissions); accepting an unknown key, a slug collision, agents as an object, a folder icon or dropped links each fail it",
+    "CI tests.yml run 44025533125 green at 4cab4cf"
+  ],
+  "completion": {
+    "report": "docs/reviews/07-launchers/D07-T01-s2.md",
+    "verdict": "reconciled",
+    "candidate": "4cab4cfa9ea13f22d363d300ec632fe8ad25203f",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/07-launchers/D07-T01-s2.md",
+    "candidate": "cc7d850e34ff41d16d47154462dba6239f17997f",
+    "reviewer": "astra",
+    "model": "gpt-6-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "cc7d850e34ff41d16d47154462dba6239f17997f",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

@@ -44,7 +44,7 @@ title: "TODO-01 -- Project launchers: one desktop shape for every project"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Launchers kit known to `forge.py` | -- | [x] |
-| 2 | §2 | Launcher profile `.conclave/launchers.json` and its loader | §1 | [ ] |
+| 2 | §2 | Launcher profile `.conclave/launchers.json` and its loader | §1 | [x] |
 | 3 | §3 | Icon renderer owned by the launchers kit | §1 | [ ] |
 | 4 | §4 | Rounded-square overlay icons | §3 | [ ] |
 | 5 | §5 | Desktop links that open the project in an agent | §2, §4 | [ ] |
@@ -110,6 +110,9 @@ Everything a project chooses about its links lives in one tracked file: the titl
 - [x] Commit: `launchers: the profile and its loader`
 
 **Test checkpoint:** `python -m unittest discover -s kits/launchers/templates/scripts/tests -p "test_launchers.py"` ends `OK`; letting `load_profile` accept an unknown key makes it fail.
+
+> **Verified:** 2026-11-17 | §2 | 4cab4cfa9ea13f22d363d300ec632fe8ad25203f
+> **Review:** `docs/reviews/d07-t01-s2.json`
 
 ## 3. Icon renderer owned by the launchers kit
 
