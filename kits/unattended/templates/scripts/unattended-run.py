@@ -59,6 +59,7 @@ HEALTH = "build/unattended-health.json"  # written by the heartbeat on every tic
 # `status` compares with the current one, so a link a kit update left behind is named.
 SHORTCUTS = "build/unattended-shortcuts.json"
 REFRESH = "pwsh scripts/unattended-shortcut.ps1 -Refresh"
+SHORTCUT_WRITE = "pwsh scripts/unattended-shortcut.ps1 -Distro <distro> -Icon <the project's icon>"
 NEEDS_OPERATOR = "build/unattended-needs-operator.md"  # the stall notice: nothing has shipped for stall_hours
 HEARTBEAT_STATE = "build/unattended-heartbeat.json"
 ENDED = "build/claude-campaign-ended.json"  # written by campaign_guard.py end: how the last run ended
@@ -976,22 +977,41 @@ def link_command(kind) -> str | None:
     return start_command(kind) if kind in lib.AGENTS else None
 
 
+def shortcut_sets(text: str) -> list | None:
+    """The sets of a shortcut record, read by its shape as unattended-shortcut.ps1 reads it: an object whose `sets`
+    is a list, each set an object with `args.ShortcutDir` text and a `links` list. None for anything else (empty,
+    blank, `null`, a list, a set without its folder): a damaged record, never an empty one (D02 T02 §12)."""
+    try:
+        data = json.loads(text) if text.strip() else None
+    except ValueError:
+        return None
+    sets = data.get("sets") if isinstance(data, dict) else None
+    if not isinstance(sets, list):
+        return None
+    for entry in sets:
+        args = entry.get("args") if isinstance(entry, dict) else None
+        if not (isinstance(args, dict) and isinstance(args.get("ShortcutDir"), str) and args["ShortcutDir"]
+                and isinstance(entry.get("links"), list)):
+            return None
+    return sets
+
+
 def shortcut_state(root: Path) -> str:
     """What `status` says of the Windows links unattended-shortcut.ps1 recorded, one set per desktop folder: none,
     current, or each one whose command is no longer the current one (a kit update changed it after it was written),
     with the re-run. It reads the record, not the links (which only Windows can read: `-Check` does)."""
     path = root / SHORTCUTS
     try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        text = path.read_text(encoding="utf-8-sig")
     except FileNotFoundError:
         return "none recorded"
-    except (OSError, ValueError) as exc:
-        return f"{SHORTCUTS} cannot be read ({exc}); run {REFRESH} on Windows"
-    sets = data.get("sets") if isinstance(data, dict) else None
-    sets = [entry for entry in sets if isinstance(entry, dict)] if isinstance(sets, list) else []
-    # A set whose links are not a list is named as one unreadable link, so it is never taken as current.
-    links = [(entry, link) for entry in sets
-             for link in (entry.get("links") if isinstance(entry.get("links"), list) else [None])]
+    except (OSError, UnicodeDecodeError) as exc:
+        return f"{SHORTCUTS} cannot be read ({exc}); move it aside and run {SHORTCUT_WRITE} on Windows"
+    sets = shortcut_sets(text)
+    if sets is None:
+        return (f"{SHORTCUTS} cannot be read (it is not a record of sets); move it aside and run {SHORTCUT_WRITE} "
+                "on Windows")
+    links = [(entry, link) for entry in sets for link in entry["links"]]
     if not links:
         return f"{SHORTCUTS} names no links; run {REFRESH} on Windows"
     stale = []

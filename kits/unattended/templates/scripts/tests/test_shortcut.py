@@ -120,6 +120,11 @@ def reclaim(pid):
         pass
 
 
+DAMAGED_RECORDS = ["", "   \n", "null", "[]", "{}", '{"sets": 1}', '{"sets": [1]}', '{"sets": [{"links": []}]}',
+                   '{"sets": [{"args": {"ShortcutDir": ""}, "links": []}]}',
+                   '{"sets": [{"args": {"ShortcutDir": "C:\\\\d"}, "links": 1}]}']
+
+
 def start_tree(argv, **kwargs):
     """Start a child in a process group of its own, with no console window, so `end_tree` can end everything it
     starts (pwsh starts Python and the WSL stand-in)."""
@@ -550,10 +555,7 @@ class ShortcutTest(ShortcutFixture):
         # The class, not the case (reconciliations 1 and 7): a record is judged by its shape. Each of these is
         # unreadable: an install keeps it, a removal keeps it and the badges, and -Check says to move it aside.
         record = self.project / "build" / "unattended-shortcuts.json"
-        damaged = ["", "   \n", "null", "[]", "{}", '{"sets": 1}', '{"sets": [1]}', '{"sets": [{"links": []}]}',
-                   '{"sets": [{"args": {"ShortcutDir": ""}, "links": []}]}',
-                   '{"sets": [{"args": {"ShortcutDir": "C:\\\\d"}, "links": 1}]}']
-        for text in damaged:
+        for text in DAMAGED_RECORDS:
             with self.subTest(record=text):
                 record.parent.mkdir(exist_ok=True)
                 record.write_text(text, encoding="utf-8")

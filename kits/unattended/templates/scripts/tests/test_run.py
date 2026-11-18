@@ -1991,6 +1991,11 @@ class HeartbeatShipsTest(unittest.TestCase):
         self.assertIn("needs operator:\n# Nothing has shipped for 6.0 hours", out.getvalue())
 
 
+DAMAGED_RECORDS = ["", "   \n", "null", "[]", "{}", '{"sets": 1}', '{"sets": [1]}', '{"sets": [{"links": []}]}',
+                   '{"sets": [{"args": {"ShortcutDir": ""}, "links": []}]}',
+                   '{"sets": [{"args": {"ShortcutDir": "C:\\\\d"}, "links": 1}]}']
+
+
 class ShortcutStateTest(unittest.TestCase):
     """`status` names a Windows link whose recorded command is not the current one (D02 T02 §12): seen 2026-11-18,
     links written before the writable-attach fix kept `attach --watch`, so the operator's window ignored every key."""
@@ -2038,18 +2043,30 @@ class ShortcutStateTest(unittest.TestCase):
         self.record(("C:\\desk", "w", self.current() + [{"label": "Demo Gone campaign", "kind": "gone", "command": "x"}]))
         self.assertTrue(self.run.shortcut_state(self.root).startswith("stale: Demo Gone campaign"))
 
-    def test_a_record_of_the_wrong_shape_is_never_current(self):
-        # Round 1 of D02 T02 §12's review: links that are not a list raised, and a link with no kind read as current.
-        for links in (1, [{}], [{"label": "x", "kind": None, "command": None}], ["text"]):
+    def test_a_link_of_the_wrong_shape_is_never_current(self):
+        # Round 1 of D02 T02 §12's review: a link with no kind read as current.
+        for links in ([{}], [{"label": "x", "kind": None, "command": None}], ["text"]):
             with self.subTest(links=links):
                 self.record(("C:\\desk", "w", links))
                 self.assertTrue(self.run.shortcut_state(self.root).startswith("stale: "), links)
+
+    def test_every_damaged_record_is_said_to_be_one(self):
+        # The class (reconciliations 1, 7 and 8): status reads the record by the shape the script and forge read it by.
+        (self.root / "build").mkdir(exist_ok=True)
+        for text in DAMAGED_RECORDS:
+            with self.subTest(record=text):
+                (self.root / self.run.SHORTCUTS).write_text(text, encoding="utf-8")
+                said = self.run.shortcut_state(self.root)
+                self.assertTrue(said.startswith(f"{self.run.SHORTCUTS} cannot be read"), said)
+                self.assertIn("move it aside", said)
 
     def test_an_unreadable_record_says_so(self):
         (self.root / "build").mkdir()
         (self.root / self.run.SHORTCUTS).write_text("{", encoding="utf-8")
         self.assertIn("cannot be read", self.run.shortcut_state(self.root))
         self.record()
+        self.assertIn("names no links", self.run.shortcut_state(self.root))
+        self.record(("C:\\desk", "w", []))
         self.assertIn("names no links", self.run.shortcut_state(self.root))
 
     def test_status_prints_the_shortcut_state(self):

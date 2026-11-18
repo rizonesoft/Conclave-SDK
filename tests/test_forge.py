@@ -123,6 +123,12 @@ def make_link(target, link):
         os.symlink(target, link)
 
 
+DAMAGED_SHORTCUT_RECORDS = ["", "   \n", "null", "[]", "{}", '{"sets": 1}', '{"sets": [1]}',
+                            '{"sets": [{"links": []}]}',
+                            '{"sets": [{"args": {"ShortcutDir": ""}, "links": []}]}',
+                            '{"sets": [{"args": {"ShortcutDir": "C:\\\\d"}, "links": 1}]}']
+
+
 class RunKitSuiteTest(unittest.TestCase):
     def test_a_suite_past_its_limit_is_ended_with_every_process_it_started(self):
         # The fresh-install test once ran an installed suite through subprocess.run, whose timeout ended only the
@@ -3972,6 +3978,23 @@ class UnattendedKitTests(unittest.TestCase):
             failed = forge._refresh_shortcuts(self.target)
         self.assertEqual(failed, {"refreshed": False, "detail": "ok | no answer within 300 seconds: ; run "
                                   f"{forge.SHORTCUT_REFRESH} -ShortcutDir 'C:\\O''Brien''s desk' again"})
+
+    def test_every_damaged_shortcut_record_is_said_to_be_one_and_never_crashes_the_update(self):
+        # The class (D02 T02 §12, reconciliations 1, 7 and 8): forge reads the record by the shape the script reads.
+        (self.target / "build").mkdir(parents=True, exist_ok=True)
+        probe = unittest.mock.Mock(return_value=(0, "", ""))
+        for text in DAMAGED_SHORTCUT_RECORDS:
+            for windows in (True, False):
+                with self.subTest(record=text, windows=windows):
+                    (self.target / forge.SHORTCUT_RECORD).write_text(text, encoding="utf-8")
+                    self.assertIsNone(forge._shortcut_folders(self.target))
+                    with unittest.mock.patch.object(forge, "_probe", probe), \
+                            unittest.mock.patch.object(forge, "_windows", return_value=windows), \
+                            unittest.mock.patch.object(forge.shutil, "which", return_value="pwsh"):
+                        said = forge._refresh_shortcuts(self.target)
+                    self.assertFalse(said["refreshed"])
+                    self.assertIn("cannot be read: move it aside", said["detail"])
+        probe.assert_not_called()
 
     def test_an_update_that_replaces_the_shortcut_script_asks_it_for_links_from_before_the_record(self):
         # D02 T02 §12, the plan review: an install made before the record has links and no record.

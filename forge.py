@@ -1349,16 +1349,36 @@ def _windows() -> bool:
     return os.name == "nt"
 
 
-def _shortcut_folders(target: Path) -> list[str]:
-    """The desktop folders the record names a set of the project's links in (none without a readable record)."""
+def _shortcut_sets(text: str) -> list | None:
+    """The sets of a shortcut record, read by its shape as unattended-shortcut.ps1 reads it: an object whose `sets`
+    is a list, each set an object with `args.ShortcutDir` text and a `links` list. None for anything else (empty,
+    blank, `null`, a list, a set without its folder): a damaged record, never an empty one (D02 T02 §12)."""
     try:
-        data = json.loads((target / SHORTCUT_RECORD).read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError):
-        return []
+        data = json.loads(text) if text.strip() else None
+    except ValueError:
+        return None
     sets = data.get("sets") if isinstance(data, dict) else None
-    return [entry["args"]["ShortcutDir"] for entry in sets or []
-            if isinstance(entry, dict) and isinstance(entry.get("args"), dict)
-            and isinstance(entry["args"].get("ShortcutDir"), str)]
+    if not isinstance(sets, list):
+        return None
+    for entry in sets:
+        args = entry.get("args") if isinstance(entry, dict) else None
+        if not (isinstance(args, dict) and isinstance(args.get("ShortcutDir"), str) and args["ShortcutDir"]
+                and isinstance(entry.get("links"), list)):
+            return None
+    return sets
+
+
+def _shortcut_folders(target: Path) -> list[str] | None:
+    """The desktop folders the record names a set of the project's links in: none without a record, None for a record
+    that cannot be read (`_shortcut_sets`)."""
+    try:
+        text = (target / SHORTCUT_RECORD).read_text(encoding="utf-8-sig")
+    except FileNotFoundError:
+        return []
+    except (OSError, UnicodeDecodeError):
+        return None
+    sets = _shortcut_sets(text)
+    return None if sets is None else [entry["args"]["ShortcutDir"] for entry in sets]
 
 
 def _refresh_shortcuts(target: Path) -> dict:
@@ -1366,8 +1386,12 @@ def _refresh_shortcuts(target: Path) -> dict:
     {refreshed, detail}. With no record, the script itself names links written before it kept one, with the command
     that writes them again. Only on Windows, where the links are; elsewhere the detail names the command to run
     there."""
+    folders = _shortcut_folders(target)
+    if folders is None:  # the script keeps a damaged record and says how to start a new one; so does this
+        return {"refreshed": False, "detail": f"{SHORTCUT_RECORD} cannot be read: move it aside, then run "
+                "pwsh scripts/unattended-shortcut.ps1 -Distro <distro> -Icon <the project's icon> on Windows for "
+                "each folder the links are in"}
     if not _windows():
-        folders = _shortcut_folders(target)
         each = "; ".join(SHORTCUT_REFRESH + " -ShortcutDir " + "'" + folder.replace("'", "''") + "'"
                          for folder in folders)
         return {"refreshed": False, "detail": f"the links are on Windows: run {each} there" if folders else
@@ -1378,7 +1402,6 @@ def _refresh_shortcuts(target: Path) -> dict:
         return {"refreshed": False,
                 "detail": f"PowerShell 7 (pwsh) is not on PATH: install it, then run {SHORTCUT_REFRESH}"}
     refreshed, said = True, []
-    folders = _shortcut_folders(target)
     if not folders:  # no record: the desktop's links; links written elsewhere need their folder named
         said.append(f"links written outside the desktop: run {SHORTCUT_REFRESH} -ShortcutDir '<folder>'")
     for folder in folders or [None]:
