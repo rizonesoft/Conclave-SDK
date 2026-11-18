@@ -146,6 +146,49 @@ function Get-Badges([object[]]$owned) {
 # new file already moved in and puts each old one back, so the previous set stands whole; `committed` (the new set was
 # in place) removes what was moved aside.
 $journalPath = Join-Path $IconDir "campaign-$key.$PID.journal.json"
+
+# A journal is read as a claim, not trusted: it can name only this project's files in the two folders this run works
+# in, by the names a run gives them, so one planted in a shared icon folder cannot move or delete anything else.
+# A path is the folder's own file of `pattern`, or `$false`.
+function Test-Within([string]$path, [string]$folder, [string]$pattern) {
+  if (-not $path -or $path.IndexOfAny([IO.Path]::GetInvalidPathChars()) -ge 0) { return $false }
+  $parent = [IO.Path]::GetDirectoryName($path)
+  if (-not $parent) { return $false }
+  $same = (Get-Normal ([IO.Path]::GetFullPath($parent))) -ceq (Get-Normal ([IO.Path]::GetFullPath($folder)))
+  $same -and [IO.Path]::GetFileName($path) -match $pattern
+}
+# Whether a journal of the run `$owner` names only files such a run writes: links in the shortcut folder and badges in
+# the icon folder, each moved aside as `<name>.<owner>.old` and written first as `<name>.<owner>.tmp.<ext>` (a link's
+# temporary name drops its own `.lnk`).
+function Test-Journal($record, [int]$owner) {
+  if ($record.state -notin @('writing', 'swapping', 'committed')) { return $false }
+  foreach ($m in @($record.moves)) {
+    $link = Test-Within $m.to $ShortcutDir '\.lnk$'
+    if (-not ($link -or (Test-Within $m.to $IconDir '^campaign-[a-z]+-[0-9a-f]{8}\.ico$'))) { return $false }
+    $stem = if ($link) { $m.to.Substring(0, $m.to.Length - 4) } else { $m.to }
+    $suffix = if ($link) { 'lnk' } else { 'ico' }
+    if ($m.from -cne "$stem.$owner.tmp.$suffix") { return $false }
+  }
+  foreach ($old in @($record.aside)) {
+    $inside = (Test-Within $old.to $ShortcutDir '\.lnk$') -or
+      (Test-Within $old.to $IconDir '^campaign-[a-z]+-[0-9a-f]{8}\.ico$')
+    if (-not $inside -or $old.old -cne "$($old.to).$owner.old") { return $false }
+  }
+  $temps = @($record.moves | ForEach-Object { $_.from })
+  foreach ($temp in @($record.temps)) { if ($temps -cnotcontains $temp) { return $false } }
+  $true
+}
+# Whether a file a journal would remove is this project's: a link with its mark, a badge under its key.
+function Test-Mine([string]$path) {
+  $file = Get-Item -LiteralPath $path -ErrorAction Ignore
+  if (-not $file) { return $false }
+  if ($file.Name -like '*.ico' -or $file.Name -like '*.ico.*') { return $file.Name -like "campaign-*-$key.ico*" }
+  Test-Owned $file
+}
+
+# Each step is safe to repeat, so a recovery that is itself stopped is finished by the next run: a file moved in is
+# taken out only while what it replaced is still moved aside (or, for a new name, while it is still this project's),
+# and a file moved aside goes back only where nothing has taken its name.
 function Restore-Stopped {
   $journals = @(Get-ChildItem -LiteralPath $IconDir -Filter "campaign-$key.*.journal.json*" -File -ErrorAction Ignore)
   foreach ($file in $journals) {
@@ -153,12 +196,17 @@ function Restore-Stopped {
     $owner, $partial = [int]$Matches[1], [bool]$Matches[2]
     if ($owner -eq $PID -or (Get-Process -Id $owner -ErrorAction Ignore)) { continue }
     if ($partial) { Remove-Item -LiteralPath $file.FullName; continue }  # the journal step it was writing never began
-    $record = Get-Content -LiteralPath $file.FullName -Raw -Encoding utf8 | ConvertFrom-Json
+    $record = try { Get-Content -LiteralPath $file.FullName -Raw -Encoding utf8 | ConvertFrom-Json } catch { $null }
+    if (-not $record -or -not (Test-Journal $record $owner)) {
+      "unattended-shortcut: $($file.FullName) names files outside this project's links; it is left as it is"
+      continue
+    }
     if ($record.state -eq 'swapping') {
       foreach ($m in @($record.moves)) {
-        if (-not (Test-Path -LiteralPath $m.from) -and (Test-Path -LiteralPath $m.to)) {
-          Remove-Item -LiteralPath $m.to; "removed: $($m.to)"
-        }
+        $replaced = @($record.aside | Where-Object { $_.to -ceq $m.to })
+        $new = if ($replaced) { Test-Path -LiteralPath $replaced[0].old }
+          else { -not (Test-Path -LiteralPath $m.from) -and (Test-Mine $m.to) }
+        if ($new -and (Test-Path -LiteralPath $m.to)) { Remove-Item -LiteralPath $m.to; "removed: $($m.to)" }
       }
       foreach ($old in @($record.aside)) {
         if ((Test-Path -LiteralPath $old.old) -and -not (Test-Path -LiteralPath $old.to)) {
@@ -167,11 +215,14 @@ function Restore-Stopped {
       }
     } elseif ($record.state -eq 'committed') {
       foreach ($old in @($record.aside)) {
-        if (Test-Path -LiteralPath $old.old) { Remove-Item -LiteralPath $old.old; "removed: $($old.old)" }
+        # A badge moved aside may be under an old key; the journal's check holds it to this run's own name for it.
+        if ((Test-Path -LiteralPath $old.old) -and ($old.old -like '*.ico.*' -or (Test-Mine $old.old))) {
+          Remove-Item -LiteralPath $old.old; "removed: $($old.old)"
+        }
       }
     }
     foreach ($temp in @($record.temps)) {
-      if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp; "removed: $temp" }
+      if (Test-Mine $temp) { Remove-Item -LiteralPath $temp; "removed: $temp" }
     }
     Remove-Item -LiteralPath $file.FullName
   }
