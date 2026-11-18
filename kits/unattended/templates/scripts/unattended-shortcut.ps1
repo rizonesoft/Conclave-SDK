@@ -500,7 +500,9 @@ if ($Check) {
     exit 1
   }
 }
-Restore-Stopped
+# Recovery writes, so it is the writer's alone: -Check never plays a journal, even one a stopped run left after its
+# scan above.
+if (-not $Check) { Restore-Stopped }
 # The set a refresh or a check works from is read again now that no other run can change it: a removal or a write
 # that ran while this one waited for the lock is what it sees.
 if ($set) {
