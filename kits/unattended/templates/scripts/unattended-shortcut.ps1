@@ -50,22 +50,33 @@ $recordPath = Join-Path $root 'build\unattended-shortcuts.json'
 function Get-DeskKey([string]$dir) { [IO.Path]::GetFullPath($dir).TrimEnd('\').ToLowerInvariant() }
 # The record's sets (none without a record); a record that cannot be read sets $recordUnread to why.
 $recordUnread = $null
-# A record is read by its shape, not by whether it parses: it is an object whose `sets` is a list, each set an object
-# with `args.ShortcutDir` text and a `links` list. Anything else (empty, blank, `null`, a list, a set without its
-# folder) is unreadable, and is kept as it is (D02 T02 §12: reconciliations 1 and 7 found two ways a damaged record
-# passed as an empty one).
-function Get-RecordFault($data) {
-  if ($data -isnot [Management.Automation.PSCustomObject]) { return 'it is not an object' }
-  if ($data.PSObject.Properties.Name -notcontains 'sets' -or $data.sets -isnot [array]) {
-    return 'it holds no list of sets'
-  }
-  foreach ($entry in $data.sets) {
-    if ($entry -isnot [Management.Automation.PSCustomObject] -or
-        $entry.args -isnot [Management.Automation.PSCustomObject] -or
-        $entry.args.ShortcutDir -isnot [string] -or -not $entry.args.ShortcutDir -or $entry.links -isnot [array]) {
-      return 'a set in it names no folder or no list of links'
+# A record is read by its shape, not by whether it parses, and its shape is exactly what Save-Sets writes: an object
+# whose `sets` is a list, each set holding `written`, `args` (Distro, Icon, Project, ShortcutDir, IconDir) and `links`
+# (each with label, kind and command), every key in its own case and every value non-empty text. Anything else is
+# unreadable and kept as it is (D02 T02 §12: reconciliations 1, 7, 9 and 10 each found a damaged record that passed
+# a looser check; unattended-run.py and forge.py hold the same shape).
+$recordShape = @{ sets = , @{ written = ''; links = , @{ label = ''; kind = ''; command = '' }
+    args = @{ Distro = ''; Icon = ''; Project = ''; ShortcutDir = ''; IconDir = '' } } }
+function Test-Fits($value, $shape) {
+  if ($shape -is [hashtable]) {
+    if ($value -isnot [Management.Automation.PSCustomObject]) { return $false }
+    $names = @($value.PSObject.Properties.Name)
+    foreach ($key in $shape.Keys) {
+      if ($names -cnotcontains $key) { return $false }
+      if (-not (Test-Fits $value.PSObject.Properties[$key].Value $shape[$key])) { return $false }
     }
+    return $true
   }
+  if ($shape -is [array]) {
+    if ($value -isnot [array]) { return $false }
+    foreach ($item in $value) { if (-not (Test-Fits $item $shape[0])) { return $false } }
+    return $true
+  }
+  # ConvertFrom-Json reads an ISO date string (`written`) as a date: it was non-empty text in the file.
+  return ($value -is [datetime]) -or ($value -is [string] -and $value.Length -gt 0)
+}
+function Get-RecordFault($data) {
+  if (-not (Test-Fits $data $recordShape)) { return 'it is not a record of sets as this script writes them' }
 }
 function Read-Sets {
   if (-not (Test-Path -LiteralPath $recordPath -PathType Leaf)) { return }

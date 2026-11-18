@@ -129,6 +129,49 @@ DAMAGED_SHORTCUT_RECORDS = ["", '[{"sets": []}]', "   \n", "null", "[]", "{}", '
                             '{"sets": [{"args": {"ShortcutDir": "C:\\\\d"}, "links": 1}]}']
 
 
+def record_variants(record):
+    """(label, record) for each way a record can differ from what the shortcut writer writes: every key dropped or in
+    another case, every value of another type, every text empty (D02 T02 §12's class of damaged records)."""
+    import copy
+
+    def walk(node, path):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                yield f"{path}.{key} dropped", lambda r, k=key: r.pop(k), path
+                yield f"{path}.{key} as {key.swapcase()}", lambda r, k=key: r.__setitem__(k.swapcase(), r.pop(k)), path
+                yield f"{path}.{key} of another type", lambda r, k=key, v=value: r.__setitem__(
+                    k, 1 if not isinstance(v, int) else "1"), path
+                yield from walk(value, f"{path}.{key}")
+        elif isinstance(node, list) and node:
+            yield from walk(node[0], f"{path}[0]")
+        elif isinstance(node, str):
+            yield f"{path} empty", None, path
+
+    def at(root, path):
+        node = root
+        for part in path.replace("[0]", ".[0]").split(".")[1:]:
+            node = node[0] if part == "[0]" else node[part]
+        return node
+
+    for label, change, path in walk(record, "$"):
+        damaged = copy.deepcopy(record)
+        if change is None:  # an empty text: set where it is held
+            parent_path, _, key = path.rpartition(".")
+            at(damaged, parent_path)[key] = ""
+        else:
+            change(at(damaged, path))
+        yield label, damaged
+
+
+
+def full_set(folder):
+    """One set of a shortcut record as unattended-shortcut.ps1 writes it, for `folder`."""
+    return {"written": "2026-11-18T10:54:00Z",
+            "args": {"Distro": "Ubuntu", "Icon": "C:\\brand.png", "Project": "C:\\demo", "ShortcutDir": folder,
+                     "IconDir": "C:\\icons"},
+            "links": [{"label": "Demo Claude campaign", "kind": "claude", "command": "python3 x"}]}
+
+
 class RunKitSuiteTest(unittest.TestCase):
     def test_a_suite_past_its_limit_is_ended_with_every_process_it_started(self):
         # The fresh-install test once ran an installed suite through subprocess.run, whose timeout ended only the
@@ -3953,8 +3996,7 @@ class UnattendedKitTests(unittest.TestCase):
             self.assertNotIn("shortcuts", result)
             (self.target / "build").mkdir(exist_ok=True)
             (self.target / forge.SHORTCUT_RECORD).write_text(json.dumps({"sets": [
-                {"args": {"Distro": "Ubuntu", "ShortcutDir": "C:\\desk one"}, "links": []},
-                {"args": {"Distro": "Ubuntu", "ShortcutDir": "C:\\O'Brien's desk"}, "links": []}]}), encoding="utf-8")
+                full_set("C:\\desk one"), full_set("C:\\O'Brien's desk")]}), encoding="utf-8")
             runner.unlink()
             self.assertNotIn("shortcuts", forge.update_project(self.target, only=[rel], dry_run=True))
             result = forge.update_project(self.target, only=[rel])
@@ -3978,6 +4020,19 @@ class UnattendedKitTests(unittest.TestCase):
             failed = forge._refresh_shortcuts(self.target)
         self.assertEqual(failed, {"refreshed": False, "detail": "ok | no answer within 300 seconds: ; run "
                                   f"{forge.SHORTCUT_REFRESH} -ShortcutDir 'C:\\O''Brien''s desk' again"})
+
+    def test_forge_reads_only_the_shortcut_record_the_writer_writes(self):
+        # The class, generated from the writer's shape (D02 T02 §12, reconciliations 1, 7, 9 and 10).
+        (self.target / "build").mkdir(parents=True, exist_ok=True)
+        whole = {"sets": [full_set("C:\\desk")]}
+        (self.target / forge.SHORTCUT_RECORD).write_text(json.dumps(whole), encoding="utf-8")
+        self.assertEqual(forge._shortcut_folders(self.target), ["C:\\desk"])
+        variants = list(record_variants(whole))
+        self.assertGreaterEqual(len(variants), 40)
+        for label, damaged in variants:
+            with self.subTest(label):
+                (self.target / forge.SHORTCUT_RECORD).write_text(json.dumps(damaged), encoding="utf-8")
+                self.assertIsNone(forge._shortcut_folders(self.target))
 
     def test_every_damaged_shortcut_record_is_said_to_be_one_and_never_crashes_the_update(self):
         # The class (D02 T02 §12, reconciliations 1, 7 and 8): forge reads the record by the shape the script reads.

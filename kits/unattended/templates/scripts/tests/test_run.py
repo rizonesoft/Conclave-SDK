@@ -1997,6 +1997,40 @@ DAMAGED_RECORDS = ["", '[{"sets": []}]', "   \n", "null", "[]", "{}", '{"sets": 
                    '{"sets": [{"args": {"ShortcutDir": "C:\\\\d"}, "links": 1}]}']
 
 
+def record_variants(record):
+    """(label, record) for each way a record can differ from what the shortcut writer writes: every key dropped or in
+    another case, every value of another type, every text empty (D02 T02 §12's class of damaged records)."""
+    import copy
+
+    def walk(node, path):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                yield f"{path}.{key} dropped", lambda r, k=key: r.pop(k), path
+                yield f"{path}.{key} as {key.swapcase()}", lambda r, k=key: r.__setitem__(k.swapcase(), r.pop(k)), path
+                yield f"{path}.{key} of another type", lambda r, k=key, v=value: r.__setitem__(
+                    k, 1 if not isinstance(v, int) else "1"), path
+                yield from walk(value, f"{path}.{key}")
+        elif isinstance(node, list) and node:
+            yield from walk(node[0], f"{path}[0]")
+        elif isinstance(node, str):
+            yield f"{path} empty", None, path
+
+    def at(root, path):
+        node = root
+        for part in path.replace("[0]", ".[0]").split(".")[1:]:
+            node = node[0] if part == "[0]" else node[part]
+        return node
+
+    for label, change, path in walk(record, "$"):
+        damaged = copy.deepcopy(record)
+        if change is None:  # an empty text: set where it is held
+            parent_path, _, key = path.rpartition(".")
+            at(damaged, parent_path)[key] = ""
+        else:
+            change(at(damaged, path))
+        yield label, damaged
+
+
 class ShortcutStateTest(unittest.TestCase):
     """`status` names a Windows link whose recorded command is not the current one (D02 T02 §12): seen 2026-11-18,
     links written before the writable-attach fix kept `attach --watch`, so the operator's window ignored every key."""
@@ -2009,7 +2043,8 @@ class ShortcutStateTest(unittest.TestCase):
 
     def record(self, *sets):
         self.run.lib.write_atomic(self.root / self.run.SHORTCUTS, json.dumps({"sets": [
-            {"written": when, "args": {"Distro": "Ubuntu", "ShortcutDir": folder}, "links": links}
+            {"written": when, "args": {"Distro": "Ubuntu", "Icon": "C:\\brand.png", "Project": "C:\\demo",
+                                       "ShortcutDir": folder, "IconDir": "C:\\icons"}, "links": links}
             for folder, when, links in sets]}))
 
     def current(self):
@@ -2044,12 +2079,29 @@ class ShortcutStateTest(unittest.TestCase):
         self.record(("C:\\desk", "w", self.current() + [{"label": "Demo Gone campaign", "kind": "gone", "command": "x"}]))
         self.assertTrue(self.run.shortcut_state(self.root).startswith("stale: Demo Gone campaign"))
 
-    def test_a_link_of_the_wrong_shape_is_never_current(self):
-        # Round 1 of D02 T02 §12's review: a link with no kind read as current.
+    def test_a_link_of_the_wrong_shape_makes_the_record_damaged(self):
+        # Round 1 of D02 T02 §12's review: a link with no kind read as current. A link the writer would not write is
+        # now a damaged record, never a current one.
         for links in ([{}], [{"label": "x", "kind": None, "command": None}], ["text"]):
             with self.subTest(links=links):
                 self.record(("C:\\desk", "w", links))
-                self.assertTrue(self.run.shortcut_state(self.root).startswith("stale: "), links)
+                self.assertTrue(self.run.shortcut_state(self.root).startswith(f"{self.run.SHORTCUTS} cannot be read"))
+
+    def test_every_field_the_writer_writes_is_required_in_its_own_case_and_type(self):
+        # The class, generated from the writer's shape (reconciliations 1, 7, 9 and 10): each field dropped, its key
+        # in another case, or its value of another type makes the record damaged.
+        (self.root / "build").mkdir(exist_ok=True)
+        whole = {"sets": [{"written": "w", "args": {"Distro": "Ubuntu", "Icon": "i", "Project": "p",
+                                                     "ShortcutDir": "C:\\desk", "IconDir": "c"},
+                           "links": self.current()}]}
+        (self.root / self.run.SHORTCUTS).write_text(json.dumps(whole), encoding="utf-8")
+        self.assertTrue(self.run.shortcut_state(self.root).startswith("current as recorded"))
+        variants = list(record_variants(whole))
+        self.assertGreaterEqual(len(variants), 40)
+        for label, damaged in variants:
+            with self.subTest(label):
+                (self.root / self.run.SHORTCUTS).write_text(json.dumps(damaged), encoding="utf-8")
+                self.assertTrue(self.run.shortcut_state(self.root).startswith(f"{self.run.SHORTCUTS} cannot be read"))
 
     def test_every_damaged_record_is_said_to_be_one(self):
         # The class (reconciliations 1, 7 and 8): status reads the record by the shape the script and forge read it by.

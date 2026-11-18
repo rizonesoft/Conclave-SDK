@@ -1349,23 +1349,28 @@ def _windows() -> bool:
     return os.name == "nt"
 
 
+# The shape of a shortcut record, exactly as unattended-shortcut.ps1's Save-Sets writes it: every key in its own case,
+# every value non-empty text, a list holding items of its one element's shape (D02 T02 §12; the script holds the same).
+SHORTCUT_RECORD_SHAPE = {"sets": [{"written": "", "links": [{"label": "", "kind": "", "command": ""}],
+                                 "args": {"Distro": "", "Icon": "", "Project": "", "ShortcutDir": "", "IconDir": ""}}]}
+
+
+def _fits_shape(value, shape) -> bool:
+    if isinstance(shape, dict):
+        return isinstance(value, dict) and all(key in value and _fits_shape(value[key], part) for key, part in shape.items())
+    if isinstance(shape, list):
+        return isinstance(value, list) and all(_fits_shape(item, shape[0]) for item in value)
+    return isinstance(value, str) and bool(value)
+
+
 def _shortcut_sets(text: str) -> list | None:
-    """The sets of a shortcut record, read by its shape as unattended-shortcut.ps1 reads it: an object whose `sets`
-    is a list, each set an object with `args.ShortcutDir` text and a `links` list. None for anything else (empty,
-    blank, `null`, a list, a set without its folder): a damaged record, never an empty one (D02 T02 §12)."""
+    """The sets of a shortcut record, read by its shape (SHORTCUT_RECORD_SHAPE). None for anything else (empty, blank, `null`, a
+    list, a key in another case, a field missing or of another type): a damaged record, never an empty one."""
     try:
         data = json.loads(text) if text.strip() else None
     except ValueError:
         return None
-    sets = data.get("sets") if isinstance(data, dict) else None
-    if not isinstance(sets, list):
-        return None
-    for entry in sets:
-        args = entry.get("args") if isinstance(entry, dict) else None
-        if not (isinstance(args, dict) and isinstance(args.get("ShortcutDir"), str) and args["ShortcutDir"]
-                and isinstance(entry.get("links"), list)):
-            return None
-    return sets
+    return data["sets"] if _fits_shape(data, SHORTCUT_RECORD_SHAPE) else None
 
 
 def _shortcut_folders(target: Path) -> list[str] | None:

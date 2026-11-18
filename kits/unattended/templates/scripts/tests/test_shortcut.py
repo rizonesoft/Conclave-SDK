@@ -126,6 +126,40 @@ DAMAGED_RECORDS = ["", '[{"sets": []}]', "   \n", "null", "[]", "{}", '{"sets": 
                    '{"sets": [{"args": {"ShortcutDir": "C:\\\\d"}, "links": 1}]}']
 
 
+def record_variants(record):
+    """(label, record) for each way a record can differ from what the shortcut writer writes: every key dropped or in
+    another case, every value of another type, every text empty (D02 T02 §12's class of damaged records)."""
+    import copy
+
+    def walk(node, path):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                yield f"{path}.{key} dropped", lambda r, k=key: r.pop(k), path
+                yield f"{path}.{key} as {key.swapcase()}", lambda r, k=key: r.__setitem__(k.swapcase(), r.pop(k)), path
+                yield f"{path}.{key} of another type", lambda r, k=key, v=value: r.__setitem__(
+                    k, 1 if not isinstance(v, int) else "1"), path
+                yield from walk(value, f"{path}.{key}")
+        elif isinstance(node, list) and node:
+            yield from walk(node[0], f"{path}[0]")
+        elif isinstance(node, str):
+            yield f"{path} empty", None, path
+
+    def at(root, path):
+        node = root
+        for part in path.replace("[0]", ".[0]").split(".")[1:]:
+            node = node[0] if part == "[0]" else node[part]
+        return node
+
+    for label, change, path in walk(record, "$"):
+        damaged = copy.deepcopy(record)
+        if change is None:  # an empty text: set where it is held
+            parent_path, _, key = path.rpartition(".")
+            at(damaged, parent_path)[key] = ""
+        else:
+            change(at(damaged, path))
+        yield label, damaged
+
+
 def start_tree(argv, **kwargs):
     """Start a child in a process group of its own, with no console window, so `end_tree` can end everything it
     starts (pwsh starts Python and the WSL stand-in)."""
@@ -551,6 +585,26 @@ class ShortcutTest(ShortcutFixture):
         self.install()
         self.assertTrue(self.run.shortcut_state(self.project).startswith("current as recorded"))
         self.assertEqual(self.shortcut("-Check").returncode, 0)
+
+    def test_the_script_reads_only_the_record_it_writes(self):
+        # The class, generated from a record this script wrote (reconciliations 1, 7, 9 and 10): each field dropped,
+        # its key in another case, its value of another type or an empty text makes -Check say the record cannot be
+        # read, and status says the same of it.
+        self.install()
+        record = self.project / "build" / "unattended-shortcuts.json"
+        whole = json.loads(record.read_text(encoding="utf-8"))
+        current = self.shortcut("-Check")  # the record as written is read, so a rejection below is the variant's
+        self.assertEqual(current.returncode, 0, current.stdout + current.stderr)
+        variants = list(record_variants(whole))
+        self.assertGreaterEqual(len(variants), 40)
+        for label, damaged in variants:
+            with self.subTest(label):
+                record.write_text(json.dumps(damaged), encoding="utf-8")
+                checked = self.shortcut("-Check")
+                self.assertEqual(checked.returncode, 1, checked.stdout + checked.stderr)
+                self.assertIn("cannot be read", checked.stdout)
+                self.assertTrue(self.run.shortcut_state(self.project).startswith("build/unattended-shortcuts.json "
+                                                                                  "cannot be read"))
 
     def test_every_damaged_record_is_kept_and_holds_the_badges(self):
         # The class, not the case (reconciliations 1 and 7): a record is judged by its shape. Each of these is
