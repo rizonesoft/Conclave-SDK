@@ -201,6 +201,15 @@ function Restore-Stopped {
       "unattended-shortcut: $($file.FullName) names files outside this project's links; it is left as it is"
       continue
     }
+    # -Remove takes the set off: before it deletes anything the journal says `committed`, so a removal that is itself
+    # stopped part way is finished by any later run as a removal, and no original it took off comes back.
+    if ($Remove -and $record.state -ne 'committed') {
+      $record.state = 'committed'
+      $rewrite = "$($file.FullName).tmp"
+      $text = ConvertTo-Json -InputObject $record -Depth 4
+      [IO.File]::WriteAllText($rewrite, $text, [Text.UTF8Encoding]::new($false))
+      [IO.File]::Move($rewrite, $file.FullName, $true)
+    }
     # Each step that fails (a file held open, a name another file holds) is said, counted, and left for the next run,
     # which finds the journal still there.
     $staying = 0
@@ -210,8 +219,7 @@ function Restore-Stopped {
         catch { $staying++; "unattended-shortcut: $temp stays ($_); the journal is kept and the next run tries again" }
       }
     }
-    # -Remove takes the whole set off, so it never puts a stopped run's originals back: it removes them with the rest.
-    if ($record.state -eq 'swapping' -and -not $Remove) {
+    if ($record.state -eq 'swapping') {
       foreach ($m in @($record.moves)) {
         $replaced = @($record.aside | Where-Object { $_.to -ceq $m.to })
         # Only this project's own file is ever taken out: one another project put at the name since is never touched.
@@ -235,7 +243,7 @@ function Restore-Stopped {
         "unattended-shortcut: $($old.old) cannot go back to $($old.to) (another file holds the name, or it is held " +
           'open); the journal is kept and the next run tries again'
       }
-    } elseif ($record.state -eq 'committed' -or $Remove) {
+    } elseif ($record.state -eq 'committed') {
       foreach ($old in @($record.aside)) {
         if (Test-Mine $old.old) {
           try { Remove-Item -LiteralPath $old.old; "removed: $($old.old)" }
@@ -247,16 +255,9 @@ function Restore-Stopped {
       $left = @()
     }
     if ($staying) { $left += @($staying) }
-    # The journal goes once nothing it names is left to do; until then each run plays it again. One kept by -Remove is
-    # rewritten as `committed`, so no later run puts back what the removal took off.
+    # The journal goes once nothing it names is left to do; until then each run plays it again.
     if (-not $left) { Remove-Item -LiteralPath $file.FullName; continue }
     $script:keptJournals++
-    if ($Remove -and $record.state -ne 'committed') {
-      $record.state = 'committed'
-      $temp = "$($file.FullName).tmp"
-      [IO.File]::WriteAllText($temp, (ConvertTo-Json -InputObject $record -Depth 4), [Text.UTF8Encoding]::new($false))
-      [IO.File]::Move($temp, $file.FullName, $true)
-    }
   }
 }
 $keptJournals = 0
@@ -377,8 +378,14 @@ foreach ($p in $planned) {
     Refuse "the shortcut name '$($p.Label).lnk' is held by a file this project did not write: '$($held.FullName)'"
   }
 }
+# Removes this run's temporary files; returns how many could not be removed.
 function Clear-Temps {
-  foreach ($p in $planned) { Remove-Item -LiteralPath $p.BadgeTemp, $p.LinkTemp -ErrorAction Ignore }
+  $kept = 0
+  foreach ($temp in @($planned | ForEach-Object { $_.BadgeTemp; $_.LinkTemp })) {
+    if (-not (Test-Path -LiteralPath $temp)) { continue }
+    try { Remove-Item -LiteralPath $temp } catch { $kept++; "unattended-shortcut: $temp stays ($_)" }
+  }
+  $kept
 }
 
 # A link or badge of this project's that this run does not write (an earlier title, a runner dropped, an old mark's)
@@ -406,9 +413,12 @@ function Write-Journal([string]$state) {
   [IO.File]::WriteAllText($temp, (ConvertTo-Json -InputObject $record -Depth 4), [Text.UTF8Encoding]::new($false))
   [IO.File]::Move($temp, $journalPath, $true)
 }
+# Ends a run that failed: its journal goes once its temporary files are gone, and stays (for the next run, which
+# removes them) while one of them cannot be removed.
 function Stop-Run([string]$why) {
-  Clear-Temps
-  Remove-Item -LiteralPath $journalPath -ErrorAction Ignore
+  $out = @(Clear-Temps)
+  $out | Select-Object -SkipLast 1
+  if (-not $out[-1]) { Remove-Item -LiteralPath $journalPath -ErrorAction Ignore }
   "unattended-shortcut: $why"
   exit 1
 }
@@ -469,7 +479,7 @@ try {
   }
   if ($whole) { Stop-Run "the shortcuts could not be put in place ($why); the previous ones are kept" }
   # The journal still says `swapping`, so the next run puts back what this one could not.
-  Clear-Temps
+  @(Clear-Temps) | Select-Object -SkipLast 1
   "unattended-shortcut: the shortcuts could not be put in place ($why), and the previous ones could not all be " +
     "put back; $journalPath is kept and the next run finishes it"
   exit 1

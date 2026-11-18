@@ -934,6 +934,40 @@ class CampaignTitleTest(ShortcutFixture):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual((sorted(p.name for p in self.desk.iterdir()), self.journal_of()), ([], []))
 
+    def test_a_failed_run_whose_temporary_link_is_held_keeps_its_journal(self):
+        # Reconciliation 8: a live run that fails cannot drop the record of a temporary file it could not remove.
+        installed = self.project / "scripts" / "campaign-icon.py"
+        installed.write_text("import runpy, sys, time\n"
+                             "if sys.argv[1:2] == ['badge'] and sys.argv[3:4] == ['agy']:\n"
+                             "    time.sleep(2)\n    sys.exit(1)\n"  # time for the watcher to take the link
+                             f"sys.argv[0] = {str(RENDERER)!r}\nrunpy.run_path(sys.argv[0], run_name='__main__')\n",
+                             encoding="utf-8")
+        stop, held = threading.Event(), []
+
+        def hold():
+            while not stop.is_set():
+                found = list(self.desk.glob("*.tmp.lnk")) if self.desk.exists() else []
+                if found:
+                    with open(found[0], "rb"):  # held open without delete sharing until the run has ended
+                        held.append(found[0])
+                        stop.wait(60)
+                    return
+                time.sleep(0.005)
+
+        watcher = threading.Thread(target=hold)
+        watcher.start()
+        done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon))
+        stop.set()
+        watcher.join()
+        self.assertTrue(held, "the watcher never found the run's temporary link")
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn(f"{held[0]} stays", done.stdout)
+        self.assertEqual(len(self.journal_of()), 1)
+        shutil.copyfile(RENDERER, installed)
+        done = self.shortcut("-Remove")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual((sorted(p.name for p in self.desk.iterdir()), self.journal_of()), ([], []))
+
     def test_an_old_key_badge_another_link_shows_stays(self):
         # Reconciliation 6: the old script keyed badges by the -Project form alone, so another link may show one.
         linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]
