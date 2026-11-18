@@ -1367,13 +1367,21 @@ def _refresh_shortcuts(target: Path) -> dict:
     that writes them again. Only on Windows, where the links are; elsewhere the detail names the command to run
     there."""
     if not _windows():
-        return {"refreshed": False, "detail": f"the links are on Windows: run {SHORTCUT_REFRESH} there"}
+        folders = _shortcut_folders(target)
+        each = "; ".join(SHORTCUT_REFRESH + " -ShortcutDir " + "'" + folder.replace("'", "''") + "'"
+                         for folder in folders)
+        return {"refreshed": False, "detail": f"the links are on Windows: run {each} there" if folders else
+                f"the links are on Windows: run {SHORTCUT_REFRESH} there, with -ShortcutDir '<folder>' for links "
+                "written outside the desktop"}
     pwsh = shutil.which("pwsh")
     if not pwsh:
         return {"refreshed": False,
                 "detail": f"PowerShell 7 (pwsh) is not on PATH: install it, then run {SHORTCUT_REFRESH}"}
     refreshed, said = True, []
-    for folder in _shortcut_folders(target) or [None]:
+    folders = _shortcut_folders(target)
+    if not folders:  # no record: the desktop's links; links written elsewhere need their folder named
+        said.append(f"links written outside the desktop: run {SHORTCUT_REFRESH} -ShortcutDir '<folder>'")
+    for folder in folders or [None]:
         argv = [pwsh, "-NoProfile", "-NonInteractive", "-File", str(target / "scripts/unattended-shortcut.ps1"),
                 "-Refresh", *(["-ShortcutDir", folder] if folder else [])]
         code, out, problem = _probe(argv, timeout=REFRESH_SECONDS)

@@ -3945,8 +3945,9 @@ class UnattendedKitTests(unittest.TestCase):
                              [["-Refresh", "-ShortcutDir", "C:\\desk one"],
                               ["-Refresh", "-ShortcutDir", "C:\\O'Brien's desk"]])
         else:
-            self.assertFalse(result["shortcuts"]["refreshed"])
-            self.assertIn(forge.SHORTCUT_REFRESH, result["shortcuts"]["detail"])
+            self.assertEqual(result["shortcuts"], {"refreshed": False, "detail": "the links are on Windows: run "
+                             f"{forge.SHORTCUT_REFRESH} -ShortcutDir 'C:\\desk one'; {forge.SHORTCUT_REFRESH} "
+                             "-ShortcutDir 'C:\\O''Brien''s desk' there"})
         # A refresh that fails says why and names the command that tries again, for that folder.
         probe.reset_mock()
         probe.side_effect = [(0, "ok\n", ""), (None, "", "no answer within 300 seconds")]
@@ -3974,6 +3975,8 @@ class UnattendedKitTests(unittest.TestCase):
         self.assertEqual(probe.call_args.args[0][-1], "-Refresh")
         self.assertFalse(result["shortcuts"]["refreshed"])
         self.assertIn("were written before", result["shortcuts"]["detail"])
+        self.assertIn("links written outside the desktop: run pwsh scripts/unattended-shortcut.ps1 -Refresh "
+                      "-ShortcutDir '<folder>'", result["shortcuts"]["detail"])
         # From WSL the links cannot be reached: the result names the command to run on Windows (the completion review).
         script.write_bytes(b"# the kit's earlier script\n")
         kits["files"]["scripts/unattended-shortcut.ps1"]["sha256"] = forge.file_digest(script.read_bytes())
@@ -3984,7 +3987,8 @@ class UnattendedKitTests(unittest.TestCase):
             result = forge.update_project(self.target)
         probe.assert_not_called()
         self.assertEqual(result["shortcuts"], {"refreshed": False, "detail": "the links are on Windows: run "
-                                               f"{forge.SHORTCUT_REFRESH} there"})
+                                               f"{forge.SHORTCUT_REFRESH} there, with -ShortcutDir '<folder>' for "
+                                               "links written outside the desktop"})
 
     def test_the_documents_name_the_kit_and_the_sdk_does_not_install_it(self):
         self.assertNotIn("unattended", forge.SELF_KITS)

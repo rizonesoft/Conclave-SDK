@@ -548,11 +548,17 @@ if ($Remove) {
   $links = @(Get-Owned)
   Stop-OnUnreadable
   $badges = @(Get-Badges $links)
-  # The project's links in another recorded folder that share this icon folder show the same badges: they stay.
+  # The project's links in another recorded folder that share this icon folder show the same badges: they stay. So
+  # do they while the record cannot be read, since it may name such a folder.
+  $script:recordUnread = $null
   $sharing = @(Read-Sets | Where-Object {
       (Get-DeskKey $_.args.ShortcutDir) -ne (Get-DeskKey $ShortcutDir) -and $_.args.IconDir -and
       (Get-DeskKey $_.args.IconDir) -eq (Get-DeskKey $IconDir) })
-  if ($sharing) { $badges = @() }
+  if ($recordUnread) {
+    "unattended-shortcut: the record $recordPath cannot be read ($recordUnread), so the badges in '$IconDir' stay " +
+      "(another folder's links may show them)"
+  }
+  if ($sharing -or $recordUnread) { $badges = @() }
   $asidePlan = @(@($links) + @($badges) |
     ForEach-Object { [pscustomobject]@{ to = $_.FullName; old = "$($_.FullName).$PID.old" } })
   $aside = [Collections.Generic.List[object]]::new()

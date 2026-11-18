@@ -426,6 +426,10 @@ class ShortcutTest(ShortcutFixture):
         removed = self.shortcut("-Remove")
         self.assertEqual(removed.returncode, 0, removed.stdout + removed.stderr)
         self.assertEqual(record.read_text(encoding="utf-8"), "{ not json")
+        # The record may name another folder whose links show these badges (the reconciliation): they stay.
+        self.assertEqual(self.links(), [])
+        self.assertTrue(list(self.icons.glob("campaign-*.ico")), "a removal under an unreadable record took the badges")
+        self.assertIn("the badges in", removed.stdout)
 
     def test_check_names_a_stopped_run_and_plays_no_journal(self):
         # Round 1 of the review: -Check played a stopped run's journal before reading the links.
