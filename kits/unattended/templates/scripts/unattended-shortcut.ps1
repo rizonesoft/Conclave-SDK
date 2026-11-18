@@ -89,6 +89,9 @@ $prefix = 'conclave-unattended: '
 $mark = "$prefix$identity"
 $normal = Get-Normal $identity
 $key = Get-Key $normal
+# The key the script gave its badges before it had one identity (the -Project form, in lower case), whose badges and
+# leftovers are this project's too.
+$oldKey = Get-Key $Project.ToLowerInvariant()
 $labels = @{ claude = 'Claude'; codex = 'Codex'; agy = 'Carbon' }
 
 # A link's fields, or nothing for a file the shell cannot load as one.
@@ -139,11 +142,13 @@ function Get-Badges([object[]]$owned) {
 }
 
 # The links and badges are derived files: running the script again writes every one of them. So a run stopped part way
-# (its window closed, the machine lost power) is put right by the next run that writes, or by -Remove: each first
-# removes this project's leftovers, its own files moved aside (`<name>.<pid>.old`) or written under a temporary name
-# (`<name>.<pid>.tmp.<ext>`) by a run no longer running, and then writes or removes the whole set. Nothing is put back
-# from a guess, so nothing removed can come back; a run that refuses touches nothing.
+# (its window closed, the machine lost power) is put right by the next run that writes its whole set, or by -Remove:
+# each removes this project's leftovers, its own files moved aside (`<name>.<pid>.old`) or written under a temporary
+# name (`<name>.<pid>.tmp.<ext>`) by a run no longer running. A write removes them only once its new set is in place,
+# so a run that fails first keeps every backup it found; a run that refuses touches nothing; nothing is put back from
+# a guess, so nothing removed can come back. Returns how many could not be removed.
 function Remove-Leftovers {
+  $stuck = 0
   foreach ($folder in @($ShortcutDir, $IconDir)) {
     $left = @(Get-ChildItem -LiteralPath $folder -File -ErrorAction Ignore |
       Where-Object { $_.Name -match '\.(\d+)\.(old|tmp\.lnk|tmp\.ico)$' })
@@ -152,22 +157,27 @@ function Remove-Leftovers {
       $owner = [int]$Matches[1]
       if ($owner -eq $PID -or (Get-Process -Id $owner -ErrorAction Ignore)) { continue }
       # This project's: a badge under its key, a link with its mark. Another project's leftovers are its own.
-      $mine = if ($file.Name -like 'campaign-*.ico.*') { $file.Name -like "campaign-*-$key.ico.*" }
-        else { Test-Owned $file }
+      $mine = if ($file.Name -like 'campaign-*.ico.*') {
+        $file.Name -like "campaign-*-$key.ico.*" -or $file.Name -like "campaign-*-$oldKey.ico.*"
+      } else { Test-Owned $file }
       if (-not $mine) { continue }
       try { Remove-Item -LiteralPath $file.FullName; "removed: $($file.FullName)" }
-      catch { "unattended-shortcut: $($file.FullName) could not be removed ($_)" }
+      catch { $stuck++; "unattended-shortcut: $($file.FullName) could not be removed ($_)" }
     }
   }
+  $stuck
 }
 
 if ($Remove) {
-  Remove-Leftovers
+  $out = @(Remove-Leftovers)
+  $stuck = $out[-1]
+  $out | Select-Object -SkipLast 1
   $links = @(Get-Owned)
   $badges = @(Get-Badges $links)
   foreach ($link in $links) { Remove-Item -LiteralPath $link.FullName; "removed: $($link.FullName)" }
   foreach ($badge in $badges) { Remove-Item -LiteralPath $badge.FullName; "removed: $($badge.FullName)" }
   "unattended-shortcut: $($links.Count) shortcut(s) and $($badges.Count) icon(s) of $Project removed"
+  if ($stuck) { "unattended-shortcut: $stuck leftover file(s) could not be removed; run -Remove again"; exit 1 }
   exit 0
 }
 
@@ -285,7 +295,6 @@ function Stop-Run([string]$why) {
 # Two steps: every badge and link is written under its temporary name first, and only then moved over the old, so a
 # failure before the moves leaves every previous link and badge as it was and no temporary file.
 New-Item -ItemType Directory -Force -Path $IconDir, $ShortcutDir | Out-Null
-Remove-Leftovers
 foreach ($p in $planned) {
   & $Python -B $renderer badge $brand $p.Agent $p.BadgeTemp
   if ($LASTEXITCODE -ne 0) { Stop-Run "the icon for $($p.Label) could not be rendered; its shortcut is left as it was" }
@@ -341,6 +350,14 @@ try {
 }
 foreach ($p in $planned) { "shortcut written: $($p.Link)" }
 foreach ($file in $stale) { "removed: $($file.FullName)" }
-# A file moved aside that cannot be deleted now is a leftover the next run removes.
-foreach ($old in $aside) { Remove-Item -LiteralPath $old.old -ErrorAction Ignore }
+# What this run moved aside goes, then any earlier run's leftovers; one that cannot go yet is left for the next run.
+$kept = 0
+foreach ($old in $aside) {
+  try { Remove-Item -LiteralPath $old.old }
+  catch { $kept++; "unattended-shortcut: $($old.old) is left for the next run ($_)" }
+}
+$out = @(Remove-Leftovers)
+$out | Select-Object -SkipLast 1
+$kept += $out[-1]
+if ($kept) { "unattended-shortcut: the shortcuts are in place; $kept leftover file(s) could not be removed"; exit 1 }
 exit 0

@@ -715,6 +715,47 @@ class CampaignTitleTest(ShortcutFixture):
         self.assertEqual(sorted(p.read_bytes() for p in self.icons.iterdir()),
                          sorted(self.rendered(agent) for agent in ("agy", "claude")))
 
+    def test_a_retry_that_fails_after_a_stop_keeps_every_backup(self):
+        # Reconciliation 5: leftovers go only once a run's new set is in place.
+        self.install()
+        self.write_launchers("Demo Site")
+        self.stopped_rename()
+        stopped = self.snapshot()
+        installed = self.project / "scripts" / "campaign-icon.py"
+        installed.write_text("import sys\nsys.exit(1)\n", encoding="utf-8")  # every render fails
+        done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertEqual(self.snapshot(), stopped)
+        shutil.copyfile(RENDERER, installed)
+        self.install()
+        self.assertEqual(self.leftovers(), [])
+
+    def test_an_old_key_badge_left_by_a_stopped_upgrade_is_cleaned(self):
+        # Reconciliation 5: the old script keyed badges by the -Project form in lower case.
+        linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]
+        self.assertEqual(self.shortcut(*linux).returncode, 0)
+        old_key = hashlib.sha256(b"/home/x/demo").hexdigest()[:8]
+        left = self.icons / f"campaign-claude-{old_key}.ico.{self.DEAD}.old"
+        left.write_bytes(b"old key")
+        done = self.shortcut(*linux)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertFalse(left.exists())
+
+    def test_remove_with_a_leftover_held_open_says_so_and_fails(self):
+        # Reconciliation 5: automation must not read success while a leftover stays.
+        self.install()
+        claude = self.desk / "My Proj's Claude campaign.lnk"
+        left = claude.with_name(f"{claude.name}.{self.DEAD}.old")
+        shutil.copyfile(claude, left)
+        with open(left, "rb"):  # held open without delete sharing
+            done = self.shortcut("-Remove")
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("1 leftover file(s) could not be removed; run -Remove again", done.stdout)
+        self.assertEqual(self.links(), [])
+        done = self.shortcut("-Remove")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertFalse(left.exists())
+
     def test_remove_clears_a_stopped_runs_leftovers_and_nothing_comes_back(self):
         self.install()
         self.stopped_rename()
