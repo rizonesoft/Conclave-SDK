@@ -115,7 +115,7 @@ function Test-Owned([IO.FileSystemInfo]$file) {
 }
 
 function Get-Owned {
-  # A run's temporary links (`<name>.<pid>.tmp.lnk`) are not links of the project's: Restore-Leftovers owns them.
+  # A run's temporary links (`<name>.<pid>.tmp.lnk`) are not the project's links: its journal names them.
   Get-ChildItem -LiteralPath $ShortcutDir -Filter '*campaign*.lnk' -File -ErrorAction Ignore |
     Where-Object { $_.Name -notmatch '\.\d+\.tmp\.lnk$' -and (Test-Owned $_) }
 }
@@ -138,31 +138,45 @@ function Get-Badges([object[]]$owned) {
   $found.Values
 }
 
-# A run stopped part way (its window closed, the machine lost power) can leave a link or badge of this project's moved
-# aside as `<name>.<pid>.old`, or a temporary file. Before anything else, each one moved aside goes back where nothing
-# has taken its name and is removed where something has, and each temporary file is removed: only those of a run that
-# is no longer running, so a run going on beside this one is never touched.
-function Restore-Leftovers {
-  foreach ($folder in @($ShortcutDir, $IconDir)) {
-    $left = @(Get-ChildItem -LiteralPath $folder -File -ErrorAction Ignore |
-      Where-Object { $_.Name -match '^(.+)\.(\d+)\.(old|tmp\.lnk|tmp\.ico)$' })
-    foreach ($file in $left) {
-      [void]($file.Name -match '^(.+)\.(\d+)\.(old|tmp\.lnk|tmp\.ico)$')
-      $original, $owner, $kind = $Matches[1], [int]$Matches[2], $Matches[3]
-      if ($owner -eq $PID -or (Get-Process -Id $owner -ErrorAction Ignore)) { continue }
-      $mine = if ($file.Name -like 'campaign-*.ico.*') { $file.Name -like "campaign-*-$key.ico.*" }
-        else { Test-Owned $file }
-      if (-not $mine) { continue }
-      $target = Join-Path $folder $original
-      if ($kind -eq 'old' -and -not (Test-Path -LiteralPath $target)) {
-        Move-Item -LiteralPath $file.FullName -Destination $target; "restored: $target"
-      } else {
-        Remove-Item -LiteralPath $file.FullName; "removed: $($file.FullName)"
+# Each run that changes links keeps a journal, `<icon folder>\campaign-<key>.<pid>.journal.json`, written whole (a
+# temporary file moved over it) before each step: the files it writes under temporary names, the moves it makes, and
+# how far it got. A run stopped part way (its window closed, the machine lost power) leaves it behind, and before
+# anything else each journal of this project's whose run is no longer running is played out: `writing` (only
+# temporary files exist) removes them; `swapping` (the old set was being moved aside and the new one in) takes out each
+# new file already moved in and puts each old one back, so the previous set stands whole; `committed` (the new set was
+# in place) removes what was moved aside.
+$journalPath = Join-Path $IconDir "campaign-$key.$PID.journal.json"
+function Restore-Stopped {
+  $journals = @(Get-ChildItem -LiteralPath $IconDir -Filter "campaign-$key.*.journal.json*" -File -ErrorAction Ignore)
+  foreach ($file in $journals) {
+    if ($file.Name -notmatch '\.(\d+)\.journal\.json(\.tmp)?$') { continue }
+    $owner, $partial = [int]$Matches[1], [bool]$Matches[2]
+    if ($owner -eq $PID -or (Get-Process -Id $owner -ErrorAction Ignore)) { continue }
+    if ($partial) { Remove-Item -LiteralPath $file.FullName; continue }  # the journal step it was writing never began
+    $record = Get-Content -LiteralPath $file.FullName -Raw -Encoding utf8 | ConvertFrom-Json
+    if ($record.state -eq 'swapping') {
+      foreach ($m in @($record.moves)) {
+        if (-not (Test-Path -LiteralPath $m.from) -and (Test-Path -LiteralPath $m.to)) {
+          Remove-Item -LiteralPath $m.to; "removed: $($m.to)"
+        }
+      }
+      foreach ($old in @($record.aside)) {
+        if ((Test-Path -LiteralPath $old.old) -and -not (Test-Path -LiteralPath $old.to)) {
+          Move-Item -LiteralPath $old.old -Destination $old.to; "restored: $($old.to)"
+        }
+      }
+    } elseif ($record.state -eq 'committed') {
+      foreach ($old in @($record.aside)) {
+        if (Test-Path -LiteralPath $old.old) { Remove-Item -LiteralPath $old.old; "removed: $($old.old)" }
       }
     }
+    foreach ($temp in @($record.temps)) {
+      if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp; "removed: $temp" }
+    }
+    Remove-Item -LiteralPath $file.FullName
   }
 }
-Restore-Leftovers
+Restore-Stopped
 
 if ($Remove) {
   $links = @(Get-Owned)
@@ -266,16 +280,41 @@ function Clear-Temps {
   foreach ($p in $planned) { Remove-Item -LiteralPath $p.BadgeTemp, $p.LinkTemp -ErrorAction Ignore }
 }
 
+# A link or badge of this project's that this run does not write (an earlier title, a runner dropped, an old mark's)
+# goes in the same change. Compared by file name: each list is of one folder, whose spelling (an 8.3 short name) may
+# differ.
+$writtenLinks = @($planned | ForEach-Object { Split-Path $_.Link -Leaf })
+$writtenIcons = @($planned | ForEach-Object { Split-Path $_.Badge -Leaf })
+$owned = @(Get-Owned)
+$stale = @($owned | Where-Object { $writtenLinks -notcontains $_.Name }) +
+  @(Get-Badges $owned | Where-Object { $writtenIcons -notcontains $_.Name })
+$moves = foreach ($p in $planned) {
+  [pscustomobject]@{ from = $p.BadgeTemp; to = $p.Badge }
+  [pscustomobject]@{ from = $p.LinkTemp; to = $p.Link }
+}
+$asidePlan = @()
+
+function Write-Journal([string]$state) {
+  $record = [ordered]@{ state = $state; temps = @($moves | ForEach-Object { $_.from }); moves = @($moves)
+    aside = @($asidePlan) }
+  $temp = "$journalPath.tmp"
+  [IO.File]::WriteAllText($temp, (ConvertTo-Json -InputObject $record -Depth 4), [Text.UTF8Encoding]::new($false))
+  [IO.File]::Move($temp, $journalPath, $true)
+}
+function Stop-Run([string]$why) {
+  Clear-Temps
+  Remove-Item -LiteralPath $journalPath -ErrorAction Ignore
+  "unattended-shortcut: $why"
+  exit 1
+}
+
 # Two steps: every badge and link is written under its temporary name first, and only then moved over the old, so a
 # failure before the moves leaves every previous link and badge as it was and no temporary file.
 New-Item -ItemType Directory -Force -Path $IconDir, $ShortcutDir | Out-Null
+Write-Journal 'writing'
 foreach ($p in $planned) {
   & $Python -B $renderer badge $brand $p.Agent $p.BadgeTemp
-  if ($LASTEXITCODE -ne 0) {
-    Clear-Temps
-    "unattended-shortcut: the icon for $($p.Label) could not be rendered; its shortcut is left as it was"
-    exit 1
-  }
+  if ($LASTEXITCODE -ne 0) { Stop-Run "the icon for $($p.Label) could not be rendered; its shortcut is left as it was" }
   $command = "python3 scripts/unattended-run.py start --agent $($p.Agent) || " +
     "{ echo 'The run did not start: the reason is above. Press Enter to close.'; read -r _; }"
   try {
@@ -294,53 +333,36 @@ foreach ($p in $planned) {
     $data.IconPath = $p.Badge
     [Conclave.ShellLink]::Write($p.LinkTemp, $data)
   } catch {
-    Clear-Temps
-    "unattended-shortcut: the shortcut $($p.Label) could not be saved ($($_.Exception.Message)); the old one is kept"
-    exit 1
+    Stop-Run "the shortcut $($p.Label) could not be saved ($($_.Exception.Message)); the old one is kept"
   }
 }
-# A link or badge of this project's that this run does not write (an earlier title, a runner dropped, an old mark's)
-# goes in the same change. Compared by file name: each list is of one folder, whose spelling (an 8.3 short name) may
-# differ.
-$writtenLinks = @($planned | ForEach-Object { Split-Path $_.Link -Leaf })
-$writtenIcons = @($planned | ForEach-Object { Split-Path $_.Badge -Leaf })
-$owned = @(Get-Owned)
-$stale = @($owned | Where-Object { $writtenLinks -notcontains $_.Name }) +
-  @(Get-Badges $owned | Where-Object { $writtenIcons -notcontains $_.Name })
 
 # The new set goes in as one change: every link and badge it replaces or retires is moved aside first, each link moved
 # aside is checked again (now that no other writer can change it, so one another installer put there after the check
 # above is never taken), then each new file is moved in (never over a file), and on any failure each file moved in is
-# taken out and each file moved aside is put back. A run stopped part way is put right by the next (Restore-Leftovers).
-$moves = foreach ($p in $planned) {
-  [pscustomobject]@{ From = $p.BadgeTemp; To = $p.Badge }
-  [pscustomobject]@{ From = $p.LinkTemp; To = $p.Link }
-}
+# taken out and each file moved aside is put back. The journal says how far it got, for a run stopped part way.
+$asidePlan = @(@($moves | Where-Object { Test-Path -LiteralPath $_.to } | ForEach-Object { $_.to }) +
+  @($stale | ForEach-Object { $_.FullName }) | ForEach-Object { [pscustomobject]@{ to = $_; old = "$_.$PID.old" } })
 $aside = [Collections.Generic.List[object]]::new()
 $placed = [Collections.Generic.List[string]]::new()
-function Move-Aside([string]$path) {
-  $old = "$path.$PID.old"
-  Move-Item -LiteralPath $path -Destination $old
-  $aside.Add([pscustomobject]@{ To = $path; Old = $old; Link = $path.EndsWith('.lnk') })
-}
 try {
-  foreach ($m in $moves) { if (Test-Path -LiteralPath $m.To) { Move-Aside $m.To } }
-  foreach ($file in $stale) { Move-Aside $file.FullName }
-  foreach ($a in $aside) {
-    if ($a.Link -and -not (Test-Owned (Get-Item -LiteralPath $a.Old))) {
-      throw "$($a.To) was written by another project while this run was working"
+  Write-Journal 'swapping'
+  foreach ($old in $asidePlan) { Move-Item -LiteralPath $old.to -Destination $old.old; $aside.Add($old) }
+  foreach ($old in $aside) {
+    if ($old.to.EndsWith('.lnk') -and -not (Test-Owned (Get-Item -LiteralPath $old.old))) {
+      throw "$($old.to) was written by another project while this run was working"
     }
   }
-  foreach ($m in $moves) { Move-Item -LiteralPath $m.From -Destination $m.To; $placed.Add($m.To) }
+  foreach ($m in $moves) { Move-Item -LiteralPath $m.from -Destination $m.to; $placed.Add($m.to) }
+  Write-Journal 'committed'
 } catch {
   foreach ($to in $placed) { Remove-Item -LiteralPath $to -ErrorAction Ignore }
-  foreach ($a in $aside) { Move-Item -LiteralPath $a.Old -Destination $a.To -ErrorAction Ignore }
-  Clear-Temps
-  "unattended-shortcut: the shortcuts could not be put in place ($($_.Exception.Message)); the previous ones are kept"
-  exit 1
+  foreach ($old in $aside) { Move-Item -LiteralPath $old.old -Destination $old.to -ErrorAction Ignore }
+  Stop-Run "the shortcuts could not be put in place ($($_.Exception.Message)); the previous ones are kept"
 }
 foreach ($p in $planned) { "shortcut written: $($p.Link)" }
 foreach ($file in $stale) { "removed: $($file.FullName)" }
-# A file moved aside that cannot be deleted now is deleted by the next run, which finds its name taken.
-foreach ($a in $aside) { Remove-Item -LiteralPath $a.Old -ErrorAction Ignore }
+# A file moved aside that cannot be deleted now stays named in the journal, and the next run removes it.
+$left = @($aside | Where-Object { Remove-Item -LiteralPath $_.old -ErrorAction Ignore; Test-Path -LiteralPath $_.old })
+if (-not $left) { Remove-Item -LiteralPath $journalPath -ErrorAction Ignore }
 exit 0

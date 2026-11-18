@@ -678,29 +678,65 @@ class CampaignTitleTest(ShortcutFixture):
         self.assertEqual([p.name for p in [*self.desk.iterdir(), *self.icons.iterdir()]
                           if ".tmp" in p.name or p.name.endswith(".old")], [])
 
-    def test_a_run_stopped_part_way_is_put_right_by_the_next(self):
-        # Completion gap: a stopped run leaves files moved aside and temporary files; the next run restores them.
+    DEAD = 4000000  # beyond any process id Windows hands out: the run that wrote the journal is gone
+
+    def stopped_rename(self, state):
+        """The files and journal a rename to "Demo Site" leaves when it stops in `state`: every old file moved aside,
+        the first runner's new badge and link moved in, the second's still under their temporary names."""
+        shown = self.read_link(self.desk / "My Proj's Claude campaign.lnk")["icon"].rsplit(",", 1)[0]
+        key = Path(shown).stem.split("-")[-1]  # this project's key, from the badge its own link shows
+        aside, moves = [], []
+        for path in (*self.icons.glob("campaign-*.ico"), *self.desk.glob("*.lnk")):
+            old = path.with_name(f"{path.name}.{self.DEAD}.old")
+            path.rename(old)
+            aside.append({"to": str(path), "old": str(old)})
+        for n, (agent, label) in enumerate((("claude", "Claude"), ("agy", "Carbon"))):
+            badge = self.icons / f"campaign-{agent}-{key}.ico"
+            link = self.desk / f"Demo Site {label} campaign.lnk"
+            for final in (badge, link):
+                temp = final.with_name(f"{final.name}.{self.DEAD}.tmp{final.suffix}")
+                (final if n == 0 else temp).write_bytes(b"new")  # the first runner is moved in, the second is not
+                moves.append({"from": str(temp), "to": str(final)})
+        journal = self.icons / f"campaign-{key}.{self.DEAD}.journal.json"
+        journal.write_text(json.dumps({"state": state, "temps": [m["from"] for m in moves], "moves": moves,
+                                       "aside": aside}), encoding="utf-8")
+        return journal
+
+    def test_a_run_stopped_while_swapping_is_rolled_back_whole(self):
+        # Reconciliation 1: a stopped rename must leave the previous set, never both titles, old key's badge included.
         self.install()
-        dead = 4000000  # beyond any process id Windows hands out
-        claude = self.desk / "My Proj's Claude campaign.lnk"
-        carbon = self.desk / "My Proj's Carbon campaign.lnk"
-        badge = next(self.icons.glob("campaign-claude-*.ico"))
-        moved = claude.with_name(claude.name + f".{dead}.old")
-        claude.rename(moved)                                     # moved aside, its name free: restored
-        shutil.copyfile(carbon, carbon.with_name(carbon.name + f".{dead}.old"))  # its name taken: removed
-        shutil.copyfile(badge, badge.with_name(badge.name + f".{dead}.tmp.ico"))  # a temporary badge: removed
-        shutil.copyfile(carbon, self.desk / f"My Proj's Carbon campaign.{dead}.tmp.lnk")  # a temporary link: removed
-        other = self.desk / f"Other Claude campaign.lnk.{dead}.old"  # another project's: left alone
-        shutil.copyfile(carbon, other)
-        self.set_description(other, "conclave-unattended: D:\\elsewhere")
-        done = self.shortcut("-Distro", "Arch", "-Icon", str(self.icon))  # a run that then refuses
+        (self.icons / "campaign-claude-0badc0de.ico").write_bytes(b"old key")
+        before = self.snapshot()
+        journal = self.stopped_rename("swapping")
+        done = self.shortcut("-Distro", "Arch", "-Icon", str(self.icon))  # any run, even one that then refuses
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
-        self.assertIn(f"restored: {claude}", done.stdout)
-        self.assertEqual(sorted(p.name for p in [*self.desk.iterdir(), *self.icons.iterdir()]
-                                if ".tmp" in p.name or p.name.endswith(".old")), [other.name])
-        self.assertEqual(self.links(), ["My Proj's Carbon campaign.lnk", "My Proj's Claude campaign.lnk"])
+        self.assertIn("restored: ", done.stdout)
+        self.assertFalse(journal.exists())
+        self.assertEqual(self.snapshot(), before)
+
+    def test_a_run_stopped_after_its_swap_is_finished(self):
         self.install()
-        self.assertEqual(self.links(), ["My Proj's Carbon campaign.lnk", "My Proj's Claude campaign.lnk"])
+        journal = self.stopped_rename("committed")
+        for temp in [*self.desk.glob("*.tmp.lnk"), *self.icons.glob("*.tmp.ico")]:  # a committed run moved them all in
+            temp.rename(temp.with_name(temp.name.replace(f".{self.DEAD}.tmp", "")[:-len(temp.suffix)]))
+        done = self.shortcut("-Distro", "Arch", "-Icon", str(self.icon))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertFalse(journal.exists())
+        self.assertEqual(self.links(), ["Demo Site Carbon campaign.lnk", "Demo Site Claude campaign.lnk"])
+        self.assertEqual([p.name for p in [*self.desk.iterdir(), *self.icons.iterdir()]
+                          if ".tmp" in p.name or p.name.endswith(".old")], [])
+
+    def test_a_journal_of_a_run_still_going_is_left_alone(self):
+        self.install()
+        before = self.snapshot()
+        key = next(self.icons.glob("campaign-claude-*.ico")).stem.split("-")[-1]
+        journal = self.icons / f"campaign-{key}.{os.getpid()}.journal.json"  # this test's own process: alive
+        journal.write_text(json.dumps({"state": "swapping", "temps": [], "moves": [], "aside": []}), encoding="utf-8")
+        done = self.shortcut("-Distro", "Arch", "-Icon", str(self.icon))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertTrue(journal.exists())
+        journal.unlink()
+        self.assertEqual(self.snapshot(), before)
 
     def test_the_default_icon_folder_is_named_by_the_folder_never_the_title(self):
         local = Path(self._tmp.name) / "local"
