@@ -89,8 +89,9 @@ $prefix = 'conclave-unattended: '
 $mark = "$prefix$identity"
 $normal = Get-Normal $identity
 $key = Get-Key $normal
-# The key the script gave its badges before it had one identity (the -Project form, in lower case): a badge under it is
-# this project's too, and goes once no other link shows it (one Linux path in two distros shared it).
+# The key the script gave its badges before it had one identity (the -Project form, in lower case). One Linux path in
+# two distros shared it, so a badge under it is found only through this project's own links, or its own journal when a
+# run could not remove one, never by the key alone.
 $oldKey = Get-Key $Project.ToLowerInvariant()
 # A run is told apart from a later process that Windows gave the same id by when it started.
 function Get-Started([int]$id) {
@@ -133,10 +134,8 @@ function Get-Owned {
 # Named apart from the -Icon parameter: PowerShell names ignore case, and $icon would be that typed string.
 function Get-Badges([object[]]$owned) {
   $found = @{}
-  foreach ($k in @($key, $oldKey) | Select-Object -Unique) {
-    foreach ($badge in @(Get-ChildItem -LiteralPath $IconDir -Filter "campaign-*-$k.ico" -File -ErrorAction Ignore)) {
-      $found[$badge.Name] = $badge
-    }
+  foreach ($badge in @(Get-ChildItem -LiteralPath $IconDir -Filter "campaign-*-$key.ico" -File -ErrorAction Ignore)) {
+    $found[$badge.Name] = $badge
   }
   foreach ($link in $owned) {
     $where = (Get-Link $link).IconPath
@@ -185,6 +184,9 @@ function Test-Journal($record, [int]$owner) {
       (Test-Within $old.to $IconDir "^campaign-[a-z]+-$key\.ico$")
     if (-not $inside -or $old.old -cne "$($old.to).$owner.old") { return $false }
   }
+  foreach ($badge in @($record.left | Where-Object { $null -ne $_ })) {
+    if (-not (Test-Within $badge $IconDir "^campaign-[a-z]+-$oldKey\.ico$")) { return $false }
+  }
   $temps = @($record.moves | ForEach-Object { $_.from })
   foreach ($temp in @($record.temps)) { if ($temps -cnotcontains $temp) { return $false } }
   $true
@@ -205,9 +207,11 @@ function Restore-Stopped {
   foreach ($file in $journals) {
     if ($file.Name -notmatch '\.(\d+)\.journal\.json(\.tmp)?$') { continue }
     $owner, $partial = [int]$Matches[1], [bool]$Matches[2]
-    if ($owner -eq $PID) { continue }
+    # A journal under this run's own id is an earlier process's: this run has written none yet.
     if ($partial) {  # the journal step it was writing never began
-      if (-not (Get-Process -Id $owner -ErrorAction Ignore)) { Remove-Item -LiteralPath $file.FullName }
+      if ($owner -eq $PID -or -not (Get-Process -Id $owner -ErrorAction Ignore)) {
+        Remove-Item -LiteralPath $file.FullName
+      }
       continue
     }
     $record = try { Get-Content -LiteralPath $file.FullName -Raw -Encoding utf8 | ConvertFrom-Json } catch { $null }
@@ -266,7 +270,14 @@ function Restore-Stopped {
           catch { "unattended-shortcut: $($old.old) stays ($_); the journal is kept and the next run tries again" }
         }
       }
-      $left = @($record.aside | Where-Object { Test-Path -LiteralPath $_.old })
+      foreach ($badge in @($record.left | Where-Object { $null -ne $_ })) {
+        if (Test-Path -LiteralPath $badge) {
+          try { Remove-Item -LiteralPath $badge; "removed: $badge" }
+          catch { "unattended-shortcut: $badge stays ($_); the journal is kept and the next run tries again" }
+        }
+      }
+      $left = @(@($record.aside | Where-Object { Test-Path -LiteralPath $_.old }) +
+        @($record.left | Where-Object { $_ -and (Test-Path -LiteralPath $_) }))
     } else {
       $left = @()
     }
@@ -426,9 +437,10 @@ $moves = foreach ($p in $planned) {
 $asidePlan = @()
 
 $started = Get-Started $PID
+$leftBadges = @()
 function Write-Journal([string]$state) {
   $record = [ordered]@{ state = $state; started = $started; temps = @($moves | ForEach-Object { $_.from })
-    moves = @($moves); aside = @($asidePlan) }
+    moves = @($moves); aside = @($asidePlan); left = @($leftBadges) }
   $temp = "$journalPath.tmp"
   [IO.File]::WriteAllText($temp, (ConvertTo-Json -InputObject $record -Depth 4), [Text.UTF8Encoding]::new($false))
   [IO.File]::Move($temp, $journalPath, $true)
@@ -506,18 +518,17 @@ try {
 }
 foreach ($p in $planned) { "shortcut written: $($p.Link)" }
 foreach ($file in $stale) { "removed: $($file.FullName)" }
-$kept = 0
 foreach ($badge in $oldKeyBadges) {
   if (-not (Test-ShownByOthers $badge @(Get-Owned))) {
     try { Remove-Item -LiteralPath $badge.FullName; "removed: $($badge.FullName)" }
-    catch { $kept++; "unattended-shortcut: $($badge.FullName) is left ($_); the next run, or -Remove, removes it" }
+    catch { $leftBadges += $badge.FullName; "unattended-shortcut: $($badge.FullName) is left ($_)" }
   }
 }
-# A file moved aside that cannot be deleted now stays named in the journal, and the next run removes it.
+# A file moved aside, or an old-key badge, that cannot be deleted now stays named in the journal (`committed`), and
+# the next run, or -Remove, removes it.
 $left = @($aside | Where-Object { Remove-Item -LiteralPath $_.old -ErrorAction Ignore; Test-Path -LiteralPath $_.old })
-if (-not $left) { Remove-Item -LiteralPath $journalPath -ErrorAction Ignore }
-if ($kept -or $left) {
-  "unattended-shortcut: the shortcuts are in place; $($kept + $left.Count) old file(s) are left for the next run"
-  exit 1
-}
-exit 0
+if (-not $left -and -not $leftBadges) { Remove-Item -LiteralPath $journalPath -ErrorAction Ignore; exit 0 }
+Write-Journal 'committed'
+"unattended-shortcut: the shortcuts are in place; $($left.Count + $leftBadges.Count) old file(s) are left for the " +
+  'next run'
+exit 1

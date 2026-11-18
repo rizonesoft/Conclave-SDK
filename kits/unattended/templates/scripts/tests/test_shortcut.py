@@ -151,10 +151,10 @@ class ShortcutFixture(unittest.TestCase):
                                     "agents": ["claude"], "skip_permissions": False, "links": []}),
                         encoding="utf-8")
 
-    def shortcut(self, *args, project=None, icon_dir=True, **env):
+    def shortcut(self, *args, project=None, icon_dir=True, desk=None, **env):
         project = project or self.project
         command = [PWSH, "-NoProfile", "-NonInteractive", "-File", str(project / "scripts" / "unattended-shortcut.ps1"),
-                   "-ShortcutDir", str(self.desk), *(["-IconDir", str(self.icons)] if icon_dir else []),
+                   "-ShortcutDir", str(desk or self.desk), *(["-IconDir", str(self.icons)] if icon_dir else []),
                    "-Wsl", str(self.wsl), "-Python", sys.executable, *args]
         return subprocess.run(command, capture_output=True, text=True, timeout=180, env={**self.env, **env},
                               creationflags=windowless())
@@ -883,6 +883,47 @@ class CampaignTitleTest(ShortcutFixture):
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         self.assertIn("restored: ", done.stdout)
         self.assertEqual((self.snapshot(), self.journal_of()), (before, []))
+
+    def test_a_stopped_runs_journal_under_this_runs_own_id_is_played(self):
+        # Reconciliation 11: Windows can give a stopped run's id to the run that retries it.
+        self.install()
+        before = self.snapshot()
+        self.stopped_rename("swapping")
+        # One PowerShell process gives every file of the stopped run its own id, then runs the script itself, so the
+        # journal carries exactly the retrying run's id.
+        script = ("$dead = '.' + $env:DEAD + '.'; $own = '.' + $PID + '.'; "
+                  "foreach ($folder in @($env:DESK, $env:ICONS)) { "
+                  "Get-ChildItem -LiteralPath $folder -File | Where-Object { $_.Name.Contains($dead) } | "
+                  "ForEach-Object { Rename-Item -LiteralPath $_.FullName -NewName $_.Name.Replace($dead, $own) } }; "
+                  "$journal = Get-ChildItem -LiteralPath $env:ICONS -Filter '*.journal.json' | Select-Object -First 1; "
+                  "$text = [IO.File]::ReadAllText($journal.FullName).Replace($dead, $own); "
+                  "[IO.File]::WriteAllText($journal.FullName, $text); "
+                  "& $env:SCRIPT -ShortcutDir $env:DESK -IconDir $env:ICONS -Wsl $env:WSL -Python $env:PY "
+                  "-Distro Arch -Icon $env:ICON")
+        done = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True,
+                              text=True, timeout=180, creationflags=windowless(),
+                              env={**self.env, "DEAD": str(self.DEAD), "DESK": str(self.desk), "ICONS": str(self.icons),
+                                   "SCRIPT": str(self.project / "scripts" / "unattended-shortcut.ps1"),
+                                   "WSL": str(self.wsl), "PY": sys.executable, "ICON": str(self.icon)})
+        self.assertIn("restored: ", done.stdout, done.stdout + done.stderr)
+        self.assertEqual((self.snapshot(), self.journal_of()), (before, []))
+
+    def test_remove_in_one_distro_leaves_an_old_key_badge_another_distros_link_shows(self):
+        # Reconciliation 11: one Linux path in two distros shared the old key; their desktops may differ.
+        other_desk = Path(self._tmp.name) / "desk2"
+        linux = ["-Icon", str(self.icon), "-Project", "/home/x/Demo"]
+        self.assertEqual(self.shortcut("-Distro", "Debian", *linux, desk=other_desk).returncode, 0)
+        old_key = hashlib.sha256(b"/home/x/demo").hexdigest()[:8]
+        for link in other_desk.glob("*.lnk"):  # Debian's set, as the old script wrote it
+            badge = Path(self.read_link(link)["icon"].rsplit(",", 1)[0])
+            old = badge.with_name(f"{badge.name.split('-')[0]}-{badge.name.split('-')[1]}-{old_key}.ico")
+            badge.rename(old)
+            self.set_description(link, "conclave-unattended: /home/x/Demo", icon=str(old))
+        theirs = sorted(p.name for p in self.icons.glob(f"campaign-*-{old_key}.ico"))
+        self.assertEqual(len(theirs), 2)
+        done = self.shortcut("-Remove", "-Distro", "Ubuntu", "-Project", "/home/x/Demo")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(sorted(p.name for p in self.icons.glob(f"campaign-*-{old_key}.ico")), theirs)
 
     def test_an_old_key_badge_held_during_a_migration_is_removed_later(self):
         # Reconciliation 10: the old-key badge no link shows any more is still found by its key.
