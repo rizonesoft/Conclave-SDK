@@ -97,21 +97,20 @@ elif rest[:1] == ["find"]:
 '''
 
 
-def windowless():
+def windowless(group=False):
     """No console window of its own for any process a test starts on Windows (a console child of a parent with
-    none opens one over the owner's work: 2026-11-12, Office's launcher tests flashed 5 to 10); 0 elsewhere."""
-    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    none opens one over the owner's work: 2026-11-12, Office's launcher tests flashed 5 to 10), in a process group of
+    its own with `group`; 0 elsewhere."""
+    if os.name != "nt":
+        return 0
+    return subprocess.CREATE_NO_WINDOW | (subprocess.CREATE_NEW_PROCESS_GROUP if group else 0)
 
 
 def start_tree(argv, **kwargs):
     """Start a child in a process group of its own, with no console window, so `end_tree` can end everything it
     starts (pwsh starts Python and the WSL stand-in)."""
     kwargs.pop("creationflags", None)
-    if os.name == "nt":
-        kwargs["creationflags"] = windowless() | subprocess.CREATE_NEW_PROCESS_GROUP
-    else:
-        kwargs["start_new_session"] = True
-    return subprocess.Popen(argv, **kwargs)
+    return subprocess.Popen(argv, creationflags=windowless(group=True), start_new_session=os.name != "nt", **kwargs)
 
 
 def end_tree(proc):
@@ -130,6 +129,10 @@ def end_tree(proc):
     try:
         proc.kill()
     except OSError:
+        pass
+    try:
+        proc.wait(timeout=10)  # reaped, so no ended child is left behind as a running one
+    except subprocess.TimeoutExpired:
         pass
 
 
@@ -332,7 +335,7 @@ class ProcessTreeTest(unittest.TestCase):
                 if re.search(r"subprocess\.(run|Popen)\(", line) and "re.search" not in line
                 and not line.strip().startswith(("f\"", "\"", "'"))  # code a test hands a child, as text
                 and not re.search(r"subprocess\.(run|Popen)\(\[\"(attrib|taskkill|tasklist)\"", line)
-                and "return subprocess.Popen(argv, **kwargs)" not in line]
+                and "return subprocess.Popen(argv, creationflags=windowless(group=True)" not in line]
         self.assertEqual(bare, [])
 
 
@@ -1454,8 +1457,7 @@ class CampaignTitleTest(ShortcutFixture):
                                   stdout=subprocess.PIPE, text=True, env={**os.environ, "LOCK": str(lock)},
                                   creationflags=windowless())
         self.addCleanup(holder.stdout.close)
-        self.addCleanup(lambda: subprocess.run(["taskkill", "/T", "/F", "/PID", str(holder.pid)], capture_output=True,
-                                               creationflags=windowless()))
+        self.addCleanup(end_tree, holder)
         self.assertEqual(holder.stdout.readline().strip(), "held")
         return holder, lock
 
@@ -1532,8 +1534,7 @@ class CampaignTitleTest(ShortcutFixture):
         holder = start_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], stdout=subprocess.PIPE,
                                   text=True, env={**os.environ, "HELD": str(held)}, creationflags=windowless())
         self.addCleanup(holder.stdout.close)
-        self.addCleanup(lambda: subprocess.run(["taskkill", "/T", "/F", "/PID", str(holder.pid)], capture_output=True,
-                                               creationflags=windowless()))
+        self.addCleanup(end_tree, holder)
         self.assertEqual(holder.stdout.readline().strip(), "held")
         for args in (["-Remove"], ["-Distro", "Ubuntu", "-Icon", str(self.icon)]):
             with self.subTest(args[0]):
