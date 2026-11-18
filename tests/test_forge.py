@@ -3807,9 +3807,12 @@ class UnattendedKitTests(unittest.TestCase):
         self.assertEqual({n: c["status"] for n, c in checks.items() if c["status"] != "ok"}, expected)
         if os.name == "nt":
             self.assertIn("WSL", checks["tmux"]["detail"])
-        result = subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "-s", str(self.target / "scripts/tests")],
-                                capture_output=True, text=True, timeout=900)
-        self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+        # The installed copy's whole suite: D07 T01 §7 took its shortcut tests from 9 to 71 (each drives pwsh), about
+        # 13 minutes on GitHub's Windows runner, which ran past the old 900 seconds (run 44300121637). The limit only
+        # catches a hang, and _probe ends the suite's whole process tree when it trips, pwsh children included.
+        code, out, problem = forge._probe([sys.executable, "-B", "-m", "unittest", "discover", "-s",
+                                           str(self.target / "scripts/tests")], timeout=2400)
+        self.assertEqual((code, problem), (0, ""), out[-2000:])
         # A kit file removed afterwards is one the doctor reports missing.
         (self.target / ".codex/skills/unattended-run/SKILL.md").unlink()
         (self.target / "docs/unattended-run.md").unlink()
