@@ -89,10 +89,9 @@ $prefix = 'conclave-unattended: '
 $mark = "$prefix$identity"
 $normal = Get-Normal $identity
 $key = Get-Key $normal
-# The key the script gave its badges before it had one identity (the -Project form, in lower case). One Linux path in
-# two distros shared it, so a badge under it is found only through this project's own links, or its own journal when a
-# run could not remove one, never by the key alone.
-$oldKey = Get-Key $Project.ToLowerInvariant()
+# A badge under the key the script gave before it had one identity (the -Project form, in lower case) is left where it
+# is: that key was one Linux path's in every distro, and the distros' desktop folders may differ, so no run can tell
+# whose such a badge is. For a project on a Windows drive the two keys are one, and its badges are found by it.
 # A run is told apart from a later process that Windows gave the same id by when it started.
 function Get-Started([int]$id) {
   $process = Get-Process -Id $id -ErrorAction Ignore
@@ -130,22 +129,10 @@ function Get-Owned {
     Where-Object { $_.Name -notmatch '\.\d+\.tmp\.lnk$' -and (Test-Owned $_) }
 }
 
-# This project's badges: those under its key, and those its own links show (an old mark's, under the old key).
+# This project's badges: those under its key.
 # Named apart from the -Icon parameter: PowerShell names ignore case, and $icon would be that typed string.
-function Get-Badges([object[]]$owned) {
-  $found = @{}
-  foreach ($badge in @(Get-ChildItem -LiteralPath $IconDir -Filter "campaign-*-$key.ico" -File -ErrorAction Ignore)) {
-    $found[$badge.Name] = $badge
-  }
-  foreach ($link in $owned) {
-    $where = (Get-Link $link).IconPath
-    $shown = if ($where) { Get-Item -LiteralPath $where -ErrorAction Ignore }
-    if ($shown -and $shown.Name -like 'campaign-*.ico' -and
-        [IO.Path]::GetFileName($shown.DirectoryName) -eq [IO.Path]::GetFileName($IconDir.TrimEnd('\'))) {
-      $found[$shown.Name] = $shown
-    }
-  }
-  $found.Values
+function Get-Badges {
+  Get-ChildItem -LiteralPath $IconDir -Filter "campaign-*-$key.ico" -File -ErrorAction Ignore
 }
 
 # Each run that changes links keeps a journal, `<icon folder>\campaign-<key>.<pid>.journal.json`, written whole (a
@@ -183,9 +170,6 @@ function Test-Journal($record, [int]$owner) {
     $inside = (Test-Within $old.to $ShortcutDir '\.lnk$') -or
       (Test-Within $old.to $IconDir "^campaign-[a-z]+-$key\.ico$")
     if (-not $inside -or $old.old -cne "$($old.to).$owner.old") { return $false }
-  }
-  foreach ($badge in @($record.left | Where-Object { $null -ne $_ })) {
-    if (-not (Test-Within $badge $IconDir "^campaign-[a-z]+-$oldKey\.ico$")) { return $false }
   }
   $temps = @($record.moves | ForEach-Object { $_.from })
   foreach ($temp in @($record.temps)) { if ($temps -cnotcontains $temp) { return $false } }
@@ -270,14 +254,7 @@ function Restore-Stopped {
           catch { "unattended-shortcut: $($old.old) stays ($_); the journal is kept and the next run tries again" }
         }
       }
-      foreach ($badge in @($record.left | Where-Object { $null -ne $_ })) {
-        if (Test-Path -LiteralPath $badge) {
-          try { Remove-Item -LiteralPath $badge; "removed: $badge" }
-          catch { "unattended-shortcut: $badge stays ($_); the journal is kept and the next run tries again" }
-        }
-      }
-      $left = @(@($record.aside | Where-Object { Test-Path -LiteralPath $_.old }) +
-        @($record.left | Where-Object { $_ -and (Test-Path -LiteralPath $_) }))
+      $left = @($record.aside | Where-Object { Test-Path -LiteralPath $_.old })
     } else {
       $left = @()
     }
@@ -290,22 +267,9 @@ function Restore-Stopped {
 $keptJournals = 0
 Restore-Stopped
 
-# Whether a link other than `$ours` shows `$badge`: the old script keyed badges by the -Project form alone, so one
-# Linux path in two distros shared a badge, which goes only once no other link shows it.
-function Test-ShownByOthers([IO.FileSystemInfo]$badge, [object[]]$ours) {
-  $names = @($ours | ForEach-Object { $_.Name })
-  foreach ($link in @(Get-ChildItem -LiteralPath $ShortcutDir -Filter '*.lnk' -File -ErrorAction Ignore)) {
-    if ($names -contains $link.Name) { continue }
-    $shown = (Get-Link $link).IconPath
-    if ($shown -and [IO.Path]::GetFileName($shown) -eq $badge.Name) { return $true }
-  }
-  $false
-}
-
 if ($Remove) {
   $links = @(Get-Owned)
-  $badges = @(Get-Badges $links |
-    Where-Object { $_.Name -like "campaign-*-$key.ico" -or -not (Test-ShownByOthers $_ $links) })
+  $badges = @(Get-Badges)
   foreach ($link in $links) { Remove-Item -LiteralPath $link.FullName; "removed: $($link.FullName)" }
   foreach ($badge in $badges) { Remove-Item -LiteralPath $badge.FullName; "removed: $($badge.FullName)" }
   "unattended-shortcut: $($links.Count) shortcut(s) and $($badges.Count) icon(s) of $Project removed"
@@ -424,12 +388,8 @@ function Clear-Temps {
 $writtenLinks = @($planned | ForEach-Object { Split-Path $_.Link -Leaf })
 $writtenIcons = @($planned | ForEach-Object { Split-Path $_.Badge -Leaf })
 $owned = @(Get-Owned)
-$staleBadges = @(Get-Badges $owned | Where-Object { $writtenIcons -notcontains $_.Name })
-# A badge under this project's key is moved aside with the rest; one under an old key (shared, under the old script,
-# by one Linux path in two distros) is never moved aside, and goes only after the swap, if no other link shows it.
 $stale = @($owned | Where-Object { $writtenLinks -notcontains $_.Name }) +
-  @($staleBadges | Where-Object { $_.Name -like "campaign-*-$key.ico" })
-$oldKeyBadges = @($staleBadges | Where-Object { $_.Name -notlike "campaign-*-$key.ico" })
+  @(Get-Badges | Where-Object { $writtenIcons -notcontains $_.Name })
 $moves = foreach ($p in $planned) {
   [pscustomobject]@{ from = $p.BadgeTemp; to = $p.Badge }
   [pscustomobject]@{ from = $p.LinkTemp; to = $p.Link }
@@ -437,10 +397,9 @@ $moves = foreach ($p in $planned) {
 $asidePlan = @()
 
 $started = Get-Started $PID
-$leftBadges = @()
 function Write-Journal([string]$state) {
   $record = [ordered]@{ state = $state; started = $started; temps = @($moves | ForEach-Object { $_.from })
-    moves = @($moves); aside = @($asidePlan); left = @($leftBadges) }
+    moves = @($moves); aside = @($asidePlan) }
   $temp = "$journalPath.tmp"
   [IO.File]::WriteAllText($temp, (ConvertTo-Json -InputObject $record -Depth 4), [Text.UTF8Encoding]::new($false))
   [IO.File]::Move($temp, $journalPath, $true)
@@ -518,17 +477,9 @@ try {
 }
 foreach ($p in $planned) { "shortcut written: $($p.Link)" }
 foreach ($file in $stale) { "removed: $($file.FullName)" }
-foreach ($badge in $oldKeyBadges) {
-  if (-not (Test-ShownByOthers $badge @(Get-Owned))) {
-    try { Remove-Item -LiteralPath $badge.FullName; "removed: $($badge.FullName)" }
-    catch { $leftBadges += $badge.FullName; "unattended-shortcut: $($badge.FullName) is left ($_)" }
-  }
-}
-# A file moved aside, or an old-key badge, that cannot be deleted now stays named in the journal (`committed`), and
-# the next run, or -Remove, removes it.
+# A file moved aside that cannot be deleted now stays named in the journal (`committed`), and the next run, or -Remove,
+# removes it.
 $left = @($aside | Where-Object { Remove-Item -LiteralPath $_.old -ErrorAction Ignore; Test-Path -LiteralPath $_.old })
-if (-not $left -and -not $leftBadges) { Remove-Item -LiteralPath $journalPath -ErrorAction Ignore; exit 0 }
-Write-Journal 'committed'
-"unattended-shortcut: the shortcuts are in place; $($left.Count + $leftBadges.Count) old file(s) are left for the " +
-  'next run'
+if (-not $left) { Remove-Item -LiteralPath $journalPath -ErrorAction Ignore; exit 0 }
+"unattended-shortcut: the shortcuts are in place; $($left.Count) old file(s) are left for the next run"
 exit 1

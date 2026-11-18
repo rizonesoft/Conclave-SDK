@@ -582,8 +582,8 @@ class CampaignTitleTest(ShortcutFixture):
         done = self.shortcut(*linux)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(self.links(), ["Demo Site Carbon campaign.lnk", "Demo Site Claude campaign.lnk"])
-        self.assertEqual(list(self.icons.glob(f"campaign-*-{old_key}.ico")), [])
-        self.assertFalse((self.icons / f"campaign-claude-{old_key}.ico").exists())
+        # An old key's badge stays: that key was one Linux path's in every distro, so no run can tell whose it is.
+        self.assertEqual(len(list(self.icons.glob(f"campaign-*-{old_key}.ico"))), 2)
         new_key = hashlib.sha256(b"\\\\wsl.localhost\\ubuntu\\home\\x\\Demo").hexdigest()[:8]
         mark = self.read_link(self.desk / "Demo Site Claude campaign.lnk")["description"]
         self.assertEqual(mark, "conclave-unattended: \\\\wsl.localhost\\Ubuntu\\home\\x\\Demo")
@@ -925,26 +925,6 @@ class CampaignTitleTest(ShortcutFixture):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(sorted(p.name for p in self.icons.glob(f"campaign-*-{old_key}.ico")), theirs)
 
-    def test_an_old_key_badge_held_during_a_migration_is_removed_later(self):
-        # Reconciliation 10: the old-key badge no link shows any more is still found by its key.
-        linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]
-        self.assertEqual(self.shortcut(*linux).returncode, 0)
-        old_key = hashlib.sha256(b"/home/x/demo").hexdigest()[:8]
-        for link in self.desk.glob("*.lnk"):  # this project's set, as the old script wrote it
-            badge = Path(self.read_link(link)["icon"].rsplit(",", 1)[0])
-            old = badge.with_name(f"{badge.name.split('-')[0]}-{badge.name.split('-')[1]}-{old_key}.ico")
-            badge.rename(old)
-            self.set_description(link, "conclave-unattended: /home/x/Demo", icon=str(old))
-        held = self.icons / f"campaign-claude-{old_key}.ico"
-        with open(held, "rb"):  # held open without delete sharing through the migration
-            done = self.shortcut(*linux)
-        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
-        self.assertIn("old file(s) are left for the next run", done.stdout)
-        self.assertTrue(held.exists())
-        done = self.shortcut(*linux)
-        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertFalse(held.exists())
-
     def journal_of(self):
         return list(self.icons.glob("campaign-*.journal.json"))
 
@@ -1097,7 +1077,7 @@ class CampaignTitleTest(ShortcutFixture):
         done = self.shortcut(*linux)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertTrue(shown.exists(), "a badge another link shows was removed")
-        self.assertFalse((self.icons / f"campaign-agy-{old_key}.ico").exists())
+        self.assertTrue((self.icons / f"campaign-agy-{old_key}.ico").exists(), "an old key's badge was removed")
         done = self.shortcut("-Remove", "-Distro", "Ubuntu", "-Project", "/home/x/Demo")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertTrue(shown.exists(), "-Remove removed a badge another link shows")
