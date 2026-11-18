@@ -89,9 +89,10 @@ $prefix = 'conclave-unattended: '
 $mark = "$prefix$identity"
 $normal = Get-Normal $identity
 $key = Get-Key $normal
-# A badge under the key the script gave before it had one identity (the -Project form, in lower case) is left where it
-# is: that key was one Linux path's in every distro, and the distros' desktop folders may differ, so no run can tell
-# whose such a badge is. For a project on a Windows drive the two keys are one, and its badges are found by it.
+# The key the script gave badges before it had one identity (the -Project form, in lower case). That key was one Linux
+# path's in every distro, so a badge under it is this project's only when a link this project owns shows it (and no
+# other link in its desktop folder does); it is never found by the key alone.
+$oldKey = Get-Key $Project.ToLowerInvariant()
 # A run is told apart from a later process that Windows gave the same id by when it started.
 function Get-Started([int]$id) {
   $process = Get-Process -Id $id -ErrorAction Ignore
@@ -129,10 +130,34 @@ function Get-Owned {
     Where-Object { $_.Name -notmatch '\.\d+\.tmp\.lnk$' -and (Test-Owned $_) }
 }
 
-# This project's badges: those under its key.
+# Whether a link in the desktop folder other than `$ours` shows `$badge`.
+function Test-ShownByOthers([IO.FileSystemInfo]$badge, [object[]]$ours) {
+  $names = @($ours | ForEach-Object { $_.Name })
+  foreach ($link in @(Get-ChildItem -LiteralPath $ShortcutDir -Filter '*.lnk' -File -ErrorAction Ignore)) {
+    if ($names -contains $link.Name) { continue }
+    $shown = (Get-Link $link).IconPath
+    if ($shown -and [IO.Path]::GetFileName($shown) -eq $badge.Name) { return $true }
+  }
+  $false
+}
+
+# This project's badges: those under its key, and the old key's badges its own links show and no other link does.
 # Named apart from the -Icon parameter: PowerShell names ignore case, and $icon would be that typed string.
-function Get-Badges {
-  Get-ChildItem -LiteralPath $IconDir -Filter "campaign-*-$key.ico" -File -ErrorAction Ignore
+function Get-Badges([object[]]$owned) {
+  $found = @{}
+  foreach ($badge in @(Get-ChildItem -LiteralPath $IconDir -Filter "campaign-*-$key.ico" -File -ErrorAction Ignore)) {
+    $found[$badge.Name] = $badge
+  }
+  foreach ($link in $owned) {
+    $where = (Get-Link $link).IconPath
+    $shown = if ($where) { Get-Item -LiteralPath $where -ErrorAction Ignore }
+    if ($shown -and $shown.Name -like "campaign-*-$oldKey.ico" -and
+        (Get-Normal $shown.DirectoryName) -ceq (Get-Normal ([IO.Path]::GetFullPath($IconDir))) -and
+        -not (Test-ShownByOthers $shown $owned)) {
+      $found[$shown.Name] = $shown
+    }
+  }
+  $found.Values
 }
 
 # Each run that changes links keeps a journal, `<icon folder>\campaign-<key>.<pid>.journal.json`, written whole (a
@@ -168,7 +193,7 @@ function Test-Journal($record, [int]$owner) {
   }
   foreach ($old in @($record.aside)) {
     $inside = (Test-Within $old.to $ShortcutDir '\.lnk$') -or
-      (Test-Within $old.to $IconDir "^campaign-[a-z]+-$key\.ico$")
+      (Test-Within $old.to $IconDir "^campaign-[a-z]+-($key|$oldKey)\.ico$")
     if (-not $inside -or $old.old -cne "$($old.to).$owner.old") { return $false }
   }
   $temps = @($record.moves | ForEach-Object { $_.from })
@@ -179,7 +204,9 @@ function Test-Journal($record, [int]$owner) {
 function Test-Mine([string]$path) {
   $file = Get-Item -LiteralPath $path -ErrorAction Ignore
   if (-not $file) { return $false }
-  if ($file.Name -like '*.ico' -or $file.Name -like '*.ico.*') { return $file.Name -like "campaign-*-$key.ico*" }
+  if ($file.Name -like '*.ico' -or $file.Name -like '*.ico.*') {
+    return $file.Name -like "campaign-*-$key.ico*" -or $file.Name -like "campaign-*-$oldKey.ico*"
+  }
   Test-Owned $file
 }
 
@@ -269,9 +296,18 @@ Restore-Stopped
 
 if ($Remove) {
   $links = @(Get-Owned)
-  $badges = @(Get-Badges)
+  $badges = @(Get-Badges $links)
+  # Badges first: a link stays while its badge cannot go (held open), so the next -Remove finds the badge through it.
+  $kept = 0
+  foreach ($badge in $badges) {
+    try { Remove-Item -LiteralPath $badge.FullName; "removed: $($badge.FullName)" }
+    catch { $kept++; "unattended-shortcut: $($badge.FullName) stays ($_)" }
+  }
+  if ($kept) {
+    "unattended-shortcut: $kept icon(s) could not be removed; the shortcuts stay; run -Remove again"
+    exit 1
+  }
   foreach ($link in $links) { Remove-Item -LiteralPath $link.FullName; "removed: $($link.FullName)" }
-  foreach ($badge in $badges) { Remove-Item -LiteralPath $badge.FullName; "removed: $($badge.FullName)" }
   "unattended-shortcut: $($links.Count) shortcut(s) and $($badges.Count) icon(s) of $Project removed"
   if ($keptJournals) {
     "unattended-shortcut: a stopped run's journal is kept (see above); run -Remove again once it can finish"
@@ -388,8 +424,9 @@ function Clear-Temps {
 $writtenLinks = @($planned | ForEach-Object { Split-Path $_.Link -Leaf })
 $writtenIcons = @($planned | ForEach-Object { Split-Path $_.Badge -Leaf })
 $owned = @(Get-Owned)
+# Every badge it retires, an old key's its own links show included, goes in the same change as the links.
 $stale = @($owned | Where-Object { $writtenLinks -notcontains $_.Name }) +
-  @(Get-Badges | Where-Object { $writtenIcons -notcontains $_.Name })
+  @(Get-Badges $owned | Where-Object { $writtenIcons -notcontains $_.Name })
 $moves = foreach ($p in $planned) {
   [pscustomobject]@{ from = $p.BadgeTemp; to = $p.Badge }
   [pscustomobject]@{ from = $p.LinkTemp; to = $p.Link }

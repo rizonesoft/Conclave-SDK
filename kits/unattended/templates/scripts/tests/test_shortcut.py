@@ -582,8 +582,7 @@ class CampaignTitleTest(ShortcutFixture):
         done = self.shortcut(*linux)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(self.links(), ["Demo Site Carbon campaign.lnk", "Demo Site Claude campaign.lnk"])
-        # An old key's badge stays: that key was one Linux path's in every distro, so no run can tell whose it is.
-        self.assertEqual(len(list(self.icons.glob(f"campaign-*-{old_key}.ico"))), 2)
+        self.assertEqual(list(self.icons.glob(f"campaign-*-{old_key}.ico")), [])  # they go with the rest
         new_key = hashlib.sha256(b"\\\\wsl.localhost\\ubuntu\\home\\x\\Demo").hexdigest()[:8]
         mark = self.read_link(self.desk / "Demo Site Claude campaign.lnk")["description"]
         self.assertEqual(mark, "conclave-unattended: \\\\wsl.localhost\\Ubuntu\\home\\x\\Demo")
@@ -908,6 +907,47 @@ class CampaignTitleTest(ShortcutFixture):
         self.assertIn("restored: ", done.stdout, done.stdout + done.stderr)
         self.assertEqual((self.snapshot(), self.journal_of()), (before, []))
 
+    def legacy_set(self, linux):
+        """This project's set for `linux` as the old script wrote it: the old mark, badges under the old key."""
+        self.assertEqual(self.shortcut(*linux).returncode, 0)
+        old_key = hashlib.sha256(b"/home/x/demo").hexdigest()[:8]
+        for link in self.desk.glob("*.lnk"):
+            badge = Path(self.read_link(link)["icon"].rsplit(",", 1)[0])
+            old = badge.with_name(f"{badge.name.split('-')[0]}-{badge.name.split('-')[1]}-{old_key}.ico")
+            badge.rename(old)
+            self.set_description(link, "conclave-unattended: /home/x/Demo", icon=str(old))
+        return old_key
+
+    def test_an_old_key_badge_held_during_a_migration_fails_it_whole_and_goes_later(self):
+        # Reconciliation 12 and 13: the old key's badges go in the same change as the links that show them.
+        linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]
+        old_key = self.legacy_set(linux)
+        before = self.snapshot()
+        held = self.icons / f"campaign-claude-{old_key}.ico"
+        with open(held, "rb"):  # held open without delete sharing through the migration
+            done = self.shortcut(*linux)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("the previous ones are kept", done.stdout)
+        self.assertEqual(self.snapshot(), before)
+        done = self.shortcut(*linux)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(list(self.icons.glob(f"campaign-*-{old_key}.ico")), [])
+
+    def test_remove_with_an_old_key_badge_held_keeps_its_link_and_finishes_later(self):
+        # Reconciliation 12 and 13: a badge that cannot go keeps the link through which the next -Remove finds it.
+        linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]
+        old_key = self.legacy_set(linux)
+        held = self.icons / f"campaign-claude-{old_key}.ico"
+        remove = ["-Remove", "-Distro", "Ubuntu", "-Project", "/home/x/Demo"]
+        with open(held, "rb"):  # held open without delete sharing
+            done = self.shortcut(*remove)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("the shortcuts stay; run -Remove again", done.stdout)
+        self.assertEqual(self.links(), ["Demo Carbon campaign.lnk", "Demo Claude campaign.lnk"])
+        done = self.shortcut(*remove)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual((self.links(), sorted(p.name for p in self.icons.iterdir())), ([], []))
+
     def test_remove_in_one_distro_leaves_an_old_key_badge_another_distros_link_shows(self):
         # Reconciliation 11: one Linux path in two distros shared the old key; their desktops may differ.
         other_desk = Path(self._tmp.name) / "desk2"
@@ -1077,7 +1117,7 @@ class CampaignTitleTest(ShortcutFixture):
         done = self.shortcut(*linux)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertTrue(shown.exists(), "a badge another link shows was removed")
-        self.assertTrue((self.icons / f"campaign-agy-{old_key}.ico").exists(), "an old key's badge was removed")
+        self.assertFalse((self.icons / f"campaign-agy-{old_key}.ico").exists())
         done = self.shortcut("-Remove", "-Distro", "Ubuntu", "-Project", "/home/x/Demo")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertTrue(shown.exists(), "-Remove removed a badge another link shows")
