@@ -2,7 +2,7 @@
 schema_version: 1
 id: unattended-kit
 domain: 02-unattended
-status: done
+status: active
 title: "TODO-02 -- Unattended kit"
 ---
 
@@ -46,6 +46,7 @@ title: "TODO-02 -- Unattended kit"
 | 9 | §9 | Nothing resumes a run without its operator | §7 | [x] |
 | 10 | §10 | Desktop shortcut that starts the run | §5 | [x] |
 | 11 | §11 | Operator document and `unattended-run` skill | §8, §9, §10 | [x] |
+| 12 | §12 | Writable run windows, Watch and Stop links, finished stops | §11, D07 T01 §7 | [ ] |
 
 ## 1. Unattended kit known to `forge.py`
 
@@ -392,6 +393,32 @@ The operator needs one page that says how to start, watch, stop and resume a run
 
 > **Verified:** 2026-11-13 | §11 | 4f9bdcd1cd945d9e0e17f12c84a84a02a45e92ad
 > **Review:** `docs/reviews/d02-t02-s11.json`
+
+## 12. Writable run windows, Watch and Stop links, finished stops
+
+Filed 2026-11-18 at the owner's request: port the generic part of the unattended kit's changes in the project the owner named (`git diff d3617c8 f34e911` over `scripts/unattended-run.py`, `scripts/unattended-shortcut.ps1`, `scripts/campaign-icon.py`, `scripts/lib/unattended.py`, `docs/unattended-run.md` and `scripts/tests/`, commits 3977ea5, 1d09811, e2e08a7, f34e911; the SDK's templates match its import commit d3617c8), so new installs get them. That project's deploy and dashboard files stay there. The shortcut script it changes is the one `D07 T01 §7` rebuilt (title, identity, lock and journal), so the port merges into that script and keeps all of it.
+
+**Phase:** 9
+**Needs:** windows-host
+**Surface:** no
+
+**Build order:**
+
+1. Port the runner changes with their failing tests first. Done when: each new test fails before its change.
+2. Port the shortcut, icon and page changes. Done when: the checkpoint passes.
+
+- [ ] Attach every window a shortcut opens writable in `kits/unattended/templates/scripts/unattended-run.py` (`attach`, never `attach -r`: tmux 3.6 read-only clients ignore every key and mouse event but detach), and start the run's tmux session with `mouse on` beside `history-limit` in `_launch`; keep `attach --watch` as the read-only option. Done when: a test reads the attach and session options from the tmux stand-in's calls. Cheaper substitute: `attach -r` with scroll keys, which tmux ignores.
+- [ ] Make the heartbeat's nudge idle-aware in `unattended-run.py`: `list-clients -F "#{client_readonly} #{client_activity}"`, skip the nudge only while a writable client was active within `ATTENDED_SECONDS` (15 minutes), and count a writable client whose activity tmux does not give as attended. Done when: the list-clients stub asserts that format, and tests find a read-only client and a writable client idle past 15 minutes both let the nudge through.
+- [ ] Make each campaign link run `start --agent <runner>` then `attach` (`start_command` in `unattended-run.py` and the same string in `kits/unattended/templates/scripts/unattended-shortcut.ps1`, held equal by a test), so a run already active is attached to; the Linux desktop entry the same; with no run to attach to the window says why and waits for Enter. Done when: the shortcut test runs the link against the stand-in and finds both calls, and the equality test holds.
+- [ ] Write `<Title> - Watch run` (runs `attach`) and `<Title> - Stop run` (asks first, runs `stop` only on `y`, waits for Enter, with no double quote in its command) in `unattended-shortcut.ps1`, inside `D07 T01 §7`'s journaled change and found by the project's mark for `-Remove` and `shortcut --remove`. Done when: tests read both links back, run them against the stand-in, and find `-Remove` takes them with their icons.
+- [ ] Add the `watch` (white eye on violet) and `stop` (white square on red) badges, and the `codex` (green) badge, to `kits/launchers/templates/scripts/campaign-icon.py badge`, beside Claude's orange spark and Antigravity's blue sparkle. Done when: `test_campaign_icon.py` finds each mark drawn and distinct, and an unknown mark exits 2.
+- [ ] Make `stop` in `unattended-run.py` finish when its window closes: it ignores SIGHUP and drops output its closed terminal cannot take (an unfailing stream wrapper in `main`); in `tick`, record a run whose guard has ended as `STOP_REASON` only when the stop's flag (`CONCLAVE_UNATTENDED_STOPPED` in the heartbeat's tmux session environment) names it, never by the guard's `operator-stop` reason, and exit the heartbeat on the same tick. Done when: a test closes the stop's output and sends it SIGHUP mid-stop and finds the marker and heartbeat gone, and a test finds an ended guard without the flag not recorded as a stop.
+- [ ] Strip `TMUX`, `CONCLAVE_UNATTENDED_RUN` and `CONCLAVE_UNATTENDED_TAG` from the runs the runner tests start (`host_env` in `kits/unattended/templates/scripts/tests/test_run.py`). Done when: the suite passes inside an unattended run's tmux session with none of its stops refused.
+- [ ] Bring `kits/unattended/templates/docs/unattended-run.md` in line: writable windows and `attach --watch`, idle-aware nudges, the Watch and Stop links, stops that finish, the states list using `WSL could not`, and the shortcut invocation as `wsl.exe -d <distro> --cd <project in WSL> --exec bash -lc <command>`. Done when: `test_document.py` passes.
+- [ ] Carry the same shapes to every kit or launcher with the shortcut or tmux-runner shape (the launchers kit's `project-shortcuts.ps1` and any other), or record that none other has it. Done when: a search of `kits/` for `attach -r`, `start --agent` and `campaign-icon.py badge` finds each place done or named.
+- [ ] Commit: `unattended: writable windows, idle-aware nudges, Watch and Stop links, stops that finish`
+
+**Test checkpoint:** `python forge.py check-all --only kit-unattended` and `python forge.py check-all --only kit-launchers` pass on Windows (through bosun); restoring `attach -r`, the activity-blind nudge, or the guard's `operator-stop` as a stop makes its test fail.
 
 ## Verification
 

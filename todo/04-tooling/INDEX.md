@@ -2,6 +2,7 @@
 
 | File | Scope | Status |
 | ---- | ----- | ------ |
+| TODO-04-desktop-interface-tests.md | Interface tests that never take the desk; one desktop lock | active |
 
 ## Completed
 

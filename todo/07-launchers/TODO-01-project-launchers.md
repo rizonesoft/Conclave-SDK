@@ -27,6 +27,7 @@ title: "TODO-01 -- Project launchers: one desktop shape for every project"
   - Icons are copied to `%LOCALAPPDATA%\<project folder name>`, because a link cannot keep its icon on the WSL share reliably.
   - Overlay geometry on a 512 pixel icon: an outline square at x 222, y 222, 286 wide, corner radius 70; inside it the filled square at x 236, y 236, 272 wide, corner radius 60; the mark in white, centred at (372, 372), in a box 186 wide.
 - -> XREF: T02 §5 -- the WordPress kit adds its dashboard link to the profile of §2 and it is written by §6
+- -> XREF: D04 T04 §2 -- the desktop lock reuses §7's lock-with-holder shape (an exclusive handle the system frees, a holder named by id and start time)
 
 ## Outcome
 

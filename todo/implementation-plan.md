@@ -179,7 +179,7 @@ Sections: 16 | Checklist items: 138
 
 ### Phase 9: Design and safety lenses across projects
 
-Sections: 16 | Checklist items: 96
+Sections: 19 | Checklist items: 117
 
 | Status | Reference   | Deliverable                                                | Needs        | Items |
 | ------ | ----------- | ---------------------------------------------------------- | ------------ | ----- |
@@ -199,6 +199,9 @@ Sections: 16 | Checklist items: 96
 | [ ]    | D00 T03 §14 | Sanitizer Test Configuration                               | windows-host | 5     |
 | [ ]    | D00 T03 §15 | Bounded C++ Hot-Spot Audit                                 | windows-host | 5     |
 | [ ]    | D00 T03 §16 | Read-Only Verification Across the Projects                 | windows-host | 7     |
+| [ ]    | D02 T02 §12 | Writable run windows, Watch and Stop links, finished stops | windows-host | 10    |
+| [ ]    | D04 T04 §1  | Interface tests split by whether they take the desk        | windows-host | 7     |
+| [ ]    | D04 T04 §2  | One owner of the visual desktop at a time                  | windows-host | 4     |
 
 ### Phase 99: Manual, operator only
 
@@ -211,6 +214,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 102/128 verified sections, 6 ready to run now.
+Progress: 102/131 verified sections, 8 ready to run now.
 
-Checklist: 850/996 items completed (includes Commit items).
+Checklist: 850/1017 items completed (includes Commit items).
