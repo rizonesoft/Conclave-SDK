@@ -84,3 +84,7 @@ LENS quality: findings
 LENS optimization: clean  
 HIGHEST: P2  
 OVERALL: needs-attention
+
+## Writer note: round 3
+
+All three findings checked and real; fixed in b2049b6. This is the fix's last review round (the global rules bound review to a fixed number of rounds); its evidence from here is CI.
