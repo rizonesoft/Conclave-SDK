@@ -907,6 +907,33 @@ class CampaignTitleTest(ShortcutFixture):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual((sorted(p.name for p in self.desk.iterdir()), self.journal_of()), ([], []))
 
+    def test_a_removal_kept_by_a_held_file_never_comes_back(self):
+        # Reconciliation 7: after a -Remove a held original kept, a later install, even a refused one, restores nothing.
+        self.install()
+        self.stopped_rename("swapping")
+        held = next(self.desk.glob("*.old"))
+        with open(held, "rb"):  # held open without delete sharing
+            self.assertEqual(self.shortcut("-Remove").returncode, 1)
+        done = self.shortcut("-Distro", "Arch", "-Icon", str(self.icon))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertNotIn("restored: ", done.stdout)
+        self.assertEqual(self.links(), [])
+        self.assertEqual((sorted(p.name for p in self.desk.iterdir()), self.journal_of()), ([], []))
+
+    def test_a_temporary_link_held_open_keeps_the_journal_and_fails_remove(self):
+        # Reconciliation 7: a stopped run's temporary link that cannot go yet keeps its journal.
+        self.install()
+        journal = self.stopped_rename("swapping")
+        temp = next(self.desk.glob("*.tmp.lnk"))
+        with open(temp, "rb"):  # held open without delete sharing
+            done = self.shortcut("-Remove")
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertTrue(journal.exists())
+        self.assertTrue(temp.exists())
+        done = self.shortcut("-Remove")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual((sorted(p.name for p in self.desk.iterdir()), self.journal_of()), ([], []))
+
     def test_an_old_key_badge_another_link_shows_stays(self):
         # Reconciliation 6: the old script keyed badges by the -Project form alone, so another link may show one.
         linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]

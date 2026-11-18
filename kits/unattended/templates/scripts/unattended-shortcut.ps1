@@ -201,15 +201,17 @@ function Restore-Stopped {
       "unattended-shortcut: $($file.FullName) names files outside this project's links; it is left as it is"
       continue
     }
-    # Each step that fails (a file held open, a name another file holds) is said and left for the next run.
+    # Each step that fails (a file held open, a name another file holds) is said, counted, and left for the next run,
+    # which finds the journal still there.
+    $staying = 0
     foreach ($temp in @($record.temps)) {
       if (Test-Mine $temp) {
-        try { Remove-Item -LiteralPath $temp; "removed: $temp" } catch { "unattended-shortcut: $temp stays ($_)" }
+        try { Remove-Item -LiteralPath $temp; "removed: $temp" }
+        catch { $staying++; "unattended-shortcut: $temp stays ($_); the journal is kept and the next run tries again" }
       }
     }
     # -Remove takes the whole set off, so it never puts a stopped run's originals back: it removes them with the rest.
     if ($record.state -eq 'swapping' -and -not $Remove) {
-      $staying = 0
       foreach ($m in @($record.moves)) {
         $replaced = @($record.aside | Where-Object { $_.to -ceq $m.to })
         # Only this project's own file is ever taken out: one another project put at the name since is never touched.
@@ -233,7 +235,6 @@ function Restore-Stopped {
         "unattended-shortcut: $($old.old) cannot go back to $($old.to) (another file holds the name, or it is held " +
           'open); the journal is kept and the next run tries again'
       }
-      if ($staying) { $left += @($staying) }
     } elseif ($record.state -eq 'committed' -or $Remove) {
       foreach ($old in @($record.aside)) {
         if (Test-Mine $old.old) {
@@ -245,8 +246,17 @@ function Restore-Stopped {
     } else {
       $left = @()
     }
-    # The journal goes once nothing it names is left to do; until then each run plays it again.
-    if ($left) { $script:keptJournals++ } else { Remove-Item -LiteralPath $file.FullName }
+    if ($staying) { $left += @($staying) }
+    # The journal goes once nothing it names is left to do; until then each run plays it again. One kept by -Remove is
+    # rewritten as `committed`, so no later run puts back what the removal took off.
+    if (-not $left) { Remove-Item -LiteralPath $file.FullName; continue }
+    $script:keptJournals++
+    if ($Remove -and $record.state -ne 'committed') {
+      $record.state = 'committed'
+      $temp = "$($file.FullName).tmp"
+      [IO.File]::WriteAllText($temp, (ConvertTo-Json -InputObject $record -Depth 4), [Text.UTF8Encoding]::new($false))
+      [IO.File]::Move($temp, $file.FullName, $true)
+    }
   }
 }
 $keptJournals = 0
