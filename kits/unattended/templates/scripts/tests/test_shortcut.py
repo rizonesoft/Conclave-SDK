@@ -841,17 +841,68 @@ class CampaignTitleTest(ShortcutFixture):
         self.assertEqual([p.name for p in [*self.desk.iterdir(), *self.icons.iterdir()]
                           if ".tmp" in p.name or p.name.endswith(".old")], [])
 
+    def started(self, pid):
+        """When the process `pid` started, as the script records it in a journal."""
+        done = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command",
+                               f"(Get-Process -Id {pid}).StartTime.ToUniversalTime().Ticks"],
+                              capture_output=True, text=True, timeout=60, creationflags=windowless())
+        return done.stdout.strip()
+
     def test_a_journal_of_a_run_still_going_is_left_alone(self):
         self.install()
         before = self.snapshot()
         key = next(self.icons.glob("campaign-claude-*.ico")).stem.split("-")[-1]
         journal = self.icons / f"campaign-{key}.{os.getpid()}.journal.json"  # this test's own process: alive
-        journal.write_text(json.dumps({"state": "swapping", "temps": [], "moves": [], "aside": []}), encoding="utf-8")
+        journal.write_text(json.dumps({"state": "swapping", "started": self.started(os.getpid()), "temps": [],
+                                       "moves": [], "aside": []}), encoding="utf-8")
         done = self.shortcut("-Distro", "Arch", "-Icon", str(self.icon))
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         self.assertTrue(journal.exists())
         journal.unlink()
         self.assertEqual(self.snapshot(), before)
+
+    def test_a_journal_whose_id_windows_gave_another_process_is_played(self):
+        # Reconciliation 10: the id is this test's process, but the run that wrote the journal started long before.
+        self.install()
+        before = self.snapshot()
+        journal = self.stopped_rename("swapping")
+        live = journal.with_name(journal.name.replace(f".{self.DEAD}.", f".{os.getpid()}."))
+        record = json.loads(journal.read_text(encoding="utf-8"))
+        record["started"] = "631139040000000000"  # 2001-01-01, long before this process started
+        journal.unlink()
+        for entry in record["moves"]:
+            entry["from"] = entry["from"].replace(f".{self.DEAD}.", f".{os.getpid()}.")
+        for entry in record["aside"]:
+            entry["old"] = entry["old"].replace(f".{self.DEAD}.", f".{os.getpid()}.")
+        record["temps"] = [m["from"] for m in record["moves"]]
+        for path in [*self.desk.iterdir(), *self.icons.iterdir()]:
+            if f".{self.DEAD}." in path.name:
+                path.rename(path.with_name(path.name.replace(f".{self.DEAD}.", f".{os.getpid()}.")))
+        live.write_text(json.dumps(record), encoding="utf-8")
+        done = self.shortcut("-Distro", "Arch", "-Icon", str(self.icon))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("restored: ", done.stdout)
+        self.assertEqual((self.snapshot(), self.journal_of()), (before, []))
+
+    def test_an_old_key_badge_held_during_a_migration_is_removed_later(self):
+        # Reconciliation 10: the old-key badge no link shows any more is still found by its key.
+        linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]
+        self.assertEqual(self.shortcut(*linux).returncode, 0)
+        old_key = hashlib.sha256(b"/home/x/demo").hexdigest()[:8]
+        for link in self.desk.glob("*.lnk"):  # this project's set, as the old script wrote it
+            badge = Path(self.read_link(link)["icon"].rsplit(",", 1)[0])
+            old = badge.with_name(f"{badge.name.split('-')[0]}-{badge.name.split('-')[1]}-{old_key}.ico")
+            badge.rename(old)
+            self.set_description(link, "conclave-unattended: /home/x/Demo", icon=str(old))
+        held = self.icons / f"campaign-claude-{old_key}.ico"
+        with open(held, "rb"):  # held open without delete sharing through the migration
+            done = self.shortcut(*linux)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("old file(s) are left for the next run", done.stdout)
+        self.assertTrue(held.exists())
+        done = self.shortcut(*linux)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertFalse(held.exists())
 
     def journal_of(self):
         return list(self.icons.glob("campaign-*.journal.json"))

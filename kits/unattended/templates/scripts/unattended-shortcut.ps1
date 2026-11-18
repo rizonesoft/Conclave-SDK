@@ -89,6 +89,15 @@ $prefix = 'conclave-unattended: '
 $mark = "$prefix$identity"
 $normal = Get-Normal $identity
 $key = Get-Key $normal
+# The key the script gave its badges before it had one identity (the -Project form, in lower case): a badge under it is
+# this project's too, and goes once no other link shows it (one Linux path in two distros shared it).
+$oldKey = Get-Key $Project.ToLowerInvariant()
+# A run is told apart from a later process that Windows gave the same id by when it started.
+function Get-Started([int]$id) {
+  $process = Get-Process -Id $id -ErrorAction Ignore
+  # Ticks, written as text: ConvertFrom-Json would turn a date into a DateTime, which then never equals the text.
+  if ($process) { [string]$process.StartTime.ToUniversalTime().Ticks } else { '' }
+}
 $labels = @{ claude = 'Claude'; codex = 'Codex'; agy = 'Carbon' }
 
 # A link's fields, or nothing for a file the shell cannot load as one.
@@ -124,8 +133,10 @@ function Get-Owned {
 # Named apart from the -Icon parameter: PowerShell names ignore case, and $icon would be that typed string.
 function Get-Badges([object[]]$owned) {
   $found = @{}
-  foreach ($badge in @(Get-ChildItem -LiteralPath $IconDir -Filter "campaign-*-$key.ico" -File -ErrorAction Ignore)) {
-    $found[$badge.Name] = $badge
+  foreach ($k in @($key, $oldKey) | Select-Object -Unique) {
+    foreach ($badge in @(Get-ChildItem -LiteralPath $IconDir -Filter "campaign-*-$k.ico" -File -ErrorAction Ignore)) {
+      $found[$badge.Name] = $badge
+    }
   }
   foreach ($link in $owned) {
     $where = (Get-Link $link).IconPath
@@ -194,9 +205,14 @@ function Restore-Stopped {
   foreach ($file in $journals) {
     if ($file.Name -notmatch '\.(\d+)\.journal\.json(\.tmp)?$') { continue }
     $owner, $partial = [int]$Matches[1], [bool]$Matches[2]
-    if ($owner -eq $PID -or (Get-Process -Id $owner -ErrorAction Ignore)) { continue }
-    if ($partial) { Remove-Item -LiteralPath $file.FullName; continue }  # the journal step it was writing never began
+    if ($owner -eq $PID) { continue }
+    if ($partial) {  # the journal step it was writing never began
+      if (-not (Get-Process -Id $owner -ErrorAction Ignore)) { Remove-Item -LiteralPath $file.FullName }
+      continue
+    }
     $record = try { Get-Content -LiteralPath $file.FullName -Raw -Encoding utf8 | ConvertFrom-Json } catch { $null }
+    # Its run is still going only when a process with its id started when the journal says: Windows reuses ids.
+    if ($record -and $record.started -and (Get-Started $owner) -ceq $record.started) { continue }
     if (-not $record -or -not (Test-Journal $record $owner)) {
       "unattended-shortcut: $($file.FullName) names files outside this project's links; it is left as it is"
       continue
@@ -409,9 +425,10 @@ $moves = foreach ($p in $planned) {
 }
 $asidePlan = @()
 
+$started = Get-Started $PID
 function Write-Journal([string]$state) {
-  $record = [ordered]@{ state = $state; temps = @($moves | ForEach-Object { $_.from }); moves = @($moves)
-    aside = @($asidePlan) }
+  $record = [ordered]@{ state = $state; started = $started; temps = @($moves | ForEach-Object { $_.from })
+    moves = @($moves); aside = @($asidePlan) }
   $temp = "$journalPath.tmp"
   [IO.File]::WriteAllText($temp, (ConvertTo-Json -InputObject $record -Depth 4), [Text.UTF8Encoding]::new($false))
   [IO.File]::Move($temp, $journalPath, $true)
@@ -489,13 +506,18 @@ try {
 }
 foreach ($p in $planned) { "shortcut written: $($p.Link)" }
 foreach ($file in $stale) { "removed: $($file.FullName)" }
+$kept = 0
 foreach ($badge in $oldKeyBadges) {
   if (-not (Test-ShownByOthers $badge @(Get-Owned))) {
     try { Remove-Item -LiteralPath $badge.FullName; "removed: $($badge.FullName)" }
-    catch { "unattended-shortcut: $($badge.FullName) is left ($_); it is no link's icon now" }
+    catch { $kept++; "unattended-shortcut: $($badge.FullName) is left ($_); the next run, or -Remove, removes it" }
   }
 }
 # A file moved aside that cannot be deleted now stays named in the journal, and the next run removes it.
 $left = @($aside | Where-Object { Remove-Item -LiteralPath $_.old -ErrorAction Ignore; Test-Path -LiteralPath $_.old })
 if (-not $left) { Remove-Item -LiteralPath $journalPath -ErrorAction Ignore }
+if ($kept -or $left) {
+  "unattended-shortcut: the shortcuts are in place; $($kept + $left.Count) old file(s) are left for the next run"
+  exit 1
+}
 exit 0
