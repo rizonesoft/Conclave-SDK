@@ -1,0 +1,86 @@
+{
+  "ref": "D07 T01 \u00a77",
+  "title": "Campaign links under the project's title, icon read from a share",
+  "implementation_sha": "9d2cb9619651a116aef9997942d947f1253ea4e7",
+  "date": "2026-11-18",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/07-launchers/D07-T01-s7.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest tests.test_shortcut (kit unattended, Windows) at cacef59 -> Ran 71 tests in 597.633s OK",
+    "python forge.py check-all --only kit-unattended --only kit-launchers (through bosun) at 9d2cb96 -> PASS kit-unattended 285 tests, PASS kit-launchers 70 tests",
+    "CI tests.yml run 44300121637 at 9d2cb96 -> red: quick suite (Windows) timed out in test_forge fresh-install (a kit-suite budget, fixed outside the section in a592d97..d11712c, forge.py and tests/test_forge.py only)",
+    "CI tests.yml run 44328074426 at d11712c (holds the fix; section files and TODO section unchanged) -> success"
+  ],
+  "completion": {
+    "report": "docs/reviews/07-launchers/D07-T01-s7.md",
+    "verdict": "reconciled",
+    "candidate": "9d2cb9619651a116aef9997942d947f1253ea4e7",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/07-launchers/D07-T01-s7.md",
+    "candidate": "eedca688485326f45c73c10d4f914f9fa414e59a",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "eedca688485326f45c73c10d4f914f9fa414e59a",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 10,
+  "pass_cap": 33
+}

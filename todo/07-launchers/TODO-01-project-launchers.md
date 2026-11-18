@@ -50,7 +50,7 @@ title: "TODO-01 -- Project launchers: one desktop shape for every project"
 | 4 | §4 | Rounded-square overlay icons | §3 | [x] |
 | 5 | §5 | Desktop links that open the project in an agent | §2, §4 | [x] |
 | 6 | §6 | Declared links that run a command or open a URL | §5 | [x] |
-| 7 | §7 | Campaign links under the project's title, icon read from a share | §2, §3 | [ ] |
+| 7 | §7 | Campaign links under the project's title, icon read from a share | §2, §3 | [x] |
 | 8 | §8 | Operator page and `project-launchers` skill | §6, §7 | [ ] |
 | 9 | §9 | Agent and declared links named outside the ANSI code page | §6 | [ ] |
 
@@ -291,9 +291,12 @@ Two faults in the campaign link, both found on the first project that used the w
 - [x] Count a journal that cannot be read or names anything but this project's files as kept: an install refuses and `-Remove` fails, both naming it, and its files stay byte for byte. Done when: a test with a valid distro finds exit 1 for each and the journal, backups, links and badges unchanged. **Planned 2026-11-18 (plan review 2, P1).**
 - [x] Find this project's links by their mark among every `.lnk` in the desktop folder, whatever their name. Done when: a test renames an owned link, finds a reinstall leaves one link per runner and `-Remove` takes the renamed one with its badge, and a foreign link stays. **Planned 2026-11-18 (plan review 2, P2).**
 - [x] Make `-Remove` one journaled change: every owned link is moved aside, then every badge, and only then deleted, so a stop leaves the set whole or no link without its icon, and the next run puts it back or finishes it. Done when: a test stops a two-runner `-Remove` after its first move (a journal left in `swapping`) and finds the next run restores the whole set, and a test with a badge held open finds exit 1 with both links kept. **Planned 2026-11-18 (plan review 2, P2).**
-- [ ] Commit: `unattended: campaign links take the project's title and read an icon from a share`
+- [x] Commit: `unattended: campaign links take the project's title and read an icon from a share`
 
 **Test checkpoint:** `python forge.py check-all --only kit-unattended` and `python forge.py check-all --only kit-launchers` pass on Windows; restoring `.Path` on the icon line, or on the project line, makes its provider-path test fail; making `title` refuse an unset title makes the unset-title tests fail. **Corrected 2026-11-18:** the launchers kit's suite added, which now holds `title`.
+
+> **Verified:** 2026-11-18 | §7 | 9d2cb9619651a116aef9997942d947f1253ea4e7
+> **Review:** `docs/reviews/d07-t01-s7.json`
 
 ## 8. Operator page and `project-launchers` skill
 
