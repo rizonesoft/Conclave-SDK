@@ -203,7 +203,7 @@ function Test-ShownByOthers([IO.FileSystemInfo]$badge, [object[]]$ours) {
   $paths = @($ours | ForEach-Object { Get-Normal $_.FullName })
   $folders = @(@($ShortcutDir) + $Desktops | Where-Object { $_ } | Select-Object -Unique)
   $links = foreach ($folder in $folders) {
-    Get-ChildItem -LiteralPath $folder -Filter '*.lnk' -File -ErrorAction Ignore
+    Get-ChildItem -LiteralPath $folder -Filter '*.lnk' -File -Force -ErrorAction Ignore  # hidden links too
   }
   foreach ($link in @($links)) {
     if ($paths -contains (Get-Normal $link.FullName)) { continue }
@@ -218,7 +218,8 @@ function Test-ShownByOthers([IO.FileSystemInfo]$badge, [object[]]$ours) {
 # Named apart from the -Icon parameter: PowerShell names ignore case, and $icon would be that typed string.
 function Get-Badges([object[]]$owned) {
   $found = @{}
-  foreach ($badge in @(Get-ChildItem -LiteralPath $IconDir -Filter "campaign-*-$key.ico" -File -ErrorAction Ignore)) {
+  $mine = @(Get-ChildItem -LiteralPath $IconDir -Filter "campaign-*-$key.ico" -File -Force -ErrorAction Ignore)
+  foreach ($badge in $mine) {
     $found[$badge.Name] = $badge
   }
   foreach ($link in $owned) {
@@ -304,7 +305,8 @@ function Test-Mine([string]$path) {
 # taken out only while what it replaced is still moved aside (or, for a new name, while it is still this project's),
 # and a file moved aside goes back only where nothing has taken its name.
 function Restore-Stopped {
-  $journals = @(Get-ChildItem -LiteralPath $StateDir -Filter "campaign-$key.*.journal.json*" -File -ErrorAction Ignore)
+  $journals = @(Get-ChildItem -LiteralPath $StateDir -Filter "campaign-$key.*.journal.json*" -File -Force `
+    -ErrorAction Ignore)
   # Every stopped run's journal is read and checked first: one that cannot be played holds them all, so nothing is
   # replayed over a swap that is not understood.
   $play = @()

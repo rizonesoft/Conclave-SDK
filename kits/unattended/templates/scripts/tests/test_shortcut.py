@@ -1523,6 +1523,8 @@ class CampaignTitleTest(ShortcutFixture):
         theirs = self.desk / "Other Claude campaign.lnk"  # another project's link that shows the same old badge
         shutil.copyfile(self.desk / "Demo Claude campaign.lnk", theirs)
         self.set_description(theirs, "conclave-unattended: D:\\elsewhere", icon=str(shown))
+        for hidden in (theirs, shown):  # reconciliation 6 (chain 2): a hidden link and badge are seen too
+            subprocess.run(["attrib", "+h", str(hidden)], check=True, capture_output=True, creationflags=windowless())
         done = self.shortcut(*linux)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertTrue(shown.exists(), "a badge another link shows was removed")
