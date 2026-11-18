@@ -153,9 +153,11 @@ class ShortcutFixture(unittest.TestCase):
 
     def shortcut(self, *args, project=None, icon_dir=True, desk=None, **env):
         project = project or self.project
+        # The user's and the public desktop are stood in for by a scratch folder: nothing here reads the real ones.
+        desktops = self.other_desktop if hasattr(self, "other_desktop") else Path(self._tmp.name) / "desktops"
         command = [PWSH, "-NoProfile", "-NonInteractive", "-File", str(project / "scripts" / "unattended-shortcut.ps1"),
                    "-ShortcutDir", str(desk or self.desk), *(["-IconDir", str(self.icons)] if icon_dir else []),
-                   "-Wsl", str(self.wsl), "-Python", sys.executable, *args]
+                   "-Desktops", str(desktops), "-Wsl", str(self.wsl), "-Python", sys.executable, *args]
         return subprocess.run(command, capture_output=True, text=True, timeout=180, env={**self.env, **env},
                               creationflags=windowless())
 
@@ -947,6 +949,24 @@ class CampaignTitleTest(ShortcutFixture):
         done = self.shortcut(*remove)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual((self.links(), sorted(p.name for p in self.icons.iterdir())), ([], []))
+
+    def test_a_badge_another_distros_old_link_shows_on_the_users_desktop_stays(self):
+        # Reconciliation 14: two distros' old sets can share one badge from different desktop folders.
+        self.other_desktop = Path(self._tmp.name) / "users-desktop"
+        linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]
+        old_key = self.legacy_set(linux)
+        shown = self.icons / f"campaign-claude-{old_key}.ico"
+        self.other_desktop.mkdir()
+        theirs = self.other_desktop / "Demo Claude campaign.lnk"  # Debian's old link, on the user's desktop
+        shutil.copyfile(self.desk / "Demo Claude campaign.lnk", theirs)
+        self.set_description(theirs, "conclave-unattended: /home/x/Demo", icon=str(shown))
+        done = self.shortcut(*linux)  # Ubuntu moves off the old name
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertTrue(shown.exists(), "the badge Debian's old link shows was removed")
+        self.assertFalse((self.icons / f"campaign-agy-{old_key}.ico").exists())
+        done = self.shortcut("-Remove", "-Distro", "Ubuntu", "-Project", "/home/x/Demo")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertTrue(shown.exists(), "-Remove removed the badge Debian's old link shows")
 
     def test_remove_in_one_distro_leaves_an_old_key_badge_another_distros_link_shows(self):
         # Reconciliation 11: one Linux path in two distros shared the old key; their desktops may differ.

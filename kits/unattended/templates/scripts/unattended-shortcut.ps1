@@ -23,6 +23,9 @@ param(
   [string]$ShortcutDir = [Environment]::GetFolderPath('Desktop'),
   [string]$IconDir = '',
   [switch]$Remove,
+  # The desktops searched for another link that shows an old-key icon: the user's and the public desktop.
+  [string[]]$Desktops = @(
+    [Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('CommonDesktopDirectory')),
   # For the tests: a stand-in for wsl.exe, and the Python that reads the profile and renders the icons.
   [string]$Wsl = '',
   [string]$Python = ''
@@ -130,11 +133,17 @@ function Get-Owned {
     Where-Object { $_.Name -notmatch '\.\d+\.tmp\.lnk$' -and (Test-Owned $_) }
 }
 
-# Whether a link in the desktop folder other than `$ours` shows `$badge`.
+# Whether a link other than `$ours` shows `$badge`, in this run's desktop folder or in the user's or the public desktop
+# (where the old script put its links unless told otherwise). A badge the old script shared between two distros whose
+# links both sit in other, different folders is not seen; the run page states that limit.
 function Test-ShownByOthers([IO.FileSystemInfo]$badge, [object[]]$ours) {
-  $names = @($ours | ForEach-Object { $_.Name })
-  foreach ($link in @(Get-ChildItem -LiteralPath $ShortcutDir -Filter '*.lnk' -File -ErrorAction Ignore)) {
-    if ($names -contains $link.Name) { continue }
+  $paths = @($ours | ForEach-Object { Get-Normal $_.FullName })
+  $folders = @(@($ShortcutDir) + $Desktops | Where-Object { $_ } | Select-Object -Unique)
+  $links = foreach ($folder in $folders) {
+    Get-ChildItem -LiteralPath $folder -Filter '*.lnk' -File -ErrorAction Ignore
+  }
+  foreach ($link in @($links)) {
+    if ($paths -contains (Get-Normal $link.FullName)) { continue }
     $shown = (Get-Link $link).IconPath
     if ($shown -and [IO.Path]::GetFileName($shown) -eq $badge.Name) { return $true }
   }
