@@ -396,7 +396,11 @@ The operator needs one page that says how to start, watch, stop and resume a run
 
 ## 12. Writable run windows, Watch and Stop links, finished stops
 
+> **Started:** 2026-11-18T15:50Z
+
 Filed 2026-11-18 at the owner's request: port the generic part of the unattended kit's changes in the project the owner named (`git diff d3617c8 f34e911` over `scripts/unattended-run.py`, `scripts/unattended-shortcut.ps1`, `scripts/campaign-icon.py`, `scripts/lib/unattended.py`, `docs/unattended-run.md` and `scripts/tests/`, commits 3977ea5, 1d09811, e2e08a7, f34e911; the SDK's templates match its import commit d3617c8), so new installs get them. That project's deploy and dashboard files stay there. The shortcut script it changes is the one `D07 T01 §7` rebuilt (title, identity, lock and journal), so the port merges into that script and keeps all of it.
+
+**Corrected 2026-11-18:** the refresh item said the update finds a project's shortcuts "by the project's mark"; an update runs wherever forge does (WSL too) and cannot read Windows links there, so it finds them by a record instead: `unattended-shortcut.ps1` writes `build/unattended-shortcuts.json` (its arguments and each link's kind and command) after every set it puts in place, `-Remove` deletes it, `-Refresh` writes the links again from it, `forge.py update` runs `-Refresh` on Windows when it writes `scripts/unattended-shortcut.ps1` or `scripts/unattended-run.py` for a project with a record (elsewhere it names the command), and `status` prints a `shortcuts:` line from it. The item's Done when is unchanged. A default, the industry-standard choice of a state file over scanning desktops from Linux; reversing it costs the record and its three readers.
 
 **Phase:** 9
 **Needs:** windows-host
