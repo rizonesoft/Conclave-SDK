@@ -150,11 +150,29 @@ function Test-SharedOldKey {
   $all = @(& $wslExe -l -q 2>$null | ForEach-Object { ($_ -replace "`0", '').Trim() } | Where-Object { $_ })
   if ($LASTEXITCODE -ne 0) { return $true }
   foreach ($other in @($all | Where-Object { $_ -ne $projectDistro })) {
-    & $wslExe -d $other --exec test -d $Project 2>$null
-    if ($LASTEXITCODE -ne 1) { return $true }  # 0: it has the path; anything but 1: WSL could not say
+    $has = Test-PathAnyCase $wslExe $other $Project
+    if ($has -ne $false) { return $true }  # $true: it has the path; $null: WSL could not say
   }
   $script:sharedOldKey = $false
   $false
+}
+
+# Whether `$distro` has `$path` in any letter case (the old key took the path in lower case), one folder at a time:
+# $true, $false, or $null when WSL cannot say (a folder it cannot list, a distro that does not start).
+function Test-PathAnyCase([string]$wslExe, [string]$distro, [string]$path) {
+  $found = @('/')
+  foreach ($part in @($path.Trim('/').Split('/') | Where-Object { $_ })) {
+    $pattern = $part -replace '([\\*?\[\]])', '\$1'  # find's -iname reads a glob: its own characters escaped
+    $next = @()
+    foreach ($dir in $found) {
+      $out = @(& $wslExe -d $distro --exec find $dir -mindepth 1 -maxdepth 1 -iname $pattern -print 2>$null)
+      if ($LASTEXITCODE -ne 0) { return $null }
+      $next += @($out | ForEach-Object { ($_ -replace "`0", '').Trim() } | Where-Object { $_ })
+    }
+    if (-not $next) { return $false }
+    $found = $next
+  }
+  $true
 }
 
 # Whether a link other than `$ours` shows `$badge` (the same file), in this run's desktop folder or in the user's or

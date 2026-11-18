@@ -68,9 +68,24 @@ if rest[:2] == ["wslpath", "-a"]:
 elif rest[:2] == ["test", "-d"]:
     missing = os.environ.get("STUB_WSL_MISSING", "").split("|")  # a path, or <distro>:<path> for one distro only
     distro = args[args.index("-d") + 1] if "-d" in args else ""
-    if distro and distro in os.environ.get("STUB_WSL_UNSURE", "").split("|"):
+    spelt = [m.split(":", 1)[1] for m in os.environ.get("STUB_WSL_CASE", "").split("|") if m.startswith(distro + ":")]
+    otherwise = any(p.lower() == rest[2].lower() and p != rest[2] for p in spelt)  # test -d minds the case
+    sys.exit(1 if rest[2] in missing or f"{distro}:{rest[2]}" in missing or otherwise else 0)
+elif rest[:1] == ["find"]:
+    # find <dir> -mindepth 1 -maxdepth 1 -iname <part> -print: every folder exists, in the case asked, but those under
+    # a path STUB_WSL_MISSING names for that distro (any case); STUB_WSL_CASE names <distro>:<path> spelt otherwise.
+    distro = args[args.index("-d") + 1]
+    if distro in os.environ.get("STUB_WSL_UNSURE", "").split("|"):
         sys.exit(4294967295)  # what wsl.exe gives when it cannot run the command in that distro
-    sys.exit(1 if rest[2] in missing or f"{distro}:{rest[2]}" in missing else 0)
+    found = rest[1].rstrip("/") + "/" + rest[rest.index("-iname") + 1].replace("\\", "")
+    gone = [m.split(":", 1)[1].lower() for m in os.environ.get("STUB_WSL_MISSING", "").split("|")
+            if m.startswith(distro + ":")]
+    if not any(found.lower() == g or found.lower().startswith(g + "/") for g in gone):
+        for spelt in [m.split(":", 1)[1] for m in os.environ.get("STUB_WSL_CASE", "").split("|")
+                      if m.startswith(distro + ":")]:
+            if spelt.lower().startswith(found.lower()):
+                found = spelt[:len(found)]
+        print(found)
 '''
 
 
@@ -984,8 +999,18 @@ class CampaignTitleTest(ShortcutFixture):
         done = self.shortcut(*linux)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(len(list(self.icons.glob(f"campaign-*-{old_key}.ico"))), 2)
-        self.assertIn(["-d", "Debian", "--exec", "test", "-d", "/home/x/Demo"], self.calls())
+        self.assertIn(["-d", "Debian", "--exec", "find", "/", "-mindepth", "1", "-maxdepth", "1", "-iname", "home",
+                       "-print"], self.calls())
         done = self.shortcut("-Remove", "-Distro", "Ubuntu", "-Project", "/home/x/Demo")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(len(list(self.icons.glob(f"campaign-*-{old_key}.ico"))), 2)
+
+    def test_an_old_key_badge_stays_while_another_distro_has_the_path_in_another_case(self):
+        # Reconciliation 16: the old key took the path in lower case, so /home/x/demo in Debian shared it.
+        self.extra_env = {"STUB_WSL_CASE": "Debian:/home/x/demo"}  # Debian has the path, spelt otherwise
+        linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]
+        old_key = self.legacy_set(linux)
+        done = self.shortcut(*linux)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(len(list(self.icons.glob(f"campaign-*-{old_key}.ico"))), 2)
 
