@@ -371,6 +371,24 @@ class CampaignTitleTest(ShortcutFixture):
         translated = next(c for c in self.calls() if c[3:5] == ["wslpath", "-a"])
         self.assertNotIn("::", translated[5])
 
+    def test_a_project_by_its_short_name_is_the_same_project_as_by_its_own(self):
+        # CI's Windows runner keeps its temp folder as C:\Users\RUNNER~1: the same folder by two spellings.
+        import ctypes
+        size = 32768
+        text = ctypes.create_unicode_buffer(size)
+        long_name = os.path.realpath(self.project)
+        if not ctypes.windll.kernel32.GetShortPathNameW(long_name, text, size) or text.value == long_name:
+            self.skipTest("this volume keeps no 8.3 short names")
+        short = text.value
+        self.install()
+        before = self.snapshot()
+        done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", short)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.links(), ["My Proj's Carbon campaign.lnk", "My Proj's Claude campaign.lnk"])
+        self.assertEqual(sorted(k for k in self.snapshot()), sorted(before))
+        mark = self.read_link(self.desk / "My Proj's Claude campaign.lnk")["description"]
+        self.assertEqual(mark.lower(), ("conclave-unattended: " + long_name).lower())
+
     def test_the_title_names_the_links_exactly_whatever_its_script(self):
         self.write_launchers("\u6771\u4eac")
         self.install()
@@ -618,6 +636,71 @@ class CampaignTitleTest(ShortcutFixture):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(sorted(p.read_bytes() for p in self.icons.iterdir()),
                          sorted(self.rendered_from(other, agent) for agent in ("agy", "claude")))
+
+    def test_a_locked_stale_link_leaves_the_previous_set_and_a_retry_writes_the_new_one(self):
+        # Completion gap: a rename retires the old links in the same change as it writes the new ones.
+        self.install()
+        before = self.snapshot()
+        self.write_launchers("Demo Site")
+        with open(self.desk / "My Proj's Carbon campaign.lnk", "rb"):  # a link the rename retires, held open
+            done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon))
+            self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+            self.assertIn("the previous ones are kept", done.stdout)
+            self.assertEqual(self.snapshot(), before)
+            self.assertEqual(self.links(), ["My Proj's Carbon campaign.lnk", "My Proj's Claude campaign.lnk"])
+            self.assertEqual([p.name for p in [*self.desk.iterdir(), *self.icons.iterdir()]
+                              if ".tmp" in p.name or p.name.endswith(".old")], [])
+        self.install()
+        self.assertEqual(self.links(), ["Demo Site Carbon campaign.lnk", "Demo Site Claude campaign.lnk"])
+        self.assertEqual(len(list(self.icons.iterdir())), 2)
+
+    def test_a_link_another_installer_writes_while_this_one_works_is_kept(self):
+        # Completion gap: the name was free at the check; another project's link takes it before the swap.
+        foreign = Path(self._tmp.name) / "foreign.lnk"
+        self.install()
+        shutil.copyfile(self.desk / "My Proj's Carbon campaign.lnk", foreign)
+        self.set_description(foreign, "conclave-unattended: D:\\elsewhere")
+        self.assertEqual(self.shortcut("-Remove").returncode, 0)
+        target = self.desk / "Demo Site Carbon campaign.lnk"
+        installed = self.project / "scripts" / "campaign-icon.py"
+        installed.write_text("import runpy, shutil, sys\n"
+                             "if sys.argv[1:2] == ['badge'] and sys.argv[3:4] == ['agy']:\n"
+                             f"    shutil.copyfile({str(foreign)!r}, {str(target)!r})\n"
+                             f"sys.argv[0] = {str(RENDERER)!r}\nrunpy.run_path(sys.argv[0], run_name='__main__')\n",
+                             encoding="utf-8")
+        self.write_launchers("Demo Site")
+        done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("was written by another project while this run was working", done.stdout)
+        self.assertEqual(self.links(), ["Demo Site Carbon campaign.lnk"])
+        self.assertEqual(target.read_bytes(), foreign.read_bytes())
+        self.assertEqual(list(self.icons.glob("*.ico")), [])
+        self.assertEqual([p.name for p in [*self.desk.iterdir(), *self.icons.iterdir()]
+                          if ".tmp" in p.name or p.name.endswith(".old")], [])
+
+    def test_a_run_stopped_part_way_is_put_right_by_the_next(self):
+        # Completion gap: a stopped run leaves files moved aside and temporary files; the next run restores them.
+        self.install()
+        dead = 4000000  # beyond any process id Windows hands out
+        claude = self.desk / "My Proj's Claude campaign.lnk"
+        carbon = self.desk / "My Proj's Carbon campaign.lnk"
+        badge = next(self.icons.glob("campaign-claude-*.ico"))
+        moved = claude.with_name(claude.name + f".{dead}.old")
+        claude.rename(moved)                                     # moved aside, its name free: restored
+        shutil.copyfile(carbon, carbon.with_name(carbon.name + f".{dead}.old"))  # its name taken: removed
+        shutil.copyfile(badge, badge.with_name(badge.name + f".{dead}.tmp.ico"))  # a temporary badge: removed
+        shutil.copyfile(carbon, self.desk / f"My Proj's Carbon campaign.{dead}.tmp.lnk")  # a temporary link: removed
+        other = self.desk / f"Other Claude campaign.lnk.{dead}.old"  # another project's: left alone
+        shutil.copyfile(carbon, other)
+        self.set_description(other, "conclave-unattended: D:\\elsewhere")
+        done = self.shortcut("-Distro", "Arch", "-Icon", str(self.icon))  # a run that then refuses
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn(f"restored: {claude}", done.stdout)
+        self.assertEqual(sorted(p.name for p in [*self.desk.iterdir(), *self.icons.iterdir()]
+                                if ".tmp" in p.name or p.name.endswith(".old")), [other.name])
+        self.assertEqual(self.links(), ["My Proj's Carbon campaign.lnk", "My Proj's Claude campaign.lnk"])
+        self.install()
+        self.assertEqual(self.links(), ["My Proj's Carbon campaign.lnk", "My Proj's Claude campaign.lnk"])
 
     def test_the_default_icon_folder_is_named_by_the_folder_never_the_title(self):
         local = Path(self._tmp.name) / "local"

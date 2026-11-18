@@ -32,18 +32,29 @@ $here = $PSScriptRoot
 # The project this script is installed in holds the profile; -Project says where the run starts when that differs
 # (a project in WSL given by its \\wsl.localhost\<distro>\ path, or its Linux path).
 $root = Split-Path $here
+
+function Refuse([string]$why) { "unattended-shortcut: $why; nothing was written"; exit 1 }
+
+# Links are written and read through the shell's own IShellLinkW (`scripts/lib/ShellLink.cs`, the launchers kit's,
+# which this kit brings), which keeps a name, a mark, a path or an argument in any script at its full length, and
+# spells a path long.
+$linkCode = Join-Path $here 'lib\ShellLink.cs'
+if (-not (Test-Path -LiteralPath $linkCode -PathType Leaf)) {
+  Refuse 'there is no scripts/lib/ShellLink.cs (python forge.py kit <project> unattended installs it)'
+}
+Add-Type -Path $linkCode
+
 if (-not $Project) { $Project = $root }
 if (-not ($Project -match '^\\\\wsl(?:\.localhost|\$)\\' -or $Project.StartsWith('/'))) {
   $found = Resolve-Path -LiteralPath $Project -ErrorAction Ignore
   if (-not $found) { "unattended-shortcut: the project folder does not exist: '$Project'; nothing was written"; exit 1 }
   # ProviderPath, not Path: for a folder on a share Path keeps the provider's prefix
-  # (`Microsoft.PowerShell.Core\FileSystem::`), which the mark and wslpath would then carry.
-  $Project = $found.ProviderPath.TrimEnd('\')
+  # (`Microsoft.PowerShell.Core\FileSystem::`), which the mark and wslpath would then carry. Spelt long, so a folder
+  # handed in by its 8.3 short name (C:\Users\RUNNER~1) is the same project as by its own.
+  $Project = [Conclave.ShellPath]::Long($found.ProviderPath).TrimEnd('\')
 }
 $name = Split-Path $Project -Leaf
 if (-not $IconDir) { $IconDir = Join-Path $env:LOCALAPPDATA $name }
-
-function Refuse([string]$why) { "unattended-shortcut: $why; nothing was written"; exit 1 }
 
 # A PowerShell string literal of any text.
 function PSQuote([string]$text) { "'" + $text.Replace("'", "''") + "'" }
@@ -61,14 +72,14 @@ if ($Project -match '^\\\\wsl(?:\.localhost|\$)\\([^\\]+)\\(.*)$') {
 } else {
   $identity = $Project
 }
-# The form identities are compared in: a Windows path ignores case; in WSL the distro's name ignores case and the
-# Linux path keeps it, since /home/x/Demo and /home/x/demo are two folders there.
+# The form identities are compared in: a Windows path is spelt long and ignores case; in WSL the distro's name ignores
+# case and the Linux path keeps it, since /home/x/Demo and /home/x/demo are two folders there.
 function Get-Normal([string]$id) {
   if ($id -match '^\\\\wsl(?:\.localhost|\$)\\([^\\]+)(.*)$') {
     return '\\wsl.localhost\' + $Matches[1].ToLowerInvariant() + $Matches[2]
   }
   if ($id.StartsWith('/')) { return $id }
-  $id.ToLowerInvariant()
+  [Conclave.ShellPath]::Long($id).ToLowerInvariant()
 }
 function Get-Key([string]$text) {
   $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -79,14 +90,6 @@ $mark = "$prefix$identity"
 $normal = Get-Normal $identity
 $key = Get-Key $normal
 $labels = @{ claude = 'Claude'; codex = 'Codex'; agy = 'Carbon' }
-
-# Links are written and read through the shell's own IShellLinkW (`scripts/lib/ShellLink.cs`, the launchers kit's,
-# which this kit brings), which keeps a name, a mark, a path or an argument in any script at its full length.
-$linkCode = Join-Path $here 'lib\ShellLink.cs'
-if (-not (Test-Path -LiteralPath $linkCode -PathType Leaf)) {
-  Refuse 'there is no scripts/lib/ShellLink.cs (python forge.py kit <project> unattended installs it)'
-}
-Add-Type -Path $linkCode
 
 # A link's fields, or nothing for a file the shell cannot load as one.
 function Get-Link([IO.FileSystemInfo]$file) {
@@ -112,8 +115,9 @@ function Test-Owned([IO.FileSystemInfo]$file) {
 }
 
 function Get-Owned {
+  # A run's temporary links (`<name>.<pid>.tmp.lnk`) are not links of the project's: Restore-Leftovers owns them.
   Get-ChildItem -LiteralPath $ShortcutDir -Filter '*campaign*.lnk' -File -ErrorAction Ignore |
-    Where-Object { Test-Owned $_ }
+    Where-Object { $_.Name -notmatch '\.\d+\.tmp\.lnk$' -and (Test-Owned $_) }
 }
 
 # This project's badges: those under its key, and those its own links show (an old mark's, under the old key).
@@ -133,6 +137,32 @@ function Get-Badges([object[]]$owned) {
   }
   $found.Values
 }
+
+# A run stopped part way (its window closed, the machine lost power) can leave a link or badge of this project's moved
+# aside as `<name>.<pid>.old`, or a temporary file. Before anything else, each one moved aside goes back where nothing
+# has taken its name and is removed where something has, and each temporary file is removed: only those of a run that
+# is no longer running, so a run going on beside this one is never touched.
+function Restore-Leftovers {
+  foreach ($folder in @($ShortcutDir, $IconDir)) {
+    $left = @(Get-ChildItem -LiteralPath $folder -File -ErrorAction Ignore |
+      Where-Object { $_.Name -match '^(.+)\.(\d+)\.(old|tmp\.lnk|tmp\.ico)$' })
+    foreach ($file in $left) {
+      [void]($file.Name -match '^(.+)\.(\d+)\.(old|tmp\.lnk|tmp\.ico)$')
+      $original, $owner, $kind = $Matches[1], [int]$Matches[2], $Matches[3]
+      if ($owner -eq $PID -or (Get-Process -Id $owner -ErrorAction Ignore)) { continue }
+      $mine = if ($file.Name -like 'campaign-*.ico.*') { $file.Name -like "campaign-*-$key.ico.*" }
+        else { Test-Owned $file }
+      if (-not $mine) { continue }
+      $target = Join-Path $folder $original
+      if ($kind -eq 'old' -and -not (Test-Path -LiteralPath $target)) {
+        Move-Item -LiteralPath $file.FullName -Destination $target; "restored: $target"
+      } else {
+        Remove-Item -LiteralPath $file.FullName; "removed: $($file.FullName)"
+      }
+    }
+  }
+}
+Restore-Leftovers
 
 if ($Remove) {
   $links = @(Get-Owned)
@@ -269,21 +299,36 @@ foreach ($p in $planned) {
     exit 1
   }
 }
-# The new set goes in as one change: every link and badge it replaces is moved aside first, then each new file is moved
-# in (never over a file, so one another writer put there since the check fails the move), and on any failure each file
-# moved in is taken out and each file moved aside is put back.
+# A link or badge of this project's that this run does not write (an earlier title, a runner dropped, an old mark's)
+# goes in the same change. Compared by file name: each list is of one folder, whose spelling (an 8.3 short name) may
+# differ.
+$writtenLinks = @($planned | ForEach-Object { Split-Path $_.Link -Leaf })
+$writtenIcons = @($planned | ForEach-Object { Split-Path $_.Badge -Leaf })
+$owned = @(Get-Owned)
+$stale = @($owned | Where-Object { $writtenLinks -notcontains $_.Name }) +
+  @(Get-Badges $owned | Where-Object { $writtenIcons -notcontains $_.Name })
+
+# The new set goes in as one change: every link and badge it replaces or retires is moved aside first, each link moved
+# aside is checked again (now that no other writer can change it, so one another installer put there after the check
+# above is never taken), then each new file is moved in (never over a file), and on any failure each file moved in is
+# taken out and each file moved aside is put back. A run stopped part way is put right by the next (Restore-Leftovers).
 $moves = foreach ($p in $planned) {
   [pscustomobject]@{ From = $p.BadgeTemp; To = $p.Badge }
   [pscustomobject]@{ From = $p.LinkTemp; To = $p.Link }
 }
 $aside = [Collections.Generic.List[object]]::new()
 $placed = [Collections.Generic.List[string]]::new()
+function Move-Aside([string]$path) {
+  $old = "$path.$PID.old"
+  Move-Item -LiteralPath $path -Destination $old
+  $aside.Add([pscustomobject]@{ To = $path; Old = $old; Link = $path.EndsWith('.lnk') })
+}
 try {
-  foreach ($m in $moves) {
-    if (Test-Path -LiteralPath $m.To) {
-      $old = "$($m.To).$PID.old"
-      Move-Item -LiteralPath $m.To -Destination $old
-      $aside.Add([pscustomobject]@{ To = $m.To; Old = $old })
+  foreach ($m in $moves) { if (Test-Path -LiteralPath $m.To) { Move-Aside $m.To } }
+  foreach ($file in $stale) { Move-Aside $file.FullName }
+  foreach ($a in $aside) {
+    if ($a.Link -and -not (Test-Owned (Get-Item -LiteralPath $a.Old))) {
+      throw "$($a.To) was written by another project while this run was working"
     }
   }
   foreach ($m in $moves) { Move-Item -LiteralPath $m.From -Destination $m.To; $placed.Add($m.To) }
@@ -294,21 +339,8 @@ try {
   "unattended-shortcut: the shortcuts could not be put in place ($($_.Exception.Message)); the previous ones are kept"
   exit 1
 }
-foreach ($a in $aside) { Remove-Item -LiteralPath $a.Old -ErrorAction Ignore }
 foreach ($p in $planned) { "shortcut written: $($p.Link)" }
-
-# A link or badge of this project's that this run did not write (an earlier title, a runner dropped, an old mark's)
-# goes.
-# Compared by file name: each list is of one folder, whose spelling (an 8.3 short name) may differ.
-$writtenLinks = @($planned | ForEach-Object { Split-Path $_.Link -Leaf })
-$writtenIcons = @($planned | ForEach-Object { Split-Path $_.Badge -Leaf })
-$owned = @(Get-Owned)
-$stale = @($owned | Where-Object { $writtenLinks -notcontains $_.Name }) +
-  @(Get-Badges $owned | Where-Object { $writtenIcons -notcontains $_.Name })
-$kept = 0
-foreach ($file in $stale) {
-  try { Remove-Item -LiteralPath $file.FullName; "removed: $($file.FullName)" }
-  catch { $kept++; "unattended-shortcut: $($file.FullName) could not be removed ($($_.Exception.Message))" }
-}
-if ($kept) { "unattended-shortcut: the new shortcuts are in place; $kept old file(s) are left"; exit 1 }
+foreach ($file in $stale) { "removed: $($file.FullName)" }
+# A file moved aside that cannot be deleted now is deleted by the next run, which finds its name taken.
+foreach ($a in $aside) { Remove-Item -LiteralPath $a.Old -ErrorAction Ignore }
 exit 0

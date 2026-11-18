@@ -47,6 +47,22 @@ namespace Conclave
         public int IconIndex;
     }
 
+    public static class ShellPath
+    {
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern int GetLongPathNameW(string shortPath, StringBuilder longPath, int size);
+
+        // The long spelling of an existing path (C:\Users\RUNNER~1 is C:\Users\runneradmin), so one folder has one
+        // name whichever spelling it was handed in; a path that does not exist, or that the call cannot expand, is
+        // returned as it came.
+        public static string Long(string path)
+        {
+            var text = new StringBuilder(32768);
+            int length = GetLongPathNameW(path, text, text.Capacity);
+            return length > 0 && length < text.Capacity ? text.ToString() : path;
+        }
+    }
+
     public static class ShellLink
     {
         private const int Size = 32768;  // the longest a field can be
