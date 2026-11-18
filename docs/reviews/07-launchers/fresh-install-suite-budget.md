@@ -53,3 +53,7 @@ LENS quality: findings
 LENS optimization: findings
 HIGHEST: P2
 OVERALL: needs-attention
+
+## Writer note: round 2
+
+All three findings checked and real; fixed in 3c76ae6 by using check-all's own runner (`forge._run_suite`: a Windows job object, a bounded output tail read as it arrives) instead of a second one in the tests, and by keeping every outer suite's tag in `CONCLAVE_CHECK_ALL_OUTER` so ending an outer suite ends one run inside it. `OuterTagTest` holds both halves; its POSIX test ran in WSL, and each half's mutation fails it.
