@@ -22,3 +22,7 @@ LENS consistency: findings
 LENS quality: clean  
 LENS optimization: clean  
 HIGHEST: P2
+
+## Writer note: round 1
+
+Both findings checked against the code and found real; both fixed in 15b2d6e. Every kit suite in tests/test_forge.py now runs through run_kit_suite (its own process group, every process tagged, the whole tree and any tagged straggler ended), and both unattended kit copies get the 2400-second budget. `RunKitSuiteTest` holds it: a fake suite whose child sleeps 300 seconds in a session of its own is ended with that child at a 5-second limit, and the test fails when only the direct child is killed.
