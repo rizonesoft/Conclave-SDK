@@ -57,3 +57,30 @@ OVERALL: needs-attention
 ## Writer note: round 2
 
 All three findings checked and real; fixed in 3c76ae6 by using check-all's own runner (`forge._run_suite`: a Windows job object, a bounded output tail read as it arrives) instead of a second one in the tests, and by keeping every outer suite's tag in `CONCLAVE_CHECK_ALL_OUTER` so ending an outer suite ends one run inside it. `OuterTagTest` holds both halves; its POSIX test ran in WSL, and each half's mutation fails it.
+
+## Round 3: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-18T14:16:27Z
+- Candidate: c9a61dabd5badbb0ff513d00d9b0223d0e0a176f
+- Effort: medium
+- Lenses: adversarial, integration, source-defect, consistency, quality, optimization
+- Lines: 16
+- Digest: 2eb3a3ff82e4dff1
+
+**P2. The automations kit still runs outside the shared suite runner.** `test_automations_kit_tests_pass_in_the_kit_and_in_the_sdks_own_copy` runs both copies with `subprocess.run(timeout=300)`. One of those tests starts a parent and grandchild that sleep for 120 seconds. If the outer timeout or cancellation interrupts that test, its `finally` can be lost and the descendants can survive. Route both invocations through `_run_suite`, preserving the exact `test_automations.py` selection so the SDK invocation runs the intended tests. [Suite calls](D:/Conclave-SDK/tests/test_forge.py:901) · [Child fixture](D:/Conclave-SDK/kits/automations/templates/scripts/tests/test_automations.py:368)
+
+**P2. The POSIX cancellation regression can itself leave a detached child behind.** `OuterTagTest` starts a new session, overwrites both inherited ownership tags with constants, and launches a 300-second sleeper. If the outer runner kills the test process between `Popen` and `_kill_tagged`, its sweep cannot find that child. Concurrent copies also share `outer9`, so one test can kill the other’s fixture and both can pass. Keep the real ancestor tags, generate a unique tag for the test, and sweep that tag. [Regression fixture](D:/Conclave-SDK/tests/test_forge.py:153)
+
+**P2. `run_kit_suite` can turn a failed runner verdict into a passing assertion.** The adapter returns the raw exit code and appends the reason only for a timeout. I verified that a child exiting zero without a unittest summary produces `passed=False, reason="no tests ran"` in `_run_suite`, but the adapter returns code `0`. The fresh-install assertion accepts that result. A launch failure also loses its `could not start` diagnostic. Have callers assert `result["passed"]` and include both `reason` and the bounded `tail` in the failure message. [Adapter](D:/Conclave-SDK/tests/test_forge.py:58) · [Runner verdict](D:/Conclave-SDK/forge.py:3538) · [Fresh-install assertion](D:/Conclave-SDK/tests/test_forge.py:3884)
+
+The test harness owns the budget, and reusing `_run_suite` is the correct layer for process cleanup. Ordinary suite failures still show the last 2,000 characters of merged output. `_probe` is no longer on this path. The shared reader retains the tail already captured even if its five-second join expires. The 2,400-second limit gives a little over three times the recorded 721.269-second focused pass, reasonable headroom for a watchdog. A sufficiently slow healthy run can still hit it. I checked the adapter behavior directly and did not rerun the full kit suites.
+
+LENS adversarial: findings  
+LENS integration: findings  
+LENS source-defect: findings  
+LENS consistency: findings  
+LENS quality: findings  
+LENS optimization: clean  
+HIGHEST: P2  
+OVERALL: needs-attention

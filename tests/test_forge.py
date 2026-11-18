@@ -50,14 +50,24 @@ def written_files():
             or path.relative_to(FORGE_ROOT).as_posix() in ("global/README.md", "plugins/README.md")]
 
 
-def run_kit_suite(folder, timeout):
-    """(exit code, the end of its output) of `python -m unittest discover -s folder`, run through check-all's own
-    runner (`forge._run_suite`): its own process group (a Windows job object), every process tagged, the whole tree
-    ended on a timeout or an interrupt, a tagged straggler ended after it, and only the end of its output kept. The exit
-    code is None when the suite ran past `timeout`, which only catches a hang."""
-    result = forge._run_suite(forge._unittest_suite("kit", str(folder), timeout), dict(os.environ), FORGE_ROOT)
-    timed_out = result["reason"].startswith("timed out")
-    return (None if timed_out else result["exit"]), result["tail"] + (f"\n({result['reason']})" if timed_out else "")
+def run_kit_suite(target, timeout):
+    """check-all's own verdict (`forge._run_suite`) on a kit's tests: `python -m unittest discover -s target` for a
+    folder, `python target` for one test file. It runs in a group of its own (a Windows job object), every process
+    tagged, the whole tree ended on a timeout, an interrupt or a clean finish, and only the end of its output kept.
+    `passed` is False on a failure, a run with no tests, a launch that failed or a run past `timeout` (which only
+    catches a hang); `reason` says which."""
+    target = pathlib.Path(target)
+    if target.is_file():
+        suite = {"name": "kit", "kind": "unittest", "path": str(target), "timeout": timeout,
+                 "argv": [sys.executable, "-B", str(target)]}
+    else:
+        suite = forge._unittest_suite("kit", str(target), timeout)
+    return forge._run_suite(suite, dict(os.environ), FORGE_ROOT)
+
+
+def suite_failure(result):
+    """The message for a failed `run_kit_suite`: why, then the end of its output."""
+    return f"{result['reason']}\n{result['tail'][-2000:]}"
 
 
 def provisioned_mode(posix_mode):
@@ -116,8 +126,8 @@ class RunKitSuiteTest(unittest.TestCase):
                 f"        pathlib.Path({str(pid_file)!r}).write_text(str(child.pid))\n"
                 "        time.sleep(300)\n", encoding="utf-8")
             started = time.monotonic()
-            code, out = run_kit_suite(folder, 5)
-            self.assertIsNone(code, out)
+            result = run_kit_suite(folder, 5)
+            self.assertTrue(result["reason"].startswith("timed out"), result)
             self.assertLess(time.monotonic() - started, 60)
             pid = int(pid_file.read_text())
             if os.name == "nt":
@@ -127,6 +137,20 @@ class RunKitSuiteTest(unittest.TestCase):
             else:
                 time.sleep(0.5)
                 self.assertFalse(pathlib.Path(f"/proc/{pid}").exists(), "the suite's child outlived it")
+
+
+class RunKitSuiteVerdictTest(unittest.TestCase):
+    def test_a_suite_that_exits_zero_without_running_a_test_does_not_pass(self):
+        # Round 3 of the fresh-install suite budget's review: the helper once returned the raw exit code, so a child
+        # that exited 0 with no unittest summary passed.
+        with tempfile.TemporaryDirectory() as tmp:
+            script = pathlib.Path(tmp) / "test_nothing.py"
+            script.write_text("print('no tests here')\n", encoding="utf-8")
+            result = run_kit_suite(script, 60)
+            self.assertEqual(result["exit"], 0)
+            self.assertFalse(result["passed"])
+            self.assertEqual(result["reason"], "no tests ran")
+            self.assertIn("no tests ran", suite_failure(result))
 
 
 class OuterTagTest(unittest.TestCase):
@@ -152,11 +176,16 @@ class OuterTagTest(unittest.TestCase):
 
     @unittest.skipIf(os.name == "nt", "the tagged sweep is POSIX's; Windows ends a suite's tree through its job object")
     def test_ending_an_outer_tag_ends_a_process_that_carries_it_as_an_outer_tag(self):
+        # The fixture keeps this test's own tags (so an outer runner that ends this test ends it too) and adds a tag
+        # of its own, unique, so two copies of this test never end each other's fixture.
+        mine = uuid.uuid4().hex
+        inherited = [t for t in os.environ.get(forge.OUTER_TAGS, "").split(",")
+                     + [os.environ.get("CONCLAVE_CHECK_ALL_TAG", "")] if t]
         child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"], start_new_session=True,
-                                 env={**os.environ, "CONCLAVE_CHECK_ALL_TAG": "inner",
-                                      "CONCLAVE_CHECK_ALL_OUTER": "a,outer9"})
+                                 env={**os.environ, "CONCLAVE_CHECK_ALL_TAG": uuid.uuid4().hex,
+                                      forge.OUTER_TAGS: ",".join(inherited + [mine])})
         self.addCleanup(lambda: child.poll() is None and child.kill())
-        forge._kill_tagged("outer9")
+        forge._kill_tagged(mine)
         self.assertIsNotNone(child.wait(timeout=10))
 
 
@@ -681,8 +710,8 @@ class ForgeProvisionTests(unittest.TestCase):
             shutil.copytree(kit / "hosts/pressable/templates/scripts", scripts, dirs_exist_ok=True)
             # The ticket login's tests read the plugin where an install puts it, beside scripts/ (D07 T02 section 1).
             shutil.copytree(kit / "templates/tools/ticket-login", pathlib.Path(tmp) / "tools/ticket-login")
-            code, out = run_kit_suite(scripts / "tests", 120)
-        self.assertEqual(code, 0, out[-2000:])
+            result = run_kit_suite(scripts / "tests", 120)
+        self.assertTrue(result["passed"], suite_failure(result))
 
     def test_todo_kit_install_and_doctor(self):
         project = self.target / "planned"
@@ -848,8 +877,8 @@ class ForgeProvisionTests(unittest.TestCase):
         tests = FORGE_ROOT / "kits/reviewer/templates/scripts/tests"
         # The suite drives a fake reviewer through real git repositories for the three-pass order (about five
         # minutes on Windows, where each reviewer process tree is ended with taskkill); the limit only catches a hang.
-        code, out = run_kit_suite(tests, 900)
-        self.assertEqual(code, 0, out[-2000:])
+        result = run_kit_suite(tests, 900)
+        self.assertTrue(result["passed"], suite_failure(result))
 
     def test_automations_kit_install_doctor_and_detection(self):
         project = self.target / "scheduled"
@@ -898,9 +927,8 @@ class ForgeProvisionTests(unittest.TestCase):
     def test_automations_kit_tests_pass_in_the_kit_and_in_the_sdks_own_copy(self):
         for root in (FORGE_ROOT / "kits/automations/templates", FORGE_ROOT):
             with self.subTest(root=root):
-                result = subprocess.run([sys.executable, "-B", str(root / "scripts/tests/test_automations.py")],
-                                        capture_output=True, text=True, timeout=300)
-                self.assertEqual(result.returncode, 0, result.stderr[-2000:])
+                result = run_kit_suite(root / "scripts/tests/test_automations.py", 300)
+                self.assertTrue(result["passed"], suite_failure(result))
 
     def test_no_em_or_en_dashes_anywhere(self):
         # Every text file the SDK ships or provisions: prose, code, comments, templates and config alike.
@@ -3853,9 +3881,8 @@ class UnattendedKitTests(unittest.TestCase):
     def test_the_kits_own_tests_pass(self):
         tests = FORGE_ROOT / "kits/unattended/templates/scripts/tests"
         # Its shortcut tests drive pwsh (about 13 minutes on GitHub's Windows runner since D07 T01 §7).
-        code, out = run_kit_suite(tests, 2400)
-        self.assertEqual(code, 0, out[-2000:])
-        self.assertIn("OK", out)
+        result = run_kit_suite(tests, 2400)
+        self.assertTrue(result["passed"], suite_failure(result))
 
     def test_a_fresh_install_set_up_as_the_page_says_passes_its_doctor_and_its_tests(self):
         # D02 T02 §11: init with the todo kit (the run guard) and the unattended kit, the profile set as
@@ -3881,8 +3908,8 @@ class UnattendedKitTests(unittest.TestCase):
         # The installed copy's whole suite: D07 T01 §7 took its shortcut tests from 9 to 71 (each drives pwsh), about
         # 13 minutes on GitHub's Windows runner, which ran past the old 900 seconds (run 44300121637). The limit only
         # catches a hang, and the whole process tree is ended when it trips, pwsh children included.
-        code, out = run_kit_suite(self.target / "scripts/tests", 2400)
-        self.assertEqual(code, 0, out[-2000:])
+        result = run_kit_suite(self.target / "scripts/tests", 2400)
+        self.assertTrue(result["passed"], suite_failure(result))
         # A kit file removed afterwards is one the doctor reports missing.
         (self.target / ".codex/skills/unattended-run/SKILL.md").unlink()
         (self.target / "docs/unattended-run.md").unlink()
