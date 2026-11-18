@@ -908,3 +908,41 @@ another distro with the path not asked: exit 1 Ran 1 test in 12.411s | FAILED (f
 a WSL that cannot say taken as no: exit 1 Ran 1 test in 9.583s | FAILED (failures=1)
 a shared badge matched by file name: exit 1 Ran 1 test in 10.942s | FAILED (failures=1)
 ```
+
+## Reconciliation review: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-18T06:27:22Z
+- Candidate: e0517c3cd8223f20b3bc34dceb3b20c90ae69684
+- Effort: low
+- Lenses: adversarial, integration, plan-delivery, record
+- Lines: 27
+- Digest: dc35acb67c7b40ab
+
+1. **closed (P1), locked stale link.** The regression holds the retired link open and checks the previous links and badges byte for byte after the failed swap. `kits/unattended/templates/scripts/tests/test_shortcut.py:648`, `docs/reviews/07-launchers/D07-T01-s7.md:135`
+2. **closed (P1), competing installer.** The test puts a foreign link at the destination after the ownership check and verifies that its bytes survive publication. `kits/unattended/templates/scripts/tests/test_shortcut.py:665`, `docs/reviews/07-launchers/D07-T01-s7.md:136`
+3. **closed (P1), interrupted publication.** Tests exercise interruption during publication and recovery, PID reuse, and a retry that itself fails. `kits/unattended/templates/scripts/tests/test_shortcut.py:715`, `kits/unattended/templates/scripts/tests/test_shortcut.py:727`, `kits/unattended/templates/scripts/tests/test_shortcut.py:894`, `kits/unattended/templates/scripts/tests/test_shortcut.py:1051`, `docs/reviews/07-launchers/D07-T01-s7.md:692`
+4. **closed (P2), prescribed mutations.** The record identifies distinct failing checks for the icon path, project path and unset title. `docs/reviews/07-launchers/D07-T01-s7.md:138`, `docs/reviews/07-launchers/D07-T01-s7.md:154`, `docs/reviews/07-launchers/D07-T01-s7.md:155`, `docs/reviews/07-launchers/D07-T01-s7.md:156`
+5. **open (P3), unset-title output.** The section text is unchanged from the failed completion. One checked item specifies JSON `null` and the next says the same command prints nothing. The writer expressly leaves this gap open. `todo/07-launchers/TODO-01-project-launchers.md:273`, `todo/07-launchers/TODO-01-project-launchers.md:274`, `docs/reviews/07-launchers/D07-T01-s7.md:900`
+6. **closed (P1), failed rename and retry.** The test verifies that the failed rename leaves the original set and that one unlocked retry produces the exact new set. `kits/unattended/templates/scripts/tests/test_shortcut.py:648`, `docs/reviews/07-launchers/D07-T01-s7.md:139`
+7. **closed (P2), legacy badge rollback.** A held legacy badge fails the migration as a unit, preserving the original installation. `kits/unattended/templates/scripts/tests/test_shortcut.py:929`, `docs/reviews/07-launchers/D07-T01-s7.md:792`
+8. **closed (P1), foreign destinations during journal replay.** Tests cover an outside destination named in a journal and a foreign link occupying a vacated name. `kits/unattended/templates/scripts/tests/test_shortcut.py:742`, `kits/unattended/templates/scripts/tests/test_shortcut.py:779`, `docs/reviews/07-launchers/D07-T01-s7.md:742`
+9. **closed (P1), blocked live rollback.** A blocked restore and a locked published link both retain the recovery journal. `kits/unattended/templates/scripts/tests/test_shortcut.py:799`, `kits/unattended/templates/scripts/tests/test_shortcut.py:1038`, `docs/reviews/07-launchers/D07-T01-s7.md:434`
+10. **closed (P1), interrupted removal.** A subsequent installation cannot resurrect the removed link. `kits/unattended/templates/scripts/tests/test_shortcut.py:1089`, `docs/reviews/07-launchers/D07-T01-s7.md:540`
+11. **closed (P2), locked backup during removal.** The regression checks failure while the backup is held and cleanup after release. `kits/unattended/templates/scripts/tests/test_shortcut.py:1075`, `docs/reviews/07-launchers/D07-T01-s7.md:437`
+12. **closed (P2), locked staging file during recovery.** The regression checks journal retention and cleanup on retry. `kits/unattended/templates/scripts/tests/test_shortcut.py:1102`, `docs/reviews/07-launchers/D07-T01-s7.md:494`
+13. **closed (P2), locked staging file after live failure.** The test holds the staged link through failure, then verifies cleanup on retry. `kits/unattended/templates/scripts/tests/test_shortcut.py:1116`, `docs/reviews/07-launchers/D07-T01-s7.md:541`
+14. **closed (P2), interrupted legacy migration.** The regression verifies the original snapshot after failure and removal of the old badge after retry. `kits/unattended/templates/scripts/tests/test_shortcut.py:929`, `docs/reviews/07-launchers/D07-T01-s7.md:792`
+15. **open (P1), cross-distro badge ownership.** The legacy key lowercases the Linux path. Ubuntu’s `/home/x/Demo` and Debian’s `/home/x/demo` therefore produce the same badge name. During Ubuntu migration, the new check asks Debian only whether `/home/x/Demo` exists. Debian correctly answers no. If Debian’s shortcut is in a custom folder outside the desktop scan, Ubuntu deletes the badge it still displays. Paths differing only in case are already an explicit repository test case. The new regression exercises identical spelling only. `kits/unattended/templates/scripts/unattended-shortcut.ps1:98`, `kits/unattended/templates/scripts/unattended-shortcut.ps1:154`, `kits/unattended/templates/scripts/unattended-shortcut.ps1:162`, `kits/unattended/templates/scripts/unattended-shortcut.ps1:187`, `kits/unattended/templates/scripts/tests/test_shortcut.py:613`, `kits/unattended/templates/scripts/tests/test_shortcut.py:980`, `docs/reviews/07-launchers/D07-T01-s7.md:897`
+16. **closed (P2), direct removal with a locked legacy badge.** Removal preserves the link while its badge is locked. The retry clears both directories. `kits/unattended/templates/scripts/tests/test_shortcut.py:945`, `docs/reviews/07-launchers/D07-T01-s7.md:792`
+17. **open (P1), ordinary legacy upgrade.** A second distro can contain the same project directory without ever having installed a shortcut. The new regression seeds one legacy installation and explicitly requires both old badges to survive migration and subsequent removal. The earlier cleanup regression now forces Debian’s directory to be absent. This narrows the checked promise that upgrading a seeded legacy installation leaves only the new files. `todo/07-launchers/TODO-01-project-launchers.md:277`, `kits/unattended/templates/scripts/tests/test_shortcut.py:574`, `kits/unattended/templates/scripts/tests/test_shortcut.py:980`, `kits/unattended/templates/scripts/unattended-shortcut.ps1:187`, `docs/reviews/07-launchers/D07-T01-s7.md:791`, `docs/reviews/07-launchers/D07-T01-s7.md:897`
+18. **closed (P2), reversed migration guidance.** The guide now describes removal of an unshared legacy badge during ordinary migration. `kits/unattended/templates/docs/unattended-run.md:29`, `docs/reviews/07-launchers/D07-T01-s7.md:843`
+19. **closed (P2), false sharing by filename.** The desktop scan compares full icon paths. The regression checks removal of the owned badge and survival of the identically named badge in another directory. `kits/unattended/templates/scripts/unattended-shortcut.ps1:171`, `kits/unattended/templates/scripts/tests/test_shortcut.py:1000`, `docs/reviews/07-launchers/D07-T01-s7.md:898`
+20. **closed (P2), two-custom-folder claim.** The guide removes the incorrect two-folder prerequisite and describes the distro probe and the desktops searched. The remaining ownership defect is gap 15. `kits/unattended/templates/docs/unattended-run.md:29`, `docs/reviews/07-launchers/D07-T01-s7.md:899`
+
+LENS adversarial: findings  
+LENS integration: findings  
+LENS plan-delivery: findings  
+LENS record: findings  
+HIGHEST: P1  
+RECONCILIATION: gaps
