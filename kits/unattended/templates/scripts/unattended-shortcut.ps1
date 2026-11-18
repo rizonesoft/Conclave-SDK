@@ -133,9 +133,32 @@ function Get-Owned {
     Where-Object { $_.Name -notmatch '\.\d+\.tmp\.lnk$' -and (Test-Owned $_) }
 }
 
-# Whether a link other than `$ours` shows `$badge`, in this run's desktop folder or in the user's or the public desktop
-# (where the old script put its links unless told otherwise). A badge the old script shared between two distros whose
-# links both sit in other, different folders is not seen; the run page states that limit.
+# Whether another distro also has this project's Linux path. The old key was the Linux path's alone, so only then can a
+# badge under it be another distro's too, whatever folders their links sit in: WSL itself is asked, once, and when it
+# cannot answer the badge is taken as shared. A project given by a \\wsl path or on a Windows drive had a key of
+# its own.
+$sharedOldKey = $null
+function Test-SharedOldKey {
+  if ($null -ne $script:sharedOldKey) { return $script:sharedOldKey }
+  $script:sharedOldKey = $Project.StartsWith('/')
+  if (-not $script:sharedOldKey) { return $false }
+  $wslExe = if ($Wsl) { $Wsl } else {
+    (Get-Command wsl.exe -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
+  }
+  if (-not $wslExe) { return $true }
+  $env:WSL_UTF8 = '1'
+  $all = @(& $wslExe -l -q 2>$null | ForEach-Object { ($_ -replace "`0", '').Trim() } | Where-Object { $_ })
+  if ($LASTEXITCODE -ne 0) { return $true }
+  foreach ($other in @($all | Where-Object { $_ -ne $projectDistro })) {
+    & $wslExe -d $other --exec test -d $Project 2>$null
+    if ($LASTEXITCODE -ne 1) { return $true }  # 0: it has the path; anything but 1: WSL could not say
+  }
+  $script:sharedOldKey = $false
+  $false
+}
+
+# Whether a link other than `$ours` shows `$badge` (the same file), in this run's desktop folder or in the user's or
+# the public desktop, where the old script put its links unless told otherwise.
 function Test-ShownByOthers([IO.FileSystemInfo]$badge, [object[]]$ours) {
   $paths = @($ours | ForEach-Object { Get-Normal $_.FullName })
   $folders = @(@($ShortcutDir) + $Desktops | Where-Object { $_ } | Select-Object -Unique)
@@ -145,12 +168,13 @@ function Test-ShownByOthers([IO.FileSystemInfo]$badge, [object[]]$ours) {
   foreach ($link in @($links)) {
     if ($paths -contains (Get-Normal $link.FullName)) { continue }
     $shown = (Get-Link $link).IconPath
-    if ($shown -and [IO.Path]::GetFileName($shown) -eq $badge.Name) { return $true }
+    if ($shown -and (Get-Normal ([IO.Path]::GetFullPath($shown))) -ceq (Get-Normal $badge.FullName)) { return $true }
   }
   $false
 }
 
-# This project's badges: those under its key, and the old key's badges its own links show and no other link does.
+# This project's badges: those under its key, and the old key's badges its own links show, when no other distro has
+# its Linux path and no other link shows them.
 # Named apart from the -Icon parameter: PowerShell names ignore case, and $icon would be that typed string.
 function Get-Badges([object[]]$owned) {
   $found = @{}
@@ -160,7 +184,7 @@ function Get-Badges([object[]]$owned) {
   foreach ($link in $owned) {
     $where = (Get-Link $link).IconPath
     $shown = if ($where) { Get-Item -LiteralPath $where -ErrorAction Ignore }
-    if ($shown -and $shown.Name -like "campaign-*-$oldKey.ico" -and
+    if ($shown -and $shown.Name -like "campaign-*-$oldKey.ico" -and -not (Test-SharedOldKey) -and
         (Get-Normal $shown.DirectoryName) -ceq (Get-Normal ([IO.Path]::GetFullPath($IconDir))) -and
         -not (Test-ShownByOthers $shown $owned)) {
       $found[$shown.Name] = $shown

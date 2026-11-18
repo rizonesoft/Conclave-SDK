@@ -50,7 +50,8 @@ LINK_CODE = LOADER.parent / "ShellLink.cs"  # the launchers kit's IShellLinkW, b
 PROVIDER = "Microsoft.PowerShell.Core\\FileSystem::"  # what Resolve-Path's .Path puts before a file on a share
 PWSH = shutil.which("pwsh")
 # The stand-in for wsl.exe: it lists two distros, translates a Windows path, says whether a folder exists (all do but
-# those in STUB_WSL_MISSING), and records every call; with STUB_WSL_FAIL set it fails everything.
+# those in STUB_WSL_MISSING, each a path or <distro>:<path>), and records every call; with STUB_WSL_FAIL set it fails
+# everything.
 STUB_WSL = r'''import json, os, sys
 args = sys.argv[1:]
 with open(os.environ["STUB_WSL_LOG"], "a", encoding="utf-8") as log:
@@ -65,7 +66,11 @@ if rest[:2] == ["wslpath", "-a"]:
     drive, _, tail = rest[2].partition(":")
     print("/mnt/" + drive.lower() + tail.replace("\\", "/"))
 elif rest[:2] == ["test", "-d"]:
-    sys.exit(1 if rest[2] in os.environ.get("STUB_WSL_MISSING", "").split("|") else 0)
+    missing = os.environ.get("STUB_WSL_MISSING", "").split("|")  # a path, or <distro>:<path> for one distro only
+    distro = args[args.index("-d") + 1] if "-d" in args else ""
+    if distro and distro in os.environ.get("STUB_WSL_UNSURE", "").split("|"):
+        sys.exit(4294967295)  # what wsl.exe gives when it cannot run the command in that distro
+    sys.exit(1 if rest[2] in missing or f"{distro}:{rest[2]}" in missing else 0)
 '''
 
 
@@ -158,8 +163,8 @@ class ShortcutFixture(unittest.TestCase):
         command = [PWSH, "-NoProfile", "-NonInteractive", "-File", str(project / "scripts" / "unattended-shortcut.ps1"),
                    "-ShortcutDir", str(desk or self.desk), *(["-IconDir", str(self.icons)] if icon_dir else []),
                    "-Desktops", str(desktops), "-Wsl", str(self.wsl), "-Python", sys.executable, *args]
-        return subprocess.run(command, capture_output=True, text=True, timeout=180, env={**self.env, **env},
-                              creationflags=windowless())
+        return subprocess.run(command, capture_output=True, text=True, timeout=180,
+                              env={**self.env, **getattr(self, "extra_env", {}), **env}, creationflags=windowless())
 
     def read_link(self, path):
         """A link's fields, read through the kit's own IShellLinkW (scripts/lib/ShellLink.cs), which keeps text in any
@@ -567,6 +572,7 @@ class CampaignTitleTest(ShortcutFixture):
         self.assertIn("-Project '/home/x/demo' is a Linux path: -Distro names the distro it is in", done.stdout)
 
     def test_links_and_badges_under_the_old_mark_and_key_are_replaced(self):
+        self.extra_env = {"STUB_WSL_MISSING": "Debian:/home/x/Demo"}  # no other distro has the path
         # What the script wrote before for `-Project /home/x/Demo` (a capital, which Linux keeps): the folder-named set
         # under the path as typed, and its badges under that path's key, which the old script took in lower case.
         linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]
@@ -921,6 +927,7 @@ class CampaignTitleTest(ShortcutFixture):
         return old_key
 
     def test_an_old_key_badge_held_during_a_migration_fails_it_whole_and_goes_later(self):
+        self.extra_env = {"STUB_WSL_MISSING": "Debian:/home/x/Demo"}  # no other distro has the path
         # Reconciliation 12 and 13: the old key's badges go in the same change as the links that show them.
         linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]
         old_key = self.legacy_set(linux)
@@ -936,6 +943,7 @@ class CampaignTitleTest(ShortcutFixture):
         self.assertEqual(list(self.icons.glob(f"campaign-*-{old_key}.ico")), [])
 
     def test_remove_with_an_old_key_badge_held_keeps_its_link_and_finishes_later(self):
+        self.extra_env = {"STUB_WSL_MISSING": "Debian:/home/x/Demo"}  # no other distro has the path
         # Reconciliation 12 and 13: a badge that cannot go keeps the link through which the next -Remove finds it.
         linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]
         old_key = self.legacy_set(linux)
@@ -951,6 +959,7 @@ class CampaignTitleTest(ShortcutFixture):
         self.assertEqual((self.links(), sorted(p.name for p in self.icons.iterdir())), ([], []))
 
     def test_a_badge_another_distros_old_link_shows_on_the_users_desktop_stays(self):
+        self.extra_env = {"STUB_WSL_MISSING": "Debian:/home/x/Demo"}  # no other distro has the path
         # Reconciliation 14: two distros' old sets can share one badge from different desktop folders.
         self.other_desktop = Path(self._tmp.name) / "users-desktop"
         linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]
@@ -967,6 +976,44 @@ class CampaignTitleTest(ShortcutFixture):
         done = self.shortcut("-Remove", "-Distro", "Ubuntu", "-Project", "/home/x/Demo")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertTrue(shown.exists(), "-Remove removed the badge Debian's old link shows")
+
+    def test_an_old_key_badge_stays_while_another_distro_has_the_same_linux_path(self):
+        # Reconciliation 15: another distro's old link may sit in any folder; WSL says whether it can exist at all.
+        linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]
+        old_key = self.legacy_set(linux)  # the stand-in says Debian has /home/x/Demo too
+        done = self.shortcut(*linux)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(len(list(self.icons.glob(f"campaign-*-{old_key}.ico"))), 2)
+        self.assertIn(["-d", "Debian", "--exec", "test", "-d", "/home/x/Demo"], self.calls())
+        done = self.shortcut("-Remove", "-Distro", "Ubuntu", "-Project", "/home/x/Demo")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(len(list(self.icons.glob(f"campaign-*-{old_key}.ico"))), 2)
+
+    def test_an_old_key_badge_stays_while_wsl_cannot_say_whether_another_distro_has_the_path(self):
+        self.extra_env = {"STUB_WSL_MISSING": "Debian:/home/x/Demo", "STUB_WSL_UNSURE": "Debian"}
+        linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]
+        old_key = self.legacy_set(linux)
+        done = self.shortcut(*linux)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(len(list(self.icons.glob(f"campaign-*-{old_key}.ico"))), 2)
+
+    def test_a_same_named_badge_in_another_icon_folder_is_not_this_ones(self):
+        # Reconciliation 15: a link elsewhere showing a badge of the same name in another folder shares nothing.
+        self.extra_env = {"STUB_WSL_MISSING": "Debian:/home/x/Demo"}
+        self.other_desktop = Path(self._tmp.name) / "users-desktop"
+        linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]
+        old_key = self.legacy_set(linux)
+        elsewhere = Path(self._tmp.name) / "icons2" / f"campaign-claude-{old_key}.ico"
+        elsewhere.parent.mkdir()
+        elsewhere.write_bytes(b"another folder's")
+        self.other_desktop.mkdir()
+        theirs = self.other_desktop / "Demo Claude campaign.lnk"
+        shutil.copyfile(self.desk / "Demo Claude campaign.lnk", theirs)
+        self.set_description(theirs, "conclave-unattended: D:\elsewhere", icon=str(elsewhere))
+        done = self.shortcut(*linux)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(list(self.icons.glob(f"campaign-*-{old_key}.ico")), [])
+        self.assertTrue(elsewhere.exists())
 
     def test_remove_in_one_distro_leaves_an_old_key_badge_another_distros_link_shows(self):
         # Reconciliation 11: one Linux path in two distros shared the old key; their desktops may differ.
@@ -1121,6 +1168,7 @@ class CampaignTitleTest(ShortcutFixture):
         self.assertEqual(self.links(), ["My Proj's Carbon campaign.lnk", "My Proj's Claude campaign.lnk"])
 
     def test_an_old_key_badge_another_link_shows_stays(self):
+        self.extra_env = {"STUB_WSL_MISSING": "Debian:/home/x/Demo"}  # no other distro has the path
         # Reconciliation 6: the old script keyed badges by the -Project form alone, so another link may show one.
         linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]
         self.assertEqual(self.shortcut(*linux).returncode, 0)
