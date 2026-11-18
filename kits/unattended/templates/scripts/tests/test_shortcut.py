@@ -157,6 +157,7 @@ class ShortcutFixture(unittest.TestCase):
         (self.project / "assets").mkdir()
         shutil.copyfile(self.icon, self.project / "assets" / "icon.png")
         self.desk, self.icons = base / "desk", base / "icons"
+        self.state = base / "state"  # where each run keeps its lock and journal
         stub = base / "stub_wsl.py"
         stub.write_text(STUB_WSL, encoding="utf-8")
         self.wsl = base / "wsl.cmd"
@@ -184,7 +185,8 @@ class ShortcutFixture(unittest.TestCase):
         desktops = self.other_desktop if hasattr(self, "other_desktop") else Path(self._tmp.name) / "desktops"
         command = [PWSH, "-NoProfile", "-NonInteractive", "-File", str(project / "scripts" / "unattended-shortcut.ps1"),
                    "-ShortcutDir", str(desk or self.desk), *(["-IconDir", str(self.icons)] if icon_dir else []),
-                   "-Desktops", str(desktops), "-Wsl", str(self.wsl), "-Python", sys.executable, *args]
+                   "-Desktops", str(desktops), "-StateDir", str(self.state), "-Wsl", str(self.wsl),
+                   "-Python", sys.executable, *args]
         return subprocess.run(command, capture_output=True, text=True, timeout=180,
                               env={**self.env, **getattr(self, "extra_env", {}), **env}, creationflags=windowless())
 
@@ -343,11 +345,12 @@ class CampaignTitleTest(ShortcutFixture):
     """D07 T01 section 7: the campaign links carry the launcher profile's title, read an icon from a share, keep one
     identity per project, and replace a set of links whole or not at all."""
 
-    def snapshot(self):
-        """Every file in the desktop and icon folders, by name, with its bytes."""
+    def snapshot(self, skip=()):
+        """Every file in the desktop and icon folders, by name, with its bytes (but those named in `skip`)."""
         return {p.relative_to(p.parents[1]).as_posix(): p.read_bytes()
                 for folder in (self.desk, self.icons) if folder.exists() for p in folder.iterdir()
-                if p.is_file() and p.suffix != ".lock"}  # a run's lock is no state: it goes when the run ends
+                if p.is_file() and p.suffix != ".lock"  # a run's lock is no state: it goes when the run ends
+                and p.name not in skip}
 
     def set_description(self, path, text, icon=None):
         """Rewrite a link's mark, and its icon when `icon` is given, through the kit's IShellLinkW."""
@@ -730,7 +733,7 @@ class CampaignTitleTest(ShortcutFixture):
                                       (link, link.with_name(f"{link.stem}.{self.DEAD}.tmp.lnk"), new_link)):
                 (final if n == 0 else temp).write_bytes(data)  # the first runner is moved in, the second is not
                 moves.append({"from": str(temp), "to": str(final)})
-        journal = self.icons / f"campaign-{key}.{self.DEAD}.journal.json"
+        journal = self.state / f"campaign-{key}.{self.DEAD}.journal.json"
         journal.write_text(json.dumps({"state": state, "temps": [m["from"] for m in moves], "moves": moves,
                                        "aside": aside}), encoding="utf-8")
         return journal
@@ -785,7 +788,7 @@ class CampaignTitleTest(ShortcutFixture):
                 ("a link moved aside under another run's name", {"state": "committed", "temps": [], "moves": [],
                                                                  "aside": [{"to": str(claude), "old": str(claude)}]})):
             with self.subTest(label):
-                journal = self.icons / f"campaign-{key}.{self.DEAD}.journal.json"
+                journal = self.state / f"campaign-{key}.{self.DEAD}.journal.json"
                 journal.write_text(json.dumps(record), encoding="utf-8")
                 done = self.shortcut("-Distro", "Arch", "-Icon", str(self.icon))
                 self.assertIn("names files outside this project's links; it is left as it is", done.stdout)
@@ -853,7 +856,7 @@ class CampaignTitleTest(ShortcutFixture):
             self.fail("the other installer never landed between the move aside and the move in")
         self.assertIn("could not all be put back", done.stdout)
         self.assertEqual(target.read_bytes(), foreign.read_bytes())
-        journals = list(self.icons.glob("campaign-*.journal.json"))
+        journals = list(self.state.glob("campaign-*.journal.json"))
         self.assertEqual(len(journals), 1, done.stdout)
         self.assertTrue(any(self.desk.glob(f"{target.name}.*.old")))
 
@@ -882,7 +885,7 @@ class CampaignTitleTest(ShortcutFixture):
         self.install()
         before = self.snapshot()
         key = next(self.icons.glob("campaign-claude-*.ico")).stem.split("-")[-1]
-        journal = self.icons / f"campaign-{key}.{os.getpid()}.journal.json"  # this test's own process: alive
+        journal = self.state / f"campaign-{key}.{os.getpid()}.journal.json"  # this test's own process: alive
         journal.write_text(json.dumps({"state": "swapping", "started": self.started(os.getpid()), "temps": [],
                                        "moves": [], "aside": []}), encoding="utf-8")
         done = self.shortcut("-Distro", "Arch", "-Icon", str(self.icon))
@@ -922,17 +925,19 @@ class CampaignTitleTest(ShortcutFixture):
         # One PowerShell process gives every file of the stopped run its own id, then runs the script itself, so the
         # journal carries exactly the retrying run's id.
         script = ("$dead = '.' + $env:DEAD + '.'; $own = '.' + $PID + '.'; "
-                  "foreach ($folder in @($env:DESK, $env:ICONS)) { "
+                  "foreach ($folder in @($env:DESK, $env:ICONS, $env:STATE)) { "
                   "Get-ChildItem -LiteralPath $folder -File | Where-Object { $_.Name.Contains($dead) } | "
                   "ForEach-Object { Rename-Item -LiteralPath $_.FullName -NewName $_.Name.Replace($dead, $own) } }; "
-                  "$journal = Get-ChildItem -LiteralPath $env:ICONS -Filter '*.journal.json' | Select-Object -First 1; "
+                  "$journal = Get-ChildItem -LiteralPath $env:STATE -Filter '*.journal.json' | Select-Object -First 1; "
                   "$text = [IO.File]::ReadAllText($journal.FullName).Replace($dead, $own); "
                   "[IO.File]::WriteAllText($journal.FullName, $text); "
-                  "& $env:SCRIPT -ShortcutDir $env:DESK -IconDir $env:ICONS -Wsl $env:WSL -Python $env:PY "
+                  "& $env:SCRIPT -ShortcutDir $env:DESK -IconDir $env:ICONS -StateDir $env:STATE -Wsl $env:WSL "
+                  "-Python $env:PY "
                   "-Distro Arch -Icon $env:ICON")
         done = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True,
                               text=True, timeout=180, creationflags=windowless(),
                               env={**self.env, "DEAD": str(self.DEAD), "DESK": str(self.desk), "ICONS": str(self.icons),
+                                   "STATE": str(self.state),
                                    "SCRIPT": str(self.project / "scripts" / "unattended-shortcut.ps1"),
                                    "WSL": str(self.wsl), "PY": sys.executable, "ICON": str(self.icon)})
         self.assertIn("restored: ", done.stdout, done.stdout + done.stderr)
@@ -1063,7 +1068,7 @@ class CampaignTitleTest(ShortcutFixture):
     def hold_lock(self):
         """Another run of the project, holding its lock until the test ends."""
         key = Path(self.read_link(self.desk / "My Proj's Claude campaign.lnk")["icon"].rsplit(",", 1)[0]).stem
-        lock = self.icons / f"campaign-{key.split('-')[-1]}.lock"
+        lock = self.state / f"campaign-{key.split('-')[-1]}.lock"
         holder = subprocess.Popen([PWSH, "-NoProfile", "-NonInteractive", "-Command",
                                    "$f = [IO.FileStream]::new($env:LOCK, 'OpenOrCreate', 'ReadWrite', 'None'); "
                                    "[Console]::Out.WriteLine('held'); [Console]::Out.Flush(); Start-Sleep 120"],
@@ -1097,7 +1102,7 @@ class CampaignTitleTest(ShortcutFixture):
         # Plan review 2: an unread journal may name a swap not finished; nothing is written over it.
         self.install()
         key = Path(self.read_link(self.desk / "My Proj's Claude campaign.lnk")["icon"].rsplit(",", 1)[0]).stem
-        journal = self.icons / f"campaign-{key.split('-')[-1]}.{self.DEAD}.journal.json"
+        journal = self.state / f"campaign-{key.split('-')[-1]}.{self.DEAD}.journal.json"
         journal.write_text("{not json", encoding="utf-8")
         before = self.snapshot()
         for args in (["-Distro", "Ubuntu", "-Icon", str(self.icon)], ["-Remove"]):
@@ -1127,12 +1132,152 @@ class CampaignTitleTest(ShortcutFixture):
         files = [*sorted(self.desk.glob("*.lnk")), *sorted(self.icons.glob("campaign-*.ico"))]
         aside = [{"to": str(f), "old": f"{f}.{self.DEAD}.old"} for f in files]
         files[0].rename(aside[0]["old"])  # the first link is moved aside, then the run stops
-        journal = self.icons / f"campaign-{key.split('-')[-1]}.{self.DEAD}.journal.json"
+        journal = self.state / f"campaign-{key.split('-')[-1]}.{self.DEAD}.journal.json"
         journal.write_text(json.dumps({"state": "swapping", "temps": [], "moves": [], "aside": aside}),
                            encoding="utf-8")
         done = self.shortcut("-Distro", "Arch", "-Icon", str(self.icon))  # any next run, even a refused one
         self.assertIn(f"restored: {files[0]}", done.stdout)
         self.assertEqual((self.snapshot(), self.journal_of()), (before, []))
+
+    def project_key(self):
+        shown = self.read_link(self.desk / "My Proj's Claude campaign.lnk")["icon"].rsplit(",", 1)[0]
+        return Path(shown).stem.split("-")[-1]
+
+    def test_a_link_held_open_stops_the_run_before_anything_changes(self):
+        # Round 1 (chain 2): a link that cannot be read may be this project's; nothing is taken around it.
+        self.install()
+        before = self.snapshot()
+        held = self.desk / "My Proj's Carbon campaign.lnk"
+        script = ("$f = [IO.FileStream]::new($env:HELD, 'Open', 'Read', 'None'); [Console]::Out.WriteLine('held'); "
+                  "[Console]::Out.Flush(); Start-Sleep 120")
+        holder = subprocess.Popen([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], stdout=subprocess.PIPE,
+                                  text=True, env={**os.environ, "HELD": str(held)}, creationflags=windowless())
+        self.addCleanup(holder.stdout.close)
+        self.addCleanup(lambda: subprocess.run(["taskkill", "/T", "/F", "/PID", str(holder.pid)], capture_output=True,
+                                               creationflags=windowless()))
+        self.assertEqual(holder.stdout.readline().strip(), "held")
+        for args in (["-Remove"], ["-Distro", "Ubuntu", "-Icon", str(self.icon)]):
+            with self.subTest(args[0]):
+                done = self.shortcut(*args)
+                self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+                self.assertIn(f"{held.name} cannot be read now (held open by another program)", done.stdout)
+                self.assertEqual(self.snapshot(skip=(held.name,)),
+                                 {k: v for k, v in before.items() if k != f"desk/{held.name}"})
+                self.assertTrue(held.exists())
+
+    def test_recovery_never_restores_another_projects_link(self):
+        # Round 1 (chain 2): a journal naming another project's moved-aside link cannot put it back.
+        self.install()
+        key = self.project_key()
+        theirs = self.desk / "Other campaign.lnk"
+        self.foreign_link(theirs)
+        aside = theirs.with_name(f"{theirs.name}.{self.DEAD}.old")
+        theirs.rename(aside)  # another project's run stopped with it moved aside
+        journal = self.state / f"campaign-{key}.{self.DEAD}.journal.json"
+        self.state.mkdir(exist_ok=True)
+        journal.write_text(json.dumps({"state": "swapping", "temps": [], "moves": [],
+                                       "aside": [{"to": str(theirs), "old": str(aside)}]}), encoding="utf-8")
+        self.shortcut("-Distro", "Arch", "-Icon", str(self.icon))
+        self.assertTrue(aside.exists())
+        self.assertFalse(theirs.exists())
+
+    def test_one_unreadable_journal_holds_a_valid_one_too(self):
+        # Round 1 (chain 2): every journal is checked before any is played.
+        self.install()
+        journal = self.stopped_rename("swapping")
+        stopped = self.snapshot()
+        truncated = journal.with_name(journal.name.replace(f".{self.DEAD}.", f".{self.DEAD + 4}."))
+        truncated.write_text('{"state": "swapping", "aside": [', encoding="utf-8")
+        for args in (["-Remove"], ["-Distro", "Ubuntu", "-Icon", str(self.icon)]):
+            with self.subTest(args[0]):
+                done = self.shortcut(*args)
+                self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+                self.assertIn(f"{truncated.name} cannot be read", done.stdout)
+                self.assertEqual(self.snapshot(), stopped)
+                self.assertTrue(journal.exists())
+
+    def test_a_stopped_run_is_found_whatever_icon_folder_the_next_run_is_given(self):
+        # Round 1 (chain 2): the lock and the journals are the project's, not one icon folder's.
+        self.install()
+        before = self.snapshot()
+        journal = self.stopped_rename("swapping")
+        record = json.loads(journal.read_text(encoding="utf-8"))
+        record.update(desk=str(self.desk), icons=str(self.icons))  # where the stopped run worked
+        journal.write_text(json.dumps(record), encoding="utf-8")
+        other = Path(self._tmp.name) / "other-icons"
+        script = str(self.project / "scripts" / "unattended-shortcut.ps1")
+        command = [PWSH, "-NoProfile", "-NonInteractive", "-File", script, "-ShortcutDir", str(self.desk),
+                   "-IconDir", str(other), "-StateDir", str(self.state), "-Desktops",
+                   str(Path(self._tmp.name) / "desktops"), "-Wsl", str(self.wsl), "-Python", sys.executable,
+                   "-Distro", "Arch", "-Icon", str(self.icon)]
+        done = subprocess.run(command, capture_output=True, text=True, timeout=180, env=self.env,
+                              creationflags=windowless())
+        self.assertIn("restored: ", done.stdout, done.stdout + done.stderr)
+        self.assertEqual((self.snapshot(), self.journal_of()), (before, []))
+
+    def test_a_hidden_or_oddly_named_link_is_still_this_projects(self):
+        # Round 1 (chain 2): every .lnk is looked at, hidden ones too, whatever its name.
+        self.install()
+        claude = self.desk / "My Proj's Claude campaign.lnk"
+        odd = self.desk / "Work.123.tmp.lnk"
+        claude.rename(odd)
+        carbon = self.desk / "My Proj's Carbon campaign.lnk"
+        subprocess.run(["attrib", "+h", str(carbon)], check=True, capture_output=True, creationflags=windowless())
+        done = self.shortcut("-Remove")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual((sorted(p.name for p in self.desk.iterdir()), list(self.icons.glob("*.ico"))), ([], []))
+
+    def test_a_lock_that_cannot_be_opened_is_said_as_it_is(self):
+        # Round 1 (chain 2): only another run holding it means another run; any other failure is its own message.
+        self.install()
+        lock = self.state / f"campaign-{self.project_key()}.lock"
+        lock.mkdir(parents=True)  # a folder where the lock goes: it cannot be opened as a file
+        started = time.monotonic()
+        done = self.shortcut("-Remove")
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn(f"the lock '{lock}' cannot be opened", done.stdout)
+        self.assertLess(time.monotonic() - started, 20, "it waited as if another run held the lock")
+
+    def test_remove_keeps_the_journal_it_wrote_while_a_file_it_moved_aside_is_held(self):
+        # Round 1 (chain 2): the journal -Remove itself writes names every file it moved aside.
+        self.install()
+        key = self.project_key()
+        for _ in range(5):  # the hold must land between the file's move aside and its deletion
+            stop, held = threading.Event(), []
+
+            def hold():
+                while not stop.is_set():
+                    found = list(self.icons.glob("*.old"))
+                    if found:
+                        try:
+                            with open(found[0], "rb"):
+                                held.append(found[0])
+                                stop.wait(60)
+                        except OSError:  # it went first: this attempt lost the race, and retries
+                            pass
+                        return
+                    time.sleep(0.0005)
+
+            watcher = threading.Thread(target=hold)
+            watcher.start()
+            done = self.shortcut("-Remove")
+            stop.set()
+            watcher.join()
+            if held and done.returncode == 1:
+                break
+            self.shortcut("-Remove")
+            self.install()
+        else:
+            self.fail("the hold never landed between a file's move aside and its deletion")
+        (journal,) = self.journal_of()
+        record = json.loads(journal.read_text(encoding="utf-8"))
+        self.assertEqual(record["state"], "committed")
+        self.assertEqual(sorted(Path(a["to"]).name for a in record["aside"]),
+                         sorted(["My Proj's Carbon campaign.lnk", "My Proj's Claude campaign.lnk",
+                                 f"campaign-agy-{key}.ico", f"campaign-claude-{key}.ico"]))
+        done = self.shortcut("-Remove")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual((sorted(p.name for p in self.desk.iterdir()), self.journal_of()), ([], []))
 
     def test_remove_in_one_distro_leaves_an_old_key_badge_another_distros_link_shows(self):
         # Reconciliation 11: one Linux path in two distros shared the old key; their desktops may differ.
@@ -1152,7 +1297,7 @@ class CampaignTitleTest(ShortcutFixture):
         self.assertEqual(sorted(p.name for p in self.icons.glob(f"campaign-*-{old_key}.ico")), theirs)
 
     def journal_of(self):
-        return list(self.icons.glob("campaign-*.journal.json"))
+        return list(self.state.glob("campaign-*.journal.json"))
 
     def test_a_moved_in_link_held_open_keeps_the_journal_until_it_can_go(self):
         # Reconciliation 4: recovery restored every original, but the new link it could not take out stayed.
