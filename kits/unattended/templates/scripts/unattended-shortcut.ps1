@@ -50,11 +50,32 @@ $recordPath = Join-Path $root 'build\unattended-shortcuts.json'
 function Get-DeskKey([string]$dir) { [IO.Path]::GetFullPath($dir).TrimEnd('\').ToLowerInvariant() }
 # The record's sets (none without a record); a record that cannot be read sets $recordUnread to why.
 $recordUnread = $null
+# A record is read by its shape, not by whether it parses: it is an object whose `sets` is a list, each set an object
+# with `args.ShortcutDir` text and a `links` list. Anything else (empty, blank, `null`, a list, a set without its
+# folder) is unreadable, and is kept as it is (D02 T02 §12: reconciliations 1 and 7 found two ways a damaged record
+# passed as an empty one).
+function Get-RecordFault($data) {
+  if ($data -isnot [Management.Automation.PSCustomObject]) { return 'it is not an object' }
+  if ($data.PSObject.Properties.Name -notcontains 'sets' -or $data.sets -isnot [array]) {
+    return 'it holds no list of sets'
+  }
+  foreach ($entry in $data.sets) {
+    if ($entry -isnot [Management.Automation.PSCustomObject] -or
+        $entry.args -isnot [Management.Automation.PSCustomObject] -or
+        $entry.args.ShortcutDir -isnot [string] -or -not $entry.args.ShortcutDir -or $entry.links -isnot [array]) {
+      return 'a set in it names no folder or no list of links'
+    }
+  }
+}
 function Read-Sets {
   if (-not (Test-Path -LiteralPath $recordPath -PathType Leaf)) { return }
-  try { $data = Get-Content -LiteralPath $recordPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop }
-  catch { $script:recordUnread = $_.Exception.Message; return }
-  $data.sets | Where-Object { $_.args.ShortcutDir }
+  try {
+    $text = Get-Content -LiteralPath $recordPath -Raw -ErrorAction Stop
+    $data = if ($text -and $text.Trim()) { ConvertFrom-Json -InputObject $text -ErrorAction Stop }
+  } catch { $script:recordUnread = $_.Exception.Message; return }
+  $fault = if ($null -eq $data) { 'it is empty' } else { Get-RecordFault $data }
+  if ($fault) { $script:recordUnread = $fault; return }
+  $data.sets
 }
 $set = $null
 if ($Refresh -or $Check) {

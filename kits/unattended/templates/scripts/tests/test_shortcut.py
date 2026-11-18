@@ -495,7 +495,8 @@ class ShortcutTest(ShortcutFixture):
         holder = open(self.state / f"campaign-{key}.lock", "a")  # any open handle blocks the run's unshared one
         try:
             waiting = start_tree(
-                [PWSH, "-NoProfile", "-NonInteractive", "-File", str(self.project / "scripts" / "unattended-shortcut.ps1"),
+                [PWSH, "-NoProfile", "-NonInteractive", "-File",
+                 str(self.project / "scripts" / "unattended-shortcut.ps1"),
                  "-Refresh", "-IconDir", str(self.icons), "-Desktops", str(Path(self._tmp.name) / "desktops"),
                  "-Wsl", str(self.wsl), "-Python", sys.executable],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=self.env, creationflags=windowless())
@@ -544,6 +545,31 @@ class ShortcutTest(ShortcutFixture):
         self.install()
         self.assertTrue(self.run.shortcut_state(self.project).startswith("current as recorded"))
         self.assertEqual(self.shortcut("-Check").returncode, 0)
+
+    def test_every_damaged_record_is_kept_and_holds_the_badges(self):
+        # The class, not the case (reconciliations 1 and 7): a record is judged by its shape. Each of these is
+        # unreadable: an install keeps it, a removal keeps it and the badges, and -Check says to move it aside.
+        record = self.project / "build" / "unattended-shortcuts.json"
+        damaged = ["", "   \n", "null", "[]", "{}", '{"sets": 1}', '{"sets": [1]}', '{"sets": [{"links": []}]}',
+                   '{"sets": [{"args": {"ShortcutDir": ""}, "links": []}]}',
+                   '{"sets": [{"args": {"ShortcutDir": "C:\\\\d"}, "links": 1}]}']
+        for text in damaged:
+            with self.subTest(record=text):
+                record.parent.mkdir(exist_ok=True)
+                record.write_text(text, encoding="utf-8")
+                done = self.install()
+                self.assertIn("cannot be read", done.stdout)
+                self.assertEqual(record.read_text(encoding="utf-8"), text)
+                checked = self.shortcut("-Check")
+                self.assertEqual(checked.returncode, 1, checked.stdout + checked.stderr)
+                self.assertIn("move it aside", checked.stdout)
+                removed = self.shortcut("-Remove")
+                self.assertEqual(removed.returncode, 0, removed.stdout + removed.stderr)
+                self.assertEqual(record.read_text(encoding="utf-8"), text)
+                self.assertTrue(list(self.icons.glob("campaign-*.ico")),
+                                "a removal under a damaged record took the badges")
+                for badge in self.icons.glob("campaign-*.ico"):
+                    badge.unlink()
 
     def test_check_names_a_stopped_run_and_plays_no_journal(self):
         # Round 1 of the review: -Check played a stopped run's journal before reading the links.
