@@ -1844,7 +1844,8 @@ def _close_windows_job(job) -> None:
 
 
 def _kill_tagged(tag: str) -> None:
-    """End every surviving POSIX process whose environment carries `CONCLAVE_CHECK_ALL_TAG=<tag>` (even detached sessions)."""
+    """End every surviving POSIX process whose environment carries `CONCLAVE_CHECK_ALL_TAG=<tag>`, or `<tag>` among the
+    comma-separated `CONCLAVE_CHECK_ALL_OUTER` (a suite run inside this one), even in a detached session."""
     if os.name == "nt":
         return
     import signal
@@ -1866,7 +1867,7 @@ def _kill_tagged(tag: str) -> None:
                     continue
                 try:
                     with open(f"/proc/{entry}/environ", "rb") as handle:
-                        if needle_bytes in handle.read().split(b"\0"):
+                        if _tagged(handle.read().split(b"\0"), needle_bytes, tag.encode()):
                             os.kill(pid, signal.SIGKILL)
                 except OSError:
                     continue
@@ -1882,11 +1883,22 @@ def _kill_tagged(tag: str) -> None:
         pid = int(parts[0])
         if pid == self_pid or pid <= 1:
             continue
-        if needle in parts[1].split():
+        if _tagged([word.encode() for word in parts[1].split()], needle_bytes, tag.encode()):
             try:
                 os.kill(pid, signal.SIGKILL)
             except OSError:
                 continue
+
+
+OUTER_TAGS = "CONCLAVE_CHECK_ALL_OUTER"  # the tags of the suites a suite runs inside, comma-separated
+
+
+def _tagged(entries: list, needle: bytes, tag: bytes) -> bool:
+    """Whether a process's environment entries carry `tag`: as its own suite's tag, or as an outer suite's."""
+    if needle in entries:
+        return True
+    prefix = OUTER_TAGS.encode() + b"="
+    return any(entry.startswith(prefix) and tag in entry[len(prefix):].split(b",") for entry in entries)
 
 
 def _kill_tree(proc: subprocess.Popen, job=None, tag: str | None = None) -> None:
@@ -3443,7 +3455,10 @@ def _run_suite(suite: dict, env: dict, cwd: Path) -> dict:
 
     group = _own_group()
     tag = os.urandom(8).hex()
-    suite_env = {**env, "CONCLAVE_CHECK_ALL_TAG": tag}
+    # A suite run inside another (a test that runs a kit's suite) keeps the outer suite's tag too, so ending the outer
+    # suite ends this one, whatever session it is in.
+    outer = [t for t in env.get(OUTER_TAGS, "").split(",") + [env.get("CONCLAVE_CHECK_ALL_TAG", "")] if t]
+    suite_env = {**env, "CONCLAVE_CHECK_ALL_TAG": tag, **({OUTER_TAGS: ",".join(outer)} if outer else {})}
     job = None
     proc = None
     try:

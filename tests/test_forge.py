@@ -51,31 +51,13 @@ def written_files():
 
 
 def run_kit_suite(folder, timeout):
-    """(exit code, output) of `python -m unittest discover -s folder`, run as `check-all` runs a suite: in a process
-    group of its own, every process tagged (CONCLAVE_CHECK_ALL_TAG), and on a timeout or an interrupt its whole tree
-    ended, a fixture that started a session of its own included; a tagged process left after a clean finish is ended
-    too. The exit code is None when the suite ran past `timeout`, which only catches a hang."""
-    tag = uuid.uuid4().hex
-    proc = subprocess.Popen([sys.executable, "-B", "-m", "unittest", "discover", "-s", str(folder)],
-                            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            env={**os.environ, "CONCLAVE_CHECK_ALL_TAG": tag}, **forge._own_group())
-
-    def end_tree():
-        forge._kill_tree(proc, tag=tag)
-        try:
-            return proc.communicate(timeout=5)[0]  # bounded: a process that left the tree may hold the pipe
-        except subprocess.TimeoutExpired:
-            return b""
-
-    try:
-        out = proc.communicate(timeout=timeout)[0]
-    except subprocess.TimeoutExpired:
-        return None, end_tree().decode("utf-8", "replace") + f"\n(no end within {timeout} seconds)"
-    except BaseException:
-        end_tree()
-        raise
-    forge._kill_tagged(tag)
-    return proc.returncode, out.decode("utf-8", "replace")
+    """(exit code, the end of its output) of `python -m unittest discover -s folder`, run through check-all's own
+    runner (`forge._run_suite`): its own process group (a Windows job object), every process tagged, the whole tree
+    ended on a timeout or an interrupt, a tagged straggler ended after it, and only the end of its output kept. The exit
+    code is None when the suite ran past `timeout`, which only catches a hang."""
+    result = forge._run_suite(forge._unittest_suite("kit", str(folder), timeout), dict(os.environ), FORGE_ROOT)
+    timed_out = result["reason"].startswith("timed out")
+    return (None if timed_out else result["exit"]), result["tail"] + (f"\n({result['reason']})" if timed_out else "")
 
 
 def provisioned_mode(posix_mode):
@@ -145,6 +127,37 @@ class RunKitSuiteTest(unittest.TestCase):
             else:
                 time.sleep(0.5)
                 self.assertFalse(pathlib.Path(f"/proc/{pid}").exists(), "the suite's child outlived it")
+
+
+class OuterTagTest(unittest.TestCase):
+    """A suite run inside another keeps the outer suite's tag, so ending the outer suite ends it too (the review of the
+    fresh-install suite budget, round 2)."""
+
+    def test_a_nested_suite_carries_the_tag_of_the_suite_it_runs_in(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = pathlib.Path(tmp)
+            seen = folder / "env.json"
+            (folder / "test_env.py").write_text(
+                "import json, os, pathlib, unittest\n"
+                "class T(unittest.TestCase):\n"
+                "    def test_env(self):\n"
+                f"        pathlib.Path({str(seen)!r}).write_text(json.dumps({{k: v for k, v in os.environ.items()"
+                " if k.startswith('CONCLAVE_CHECK_ALL')}))\n", encoding="utf-8")
+            env = {**os.environ, "CONCLAVE_CHECK_ALL_TAG": "outer2", "CONCLAVE_CHECK_ALL_OUTER": "outer1"}
+            result = forge._run_suite(forge._unittest_suite("t", str(folder), 120), env, FORGE_ROOT)
+            self.assertTrue(result["passed"], result)
+            got = json.loads(seen.read_text(encoding="utf-8"))
+            self.assertEqual(got["CONCLAVE_CHECK_ALL_OUTER"], "outer1,outer2")
+            self.assertNotIn(got["CONCLAVE_CHECK_ALL_TAG"], ("outer1", "outer2"))
+
+    @unittest.skipIf(os.name == "nt", "the tagged sweep is POSIX's; Windows ends a suite's tree through its job object")
+    def test_ending_an_outer_tag_ends_a_process_that_carries_it_as_an_outer_tag(self):
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"], start_new_session=True,
+                                 env={**os.environ, "CONCLAVE_CHECK_ALL_TAG": "inner",
+                                      "CONCLAVE_CHECK_ALL_OUTER": "a,outer9"})
+        self.addCleanup(lambda: child.poll() is None and child.kill())
+        forge._kill_tagged("outer9")
+        self.assertIsNotNone(child.wait(timeout=10))
 
 
 class ForgeProvisionTests(unittest.TestCase):
