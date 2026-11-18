@@ -1316,6 +1316,28 @@ class CampaignTitleTest(ShortcutFixture):
                 journal.unlink()
                 temp.unlink(missing_ok=True)
 
+    def test_a_journal_naming_another_projects_file_as_its_temporary_file_holds_every_change(self):
+        # Reconciliation 3 (chain 2): a temporary file is checked for its owner like every file a journal names.
+        self.install()
+        key = self.project_key()
+        self.state.mkdir(parents=True, exist_ok=True)
+        for n, args in enumerate((["-Distro", "Ubuntu", "-Icon", str(self.icon)], ["-Remove"])):
+            with self.subTest(args[0]):
+                owner = self.DEAD + 4 * n
+                theirs = self.desk / f"Demo Site Claude campaign.{owner}.tmp.lnk"  # another project's link
+                self.foreign_link(theirs)
+                before = self.snapshot()
+                moves = [{"from": str(theirs), "to": str(self.desk / "Demo Site Claude campaign.lnk")}]
+                journal = self.state / f"campaign-{key}.{owner}.journal.json"
+                journal.write_text(json.dumps({"state": "swapping", "temps": [str(theirs)], "moves": moves,
+                                               "aside": []}), encoding="utf-8")
+                done = self.shortcut(*args)
+                self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+                self.assertIn(f"names {theirs}, which is not this project's", done.stdout)
+                self.assertEqual((self.snapshot(), journal.exists()), (before, True))
+                journal.unlink()
+                theirs.unlink()
+
     def test_remove_in_one_distro_leaves_an_old_key_badge_another_distros_link_shows(self):
         # Reconciliation 11: one Linux path in two distros shared the old key; their desktops may differ.
         other_desk = Path(self._tmp.name) / "desk2"

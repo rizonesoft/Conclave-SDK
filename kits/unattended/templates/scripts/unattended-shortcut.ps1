@@ -331,11 +331,14 @@ function Restore-Stopped {
     # A file it would take out or put back that is not this project's (another project's link at a moved-in name, a
     # planted record) holds it whole, as an unreadable one does: a run cannot tell a race from a planted record, so it
     # changes nothing over either until the file or the journal is moved away.
-    # Whether or not its own file was moved in yet: a destination that holds another project's file is not this run's.
+    # Every file it names (a destination, whether or not its own file was moved in yet; a file moved aside; a temporary
+    # file) that holds another project's file is not this run's to touch.
     $foreign = @(@($record.moves | Where-Object { (Test-Path -LiteralPath $_.to) -and -not (Test-Mine $_.to) } |
         ForEach-Object { $_.to }) +
       @($record.aside | Where-Object { (Test-Path -LiteralPath $_.old) -and -not (Test-Mine $_.old) } |
-        ForEach-Object { $_.old }))
+        ForEach-Object { $_.old }) +
+      @(@($record.moves | ForEach-Object { $_.from }) + @($record.temps) | Select-Object -Unique |
+        Where-Object { $_ -and (Test-Path -LiteralPath $_) -and -not (Test-Mine $_) }))
     if ($foreign) {
       "unattended-shortcut: $($file.FullName) names $($foreign -join ', '), which is not this project's: the journal " +
         'and those files are left as they are, and no run changes this project''s links until one is moved away'
