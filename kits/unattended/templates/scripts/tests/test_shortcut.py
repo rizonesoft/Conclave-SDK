@@ -456,6 +456,34 @@ class ShortcutTest(ShortcutFixture):
         self.assertTrue(journal.exists(), "-Check played the journal")
         self.assertEqual(self.every_file(), before)
 
+    def test_check_plays_no_journal_a_stopped_run_leaves_after_its_scan(self):
+        # Reconciliation 3 and 4: -Check scanned for journals, found none, then reached the recovery, which scans again
+        # and would play a journal a stopped writer left in between. A stand-in for Get-ChildItem (a function wins over
+        # the cmdlet) makes the first journal scan come back empty and leaves a partial journal for any later one.
+        self.install()
+        key = next(self.icons.glob("campaign-claude-*.ico")).stem.rsplit("-", 1)[1]
+        partial = self.state / f"campaign-{key}.999999.journal.json.tmp"
+        wrapper = (
+            "$global:journalScans = 0\n"
+            "function Get-ChildItem {\n"
+            "  if ($args -contains '-Filter' -and ($args[[array]::IndexOf($args, '-Filter') + 1]) -like '*journal.json*') {\n"
+            "    $global:journalScans++\n"
+            "    if ($global:journalScans -eq 1) { Set-Content -LiteralPath $env:PARTIAL -Value '{'; return }\n"
+            "  }\n"
+            "  Microsoft.PowerShell.Management\\Get-ChildItem @args\n"
+            "}\n"
+            "& $env:SCRIPT -Check -ShortcutDir $env:DESK -IconDir $env:ICONS -Desktops $env:DESKTOPS -Wsl $env:WSL "
+            "-Python $env:PY\n"
+            "exit $LASTEXITCODE\n")
+        done = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", wrapper], capture_output=True,
+                              text=True, timeout=180, creationflags=windowless(),
+                              env={**self.env, "PARTIAL": str(partial), "DESK": str(self.desk), "ICONS": str(self.icons),
+                                   "DESKTOPS": str(Path(self._tmp.name) / "desktops"), "WSL": str(self.wsl),
+                                   "PY": sys.executable,
+                                   "SCRIPT": str(self.project / "scripts" / "unattended-shortcut.ps1")})
+        self.assertTrue(partial.exists(), "-Check played a journal left after its scan: " + done.stdout + done.stderr)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
     def test_two_folders_keep_a_set_each(self):
         self.install()
         other = Path(self._tmp.name) / "desk2"
