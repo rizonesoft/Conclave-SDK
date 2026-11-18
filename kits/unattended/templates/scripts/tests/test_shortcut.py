@@ -968,6 +968,26 @@ class CampaignTitleTest(ShortcutFixture):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual((sorted(p.name for p in self.desk.iterdir()), self.journal_of()), ([], []))
 
+    def test_an_install_waits_while_a_stopped_run_is_not_finished(self):
+        # Reconciliation 9: a set written over a kept journal would be undone when that journal plays again.
+        self.install()
+        before = self.snapshot()
+        journal = self.stopped_rename("swapping")
+        held = next(self.desk.glob("*.old"))
+        with open(held, "rb"):  # an original that cannot go back yet
+            done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon))
+            self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+            self.assertIn("a stopped run is not finished (see above); free what it names and run the script again",
+                          done.stdout)
+            self.assertEqual(self.journal_of(), [journal])  # the stopped run's journal only: this run wrote nothing
+        done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon))  # released: the stop finishes, then the set
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.journal_of(), [])
+        self.assertEqual(self.links(), ["My Proj's Carbon campaign.lnk", "My Proj's Claude campaign.lnk"])
+        self.assertEqual(sorted(self.snapshot()), sorted(before))
+        self.shortcut("-Distro", "Arch", "-Icon", str(self.icon))  # a later run changes nothing it wrote
+        self.assertEqual(self.links(), ["My Proj's Carbon campaign.lnk", "My Proj's Claude campaign.lnk"])
+
     def test_an_old_key_badge_another_link_shows_stays(self):
         # Reconciliation 6: the old script keyed badges by the -Project form alone, so another link may show one.
         linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]

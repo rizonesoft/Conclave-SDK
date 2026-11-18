@@ -289,6 +289,9 @@ if ($Remove) {
   exit 0
 }
 
+# A stopped run whose journal is kept (an original it cannot put back yet) is finished first: a new set written over
+# it would be undone when that journal is played again.
+if ($keptJournals) { Refuse "a stopped run is not finished (see above); free what it names and run the script again" }
 if (-not $Distro) { Refuse '-Distro names no WSL distro' }
 if (-not $Icon -or -not (Test-Path -LiteralPath $Icon -PathType Leaf)) { Refuse "-Icon is not a file: '$Icon'" }
 if (-not $Python) {
