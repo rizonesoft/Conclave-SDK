@@ -11,6 +11,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -102,6 +103,57 @@ def windowless():
     return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
+def start_tree(argv, **kwargs):
+    """Start a child in a process group of its own, with no console window, so `end_tree` can end everything it
+    starts (pwsh starts Python and the WSL stand-in)."""
+    kwargs.pop("creationflags", None)
+    if os.name == "nt":
+        kwargs["creationflags"] = windowless() | subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        kwargs["start_new_session"] = True
+    return subprocess.Popen(argv, **kwargs)
+
+
+def end_tree(proc):
+    """End a child started by `start_tree` and every process it started: `taskkill /T` while it still lives on
+    Windows, its process group elsewhere (a timeout of subprocess.run ends only the direct child)."""
+    if proc.poll() is None:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True,
+                           creationflags=windowless())
+        else:
+            import signal
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
+def run_tree(argv, *, timeout, input=None, check=False, **kwargs):
+    """subprocess.run's result for `argv`, its output captured, its whole tree ended on a timeout or an interrupt
+    (D02 T02 §12, reconciliation 5): every process a test here starts goes through this or `start_tree`."""
+    kwargs.pop("capture_output", None)
+    proc = start_tree(argv, stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
+                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs)
+    try:
+        out, err = proc.communicate(input, timeout=timeout)
+    except BaseException:
+        end_tree(proc)
+        try:
+            proc.communicate(timeout=5)  # bounded: a process that left the tree may hold the pipes
+        except subprocess.TimeoutExpired:
+            pass
+        raise
+    done = subprocess.CompletedProcess(argv, proc.returncode, out, err)
+    if check:
+        done.check_returncode()
+    return done
+
+
 def load(name, path):
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None and spec.loader is not None
@@ -189,7 +241,7 @@ class ShortcutFixture(unittest.TestCase):
                    "-ShortcutDir", str(desk or self.desk), *(["-IconDir", str(self.icons)] if icon_dir else []),
                    "-Desktops", str(desktops), "-Wsl", str(self.wsl),
                    "-Python", sys.executable, *args]
-        return subprocess.run(command, capture_output=True, text=True, timeout=180,
+        return run_tree(command, capture_output=True, text=True, timeout=180,
                               env={**self.env, **getattr(self, "extra_env", {}), **env}, creationflags=windowless())
 
     def read_link(self, path):
@@ -199,7 +251,7 @@ class ShortcutFixture(unittest.TestCase):
                   "$s = [Conclave.ShellLink]::Read($env:LINK_PATH); "
                   "@{target = $s.Target; arguments = $s.Arguments; icon = \"$($s.IconPath),$($s.IconIndex)\"; "
                   "description = $s.Description} | ConvertTo-Json -Compress")
-        done = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True,
+        done = run_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True,
                               text=True, encoding="utf-8", timeout=60,
                               env={**os.environ, "LINK_PATH": str(path), "LINK_CODE": str(LINK_CODE)},
                               creationflags=windowless())
@@ -208,7 +260,7 @@ class ShortcutFixture(unittest.TestCase):
 
     def set_description(self, path, text, icon=None):
         """Rewrite a link's mark, and its icon when `icon` is given, through the kit's IShellLinkW."""
-        done = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command",
+        done = run_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command",
                                "Add-Type -Path $env:LINK_CODE; $s = [Conclave.ShellLink]::Read($env:LINK_PATH); "
                                "$s.Description = $env:LINK_MARK; if ($env:LINK_ICON) { $s.IconPath = $env:LINK_ICON }; "
                                "[Conclave.ShellLink]::Write($env:LINK_PATH, $s)"],
@@ -246,8 +298,42 @@ class ShortcutFixture(unittest.TestCase):
 
     def activate(self, link, **env):
         """The link's own target and arguments, as Windows runs them on a double-click, windowless, Enter typed."""
-        return subprocess.run(f'"{link["target"]}" {link["arguments"]}', input="\n", capture_output=True, text=True,
+        return run_tree(f'"{link["target"]}" {link["arguments"]}', input="\n", capture_output=True, text=True,
                               timeout=120, env={**self.env, **env}, creationflags=windowless())
+
+
+class ProcessTreeTest(unittest.TestCase):
+    """Reconciliation 5 of D02 T02 §12: a timeout ended only the pwsh a test started, never what it started."""
+
+    def test_a_timeout_ends_the_childs_whole_tree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pid_file = Path(tmp) / "grandchild.pid"
+            detach = ("creationflags=subprocess.CREATE_NO_WINDOW" if os.name == "nt" else "start_new_session=False")
+            code = ("import pathlib, subprocess, sys, time\n"
+                    f"child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'], {detach})\n"
+                    f"pathlib.Path({str(pid_file)!r}).write_text(str(child.pid))\n"
+                    "time.sleep(300)\n")
+            with self.assertRaises(subprocess.TimeoutExpired):
+                run_tree([sys.executable, "-c", code], timeout=5)
+            pid = int(pid_file.read_text())
+            time.sleep(0.5)
+            if os.name == "nt":
+                listed = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True,
+                                        creationflags=windowless()).stdout
+                self.assertNotIn(f" {pid} ", listed, "the grandchild outlived the timeout")
+            else:
+                self.assertFalse(Path(f"/proc/{pid}").exists(), "the grandchild outlived the timeout")
+
+    def test_every_process_this_file_starts_goes_through_the_tree_helpers(self):
+        # The class, not the case: any later test that calls subprocess.run or Popen directly fails here, unless it
+        # starts a program with no children (attrib, taskkill, tasklist).
+        source = Path(__file__).read_text(encoding="utf-8")
+        bare = [line.strip() for line in source.splitlines()
+                if re.search(r"subprocess\.(run|Popen)\(", line) and "re.search" not in line
+                and not line.strip().startswith(("f\"", "\"", "'"))  # code a test hands a child, as text
+                and not re.search(r"subprocess\.(run|Popen)\(\[\"(attrib|taskkill|tasklist)\"", line)
+                and "return subprocess.Popen(argv, **kwargs)" not in line]
+        self.assertEqual(bare, [])
 
 
 @unittest.skipUnless(os.name == "nt" and PWSH, "a .lnk shortcut and IShellLinkW are Windows's (PowerShell 7)")
@@ -359,7 +445,7 @@ class ShortcutTest(ShortcutFixture):
         path = self.desk / "My Proj's - Watch run.lnk"
         script = ("Add-Type -Path $env:LINK_CODE; $s = [Conclave.ShellLink]::Read($env:LINK_PATH); "
                   "$s.Arguments = '-NoLogo -Command exit'; [Conclave.ShellLink]::Write($env:LINK_PATH, $s)")
-        edited = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True,
+        edited = run_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True,
                                 text=True, timeout=60, creationflags=windowless(),
                                 env={**os.environ, "LINK_PATH": str(path), "LINK_CODE": str(LINK_CODE)})
         self.assertEqual(edited.returncode, 0, edited.stderr)
@@ -390,11 +476,12 @@ class ShortcutTest(ShortcutFixture):
         key = next(self.icons.glob("campaign-claude-*.ico")).stem.rsplit("-", 1)[1]
         holder = open(self.state / f"campaign-{key}.lock", "a")  # any open handle blocks the run's unshared one
         try:
-            waiting = subprocess.Popen(
+            waiting = start_tree(
                 [PWSH, "-NoProfile", "-NonInteractive", "-File", str(self.project / "scripts" / "unattended-shortcut.ps1"),
                  "-Refresh", "-IconDir", str(self.icons), "-Desktops", str(Path(self._tmp.name) / "desktops"),
                  "-Wsl", str(self.wsl), "-Python", sys.executable],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=self.env, creationflags=windowless())
+            self.addCleanup(end_tree, waiting)
             time.sleep(1.5)  # it has read the record and waits for the lock (it tries for five seconds)
             saved = json.loads(record.read_text(encoding="utf-8"))
             saved["sets"][0]["written"] = "2000-01-01T00:00:00Z"  # another run wrote the set meanwhile
@@ -475,7 +562,7 @@ class ShortcutTest(ShortcutFixture):
             "& $env:SCRIPT -Check -ShortcutDir $env:DESK -IconDir $env:ICONS -Desktops $env:DESKTOPS -Wsl $env:WSL "
             "-Python $env:PY\n"
             "exit $LASTEXITCODE\n")
-        done = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", wrapper], capture_output=True,
+        done = run_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command", wrapper], capture_output=True,
                               text=True, timeout=180, creationflags=windowless(),
                               env={**self.env, "PARTIAL": str(partial), "DESK": str(self.desk), "ICONS": str(self.icons),
                                    "DESKTOPS": str(Path(self._tmp.name) / "desktops"), "WSL": str(self.wsl),
@@ -493,7 +580,7 @@ class ShortcutTest(ShortcutFixture):
         folders = sorted(s["args"]["ShortcutDir"] for s in json.loads(record.read_text(encoding="utf-8"))["sets"])
         self.assertEqual(folders, sorted([str(self.desk), str(other)]))
         # -Refresh without a folder names a command for each; with one, it writes that one.
-        both = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-File",
+        both = run_tree([PWSH, "-NoProfile", "-NonInteractive", "-File",
                                str(self.project / "scripts" / "unattended-shortcut.ps1"), "-Refresh",
                                "-Desktops", str(Path(self._tmp.name) / "desktops"), "-Wsl", str(self.wsl),
                                "-Python", sys.executable], capture_output=True, text=True, timeout=180, env=self.env,
@@ -525,7 +612,7 @@ class ShortcutTest(ShortcutFixture):
 
     def rendered_badge(self, kind):
         out = Path(self._tmp.name) / f"expected-{kind}.ico"
-        done = subprocess.run([sys.executable, "-B", str(RENDERER), "badge", str(self.icon), kind, str(out)],
+        done = run_tree([sys.executable, "-B", str(RENDERER), "badge", str(self.icon), kind, str(out)],
                               capture_output=True, text=True, timeout=120, creationflags=windowless())
         self.assertEqual(done.returncode, 0, done.stderr)
         return out.read_bytes()
@@ -556,10 +643,10 @@ class ShortcutTest(ShortcutFixture):
         # Round 1 of D02 T02 §10: a drive gone or a distro removed fails before bash, whose own wait cannot run.
         self.install()
         link = self.read_link(self.desk / "My Proj's Claude campaign.lnk")
-        waiting = subprocess.Popen(f'"{link["target"]}" {link["arguments"]}', stdin=subprocess.PIPE,
+        waiting = start_tree(f'"{link["target"]}" {link["arguments"]}', stdin=subprocess.PIPE,
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                    env={**self.env, "STUB_WSL_FAIL": "1"}, creationflags=windowless())
-        self.addCleanup(lambda: waiting.poll() is None and waiting.kill())
+        self.addCleanup(end_tree, waiting)
         time.sleep(5)
         self.assertIsNone(waiting.poll(), "the window closed without waiting for Enter")
         out, _ = waiting.communicate("\n", timeout=60)  # Enter: it closes
@@ -582,7 +669,7 @@ class ShortcutTest(ShortcutFixture):
         self.install()
         other = self.desk / "Other Claude campaign.lnk"
         shutil.copyfile(self.desk / "My Proj's Claude campaign.lnk", other)
-        done = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command",
+        done = run_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command",
                                "Add-Type -Path $env:LINK_CODE; $s = [Conclave.ShellLink]::Read($env:LINK_PATH); "
                                "$s.Description = 'conclave-unattended: D:\\elsewhere'; "
                                "[Conclave.ShellLink]::Write($env:LINK_PATH, $s)"],
@@ -838,7 +925,7 @@ class CampaignTitleTest(ShortcutFixture):
 
     def rendered_from(self, icon, agent):
         out = Path(self._tmp.name) / f"expected-{icon.stem}-{agent}.ico"
-        done = subprocess.run([sys.executable, "-B", str(RENDERER), "badge", str(icon), agent, str(out)],
+        done = run_tree([sys.executable, "-B", str(RENDERER), "badge", str(icon), agent, str(out)],
                               capture_output=True, text=True, timeout=120, creationflags=windowless())
         self.assertEqual(done.returncode, 0, done.stderr)
         return out.read_bytes()
@@ -1161,7 +1248,7 @@ class CampaignTitleTest(ShortcutFixture):
 
     def started(self, pid):
         """When the process `pid` started, as the script records it in a journal."""
-        done = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command",
+        done = run_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command",
                                f"(Get-Process -Id {pid}).StartTime.ToUniversalTime().Ticks"],
                               capture_output=True, text=True, timeout=60, creationflags=windowless())
         return done.stdout.strip()
@@ -1219,7 +1306,7 @@ class CampaignTitleTest(ShortcutFixture):
                   "& $env:SCRIPT -ShortcutDir $env:DESK -IconDir $env:ICONS -Wsl $env:WSL "
                   "-Python $env:PY "
                   "-Distro Arch -Icon $env:ICON")
-        done = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True,
+        done = run_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True,
                               text=True, timeout=180, creationflags=windowless(),
                               env={**self.env, "DEAD": str(self.DEAD), "DESK": str(self.desk), "ICONS": str(self.icons),
                                    "STATE": str(self.state),
@@ -1361,7 +1448,7 @@ class CampaignTitleTest(ShortcutFixture):
         """Another run of the project, holding its lock until the test ends."""
         key = Path(self.read_link(self.desk / "My Proj's Claude campaign.lnk")["icon"].rsplit(",", 1)[0]).stem
         lock = self.state / f"campaign-{key.split('-')[-1]}.lock"
-        holder = subprocess.Popen([PWSH, "-NoProfile", "-NonInteractive", "-Command",
+        holder = start_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command",
                                    "$f = [IO.FileStream]::new($env:LOCK, 'OpenOrCreate', 'ReadWrite', 'None'); "
                                    "[Console]::Out.WriteLine('held'); [Console]::Out.Flush(); Start-Sleep 120"],
                                   stdout=subprocess.PIPE, text=True, env={**os.environ, "LOCK": str(lock)},
@@ -1442,7 +1529,7 @@ class CampaignTitleTest(ShortcutFixture):
         held = self.desk / "My Proj's Carbon campaign.lnk"
         script = ("$f = [IO.FileStream]::new($env:HELD, 'Open', 'Read', 'None'); [Console]::Out.WriteLine('held'); "
                   "[Console]::Out.Flush(); Start-Sleep 120")
-        holder = subprocess.Popen([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], stdout=subprocess.PIPE,
+        holder = start_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], stdout=subprocess.PIPE,
                                   text=True, env={**os.environ, "HELD": str(held)}, creationflags=windowless())
         self.addCleanup(holder.stdout.close)
         self.addCleanup(lambda: subprocess.run(["taskkill", "/T", "/F", "/PID", str(holder.pid)], capture_output=True,
@@ -1502,7 +1589,7 @@ class CampaignTitleTest(ShortcutFixture):
                    "-IconDir", str(other), "-Desktops",
                    str(Path(self._tmp.name) / "desktops"), "-Wsl", str(self.wsl), "-Python", sys.executable,
                    "-Distro", "Arch", "-Icon", str(self.icon)]
-        done = subprocess.run(command, capture_output=True, text=True, timeout=180, env=self.env,
+        done = run_tree(command, capture_output=True, text=True, timeout=180, env=self.env,
                               creationflags=windowless())
         self.assertIn("restored: ", done.stdout, done.stdout + done.stderr)
         self.assertEqual((self.snapshot(), self.journal_of()), (before, []))
