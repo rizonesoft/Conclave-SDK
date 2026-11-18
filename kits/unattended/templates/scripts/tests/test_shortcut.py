@@ -430,6 +430,15 @@ class ShortcutTest(ShortcutFixture):
         self.assertEqual(self.links(), [])
         self.assertTrue(list(self.icons.glob("campaign-*.ico")), "a removal under an unreadable record took the badges")
         self.assertIn("the badges in", removed.stdout)
+        # The advice works when followed (the second reconciliation): move the record aside, run again, and the new
+        # record reads back as current.
+        refused = self.shortcut("-Check")
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("move it aside", refused.stdout)
+        record.rename(record.with_name("unattended-shortcuts.json.bad"))
+        self.install()
+        self.assertTrue(self.run.shortcut_state(self.project).startswith("current as recorded"))
+        self.assertEqual(self.shortcut("-Check").returncode, 0)
 
     def test_check_names_a_stopped_run_and_plays_no_journal(self):
         # Round 1 of the review: -Check played a stopped run's journal before reading the links.

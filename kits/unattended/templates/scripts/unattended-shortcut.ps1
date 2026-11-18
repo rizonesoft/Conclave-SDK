@@ -62,8 +62,9 @@ if ($Refresh -or $Check) {
   if ($Refresh -and $Check) { Refuse '-Refresh writes the links and -Check only reads them: give one' }
   $sets = @(Read-Sets)
   if ($recordUnread) {
-    Refuse ("the record of this project's shortcuts ($recordPath) cannot be read ($recordUnread): run the script " +
-      'with -Distro and -Icon to write them and it again')
+    Refuse ("the record of this project's shortcuts ($recordPath) cannot be read ($recordUnread); it is kept, since " +
+      "it may hold other folders' sets: move it aside (keep it to read those folders back), then run the script with " +
+      '-Distro and -Icon (and -ShortcutDir) for each folder, which writes a new one')
   }
   $verb = if ($Refresh) { '-Refresh' } else { '-Check' }
   if ($PSBoundParameters.ContainsKey('ShortcutDir')) {
@@ -526,7 +527,8 @@ function Save-Sets($entry) {
   $read = @(Read-Sets)
   if ($recordUnread) {
     "unattended-shortcut: the record $recordPath cannot be read ($recordUnread), so it is left as it is (it may hold " +
-      "other folders' sets); status cannot tell whether these links are current (-Check reads them)"
+      "other folders' sets); status cannot tell whether these links are current (-Check reads them). Move it aside " +
+      'and run the script again to start a new record'
     return
   }
   $others = @($read | Where-Object { $_ -and (Get-DeskKey $_.args.ShortcutDir) -ne (Get-DeskKey $ShortcutDir) })
