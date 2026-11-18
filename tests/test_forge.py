@@ -70,6 +70,20 @@ def suite_failure(result):
     return f"{result['reason']}\n{result['tail'][-2000:]}"
 
 
+
+def reclaim(pid):
+    """End a fixture's own grandchild by its id, read from the file it wrote: a test that finds it still running
+    fails, and this cleanup ends it so the failure leaves no process behind (D02 T02 §12, reconciliation 6)."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return
+    import signal
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:  # it has ended already, as the test expects
+        pass
+
+
 def provisioned_mode(posix_mode):
     """The mode atomic_write leaves on a file: exact on POSIX. Windows has no execute or group bits and keeps only
     the read-only flag, so a file forge wrote (always owner-writable) reads back as 0o666 there."""
@@ -122,14 +136,15 @@ class RunKitSuiteTest(unittest.TestCase):
                 "import pathlib, subprocess, sys, time, unittest\n"
                 "class T(unittest.TestCase):\n"
                 "    def test_hang(self):\n"
-                f"        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'], {detach})\n"
+                f"        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], {detach})\n"
                 f"        pathlib.Path({str(pid_file)!r}).write_text(str(child.pid))\n"
-                "        time.sleep(300)\n", encoding="utf-8")
+                "        time.sleep(60)\n", encoding="utf-8")
             started = time.monotonic()
             result = run_kit_suite(folder, 5)
             self.assertTrue(result["reason"].startswith("timed out"), result)
             self.assertLess(time.monotonic() - started, 60)
             pid = int(pid_file.read_text())
+            self.addCleanup(reclaim, pid)
             if os.name == "nt":
                 listed = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True,
                                         creationflags=subprocess.CREATE_NO_WINDOW).stdout

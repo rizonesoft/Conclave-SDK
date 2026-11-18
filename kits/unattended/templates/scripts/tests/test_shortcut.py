@@ -106,6 +106,20 @@ def windowless(group=False):
     return subprocess.CREATE_NO_WINDOW | (subprocess.CREATE_NEW_PROCESS_GROUP if group else 0)
 
 
+
+def reclaim(pid):
+    """End a fixture's own grandchild by its id, read from the file it wrote: a test that finds it still running
+    fails, and this cleanup ends it so the failure leaves no process behind (D02 T02 §12, reconciliation 6)."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True, creationflags=windowless())
+        return
+    import signal
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:  # it has ended already, as the test expects
+        pass
+
+
 def start_tree(argv, **kwargs):
     """Start a child in a process group of its own, with no console window, so `end_tree` can end everything it
     starts (pwsh starts Python and the WSL stand-in)."""
@@ -313,12 +327,13 @@ class ProcessTreeTest(unittest.TestCase):
             pid_file = Path(tmp) / "grandchild.pid"
             detach = ("creationflags=subprocess.CREATE_NO_WINDOW" if os.name == "nt" else "start_new_session=False")
             code = ("import pathlib, subprocess, sys, time\n"
-                    f"child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'], {detach})\n"
+                    f"child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], {detach})\n"
                     f"pathlib.Path({str(pid_file)!r}).write_text(str(child.pid))\n"
-                    "time.sleep(300)\n")
+                    "time.sleep(60)\n")
             with self.assertRaises(subprocess.TimeoutExpired):
                 run_tree([sys.executable, "-c", code], timeout=5)
             pid = int(pid_file.read_text())
+            self.addCleanup(reclaim, pid)
             time.sleep(0.5)
             if os.name == "nt":
                 listed = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True,
