@@ -3974,6 +3974,17 @@ class UnattendedKitTests(unittest.TestCase):
         self.assertEqual(probe.call_args.args[0][-1], "-Refresh")
         self.assertFalse(result["shortcuts"]["refreshed"])
         self.assertIn("were written before", result["shortcuts"]["detail"])
+        # From WSL the links cannot be reached: the result names the command to run on Windows (the completion review).
+        script.write_bytes(b"# the kit's earlier script\n")
+        kits["files"]["scripts/unattended-shortcut.ps1"]["sha256"] = forge.file_digest(script.read_bytes())
+        (self.target / ".conclave/kits.json").write_text(json.dumps(kits), encoding="utf-8")
+        probe.reset_mock()
+        with unittest.mock.patch.object(forge, "_probe", probe), \
+                unittest.mock.patch.object(forge, "_windows", return_value=False):
+            result = forge.update_project(self.target)
+        probe.assert_not_called()
+        self.assertEqual(result["shortcuts"], {"refreshed": False, "detail": "the links are on Windows: run "
+                                               f"{forge.SHORTCUT_REFRESH} there"})
 
     def test_the_documents_name_the_kit_and_the_sdk_does_not_install_it(self):
         self.assertNotIn("unattended", forge.SELF_KITS)

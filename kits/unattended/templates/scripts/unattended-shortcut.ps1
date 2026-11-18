@@ -465,23 +465,26 @@ function Restore-Stopped {
 }
 # One run of the project at a time: every run that changes links or plays a journal holds this lock for its life. It is
 # opened with no sharing and deleted when closed, so the system frees it when the process ends, however it ends.
-try { New-Item -ItemType Directory -Force -Path $StateDir | Out-Null }
-catch { Refuse "the state folder '$StateDir' cannot be made ($($_.Exception.Message))" }
-$lockPath = Join-Path $StateDir "campaign-$key.lock"
-$lock = $null
-for ($try = 0; $try -lt 20 -and -not $lock; $try++) {
-  try {
-    $lock = [IO.FileStream]::new($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite,
-      [IO.FileShare]::None, 1, [IO.FileOptions]::DeleteOnClose)
-  } catch {
-    $cause = $_.Exception
-    while ($cause.InnerException) { $cause = $cause.InnerException }
-    # 0x80070020: a sharing violation, another run holding the lock; any other failure is said as it is.
-    if ($cause.HResult -ne -2147024864) { Refuse "the lock '$lockPath' cannot be opened ($($cause.Message))" }
-    Start-Sleep -Milliseconds 250
+# -Check only reads, so it makes no state folder and takes no lock: it needs no right to write anywhere.
+if (-not $Check) {
+  try { New-Item -ItemType Directory -Force -Path $StateDir | Out-Null }
+  catch { Refuse "the state folder '$StateDir' cannot be made ($($_.Exception.Message))" }
+  $lockPath = Join-Path $StateDir "campaign-$key.lock"
+  $lock = $null
+  for ($try = 0; $try -lt 20 -and -not $lock; $try++) {
+    try {
+      $lock = [IO.FileStream]::new($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite,
+        [IO.FileShare]::None, 1, [IO.FileOptions]::DeleteOnClose)
+    } catch {
+      $cause = $_.Exception
+      while ($cause.InnerException) { $cause = $cause.InnerException }
+      # 0x80070020: a sharing violation, another run holding the lock; any other failure is said as it is.
+      if ($cause.HResult -ne -2147024864) { Refuse "the lock '$lockPath' cannot be opened ($($cause.Message))" }
+      Start-Sleep -Milliseconds 250
+    }
   }
+  if (-not $lock) { Refuse "another run of this project holds $lockPath; run the script again once it has ended" }
 }
-if (-not $lock) { Refuse "another run of this project holds $lockPath; run the script again once it has ended" }
 
 $keptJournals = 0
 $unreadJournals = 0
@@ -519,7 +522,14 @@ if ($unreadJournals) {
 # over the old. The links are in place, or gone, whatever happens here: a record that cannot be written is said, and
 # `status` cannot then tell a stale link (-Check still can).
 function Save-Sets($entry) {
-  $others = @(Read-Sets | Where-Object { $_ -and (Get-DeskKey $_.args.ShortcutDir) -ne (Get-DeskKey $ShortcutDir) })
+  $script:recordUnread = $null
+  $read = @(Read-Sets)
+  if ($recordUnread) {
+    "unattended-shortcut: the record $recordPath cannot be read ($recordUnread), so it is left as it is (it may hold " +
+      "other folders' sets); status cannot tell whether these links are current (-Check reads them)"
+    return
+  }
+  $others = @($read | Where-Object { $_ -and (Get-DeskKey $_.args.ShortcutDir) -ne (Get-DeskKey $ShortcutDir) })
   $all = @($others) + @($entry | Where-Object { $_ })
   $temp = "$recordPath.$PID.tmp"
   try {
@@ -588,7 +598,8 @@ if (($Refresh -or $Check) -and -not $set) {
   if ((Get-Link $found[0]).Arguments -match "'-d' '((?:[^']|'')+)'") { $seen = $Matches[1] -replace "''", "'" }
   "unattended-shortcut: $($found.Count) shortcut(s) of $Project in '$ShortcutDir' were written before this kit " +
     'kept a record of them, so they cannot be read back as current; write them again once with: ' +
-    "pwsh scripts/unattended-shortcut.ps1 -Distro $seen -Icon <the project's icon> -ShortcutDir '$ShortcutDir'"
+    "pwsh scripts/unattended-shortcut.ps1 -Distro $(PSQuote $seen) -Icon <the project's icon> -ShortcutDir " +
+    (PSQuote $ShortcutDir)
   exit 1
 }
 if (-not $Distro) { Refuse '-Distro names no WSL distro' }
@@ -717,8 +728,9 @@ if ($Check) {
     $file = Get-Item -LiteralPath $p.Link -Force -ErrorAction Ignore
     $link = if ($file) { Get-Link $file }
     if (-not $link) { "missing: $($p.Link)"; $bad++; continue }
-    $same = $link.Arguments -ceq (Get-LinkArguments $p) -and $link.Target -eq $pwsh -and $link.Description -ceq $mark -and
-      $link.IconPath -eq $p.Badge -and (Test-Path -LiteralPath $p.Badge -PathType Leaf)
+    $same = $link.Arguments -ceq (Get-LinkArguments $p) -and $link.Target -eq $pwsh -and
+      $link.Description -ceq $mark -and $link.IconPath -eq $p.Badge -and
+      (Test-Path -LiteralPath $p.Badge -PathType Leaf)
     if ($same) { "current: $($p.Link)" } else { "stale: $($p.Link)"; $bad++ }
   }
   $names = @($planned | ForEach-Object { Split-Path $_.Link -Leaf })

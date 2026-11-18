@@ -1476,13 +1476,13 @@ def update_project(target_root: Path, kit_name: str | None = None, *, only=(), d
         left.extend({"path": rel, "state": "changed-since-diff"} for rel in changed)
     result = {"target": target.as_posix(), "dry_run": dry_run, "record": (target / RECORD).is_file(),
               "written": written, "left": left}
-    # The links are written again when the update wrote what they run: for a project with a record; and on Windows,
-    # for one whose shortcut script the update replaced, which may have links from before the record (the script
-    # then names them, with the command that writes them and the record again).
+    # The links are written again when the update wrote what they run: for a project with a record, and for one whose
+    # shortcut script the update replaced, which may have links from before the record (the script then names them,
+    # with the command that writes them and the record again). Off Windows the result names the command to run there.
     replaced = {item["path"] for kit in report["kits"].values() for item in kit["files"]
                 if item["state"] == "kit-newer"}
     if not dry_run and any(rel in written for rel in SHORTCUT_SOURCES) and (
-            (target / SHORTCUT_RECORD).is_file() or (_windows() and SHORTCUT_SOURCES[0] in replaced)):
+            (target / SHORTCUT_RECORD).is_file() or SHORTCUT_SOURCES[0] in replaced):
         result["shortcuts"] = _refresh_shortcuts(target)
     if kit_new:
         result["kit_new"] = siblings

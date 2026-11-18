@@ -330,7 +330,9 @@ class ShortcutTest(ShortcutFixture):
         self.assertEqual(self.run.shortcut_state(self.project), "none recorded")
 
     def test_links_from_before_the_record_are_named_with_the_command_that_writes_them_again(self):
-        # D02 T02 §12, the plan review: an install made before the record has links and no record.
+        # D02 T02 §12, the plan review: an install made before the record has links and no record. The folder has an
+        # apostrophe, so the command must quote it as PowerShell does (the completion review).
+        self.desk = Path(self._tmp.name) / "O'Brien desk"
         self.install()
         (self.project / "build" / "unattended-shortcuts.json").unlink()
         for option in ("-Refresh", "-Check"):
@@ -338,7 +340,9 @@ class ShortcutTest(ShortcutFixture):
                 done = self.shortcut(option)
                 self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
                 self.assertIn("were written before this kit kept a record of them", done.stdout)
-                self.assertIn("pwsh scripts/unattended-shortcut.ps1 -Distro Ubuntu -Icon <the project's icon>", done.stdout)
+                folder = str(self.desk).replace("'", "''")
+                self.assertIn("pwsh scripts/unattended-shortcut.ps1 -Distro 'Ubuntu' -Icon <the project's icon> "
+                              f"-ShortcutDir '{folder}'", done.stdout)
         self.assertFalse((self.project / "build" / "unattended-shortcuts.json").exists())
 
     def every_file(self):
@@ -400,6 +404,28 @@ class ShortcutTest(ShortcutFixture):
         out, _ = waiting.communicate(timeout=180)
         self.assertEqual(waiting.returncode, 1, out)
         self.assertIn("changed while this run waited for the lock", out)
+
+    def test_check_makes_no_state_folder_and_takes_no_lock(self):
+        # The completion review: -Check made the state folder and opened a lock file, so it needed the right to write.
+        self.install()
+        shutil.rmtree(self.state)
+        done = self.shortcut("-Check")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertFalse(self.state.exists(), "-Check made the state folder")
+
+    def test_a_record_that_cannot_be_read_is_left_as_it_is(self):
+        # The completion review: an unreadable record (another folder's sets in it) was replaced by this folder's.
+        record = self.project / "build" / "unattended-shortcuts.json"
+        record.parent.mkdir()
+        record.write_text("{ not json", encoding="utf-8")
+        done = self.install()
+        self.assertIn("cannot be read", done.stdout)
+        self.assertIn("left as it is", done.stdout)
+        self.assertEqual(record.read_text(encoding="utf-8"), "{ not json")
+        self.assertTrue(self.links())
+        removed = self.shortcut("-Remove")
+        self.assertEqual(removed.returncode, 0, removed.stdout + removed.stderr)
+        self.assertEqual(record.read_text(encoding="utf-8"), "{ not json")
 
     def test_check_names_a_stopped_run_and_plays_no_journal(self):
         # Round 1 of the review: -Check played a stopped run's journal before reading the links.
