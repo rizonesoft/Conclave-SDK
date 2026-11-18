@@ -1340,6 +1340,22 @@ class CampaignTitleTest(ShortcutFixture):
                 journal.unlink()
                 theirs.unlink()
 
+    def test_a_stopped_remove_of_a_hidden_link_is_finished_by_the_next_run(self):
+        # Reconciliation 5 (chain 2): a hidden link of this project's is its own in recovery too.
+        self.install()
+        claude = self.desk / "My Proj's Claude campaign.lnk"
+        subprocess.run(["attrib", "+h", str(claude)], check=True, capture_output=True, creationflags=windowless())
+        key = self.project_key()
+        files = [*sorted(self.desk.glob("*.lnk")), *sorted(self.icons.glob("campaign-*.ico"))]
+        aside = [{"to": str(f), "old": f"{f}.{self.DEAD}.old"} for f in files]
+        self.state.mkdir(parents=True, exist_ok=True)
+        journal = self.state / f"campaign-{key}.{self.DEAD}.journal.json"
+        journal.write_text(json.dumps({"state": "swapping", "temps": [], "moves": [], "aside": aside}),
+                           encoding="utf-8")  # -Remove wrote it, then stopped before its first move
+        done = self.shortcut("-Remove")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual((sorted(p.name for p in self.desk.iterdir()), self.journal_of()), ([], []))
+
     def test_remove_in_one_distro_leaves_an_old_key_badge_another_distros_link_shows(self):
         # Reconciliation 11: one Linux path in two distros shared the old key; their desktops may differ.
         other_desk = Path(self._tmp.name) / "desk2"

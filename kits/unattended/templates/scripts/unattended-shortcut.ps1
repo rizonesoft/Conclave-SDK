@@ -223,7 +223,7 @@ function Get-Badges([object[]]$owned) {
   }
   foreach ($link in $owned) {
     $where = (Get-Link $link).IconPath
-    $shown = if ($where) { Get-Item -LiteralPath $where -ErrorAction Ignore }
+    $shown = if ($where) { Get-Item -LiteralPath $where -Force -ErrorAction Ignore }
     if ($shown -and $shown.Name -like "campaign-*-$oldKey.ico" -and -not (Test-SharedOldKey) -and
         (Get-Normal $shown.DirectoryName) -ceq (Get-Normal ([IO.Path]::GetFullPath($IconDir))) -and
         -not (Test-ShownByOthers $shown $owned)) {
@@ -292,7 +292,7 @@ function Test-Journal($record, [int]$owner) {
 }
 # Whether a file a journal would remove is this project's: a link with its mark, a badge under its key.
 function Test-Mine([string]$path) {
-  $file = Get-Item -LiteralPath $path -ErrorAction Ignore
+  $file = Get-Item -LiteralPath $path -Force -ErrorAction Ignore  # -Force: a hidden link is the project's too
   if (-not $file) { return $false }
   # A badge only by its exact name (under its key or the old one, or that moved aside or written first); any other file,
   # `campaign-claude-<key>.ico.lnk` included, is this project's only by its mark.
@@ -647,7 +647,7 @@ try {
   Write-Journal 'swapping'
   foreach ($old in $asidePlan) { Move-Item -LiteralPath $old.to -Destination $old.old; $aside.Add($old) }
   foreach ($old in $aside) {
-    if ($old.to.EndsWith('.lnk') -and -not (Test-Owned (Get-Item -LiteralPath $old.old))) {
+    if ($old.to.EndsWith('.lnk') -and -not (Test-Owned (Get-Item -LiteralPath $old.old -Force))) {
       throw "$($old.to) was written by another project while this run was working"
     }
   }
