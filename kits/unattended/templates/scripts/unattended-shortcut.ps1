@@ -23,9 +23,6 @@ param(
   [string]$ShortcutDir = [Environment]::GetFolderPath('Desktop'),
   [string]$IconDir = '',
   [switch]$Remove,
-  # Where each run of the project keeps its lock and its journal, apart from -IconDir and -ShortcutDir, so two runs
-  # given different folders still meet there.
-  [string]$StateDir = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'conclave-unattended'),
   # The desktops searched for another link that shows an old-key icon: the user's and the public desktop.
   [string[]]$Desktops = @(
     [Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('CommonDesktopDirectory')),
@@ -243,6 +240,10 @@ function Get-Badges([object[]]$owned) {
 # temporary files exist) removes them; `swapping` (the old set was being moved aside and the new one in) takes out each
 # new file already moved in and puts each old one back, so the previous set stands whole; `committed` (the new set was
 # in place) removes what was moved aside.
+# Where every run of the user keeps each project's lock and journals: the user's own local application data, never a
+# folder a run is given, so two runs given different folders still meet there.
+$appData = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [Environment]::GetFolderPath('LocalApplicationData') }
+$StateDir = Join-Path $appData 'conclave-unattended'
 $journalPath = Join-Path $StateDir "campaign-$key.$PID.journal.json"
 $started = Get-Started $PID
 $moves = @()
@@ -293,9 +294,9 @@ function Test-Journal($record, [int]$owner) {
 function Test-Mine([string]$path) {
   $file = Get-Item -LiteralPath $path -ErrorAction Ignore
   if (-not $file) { return $false }
-  if ($file.Name -like '*.ico' -or $file.Name -like '*.ico.*') {
-    return $file.Name -like "campaign-*-$key.ico*" -or $file.Name -like "campaign-*-$oldKey.ico*"
-  }
+  # A badge only by its exact name (under its key or the old one, or that moved aside or written first); any other file,
+  # `campaign-claude-<key>.ico.lnk` included, is this project's only by its mark.
+  if ($file.Name -match "^campaign-[a-z]+-($key|$oldKey)\.ico(\.\d+\.(old|tmp\.ico))?$") { return $true }
   Test-Owned $file
 }
 

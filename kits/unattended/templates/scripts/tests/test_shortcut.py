@@ -157,13 +157,15 @@ class ShortcutFixture(unittest.TestCase):
         (self.project / "assets").mkdir()
         shutil.copyfile(self.icon, self.project / "assets" / "icon.png")
         self.desk, self.icons = base / "desk", base / "icons"
-        self.state = base / "state"  # where each run keeps its lock and journal
+        # Every run keeps its lock and journals in %LOCALAPPDATA%\conclave-unattended: here, a scratch folder.
+        self.local = base / "localappdata"
+        self.state = self.local / "conclave-unattended"
         stub = base / "stub_wsl.py"
         stub.write_text(STUB_WSL, encoding="utf-8")
         self.wsl = base / "wsl.cmd"
         self.wsl.write_text(f'@"{sys.executable}" "{stub}" %*\r\n', encoding="utf-8")
         self.log = base / "wsl.log"
-        self.env = {**os.environ, "STUB_WSL_LOG": str(self.log)}
+        self.env = {**os.environ, "STUB_WSL_LOG": str(self.log), "LOCALAPPDATA": str(self.local)}
         self.run = load("unattended_run_for_shortcut", SCRIPTS / "unattended-run.py")
 
     def write_profile(self, profile):
@@ -185,7 +187,7 @@ class ShortcutFixture(unittest.TestCase):
         desktops = self.other_desktop if hasattr(self, "other_desktop") else Path(self._tmp.name) / "desktops"
         command = [PWSH, "-NoProfile", "-NonInteractive", "-File", str(project / "scripts" / "unattended-shortcut.ps1"),
                    "-ShortcutDir", str(desk or self.desk), *(["-IconDir", str(self.icons)] if icon_dir else []),
-                   "-Desktops", str(desktops), "-StateDir", str(self.state), "-Wsl", str(self.wsl),
+                   "-Desktops", str(desktops), "-Wsl", str(self.wsl),
                    "-Python", sys.executable, *args]
         return subprocess.run(command, capture_output=True, text=True, timeout=180,
                               env={**self.env, **getattr(self, "extra_env", {}), **env}, creationflags=windowless())
@@ -931,7 +933,7 @@ class CampaignTitleTest(ShortcutFixture):
                   "$journal = Get-ChildItem -LiteralPath $env:STATE -Filter '*.journal.json' | Select-Object -First 1; "
                   "$text = [IO.File]::ReadAllText($journal.FullName).Replace($dead, $own); "
                   "[IO.File]::WriteAllText($journal.FullName, $text); "
-                  "& $env:SCRIPT -ShortcutDir $env:DESK -IconDir $env:ICONS -StateDir $env:STATE -Wsl $env:WSL "
+                  "& $env:SCRIPT -ShortcutDir $env:DESK -IconDir $env:ICONS -Wsl $env:WSL "
                   "-Python $env:PY "
                   "-Distro Arch -Icon $env:ICON")
         done = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True,
@@ -1207,7 +1209,7 @@ class CampaignTitleTest(ShortcutFixture):
         other = Path(self._tmp.name) / "other-icons"
         script = str(self.project / "scripts" / "unattended-shortcut.ps1")
         command = [PWSH, "-NoProfile", "-NonInteractive", "-File", script, "-ShortcutDir", str(self.desk),
-                   "-IconDir", str(other), "-StateDir", str(self.state), "-Desktops",
+                   "-IconDir", str(other), "-Desktops",
                    str(Path(self._tmp.name) / "desktops"), "-Wsl", str(self.wsl), "-Python", sys.executable,
                    "-Distro", "Arch", "-Icon", str(self.icon)]
         done = subprocess.run(command, capture_output=True, text=True, timeout=180, env=self.env,
@@ -1278,6 +1280,23 @@ class CampaignTitleTest(ShortcutFixture):
         done = self.shortcut("-Remove")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual((sorted(p.name for p in self.desk.iterdir()), self.journal_of()), ([], []))
+
+    def test_a_foreign_link_named_like_a_badge_is_never_taken_by_recovery(self):
+        # Completion review (chain 2): `campaign-claude-<key>.ico.lnk` is a link, this project's only by its mark.
+        self.install()
+        key = self.project_key()
+        theirs = self.desk / f"campaign-claude-{key}.ico.lnk"
+        self.foreign_link(theirs)
+        before = theirs.read_bytes()
+        self.state.mkdir(parents=True, exist_ok=True)
+        journal = self.state / f"campaign-{key}.{self.DEAD}.journal.json"
+        moves = [{"from": str(self.desk / f"campaign-claude-{key}.ico.{self.DEAD}.tmp.lnk"), "to": str(theirs)}]
+        journal.write_text(json.dumps({"state": "swapping", "temps": [], "moves": moves, "aside": []}),
+                           encoding="utf-8")
+        for args in (["-Distro", "Arch", "-Icon", str(self.icon)], ["-Remove"]):
+            with self.subTest(args[0]):
+                self.shortcut(*args)
+                self.assertEqual(theirs.read_bytes(), before)
 
     def test_remove_in_one_distro_leaves_an_old_key_badge_another_distros_link_shows(self):
         # Reconciliation 11: one Linux path in two distros shared the old key; their desktops may differ.
