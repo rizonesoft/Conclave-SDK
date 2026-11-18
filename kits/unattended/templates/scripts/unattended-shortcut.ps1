@@ -70,8 +70,9 @@ if ($Refresh -or $Check) {
     $set = $sets | Where-Object { (Get-DeskKey $_.args.ShortcutDir) -eq (Get-DeskKey $ShortcutDir) } |
       Select-Object -First 1
   } elseif ($sets.Count -gt 1) {
-    $each = $sets |
-      ForEach-Object { "pwsh scripts/unattended-shortcut.ps1 $verb -ShortcutDir '$($_.args.ShortcutDir)'" }
+    $each = $sets | ForEach-Object {
+      "pwsh scripts/unattended-shortcut.ps1 $verb -ShortcutDir " + "'" + $_.args.ShortcutDir.Replace("'", "''") + "'"
+    }
     Refuse "links of this project are recorded in $($sets.Count) folders; run once for each: $($each -join '; ')"
   } else {
     $set = $sets | Select-Object -First 1
@@ -484,7 +485,27 @@ if (-not $lock) { Refuse "another run of this project holds $lockPath; run the s
 
 $keptJournals = 0
 $unreadJournals = 0
+# -Check only reads: a stopped run's journal is named, never played (that would change what it is asked to inspect).
+if ($Check) {
+  $stopped = @(Get-ChildItem -LiteralPath $StateDir -Filter "campaign-$key.*.journal.json*" -File -Force `
+      -ErrorAction Ignore)
+  if ($stopped) {
+    foreach ($file in $stopped) { "unfinished: $($file.FullName)" }
+    "unattended-shortcut: a stopped run of this project is not finished, so its links are not checked; " +
+      'pwsh scripts/unattended-shortcut.ps1 -Refresh finishes it'
+    exit 1
+  }
+}
 Restore-Stopped
+# The set a refresh or a check works from is read again now that no other run can change it: a removal or a write
+# that ran while this one waited for the lock is what it sees.
+if ($set) {
+  $now = @(Read-Sets) | Where-Object { (Get-DeskKey $_.args.ShortcutDir) -eq (Get-DeskKey $set.args.ShortcutDir) } |
+    Select-Object -First 1
+  if (-not $now -or ($now | ConvertTo-Json -Depth 6 -Compress) -ne ($set | ConvertTo-Json -Depth 6 -Compress)) {
+    Refuse "the record of '$($set.args.ShortcutDir)' changed while this run waited for the lock; run it again"
+  }
+}
 # A journal that cannot be read may name a swap not finished: nothing changes this project's links over it.
 if ($unreadJournals) {
   Refuse 'a journal of this project cannot be played (see above); move it away once its files are sorted'
@@ -517,6 +538,11 @@ if ($Remove) {
   $links = @(Get-Owned)
   Stop-OnUnreadable
   $badges = @(Get-Badges $links)
+  # The project's links in another recorded folder that share this icon folder show the same badges: they stay.
+  $sharing = @(Read-Sets | Where-Object {
+      (Get-DeskKey $_.args.ShortcutDir) -ne (Get-DeskKey $ShortcutDir) -and $_.args.IconDir -and
+      (Get-DeskKey $_.args.IconDir) -eq (Get-DeskKey $IconDir) })
+  if ($sharing) { $badges = @() }
   $asidePlan = @(@($links) + @($badges) |
     ForEach-Object { [pscustomobject]@{ to = $_.FullName; old = "$($_.FullName).$PID.old" } })
   $aside = [Collections.Generic.List[object]]::new()
@@ -691,7 +717,8 @@ if ($Check) {
     $file = Get-Item -LiteralPath $p.Link -Force -ErrorAction Ignore
     $link = if ($file) { Get-Link $file }
     if (-not $link) { "missing: $($p.Link)"; $bad++; continue }
-    $same = $link.Arguments -ceq (Get-LinkArguments $p) -and $link.Target -eq $pwsh -and $link.IconPath -eq $p.Badge
+    $same = $link.Arguments -ceq (Get-LinkArguments $p) -and $link.Target -eq $pwsh -and $link.Description -ceq $mark -and
+      $link.IconPath -eq $p.Badge -and (Test-Path -LiteralPath $p.Badge -PathType Leaf)
     if ($same) { "current: $($p.Link)" } else { "stale: $($p.Link)"; $bad++ }
   }
   $names = @($planned | ForEach-Object { Split-Path $_.Link -Leaf })

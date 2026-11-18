@@ -2038,6 +2038,13 @@ class ShortcutStateTest(unittest.TestCase):
         self.record(("C:\\desk", "w", self.current() + [{"label": "Demo Gone campaign", "kind": "gone", "command": "x"}]))
         self.assertTrue(self.run.shortcut_state(self.root).startswith("stale: Demo Gone campaign"))
 
+    def test_a_record_of_the_wrong_shape_is_never_current(self):
+        # Round 1 of D02 T02 §12's review: links that are not a list raised, and a link with no kind read as current.
+        for links in (1, [{}], [{"label": "x", "kind": None, "command": None}], ["text"]):
+            with self.subTest(links=links):
+                self.record(("C:\\desk", "w", links))
+                self.assertTrue(self.run.shortcut_state(self.root).startswith("stale: "), links)
+
     def test_an_unreadable_record_says_so(self):
         (self.root / "build").mkdir()
         (self.root / self.run.SHORTCUTS).write_text("{", encoding="utf-8")

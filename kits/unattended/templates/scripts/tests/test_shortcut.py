@@ -206,6 +206,18 @@ class ShortcutFixture(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout)
 
+    def set_description(self, path, text, icon=None):
+        """Rewrite a link's mark, and its icon when `icon` is given, through the kit's IShellLinkW."""
+        done = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command",
+                               "Add-Type -Path $env:LINK_CODE; $s = [Conclave.ShellLink]::Read($env:LINK_PATH); "
+                               "$s.Description = $env:LINK_MARK; if ($env:LINK_ICON) { $s.IconPath = $env:LINK_ICON }; "
+                               "[Conclave.ShellLink]::Write($env:LINK_PATH, $s)"],
+                              capture_output=True, text=True, timeout=60,
+                              env={**os.environ, "LINK_PATH": str(path), "LINK_MARK": text, "LINK_ICON": icon or "",
+                                   "LINK_CODE": str(LINK_CODE)},
+                              creationflags=windowless())
+        self.assertEqual(done.returncode, 0, done.stderr)
+
     def calls(self):
         return [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()] if self.log.exists() \
             else []
@@ -358,6 +370,52 @@ class ShortcutTest(ShortcutFixture):
         self.assertTrue(self.run.shortcut_state(self.project).startswith("current as recorded"))
         self.assertEqual(self.shortcut("-Refresh").returncode, 0)
         self.assertEqual(self.shortcut("-Check").returncode, 0)
+        # Round 1 of the review: a link whose mark was changed (its Comment, in Properties) is not current.
+        path = self.desk / "My Proj's - Watch run.lnk"
+        self.set_description(path, "my own note")
+        marked = self.shortcut("-Check")
+        self.assertEqual(marked.returncode, 1, marked.stdout + marked.stderr)
+        self.assertIn(f"stale: {path}", marked.stdout)
+        self.assertEqual(self.shortcut("-Refresh").returncode, 1, "a link whose mark is gone was taken over")
+
+    def test_a_refresh_that_waited_for_the_lock_sees_the_record_as_it_now_is(self):
+        # Round 1 of the review: a refresh read its set before the lock, so one that waited out a removal wrote the
+        # removed links back from what it had read.
+        self.install()
+        record = self.project / "build" / "unattended-shortcuts.json"
+        key = next(self.icons.glob("campaign-claude-*.ico")).stem.rsplit("-", 1)[1]
+        holder = open(self.state / f"campaign-{key}.lock", "a")  # any open handle blocks the run's unshared one
+        try:
+            waiting = subprocess.Popen(
+                [PWSH, "-NoProfile", "-NonInteractive", "-File", str(self.project / "scripts" / "unattended-shortcut.ps1"),
+                 "-Refresh", "-IconDir", str(self.icons), "-Desktops", str(Path(self._tmp.name) / "desktops"),
+                 "-Wsl", str(self.wsl), "-Python", sys.executable],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=self.env, creationflags=windowless())
+            time.sleep(1.5)  # it has read the record and waits for the lock (it tries for five seconds)
+            saved = json.loads(record.read_text(encoding="utf-8"))
+            saved["sets"][0]["written"] = "2000-01-01T00:00:00Z"  # another run wrote the set meanwhile
+            record.write_text(json.dumps(saved), encoding="utf-8")
+        finally:
+            holder.close()
+        out, _ = waiting.communicate(timeout=180)
+        self.assertEqual(waiting.returncode, 1, out)
+        self.assertIn("changed while this run waited for the lock", out)
+
+    def test_check_names_a_stopped_run_and_plays_no_journal(self):
+        # Round 1 of the review: -Check played a stopped run's journal before reading the links.
+        self.install()
+        self.state.mkdir(parents=True, exist_ok=True)
+        key = next(self.icons.glob("campaign-claude-*.ico")).stem.rsplit("-", 1)[1]
+        journal = self.state / f"campaign-{key}.999999.journal.json"
+        journal.write_text(json.dumps({"state": "writing", "started": 0, "desk": str(self.desk),
+                                       "icons": str(self.icons), "temps": [], "moves": [], "aside": []}),
+                           encoding="utf-8")
+        before = self.every_file()
+        done = self.shortcut("-Check")
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn(f"unfinished: {journal}", done.stdout)
+        self.assertTrue(journal.exists(), "-Check played the journal")
+        self.assertEqual(self.every_file(), before)
 
     def test_two_folders_keep_a_set_each(self):
         self.install()
@@ -382,6 +440,11 @@ class ShortcutTest(ShortcutFixture):
         (left,) = json.loads(record.read_text(encoding="utf-8"))["sets"]
         self.assertEqual(left["args"]["ShortcutDir"], str(self.desk))
         self.assertTrue(self.links(), "removing one folder's links took the other's")
+        for name in self.links() + self.controls():  # and their badges, which the two folders share
+            with self.subTest(name):
+                shown = Path(self.read_link(self.desk / name)["icon"].rsplit(",", 1)[0])
+                self.assertTrue(shown.is_file(), f"removing the other folder took {shown}")
+        self.assertEqual(self.shortcut("-Check").returncode, 0)
         self.assertEqual(self.shortcut("-Remove").returncode, 0)
         self.assertFalse(record.exists())
 
@@ -506,18 +569,6 @@ class CampaignTitleTest(ShortcutFixture):
                 for folder in (self.desk, self.icons) if folder.exists() for p in folder.iterdir()
                 if p.is_file() and p.suffix != ".lock"  # a run's lock is no state: it goes when the run ends
                 and p.name not in skip}
-
-    def set_description(self, path, text, icon=None):
-        """Rewrite a link's mark, and its icon when `icon` is given, through the kit's IShellLinkW."""
-        done = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command",
-                               "Add-Type -Path $env:LINK_CODE; $s = [Conclave.ShellLink]::Read($env:LINK_PATH); "
-                               "$s.Description = $env:LINK_MARK; if ($env:LINK_ICON) { $s.IconPath = $env:LINK_ICON }; "
-                               "[Conclave.ShellLink]::Write($env:LINK_PATH, $s)"],
-                              capture_output=True, text=True, timeout=60,
-                              env={**os.environ, "LINK_PATH": str(path), "LINK_MARK": text, "LINK_ICON": icon or "",
-                                   "LINK_CODE": str(LINK_CODE)},
-                              creationflags=windowless())
-        self.assertEqual(done.returncode, 0, done.stderr)
 
     def rendered(self, agent):
         return self.rendered_from(self.icon, agent)

@@ -1382,7 +1382,8 @@ def _refresh_shortcuts(target: Path) -> dict:
             said.append(lines)
             continue
         refreshed = False
-        again = SHORTCUT_REFRESH + (f" -ShortcutDir '{folder}'" if folder else "")
+        quoted = "'" + folder.replace("'", "''") + "'" if folder else ""
+        again = SHORTCUT_REFRESH + (f" -ShortcutDir {quoted}" if folder else "")
         said.append(f"{problem or f'exit {code}'}: {lines}; run {again} again")
     return {"refreshed": refreshed, "detail": " | ".join(said)}
 

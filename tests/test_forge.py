@@ -3933,7 +3933,7 @@ class UnattendedKitTests(unittest.TestCase):
             (self.target / "build").mkdir(exist_ok=True)
             (self.target / forge.SHORTCUT_RECORD).write_text(json.dumps({"sets": [
                 {"args": {"Distro": "Ubuntu", "ShortcutDir": "C:\\desk one"}, "links": []},
-                {"args": {"Distro": "Ubuntu", "ShortcutDir": "C:\\desk two"}, "links": []}]}), encoding="utf-8")
+                {"args": {"Distro": "Ubuntu", "ShortcutDir": "C:\\O'Brien's desk"}, "links": []}]}), encoding="utf-8")
             runner.unlink()
             self.assertNotIn("shortcuts", forge.update_project(self.target, only=[rel], dry_run=True))
             result = forge.update_project(self.target, only=[rel])
@@ -3943,7 +3943,7 @@ class UnattendedKitTests(unittest.TestCase):
             self.assertEqual(result["shortcuts"]["refreshed"], True)
             self.assertEqual([call.args[0][-3:] for call in probe.call_args_list],
                              [["-Refresh", "-ShortcutDir", "C:\\desk one"],
-                              ["-Refresh", "-ShortcutDir", "C:\\desk two"]])
+                              ["-Refresh", "-ShortcutDir", "C:\\O'Brien's desk"]])
         else:
             self.assertFalse(result["shortcuts"]["refreshed"])
             self.assertIn(forge.SHORTCUT_REFRESH, result["shortcuts"]["detail"])
@@ -3955,7 +3955,7 @@ class UnattendedKitTests(unittest.TestCase):
                 unittest.mock.patch.object(forge.shutil, "which", return_value="pwsh"):
             failed = forge._refresh_shortcuts(self.target)
         self.assertEqual(failed, {"refreshed": False, "detail": "ok | no answer within 300 seconds: ; run "
-                                  f"{forge.SHORTCUT_REFRESH} -ShortcutDir 'C:\\desk two' again"})
+                                  f"{forge.SHORTCUT_REFRESH} -ShortcutDir 'C:\\O''Brien''s desk' again"})
 
     def test_an_update_that_replaces_the_shortcut_script_asks_it_for_links_from_before_the_record(self):
         # D02 T02 §12, the plan review: an install made before the record has links and no record.

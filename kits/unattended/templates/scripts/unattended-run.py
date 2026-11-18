@@ -989,12 +989,16 @@ def shortcut_state(root: Path) -> str:
         return f"{SHORTCUTS} cannot be read ({exc}); run {REFRESH} on Windows"
     sets = data.get("sets") if isinstance(data, dict) else None
     sets = [entry for entry in sets if isinstance(entry, dict)] if isinstance(sets, list) else []
-    links = [(entry, link) for entry in sets for link in (entry.get("links") or [None])]
+    # A set whose links are not a list is named as one unreadable link, so it is never taken as current.
+    links = [(entry, link) for entry in sets
+             for link in (entry.get("links") if isinstance(entry.get("links"), list) else [None])]
     if not links:
         return f"{SHORTCUTS} names no links; run {REFRESH} on Windows"
     stale = []
     for entry, link in links:
-        if isinstance(link, dict) and link.get("command") == link_command(link.get("kind")):
+        kind = link.get("kind") if isinstance(link, dict) else None
+        command = link_command(kind)
+        if command is not None and link.get("command") == command:
             continue
         label = str(link.get("label")) if isinstance(link, dict) else repr(link)
         folder = (entry.get("args") or {}).get("ShortcutDir")
