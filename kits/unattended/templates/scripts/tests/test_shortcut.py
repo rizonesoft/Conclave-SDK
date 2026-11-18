@@ -73,7 +73,8 @@ elif rest[:2] == ["test", "-d"]:
     sys.exit(1 if rest[2] in missing or f"{distro}:{rest[2]}" in missing or otherwise else 0)
 elif rest[:1] == ["find"]:
     # find <dir> -mindepth 1 -maxdepth 1 -iname <part> -print: every folder exists, in the case asked, but those under
-    # a path STUB_WSL_MISSING names for that distro (any case); STUB_WSL_CASE names <distro>:<path> spelt otherwise.
+    # a path STUB_WSL_MISSING names for that distro (any case); STUB_WSL_CASE names <distro>:<path> spelt otherwise,
+    # or <distro>:+<path> for a spelling the distro has as well.
     distro = args[args.index("-d") + 1]
     if distro in os.environ.get("STUB_WSL_UNSURE", "").split("|"):
         sys.exit(4294967295)  # what wsl.exe gives when it cannot run the command in that distro
@@ -81,11 +82,17 @@ elif rest[:1] == ["find"]:
     gone = [m.split(":", 1)[1].lower() for m in os.environ.get("STUB_WSL_MISSING", "").split("|")
             if m.startswith(distro + ":")]
     if not any(found.lower() == g or found.lower().startswith(g + "/") for g in gone):
+        also = []
         for spelt in [m.split(":", 1)[1] for m in os.environ.get("STUB_WSL_CASE", "").split("|")
                       if m.startswith(distro + ":")]:
-            if spelt.lower().startswith(found.lower()):
-                found = spelt[:len(found)]
-        print(found)
+            extra = spelt.startswith("+")
+            spelt = spelt.lstrip("+")
+            if spelt.lower().startswith(found.lower()) and spelt[len(found):len(found) + 1] in ("", "/"):
+                if extra:
+                    also.append(spelt[:len(found)])
+                else:
+                    found = spelt[:len(found)]
+        print("\n".join(dict.fromkeys([found, *also])))
 '''
 
 
@@ -339,7 +346,8 @@ class CampaignTitleTest(ShortcutFixture):
     def snapshot(self):
         """Every file in the desktop and icon folders, by name, with its bytes."""
         return {p.relative_to(p.parents[1]).as_posix(): p.read_bytes()
-                for folder in (self.desk, self.icons) if folder.exists() for p in folder.iterdir() if p.is_file()}
+                for folder in (self.desk, self.icons) if folder.exists() for p in folder.iterdir()
+                if p.is_file() and p.suffix != ".lock"}  # a run's lock is no state: it goes when the run ends
 
     def set_description(self, path, text, icon=None):
         """Rewrite a link's mark, and its icon when `icon` is given, through the kit's IShellLinkW."""
@@ -967,7 +975,7 @@ class CampaignTitleTest(ShortcutFixture):
         with open(held, "rb"):  # held open without delete sharing
             done = self.shortcut(*remove)
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
-        self.assertIn("the shortcuts stay; run -Remove again", done.stdout)
+        self.assertIn("they stay as they were; run -Remove again", done.stdout)
         self.assertEqual(self.links(), ["Demo Carbon campaign.lnk", "Demo Claude campaign.lnk"])
         done = self.shortcut(*remove)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
@@ -1034,11 +1042,97 @@ class CampaignTitleTest(ShortcutFixture):
         self.other_desktop.mkdir()
         theirs = self.other_desktop / "Demo Claude campaign.lnk"
         shutil.copyfile(self.desk / "Demo Claude campaign.lnk", theirs)
-        self.set_description(theirs, "conclave-unattended: D:\elsewhere", icon=str(elsewhere))
+        self.set_description(theirs, "conclave-unattended: D:\\elsewhere", icon=str(elsewhere))
         done = self.shortcut(*linux)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(list(self.icons.glob(f"campaign-*-{old_key}.ico")), [])
         self.assertTrue(elsewhere.exists())
+
+    def test_an_old_key_badge_stays_while_this_distro_has_the_path_spelt_otherwise_too(self):
+        # Plan review 2: /home/x/Demo and /home/x/demo are two projects in one distro, and the old key was both's.
+        self.extra_env = {"STUB_WSL_MISSING": "Debian:/home/x/Demo", "STUB_WSL_CASE": "Ubuntu:+/home/x/demo"}
+        linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]
+        old_key = self.legacy_set(linux)
+        done = self.shortcut(*linux)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.links(), ["Demo Carbon campaign.lnk", "Demo Claude campaign.lnk"])
+        self.assertEqual(self.read_link(self.desk / "Demo Claude campaign.lnk")["description"],
+                         "conclave-unattended: \\\\wsl.localhost\\Ubuntu\\home\\x\\Demo")  # the link migrated
+        self.assertEqual(len(list(self.icons.glob(f"campaign-*-{old_key}.ico"))), 2)  # only the badges stay
+
+    def hold_lock(self):
+        """Another run of the project, holding its lock until the test ends."""
+        key = Path(self.read_link(self.desk / "My Proj's Claude campaign.lnk")["icon"].rsplit(",", 1)[0]).stem
+        lock = self.icons / f"campaign-{key.split('-')[-1]}.lock"
+        holder = subprocess.Popen([PWSH, "-NoProfile", "-NonInteractive", "-Command",
+                                   "$f = [IO.FileStream]::new($env:LOCK, 'OpenOrCreate', 'ReadWrite', 'None'); "
+                                   "[Console]::Out.WriteLine('held'); [Console]::Out.Flush(); Start-Sleep 120"],
+                                  stdout=subprocess.PIPE, text=True, env={**os.environ, "LOCK": str(lock)},
+                                  creationflags=windowless())
+        self.addCleanup(holder.stdout.close)
+        self.addCleanup(lambda: subprocess.run(["taskkill", "/T", "/F", "/PID", str(holder.pid)], capture_output=True,
+                                               creationflags=windowless()))
+        self.assertEqual(holder.stdout.readline().strip(), "held")
+        return holder, lock
+
+    def test_a_second_run_of_the_project_waits_for_the_first(self):
+        # Plan review 2: two runs of one project never change its links at once.
+        self.install()
+        before = self.snapshot()
+        holder, lock = self.hold_lock()
+        for args in (["-Distro", "Ubuntu", "-Icon", str(self.icon)], ["-Remove"]):
+            with self.subTest(args[0]):
+                done = self.shortcut(*args)
+                self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+                self.assertIn(f"another run of this project holds {lock}", done.stdout)
+                self.assertEqual(self.snapshot(), before)
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(holder.pid)], capture_output=True,
+                       creationflags=windowless())
+        holder.wait(30)
+        self.install()
+        self.assertEqual(self.shortcut("-Remove").returncode, 0)
+        self.assertFalse(lock.exists())
+
+    def test_a_journal_that_cannot_be_read_holds_every_change(self):
+        # Plan review 2: an unread journal may name a swap not finished; nothing is written over it.
+        self.install()
+        key = Path(self.read_link(self.desk / "My Proj's Claude campaign.lnk")["icon"].rsplit(",", 1)[0]).stem
+        journal = self.icons / f"campaign-{key.split('-')[-1]}.{self.DEAD}.journal.json"
+        journal.write_text("{not json", encoding="utf-8")
+        before = self.snapshot()
+        for args in (["-Distro", "Ubuntu", "-Icon", str(self.icon)], ["-Remove"]):
+            with self.subTest(args[0]):
+                done = self.shortcut(*args)
+                self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+                self.assertIn(f"{journal.name} cannot be read", done.stdout)  # the folder may be spelt long
+                self.assertEqual(self.snapshot(), before)
+
+    def test_a_renamed_link_is_still_this_projects(self):
+        # Plan review 2: a link is found by its mark, whatever the operator named it.
+        self.install()
+        (self.desk / "My Proj's Claude campaign.lnk").rename(self.desk / "Start work.lnk")
+        self.foreign_link(self.desk / "Other.lnk")
+        self.install()
+        self.assertEqual(self.links(), ["My Proj's Carbon campaign.lnk", "My Proj's Claude campaign.lnk", "Other.lnk"])
+        (self.desk / "My Proj's Claude campaign.lnk").rename(self.desk / "Start work.lnk")
+        done = self.shortcut("-Remove")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual((self.links(), list(self.icons.glob("*.ico"))), (["Other.lnk"], []))
+
+    def test_a_remove_stopped_after_its_first_move_is_put_back_by_the_next_run(self):
+        # Plan review 2: -Remove keeps a journal, so a stop never leaves a link without its icon unrecorded.
+        self.install()
+        before = self.snapshot()
+        key = Path(self.read_link(self.desk / "My Proj's Claude campaign.lnk")["icon"].rsplit(",", 1)[0]).stem
+        files = [*sorted(self.desk.glob("*.lnk")), *sorted(self.icons.glob("campaign-*.ico"))]
+        aside = [{"to": str(f), "old": f"{f}.{self.DEAD}.old"} for f in files]
+        files[0].rename(aside[0]["old"])  # the first link is moved aside, then the run stops
+        journal = self.icons / f"campaign-{key.split('-')[-1]}.{self.DEAD}.journal.json"
+        journal.write_text(json.dumps({"state": "swapping", "temps": [], "moves": [], "aside": aside}),
+                           encoding="utf-8")
+        done = self.shortcut("-Distro", "Arch", "-Icon", str(self.icon))  # any next run, even a refused one
+        self.assertIn(f"restored: {files[0]}", done.stdout)
+        self.assertEqual((self.snapshot(), self.journal_of()), (before, []))
 
     def test_remove_in_one_distro_leaves_an_old_key_badge_another_distros_link_shows(self):
         # Reconciliation 11: one Linux path in two distros shared the old key; their desktops may differ.
@@ -1105,7 +1199,7 @@ class CampaignTitleTest(ShortcutFixture):
         with open(held, "rb"):  # held open without delete sharing
             done = self.shortcut("-Remove")
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
-        self.assertIn("a stopped run's journal is kept", done.stdout)
+        self.assertIn("a journal is kept (see above); run -Remove again", done.stdout)
         self.assertTrue(journal.exists())
         done = self.shortcut("-Remove")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
