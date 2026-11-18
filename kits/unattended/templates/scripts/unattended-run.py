@@ -59,7 +59,8 @@ HEALTH = "build/unattended-health.json"  # written by the heartbeat on every tic
 # `status` compares with the current one, so a link a kit update left behind is named.
 SHORTCUTS = "build/unattended-shortcuts.json"
 REFRESH = "pwsh scripts/unattended-shortcut.ps1 -Refresh"
-SHORTCUT_WRITE = "pwsh scripts/unattended-shortcut.ps1 -Distro <distro> -Icon <the project's icon>"
+SHORTCUT_WRITE = ("pwsh scripts/unattended-shortcut.ps1 -Distro <distro> -Icon <the project's icon> "
+                  "-ShortcutDir '<folder>', once for each folder the links are in,")
 NEEDS_OPERATOR = "build/unattended-needs-operator.md"  # the stall notice: nothing has shipped for stall_hours
 HEARTBEAT_STATE = "build/unattended-heartbeat.json"
 ENDED = "build/claude-campaign-ended.json"  # written by campaign_guard.py end: how the last run ended

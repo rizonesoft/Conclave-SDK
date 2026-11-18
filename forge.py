@@ -1389,8 +1389,8 @@ def _refresh_shortcuts(target: Path) -> dict:
     folders = _shortcut_folders(target)
     if folders is None:  # the script keeps a damaged record and says how to start a new one; so does this
         return {"refreshed": False, "detail": f"{SHORTCUT_RECORD} cannot be read: move it aside, then run "
-                "pwsh scripts/unattended-shortcut.ps1 -Distro <distro> -Icon <the project's icon> on Windows for "
-                "each folder the links are in"}
+                "pwsh scripts/unattended-shortcut.ps1 -Distro <distro> -Icon <the project's icon> -ShortcutDir "
+                "'<folder>' on Windows, once for each folder the links are in"}
     if not _windows():
         each = "; ".join(SHORTCUT_REFRESH + " -ShortcutDir " + "'" + folder.replace("'", "''") + "'"
                          for folder in folders)

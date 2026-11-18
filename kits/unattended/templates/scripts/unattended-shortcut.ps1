@@ -71,7 +71,8 @@ function Read-Sets {
   if (-not (Test-Path -LiteralPath $recordPath -PathType Leaf)) { return }
   try {
     $text = Get-Content -LiteralPath $recordPath -Raw -ErrorAction Stop
-    $data = if ($text -and $text.Trim()) { ConvertFrom-Json -InputObject $text -ErrorAction Stop }
+    # -NoEnumerate: a one-element list at the top would otherwise come back as its element, a record that passes.
+    $data = if ($text -and $text.Trim()) { ConvertFrom-Json -InputObject $text -NoEnumerate -ErrorAction Stop }
   } catch { $script:recordUnread = $_.Exception.Message; return }
   $fault = if ($null -eq $data) { 'it is empty' } else { Get-RecordFault $data }
   if ($fault) { $script:recordUnread = $fault; return }

@@ -120,7 +120,8 @@ def reclaim(pid):
         pass
 
 
-DAMAGED_RECORDS = ["", "   \n", "null", "[]", "{}", '{"sets": 1}', '{"sets": [1]}', '{"sets": [{"links": []}]}',
+DAMAGED_RECORDS = ["", '[{"sets": []}]', "   \n", "null", "[]", "{}", '{"sets": 1}', '{"sets": [1]}',
+                   '{"sets": [{"links": []}]}',
                    '{"sets": [{"args": {"ShortcutDir": ""}, "links": []}]}',
                    '{"sets": [{"args": {"ShortcutDir": "C:\\\\d"}, "links": 1}]}']
 

@@ -123,7 +123,7 @@ def make_link(target, link):
         os.symlink(target, link)
 
 
-DAMAGED_SHORTCUT_RECORDS = ["", "   \n", "null", "[]", "{}", '{"sets": 1}', '{"sets": [1]}',
+DAMAGED_SHORTCUT_RECORDS = ["", '[{"sets": []}]', "   \n", "null", "[]", "{}", '{"sets": 1}', '{"sets": [1]}',
                             '{"sets": [{"links": []}]}',
                             '{"sets": [{"args": {"ShortcutDir": ""}, "links": []}]}',
                             '{"sets": [{"args": {"ShortcutDir": "C:\\\\d"}, "links": 1}]}']
@@ -3994,6 +3994,7 @@ class UnattendedKitTests(unittest.TestCase):
                         said = forge._refresh_shortcuts(self.target)
                     self.assertFalse(said["refreshed"])
                     self.assertIn("cannot be read: move it aside", said["detail"])
+                    self.assertIn("-ShortcutDir '<folder>' on Windows, once for each folder", said["detail"])
         probe.assert_not_called()
 
     def test_an_update_that_replaces_the_shortcut_script_asks_it_for_links_from_before_the_record(self):

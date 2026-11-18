@@ -1991,7 +1991,8 @@ class HeartbeatShipsTest(unittest.TestCase):
         self.assertIn("needs operator:\n# Nothing has shipped for 6.0 hours", out.getvalue())
 
 
-DAMAGED_RECORDS = ["", "   \n", "null", "[]", "{}", '{"sets": 1}', '{"sets": [1]}', '{"sets": [{"links": []}]}',
+DAMAGED_RECORDS = ["", '[{"sets": []}]', "   \n", "null", "[]", "{}", '{"sets": 1}', '{"sets": [1]}',
+                   '{"sets": [{"links": []}]}',
                    '{"sets": [{"args": {"ShortcutDir": ""}, "links": []}]}',
                    '{"sets": [{"args": {"ShortcutDir": "C:\\\\d"}, "links": 1}]}']
 
@@ -2059,6 +2060,7 @@ class ShortcutStateTest(unittest.TestCase):
                 said = self.run.shortcut_state(self.root)
                 self.assertTrue(said.startswith(f"{self.run.SHORTCUTS} cannot be read"), said)
                 self.assertIn("move it aside", said)
+                self.assertIn("-ShortcutDir '<folder>', once for each folder", said)
 
     def test_an_unreadable_record_says_so(self):
         (self.root / "build").mkdir()
