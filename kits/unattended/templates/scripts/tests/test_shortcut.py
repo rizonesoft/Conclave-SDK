@@ -811,10 +811,6 @@ class CampaignTitleTest(ShortcutFixture):
         taken = self.desk / "My Proj's Claude campaign.lnk"  # vacated: its original is moved aside
         self.foreign_link(taken)
         foreign = taken.read_bytes()
-        moved_in = self.desk / "Demo Site Claude campaign.lnk"  # moved in by the stopped run; another's is there now
-        moved_in.unlink()
-        self.foreign_link(moved_in)
-        theirs = moved_in.read_bytes()
         done = self.shortcut("-Distro", "Arch", "-Icon", str(self.icon))
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         self.assertEqual(taken.read_bytes(), foreign)
@@ -822,7 +818,21 @@ class CampaignTitleTest(ShortcutFixture):
         self.assertTrue(journal.exists(), "the journal went while an original was still aside")
         self.assertTrue(taken.with_name(f"{taken.name}.{self.DEAD}.old").exists())
         self.assertTrue((self.desk / "My Proj's Carbon campaign.lnk").exists())  # the rest went back
-        self.assertEqual(moved_in.read_bytes(), theirs)  # another project's file under a moved-in name stays
+
+    def test_a_journal_naming_another_projects_file_at_a_moved_in_name_holds_every_change(self):
+        # Completion reconciliation (chain 2): a run cannot tell that race from a planted record, so it plays neither.
+        self.install()
+        journal = self.stopped_rename("swapping")
+        moved_in = self.desk / "Demo Site Claude campaign.lnk"  # moved in by the stopped run; another's is there now
+        moved_in.unlink()
+        self.foreign_link(moved_in)
+        stopped = self.snapshot()
+        for args in (["-Distro", "Ubuntu", "-Icon", str(self.icon)], ["-Remove"]):
+            with self.subTest(args[0]):
+                done = self.shortcut(*args)
+                self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+                self.assertIn(f"names {moved_in}, which is not this project's", done.stdout)
+                self.assertEqual((self.snapshot(), journal.exists()), (stopped, True))
 
     def test_a_rollback_that_cannot_put_an_original_back_keeps_its_journal(self):
         # Reconciliation 3: another installer takes a name this run vacated, so its move in and its rollback both fail.
@@ -1287,16 +1297,20 @@ class CampaignTitleTest(ShortcutFixture):
         key = self.project_key()
         theirs = self.desk / f"campaign-claude-{key}.ico.lnk"
         self.foreign_link(theirs)
-        before = theirs.read_bytes()
+        before = self.snapshot()
         self.state.mkdir(parents=True, exist_ok=True)
-        journal = self.state / f"campaign-{key}.{self.DEAD}.journal.json"
-        moves = [{"from": str(self.desk / f"campaign-claude-{key}.ico.{self.DEAD}.tmp.lnk"), "to": str(theirs)}]
-        journal.write_text(json.dumps({"state": "swapping", "temps": [], "moves": moves, "aside": []}),
-                           encoding="utf-8")
-        for args in (["-Distro", "Arch", "-Icon", str(self.icon)], ["-Remove"]):
+        for n, args in enumerate((["-Distro", "Ubuntu", "-Icon", str(self.icon)], ["-Remove"])):
             with self.subTest(args[0]):
-                self.shortcut(*args)
-                self.assertEqual(theirs.read_bytes(), before)
+                owner = self.DEAD + 4 * n  # one planted per mode, each well formed for its own id
+                moves = [{"from": str(self.desk / f"campaign-claude-{key}.ico.{owner}.tmp.lnk"), "to": str(theirs)}]
+                journal = self.state / f"campaign-{key}.{owner}.journal.json"
+                journal.write_text(json.dumps({"state": "swapping", "temps": [], "moves": moves, "aside": []}),
+                                   encoding="utf-8")
+                done = self.shortcut(*args)
+                self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+                self.assertIn("which is not this project's", done.stdout)
+                self.assertEqual((self.snapshot(), journal.exists()), (before, True))
+                journal.unlink()
 
     def test_remove_in_one_distro_leaves_an_old_key_badge_another_distros_link_shows(self):
         # Reconciliation 11: one Linux path in two distros shared the old key; their desktops may differ.
