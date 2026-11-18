@@ -811,13 +811,15 @@ class CampaignTitleTest(ShortcutFixture):
         taken = self.desk / "My Proj's Claude campaign.lnk"  # vacated: its original is moved aside
         self.foreign_link(taken)
         foreign = taken.read_bytes()
-        done = self.shortcut("-Distro", "Arch", "-Icon", str(self.icon))
-        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
-        self.assertEqual(taken.read_bytes(), foreign)
-        self.assertIn("cannot go back to " + str(taken), done.stdout)
-        self.assertTrue(journal.exists(), "the journal went while an original was still aside")
-        self.assertTrue(taken.with_name(f"{taken.name}.{self.DEAD}.old").exists())
-        self.assertTrue((self.desk / "My Proj's Carbon campaign.lnk").exists())  # the rest went back
+        stopped = self.snapshot()
+        # Reconciliation 4 (chain 2): the journal is held whole, so no mode can take the original its name lost.
+        for args in (["-Distro", "Ubuntu", "-Icon", str(self.icon)], ["-Remove"]):
+            with self.subTest(args[0]):
+                done = self.shortcut(*args)
+                self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+                self.assertIn(f"names {taken}, which is not this project's", done.stdout)
+                self.assertEqual((self.snapshot(), journal.exists()), (stopped, True))
+                self.assertEqual(taken.read_bytes(), foreign)
 
     def test_a_journal_naming_another_projects_file_at_a_moved_in_name_holds_every_change(self):
         # Completion reconciliation (chain 2): a run cannot tell that race from a planted record, so it plays neither.

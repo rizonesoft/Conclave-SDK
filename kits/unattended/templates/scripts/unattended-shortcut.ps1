@@ -337,6 +337,8 @@ function Restore-Stopped {
         ForEach-Object { $_.to }) +
       @($record.aside | Where-Object { (Test-Path -LiteralPath $_.old) -and -not (Test-Mine $_.old) } |
         ForEach-Object { $_.old }) +
+      @($record.aside | Where-Object { (Test-Path -LiteralPath $_.to) -and -not (Test-Mine $_.to) } |
+        ForEach-Object { $_.to }) +
       @(@($record.moves | ForEach-Object { $_.from }) + @($record.temps) | Select-Object -Unique |
         Where-Object { $_ -and (Test-Path -LiteralPath $_) -and -not (Test-Mine $_) }))
     if ($foreign) {
