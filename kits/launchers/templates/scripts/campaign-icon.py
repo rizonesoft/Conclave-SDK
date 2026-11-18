@@ -7,7 +7,9 @@
 
 `badge` draws, on every frame of the project's icon, a circle in the runner's colour with a white outline at the
 bottom right, and from 32 pixels up the runner's mark in white inside it: Claude Code's orange spark for `claude`,
-Antigravity's blue sparkle for `agy` (the Carbon runner), Codex's green for `codex`. `frames` builds a Windows icon
+Antigravity's blue sparkle for `agy` (the Carbon runner), Codex's green for `codex`. The unattended run's Watch and
+Stop links carry the same badge as `watch` (a white eye on violet) and `stop` (a white stop square on red). `frames`
+builds a Windows icon
 from two large renders of a project's icon, the detailed one for 96 pixels and up and the heavy one below.
 `overlay` marks an everyday link (one a person opens, where a campaign link starts a run): a rounded square where the
 badge is a circle, in the mark's colour on a white outline, with the mark in white from 32 pixels up. Its marks are the
@@ -31,7 +33,7 @@ import struct
 import sys
 import zlib
 
-USAGE = ("usage: campaign-icon.py badge <base.png or .ico> <claude|agy|codex> <target.ico>\n"
+USAGE = ("usage: campaign-icon.py badge <base.png or .ico> <claude|agy|codex|watch|stop> <target.ico>\n"
          "       campaign-icon.py overlay <base.png or .ico> <claude|agy|codex|wordpress|site> <target.ico>\n"
          "       campaign-icon.py frames <large.png> <small.png> <target.ico>")
 SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
@@ -43,7 +45,19 @@ RUNNERS = {
     "agy": ("#4C8DF6", "gemini"),
     "codex": ("#10A37F", "codex"),
 }
+# The unattended run's own controls, badged like a runner: its Watch and Stop links.
+CONTROLS = {
+    "watch": ("#6B5BD6", "eye"),
+    "stop": ("#D93A3A", "stop"),
+}
+BADGES = {**RUNNERS, **CONTROLS}
 MARKS = {
+    # An eye: a lens, the iris cut out of it (wound the other way), and the pupil inside.
+    "eye": ("0 0 24 24", "M1 12A13 13 0 0 1 23 12A13 13 0 0 1 1 12Z"
+                         "M16.2 12A4.2 4.2 0 1 0 7.8 12A4.2 4.2 0 1 0 16.2 12Z"
+                         "M14.4 12A2.4 2.4 0 1 1 9.6 12A2.4 2.4 0 1 1 14.4 12Z"),
+    # A stop square with rounded corners.
+    "stop": ("0 0 24 24", "M7 4H17A3 3 0 0 1 20 7V17A3 3 0 0 1 17 20H7A3 3 0 0 1 4 17V7A3 3 0 0 1 7 4Z"),
     # OpenAI blossom: Wikimedia Commons, OpenAI_logo_2025_(symbol).svg.
     "codex": ('1.68 1.75 16.65 16.5', 'M11.248 18.25q-.825 0-1.568-.314a4.3 4.3 0 0 1-1.32-.874 4 4 0 0 1-1.304.214 4 4 0 0 1-2.046-.544 4.27 4.27 0 0 1-1.518-1.485 4 4 0 0 1-.56-2.095q0-.48.131-1.04A4.4 4.4 0 0 1 2.04 10.71a4.07 4.07 0 0 1 .017-3.4 4.2 4.2 0 0 1 1.056-1.418 3.8 3.8 0 0 1 1.6-.842 3.9 3.9 0 0 1 .76-1.683q.593-.759 1.451-1.188a4.04 4.04 0 0 1 1.832-.429q.825 0 1.567.313.742.314 1.32.875a4 4 0 0 1 1.304-.215q1.106 0 2.046.545a4.14 4.14 0 0 1 1.501 1.485q.578.941.578 2.095 0 .48-.132 1.04.66.61 1.023 1.419.363.792.363 1.666 0 .892-.38 1.717a4.3 4.3 0 0 1-1.072 1.435 3.8 3.8 0 0 1-1.584.825 3.8 3.8 0 0 1-.775 1.683 4.06 4.06 0 0 1-1.436 1.188 4.04 4.04 0 0 1-1.832.429m-4.076-2.062q.825 0 1.435-.347l3.103-1.782a.36.36 0 0 0 .164-.313v-1.42L7.881 14.62a.67.67 0 0 1-.726 0l-3.118-1.798a.5.5 0 0 1-.017.115v.198q0 .841.396 1.551.413.693 1.139 1.089a3.2 3.2 0 0 0 1.617.412m.165-2.69a.4.4 0 0 0 .181.05q.083 0 .165-.05l1.238-.71-3.977-2.31a.7.7 0 0 1-.363-.643v-3.58q-.825.362-1.32 1.122a2.9 2.9 0 0 0-.495 1.65q0 .809.413 1.55.412.743 1.072 1.123zm3.91 3.663q.875 0 1.585-.396a2.96 2.96 0 0 0 1.534-2.64v-3.564a.32.32 0 0 0-.165-.297l-1.254-.726v4.604a.7.7 0 0 1-.363.643l-3.119 1.799a3 3 0 0 0 1.783.577m.627-6.039V8.878L10.01 7.822 8.129 8.878v2.244l1.881 1.056zM7.057 5.859a.7.7 0 0 1 .363-.644l3.119-1.798a3 3 0 0 0-1.782-.578q-.874 0-1.584.396A2.96 2.96 0 0 0 6.05 4.324a3.07 3.07 0 0 0-.396 1.551v3.547q0 .199.165.314l1.237.726zm8.383 7.887q.825-.364 1.303-1.123.495-.758.495-1.65a3.15 3.15 0 0 0-.412-1.55q-.413-.743-1.073-1.123l-3.086-1.782q-.099-.065-.181-.049a.3.3 0 0 0-.165.05l-1.238.692 3.993 2.327a.6.6 0 0 1 .264.264.64.64 0 0 1 .1.363zm-3.317-8.382a.63.63 0 0 1 .726 0l3.135 1.831v-.297q0-.792-.396-1.501a2.86 2.86 0 0 0-1.105-1.155q-.71-.43-1.65-.43-.825 0-1.436.347L8.294 5.941a.36.36 0 0 0-.165.314v1.418z'),
     "claude": ("0 0 100 100", "m19.6 66.5 19.7-11 .3-1-.3-.5h-1l-3.3-.2-11.2-.3L14 53l-9.5-.5-2.4-.5L0 49l.2-1.5 2-1.3 2.9.2 6.3.5 9.5.6 6.9.4L38 49.1h1.6l.2-.7-.5-.4-.4-.4L29 41l-10.6-7-5.6-4.1-3-2-1.5-2-.6-4.2 2.7-3 3.7.3.9.2 3.7 2.9 8 6.1L37 36l1.5 1.2.6-.4.1-.3-.7-1.1L33 25l-6-10.4-2.7-4.3-.7-2.6c-.3-1-.4-2-.4-3l3.1-4.2L28 0l4.2.6L33.8 2l2.6 6 4.1 9.3L47 29.9l2 3.8 1 3.4.3 1h.7v-.5l.5-7.2 1-8.7 1-11.2.3-3.2 1.6-3.8 3-2L61 2.6l2 2.9-.3 1.8-1.1 7.7L59 27.1l-1.5 8.2h.9l1-1.1 4.1-5.4 6.9-8.6 3-3.5L77 13l2.3-1.8h4.3l3.1 4.7-1.4 4.9-4.4 5.6-3.7 4.7-5.3 7.1-3.2 5.7.3.4h.7l12-2.6 6.4-1.1 7.6-1.3 3.5 1.6.4 1.6-1.4 3.4-8.2 2-9.6 2-14.3 3.3-.2.1.2.3 6.4.6 2.8.2h6.8l12.6 1 3.3 2 1.9 2.7-.3 2-5.1 2.6-6.8-1.6-16-3.8-5.4-1.3h-.8v.4l4.6 4.5 8.3 7.5L89 80.1l.5 2.4-1.3 2-1.4-.2-9.2-7-3.6-3-8-6.8h-.5v.7l1.8 2.7 9.8 14.7.5 4.5-.7 1.4-2.6 1-2.7-.6-5.8-8-6-9-4.7-8.2-.5.4-2.9 30.2-1.3 1.5-3 1.2-2.5-2-1.4-3 1.4-6.2 1.6-8 1.3-6.4 1.2-7.9.7-2.6v-.2H49L43 72l-9 12.3-7.2 7.6-1.7.7-3-1.5.3-2.8L24 86l10-12.8 6-7.9 4-4.6-.1-.5h-.3L17.2 77.4l-4.7.6-2-2 .2-3 1-1 8-5.5Z"),
@@ -487,7 +501,7 @@ def write_atomic(target: Path, data: bytes) -> None:
 
 
 def badge(source: Path, runner: str, target: Path) -> None:
-    fill, mark = RUNNERS[runner]
+    fill, mark = BADGES[runner]
     frames = base_frames(source)
     out = [(size, write_png(size, size, badge_frame(size, frame_at(frames, size), fill, mark))) for size in SIZES]
     write_atomic(target, pack_ico(out))
@@ -510,7 +524,7 @@ def build_frames(large: Path, small: Path, target: Path) -> None:
 
 def main(argv: list[str]) -> int:
     try:
-        if len(argv) == 4 and argv[0] == "badge" and argv[2] in RUNNERS:
+        if len(argv) == 4 and argv[0] == "badge" and argv[2] in BADGES:
             badge(Path(argv[1]), argv[2], Path(argv[3]))
             return 0
         if len(argv) == 4 and argv[0] == "overlay" and argv[2] in OVERLAYS and argv[3].lower().endswith(".ico"):

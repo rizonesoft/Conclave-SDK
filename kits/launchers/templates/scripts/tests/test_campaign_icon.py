@@ -87,12 +87,13 @@ class PathTest(unittest.TestCase):
 
 class BadgeTest(unittest.TestCase):
     def badge(self, runner, size):
-        fill, mark = icon.RUNNERS[runner]
+        fill, mark = icon.BADGES[runner]
         return icon.badge_frame(size, solid(size), fill, mark)
 
     def test_the_badge_sits_bottom_right_in_the_runners_colour_and_leaves_the_rest(self):
         for runner, colour in (("claude", (0xD9, 0x77, 0x57)), ("agy", (0x4C, 0x8D, 0xF6)),
-                               ("codex", (0x10, 0xA3, 0x7F))):
+                               ("codex", (0x10, 0xA3, 0x7F)), ("watch", (0x6B, 0x5B, 0xD6)),
+                               ("stop", (0xD9, 0x3A, 0x3A))):
             with self.subTest(runner=runner):
                 out = self.badge(runner, 64)
                 self.assertTrue(close(pixel(out, 64, 4, 4), (*TILE, 255)), "the badge reached the top left")
@@ -103,6 +104,21 @@ class BadgeTest(unittest.TestCase):
                 self.assertTrue(close(inner, (*colour, 255), 12), (runner, inner))
                 ring = pixel(out, 64, round(centre), round(centre + radius - 0.9))
                 self.assertTrue(close(ring[:3], (255, 255, 255), 60), ("the white outline", ring))
+
+    def test_the_run_controls_carry_their_marks(self):
+        # The Watch and Stop shortcuts: at the badge's centre the stop square is white, and the eye's pupil is white
+        # inside an iris cut back to the badge's colour.
+        radius = 256 * 0.24
+        centre = 256 - radius - 2.56
+        unit = radius * 1.15 / 24  # one unit of the marks' 24-unit box
+        stop = self.badge("stop", 256)
+        self.assertTrue(close(pixel(stop, 256, round(centre), round(centre))[:3], (255, 255, 255), 20))
+        eye = self.badge("watch", 256)
+        self.assertTrue(close(pixel(eye, 256, round(centre), round(centre))[:3], (255, 255, 255), 20), "no pupil")
+        iris = pixel(eye, 256, round(centre + 3.3 * unit), round(centre))
+        self.assertTrue(close(iris[:3], (0x6B, 0x5B, 0xD6), 20), ("the iris was not cut out", iris))
+        lens = pixel(eye, 256, round(centre + 8 * unit), round(centre))
+        self.assertTrue(close(lens[:3], (255, 255, 255), 20), ("no lens", lens))
 
     def test_a_mark_is_drawn_from_32_pixels_up_and_not_below(self):
         def whites(out, size):

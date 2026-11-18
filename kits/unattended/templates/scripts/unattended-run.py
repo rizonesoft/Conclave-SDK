@@ -5,7 +5,8 @@
                                                  start (or resume) the run, and its heartbeat unless --no-heartbeat;
                                                  --ships N ends the run once it has shipped N sections
     python3 scripts/unattended-run.py status     whether the run is live, its session, start, guard, health and stall
-    python3 scripts/unattended-run.py attach [--watch]   attach to the run's tmux session (--watch: read-only)
+    python3 scripts/unattended-run.py attach [--watch]   attach to the run's tmux session (--watch: read-only, no
+                                                         typing into the run and no scrolling its history)
     python3 scripts/unattended-run.py stop       end the guard, the tmux sessions and the whole process group
     python3 scripts/unattended-run.py heartbeat [--once]   nudge an idle run; record a dead one as ended (start runs it)
     python3 scripts/unattended-run.py shortcut [--agent A] [--dir D] [--remove]   a desktop entry that starts the run
@@ -54,6 +55,10 @@ MARKER_KEYS = ("session", "agent_session", "tmux_session", "heartbeat_session", 
 LEGACY_KEYS = ("agent_session", "start_commit", "run_started", "ship_limit")
 GUARD = "build/claude-campaign-guard.json"
 HEALTH = "build/unattended-health.json"  # written by the heartbeat on every tick
+# What unattended-shortcut.ps1 last wrote (D02 T02 §12): its arguments, for -Refresh, and each link's command, which
+# `status` compares with the current one, so a link a kit update left behind is named.
+SHORTCUTS = "build/unattended-shortcuts.json"
+REFRESH = "pwsh scripts/unattended-shortcut.ps1 -Refresh"
 NEEDS_OPERATOR = "build/unattended-needs-operator.md"  # the stall notice: nothing has shipped for stall_hours
 HEARTBEAT_STATE = "build/unattended-heartbeat.json"
 ENDED = "build/claude-campaign-ended.json"  # written by campaign_guard.py end: how the last run ended
@@ -65,6 +70,10 @@ FALLBACK_TICK_SECONDS = 300  # the template's tick, used while the profile canno
 NUDGE_PROMPT = ("The unattended run looks idle. Continue with process-plan: pick up the open section in the run file "
                 "and keep going. Never ask the operator a question.")
 HISTORY_LIMIT = 50000
+# An attached client that can type holds off the heartbeat's nudge only while its operator has typed (or scrolled)
+# within this long: a window left open on a desk is not an operator at work, and a stalled run behind it still gets
+# nudged.
+ATTENDED_SECONDS = 15 * 60
 INSIDE = "CONCLAVE_UNATTENDED_RUN"  # set inside the run, so a run cannot stop itself
 AUTOMATION = "CONCLAVE_AUTOMATION"  # set by the automations kit for a scheduled task: no run starts under it
 # Every process of a run carries this in its environment (inherited even by one that starts its own session, such as
@@ -344,6 +353,8 @@ def _launch(root: Path, run_session: str, argv: list[str], session: str) -> int:
         # A session target ending in ":" (the exact name, then its current window): set-option and new-window
         # resolve -t through a pane, and a bare "=name" names no pane in tmux 3.6.
         tmux("set-option", "-t", f"={run_session}:", "history-limit", str(HISTORY_LIMIT), check=True)
+        # The mouse on, so an attached window scrolls the history with the wheel and selects with a drag.
+        tmux("set-option", "-t", f"={run_session}:", "mouse", "on", check=True)
         # The agent's window opens on a placeholder, keeps its pane on exit, and only then is the agent respawned into
         # it: an agent that exits at once is still there to read, not a window that vanished before the option was set.
         tmux("new-window", "-d", "-t", f"={run_session}:", "-n", "agent", "-c", str(root), "sleep 30", check=True)
@@ -632,7 +643,8 @@ def run_finished(root: Path, marker: dict) -> bool:
 def _nudge(root: Path, run_session: str, profile: dict, state: dict, now: float, out,
            prompt: str = NUDGE_PROMPT) -> None:
     """Prompt a run whose window has shown nothing for idle_minutes, at most once per idle_minutes, unless an
-    operator is attached with a client that can type (a read-only watcher does not count). A nudge counts only when
+    operator is at work: attached with a client that can type and active within ATTENDED_SECONDS (a read-only
+    watcher, or a window left open and untouched, does not count). A nudge counts only when
     tmux answered the client query and accepted the prompt. A stalled run gets the stall prompt (§8)."""
     idle = profile["idle_minutes"] * 60
     target = f"={run_session}:agent"
@@ -643,12 +655,12 @@ def _nudge(root: Path, run_session: str, profile: dict, state: dict, now: float,
         return
     if now - int(activity) < idle or (state.get("last_nudge") and now - state["last_nudge"] < idle):
         return
-    clients = tmux("list-clients", "-t", f"={run_session}", "-F", "#{client_readonly}")
+    clients = tmux("list-clients", "-t", f"={run_session}", "-F", "#{client_readonly} #{client_activity}")
     if clients.returncode != 0:
         state["last_error"] = f"tmux could not list the clients of {run_session}; no nudge sent"
         return
-    if "0" in clients.stdout.split():
-        return  # an operator is attached and may be typing
+    if any(attended(line, now) for line in clients.stdout.splitlines()):
+        return  # an operator is attached and typing
     typed = tmux("send-keys", "-t", target, "-l", prompt)
     entered = tmux("send-keys", "-t", target, "Enter") if typed.returncode == 0 else typed
     if entered.returncode != 0:
@@ -657,6 +669,15 @@ def _nudge(root: Path, run_session: str, profile: dict, state: dict, now: float,
     state["last_nudge"], state["last_error"] = now, None
     print(f"heartbeat: nudged {run_session} after {int(now - int(activity))}s without activity", file=out)
     note_resumption(root, out)
+
+
+def attended(client: str, now: float) -> bool:
+    """Whether one `list-clients` line ("<readonly> <activity>") is an operator at work: a client that can type and
+    was used within ATTENDED_SECONDS. A writable client whose activity tmux did not give counts as attended."""
+    fields = client.split()
+    if not fields or fields[0] != "0":
+        return False
+    return len(fields) < 2 or not fields[1].isdigit() or now - int(fields[1]) < ATTENDED_SECONDS
 
 
 def note_resumption(root: Path, out) -> None:
@@ -740,7 +761,12 @@ def tick(root: Path, now: float, state: dict, out=None) -> int:
         state["last_error"] = f"ships could not be counted ({exc}); counted again next tick"
         print(f"heartbeat: {state['last_error']}", file=out)
     if run_finished(root, marker):
-        return _ended(root, marker, "the run ended itself", state, now, out)
+        # A guard `stop` ended is the operator's stop, not the run ending itself: recorded as anything else, the
+        # stop's hand-off reads as unrecorded and the heartbeat outlived the stop by a tick (2026-11-18). The stop's
+        # flag in this heartbeat's session says so; the guard's end reason cannot, since the heartbeat's own cleanup
+        # ends a guard as operator-stop too.
+        stopped = stopped_run() == marker["session"]
+        return _ended(root, marker, STOP_REASON if stopped else "the run ended itself", state, now, out)
     if marker["ship_limit"] and (state.get("ships") or 0) >= marker["ship_limit"]:
         print(f"heartbeat: run {marker['session']} shipped {state['ships']} of its {marker['ship_limit']} section(s)",
               file=out)
@@ -937,7 +963,67 @@ def status(root: Path, out=None) -> int:
     except OSError as exc:
         notice = f"{NEEDS_OPERATOR} cannot be read ({exc})"
     print(f"needs operator:\n{notice.rstrip()}" if notice else "needs operator: no", file=out)
+    print(f"shortcuts: {shortcut_state(root)}", file=out)
     return 0
+
+
+def link_command(kind) -> str | None:
+    """The command a Windows link of `kind` (a runner, `watch` or `stop`) runs now, or None for a kind there is none."""
+    if kind == "watch":
+        return watch_command()
+    if kind == "stop":
+        return stop_command()
+    return start_command(kind) if kind in lib.AGENTS else None
+
+
+def shortcut_state(root: Path) -> str:
+    """What `status` says of the Windows links unattended-shortcut.ps1 recorded, one set per desktop folder: none,
+    current, or each one whose command is no longer the current one (a kit update changed it after it was written),
+    with the re-run. It reads the record, not the links (which only Windows can read: `-Check` does)."""
+    path = root / SHORTCUTS
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except FileNotFoundError:
+        return "none recorded"
+    except (OSError, ValueError) as exc:
+        return f"{SHORTCUTS} cannot be read ({exc}); run {REFRESH} on Windows"
+    sets = data.get("sets") if isinstance(data, dict) else None
+    sets = [entry for entry in sets if isinstance(entry, dict)] if isinstance(sets, list) else []
+    links = [(entry, link) for entry in sets for link in (entry.get("links") or [None])]
+    if not links:
+        return f"{SHORTCUTS} names no links; run {REFRESH} on Windows"
+    stale = []
+    for entry, link in links:
+        if isinstance(link, dict) and link.get("command") == link_command(link.get("kind")):
+            continue
+        label = str(link.get("label")) if isinstance(link, dict) else repr(link)
+        folder = (entry.get("args") or {}).get("ShortcutDir")
+        stale.append(f"{label} (in {folder}, written {entry.get('written')})" if len(sets) > 1 else label)
+    written = ", ".join(str(entry.get("written")) for entry in sets)
+    if stale:
+        return (f"stale: {', '.join(stale)}: recorded before the current commands; run {REFRESH} on Windows"
+                + (" with -ShortcutDir for each folder" if len(sets) > 1 else f" (written {written})"))
+    return (f"current as recorded ({len(links)} written {written}; pwsh scripts/unattended-shortcut.ps1 -Check "
+            "reads the links themselves)")
+
+
+class Unfailing:
+    """A stream that drops what it cannot write (a closed terminal, a broken pipe) instead of raising."""
+
+    def __init__(self, stream):
+        self.stream = stream
+
+    def write(self, text: str) -> int:
+        try:
+            return self.stream.write(text)
+        except (OSError, ValueError):
+            return len(text)
+
+    def flush(self) -> None:
+        try:
+            self.stream.flush()
+        except (OSError, ValueError):
+            pass
 
 
 def attach_command(run_session: str, watch: bool) -> list[str]:
@@ -1026,9 +1112,27 @@ DESKTOP_MARK = "X-Conclave-Project"
 
 def start_command(agent: str) -> str:
     """The shell command every launcher of the run runs in the project (the Linux entry here, the Windows shortcut
-    through wsl.exe): start the run on `agent`, and on a failure say so and wait for Enter."""
-    return (f"python3 scripts/unattended-run.py start --agent {agent} || "
+    through wsl.exe): start the run on `agent`, then attach to it with keyboard and mouse (a run already going is
+    just attached, its start refused); when there is no run to attach to, say so and wait for Enter."""
+    return (f"python3 scripts/unattended-run.py start --agent {agent}; "
+            "python3 scripts/unattended-run.py attach || "
             "{ echo 'The run did not start: the reason is above. Press Enter to close.'; read -r _; }")
+
+
+def watch_command() -> str:
+    """The shell command the Windows "Watch run" shortcut runs in the project: attach with keyboard and mouse (detach
+    with Ctrl-b d, and the window closes); when there is no run to watch, say so and wait for Enter."""
+    return ("python3 scripts/unattended-run.py attach || "
+            "{ echo 'There is no run to watch: the reason is above. Press Enter to close.'; read -r _; }")
+
+
+def stop_command() -> str:
+    """The shell command the Windows "Stop run" shortcut runs in the project: ask first, stop only on `y`, and keep
+    the outcome on screen until Enter."""
+    # No double quote: the Windows command line between PowerShell and wsl.exe strips them.
+    return ("read -r -p 'Stop the unattended run? Type y and press Enter: ' answer; "
+            "case $answer in y) python3 scripts/unattended-run.py stop;; *) echo 'Not stopped.';; esac; "
+            "echo 'Press Enter to close.'; read -r _")
 
 
 def desktop_entry(root: Path, profile: dict, agent: str) -> str:
@@ -1090,7 +1194,8 @@ def build_parser() -> argparse.ArgumentParser:
                               help="end the run once it has shipped N sections (the heartbeat enforces it)")
     sub.add_parser("status")
     attach_parser = sub.add_parser("attach")
-    attach_parser.add_argument("--watch", action="store_true", help="attach read-only")
+    attach_parser.add_argument("--watch", action="store_true",
+                               help="attach read-only: no typing into the run and no scrolling its history")
     sub.add_parser("stop")
     shortcut_parser = sub.add_parser("shortcut")
     shortcut_parser.add_argument("--agent", choices=lib.AGENTS, help="the runner (default: the profile's own agent)")
@@ -1118,6 +1223,11 @@ def main(argv: list[str] | None = None) -> int:
             return heartbeat(root, once=args.once)
         if args.command == "shortcut":
             return shortcut(root, args.agent, Path(args.dir).resolve() if args.dir else None, args.remove)
+        # The operator's stop finishes whatever happens to its window: the Stop shortcut's window closed mid-stop hung
+        # it up after the guard ended and before the marker went (2026-11-18), and the heartbeat finished it a tick
+        # later. A hangup is ignored, and a terminal gone under a print drops the print, not the stop.
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
+        sys.stdout, sys.stderr = Unfailing(sys.stdout), Unfailing(sys.stderr)
         return stop(root)
     except UsageError as exc:
         print(f"unattended-run: {exc}", file=sys.stderr)

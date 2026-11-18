@@ -210,8 +210,22 @@ class ShortcutFixture(unittest.TestCase):
         return [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()] if self.log.exists() \
             else []
 
+    # The run's Watch and Stop links, one each whatever the runner (D02 T02 §12); `links()` leaves them out, so a test
+    # about the campaign links reads only those, and `controls()` reads them.
+    CONTROL_LINKS = (" - Watch run.lnk", " - Stop run.lnk")
+
     def links(self):
-        return sorted(p.name for p in self.desk.glob("*.lnk")) if self.desk.exists() else []
+        """The campaign links (and any other link), without the run's Watch and Stop links."""
+        found = sorted(p.name for p in self.desk.glob("*.lnk")) if self.desk.exists() else []
+        return [name for name in found if not name.endswith(self.CONTROL_LINKS)]
+
+    def controls(self):
+        return sorted(p.name for p in self.desk.glob("*.lnk") if p.name.endswith(self.CONTROL_LINKS))
+
+    def runner_badges(self, folder=None):
+        """The campaign links' badges, without the Watch and Stop links' own."""
+        return sorted(p for p in (folder or self.icons).glob("campaign-*.ico")
+                      if not p.name.startswith(("campaign-watch-", "campaign-stop-")))
 
     def install(self):
         done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon))
@@ -246,6 +260,145 @@ class ShortcutTest(ShortcutFixture):
                 self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
                 self.assertEqual(self.calls(), [["-d", "Ubuntu", "--cd", linux, "--exec", "bash", "-lc",
                                                  self.run.start_command(agent)]])
+
+    def test_watch_and_stop_hand_wsl_their_commands_with_their_badges(self):
+        # D02 T02 §12: one Watch and one Stop link whatever the runner. The commands themselves (watch attaches, stop
+        # asks first) are run in bash by test_run.py's ControlCommandTest.
+        self.install()
+        self.assertEqual(self.controls(), ["My Proj's - Stop run.lnk", "My Proj's - Watch run.lnk"])
+        for label, kind, command in (("Watch", "watch", self.run.watch_command()),
+                                     ("Stop", "stop", self.run.stop_command())):
+            with self.subTest(kind):
+                link = self.read_link(self.desk / f"My Proj's - {label} run.lnk")
+                self.assertEqual(Path(link["target"]).stem, "pwsh")
+                icon = Path(link["icon"].rsplit(",", 1)[0])
+                self.assertRegex(icon.name, rf"^campaign-{kind}-[0-9a-f]{{8}}\.ico$")
+                self.assertEqual(icon.read_bytes(), self.rendered_badge(kind))
+                self.assertNotIn('"', command, "the Windows command line between PowerShell and wsl.exe strips it")
+                self.log.unlink(missing_ok=True)
+                ran = self.activate(link)
+                self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+                (call,) = self.calls()
+                self.assertEqual((call[:2], call[4:]), (["-d", "Ubuntu"], ["--exec", "bash", "-lc", command]))
+        done = self.shortcut("-Remove")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual((self.controls(), list(self.icons.glob("campaign-*.ico"))), ([], []))
+
+    def test_refresh_rewrites_the_links_a_kit_update_left_behind_and_status_names_them(self):
+        # D02 T02 §12, seen 2026-11-18: links written before the writable-attach fix kept `attach --watch` after the
+        # kit was updated, so the run's window ignored every key until the script was run again.
+        record = self.project / "build" / "unattended-shortcuts.json"
+        nothing = self.shortcut("-Refresh")  # no record and no link: nothing to do
+        self.assertEqual(nothing.returncode, 0, nothing.stdout + nothing.stderr)
+        self.assertIn("nothing to do", nothing.stdout)
+        self.assertEqual((self.links(), self.controls()), ([], []))
+        script = self.project / "scripts" / "unattended-shortcut.ps1"
+        current = script.read_text(encoding="utf-8")
+        attach = "python3 scripts/unattended-run.py attach || \" +\n    \"{ echo 'The run did not start"
+        self.assertEqual(current.count(attach), 1)
+        script.write_text(current.replace(attach, attach.replace("attach ||", "attach --watch ||")), encoding="utf-8")
+        self.install()  # the links as the kit before the update wrote them
+        said = self.run.shortcut_state(self.project)
+        self.assertTrue(said.startswith("stale: My Proj's Claude campaign"), said)
+        self.assertNotIn("Watch run", said)
+        script.write_text(current, encoding="utf-8")  # the update
+        done = self.shortcut("-Refresh")  # no -Distro, no -Icon: the record's
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertTrue(self.run.shortcut_state(self.project).startswith("current as recorded ("))
+        (saved,) = json.loads(record.read_text(encoding="utf-8"))["sets"]
+        self.assertEqual(saved["args"]["Distro"], "Ubuntu")
+        self.log.unlink(missing_ok=True)
+        ran = self.activate(self.read_link(self.desk / "My Proj's Claude campaign.lnk"))
+        self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+        (call,) = self.calls()
+        self.assertEqual(call[4:], ["--exec", "bash", "-lc", self.run.start_command("claude")])
+        removed = self.shortcut("-Remove")
+        self.assertEqual(removed.returncode, 0, removed.stdout + removed.stderr)
+        self.assertFalse(record.exists(), "-Remove left the record of links it removed")
+        self.assertEqual(self.run.shortcut_state(self.project), "none recorded")
+
+    def test_links_from_before_the_record_are_named_with_the_command_that_writes_them_again(self):
+        # D02 T02 §12, the plan review: an install made before the record has links and no record.
+        self.install()
+        (self.project / "build" / "unattended-shortcuts.json").unlink()
+        for option in ("-Refresh", "-Check"):
+            with self.subTest(option):
+                done = self.shortcut(option)
+                self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+                self.assertIn("were written before this kit kept a record of them", done.stdout)
+                self.assertIn("pwsh scripts/unattended-shortcut.ps1 -Distro Ubuntu -Icon <the project's icon>", done.stdout)
+        self.assertFalse((self.project / "build" / "unattended-shortcuts.json").exists())
+
+    def every_file(self):
+        """Each file in the desk, the icon folder and the project, with its bytes and when it was written."""
+        return sorted((str(f), f.stat().st_mtime_ns, f.read_bytes())
+                      for d in (self.desk, self.icons, self.project) for f in d.rglob("*") if f.is_file())
+
+    def test_check_reads_the_links_themselves_and_writes_nothing(self):
+        self.install()
+        done = self.shortcut("-Check")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("is current", done.stdout)
+        # A link changed by hand, its record left as it was: status cannot see it, -Check does.
+        path = self.desk / "My Proj's - Watch run.lnk"
+        script = ("Add-Type -Path $env:LINK_CODE; $s = [Conclave.ShellLink]::Read($env:LINK_PATH); "
+                  "$s.Arguments = '-NoLogo -Command exit'; [Conclave.ShellLink]::Write($env:LINK_PATH, $s)")
+        edited = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True,
+                                text=True, timeout=60, creationflags=windowless(),
+                                env={**os.environ, "LINK_PATH": str(path), "LINK_CODE": str(LINK_CODE)})
+        self.assertEqual(edited.returncode, 0, edited.stderr)
+        (self.desk / "My Proj's - Stop run.lnk").unlink()
+        before = self.every_file()
+        done = self.shortcut("-Check")
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn(f"stale: {path}", done.stdout)
+        self.assertIn(f"missing: {self.desk / ('My Proj' + chr(39) + 's - Stop run.lnk')}", done.stdout)
+        self.assertIn("current: ", done.stdout)
+        self.assertEqual(self.every_file(), before, "-Check wrote something")
+        self.assertTrue(self.run.shortcut_state(self.project).startswith("current as recorded"))
+        self.assertEqual(self.shortcut("-Refresh").returncode, 0)
+        self.assertEqual(self.shortcut("-Check").returncode, 0)
+
+    def test_two_folders_keep_a_set_each(self):
+        self.install()
+        other = Path(self._tmp.name) / "desk2"
+        done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon), desk=other)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        record = self.project / "build" / "unattended-shortcuts.json"
+        folders = sorted(s["args"]["ShortcutDir"] for s in json.loads(record.read_text(encoding="utf-8"))["sets"])
+        self.assertEqual(folders, sorted([str(self.desk), str(other)]))
+        # -Refresh without a folder names a command for each; with one, it writes that one.
+        both = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-File",
+                               str(self.project / "scripts" / "unattended-shortcut.ps1"), "-Refresh",
+                               "-Desktops", str(Path(self._tmp.name) / "desktops"), "-Wsl", str(self.wsl),
+                               "-Python", sys.executable], capture_output=True, text=True, timeout=180, env=self.env,
+                              creationflags=windowless())
+        self.assertEqual(both.returncode, 1, both.stdout + both.stderr)
+        self.assertIn("recorded in 2 folders", both.stdout)
+        self.assertIn(f"-ShortcutDir '{other}'", both.stdout)
+        self.assertEqual(self.shortcut("-Refresh", desk=other).returncode, 0)
+        removed = self.shortcut("-Remove", desk=other)
+        self.assertEqual(removed.returncode, 0, removed.stdout + removed.stderr)
+        (left,) = json.loads(record.read_text(encoding="utf-8"))["sets"]
+        self.assertEqual(left["args"]["ShortcutDir"], str(self.desk))
+        self.assertTrue(self.links(), "removing one folder's links took the other's")
+        self.assertEqual(self.shortcut("-Remove").returncode, 0)
+        self.assertFalse(record.exists())
+
+    def test_a_record_that_cannot_be_written_leaves_the_links_in_place_and_says_so(self):
+        (self.project / "build").write_text("a file where the folder goes", encoding="utf-8")
+        done = self.install()
+        self.assertIn("could not be written", done.stdout)
+        self.assertIn("-Check reads them", done.stdout)
+        self.assertTrue(self.links())
+        self.assertEqual(list((self.project).glob("build.*")), [])
+
+    def rendered_badge(self, kind):
+        out = Path(self._tmp.name) / f"expected-{kind}.ico"
+        done = subprocess.run([sys.executable, "-B", str(RENDERER), "badge", str(self.icon), kind, str(out)],
+                              capture_output=True, text=True, timeout=120, creationflags=windowless())
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return out.read_bytes()
 
     def test_a_project_in_wsl_starts_from_its_linux_path(self):
         for label, project in (("the distro's own UNC path", "\\\\wsl.localhost\\Ubuntu\\home\\x\\demo"),
@@ -382,8 +535,8 @@ class CampaignTitleTest(ShortcutFixture):
         done = self.shortcut("-Distro", "Ubuntu", "-Icon", PROVIDER + str(self.icon))
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(self.links(), ["Demo Site Carbon campaign.lnk", "Demo Site Claude campaign.lnk"])
-        self.assertEqual(len(list(self.icons.glob("campaign-*.ico"))), 2)
-        self.assertEqual(len(list(self.icons.iterdir())), 2)
+        self.assertEqual(len(self.runner_badges()), 2)
+        self.assertEqual((len(self.runner_badges()), len(list(self.icons.iterdir()))), (2, 4))  # Watch, Stop
         for label, agent in (("Carbon", "agy"), ("Claude", "claude")):
             with self.subTest(agent):
                 link = self.read_link(self.desk / f"Demo Site {label} campaign.lnk")
@@ -512,7 +665,7 @@ class CampaignTitleTest(ShortcutFixture):
         self.write_profile({**self.PROFILE, "runners": {}})
         self.install()
         self.assertEqual(self.links(), ["Demo Site Claude campaign.lnk"])
-        self.assertEqual(list(self.icons.iterdir()), claude)
+        self.assertEqual(self.runner_badges(), claude)
 
     def test_a_name_held_by_another_file_is_refused_and_a_retry_writes_the_whole_set(self):
         self.install()  # the folder-named set, which a rename must keep until it can replace it whole
@@ -538,7 +691,7 @@ class CampaignTitleTest(ShortcutFixture):
         self.write_launchers("Demo Site")
         self.install()
         self.assertEqual(self.links(), ["Demo Site Carbon campaign.lnk", "Demo Site Claude campaign.lnk"])
-        self.assertEqual(len(list(self.icons.iterdir())), 2)
+        self.assertEqual((len(self.runner_badges()), len(list(self.icons.iterdir()))), (2, 4))  # Watch, Stop
 
     def test_a_failure_on_the_second_runner_leaves_the_previous_set_whole(self):
         self.install()  # the folder-named set, from the first icon
@@ -562,7 +715,7 @@ class CampaignTitleTest(ShortcutFixture):
         done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(other))
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(self.links(), ["Demo Site Carbon campaign.lnk", "Demo Site Claude campaign.lnk"])
-        self.assertEqual(sorted(p.read_bytes() for p in self.icons.iterdir()),
+        self.assertEqual(sorted(p.read_bytes() for p in self.runner_badges()),
                          sorted(self.rendered_from(other, agent) for agent in ("agy", "claude")))
 
     def rendered_from(self, icon, agent):
@@ -580,7 +733,7 @@ class CampaignTitleTest(ShortcutFixture):
         done = self.shortcut("-Distro", "Debian", *linux, project=other)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         beta = {k: v for k, v in self.snapshot().items() if "Beta" in k}
-        self.assertEqual(len(beta), 2)
+        self.assertEqual(len(beta), 4)  # two campaign links, Watch and Stop
         beta_icons = sorted(self.read_link(self.desk / f"Beta {r} campaign.lnk")["icon"] for r in ("Carbon", "Claude"))
         theirs = {k: v for k, v in self.snapshot().items() if k.startswith("icons/") and
                   any(Path(i.rsplit(",", 1)[0]).name == k[6:] for i in beta_icons)}
@@ -670,7 +823,7 @@ class CampaignTitleTest(ShortcutFixture):
                               if ".tmp" in p.name or p.name.endswith(".old")], [])
         done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(other))
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertEqual(sorted(p.read_bytes() for p in self.icons.iterdir()),
+        self.assertEqual(sorted(p.read_bytes() for p in self.runner_badges()),
                          sorted(self.rendered_from(other, agent) for agent in ("agy", "claude")))
 
     def test_a_locked_stale_link_leaves_the_previous_set_and_a_retry_writes_the_new_one(self):
@@ -688,7 +841,7 @@ class CampaignTitleTest(ShortcutFixture):
                               if ".tmp" in p.name or p.name.endswith(".old")], [])
         self.install()
         self.assertEqual(self.links(), ["Demo Site Carbon campaign.lnk", "Demo Site Claude campaign.lnk"])
-        self.assertEqual(len(list(self.icons.iterdir())), 2)
+        self.assertEqual((len(self.runner_badges()), len(list(self.icons.iterdir()))), (2, 4))  # Watch, Stop
 
     def test_a_link_another_installer_writes_while_this_one_works_is_kept(self):
         # Completion gap: the name was free at the check; another project's link takes it before the swap.
@@ -957,9 +1110,16 @@ class CampaignTitleTest(ShortcutFixture):
         self.assertIn("restored: ", done.stdout, done.stdout + done.stderr)
         self.assertEqual((self.snapshot(), self.journal_of()), (before, []))
 
+    def drop_controls(self, desk):
+        """The old script wrote no Watch or Stop link: take them and their badges off, to stand for its set."""
+        for link in [p for p in desk.glob("*.lnk") if p.name.endswith(self.CONTROL_LINKS)]:
+            Path(self.read_link(link)["icon"].rsplit(",", 1)[0]).unlink(missing_ok=True)
+            link.unlink()
+
     def legacy_set(self, linux):
         """This project's set for `linux` as the old script wrote it: the old mark, badges under the old key."""
         self.assertEqual(self.shortcut(*linux).returncode, 0)
+        self.drop_controls(self.desk)
         old_key = hashlib.sha256(b"/home/x/demo").hexdigest()[:8]
         for link in self.desk.glob("*.lnk"):
             badge = Path(self.read_link(link)["icon"].rsplit(",", 1)[0])
@@ -1288,6 +1448,8 @@ class CampaignTitleTest(ShortcutFixture):
         self.assertEqual(record["state"], "committed")
         self.assertEqual(sorted(Path(a["to"]).name for a in record["aside"]),
                          sorted(["My Proj's Carbon campaign.lnk", "My Proj's Claude campaign.lnk",
+                                 "My Proj's - Watch run.lnk", "My Proj's - Stop run.lnk",
+                                 f"campaign-watch-{key}.ico", f"campaign-stop-{key}.ico",
                                  f"campaign-agy-{key}.ico", f"campaign-claude-{key}.ico"]))
         done = self.shortcut("-Remove")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
@@ -1362,6 +1524,7 @@ class CampaignTitleTest(ShortcutFixture):
         linux = ["-Icon", str(self.icon), "-Project", "/home/x/Demo"]
         self.assertEqual(self.shortcut("-Distro", "Debian", *linux, desk=other_desk).returncode, 0)
         old_key = hashlib.sha256(b"/home/x/demo").hexdigest()[:8]
+        self.drop_controls(other_desk)
         for link in other_desk.glob("*.lnk"):  # Debian's set, as the old script wrote it
             badge = Path(self.read_link(link)["icon"].rsplit(",", 1)[0])
             old = badge.with_name(f"{badge.name.split('-')[0]}-{badge.name.split('-')[1]}-{old_key}.ico")
@@ -1541,7 +1704,7 @@ class CampaignTitleTest(ShortcutFixture):
             self.write_launchers(title)
             done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon), icon_dir=False, **env)
             self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-            self.assertEqual(len(list((local / "My Proj's").glob("campaign-*.ico"))), 2)
+            self.assertEqual(len(self.runner_badges(local / "My Proj's")), 2)
         done = self.shortcut("-Remove", icon_dir=False, **env)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(list((local / "My Proj's").iterdir()), [])

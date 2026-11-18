@@ -1,14 +1,15 @@
 # Puts "<Title> <Runner> campaign" shortcuts on the Windows desktop, one per runner the run profile names (its own
-# agent and its `runners`), each starting the unattended run in WSL on that runner, with the project's icon and the
-# runner's badge in its corner (the shape of Office's and Isotone's campaign launchers). The run lives in tmux, in WSL;
-# Windows only starts it.
+# agent and its `runners`), each starting the unattended run in WSL on that runner and then attaching to it with
+# keyboard and mouse (a run already going is just attached to), with the project's icon and the runner's badge in its
+# corner; and "<Title> - Watch run" (attach) and "<Title> - Stop run" (asks first). The run lives in tmux, in WSL;
+# Windows only starts, watches and stops it.
 #
 #   pwsh scripts/unattended-shortcut.ps1 -Distro Ubuntu -Icon assets/brand/project.ico
 #   pwsh scripts/unattended-shortcut.ps1 -Remove       remove every shortcut and icon this project made
 #
-# Each link runs PowerShell, which runs `wsl.exe -d <distro> --cd <project in WSL> --exec bash -lc <start command>`:
-# the command `unattended-run.py`'s start_command gives (a test holds the two equal), which starts the run on the runner
-# and, on a failure, says so and waits for Enter; a failure of WSL itself is said and waits for Enter too.
+# Each link runs PowerShell, which runs `wsl.exe -d <distro> --cd <project in WSL> --exec bash -lc <command>`: the
+# command `unattended-run.py`'s start_command, watch_command or stop_command gives (a test holds them equal), which on
+# a failure says so and waits for Enter; a failure of WSL itself is said and waits for Enter too.
 # Links and icons are written under a temporary name and moved over the old, so a failed save or icon keeps a
 # working shortcut and leaves no broken one.
 # The title is the launcher profile's (`.conclave/launchers.json`, read by `scripts/lib/launchers.py title`), the name
@@ -23,6 +24,10 @@ param(
   [string]$ShortcutDir = [Environment]::GetFolderPath('Desktop'),
   [string]$IconDir = '',
   [switch]$Remove,
+  # Write the links again with the arguments their last run recorded (after a kit update changed their commands).
+  [switch]$Refresh,
+  # Read the links themselves and say which are not the ones this script would write now; nothing is written.
+  [switch]$Check,
   # The desktops searched for another link that shows an old-key icon: the user's and the public desktop.
   [string[]]$Desktops = @(
     [Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('CommonDesktopDirectory')),
@@ -37,6 +42,49 @@ $here = $PSScriptRoot
 $root = Split-Path $here
 
 function Refuse([string]$why) { "unattended-shortcut: $why; nothing was written"; exit 1 }
+
+# What each run wrote (D02 T02 §12), one set per desktop folder: its arguments, which -Refresh and -Check run with
+# again, and each link's kind and command, which `unattended-run.py status` compares with the current ones, so a link a
+# kit update left behind is named. The links themselves are the truth: -Check reads them.
+$recordPath = Join-Path $root 'build\unattended-shortcuts.json'
+function Get-DeskKey([string]$dir) { [IO.Path]::GetFullPath($dir).TrimEnd('\').ToLowerInvariant() }
+# The record's sets (none without a record); a record that cannot be read sets $recordUnread to why.
+$recordUnread = $null
+function Read-Sets {
+  if (-not (Test-Path -LiteralPath $recordPath -PathType Leaf)) { return }
+  try { $data = Get-Content -LiteralPath $recordPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop }
+  catch { $script:recordUnread = $_.Exception.Message; return }
+  $data.sets | Where-Object { $_.args.ShortcutDir }
+}
+$set = $null
+if ($Refresh -or $Check) {
+  if ($Remove) { Refuse '-Refresh and -Check work on the links -Remove removes: give one' }
+  if ($Refresh -and $Check) { Refuse '-Refresh writes the links and -Check only reads them: give one' }
+  $sets = @(Read-Sets)
+  if ($recordUnread) {
+    Refuse ("the record of this project's shortcuts ($recordPath) cannot be read ($recordUnread): run the script " +
+      'with -Distro and -Icon to write them and it again')
+  }
+  $verb = if ($Refresh) { '-Refresh' } else { '-Check' }
+  if ($PSBoundParameters.ContainsKey('ShortcutDir')) {
+    $set = $sets | Where-Object { (Get-DeskKey $_.args.ShortcutDir) -eq (Get-DeskKey $ShortcutDir) } |
+      Select-Object -First 1
+  } elseif ($sets.Count -gt 1) {
+    $each = $sets |
+      ForEach-Object { "pwsh scripts/unattended-shortcut.ps1 $verb -ShortcutDir '$($_.args.ShortcutDir)'" }
+    Refuse "links of this project are recorded in $($sets.Count) folders; run once for each: $($each -join '; ')"
+  } else {
+    $set = $sets | Select-Object -First 1
+  }
+  # An argument given on the command line wins over the recorded one.
+  if ($set) {
+    foreach ($arg in 'Distro', 'Icon', 'Project', 'ShortcutDir', 'IconDir') {
+      if (-not $PSBoundParameters.ContainsKey($arg) -and $set.args.$arg) {
+        Set-Variable -Name $arg -Value $set.args.$arg
+      }
+    }
+  }
+}
 
 # Links are written and read through the shell's own IShellLinkW (`scripts/lib/ShellLink.cs`, the launchers kit's,
 # which this kit brings), which keeps a name, a mark, a path or an argument in any script at its full length, and
@@ -446,6 +494,25 @@ if ($unreadJournals) {
 # owned link is moved aside, then every badge (so no link is ever left
 # without its icon), and only once all are aside are they deleted. A failure puts every one back; a stop leaves a
 # journal the next run plays out (a `swapping` one puts the set back, a `committed` one finishes the removal).
+# Writes the record with this folder's set replaced by `$entry` (taken out for $null), whole: a temporary file moved
+# over the old. The links are in place, or gone, whatever happens here: a record that cannot be written is said, and
+# `status` cannot then tell a stale link (-Check still can).
+function Save-Sets($entry) {
+  $others = @(Read-Sets | Where-Object { $_ -and (Get-DeskKey $_.args.ShortcutDir) -ne (Get-DeskKey $ShortcutDir) })
+  $all = @($others) + @($entry | Where-Object { $_ })
+  $temp = "$recordPath.$PID.tmp"
+  try {
+    if (-not $all) { if (Test-Path -LiteralPath $recordPath) { Remove-Item -LiteralPath $recordPath }; return }
+    New-Item -ItemType Directory -Force -Path (Split-Path $recordPath) | Out-Null
+    [IO.File]::WriteAllText($temp, (@{ sets = $all } | ConvertTo-Json -Depth 6), [Text.UTF8Encoding]::new($false))
+    [IO.File]::Move($temp, $recordPath, $true)
+  } catch {
+    Remove-Item -LiteralPath $temp -ErrorAction Ignore
+    "unattended-shortcut: the record $recordPath could not be written ($($_.Exception.Message)); status cannot " +
+      'tell whether the links are current (-Check reads them)'
+  }
+}
+
 if ($Remove) {
   $links = @(Get-Owned)
   Stop-OnUnreadable
@@ -471,6 +538,7 @@ if ($Remove) {
   $left = @($aside |
     Where-Object { Remove-Item -LiteralPath $_.old -Force -ErrorAction Ignore; Test-Path -LiteralPath $_.old })
   if (-not $left) { Remove-Item -LiteralPath $journalPath -ErrorAction Ignore }
+  Save-Sets $null
   "unattended-shortcut: $($links.Count) shortcut(s) and $($badges.Count) icon(s) of $Project removed"
   if ($left -or $keptJournals) {
     "unattended-shortcut: a journal is kept (see above); run -Remove again once it can finish"
@@ -482,8 +550,25 @@ if ($Remove) {
 # A stopped run whose journal is kept (an original it cannot put back yet) is finished first: a new set written over
 # it would be undone when that journal is played again.
 if ($keptJournals) { Refuse "a stopped run is not finished (see above); free what it names and run the script again" }
+if (($Refresh -or $Check) -and -not $set) {
+  $found = @(Get-Owned)
+  Stop-OnUnreadable
+  if (-not $found) {
+    "unattended-shortcut: no shortcut of $Project is recorded or in '$ShortcutDir'; nothing to do"
+    exit 0
+  }
+  # The distro is in the link's command; the icon it was made from is not, so the operator names it.
+  $seen = '<distro>'
+  if ((Get-Link $found[0]).Arguments -match "'-d' '((?:[^']|'')+)'") { $seen = $Matches[1] -replace "''", "'" }
+  "unattended-shortcut: $($found.Count) shortcut(s) of $Project in '$ShortcutDir' were written before this kit " +
+    'kept a record of them, so they cannot be read back as current; write them again once with: ' +
+    "pwsh scripts/unattended-shortcut.ps1 -Distro $seen -Icon <the project's icon> -ShortcutDir '$ShortcutDir'"
+  exit 1
+}
 if (-not $Distro) { Refuse '-Distro names no WSL distro' }
-if (-not $Icon -or -not (Test-Path -LiteralPath $Icon -PathType Leaf)) { Refuse "-Icon is not a file: '$Icon'" }
+if (-not $Check -and -not ($Icon -and (Test-Path -LiteralPath $Icon -PathType Leaf))) {
+  Refuse "-Icon is not a file: '$Icon'"
+}
 if (-not $Python) {
   $Python = (Get-Command python -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
 }
@@ -554,20 +639,73 @@ $renderer = Join-Path $here 'campaign-icon.py'
 $pwsh = (Get-Process -Id $PID).Path  # the PowerShell 7 that runs this script runs the links too
 # ProviderPath, not Path: for an icon on a share (\\wsl.localhost\...) Path keeps the provider's prefix
 # (`Microsoft.PowerShell.Core\FileSystem::`), and the renderer cannot open a file named that way.
-$brand = (Resolve-Path -LiteralPath $Icon).ProviderPath
+$brand = if ($Check) { $Icon } else { (Resolve-Path -LiteralPath $Icon).ProviderPath }
 
 # Every link and its badge, by runner. A name held by a file this project did not write (another project's link with
 # the same title and runner, or a folder) is refused before anything is written: a move would replace it.
-$planned = foreach ($agent in $agents) {
-  $label = "$title $($labels[$agent]) campaign"
-  $badge = Join-Path $IconDir "campaign-$agent-$key.ico"
-  $link = Join-Path $ShortcutDir "$label.lnk"
-  [pscustomobject]@{ Agent = $agent; Label = $label; Badge = $badge; BadgeTemp = "$badge.$PID.tmp.ico"; Link = $link
-    LinkTemp = Join-Path $ShortcutDir "$label.$PID.tmp.lnk" }
+# The commands are `unattended-run.py`'s start_command, watch_command and stop_command (a test holds them equal).
+# The campaign link starts the run, then attaches to it writable (a read-only tmux client takes no key and no mouse
+# but detach, not even a scroll), so a run already going is just attached to. Stop's command holds no double quote:
+# the Windows command line between PowerShell and wsl.exe strips them.
+function Get-StartCommand([string]$agent) {
+  "python3 scripts/unattended-run.py start --agent $agent; python3 scripts/unattended-run.py attach || " +
+    "{ echo 'The run did not start: the reason is above. Press Enter to close.'; read -r _; }"
 }
+$watchCommand = "python3 scripts/unattended-run.py attach || " +
+  "{ echo 'There is no run to watch: the reason is above. Press Enter to close.'; read -r _; }"
+$stopCommand = "read -r -p 'Stop the unattended run? Type y and press Enter: ' answer; " +
+  'case $answer in y) python3 scripts/unattended-run.py stop;; *) echo ''Not stopped.'';; esac; ' +
+  "echo 'Press Enter to close.'; read -r _"
+function New-Planned([string]$kind, [string]$label, [string]$command, [string]$what) {
+  $badge = Join-Path $IconDir "campaign-$kind-$key.ico"
+  [pscustomobject]@{ Agent = $kind; Label = $label; Badge = $badge; BadgeTemp = "$badge.$PID.tmp.ico"
+    Link = Join-Path $ShortcutDir "$label.lnk"; LinkTemp = Join-Path $ShortcutDir "$label.$PID.tmp.lnk"
+    Command = $command; What = $what }
+}
+# One campaign link per runner, then Watch and Stop, one each whatever the runner, badged like it (an eye, a square).
+$planned = @(foreach ($agent in $agents) {
+    New-Planned $agent "$title $($labels[$agent]) campaign" (Get-StartCommand $agent) 'start the run'
+  }) + @(
+  (New-Planned 'watch' "$title - Watch run" $watchCommand 'watch the run'),
+  (New-Planned 'stop' "$title - Stop run" $stopCommand 'stop the run'))
+# The arguments a link of `$p` carries: PowerShell runs wsl.exe, so a failure of WSL itself (a drive gone, a distro
+# removed) is said and waits for Enter too; the command is in the link, not in a script on the project's drive, which
+# may be the one that is gone.
+function Get-LinkArguments($p) {
+  $words = @('-d', $Distro, '--cd', $linux, '--exec', 'bash', '-lc', $p.Command)
+  $code = "& $(PSQuote $Wsl) $(($words | ForEach-Object { PSQuote $_ }) -join ' '); if (`$LASTEXITCODE -ne 0) { " +
+    "Write-Host ('WSL could not $($p.What) (exit ' + `$LASTEXITCODE + '): the reason is above. ' + " +
+    "'Press Enter to close.'); " +
+    "[void][Console]::ReadLine() }"
+  "-NoLogo -NoProfile -Command $(Quote $code)"
+}
+
 # This project's links as they are, before this run writes any file of its own: one that cannot be read stops it.
 $owned = @(Get-Owned)
 Stop-OnUnreadable
+if ($Check) {
+  # Each link this script would write, read back: missing, current or stale (another command, target or icon), and
+  # each link of this project's it would not write. Nothing is written.
+  $bad = 0
+  foreach ($p in $planned) {
+    $file = Get-Item -LiteralPath $p.Link -Force -ErrorAction Ignore
+    $link = if ($file) { Get-Link $file }
+    if (-not $link) { "missing: $($p.Link)"; $bad++; continue }
+    $same = $link.Arguments -ceq (Get-LinkArguments $p) -and $link.Target -eq $pwsh -and $link.IconPath -eq $p.Badge
+    if ($same) { "current: $($p.Link)" } else { "stale: $($p.Link)"; $bad++ }
+  }
+  $names = @($planned | ForEach-Object { Split-Path $_.Link -Leaf })
+  foreach ($file in $owned | Where-Object { $names -notcontains $_.Name }) {
+    "not written now: $($file.FullName)"
+    $bad++
+  }
+  if ($bad) {
+    "unattended-shortcut: $bad shortcut(s) are not current; run pwsh scripts/unattended-shortcut.ps1 -Refresh"
+    exit 1
+  }
+  "unattended-shortcut: every shortcut of $Project in '$ShortcutDir' is current"
+  exit 0
+}
 foreach ($p in $planned) {
   $held = Get-Item -LiteralPath $p.Link -Force -ErrorAction Ignore
   if ($held -and ($held.PSIsContainer -or -not (Test-Owned $held))) {
@@ -615,19 +753,10 @@ Write-Journal 'writing'
 foreach ($p in $planned) {
   & $Python -B $renderer badge $brand $p.Agent $p.BadgeTemp
   if ($LASTEXITCODE -ne 0) { Stop-Run "the icon for $($p.Label) could not be rendered; its shortcut is left as it was" }
-  $command = "python3 scripts/unattended-run.py start --agent $($p.Agent) || " +
-    "{ echo 'The run did not start: the reason is above. Press Enter to close.'; read -r _; }"
   try {
-    # PowerShell runs wsl.exe, so a failure of WSL itself (a drive gone, a distro removed) is said and waits for Enter
-    # too; the command is in the link, not in a script on the project's drive, which may be the one that is gone.
-    $words = @('-d', $Distro, '--cd', $linux, '--exec', 'bash', '-lc', $command)
-    $code = "& $(PSQuote $Wsl) $(($words | ForEach-Object { PSQuote $_ }) -join ' '); if (`$LASTEXITCODE -ne 0) { " +
-      "Write-Host ('WSL could not start the run (exit ' + `$LASTEXITCODE + '): the reason is above. ' + " +
-      "'Press Enter to close.'); " +
-      "[void][Console]::ReadLine() }"
     $data = [Conclave.ShellLinkData]::new()
     $data.Target = $pwsh
-    $data.Arguments = "-NoLogo -NoProfile -Command $(Quote $code)"
+    $data.Arguments = Get-LinkArguments $p
     $data.WorkingDirectory = $env:USERPROFILE
     $data.Description = $mark
     $data.IconPath = $p.Badge
@@ -671,6 +800,13 @@ try {
 }
 foreach ($p in $planned) { "shortcut written: $($p.Link)" }
 foreach ($file in $stale) { "removed: $($file.FullName)" }
+# This folder's set in the record, for -Refresh, -Check and `status`.
+Save-Sets ([ordered]@{
+    written = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+    args = [ordered]@{ Distro = $Distro; Icon = $brand; Project = $Project
+      ShortcutDir = [IO.Path]::GetFullPath($ShortcutDir); IconDir = [IO.Path]::GetFullPath($IconDir) }
+    links = @($planned | ForEach-Object { [ordered]@{ label = $_.Label; kind = $_.Agent; command = $_.Command } })
+  })
 # A file moved aside that cannot be deleted now stays named in the journal (`committed`), and the next run, or -Remove,
 # removes it.
 $left = @($aside |

@@ -81,8 +81,17 @@ class DocumentTest(unittest.TestCase):
 
     def test_the_page_states_the_shortcuts_exact_invocation(self):
         # Filed from the completion review of D02 T02 §10.
-        self.assertIn("runs `wsl.exe -d <distro> --cd <project in WSL> --exec bash -lc <start command>`", self.text)
+        self.assertIn("runs `wsl.exe -d <distro> --cd <project in WSL> --exec bash -lc <command>`", self.text)
 
+
+    def test_the_page_tells_the_operator_how_to_watch_stop_and_keep_the_links_current(self):
+        # D02 T02 §12: the Watch and Stop links, the read-only option, Stop's question, and the refresh after an update.
+        for said in ("`<Title> - Watch run`", "`<Title> - Stop run`", "`attach --watch` attaches read-only",
+                     "runs `stop` only when you type `y`", "`build/unattended-shortcuts.json`",
+                     "`pwsh scripts/unattended-shortcut.ps1 -Refresh`", "`pwsh scripts/unattended-shortcut.ps1 -Check`",
+                     "`python forge.py update`", "within the last 15 minutes"):
+            with self.subTest(said=said):
+                self.assertIn(said, self.text)
 
 class SkillTest(unittest.TestCase):
     def test_each_agents_copy_carries_the_triggers_the_rules_and_its_own_hook(self):

@@ -1336,6 +1336,57 @@ def _under(rel: str, paths: list[str]) -> bool:
     return any(rel == path or rel.startswith(path + "/") for path in paths)
 
 
+# The unattended kit's Windows links (D02 T02 §12): unattended-shortcut.ps1 records what it wrote, and an update that
+# writes the script or the runner whose commands the links run writes the links again from that record.
+SHORTCUT_RECORD = "build/unattended-shortcuts.json"
+SHORTCUT_SOURCES = ("scripts/unattended-shortcut.ps1", "scripts/unattended-run.py")
+SHORTCUT_REFRESH = "pwsh scripts/unattended-shortcut.ps1 -Refresh"
+REFRESH_SECONDS = 300  # writing every link and badge again; the limit only catches a hang
+
+
+def _windows() -> bool:
+    """Whether this is Windows, where the unattended kit's links are (a function, so a test can stand in for it)."""
+    return os.name == "nt"
+
+
+def _shortcut_folders(target: Path) -> list[str]:
+    """The desktop folders the record names a set of the project's links in (none without a readable record)."""
+    try:
+        data = json.loads((target / SHORTCUT_RECORD).read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return []
+    sets = data.get("sets") if isinstance(data, dict) else None
+    return [entry["args"]["ShortcutDir"] for entry in sets or []
+            if isinstance(entry, dict) and isinstance(entry.get("args"), dict)
+            and isinstance(entry["args"].get("ShortcutDir"), str)]
+
+
+def _refresh_shortcuts(target: Path) -> dict:
+    """Write the project's unattended links again, each recorded folder's with the arguments it was written with:
+    {refreshed, detail}. With no record, the script itself names links written before it kept one, with the command
+    that writes them again. Only on Windows, where the links are; elsewhere the detail names the command to run
+    there."""
+    if not _windows():
+        return {"refreshed": False, "detail": f"the links are on Windows: run {SHORTCUT_REFRESH} there"}
+    pwsh = shutil.which("pwsh")
+    if not pwsh:
+        return {"refreshed": False,
+                "detail": f"PowerShell 7 (pwsh) is not on PATH: install it, then run {SHORTCUT_REFRESH}"}
+    refreshed, said = True, []
+    for folder in _shortcut_folders(target) or [None]:
+        argv = [pwsh, "-NoProfile", "-NonInteractive", "-File", str(target / "scripts/unattended-shortcut.ps1"),
+                "-Refresh", *(["-ShortcutDir", folder] if folder else [])]
+        code, out, problem = _probe(argv, timeout=REFRESH_SECONDS)
+        lines = "; ".join(out.strip().splitlines()[-3:])
+        if code == 0:
+            said.append(lines)
+            continue
+        refreshed = False
+        again = SHORTCUT_REFRESH + (f" -ShortcutDir '{folder}'" if folder else "")
+        said.append(f"{problem or f'exit {code}'}: {lines}; run {again} again")
+    return {"refreshed": refreshed, "detail": " | ".join(said)}
+
+
 def update_project(target_root: Path, kit_name: str | None = None, *, only=(), dry_run: bool = False,
                    no_scripts: bool = False, kit_new: bool = False) -> dict:
     """`update`: write the kit files that are `missing` or `kit-newer` (and a `project-removed` one only when `only`
@@ -1424,6 +1475,14 @@ def update_project(target_root: Path, kit_name: str | None = None, *, only=(), d
         left.extend({"path": rel, "state": "changed-since-diff"} for rel in changed)
     result = {"target": target.as_posix(), "dry_run": dry_run, "record": (target / RECORD).is_file(),
               "written": written, "left": left}
+    # The links are written again when the update wrote what they run: for a project with a record; and on Windows,
+    # for one whose shortcut script the update replaced, which may have links from before the record (the script
+    # then names them, with the command that writes them and the record again).
+    replaced = {item["path"] for kit in report["kits"].values() for item in kit["files"]
+                if item["state"] == "kit-newer"}
+    if not dry_run and any(rel in written for rel in SHORTCUT_SOURCES) and (
+            (target / SHORTCUT_RECORD).is_file() or (_windows() and SHORTCUT_SOURCES[0] in replaced)):
+        result["shortcuts"] = _refresh_shortcuts(target)
     if kit_new:
         result["kit_new"] = siblings
     if not all(kit["record"] for kit in report["kits"].values()) or any(i["state"] == "differs" for i in left):

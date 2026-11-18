@@ -3917,6 +3917,64 @@ class UnattendedKitTests(unittest.TestCase):
         self.assertEqual(checks["skill:unattended-run:.codex"]["status"], "missing")
         self.assertEqual(checks["docs/unattended-run.md"]["status"], "missing")
 
+    def test_an_update_of_the_link_commands_writes_the_recorded_links_again(self):
+        # D02 T02 §12: links written before a kit update kept the old command until the script was run again.
+        self.assertEqual(forge.main(["init", str(self.target), "--kit", "todo", "--kit", "unattended"]), 0)
+        # A removed runner is written back when --only names it, as a kit update writes a changed one.
+        rel = "scripts/unattended-run.py"
+        runner = self.target / rel
+        probe = unittest.mock.Mock(return_value=(0, "shortcut written: a\nshortcut written: b\n", ""))
+        windows = os.name == "nt" and bool(shutil.which("pwsh"))
+        with unittest.mock.patch.object(forge, "_probe", probe):
+            runner.unlink()
+            result = forge.update_project(self.target, only=[rel])  # no record: no links to write
+            self.assertIn(rel, result["written"])
+            self.assertNotIn("shortcuts", result)
+            (self.target / "build").mkdir(exist_ok=True)
+            (self.target / forge.SHORTCUT_RECORD).write_text(json.dumps({"sets": [
+                {"args": {"Distro": "Ubuntu", "ShortcutDir": "C:\\desk one"}, "links": []},
+                {"args": {"Distro": "Ubuntu", "ShortcutDir": "C:\\desk two"}, "links": []}]}), encoding="utf-8")
+            runner.unlink()
+            self.assertNotIn("shortcuts", forge.update_project(self.target, only=[rel], dry_run=True))
+            result = forge.update_project(self.target, only=[rel])
+            again = forge.update_project(self.target, only=[rel])  # nothing written: the links are left as they are
+        self.assertNotIn("shortcuts", again)
+        if windows:
+            self.assertEqual(result["shortcuts"]["refreshed"], True)
+            self.assertEqual([call.args[0][-3:] for call in probe.call_args_list],
+                             [["-Refresh", "-ShortcutDir", "C:\\desk one"],
+                              ["-Refresh", "-ShortcutDir", "C:\\desk two"]])
+        else:
+            self.assertFalse(result["shortcuts"]["refreshed"])
+            self.assertIn(forge.SHORTCUT_REFRESH, result["shortcuts"]["detail"])
+        # A refresh that fails says why and names the command that tries again, for that folder.
+        probe.reset_mock()
+        probe.side_effect = [(0, "ok\n", ""), (None, "", "no answer within 300 seconds")]
+        with unittest.mock.patch.object(forge, "_probe", probe), \
+                unittest.mock.patch.object(forge, "_windows", return_value=True), \
+                unittest.mock.patch.object(forge.shutil, "which", return_value="pwsh"):
+            failed = forge._refresh_shortcuts(self.target)
+        self.assertEqual(failed, {"refreshed": False, "detail": "ok | no answer within 300 seconds: ; run "
+                                  f"{forge.SHORTCUT_REFRESH} -ShortcutDir 'C:\\desk two' again"})
+
+    def test_an_update_that_replaces_the_shortcut_script_asks_it_for_links_from_before_the_record(self):
+        # D02 T02 §12, the plan review: an install made before the record has links and no record.
+        self.assertEqual(forge.main(["init", str(self.target), "--kit", "todo", "--kit", "unattended"]), 0)
+        script = self.target / "scripts/unattended-shortcut.ps1"
+        kits = json.loads((self.target / ".conclave/kits.json").read_text(encoding="utf-8"))
+        script.write_bytes(b"# the kit's earlier script\n")  # installed earlier, not changed by the project
+        kits["files"]["scripts/unattended-shortcut.ps1"]["sha256"] = forge.file_digest(script.read_bytes())
+        (self.target / ".conclave/kits.json").write_text(json.dumps(kits), encoding="utf-8")
+        probe = unittest.mock.Mock(return_value=(1, "unattended-shortcut: 2 shortcut(s) ... were written before\n", ""))
+        with unittest.mock.patch.object(forge, "_probe", probe), \
+                unittest.mock.patch.object(forge, "_windows", return_value=True), \
+                unittest.mock.patch.object(forge.shutil, "which", return_value="pwsh"):
+            result = forge.update_project(self.target)
+        self.assertIn("scripts/unattended-shortcut.ps1", result["written"])
+        self.assertEqual(probe.call_args.args[0][-1], "-Refresh")
+        self.assertFalse(result["shortcuts"]["refreshed"])
+        self.assertIn("were written before", result["shortcuts"]["detail"])
+
     def test_the_documents_name_the_kit_and_the_sdk_does_not_install_it(self):
         self.assertNotIn("unattended", forge.SELF_KITS)
         doctor = next(line for line in forge.__doc__.splitlines() if "forge.py doctor" in line)

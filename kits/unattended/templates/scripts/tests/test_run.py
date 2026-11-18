@@ -188,6 +188,17 @@ class CommandTest(unittest.TestCase):
 RUNNER_CLIS = ("claude", "codex", "agy")
 
 
+# The host's own tmux and unattended-run markers: a suite started inside a run (CONCLAVE_UNATTENDED_RUN=1, as an
+# unattended session runs it) must not hand them to the runs it starts, or every stop is refused as a run stopping
+# itself.
+HOST_MARKERS = ("TMUX", "CONCLAVE_UNATTENDED_RUN", "CONCLAVE_UNATTENDED_TAG")
+
+
+def host_env(environ=None):
+    """The host environment without the markers in HOST_MARKERS."""
+    return {k: v for k, v in (os.environ if environ is None else environ).items() if k not in HOST_MARKERS}
+
+
 def host_path_without_runners(path=None):
     """The host's PATH without the folders that hold a real runner CLI, so the launcher under test can only ever
     start the stubs: a test that removes a stub must find no runner, never the host's own."""
@@ -214,7 +225,7 @@ class RunTest(unittest.TestCase):
         self.child_file = base / "child.pid"
         tmux_dir = base / "tmux"
         tmux_dir.mkdir()
-        self.env = {**{k: v for k, v in os.environ.items() if k != "TMUX"},
+        self.env = {**host_env(),
                     "PATH": f"{self.bin}{os.pathsep}{host_path_without_runners()}", "TMUX_TMPDIR": str(tmux_dir),
                     "STUB_LOG": str(self.log), "STUB_CHILD": str(self.child_file), "CONCLAVE_STARTUP_GRACE": "2"}
         patch = unittest.mock.patch.dict(os.environ, self.env, clear=True)
@@ -335,6 +346,9 @@ class RunTest(unittest.TestCase):
         limit = subprocess.run(["tmux", "show-options", "-v", "-t", "=demo-run:", "history-limit"],
                                capture_output=True, text=True, timeout=30, creationflags=windowless()).stdout.strip()
         self.assertEqual(limit, "50000")
+        mouse = subprocess.run(["tmux", "show-options", "-v", "-t", "=demo-run:", "mouse"],
+                               capture_output=True, text=True, timeout=30, creationflags=windowless()).stdout.strip()
+        self.assertEqual(mouse, "on", "an attached window could not scroll with the wheel")
         again = self.launcher("start")
         self.assertEqual(again.returncode, 1)
         self.assertIn("already running", again.stderr)
@@ -394,6 +408,30 @@ class RunTest(unittest.TestCase):
         lines = dict(line.split(": ", 1) for line in self.launcher("status").stdout.splitlines())
         self.assertTrue(lines["run"].startswith("stopped"))
         self.assertEqual(lines["session"], "none")
+
+    def test_a_stop_whose_window_closes_still_finishes(self):
+        # 2026-11-18: the Stop shortcut's window was closed mid-stop; the stop died after ending the guard and left
+        # the marker and the heartbeat. Here its output goes nowhere from the start and it is hung up mid-stop.
+        self.assertEqual(self.launcher("start").returncode, 0)
+        self.acquire(self.marker()["session"])
+        subprocess.run(["tmux", "new-session", "-d", "-s", "demo-heartbeat", "sleep 300"], check=True, timeout=30,
+                       creationflags=windowless())
+        stopping = subprocess.Popen([sys.executable, str(self.root / "scripts" / "unattended-run.py"), "stop"],
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=self.env,
+                                    creationflags=windowless())
+        stopping.stdout.close()
+        stopping.stderr.close()
+        ended = self.root / "build" / "claude-campaign-ended.json"
+        deadline = time.monotonic() + 60
+        while not ended.exists() and stopping.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if stopping.poll() is None:
+            stopping.send_signal(signal.SIGHUP)
+        stopping.wait(timeout=120)
+        self.assertFalse((self.root / "build" / "unattended-run.json").exists(), "the stop left the run's marker")
+        self.assertFalse((self.root / "build" / "claude-campaign-guard.json").exists(), "the stop left the guard")
+        self.assertFalse(self.tmux_has("demo-heartbeat"), "the stop left the heartbeat")
+        self.assertFalse(self.tmux_has("demo-run"))
 
     def test_stop_ends_the_guard_the_sessions_and_the_whole_group(self):
         self.assertEqual(self.launcher("start").returncode, 0)
@@ -1514,6 +1552,21 @@ class HeartbeatTickTest(unittest.TestCase):
         self.assertEqual(self.tick(1.0, self.state()), self.run.FINISHED)
         self.assertEqual(self.ended, ["the run ended itself"])
 
+    def test_a_guard_ended_by_stop_is_recorded_as_the_operators_stop(self):
+        # The guard reads operator-stop either way: the heartbeat's own cleanup ends it so too. Only the stop's flag
+        # in the heartbeat's session tells the operator's stop apart.
+        ended = self.root / "build" / "claude-campaign-ended.json"
+        for flag, reason in (("tag-1", self.run.STOP_REASON), (None, "the run ended itself"),
+                             ("tag-0", "the run ended itself")):
+            with self.subTest(flag=flag):
+                ended.write_text(json.dumps({"launch_tag": "tag-1", "session_id": "tag-1", "reason": "operator-stop"}),
+                                 encoding="utf-8")
+                (self.root / "build" / "unattended-run.json").write_text(json.dumps(self.marker), encoding="utf-8")
+                self.ended.clear()
+                with unittest.mock.patch.object(self.run, "stopped_run", return_value=flag):
+                    self.assertEqual(self.tick(0.0, self.state()), self.run.FINISHED)
+                self.assertEqual(self.ended, [reason])
+
     def test_a_run_that_never_took_its_guard_is_not_finished(self):
         with unittest.mock.patch.object(self.run, "_nudge"):
             self.assertEqual(self.tick(0.0, self.state()), 0)
@@ -1560,6 +1613,8 @@ class HeartbeatTickTest(unittest.TestCase):
             if args[0] == "display-message":
                 return subprocess.CompletedProcess(args, ok, stdout=f"{int(now - activity_age)}\n", stderr="")
             if args[0] == "list-clients":
+                # The lines below answer exactly this query: the stub fails a format that no longer asks for them.
+                self.assertEqual(args[1:], ("-t", "=demo-run", "-F", "#{client_readonly} #{client_activity}"))
                 return subprocess.CompletedProcess(args, ok, stdout="".join(f"{c}\n" for c in clients), stderr="")
             if args[0] == "send-keys":
                 sent.append(args)
@@ -1578,10 +1633,19 @@ class HeartbeatTickTest(unittest.TestCase):
         self.assertEqual((state["last_nudge"], noted), (10_000.0, 1))
         self.assertEqual(self.nudge(idle - 1, [])[0], [])
 
-    def test_an_operator_typing_suppresses_the_nudge_and_a_watcher_does_not(self):
-        idle = PROFILE["idle_minutes"] * 60
-        self.assertEqual(self.nudge(idle, ["0"])[0], [], "a nudge went to a run an operator is attached to")
-        self.assertTrue(self.nudge(idle, ["1"])[0], "a read-only watcher suppressed the nudge")
+    def test_an_operator_typing_suppresses_the_nudge_and_a_watcher_or_an_idle_window_does_not(self):
+        idle, now, held = PROFILE["idle_minutes"] * 60, 10_000.0, self.run.ATTENDED_SECONDS
+        self.assertEqual(self.nudge(idle, [f"0 {int(now - 60)}"])[0], [], "a nudge went to an operator typing")
+        self.assertEqual(self.nudge(idle, ["0"])[0], [], "a writable client of unknown activity was nudged over")
+        self.assertTrue(self.nudge(idle, [f"1 {int(now)}"])[0], "a read-only watcher suppressed the nudge")
+        self.assertTrue(self.nudge(idle, [f"0 {int(now - held)}"])[0], "a window left open suppressed the nudge")
+        self.assertTrue(self.nudge(idle, [f"0 {int(now - held - 1)}"])[0], "a window idle past 15 minutes held it off")
+        self.assertEqual(self.nudge(idle, [f"0 {int(now - held + 1)}"])[0], [],
+                         "a client used inside 15 minutes was nudged over")
+        self.assertEqual(self.nudge(idle, [f"1 {int(now)}", f"0 {int(now - held)}", f"0 {int(now - 60)}"])[0], [],
+                         "one writable client in use among others did not hold the nudge off")
+        self.assertTrue(self.nudge(idle, [f"1 {int(now)}", f"0 {int(now - held)}"])[0],
+                        "a watcher and an idle window held the nudge off")
 
     def test_a_nudge_is_sent_at_most_once_per_idle_minutes_across_a_reload(self):
         idle = PROFILE["idle_minutes"] * 60
@@ -1927,6 +1991,70 @@ class HeartbeatShipsTest(unittest.TestCase):
         self.assertIn("needs operator:\n# Nothing has shipped for 6.0 hours", out.getvalue())
 
 
+class ShortcutStateTest(unittest.TestCase):
+    """`status` names a Windows link whose recorded command is not the current one (D02 T02 §12): seen 2026-11-18,
+    links written before the writable-attach fix kept `attach --watch`, so the operator's window ignored every key."""
+
+    def setUp(self):
+        self.run = load_run_module()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def record(self, *sets):
+        self.run.lib.write_atomic(self.root / self.run.SHORTCUTS, json.dumps({"sets": [
+            {"written": when, "args": {"Distro": "Ubuntu", "ShortcutDir": folder}, "links": links}
+            for folder, when, links in sets]}))
+
+    def current(self):
+        return [{"label": "Demo Claude campaign", "kind": "claude", "command": self.run.start_command("claude")},
+                {"label": "Demo - Watch run", "kind": "watch", "command": self.run.watch_command()},
+                {"label": "Demo - Stop run", "kind": "stop", "command": self.run.stop_command()}]
+
+    def test_no_record_current_links_and_a_stale_one(self):
+        self.assertEqual(self.run.shortcut_state(self.root), "none recorded")
+        self.record(("C:\\desk", "2026-11-18T10:54:00Z", self.current()))
+        said = self.run.shortcut_state(self.root)
+        self.assertTrue(said.startswith("current as recorded (3 written 2026-11-18T10:54:00Z;"), said)
+        self.assertIn("-Check", said)
+        links = self.current()
+        links[0]["command"] = ("python3 scripts/unattended-run.py start --agent claude; "
+                               "python3 scripts/unattended-run.py attach --watch")
+        self.record(("C:\\desk", "2026-11-18T10:54:00Z", links))
+        said = self.run.shortcut_state(self.root)
+        self.assertTrue(said.startswith("stale: Demo Claude campaign: recorded before the current commands"), said)
+        self.assertNotIn("Watch run", said)
+        self.assertIn("pwsh scripts/unattended-shortcut.ps1 -Refresh", said)
+
+    def test_two_folders_are_judged_apart(self):
+        old = self.current()
+        old[2]["command"] = "python3 scripts/unattended-run.py stop"
+        self.record(("C:\\desk", "2026-11-18T10:54:00Z", self.current()), ("D:\\other", "2026-11-17T09:00:00Z", old))
+        said = self.run.shortcut_state(self.root)
+        self.assertTrue(said.startswith("stale: Demo - Stop run (in D:\\other, written 2026-11-17T09:00:00Z):"), said)
+        self.assertIn("with -ShortcutDir for each folder", said)
+
+    def test_a_link_of_a_kind_there_is_no_command_for_is_stale(self):
+        self.record(("C:\\desk", "w", self.current() + [{"label": "Demo Gone campaign", "kind": "gone", "command": "x"}]))
+        self.assertTrue(self.run.shortcut_state(self.root).startswith("stale: Demo Gone campaign"))
+
+    def test_an_unreadable_record_says_so(self):
+        (self.root / "build").mkdir()
+        (self.root / self.run.SHORTCUTS).write_text("{", encoding="utf-8")
+        self.assertIn("cannot be read", self.run.shortcut_state(self.root))
+        self.record()
+        self.assertIn("names no links", self.run.shortcut_state(self.root))
+
+    def test_status_prints_the_shortcut_state(self):
+        (self.root / ".conclave").mkdir()
+        self.run.lib.write_atomic(self.root / ".conclave/unattended.json", json.dumps(PROFILE))
+        self.run.lib.write_atomic(self.root / PROFILE["prompt_file"], "Process the plan.\n")
+        out = __import__("io").StringIO()
+        with unittest.mock.patch.object(self.run, "_alive", return_value=False):
+            self.run.status(self.root, out)
+        self.assertIn("\nshortcuts: none recorded\n", out.getvalue())
+
+
 class KillWaitTest(unittest.TestCase):
     @unittest.skipUnless(hasattr(signal, "SIGKILL"), "SIGKILL is POSIX")
     def test_a_killed_process_slow_to_die_is_waited_for(self):
@@ -1967,9 +2095,10 @@ class KillWaitTest(unittest.TestCase):
             self.assertEqual(run.end_run_processes("tag-1", 4242, grace=2), [])
 
 
+# Each call is one line of the report, so a launcher that runs the script twice (start, then watch) is seen whole.
 STUB_LAUNCHER = '''import json, os, sys
-with open(os.environ["STUB_REPORT"], "w") as fh:
-    json.dump({"argv": sys.argv[1:], "cwd": os.getcwd()}, fh)
+with open(os.environ["STUB_REPORT"], "a") as fh:
+    fh.write(json.dumps({"argv": sys.argv[1:], "cwd": os.getcwd()}) + "\\n")
 sys.exit(int(os.environ.get("STUB_EXIT", "0")))
 '''
 
@@ -2011,8 +2140,9 @@ class DesktopEntryTest(unittest.TestCase):
                                                                                str(self.project)))
         done = self.activate(entry)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        got = json.loads(self.report.read_text(encoding="utf-8"))
-        self.assertEqual((got["argv"], Path(got["cwd"])), (["start", "--agent", "agy"], self.project))
+        got = [json.loads(line) for line in self.report.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([(g["argv"], Path(g["cwd"])) for g in got],
+                         [(["start", "--agent", "agy"], self.project), (["attach"], self.project)])
 
     def test_a_failed_start_says_so_and_waits_for_enter(self):
         self.run.shortcut(self.project, None, self.apps, False, __import__("io").StringIO())
@@ -2044,6 +2174,70 @@ class DesktopEntryTest(unittest.TestCase):
             self.run.shortcut(self.project, "codex", self.apps, False, __import__("io").StringIO())
 
 
+@unittest.skipUnless(os.name == "posix" and shutil.which("bash"), "the Windows shortcuts' commands are bash's, in WSL")
+class ControlCommandTest(unittest.TestCase):
+    """The commands the Windows "Watch run" and "Stop run" shortcuts run in the project, run in bash as WSL runs them."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.project = Path(self._tmp.name)
+        (self.project / "scripts").mkdir()
+        (self.project / "scripts" / "unattended-run.py").write_text(STUB_LAUNCHER, encoding="utf-8")
+        self.report = self.project / "report.json"
+        self.run = load_run_module()
+
+    def bash(self, command, typed, exit_code=0):
+        return subprocess.run(["bash", "-lc", command], cwd=self.project, input=typed, capture_output=True, text=True,
+                              timeout=60, creationflags=windowless(),
+                              env={**os.environ, "STUB_REPORT": str(self.report), "STUB_EXIT": str(exit_code)})
+
+    def called(self):
+        lines = self.report.read_text(encoding="utf-8").splitlines() if self.report.exists() else []
+        return [json.loads(line)["argv"] for line in lines] or None
+
+    def test_start_starts_then_attaches_and_a_run_already_going_is_attached(self):
+        # The start is refused when a run is already going (exit 1), and the attach still opens on it. It attaches
+        # writable: a read-only tmux client takes no keys or mouse but detach, not even a scroll (2026-11-18).
+        for start_exit in (0, 1):
+            with self.subTest(start_exit=start_exit):
+                self.report.unlink(missing_ok=True)
+                command = self.run.start_command("claude").replace(
+                    "python3 scripts/unattended-run.py start", f"STUB_EXIT={start_exit} python3 scripts/unattended-run.py start", 1)
+                done = self.bash(command, "")
+                self.assertEqual((done.returncode, self.called()),
+                                 (0, [["start", "--agent", "claude"], ["attach"]]), done.stdout + done.stderr)
+                self.assertNotIn("Press Enter", done.stdout)
+
+    def test_a_start_with_nothing_to_attach_to_says_so_and_waits_for_enter(self):
+        done = self.bash(self.run.start_command("claude"), "\n", exit_code=1)
+        self.assertEqual(self.called(), [["start", "--agent", "claude"], ["attach"]])
+        self.assertIn("The run did not start: the reason is above. Press Enter to close.", done.stdout)
+        self.assertEqual(done.returncode, 0)
+        waited = self.bash(self.run.start_command("claude"), "", exit_code=1)
+        self.assertNotEqual(waited.returncode, 0, "the window closed without the Enter it asked for")
+
+    def test_watch_attaches_with_keyboard_and_mouse(self):
+        done = self.bash(self.run.watch_command(), "")
+        self.assertEqual((done.returncode, self.called()), (0, [["attach"]]), done.stdout + done.stderr)
+        self.assertNotIn("Press Enter", done.stdout)
+
+    def test_watch_with_no_run_says_so_and_waits_for_enter(self):
+        done = self.bash(self.run.watch_command(), "\n", exit_code=1)
+        self.assertIn("There is no run to watch: the reason is above. Press Enter to close.", done.stdout)
+        self.assertEqual(done.returncode, 0)
+
+    def test_stop_asks_first_and_stops_only_on_y(self):
+        for typed, argv in (("y\n\n", [["stop"]]), ("n\n\n", None), ("\n\n", None), ("yes\n\n", None)):
+            with self.subTest(typed=typed):
+                self.report.unlink(missing_ok=True)
+                done = self.bash(self.run.stop_command(), typed)
+                self.assertEqual((done.returncode, self.called()), (0, argv), done.stdout + done.stderr)
+                self.assertIn("Press Enter to close.", done.stdout)
+                if argv is None:
+                    self.assertIn("Not stopped.", done.stdout)
+
+
 class ScheduledStartTest(unittest.TestCase):
     def test_a_start_from_a_scheduled_task_is_refused_however_it_was_reached(self):
         # D02 T02 §9: the automations kit marks every process a scheduled task runs; the launcher owns the refusal.
@@ -2071,6 +2265,13 @@ class WindowsTest(unittest.TestCase):
                 unittest.mock.patch.object(run.sys, "stderr", new_callable=lambda: __import__("io").StringIO()) as err:
             self.assertEqual(run.main(["status"]), 1)
         self.assertIn("run this in WSL", err.getvalue())
+
+
+
+class HostEnvTest(unittest.TestCase):
+    def test_a_suite_run_inside_a_run_does_not_leak_its_markers(self):
+        env = host_env({"PATH": "/bin", "TMUX": "x", "CONCLAVE_UNATTENDED_RUN": "1", "CONCLAVE_UNATTENDED_TAG": "t"})
+        self.assertEqual(env, {"PATH": "/bin"})
 
 
 if __name__ == "__main__":
