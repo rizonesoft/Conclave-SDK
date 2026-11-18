@@ -2,7 +2,7 @@
 schema_version: 1
 id: three-pass-review
 domain: 00-reviewer
-status: done
+status: active
 title: "TODO-01 -- Three-pass review"
 ---
 
@@ -40,6 +40,7 @@ title: "TODO-01 -- Three-pass review"
 | 6 | §6 | Reviewer process tree ended on Windows by a job object | §2 | [x] |
 | 7 | §7 | Review prompt filler | §2 | [x] |
 | 8 | §8 | Stamp that recovers from a write cut short | §3 | [x] |
+| 9 | §9 | Re-plan route for a chain that cannot settle, recovery planned up front | §4 | [ ] |
 
 ## 1. Pin loader module with the three-pass keys
 
@@ -310,6 +311,27 @@ Filed 2026-11-11 from the completion review of §3 (an out-of-scope gap). `stamp
 
 > **Verified:** 2026-11-11 | §8 | 89ff448ffb36806b77593755e3021c3145783e3a
 > **Review:** `docs/reviews/d00-t01-s8.json`
+
+## 9. Re-plan route for a chain that cannot settle, recovery planned up front
+
+Filed 2026-11-18 from `D07 T01 §7`, which spent 19 passes before a re-plan: its reconciliations kept raising edges in crash recovery one at a time, and then alternated between two findings that asked opposite things of one checked item, which no build could satisfy while `stamp` held the contract fixed. Two lessons belong in the kits the next section reads: plan the recovery of a change that replaces files on disk (one locked, journaled change, own-files-only, kept until done) before the build, and when a chain cannot settle, re-plan the item instead of spending passes on code (the route `D07 T01 §7` took by hand: a dated correction, a new `Started:`, the first findings file kept as `D<NN>-T<NN>-s<N>-chain1.md`, a new chain).
+
+**Phase:** 8
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write the two rules in the skills. Done when: the skill tests read them.
+2. Make the dispatcher and `stamp` recognise a kept chain file. Done when: the checkpoint passes.
+
+- [ ] Add to `kits/todo/templates/.claude/skills/process-todo-section/SKILL.md` step 2 (the Sufficiency check): a section that writes, moves or deletes files outside the repository (links, icons, caches, a user's data) states before its plan review how a failure, a stop, a second run and a file it does not own are handled. Done when: a test in `tests/test_forge.py` finds the rule in the skill and its Codex and Antigravity copies.
+- [ ] Add to `kits/todo/templates/.claude/skills/review-todo-section/SKILL.md` step 3 a "When a chain cannot settle" rule: when two passes in a row raise opposite demands on one checked item, or a finding is a checked item's own contradiction, the item is re-planned (a dated correction, a new `Started:` line, the findings file renamed `D<NN>-T<NN>-s<N>-chain<k>.md`, a new plan review), and the run file records the decision. Done when: a test finds the rule and the route's four steps in the skill and its copies.
+- [ ] Teach `scripts/review-dispatch.py` and `stamp` in `kits/todo/templates/scripts/lib/todo_graph.py` that a `-chain<k>.md` file beside a section's findings file is a kept earlier chain: never read as the section's own record, listed by `query rounds` as spent passes. Done when: a test with a kept chain file and a new chain stamps the section, and `query rounds` counts both chains' passes.
+- [ ] Run `python forge.py skill-copies` and `python forge.py self-sync`. Done when: `python forge.py skill-copies --check` exits 0 and the self-sync test passes.
+- [ ] Commit: `todo: a chain that cannot settle is re-planned, and recovery is planned before the build`
+
+**Test checkpoint:** `python -m unittest tests.test_forge -k skill` and the reviewer kit's dispatcher tests pass; removing the re-plan rule from the review skill makes its test fail.
 
 ## Verification
 

@@ -156,25 +156,26 @@ Sections: 6 | Checklist items: 32
 
 ### Phase 8: Project launchers
 
-Sections: 15 | Checklist items: 133
+Sections: 16 | Checklist items: 138
 
-| Status | Reference  | Deliverable                                                      | Needs        | Items |
-| ------ | ---------- | ---------------------------------------------------------------- | ------------ | ----- |
-| [x]    | D07 T01 §1 | Launchers kit known to `forge.py`                                | none         | 9     |
-| [x]    | D07 T01 §2 | Launcher profile `.conclave/launchers.json` and its loader       | none         | 7     |
-| [x]    | D07 T01 §3 | Icon renderer owned by the launchers kit                         | none         | 12    |
-| [x]    | D07 T01 §4 | Rounded-square overlay icons                                     | none         | 9     |
-| [x]    | D07 T01 §5 | Desktop links that open the project in an agent                  | windows-host | 19    |
-| [x]    | D07 T01 §6 | Declared links that run a command or open a URL                  | windows-host | 7     |
-| [ ]    | D07 T01 §7 | Campaign links under the project's title, icon read from a share | windows-host | 22    |
-| [ ]    | D07 T01 §8 | Operator page and `project-launchers` skill                      | none         | 6     |
-| [ ]    | D07 T01 §9 | Agent and declared links named outside the ANSI code page        | windows-host | 4     |
-| [x]    | D07 T02 §1 | Ticket login plugin in the WordPress kit                         | none         | 10    |
-| [ ]    | D07 T02 §2 | Dashboard opener `scripts/open-dashboard.py`                     | none         | 8     |
-| [ ]    | D07 T02 §3 | Plugin install, status and removal on the pinned site            | none         | 7     |
-| [ ]    | D07 T02 §4 | Doctor rows and host refusals for the ticket login               | none         | 4     |
-| [ ]    | D07 T02 §5 | WordPress link in the launcher profile                           | none         | 4     |
-| [ ]    | D07 T02 §6 | `wordpress-connect` step and tooling page                        | none         | 5     |
+| Status | Reference  | Deliverable                                                             | Needs        | Items |
+| ------ | ---------- | ----------------------------------------------------------------------- | ------------ | ----- |
+| [ ]    | D00 T01 §9 | Re-plan route for a chain that cannot settle, recovery planned up front | none         | 5     |
+| [x]    | D07 T01 §1 | Launchers kit known to `forge.py`                                       | none         | 9     |
+| [x]    | D07 T01 §2 | Launcher profile `.conclave/launchers.json` and its loader              | none         | 7     |
+| [x]    | D07 T01 §3 | Icon renderer owned by the launchers kit                                | none         | 12    |
+| [x]    | D07 T01 §4 | Rounded-square overlay icons                                            | none         | 9     |
+| [x]    | D07 T01 §5 | Desktop links that open the project in an agent                         | windows-host | 19    |
+| [x]    | D07 T01 §6 | Declared links that run a command or open a URL                         | windows-host | 7     |
+| [ ]    | D07 T01 §7 | Campaign links under the project's title, icon read from a share        | windows-host | 22    |
+| [ ]    | D07 T01 §8 | Operator page and `project-launchers` skill                             | none         | 6     |
+| [ ]    | D07 T01 §9 | Agent and declared links named outside the ANSI code page               | windows-host | 4     |
+| [x]    | D07 T02 §1 | Ticket login plugin in the WordPress kit                                | none         | 10    |
+| [ ]    | D07 T02 §2 | Dashboard opener `scripts/open-dashboard.py`                            | none         | 8     |
+| [ ]    | D07 T02 §3 | Plugin install, status and removal on the pinned site                   | none         | 7     |
+| [ ]    | D07 T02 §4 | Doctor rows and host refusals for the ticket login                      | none         | 4     |
+| [ ]    | D07 T02 §5 | WordPress link in the launcher profile                                  | none         | 4     |
+| [ ]    | D07 T02 §6 | `wordpress-connect` step and tooling page                               | none         | 5     |
 
 ### Phase 9: Design and safety lenses across projects
 
@@ -210,6 +211,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 102/127 verified sections, 5 ready to run now.
+Progress: 102/128 verified sections, 6 ready to run now.
 
-Checklist: 850/991 items completed (includes Commit items).
+Checklist: 850/996 items completed (includes Commit items).
