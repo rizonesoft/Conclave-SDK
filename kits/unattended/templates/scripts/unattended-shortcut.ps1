@@ -164,7 +164,7 @@ function Test-Journal($record, [int]$owner) {
   if ($record.state -notin @('writing', 'swapping', 'committed')) { return $false }
   foreach ($m in @($record.moves)) {
     $link = Test-Within $m.to $ShortcutDir '\.lnk$'
-    if (-not ($link -or (Test-Within $m.to $IconDir '^campaign-[a-z]+-[0-9a-f]{8}\.ico$'))) { return $false }
+    if (-not ($link -or (Test-Within $m.to $IconDir "^campaign-[a-z]+-$key\.ico$"))) { return $false }
     $stem = if ($link) { $m.to.Substring(0, $m.to.Length - 4) } else { $m.to }
     $suffix = if ($link) { 'lnk' } else { 'ico' }
     if ($m.from -cne "$stem.$owner.tmp.$suffix") { return $false }
@@ -201,30 +201,47 @@ function Restore-Stopped {
       "unattended-shortcut: $($file.FullName) names files outside this project's links; it is left as it is"
       continue
     }
+    # Each step that fails (a file held open, a name another file holds) is said and left for the next run.
+    foreach ($temp in @($record.temps)) {
+      if (Test-Mine $temp) {
+        try { Remove-Item -LiteralPath $temp; "removed: $temp" } catch { "unattended-shortcut: $temp stays ($_)" }
+      }
+    }
     if ($record.state -eq 'swapping') {
       foreach ($m in @($record.moves)) {
         $replaced = @($record.aside | Where-Object { $_.to -ceq $m.to })
-        $new = if ($replaced) { Test-Path -LiteralPath $replaced[0].old }
-          else { -not (Test-Path -LiteralPath $m.from) -and (Test-Mine $m.to) }
-        if ($new -and (Test-Path -LiteralPath $m.to)) { Remove-Item -LiteralPath $m.to; "removed: $($m.to)" }
+        # Only this project's own file is ever taken out: one another project put at the name since is never touched.
+        $new = if ($replaced) { Test-Path -LiteralPath $replaced[0].old } else { -not (Test-Path -LiteralPath $m.from) }
+        if ($new -and (Test-Mine $m.to)) {
+          try { Remove-Item -LiteralPath $m.to; "removed: $($m.to)" }
+          catch { "unattended-shortcut: $($m.to) stays ($_)" }
+        }
       }
       foreach ($old in @($record.aside)) {
         if ((Test-Path -LiteralPath $old.old) -and -not (Test-Path -LiteralPath $old.to)) {
-          Move-Item -LiteralPath $old.old -Destination $old.to; "restored: $($old.to)"
+          try { Move-Item -LiteralPath $old.old -Destination $old.to; "restored: $($old.to)" }
+          catch { "unattended-shortcut: $($old.to) could not be put back ($_)" }
         }
+      }
+      $left = @($record.aside | Where-Object { Test-Path -LiteralPath $_.old })
+      foreach ($old in $left) {
+        "unattended-shortcut: $($old.old) cannot go back to $($old.to) (another file holds the name, or it is held " +
+          'open); the journal is kept and the next run tries again'
       }
     } elseif ($record.state -eq 'committed') {
       foreach ($old in @($record.aside)) {
         # A badge moved aside may be under an old key; the journal's check holds it to this run's own name for it.
         if ((Test-Path -LiteralPath $old.old) -and ($old.old -like '*.ico.*' -or (Test-Mine $old.old))) {
-          Remove-Item -LiteralPath $old.old; "removed: $($old.old)"
+          try { Remove-Item -LiteralPath $old.old; "removed: $($old.old)" }
+          catch { "unattended-shortcut: $($old.old) stays ($_); the journal is kept and the next run tries again" }
         }
       }
+      $left = @($record.aside | Where-Object { Test-Path -LiteralPath $_.old })
+    } else {
+      $left = @()
     }
-    foreach ($temp in @($record.temps)) {
-      if (Test-Mine $temp) { Remove-Item -LiteralPath $temp; "removed: $temp" }
-    }
-    Remove-Item -LiteralPath $file.FullName
+    # The journal goes once nothing it names is left to do; until then each run plays it again.
+    if (-not $left) { Remove-Item -LiteralPath $file.FullName }
   }
 }
 Restore-Stopped
@@ -407,9 +424,18 @@ try {
   foreach ($m in $moves) { Move-Item -LiteralPath $m.from -Destination $m.to; $placed.Add($m.to) }
   Write-Journal 'committed'
 } catch {
-  foreach ($to in $placed) { Remove-Item -LiteralPath $to -ErrorAction Ignore }
-  foreach ($old in $aside) { Move-Item -LiteralPath $old.old -Destination $old.to -ErrorAction Ignore }
-  Stop-Run "the shortcuts could not be put in place ($($_.Exception.Message)); the previous ones are kept"
+  $why = $_.Exception.Message
+  $whole = $true
+  foreach ($to in $placed) { try { Remove-Item -LiteralPath $to -ErrorAction Stop } catch { $whole = $false } }
+  foreach ($old in $aside) {
+    try { Move-Item -LiteralPath $old.old -Destination $old.to -ErrorAction Stop } catch { $whole = $false }
+  }
+  if ($whole) { Stop-Run "the shortcuts could not be put in place ($why); the previous ones are kept" }
+  # The journal still says `swapping`, so the next run puts back what this one could not.
+  Clear-Temps
+  "unattended-shortcut: the shortcuts could not be put in place ($why), and the previous ones could not all be " +
+    "put back; $journalPath is kept and the next run finishes it"
+  exit 1
 }
 foreach ($p in $planned) { "shortcut written: $($p.Link)" }
 foreach ($file in $stale) { "removed: $($file.FullName)" }

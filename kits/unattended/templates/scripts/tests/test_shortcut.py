@@ -1,8 +1,8 @@
 """The unattended kit's Windows shortcut (D02 T02 §10): unattended-shortcut.ps1 against a stand-in for wsl.exe.
 
 The links are read back through the launchers kit's IShellLinkW (scripts/lib/ShellLink.cs) and their own target and
-arguments are run, windowless, against the stand-in, so the command line Windows would hand wsl.exe is the one checked. Nothing here opens a window or touches
-the real desktop: every link goes to a scratch folder.
+arguments are run, windowless, against the stand-in, so the command line Windows would hand wsl.exe is the one checked.
+Nothing here opens a window or touches the real desktop: every link goes to a scratch folder.
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 
@@ -735,6 +736,7 @@ class CampaignTitleTest(ShortcutFixture):
         self.install()
         outside = Path(self._tmp.name) / "precious.txt"
         outside.write_text("keep me\n", encoding="utf-8")
+        (self.icons / "campaign-claude-0badc0de.ico").write_bytes(b"another project's")
         (self.desk / f"notes.txt.{self.DEAD}.old").write_text("someone's\n", encoding="utf-8")  # not a link's
         claude = self.desk / "My Proj's Claude campaign.lnk"
         key = Path(self.read_link(claude)["icon"].rsplit(",", 1)[0]).stem.split("-")[-1]
@@ -743,6 +745,9 @@ class CampaignTitleTest(ShortcutFixture):
                 ("a move to a file elsewhere", {"state": "swapping", "temps": [], "aside": [],
                                                 "moves": [{"from": str(outside) + ".1.tmp.txt", "to": str(outside)}]}),
                 ("a temporary file elsewhere", {"state": "writing", "temps": [str(outside)], "moves": [], "aside": []}),
+                ("another key's badge moved in", {"state": "swapping", "temps": [], "aside": [], "moves": [
+                    {"from": str(self.icons / f"campaign-claude-0badc0de.ico.{self.DEAD}.tmp.ico"),
+                     "to": str(self.icons / "campaign-claude-0badc0de.ico")}]}),
                 ("a file in the desktop folder that is no link", {"state": "swapping", "temps": [], "moves": [],
                  "aside": [{"to": str(self.desk / "notes.txt"),
                             "old": str(self.desk / f"notes.txt.{self.DEAD}.old")}]}),
@@ -757,6 +762,69 @@ class CampaignTitleTest(ShortcutFixture):
                 self.assertTrue(journal.exists())
                 journal.unlink()
                 self.assertEqual(self.snapshot(), before)
+
+    def foreign_link(self, path):
+        """Another project's link at `path`."""
+        shutil.copyfile(next(self.desk.glob("*.lnk.*.old"), None) or next(self.desk.glob("*.lnk")), path)
+        self.set_description(path, "conclave-unattended: D:\\elsewhere")
+
+    def test_recovery_never_takes_a_link_another_project_put_at_a_vacated_name(self):
+        # Reconciliation 3: an original moved aside whose name another project's link took since.
+        self.install()
+        journal = self.stopped_rename("swapping")
+        taken = self.desk / "My Proj's Claude campaign.lnk"  # vacated: its original is moved aside
+        self.foreign_link(taken)
+        foreign = taken.read_bytes()
+        moved_in = self.desk / "Demo Site Claude campaign.lnk"  # moved in by the stopped run; another's is there now
+        moved_in.unlink()
+        self.foreign_link(moved_in)
+        theirs = moved_in.read_bytes()
+        done = self.shortcut("-Distro", "Arch", "-Icon", str(self.icon))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertEqual(taken.read_bytes(), foreign)
+        self.assertIn("cannot go back to " + str(taken), done.stdout)
+        self.assertTrue(journal.exists(), "the journal went while an original was still aside")
+        self.assertTrue(taken.with_name(f"{taken.name}.{self.DEAD}.old").exists())
+        self.assertTrue((self.desk / "My Proj's Carbon campaign.lnk").exists())  # the rest went back
+        self.assertEqual(moved_in.read_bytes(), theirs)  # another project's file under a moved-in name stays
+
+    def test_a_rollback_that_cannot_put_an_original_back_keeps_its_journal(self):
+        # Reconciliation 3: another installer takes a name this run vacated, so its move in and its rollback both fail.
+        self.install()
+        target = self.desk / "My Proj's Claude campaign.lnk"
+        foreign = Path(self._tmp.name) / "foreign.lnk"
+        shutil.copyfile(target, foreign)
+        self.set_description(foreign, "conclave-unattended: D:\\elsewhere")
+        for _ in range(5):  # the other installer must land between this run's move aside and its move in
+            stop, won = threading.Event(), []
+
+            def take():
+                while not stop.is_set():
+                    if any(self.desk.glob(f"{target.name}.*.old")):
+                        try:
+                            with open(target, "xb") as out:
+                                out.write(foreign.read_bytes())
+                            won.append(True)
+                        except FileExistsError:  # the run moved in first: this attempt lost the race, and retries
+                            pass
+                        return
+                    time.sleep(0.0005)
+
+            watcher = threading.Thread(target=take)
+            watcher.start()
+            done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon))
+            stop.set()
+            watcher.join()
+            if won and done.returncode == 1:
+                break
+            self.install()  # it lost the race: start again from a clean set
+        else:
+            self.fail("the other installer never landed between the move aside and the move in")
+        self.assertIn("could not all be put back", done.stdout)
+        self.assertEqual(target.read_bytes(), foreign.read_bytes())
+        journals = list(self.icons.glob("campaign-*.journal.json"))
+        self.assertEqual(len(journals), 1, done.stdout)
+        self.assertTrue(any(self.desk.glob(f"{target.name}.*.old")))
 
     def test_a_run_stopped_after_its_swap_is_finished(self):
         self.install()
