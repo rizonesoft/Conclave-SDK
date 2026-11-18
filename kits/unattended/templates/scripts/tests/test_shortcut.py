@@ -1302,15 +1302,19 @@ class CampaignTitleTest(ShortcutFixture):
         for n, args in enumerate((["-Distro", "Ubuntu", "-Icon", str(self.icon)], ["-Remove"])):
             with self.subTest(args[0]):
                 owner = self.DEAD + 4 * n  # one planted per mode, each well formed for its own id
-                moves = [{"from": str(self.desk / f"campaign-claude-{key}.ico.{owner}.tmp.lnk"), "to": str(theirs)}]
+                temp = self.desk / f"campaign-claude-{key}.ico.{owner}.tmp.lnk"
+                if n:  # the run stopped before its move in: its own file is still there under the temporary name
+                    shutil.copyfile(self.desk / "My Proj's Claude campaign.lnk", temp)
+                moves = [{"from": str(temp), "to": str(theirs)}]
                 journal = self.state / f"campaign-{key}.{owner}.journal.json"
                 journal.write_text(json.dumps({"state": "swapping", "temps": [], "moves": moves, "aside": []}),
                                    encoding="utf-8")
                 done = self.shortcut(*args)
                 self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
                 self.assertIn("which is not this project's", done.stdout)
-                self.assertEqual((self.snapshot(), journal.exists()), (before, True))
+                self.assertEqual((self.snapshot(skip=(temp.name,)), journal.exists()), (before, True))
                 journal.unlink()
+                temp.unlink(missing_ok=True)
 
     def test_remove_in_one_distro_leaves_an_old_key_badge_another_distros_link_shows(self):
         # Reconciliation 11: one Linux path in two distros shared the old key; their desktops may differ.

@@ -331,8 +331,8 @@ function Restore-Stopped {
     # A file it would take out or put back that is not this project's (another project's link at a moved-in name, a
     # planted record) holds it whole, as an unreadable one does: a run cannot tell a race from a planted record, so it
     # changes nothing over either until the file or the journal is moved away.
-    $foreign = @(@($record.moves | Where-Object {
-          -not (Test-Path -LiteralPath $_.from) -and (Test-Path -LiteralPath $_.to) -and -not (Test-Mine $_.to) } |
+    # Whether or not its own file was moved in yet: a destination that holds another project's file is not this run's.
+    $foreign = @(@($record.moves | Where-Object { (Test-Path -LiteralPath $_.to) -and -not (Test-Mine $_.to) } |
         ForEach-Object { $_.to }) +
       @($record.aside | Where-Object { (Test-Path -LiteralPath $_.old) -and -not (Test-Mine $_.old) } |
         ForEach-Object { $_.old }))
