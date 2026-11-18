@@ -1,7 +1,7 @@
 """The unattended kit's Windows shortcut (D02 T02 §10): unattended-shortcut.ps1 against a stand-in for wsl.exe.
 
-The links are read back through WScript.Shell and their own target and arguments are run, windowless, against the
-stand-in, so the command line Windows would hand wsl.exe is the one checked. Nothing here opens a window or touches
+The links are read back through the launchers kit's IShellLinkW (scripts/lib/ShellLink.cs) and their own target and
+arguments are run, windowless, against the stand-in, so the command line Windows would hand wsl.exe is the one checked. Nothing here opens a window or touches
 the real desktop: every link goes to a scratch folder.
 """
 from __future__ import annotations
@@ -45,6 +45,7 @@ def loader_for(scripts):
 
 
 LOADER = loader_for(SCRIPTS)
+LINK_CODE = LOADER.parent / "ShellLink.cs"  # the launchers kit's IShellLinkW, beside its loader
 PROVIDER = "Microsoft.PowerShell.Core\\FileSystem::"  # what Resolve-Path's .Path puts before a file on a share
 PWSH = shutil.which("pwsh")
 # The stand-in for wsl.exe: it lists two distros, translates a Windows path, says whether a folder exists (all do but
@@ -117,6 +118,7 @@ class ShortcutFixture(unittest.TestCase):
             shutil.copyfile(SCRIPTS / rel, self.project / "scripts" / rel)
         shutil.copyfile(RENDERER, self.project / "scripts" / "campaign-icon.py")
         shutil.copyfile(LOADER, self.project / "scripts" / "lib" / "launchers.py")
+        shutil.copyfile(LINK_CODE, self.project / "scripts" / "lib" / "ShellLink.cs")
         (self.project / ".conclave").mkdir()
         (self.project / "docs").mkdir()
         (self.project / "docs" / "unattended-prompt.md").write_text("Run the plan.\n", encoding="utf-8")
@@ -157,13 +159,17 @@ class ShortcutFixture(unittest.TestCase):
                               creationflags=windowless())
 
     def read_link(self, path):
-        # The path goes through the environment: it holds a quote, which a PowerShell string would end at.
-        script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:LINK_PATH); "
-                  "@{target = $s.TargetPath; arguments = $s.Arguments; icon = $s.IconLocation; "
+        """A link's fields, read through the kit's own IShellLinkW (scripts/lib/ShellLink.cs), which keeps text in any
+        script at its full length. The path goes through the environment: it holds a quote."""
+        script = ("[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); Add-Type -Path $env:LINK_CODE; "
+                  "$s = [Conclave.ShellLink]::Read($env:LINK_PATH); "
+                  "@{target = $s.Target; arguments = $s.Arguments; icon = \"$($s.IconPath),$($s.IconIndex)\"; "
                   "description = $s.Description} | ConvertTo-Json -Compress")
         done = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], capture_output=True,
-                              text=True, timeout=60, env={**os.environ, "LINK_PATH": str(path)},
+                              text=True, encoding="utf-8", timeout=60,
+                              env={**os.environ, "LINK_PATH": str(path), "LINK_CODE": str(LINK_CODE)},
                               creationflags=windowless())
+        self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout)
 
     def calls(self):
@@ -184,7 +190,7 @@ class ShortcutFixture(unittest.TestCase):
                               timeout=120, env={**self.env, **env}, creationflags=windowless())
 
 
-@unittest.skipUnless(os.name == "nt" and PWSH, "a .lnk shortcut and WScript.Shell are Windows's (PowerShell 7)")
+@unittest.skipUnless(os.name == "nt" and PWSH, "a .lnk shortcut and IShellLinkW are Windows's (PowerShell 7)")
 class ShortcutTest(ShortcutFixture):
     def test_one_link_per_runner_hands_wsl_the_start_command_of_that_runner(self):
         # The command itself (it starts the run, and waits for Enter when it cannot) is the Linux entry's, run in bash
@@ -259,11 +265,14 @@ class ShortcutTest(ShortcutFixture):
         self.install()
         other = self.desk / "Other Claude campaign.lnk"
         shutil.copyfile(self.desk / "My Proj's Claude campaign.lnk", other)
-        subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command",
-                        "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:LINK_PATH); "
-                        "$s.Description = 'conclave-unattended: D:\\elsewhere'; $s.Save()"],
-                       capture_output=True, timeout=60, env={**os.environ, "LINK_PATH": str(other)},
-                       creationflags=windowless())
+        done = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command",
+                               "Add-Type -Path $env:LINK_CODE; $s = [Conclave.ShellLink]::Read($env:LINK_PATH); "
+                               "$s.Description = 'conclave-unattended: D:\\elsewhere'; "
+                               "[Conclave.ShellLink]::Write($env:LINK_PATH, $s)"],
+                              capture_output=True, text=True, timeout=60,
+                              env={**os.environ, "LINK_PATH": str(other), "LINK_CODE": str(LINK_CODE)},
+                              creationflags=windowless())
+        self.assertEqual(done.returncode, 0, done.stderr)
         (self.desk / "notes.txt").write_text("mine\n", encoding="utf-8")
         another = self.icons / "campaign-claude-deadbeef.ico"  # another project's icon in a shared icon folder
         another.write_bytes(b"icon")
@@ -299,7 +308,7 @@ class ShortcutTest(ShortcutFixture):
         return ["/mnt/" + p[0].lower() + p[2:].replace("\\", "/") for p in paths]
 
 
-@unittest.skipUnless(os.name == "nt" and PWSH, "a .lnk shortcut and WScript.Shell are Windows's (PowerShell 7)")
+@unittest.skipUnless(os.name == "nt" and PWSH, "a .lnk shortcut and IShellLinkW are Windows's (PowerShell 7)")
 class CampaignTitleTest(ShortcutFixture):
     """D07 T01 section 7: the campaign links carry the launcher profile's title, read an icon from a share, keep one
     identity per project, and replace a set of links whole or not at all."""
@@ -309,12 +318,16 @@ class CampaignTitleTest(ShortcutFixture):
         return {p.relative_to(p.parents[1]).as_posix(): p.read_bytes()
                 for folder in (self.desk, self.icons) if folder.exists() for p in folder.iterdir() if p.is_file()}
 
-    def set_description(self, path, text):
+    def set_description(self, path, text, icon=None):
+        """Rewrite a link's mark, and its icon when `icon` is given, through the kit's IShellLinkW."""
         done = subprocess.run([PWSH, "-NoProfile", "-NonInteractive", "-Command",
-                               "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:LINK_PATH); "
-                               "$s.Description = $env:LINK_MARK; $s.Save()"],
+                               "Add-Type -Path $env:LINK_CODE; $s = [Conclave.ShellLink]::Read($env:LINK_PATH); "
+                               "$s.Description = $env:LINK_MARK; if ($env:LINK_ICON) { $s.IconPath = $env:LINK_ICON }; "
+                               "[Conclave.ShellLink]::Write($env:LINK_PATH, $s)"],
                               capture_output=True, text=True, timeout=60,
-                              env={**os.environ, "LINK_PATH": str(path), "LINK_MARK": text}, creationflags=windowless())
+                              env={**os.environ, "LINK_PATH": str(path), "LINK_MARK": text, "LINK_ICON": icon or "",
+                                   "LINK_CODE": str(LINK_CODE)},
+                              creationflags=windowless())
         self.assertEqual(done.returncode, 0, done.stderr)
 
     def rendered(self, agent):
@@ -363,6 +376,26 @@ class CampaignTitleTest(ShortcutFixture):
         self.install()
         self.assertEqual(self.links(), ["\u6771\u4eac Carbon campaign.lnk", "\u6771\u4eac Claude campaign.lnk"])
 
+    def test_a_project_named_outside_the_ansi_code_page_keeps_its_links_its_own(self):
+        # A project in WSL, so no path goes through the stand-in for wsl.exe: it is a batch file, and cmd hands a
+        # batch file its arguments in the ANSI code page, which the real wsl.exe does not.
+        where = ["-Distro", "Ubuntu", "-Project", "/home/x/東京"]
+        for _ in range(2):  # the second run finds its own links by their mark, never refused as another's
+            done = self.shortcut(*where, "-Icon", str(self.icon))
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.links(), ["東京 Carbon campaign.lnk", "東京 Claude campaign.lnk"])
+        link = self.read_link(self.desk / "東京 Claude campaign.lnk")
+        self.assertEqual(link["description"], "conclave-unattended: \\\\wsl.localhost\\Ubuntu\\home\\x\\東京")
+        self.assertTrue(Path(link["icon"].rsplit(",", 1)[0]).is_file(), link)
+        self.assertIn("'/home/x/東京'", link["arguments"])
+        self.log.unlink()
+        ran = self.activate(link)  # the link's own arguments, as Windows reads them, start the run there
+        self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+        self.assertEqual(len(self.calls()), 1)
+        done = self.shortcut("-Remove", *where)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual((self.links(), list(self.icons.glob("*.ico"))), ([], []))
+
     def test_an_unset_title_keeps_the_folders_name(self):
         for label, text in (("unset", None), ("the kit's template", "RAW:" + json.dumps(
                 {"schema_version": 1, "title": None, "icon": None, "agents": ["claude"], "skip_permissions": False,
@@ -391,6 +424,18 @@ class CampaignTitleTest(ShortcutFixture):
                 self.assertIn(said, done.stdout)
                 self.assertIn("nothing was written", done.stdout)
                 self.assertNotIn("Traceback", done.stdout + done.stderr)
+                self.assertEqual(self.snapshot(), before)
+
+    def test_without_the_link_code_nothing_is_written_or_removed(self):
+        self.install()
+        before = self.snapshot()
+        (self.project / "scripts" / "lib" / "ShellLink.cs").unlink()
+        for args in (["-Distro", "Ubuntu", "-Icon", str(self.icon)], ["-Remove"]):
+            with self.subTest(args[0]):
+                done = self.shortcut(*args)
+                self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+                self.assertIn("there is no scripts/lib/ShellLink.cs (python forge.py kit <project> unattended "
+                              "installs it); nothing was written", done.stdout)
                 self.assertEqual(self.snapshot(), before)
 
     def test_remove_works_with_the_launcher_profile_broken_or_its_loader_gone(self):
@@ -501,28 +546,78 @@ class CampaignTitleTest(ShortcutFixture):
         self.assertIn("-Project '/home/x/demo' is a Linux path: -Distro names the distro it is in", done.stdout)
 
     def test_links_and_badges_under_the_old_mark_and_key_are_replaced(self):
-        # What the script wrote before for `-Project /home/x/demo`: the folder-named set under the path as typed, and
-        # its badges under that path's key.
-        linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/demo"]
+        # What the script wrote before for `-Project /home/x/Demo` (a capital, which Linux keeps): the folder-named set
+        # under the path as typed, and its badges under that path's key, which the old script took in lower case.
+        linux = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]
         self.assertEqual(self.shortcut(*linux).returncode, 0)
         old_key = hashlib.sha256(b"/home/x/demo").hexdigest()[:8]
         for link in self.desk.glob("*.lnk"):
-            self.set_description(link, "conclave-unattended: /home/x/demo")
-        for badge in self.icons.glob("campaign-*.ico"):
-            badge.rename(badge.with_name(f"{badge.name.split('-')[0]}-{badge.name.split('-')[1]}-{old_key}.ico"))
-        self.assertEqual(self.links(), ["demo Carbon campaign.lnk", "demo Claude campaign.lnk"])
+            badge = Path(self.read_link(link)["icon"].rsplit(",", 1)[0])
+            old = badge.with_name(f"{badge.name.split('-')[0]}-{badge.name.split('-')[1]}-{old_key}.ico")
+            badge.rename(old)
+            self.set_description(link, "conclave-unattended: /home/x/Demo", icon=str(old))
+        self.assertEqual(self.links(), ["Demo Carbon campaign.lnk", "Demo Claude campaign.lnk"])
         # A titled link under the old mark is this project's too, so it is replaced, not refused as another's.
-        shutil.copyfile(self.desk / "demo Claude campaign.lnk", self.desk / "Demo Site Claude campaign.lnk")
+        shutil.copyfile(self.desk / "Demo Claude campaign.lnk", self.desk / "Demo Site Claude campaign.lnk")
         self.write_launchers("Demo Site")
         done = self.shortcut(*linux)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(self.links(), ["Demo Site Carbon campaign.lnk", "Demo Site Claude campaign.lnk"])
         self.assertEqual(list(self.icons.glob(f"campaign-*-{old_key}.ico")), [])
         self.assertFalse((self.icons / f"campaign-claude-{old_key}.ico").exists())
-        new_key = hashlib.sha256(b"\\\\wsl.localhost\\ubuntu\\home\\x\\demo").hexdigest()[:8]
+        new_key = hashlib.sha256(b"\\\\wsl.localhost\\ubuntu\\home\\x\\Demo").hexdigest()[:8]
         mark = self.read_link(self.desk / "Demo Site Claude campaign.lnk")["description"]
-        self.assertEqual(mark, "conclave-unattended: \\\\wsl.localhost\\Ubuntu\\home\\x\\demo")
+        self.assertEqual(mark, "conclave-unattended: \\\\wsl.localhost\\Ubuntu\\home\\x\\Demo")
         self.assertTrue((self.icons / f"campaign-claude-{new_key}.ico").is_file())
+
+    def test_an_old_linux_path_mark_of_another_distro_is_never_this_projects(self):
+        # Round 1: the old mark of `-Project /home/x/demo` names no distro; its link's arguments do.
+        debian = ["-Distro", "Debian", "-Icon", str(self.icon), "-Project", "/home/x/demo"]
+        self.assertEqual(self.shortcut(*debian).returncode, 0)
+        for link in self.desk.glob("*.lnk"):
+            self.set_description(link, "conclave-unattended: /home/x/demo")
+        before = self.snapshot()
+        done = self.shortcut("-Remove", "-Distro", "Ubuntu", "-Project", "/home/x/demo")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.snapshot(), before)
+        done = self.shortcut("-Remove", "-Distro", "Debian", "-Project", "/home/x/demo")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual((self.links(), list(self.icons.iterdir())), ([], []))
+
+    def test_linux_paths_that_differ_only_in_case_are_two_projects(self):
+        # Round 1: Linux tells /home/x/Demo from /home/x/demo, so their marks and keys differ by case.
+        self.write_launchers("Alpha")
+        other = self.second_project("Beta")
+        upper = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/Demo"]
+        lower = ["-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", "/home/x/demo"]
+        self.assertEqual(self.shortcut(*upper).returncode, 0)
+        alpha = self.snapshot()
+        for step in (lower, ["-Remove", "-Distro", "Ubuntu", "-Project", "/home/x/demo"]):
+            with self.subTest(step[0]):
+                done = self.shortcut(*step, project=other)
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                now = self.snapshot()
+                self.assertEqual({k: now.get(k) for k in alpha}, alpha)
+
+    def test_a_link_held_open_while_the_set_is_replaced_leaves_the_previous_set(self):
+        # Round 1: the second runner's link cannot be moved aside while another program holds it open.
+        self.install()
+        before = self.snapshot()
+        icon_module = load("campaign_icon_for_held", RENDERER)
+        other = Path(self._tmp.name) / "other.png"
+        other.write_bytes(icon_module.write_png(256, 256, bytearray(bytes((200, 40, 40, 255)) * 256 * 256)))
+        with open(self.desk / "My Proj's Carbon campaign.lnk", "rb"):  # open without delete sharing
+            done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(other))
+            self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+            self.assertIn("the shortcuts could not be put in place", done.stdout)
+            self.assertIn("the previous ones are kept", done.stdout)
+            self.assertEqual(self.snapshot(), before)
+            self.assertEqual([p.name for p in [*self.desk.iterdir(), *self.icons.iterdir()]
+                              if ".tmp" in p.name or p.name.endswith(".old")], [])
+        done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(other))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(sorted(p.read_bytes() for p in self.icons.iterdir()),
+                         sorted(self.rendered_from(other, agent) for agent in ("agy", "claude")))
 
     def test_the_default_icon_folder_is_named_by_the_folder_never_the_title(self):
         local = Path(self._tmp.name) / "local"

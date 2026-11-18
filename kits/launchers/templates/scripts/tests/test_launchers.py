@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 HERE = pathlib.Path(__file__).resolve().parent
 SCRIPT = HERE.parent / "lib" / "launchers.py"
@@ -129,6 +130,21 @@ class KeyTests(Fixture):
         ico = self.project / "assets/ICON.ICO"
         ico.write_bytes(b"\0\0\1\0")
         self.assertEqual(self.load(self.valid(icon="assets/ICON.ICO"))["icon"], "assets/ICON.ICO")
+
+    def test_an_icon_the_system_cannot_name_is_refused_not_raised(self):
+        # stat() raises ValueError, which has no strerror, for a path the system cannot name.
+        self.write(self.valid())
+        real = pathlib.Path.stat
+
+        def stat(path, *args, **kwargs):
+            if path.name == "icon.png":
+                raise ValueError("the system cannot name it")
+            return real(path, *args, **kwargs)
+
+        with unittest.mock.patch.object(pathlib.Path, "stat", stat):
+            with self.assertRaises(launchers.ProfileError) as caught:
+                launchers.load_profile(self.path)
+        self.assertIn("icon: assets/icon.png cannot be read (the system cannot name it)", str(caught.exception))
 
     def test_an_icon_reached_through_a_link_is_refused(self):
         real = self.project / "real"
@@ -311,6 +327,9 @@ class TitleTests(Fixture):
         for name, profile, words in (("bad title", self.valid(title=" x"), "title: must not start or end"),
                                      ("titled, icon unset", self.valid(icon=None), "icon: must be set"),
                                      ("not JSON", "{", "not JSON"),
+                                     ("title unset, the rest truncated", '{"title": null}', "schema_version: is missing"),
+                                     ("title unset, agents wrong", self.valid(title=None, agents=["x"]),
+                                      "agents: 'x' is not an agent"),
                                      ("not an object", "[]", "a profile is an object")):
             with self.subTest(case=name):
                 self.write(profile)

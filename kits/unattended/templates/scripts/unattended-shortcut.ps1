@@ -45,52 +45,99 @@ if (-not $IconDir) { $IconDir = Join-Path $env:LOCALAPPDATA $name }
 
 function Refuse([string]$why) { "unattended-shortcut: $why; nothing was written"; exit 1 }
 
+# A PowerShell string literal of any text.
+function PSQuote([string]$text) { "'" + $text.Replace("'", "''") + "'" }
+
 # The project's identity, in its links' mark and its icons' key: one form for a project in WSL, whichever form -Project
 # takes, with the distro in it, so /home/x/demo in Ubuntu and in Debian are two projects (D07 T01 section 7).
+$projectDistro = ''
 if ($Project -match '^\\\\wsl(?:\.localhost|\$)\\([^\\]+)\\(.*)$') {
+  $projectDistro = $Matches[1]
   $identity = "\\wsl.localhost\$($Matches[1])\$($Matches[2].TrimEnd('\'))"
 } elseif ($Project.StartsWith('/')) {
   if (-not $Distro) { Refuse "-Project '$Project' is a Linux path: -Distro names the distro it is in" }
+  $projectDistro = $Distro
   $identity = "\\wsl.localhost\$Distro" + ($Project.TrimEnd('/') -replace '/', '\')
 } else {
   $identity = $Project
 }
+# The form identities are compared in: a Windows path ignores case; in WSL the distro's name ignores case and the
+# Linux path keeps it, since /home/x/Demo and /home/x/demo are two folders there.
+function Get-Normal([string]$id) {
+  if ($id -match '^\\\\wsl(?:\.localhost|\$)\\([^\\]+)(.*)$') {
+    return '\\wsl.localhost\' + $Matches[1].ToLowerInvariant() + $Matches[2]
+  }
+  if ($id.StartsWith('/')) { return $id }
+  $id.ToLowerInvariant()
+}
 function Get-Key([string]$text) {
   $sha = [System.Security.Cryptography.SHA256]::Create()
-  -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($text.ToLowerInvariant()))[0..3] | ForEach-Object { $_.ToString('x2') })
+  -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($text))[0..3] | ForEach-Object { $_.ToString('x2') })
 }
-$mark = "conclave-unattended: $identity"
-$key = Get-Key $identity
-# What the script wrote before it had one identity (the -Project form as typed) is this project's too: it goes with
-# the rest, and the next run writes the new form.
-$marks = @($mark, "conclave-unattended: $Project") | Select-Object -Unique
-$keys = @($key, (Get-Key $Project)) | Select-Object -Unique
+$prefix = 'conclave-unattended: '
+$mark = "$prefix$identity"
+$normal = Get-Normal $identity
+$key = Get-Key $normal
 $labels = @{ claude = 'Claude'; codex = 'Codex'; agy = 'Carbon' }
 
-# A link's mark, read through Shell.Application, which opens a file of any name.
-# WORKAROUND: WScript.Shell opens and saves a .lnk through the ANSI code page, so it reads nothing from a link named
-# by a title outside it (a CJK title, probed 2026-11-18) and cannot save one; links are saved under an ASCII
-# temporary name and moved to their own.
-$app = New-Object -ComObject Shell.Application
+# Links are written and read through the shell's own IShellLinkW (`scripts/lib/ShellLink.cs`, the launchers kit's,
+# which this kit brings), which keeps a name, a mark, a path or an argument in any script at its full length.
+$linkCode = Join-Path $here 'lib\ShellLink.cs'
+if (-not (Test-Path -LiteralPath $linkCode -PathType Leaf)) {
+  Refuse 'there is no scripts/lib/ShellLink.cs (python forge.py kit <project> unattended installs it)'
+}
+Add-Type -Path $linkCode
+
+# A link's fields, or nothing for a file the shell cannot load as one.
+function Get-Link([IO.FileSystemInfo]$file) {
+  try { [Conclave.ShellLink]::Read($file.FullName) } catch { $null }
+}
+
 function Get-Mark([IO.FileSystemInfo]$file) {
-  $item = $app.NameSpace([IO.Path]::GetDirectoryName($file.FullName)).ParseName($file.Name)
-  if ($item -and $item.IsLink) { $item.GetLink.Description } else { '' }
+  $link = Get-Link $file
+  if ($link) { $link.Description } else { '' }
+}
+
+# Whether a link is this project's: its mark names this identity, or it is the mark the script wrote before it had one
+# identity (the -Project form as typed). An old mark of a Linux path names no distro, so it is this project's only when
+# its link starts the run in this project's distro.
+function Test-Owned([IO.FileSystemInfo]$file) {
+  $text = Get-Mark $file
+  if (-not $text.StartsWith($prefix)) { return $false }
+  $id = Get-Normal $text.Substring($prefix.Length)
+  if ($id -ceq $normal) { return $true }
+  if (-not $Project.StartsWith('/') -or $id -cne $Project) { return $false }
+  $words = "$(PSQuote '-d') $(PSQuote $projectDistro) "
+  (Get-Link $file).Arguments.IndexOf($words, [StringComparison]::OrdinalIgnoreCase) -ge 0
 }
 
 function Get-Owned {
   Get-ChildItem -LiteralPath $ShortcutDir -Filter '*campaign*.lnk' -File -ErrorAction Ignore |
-    Where-Object { $marks -contains (Get-Mark $_) }
+    Where-Object { Test-Owned $_ }
 }
 
+# This project's badges: those under its key, and those its own links show (an old mark's, under the old key).
 # Named apart from the -Icon parameter: PowerShell names ignore case, and $icon would be that typed string.
-function Get-Badges {
-  foreach ($k in $keys) { Get-ChildItem -LiteralPath $IconDir -Filter "campaign-*-$k.ico" -File -ErrorAction Ignore }
+function Get-Badges([object[]]$owned) {
+  $found = @{}
+  foreach ($badge in @(Get-ChildItem -LiteralPath $IconDir -Filter "campaign-*-$key.ico" -File -ErrorAction Ignore)) {
+    $found[$badge.Name] = $badge
+  }
+  foreach ($link in $owned) {
+    $where = (Get-Link $link).IconPath
+    $shown = if ($where) { Get-Item -LiteralPath $where -ErrorAction Ignore }
+    if ($shown -and $shown.Name -like 'campaign-*.ico' -and
+        [IO.Path]::GetFileName($shown.DirectoryName) -eq [IO.Path]::GetFileName($IconDir.TrimEnd('\'))) {
+      $found[$shown.Name] = $shown
+    }
+  }
+  $found.Values
 }
 
 if ($Remove) {
   $links = @(Get-Owned)
+  $badges = @(Get-Badges $links)
   foreach ($link in $links) { Remove-Item -LiteralPath $link.FullName; "removed: $($link.FullName)" }
-  $badges = @(Get-Badges)
   foreach ($badge in $badges) { Remove-Item -LiteralPath $badge.FullName; "removed: $($badge.FullName)" }
   "unattended-shortcut: $($links.Count) shortcut(s) and $($badges.Count) icon(s) of $Project removed"
   exit 0
@@ -158,9 +205,6 @@ if ($Project -match '^\\\\wsl(?:\.localhost|\$)\\([^\\]+)\\(.*)$') {
 & $Wsl -d $Distro --exec test -d $linux 2>$null
 if ($LASTEXITCODE -ne 0) { Refuse "the project path '$linux' does not exist in '$Distro'" }
 
-# A PowerShell string literal of any text.
-function PSQuote([string]$text) { "'" + $text.Replace("'", "''") + "'" }
-
 # One argument as the Windows command line passes it (backslashes doubled before a quote, the quote escaped).
 function Quote([string]$arg) {
   if ($arg -and $arg -notmatch '[\s"]') { return $arg }
@@ -172,7 +216,6 @@ $pwsh = (Get-Process -Id $PID).Path  # the PowerShell 7 that runs this script ru
 # ProviderPath, not Path: for an icon on a share (\\wsl.localhost\...) Path keeps the provider's prefix
 # (`Microsoft.PowerShell.Core\FileSystem::`), and the renderer cannot open a file named that way.
 $brand = (Resolve-Path -LiteralPath $Icon).ProviderPath
-$shell = New-Object -ComObject WScript.Shell
 
 # Every link and its badge, by runner. A name held by a file this project did not write (another project's link with
 # the same title and runner, or a folder) is refused before anything is written: a move would replace it.
@@ -181,15 +224,17 @@ $planned = foreach ($agent in $agents) {
   $badge = Join-Path $IconDir "campaign-$agent-$key.ico"
   $link = Join-Path $ShortcutDir "$label.lnk"
   [pscustomobject]@{ Agent = $agent; Label = $label; Badge = $badge; BadgeTemp = "$badge.$PID.tmp.ico"; Link = $link
-    LinkTemp = Join-Path $ShortcutDir "campaign-$agent-$key.$PID.tmp.lnk" }
+    LinkTemp = Join-Path $ShortcutDir "$label.$PID.tmp.lnk" }
 }
 foreach ($p in $planned) {
   $held = Get-Item -LiteralPath $p.Link -Force -ErrorAction Ignore
-  if ($held -and ($held.PSIsContainer -or $marks -notcontains (Get-Mark $held))) {
+  if ($held -and ($held.PSIsContainer -or -not (Test-Owned $held))) {
     Refuse "the shortcut name '$($p.Label).lnk' is held by a file this project did not write: '$($held.FullName)'"
   }
 }
-function Clear-Temps { foreach ($p in $planned) { Remove-Item -LiteralPath $p.BadgeTemp, $p.LinkTemp -ErrorAction Ignore } }
+function Clear-Temps {
+  foreach ($p in $planned) { Remove-Item -LiteralPath $p.BadgeTemp, $p.LinkTemp -ErrorAction Ignore }
+}
 
 # Two steps: every badge and link is written under its temporary name first, and only then moved over the old, so a
 # failure before the moves leaves every previous link and badge as it was and no temporary file.
@@ -204,7 +249,6 @@ foreach ($p in $planned) {
   $command = "python3 scripts/unattended-run.py start --agent $($p.Agent) || " +
     "{ echo 'The run did not start: the reason is above. Press Enter to close.'; read -r _; }"
   try {
-    $shortcut = $shell.CreateShortcut($p.LinkTemp)
     # PowerShell runs wsl.exe, so a failure of WSL itself (a drive gone, a distro removed) is said and waits for Enter
     # too; the command is in the link, not in a script on the project's drive, which may be the one that is gone.
     $words = @('-d', $Distro, '--cd', $linux, '--exec', 'bash', '-lc', $command)
@@ -212,39 +256,59 @@ foreach ($p in $planned) {
       "Write-Host ('WSL could not start the run (exit ' + `$LASTEXITCODE + '): the reason is above. ' + " +
       "'Press Enter to close.'); " +
       "[void][Console]::ReadLine() }"
-    $shortcut.TargetPath = $pwsh
-    $shortcut.Arguments = "-NoLogo -NoProfile -Command $(Quote $code)"
-    $shortcut.WorkingDirectory = $env:USERPROFILE
-    $shortcut.Description = $mark
-    $shortcut.IconLocation = "$($p.Badge),0"
-    $shortcut.Save()
+    $data = [Conclave.ShellLinkData]::new()
+    $data.Target = $pwsh
+    $data.Arguments = "-NoLogo -NoProfile -Command $(Quote $code)"
+    $data.WorkingDirectory = $env:USERPROFILE
+    $data.Description = $mark
+    $data.IconPath = $p.Badge
+    [Conclave.ShellLink]::Write($p.LinkTemp, $data)
   } catch {
     Clear-Temps
     "unattended-shortcut: the shortcut $($p.Label) could not be saved ($($_.Exception.Message)); the old one is kept"
     exit 1
   }
 }
-foreach ($p in $planned) {
-  try {
-    Move-Item -LiteralPath $p.BadgeTemp -Destination $p.Badge -Force
-    Move-Item -LiteralPath $p.LinkTemp -Destination $p.Link -Force
-  } catch {
-    Clear-Temps
-    "unattended-shortcut: the shortcut $($p.Label) could not be put in place ($($_.Exception.Message)); " +
-      'the shortcuts not yet moved are left as they were'
-    exit 1
-  }
-  "shortcut written: $($p.Link)"
+# The new set goes in as one change: every link and badge it replaces is moved aside first, then each new file is moved
+# in (never over a file, so one another writer put there since the check fails the move), and on any failure each file
+# moved in is taken out and each file moved aside is put back.
+$moves = foreach ($p in $planned) {
+  [pscustomobject]@{ From = $p.BadgeTemp; To = $p.Badge }
+  [pscustomobject]@{ From = $p.LinkTemp; To = $p.Link }
 }
+$aside = [Collections.Generic.List[object]]::new()
+$placed = [Collections.Generic.List[string]]::new()
+try {
+  foreach ($m in $moves) {
+    if (Test-Path -LiteralPath $m.To) {
+      $old = "$($m.To).$PID.old"
+      Move-Item -LiteralPath $m.To -Destination $old
+      $aside.Add([pscustomobject]@{ To = $m.To; Old = $old })
+    }
+  }
+  foreach ($m in $moves) { Move-Item -LiteralPath $m.From -Destination $m.To; $placed.Add($m.To) }
+} catch {
+  foreach ($to in $placed) { Remove-Item -LiteralPath $to -ErrorAction Ignore }
+  foreach ($a in $aside) { Move-Item -LiteralPath $a.Old -Destination $a.To -ErrorAction Ignore }
+  Clear-Temps
+  "unattended-shortcut: the shortcuts could not be put in place ($($_.Exception.Message)); the previous ones are kept"
+  exit 1
+}
+foreach ($a in $aside) { Remove-Item -LiteralPath $a.Old -ErrorAction Ignore }
+foreach ($p in $planned) { "shortcut written: $($p.Link)" }
 
-# A link or badge of this project's that this run did not write (an earlier title, a runner dropped, the old mark's
-# key) goes. Compared by file name: each list is of one folder, whose spelling (an 8.3 short name) may differ.
+# A link or badge of this project's that this run did not write (an earlier title, a runner dropped, an old mark's)
+# goes.
+# Compared by file name: each list is of one folder, whose spelling (an 8.3 short name) may differ.
 $writtenLinks = @($planned | ForEach-Object { Split-Path $_.Link -Leaf })
 $writtenIcons = @($planned | ForEach-Object { Split-Path $_.Badge -Leaf })
-foreach ($stale in @(Get-Owned | Where-Object { $writtenLinks -notcontains $_.Name })) {
-  Remove-Item -LiteralPath $stale.FullName; "removed: $($stale.FullName)"
+$owned = @(Get-Owned)
+$stale = @($owned | Where-Object { $writtenLinks -notcontains $_.Name }) +
+  @(Get-Badges $owned | Where-Object { $writtenIcons -notcontains $_.Name })
+$kept = 0
+foreach ($file in $stale) {
+  try { Remove-Item -LiteralPath $file.FullName; "removed: $($file.FullName)" }
+  catch { $kept++; "unattended-shortcut: $($file.FullName) could not be removed ($($_.Exception.Message))" }
 }
-foreach ($stale in @(Get-Badges | Where-Object { $writtenIcons -notcontains $_.Name })) {
-  Remove-Item -LiteralPath $stale.FullName; "removed: $($stale.FullName)"
-}
+if ($kept) { "unattended-shortcut: the new shortcuts are in place; $kept old file(s) are left"; exit 1 }
 exit 0

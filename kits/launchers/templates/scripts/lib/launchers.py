@@ -78,9 +78,10 @@ def _reached_through_link(root: Path, relative: PurePosixPath) -> bool:
     return False
 
 
-def load_profile(path, root=None) -> dict:
+def load_profile(path, root=None, unset=False) -> dict:
     """The profile at `path`, every key checked. `root` is the project (default: the folder holding `.conclave/`).
-    Raises ProfileError naming the file and the key."""
+    With `unset`, a null `title` or `icon` (the kit's template as installed) passes and every other key is still
+    checked. Raises ProfileError naming the file and the key."""
     path = Path(path)
     root = Path(root) if root is not None else path.parent.parent
     where = path.as_posix()
@@ -120,49 +121,52 @@ def load_profile(path, root=None) -> dict:
         raise fault("schema_version", f"must be the integer {SCHEMA_VERSION}, not {version!r}")
 
     title = data["title"]
-    if title is None:
+    if title is None and not unset:
         raise fault("title", "must be set: the name the project's links carry on the desktop")
-    if not isinstance(title, str):
-        raise fault("title", f"must be a string, not {type(title).__name__}")
-    why = _name_fault(title, TITLE_LIMIT)
-    if why:
-        raise fault("title", why)
+    if title is not None:
+        if not isinstance(title, str):
+            raise fault("title", f"must be a string, not {type(title).__name__}")
+        why = _name_fault(title, TITLE_LIMIT)
+        if why:
+            raise fault("title", why)
 
     icon = data["icon"]
-    if icon is None:
+    if icon is None and not unset:
         raise fault("icon", "must be set: a .png or .ico file in the project, relative to it")
-    if not isinstance(icon, str):
-        raise fault("icon", f"must be a string, not {type(icon).__name__}")
-    if not icon.strip():
-        raise fault("icon", "must not be empty")
-    if any(ord(ch) < 32 or ord(ch) == 127 for ch in icon):
-        raise fault("icon", f"must not hold a control character, not {icon!r}")
-    # Either separator: `\\dir\\icon.png` is rooted on Windows, and on any system it must not leave the project.
-    normalized = icon.replace("\\", "/")
-    if PurePosixPath(normalized).is_absolute() or PureWindowsPath(icon).anchor:
-        raise fault("icon", f"must be relative to the project, not {icon!r}")
-    relative = PurePosixPath(normalized)
-    if ".." in relative.parts or not relative.parts:
-        raise fault("icon", f"must stay inside the project, not {icon!r}")
-    if relative.suffix.lower() not in ICON_SUFFIXES:
-        raise fault("icon", f"must be a .png or .ico file, not {icon!r}")
-    if _reached_through_link(root, relative):
-        raise fault("icon", f"{icon} is reached through a link; name the file itself")
-    target = root / relative
-    try:
-        inside = os.path.commonpath([os.path.abspath(root), os.path.abspath(target)]) == os.path.abspath(root)
-    except ValueError:  # another drive
-        inside = False
-    if not inside:
-        raise fault("icon", f"must stay inside the project, not {icon!r}")
-    try:
-        mode = target.stat().st_mode
-    except FileNotFoundError:
-        raise fault("icon", f"{icon} does not exist in the project") from None
-    except (OSError, ValueError) as exc:
-        raise fault("icon", f"{icon} cannot be read ({exc.strerror or exc})") from None
-    if not stat.S_ISREG(mode):
-        raise fault("icon", f"{icon} is not a file")
+    if icon is not None:
+        if not isinstance(icon, str):
+            raise fault("icon", f"must be a string, not {type(icon).__name__}")
+        if not icon.strip():
+            raise fault("icon", "must not be empty")
+        if any(ord(ch) < 32 or ord(ch) == 127 for ch in icon):
+            raise fault("icon", f"must not hold a control character, not {icon!r}")
+        # Either separator: `\\dir\\icon.png` is rooted on Windows, and on any system it must not leave the project.
+        normalized = icon.replace("\\", "/")
+        if PurePosixPath(normalized).is_absolute() or PureWindowsPath(icon).anchor:
+            raise fault("icon", f"must be relative to the project, not {icon!r}")
+        relative = PurePosixPath(normalized)
+        if ".." in relative.parts or not relative.parts:
+            raise fault("icon", f"must stay inside the project, not {icon!r}")
+        if relative.suffix.lower() not in ICON_SUFFIXES:
+            raise fault("icon", f"must be a .png or .ico file, not {icon!r}")
+        if _reached_through_link(root, relative):
+            raise fault("icon", f"{icon} is reached through a link; name the file itself")
+        target = root / relative
+        try:
+            inside = os.path.commonpath([os.path.abspath(root), os.path.abspath(target)]) == os.path.abspath(root)
+        except ValueError:  # another drive
+            inside = False
+        if not inside:
+            raise fault("icon", f"must stay inside the project, not {icon!r}")
+        try:
+            mode = target.stat().st_mode
+        except FileNotFoundError:
+            raise fault("icon", f"{icon} does not exist in the project") from None
+        except (OSError, ValueError) as exc:
+            # A ValueError (a path the system cannot name) has no strerror.
+            raise fault("icon", f"{icon} cannot be read ({getattr(exc, 'strerror', None) or exc})") from None
+        if not stat.S_ISREG(mode):
+            raise fault("icon", f"{icon} is not a file")
 
     agents = data["agents"]
     if not isinstance(agents, list):
@@ -242,18 +246,15 @@ def campaign_title(root) -> str | None:
     """The title the unattended kit's campaign links carry (D07 T01 section 7), or None when the project has no
     profile or its `title` is still null, as the kit's template installs it: the unattended kit brings this kit, so
     every install of it holds that template until the owner fills it in, and its campaign links keep the folder's
-    name until then. Any other profile is held to `load_profile`, which raises ProfileError for one it refuses."""
+    name until then. Every other key is still checked (`load_profile` with `unset`), so a truncated or unsupported
+    profile is refused with ProfileError, as `show` refuses it."""
     root = Path(root)
     path = root / PROFILE
     if not os.path.lexists(path):
         return None
-    try:
-        data = json.loads(path.read_bytes().decode("utf-8"))
-    except (OSError, ValueError, RecursionError):
-        data = None  # load_profile names the fault
-    if isinstance(data, dict) and "title" in data and data["title"] is None:
+    if load_profile(path, root, unset=True)["title"] is None:
         return None
-    return load_profile(path, root)["title"]
+    return load_profile(path, root)["title"]  # a profile with its title set is held to every rule, its icon's too
 
 
 def main(argv=None) -> int:
