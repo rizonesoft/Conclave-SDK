@@ -23,9 +23,15 @@ concurrency:
 
 jobs:
   quick-windows:
-    name: quick suite (Windows)
+    # The quick suite in two parallel shards (forge.py check-all --shard): whole it grew past its 45 minutes on
+    # GitHub's Windows runner (tests.yml runs 44456585125 and 44479400655, 2026-11-19); the run is red when either is.
+    name: quick suite (Windows) ${{ matrix.shard }}
     runs-on: windows-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/2", "2/2"]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,7 +44,7 @@ jobs:
           git config --global user.email ci@example.invalid
           git config --global user.name ci
       - name: Quick suite
-        run: python forge.py check-all --only tests
+        run: python forge.py check-all --only tests --shard ${{ matrix.shard }}
 
   full-linux:
     # The full suite in three parallel shards of tests/ (forge.py check-all --shard, D01 T02 §10): the same tests,
