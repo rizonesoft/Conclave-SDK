@@ -179,10 +179,11 @@ Sections: 16 | Checklist items: 139
 
 ### Phase 9: Design and safety lenses across projects
 
-Sections: 19 | Checklist items: 118
+Sections: 20 | Checklist items: 124
 
 | Status | Reference   | Deliverable                                                | Needs        | Items |
 | ------ | ----------- | ---------------------------------------------------------- | ------------ | ----- |
+| [ ]    | D00 T01 §10 | P2 gate by kind with two filing caps                       | none         | 6     |
 | [ ]    | D00 T03 §1  | Design Lens by Path and Fidelity on Every Prompt           | none         | 10    |
 | [ ]    | D00 T03 §2  | Thread-Safety and Memory-Safety Lenses in the Template Pin | none         | 6     |
 | [ ]    | D00 T03 §3  | Kit Refresh in Every Listed Project                        | windows-host | 7     |
@@ -214,6 +215,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 104/131 verified sections, 8 ready to run now.
+Progress: 104/132 verified sections, 8 ready to run now.
 
-Checklist: 868/1019 items completed (includes Commit items).
+Checklist: 868/1025 items completed (includes Commit items).

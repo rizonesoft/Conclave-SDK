@@ -43,6 +43,7 @@ title: "TODO-01 -- Three-pass review"
 | 7 | §7 | Review prompt filler | §2 | [x] |
 | 8 | §8 | Stamp that recovers from a write cut short | §3 | [x] |
 | 9 | §9 | Re-plan route for a chain that cannot settle, recovery planned up front | §4 | [ ] |
+| 10 | §10 | P2 gate by kind with two filing caps | §9 | [ ] |
 
 ## 1. Pin loader module with the three-pass keys
 
@@ -343,6 +344,28 @@ Filed 2026-11-18 from `D07 T01 §7`, which spent 19 passes before a re-plan: its
 - [x] Commit: `todo: a chain that cannot settle is re-planned, and recovery is planned before the build`
 
 **Test checkpoint:** `python -m unittest tests.test_forge -k skill`, `CONCLAVE_FULL_TESTS=1 python -m unittest tests.test_todo_graph` (the todo kit's graph tests, which live in the SDK's `tests/`) and the reviewer kit's dispatcher tests pass; removing the re-plan rule from the review skill, the chain refusal from `stamp` or the dispatcher, or the next-unused numbering from `replan` makes its test fail.
+
+## 10. P2 gate by kind with two filing caps
+
+Filed 2026-11-19 at the owner's request. A P2 finding held `D02 T02 §12` through 20 reconciliations; blocking on P1 alone would ship real P2 defects (that chain's P2s included a deleted record and another folder's icons removed). It sits in Phase 9 because a two-digit reference widens Phase 8's plan table past 120 characters; as the owner's request it is taken next, out of table order. The owner chose a gate by kind: a P2 that endangers the user's data holds the stamp longer than an ordinary one, and neither holds it forever. A pass's P2 findings are tagged by the reviewer; the stamp reads the tags.
+
+**Phase:** 9
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add the pin keys and the reply tag. Done when: the pin tests read them.
+2. Make the stamp and the dispatcher apply them. Done when: the checkpoint passes.
+
+- [ ] Add `p2_file_after` (default 3) and `p2_data_file_after` (default 6) to `[schedule]` in `kits/reviewer/templates/scripts/review_pin.py`, each a whole number of reconciliations, `p2_data_file_after` at least `p2_file_after`, read only with `blocking` naming `P2`; set both in `kits/reviewer/templates/.conclave/reviewers.toml` and the SDK's `.conclave/reviewers.toml`. Done when: `test_review_pin.py` loads both, refuses a value that is not a whole number, a data cap below the ordinary one, and either key without `P2` blocking.
+- [ ] Ask in `kits/reviewer/templates/docs/review-round-prompt.md`, `completion-review-prompt.md` and `reconciliation-review-prompt.md` for each P2 to be tagged `P2 data` (it loses, corrupts or exposes the user's data, or reports a failure as success) or `P2` (any other), and for a `P2 DATA: yes|no` line beside `HIGHEST:`; the dispatcher reads the line (`p2_data` in its summary) and records an absent one as `yes`. Done when: a dispatcher test records `yes`, `no` and an absent line read as `yes`.
+- [ ] Apply the gate in `stamp` (`kits/todo/templates/scripts/lib/todo_graph.py`): a last pass whose worst finding is P2 takes `:filed` once the chain has spent `p2_file_after` reconciliations, or `p2_data_file_after` when that pass says `P2 DATA: yes`, with a `- Filed:` line for each open P2; before that it needs a reconciliation, as now; P1 always does. Done when: stamp tests take `filed` after 3 ordinary and after 6 data reconciliations, refuse it after 2 ordinary and after 5 data, refuse it for a P1, and read an absent `P2 DATA` line as data.
+- [ ] Make the dispatcher refuse a reconciliation the stamp would no longer need (the last pass's P2 is past its cap), as it refuses one below the blocking levels now. Done when: a dispatcher test finds that reconciliation refused before a reviewer runs.
+- [ ] Write the rule in `kits/todo/templates/.claude/skills/review-todo-section/SKILL.md` ("How a section ends") and `kits/reviewer/README.md`, run `python forge.py skill-copies` and `python forge.py self-sync`. Done when: a test finds the rule in the skill's three copies and `skill-copies --check` exits 0.
+- [ ] Commit: `review: a P2 holds the stamp by kind, an ordinary one for 3 reconciliations, a data one for 6`
+
+**Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests`, `CONCLAVE_FULL_TESTS=1 python -m unittest tests.test_todo_graph` and `python -m unittest tests.test_forge -k skill` pass; reading an absent `P2 DATA` line as `no`, or filing an ordinary P2 before `p2_file_after`, makes its test fail.
 
 ## Verification
 
