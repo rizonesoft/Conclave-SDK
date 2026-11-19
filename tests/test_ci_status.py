@@ -687,8 +687,9 @@ class Placement(unittest.TestCase):
     """The read sits in the step that pushes and in the closeout, in each runner skill and the heartbeat prompt, and
     nothing in them holds a commit or a push back for CI (D01 T02 §8)."""
     SKILLS = REPO / "kits" / "todo" / "templates" / ".claude" / "skills"
-    WHERE = {"process-todo-section": ["Push each commit as it lands"],
-             "review-todo-section": ["Push each commit as it lands", "--rerun <stamped commit>"],
+    # The section pushes once, when its completion review starts, then pushes the stamp (owner, 2026-11-19).
+    WHERE = {"process-todo-section": ["push once, when the completion review starts"],
+             "review-todo-section": ["Push the stamp commit", "--rerun <stamped commit>"],
              "process-phase": ["Then check CI, red first", "## Closeout run=<run id>", "the phase parks: write a column-0"],
              "process-plan": ["after each stamp is pushed", "7. Run `<python> scripts/ci_status.py --since-last`.",
                              "then end with `--reason park` the same way"]}
