@@ -1350,19 +1350,21 @@ def _windows() -> bool:
 
 
 READ_SECONDS = 60  # the runner reading the record; the limit only catches a hang
+SHORTCUT_READER = FORGE_ROOT / "kits/unattended/templates/scripts/unattended-run.py"  # the SDK's, never the project's
 
 
 def _shortcut_folders(target: Path) -> tuple[list[str] | None, str, str]:
-    """(folders, state, why) of the project's shortcut record, read by the project's own runner
-    (`scripts/unattended-run.py shortcut-record`), the one reader the shortcut script and `status` use too, so forge
-    never holds a copy that can disagree with them (D02 T02 §12, reconciliations 1 and 7 to 15). `state` is `ok`
+    """(folders, state, why) of the project's shortcut record, read by the unattended kit's runner as this SDK holds
+    it (`shortcut-record`): the reader the kit installs for the shortcut script and `status`, so forge holds no copy
+    that can disagree with them (D02 T02 §12, reconciliations 1 and 7 to 15), and the SDK's own code, so an update
+    never runs the project's (a runner the project changed is never executed; reconciliation 16). `state` is `ok`
     (no record is no folders), `damaged` (not a record: move it aside), `busy` (cannot be opened now) or `reader` (the
-    runner is missing or gave no answer)."""
+    reader gave no answer)."""
     if not (target / SHORTCUT_RECORD).exists():
         return [], "ok", ""
-    runner = target / "scripts/unattended-run.py"
+    runner = SHORTCUT_READER
     if not runner.is_file():
-        return None, "reader", "the project has no scripts/unattended-run.py to read it"
+        return None, "reader", f"this SDK has no {runner.name} to read it ({runner})"
     try:
         # The reader starts no process of its own, so its timeout leaves nothing behind.
         done = subprocess.run([sys.executable, "-B", str(runner), "shortcut-record", str(target / SHORTCUT_RECORD)],
@@ -1400,9 +1402,8 @@ def _refresh_shortcuts(target: Path) -> dict:
         return {"refreshed": False, "detail": f"{SHORTCUT_RECORD} cannot be read ({why}): it may be sound; run "
                 f"{SHORTCUT_REFRESH} on Windows once nothing holds it"}
     if state == "reader":
-        return {"refreshed": False, "detail": f"{SHORTCUT_RECORD} cannot be read ({why}): restore "
-                "scripts/unattended-run.py (python forge.py update <project> --only scripts/unattended-run.py), "
-                f"then run {SHORTCUT_REFRESH} on Windows"}
+        return {"refreshed": False, "detail": f"{SHORTCUT_RECORD} was not read ({why}); it is kept as it is: run "
+                f"{SHORTCUT_REFRESH} on Windows, which reads it with the project's own runner"}
     if not _windows():
         each = "; ".join(SHORTCUT_REFRESH + " -ShortcutDir " + "'" + folder.replace("'", "''") + "'"
                          for folder in folders)

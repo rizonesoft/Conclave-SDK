@@ -193,8 +193,8 @@ def damaged_bytes(record):
 
 
 def install_runner(target):
-    """The unattended kit's runner and its library in `target`, as the kit installs them: forge reads the shortcut
-    record with the project's own runner."""
+    """The unattended kit's runner and its library in `target`, as the kit installs them: a project that has them,
+    whose runner forge must never run (it reads the record with the SDK's own)."""
     for rel in ("unattended-run.py", "lib/unattended.py"):
         (target / "scripts" / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(FORGE_ROOT / "kits/unattended/templates/scripts" / rel, target / "scripts" / rel)
@@ -4116,7 +4116,7 @@ class UnattendedKitTests(unittest.TestCase):
                                                          encoding="utf-8")
         answers = {4: ("busy", "it may be sound; run pwsh scripts/unattended-shortcut.ps1 -Refresh on Windows once "
                                "nothing holds it"),
-                   3: ("damaged", "move it aside"), 9: ("reader", "--only scripts/unattended-run.py")}
+                   3: ("damaged", "move it aside"), 9: ("reader", "it is kept as it is")}
         for code, (state, advice) in answers.items():
             with self.subTest(code=code):
                 ran = subprocess.CompletedProcess([], code, "it cannot be opened now (held)\n", "")
@@ -4125,8 +4125,15 @@ class UnattendedKitTests(unittest.TestCase):
                     said = forge._refresh_shortcuts(self.target)
                 self.assertFalse(said["refreshed"])
                 self.assertIn(advice, said["detail"])
-        (self.target / "scripts/unattended-run.py").unlink()
-        self.assertEqual(forge._shortcut_folders(self.target)[:2], (None, "reader"))
+        # The SDK's reader, never the project's (reconciliation 16): a runner the project changed is never run, and
+        # one with no `shortcut-record` (an older kit's) does not stand in the way.
+        (self.target / "scripts/unattended-run.py").write_text(
+            "import pathlib, sys\npathlib.Path(sys.argv[0]).with_name('ran').write_text('ran')\nsys.exit(0)\n",
+            encoding="utf-8")
+        self.assertEqual(forge._shortcut_folders(self.target), (["C:\\desk"], "ok", ""))
+        self.assertFalse((self.target / "scripts/ran").exists(), "forge ran the project's runner")
+        with unittest.mock.patch.object(forge, "SHORTCUT_READER", self.target / "scripts/missing.py"):
+            self.assertEqual(forge._shortcut_folders(self.target)[:2], (None, "reader"))
 
     def test_an_update_that_replaces_the_shortcut_script_asks_it_for_links_from_before_the_record(self):
         # D02 T02 §12, the plan review: an install made before the record has links and no record.
