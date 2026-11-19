@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 import unittest
 
@@ -93,9 +94,16 @@ title: "TODO-01 -- A"
 - v
 """
 # The stub reviewer: it logs the prompt it was given and replies with FAKE_SAY, as `codex exec -o <file> -` would.
-STUB = """import json, os, sys
+STUB = """import json, os, sys, time
 args = sys.argv[1:]
 prompt = sys.stdin.read()
+gate = os.environ.get("FAKE_GATE")
+if gate:  # a review in flight: say it started, then answer only once the test opens the gate (at most 60 s)
+    open(gate + ".started", "w").close()
+    for _ in range(600):
+        if os.path.exists(gate):
+            break
+        time.sleep(0.1)
 with open(os.environ["FAKE_LOG"], "a", encoding="utf-8") as log:
     log.write(json.dumps({"argv": args, "stdin": prompt}) + "\\n")
 with open(args[args.index("-o") + 1], "w", encoding="utf-8") as out:
@@ -165,14 +173,16 @@ class FreshInstall(unittest.TestCase):
                                     (".codex/hooks.json", "block")):
             self.assertIn(f"self-test: {hook_file}: ok ({decision})", done.stdout)
 
-    def run_script(self, *args, say=None):
+    def script_env(self, say=None, gate=None):
         git_dir = str(pathlib.Path(shutil.which("git")).parent)
-        env = {"PATH": os.pathsep.join([str(self.bin), str(pathlib.Path(sys.executable).parent), git_dir]),
-               "FAKE_LOG": str(self.log), "FAKE_SAY": say or "",
-               **({"SYSTEMROOT": os.environ["SYSTEMROOT"], "PATHEXT": ".CMD;.EXE"} if os.name == "nt" else {}),
-               **{var: str(self.scratch) for var in ("TMP", "TEMP", "TMPDIR")}}
+        return {"PATH": os.pathsep.join([str(self.bin), str(pathlib.Path(sys.executable).parent), git_dir]),
+                "FAKE_LOG": str(self.log), "FAKE_SAY": say or "", **({"FAKE_GATE": gate} if gate else {}),
+                **({"SYSTEMROOT": os.environ["SYSTEMROOT"], "PATHEXT": ".CMD;.EXE"} if os.name == "nt" else {}),
+                **{var: str(self.scratch) for var in ("TMP", "TEMP", "TMPDIR")}}
+
+    def run_script(self, *args, say=None):
         return subprocess.run([sys.executable, "-B", *args], capture_output=True, text=True, encoding="utf-8",
-                              env=env, timeout=300, cwd=str(self.repo))
+                              env=self.script_env(say), timeout=300, cwd=str(self.repo))
 
     def fill(self, template, candidate, **values):
         """A prompt filled from the installed template: the text after its `---` line with its placeholders named."""
@@ -316,6 +326,43 @@ class FreshInstall(unittest.TestCase):
         self.assertEqual(rounds.returncode, 0, rounds.stdout + rounds.stderr)
         (row,) = [r for r in json.loads(rounds.stdout)["sections"] if r["ref"] == "D00 T01 §1"]
         self.assertEqual(row["kept_chains"], [{"file": kept, "passes_returned": 3}])
+
+    def test_a_pass_in_flight_under_a_rotation_pin_holds_replan_off_and_lands_in_the_kept_chain(self):
+        # The completion review of D00 T01 §9: under a rotation pin a pass took no section lock, so replan could move
+        # the findings file under it and its result land in the chain that replaces it. Here the stub reviewer is
+        # paused mid-pass: replan is refused and moves nothing, and once the pass returns and replan runs, the round
+        # is in the kept chain and the replacement chain holds no pass.
+        (self.repo / ".conclave/reviewers.toml").write_text(
+            'schema_version = 1\n\n[reviewers.astra]\ncli = "codex"\nmodel = "m"\neffort = "medium"\n\n'
+            '[routes]\nclaude = ["astra"]\n', encoding="utf-8")
+        self.start = self.commit("a rotation pin")
+        gate = str(self.scratch / "gate")
+        say = "1. Nothing found.\n\nHIGHEST: none\n\nOVERALL: approve"
+        in_flight = subprocess.Popen(
+            [sys.executable, "-B", "scripts/review-dispatch.py", "--writer", "claude", "--prompt",
+             self.fill("review-round-prompt.md", self.start), "--record", self.record],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
+            env=self.script_env(say, gate), cwd=str(self.repo), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.addCleanup(lambda: in_flight.poll() is None and in_flight.kill())
+        for _ in range(600):
+            if os.path.exists(gate + ".started"):
+                break
+            time.sleep(0.1)
+        self.assertTrue(os.path.exists(gate + ".started"), "the stub reviewer never started")
+        refused = self.run_script("scripts/todo-graph.py", "replan", "D00 T01 §1", "--date", "2026-11-19")
+        self.assertNotEqual(refused.returncode, 0, refused.stdout + refused.stderr)
+        self.assertIn("replan waits for it", refused.stdout + refused.stderr)
+        own = self.repo / self.record
+        self.assertEqual(list(own.parent.glob("*-chain*.md")), [], "replan moved something under a pass in flight")
+        pathlib.Path(gate).touch()
+        out, err = in_flight.communicate(timeout=120)
+        self.assertEqual(in_flight.returncode, 0, out + err)
+        self.assertIn("## Round 1", own.read_text(encoding="utf-8"))
+        replanned = self.run_script("scripts/todo-graph.py", "replan", "D00 T01 §1", "--date", "2026-11-19")
+        self.assertEqual(replanned.returncode, 0, replanned.stdout + replanned.stderr)
+        kept = own.with_name(own.stem + "-chain1.md")
+        self.assertIn("## Round 1", kept.read_text(encoding="utf-8"), "the pass is not in the kept chain")
+        self.assertFalse(own.exists(), "the replacement chain holds a pass from the old one")
 
     def three_pass_to_stamp(self, receipts):
         """Plan review, round, a completion with gaps, a reconciliation and the stamp, with every findings file and
