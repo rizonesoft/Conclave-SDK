@@ -56,6 +56,10 @@ pass_cap = 33
 # P1 and P2 hold the stamp (owner, 2026-11-19: P1 alone would ship real P2 defects); D00 T01 §10 bounds how long
 # a P2 may hold it.
 blocking = ["P1", "P2"]
+# How long a P2 holds the stamp before it is filed as a section of its own (D00 T01 §10): an ordinary P2 for
+# p2_file_after reconciliations, one the review tags `P2 data` for p2_data_file_after; a P1 always holds it.
+p2_file_after = 3
+p2_data_file_after = 6
 
 [schedule.plan]
 effort = "medium"

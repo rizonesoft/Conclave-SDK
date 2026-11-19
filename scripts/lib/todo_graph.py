@@ -861,6 +861,11 @@ def three_pass_ok(root, data, ref, found):
         require(unsettled or "blocking" not in schedule or dispatch.review_pin.blocks(schedule, worst[i]),
                 f"a reconciliation followed a pass whose worst finding ({worst[i]}) is below the pin's blocking "
                 f"levels; its findings are filed, not reviewed again: {ref}")
+        # D00 T01 §10: only under a pin that sets the P2 caps, so a receipt made under an older pin still validates.
+        require(unsettled or "blocking" not in schedule or worst[i] != "P2"
+                or dispatch.review_pin.holds(schedule, worst[i], tail[i]["review"], i),
+                f"a reconciliation followed a P2 the pin had already let be filed ({i} reconciliations, its cap): "
+                f"{ref}")
         if stall is not None:
             run = 0
             for before, after in reversed(list(zip(worst[:i + 1], worst[1:i + 1]))):
@@ -881,7 +886,30 @@ def three_pass_ok(root, data, ref, found):
                              f"{want[0]} ({want[2]} via {want[1]}) the section's pin routes {writer!r} to: {ref}")
     verdict = data["completion"]["verdict"]
     worst = dispatch.review_pin.declared_highest(chain[-1][1]["review"])
-    below = "blocking" in schedule and not dispatch.review_pin.blocks(schedule, worst)
+    last_review = chain[-1][1]["review"]
+    capped = any(key in schedule for key in dispatch.review_pin.P2_CAPS)
+    require(not capped or not dispatch.review_pin.p2_data_contradicts(last_review),
+            f"the last review says P2 DATA: no while it tags a finding P2 data: {ref}")
+    stalled = False
+    if stall is not None and worst == "P2" and passed:
+        run = 0
+        for before, after in reversed(list(zip(tail[:-1], tail[1:]))):
+            b, a = (dispatch.review_pin.declared_highest(x["review"]) for x in (before, after))
+            if dispatch.SEVERITY_RANK[a] < dispatch.SEVERITY_RANK[b]:
+                break
+            run += 1
+        stalled = run >= stall
+    p2_filed = capped and worst == "P2" and not dispatch.review_pin.holds(schedule, worst, last_review, len(passed),
+                                                                          stalled)
+    if p2_filed and verdict == "filed":
+        # Each open P2 is filed as its own section, by its number in the review.
+        numbers = [m for m in re.findall(r"(?m)^\s*\**(\d+)\.\s[^\n]*\bP2\b", last_review)]
+        notes = " ".join(chain[-1][1].get("notes") or [])
+        missing = [n for n in numbers if not re.search(rf"- Filed: D\d\d T\d\d §\d+ \(P2 {n}:", notes)]
+        require(bool(numbers) and not missing,
+                f"each open P2 is filed as a section of its own: a '- Filed: DNN TNN §N (P2 <n>: ...)' line under "
+                f"the last review for P2 {', '.join(missing or ['<none numbered>'])}: {ref}")
+    below = "blocking" in schedule and not dispatch.review_pin.blocks(schedule, worst) or p2_filed
     require(verdict in ("complete", "reconciled") or (verdict == "filed" and below),
             f"the three-pass policy takes completion verdict complete or reconciled, or filed when the last pass's "
             f"worst finding ({worst}) is below the pin's blocking levels, not {verdict}: {ref}")
@@ -889,7 +917,8 @@ def three_pass_ok(root, data, ref, found):
     # it declared decides, so a `complete` footer never overrides a blocking level.
     # A reply with no HIGHEST line counts as P1 under a pin that names blocking levels (the dispatcher that reads
     # such a pin records no reply without the line); a pin without the key predates the line and is not held to it.
-    holds = dispatch.review_pin.blocks(schedule, worst) if worst is not None else "blocking" in schedule
+    holds = (dispatch.review_pin.blocks(schedule, worst) and not p2_filed) if worst is not None else \
+        "blocking" in schedule
     require(verdict == "filed" or worst == "none" or not holds,
             f"the last review ({chain[-1][0]}) ends complete but "
             f"{'declares HIGHEST: ' + worst if worst else 'declares no HIGHEST line, which counts as P1'}, which holds "

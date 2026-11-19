@@ -699,6 +699,68 @@ class Caps(ThreePass):
         del last
 
 
+def p2_reply(kind, data, tag=None):
+    """A reply of one kind whose worst finding is a P2, ending gaps, with its `P2 DATA:` line (None: no line); `tag`
+    names the finding's kind as the review wrote it."""
+    finding = f"1. {tag or ('P2 data' if data else 'P2')}: a.py:3 is wrong."
+    lines = [f"LENS {name}: findings" for name in LENSES[kind]] + ["HIGHEST: P2"]
+    lines += [] if data is None else [f"P2 DATA: {'yes' if data else 'no'}"]
+    lines += [f"{kind.upper()}: gaps"]
+    return "\n".join([finding, *lines])
+
+
+class P2Gate(ThreePass):
+    """D00 T01 §10 under a pin whose caps are 2 (an ordinary P2) and 4 (a data P2): the last needed reconciliation of
+    each kind runs, the next is refused before a reviewer, and the summary says when a P2 stops holding the stamp."""
+
+    def setUp(self):
+        super().setUp()
+        pin = PIN.replace("pass_cap = 5", 'pass_cap = 9\nblocking = ["P1", "P2"]\np2_file_after = 2\n'
+                                          'p2_data_file_after = 4')
+        self.base = self.commit("p2 gate", {".conclave/reviewers.toml": pin})
+
+    def chain_of(self, data, reconciliations):
+        self.ok("plan", self.base)
+        built = self.commit("build", {"src/app/a.py": "x = 1\n"})
+        self.ok("round", built)
+        summary = self.ok("completion", built, say=p2_reply("completion", data))
+        summaries = [summary]
+        tip = built
+        for n in range(1, reconciliations + 1):
+            tip = self.commit(f"repair {n}", {"src/app/a.py": f"x = {n + 1}\n"})
+            summaries.append(self.ok("reconciliation", tip, say=p2_reply("reconciliation", data)))
+        return tip, summaries
+
+    def test_an_ordinary_p2_takes_two_reconciliations_then_is_filed(self):
+        tip, summaries = self.chain_of(False, 2)
+        self.assertEqual([s["blocking"] for s in summaries], [True, True, False])
+        self.assertEqual({s["p2_data"] for s in summaries}, {False})
+        more = self.commit("more", {"src/app/a.py": "x = 9\n"})
+        self.refused("reconciliation", more, "a P2 after 2 reconciliations, the pin's cap for it")
+        del tip
+
+    def test_a_data_p2_takes_four_reconciliations_then_is_filed(self):
+        tip, summaries = self.chain_of(True, 4)
+        self.assertEqual([s["blocking"] for s in summaries], [True, True, True, True, False])
+        more = self.commit("more", {"src/app/a.py": "x = 9\n"})
+        self.refused("reconciliation", more, "a data P2 after 4 reconciliations, the pin's cap for it")
+        del tip
+
+    def test_no_p2_data_line_counts_as_data(self):
+        tip, summaries = self.chain_of(None, 2)
+        self.assertEqual(([s["p2_data"] for s in summaries], summaries[-1]["blocking"]), ([True] * 3, True))
+        self.ok("reconciliation", self.commit("more", {"src/app/a.py": "x = 9\n"}), say=p2_reply("reconciliation", None))
+        del tip
+
+    def test_a_reply_that_says_no_of_a_data_finding_is_not_a_review(self):
+        self.ok("plan", self.base)
+        built = self.commit("build", {"src/app/a.py": "x = 1\n"})
+        self.ok("round", built)
+        result, _ = self.run_pass("completion", built, say=p2_reply("completion", False, tag="P2 data"))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("P2 DATA: no while it tags a finding P2 data", result.stdout + result.stderr)
+
+
 class Blocking(ThreePass):
     def setUp(self):
         super().setUp()

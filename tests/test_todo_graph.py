@@ -2977,6 +2977,62 @@ class ThreePassStamp(Stamp):
             finally:
                 type(self).PIN_TEXT = THREE_PASS_PIN
 
+    def p2_text(self, kind, data, findings=("P2",), top="P2", gaps=True):
+        """A review of `kind` with numbered `findings` (each its tag), its HIGHEST and P2 DATA lines."""
+        lines = [f"{n}. {tag}: a.py:{n} is wrong." for n, tag in enumerate(findings, 1)]
+        lines += [f"LENS {name}: {'findings' if gaps else 'clean'}" for name in self.LENSES[kind]] + [f"HIGHEST: {top}"]
+        lines += [] if data is None else [f"P2 DATA: {'yes' if data else 'no'}"]
+        return "\n".join(lines + [f"{kind.upper()}: {'gaps' if gaps else 'complete'}"])
+
+    def p2_chain(self, data, reconciliations, findings=("P2",), notes=None, top="P2"):
+        """Under caps 2 (ordinary) and 4 (data): plan, round, a completion and `reconciliations` repairs, every one
+        ending gaps with a P2 of `data`; `notes` (default: one Filed line per finding) go under the last pass."""
+        self.tearDown()
+        type(self).PIN_TEXT = THREE_PASS_PIN.replace(
+            "pass_cap = 45", 'pass_cap = 45\nblocking = ["P1", "P2"]\np2_file_after = 2\np2_data_file_after = 4')
+        try:
+            self.setUp()
+        finally:
+            type(self).PIN_TEXT = THREE_PASS_PIN
+        notes = "\n".join(f"- Filed: D00 T01 §2 (P2 {n}: a.py:{n})" for n in range(1, len(findings) + 1)) \
+            if notes is None else notes
+        self.passed("plan", self.start)
+        self.tick_work()
+        sha = self.build()
+        self.passed("round", sha)
+        last = not reconciliations
+        self.passed("completion", sha, review=self.p2_text("completion", data, findings, top), top=top,
+                    notes=notes if last else "")
+        for n in range(1, reconciliations + 1):
+            sha = self.build(f"repair {n}")
+            self.passed("reconciliation", sha, review=self.p2_text("reconciliation", data, findings, top), top=top,
+                        notes=notes if n == reconciliations else "")
+        return sha
+
+    def test_an_ordinary_p2_is_filed_at_its_cap_and_not_before(self):
+        # D00 T01 §10: caps of 2 and 4, so the boundaries are the pin's, not hard-coded 3 and 6.
+        self.stamp3_refuses(self.p2_chain(False, 1), "below the pin's blocking levels", verdict="filed")
+        data = self.stamp3(self.p2_chain(False, 2), verdict="filed")
+        self.assertEqual((data["completion"]["filed"], data["passes_spent"]), (["D00 T01 §2"], 5))
+
+    def test_a_data_p2_is_filed_at_its_own_cap_and_an_absent_line_counts_as_data(self):
+        self.stamp3_refuses(self.p2_chain(True, 3), "below the pin's blocking levels", verdict="filed")
+        self.stamp3(self.p2_chain(True, 4), verdict="filed")
+        self.stamp3_refuses(self.p2_chain(None, 2), "below the pin's blocking levels", verdict="filed")
+
+    def test_a_p1_is_never_filed_and_a_chain_past_its_cap_is_refused(self):
+        self.stamp3_refuses(self.p2_chain(False, 2, findings=("P1",), top="P1"), "below the pin's blocking levels",
+                            verdict="filed")
+        self.stamp3_refuses(self.p2_chain(False, 3), "the pin had already let be filed", verdict="filed")
+
+    def test_each_open_p2_needs_its_own_filed_line_and_a_contradiction_is_refused(self):
+        two = ("P2", "P2")
+        self.stamp3_refuses(self.p2_chain(False, 2, findings=two, notes="- Filed: D00 T01 §2 (P2 1: a.py:1)"),
+                            "for P2 2", verdict="filed")
+        self.stamp3(self.p2_chain(False, 2, findings=two), verdict="filed")
+        self.stamp3_refuses(self.p2_chain(False, 2, findings=("P2 data",)), "says P2 DATA: no while it tags",
+                            verdict="filed")
+
     def filed_case(self, blocking, reconciled):
         """A chain whose last pass ends HIGHEST: P2 and gaps, its finding filed as §2, under `blocking`."""
         self.tearDown()
