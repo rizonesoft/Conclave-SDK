@@ -314,7 +314,11 @@ Filed 2026-11-11 from the completion review of §3 (an out-of-scope gap). `stamp
 
 ## 9. Re-plan route for a chain that cannot settle, recovery planned up front
 
+> **Started:** 2026-11-19T06:17Z
+
 Filed 2026-11-18 from `D07 T01 §7`, which spent 19 passes before a re-plan: its reconciliations kept raising edges in crash recovery one at a time, and then alternated between two findings that asked opposite things of one checked item, which no build could satisfy while `stamp` held the contract fixed. Two lessons belong in the kits the next section reads: plan the recovery of a change that replaces files on disk (one locked, journaled change, own-files-only, kept until done) before the build, and when a chain cannot settle, re-plan the item instead of spending passes on code (the route `D07 T01 §7` took by hand: a dated correction, a new `Started:`, the first findings file kept as `D<NN>-T<NN>-s<N>-chain1.md`, a new chain).
+
+**Corrected 2026-11-19:** the third item placed `scripts/review-dispatch.py` in the todo kit; it is the reviewer kit's (`kits/reviewer/templates/scripts/review-dispatch.py`). `stamp` already refuses a kept chain file as `--plan` or `--completion`, since it takes only the section's own findings file by its exact name (`kits/todo/templates/scripts/lib/todo_graph.py`, `findings_path`), so that half needs a test, not code; the dispatcher's half is to refuse `--record` naming a kept chain, which is closed. The first item's rule goes beside step 2's table, not in a row: a row holding it would pass 120 characters. The re-plan rule sits with the gap-reopened-twice rule (`233681c`) in step 3, and names it: a redesign keeps the item, a re-plan changes it.
 
 **Phase:** 8
 **Needs:** none
@@ -327,7 +331,7 @@ Filed 2026-11-18 from `D07 T01 §7`, which spent 19 passes before a re-plan: its
 
 - [ ] Add to `kits/todo/templates/.claude/skills/process-todo-section/SKILL.md` step 2 (the Sufficiency check): a section that writes, moves or deletes files outside the repository (links, icons, caches, a user's data) states before its plan review how a failure, a stop, a second run and a file it does not own are handled. Done when: a test in `tests/test_forge.py` finds the rule in the skill and its Codex and Antigravity copies.
 - [ ] Add to `kits/todo/templates/.claude/skills/review-todo-section/SKILL.md` step 3 a "When a chain cannot settle" rule: when two passes in a row raise opposite demands on one checked item, or a finding is a checked item's own contradiction, the item is re-planned (a dated correction, a new `Started:` line, the findings file renamed `D<NN>-T<NN>-s<N>-chain<k>.md`, a new plan review), and the run file records the decision. Done when: a test finds the rule and the route's four steps in the skill and its copies.
-- [ ] Teach `scripts/review-dispatch.py` and `stamp` in `kits/todo/templates/scripts/lib/todo_graph.py` that a `-chain<k>.md` file beside a section's findings file is a kept earlier chain: never read as the section's own record, listed by `query rounds` as spent passes. Done when: a test with a kept chain file and a new chain stamps the section, and `query rounds` counts both chains' passes.
+- [ ] Teach `kits/reviewer/templates/scripts/review-dispatch.py` and `stamp` in `kits/todo/templates/scripts/lib/todo_graph.py` that a `-chain<k>.md` file beside a section's findings file is a kept earlier chain: the dispatcher refuses `--record` naming one, `stamp` refuses one as `--plan` or `--completion`, and `review_rounds` (`query rounds`) lists each section's kept chains with their returned passes. Done when: a test with a kept chain file and a new chain stamps the section, `query rounds` counts both chains' passes, and the dispatcher's test finds a kept chain refused.
 - [ ] Run `python forge.py skill-copies` and `python forge.py self-sync`. Done when: `python forge.py skill-copies --check` exits 0 and the self-sync test passes.
 - [ ] Commit: `todo: a chain that cannot settle is re-planned, and recovery is planned before the build`
 
