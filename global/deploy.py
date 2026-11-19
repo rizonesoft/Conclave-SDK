@@ -11,6 +11,9 @@ Targets (home is the running user's home directory, or --home):
   claude/skills/<name>/           -> <home>/.claude/skills/<name>/   (files copied, destination-only files kept)
   claude/hooks/*                  -> not copied: <home>/.claude/settings.json hook commands are pointed at them,
                                      and the session drift check is added to UserPromptSubmit when absent
+  ../plugins/claude/<name>/       -> <home>/.claude.json MCP entries re-registered through the claude CLI when they
+                                     do not run this checkout's bundle (plugins/claude/scripts/register_claude.py);
+                                     only for the running user's own home, never with --dry-run or --check
   codex/rules/codex.md            -> <home>/.codex/AGENTS.md
   codex/rules/hooks.json          -> <home>/.codex/hooks.json        (template, placeholders filled in)
   codex/skills/<name>/SKILL.md    -> <home>/.agents/skills/<name>/
@@ -30,6 +33,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 GLOBAL = Path(__file__).resolve().parent
+PLUGIN_SCRIPTS = GLOBAL.parent / "plugins" / "claude" / "scripts"
 HOOK_SCRIPTS = ("article_rules.py", "layer_rules.py", "article_check.py", "session_drift_check.py")
 DRIFT_HOOK = "session_drift_check.py"
 SKIP_DIRS = {"__pycache__"}
@@ -255,6 +259,11 @@ class Deployer:
         self.results.append((label, "skipped"))
         print("skipped: %s: %s" % (label, reason))
 
+    def fail(self, label, reason):
+        """A step that went wrong: reported, the other steps still run, and the deploy exits 1."""
+        self.results.append((label, "failed"))
+        print("failed: %s: %s" % (label, reason))
+
 
 def read_settings(path):
     """Parse settings.json, or return None when absent. Raises Refusal when it is not valid JSON."""
@@ -288,6 +297,43 @@ def deploy_claude(dep):
             dep.record(label, dep.put(settings_path, text.encode("utf-8")))
         else:
             dep.record(label, "unchanged")
+
+
+def register_plugins(dep, real_home=None):
+    """Re-register the Claude connection plugins whose ~/.claude.json entry does not run this checkout's bundle, so one
+    deploy after a checkout moves brings the MCP servers along with the hooks."""
+    label = "~/.claude.json (connection plugins)"
+    if not (PLUGIN_SCRIPTS / "register_claude.py").is_file():
+        return
+    if dep.home != Path(real_home or Path.home()).resolve():
+        dep.skip(label, "--home is not this user's home, and the claude CLI writes only the real ~/.claude.json")
+        return
+    if dep.dry_run:
+        dep.skip(label, "dry run (register_claude.py --check reports the registrations)")
+        return
+    if str(PLUGIN_SCRIPTS) not in sys.path:
+        sys.path.insert(0, str(PLUGIN_SCRIPTS))
+    import register_claude
+    claude_json = register_claude.config_path()
+    try:
+        names = register_claude.fixable(claude_json)
+        if names:
+            register_claude.register(claude_json, names=names, only_wrong=True)
+            dep.record("%s: %s re-registered" % (label, ", ".join(names)), "updated")
+        left = register_claude.problems(claude_json)
+    except SystemExit as exc:  # register_claude's own refusal, already worded for a person
+        dep.fail(label, str(exc))
+        return
+    except Exception as exc:  # a malformed ~/.claude.json or a hung CLI must not stop the Codex and Antigravity deploys
+        dep.fail(label, "%s: %s" % (type(exc).__name__, exc))
+        return
+    for line in left:
+        dep.skip(label, line)
+    if not names and not left:
+        dep.record(label, "unchanged")
+    reason = register_claude.blocker()
+    if left and reason:
+        dep.skip(label, "not repaired automatically: %s" % reason)
 
 
 def deploy_codex(dep):
@@ -456,6 +502,7 @@ def main(argv=None):
     try:
         if args.agent in ("claude", "all"):
             deploy_claude(dep)
+            register_plugins(dep)
         if args.agent in ("codex", "all"):
             deploy_codex(dep)
         if args.agent in ("agy", "all"):
@@ -467,12 +514,14 @@ def main(argv=None):
     for _, status in dep.results:
         counts[status] = counts.get(status, 0) + 1
     summary = ", ".join("%d %s" % (counts.get(k, 0), k) for k in ("created", "updated", "unchanged", "skipped"))
+    if counts.get("failed"):
+        summary += ", %d failed" % counts["failed"]
     if args.check:
         drifted = counts.get("created", 0) + counts.get("updated", 0)
         print("%s: %s" % ("drift detected" if drifted else "in sync", summary))
         return 1 if drifted else 0
     print("%s%s" % ("dry run, nothing written: " if args.dry_run else "", summary))
-    return 0
+    return 1 if counts.get("failed") else 0
 
 
 if __name__ == "__main__":

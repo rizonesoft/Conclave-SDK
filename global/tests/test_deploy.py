@@ -43,6 +43,69 @@ def snapshot(home):
     return {p.relative_to(home).as_posix(): p.read_bytes() for p in Path(home).rglob("*") if p.is_file()}
 
 
+class PluginRegistrationTest(unittest.TestCase):
+    """deploy re-registers the Claude connection plugins only for the real home; register_claude is faked, so no CLI
+    runs and no real ~/.claude.json is read."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.home = Path(self._tmp.name)
+        sys.path.insert(0, str(deploy.PLUGIN_SCRIPTS))
+        import register_claude
+        self.rc = register_claude
+
+    def deploy(self, dry_run=False, real_home=None, fixable=(), left=()):
+        dep = deploy.Deployer(self.home, dry_run)
+        out = io.StringIO()
+        with unittest.mock.patch.object(self.rc, "fixable", return_value=list(fixable)), \
+                unittest.mock.patch.object(self.rc, "problems", return_value=list(left)), \
+                unittest.mock.patch.object(self.rc, "blocker", return_value=None), \
+                unittest.mock.patch.object(self.rc, "config_path", return_value=self.home / ".claude.json"), \
+                unittest.mock.patch.object(self.rc, "register") as register, contextlib.redirect_stdout(out):
+            deploy.register_plugins(dep, real_home=self.home if real_home is None else real_home)
+        return dep.results, out.getvalue(), register
+
+    def test_a_plugin_failure_is_reported_and_the_other_agents_still_deploy(self):
+        with unittest.mock.patch.object(deploy, "register_plugins", side_effect=lambda dep: dep.fail("plugins", "bad")):
+            code, out, _ = run("--home", str(self.home))
+        self.assertEqual(code, 1)
+        self.assertIn("failed: plugins: bad", out)
+        self.assertTrue((self.home / ".codex" / "AGENTS.md").is_file())
+        self.assertIn("1 failed", out)
+        dep = deploy.Deployer(self.home, False)
+        with unittest.mock.patch.object(self.rc, "fixable", side_effect=ValueError("Expecting value")), \
+                unittest.mock.patch.object(self.rc, "config_path", return_value=self.home / ".claude.json"), \
+                contextlib.redirect_stdout(io.StringIO()):
+            deploy.register_plugins(dep, real_home=self.home)
+        self.assertEqual(dep.results, [("~/.claude.json (connection plugins)", "failed")])
+
+    def test_a_moved_checkout_is_re_registered_by_a_deploy(self):
+        results, out, register = self.deploy(fixable=["bunny-net", "domains-co-za"])
+        register.assert_called_once_with(self.home / ".claude.json", names=["bunny-net", "domains-co-za"],
+                                         only_wrong=True)
+        self.assertEqual(results, [("~/.claude.json (connection plugins): bunny-net, domains-co-za re-registered",
+                                    "updated")])
+
+    def test_correct_registrations_are_unchanged(self):
+        results, _, register = self.deploy()
+        register.assert_not_called()
+        self.assertEqual(results, [("~/.claude.json (connection plugins)", "unchanged")])
+
+    def test_what_a_deploy_cannot_fix_is_reported(self):
+        results, out, _ = self.deploy(left=["bunny-net: dist/server.mjs is missing"])
+        self.assertEqual([status for _, status in results], ["skipped"])
+        self.assertIn("bunny-net: dist/server.mjs is missing", out)
+
+    def test_another_home_or_a_dry_run_registers_nothing(self):
+        for kwargs, reason in (({"real_home": self.home / "elsewhere"}, "--home is not this user's home"),
+                               ({"dry_run": True}, "dry run")):
+            results, out, register = self.deploy(fixable=["bunny-net"], **kwargs)
+            register.assert_not_called()
+            self.assertEqual([status for _, status in results], ["skipped"])
+            self.assertIn(reason, out)
+
+
 class PathFormsTest(unittest.TestCase):
     def test_windows_checkout(self):
         self.assertEqual(deploy.path_forms("D:\\Conclave-SDK\\global\\codex\\hooks"),

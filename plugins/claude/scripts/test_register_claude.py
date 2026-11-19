@@ -120,14 +120,15 @@ class ProblemsTest(Fixture):
         self.assertEqual(register_claude.problems(self.claude_json, self.root),
                          ["bunny-net is not registered in %s" % self.claude_json])
 
-    def test_the_retired_checkout_is_reported_in_either_path_form(self):
-        for retired in ("R:\\Bin\\claude\\connections\\bunny-net\\dist\\server.mjs",
-                        "/mnt/r/Bin/claude/connections/bunny-net/dist/server.mjs"):
+    def test_a_moved_or_retired_checkout_is_reported_in_either_path_form(self):
+        for elsewhere in ("R:\\Bin\\claude\\connections\\bunny-net\\dist\\server.mjs",
+                          "/mnt/r/Bin/claude/connections/bunny-net/dist/server.mjs",
+                          "D:\\Conclave-SDK\\plugins\\claude\\bunny-net\\dist\\server.mjs"):
             servers = self.good()
-            servers["bunny-net"]["args"] = [retired]
+            servers["bunny-net"]["args"] = [elsewhere]
             self.write_servers(servers)
             self.assertEqual(register_claude.problems(self.claude_json, self.root),
-                             ["bunny-net still runs from R:\\Bin\\claude"])
+                             ["bunny-net does not run %s and nothing else" % (self.root / "bunny-net" / "dist" / "server.mjs")])
 
     def test_another_bundle_is_reported(self):
         servers = self.good()
@@ -150,19 +151,97 @@ class ProblemsTest(Fixture):
             self.assertEqual(len(found), 1, change)
             self.assertIn(wanted, found[0])
 
-    def test_windows_node_passes_in_either_path_form(self):
-        for node in (register_claude.NODE_WINDOWS, "/mnt/c/Program Files/nodejs/node.exe"):
+    def test_windows_node_passes_only_in_the_form_this_platform_starts(self):
+        mine, other = register_claude.node_command(), (
+            "/mnt/c/Program Files/nodejs/node.exe" if os.name == "nt" else register_claude.NODE_WINDOWS)
+        for node, passes in ((mine, True), (mine.replace("\\", "/"), True), (other, False)):
             servers = self.good()
             for entry in servers.values():
                 entry["command"] = node
             self.write_servers(servers)
-            self.assertEqual(register_claude.problems(self.claude_json, self.root), [])
+            self.assertEqual(register_claude.problems(self.claude_json, self.root) == [], passes, node)
+
+    def test_a_bundle_in_its_mnt_form_does_not_pass(self):
+        # Windows Node reads the bundle path, and it cannot open /mnt/d/...
+        root = Path("D:/Conclave-SDK/plugins/claude")
+        servers = {name: {"type": "stdio", "command": register_claude.node_command(),
+                          "args": ["/mnt/d/Conclave-SDK/plugins/claude/%s/dist/server.mjs" % name]}
+                   for name in build_claude.PLUGINS}
+        self.write_servers(servers)
+        found = [line for line in register_claude.problems(self.claude_json, root) if "does not run" in line]
+        self.assertEqual(len(found), len(build_claude.PLUGINS), found)
+
+    def test_a_wrong_entry_with_an_env_block_says_how_to_free_it_and_shows_no_value(self):
+        servers = self.good()
+        servers["bunny-net"] = self.entry("bunny-net", env={"TOKEN": "s3cret-value"})
+        self.write_servers(servers)
+        found = register_claude.problems(self.claude_json, self.root)
+        self.assertEqual(len(found), 1)
+        self.assertIn("its env block keeps it from being repaired automatically", found[0])
+        self.assertNotIn("s3cret-value", found[0])
+        self.assertNotIn("TOKEN", found[0])
 
     def test_a_stale_bundle_is_reported(self):
         self.write_servers(self.good())
         (self.root / "bunny-net" / "src" / "server.js").write_text("changed\n", encoding="utf-8")
         self.assertEqual(register_claude.problems(self.claude_json, self.root),
                          ["bunny-net: dist/server.mjs was built from other sources than src/ now holds"])
+
+
+class FixableTest(Fixture):
+    def setUp(self):
+        super().setUp()
+        patcher = unittest.mock.patch.object(register_claude, "blocker", return_value=None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_nothing_is_fixable_where_register_cannot_run(self):
+        self.write_servers({})
+        with unittest.mock.patch.object(register_claude, "blocker", return_value="claude is not on PATH"):
+            self.assertEqual(register_claude.fixable(self.claude_json, self.root), [])
+
+    def test_correct_entries_are_left_alone(self):
+        self.write_servers(self.good())
+        self.assertEqual(register_claude.fixable(self.claude_json, self.root), [])
+
+    def test_a_moved_checkout_or_a_missing_entry_is_fixable(self):
+        servers = self.good()
+        servers["bunny-net"] = self.entry("bunny-net")  # the checkout this entry names has moved
+        del servers["domains-co-za"]
+        self.write_servers(servers)
+        self.assertEqual(register_claude.fixable(self.claude_json, self.root), list(build_claude.PLUGINS))
+
+    def test_an_env_block_or_a_stale_bundle_is_left_for_a_person(self):
+        servers = self.good()
+        servers["bunny-net"] = self.entry("bunny-net", env={"TOKEN": "x"})
+        servers["domains-co-za"] = self.entry("domains-co-za")
+        self.write_servers(servers)
+        (self.root / "domains-co-za" / "src" / "server.js").write_text("changed\n", encoding="utf-8")
+        self.assertEqual(register_claude.fixable(self.claude_json, self.root), [])
+
+    def test_repair_registers_only_the_fixable_entries(self):
+        servers = self.good()
+        servers["bunny-net"] = self.entry("bunny-net")
+        self.write_servers(servers)
+        with unittest.mock.patch.object(register_claude, "register") as register, \
+                unittest.mock.patch.object(register_claude, "fixable", return_value=["bunny-net"]), \
+                unittest.mock.patch.object(register_claude, "config_path", return_value=self.claude_json), \
+                contextlib.redirect_stdout(io.StringIO()):
+            register_claude.main(["--repair"])
+        register.assert_called_once_with(self.claude_json, names=["bunny-net"], only_wrong=True)
+        with unittest.mock.patch.object(register_claude, "register") as register, \
+                unittest.mock.patch.object(register_claude, "fixable", return_value=[]), \
+                unittest.mock.patch.object(register_claude, "config_path", return_value=self.claude_json), \
+                contextlib.redirect_stdout(io.StringIO()):
+            register_claude.main(["--repair"])
+        register.assert_not_called()
+
+    def test_the_cli_config_dir_is_the_file_checked(self):
+        with unittest.mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(self.tmp / "profile")}):
+            self.assertEqual(register_claude.config_path(), self.tmp / "profile" / ".claude.json")
+        with unittest.mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CLAUDE_CONFIG_DIR", None)
+            self.assertEqual(register_claude.config_path(), Path.home() / ".claude.json")
 
 
 class RegisterTest(Fixture):
@@ -185,12 +264,54 @@ class RegisterTest(Fixture):
                 refusal = str(exc)
         return calls, out.getvalue(), refusal
 
+    def test_registration_of_named_plugins_touches_only_those(self):
+        self.write_servers({"bunny-net": self.entry("bunny-net")})
+        calls = []
+        with unittest.mock.patch("shutil.which", return_value="claude"), \
+                unittest.mock.patch("os.path.isfile", return_value=True), \
+                unittest.mock.patch("subprocess.run", side_effect=lambda argv, **kw: calls.append((argv, kw))
+                                    or unittest.mock.Mock(returncode=0)), \
+                contextlib.redirect_stdout(io.StringIO()):
+            register_claude.register(self.claude_json, Path("D:/Conclave-SDK/plugins/claude"), names=["bunny-net"])
+        self.assertEqual([c[0][2:] for c in calls][0], ["remove", "bunny-net", "-s", "user"])
+        self.assertEqual({c[0][-2] if c[0][2] == "add-json" else c[0][3] for c in calls}, {"bunny-net"})
+        self.assertTrue(all(kw.get("timeout") == register_claude.CLI_TIMEOUT for _, kw in calls))
+
+    def run_cli(self, **kwargs):
+        calls = []
+        with unittest.mock.patch("shutil.which", return_value="claude"), \
+                unittest.mock.patch("os.path.isfile", return_value=True), \
+                unittest.mock.patch("subprocess.run", side_effect=lambda argv, **kw: calls.append(argv)
+                                    or unittest.mock.Mock(returncode=0)), \
+                contextlib.redirect_stdout(io.StringIO()):
+            register_claude.register(self.claude_json, Path("D:/Conclave-SDK/plugins/claude"), **kwargs)
+        return calls
+
+    def test_a_repair_leaves_an_entry_another_session_already_put_right(self):
+        right = self.entry("bunny-net")  # what register() would write for the D: root below
+        self.write_servers({"bunny-net": right})
+        self.assertEqual(self.run_cli(names=["bunny-net"], only_wrong=True), [])
+
+    def test_a_repair_only_adds_a_missing_entry_and_never_removes_first(self):
+        self.write_servers({})
+        calls = self.run_cli(names=["bunny-net"], only_wrong=True)
+        self.assertEqual([c[2] for c in calls], ["add-json"])
+
+    def test_a_repair_leaves_an_entry_that_gained_an_env_block(self):
+        self.write_servers({"bunny-net": self.entry("bunny-net", args=["R:\\old\\server.mjs"], env={"T": "x"})})
+        with unittest.mock.patch.object(register_claude, "registered",
+                                        side_effect=[{}, register_claude.registered(self.claude_json)]):
+            calls = self.run_cli(names=["bunny-net"], only_wrong=True)
+        self.assertEqual(calls, [])
+
     def test_registration_goes_through_the_cli_at_user_scope(self):
         self.write_servers({"ticktick": {"type": "http", "url": "https://example.invalid"},
                             "bunny-net": self.entry("bunny-net")})
         calls, out, refusal = self.register()
         self.assertIsNone(refusal)
-        self.assertEqual([c[0][:3] for c in calls], [["claude", "mcp", "remove"], ["claude", "mcp", "add-json"]] * 2)
+        expected = {"domains-co-za": ["add-json"], "bunny-net": ["remove", "add-json"]}  # a missing entry is only added
+        self.assertEqual([c[0][2] for c in calls], [step for name in build_claude.PLUGINS for step in expected[name]])
+        self.assertTrue(all(c[0][:2] == ["claude", "mcp"] for c in calls))
         added = {c[0][5]: json.loads(c[0][6]) for c in calls if c[0][2] == "add-json"}
         self.assertEqual(added["bunny-net"], {
             "type": "stdio", "command": register_claude.node_command(), "env": {},

@@ -10,7 +10,10 @@ same `node.exe` and the bundle keeps its Windows path. The registration goes thr
 (`claude mcp remove`, then `claude mcp add-json`), which owns `~/.claude.json`. The CLI takes an entry only as an
 argument, so an entry that carries an `env` block is refused and left untouched, never sent or printed: the plugins
 read no environment. `--check` writes nothing: it reports each entry that is missing, is not exactly Windows Node
-running this checkout's bundle, or runs a missing or stale bundle, and exits 1. Standard library only.
+running this checkout's bundle, or runs a missing or stale bundle, and exits 1. `--repair` re-registers only the
+entries `fixable` names (wrong or missing, bundle current, no env block) and leaves correct ones alone, so it is safe
+to run on every session start or deploy: `global/deploy.py --agent claude` and the session drift hook both use it, and
+a moved checkout heals itself. Standard library only.
 """
 import argparse
 import json
@@ -26,7 +29,7 @@ import build_claude  # beside this file: a caller that imports this module puts 
 ROOT = build_claude.ROOT
 PLUGINS = build_claude.PLUGINS
 NODE_WINDOWS = r"C:\Program Files\nodejs\node.exe"
-RETIRED = "r:/bin/claude"  # the retired checkout these servers used to run from
+CLI_TIMEOUT = 60  # seconds for one `claude mcp` call, so a hung CLI never holds a repair open
 
 
 def windows_path(path):
@@ -46,6 +49,12 @@ def same_path(left, right):
     if a is None or b is None:
         return str(left) == str(right)
     return a.lower() == b.lower()
+
+
+def config_path():
+    """The ~/.claude.json the Claude CLI reads and writes: under CLAUDE_CONFIG_DIR when that is set, as the CLI does."""
+    named = os.environ.get("CLAUDE_CONFIG_DIR")
+    return Path(named) / ".claude.json" if named else Path.home() / ".claude.json"
 
 
 def node_command():
@@ -71,52 +80,102 @@ def registered(claude_json):
     return servers if isinstance(servers, dict) else {}
 
 
+def entry_problem(name, entry, claude_json, root=ROOT):
+    """What is wrong with one plugin's registration, or None when it is Windows Node running this checkout's bundle."""
+    bundle = Path(root) / name / build_claude.BUNDLE
+    if not isinstance(entry, dict):
+        return "%s is not registered in %s" % (name, claude_json)
+    args = entry.get("args")
+    args = [str(a) for a in args] if isinstance(args, list) else []
+    command = str(entry.get("command", ""))
+    # Each field must be in the form its consumer reads: the command is started by this platform (the /mnt/c path in
+    # WSL, a drive path on Windows), and the bundle is read by Windows Node (never a /mnt path).
+    if entry.get("type", "stdio") != "stdio" or not same_path(command, NODE_WINDOWS) \
+            or command.startswith("/mnt/") != (os.name != "nt"):
+        return "%s is not run by Windows Node as %s" % (name, node_command())
+    if len(args) != 1 or not same_path(args[0], bundle) or args[0].startswith("/mnt/"):
+        return "%s does not run %s and nothing else" % (name, windows_path(bundle) or bundle)
+    return None
+
+
 def problems(claude_json, root=ROOT):
     """One line for everything wrong with the plugins' registrations in claude_json or with the bundles they run."""
     found = []
     servers = registered(claude_json)
     for name in PLUGINS:
         entry = servers.get(name)
-        bundle = Path(root) / name / build_claude.BUNDLE
-        if not isinstance(entry, dict):
-            found.append("%s is not registered in %s" % (name, claude_json))
-        else:
-            args = entry.get("args")
-            args = [str(a) for a in args] if isinstance(args, list) else []
-            words = [str(entry.get("command", ""))] + args
-            if any(RETIRED in (windows_path(w) or w).replace("\\", "/").lower() for w in words):
-                found.append("%s still runs from R:\\Bin\\claude" % name)
-            elif entry.get("type", "stdio") != "stdio" or not same_path(words[0], NODE_WINDOWS):
-                found.append("%s is not run by Windows Node (%s)" % (name, NODE_WINDOWS))
-            elif len(args) != 1 or not same_path(args[0], bundle):
-                found.append("%s does not run %s and nothing else" % (name, bundle))
+        wrong = entry_problem(name, entry, claude_json, root)
+        if wrong and isinstance(entry, dict) and entry.get("env"):
+            wrong += (" (its env block keeps it from being repaired automatically: these plugins read no environment, "
+                      "so empty that env block in %s, then run global/deploy.py --agent claude)" % claude_json)
+        if wrong:
+            found.append(wrong)
         stale = build_claude.stale(Path(root) / name)
         if stale:
             found.append("%s: %s" % (name, stale))
     return found
 
 
-def register(claude_json, root=ROOT):
+def blocker(root=ROOT):
+    """Why register() cannot run on this machine, or None: the Claude CLI, Windows Node and a Windows path for the
+    checkout are all needed."""
+    if not shutil.which("claude"):
+        return "claude is not on PATH"
+    if not os.path.isfile(node_command()):
+        return "Windows Node not found at %s" % node_command()
+    if windows_path(Path(root)) is None:
+        return "%s has no Windows path, and the plugins need Windows Node for their credential store" % root
+    return None
+
+
+def fixable(claude_json, root=ROOT):
+    """The plugins whose registration is wrong and that register() can put right without a person: the bundle is
+    present and current, and the entry carries no env block (which could not pass through the CLI unseen). Empty when
+    blocker() names a reason register() cannot run."""
+    if blocker(root):
+        return []
+    servers = registered(claude_json)
+    names = []
+    for name in PLUGINS:
+        entry = servers.get(name)
+        if isinstance(entry, dict) and entry.get("env"):
+            continue
+        if entry_problem(name, entry, claude_json, root) and not build_claude.stale(Path(root) / name):
+            names.append(name)
+    return names
+
+
+def register(claude_json, root=ROOT, names=PLUGINS, only_wrong=False):
+    """Register each named plugin through the CLI. With only_wrong, each entry is read again just before it is touched
+    and left alone when it is already right (another session repaired it), and a missing entry is only added."""
+    reason = blocker(root)
+    if reason:
+        raise SystemExit(reason)
     claude = shutil.which("claude")
-    if not claude:
-        raise SystemExit("claude is not on PATH")
-    node = node_command()
-    if not os.path.isfile(node):
-        raise SystemExit("Windows Node not found at %s" % node)
     before = registered(claude_json)
     # The CLI takes an entry only as an argument, which any process listing can read, so an entry that carries an
     # env block is never sent through it: it is left exactly as it is, before anything is removed.
-    carrying = [name for name in PLUGINS if isinstance(before.get(name), dict) and before[name].get("env")]
+    carrying = [name for name in names if isinstance(before.get(name), dict) and before[name].get("env")]
     if carrying:
         raise SystemExit("%s: the entry has an env block, which cannot pass through the Claude CLI without its values "
                          "showing in a process listing. Nothing was changed. These plugins read no environment: "
                          "empty the env block in %s, then run this again." % (", ".join(carrying), claude_json))
-    for name in PLUGINS:
+    for name in names:
         entry = expected_entry(name, root)
-        subprocess.run([claude, "mcp", "remove", name, "-s", "user"],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        done = subprocess.run([claude, "mcp", "add-json", "-s", "user", name, json.dumps(entry)],
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if only_wrong:
+            now = registered(claude_json).get(name)
+            if isinstance(now, dict) and now.get("env"):
+                print("left %s: its entry gained an env block" % name)
+                continue
+            if entry_problem(name, now, claude_json, root) is None:
+                continue
+        else:
+            now = before.get(name)
+        if now is not None:
+            subprocess.run([claude, "mcp", "remove", name, "-s", "user"], stdin=subprocess.DEVNULL,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=CLI_TIMEOUT)
+        done = subprocess.run([claude, "mcp", "add-json", "-s", "user", name, json.dumps(entry)], stdin=subprocess.DEVNULL,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=CLI_TIMEOUT)
         if done.returncode != 0:
             raise SystemExit("claude mcp add-json failed for %s (exit %d)" % (name, done.returncode))
         print("registered %s: %s" % (name, entry["args"][0]))
@@ -124,10 +183,16 @@ def register(claude_json, root=ROOT):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--check", action="store_true", help="write nothing; exit 1 when a registration is wrong")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--check", action="store_true", help="write nothing; exit 1 when a registration is wrong")
+    mode.add_argument("--repair", action="store_true", help="re-register only the entries that are wrong and fixable")
     args = parser.parse_args(argv)
-    claude_json = Path.home() / ".claude.json"
-    if not args.check:
+    claude_json = config_path()
+    if args.repair:
+        names = fixable(claude_json)
+        if names:
+            register(claude_json, names=names, only_wrong=True)
+    elif not args.check:
         register(claude_json)
     found = problems(claude_json)
     for line in found:

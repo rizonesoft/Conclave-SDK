@@ -49,7 +49,7 @@ Since 2026-11-16 every plugin above runs from this checkout and nothing runs fro
 
 To register them on a new machine, on Windows and again in WSL:
 
-1. Clone the SDK, then run `python plugins/claude/scripts/register_claude.py` for the two Claude servers.
+1. Clone the SDK, then run `python plugins/claude/scripts/register_claude.py` for the two Claude servers (or `python global/deploy.py --agent claude`, which also re-registers them). After moving the checkout, run `global/deploy.py --agent claude` from its new place once: it re-points the hooks and re-registers both servers. A registration that drifts while the hooks still run is repaired by the session drift hook.
 2. Run `codex plugin marketplace add <SDK>\plugins\codex`, then `codex plugin add <name>@rizonetech` for each Codex plugin that system uses.
 3. Seed each plugin's encrypted credential store from the Conclave vault with its own import script (each plugin README names it), because the stores are bound to the Windows account and machine.
 4. Check: `register_claude.py --check` prints `ok`, and `echo '{"session_id":"<a new id each run>"}' | python global/codex/hooks/session_drift_check.py` prints nothing (it runs once per session id, and it compares the marketplace source and every installed copy's bundles, `scripts/`, source, `plugin.json` and MCP manifest with this checkout, and names what differs).

@@ -3,9 +3,17 @@
 
 On the first prompt of a session, inside a three second budget, it checks that:
 - the deployed `~/.claude` files match `global/claude` (`global/deploy.py --agent claude --check`);
-- `~/.claude.json` registers each Claude connection plugin from `plugins/claude` of this checkout, never from the
-  retired `R:\\Bin\\claude`, and each `dist/server.mjs` exists and was built from the sources `src/` now holds
+- `~/.claude.json` registers each Claude connection plugin as Windows Node running `plugins/claude/<name>/dist/server.mjs`
+  of this checkout, and each bundle exists and was built from the sources `src/` now holds
   (`plugins/claude/scripts/register_claude.py`, which owns those rules).
+
+A registration that points elsewhere (a moved or retired checkout, a missing entry) and whose bundle is current is
+repaired, not only reported: the hook starts `register_claude.py --repair` as a detached process, so a slow `claude`
+CLI never holds the prompt and is never cut off between its remove and its add. Its output goes to a new
+`repair-*.log` beside the session markers, and the repaired servers connect from the next session; the next session's
+check reports anything the repair could not do. `CLAUDE_DRIFT_REPAIR=0` turns the repair off and leaves only the
+warning. The hook runs from the checkout `~/.claude/settings.json` names, so after moving the checkout run
+`global/deploy.py --agent claude` from its new place once: that re-points the hooks and re-registers the plugins.
 
 It prints nothing when all is well. On drift it adds a short warning to the prompt's context and to stderr. It never
 blocks a prompt: any failure of its own is one stderr line and exit 0. The session is remembered by an empty marker
@@ -72,43 +80,94 @@ def deploy_drift(deadline, home=None):
 
 
 def plugin_drift(claude_json):
-    """Lines for connection plugins registered elsewhere, or running a missing or stale bundle."""
+    """Lines for connection plugins registered elsewhere, or running a missing or stale bundle, and the plugins
+    `register_claude.py --repair` would put right."""
     if not os.path.isfile(os.path.join(PLUGIN_SCRIPTS, "register_claude.py")):
-        return ["%s is missing" % os.path.join(PLUGIN_SCRIPTS, "register_claude.py")]
+        return ["%s is missing" % os.path.join(PLUGIN_SCRIPTS, "register_claude.py")], []
+    register_claude = plugin_module()
+    found = register_claude.problems(claude_json)
+    return found, (register_claude.fixable(claude_json) if found else [])
+
+
+def plugin_module():
     if PLUGIN_SCRIPTS not in sys.path:
         sys.path.insert(0, PLUGIN_SCRIPTS)
     import register_claude
-    return register_claude.problems(claude_json)
+    return register_claude
+
+
+def claude_json_path(home=None):
+    """The ~/.claude.json the Claude CLI uses (CLAUDE_CONFIG_DIR when set), or the one in a given test home."""
+    if home:
+        return os.path.join(str(home), ".claude.json")
+    return str(plugin_module().config_path())
+
+
+def start_repair(names):
+    """Start `register_claude.py --repair` detached, its output in a new log beside the session markers; the log's path
+    (None when no folder takes one), or False when nothing was started."""
+    if not names or os.environ.get("CLAUDE_DRIFT_REPAIR", "1") == "0":
+        return False
+    log = path = None
+    for folder in marker_dirs():
+        try:
+            os.makedirs(folder, exist_ok=True)
+            fd, path = tempfile.mkstemp(prefix="repair-", suffix=".log", dir=folder)  # a new file: never a symlink
+            log = os.fdopen(fd, "w", encoding="utf-8")
+            break
+        except OSError:
+            continue
+    options = {"stdin": subprocess.DEVNULL, "stdout": log or subprocess.DEVNULL, "stderr": subprocess.STDOUT}
+    if os.name == "nt":
+        options["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        options["start_new_session"] = True
+    try:
+        subprocess.Popen([sys.executable, os.path.join(PLUGIN_SCRIPTS, "register_claude.py"), "--repair"], **options)
+    finally:
+        if log:
+            log.close()
+    return path
+
+
+def survey(home=None, deadline=None):
+    """Every drift line, and the plugins the repair would re-register."""
+    deadline = time.monotonic() + BUDGET if deadline is None else deadline
+    found, names = plugin_drift(claude_json_path(home))  # milliseconds, so the deploy check gets the rest
+    return found + deploy_drift(deadline, home), names
 
 
 def check(home=None, deadline=None):
-    deadline = time.monotonic() + BUDGET if deadline is None else deadline
-    claude_json = os.path.join(str(home) if home else os.path.expanduser("~"), ".claude.json")
-    problems = plugin_drift(claude_json)  # milliseconds, so the slower deploy check gets the rest of the budget
-    return problems + deploy_drift(deadline, home)
+    return survey(home, deadline)[0]
 
 
-def bounded_check(budget=BUDGET, run=check):
-    """The checks, abandoned at the budget: a slow disk or an unreadable file costs a prompt no more than that."""
+def bounded_check(budget=BUDGET, run=check, wrap=lambda lines: lines):
+    """The checks, abandoned at the budget: a slow disk or an unreadable file costs a prompt no more than that. A
+    failure or a timeout gives wrap(lines), so a run returning more than lines can say what the rest is then."""
     done = []
 
     def work():
         try:
             done.append(run(deadline=time.monotonic() + budget))
         except Exception as exc:
-            done.append(["the drift check failed: %s: %s" % (type(exc).__name__, exc)])
+            done.append(wrap(["the drift check failed: %s: %s" % (type(exc).__name__, exc)]))
 
     worker = threading.Thread(target=work, daemon=True)  # a daemon thread never holds the process open
     worker.start()
     worker.join(budget)
-    return done[0] if done else ["the drift check did not finish inside %g seconds: run it by hand" % budget]
+    return done[0] if done else wrap(["the drift check did not finish inside %g seconds: run it by hand" % budget])
 
 
-def message(problems):
+def message(problems, repairing=(), log=None):
     lines = ["Conclave setup drift (checked once per session). Tell the user in one line and carry on with their request:"]
     lines += ["- %s" % p for p in problems]
-    lines.append("Repair: python %s --agent claude, then python %s (build_claude.py beside it rebuilds a stale bundle)."
-                 % (DEPLOY, os.path.join(PLUGIN_SCRIPTS, "register_claude.py")))
+    if repairing:
+        lines.append("A repair was started: re-registering %s from this checkout, so they connect from the next "
+                     "session; the next session's check reports anything it could not do%s."
+                     % (", ".join(repairing), " (its output: %s)" % log if log else ""))
+    if len(problems) > len(repairing):
+        lines.append("Repair: python %s --agent claude (it also re-registers the plugins); "
+                     "build_claude.py in %s rebuilds a stale bundle." % (DEPLOY, PLUGIN_SCRIPTS))
     return "\n".join(lines)
 
 
@@ -119,9 +178,16 @@ def main():
         data = {}
     if not first_prompt(str(data.get("session_id") or "")):
         return 0
-    problems = bounded_check()
+    problems, names = bounded_check(run=survey, wrap=lambda lines: (lines, []))
     if problems:
-        text = message(problems)
+        repairing, log = [], None
+        try:
+            log = start_repair(names)
+            if log is not False:
+                repairing = names
+        except Exception as exc:
+            problems.append("the repair did not start: %s: %s" % (type(exc).__name__, exc))
+        text = message(problems, repairing, log)
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": text}}))
         print(text, file=sys.stderr)
     return 0
