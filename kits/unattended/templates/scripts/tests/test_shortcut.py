@@ -693,8 +693,12 @@ class ShortcutTest(ShortcutFixture):
         self.assertIn("python forge.py update <project> --kit-new", older.stdout)
         self.assertNotIn("move it aside", older.stdout)
         self.assertEqual(record.read_bytes(), before)
-        runner.write_bytes(current)  # the merge done
-        self.assertEqual(self.shortcut("-Check").returncode, 0, "the record was not read again once merged")
+        # The merge forge's --kit-new leads to (test_forge's test_an_older_changed_runner_is_brought_to_the_reader_by_the_
+        # merge_the_script_advises): the kit's runner with the project's change kept. Then the -Refresh that failed.
+        runner.write_bytes(current + b"# the project's own change\n")
+        refreshed = self.shortcut("-Refresh")
+        self.assertEqual(refreshed.returncode, 0, refreshed.stdout + refreshed.stderr)
+        self.assertEqual(self.shortcut("-Check").returncode, 0, "the links were not current after the refresh")
         # A record another program holds open may be sound: the advice is to try again, not to move it.
         holder = start_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command",
                              "$f = [IO.File]::Open($env:RECORD, 'Open', 'Read', 'None'); 'held'; Start-Sleep 60"],

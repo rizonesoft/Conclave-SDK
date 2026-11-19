@@ -4136,8 +4136,8 @@ class UnattendedKitTests(unittest.TestCase):
             self.assertEqual(forge._shortcut_folders(self.target)[:2], (None, "reader"))
 
     def test_an_older_changed_runner_is_brought_to_the_reader_by_the_merge_the_script_advises(self):
-        # Reconciliation 18 of D02 T02 §12, end to end: a project whose runner is an older kit's, changed by the project,
-        # keeps it through update; the shortcut script's advice is `update --kit-new` and a merge. Followed here: the
+        # Reconciliation 18 of D02 T02 §12, end to end: a project whose runner is an older kit's, changed by the
+        # project, keeps it through update; the shortcut script's advice is `update --kit-new` and a merge. Followed here: the
         # customization is kept, the merge brings `shortcut-record`, and the reader the script calls reads the record.
         self.assertEqual(forge.main(["init", str(self.target), "--kit", "todo", "--kit", "unattended"]), 0)
         rel = "scripts/unattended-run.py"
@@ -4161,7 +4161,8 @@ class UnattendedKitTests(unittest.TestCase):
         before = read()
         self.assertEqual(before.returncode, 2, "the older runner has no shortcut-record")
         self.assertIn("invalid choice", before.stderr)
-        self.assertNotIn(rel, forge.update_project(self.target, only=[rel])["written"], "--only replaced a changed file")
+        self.assertNotIn(rel, forge.update_project(self.target, only=[rel])["written"],
+                         "--only replaced a changed file")
         with unittest.mock.patch.object(forge, "_refresh_shortcuts", return_value={"refreshed": False, "detail": ""}):
             result = forge.update_project(self.target, kit_new=True)
         self.assertIn(rel + forge.KIT_NEW, result["kit_new"])
