@@ -1010,7 +1010,10 @@ TAKEOVER_SECONDS = 60
 def section_lock_path(record_path):
     """Where the lock of one section's findings file lives: the system's temporary folder, never the repository, so
     a run that is killed leaves nothing in the working tree."""
-    name = os.path.normcase(os.path.abspath(record_path)).encode("utf-8")
+    # realpath, not abspath: a folder reached by its 8.3 short name (GitHub's runner hands out C:\\Users\\RUNNER~1)
+    # and by its own name is one section, so the dispatcher and the todo kit's replan take one lock (tests.yml run
+    # 44492505122).
+    name = os.path.normcase(os.path.realpath(record_path)).encode("utf-8")
     return Path(tempfile.gettempdir()) / f"review-dispatch-{hashlib.sha256(name).hexdigest()[:16]}.lock"
 
 

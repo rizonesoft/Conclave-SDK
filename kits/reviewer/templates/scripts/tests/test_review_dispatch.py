@@ -253,6 +253,22 @@ class Dispatch(Harness):
             dispatch.section_record(self.repo / section)
         self.assertIn("todo/plan.json: layout receipts must be a folder inside the repository", str(ctx.exception))
 
+    @unittest.skipUnless(os.name == "nt", "an 8.3 short name is Windows's")
+    def test_a_findings_file_by_its_short_name_takes_the_same_lock(self):
+        import ctypes
+        # A folder on the system drive, where 8.3 names are made (the scratch repository may be on a drive without).
+        base = tempfile.mkdtemp(dir=os.path.join(os.environ.get("LOCALAPPDATA", os.environ["SYSTEMROOT"]), "Temp"))
+        self.addCleanup(shutil.rmtree, base, True)
+        folder = Path(base) / "a long folder name"
+        folder.mkdir()
+        buffer = ctypes.create_unicode_buffer(1024)
+        ctypes.windll.kernel32.GetShortPathNameW(str(folder), buffer, len(buffer))
+        if not buffer.value or os.path.basename(buffer.value) == folder.name:
+            self.skipTest("this volume gives no 8.3 short names")
+        dispatch = self.module()
+        self.assertEqual(dispatch.section_lock_path(os.path.join(buffer.value, "D00-T01-s1.md")),
+                         dispatch.section_lock_path(folder / "D00-T01-s1.md"))
+
     def test_a_rotation_pass_holds_the_sections_lock_so_replan_cannot_move_its_file(self):
         # The completion review of D00 T01 §9: under a rotation pin the dispatcher took no section lock, so the todo
         # kit's replan could move the findings file under a pass in flight and its result land in the new chain.
