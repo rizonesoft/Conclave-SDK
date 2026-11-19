@@ -1,6 +1,6 @@
 # Design check prompt
 
-The one design check a `Surface: yes` section gets before its review (`process-todo-section`, Step 6). Copy this into a new empty folder under the scratch folder, together with the rendered PNGs and the Fidelity source, fill in the placeholders, delete the lines that do not apply, and run it once from that folder:
+The one design check a `Surface: yes` section gets before its review (`process-todo-section`, Step 6). Copy this into a new empty folder under the scratch folder, with each Fidelity file as `fidelity-<n>-<name>` and each rendered PNG as `render-<n>-<name>` (numbered, so two files with one name never overwrite each other), fill in the placeholders with those names, delete the lines that do not apply, and run it once from that folder:
 
 ```text
 claude -p --model claude-opus-5-5 --effort medium --restricted --strict-mcp-config --tools Read < design-check-prompt.md
@@ -22,12 +22,12 @@ You are a senior product designer. Do not modify any file. Judge a rendered desk
 
 1. Does each rendered state match the design source: layout, spacing, alignment, type, colour, icons, labels, states and messages?
 2. Where is it below the standard of the best desktop software for the same job: clarity, hierarchy, consistency, legibility, density, empty and error states?
-3. Report only what the images show. Do not guess at code, and do not report a difference the design source does not settle.
+3. Report only what the images show, and do not guess at code. A flaw below that standard is a finding even where the render matches the design source.
 
 ## Reply format
 
-- One numbered finding per line: the PNG it is in, what is wrong, and what the design source asks for instead.
-- Then one line: `INPUTS: <every file you opened>`.
+- One numbered finding per line: the PNG it is in, what is wrong, and either what the design source asks for instead or, for a problem the design source shares or does not settle, the visible flaw and the better treatment.
+- Then one line: `INPUTS: <every file you opened>`. Open every file listed under Inputs: a reply that leaves one out is read as a partial inspection.
 - Last line, exactly one of:
   - `DESIGN: clean` when every rendered state matches and nothing is below standard;
   - `DESIGN: findings` when there is at least one finding;

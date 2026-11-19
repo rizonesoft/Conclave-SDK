@@ -425,13 +425,20 @@ class DesignCheckStepTests(unittest.TestCase):
         _, _, step = self.step()
         for part in ("`docs/design-check-prompt.md`", "a new empty folder under the scratch folder", "`--restricted`",
                      "whoever the writer is", "`INPUTS:`", "`DESIGN:` outcome", "`DESIGN: unavailable`",
-                     "it runs once", "`design` included, run as they do"):
+                     "it runs once", "`design` included, run as they do",
+                     # D00 T03 §17 round 1: a partial inspection is no clean verdict, and copies never collide.
+                     "`DESIGN: unavailable (partial: <files left out>)`", "`fidelity-<n>-<name>`",
+                     "`render-<n>-<name>`"):
             self.assertIn(part, step)
 
     def test_the_prompt_runs_confined_and_ends_in_one_of_three_outcomes(self):
         prompt = self.PROMPT.read_text(encoding="utf-8")
-        self.assertIn("--restricted --strict-mcp-config --tools Read", prompt)
+        confined = "claude -p --model claude-opus-5-5 --effort medium --restricted --strict-mcp-config --tools Read"
+        # Each platform's command on its own, so losing either one fails (D00 T03 §17 round 1).
+        self.assertIn(confined + " < design-check-prompt.md", prompt)
+        self.assertIn("Get-Content -Raw design-check-prompt.md | " + confined + "`", prompt)
         self.assertNotIn("--allowedTools", prompt)  # it confines nothing, and it swallows a prompt that follows it
+        self.assertIn("even where the render matches the design source", prompt)
         for outcome in ("`DESIGN: clean`", "`DESIGN: findings`", "`DESIGN: unavailable`", "`INPUTS:"):
             self.assertIn(outcome, prompt)
 
