@@ -235,6 +235,9 @@ class Chain(ThreePass):
         for kind in ("plan", "round", "completion", "reconciliation"):
             with self.subTest(kind):
                 self.refused(kind, self.base, "is a kept earlier review chain")
+        # Round 1 of D00 T01 §9: Windows folds the case, so the same file by another spelling is the same chain.
+        self.record = kept.with_name(kept.name.upper().replace(".MD", ".md"))
+        self.refused("round", self.base, "is a kept earlier review chain")
         self.assertEqual(kept.read_bytes(), before, "a refused pass changed the kept chain")
 
     def test_a_pass_out_of_order_is_refused_before_a_reviewer_runs(self):

@@ -263,6 +263,60 @@ class FreshInstall(unittest.TestCase):
             done = self.run_script("scripts/todo-graph.py", *args)
             self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 
+    def test_a_chain_that_cannot_settle_is_replanned_and_the_new_chain_stamps(self):
+        # D00 T01 §9, through the installed commands: a chain whose completion left gaps is re-planned with
+        # todo-graph.py replan, the item is corrected and committed with the new Started, and the dispatcher (its stub
+        # Codex) runs a fresh plan review, round and completion that stamp. The kept chain is closed and listed.
+        RECORD = self.record
+        schedule = tomllib.loads((self.repo / ".conclave/reviewers.toml").read_text(encoding="utf-8"))["schedule"]
+        lenses = {kind: schedule[kind]["lenses"] for kind in ("plan", "completion", "reconciliation")}
+        lenses["round"] = [name for name in schedule["rounds"][0]["lenses"] if name != "design"]
+        self.review("plan", self.start, "plan-review-prompt.md", reply("plan", lenses["plan"]))
+        todo = self.repo / "todo/00-core/TODO-01-a.md"
+        todo.write_text(todo.read_text(encoding="utf-8").replace("- [ ] Write", "- [x] Write"), encoding="utf-8")
+        (self.repo / "src").mkdir()
+        (self.repo / "src/thing.py").write_text("THING = 1\n", encoding="utf-8")
+        built = self.commit("x: the thing")
+        self.review("round", built, "review-round-prompt.md", reply("round", lenses["round"]))
+        self.review("completion", built, "completion-review-prompt.md",
+                    reply("completion", lenses["completion"], "P2", True))
+        kept_bytes = (self.repo / RECORD).read_bytes()
+
+        replanned = self.run_script("scripts/todo-graph.py", "replan", "D00 T01 §1", "--date", "2026-11-19")
+        self.assertEqual(replanned.returncode, 0, replanned.stdout + replanned.stderr)
+        kept = RECORD.replace(".md", "-chain1.md")
+        self.assertIn(f"review chain kept as {kept}", replanned.stdout)
+        self.assertEqual(((self.repo / kept).read_bytes(), (self.repo / RECORD).exists()), (kept_bytes, False))
+        # The item is corrected (a dated note) and committed with the new Started: the new chain's plan candidate.
+        text = todo.read_text(encoding="utf-8")
+        todo.write_text(text.replace("- [x] Write", "- [ ] Write the thing in full", 1).replace(
+            "**Test checkpoint:**", "**Corrected 2026-11-19:** the item said only 'Write'.\n\n**Test checkpoint:**", 1),
+            encoding="utf-8")
+        self.start = self.commit("todo: re-plan D00 T01 §1")
+        closed = self.run_script("scripts/review-dispatch.py", "--kind", "plan", "--candidate", self.start, "--writer",
+                                 "claude", "--prompt", self.fill("plan-review-prompt.md", self.start),
+                                 "--record", kept, say=reply("plan", lenses["plan"]))
+        self.assertEqual(closed.returncode, 2, closed.stdout + closed.stderr)
+        self.assertIn("is a kept earlier review chain", closed.stderr)
+
+        self.review("plan", self.start, "plan-review-prompt.md", reply("plan", lenses["plan"]))
+        todo.write_text(todo.read_text(encoding="utf-8").replace("- [ ] Write the thing in full",
+                                                                 "- [x] Write the thing in full"), encoding="utf-8")
+        (self.repo / "src/thing.py").write_text("THING = 2\n", encoding="utf-8")
+        rebuilt = self.commit("x: the thing in full")
+        self.review("round", rebuilt, "review-round-prompt.md", reply("round", lenses["round"]))
+        self.review("completion", rebuilt, "completion-review-prompt.md", reply("completion", lenses["completion"]))
+        self.commit("the findings file")
+        stamp = self.run_script("scripts/todo-graph.py", "stamp", "D00 T01 §1", "--sha", rebuilt, "--plan", RECORD,
+                                "--completion", f"{RECORD}:complete", "--review", f"1:{RECORD}:clean",
+                                "--check", "true -> exit 0")
+        self.assertEqual(stamp.returncode, 0, stamp.stdout + stamp.stderr)
+        self.assertEqual((self.repo / kept).read_bytes(), kept_bytes, "the new chain touched the kept one")
+        rounds = self.run_script("scripts/todo-graph.py", "query", "rounds")
+        self.assertEqual(rounds.returncode, 0, rounds.stdout + rounds.stderr)
+        (row,) = [r for r in json.loads(rounds.stdout)["sections"] if r["ref"] == "D00 T01 §1"]
+        self.assertEqual(row["kept_chains"], [{"file": kept, "passes_returned": 3}])
+
     def three_pass_to_stamp(self, receipts):
         """Plan review, round, a completion with gaps, a reconciliation and the stamp, with every findings file and
         receipt in `receipts`."""

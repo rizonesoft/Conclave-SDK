@@ -2878,6 +2878,59 @@ class ThreePassStamp(Stamp):
             {"file": "docs/reviews/00-workspace/D00-T01-s1-chain2.md", "passes_returned": 1}])
         self.assertEqual(row["rounds_spent"], 1)
 
+    def test_replan_refuses_without_started_and_keeps_the_file(self):
+        # Round 1 of D00 T01 §9: replan moved the findings file before it found the section had no Started line.
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        todo.write_text(todo.read_text(encoding="utf-8").replace("> **Started:** 2026-10-23T00:00Z\n\n", "", 1),
+                        encoding="utf-8")
+        own = self.root / self.FILE
+        before = own.read_bytes()
+        with self.assertRaises(tg.Refused) as ctx:
+            self.replan_now()
+        self.assertIn("has no '> **Started:**' line", str(ctx.exception))
+        self.assertEqual(own.read_bytes(), before)
+        self.assertEqual(list(own.parent.glob("*-chain*.md")), [])
+
+    def test_a_retry_on_another_day_finds_the_note_and_changes_nothing(self):
+        self.chain(completion=("P2", True))
+        self.replan_now()
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        after = todo.read_bytes()
+        self.assertEqual(tg.replan(self.root, "D00 T01 §1", "2026-10-26", "2026-10-26T09:00Z")["done"], "already")
+        self.assertEqual(todo.read_bytes(), after)
+
+    def test_replan_waits_for_a_pass_that_holds_the_sections_lock(self):
+        # Round 1: replan moved the file while a reviewer was answering, so the pass landed in a new canonical file.
+        self.chain(completion=("P2", True))
+        own = self.root / self.FILE
+        holder = subprocess.Popen([sys.executable, "-c",
+                                   "import importlib.util, sys, time\n"
+                                   "spec = importlib.util.spec_from_file_location('d', sys.argv[1])\n"
+                                   "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n"
+                                   "m.lock_section(sys.argv[2], 60); print('held', flush=True); time.sleep(60)\n",
+                                   str(tg.review_dispatch().__file__), str(own)],
+                                  stdout=subprocess.PIPE, text=True,
+                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.addCleanup(holder.wait, 10)
+        self.addCleanup(holder.kill)
+        self.addCleanup(holder.stdout.close)
+        self.assertEqual(holder.stdout.readline().strip(), "held")
+        before = own.read_bytes()
+        with self.assertRaises(tg.Refused) as ctx:
+            self.replan_now()
+        self.assertIn("replan waits for it", str(ctx.exception))
+        self.assertEqual((own.read_bytes(), list(own.parent.glob("*-chain*.md"))), (before, []))
+
+    def test_query_rounds_lists_an_open_sections_kept_chains_read_as_bytes(self):
+        # Round 1: an open section's chains were missing, and a lone carriage return in a review was read as a line
+        # break, so the dispatcher's sealed digest failed and the passes read as None.
+        self.passed("plan", self.start, review="1. a\rb.\nLENS plan: clean\nHIGHEST: none\nPLAN: complete\nOVERALL: approve")
+        self.replan_now()
+        (row,) = [r for r in tg.review_rounds(self.root)["sections"] if r["ref"] == "D00 T01 §1"]
+        self.assertEqual(row, {"ref": "D00 T01 §1", "open": True, "kept_chains": [
+            {"file": "docs/reviews/00-workspace/D00-T01-s1-chain1.md", "passes_returned": 1}]})
+        self.assertEqual(tg.review_rounds(self.root)["summary"]["stamped"], 0)
+
     def test_a_kept_chain_is_refused_as_plan_or_completion_under_a_three_pass_pin(self):
         sha = self.chain()
         chain = self.FILE.replace(".md", "-chain1.md")

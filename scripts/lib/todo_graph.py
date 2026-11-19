@@ -66,9 +66,13 @@ FILED = re.compile(r"^- Filed: (D\d{2} T\d{2} §[1-9]\d*)(?![\w§]|\.\d)")
 PIN = ".conclave/reviewers.toml"
 PLAN_KEYS = {"report", "candidate", "reviewer", "model", "effort", "lenses"}
 STARTED = re.compile(r"^> \*\*Started:\*\* .+$", re.M)
+# The Corrected note replan writes, naming the chain it kept: a retry finds it whatever day it ran.
+REPLANNED = re.compile(r"re-planned with `todo-graph\.py replan`; the build first began at [^;\n]+; its review chain is "
+                       r"kept as `([^`\n]+)`\.")
+REPLAN_LOCK_SECONDS = 60  # replan holds the section's review lock only while it moves a file and writes the note
 # A section's earlier review chain, kept beside its findings file when the section is re-planned (`replan`, D00 T01
 # §9): `D<NN>-T<NN>-s<N>-chain<k>.md`. It is closed: no pass is appended to it and no stamp takes it.
-KEPT_CHAIN = re.compile(r"-s[1-9]\d*-chain([1-9]\d*)\.md$")
+KEPT_CHAIN = re.compile(r"-s[1-9]\d*-chain([1-9]\d*)\.md$", re.IGNORECASE)  # Windows folds the case
 # A round scripts/review-dispatch.py recorded in a findings file, reviewed or not ("## Round 2: none").
 ROUND_RECORD = re.compile(r"^## Round ([0-9]+): ", re.M)
 ADJACENCY_KEYS = ["list", "document", "settings", "reporting", "notifications", "permissions",
@@ -2052,15 +2056,19 @@ def kept_chain_files(root, ref):
 def kept_chains(root, ref):
     """Each kept chain of the section with its returned passes, for `query rounds`."""
     root = Path(root)
-    return [{"file": p.relative_to(root).as_posix(), "passes_returned": returned_passes(read_text(p))}
-            for p in kept_chain_files(root, ref)]
+    # Bytes, not read_text: universal newlines would turn a stored lone "\r" into a line break and break the digest
+    # the dispatcher sealed the review under.
+    return [{"file": p.relative_to(root).as_posix(),
+             "passes_returned": returned_passes(p.read_bytes().decode("utf-8"))} for p in kept_chain_files(root, ref)]
 
 
 def replan(root, ref, date, now):
     """Re-plan a section whose review chain cannot settle (D00 T01 §9): keep its findings file as the next unused
     `-chain<k>.md` beside it (never over a kept one), then replace its `Started:` line with `now` and keep the old
-    one in a dated Corrected note naming the kept chain. Either step done already is not done again, so a retry after
-    a stop finishes the route. The writer then corrects the item, commits the section, and runs a new plan review."""
+    one in a dated Corrected note naming the kept chain. It runs under the section's review lock, the one the
+    dispatcher holds through a pass, so no pass lands in the file as it moves. Either step done already is not done
+    again, so a retry after a stop finishes the route. The writer then corrects the item, commits the section, and
+    runs a new plan review."""
     root = Path(root)
     require(re.fullmatch(r"\d{4}-\d{2}-\d{2}", date) is not None, f"invalid date: {date}")
     require(re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z", now) is not None, f"invalid instant: {now}")
@@ -2068,33 +2076,40 @@ def replan(root, ref, date, now):
     require(ref in rows, "unresolved section: " + ref)
     row = rows[ref]
     require(not row.done, f"{ref} is stamped: a stamped section is reopened with unstamp, not re-planned")
-    own = root / section_findings(root, ref)
-    chains = kept_chain_files(root, ref)
-    moved = None
-    if own.exists():
-        number = max([int(KEPT_CHAIN.search(p.name)[1]) for p in chains], default=0) + 1
-        moved = own.with_name(f"{own.stem}-chain{number}.md")
-        require(not moved.exists(), f"{moved} exists: a kept chain is never written over")
-        os.replace(own, moved)
-        kept = moved
-    else:
-        require(bool(chains), f"{ref} has no findings file to keep: nothing to re-plan")
-        kept = chains[-1]
-    kept_rel = kept.relative_to(root).as_posix()
     started = STARTED.search(row.body)
     require(started is not None, f"{ref} has no '> **Started:**' line: re-plan a section whose build began")
-    note = f"**Corrected {date}:** re-planned with `todo-graph.py replan`;"
-    if f"`{kept_rel}`" in row.body and note in row.body:
-        return {"kept": kept_rel, "started": started.group(0), "done": "already"}
-    old = started.group(0)[len("> **Started:** "):]
-    body = row.body.replace(started.group(0),
-                            f"> **Started:** {now}\n\n{note} the build first began at {old}; its review chain is kept "
-                            f"as `{kept_rel}`.", 1)
-    path = root / row.path
-    text = read_text(path)
-    require(text.count(row.body) == 1, f"section body is not unique in {row.path}")
-    atomic(path, text.replace(row.body, body))
-    return {"kept": kept_rel, "started": f"> **Started:** {now}", "done": "moved" if moved else "noted"}
+    own = root / section_findings(root, ref)
+    dispatch = review_dispatch()
+    try:
+        dispatch.lock_section(own, REPLAN_LOCK_SECONDS)
+    except dispatch.Refused as exc:
+        raise Refused(f"{exc}: replan waits for it") from None
+    try:
+        chains = kept_chain_files(root, ref)
+        moved = None
+        if own.exists():
+            number = max([int(KEPT_CHAIN.search(p.name)[1]) for p in chains], default=0) + 1
+            moved = own.with_name(f"{own.stem}-chain{number}.md")
+            require(not moved.exists(), f"{moved} exists: a kept chain is never written over")
+            os.replace(own, moved)
+            kept = moved
+        else:
+            require(bool(chains), f"{ref} has no findings file to keep: nothing to re-plan")
+            kept = chains[-1]
+        kept_rel = kept.relative_to(root).as_posix()
+        if REPLANNED.search(row.body) and any(m == kept_rel for m in REPLANNED.findall(row.body)):
+            return {"kept": kept_rel, "started": started.group(0), "done": "already"}
+        old = started.group(0)[len("> **Started:** "):]
+        body = row.body.replace(started.group(0),
+                                f"> **Started:** {now}\n\n**Corrected {date}:** re-planned with `todo-graph.py "
+                                f"replan`; the build first began at {old}; its review chain is kept as `{kept_rel}`.", 1)
+        path = root / row.path
+        text = read_text(path)
+        require(text.count(row.body) == 1, f"section body is not unique in {row.path}")
+        atomic(path, text.replace(row.body, body))
+        return {"kept": kept_rel, "started": f"> **Started:** {now}", "done": "moved" if moved else "noted"}
+    finally:
+        dispatch._release_held()
 
 
 def review_rounds(root=ROOT):
@@ -2104,6 +2119,10 @@ def review_rounds(root=ROOT):
     sections = []
     for row in ordered(graph(root)):
         if not row.done or not row.receipt:
+            # A section re-planned and not yet stamped: its kept chains are the history its new chain builds on.
+            chains = kept_chains(root, row.ref) if not row.done else []
+            if chains:
+                sections.append({"ref": row.ref, "open": True, "kept_chains": chains})
             continue
         data = json.loads(read_text(root / row.receipt))
         spent = data.get("rounds_spent") or rounds_recorded(root, data["reviews"])
@@ -2115,14 +2134,14 @@ def review_rounds(root=ROOT):
         if chains:
             entry["kept_chains"] = chains
         sections.append(entry)
-    spent = [s["rounds_spent"] for s in sections]
+    spent = [s["rounds_spent"] for s in sections if "rounds_spent" in s]
     return {"cap": REVIEW_ROUND_CAP, "sections": sections,
-            "summary": {"stamped": len(sections), "rounds": sum(spent),
+            "summary": {"stamped": len(spent), "rounds": sum(spent),
                         "mean": round(sum(spent) / len(spent), 2) if spent else None,
                         "max": max(spent, default=None),
-                        "stopped_at_cap": sum(any(v.startswith("stopped-at-") for v in s["verdicts"])
+                        "stopped_at_cap": sum(any(v.startswith("stopped-at-") for v in s.get("verdicts", ()))
                                               for s in sections),
-                        "stopped_low_severity": sum("stopped-low-severity" in s["verdicts"] for s in sections)}}
+                        "stopped_low_severity": sum("stopped-low-severity" in s.get("verdicts", ()) for s in sections)}}
 
 
 def same_request(persisted, data):

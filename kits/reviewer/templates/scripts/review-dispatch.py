@@ -124,7 +124,7 @@ BLOCKED = re.compile(r"^\s*(?:OVERALL|COMPLETION):\s*blocked\b", re.IGNORECASE)
 POLL_SECONDS = 0.2
 # A section's earlier review chain, kept beside its findings file (`D<NN>-T<NN>-s<N>-chain<k>.md`, the todo kit's
 # `replan`): closed to new passes.
-KEPT_CHAIN = re.compile(r"-s[1-9]\d*-chain[1-9]\d*\.md$")
+KEPT_CHAIN = re.compile(r"-s[1-9]\d*-chain[1-9]\d*\.md$", re.IGNORECASE)  # Windows folds the case
 CLEANUP_SECONDS = 10
 # The last lines each one-pass review owes, by --kind: what makes a reply a returned review of that kind.
 FOOTERS = {"completion": ("COMPLETION: complete", "COMPLETION: gaps"),
