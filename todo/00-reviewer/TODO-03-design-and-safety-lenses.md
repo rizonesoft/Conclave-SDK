@@ -41,7 +41,7 @@ title: "TODO-03 -- Design and safety lenses, held by path in every project"
 | 3 | §3 | Kit refresh in every listed project | §2 | [ ] |
 | 4 | §4 | Agent entrypoints, hooks and native skill folders | §3 | [ ] |
 | 5 | §5 | Design contract rule in every project | §3 | [ ] |
-| 6 | §6 | Design paths in every three-pass pin | §5 | [ ] |
+| 6 | §6 | Design paths in every three-pass pin | §5, §17 | [ ] |
 | 7 | §7 | Design lint where a project has none | §3 | [ ] |
 | 8 | §8 | Resolute on three-pass | §3 | [ ] |
 | 9 | §9 | C++ lens entries in the C++ projects | §8 | [ ] |
@@ -51,7 +51,8 @@ title: "TODO-03 -- Design and safety lenses, held by path in every project"
 | 13 | §13 | Concurrency and lifetime checks in the clang-tidy ratchet | §9 | [ ] |
 | 14 | §14 | Sanitizer test configuration | §13 | [ ] |
 | 15 | §15 | Bounded C++ hot-spot audit | §9 | [ ] |
-| 16 | §16 | Read-only verification across the projects | §6, §7, §9, §10, §11 | [ ] |
+| 16 | §16 | Read-only verification across the projects | §6, §7, §9, §10, §11, §17 | [ ] |
+| 17 | §17 | Design lens routed to Opus on rendered surfaces | §1 | [ ] |
 
 ## 1. Design Lens by Path and Fidelity on Every Prompt
 
@@ -184,6 +185,7 @@ With §1 installed, a pin names its user interface, style, asset, icon and desig
 
 - [ ] Add `[[schedule.conditional]]` with `lenses = ["design"]`, `passes = ["round", "reconciliation"]` and the project's paths to each three-pass pin. Done when: `python scripts/review_pin.py --lenses round --no-surface --paths <a real UI file>` prints `design` and the same command with a non-UI file does not. Cheaper substitute: removing `design` from the round, which drops it from `Surface: yes` sections outside the paths.
 - [ ] Add a second entry with `lenses = ["design-plan"]`, `passes = ["plan"]` and the same paths. Done when: `python scripts/review_pin.py --lenses plan --paths <a real UI file>` prints `design-plan`.
+- [ ] Route both lenses to Opus in each pin, as §17 defines: `[reviewers.opus]` (`cli = "claude"`, `model = "claude-opus-5-5"`, `effort = "medium"`) and `[lens_routes]` naming `design` and `design-plan`, so no project's design review is answered by Astra (owner, 2026-11-19). Done when: `python scripts/review_pin.py --check --all` prints `ok` and the pin's `--lenses round` output names Opus for `design`.
 - [ ] Confirm no section in the project is between its plan review and its stamp, or record that it finishes under the pin committed at its plan review. Done when: the commit body names each such section or says none.
 - [ ] Commit the pin alone, before any section's next plan review. Done when: `git log --oneline -1 -- .conclave/reviewers.toml` shows the commit.
 - [ ] Commit: `review: design lens by path` in each project.
@@ -396,7 +398,7 @@ One script, outside every repository, answers whether each project holds what th
 2. Record its table. Done when: `docs/phase-runs/` holds it with each project's commit.
 
 - [ ] Check per project: `GEMINI.md`, `.agents/hooks.json` parsing as JSON, `.agents/skills/process-todo-section/SKILL.md`, `.agents/rules/design-contract.md` and every path it cites. Done when: a renamed cited path turns that project's row red.
-- [ ] Check `python scripts/review_pin.py --check --all`, the Antigravity writer's route to Astra on three-pass, `--lenses round --no-surface --paths <UI file>` printing `design`, and for C++ projects the two safety lenses. Done when: a pin with the entry removed turns the row red.
+- [ ] Check `python scripts/review_pin.py --check --all`, every writer's route to Astra on three-pass, `--lenses round --no-surface --paths <UI file>` printing `design` routed to Opus, and for C++ projects the two safety lenses. Done when: a pin with the entry removed turns the row red.
 - [ ] Check `python scripts/review-prompt.py --kind round --fidelity x` writes a `- Fidelity:` line. Done when: the row quotes the line.
 - [ ] Check the design linter: `--self-test`, a plain run on `HEAD`, exit 1 on a scratch fixture with `#FF00AA`, and its presence in the hook `core.hooksPath` names. Done when: each is a column.
 - [ ] Check `python scripts/todo-graph.py validate` and `git status --short` empty. Done when: each is a column.
@@ -404,6 +406,30 @@ One script, outside every repository, answers whether each project holds what th
 - [ ] Commit: `docs: design and safety lenses, verified across the projects (D00 T03 §16)`
 
 **Test checkpoint:** `python <scratch>/verify-carbon-fleet.py` exits 0 with every applicable cell green, and exits non-zero when run against a copy of one project whose design rule cites a missing path.
+
+## 17. Design Lens Routed to Opus on Rendered Surfaces
+
+Filed 2026-11-19 at the owner's request. Opus 5.5 is the strongest designer and GPT-6.2 Astra the strongest defect reviewer, so a visual surface's `design` lens goes to Opus 5.5 at medium effort for every writer, Claude included, while every defect lens stays with Astra. The owner's global rule 7 carries the exception (`global/claude/rules/claude-code.md`, deployed 2026-11-19): the Opus pass judges rendered screenshots against the section's Fidelity source in a fresh session that is given neither the writer's code nor its reasoning, which keeps a same-family review from reading the writer's intent into the result. Astra answers no design lens from this section on (owner, 2026-11-19): the template pin and the SDK's own pin route `design` and `design-plan` to Opus, §6 puts the route in every project's pin, and no open section of this file builds or verifies a design review by Astra. A pin written before the route keeps working (its design lens is answered by its routed reviewer, as now) until §6 reaches it. Berth is the trial project: its `Surface: yes` sections are written by Claude from 2026-11-19 (Berth's `AGENTS.md`), and its D04 T01 §11 (not yet built) renders a window to PNG for the design lens.
+
+**Phase:** 9
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add the lens route to the pin. Done when: the pin tests load, refuse and print it.
+2. Dispatch the routed lens on its own and let the stamp read both replies. Done when: the checkpoint passes.
+3. Make it the template's default and turn it on in Berth first. Done when: one Berth surface section is stamped with an Opus design reply.
+
+- [ ] Add an optional `[lens_routes]` table to `kits/reviewer/templates/scripts/review_pin.py`, mapping a lens name to a defined reviewer, accepted only for `design` and `design-plan`; a lens route may name a reviewer of any writer's model family, every other route keeps the cross-family rule; `--check --all` reports a route for any other lens, an undefined reviewer or an effort the CLI does not take. Done when: `test_review_pin.py` loads a pin routing `design` to a `claude` reviewer with `model = "claude-opus-5-5"` and `effort = "medium"`, refuses a route for `adversarial`, and finds a pin without the table unchanged in every `lenses_for` result.
+- [ ] Make `kits/reviewer/templates/scripts/review-dispatch.py` take a routed lens out of the pass's main dispatch and run it as its own dispatch to the routed reviewer, with a prompt holding only the section's promise, its Fidelity source and the rendered PNGs passed with `--render <png>` (refused for a routed lens when none is given on a `Surface: yes` section), never the diff or the writer's notes; both replies are recorded in the findings file under one pass, and the pass's `HIGHEST` is the more severe of the two. Done when: dispatcher tests with stub reviewers show the main prompt without `design`, the routed prompt with only the promise, Fidelity and image paths, a refusal without `--render`, and the combined `HIGHEST`.
+- [ ] Make the stamp in `kits/todo/templates/scripts/lib/todo_graph.py` require the routed reply for a pass whose pin routes a lens it carried, and accept receipts made under a pin without routes unchanged. Done when: stamp tests refuse a pass missing its routed reply and accept an older receipt.
+- [ ] Route `design` and `design-plan` to Opus in `kits/reviewer/templates/.conclave/reviewers.toml` and the SDK's own `.conclave/reviewers.toml` (`[reviewers.opus]` with `cli = "claude"`, `model = "claude-opus-5-5"`, `effort = "medium"`). Done when: `python scripts/review_pin.py --check --all` prints `ok` for both and `tests.test_forge` finds a fresh install's pin carrying the route.
+- [ ] Document the route in `kits/reviewer/README.md` and the review skill, run `python forge.py skill-copies` and `python forge.py self-sync`. Done when: `skill-copies --check` exits 0.
+- [ ] In Berth (after `python forge.py update` there): add `[reviewers.opus]` (`cli = "claude"`, `model = "claude-opus-5-5"`, `effort = "medium"`) and `[lens_routes] design = "opus"` to its `.conclave/reviewers.toml`, committed before its next surface section's plan review. Done when: `python scripts/review_pin.py --check --all` there prints `ok` and that section's findings file holds an Opus design reply.
+- [ ] Commit: `reviewer: the design lens can be routed to its own reviewer, judged on rendered surfaces`
+
+**Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests` and `python -m unittest tests.test_todo_graph` (with `CONCLAVE_FULL_TESTS=1`) pass, and removing the `--render` refusal makes its test fail.
 
 ## Verification
 
