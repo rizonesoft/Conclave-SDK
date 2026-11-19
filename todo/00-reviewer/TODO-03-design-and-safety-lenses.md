@@ -52,6 +52,7 @@ title: "TODO-03 -- Design and safety lenses, held by path in every project"
 | 14 | §14 | Sanitizer test configuration | §13 | [ ] |
 | 15 | §15 | Bounded C++ hot-spot audit | §9 | [ ] |
 | 16 | §16 | Read-only verification across the projects | §6, §7, §9, §10, §11 | [ ] |
+| 17 | §17 | One Opus design check before a surface section's review | §1 | [ ] |
 
 ## 1. Design Lens by Path and Fidelity on Every Prompt
 
@@ -404,6 +405,27 @@ One script, outside every repository, answers whether each project holds what th
 - [ ] Commit: `docs: design and safety lenses, verified across the projects (D00 T03 §16)`
 
 **Test checkpoint:** `python <scratch>/verify-carbon-fleet.py` exits 0 with every applicable cell green, and exits non-zero when run against a copy of one project whose design rule cites a missing path.
+
+## 17. One Opus Design Check Before a Surface Section's Review
+
+Filed 2026-11-19 at the owner's request. Opus 5.5 is the strongest designer and GPT-6.2 Astra the strongest reviewer, and a review by the writer's own family is no review (global rule 7). So a surface is designed by Claude (Opus), checked once by Opus for design before the review begins, and then reviewed by Astra through the pin's three passes, the `design` lens included, exactly as now. The check is the writer's own step, not a review: it runs once, never loops, holds no stamp and adds no gate. Berth is the first project: its `Surface: yes` sections are written by Claude from 2026-11-19 (Berth's `AGENTS.md`), and its D04 T01 §11 (not yet built) renders a window to PNG for the check and the design lens.
+
+**Phase:** 9
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Write the step in the build skill. Done when: the skill's three copies carry it.
+2. Run it on Berth's next surface section. Done when: that section's commit names the check.
+
+- [ ] Add to "Surface and feature completeness" in `kits/todo/templates/.claude/skills/process-todo-section/SKILL.md`, after the rendered check and before `review-todo-section`: on a `Surface: yes` section, one design check by Opus 5.5 at medium effort (`claude -p --model claude-opus-5-5 --effort medium`, whoever the writer is), in a fresh session given only the section's promise, its Fidelity source and the rendered PNGs, never the diff or the writer's notes; the writer fixes what it finds, reruns the rendered check, and names the PNGs and the fixes in the section's commit body; the check runs once and is never repeated after a review pass. Done when: the step is in the Claude file and `python forge.py skill-copies` writes its Antigravity and Codex copies.
+- [ ] Say in `kits/todo/templates/.claude/skills/review-todo-section/SKILL.md` that the design check is not a review pass: the pin's passes, `design` included, run as they do. Done when: `python forge.py skill-copies --check` exits 0.
+- [ ] Refresh the SDK's installed copy with `python forge.py self-sync`. Done when: the self-sync test passes.
+- [ ] In Berth, after `python forge.py update` there, run the step on the next `Surface: yes` section. Done when: that section's commit body names the PNGs the check read and what it fixed.
+- [ ] Commit: `todo: one Opus design check before a surface section's review`
+
+**Test checkpoint:** `python -m unittest tests.test_skill_copies` and `python -m unittest tests.test_forge -k skill` pass, and `python forge.py skill-copies --check` exits 0.
 
 ## Verification
 
