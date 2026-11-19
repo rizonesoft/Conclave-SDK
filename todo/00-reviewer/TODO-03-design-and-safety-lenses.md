@@ -408,7 +408,7 @@ One script, outside every repository, answers whether each project holds what th
 
 ## 17. One Opus Design Check Before a Surface Section's Review
 
-Filed 2026-11-19 at the owner's request. Opus 5.5 is the strongest designer and GPT-6.2 Astra the strongest reviewer, and a review by the writer's own family is no review (global rule 7). So a surface is designed by Claude (Opus), checked once by Opus for design before the review begins, and then reviewed by Astra through the pin's three passes, the `design` lens included, exactly as now. The check is the writer's own step, not a review: it runs once, never loops, holds no stamp and adds no gate. Berth is the first project: its `Surface: yes` sections are written by Claude from 2026-11-19 (Berth's `AGENTS.md`), and its D04 T01 §11 (not yet built) renders a window to PNG for the check and the design lens.
+Filed 2026-11-19 at the owner's request. Opus 5.5 is the strongest designer and GPT-6.2 Astra the strongest reviewer, and a review by the writer's own family is no review (global rule 7). So a surface section is written by whichever writer the plan gives it (Antigravity or Claude), checked once by Opus 5.5 for design before the review begins, fixed by its writer, and then reviewed by Astra through the pin's three passes and every lens, `design` included, exactly as now. The check is part of the build, not a review pass: it runs once, never loops, holds no stamp and adds no gate. Berth is the first project (its `AGENTS.md`), and its D04 T01 §11 (not yet built) renders a window to PNG for the check and the design lens.
 
 **Phase:** 9
 **Needs:** none
