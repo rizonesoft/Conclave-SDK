@@ -890,25 +890,24 @@ def three_pass_ok(root, data, ref, found):
     capped = any(key in schedule for key in dispatch.review_pin.P2_CAPS)
     require(not capped or not dispatch.review_pin.p2_data_contradicts(last_review),
             f"the last review says P2 DATA: no while it tags a finding P2 data: {ref}")
-    stalled = False
-    if stall is not None and worst == "P2" and passed:
-        run = 0
-        for before, after in reversed(list(zip(tail[:-1], tail[1:]))):
-            b, a = (dispatch.review_pin.declared_highest(x["review"]) for x in (before, after))
-            if dispatch.SEVERITY_RANK[a] < dispatch.SEVERITY_RANK[b]:
-                break
-            run += 1
-        stalled = run >= stall
+    stalled = dispatch.review_pin.stalled(schedule, [dispatch.review_pin.declared_highest(e["review"]) for e in tail])
     p2_filed = capped and worst == "P2" and not dispatch.review_pin.holds(schedule, worst, last_review, len(passed),
                                                                           stalled)
     if p2_filed and verdict == "filed":
-        # Each open P2 is filed as its own section, by its number in the review.
-        numbers = [m for m in re.findall(r"(?m)^\s*\**(\d+)\.\s[^\n]*\bP2\b", last_review)]
-        notes = " ".join(chain[-1][1].get("notes") or [])
-        missing = [n for n in numbers if not re.search(rf"- Filed: D\d\d T\d\d §\d+ \(P2 {n}:", notes)]
+        # Each open P2 is filed as a section of its own, by its number in the review (a closed one is not open).
+        numbers = [n for n, _ in dispatch.review_pin.open_p2_findings(last_review)]
+        targets = {}
+        for line in chain[-1][1].get("notes") or []:
+            m = re.match(r"- Filed: (D\d\d T\d\d §\d+) \(P2 (\d+):", line)
+            if m:
+                targets.setdefault(m[2], m[1])
+        missing = [n for n in numbers if n not in targets]
         require(bool(numbers) and not missing,
                 f"each open P2 is filed as a section of its own: a '- Filed: DNN TNN §N (P2 <n>: ...)' line under "
                 f"the last review for P2 {', '.join(missing or ['<none numbered>'])}: {ref}")
+        shared = [n for n in numbers if [targets[m] for m in numbers].count(targets[n]) > 1]
+        require(not shared, f"P2 {', '.join(shared)} are filed under one section: each open P2 is a section of its "
+                            f"own: {ref}")
     below = "blocking" in schedule and not dispatch.review_pin.blocks(schedule, worst) or p2_filed
     require(verdict in ("complete", "reconciled") or (verdict == "filed" and below),
             f"the three-pass policy takes completion verdict complete or reconciled, or filed when the last pass's "

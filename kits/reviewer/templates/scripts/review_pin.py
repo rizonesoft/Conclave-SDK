@@ -341,7 +341,8 @@ def faults(path=PIN, data=None):
         into(per["blocking"], check_blocking, schedule)
     for key in P2_CAPS:
         if key in schedule:
-            into(per[key], check_p2_caps, schedule)
+            if cap_sound:  # pass_cap is already reported when it is not: the P2 caps' bound rests on it
+                into(per[key], check_p2_caps, schedule)
             break
     # The one-owner rule and a conditional entry's overlap read the steps' lens lists, not their efforts: a step
     # whose effort is at fault still has lenses to hold to the rule.
@@ -603,6 +604,12 @@ P2_DATA_LINE = re.compile(r"^\s*`?P2 DATA:\s*(yes|no)\b", re.IGNORECASE | re.MUL
 P2_DATA_TAG = re.compile(r"\bP2 data\b", re.IGNORECASE)
 
 
+P2_TAG_REQUEST = ("Tag each P2 finding `P2 data` when it loses, corrupts or exposes the user's data or reports a "
+                  "failure as success, and `P2` otherwise, and after the `HIGHEST:` line write `P2 DATA: yes` when "
+                  "any open P2 is `P2 data`, `P2 DATA: no` when none is. A reply whose line says no while an open "
+                  "finding is tagged `P2 data` is recorded as incomplete.")
+
+
 def check_p2_caps(schedule):
     missing = [key for key in P2_CAPS if key not in schedule]
     if missing:
@@ -625,11 +632,41 @@ def p2_data(review):
     return True if not found else found[-1].lower() == "yes"
 
 
+FINDING = re.compile(r"^\s*\**\s*(\d+)\.\s*(.+)$", re.MULTILINE)
+CLOSED = re.compile(r"^\W*closed\b", re.IGNORECASE)
+
+
+def open_p2_findings(review):
+    """The reply's open P2 findings, each `(number, data)`: its numbered items that name P2 and are not marked closed
+    (a reconciliation numbers the gaps it closed too), `data` when the item is tagged `P2 data`."""
+    found = []
+    for number, text in FINDING.findall(review or ""):
+        if CLOSED.match(text) or not re.search(r"\bP2\b", text):
+            continue
+        found.append((number, bool(P2_DATA_TAG.search(text))))
+    return found
+
+
 def p2_data_contradicts(review):
-    """A review that tags a finding `P2 data` and still says `P2 DATA: no`: it says two things of one finding."""
+    """A review that tags an open finding `P2 data` and still says `P2 DATA: no`: it says two things of one finding.
+    A closed finding's tag is history, not a contradiction."""
     found = P2_DATA_LINE.findall(review or "")
-    body = P2_DATA_LINE.sub("", review or "")
-    return bool(found) and found[-1].lower() == "no" and bool(P2_DATA_TAG.search(body))
+    return bool(found) and found[-1].lower() == "no" and any(data for _, data in open_p2_findings(review))
+
+
+def stalled(schedule, worsts):
+    """Whether the chain whose passes' worst findings are `worsts` (the completion first) has reached the pin's
+    no_progress_cap: that many reconciliations in a row whose worst finding was no less severe than the one before."""
+    stall = no_progress_cap(schedule)
+    if stall is None:
+        return False
+    rank = {"P1": 0, "P2": 1, "P3": 2, "none": 3, None: 0}
+    run = 0
+    for before, after in reversed(list(zip(worsts, worsts[1:]))):
+        if rank[after] > rank[before]:
+            break
+        run += 1
+    return run >= stall
 
 
 def p2_cap(schedule, data):
@@ -876,7 +913,8 @@ def lens_block(plan, schedule=None):
         return "\n".join(["", "", "## Verdict line for this pass (asked for by scripts/review-dispatch.py)", "",
                           "Before the final verdict line the prompt above asks for, write one line `HIGHEST: P1`, "
                           "`HIGHEST: P2`, `HIGHEST: P3` or `HIGHEST: none` for the worst finding of the whole review. "
-                          "A reply without it is recorded as incomplete, not as a review."]) + "\n"
+                          "A reply without it is recorded as incomplete, not as a review."]
+                         + ([P2_TAG_REQUEST] if any(key in (schedule or {}) for key in P2_CAPS) else [])) + "\n"
     where = f"Round {plan['position']}" if plan["position"] else "This pass"
     ran = f"{where} runs at {plan['effort']} reasoning effort" if plan["effort"] else f"{where} has these lenses"
     lines = ["", "", "## Lenses for this pass (scheduled by scripts/review-dispatch.py)", "",
@@ -890,10 +928,7 @@ def lens_block(plan, schedule=None):
                       "`HIGHEST: P2`, `HIGHEST: P3` or `HIGHEST: none` for the worst finding of the whole review. A "
                       "reply that leaves out a lens line is recorded as incomplete, not as a review:", ""]
         if any(key in (schedule or {}) for key in P2_CAPS):
-            lines[-1:-1] = ["Tag each P2 finding `P2 data` when it loses, corrupts or exposes the user's data or "
-                            "reports a failure as success, and `P2` otherwise, and after the `HIGHEST:` line write "
-                            "`P2 DATA: yes` when any P2 is `P2 data`, `P2 DATA: no` when none is. A reply whose line "
-                            "says no while a finding is tagged `P2 data` is recorded as incomplete.", ""]
+            lines[-1:-1] = [P2_TAG_REQUEST, ""]
         lines += [f"LENS {name}: <clean|findings>" for name in plan["lenses"]]
     return "\n".join(lines) + "\n"
 

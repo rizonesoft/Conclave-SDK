@@ -746,6 +746,15 @@ class P2Gate(ThreePass):
         self.refused("reconciliation", more, "a data P2 after 4 reconciliations, the pin's cap for it")
         del tip
 
+    def test_a_stopped_chain_is_reported_as_no_longer_blocking(self):
+        # Round 1 of D00 T01 §10: the summary said blocking while no_progress_cap had stopped the chain.
+        pin = PIN.replace("pass_cap = 5", 'pass_cap = 9\nno_progress_cap = 1\nblocking = ["P1", "P2"]\n'
+                                          'p2_file_after = 3\np2_data_file_after = 6')
+        self.base = self.commit("a stall pin", {".conclave/reviewers.toml": pin})
+        tip, summaries = self.chain_of(False, 1)
+        self.assertEqual([s["blocking"] for s in summaries], [True, False])
+        del tip
+
     def test_no_p2_data_line_counts_as_data(self):
         tip, summaries = self.chain_of(None, 2)
         self.assertEqual(([s["p2_data"] for s in summaries], summaries[-1]["blocking"]), ([True] * 3, True))

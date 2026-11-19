@@ -1527,12 +1527,15 @@ def main(argv=None):
         # What the review's worst finding means under the pin: only a blocking level holds the stamp or earns
         # another pass.
         worst = declared_highest(result["review"])
-        spent = 0
+        spent, worsts = 0, [worst]
         if args.kind == "reconciliation" and args.record:
-            found = read_findings(existing_findings(Path(args.record), "reconciliation"))
-            spent = 1 + sum(1 for e in (found or {}).get("reconciliations", [])
-                            if returned_one_pass(e, "reconciliation"))
-        result.update(highest=worst, blocking=review_pin.holds(schedule, worst, result["review"], spent))
+            found = read_findings(existing_findings(Path(args.record), "reconciliation")) or {}
+            chain = [e for e in found.get("completions", []) if returned_one_pass(e, "completion")] \
+                + [e for e in found.get("reconciliations", []) if returned_one_pass(e, "reconciliation")]
+            spent = len(chain)  # the completion and the reconciliations before this one: this is the next
+            worsts = [declared_highest(e["review"]) for e in chain] + [worst]
+        result.update(highest=worst, blocking=review_pin.holds(schedule, worst, result["review"], spent,
+                                                              review_pin.stalled(schedule, worsts)))
         if any(key in schedule for key in review_pin.P2_CAPS):
             result["p2_data"] = review_pin.p2_data(result["review"])
     if plan and plan["position"] and three_pass:

@@ -2994,7 +2994,11 @@ class ThreePassStamp(Stamp):
             self.setUp()
         finally:
             type(self).PIN_TEXT = THREE_PASS_PIN
-        notes = "\n".join(f"- Filed: D00 T01 §2 (P2 {n}: a.py:{n})" for n in range(1, len(findings) + 1)) \
+        # A third section, so two open P2s can each be filed as a section of their own.
+        self.write(todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "owner-decision", "--"),
+                              (3, "C", 0, "owner-decision", "--")]).replace("**Test checkpoint:**",
+                                                                             STARTED + "**Test checkpoint:**", 1))
+        notes = "\n".join(f"- Filed: D00 T01 §{n + 1} (P2 {n}: a.py:{n})" for n in range(1, len(findings) + 1)) \
             if notes is None else notes
         self.passed("plan", self.start)
         self.tick_work()
@@ -3025,13 +3029,24 @@ class ThreePassStamp(Stamp):
                             verdict="filed")
         self.stamp3_refuses(self.p2_chain(False, 3), "the pin had already let be filed", verdict="filed")
 
-    def test_each_open_p2_needs_its_own_filed_line_and_a_contradiction_is_refused(self):
+    def test_each_open_p2_needs_a_section_of_its_own_and_a_contradiction_is_refused(self):
         two = ("P2", "P2")
         self.stamp3_refuses(self.p2_chain(False, 2, findings=two, notes="- Filed: D00 T01 §2 (P2 1: a.py:1)"),
                             "for P2 2", verdict="filed")
-        self.stamp3(self.p2_chain(False, 2, findings=two), verdict="filed")
+        # Round 1 of D00 T01 §10: two findings filed under one section passed.
+        self.stamp3_refuses(self.p2_chain(False, 2, findings=two, notes="- Filed: D00 T01 §2 (P2 1: a.py:1)\n"
+                                                                         "- Filed: D00 T01 §2 (P2 2: a.py:2)"),
+                            "are filed under one section", verdict="filed")
+        data = self.stamp3(self.p2_chain(False, 2, findings=two), verdict="filed")
+        self.assertEqual(data["completion"]["filed"], ["D00 T01 §2", "D00 T01 §3"])
         self.stamp3_refuses(self.p2_chain(False, 2, findings=("P2 data",)), "says P2 DATA: no while it tags",
                             verdict="filed")
+
+    def test_a_closed_finding_is_neither_filed_nor_a_contradiction(self):
+        # Round 1 of D00 T01 §10: a reconciliation numbers the gaps it closed, and those were counted as open.
+        sha = self.p2_chain(False, 2, findings=("Closed (P2 data)", "P2"), notes="- Filed: D00 T01 §3 (P2 2: a.py:2)")
+        data = self.stamp3(sha, verdict="filed")
+        self.assertEqual(data["completion"]["filed"], ["D00 T01 §3"])
 
     def filed_case(self, blocking, reconciled):
         """A chain whose last pass ends HIGHEST: P2 and gaps, its finding filed as §2, under `blocking`."""

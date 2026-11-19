@@ -753,6 +753,33 @@ class P2Gate(unittest.TestCase):
         self.assertFalse(review_pin.p2_data_contradicts("1. P2 data: the record goes.\nHIGHEST: P2\nP2 DATA: yes"))
         self.assertFalse(review_pin.p2_data_contradicts("1. P2 thin.\nHIGHEST: P2\nP2 DATA: no"))
 
+    def test_an_unsound_pass_cap_is_reported_not_a_crash(self):
+        # Round 1 of D00 T01 §10: the P2 caps' bound subtracted from a pass_cap that was a string.
+        with self.assertRaises(review_pin.Refused) as ctx:
+            load(self.PIN.replace("pass_cap = 45", 'pass_cap = "45"'))
+        self.assertIn("pass_cap", str(ctx.exception))
+        faults = review_pin.faults(self.PIN.replace("pass_cap = 45", 'pass_cap = "45"')) \
+            if hasattr(review_pin, "faults") else None
+        if faults is not None:
+            self.assertTrue(any("pass_cap" in f for f in faults))
+
+    def test_a_lensless_pass_is_asked_for_the_tag_too(self):
+        schedule = load(self.PIN)["schedule"]
+        plan = {"position": None, "effort": "medium", "lenses": [], "escalated": False}
+        self.assertIn("`P2 DATA: yes`", review_pin.lens_block(plan, schedule))
+
+    def test_a_closed_data_finding_is_history_not_a_contradiction(self):
+        text = "1. Closed (P2 data): the record is kept now.\n2. P2: thin.\nHIGHEST: P2\nP2 DATA: no"
+        self.assertFalse(review_pin.p2_data_contradicts(text))
+        self.assertEqual(review_pin.open_p2_findings(text), [("2", False)])
+
+    def test_a_stall_is_read_from_the_worst_findings(self):
+        schedule = load(self.PIN.replace("pass_cap = 45", "pass_cap = 45\nno_progress_cap = 1")
+                        if "no_progress_cap" not in self.PIN else self.PIN)["schedule"]
+        cap = review_pin.no_progress_cap(schedule)
+        self.assertTrue(review_pin.stalled(schedule, ["P2"] * (cap + 1)))
+        self.assertFalse(review_pin.stalled(schedule, ["P1", "P2"] if cap == 1 else ["P2"] * cap))
+
     def test_the_reply_format_asks_for_the_tag_when_the_pin_sets_the_caps(self):
         schedule = load(self.PIN)["schedule"]
         plan = {"position": None, "effort": "medium", "lenses": ["adversarial"], "escalated": False}
