@@ -53,7 +53,9 @@ agy = ["astra"]
 [schedule]
 policy = "three-pass"
 pass_cap = 33
-blocking = ["P1", "P2"]
+# P1 only (owner, 2026-11-19): a P2 or P3 finding is filed as a section of its own and the section stamps; P2 too
+# held D02 T02 §12 for 20 reconciliations over edge cases.
+blocking = ["P1"]
 
 [schedule.plan]
 effort = "medium"
