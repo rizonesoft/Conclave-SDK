@@ -607,7 +607,8 @@ P2_DATA_TAG = re.compile(r"\bP2 data\b", re.IGNORECASE)
 P2_TAG_REQUEST = ("Tag each P2 finding `P2 data` when it loses, corrupts or exposes the user's data or reports a "
                   "failure as success, and `P2` otherwise, and after the `HIGHEST:` line write `P2 DATA: yes` when "
                   "any open P2 is `P2 data`, `P2 DATA: no` when none is. A reply whose line says no while an open "
-                  "finding is tagged `P2 data` is recorded as incomplete.")
+                  "finding's label is `P2 data` is recorded as incomplete; one that leaves the line out takes the "
+                  "data cap.")
 
 
 def check_p2_caps(schedule):
@@ -626,10 +627,14 @@ def check_p2_caps(schedule):
 
 
 def p2_data(review):
-    """Whether a review's P2 findings include one that endangers the user's data: its `P2 DATA:` line, or yes when it
-    has none (an absent line never loosens the gate)."""
+    """Whether a review's P2 findings take the data cap. No reading of a reply ever loosens the gate or refuses a
+    review (D00 T01 §10: four readings of free text each had a counterexample): it is data when its `P2 DATA:` line
+    says yes, when it has no such line, or when any open finding mentions `P2 data`; an ambiguity costs the longer
+    cap, never a review."""
     found = P2_DATA_LINE.findall(review or "")
-    return True if not found else found[-1].lower() == "yes"
+    if not found or found[-1].lower() == "yes":
+        return True
+    return any(data for _, data in open_p2_findings(review))
 
 
 FINDING = re.compile(r"^\s*\**\s*(\d+)\.\s", re.MULTILINE)
@@ -656,11 +661,20 @@ def open_p2_findings(review):
     return found
 
 
+DATA_LABEL = re.compile(r"^[ \t*_`\[(]*(?:open[^\w\n]+)?\(?[ \t]*P2 data\b", re.IGNORECASE)  # its first line only
+
+
 def p2_data_contradicts(review):
-    """A review that tags an open finding `P2 data` and still says `P2 DATA: no`: it says two things of one finding.
-    A closed finding's tag is history, not a contradiction."""
+    """A review that says `P2 DATA: no` beside an open finding whose label, at its very start, is `P2 data`
+    (`1. P2 data: ...`, `1. Open (P2 data): ...`): it says two things of one finding, and is not a verdict. A `P2 data`
+    anywhere else in a finding (a continuation line, quoted evidence) is no contradiction; it takes the data cap."""
     found = P2_DATA_LINE.findall(review or "")
-    return bool(found) and found[-1].lower() == "no" and any(data for _, data in open_p2_findings(review))
+    if not found or found[-1].lower() != "no":
+        return False
+    text = review or ""
+    starts = [(m.group(1), m.end()) for m in FINDING.finditer(text)]
+    labelled = {number for number, at in starts if DATA_LABEL.match(text[at:])}
+    return any(number in labelled for number, _ in open_p2_findings(review))
 
 
 def stalled(schedule, worsts):

@@ -3039,7 +3039,7 @@ class ThreePassStamp(Stamp):
                             "are filed under one section", verdict="filed")
         data = self.stamp3(self.p2_chain(False, 2, findings=two), verdict="filed")
         self.assertEqual(data["completion"]["filed"], ["D00 T01 §2", "D00 T01 §3"])
-        self.stamp3_refuses(self.p2_chain(False, 2, findings=("P2 data",)), "says P2 DATA: no while it tags",
+        self.stamp3_refuses(self.p2_chain(False, 2, findings=("P2 data",)), "while an open finding's label is P2 data",
                             verdict="filed")
 
     def test_a_finding_closed_after_its_severity_is_not_filed(self):

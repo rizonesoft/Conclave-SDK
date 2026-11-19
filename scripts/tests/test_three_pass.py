@@ -761,13 +761,17 @@ class P2Gate(ThreePass):
         self.ok("reconciliation", self.commit("more", {"src/app/a.py": "x = 9\n"}), say=p2_reply("reconciliation", None))
         del tip
 
-    def test_a_reply_that_says_no_of_a_data_finding_is_not_a_review(self):
+    def test_a_reply_that_says_no_of_a_finding_labelled_data_is_not_a_review(self):
         self.ok("plan", self.base)
         built = self.commit("build", {"src/app/a.py": "x = 1\n"})
         self.ok("round", built)
         result, _ = self.run_pass("completion", built, say=p2_reply("completion", False, tag="P2 data"))
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("P2 DATA: no while it tags a finding P2 data", result.stdout + result.stderr)
+        self.assertIn("P2 DATA: no while an open finding's label is P2 data", result.stdout + result.stderr)
+        # A data tag only in a finding's evidence is a review, and takes the data cap (reconciliation 3).
+        quoted = p2_reply("completion", False, tag="Open, P2. The parser read `P2 data (closed)` wrongly; still")
+        summary = self.ok("completion", built, say=quoted)
+        self.assertEqual((summary["p2_data"], summary["blocking"]), (True, True))
 
 
 class Blocking(ThreePass):

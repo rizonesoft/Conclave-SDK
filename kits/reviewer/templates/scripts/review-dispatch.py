@@ -604,7 +604,7 @@ def review(pin, writer, prompt_path, timeout, plan=None, kind="round"):
         # The severity line is what blocking levels, the no-progress count and the stamp read: without it the reply
         # says nothing they can act on.
         undeclared = worst is None
-        # D00 T01 §10: `P2 DATA: no` beside a finding tagged `P2 data` says two things of one finding.
+        # D00 T01 §10: `P2 DATA: no` beside an open finding labelled `P2 data` says two things of one finding.
         mixed = any(key in schedule for key in review_pin.P2_CAPS) and review_pin.p2_data_contradicts(text)
         if not final or missing or contradicts or undeclared or mixed:
             why = ([f"no final {kind} verdict line"] if not final else []) \
@@ -612,7 +612,7 @@ def review(pin, writer, prompt_path, timeout, plan=None, kind="round"):
                 + (["no HIGHEST line"] if undeclared else []) \
                 + ([f"it ends {kind.upper()}: complete but declares HIGHEST: {worst}, which holds the stamp"]
                    if contradicts else []) \
-                + (["it says P2 DATA: no while it tags a finding P2 data"] if mixed else [])
+                + (["it says P2 DATA: no while an open finding's label is P2 data"] if mixed else [])
             return {**none(f"incomplete: {' and '.join(why)}"), "review": text.strip(), "incomplete": missing}
     return {"writer": writer, "reviewer": name, "cli": reviewer["cli"], "model": reviewer["model"],
             "effort": effort, "failover": [], "review": text.strip(), **({"lenses": lenses} if plan else {})}

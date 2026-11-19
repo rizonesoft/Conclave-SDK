@@ -748,10 +748,21 @@ class P2Gate(unittest.TestCase):
         plain = load(THREE_PASS)["schedule"]
         self.assertTrue(review_pin.holds(plain, "P2", ordinary, 40))
 
-    def test_a_reply_that_says_no_of_a_data_finding_contradicts_itself(self):
-        self.assertTrue(review_pin.p2_data_contradicts("1. P2 data: the record goes.\nHIGHEST: P2\nP2 DATA: no"))
-        self.assertFalse(review_pin.p2_data_contradicts("1. P2 data: the record goes.\nHIGHEST: P2\nP2 DATA: yes"))
-        self.assertFalse(review_pin.p2_data_contradicts("1. P2 thin.\nHIGHEST: P2\nP2 DATA: no"))
+    def test_a_line_that_says_no_beside_a_data_tag_takes_the_data_cap(self):
+        # D00 T01 §10: no reading of a reply refuses it; an ambiguity costs the longer cap.
+        self.assertTrue(review_pin.p2_data("1. P2 data: the record goes.\nHIGHEST: P2\nP2 DATA: no"))
+        self.assertTrue(review_pin.p2_data("1. P2 data: the record goes.\nHIGHEST: P2\nP2 DATA: yes"))
+        self.assertFalse(review_pin.p2_data("1. P2 thin.\nHIGHEST: P2\nP2 DATA: no"))
+        # A quoted tag in an open ordinary finding's evidence (reconciliation 3) takes the longer cap, and is not
+        # a refusal.
+        quoted = "1. Open, P2. The parser read `P2 data (closed)` wrongly.\nHIGHEST: P2\nP2 DATA: no"
+        self.assertTrue(review_pin.p2_data(quoted))
+        self.assertFalse(review_pin.p2_data_contradicts(quoted))
+        for labelled in ("1. P2 data: the record goes.", "1. Open (P2 data): the record goes.",
+                         "1. **P2 data.** The record goes."):
+            with self.subTest(labelled):
+                self.assertTrue(review_pin.p2_data_contradicts(labelled + "\nHIGHEST: P2\nP2 DATA: no"))
+        self.assertFalse(review_pin.p2_data_contradicts("1. Open.\n   P2 data: a save.\nHIGHEST: P2\nP2 DATA: no"))
 
     def test_an_unsound_pass_cap_is_reported_not_a_crash(self):
         # Round 1 of D00 T01 §10: the P2 caps' bound subtracted from a pass_cap that was a string.
@@ -770,26 +781,26 @@ class P2Gate(unittest.TestCase):
 
     def test_a_closed_data_finding_is_history_not_a_contradiction(self):
         text = "1. Closed (P2 data): the record is kept now.\n2. P2: thin.\nHIGHEST: P2\nP2 DATA: no"
-        self.assertFalse(review_pin.p2_data_contradicts(text))
+        self.assertFalse(review_pin.p2_data(text))
         self.assertEqual(review_pin.open_p2_findings(text), [("2", False)])
 
     def test_findings_are_read_whole_and_closed_in_any_word_order(self):
         # The completion review of D00 T01 §10: a tag on a continuation line was lost, and `P2 (closed):` read open.
         multiline = "1. Open.\n   P2 data: a failed save reported as successful.\n2. Open (P2): other.\nHIGHEST: P2"
         self.assertEqual(review_pin.open_p2_findings(multiline), [("1", True), ("2", False)])
-        self.assertTrue(review_pin.p2_data_contradicts(multiline + "\nP2 DATA: no"))
+        self.assertTrue(review_pin.p2_data(multiline + "\nP2 DATA: no"))
         closed = "1. P2 (closed): fixed.\n2. Open (P2): pending.\nHIGHEST: P2"
         self.assertEqual(review_pin.open_p2_findings(closed), [("2", False)])
         # Reconciliation 2: the data qualifier between the severity and its status.
         data_closed = "1. P2 data (closed): save failure fixed.\n2. Open (P2): other.\nHIGHEST: P2\nP2 DATA: no"
         self.assertEqual(review_pin.open_p2_findings(data_closed), [("2", False)])
-        self.assertFalse(review_pin.p2_data_contradicts(data_closed))
+        self.assertFalse(review_pin.p2_data(data_closed))
         bold = "1. **Closed.** The P2 is gone.\n2. **Open, P2.** The record still goes.\nLENS a: findings\nHIGHEST: P2"
         self.assertEqual(review_pin.open_p2_findings(bold), [("2", False)])
         # Reconciliation 1: `closed` in a finding's evidence is not its status; the reading errs toward holding.
         evidence = "1. Open (P2 data). A failed save is marked closed.\n2. Open (P2): other.\nHIGHEST: P2"
         self.assertEqual(review_pin.open_p2_findings(evidence), [("1", True), ("2", False)])
-        self.assertTrue(review_pin.p2_data_contradicts(evidence + "\nP2 DATA: no"))
+        self.assertTrue(review_pin.p2_data(evidence + "\nP2 DATA: no"))
 
     def test_a_stall_is_read_from_the_worst_findings(self):
         schedule = load(self.PIN.replace("pass_cap = 45", "pass_cap = 45\nno_progress_cap = 1")

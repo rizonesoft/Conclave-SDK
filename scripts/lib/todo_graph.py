@@ -889,7 +889,7 @@ def three_pass_ok(root, data, ref, found):
     last_review = chain[-1][1]["review"]
     capped = any(key in schedule for key in dispatch.review_pin.P2_CAPS)
     require(not capped or not dispatch.review_pin.p2_data_contradicts(last_review),
-            f"the last review says P2 DATA: no while it tags a finding P2 data: {ref}")
+            f"the last review says P2 DATA: no while an open finding's label is P2 data: {ref}")
     stalled = dispatch.review_pin.stalled(schedule, [dispatch.review_pin.declared_highest(e["review"]) for e in tail])
     p2_filed = capped and worst == "P2" and not dispatch.review_pin.holds(schedule, worst, last_review, len(passed),
                                                                           stalled)
