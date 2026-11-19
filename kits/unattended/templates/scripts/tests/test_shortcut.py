@@ -681,6 +681,20 @@ class ShortcutTest(ShortcutFixture):
         self.assertNotIn("move it aside", checked.stdout)
         self.assertEqual(record.read_bytes(), before)
         (self.project / "scripts" / "unattended-run.py.away").rename(self.project / "scripts" / "unattended-run.py")
+        # A runner from an older kit, which the project changed and update keeps (reconciliation 17): it has no
+        # shortcut-record. The advice is the merge that brings the reader, and following it reads the record again.
+        runner = self.project / "scripts" / "unattended-run.py"
+        current = runner.read_bytes()
+        runner.write_text("import argparse\np = argparse.ArgumentParser()\np.add_subparsers(dest='c', required=True)"
+                          ".add_parser('status')\np.parse_args()\n", encoding="utf-8")
+        older = self.shortcut("-Check")
+        self.assertEqual(older.returncode, 1, older.stdout + older.stderr)
+        self.assertIn("is from an older kit: it has no shortcut-record", older.stdout)
+        self.assertIn("python forge.py update <project> --kit-new", older.stdout)
+        self.assertNotIn("move it aside", older.stdout)
+        self.assertEqual(record.read_bytes(), before)
+        runner.write_bytes(current)  # the merge done
+        self.assertEqual(self.shortcut("-Check").returncode, 0, "the record was not read again once merged")
         # A record another program holds open may be sound: the advice is to try again, not to move it.
         holder = start_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command",
                              "$f = [IO.File]::Open($env:RECORD, 'Open', 'Read', 'None'); 'held'; Start-Sleep 60"],

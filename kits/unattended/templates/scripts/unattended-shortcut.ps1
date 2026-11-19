@@ -58,6 +58,12 @@ $damagedAdvice = "move it aside (keep it to read the other folders back), then r
   '-Icon (and -ShortcutDir) for each folder, which writes a new one'
 $readerAdvice = 'restore what reads it (python on PATH, and scripts/unattended-run.py, which ' +
   "python forge.py update <project> --only scripts/unattended-run.py puts back) and run the script again"
+# A runner from an older kit has no `shortcut-record` (argparse refuses it with exit 2). When the project changed it,
+# update keeps it, so --only cannot bring the reader: --kit-new writes the kit's beside it to merge (reconciliation 17).
+$olderAdvice = "bring scripts/unattended-run.py up to this kit's: python forge.py update <project> --kit-new " +
+  'writes the new one beside it as scripts/unattended-run.py.kit-new to merge (or --only, if the project never ' +
+  'changed it), then run the script again'
+
 $busyAdvice = 'run the script again once nothing holds the file (it may be sound)'
 function Read-Record {
   $result = [pscustomobject]@{ Ok = $true; Sets = @(); Why = ''; Advice = '' }
@@ -83,6 +89,11 @@ function Read-Record {
   if ($code -eq 4 -and $text) {  # held by another program: neither damaged nor read
     $result.Why = $text
     $result.Advice = $busyAdvice
+    return $result
+  }
+  if ($code -eq 2 -and $text -match 'invalid choice') {
+    $result.Why = 'scripts/unattended-run.py is from an older kit: it has no shortcut-record'
+    $result.Advice = $olderAdvice
     return $result
   }
   if ($code -ne 0) {
