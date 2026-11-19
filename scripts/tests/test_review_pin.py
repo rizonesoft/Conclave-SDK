@@ -782,6 +782,10 @@ class P2Gate(unittest.TestCase):
         self.assertEqual(review_pin.open_p2_findings(closed), [("2", False)])
         bold = "1. **Closed.** The P2 is gone.\n2. **Open, P2.** The record still goes.\nLENS a: findings\nHIGHEST: P2"
         self.assertEqual(review_pin.open_p2_findings(bold), [("2", False)])
+        # Reconciliation 1: `closed` in a finding's evidence is not its status; the reading errs toward holding.
+        evidence = "1. Open (P2 data). A failed save is marked closed.\n2. Open (P2): other.\nHIGHEST: P2"
+        self.assertEqual(review_pin.open_p2_findings(evidence), [("1", True), ("2", False)])
+        self.assertTrue(review_pin.p2_data_contradicts(evidence + "\nP2 DATA: no"))
 
     def test_a_stall_is_read_from_the_worst_findings(self):
         schedule = load(self.PIN.replace("pass_cap = 45", "pass_cap = 45\nno_progress_cap = 1")

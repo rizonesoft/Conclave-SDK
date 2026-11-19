@@ -633,13 +633,16 @@ def p2_data(review):
 
 
 FINDING = re.compile(r"^\s*\**\s*(\d+)\.\s", re.MULTILINE)
+CLOSED_LABEL = re.compile(r"^[\s*_`\[(]*(?:closed\b|P[123]\W{0,3}\(\s*closed\s*\))", re.IGNORECASE)
 
 
 def open_p2_findings(review):
     """The reply's open P2 findings, each `(number, data)`. A finding is a numbered item with every line up to the
-    next one (a tag on a continuation line is the item's); it is closed when its heading, the text before its first
-    colon, says so in any word order (`Closed (P2 data):`, `P2 (closed):`; a reconciliation numbers the gaps it
-    closed too); `data` when the item is tagged `P2 data` anywhere in it."""
+    next one (a tag on a continuation line is the item's). The reading only ever errs toward holding the stamp
+    (D00 T01 §10: three readings of free text each had a counterexample): a finding is closed only when its label at
+    the very start says so (`Closed ...`, `**Closed.**`, `P2 (closed)`), never because `closed` appears in its
+    evidence, and it is data when `P2 data` appears anywhere in it. A misreading files one section too many or keeps
+    the longer cap; it never lets an open data finding go."""
     text = review or ""
     starts = [(m.start(), m.group(1), m.end()) for m in FINDING.finditer(text)]
     found = []
@@ -647,8 +650,7 @@ def open_p2_findings(review):
         end = starts[i + 1][0] if i + 1 < len(starts) else len(text)
         body = text[body_at:end]
         body = body.split("\nLENS ", 1)[0].split("\nHIGHEST:", 1)[0]  # the verdict lines after the last item
-        heading = body.split(":", 1)[0]
-        if re.search(r"\bclosed\b", heading, re.IGNORECASE) or not re.search(r"\bP2\b", body):
+        if CLOSED_LABEL.match(body) or not re.search(r"\bP2\b", body):
             continue
         found.append((number, bool(P2_DATA_TAG.search(body))))
     return found
