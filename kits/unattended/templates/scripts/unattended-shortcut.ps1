@@ -51,33 +51,56 @@ function Get-DeskKey([string]$dir) { [IO.Path]::GetFullPath($dir).TrimEnd('\').T
 # The record is read by the runner's own reader (`unattended-run.py shortcut-record`), the one status uses: strict
 # UTF-8, strict JSON and exactly the shape Save-Sets writes. One reader, so the script and status never disagree on
 # a file (D02 T02 §12: reconciliations 1, 7, 9, 10, 11 and 12 each found a file this script's own reader took and
-# Python's refused). Without Python the record cannot be read, so it is kept as it is. Its sets come back; a record
-# that cannot be read sets $recordUnread to why.
-$recordUnread = $null
-function Read-Sets {
-  if (-not (Test-Path -LiteralPath $recordPath -PathType Leaf)) { return }
+# Python's refused). Its result says what happened, never left to be read from its text (reconciliation 13): Ok with
+# the sets (none without a record); a damaged record (the reader's exit 3), to be moved aside; or a reader that did
+# not answer (missing, or ended without its answer), when the record, which may be sound, is kept for the reader.
+$damagedAdvice = "move it aside (keep it to read the other folders back), then run the script with -Distro and " +
+  '-Icon (and -ShortcutDir) for each folder, which writes a new one'
+$readerAdvice = 'restore what reads it (python on PATH and scripts/unattended-run.py, which python forge.py update ' +
+  'puts back) and run the script again'
+function Read-Record {
+  $result = [pscustomobject]@{ Ok = $true; Sets = @(); Why = ''; Advice = '' }
+  if (-not (Test-Path -LiteralPath $recordPath -PathType Leaf)) { return $result }
+  $result.Ok = $false
+  $result.Advice = $readerAdvice
   $runner = Join-Path $here 'unattended-run.py'
   $py = if ($Python) { $Python } else {
     (Get-Command python -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
   }
   if (-not $py -or -not (Test-Path -LiteralPath $runner -PathType Leaf)) {
-    $script:recordUnread = 'python and scripts/unattended-run.py read it, and one of them is missing'
-    return
+    $result.Why = 'python and scripts/unattended-run.py read it, and one of them is missing'
+    return $result
   }
   $said = @(& $py -B $runner shortcut-record $recordPath 2>&1)
-  if ($LASTEXITCODE -ne 0) { $script:recordUnread = ($said -join ' ').Trim(); return }
-  # The reader's own output, ASCII JSON of a record it has checked.
-  (ConvertFrom-Json -InputObject ($said -join "`n") -NoEnumerate).sets
+  $code = $LASTEXITCODE
+  $text = ($said -join "`n").Trim()
+  if ($code -eq 3 -and $text) {
+    $result.Why = $text
+    $result.Advice = $damagedAdvice
+    return $result
+  }
+  if ($code -ne 0) {
+    $result.Why = "its reader ended with exit $code" + $(if ($text) { ": $text" } else { ' and said nothing' })
+    return $result
+  }
+  try { $data = ConvertFrom-Json -InputObject $text -NoEnumerate -ErrorAction Stop } catch { $data = $null }
+  if ($data -isnot [Management.Automation.PSCustomObject] -or $data.sets -isnot [array]) {
+    $result.Why = 'its reader gave no answer this script can read'
+    return $result
+  }
+  $result.Ok = $true
+  $result.Sets = @($data.sets)
+  $result
 }
 $set = $null
 if ($Refresh -or $Check) {
   if ($Remove) { Refuse '-Refresh and -Check work on the links -Remove removes: give one' }
   if ($Refresh -and $Check) { Refuse '-Refresh writes the links and -Check only reads them: give one' }
-  $sets = @(Read-Sets)
-  if ($recordUnread) {
-    Refuse ("the record of this project's shortcuts ($recordPath) cannot be read ($recordUnread); it is kept, since " +
-      "it may hold other folders' sets: move it aside (keep it to read those folders back), then run the script with " +
-      '-Distro and -Icon (and -ShortcutDir) for each folder, which writes a new one')
+  $read = Read-Record
+  $sets = @($read.Sets)
+  if (-not $read.Ok) {
+    Refuse ("the record of this project's shortcuts ($recordPath) cannot be read ($($read.Why)); it is kept, since " +
+      "it may hold other folders' sets: $($read.Advice)")
   }
   $verb = if ($Refresh) { '-Refresh' } else { '-Check' }
   if ($PSBoundParameters.ContainsKey('ShortcutDir')) {
@@ -519,7 +542,9 @@ if (-not $Check) { Restore-Stopped }
 # The set a refresh or a check works from is read again now that no other run can change it: a removal or a write
 # that ran while this one waited for the lock is what it sees.
 if ($set) {
-  $now = @(Read-Sets) | Where-Object { (Get-DeskKey $_.args.ShortcutDir) -eq (Get-DeskKey $set.args.ShortcutDir) } |
+  $again = Read-Record
+  if (-not $again.Ok) { Refuse "the record of '$($set.args.ShortcutDir)' cannot be read now ($($again.Why))" }
+  $now = @($again.Sets) | Where-Object { (Get-DeskKey $_.args.ShortcutDir) -eq (Get-DeskKey $set.args.ShortcutDir) } |
     Select-Object -First 1
   if (-not $now -or ($now | ConvertTo-Json -Depth 6 -Compress) -ne ($set | ConvertTo-Json -Depth 6 -Compress)) {
     Refuse "the record of '$($set.args.ShortcutDir)' changed while this run waited for the lock; run it again"
@@ -538,15 +563,14 @@ if ($unreadJournals) {
 # over the old. The links are in place, or gone, whatever happens here: a record that cannot be written is said, and
 # `status` cannot then tell a stale link (-Check still can).
 function Save-Sets($entry) {
-  $script:recordUnread = $null
-  $read = @(Read-Sets)
-  if ($recordUnread) {
-    "unattended-shortcut: the record $recordPath cannot be read ($recordUnread), so it is left as it is (it may hold " +
-      "other folders' sets); status cannot tell whether these links are current (-Check reads them). Move it aside " +
-      'and run the script again to start a new record'
+  $read = Read-Record
+  if (-not $read.Ok) {
+    "unattended-shortcut: the record $recordPath cannot be read ($($read.Why)), so it is left as it is (it may hold " +
+      "other folders' sets); status cannot tell whether these links are current (-Check reads them). To start a new " +
+      "record: $($read.Advice)"
     return
   }
-  $others = @($read | Where-Object { $_ -and (Get-DeskKey $_.args.ShortcutDir) -ne (Get-DeskKey $ShortcutDir) })
+  $others = @($read.Sets | Where-Object { $_ -and (Get-DeskKey $_.args.ShortcutDir) -ne (Get-DeskKey $ShortcutDir) })
   $all = @($others) + @($entry | Where-Object { $_ })
   $temp = "$recordPath.$PID.tmp"
   try {
@@ -567,15 +591,15 @@ if ($Remove) {
   $badges = @(Get-Badges $links)
   # The project's links in another recorded folder that share this icon folder show the same badges: they stay. So
   # do they while the record cannot be read, since it may name such a folder.
-  $script:recordUnread = $null
-  $sharing = @(Read-Sets | Where-Object {
+  $read = Read-Record
+  $sharing = @($read.Sets | Where-Object {
       (Get-DeskKey $_.args.ShortcutDir) -ne (Get-DeskKey $ShortcutDir) -and $_.args.IconDir -and
       (Get-DeskKey $_.args.IconDir) -eq (Get-DeskKey $IconDir) })
-  if ($recordUnread) {
-    "unattended-shortcut: the record $recordPath cannot be read ($recordUnread), so the badges in '$IconDir' stay " +
+  if (-not $read.Ok) {
+    "unattended-shortcut: the record $recordPath cannot be read ($($read.Why)), so the badges in '$IconDir' stay " +
       "(another folder's links may show them)"
   }
-  if ($sharing -or $recordUnread) { $badges = @() }
+  if ($sharing -or -not $read.Ok) { $badges = @() }
   $asidePlan = @(@($links) + @($badges) |
     ForEach-Object { [pscustomobject]@{ to = $_.FullName; old = "$($_.FullName).$PID.old" } })
   $aside = [Collections.Generic.List[object]]::new()

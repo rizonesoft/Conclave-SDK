@@ -651,11 +651,40 @@ class ShortcutTest(ShortcutFixture):
                 self.assertEqual(checked.returncode, 1, checked.stdout + checked.stderr)
                 self.assertIn("cannot be read", checked.stdout)
 
+    def test_a_reader_that_does_not_answer_keeps_the_record_and_the_badges(self):
+        # Reconciliation 13: a reader ended without its answer read as zero sets, so an install could replace a
+        # sound multi-folder record and a removal take another folder's badges. Its result is now explicit.
+        self.install()
+        other = Path(self._tmp.name) / "desk2"
+        self.assertEqual(self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon), desk=other).returncode, 0)
+        record = self.project / "build" / "unattended-shortcuts.json"
+        before = record.read_bytes()
+        silent = Path(self._tmp.name) / "silent-python.cmd"
+        silent.write_text("@exit /b 9\r\n", encoding="utf-8")  # a reader ended before it said anything
+        removed = run_tree([PWSH, "-NoProfile", "-NonInteractive", "-File",
+                            str(self.project / "scripts" / "unattended-shortcut.ps1"), "-Remove", "-ShortcutDir",
+                            str(other), "-IconDir", str(self.icons),
+                            "-Desktops", str(Path(self._tmp.name) / "desktops"),
+                            "-Wsl", str(self.wsl), "-Python", str(silent)],
+                           text=True, timeout=180, env=self.env, creationflags=windowless())
+        self.assertEqual(removed.returncode, 0, removed.stdout + removed.stderr)
+        self.assertIn("its reader ended with exit 9 and said nothing", removed.stdout)
+        self.assertEqual(record.read_bytes(), before, "a reader that did not answer let the record be rewritten")
+        self.assertTrue(list(self.icons.glob("campaign-*.ico")), "a reader that did not answer let the badges go")
+        self.assertEqual(self.shortcut("-Check").returncode, 0, "the desktop's links lost their badges")
+        # A missing runner is a reader that cannot answer: the advice is to restore it, not to move a sound record.
+        (self.project / "scripts" / "unattended-run.py").rename(self.project / "scripts" / "unattended-run.py.away")
+        checked = self.shortcut("-Check")
+        self.assertEqual(checked.returncode, 1, checked.stdout + checked.stderr)
+        self.assertIn("restore what reads it", checked.stdout)
+        self.assertNotIn("move it aside", checked.stdout)
+        self.assertEqual(record.read_bytes(), before)
+
     def test_the_script_reads_the_record_with_the_runners_reader(self):
         # The redesign: one reader for the script and status, so they agree on every file by construction.
         script = (SCRIPTS / "unattended-shortcut.ps1").read_text(encoding="utf-8")
         self.assertIn("shortcut-record $recordPath", script)
-        self.assertNotIn("ConvertFrom-Json -InputObject $text", script)
+        self.assertNotIn("Get-Content -LiteralPath $recordPath", script)
 
     def test_the_script_refuses_a_file_strict_json_refuses(self):
         # Reconciliation 11: ConvertFrom-Json took a trailing comma that both Python readers refused.
@@ -718,7 +747,8 @@ class ShortcutTest(ShortcutFixture):
         wrapper = (
             "$global:journalScans = 0\n"
             "function Get-ChildItem {\n"
-            "  if ($args -contains '-Filter' -and ($args[[array]::IndexOf($args, '-Filter') + 1]) -like '*journal.json*') {\n"
+            "  $filter = if ($args -contains '-Filter') { $args[[array]::IndexOf($args, '-Filter') + 1] }\n"
+            "  if ($filter -like '*journal.json*') {\n"
             "    $global:journalScans++\n"
             "    if ($global:journalScans -eq 1) { Set-Content -LiteralPath $env:PARTIAL -Value '{'; return }\n"
             "  }\n"
@@ -729,7 +759,8 @@ class ShortcutTest(ShortcutFixture):
             "exit $LASTEXITCODE\n")
         done = run_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command", wrapper], capture_output=True,
                               text=True, timeout=180, creationflags=windowless(),
-                              env={**self.env, "PARTIAL": str(partial), "DESK": str(self.desk), "ICONS": str(self.icons),
+                              env={**self.env, "PARTIAL": str(partial), "DESK": str(self.desk),
+                                   "ICONS": str(self.icons),
                                    "DESKTOPS": str(Path(self._tmp.name) / "desktops"), "WSL": str(self.wsl),
                                    "PY": sys.executable,
                                    "SCRIPT": str(self.project / "scripts" / "unattended-shortcut.ps1")})
