@@ -156,11 +156,11 @@ Sections: 6 | Checklist items: 32
 
 ### Phase 8: Project launchers
 
-Sections: 16 | Checklist items: 138
+Sections: 16 | Checklist items: 139
 
 | Status | Reference  | Deliverable                                                             | Needs        | Items |
 | ------ | ---------- | ----------------------------------------------------------------------- | ------------ | ----- |
-| [ ]    | D00 T01 §9 | Re-plan route for a chain that cannot settle, recovery planned up front | none         | 5     |
+| [ ]    | D00 T01 §9 | Re-plan route for a chain that cannot settle, recovery planned up front | none         | 6     |
 | [x]    | D07 T01 §1 | Launchers kit known to `forge.py`                                       | none         | 9     |
 | [x]    | D07 T01 §2 | Launcher profile `.conclave/launchers.json` and its loader              | none         | 7     |
 | [x]    | D07 T01 §3 | Icon renderer owned by the launchers kit                                | none         | 12    |
@@ -216,4 +216,4 @@ Sections: 4 | Checklist items: 33
 
 Progress: 104/131 verified sections, 8 ready to run now.
 
-Checklist: 862/1018 items completed (includes Commit items).
+Checklist: 862/1019 items completed (includes Commit items).
