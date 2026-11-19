@@ -23,7 +23,7 @@
 Format and rules: todo/README.md. Stdlib only.
 """
 import argparse
-from datetime import date
+from datetime import date, datetime, timezone
 import json
 from pathlib import Path
 import re
@@ -32,8 +32,8 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from todo_graph import (ROOT, Refused, adjacency_report, adopt_stamps, atomic, deferrals, disposition,  # noqa: E402
                         extract_ref, filing_couplings, frozen_files, graph, longest_chain, missing_needs, ordered,
-                        plan_config, plan_file, plan_status, projections, receipts_folder, require, review_rounds,
-                        session_needs, settled, stamp, suspects, unstamp)
+                        plan_config, plan_file, plan_status, projections, receipts_folder, replan, require,
+                        review_rounds, session_needs, settled, stamp, suspects, unstamp)
 
 
 def review_round(value):
@@ -94,6 +94,9 @@ def main():
                                              "(the adopted and adoption keys of the receipts folder's legacy file)")
     ad.add_argument("--phase-map", help="a JSON file from a section reference or TODO file path to its phase, for "
                                         "stamped sections with no Phase field (a section's key wins over its file's)")
+    rp = sub.add_parser("replan", help="a review chain that cannot settle: keep it as -chain<k>.md and start again")
+    rp.add_argument("ref")
+    rp.add_argument("--date", default=date.today().isoformat())
     u = sub.add_parser("unstamp", help="an audit found a stamped section regressed: reopen it, keeping the receipt")
     u.add_argument("ref")
     u.add_argument("--reason", required=True)
@@ -116,6 +119,14 @@ def main():
         for ref, commit in adopted:
             print(f"adopted {ref} at {commit}")
         print(f"adopted {len(adopted)} stamps")
+        return 0
+    if args.command == "replan":
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+        done = replan(ROOT, args.ref, args.date, now)
+        print(f"replan {args.ref}: review chain kept as {done['kept']}; {done['started']}"
+              + (" (already re-planned)" if done["done"] == "already" else ""))
+        print("next: correct the item with a dated Corrected note, commit the section, then run its plan review "
+              "(review-dispatch.py --kind plan) into a new findings file")
         return 0
     if args.command == "unstamp":
         revoked = unstamp(ROOT, args.ref, args.reason, args.date)

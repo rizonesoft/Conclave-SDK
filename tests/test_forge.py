@@ -1066,6 +1066,17 @@ class ForgeProvisionTests(unittest.TestCase):
             pts_text = (self.target / agent_dir / "skills/process-todo-section/SKILL.md").read_text(encoding="utf-8")
             self.assertIn("Commits follow logical steps", pts_text)
             self.assertIn("five-part micro-steps", pts_text)
+            # D00 T01 §9: recovery is planned before the build, and a chain that cannot settle is re-planned.
+            for part in ("writes, moves or deletes files outside the repository", "the lock that keeps a second run out",
+                         "the durable record of a change in progress", "the ownership check before a file is replaced",
+                         "when that record may be removed"):
+                self.assertIn(part, pts_text, (agent_dir, part))
+            rts_text = (self.target / agent_dir / "skills/review-todo-section/SKILL.md").read_text(encoding="utf-8")
+            for part in ("**When a chain cannot settle.**", "python scripts/todo-graph.py replan '<ref>'",
+                         "`D<NN>-T<NN>-s<N>-chain<k>.md`", "correct the item with a dated", "replaces the section's "
+                         "`Started:` line", "run a new plan review on it", "record the decision in the run file",
+                         "**A gap reopened twice.**"):
+                self.assertIn(part, rts_text, (agent_dir, part))
             groom_text = (self.target / agent_dir / "skills/groom-plan/SKILL.md").read_text(encoding="utf-8")
             self.assertIn("100% complete, shippable product", groom_text)
             self.assertIn("five-part rule", groom_text)

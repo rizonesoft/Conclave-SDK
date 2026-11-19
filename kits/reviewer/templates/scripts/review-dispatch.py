@@ -122,6 +122,9 @@ MAX_OUTPUT_BYTES = 2_000_000
 # The prompt's reply format ends with an OVERALL line; `blocked` means the reviewer never saw the work.
 BLOCKED = re.compile(r"^\s*(?:OVERALL|COMPLETION):\s*blocked\b", re.IGNORECASE)
 POLL_SECONDS = 0.2
+# A section's earlier review chain, kept beside its findings file (`D<NN>-T<NN>-s<N>-chain<k>.md`, the todo kit's
+# `replan`): closed to new passes.
+KEPT_CHAIN = re.compile(r"-s[1-9]\d*-chain[1-9]\d*\.md$")
 CLEANUP_SECONDS = 10
 # The last lines each one-pass review owes, by --kind: what makes a reply a returned review of that kind.
 FOOTERS = {"completion": ("COMPLETION: complete", "COMPLETION: gaps"),
@@ -1465,6 +1468,11 @@ def main(argv=None):
     if args.kind == "round" and args.candidate and not CANDIDATE.fullmatch(args.candidate):
         parser.error("--candidate must be the full 40-character commit under review")
     try:
+        # A section's earlier chain, kept by the todo kit's `replan` (D00 T01 §9), is closed: nothing is appended to
+        # it, and no reviewer runs for a pass that could not be recorded.
+        if args.record and KEPT_CHAIN.search(Path(args.record).name):
+            raise Refused(f"{args.record} is a kept earlier review chain (todo-graph.py replan): record the pass in "
+                          "the section's own findings file")
         # A section keeps the pin its plan review read, schedule and route both.
         pin = section_pin(args.pin, args.record, args.kind, args.candidate)
         schedule = pin.get("schedule", {})

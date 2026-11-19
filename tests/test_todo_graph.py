@@ -1362,6 +1362,21 @@ class Stamp(Tree):
         return tg.stamp(self.root, *args, completion=completion or {"report": self.COMPLETION, "verdict": "complete"},
                         plan=plan, **kwargs)
 
+    def test_a_kept_chain_is_refused_as_plan_or_completion_under_a_rotation_pin(self):
+        # D00 T01 §9: a section's earlier chain, kept as -chain<k>.md by replan, is closed.
+        self.tick_work()
+        plan = self.ensure_plan("D00 T01 §1")
+        chain_plan = plan.replace(".md", "-chain1.md")
+        shutil.copyfile(self.root / plan, self.root / chain_plan)
+        chain_completion = self.COMPLETION.replace("-completion.md", "-chain1.md")
+        shutil.copyfile(self.root / self.COMPLETION, self.root / chain_completion)
+        for kwargs in ({"plan": chain_plan}, {"completion": {"report": chain_completion, "verdict": "complete"}}):
+            with self.subTest(next(iter(kwargs))):
+                with self.assertRaises(tg.Refused) as ctx:
+                    self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-23", **kwargs)
+                self.assertIn("is a kept earlier review chain", str(ctx.exception))
+        self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-23")  # the own files stamp
+
     def completion_refuses(self, completion, fragment):
         before = self.snapshot()
         with self.assertRaises(tg.Refused) as ctx:
@@ -2788,6 +2803,93 @@ class ThreePassStamp(Stamp):
             self.passed("round", sha, reviewer="sol")
             self.passed("completion", sha)
             self.stamp3_refuses(sha, "not the reviewer astra")
+
+    def replan_now(self, now="2026-10-25T00:00Z"):
+        return tg.replan(self.root, "D00 T01 §1", "2026-10-25", now)
+
+    def test_the_replan_route_keeps_the_chain_and_a_new_chain_stamps(self):
+        # D00 T01 §9: a chain that cannot settle is re-planned. Followed end to end: the findings file is kept as
+        # -chain1.md, Started is replaced (the old one in a dated note), the corrected section is committed, and a new
+        # plan review, round and completion stamp it.
+        self.chain(completion=("P2", True))
+        own = self.root / self.FILE
+        before = own.read_bytes()
+        done = self.replan_now()
+        kept = self.root / self.FILE.replace(".md", "-chain1.md")
+        self.assertEqual((done["done"], kept.read_bytes(), own.exists()), ("moved", before, False))
+        body = tg.graph(self.root)["D00 T01 §1"].body
+        self.assertIn("> **Started:** 2026-10-25T00:00Z", body)
+        self.assertNotIn("> **Started:** 2026-10-23T00:00Z", body)
+        self.assertIn("**Corrected 2026-10-25:** re-planned with `todo-graph.py replan`; the build first began at "
+                      "2026-10-23T00:00Z; its review chain is kept as `docs/reviews/00-workspace/D00-T01-s1-chain1.md`.",
+                      body)
+        self.start = self.commit("replan")  # the corrected section and its new Started, one commit
+        own.write_text("# Review findings\n", encoding="utf-8")
+        self.passed("plan", self.start)
+        sha = self.build("rebuild")
+        self.passed("round", sha)
+        self.passed("completion", sha)
+        data = self.stamp3(sha)
+        self.assertEqual(data["plan"]["candidate"], self.start)
+        self.assertEqual(kept.read_bytes(), before, "the stamp touched the kept chain")
+
+    def test_a_second_replan_keeps_the_first_chain_and_a_retry_changes_nothing(self):
+        self.chain(completion=("P2", True))
+        self.replan_now()
+        first = self.root / self.FILE.replace(".md", "-chain1.md")
+        first_bytes = first.read_bytes()
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        after = todo.read_bytes()
+        self.assertEqual(self.replan_now("2026-10-25T00:05Z")["done"], "already")  # a retry: nothing left to do
+        self.assertEqual(todo.read_bytes(), after)
+        self.commit("replan")
+        (self.root / self.FILE).write_text("# Review findings\n", encoding="utf-8")
+        self.passed("plan", self.head())
+        self.replan_now("2026-10-26T00:00Z")
+        second = self.root / self.FILE.replace(".md", "-chain2.md")
+        self.assertTrue(second.exists())
+        self.assertEqual(first.read_bytes(), first_bytes, "a second replan wrote over the first chain")
+        # A stop after the move and before the TODO was written: the retry writes the note naming the new chain.
+        self.commit("replan 2")
+        (self.root / self.FILE).write_text("# Review findings\n", encoding="utf-8")
+        os.replace(self.root / self.FILE, self.root / self.FILE.replace(".md", "-chain3.md"))
+        self.assertEqual(self.replan_now("2026-10-27T00:00Z")["done"], "noted")
+        self.assertIn("-chain3.md`.", tg.graph(self.root)["D00 T01 §1"].body)
+
+    def test_query_rounds_lists_each_kept_chain_with_its_returned_passes(self):
+        self.chain(completion=("P2", True))  # plan, round, completion: 3 returned
+        self.replan_now()
+        self.start = self.commit("replan")
+        own = self.root / self.FILE
+        own.write_text("# Review findings\n", encoding="utf-8")
+        self.passed("plan", self.start, reviewer="", review="no review")  # an attempt that returned none
+        self.passed("plan", self.start)
+        self.replan_now("2026-10-26T00:00Z")  # chain2: one returned plan review
+        self.start = self.commit("replan 2")
+        own.write_text("# Review findings\n", encoding="utf-8")
+        self.passed("plan", self.start)
+        sha = self.build("rebuild")
+        self.passed("round", sha)
+        self.passed("completion", sha)
+        self.stamp3(sha)
+        (row,) = [r for r in tg.review_rounds(self.root)["sections"] if r["ref"] == "D00 T01 §1"]
+        self.assertEqual(row["kept_chains"], [
+            {"file": "docs/reviews/00-workspace/D00-T01-s1-chain1.md", "passes_returned": 3},
+            {"file": "docs/reviews/00-workspace/D00-T01-s1-chain2.md", "passes_returned": 1}])
+        self.assertEqual(row["rounds_spent"], 1)
+
+    def test_a_kept_chain_is_refused_as_plan_or_completion_under_a_three_pass_pin(self):
+        sha = self.chain()
+        chain = self.FILE.replace(".md", "-chain1.md")
+        shutil.copyfile(self.root / self.FILE, self.root / chain)
+        for kwargs in ({"plan": chain}, {"completion": {"report": chain, "verdict": "complete"}}):
+            with self.subTest(next(iter(kwargs))):
+                args = {"completion": {"report": self.FILE, "verdict": "complete"}, "plan": self.FILE, **kwargs}
+                with self.assertRaises(tg.Refused) as ctx:
+                    tg.stamp(self.root, "D00 T01 §1", sha, [{"round": 1, "report": self.FILE, "verdict": "clean"}],
+                             ["true -> ok"], "2026-10-24", **args)
+                self.assertIn("is a kept earlier review chain", str(ctx.exception))
+        self.stamp3(sha)
 
     def setUp_again(self):
         self.tearDown()

@@ -225,6 +225,18 @@ class Chain(ThreePass):
         self.assertIn("LENS adversarial: <clean|findings>", prompt)
         self.assertIn("- `integration`:", prompt)
 
+    def test_a_kept_chain_is_refused_before_a_reviewer_runs_and_left_as_it_was(self):
+        # D00 T01 §9: the todo kit's replan keeps a section's earlier chain as -chain<k>.md, closed to new passes.
+        self.ok("plan", self.base)
+        kept = self.record.with_name(self.record.stem + "-chain1.md")
+        self.record.replace(kept)
+        before = kept.read_bytes()
+        self.record = kept
+        for kind in ("plan", "round", "completion", "reconciliation"):
+            with self.subTest(kind):
+                self.refused(kind, self.base, "is a kept earlier review chain")
+        self.assertEqual(kept.read_bytes(), before, "a refused pass changed the kept chain")
+
     def test_a_pass_out_of_order_is_refused_before_a_reviewer_runs(self):
         self.refused("round", self.base, "needs the section's returned plan review first")
         self.refused("completion", self.base, "needs the section's returned plan review first")

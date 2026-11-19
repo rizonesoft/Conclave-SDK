@@ -73,6 +73,8 @@ Seven questions, each answered against the repository and the governing document
 
 Ground each answer: `python scripts/todo-graph.py validate`, searches over `src/` and `tests/` for the named symbols, `git log --oneline -5 -- <touched paths>`. Check deferrals in both directions with `python scripts/todo-graph.py query deferred`: deferrals this section owns are part of its scope; deferrals this section wrote get re-read against today's tree (owner shipped means close it as `Resolved:`; description drifted means correct it; work quietly done elsewhere means verify it, close the deferral, and tick the owner's item).
 
+A section that writes, moves or deletes files outside the repository (links, icons, caches, a user's data) is not sufficient until it states, before its plan review, the lock that keeps a second run out, the durable record of a change in progress, the ownership check before a file is replaced or deleted, and when that record may be removed, and how a failure and a stop are recovered from that record. Planned after the build, each of these comes back one review pass at a time (`D07 T01 §7` spent 19 passes on them).
+
 Anything unclear becomes a question answered from the source. Where the source is silent, take the industry-standard option, record that it is a default with the cost of changing it, and carry on.
 
 ### 3. Correct the section when validation fails
