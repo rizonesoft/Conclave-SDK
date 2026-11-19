@@ -2047,6 +2047,18 @@ def lenient_files(record):
     yield "a key repeated in another case", text.replace(f'"{first}"', f'"{first.lower()}": "x", "{first}"', 1)
 
 
+def damaged_bytes(record):
+    """(label, bytes) for each file whose bytes are not strict UTF-8 although its text looks like `record` (D02 T02
+    §12, reconciliation 12: a replacement character hid a damaged byte from the script's own decoder)."""
+    text = json.dumps(record).encode("utf-8")
+    at = text.index(b'"Ubuntu"') + 2
+    yield "a byte that is not UTF-8", text[:at] + b"\xff" + text[at:]
+    yield "a cut UTF-8 sequence", text[:at] + b"\xc3" + text[at:]
+    yield "an overlong encoding", text[:at] + b"\xc0\xaf" + text[at:]
+    yield "an encoded surrogate", text[:at] + b"\xed\xa0\x80" + text[at:]
+    yield "UTF-16", json.dumps(record).encode("utf-16")
+
+
 class ShortcutStateTest(unittest.TestCase):
     """`status` names a Windows link whose recorded command is not the current one (D02 T02 §12): seen 2026-11-18,
     links written before the writable-attach fix kept `attach --watch`, so the operator's window ignored every key."""
@@ -2102,6 +2114,22 @@ class ShortcutStateTest(unittest.TestCase):
             with self.subTest(links=links):
                 self.record(("C:\\desk", "w", links))
                 self.assertTrue(self.run.shortcut_state(self.root).startswith(f"{self.run.SHORTCUTS} cannot be read"))
+
+    def test_a_file_that_is_not_strict_utf8_is_damaged(self):
+        (self.root / "build").mkdir(exist_ok=True)
+        whole = {"sets": [{"written": "w", "args": {"Distro": "Ubuntu", "Icon": "i", "Project": "p",
+                                                     "ShortcutDir": "C:\\desk", "IconDir": "c"},
+                           "links": self.current()}]}
+        for label, data in damaged_bytes(whole):
+            with self.subTest(label):
+                (self.root / self.run.SHORTCUTS).write_bytes(data)
+                self.assertTrue(self.run.shortcut_state(self.root).startswith(f"{self.run.SHORTCUTS} cannot be read"))
+                out = __import__("io").StringIO()
+                self.assertEqual(self.run.shortcut_record(self.root / self.run.SHORTCUTS, out), 3)
+        (self.root / self.run.SHORTCUTS).write_bytes(b"\xef\xbb\xbf" + json.dumps(whole).encode("utf-8"))
+        out = __import__("io").StringIO()
+        self.assertEqual(self.run.shortcut_record(self.root / self.run.SHORTCUTS, out), 0, out.getvalue())
+        self.assertEqual(json.loads(out.getvalue()), whole)
 
     def test_a_file_strict_json_refuses_is_damaged(self):
         (self.root / "build").mkdir(exist_ok=True)

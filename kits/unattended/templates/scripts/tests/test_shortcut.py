@@ -182,6 +182,18 @@ def long_path(path):
     return os.path.realpath(path)
 
 
+def damaged_bytes(record):
+    """(label, bytes) for each file whose bytes are not strict UTF-8 although its text looks like `record` (D02 T02
+    §12, reconciliation 12: a replacement character hid a damaged byte from the script's own decoder)."""
+    text = json.dumps(record).encode("utf-8")
+    at = text.index(b'"Ubuntu"') + 2
+    yield "a byte that is not UTF-8", text[:at] + b"\xff" + text[at:]
+    yield "a cut UTF-8 sequence", text[:at] + b"\xc3" + text[at:]
+    yield "an overlong encoding", text[:at] + b"\xc0\xaf" + text[at:]
+    yield "an encoded surrogate", text[:at] + b"\xed\xa0\x80" + text[at:]
+    yield "UTF-16", json.dumps(record).encode("utf-16")
+
+
 def start_tree(argv, **kwargs):
     """Start a child in a process group of its own, with no console window, so `end_tree` can end everything it
     starts (pwsh starts Python and the WSL stand-in)."""
@@ -272,7 +284,7 @@ class ShortcutFixture(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         base = Path(self._tmp.name)
         self.project = base / "My Proj's"  # a space and a quote
-        for rel in ("lib/unattended.py", "unattended-shortcut.ps1"):
+        for rel in ("lib/unattended.py", "unattended-shortcut.ps1", "unattended-run.py"):  # as the kit installs them
             (self.project / "scripts" / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(SCRIPTS / rel, self.project / "scripts" / rel)
         shutil.copyfile(RENDERER, self.project / "scripts" / "campaign-icon.py")
@@ -627,6 +639,23 @@ class ShortcutTest(ShortcutFixture):
                 self.assertIn("cannot be read", checked.stdout)
                 self.assertTrue(self.run.shortcut_state(self.project).startswith("build/unattended-shortcuts.json "
                                                                                   "cannot be read"))
+
+    def test_the_script_refuses_a_file_that_is_not_strict_utf8(self):
+        # Reconciliation 12: Get-Content turned a damaged byte into a replacement character and the record passed.
+        self.install()
+        record = self.project / "build" / "unattended-shortcuts.json"
+        for label, data in damaged_bytes(json.loads(record.read_text(encoding="utf-8"))):
+            with self.subTest(label):
+                record.write_bytes(data)
+                checked = self.shortcut("-Check")
+                self.assertEqual(checked.returncode, 1, checked.stdout + checked.stderr)
+                self.assertIn("cannot be read", checked.stdout)
+
+    def test_the_script_reads_the_record_with_the_runners_reader(self):
+        # The redesign: one reader for the script and status, so they agree on every file by construction.
+        script = (SCRIPTS / "unattended-shortcut.ps1").read_text(encoding="utf-8")
+        self.assertIn("shortcut-record $recordPath", script)
+        self.assertNotIn("ConvertFrom-Json -InputObject $text", script)
 
     def test_the_script_refuses_a_file_strict_json_refuses(self):
         # Reconciliation 11: ConvertFrom-Json took a trailing comma that both Python readers refused.

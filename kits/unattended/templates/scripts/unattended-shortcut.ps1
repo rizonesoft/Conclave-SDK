@@ -48,52 +48,26 @@ function Refuse([string]$why) { "unattended-shortcut: $why; nothing was written"
 # kit update left behind is named. The links themselves are the truth: -Check reads them.
 $recordPath = Join-Path $root 'build\unattended-shortcuts.json'
 function Get-DeskKey([string]$dir) { [IO.Path]::GetFullPath($dir).TrimEnd('\').ToLowerInvariant() }
-# The record's sets (none without a record); a record that cannot be read sets $recordUnread to why.
+# The record is read by the runner's own reader (`unattended-run.py shortcut-record`), the one status uses: strict
+# UTF-8, strict JSON and exactly the shape Save-Sets writes. One reader, so the script and status never disagree on
+# a file (D02 T02 §12: reconciliations 1, 7, 9, 10, 11 and 12 each found a file this script's own reader took and
+# Python's refused). Without Python the record cannot be read, so it is kept as it is. Its sets come back; a record
+# that cannot be read sets $recordUnread to why.
 $recordUnread = $null
-# A record is read by its shape, not by whether it parses, and its shape is exactly what Save-Sets writes: an object
-# whose `sets` is a list, each set holding `written`, `args` (Distro, Icon, Project, ShortcutDir, IconDir) and `links`
-# (each with label, kind and command), every key in its own case and every value non-empty text. Anything else is
-# unreadable and kept as it is (D02 T02 §12: reconciliations 1, 7, 9 and 10 each found a damaged record that passed
-# a looser check; unattended-run.py and forge.py hold the same shape).
-$recordShape = @{ sets = , @{ written = ''; links = , @{ label = ''; kind = ''; command = '' }
-    args = @{ Distro = ''; Icon = ''; Project = ''; ShortcutDir = ''; IconDir = '' } } }
-function Test-Fits($value, $shape) {
-  if ($shape -is [hashtable]) {
-    if ($value -isnot [Management.Automation.PSCustomObject]) { return $false }
-    $names = @($value.PSObject.Properties.Name)
-    foreach ($key in $shape.Keys) {
-      if ($names -cnotcontains $key) { return $false }
-      if (-not (Test-Fits $value.PSObject.Properties[$key].Value $shape[$key])) { return $false }
-    }
-    return $true
-  }
-  if ($shape -is [array]) {
-    if ($value -isnot [array]) { return $false }
-    foreach ($item in $value) { if (-not (Test-Fits $item $shape[0])) { return $false } }
-    return $true
-  }
-  # ConvertFrom-Json reads an ISO date string (`written`) as a date: it was non-empty text in the file.
-  return ($value -is [datetime]) -or ($value -is [string] -and $value.Length -gt 0)
-}
-function Get-RecordFault($data) {
-  if (-not (Test-Fits $data $recordShape)) { return 'it is not a record of sets as this script writes them' }
-}
 function Read-Sets {
   if (-not (Test-Path -LiteralPath $recordPath -PathType Leaf)) { return }
-  try {
-    $text = Get-Content -LiteralPath $recordPath -Raw -ErrorAction Stop
-    # The file is held to strict JSON first (System.Text.Json: no trailing comma, no comment, no single quote, no
-    # NaN), the syntax Python's reader takes, so the three readers agree on the file and not only on its fields.
-    # -NoEnumerate: a one-element list at the top would otherwise come back as its element, a record that passes.
-    $data = $null
-    if ($text -and $text.Trim()) {
-      [System.Text.Json.JsonDocument]::Parse($text).Dispose()
-      $data = ConvertFrom-Json -InputObject $text -NoEnumerate -ErrorAction Stop
-    }
-  } catch { $script:recordUnread = $_.Exception.Message; return }
-  $fault = if ($null -eq $data) { 'it is empty' } else { Get-RecordFault $data }
-  if ($fault) { $script:recordUnread = $fault; return }
-  $data.sets
+  $runner = Join-Path $here 'unattended-run.py'
+  $py = if ($Python) { $Python } else {
+    (Get-Command python -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
+  }
+  if (-not $py -or -not (Test-Path -LiteralPath $runner -PathType Leaf)) {
+    $script:recordUnread = 'python and scripts/unattended-run.py read it, and one of them is missing'
+    return
+  }
+  $said = @(& $py -B $runner shortcut-record $recordPath 2>&1)
+  if ($LASTEXITCODE -ne 0) { $script:recordUnread = ($said -join ' ').Trim(); return }
+  # The reader's own output, ASCII JSON of a record it has checked.
+  (ConvertFrom-Json -InputObject ($said -join "`n") -NoEnumerate).sets
 }
 $set = $null
 if ($Refresh -or $Check) {

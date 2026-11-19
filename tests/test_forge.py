@@ -180,6 +180,18 @@ def lenient_files(record):
     yield "a key repeated in another case", text.replace(f'"{first}"', f'"{first.lower()}": "x", "{first}"', 1)
 
 
+def damaged_bytes(record):
+    """(label, bytes) for each file whose bytes are not strict UTF-8 although its text looks like `record` (D02 T02
+    §12, reconciliation 12: a replacement character hid a damaged byte from the script's own decoder)."""
+    text = json.dumps(record).encode("utf-8")
+    at = text.index(b'"Ubuntu"') + 2
+    yield "a byte that is not UTF-8", text[:at] + b"\xff" + text[at:]
+    yield "a cut UTF-8 sequence", text[:at] + b"\xc3" + text[at:]
+    yield "an overlong encoding", text[:at] + b"\xc0\xaf" + text[at:]
+    yield "an encoded surrogate", text[:at] + b"\xed\xa0\x80" + text[at:]
+    yield "UTF-16", json.dumps(record).encode("utf-16")
+
+
 def full_set(folder):
     """One set of a shortcut record as unattended-shortcut.ps1 writes it, for `folder`."""
     return {"written": "2026-11-18T10:54:00Z",
@@ -4036,6 +4048,13 @@ class UnattendedKitTests(unittest.TestCase):
             failed = forge._refresh_shortcuts(self.target)
         self.assertEqual(failed, {"refreshed": False, "detail": "ok | no answer within 300 seconds: ; run "
                                   f"{forge.SHORTCUT_REFRESH} -ShortcutDir 'C:\\O''Brien''s desk' again"})
+
+    def test_forge_refuses_a_shortcut_record_that_is_not_strict_utf8(self):
+        (self.target / "build").mkdir(parents=True, exist_ok=True)
+        for label, data in damaged_bytes({"sets": [full_set("C:\\desk")]}):
+            with self.subTest(label):
+                (self.target / forge.SHORTCUT_RECORD).write_bytes(data)
+                self.assertIsNone(forge._shortcut_folders(self.target))
 
     def test_forge_refuses_a_shortcut_record_strict_json_refuses(self):
         (self.target / "build").mkdir(parents=True, exist_ok=True)

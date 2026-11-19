@@ -1016,21 +1016,49 @@ def shortcut_sets(text: str) -> list | None:
     return data["sets"] if fits_shape(data, SHORTCUT_RECORD_SHAPE) else None
 
 
+def read_shortcut_record(path: Path) -> tuple[list | None, str]:
+    """(sets, why): the record's sets, read from its bytes as one reader for every caller (status here, and
+    unattended-shortcut.ps1 through `shortcut-record`): strict UTF-8 (a byte order mark allowed), strict JSON, the
+    writer's shape. No file is no sets; anything else that is not such a record is (None, why) (D02 T02 §12:
+    reconciliations 1, 7, 9, 10, 11 and 12 each found the script's own reader and Python's disagreeing on a file)."""
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        return [], ""
+    except OSError as exc:
+        return None, str(exc)
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        return None, f"it is not UTF-8 ({exc.reason} at byte {exc.start})"
+    sets = shortcut_sets(text)
+    if sets is None:
+        return None, "it is not a record of sets as unattended-shortcut.ps1 writes them"
+    return sets, ""
+
+
+def shortcut_record(path: Path, out=None) -> int:
+    """`shortcut-record <file>`: the record's sets as JSON on one line (exit 0), or why it cannot be read (exit 3),
+    for unattended-shortcut.ps1, so the script and status read a record with one reader."""
+    out = out or sys.stdout
+    sets, why = read_shortcut_record(path)
+    if sets is None:
+        print(why, file=out)
+        return 3
+    print(json.dumps({"sets": sets}), file=out)  # ASCII only (ensure_ascii), whatever the console's code page
+    return 0
+
+
 def shortcut_state(root: Path) -> str:
     """What `status` says of the Windows links unattended-shortcut.ps1 recorded, one set per desktop folder: none,
     current, or each one whose command is no longer the current one (a kit update changed it after it was written),
     with the re-run. It reads the record, not the links (which only Windows can read: `-Check` does)."""
     path = root / SHORTCUTS
-    try:
-        text = path.read_text(encoding="utf-8-sig")
-    except FileNotFoundError:
+    if not path.exists():
         return "none recorded"
-    except (OSError, UnicodeDecodeError) as exc:
-        return f"{SHORTCUTS} cannot be read ({exc}); move it aside and run {SHORTCUT_WRITE} on Windows"
-    sets = shortcut_sets(text)
+    sets, why = read_shortcut_record(path)
     if sets is None:
-        return (f"{SHORTCUTS} cannot be read (it is not a record of sets); move it aside and run {SHORTCUT_WRITE} "
-                "on Windows")
+        return f"{SHORTCUTS} cannot be read ({why}); move it aside and run {SHORTCUT_WRITE} on Windows"
     links = [(entry, link) for entry in sets for link in entry["links"]]
     if not links:
         return f"{SHORTCUTS} names no links; run {REFRESH} on Windows"
@@ -1245,6 +1273,8 @@ def build_parser() -> argparse.ArgumentParser:
     shortcut_parser.add_argument("--agent", choices=lib.AGENTS, help="the runner (default: the profile's own agent)")
     shortcut_parser.add_argument("--dir", help="where to write it (default: ~/.local/share/applications)")
     shortcut_parser.add_argument("--remove", action="store_true", help="remove this project's entries")
+    record_parser = sub.add_parser("shortcut-record", help="read the Windows links' record (for the shortcut script)")
+    record_parser.add_argument("file")
     beat_parser = sub.add_parser("heartbeat")
     beat_parser.add_argument("--once", action="store_true", help="one tick, then exit")
     return parser
@@ -1252,6 +1282,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "shortcut-record":  # the one command Windows runs: the shortcut script's reader
+        return shortcut_record(Path(args.file))
     if os.name == "nt":
         print("unattended-run: the run lives in tmux, on Linux and in WSL: run this in WSL", file=sys.stderr)
         return 1
