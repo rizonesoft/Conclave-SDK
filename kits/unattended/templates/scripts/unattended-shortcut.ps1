@@ -56,8 +56,9 @@ function Get-DeskKey([string]$dir) { [IO.Path]::GetFullPath($dir).TrimEnd('\').T
 # not answer (missing, or ended without its answer), when the record, which may be sound, is kept for the reader.
 $damagedAdvice = "move it aside (keep it to read the other folders back), then run the script with -Distro and " +
   '-Icon (and -ShortcutDir) for each folder, which writes a new one'
-$readerAdvice = 'restore what reads it (python on PATH and scripts/unattended-run.py, which python forge.py update ' +
-  'puts back) and run the script again'
+$readerAdvice = 'restore what reads it (python on PATH, and scripts/unattended-run.py, which ' +
+  "python forge.py update <project> --only scripts/unattended-run.py puts back) and run the script again"
+$busyAdvice = 'run the script again once nothing holds the file (it may be sound)'
 function Read-Record {
   $result = [pscustomobject]@{ Ok = $true; Sets = @(); Why = ''; Advice = '' }
   if (-not (Test-Path -LiteralPath $recordPath -PathType Leaf)) { return $result }
@@ -77,6 +78,11 @@ function Read-Record {
   if ($code -eq 3 -and $text) {
     $result.Why = $text
     $result.Advice = $damagedAdvice
+    return $result
+  }
+  if ($code -eq 4 -and $text) {  # held by another program: neither damaged nor read
+    $result.Why = $text
+    $result.Advice = $busyAdvice
     return $result
   }
   if ($code -ne 0) {

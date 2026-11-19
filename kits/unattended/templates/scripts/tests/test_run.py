@@ -2104,7 +2104,8 @@ class ShortcutStateTest(unittest.TestCase):
         self.assertIn("with -ShortcutDir for each folder", said)
 
     def test_a_link_of_a_kind_there_is_no_command_for_is_stale(self):
-        self.record(("C:\\desk", "w", self.current() + [{"label": "Demo Gone campaign", "kind": "gone", "command": "x"}]))
+        gone = {"label": "Demo Gone campaign", "kind": "gone", "command": "x"}
+        self.record(("C:\\desk", "w", self.current() + [gone]))
         self.assertTrue(self.run.shortcut_state(self.root).startswith("stale: Demo Gone campaign"))
 
     def test_a_link_of_the_wrong_shape_makes_the_record_damaged(self):
@@ -2167,6 +2168,17 @@ class ShortcutStateTest(unittest.TestCase):
                 self.assertTrue(said.startswith(f"{self.run.SHORTCUTS} cannot be read"), said)
                 self.assertIn("move it aside", said)
                 self.assertIn("-ShortcutDir '<folder>', once for each folder", said)
+
+    def test_a_record_that_cannot_be_opened_now_is_never_called_damaged(self):
+        # Reconciliation 14: a record another program held read as damaged, so the advice was to move a sound one.
+        self.record(("C:\\desk", "w", self.current()))
+        with unittest.mock.patch.object(Path, "read_bytes", side_effect=PermissionError(13, "Permission denied")):
+            out = __import__("io").StringIO()
+            self.assertEqual(self.run.shortcut_record(self.root / self.run.SHORTCUTS, out), self.run.SHORTCUT_BUSY)
+            self.assertIn("it cannot be opened now (Permission denied)", out.getvalue())
+            said = self.run.shortcut_state(self.root)
+        self.assertIn("look again once nothing holds it", said)
+        self.assertNotIn("move it aside", said)
 
     def test_an_unreadable_record_says_so(self):
         (self.root / "build").mkdir()
@@ -2308,7 +2320,8 @@ class DesktopEntryTest(unittest.TestCase):
 
 @unittest.skipUnless(os.name == "posix" and shutil.which("bash"), "the Windows shortcuts' commands are bash's, in WSL")
 class ControlCommandTest(unittest.TestCase):
-    """The commands the Windows "Watch run" and "Stop run" shortcuts run in the project, run in bash as WSL runs them."""
+    """The commands the Windows "Watch run" and "Stop run" shortcuts run in the project, run in bash as WSL runs
+    them."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -2335,7 +2348,8 @@ class ControlCommandTest(unittest.TestCase):
             with self.subTest(start_exit=start_exit):
                 self.report.unlink(missing_ok=True)
                 command = self.run.start_command("claude").replace(
-                    "python3 scripts/unattended-run.py start", f"STUB_EXIT={start_exit} python3 scripts/unattended-run.py start", 1)
+                    "python3 scripts/unattended-run.py start",
+                    f"STUB_EXIT={start_exit} python3 scripts/unattended-run.py start", 1)
                 done = self.bash(command, "")
                 self.assertEqual((done.returncode, self.called()),
                                  (0, [["start", "--agent", "claude"], ["attach"]]), done.stdout + done.stderr)

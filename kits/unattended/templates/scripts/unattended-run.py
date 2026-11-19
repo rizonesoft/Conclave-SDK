@@ -1016,35 +1016,40 @@ def shortcut_sets(text: str) -> list | None:
     return data["sets"] if fits_shape(data, SHORTCUT_RECORD_SHAPE) else None
 
 
-def read_shortcut_record(path: Path) -> tuple[list | None, str]:
-    """(sets, why): the record's sets, read from its bytes as one reader for every caller (status here, and
+SHORTCUT_DAMAGED, SHORTCUT_BUSY = 3, 4  # `shortcut-record`'s exits: the file is not a record; it cannot be opened now
+
+
+def read_shortcut_record(path: Path) -> tuple[list | None, str, int]:
+    """(sets, why, exit): the record's sets, read from its bytes as one reader for every caller (status here, and
     unattended-shortcut.ps1 through `shortcut-record`): strict UTF-8 (a byte order mark allowed), strict JSON, the
-    writer's shape. No file is no sets; anything else that is not such a record is (None, why) (D02 T02 §12:
-    reconciliations 1, 7, 9, 10, 11 and 12 each found the script's own reader and Python's disagreeing on a file)."""
+    writer's shape. No file is no sets. A file that is not such a record is (None, why, SHORTCUT_DAMAGED), and one
+    that cannot be opened now (another program holds it) is (None, why, SHORTCUT_BUSY): it may be sound, so it is
+    never taken as damaged (D02 T02 §12: reconciliations 1, 7, 9 to 14)."""
     try:
         data = path.read_bytes()
     except FileNotFoundError:
-        return [], ""
+        return [], "", 0
     except OSError as exc:
-        return None, str(exc)
+        return None, f"it cannot be opened now ({exc.strerror or exc})", SHORTCUT_BUSY
     try:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
-        return None, f"it is not UTF-8 ({exc.reason} at byte {exc.start})"
+        return None, f"it is not UTF-8 ({exc.reason} at byte {exc.start})", SHORTCUT_DAMAGED
     sets = shortcut_sets(text)
     if sets is None:
-        return None, "it is not a record of sets as unattended-shortcut.ps1 writes them"
-    return sets, ""
+        return None, "it is not a record of sets as unattended-shortcut.ps1 writes them", SHORTCUT_DAMAGED
+    return sets, "", 0
 
 
 def shortcut_record(path: Path, out=None) -> int:
-    """`shortcut-record <file>`: the record's sets as JSON on one line (exit 0), or why it cannot be read (exit 3),
-    for unattended-shortcut.ps1, so the script and status read a record with one reader."""
+    """`shortcut-record <file>`: the record's sets as JSON on one line (exit 0), or why it cannot be read: exit 3 for
+    a file that is not a record, 4 for one that cannot be opened now. For unattended-shortcut.ps1, so the script and
+    status read a record with one reader."""
     out = out or sys.stdout
-    sets, why = read_shortcut_record(path)
+    sets, why, code = read_shortcut_record(path)
     if sets is None:
         print(why, file=out)
-        return 3
+        return code
     print(json.dumps({"sets": sets}), file=out)  # ASCII only (ensure_ascii), whatever the console's code page
     return 0
 
@@ -1056,7 +1061,9 @@ def shortcut_state(root: Path) -> str:
     path = root / SHORTCUTS
     if not path.exists():
         return "none recorded"
-    sets, why = read_shortcut_record(path)
+    sets, why, code = read_shortcut_record(path)
+    if code == SHORTCUT_BUSY:
+        return f"{SHORTCUTS} cannot be read ({why}); look again once nothing holds it"
     if sets is None:
         return f"{SHORTCUTS} cannot be read ({why}); move it aside and run {SHORTCUT_WRITE} on Windows"
     links = [(entry, link) for entry in sets for link in entry["links"]]

@@ -677,8 +677,22 @@ class ShortcutTest(ShortcutFixture):
         checked = self.shortcut("-Check")
         self.assertEqual(checked.returncode, 1, checked.stdout + checked.stderr)
         self.assertIn("restore what reads it", checked.stdout)
+        self.assertIn("python forge.py update <project> --only scripts/unattended-run.py", checked.stdout)
         self.assertNotIn("move it aside", checked.stdout)
         self.assertEqual(record.read_bytes(), before)
+        (self.project / "scripts" / "unattended-run.py.away").rename(self.project / "scripts" / "unattended-run.py")
+        # A record another program holds open may be sound: the advice is to try again, not to move it.
+        holder = start_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command",
+                             "$f = [IO.File]::Open($env:RECORD, 'Open', 'Read', 'None'); 'held'; Start-Sleep 60"],
+                            stdout=subprocess.PIPE, text=True, env={**os.environ, "RECORD": str(record)},
+                            creationflags=windowless())
+        self.addCleanup(holder.stdout.close)
+        self.addCleanup(end_tree, holder)
+        self.assertEqual(holder.stdout.readline().strip(), "held")
+        busy = self.shortcut("-Check")
+        self.assertEqual(busy.returncode, 1, busy.stdout + busy.stderr)
+        self.assertIn("run the script again once nothing holds the file", busy.stdout)
+        self.assertNotIn("move it aside", busy.stdout)
 
     def test_the_script_reads_the_record_with_the_runners_reader(self):
         # The redesign: one reader for the script and status, so they agree on every file by construction.
