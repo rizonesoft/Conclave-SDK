@@ -171,6 +171,9 @@ def register(claude_json, root=ROOT, names=PLUGINS, only_wrong=False):
                 continue
         else:
             now = before.get(name)
+        # The CLI has no replace (add-json refuses a name that exists), so a wrong entry is removed and then added. A
+        # worker stopped between the two leaves the entry missing, which fixable() names, so the next session's drift
+        # hook or deploy adds it back. An entry with an env block is never in names, so no stored value is at stake.
         if now is not None:
             subprocess.run([claude, "mcp", "remove", name, "-s", "user"], stdin=subprocess.DEVNULL,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=CLI_TIMEOUT)

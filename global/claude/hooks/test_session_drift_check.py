@@ -173,9 +173,13 @@ class RepairTest(unittest.TestCase):
     def test_the_repair_survey_stays_inside_the_budget(self):
         # The plugins the repair would touch are found inside the bounded check, never after it.
         started = time.monotonic()
-        found = drift.bounded_check(0.2, run=lambda deadline: time.sleep(5), wrap=lambda lines: (lines, []))
+        slow = lambda *args, **kwargs: time.sleep(5)  # a marker folder that hangs while the repair log is made
+        with unittest.mock.patch.object(drift, "start_repair", side_effect=slow), \
+                unittest.mock.patch.object(drift, "plugin_drift", return_value=(["x"], ["bunny-net"])):
+            found = drift.bounded_check(0.2, run=lambda deadline: drift.survey(deadline=deadline, repair=True),
+                                        wrap=lambda lines: (lines, [], None))
         self.assertLess(time.monotonic() - started, 2)
-        self.assertEqual(found, (["the drift check did not finish inside 0.2 seconds: run it by hand"], []))
+        self.assertEqual(found, (["the drift check did not finish inside 0.2 seconds: run it by hand"], [], None))
 
     def test_an_env_block_is_not_repaired_and_the_manual_step_is_given(self):
         self.servers["bunny-net"]["args"] = ["D:\\Conclave-SDK\\plugins\\claude\\bunny-net\\dist\\server.mjs"]

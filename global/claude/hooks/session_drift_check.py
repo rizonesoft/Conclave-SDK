@@ -130,11 +130,20 @@ def start_repair(names):
     return path
 
 
-def survey(home=None, deadline=None):
-    """Every drift line, and the plugins the repair would re-register."""
+def survey(home=None, deadline=None, repair=False):
+    """Every drift line, the plugins a repair was started for, and its log. With repair, the detached repair is started
+    here, inside the bounded check, so its log setup is charged to the budget too."""
     deadline = time.monotonic() + BUDGET if deadline is None else deadline
     found, names = plugin_drift(claude_json_path(home))  # milliseconds, so the deploy check gets the rest
-    return found + deploy_drift(deadline, home), names
+    repairing, log = [], None
+    if repair and names:
+        try:
+            log = start_repair(names)
+            if log is not False:
+                repairing = names
+        except Exception as exc:
+            found.append("the repair did not start: %s: %s" % (type(exc).__name__, exc))
+    return found + deploy_drift(deadline, home), repairing, log
 
 
 def check(home=None, deadline=None):
@@ -178,15 +187,9 @@ def main():
         data = {}
     if not first_prompt(str(data.get("session_id") or "")):
         return 0
-    problems, names = bounded_check(run=survey, wrap=lambda lines: (lines, []))
+    problems, repairing, log = bounded_check(run=lambda deadline: survey(deadline=deadline, repair=True),
+                                             wrap=lambda lines: (lines, [], None))
     if problems:
-        repairing, log = [], None
-        try:
-            log = start_repair(names)
-            if log is not False:
-                repairing = names
-        except Exception as exc:
-            problems.append("the repair did not start: %s: %s" % (type(exc).__name__, exc))
         text = message(problems, repairing, log)
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": text}}))
         print(text, file=sys.stderr)
