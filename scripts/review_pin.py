@@ -633,7 +633,7 @@ def p2_data(review):
 
 
 FINDING = re.compile(r"^\s*\**\s*(\d+)\.\s", re.MULTILINE)
-CLOSED_LABEL = re.compile(r"^[\s*_`\[(]*(?:closed\b|P[123]\W{0,3}\(\s*closed\s*\))", re.IGNORECASE)
+CLOSED_LABEL = re.compile(r"^[\s*_`\[(]*(?:closed\b|P[123](?:\s+data)?\W{0,3}\(\s*closed\s*\))", re.IGNORECASE)
 
 
 def open_p2_findings(review):
