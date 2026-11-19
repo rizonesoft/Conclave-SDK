@@ -52,7 +52,7 @@ title: "TODO-03 -- Design and safety lenses, held by path in every project"
 | 14 | §14 | Sanitizer test configuration | §13 | [ ] |
 | 15 | §15 | Bounded C++ hot-spot audit | §9 | [ ] |
 | 16 | §16 | Read-only verification across the projects | §6, §7, §9, §10, §11 | [ ] |
-| 17 | §17 | One Opus design check before a surface section's review | §1 | [ ] |
+| 17 | §17 | One Opus design check before a surface section's review | -- | [ ] |
 
 ## 1. Design Lens by Path and Fidelity on Every Prompt
 
@@ -408,7 +408,11 @@ One script, outside every repository, answers whether each project holds what th
 
 ## 17. One Opus Design Check Before a Surface Section's Review
 
+> **Started:** 2026-11-19T16:56Z
+
 Filed 2026-11-19 at the owner's request. Opus 5.5 is the strongest designer and GPT-6.2 Astra the strongest reviewer, and a review by the writer's own family is no review (global rule 7). So a surface section is written by whichever writer the plan gives it (Antigravity or Claude), checked once by Opus 5.5 for design before the review begins, fixed by its writer, and then reviewed by Astra through the pin's three passes and every lens, `design` included, exactly as now. The check is part of the build, not a review pass: it runs once, never loops, holds no stamp and adds no gate. Berth is the first project (its `AGENTS.md`), and its D04 T01 §11 (not yet built) renders a window to PNG for the check and the design lens.
+
+**Corrected 2026-11-19 (owner):** the section waited on §1 and its last item ran the step on Berth's next `Surface: yes` section. The step needs nothing §1 builds (it reads the Fidelity field the tree already resolves), so the wait is dropped. Berth has no ready surface section, so that item could not finish inside this section: the owner runs the Berth Gemini campaign to completion and judges the result, and the item is now the kit update of every project that installs the todo kit, which the owner asked for. The step's prompt lives in one kit document instead of the skill text, and the checkpoint gains a test that fails when a copy drops the step.
 
 **Phase:** 9
 **Needs:** none
@@ -417,15 +421,18 @@ Filed 2026-11-19 at the owner's request. Opus 5.5 is the strongest designer and 
 **Build order:**
 
 1. Write the step in the build skill. Done when: the skill's three copies carry it.
-2. Run it on Berth's next surface section. Done when: that section's commit names the check.
+2. Update every project that installs the todo kit. Done when: `python forge.py update <project> todo --dry-run` lists nothing to write in each.
 
-- [ ] Add to "Surface and feature completeness" in `kits/todo/templates/.claude/skills/process-todo-section/SKILL.md`, after the rendered check and before `review-todo-section`: on a `Surface: yes` section, one design check by Opus 5.5 at medium effort (`claude -p --model claude-opus-5-5 --effort medium`, whoever the writer is), in a fresh session given only the section's promise, its Fidelity source and the rendered PNGs, never the diff or the writer's notes; the writer fixes what it finds, reruns the rendered check, and names the PNGs and the fixes in the section's commit body; the check runs once and is never repeated after a review pass. Done when: the step is in the Claude file and `python forge.py skill-copies` writes its Antigravity and Codex copies.
+- [ ] Write the check's prompt in `kits/todo/templates/docs/design-check-prompt.md`: the section's promise, its Fidelity source and the rendered PNG paths, the question (does the rendered surface match the design source, and where is it below the standard of the best desktop software), one numbered finding per line with the PNG it shows, and no access to the diff or the writer's notes. Done when: the file names each placeholder and the reply format.
+- [ ] Add to "Surface and feature completeness" in `kits/todo/templates/.claude/skills/process-todo-section/SKILL.md`, after the rendered check and before `review-todo-section`: on a `Surface: yes` section, one design check by Opus 5.5 at medium effort (`claude -p --model claude-opus-5-5 --effort medium --allowedTools Read`, whoever the writer is), in a fresh session given only the filled prompt of `docs/design-check-prompt.md`; the writer fixes what it finds, reruns the rendered check, and names the PNGs and the fixes in the section's commit body; the check runs once and is never repeated after a review pass. Done when: the step is in the Claude file and `python forge.py skill-copies` writes its Antigravity and Codex copies.
 - [ ] Say in `kits/todo/templates/.claude/skills/review-todo-section/SKILL.md` that the design check is not a review pass: the pin's passes, `design` included, run as they do. Done when: `python forge.py skill-copies --check` exits 0.
 - [ ] Refresh the SDK's installed copy with `python forge.py self-sync`. Done when: the self-sync test passes.
-- [ ] In Berth, after `python forge.py update` there, run the step on the next `Surface: yes` section. Done when: that section's commit body names the PNGs the check read and what it fixed.
+- [ ] Add a test to `tests/test_skill_copies.py` that finds the step and the prompt file named in the Claude, Antigravity and Codex copies of `process-todo-section`. Done when: it passes, and fails when the step is removed from one copy.
+- [ ] Run the check once for real on a rendered PNG of an existing surface, with the filled prompt. Done when: the reply is quoted in the commit body with its numbered findings.
+- [ ] Update every project that installs the todo kit with `python forge.py update <project> todo`, committing in each and merging any `.kit-new` file by hand. Impossible OS is left out (owner, 2026-11-19): it runs its own review tooling, not these kits, and has no Antigravity writer now. Done when: `--dry-run` lists nothing to write in each, and each project's tree is clean.
 - [ ] Commit: `todo: one Opus design check before a surface section's review`
 
-**Test checkpoint:** `python -m unittest tests.test_skill_copies` and `python -m unittest tests.test_forge -k skill` pass, and `python forge.py skill-copies --check` exits 0.
+**Test checkpoint:** `python -m unittest tests.test_skill_copies` and `python -m unittest tests.test_forge -k skill` pass, `python forge.py skill-copies --check` exits 0, and the new test fails when the step is removed from the Antigravity copy.
 
 ## Verification
 
