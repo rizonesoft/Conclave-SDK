@@ -111,6 +111,27 @@ with open(args[args.index("-o") + 1], "w", encoding="utf-8") as out:
 """
 
 
+
+def own_group():
+    """Popen arguments for a child in a process group of its own with no console window, so end_tree can end it."""
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
+    return {"start_new_session": True}
+
+
+def end_tree(proc):
+    """End a child started with own_group() and every process it started: taskkill /T while it still lives on
+    Windows, its process group elsewhere."""
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True,
+                       creationflags=subprocess.CREATE_NO_WINDOW)
+    else:
+        import signal
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:  # the group has ended already
+            pass
+
 def reply(kind, lenses, top="none", gaps=False):
     lines = [f"LENS {name}: {'findings' if gaps else 'clean'}" for name in lenses] + [f"HIGHEST: {top}"]
     if kind == "plan":
@@ -342,8 +363,16 @@ class FreshInstall(unittest.TestCase):
             [sys.executable, "-B", "scripts/review-dispatch.py", "--writer", "claude", "--prompt",
              self.fill("review-round-prompt.md", self.start), "--record", self.record],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
-            env=self.script_env(say, gate), cwd=str(self.repo), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        self.addCleanup(lambda: in_flight.poll() is None and in_flight.kill())
+            env=self.script_env(say, gate), cwd=str(self.repo), **own_group())
+
+        def end_in_flight():
+            # A failed assertion leaves the reviewer paused: the gate is opened and the whole tree ended and waited
+            # for before the fixture goes, so no reviewer outlives the test.
+            pathlib.Path(gate).touch()
+            if in_flight.poll() is None:
+                end_tree(in_flight)
+            in_flight.wait(timeout=30)
+        self.addCleanup(end_in_flight)
         for _ in range(600):
             if os.path.exists(gate + ".started"):
                 break
