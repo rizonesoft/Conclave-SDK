@@ -2031,6 +2031,22 @@ def record_variants(record):
         yield label, damaged
 
 
+def lenient_files(record):
+    """(label, text) for each file a lenient JSON parser takes and strict JSON refuses, made from `record` (D02 T02
+    §12, reconciliation 11: the readers must agree on the file, not only on its fields)."""
+    text = json.dumps(record)
+    first = next(iter(record["sets"][0]["args"]))
+    yield "a trailing comma in an object", text[:-1] + ",}"
+    yield "a trailing comma in a list", text.replace("]", ",]", 1)
+    yield "a line comment", "// written by hand\n" + text
+    yield "a block comment", "/* x */" + text
+    yield "a single-quoted string", text.replace('"Ubuntu"', "'Ubuntu'", 1)
+    yield "an unquoted key", text.replace('"sets"', "sets", 1)
+    yield "NaN", text[:-1] + ', "n": NaN}'
+    yield "a repeated key", text[:-1] + ', "sets": []}'
+    yield "a key repeated in another case", text.replace(f'"{first}"', f'"{first.lower()}": "x", "{first}"', 1)
+
+
 class ShortcutStateTest(unittest.TestCase):
     """`status` names a Windows link whose recorded command is not the current one (D02 T02 §12): seen 2026-11-18,
     links written before the writable-attach fix kept `attach --watch`, so the operator's window ignored every key."""
@@ -2085,6 +2101,16 @@ class ShortcutStateTest(unittest.TestCase):
         for links in ([{}], [{"label": "x", "kind": None, "command": None}], ["text"]):
             with self.subTest(links=links):
                 self.record(("C:\\desk", "w", links))
+                self.assertTrue(self.run.shortcut_state(self.root).startswith(f"{self.run.SHORTCUTS} cannot be read"))
+
+    def test_a_file_strict_json_refuses_is_damaged(self):
+        (self.root / "build").mkdir(exist_ok=True)
+        whole = {"sets": [{"written": "w", "args": {"Distro": "Ubuntu", "Icon": "i", "Project": "p",
+                                                     "ShortcutDir": "C:\\desk", "IconDir": "c"},
+                           "links": self.current()}]}
+        for label, text in lenient_files(whole):
+            with self.subTest(label):
+                (self.root / self.run.SHORTCUTS).write_text(text, encoding="utf-8")
                 self.assertTrue(self.run.shortcut_state(self.root).startswith(f"{self.run.SHORTCUTS} cannot be read"))
 
     def test_every_field_the_writer_writes_is_required_in_its_own_case_and_type(self):

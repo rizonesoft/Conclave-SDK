@@ -164,6 +164,22 @@ def record_variants(record):
 
 
 
+def lenient_files(record):
+    """(label, text) for each file a lenient JSON parser takes and strict JSON refuses, made from `record` (D02 T02
+    §12, reconciliation 11: the readers must agree on the file, not only on its fields)."""
+    text = json.dumps(record)
+    first = next(iter(record["sets"][0]["args"]))
+    yield "a trailing comma in an object", text[:-1] + ",}"
+    yield "a trailing comma in a list", text.replace("]", ",]", 1)
+    yield "a line comment", "// written by hand\n" + text
+    yield "a block comment", "/* x */" + text
+    yield "a single-quoted string", text.replace('"Ubuntu"', "'Ubuntu'", 1)
+    yield "an unquoted key", text.replace('"sets"', "sets", 1)
+    yield "NaN", text[:-1] + ', "n": NaN}'
+    yield "a repeated key", text[:-1] + ', "sets": []}'
+    yield "a key repeated in another case", text.replace(f'"{first}"', f'"{first.lower()}": "x", "{first}"', 1)
+
+
 def full_set(folder):
     """One set of a shortcut record as unattended-shortcut.ps1 writes it, for `folder`."""
     return {"written": "2026-11-18T10:54:00Z",
@@ -4020,6 +4036,13 @@ class UnattendedKitTests(unittest.TestCase):
             failed = forge._refresh_shortcuts(self.target)
         self.assertEqual(failed, {"refreshed": False, "detail": "ok | no answer within 300 seconds: ; run "
                                   f"{forge.SHORTCUT_REFRESH} -ShortcutDir 'C:\\O''Brien''s desk' again"})
+
+    def test_forge_refuses_a_shortcut_record_strict_json_refuses(self):
+        (self.target / "build").mkdir(parents=True, exist_ok=True)
+        for label, text in lenient_files({"sets": [full_set("C:\\desk")]}):
+            with self.subTest(label):
+                (self.target / forge.SHORTCUT_RECORD).write_text(text, encoding="utf-8")
+                self.assertIsNone(forge._shortcut_folders(self.target))
 
     def test_forge_reads_only_the_shortcut_record_the_writer_writes(self):
         # The class, generated from the writer's shape (D02 T02 §12, reconciliations 1, 7, 9 and 10).

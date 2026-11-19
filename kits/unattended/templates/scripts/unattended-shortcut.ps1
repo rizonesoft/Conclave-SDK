@@ -82,8 +82,14 @@ function Read-Sets {
   if (-not (Test-Path -LiteralPath $recordPath -PathType Leaf)) { return }
   try {
     $text = Get-Content -LiteralPath $recordPath -Raw -ErrorAction Stop
+    # The file is held to strict JSON first (System.Text.Json: no trailing comma, no comment, no single quote, no
+    # NaN), the syntax Python's reader takes, so the three readers agree on the file and not only on its fields.
     # -NoEnumerate: a one-element list at the top would otherwise come back as its element, a record that passes.
-    $data = if ($text -and $text.Trim()) { ConvertFrom-Json -InputObject $text -NoEnumerate -ErrorAction Stop }
+    $data = $null
+    if ($text -and $text.Trim()) {
+      [System.Text.Json.JsonDocument]::Parse($text).Dispose()
+      $data = ConvertFrom-Json -InputObject $text -NoEnumerate -ErrorAction Stop
+    }
   } catch { $script:recordUnread = $_.Exception.Message; return }
   $fault = if ($null -eq $data) { 'it is empty' } else { Get-RecordFault $data }
   if ($fault) { $script:recordUnread = $fault; return }

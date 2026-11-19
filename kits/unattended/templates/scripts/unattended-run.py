@@ -986,17 +986,31 @@ SHORTCUT_RECORD_SHAPE = {"sets": [{"written": "", "links": [{"label": "", "kind"
 
 def fits_shape(value, shape) -> bool:
     if isinstance(shape, dict):
-        return isinstance(value, dict) and all(key in value and fits_shape(value[key], part) for key, part in shape.items())
+        return isinstance(value, dict) and all(key in value and fits_shape(value[key], part)
+                                               for key, part in shape.items())
     if isinstance(shape, list):
         return isinstance(value, list) and all(fits_shape(item, shape[0]) for item in value)
     return isinstance(value, str) and bool(value)
 
 
+def unique_keys(pairs):
+    """An object of a shortcut record, refused when a key repeats (in any case): PowerShell refuses such a file."""
+    keys = [key.lower() for key, _ in pairs]
+    if len(set(keys)) != len(keys):
+        raise ValueError("a key repeats")
+    return dict(pairs)
+
+
+def _no_constant(name):
+    """NaN and Infinity, which Python's json takes and strict JSON does not."""
+    raise ValueError(f"{name} is not JSON")
+
+
 def shortcut_sets(text: str) -> list | None:
-    """The sets of a shortcut record, read by its shape (SHORTCUT_RECORD_SHAPE). None for anything else (empty, blank, `null`, a
-    list, a key in another case, a field missing or of another type): a damaged record, never an empty one."""
+    """The sets of a shortcut record, read by its shape (SHORTCUT_RECORD_SHAPE). None for anything else (empty, blank,
+    `null`, a list, a key in another case, a field missing or of another type): a damaged record, never an empty one."""
     try:
-        data = json.loads(text) if text.strip() else None
+        data = json.loads(text, object_pairs_hook=unique_keys, parse_constant=_no_constant) if text.strip() else None
     except ValueError:
         return None
     return data["sets"] if fits_shape(data, SHORTCUT_RECORD_SHAPE) else None
