@@ -16,6 +16,7 @@ import tempfile
 import time
 import tomllib
 import unittest
+import uuid
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 # Installing the todo kit approves its Codex Stop hook through Codex's app-server; tests answer from a stub, never the
@@ -194,10 +195,16 @@ class FreshInstall(unittest.TestCase):
                                     (".codex/hooks.json", "block")):
             self.assertIn(f"self-test: {hook_file}: ok ({decision})", done.stdout)
 
-    def script_env(self, say=None, gate=None):
+    def script_env(self, say=None, gate=None, tag=None):
         git_dir = str(pathlib.Path(shutil.which("git")).parent)
+        # A tag of its own, with every outer suite's kept (check-all's), so a sweep ends a reviewer the dispatcher
+        # started in a session of its own, and ending an outer suite ends it too.
+        outer = [t for t in os.environ.get("CONCLAVE_CHECK_ALL_OUTER", "").split(",")
+                 + [os.environ.get("CONCLAVE_CHECK_ALL_TAG", "")] if t]
+        tagged = {"CONCLAVE_CHECK_ALL_TAG": tag, **({"CONCLAVE_CHECK_ALL_OUTER": ",".join(outer)} if outer else {})} \
+            if tag else {}
         return {"PATH": os.pathsep.join([str(self.bin), str(pathlib.Path(sys.executable).parent), git_dir]),
-                "FAKE_LOG": str(self.log), "FAKE_SAY": say or "", **({"FAKE_GATE": gate} if gate else {}),
+                "FAKE_LOG": str(self.log), "FAKE_SAY": say or "", **({"FAKE_GATE": gate} if gate else {}), **tagged,
                 **({"SYSTEMROOT": os.environ["SYSTEMROOT"], "PATHEXT": ".CMD;.EXE"} if os.name == "nt" else {}),
                 **{var: str(self.scratch) for var in ("TMP", "TEMP", "TMPDIR")}}
 
@@ -358,12 +365,13 @@ class FreshInstall(unittest.TestCase):
             '[routes]\nclaude = ["astra"]\n', encoding="utf-8")
         self.start = self.commit("a rotation pin")
         gate = str(self.scratch / "gate")
+        tag = uuid.uuid4().hex
         say = "1. Nothing found.\n\nHIGHEST: none\n\nOVERALL: approve"
         in_flight = subprocess.Popen(
             [sys.executable, "-B", "scripts/review-dispatch.py", "--writer", "claude", "--prompt",
              self.fill("review-round-prompt.md", self.start), "--record", self.record],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
-            env=self.script_env(say, gate), cwd=str(self.repo), **own_group())
+            env=self.script_env(say, gate, tag), cwd=str(self.repo), **own_group())
 
         def end_in_flight():
             # A failed assertion leaves the reviewer paused: the gate is opened and the whole tree ended and waited
@@ -372,6 +380,9 @@ class FreshInstall(unittest.TestCase):
             if in_flight.poll() is None:
                 end_tree(in_flight)
             in_flight.wait(timeout=30)
+            # On Linux the dispatcher starts the reviewer in a session of its own, which its group does not reach:
+            # the tag finds it there (a no-op on Windows, where taskkill /T ends the whole tree).
+            forge._kill_tagged(tag)
         self.addCleanup(end_in_flight)
         for _ in range(600):
             if os.path.exists(gate + ".started"):
