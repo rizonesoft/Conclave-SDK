@@ -300,6 +300,8 @@ Two faults in the campaign link, both found on the first project that used the w
 
 ## 8. Operator page and `project-launchers` skill
 
+> **Started:** 2026-11-19T07:47Z
+
 A person or an agent in a project needs one place that says how to set the title and icon, write the links and remove them. The page is the operator's; the skill points each agent at it.
 
 **Phase:** 8
