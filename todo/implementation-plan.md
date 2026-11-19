@@ -179,7 +179,7 @@ Sections: 16 | Checklist items: 139
 
 ### Phase 9: Design and safety lenses across projects
 
-Sections: 21 | Checklist items: 131
+Sections: 20 | Checklist items: 123
 
 | Status | Reference   | Deliverable                                                | Needs        | Items |
 | ------ | ----------- | ---------------------------------------------------------- | ------------ | ----- |
@@ -189,6 +189,7 @@ Sections: 21 | Checklist items: 131
 | [ ]    | D00 T03 §3  | Kit Refresh in Every Listed Project                        | windows-host | 7     |
 | [ ]    | D00 T03 §4  | Agent Entrypoints, Hooks and Native Skill Folders          | windows-host | 7     |
 | [ ]    | D00 T03 §5  | Design Contract Rule in Every Project                      | windows-host | 6     |
+| [ ]    | D00 T03 §6  | Design Paths in Every Three-Pass Pin                       | windows-host | 5     |
 | [ ]    | D00 T03 §7  | Design Lint Where a Project Has None                       | windows-host | 7     |
 | [ ]    | D00 T03 §8  | Resolute on Three-Pass                                     | windows-host | 6     |
 | [ ]    | D00 T03 §9  | C++ Lens Entries in the C++ Projects                       | windows-host | 5     |
@@ -198,8 +199,6 @@ Sections: 21 | Checklist items: 131
 | [ ]    | D00 T03 §13 | Concurrency and Lifetime Checks in the Clang-Tidy Ratchet  | windows-host | 6     |
 | [ ]    | D00 T03 §14 | Sanitizer Test Configuration                               | windows-host | 5     |
 | [ ]    | D00 T03 §15 | Bounded C++ Hot-Spot Audit                                 | windows-host | 5     |
-| [ ]    | D00 T03 §17 | Design Lens Routed to Opus on Rendered Surfaces            | none         | 7     |
-| [ ]    | D00 T03 §6  | Design Paths in Every Three-Pass Pin                       | windows-host | 6     |
 | [ ]    | D00 T03 §16 | Read-Only Verification Across the Projects                 | windows-host | 7     |
 | [x]    | D02 T02 §12 | Writable run windows, Watch and Stop links, finished stops | windows-host | 11    |
 | [ ]    | D04 T04 §1  | Interface tests split by whether they take the desk        | windows-host | 7     |
@@ -216,6 +215,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 104/133 verified sections, 8 ready to run now.
+Progress: 104/132 verified sections, 8 ready to run now.
 
-Checklist: 871/1032 items completed (includes Commit items).
+Checklist: 871/1024 items completed (includes Commit items).
