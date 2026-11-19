@@ -160,6 +160,28 @@ def record_variants(record):
         yield label, damaged
 
 
+def lenient_files(record):
+    """(label, text) for each file a lenient JSON parser takes and strict JSON refuses, made from `record` (D02 T02
+    §12, reconciliation 11: the readers must agree on the file, not only on its fields)."""
+    text = json.dumps(record)
+    first = next(iter(record["sets"][0]["args"]))
+    yield "a trailing comma in an object", text[:-1] + ",}"
+    yield "a trailing comma in a list", text.replace("]", ",]", 1)
+    yield "a line comment", "// written by hand\n" + text
+    yield "a block comment", "/* x */" + text
+    yield "a single-quoted string", text.replace('"Ubuntu"', "'Ubuntu'", 1)
+    yield "an unquoted key", text.replace('"sets"', "sets", 1)
+    yield "NaN", text[:-1] + ', "n": NaN}'
+    yield "a repeated key", text[:-1] + ', "sets": []}'
+    yield "a key repeated in another case", text.replace(f'"{first}"', f'"{first.lower()}": "x", "{first}"', 1)
+
+
+def long_path(path):
+    """`path` spelt as the script spells what it prints and records: in full, never by an 8.3 short name (the CI
+    runner's TEMP is C:\\Users\\RUNNER~1\\...; tests.yml run 44406061065)."""
+    return os.path.realpath(path)
+
+
 def start_tree(argv, **kwargs):
     """Start a child in a process group of its own, with no console window, so `end_tree` can end everything it
     starts (pwsh starts Python and the WSL stand-in)."""
@@ -606,6 +628,19 @@ class ShortcutTest(ShortcutFixture):
                 self.assertTrue(self.run.shortcut_state(self.project).startswith("build/unattended-shortcuts.json "
                                                                                   "cannot be read"))
 
+    def test_the_script_refuses_a_file_strict_json_refuses(self):
+        # Reconciliation 11: ConvertFrom-Json took a trailing comma that both Python readers refused.
+        self.install()
+        record = self.project / "build" / "unattended-shortcuts.json"
+        for label, text in lenient_files(json.loads(record.read_text(encoding="utf-8"))):
+            with self.subTest(label):
+                record.write_text(text, encoding="utf-8")
+                checked = self.shortcut("-Check")
+                self.assertEqual(checked.returncode, 1, checked.stdout + checked.stderr)
+                self.assertIn("cannot be read", checked.stdout)
+                self.assertTrue(self.run.shortcut_state(self.project).startswith("build/unattended-shortcuts.json "
+                                                                                  "cannot be read"))
+
     def test_every_damaged_record_is_kept_and_holds_the_badges(self):
         # The class, not the case (reconciliations 1 and 7): a record is judged by its shape. Each of these is
         # unreadable: an install keeps it, a removal keeps it and the badges, and -Check says to move it aside.
@@ -640,7 +675,7 @@ class ShortcutTest(ShortcutFixture):
         before = self.every_file()
         done = self.shortcut("-Check")
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
-        self.assertIn(f"unfinished: {journal}", done.stdout)
+        self.assertIn(f"unfinished: {long_path(journal)}", done.stdout)
         self.assertTrue(journal.exists(), "-Check played the journal")
         self.assertEqual(self.every_file(), before)
 
@@ -679,7 +714,7 @@ class ShortcutTest(ShortcutFixture):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         record = self.project / "build" / "unattended-shortcuts.json"
         folders = sorted(s["args"]["ShortcutDir"] for s in json.loads(record.read_text(encoding="utf-8"))["sets"])
-        self.assertEqual(folders, sorted([str(self.desk), str(other)]))
+        self.assertEqual(folders, sorted([long_path(self.desk), long_path(other)]))
         # -Refresh without a folder names a command for each; with one, it writes that one.
         both = run_tree([PWSH, "-NoProfile", "-NonInteractive", "-File",
                                str(self.project / "scripts" / "unattended-shortcut.ps1"), "-Refresh",
@@ -688,12 +723,12 @@ class ShortcutTest(ShortcutFixture):
                               creationflags=windowless())
         self.assertEqual(both.returncode, 1, both.stdout + both.stderr)
         self.assertIn("recorded in 2 folders", both.stdout)
-        self.assertIn(f"-ShortcutDir '{other}'", both.stdout)
+        self.assertIn(f"-ShortcutDir '{long_path(other)}'", both.stdout)
         self.assertEqual(self.shortcut("-Refresh", desk=other).returncode, 0)
         removed = self.shortcut("-Remove", desk=other)
         self.assertEqual(removed.returncode, 0, removed.stdout + removed.stderr)
         (left,) = json.loads(record.read_text(encoding="utf-8"))["sets"]
-        self.assertEqual(left["args"]["ShortcutDir"], str(self.desk))
+        self.assertEqual(left["args"]["ShortcutDir"], long_path(self.desk))
         self.assertTrue(self.links(), "removing one folder's links took the other's")
         for name in self.links() + self.controls():  # and their badges, which the two folders share
             with self.subTest(name):
