@@ -231,7 +231,7 @@ class FreshInstall(unittest.TestCase):
     def test_the_installed_pin_is_the_three_pass_one(self):
         schedule = tomllib.loads((self.repo / ".conclave/reviewers.toml").read_text(encoding="utf-8"))["schedule"]
         self.assertEqual(schedule["policy"], "three-pass")
-        self.assertEqual((schedule["pass_cap"], schedule["blocking"]), (33, ["P1"]))
+        self.assertEqual((schedule["pass_cap"], schedule["blocking"]), (33, ["P1", "P2"]))
         self.assertEqual(schedule["completion"]["lenses"], ["plan-delivery", "record"])
         self.assertEqual(len(schedule["rounds"]), 1)
         owned = schedule["plan"]["lenses"] + schedule["rounds"][0]["lenses"] + schedule["completion"]["lenses"]
