@@ -2,7 +2,7 @@
 schema_version: 1
 id: unattended-kit
 domain: 02-unattended
-status: active
+status: done
 title: "TODO-02 -- Unattended kit"
 ---
 
@@ -46,7 +46,7 @@ title: "TODO-02 -- Unattended kit"
 | 9 | §9 | Nothing resumes a run without its operator | §7 | [x] |
 | 10 | §10 | Desktop shortcut that starts the run | §5 | [x] |
 | 11 | §11 | Operator document and `unattended-run` skill | §8, §9, §10 | [x] |
-| 12 | §12 | Writable run windows, Watch and Stop links, finished stops | §11, D07 T01 §7 | [ ] |
+| 12 | §12 | Writable run windows, Watch and Stop links, finished stops | §11, D07 T01 §7 | [x] |
 
 ## 1. Unattended kit known to `forge.py`
 
@@ -426,6 +426,9 @@ Filed 2026-11-18 at the owner's request: port the generic part of the unattended
 - [x] Commit: `unattended: writable windows, idle-aware nudges, Watch and Stop links, stops that finish`
 
 **Test checkpoint:** `python forge.py check-all --only kit-unattended` and `python forge.py check-all --only kit-launchers` pass on Windows (through bosun), `python3 -m unittest tests.test_run` passes in WSL with its tmux tests run, not skipped, and `python -m unittest tests.test_forge -k update_of_the_link_commands -k replaces_the_shortcut_script` passes; restoring `attach -r`, the activity-blind nudge, or the guard's `operator-stop` as a stop makes its test fail.
+
+> **Verified:** 2026-11-19 | §12 | 31dcb05888cdcd4eaf52d4f233bc89cbb0c889ff
+> **Review:** `docs/reviews/d02-t02-s12.json`
 
 ## Verification
 

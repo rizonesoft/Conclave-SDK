@@ -1,0 +1,86 @@
+{
+  "ref": "D02 T02 \u00a712",
+  "title": "Writable run windows, Watch and Stop links, finished stops",
+  "implementation_sha": "31dcb05888cdcd4eaf52d4f233bc89cbb0c889ff",
+  "date": "2026-11-19",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-unattended/D02-T02-s12.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python forge.py check-all --only kit-unattended --only kit-launchers (Windows, through bosun) at 31dcb05 -> PASS kit-unattended, PASS kit-launchers 71 tests",
+    "python3 -m unittest tests.test_run (WSL, TMUX and both run markers set) -> OK, tmux tests run; mutations of attach -r, the activity-blind nudge and operator-stop as a stop each FAIL it",
+    "CI tests.yml run 44456585125 at 31dcb05 -> cancelled at the quick suite (Windows) 45-minute limit (the kit suite ran twice; fixed outside the section in 3255244, tests/test_forge.py only)",
+    "CI tests.yml run 44464327145 at 3255244 (holds the fix; the section files and TODO section unchanged) -> success"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-unattended/D02-T02-s12.md",
+    "verdict": "reconciled",
+    "candidate": "31dcb05888cdcd4eaf52d4f233bc89cbb0c889ff",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/02-unattended/D02-T02-s12.md",
+    "candidate": "672435016783eb2d3887971303fd92c64aa14781",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan"
+    ]
+  },
+  "schedule_sha": "672435016783eb2d3887971303fd92c64aa14781",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "low",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 23,
+  "pass_cap": 33
+}
