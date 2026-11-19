@@ -24,7 +24,9 @@ title: "TODO-01 -- Three-pass review"
 - A pin with `policy = "three-pass"` runs plan, round, completion and reconciliation passes in order, refuses a pass out of order or past the cap, and stamps; a rotation pin behaves as it did.
 - `scripts/review_pin.py` is the only place the pin's rules live, and `python -m unittest discover -s tests -v` passes with the SDK's installed copies equal to the kits.
 
-**Adjacency:** all=not-applicable (developer tooling: a pin loader, a review dispatcher and stamp rules, with no records a user lists, exports, is notified of or reverses)
+**Adjacency:** all=not-applicable (developer tooling: a pin loader, a review dispatcher and stamp rules; the records it keeps are its own findings files, which `query rounds` lists with any chain `replan` kept, and no user exports, is notified of or reverses them)
+
+**Corrected 2026-11-19:** the Adjacency line said the tooling keeps "no records a user lists"; since `D00 T01 §9`, `query rounds` lists each section's kept review chains, so the line names them (the completion review of §9).
 
 **Adjacency rationale:** The settings this work adds are the pin's own keys, each consumed by the loader and proven by a refusal test in §1; the audit trail is the findings file the dispatcher already writes.
 

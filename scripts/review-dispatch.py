@@ -1478,9 +1478,11 @@ def main(argv=None):
         schedule = pin.get("schedule", {})
         three_pass = schedule.get("policy") == THREE_PASS
         paths = [p.replace("\\", "/") for p in args.paths]
+        # A section's findings file takes one pass at a time under any pin: the todo kit's replan takes this same
+        # lock before it moves the file, so a pass in flight never lands in the chain that replaces it (D00 T01 §9).
+        if section_record(args.record):
+            lock_section(args.record, args.timeout)
         if three_pass:
-            if section_record(args.record):
-                lock_section(args.record, args.timeout)
             check_three_pass_order(args.kind, args.record, args.candidate, schedule)
             if args.kind != "plan" and section_record(args.record):
                 if paths:

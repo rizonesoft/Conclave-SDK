@@ -2,6 +2,7 @@
 import contextlib
 import importlib.util
 import io
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -251,6 +252,24 @@ class Dispatch(Harness):
         with self.assertRaises(dispatch.Refused) as ctx:
             dispatch.section_record(self.repo / section)
         self.assertIn("todo/plan.json: layout receipts must be a folder inside the repository", str(ctx.exception))
+
+    def test_a_rotation_pass_holds_the_sections_lock_so_replan_cannot_move_its_file(self):
+        # The completion review of D00 T01 §9: under a rotation pin the dispatcher took no section lock, so the todo
+        # kit's replan could move the findings file under a pass in flight and its result land in the new chain.
+        record = self.repo / "docs/reviews/00-design/D00-T01-s1.md"
+        record.parent.mkdir(parents=True, exist_ok=True)
+        name = os.path.normcase(os.path.abspath(record)).encode("utf-8")
+        lock = Path(self.scratch) / f"review-dispatch-{hashlib.sha256(name).hexdigest()[:16]}.lock"
+        lock.write_text(f"{os.getpid()} {time.time() + 1800:.0f} feedfeedfeedfeed", encoding="ascii")
+        before = len(self.calls())
+        result, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("is already running", result.stderr)
+        self.assertEqual(len(self.calls()), before, "a refused pass must not reach the reviewer")
+        lock.unlink()
+        result, _ = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(lock.exists(), "the pass did not release the section's lock")
 
     def test_both_layout_keys_set_leave_dispatch_and_listing_working(self):
         # D03 T01 §7: the plan key is the todo kit's; this kit reads receipts and lets plan through.
