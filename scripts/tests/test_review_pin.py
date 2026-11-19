@@ -780,6 +780,10 @@ class P2Gate(unittest.TestCase):
         self.assertTrue(review_pin.p2_data_contradicts(multiline + "\nP2 DATA: no"))
         closed = "1. P2 (closed): fixed.\n2. Open (P2): pending.\nHIGHEST: P2"
         self.assertEqual(review_pin.open_p2_findings(closed), [("2", False)])
+        # Reconciliation 2: the data qualifier between the severity and its status.
+        data_closed = "1. P2 data (closed): save failure fixed.\n2. Open (P2): other.\nHIGHEST: P2\nP2 DATA: no"
+        self.assertEqual(review_pin.open_p2_findings(data_closed), [("2", False)])
+        self.assertFalse(review_pin.p2_data_contradicts(data_closed))
         bold = "1. **Closed.** The P2 is gone.\n2. **Open, P2.** The record still goes.\nLENS a: findings\nHIGHEST: P2"
         self.assertEqual(review_pin.open_p2_findings(bold), [("2", False)])
         # Reconciliation 1: `closed` in a finding's evidence is not its status; the reading errs toward holding.
