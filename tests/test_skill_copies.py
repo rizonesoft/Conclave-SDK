@@ -404,5 +404,37 @@ class CommandLineTests(Fixture):
         self.assertFalse((self.demo / "templates/.agents").exists())
 
 
+class DesignCheckStepTests(unittest.TestCase):
+    """D00 T03 §17: the one Opus design check of a surface section, in the canonical build skill and its prompt."""
+
+    SKILL = SDK_ROOT / "kits/todo/templates/.claude/skills/process-todo-section/SKILL.md"
+    PROMPT = SDK_ROOT / "kits/todo/templates/docs/design-check-prompt.md"
+
+    def step(self):
+        text = self.SKILL.read_text(encoding="utf-8")
+        start = text.index("**One design check on a `Surface: yes` section")
+        return text, start, text[start:text.index("\n", start)]
+
+    def test_the_step_sits_after_the_rendered_check_and_before_the_commit(self):
+        text, start, _ = self.step()
+        self.assertLess(text.index("Reading the code is not a rendered check"), start)
+        self.assertLess(start, text.index("### 7. Commit, then hand to review"))
+        self.assertGreater(start, text.index("### 6. Run the Test checkpoint, for real"))
+
+    def test_the_step_names_its_prompt_its_isolation_and_its_outcomes(self):
+        _, _, step = self.step()
+        for part in ("`docs/design-check-prompt.md`", "a new empty folder under the scratch folder", "`--restricted`",
+                     "whoever the writer is", "`INPUTS:`", "`DESIGN:` outcome", "`DESIGN: unavailable`",
+                     "it runs once", "`design` included, run as they do"):
+            self.assertIn(part, step)
+
+    def test_the_prompt_runs_confined_and_ends_in_one_of_three_outcomes(self):
+        prompt = self.PROMPT.read_text(encoding="utf-8")
+        self.assertIn("--restricted --strict-mcp-config --tools Read", prompt)
+        self.assertNotIn("--allowedTools", prompt)  # it confines nothing, and it swallows a prompt that follows it
+        for outcome in ("`DESIGN: clean`", "`DESIGN: findings`", "`DESIGN: unavailable`", "`INPUTS:"):
+            self.assertIn(outcome, prompt)
+
+
 if __name__ == "__main__":
     unittest.main()

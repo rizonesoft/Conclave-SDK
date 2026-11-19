@@ -115,6 +115,8 @@ A `Surface: yes` section, and any section that changed a file under the pin's de
 - the static token and literal lint (`python scripts/design-lint.py` or the project's own), clean on the candidate;
 - a real rendered check of the surface: its goldens compared, a focus-free window capture, or a headless Playwright or Chrome DevTools inspection of layout and computed styles. Reading the code is not a rendered check, and one that cannot run leaves the section not done.
 
+**One design check on a `Surface: yes` section, after the rendered check and before the commit**, whoever the writer is. Save each rendered state the section changed as a PNG, also when the rendered check was a layout inspection. Copy the PNGs, the Fidelity source and `docs/design-check-prompt.md` into a new empty folder under the scratch folder, fill the prompt there, and run the command the prompt names once from that folder: Opus 5.5 at medium effort with `--restricted`, so it sees only that folder, never the code or your notes. Fix every finding, rerun the rendered check, and quote the reply's `INPUTS:` line, its findings and its `DESIGN:` outcome with your fixes in the commit body. A reply that is `DESIGN: unavailable`, empty or missing its outcome line is quoted as it came and the section goes on to its review. The check is part of the build, not a review pass: it runs once and is never repeated after a review pass, it holds no stamp, and the pin's passes, `design` included, run as they do.
+
 ### 7. Commit, then hand to review
 
 Commit the section work (in one or more commits as steps complete), recording the checkpoint evidence in the final implementation commit body:
