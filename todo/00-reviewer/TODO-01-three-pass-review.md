@@ -347,6 +347,8 @@ Filed 2026-11-18 from `D07 T01 §7`, which spent 19 passes before a re-plan: its
 
 ## 10. P2 gate by kind with two filing caps
 
+> **Started:** 2026-11-19T08:09Z
+
 Filed 2026-11-19 at the owner's request. A P2 finding held `D02 T02 §12` through 20 reconciliations; blocking on P1 alone would ship real P2 defects (that chain's P2s included a deleted record and another folder's icons removed). It sits in Phase 9 because a two-digit reference widens Phase 8's plan table past 120 characters; as the owner's request it is taken next, out of table order. The owner chose a gate by kind: a P2 that endangers the user's data holds the stamp longer than an ordinary one, and neither holds it forever. A pass's P2 findings are tagged by the reviewer; the stamp reads the tags.
 
 **Phase:** 9
