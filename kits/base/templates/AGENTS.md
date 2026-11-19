@@ -15,6 +15,7 @@ Not stated yet: replace this line with the project's goal in one sentence (`pyth
 - Real data only. Demo or seed data stays behind an explicit demo mode and is labeled as such.
 - Run the relevant typecheck, lint, and tests after a change.
 - Fix at the owning layer: a setting in its setting, behaviour in the code that produces it, data in the data. No output filters that hide a problem. Code changes end the report with a `Layer:` line.
+- A review gap reopened twice is redesigned, not patched again. When a reconciliation reopens an in-scope gap that an earlier pass already reopened (the same gap returned open twice), stop patching the cases the reviewer names: find the mechanism that keeps producing them and replace it so the whole class closes, record the redesign under the completion review, and add a regression for the class, not only the latest case. The obligation stays as the completion review read it.
 - Markdown prose is never hard-wrapped: one line per paragraph and per list item. Every Markdown table row stays `<= 120` characters so raw `.md` files never wrap.
 - Never use em dashes or en dashes anywhere: prose, code, comments, commit messages and generated files.
 - Temporary files and full logs go to scratch, never the repository: the session scratchpad when one is given, otherwise the folder `paths.scratch` names in `.conclave/local.toml`, otherwise the operating system's temporary folder.

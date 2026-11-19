@@ -66,6 +66,8 @@ Review nontrivial diffs before they ship. Verify review feedback against the cod
 
 Keep review bounded so the work always finishes: the reviewer gets a fixed number of rounds, a completion review's missing items are fixed in the same cycle or filed as tracked work and never re-reviewed, and its suggestions for doing better than competing tools are recorded as findings that block nothing. A repository's own review schedule wins where it sets one.
 
+- **A gap reopened twice.** When a reconciliation reopens an in-scope gap that an earlier pass already reopened (the same gap returned open twice), stop patching the cases the reviewer names: find the mechanism that keeps producing them and replace it so the whole class closes, record the redesign under the completion review, and add a regression for the class, not only the latest case. The obligation stays as the completion review read it.
+
 ## 8. Credentials
 
 - Never print a secret, a token or a credentials file, even to read one field. Check credentials with tools that report only booleans and counts.
