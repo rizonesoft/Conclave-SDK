@@ -71,3 +71,29 @@ LENS plan-delivery: findings
 LENS record: findings  
 HIGHEST: P1  
 COMPLETION: gaps
+
+## Reconciliation review: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: claude
+- Run: 2026-11-19T21:50:21Z
+- Candidate: 5284cd877fbceac60576f80d746068a5819ee07b
+- Effort: low
+- Lenses: plan-delivery, record
+- Lines: 11
+- Digest: 68b071e9bea92f2c
+
+1. **open (P1)**. A user can save an `env` edit after the final read at `plugins/claude/scripts/register_claude.py:166`. The CLI then removes the edited registration at `plugins/claude/scripts/register_claude.py:178`. An interruption before `plugins/claude/scripts/register_claude.py:180` leaves the entry missing. A later repair can recreate the generated registration but cannot recover the deleted values. The repair added only a comment at `plugins/claude/scripts/register_claude.py:174`.
+2. **open (P2, record only)**. The code closes the budget defect. The hook runs repair setup inside the bounded survey at `global/claude/hooks/session_drift_check.py:141` and `global/claude/hooks/session_drift_check.py:190`. The regression test delays `start_repair` and checks the timeout result at `global/claude/hooks/test_session_drift_check.py:173`. The candidate lacks the required writer’s `- Implemented:` line for `docs/reviews/06-global/2026-11-19-mcp-self-heal.md:66`.
+3. **open (P2, record only)**. The supplied WSL gate reports replacing both existing stale registrations, a passing registration check, and both servers Connected at the new path. That addresses the requested live scenario. The candidate’s findings file ends at `docs/reviews/06-global/2026-11-19-mcp-self-heal.md:73` without the required `- Implemented:` line recording that proof.
+4. **open (P2, record only)**. Repair-log setup now runs on the survey worker. The prompt thread waits only for the budget at `global/claude/hooks/session_drift_check.py:166`. The writer’s `- Implemented:` line is also missing for the shared fix requested at `docs/reviews/06-global/2026-11-19-mcp-self-heal.md:68`.
+
+The TODO contract is unchanged across the two commits. The repair introduced no additional runtime defect or weakened test.
+
+LENS plan-delivery: findings  
+LENS record: findings  
+HIGHEST: P1  
+RECONCILIATION: gaps
+
+- Implemented: completion gap 2 (and gap 4, the same fix), `start_repair` runs inside `survey()` within `bounded_check`, so log setup and the worker start are charged to the three second budget; `test_the_repair_survey_stays_inside_the_budget` hangs `start_repair` and fails on 713ca02, in 5284cd8
+- Implemented: completion gap 3, live in WSL both entries were re-registered with the old `D:\Conclave-SDK` bundle paths, the hook started the repair, `register_claude.py --check` reported ok and `claude mcp list` showed both servers Connected on `D:\GitHub\Conclave-SDK`, against 5284cd8
+- Not closed: completion gap 1 and reconciliation item 1 (P1), the Claude CLI owns `~/.claude.json` and has no replace (probed on 2.1.328: `claude mcp add-json` on an existing name prints "already exists" and changes nothing), so a wrong entry must be removed and then added. A repair stopped between the two leaves the entry missing, which `fixable()` names and the next session re-adds. An entry with an env block is never touched; an env block typed into the file in the milliseconds between the final re-read and the remove could be lost, the same lost-update window every `claude mcp` command has with a concurrent hand edit. Recorded beside the code in `register()`; closing it needs an atomic replace in the Claude CLI. The chain stops here under the pin's bounded review.
