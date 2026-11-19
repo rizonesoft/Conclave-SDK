@@ -192,6 +192,14 @@ def damaged_bytes(record):
     yield "UTF-16", json.dumps(record).encode("utf-16")
 
 
+def install_runner(target):
+    """The unattended kit's runner and its library in `target`, as the kit installs them: forge reads the shortcut
+    record with the project's own runner."""
+    for rel in ("unattended-run.py", "lib/unattended.py"):
+        (target / "scripts" / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(FORGE_ROOT / "kits/unattended/templates/scripts" / rel, target / "scripts" / rel)
+
+
 def full_set(folder):
     """One set of a shortcut record as unattended-shortcut.ps1 writes it, for `folder`."""
     return {"written": "2026-11-18T10:54:00Z",
@@ -4050,33 +4058,37 @@ class UnattendedKitTests(unittest.TestCase):
                                   f"{forge.SHORTCUT_REFRESH} -ShortcutDir 'C:\\O''Brien''s desk' again"})
 
     def test_forge_refuses_a_shortcut_record_that_is_not_strict_utf8(self):
+        install_runner(self.target)
         (self.target / "build").mkdir(parents=True, exist_ok=True)
         for label, data in damaged_bytes({"sets": [full_set("C:\\desk")]}):
             with self.subTest(label):
                 (self.target / forge.SHORTCUT_RECORD).write_bytes(data)
-                self.assertIsNone(forge._shortcut_folders(self.target))
+                self.assertEqual(forge._shortcut_folders(self.target)[:2], (None, "damaged"))
 
     def test_forge_refuses_a_shortcut_record_strict_json_refuses(self):
+        install_runner(self.target)
         (self.target / "build").mkdir(parents=True, exist_ok=True)
         for label, text in lenient_files({"sets": [full_set("C:\\desk")]}):
             with self.subTest(label):
                 (self.target / forge.SHORTCUT_RECORD).write_text(text, encoding="utf-8")
-                self.assertIsNone(forge._shortcut_folders(self.target))
+                self.assertEqual(forge._shortcut_folders(self.target)[:2], (None, "damaged"))
 
     def test_forge_reads_only_the_shortcut_record_the_writer_writes(self):
+        install_runner(self.target)
         # The class, generated from the writer's shape (D02 T02 §12, reconciliations 1, 7, 9 and 10).
         (self.target / "build").mkdir(parents=True, exist_ok=True)
         whole = {"sets": [full_set("C:\\desk")]}
         (self.target / forge.SHORTCUT_RECORD).write_text(json.dumps(whole), encoding="utf-8")
-        self.assertEqual(forge._shortcut_folders(self.target), ["C:\\desk"])
+        self.assertEqual(forge._shortcut_folders(self.target), (["C:\\desk"], "ok", ""))
         variants = list(record_variants(whole))
         self.assertGreaterEqual(len(variants), 40)
         for label, damaged in variants:
             with self.subTest(label):
                 (self.target / forge.SHORTCUT_RECORD).write_text(json.dumps(damaged), encoding="utf-8")
-                self.assertIsNone(forge._shortcut_folders(self.target))
+                self.assertEqual(forge._shortcut_folders(self.target)[:2], (None, "damaged"))
 
     def test_every_damaged_shortcut_record_is_said_to_be_one_and_never_crashes_the_update(self):
+        install_runner(self.target)
         # The class (D02 T02 §12, reconciliations 1, 7 and 8): forge reads the record by the shape the script reads.
         (self.target / "build").mkdir(parents=True, exist_ok=True)
         probe = unittest.mock.Mock(return_value=(0, "", ""))
@@ -4084,15 +4096,37 @@ class UnattendedKitTests(unittest.TestCase):
             for windows in (True, False):
                 with self.subTest(record=text, windows=windows):
                     (self.target / forge.SHORTCUT_RECORD).write_text(text, encoding="utf-8")
-                    self.assertIsNone(forge._shortcut_folders(self.target))
+                    self.assertEqual(forge._shortcut_folders(self.target)[:2], (None, "damaged"))
                     with unittest.mock.patch.object(forge, "_probe", probe), \
                             unittest.mock.patch.object(forge, "_windows", return_value=windows), \
                             unittest.mock.patch.object(forge.shutil, "which", return_value="pwsh"):
                         said = forge._refresh_shortcuts(self.target)
                     self.assertFalse(said["refreshed"])
-                    self.assertIn("cannot be read: move it aside", said["detail"])
+                    self.assertIn("cannot be read (", said["detail"])
+                    self.assertIn("): move it aside", said["detail"])
                     self.assertIn("-ShortcutDir '<folder>' on Windows, once for each folder", said["detail"])
         probe.assert_not_called()
+
+    def test_each_reader_state_gets_the_scripts_advice_for_it(self):
+        # Reconciliation 15: forge's own copy of the reader turned a held record into a damaged one. Forge now asks
+        # the project's runner, and each answer gets the advice the shortcut script gives for the same file.
+        install_runner(self.target)
+        (self.target / "build").mkdir(parents=True, exist_ok=True)
+        (self.target / forge.SHORTCUT_RECORD).write_text(json.dumps({"sets": [full_set("C:\\desk")]}),
+                                                         encoding="utf-8")
+        answers = {4: ("busy", "it may be sound; run pwsh scripts/unattended-shortcut.ps1 -Refresh on Windows once "
+                               "nothing holds it"),
+                   3: ("damaged", "move it aside"), 9: ("reader", "--only scripts/unattended-run.py")}
+        for code, (state, advice) in answers.items():
+            with self.subTest(code=code):
+                ran = subprocess.CompletedProcess([], code, "it cannot be opened now (held)\n", "")
+                with unittest.mock.patch.object(forge.subprocess, "run", return_value=ran):
+                    self.assertEqual(forge._shortcut_folders(self.target)[1], state)
+                    said = forge._refresh_shortcuts(self.target)
+                self.assertFalse(said["refreshed"])
+                self.assertIn(advice, said["detail"])
+        (self.target / "scripts/unattended-run.py").unlink()
+        self.assertEqual(forge._shortcut_folders(self.target)[:2], (None, "reader"))
 
     def test_an_update_that_replaces_the_shortcut_script_asks_it_for_links_from_before_the_record(self):
         # D02 T02 §12, the plan review: an install made before the record has links and no record.

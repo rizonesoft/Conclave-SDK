@@ -1349,55 +1349,39 @@ def _windows() -> bool:
     return os.name == "nt"
 
 
-# The shape of a shortcut record, exactly as unattended-shortcut.ps1's Save-Sets writes it: every key in its own case,
-# every value non-empty text, a list holding items of its one element's shape (D02 T02 §12; the script holds the same).
-SHORTCUT_RECORD_SHAPE = {"sets": [{"written": "", "links": [{"label": "", "kind": "", "command": ""}],
-                                 "args": {"Distro": "", "Icon": "", "Project": "", "ShortcutDir": "", "IconDir": ""}}]}
+READ_SECONDS = 60  # the runner reading the record; the limit only catches a hang
 
 
-def _fits_shape(value, shape) -> bool:
-    if isinstance(shape, dict):
-        return isinstance(value, dict) and all(key in value and _fits_shape(value[key], part)
-                                               for key, part in shape.items())
-    if isinstance(shape, list):
-        return isinstance(value, list) and all(_fits_shape(item, shape[0]) for item in value)
-    return isinstance(value, str) and bool(value)
-
-
-def _unique_keys(pairs):
-    """An object of a shortcut record, refused when a key repeats (in any case): PowerShell refuses such a file."""
-    keys = [key.lower() for key, _ in pairs]
-    if len(set(keys)) != len(keys):
-        raise ValueError("a key repeats")
-    return dict(pairs)
-
-
-def _no_constant(name):
-    """NaN and Infinity, which Python's json takes and strict JSON does not."""
-    raise ValueError(f"{name} is not JSON")
-
-
-def _shortcut_sets(text: str) -> list | None:
-    """The sets of a shortcut record, read by its shape (SHORTCUT_RECORD_SHAPE). None for anything else (empty, blank,
-    `null`, a list, a key in another case, a field missing or of another type): a damaged record, never an empty one."""
+def _shortcut_folders(target: Path) -> tuple[list[str] | None, str, str]:
+    """(folders, state, why) of the project's shortcut record, read by the project's own runner
+    (`scripts/unattended-run.py shortcut-record`), the one reader the shortcut script and `status` use too, so forge
+    never holds a copy that can disagree with them (D02 T02 §12, reconciliations 1 and 7 to 15). `state` is `ok`
+    (no record is no folders), `damaged` (not a record: move it aside), `busy` (cannot be opened now) or `reader` (the
+    runner is missing or gave no answer)."""
+    if not (target / SHORTCUT_RECORD).exists():
+        return [], "ok", ""
+    runner = target / "scripts/unattended-run.py"
+    if not runner.is_file():
+        return None, "reader", "the project has no scripts/unattended-run.py to read it"
     try:
-        data = json.loads(text, object_pairs_hook=_unique_keys, parse_constant=_no_constant) if text.strip() else None
-    except ValueError:
-        return None
-    return data["sets"] if _fits_shape(data, SHORTCUT_RECORD_SHAPE) else None
-
-
-def _shortcut_folders(target: Path) -> list[str] | None:
-    """The desktop folders the record names a set of the project's links in: none without a record, None for a record
-    that cannot be read (`_shortcut_sets`)."""
+        # The reader starts no process of its own, so its timeout leaves nothing behind.
+        done = subprocess.run([sys.executable, "-B", str(runner), "shortcut-record", str(target / SHORTCUT_RECORD)],
+                              capture_output=True, text=True, timeout=READ_SECONDS,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return None, "reader", f"its reader did not answer ({exc})"
+    said = (done.stdout or done.stderr).strip()
+    if done.returncode == 3 and said:
+        return None, "damaged", said
+    if done.returncode == 4 and said:
+        return None, "busy", said
+    if done.returncode != 0:
+        return None, "reader", f"its reader ended with exit {done.returncode}" + (f": {said[-300:]}" if said else "")
     try:
-        text = (target / SHORTCUT_RECORD).read_text(encoding="utf-8-sig")
-    except FileNotFoundError:
-        return []
-    except (OSError, UnicodeDecodeError):
-        return None
-    sets = _shortcut_sets(text)
-    return None if sets is None else [entry["args"]["ShortcutDir"] for entry in sets]
+        sets = json.loads(said)["sets"]
+        return [entry["args"]["ShortcutDir"] for entry in sets], "ok", ""
+    except (ValueError, KeyError, TypeError):
+        return None, "reader", "its reader gave no answer forge can read"
 
 
 def _refresh_shortcuts(target: Path) -> dict:
@@ -1405,11 +1389,20 @@ def _refresh_shortcuts(target: Path) -> dict:
     {refreshed, detail}. With no record, the script itself names links written before it kept one, with the command
     that writes them again. Only on Windows, where the links are; elsewhere the detail names the command to run
     there."""
-    folders = _shortcut_folders(target)
-    if folders is None:  # the script keeps a damaged record and says how to start a new one; so does this
-        return {"refreshed": False, "detail": f"{SHORTCUT_RECORD} cannot be read: move it aside, then run "
+    folders, state, why = _shortcut_folders(target)
+    # Each state's advice is the shortcut script's for the same file: a damaged record is moved aside, a held one is
+    # tried again, and a record the reader could not answer for is kept for a restored reader.
+    if state == "damaged":
+        return {"refreshed": False, "detail": f"{SHORTCUT_RECORD} cannot be read ({why}): move it aside, then run "
                 "pwsh scripts/unattended-shortcut.ps1 -Distro <distro> -Icon <the project's icon> -ShortcutDir "
                 "'<folder>' on Windows, once for each folder the links are in"}
+    if state == "busy":
+        return {"refreshed": False, "detail": f"{SHORTCUT_RECORD} cannot be read ({why}): it may be sound; run "
+                f"{SHORTCUT_REFRESH} on Windows once nothing holds it"}
+    if state == "reader":
+        return {"refreshed": False, "detail": f"{SHORTCUT_RECORD} cannot be read ({why}): restore "
+                "scripts/unattended-run.py (python forge.py update <project> --only scripts/unattended-run.py), "
+                f"then run {SHORTCUT_REFRESH} on Windows"}
     if not _windows():
         each = "; ".join(SHORTCUT_REFRESH + " -ShortcutDir " + "'" + folder.replace("'", "''") + "'"
                          for folder in folders)
