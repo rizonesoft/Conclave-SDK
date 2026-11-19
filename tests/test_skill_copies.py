@@ -428,7 +428,10 @@ class DesignCheckStepTests(unittest.TestCase):
                      "it runs once", "`design` included, run as they do",
                      # D00 T03 §17 round 1: a partial inspection is no clean verdict, and copies never collide.
                      "`DESIGN: unavailable (partial: <files left out>)`", "`fidelity-<n>-<name>`",
-                     "`render-<n>-<name>`"):
+                     "`render-<n>-<name>`",
+                     # Completion review: every outcome by name, and a partial reply judged by the design files only.
+                     "`DESIGN: clean`", "`DESIGN: findings`", "leaves out any `fidelity-` or `render-` file",
+                     "never listed"):
             self.assertIn(part, step)
 
     def test_the_prompt_runs_confined_and_ends_in_one_of_three_outcomes(self):
