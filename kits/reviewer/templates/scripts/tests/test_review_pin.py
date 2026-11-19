@@ -713,109 +713,6 @@ class Faults(unittest.TestCase):
                     self.assertEqual(review_pin.faults(path), [str(refused.exception)])
 
 
-class P2Gate(unittest.TestCase):
-    """D00 T01 §10: a P2 holds the stamp for p2_file_after reconciliations, or p2_data_file_after when the review
-    tags it `P2 data`; a P1 always holds it."""
-    PIN = THREE_PASS.replace('blocking = ["P1", "P2"]', 'blocking = ["P1", "P2"]\np2_file_after = 2\np2_data_file_after = 4')
-
-    def test_the_caps_load_and_every_unsound_setting_is_refused(self):
-        schedule = load(self.PIN)["schedule"]
-        self.assertEqual((schedule["p2_file_after"], schedule["p2_data_file_after"]), (2, 4))
-        base = 'blocking = ["P1", "P2"]'
-        for bad, needle in (
-                (base + "\np2_file_after = 2", "go together"),
-                (base + '\np2_file_after = "2"\np2_data_file_after = 4', "whole numbers"),
-                (base + "\np2_file_after = 3\np2_data_file_after = 2", "whole numbers"),
-                (base + "\np2_file_after = 2\np2_data_file_after = 43", "pass_cap less the three passes"),
-                ('blocking = ["P1"]\np2_file_after = 2\np2_data_file_after = 4', "need blocking to name P2")):
-            with self.subTest(bad):
-                with self.assertRaises(review_pin.Refused) as ctx:
-                    load(THREE_PASS.replace(base, bad))
-                self.assertIn(needle, str(ctx.exception))
-
-    def test_a_p2_holds_until_its_cap_by_kind_and_a_p1_always(self):
-        schedule = load(self.PIN)["schedule"]
-        ordinary, data = "1. P2 thin.\nHIGHEST: P2\nP2 DATA: no", "1. P2 data lost.\nHIGHEST: P2\nP2 DATA: yes"
-        self.assertEqual([review_pin.holds(schedule, "P2", ordinary, n) for n in range(4)], [True, True, False, False])
-        self.assertEqual([review_pin.holds(schedule, "P2", data, n) for n in range(6)],
-                         [True, True, True, True, False, False])
-        self.assertTrue(review_pin.holds(schedule, "P1", ordinary, 40))
-        self.assertFalse(review_pin.holds(schedule, "P3", ordinary, 0))
-        self.assertFalse(review_pin.holds(schedule, "P2", data, 1, stalled=True))
-        # No P2 DATA line is data: an absent line never loosens the gate.
-        self.assertTrue(review_pin.holds(schedule, "P2", "HIGHEST: P2", 3))
-        # A pin without the caps keeps every P2 until it is reconciled.
-        plain = load(THREE_PASS)["schedule"]
-        self.assertTrue(review_pin.holds(plain, "P2", ordinary, 40))
-
-    def test_a_line_that_says_no_beside_a_data_tag_takes_the_data_cap(self):
-        # D00 T01 §10: no reading of a reply refuses it; an ambiguity costs the longer cap.
-        self.assertTrue(review_pin.p2_data("1. P2 data: the record goes.\nHIGHEST: P2\nP2 DATA: no"))
-        self.assertTrue(review_pin.p2_data("1. P2 data: the record goes.\nHIGHEST: P2\nP2 DATA: yes"))
-        self.assertFalse(review_pin.p2_data("1. P2 thin.\nHIGHEST: P2\nP2 DATA: no"))
-        # A quoted tag in an open ordinary finding's evidence (reconciliation 3) takes the longer cap, and is not
-        # a refusal.
-        quoted = "1. Open, P2. The parser read `P2 data (closed)` wrongly.\nHIGHEST: P2\nP2 DATA: no"
-        self.assertTrue(review_pin.p2_data(quoted))
-        self.assertFalse(review_pin.p2_data_contradicts(quoted))
-        for labelled in ("1. P2 data: the record goes.", "1. Open (P2 data): the record goes.",
-                         "1. **P2 data.** The record goes."):
-            with self.subTest(labelled):
-                self.assertTrue(review_pin.p2_data_contradicts(labelled + "\nHIGHEST: P2\nP2 DATA: no"))
-        self.assertFalse(review_pin.p2_data_contradicts("1. Open.\n   P2 data: a save.\nHIGHEST: P2\nP2 DATA: no"))
-
-    def test_an_unsound_pass_cap_is_reported_not_a_crash(self):
-        # Round 1 of D00 T01 §10: the P2 caps' bound subtracted from a pass_cap that was a string.
-        with self.assertRaises(review_pin.Refused) as ctx:
-            load(self.PIN.replace("pass_cap = 45", 'pass_cap = "45"'))
-        self.assertIn("pass_cap", str(ctx.exception))
-        faults = review_pin.faults(self.PIN.replace("pass_cap = 45", 'pass_cap = "45"')) \
-            if hasattr(review_pin, "faults") else None
-        if faults is not None:
-            self.assertTrue(any("pass_cap" in f for f in faults))
-
-    def test_a_lensless_pass_is_asked_for_the_tag_too(self):
-        schedule = load(self.PIN)["schedule"]
-        plan = {"position": None, "effort": "medium", "lenses": [], "escalated": False}
-        self.assertIn("`P2 DATA: yes`", review_pin.lens_block(plan, schedule))
-
-    def test_a_closed_data_finding_is_history_not_a_contradiction(self):
-        text = "1. Closed (P2 data): the record is kept now.\n2. P2: thin.\nHIGHEST: P2\nP2 DATA: no"
-        self.assertFalse(review_pin.p2_data(text))
-        self.assertEqual(review_pin.open_p2_findings(text), [("2", False)])
-
-    def test_findings_are_read_whole_and_closed_in_any_word_order(self):
-        # The completion review of D00 T01 §10: a tag on a continuation line was lost, and `P2 (closed):` read open.
-        multiline = "1. Open.\n   P2 data: a failed save reported as successful.\n2. Open (P2): other.\nHIGHEST: P2"
-        self.assertEqual(review_pin.open_p2_findings(multiline), [("1", True), ("2", False)])
-        self.assertTrue(review_pin.p2_data(multiline + "\nP2 DATA: no"))
-        closed = "1. P2 (closed): fixed.\n2. Open (P2): pending.\nHIGHEST: P2"
-        self.assertEqual(review_pin.open_p2_findings(closed), [("2", False)])
-        # Reconciliation 2: the data qualifier between the severity and its status.
-        data_closed = "1. P2 data (closed): save failure fixed.\n2. Open (P2): other.\nHIGHEST: P2\nP2 DATA: no"
-        self.assertEqual(review_pin.open_p2_findings(data_closed), [("2", False)])
-        self.assertFalse(review_pin.p2_data(data_closed))
-        bold = "1. **Closed.** The P2 is gone.\n2. **Open, P2.** The record still goes.\nLENS a: findings\nHIGHEST: P2"
-        self.assertEqual(review_pin.open_p2_findings(bold), [("2", False)])
-        # Reconciliation 1: `closed` in a finding's evidence is not its status; the reading errs toward holding.
-        evidence = "1. Open (P2 data). A failed save is marked closed.\n2. Open (P2): other.\nHIGHEST: P2"
-        self.assertEqual(review_pin.open_p2_findings(evidence), [("1", True), ("2", False)])
-        self.assertTrue(review_pin.p2_data(evidence + "\nP2 DATA: no"))
-
-    def test_a_stall_is_read_from_the_worst_findings(self):
-        schedule = load(self.PIN.replace("pass_cap = 45", "pass_cap = 45\nno_progress_cap = 1")
-                        if "no_progress_cap" not in self.PIN else self.PIN)["schedule"]
-        cap = review_pin.no_progress_cap(schedule)
-        self.assertTrue(review_pin.stalled(schedule, ["P2"] * (cap + 1)))
-        self.assertFalse(review_pin.stalled(schedule, ["P1", "P2"] if cap == 1 else ["P2"] * cap))
-
-    def test_the_reply_format_asks_for_the_tag_when_the_pin_sets_the_caps(self):
-        schedule = load(self.PIN)["schedule"]
-        plan = {"position": None, "effort": "medium", "lenses": ["adversarial"], "escalated": False}
-        self.assertIn("`P2 DATA: yes`", review_pin.lens_block(plan, schedule))
-        self.assertNotIn("P2 DATA", review_pin.lens_block(plan, load(THREE_PASS)["schedule"]))
-
-
 class CommandLine(unittest.TestCase):
     def run_cli(self, text, *args):
         with tempfile.TemporaryDirectory() as tmp:
@@ -902,12 +799,6 @@ class CommandLine(unittest.TestCase):
         refused = self.run_cli(gated, "--check", "--no-surface")
         self.assertEqual(refused.returncode, 2)
         self.assertIn("--no-surface goes with --lenses", refused.stderr)
-
-    def test_caps_prints_the_p2_caps_when_the_pin_sets_them(self):
-        # D00 T01 §10: the writer's skill sends a writer to --caps for the limits a section runs under.
-        text = THREE_PASS.replace('blocking = ["P1", "P2"]', 'blocking = ["P1", "P2"]\np2_file_after = 2\np2_data_file_after = 4')
-        self.assertEqual(self.run_cli(text, "--caps").stdout,
-                         "pass_cap 45\nno_progress_cap 3\np2_file_after 2\np2_data_file_after 4\n")
 
     def test_caps_prints_the_configured_caps(self):
         self.assertEqual(self.run_cli(THREE_PASS, "--caps").stdout, "pass_cap 45\nno_progress_cap 3\n")

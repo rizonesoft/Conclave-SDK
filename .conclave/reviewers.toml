@@ -53,17 +53,19 @@ agy = ["astra"]
 [schedule]
 policy = "three-pass"
 pass_cap = 33
-# P1 and P2 hold the stamp (owner, 2026-11-19: P1 alone would ship real P2 defects); D00 T01 §10 bounds how long
-# a P2 may hold it.
+# P1 and P2 hold the stamp (owner, 2026-11-19: P1 alone would ship real P2 defects).
 blocking = ["P1", "P2"]
-# How long a P2 holds the stamp before it is filed as a section of its own (D00 T01 §10): an ordinary P2 for
-# p2_file_after reconciliations, one the review tags `P2 data` for p2_data_file_after; a P1 always holds it.
-p2_file_after = 3
-p2_data_file_after = 6
+# Verify-only trial (owner, 2026-11-19; this pin only, the kit template is unchanged): two reconciliations in a
+# row whose worst finding gets no less severe stop the chain, which then calls for a redesign, not another patch.
+no_progress_cap = 2
+
+# The trial's plan lens: an oversized design (D02 T02 §12) is what fed its 19 reconciliations.
+[schedule.lenses]
+simplest = "What is the simplest design that meets this section in full, and which planned part could be cut?"
 
 [schedule.plan]
 effort = "medium"
-lenses = ["plan"]
+lenses = ["plan", "simplest"]
 
 # `design` runs only for a section with a surface (--surface).
 [[schedule.rounds]]
@@ -74,9 +76,11 @@ lenses = ["adversarial", "integration", "source-defect", "consistency", "quality
 effort = "low"
 lenses = ["plan-delivery", "record"]
 
+# Verify-only trial: a reconciliation checks that the named gaps are closed and the repair broke nothing. Edge
+# cases are hunted once, in the round, not again on every repair (D07 T01 §7 took 15 passes, D02 T02 §12 took 19).
 [schedule.reconciliation]
 effort = "low"
-lenses = ["adversarial", "integration", "plan-delivery", "record"]
+lenses = ["plan-delivery", "record"]
 
 # Optional keys, shown as examples.
 #

@@ -604,15 +604,12 @@ def review(pin, writer, prompt_path, timeout, plan=None, kind="round"):
         # The severity line is what blocking levels, the no-progress count and the stamp read: without it the reply
         # says nothing they can act on.
         undeclared = worst is None
-        # D00 T01 §10: `P2 DATA: no` beside an open finding labelled `P2 data` says two things of one finding.
-        mixed = any(key in schedule for key in review_pin.P2_CAPS) and review_pin.p2_data_contradicts(text)
-        if not final or missing or contradicts or undeclared or mixed:
+        if not final or missing or contradicts or undeclared:
             why = ([f"no final {kind} verdict line"] if not final else []) \
                 + ([f"no LENS verdict line for {', '.join(missing)}"] if missing else []) \
                 + (["no HIGHEST line"] if undeclared else []) \
                 + ([f"it ends {kind.upper()}: complete but declares HIGHEST: {worst}, which holds the stamp"]
-                   if contradicts else []) \
-                + (["it says P2 DATA: no while an open finding's label is P2 data"] if mixed else [])
+                   if contradicts else [])
             return {**none(f"incomplete: {' and '.join(why)}"), "review": text.strip(), "incomplete": missing}
     return {"writer": writer, "reviewer": name, "cli": reviewer["cli"], "model": reviewer["model"],
             "effort": effort, "failover": [], "review": text.strip(), **({"lenses": lenses} if plan else {})}
@@ -1343,12 +1340,6 @@ def check_three_pass_order(kind, record_path, candidate, schedule):
         if "blocking" in schedule and not unsettled and not review_pin.blocks(schedule, worst[-1]):
             raise Refused(f"the last pass's worst finding is {worst[-1]}, below the pin's blocking levels "
                           f"({', '.join(schedule['blocking'])}): file its findings and stamp; it takes no further pass")
-        # A P2 past its cap of reconciliations, by kind (D00 T01 §10), is filed: the stamp takes it without another.
-        if "blocking" in schedule and not unsettled and worst[-1] == "P2" \
-                and not review_pin.holds(schedule, worst[-1], chain[-1]["review"], len(reconciled)):
-            kind_of = "data " if review_pin.p2_data(chain[-1]["review"]) else ""
-            raise Refused(f"the last pass's worst finding is a {kind_of}P2 after {len(reconciled)} reconciliations, "
-                          f"the pin's cap for it: file each P2 as a section and stamp; it takes no further pass")
         cap = pass_cap(schedule)
         if len(plans) + len(rounds) + len(chain) >= cap:
             raise Refused(f"the section has spent its {cap} review passes (pass_cap); it stays blocked")
@@ -1360,9 +1351,8 @@ def check_three_pass_order(kind, record_path, candidate, schedule):
                     break
                 run += 1
             if run >= stall:
-                files = worst[-1] == "P2" and any(key in schedule for key in review_pin.P2_CAPS)
                 raise Refused(f"the section's last {run} reconciliations made no progress (no_progress_cap {stall}); "
-                              + ("file each P2 as a section and stamp" if files else "it stays blocked"))
+                              f"it stays blocked")
         if not descends(chain[-1]["candidate"], candidate):
             raise Refused(f"the reconciliation's candidate does not descend from the last pass's "
                           f"{chain[-1]['candidate']}")
@@ -1530,17 +1520,7 @@ def main(argv=None):
         # What the review's worst finding means under the pin: only a blocking level holds the stamp or earns
         # another pass.
         worst = declared_highest(result["review"])
-        spent, worsts = 0, [worst]
-        if args.kind == "reconciliation" and args.record:
-            found = read_findings(existing_findings(Path(args.record), "reconciliation")) or {}
-            chain = [e for e in found.get("completions", []) if returned_one_pass(e, "completion")] \
-                + [e for e in found.get("reconciliations", []) if returned_one_pass(e, "reconciliation")]
-            spent = len(chain)  # the completion and the reconciliations before this one: this is the next
-            worsts = [declared_highest(e["review"]) for e in chain] + [worst]
-        result.update(highest=worst, blocking=review_pin.holds(schedule, worst, result["review"], spent,
-                                                              review_pin.stalled(schedule, worsts)))
-        if any(key in schedule for key in review_pin.P2_CAPS):
-            result["p2_data"] = review_pin.p2_data(result["review"])
+        result.update(highest=worst, blocking=review_pin.blocks(schedule, worst))
     if plan and plan["position"] and three_pass:
         result.update(position=plan["position"], escalated=False, severity_stop=False)
     elif plan and plan["position"]:

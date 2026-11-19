@@ -861,11 +861,6 @@ def three_pass_ok(root, data, ref, found):
         require(unsettled or "blocking" not in schedule or dispatch.review_pin.blocks(schedule, worst[i]),
                 f"a reconciliation followed a pass whose worst finding ({worst[i]}) is below the pin's blocking "
                 f"levels; its findings are filed, not reviewed again: {ref}")
-        # D00 T01 §10: only under a pin that sets the P2 caps, so a receipt made under an older pin still validates.
-        require(unsettled or "blocking" not in schedule or worst[i] != "P2"
-                or dispatch.review_pin.holds(schedule, worst[i], tail[i]["review"], i),
-                f"a reconciliation followed a P2 the pin had already let be filed ({i} reconciliations, its cap): "
-                f"{ref}")
         if stall is not None:
             run = 0
             for before, after in reversed(list(zip(worst[:i + 1], worst[1:i + 1]))):
@@ -886,29 +881,7 @@ def three_pass_ok(root, data, ref, found):
                              f"{want[0]} ({want[2]} via {want[1]}) the section's pin routes {writer!r} to: {ref}")
     verdict = data["completion"]["verdict"]
     worst = dispatch.review_pin.declared_highest(chain[-1][1]["review"])
-    last_review = chain[-1][1]["review"]
-    capped = any(key in schedule for key in dispatch.review_pin.P2_CAPS)
-    require(not capped or not dispatch.review_pin.p2_data_contradicts(last_review),
-            f"the last review says P2 DATA: no while an open finding's label is P2 data: {ref}")
-    stalled = dispatch.review_pin.stalled(schedule, [dispatch.review_pin.declared_highest(e["review"]) for e in tail])
-    p2_filed = capped and worst == "P2" and not dispatch.review_pin.holds(schedule, worst, last_review, len(passed),
-                                                                          stalled)
-    if p2_filed and verdict == "filed":
-        # Each open P2 is filed as a section of its own, by its number in the review (a closed one is not open).
-        numbers = [n for n, _ in dispatch.review_pin.open_p2_findings(last_review)]
-        targets = {}
-        for line in chain[-1][1].get("notes") or []:
-            m = re.match(r"- Filed: (D\d\d T\d\d §\d+) \(P2 (\d+):", line)
-            if m:
-                targets.setdefault(m[2], m[1])
-        missing = [n for n in numbers if n not in targets]
-        require(bool(numbers) and not missing,
-                f"each open P2 is filed as a section of its own: a '- Filed: DNN TNN §N (P2 <n>: ...)' line under "
-                f"the last review for P2 {', '.join(missing or ['<none numbered>'])}: {ref}")
-        shared = [n for n in numbers if [targets[m] for m in numbers].count(targets[n]) > 1]
-        require(not shared, f"P2 {', '.join(shared)} are filed under one section: each open P2 is a section of its "
-                            f"own: {ref}")
-    below = "blocking" in schedule and not dispatch.review_pin.blocks(schedule, worst) or p2_filed
+    below = "blocking" in schedule and not dispatch.review_pin.blocks(schedule, worst)
     require(verdict in ("complete", "reconciled") or (verdict == "filed" and below),
             f"the three-pass policy takes completion verdict complete or reconciled, or filed when the last pass's "
             f"worst finding ({worst}) is below the pin's blocking levels, not {verdict}: {ref}")
@@ -916,8 +889,7 @@ def three_pass_ok(root, data, ref, found):
     # it declared decides, so a `complete` footer never overrides a blocking level.
     # A reply with no HIGHEST line counts as P1 under a pin that names blocking levels (the dispatcher that reads
     # such a pin records no reply without the line); a pin without the key predates the line and is not held to it.
-    holds = (dispatch.review_pin.blocks(schedule, worst) and not p2_filed) if worst is not None else \
-        "blocking" in schedule
+    holds = dispatch.review_pin.blocks(schedule, worst) if worst is not None else "blocking" in schedule
     require(verdict == "filed" or worst == "none" or not holds,
             f"the last review ({chain[-1][0]}) ends complete but "
             f"{'declares HIGHEST: ' + worst if worst else 'declares no HIGHEST line, which counts as P1'}, which holds "

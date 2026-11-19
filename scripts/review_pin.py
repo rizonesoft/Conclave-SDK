@@ -339,11 +339,6 @@ def faults(path=PIN, data=None):
             per["no_progress_cap"].append("[schedule] no_progress_cap needs a whole number of passes from 1 to pass_cap")
     if "blocking" in schedule:
         into(per["blocking"], check_blocking, schedule)
-    for key in P2_CAPS:
-        if key in schedule:
-            if cap_sound:  # pass_cap is already reported when it is not: the P2 caps' bound rests on it
-                into(per[key], check_p2_caps, schedule)
-            break
     # The one-owner rule and a conditional entry's overlap read the steps' lens lists, not their efforts: a step
     # whose effort is at fault still has lenses to hold to the rule.
 
@@ -417,8 +412,7 @@ SURFACE_GATED = {"round": ("design",)}
 STEP_KEYS = {"effort", "lenses"}
 ROTATION_KEYS = {"plan", "completion", "rounds", "rotation", "escalation", "severity_stop_after"}
 THREE_PASS_KEYS = {"policy", "plan", "completion", "rounds", "reconciliation"}
-THREE_PASS_OPTIONAL = {"pass_cap", "no_progress_cap", "blocking", "p2_file_after", "p2_data_file_after", "lenses",
-                       "conditional"}
+THREE_PASS_OPTIONAL = {"pass_cap", "no_progress_cap", "blocking", "lenses", "conditional"}
 CONDITIONAL_KEYS = {"lenses", "passes", "paths"}
 
 
@@ -596,121 +590,6 @@ def check_no_progress_cap(schedule):
                       f"({pass_cap(schedule)})")
 
 
-# How many reconciliations a P2 holds the stamp for before it is filed as a section of its own (D00 T01 §10): an
-# ordinary P2, and one the review tags `P2 data` (it loses, corrupts or exposes the user's data, or reports a failure as
-# success). Read only with `blocking` naming P2; without them a P2 holds the stamp until it is reconciled.
-P2_CAPS = ("p2_file_after", "p2_data_file_after")
-P2_DATA_LINE = re.compile(r"^\s*`?P2 DATA:\s*(yes|no)\b", re.IGNORECASE | re.MULTILINE)
-P2_DATA_TAG = re.compile(r"\bP2 data\b", re.IGNORECASE)
-
-
-P2_TAG_REQUEST = ("Tag each P2 finding `P2 data` when it loses, corrupts or exposes the user's data or reports a "
-                  "failure as success, and `P2` otherwise, and after the `HIGHEST:` line write `P2 DATA: yes` when "
-                  "any open P2 is `P2 data`, `P2 DATA: no` when none is. A reply whose line says no while an open "
-                  "finding's label is `P2 data` is recorded as incomplete; one that leaves the line out takes the "
-                  "data cap.")
-
-
-def check_p2_caps(schedule):
-    missing = [key for key in P2_CAPS if key not in schedule]
-    if missing:
-        raise Refused(f"[schedule] p2_file_after and p2_data_file_after go together (missing: {', '.join(missing)})")
-    if "P2" not in schedule.get("blocking", ()):
-        raise Refused("[schedule] p2_file_after and p2_data_file_after need blocking to name P2: they say how long a "
-                      "P2 holds the stamp")
-    ordinary, data = schedule["p2_file_after"], schedule["p2_data_file_after"]
-    room = pass_cap(schedule) - 3  # the plan review, the round and the completion come first
-    if type(ordinary) is not int or ordinary < 1 or type(data) is not int or not ordinary <= data <= room:
-        raise Refused(f"[schedule] p2_file_after and p2_data_file_after need whole numbers of reconciliations, "
-                      f"1 <= p2_file_after <= p2_data_file_after <= {room} (pass_cap less the three passes before the "
-                      f"first reconciliation)")
-
-
-def p2_data(review):
-    """Whether a review's P2 findings take the data cap. No reading of a reply ever loosens the gate or refuses a
-    review (D00 T01 §10: four readings of free text each had a counterexample): it is data when its `P2 DATA:` line
-    says yes, when it has no such line, or when any open finding mentions `P2 data`; an ambiguity costs the longer
-    cap, never a review."""
-    found = P2_DATA_LINE.findall(review or "")
-    if not found or found[-1].lower() == "yes":
-        return True
-    return any(data for _, data in open_p2_findings(review))
-
-
-FINDING = re.compile(r"^\s*\**\s*(\d+)\.\s", re.MULTILINE)
-CLOSED_LABEL = re.compile(r"^[\s*_`\[(]*(?:closed\b|P[123](?:\s+data)?\W{0,3}\(\s*closed\s*\))", re.IGNORECASE)
-
-
-def open_p2_findings(review):
-    """The reply's open P2 findings, each `(number, data)`. A finding is a numbered item with every line up to the
-    next one (a tag on a continuation line is the item's). The reading only ever errs toward holding the stamp
-    (D00 T01 §10: three readings of free text each had a counterexample): a finding is closed only when its label at
-    the very start says so (`Closed ...`, `**Closed.**`, `P2 (closed)`), never because `closed` appears in its
-    evidence, and it is data when `P2 data` appears anywhere in it. A misreading files one section too many or keeps
-    the longer cap; it never lets an open data finding go."""
-    text = review or ""
-    starts = [(m.start(), m.group(1), m.end()) for m in FINDING.finditer(text)]
-    found = []
-    for i, (_, number, body_at) in enumerate(starts):
-        end = starts[i + 1][0] if i + 1 < len(starts) else len(text)
-        body = text[body_at:end]
-        body = body.split("\nLENS ", 1)[0].split("\nHIGHEST:", 1)[0]  # the verdict lines after the last item
-        if CLOSED_LABEL.match(body) or not re.search(r"\bP2\b", body):
-            continue
-        found.append((number, bool(P2_DATA_TAG.search(body))))
-    return found
-
-
-DATA_LABEL = re.compile(r"^[ \t*_`\[(]*(?:open[^\w\n]+)?\(?[ \t]*P2 data\b", re.IGNORECASE)  # its first line only
-
-
-def p2_data_contradicts(review):
-    """A review that says `P2 DATA: no` beside an open finding whose label, at its very start, is `P2 data`
-    (`1. P2 data: ...`, `1. Open (P2 data): ...`): it says two things of one finding, and is not a verdict. A `P2 data`
-    anywhere else in a finding (a continuation line, quoted evidence) is no contradiction; it takes the data cap."""
-    found = P2_DATA_LINE.findall(review or "")
-    if not found or found[-1].lower() != "no":
-        return False
-    text = review or ""
-    starts = [(m.group(1), m.end()) for m in FINDING.finditer(text)]
-    labelled = {number for number, at in starts if DATA_LABEL.match(text[at:])}
-    return any(number in labelled for number, _ in open_p2_findings(review))
-
-
-def stalled(schedule, worsts):
-    """Whether the chain whose passes' worst findings are `worsts` (the completion first) has reached the pin's
-    no_progress_cap: that many reconciliations in a row whose worst finding was no less severe than the one before."""
-    stall = no_progress_cap(schedule)
-    if stall is None:
-        return False
-    rank = {"P1": 0, "P2": 1, "P3": 2, "none": 3, None: 0}
-    run = 0
-    for before, after in reversed(list(zip(worsts, worsts[1:]))):
-        if rank[after] > rank[before]:
-            break
-        run += 1
-    return run >= stall
-
-
-def p2_cap(schedule, data):
-    """The reconciliations a P2 holds the stamp for under this pin (by kind), or None when the pin sets no caps."""
-    if "p2_file_after" not in schedule:
-        return None
-    return schedule["p2_data_file_after"] if data else schedule["p2_file_after"]
-
-
-def holds(schedule, worst, review, spent, stalled=False):
-    """Whether a pass whose worst finding is `worst` (its text `review`), after `spent` reconciliations of the chain,
-    holds the stamp: a blocking level does, except a P2 once the chain has spent its cap of reconciliations for that
-    kind of P2, or once the pin's no_progress_cap stopped the chain."""
-    if not blocks(schedule, worst):
-        return False
-    cap = p2_cap(schedule, p2_data(review)) if worst == "P2" else None
-    if cap is None:
-        return True
-    return not stalled and spent < cap
-
-
 def check_blocking(schedule):
     levels = schedule["blocking"]
     if not isinstance(levels, list) or not all(_one_of(level, SEVERITIES) for level in levels) \
@@ -799,8 +678,6 @@ def check_three_pass(schedule, efforts):
         check_no_progress_cap(schedule)
     if "blocking" in schedule:
         check_blocking(schedule)
-    if any(key in schedule for key in P2_CAPS):
-        check_p2_caps(schedule)
     entries = schedule.get("conditional", [])
     check_conditional_table(entries)
     for n, entry in enumerate(entries, 1):
@@ -936,8 +813,7 @@ def lens_block(plan, schedule=None):
         return "\n".join(["", "", "## Verdict line for this pass (asked for by scripts/review-dispatch.py)", "",
                           "Before the final verdict line the prompt above asks for, write one line `HIGHEST: P1`, "
                           "`HIGHEST: P2`, `HIGHEST: P3` or `HIGHEST: none` for the worst finding of the whole review. "
-                          "A reply without it is recorded as incomplete, not as a review."]
-                         + ([P2_TAG_REQUEST] if any(key in (schedule or {}) for key in P2_CAPS) else [])) + "\n"
+                          "A reply without it is recorded as incomplete, not as a review."]) + "\n"
     where = f"Round {plan['position']}" if plan["position"] else "This pass"
     ran = f"{where} runs at {plan['effort']} reasoning effort" if plan["effort"] else f"{where} has these lenses"
     lines = ["", "", "## Lenses for this pass (scheduled by scripts/review-dispatch.py)", "",
@@ -950,8 +826,6 @@ def lens_block(plan, schedule=None):
                       "`LENS <name>: clean` or `LENS <name>: findings`, and then one line `HIGHEST: P1`, "
                       "`HIGHEST: P2`, `HIGHEST: P3` or `HIGHEST: none` for the worst finding of the whole review. A "
                       "reply that leaves out a lens line is recorded as incomplete, not as a review:", ""]
-        if any(key in (schedule or {}) for key in P2_CAPS):
-            lines[-1:-1] = [P2_TAG_REQUEST, ""]
         lines += [f"LENS {name}: <clean|findings>" for name in plan["lenses"]]
     return "\n".join(lines) + "\n"
 
@@ -1008,9 +882,6 @@ def main(argv=None):
         else:
             print(f"pass_cap {pass_cap(schedule)}")
             print(f"no_progress_cap {no_progress_cap(schedule) or 'none'}")
-            for key in P2_CAPS:
-                if key in schedule:
-                    print(f"{key} {schedule[key]}")
     except Refused as exc:
         print(f"review-pin refused: {exc}", file=sys.stderr)
         return 2

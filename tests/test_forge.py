@@ -1075,7 +1075,7 @@ class ForgeProvisionTests(unittest.TestCase):
             for part in ("**When a chain cannot settle.**", "python scripts/todo-graph.py replan '<ref>'",
                          "`D<NN>-T<NN>-s<N>-chain<k>.md`", "correct the item with a dated", "replaces the section's "
                          "`Started:` line", "run a new plan review on it", "record the decision in the run file",
-                         "**A gap reopened twice.**", "**A P2 past its cap.**", "p2_data_file_after"):
+                         "**A gap reopened twice.**"):
                 self.assertIn(part, rts_text, (agent_dir, part))
             groom_text = (self.target / agent_dir / "skills/groom-plan/SKILL.md").read_text(encoding="utf-8")
             self.assertIn("100% complete, shippable product", groom_text)
