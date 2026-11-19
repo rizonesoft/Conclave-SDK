@@ -3042,6 +3042,11 @@ class ThreePassStamp(Stamp):
         self.stamp3_refuses(self.p2_chain(False, 2, findings=("P2 data",)), "says P2 DATA: no while it tags",
                             verdict="filed")
 
+    def test_a_finding_closed_after_its_severity_is_not_filed(self):
+        # The completion review of D00 T01 §10: `P2 (closed):` was read as open and had to be filed.
+        sha = self.p2_chain(False, 2, findings=("P2 (closed)", "P2"), notes="- Filed: D00 T01 §3 (P2 2: a.py:2)")
+        self.assertEqual(self.stamp3(sha, verdict="filed")["completion"]["filed"], ["D00 T01 §3"])
+
     def test_a_closed_finding_is_neither_filed_nor_a_contradiction(self):
         # Round 1 of D00 T01 §10: a reconciliation numbers the gaps it closed, and those were counted as open.
         sha = self.p2_chain(False, 2, findings=("Closed (P2 data)", "P2"), notes="- Filed: D00 T01 §3 (P2 2: a.py:2)")

@@ -632,18 +632,25 @@ def p2_data(review):
     return True if not found else found[-1].lower() == "yes"
 
 
-FINDING = re.compile(r"^\s*\**\s*(\d+)\.\s*(.+)$", re.MULTILINE)
-CLOSED = re.compile(r"^\W*closed\b", re.IGNORECASE)
+FINDING = re.compile(r"^\s*\**\s*(\d+)\.\s", re.MULTILINE)
 
 
 def open_p2_findings(review):
-    """The reply's open P2 findings, each `(number, data)`: its numbered items that name P2 and are not marked closed
-    (a reconciliation numbers the gaps it closed too), `data` when the item is tagged `P2 data`."""
+    """The reply's open P2 findings, each `(number, data)`. A finding is a numbered item with every line up to the
+    next one (a tag on a continuation line is the item's); it is closed when its heading, the text before its first
+    colon, says so in any word order (`Closed (P2 data):`, `P2 (closed):`; a reconciliation numbers the gaps it
+    closed too); `data` when the item is tagged `P2 data` anywhere in it."""
+    text = review or ""
+    starts = [(m.start(), m.group(1), m.end()) for m in FINDING.finditer(text)]
     found = []
-    for number, text in FINDING.findall(review or ""):
-        if CLOSED.match(text) or not re.search(r"\bP2\b", text):
+    for i, (_, number, body_at) in enumerate(starts):
+        end = starts[i + 1][0] if i + 1 < len(starts) else len(text)
+        body = text[body_at:end]
+        body = body.split("\nLENS ", 1)[0].split("\nHIGHEST:", 1)[0]  # the verdict lines after the last item
+        heading = body.split(":", 1)[0]
+        if re.search(r"\bclosed\b", heading, re.IGNORECASE) or not re.search(r"\bP2\b", body):
             continue
-        found.append((number, bool(P2_DATA_TAG.search(text))))
+        found.append((number, bool(P2_DATA_TAG.search(body))))
     return found
 
 

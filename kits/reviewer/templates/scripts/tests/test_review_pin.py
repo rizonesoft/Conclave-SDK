@@ -773,6 +773,16 @@ class P2Gate(unittest.TestCase):
         self.assertFalse(review_pin.p2_data_contradicts(text))
         self.assertEqual(review_pin.open_p2_findings(text), [("2", False)])
 
+    def test_findings_are_read_whole_and_closed_in_any_word_order(self):
+        # The completion review of D00 T01 §10: a tag on a continuation line was lost, and `P2 (closed):` read open.
+        multiline = "1. Open.\n   P2 data: a failed save reported as successful.\n2. Open (P2): other.\nHIGHEST: P2"
+        self.assertEqual(review_pin.open_p2_findings(multiline), [("1", True), ("2", False)])
+        self.assertTrue(review_pin.p2_data_contradicts(multiline + "\nP2 DATA: no"))
+        closed = "1. P2 (closed): fixed.\n2. Open (P2): pending.\nHIGHEST: P2"
+        self.assertEqual(review_pin.open_p2_findings(closed), [("2", False)])
+        bold = "1. **Closed.** The P2 is gone.\n2. **Open, P2.** The record still goes.\nLENS a: findings\nHIGHEST: P2"
+        self.assertEqual(review_pin.open_p2_findings(bold), [("2", False)])
+
     def test_a_stall_is_read_from_the_worst_findings(self):
         schedule = load(self.PIN.replace("pass_cap = 45", "pass_cap = 45\nno_progress_cap = 1")
                         if "no_progress_cap" not in self.PIN else self.PIN)["schedule"]
