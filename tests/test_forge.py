@@ -3978,9 +3978,12 @@ class UnattendedKitTests(unittest.TestCase):
         self.assertIn("kit", todo["detail"])
         self.assertIn("todo", todo["detail"])
 
+    # The fresh-install test below runs the same suite from an installed copy (the kit's files byte for byte), so the
+    # quick suite runs it once: twice, with the shortcut tests D02 T02 §12 grew to about 20 minutes on GitHub's Windows
+    # runner, took the quick suite past its 45 minutes (tests.yml run 44456585125). The full suite still runs this.
+    @unittest.skipUnless(os.environ.get("CONCLAVE_FULL_TESTS"), "slow: set CONCLAVE_FULL_TESTS=1 for the full suite")
     def test_the_kits_own_tests_pass(self):
         tests = FORGE_ROOT / "kits/unattended/templates/scripts/tests"
-        # Its shortcut tests drive pwsh (about 13 minutes on GitHub's Windows runner since D07 T01 §7).
         result = run_kit_suite(tests, 2400)
         self.assertTrue(result["passed"], suite_failure(result))
 
