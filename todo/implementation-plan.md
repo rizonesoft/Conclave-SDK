@@ -156,7 +156,7 @@ Sections: 6 | Checklist items: 32
 
 ### Phase 8: Project launchers
 
-Sections: 16 | Checklist items: 139
+Sections: 16 | Checklist items: 140
 
 | Status | Reference  | Deliverable                                                             | Needs        | Items |
 | ------ | ---------- | ----------------------------------------------------------------------- | ------------ | ----- |
@@ -171,7 +171,7 @@ Sections: 16 | Checklist items: 139
 | [ ]    | D07 T01 §8 | Operator page and `project-launchers` skill                             | none         | 6     |
 | [ ]    | D07 T01 §9 | Agent and declared links named outside the ANSI code page               | windows-host | 4     |
 | [x]    | D07 T02 §1 | Ticket login plugin in the WordPress kit                                | none         | 10    |
-| [ ]    | D07 T02 §2 | Dashboard opener `scripts/open-dashboard.py`                            | none         | 8     |
+| [ ]    | D07 T02 §2 | Dashboard opener `scripts/open-dashboard.py`                            | none         | 9     |
 | [ ]    | D07 T02 §3 | Plugin install, status and removal on the pinned site                   | none         | 7     |
 | [ ]    | D07 T02 §4 | Doctor rows and host refusals for the ticket login                      | none         | 4     |
 | [ ]    | D07 T02 §5 | WordPress link in the launcher profile                                  | none         | 4     |
@@ -218,4 +218,4 @@ Sections: 4 | Checklist items: 33
 
 Progress: 105/133 verified sections, 8 ready to run now.
 
-Checklist: 880/1034 items completed (includes Commit items).
+Checklist: 880/1035 items completed (includes Commit items).
