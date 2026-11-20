@@ -36,6 +36,8 @@ git diff --cached --name-only -- todo/ "$receipts/" "$staged/" "$plan" "$staged_
 # what is being committed: nothing unstaged and nothing untracked, ignored files included, since the check reads
 # those too.
 for dir in todo/ "$receipts/" "$staged/" "$plan" "$staged_plan"; do
+    # A folder that does not exist yet (a fresh install's receipts) holds nothing to stage; git would warn on it.
+    [ -e "$root/$dir" ] || continue
     if ! git diff --quiet -- "$dir" || [ -n "$(git ls-files --others -- "$dir")" ]; then
         echo "pre-commit: $dir has unstaged or untracked changes; stage them (or stash them) so the plan check sees what is committed" >&2
         exit 1

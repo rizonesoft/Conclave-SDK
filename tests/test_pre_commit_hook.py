@@ -279,6 +279,9 @@ class InstallAndDoctor(unittest.TestCase):
         self.git(project, "add", "-A")
         installed = self.git(project, "commit", "-qm", "install", check=False)
         self.assertEqual(installed.returncode, 0, installed.stderr)
+        # No receipts folder exists yet, and the hook says nothing about it (git warned "could not open directory").
+        self.assertFalse((project / "docs/reviews").exists())
+        self.assertNotIn("could not open directory", installed.stderr)
         findings = project / "todo/findings.md"
         findings.write_text(findings.read_text(encoding="utf-8") + "\n- scripts/x.py:1 a finding.\n", encoding="utf-8")
         self.git(project, "add", "todo/findings.md")
