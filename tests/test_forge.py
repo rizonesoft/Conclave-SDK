@@ -542,7 +542,7 @@ class ForgeProvisionTests(unittest.TestCase):
         for root in roots:
             for path in root.rglob("*"):
                 rel = path.relative_to(root).as_posix()
-                if path.is_file() and "__pycache__" not in path.parts and self.kept_for(rel, agent):
+                if path.is_file() and not forge.CACHE_DIRS.intersection(path.parts) and self.kept_for(rel, agent):
                     expected[rel] = path
         return expected
 
