@@ -232,5 +232,19 @@ class LintTest(unittest.TestCase):
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 
 
+class OpenerAgreementTest(unittest.TestCase):
+    """The opener (`scripts/open-dashboard.py`, D07 T02 section 2) and the plugin name the same option and query."""
+
+    def test_the_plugin_and_the_opener_name_one_option_and_one_query(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("open_dashboard_agreement", ROOT / "scripts" / "open-dashboard.py")
+        assert spec is not None and spec.loader is not None
+        opener = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(opener)
+        code = code_of(PLUGIN.read_text(encoding="utf-8"))
+        defined = dict(re.findall(r"define\(\s*'(CONCLAVE_TICKET_(?:OPTION|QUERY))',\s*'([^']*)'\s*\)", code))
+        self.assertEqual(defined, {"CONCLAVE_TICKET_OPTION": opener.OPTION, "CONCLAVE_TICKET_QUERY": opener.QUERY})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -12,12 +12,19 @@
  * against it. The report: every call in order, the options left and
  * the `init` callbacks registered.
  *
+ * The opener's two programs (`STORE` and `DROP` in `open-dashboard.py`, D07 T02 section 2) run here as `wp eval`
+ * runs them: the case names the file it is read from as the first argument, so standard input is left for the
+ * digest the program reads, and `eval` holds the program. What it echoes is reported as `echo`, and the
+ * `autoload` each option was last written with as `autoload`.
+ *
  * @package Conclave
  */
 
 define( 'ABSPATH', __DIR__ . '/' );
 
-$GLOBALS['harness_case']    = json_decode( stream_get_contents( STDIN ), true );
+$GLOBALS['harness_case']    = json_decode( isset( $argv[1] ) ? file_get_contents( $argv[1] ) : stream_get_contents( STDIN ), true );
+$GLOBALS['harness_echo']    = '';
+$GLOBALS['harness_autoload'] = array();
 $GLOBALS['harness_calls']   = array();
 $GLOBALS['harness_actions'] = array();
 $GLOBALS['harness_options'] = array();
@@ -45,6 +52,8 @@ register_shutdown_function(
 				'calls'   => $GLOBALS['harness_calls'],
 				'options' => (object) $GLOBALS['harness_options'],
 				'init'    => $init,
+				'echo'    => $GLOBALS['harness_echo'],
+				'autoload' => (object) $GLOBALS['harness_autoload'],
 			)
 		);
 	}
@@ -131,6 +140,16 @@ function get_option( $name, $default = false ) {
 	return array_key_exists( $name, $GLOBALS['harness_options'] ) ? $GLOBALS['harness_options'][ $name ] : $default;
 }
 
+function update_option( $name, $value, $autoload = null ) {
+	harness_record( 'update_option', array( $name, $autoload ) );
+	if ( ! empty( $GLOBALS['harness_case']['read_back_differs'] ) ) {
+		$value = 'not the ticket';   // the write landed as something else: the read-back must catch it
+	}
+	$GLOBALS['harness_options'][ $name ]  = $value;
+	$GLOBALS['harness_autoload'][ $name ] = $autoload;
+	return true;
+}
+
 function delete_option( $name ) {
 	harness_record( 'delete_option', array( $name ) );
 	$had = array_key_exists( $name, $GLOBALS['harness_options'] );
@@ -199,4 +218,11 @@ if ( ! empty( $GLOBALS['harness_case']['run_init'] ) ) {
 			call_user_func( $action[1] );
 		}
 	}
+}
+if ( isset( $GLOBALS['harness_case']['eval'] ) ) {
+	ob_start();
+	( function () {
+		eval( $GLOBALS['harness_case']['eval'] );   // a function scope, as WP-CLI's eval gives it
+	} )();
+	$GLOBALS['harness_echo'] = ob_get_clean();
 }
