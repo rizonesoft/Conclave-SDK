@@ -112,6 +112,26 @@ class FillEachKind(Filler):
                     self.assertIn(verdict, text)
                 self.assertTrue(text.endswith("\n") and not text.endswith("\n\n"))
 
+    def test_completion_and_reconciliation_prompts_say_the_stamp_ticks_the_commit_item(self):
+        # Without it a reviewer reads the open Commit item of an unstamped section as an undelivered promise.
+        # The opening clause is part of the rule: it says why the item is open (the stamp comes after the review).
+        rule = ("When the review is of a TODO section, that section is stamped after its review: "
+                "`python3 scripts/todo-graph.py stamp` ticks its `- [ ] Commit:` item and its Implementation Order row "
+                "(`todo/README.md`, Stamps and receipts), so on an unstamped section both are open by design and are "
+                "not a gap.")
+        closing = ("A gap that only reports that open item or row is closed by this rule: mark it `closed`, citing the "
+                   "rule as its evidence; it needs no checkbox edit and no `- Implemented:` line.")
+        for kind in ("completion", "reconciliation"):
+            with self.subTest(kind):
+                extra = ["--ref", REF] + (["--todo", TODO] if kind == "completion" else [])
+                self.ok(kind, *extra)
+                written = self.out.read_text(encoding="utf-8")  # the file the filler wrote, not its stdout
+                self.assertIn(rule, written)
+                if kind == "reconciliation":
+                    self.assertIn(closing, written)
+                else:
+                    self.assertNotIn(closing, written)
+
     def test_saved_file_is_the_prompt_and_values_appear(self):
         text = self.ok("completion", "--ref", REF, "--todo", TODO, "--fidelity", "design/main-window.png")
         self.assertEqual(self.out.read_text(encoding="utf-8"), text)

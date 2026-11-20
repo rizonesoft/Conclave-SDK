@@ -269,6 +269,48 @@ class InstallAndDoctor(unittest.TestCase):
         self.assertEqual(forge.apply_kit(project, "todo")["pre_commit_hook"], "enabled")
         self.assert_git_refuses_a_stale_plan(project)
 
+    def test_a_fresh_install_with_no_todo_file_yet_commits_its_findings(self):
+        """A just-installed tree has no TODO file and no generated plan, so there is no graph to hold to the gates:
+        the install itself and a finding filed before any section exists commit, while a stale plan is still refused
+        once the first file is written."""
+        project = self.repository()
+        forge.apply_kit(project, "reviewer")
+        self.assertEqual(forge.apply_kit(project, "todo")["pre_commit_hook"], "enabled")
+        self.git(project, "add", "-A")
+        installed = self.git(project, "commit", "-qm", "install", check=False)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        findings = project / "todo/findings.md"
+        findings.write_text(findings.read_text(encoding="utf-8") + "\n- scripts/x.py:1 a finding.\n", encoding="utf-8")
+        self.git(project, "add", "todo/findings.md")
+        filed = self.git(project, "commit", "-qm", "finding", check=False)
+        self.assertEqual(filed.returncode, 0, filed.stderr)
+        # The first TODO file, committed before its plan is generated, ends the fresh state and is refused.
+        todo = project / "todo/00-workspace"
+        todo.mkdir(parents=True)
+        (todo / "TODO-01-a.md").write_text(todo_file([(1, "A", 0, "none", "--")]), encoding="utf-8")
+        self.git(project, "add", "-A")
+        first = self.git(project, "commit", "-qm", "first", check=False)
+        self.assertNotEqual(first.returncode, 0, "the first TODO file went through with no generated plan")
+        self.assertIn("plan --sync", first.stderr + first.stdout)
+        # A note below a domain folder is not a TODO file the graph reads, so the tree is still fresh.
+        shutil.rmtree(todo)
+        (project / "todo/01-work/examples").mkdir(parents=True)
+        (project / "todo/01-work/examples/TODO-sample.md").write_text("a sample\n", encoding="utf-8")
+        self.git(project, "add", "-A")
+        sample = self.git(project, "commit", "-qm", "sample", check=False)
+        self.assertEqual(sample.returncode, 0, sample.stderr)
+        self.assert_git_refuses_a_stale_plan(project)
+
+    def test_an_empty_tree_beside_a_generated_plan_is_still_checked(self):
+        """Removing the last TODO file while its generated plan stays is not a fresh tree: the gates still run."""
+        project = self.repository()
+        forge.apply_kit(project, "reviewer")
+        forge.apply_kit(project, "todo")
+        (project / "todo/implementation-plan.md").write_text("stale\n", encoding="utf-8")
+        self.git(project, "add", "-A")
+        refused = self.git(project, "commit", "-qm", "install", check=False)
+        self.assertNotEqual(refused.returncode, 0, "a plan with no TODO file behind it went through")
+
     def assert_git_refuses_a_stale_plan(self, project):
         """One real `git commit` with a stale plan is refused, and goes through once the plan is synced: git ran the
         kit's hook, whichever way the repository reaches it."""

@@ -507,6 +507,22 @@ class KitInstallTests(unittest.TestCase):
         self.assertFalse((project / "scripts/lib/__pycache__").exists())
         self.assertEqual([rel for rel in res["installed"] if "__pycache__" in rel or rel.endswith(".pyc")], [])
 
+    def test_unattended_never_installs_a_pytest_cache_left_in_the_kit(self):
+        # Running the kit's tests with pytest leaves .pytest_cache/ in its templates; it is not kit content.
+        scratch = self.work / "sdk"
+        shutil.copytree(forge.FORGE_ROOT / "kits", scratch / "kits",
+                        ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache"))
+        cache = scratch / "kits/unattended/templates/.pytest_cache/v/cache"
+        cache.mkdir(parents=True)
+        (cache / "lastfailed").write_text("{}", encoding="utf-8")
+        project = self.project("target", "todo")
+        with unittest.mock.patch.object(forge, "FORGE_ROOT", scratch):
+            forge.apply_kit(project, "todo")
+            res = forge.apply_kit(project, "unattended")
+        self.assert_files(project, "scripts/unattended-run.py")
+        self.assertFalse((project / ".pytest_cache").exists())
+        self.assertEqual([rel for rel in res["installed"] if ".pytest_cache" in rel], [])
+
     def test_wordpress_keeps_agents_md_and_installs_the_pressable_overlay(self):
         project = self.project("target", "wordpress")
         self.own_file(project, "AGENTS.md", b"locally tuned\r\n")

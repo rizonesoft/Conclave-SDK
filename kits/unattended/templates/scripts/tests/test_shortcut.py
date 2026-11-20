@@ -556,7 +556,7 @@ class ShortcutTest(ShortcutFixture):
         # The command itself (it starts the run, and waits for Enter when it cannot) is the Linux entry's, run in bash
         # by DesktopEntryTest; the live proof in the findings file ran it through the real wsl.exe.
         self.install()
-        self.assertEqual(self.links(), ["My Proj's Gemini campaign.lnk", "My Proj's Claude campaign.lnk"])
+        self.assertEqual(self.links(), ["My Proj's Claude campaign.lnk", "My Proj's Gemini campaign.lnk"])
         translated = next(c for c in self.calls() if c[3:5] == ["wslpath", "-a"])
         linux = "/mnt/" + translated[5][0].lower() + translated[5][2:].replace("\\", "/")
         self.assertTrue(linux.endswith("/My Proj's"), linux)
@@ -1085,11 +1085,11 @@ class CampaignTitleTest(ShortcutFixture):
 
     def test_a_rename_with_a_provider_qualified_icon_writes_the_titled_set_and_nothing_else(self):
         self.install()
-        self.assertEqual(self.links(), ["My Proj's Gemini campaign.lnk", "My Proj's Claude campaign.lnk"])
+        self.assertEqual(self.links(), ["My Proj's Claude campaign.lnk", "My Proj's Gemini campaign.lnk"])
         self.write_launchers("Demo Site")
         done = self.shortcut("-Distro", "Ubuntu", "-Icon", PROVIDER + str(self.icon))
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertEqual(self.links(), ["Demo Site Gemini campaign.lnk", "Demo Site Claude campaign.lnk"])
+        self.assertEqual(self.links(), ["Demo Site Claude campaign.lnk", "Demo Site Gemini campaign.lnk"])
         self.assertEqual(len(self.runner_badges()), 2)
         self.assertEqual((len(self.runner_badges()), len(list(self.icons.iterdir()))), (2, 4))  # Watch, Stop
         for label, agent in (("Gemini", "agy"), ("Claude", "claude")):
@@ -1128,7 +1128,7 @@ class CampaignTitleTest(ShortcutFixture):
         before = self.snapshot()
         done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon), "-Project", short)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertEqual(self.links(), ["My Proj's Gemini campaign.lnk", "My Proj's Claude campaign.lnk"])
+        self.assertEqual(self.links(), ["My Proj's Claude campaign.lnk", "My Proj's Gemini campaign.lnk"])
         self.assertEqual(sorted(k for k in self.snapshot()), sorted(before))
         mark = self.read_link(self.desk / "My Proj's Claude campaign.lnk")["description"]
         self.assertEqual(mark.lower(), ("conclave-unattended: " + long_name).lower())
@@ -1136,7 +1136,7 @@ class CampaignTitleTest(ShortcutFixture):
     def test_the_title_names_the_links_exactly_whatever_its_script(self):
         self.write_launchers("\u6771\u4eac")
         self.install()
-        self.assertEqual(self.links(), ["\u6771\u4eac Gemini campaign.lnk", "\u6771\u4eac Claude campaign.lnk"])
+        self.assertEqual(self.links(), ["\u6771\u4eac Claude campaign.lnk", "\u6771\u4eac Gemini campaign.lnk"])
 
     def test_a_project_named_outside_the_ansi_code_page_keeps_its_links_its_own(self):
         # A project in WSL, so no path goes through the stand-in for wsl.exe: it is a batch file, and cmd hands a
@@ -1145,7 +1145,7 @@ class CampaignTitleTest(ShortcutFixture):
         for _ in range(2):  # the second run finds its own links by their mark, never refused as another's
             done = self.shortcut(*where, "-Icon", str(self.icon))
             self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertEqual(self.links(), ["東京 Gemini campaign.lnk", "東京 Claude campaign.lnk"])
+        self.assertEqual(self.links(), ["東京 Claude campaign.lnk", "東京 Gemini campaign.lnk"])
         link = self.read_link(self.desk / "東京 Claude campaign.lnk")
         self.assertEqual(link["description"], "conclave-unattended: \\\\wsl.localhost\\Ubuntu\\home\\x\\東京")
         self.assertTrue(Path(link["icon"].rsplit(",", 1)[0]).is_file(), link)
@@ -1166,7 +1166,7 @@ class CampaignTitleTest(ShortcutFixture):
                 shutil.rmtree(self.desk, ignore_errors=True)
                 self.write_launchers(text)
                 self.install()
-                self.assertEqual(self.links(), ["My Proj's Gemini campaign.lnk", "My Proj's Claude campaign.lnk"])
+                self.assertEqual(self.links(), ["My Proj's Claude campaign.lnk", "My Proj's Gemini campaign.lnk"])
 
     def test_a_refused_profile_or_a_missing_loader_changes_nothing_and_says_why(self):
         self.install()
@@ -1245,7 +1245,7 @@ class CampaignTitleTest(ShortcutFixture):
                 (self.project / ".conclave" / "launchers.json").unlink()
         self.write_launchers("Demo Site")
         self.install()
-        self.assertEqual(self.links(), ["Demo Site Gemini campaign.lnk", "Demo Site Claude campaign.lnk"])
+        self.assertEqual(self.links(), ["Demo Site Claude campaign.lnk", "Demo Site Gemini campaign.lnk"])
         self.assertEqual((len(self.runner_badges()), len(list(self.icons.iterdir()))), (2, 4))  # Watch, Stop
 
     def test_a_failure_on_the_second_runner_leaves_the_previous_set_whole(self):
@@ -1269,7 +1269,7 @@ class CampaignTitleTest(ShortcutFixture):
         shutil.copyfile(RENDERER, installed)
         done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(other))
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertEqual(self.links(), ["Demo Site Gemini campaign.lnk", "Demo Site Claude campaign.lnk"])
+        self.assertEqual(self.links(), ["Demo Site Claude campaign.lnk", "Demo Site Gemini campaign.lnk"])
         self.assertEqual(sorted(p.read_bytes() for p in self.runner_badges()),
                          sorted(self.rendered_from(other, agent) for agent in ("agy", "claude")))
 
@@ -1302,7 +1302,7 @@ class CampaignTitleTest(ShortcutFixture):
                 now = self.snapshot()
                 self.assertEqual({k: now.get(k) for k in beta}, beta)
                 self.assertEqual({k: now.get(k) for k in theirs}, theirs)
-        self.assertEqual(self.links(), ["Beta Gemini campaign.lnk", "Beta Claude campaign.lnk"])
+        self.assertEqual(self.links(), ["Beta Claude campaign.lnk", "Beta Gemini campaign.lnk"])
         done = self.shortcut("-Remove", "-Project", "/home/x/demo")
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         self.assertIn("-Project '/home/x/demo' is a Linux path: -Distro names the distro it is in", done.stdout)
@@ -1319,13 +1319,13 @@ class CampaignTitleTest(ShortcutFixture):
             old = badge.with_name(f"{badge.name.split('-')[0]}-{badge.name.split('-')[1]}-{old_key}.ico")
             badge.rename(old)
             self.set_description(link, "conclave-unattended: /home/x/Demo", icon=str(old))
-        self.assertEqual(self.links(), ["Demo Gemini campaign.lnk", "Demo Claude campaign.lnk"])
+        self.assertEqual(self.links(), ["Demo Claude campaign.lnk", "Demo Gemini campaign.lnk"])
         # A titled link under the old mark is this project's too, so it is replaced, not refused as another's.
         shutil.copyfile(self.desk / "Demo Claude campaign.lnk", self.desk / "Demo Site Claude campaign.lnk")
         self.write_launchers("Demo Site")
         done = self.shortcut(*linux)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertEqual(self.links(), ["Demo Site Gemini campaign.lnk", "Demo Site Claude campaign.lnk"])
+        self.assertEqual(self.links(), ["Demo Site Claude campaign.lnk", "Demo Site Gemini campaign.lnk"])
         self.assertEqual(list(self.icons.glob(f"campaign-*-{old_key}.ico")), [])  # they go with the rest
         new_key = hashlib.sha256(b"\\\\wsl.localhost\\ubuntu\\home\\x\\Demo").hexdigest()[:8]
         mark = self.read_link(self.desk / "Demo Site Claude campaign.lnk")["description"]
@@ -1391,11 +1391,11 @@ class CampaignTitleTest(ShortcutFixture):
             self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
             self.assertIn("the previous ones are kept", done.stdout)
             self.assertEqual(self.snapshot(), before)
-            self.assertEqual(self.links(), ["My Proj's Gemini campaign.lnk", "My Proj's Claude campaign.lnk"])
+            self.assertEqual(self.links(), ["My Proj's Claude campaign.lnk", "My Proj's Gemini campaign.lnk"])
             self.assertEqual([p.name for p in [*self.desk.iterdir(), *self.icons.iterdir()]
                               if ".tmp" in p.name or p.name.endswith(".old")], [])
         self.install()
-        self.assertEqual(self.links(), ["Demo Site Gemini campaign.lnk", "Demo Site Claude campaign.lnk"])
+        self.assertEqual(self.links(), ["Demo Site Claude campaign.lnk", "Demo Site Gemini campaign.lnk"])
         self.assertEqual((len(self.runner_badges()), len(list(self.icons.iterdir()))), (2, 4))  # Watch, Stop
 
     def test_a_link_another_installer_writes_while_this_one_works_is_kept(self):
@@ -1592,7 +1592,7 @@ class CampaignTitleTest(ShortcutFixture):
         done = self.shortcut("-Distro", "Arch", "-Icon", str(self.icon))
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         self.assertFalse(journal.exists())
-        self.assertEqual(self.links(), ["Demo Site Gemini campaign.lnk", "Demo Site Claude campaign.lnk"])
+        self.assertEqual(self.links(), ["Demo Site Claude campaign.lnk", "Demo Site Gemini campaign.lnk"])
         self.assertEqual([p.name for p in [*self.desk.iterdir(), *self.icons.iterdir()]
                           if ".tmp" in p.name or p.name.endswith(".old")], [])
 
@@ -1710,7 +1710,7 @@ class CampaignTitleTest(ShortcutFixture):
             done = self.shortcut(*remove)
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         self.assertIn("they stay as they were; run -Remove again", done.stdout)
-        self.assertEqual(self.links(), ["Demo Gemini campaign.lnk", "Demo Claude campaign.lnk"])
+        self.assertEqual(self.links(), ["Demo Claude campaign.lnk", "Demo Gemini campaign.lnk"])
         done = self.shortcut(*remove)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual((self.links(), sorted(p.name for p in self.icons.iterdir())), ([], []))
@@ -1789,7 +1789,7 @@ class CampaignTitleTest(ShortcutFixture):
         old_key = self.legacy_set(linux)
         done = self.shortcut(*linux)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertEqual(self.links(), ["Demo Gemini campaign.lnk", "Demo Claude campaign.lnk"])
+        self.assertEqual(self.links(), ["Demo Claude campaign.lnk", "Demo Gemini campaign.lnk"])
         self.assertEqual(self.read_link(self.desk / "Demo Claude campaign.lnk")["description"],
                          "conclave-unattended: \\\\wsl.localhost\\Ubuntu\\home\\x\\Demo")  # the link migrated
         self.assertEqual(len(list(self.icons.glob(f"campaign-*-{old_key}.ico"))), 2)  # only the badges stay
@@ -1846,7 +1846,7 @@ class CampaignTitleTest(ShortcutFixture):
         (self.desk / "My Proj's Claude campaign.lnk").rename(self.desk / "Start work.lnk")
         self.foreign_link(self.desk / "Other.lnk")
         self.install()
-        self.assertEqual(self.links(), ["My Proj's Gemini campaign.lnk", "My Proj's Claude campaign.lnk", "Other.lnk"])
+        self.assertEqual(self.links(), ["My Proj's Claude campaign.lnk", "My Proj's Gemini campaign.lnk", "Other.lnk"])
         (self.desk / "My Proj's Claude campaign.lnk").rename(self.desk / "Start work.lnk")
         done = self.shortcut("-Remove")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
@@ -2000,7 +2000,7 @@ class CampaignTitleTest(ShortcutFixture):
         record = json.loads(journal.read_text(encoding="utf-8"))
         self.assertEqual(record["state"], "committed")
         self.assertEqual(sorted(Path(a["to"]).name for a in record["aside"]),
-                         sorted(["My Proj's Gemini campaign.lnk", "My Proj's Claude campaign.lnk",
+                         sorted(["My Proj's Claude campaign.lnk", "My Proj's Gemini campaign.lnk",
                                  "My Proj's - Watch run.lnk", "My Proj's - Stop run.lnk",
                                  f"campaign-watch-{key}.ico", f"campaign-stop-{key}.ico",
                                  f"campaign-agy-{key}.ico", f"campaign-claude-{key}.ico"]))
@@ -2219,10 +2219,10 @@ class CampaignTitleTest(ShortcutFixture):
         done = self.shortcut("-Distro", "Ubuntu", "-Icon", str(self.icon))  # released: the stop finishes, then the set
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(self.journal_of(), [])
-        self.assertEqual(self.links(), ["My Proj's Gemini campaign.lnk", "My Proj's Claude campaign.lnk"])
+        self.assertEqual(self.links(), ["My Proj's Claude campaign.lnk", "My Proj's Gemini campaign.lnk"])
         self.assertEqual(sorted(self.snapshot()), sorted(before))
         self.shortcut("-Distro", "Arch", "-Icon", str(self.icon))  # a later run changes nothing it wrote
-        self.assertEqual(self.links(), ["My Proj's Gemini campaign.lnk", "My Proj's Claude campaign.lnk"])
+        self.assertEqual(self.links(), ["My Proj's Claude campaign.lnk", "My Proj's Gemini campaign.lnk"])
 
     def test_an_old_key_badge_another_link_shows_stays(self):
         self.extra_env = {"STUB_WSL_MISSING": "Debian:/home/x/Demo"}  # no other distro has the path

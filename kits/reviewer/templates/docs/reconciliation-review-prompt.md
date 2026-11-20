@@ -23,6 +23,8 @@ You are an independent reviewer. Do not modify any file. A completion review of 
 2. Each repair: does it introduce a regression, a weakened test or a narrowed behaviour?
 3. The section's contract: are its promises the same as when the completion review read them? The stamp compares the section's text at both commits and refuses a changed promise.
 
+When the review is of a TODO section, that section is stamped after its review: `python3 scripts/todo-graph.py stamp` ticks its `- [ ] Commit:` item and its Implementation Order row (`todo/README.md`, Stamps and receipts), so on an unstamped section both are open by design and are not a gap. A gap that only reports that open item or row is closed by this rule: mark it `closed`, citing the rule as its evidence; it needs no checkbox edit and no `- Implemented:` line.
+
 Proportionality: report only what arises in this repository's real operation, not what only a contrived scenario creates.
 
 ## Reply format

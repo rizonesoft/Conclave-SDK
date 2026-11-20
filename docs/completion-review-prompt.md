@@ -32,6 +32,8 @@ Mark each item `present` (name the `file:line` or test that shows it), `missing-
 
 Proportionality: list only needs that arise in this repository's real operation: real input the project accepts (a file, request or message from outside is hostile, so a crafted one a user receives is real), a real user action, or a real operating-system, disk or hardware condition. Do not list a need that only a contrived scenario creates (an attacker who already controls the machine, the clock, the repository, the build or the tools, or a precondition no real file, user or system produces).
 
+When the review is of a TODO section, that section is stamped after its review: `python3 scripts/todo-graph.py stamp` ticks its `- [ ] Commit:` item and its Implementation Order row (`todo/README.md`, Stamps and receipts), so on an unstamped section both are open by design and are not a gap.
+
 ## Part 2: excellence
 
 The project must do each job better than the alternatives, not only reach parity. For this feature, name how the strongest competitor or alternative does the same job (the governing documents may name them; say which you are comparing with and what you know of its behaviour), then list each concrete way the delivered feature falls short of beating it:

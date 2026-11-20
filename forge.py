@@ -215,6 +215,8 @@ AGENT_DIRS = (".agents", ".claude", ".codex")
 # files forge stages a write in. None is ever kit content.
 KIT_NEW = ".kit-new"
 FORGE_SUFFIXES = (KIT_NEW, ".forge-new", ".forge-replace")
+# Folders a kit's own test runs leave in its templates (bytecode, the pytest cache): never kit content.
+CACHE_DIRS = frozenset({"__pycache__", ".pytest_cache"})
 # The kits the SDK installs in itself (AGENTS.md), and the files of theirs `self-sync` keeps current there: skills,
 # rules, subagents, scripts, the automations runner and the local settings template. The SDK's own docs, plan and pins are its project files.
 SELF_KITS = ("base", "todo", "reviewer", "automations")
@@ -260,8 +262,8 @@ def installed_kits(target_root: Path) -> list[str]:
 
 
 def _rel_allowed_for_agent(rel: str, agent: str) -> bool:
-    if "__pycache__" in rel.split("/"):
-        # Bytecode left by running a kit's own tests in the SDK checkout is not kit content.
+    if CACHE_DIRS.intersection(rel.split("/")):
+        # Bytecode or a pytest cache left by running a kit's own tests in the SDK checkout is not kit content.
         return False
     agent = normalize_agent(agent)
     if agent == "all":
@@ -2139,7 +2141,7 @@ def _doctor_unattended(target_root: Path, add_check, system: str | None = None) 
     """The unattended kit's files, the todo kit it runs under (the run guard), and tmux, which holds the run: it
     exists on Linux and in WSL only, so on Windows the kit runs in WSL."""
     templates = FORGE_ROOT / "kits/unattended/templates"
-    for src in sorted(p for p in templates.rglob("*") if p.is_file() and "__pycache__" not in p.parts):
+    for src in sorted(p for p in templates.rglob("*") if p.is_file() and not CACHE_DIRS.intersection(p.parts)):
         rel = src.relative_to(templates).as_posix()
         path = target_root / rel
         if rel == "docs/unattended-prompt.md":
@@ -2346,7 +2348,7 @@ def _kit_file_checks(kit: str, target_root: Path, add_check) -> None:
         rel = src.relative_to(templates).as_posix()
         if not any(_rel_allowed_for_agent(rel, agent) for agent in agents):
             continue
-        if src.is_file() and "__pycache__" not in src.parts and not rel.endswith(FORGE_SUFFIXES):
+        if src.is_file() and not CACHE_DIRS.intersection(src.parts) and not rel.endswith(FORGE_SUFFIXES):
             path = target_root / rel
             add_check(rel, "ok" if path.is_file() else "missing", path.as_posix())
 

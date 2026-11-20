@@ -41,6 +41,15 @@ for dir in todo/ "$receipts/" "$staged/" "$plan" "$staged_plan"; do
         exit 1
     fi
 done
+# A tree with no TODO file and no generated plan is a fresh install with no graph yet: its README, findings and notes
+# commit unchecked. The loop above made the working tree match the commit, so the tree answers for both, read with the
+# same glob the graph discovers its files with (scripts/lib/todo_graph.py), never a git pathspec that could differ.
+fresh=$("$python" -c 'import pathlib, sys
+root = pathlib.Path(sys.argv[1])
+files = any((root / "todo").glob("[0-9][0-9]-*/TODO-*.md"))
+plans = any((root / rel).exists() for rel in sys.argv[2:])
+print("" if files or plans else "fresh")' "$root" "$plan" "$staged_plan") || exit 1
+[ "$fresh" = fresh ] && exit 0
 if ! "$python" "$root/scripts/todo-graph.py" validate >/dev/null || ! "$python" "$root/scripts/todo-graph.py" plan --check; then
     echo "pre-commit: run 'python scripts/todo-graph.py plan --sync', stage $plan, and commit again" >&2
     exit 1
