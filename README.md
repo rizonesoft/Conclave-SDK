@@ -50,7 +50,7 @@ Each agent reads only its own isolated folder and entrypoint alongside the share
 Clone the repository, then run `forge.py` from the clone against the project you want to set up.
 
 ```powershell
-git clone https://github.com/rizonetech/Conclave-SDK.git
+git clone https://github.com/rizonesoft/Conclave-SDK.git
 cd Conclave-SDK
 
 # A new project: the base kit, plus the TODO system and independent review

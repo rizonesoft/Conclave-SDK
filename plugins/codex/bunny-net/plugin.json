@@ -5,7 +5,7 @@
   "description": "Manage Bunny.net CDN, DNS and Storage through private Rizonetech MCP services.",
   "author": {
     "name": "Rizonetech",
-    "url": "https://github.com/rizonetech/Conclave-SDK"
+    "url": "https://github.com/rizonesoft/Conclave-SDK"
   },
   "extensions": {
     "com.openai": {

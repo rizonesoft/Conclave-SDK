@@ -5,7 +5,7 @@
   "description": "Connect Codex and private ChatGPT cloud access to the existing Conclave WSL MCP server for memory, project context, plans, health and policy-routed proposals.",
   "author": {
     "name": "Rizonetech",
-    "url": "https://github.com/rizonetech/Conclave-SDK"
+    "url": "https://github.com/rizonesoft/Conclave-SDK"
   },
   "extensions": {
     "com.openai": {

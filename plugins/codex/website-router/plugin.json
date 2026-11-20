@@ -20,7 +20,7 @@
   },
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "author": {
-    "url": "https://github.com/rizonetech/Conclave-SDK",
+    "url": "https://github.com/rizonesoft/Conclave-SDK",
     "name": "Rizonetech"
   },
   "description": "Manage registered WordPress websites through MCP, pinned SSH and SFTP, with encrypted credentials and confirmed changes.",

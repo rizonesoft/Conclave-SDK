@@ -89,7 +89,7 @@ For local automation, `-Token` accepts a PowerShell `SecureString`, for example 
 
 ## Move to another computer
 
-1. Clone `https://github.com/rizonetech/Conclave-SDK` to the desired directory and install Node.js 22+.
+1. Clone `https://github.com/rizonesoft/Conclave-SDK` to the desired directory and install Node.js 22+.
 2. In `<checkout>/plugins/codex/atera`, run `npm ci` and `npm run build`.
 3. Run `./scripts/configure.ps1` to enter the token locally, or install/authorize 1Password CLI and use `-TokenReference` once. Do not copy `token.dpapi` from the old machine.
 4. Register the Codex catalogue with `codex plugin marketplace add <checkout>/plugins/codex` and install `codex plugin add atera@rizonetech`.
