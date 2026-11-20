@@ -194,11 +194,74 @@ def damaged_bytes(record):
     yield "UTF-16", json.dumps(record).encode("utf-16")
 
 
+STARTED: set[int] = set()  # every child this file started, so a file one of them still holds is named as ours
+
+
 def start_tree(argv, **kwargs):
     """Start a child in a process group of its own, with no console window, so `end_tree` can end everything it
     starts (pwsh starts Python and the WSL stand-in)."""
     kwargs.pop("creationflags", None)
-    return subprocess.Popen(argv, creationflags=windowless(group=True), start_new_session=os.name != "nt", **kwargs)
+    proc = subprocess.Popen(argv, creationflags=windowless(group=True), start_new_session=os.name != "nt", **kwargs)
+    STARTED.add(proc.pid)
+    return proc
+
+
+def holders(path):
+    """The processes Windows' Restart Manager says hold `path` open, as (pid, name); empty elsewhere or when it
+    cannot tell. It names what kept a scratch folder from being removed (CI runs 44643416476 and 44649349100)."""
+    if os.name != "nt":
+        return []
+    import ctypes
+    from ctypes import wintypes
+
+    class Unique(ctypes.Structure):
+        _fields_ = [("pid", wintypes.DWORD), ("started", wintypes.FILETIME)]
+
+    class Info(ctypes.Structure):
+        _fields_ = [("process", Unique), ("app", wintypes.WCHAR * 256), ("service", wintypes.WCHAR * 64),
+                    ("kind", wintypes.DWORD), ("status", wintypes.ULONG), ("session", wintypes.DWORD),
+                    ("restartable", wintypes.BOOL)]
+
+    rm = ctypes.WinDLL("rstrtmgr")
+    session, key = wintypes.DWORD(), ctypes.create_unicode_buffer(33)
+    if rm.RmStartSession(ctypes.byref(session), 0, key):
+        return []
+    try:
+        files = (wintypes.LPCWSTR * 1)(str(path))
+        if rm.RmRegisterResources(session, 1, files, 0, None, 0, None):
+            return []
+        needed, count, reasons = wintypes.UINT(), wintypes.UINT(16), wintypes.DWORD()
+        infos = (Info * 16)()
+        if rm.RmGetList(session, ctypes.byref(needed), ctypes.byref(count), infos, ctypes.byref(reasons)):
+            return []
+        return [(infos[i].process.pid, infos[i].app) for i in range(count.value)]
+    finally:
+        rm.RmEndSession(session)
+
+
+def remove_scratch(path, wait=10.0):
+    """Remove a test's scratch folder. A file one of this file's own children still holds fails at once, naming it.
+    A file held only by another program (a virus scanner reading the record the script just moved into place) is
+    waited for, up to `wait` seconds, then the failure names who holds it."""
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            shutil.rmtree(path)
+            return
+        except FileNotFoundError:
+            return
+        except PermissionError as error:
+            held = getattr(error, "filename", None) or path
+            who = holders(held)
+            ours = [f"{name} (pid {pid})" for pid, name in who if pid in STARTED]
+            if ours:
+                raise AssertionError(f"{held} is still held by a process this test started: {', '.join(ours)}") from None
+            if time.monotonic() >= deadline:
+                named = ", ".join(f"{name} (pid {pid})" for pid, name in who) or "a process Windows did not name"
+                raise AssertionError(f"{held} is still held {wait:.0f} seconds after the test: {named}") from None
+            # WORKAROUND: a program outside the test (an antivirus scan on GitHub's Windows runner) may hold a file
+            # it is reading for a moment; the test cannot end it, so it waits, bounded, and names it if it stays.
+            time.sleep(0.25)
 
 
 def end_tree(proc):
@@ -282,8 +345,9 @@ class ShortcutFixture(unittest.TestCase):
                "preflight": [], "runners": {"agy": {"model": "gemini-4-carbon-medium", "effort": "medium"}}}
 
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
+        self._tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(self._tmp.cleanup)  # runs last; remove_scratch has removed the folder by then
+        self.addCleanup(remove_scratch, self._tmp.name)
         base = Path(self._tmp.name)
         self.project = base / "My Proj's"  # a space and a quote
         for rel in ("lib/unattended.py", "unattended-shortcut.ps1", "unattended-run.py"):  # as the kit installs them
@@ -432,6 +496,48 @@ class ProcessTreeTest(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "process 4242 still runs"):
             end_tree(Undying())
 
+    @unittest.skipUnless(os.name == "nt", "an open file blocks its removal on Windows only")
+    def test_a_scratch_file_our_child_holds_fails_at_once_naming_it(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            scratch = Path(tmp) / "scratch"
+            scratch.mkdir()
+            record = scratch / "record.json"
+            record.write_text("{}", encoding="utf-8")
+            holder = start_tree([sys.executable, "-c", "import sys, time; f = open(sys.argv[1]); print('held', flush=True); "
+                                 "time.sleep(60)", str(record)], stdout=subprocess.PIPE, text=True)
+            self.addCleanup(holder.stdout.close)
+            self.addCleanup(end_tree, holder)
+            self.assertEqual(holder.stdout.readline().strip(), "held")
+            started = time.monotonic()
+            with self.assertRaisesRegex(AssertionError, rf"held by a process this test started: .*\(pid {holder.pid}\)"):
+                remove_scratch(scratch, wait=30)
+            self.assertLess(time.monotonic() - started, 10, "our own holder was waited for, not named at once")
+            end_tree(holder)
+            remove_scratch(scratch)
+            self.assertFalse(scratch.exists())
+
+    @unittest.skipUnless(os.name == "nt", "an open file blocks its removal on Windows only")
+    def test_a_scratch_file_another_program_holds_is_waited_for_then_named(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            scratch = Path(tmp) / "scratch"
+            scratch.mkdir()
+            record = scratch / "record.json"
+            record.write_text("{}", encoding="utf-8")
+            with open(record, encoding="utf-8"):  # this process is no child of the test's: an outside holder
+                with self.assertRaisesRegex(AssertionError, rf"still held 1 seconds after the test: .*\(pid {os.getpid()}\)"):
+                    remove_scratch(scratch, wait=1)
+            remove_scratch(scratch)  # released within the wait: removed
+            self.assertFalse(scratch.exists())
+
+    def test_a_scratch_folder_nobody_holds_is_removed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = Path(tmp) / "scratch"
+            (scratch / "build").mkdir(parents=True)
+            (scratch / "build" / "unattended-shortcuts.json").write_text("{}", encoding="utf-8")
+            remove_scratch(scratch)
+            self.assertFalse(scratch.exists())
+            remove_scratch(scratch)  # already gone: nothing to do
+
     def test_every_process_this_file_starts_goes_through_the_tree_helpers(self):
         # The class, not the case: any later test that calls subprocess.run or Popen directly fails here, unless it
         # starts a program with no children (attrib, taskkill, tasklist).
@@ -440,7 +546,7 @@ class ProcessTreeTest(unittest.TestCase):
                 if re.search(r"subprocess\.(run|Popen)\(", line) and "re.search" not in line
                 and not line.strip().startswith(("f\"", "\"", "'"))  # code a test hands a child, as text
                 and not re.search(r"subprocess\.(run|Popen)\(\[\"(attrib|taskkill|tasklist)\"", line)
-                and "return subprocess.Popen(argv, creationflags=windowless(group=True)" not in line]
+                and "proc = subprocess.Popen(argv, creationflags=windowless(group=True)" not in line]
         self.assertEqual(bare, [])
 
 
