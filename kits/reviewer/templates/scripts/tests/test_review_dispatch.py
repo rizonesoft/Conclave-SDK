@@ -56,8 +56,8 @@ FAKE_CLI = textwrap.dedent('''\
         # The reviewer starts a child that sleeps 60 s, then hangs (sleepchild) or floods stdout (floodchild).
         child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
         open(os.environ["FAKE_CHILD_PID"], "w").write(str(child.pid))
-        written = 0
-        while True:
+        written, deadline = 0, time.time() + 120  # a finite life: an orphaned fake ends on its own
+        while time.time() < deadline:
             # Bounded: twice the dispatcher's 2 MB cap proves the cap, and an orphaned fake can never fill a disk.
             if mode == "floodchild" and written < FLOOD_BOUND:
                 sys.stdout.write("x" * 65536)
