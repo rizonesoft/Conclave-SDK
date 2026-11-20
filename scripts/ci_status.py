@@ -35,7 +35,7 @@ again at the next boundary). Where GitHub will not rerun it (older than its 30-d
 says so (exit 1) and the candidate is written in the run file as open, for the operator; evidence never moves to
 another commit.
 
-Exit 0: no watched workflow is red. Exit 1: at least one is red (the workflow, the commit, the run's URL and its
+Exit 0: no watched workflow is red (a repository with no workflow to watch says so and exits 0). Exit 1: at least one is red (the workflow, the commit, the run's URL and its
 failed jobs are printed). Exit 2: bad usage. Exit 3: `gh` is missing, not authenticated, or failed, so the state is
 unknown; that is never treated as green. The red-first policy that consumes this is in the `process-phase` skill.
 Stdlib only; the `gh` runner is injectable for tests.
@@ -427,13 +427,19 @@ def main(argv=None, runner=run_gh, root=ROOT):
     except ValueError as exc:
         parser.error(str(exc))
     missing = [w for w in workflows if "/" in w or "\\" in w or not (directory / w).is_file()]
-    if missing or not workflows or not args.branch.strip():
+    if missing or not args.branch.strip():
         parser.error(f"no such workflow in .github/workflows/: {', '.join(missing)}" if missing
-                     else "no workflow to watch, or an empty --branch")
+                     else "an empty --branch")
     if args.infrastructure and args.rerun is None:
         parser.error("--infrastructure goes with --rerun")
     if args.rerun is not None and not (len(args.rerun) == 40 and all(c in "0123456789abcdef" for c in args.rerun)):
         parser.error("--rerun takes a full 40-character commit")
+    if not workflows:
+        # A repository without CI (no ci.json list, no workflow file): nothing is watched, so nothing is red.
+        note = "no CI workflow in this repository (.conclave/ci.json, .github/workflows/); nothing to watch"
+        print(json.dumps({"branch": args.branch, "workflows": [], "note": note, "exit": 0}, indent=2) if args.json
+              else f"ci-status: {note}")
+        return 0
     try:
         if args.rerun is not None:
             lines, code = rerun(runner, workflows, args.branch, args.rerun, args.infrastructure)

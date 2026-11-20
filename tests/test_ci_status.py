@@ -210,10 +210,25 @@ class CiStatus(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("nightly.yml", err)
 
-    def test_no_workflow_at_all_is_a_usage_error(self):
+    def test_a_repository_without_ci_has_nothing_red(self):
+        # No ci.json and no workflow files: nothing is watched, so nothing is red (exit 0), and gh is never called.
         shutil.rmtree(self.root / ".github")
         self.assertEqual(ci.watched(self.root), [])
-        self.assertEqual(self.usage_error(["--json"])[0], 2)
+        for mode in ([], ["--since-last"], ["--rerun", SHA_NEW]):
+            fake = FakeGh({})
+            code, report = self.status(fake, *mode)
+            self.assertEqual((code, report["workflows"], report["exit"]), (0, [], 0), mode)
+            self.assertIn("nothing to watch", report["note"])
+            self.assertEqual(fake.workflows(), [], mode)
+            out = io.StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(ci.main(mode, runner=FakeGh({}), root=self.root), 0)
+            self.assertIn("nothing to watch", out.getvalue())
+        self.assertFalse((self.root / ci.CURSOR).exists())
+
+    def test_no_workflow_with_an_empty_branch_is_still_a_usage_error(self):
+        shutil.rmtree(self.root / ".github")
+        self.assertEqual(self.usage_error(["--branch", " "])[0], 2)
 
 
 FAKE_GH = textwrap.dedent('''\
