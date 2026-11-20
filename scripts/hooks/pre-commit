@@ -44,12 +44,18 @@ done
 # A tree with no TODO file and no generated plan is a fresh install with no graph yet: its README, findings and notes
 # commit unchecked. The loop above made the working tree match the commit, so the tree answers for both, read with the
 # same glob the graph discovers its files with (scripts/lib/todo_graph.py), never a git pathspec that could differ.
-fresh=$("$python" -c 'import pathlib, sys
-root = pathlib.Path(sys.argv[1])
+# The answer is the exit status (0 fresh, 3 not), since Python on Windows ends printed lines with a carriage return;
+# the plan paths come from command substitutions that may keep one, so they are stripped before use.
+"$python" -c 'import pathlib, sys
+root = pathlib.Path(sys.argv[1].strip())
 files = any((root / "todo").glob("[0-9][0-9]-*/TODO-*.md"))
-plans = any((root / rel).exists() for rel in sys.argv[2:])
-print("" if files or plans else "fresh")' "$root" "$plan" "$staged_plan") || exit 1
-[ "$fresh" = fresh ] && exit 0
+plans = any((root / rel.strip()).exists() for rel in sys.argv[2:])
+sys.exit(3 if files or plans else 0)' "$root" "$plan" "$staged_plan"
+case $? in
+    0) exit 0 ;;
+    3) ;;
+    *) echo "pre-commit: could not read the TODO tree" >&2; exit 1 ;;
+esac
 if ! "$python" "$root/scripts/todo-graph.py" validate >/dev/null || ! "$python" "$root/scripts/todo-graph.py" plan --check; then
     echo "pre-commit: run 'python scripts/todo-graph.py plan --sync', stage $plan, and commit again" >&2
     exit 1
