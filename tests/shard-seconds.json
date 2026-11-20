@@ -25,7 +25,8 @@
     "test_todo_graph": 71,
     "test_toolchain_kits": 76,
     "test_unattended_installed": 206,
-    "test_unattended_installed_shortcuts": 1041,
+    "test_unattended_installed_shortcuts": 632,
+    "test_unattended_installed_shortcuts_2": 585,
     "test_verify_agent_tiers": 4
   },
   "measured_posix": "2026-11-20: WSL Ubuntu with tmux, CONCLAVE_FULL_TESTS=1 python3 -m unittest tests.<file>, each file then scaled by its shard's CI-to-WSL ratio in tests.yml run 44724435768 (WSL on /mnt/d exaggerates file-heavy tests), seconds",
@@ -55,6 +56,7 @@
     "test_toolchain_kits": 102,
     "test_unattended_installed": 522,
     "test_unattended_installed_shortcuts": 1,
+    "test_unattended_installed_shortcuts_2": 1,
     "test_verify_agent_tiers": 8
   }
 }

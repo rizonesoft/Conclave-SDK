@@ -25,7 +25,7 @@ jobs:
   quick-windows:
     # The quick suite in three parallel shards (forge.py check-all --shard), balanced by the seconds in
     # tests/shard-seconds.json: by file size one shard took 38 minutes and the other 7 (2026-11-20). The installed
-    # unattended kit's shortcut tests, about 13 minutes here, are a file of their own, so a shard can hold them alone.
+    # unattended kit's shortcut tests, 18 to 24 minutes here whole, run in two halves (two files), each on a shard.
     # The run is red when any shard is.
     name: quick suite (Windows) ${{ matrix.shard }}
     runs-on: windows-latest
