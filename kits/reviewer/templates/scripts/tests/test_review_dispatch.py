@@ -38,6 +38,7 @@ FIXTURE_PIN = textwrap.dedent('''    schema_version = 1
 FAKE_CLI = textwrap.dedent('''\
     import json, os, subprocess, sys, time
     name, args = sys.argv[1], sys.argv[2:]
+    FLOOD_BOUND = 4 * 1024 * 1024
     mode = os.environ.get("FAKE_" + name.upper(), "ok")
     if mode == "noread":
         time.sleep(30)
@@ -55,26 +56,31 @@ FAKE_CLI = textwrap.dedent('''\
         # The reviewer starts a child that sleeps 60 s, then hangs (sleepchild) or floods stdout (floodchild).
         child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
         open(os.environ["FAKE_CHILD_PID"], "w").write(str(child.pid))
+        written = 0
         while True:
-            if mode == "floodchild":
+            # Bounded: twice the dispatcher's 2 MB cap proves the cap, and an orphaned fake can never fill a disk.
+            if mode == "floodchild" and written < FLOOD_BOUND:
                 sys.stdout.write("x" * 65536)
                 sys.stdout.flush()
+                written += 65536
             time.sleep(0.01)
     if mode == "fail":
         sys.exit(3)
     if mode == "sleep":
         time.sleep(30)
     if mode == "flood":
-        while True:
+        for _ in range(FLOOD_BOUND // 65536):
             sys.stdout.write("x" * 65536)
             sys.stdout.flush()
             time.sleep(0.01)
+        time.sleep(60)
     if mode == "floodfile":
         with open(args[args.index("-o") + 1], "w") as out:
-            while True:
+            for _ in range(FLOOD_BOUND // 65536):
                 out.write("x" * 65536)
                 out.flush()
                 time.sleep(0.01)
+            time.sleep(60)
     if mode == "orphan":
         child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
         open(os.environ["FAKE_CHILD_PID"], "w").write(str(child.pid))
