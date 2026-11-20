@@ -22,6 +22,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import shlex
 import shutil
 import subprocess
 import sys
@@ -57,6 +58,7 @@ DROP = """$h = trim( (string) fgets( STDIN ) );
 if ( 1 !== preg_match( '/^[0-9a-f]{64}$/', $h ) ) { echo 'bad digest'; return; }
 global $wpdb;
 $raw = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %%s", '%(option)s' ) );
+if ( null === $raw && '' !== (string) $wpdb->last_error ) { echo 'failed'; return; }
 if ( ! is_string( $raw ) ) { echo 'absent'; return; }
 $t = maybe_unserialize( $raw );
 if ( ! is_array( $t ) || ! isset( $t['hash'] ) || ! is_string( $t['hash'] ) || ! hash_equals( $t['hash'], $h ) ) { echo 'not ours'; return; }
@@ -83,9 +85,10 @@ def native_windows():
 class Refusal(Exception):
     """A failure the opener explains in a sentence of its own; nothing else's text is ever printed."""
 
-    def __init__(self, message, code=1):
+    def __init__(self, message, code=1, landed=True):
         super().__init__(message)
         self.code = code
+        self.landed = landed   # False when nothing can have been written to the site
 
 
 def ticket():
@@ -110,19 +113,18 @@ def pinned_user(pin):
         raise Refusal("no basic entry under mcp in .conclave/wordpress-site.json names a wordpress_user_id", 2)
     if any(user is None for user in named):
         raise Refusal("a basic entry under mcp in .conclave/wordpress-site.json names no wordpress_user_id", 2)
-    users = {int(user) for user in named}
-    if len(users) != 1:
+    if any(isinstance(user, bool) or not isinstance(user, int) or user < 1 for user in named):
+        raise Refusal("a wordpress_user_id in .conclave/wordpress-site.json is not a user", 2)
+    if len(set(named)) != 1:
         raise Refusal("the basic entries under mcp in .conclave/wordpress-site.json name different users", 2)
-    (user,) = users
-    if user < 1:
-        raise Refusal("the wordpress_user_id in .conclave/wordpress-site.json is not a user", 2)
-    return user
+    return named[0]
 
 
 def _remote(pin, program, digest):
     """Run one of the two programs on the site with the digest on its standard input; its trimmed answer, or None
     when the connection did not finish cleanly."""
-    done = site_ssh.wp(["eval", program], input=digest + "\n", timeout=REMOTE_TIMEOUT, pin=pin)
+    # --url: on a multisite every site shares ssh.wp_path, and WP-CLI acts on the main site unless told which.
+    done = site_ssh.wp(["eval", program, "--url=" + pin["url"]], input=digest + "\n", timeout=REMOTE_TIMEOUT, pin=pin)
     return (done.stdout or "").strip() if done.returncode == 0 else None
 
 
@@ -135,7 +137,7 @@ def store(pin, digest, user_id):
         return
     if said == "no plugin":
         raise Refusal("the ticket login plugin is not active on the site: python3 scripts/ticket-login.py install "
-                      "puts it there")
+                      "puts it there", landed=False)
     raise Refusal("the site did not confirm that it stored the ticket")
 
 
@@ -182,9 +184,56 @@ def _page(url):
     return page
 
 
+DESKTOP_ID = re.compile(r"[A-Za-z0-9._-]+\.desktop")
+FIELD_CODES = {"%f", "%F", "%u", "%U"}
+
+
+def _https_browser(page):
+    """The command line of the desktop entry that opens https links, given the redirect page: `xdg-open` on an
+    HTML file would pick the text/html handler, which can be an editor showing the page's source (round 1)."""
+    query = shutil.which("xdg-mime")
+    if not query:
+        raise Refusal("there is no xdg-mime to find the browser that opens https links")
+    done = subprocess.run([query, "query", "default", "x-scheme-handler/https"], capture_output=True, text=True,
+                          timeout=CHILD_TIMEOUT)
+    entry = (done.stdout or "").strip()
+    if done.returncode != 0 or not DESKTOP_ID.fullmatch(entry):
+        raise Refusal("no browser is set to open https links (xdg-mime query default x-scheme-handler/https)")
+    home = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    folders = [home, *(os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":")]
+    found = next((Path(f) / "applications" / entry for f in folders if f and (Path(f) / "applications" / entry).is_file()), None)
+    if found is None:
+        raise Refusal(f"the browser's desktop entry {entry} is in no applications folder")
+    command, group = None, None
+    for line in found.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if line.startswith("[") and line.endswith("]"):
+            group = line[1:-1]
+        elif group == "Desktop Entry" and line.startswith("Exec="):
+            command = line[len("Exec="):]
+            break
+    try:
+        words = shlex.split(command or "")
+    except ValueError:
+        words = []
+    if not words:
+        raise Refusal(f"the browser's desktop entry {entry} has no command to run")
+    argv, given = [], False
+    for word in words:
+        if word in FIELD_CODES:
+            argv.append(page.as_uri() if word in ("%u", "%U") else str(page))
+            given = True
+        elif word in ("%i", "%c", "%k"):
+            continue
+        else:
+            argv.append(word.replace("%%", "%"))
+    return argv if given else [*argv, str(page)]
+
+
 def open_browser(url):
     """Start the browser on the link: from WSL through Windows PowerShell, the link on its standard input; on Linux
-    through `xdg-open`, the link in a private redirect page. The link is in no argument and no message."""
+    through the desktop entry that opens https links, the link in a private redirect page. The link is in no
+    argument and no message."""
     if os.environ.get("WSL_DISTRO_NAME"):
         shell = shutil.which("pwsh.exe") or shutil.which("powershell.exe")
         if not shell:
@@ -196,13 +245,14 @@ def open_browser(url):
         if done.returncode != 0:
             raise Refusal("PowerShell could not open the browser")
         return
-    opener = shutil.which("xdg-open")
-    if not opener:
-        raise Refusal("there is no xdg-open to open the browser")
     page = _page(url)
-    done = subprocess.run([opener, str(page)], capture_output=True, text=True, timeout=CHILD_TIMEOUT)
-    if done.returncode != 0:
-        raise Refusal("xdg-open could not open the browser")
+    argv = _https_browser(page)
+    try:
+        # Not waited for: a browser started fresh runs until it is closed.
+        subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    except OSError:
+        raise Refusal("the browser that opens https links could not be started") from None
 
 
 def _say(stream, text):
@@ -230,14 +280,16 @@ def _pin():
         pin = wp_site.load()
         if not wp_site.ssh_enabled(pin):
             raise Refusal("the site pin has no SSH (ssh.ssh_host is null), so no ticket can be stored", 2)
-        wp_site.require(pin, "url", "ssh.wp_path")
+        missing = wp_site.unset(pin, "url", "ssh.wp_path")
+        if missing:
+            raise Refusal("not set in .conclave/wordpress-site.json yet: " + ", ".join(missing), 2)
     except Refusal:
         raise
     except OSError:
         raise Refusal("the site pin .conclave/wordpress-site.json cannot be read", 2) from None
-    except ValueError as error:
-        # The pin's own validation, about the pin's fields: no ticket exists yet, so nothing secret can be in it.
-        raise Refusal(f"the site pin is refused: {error}", 2) from None
+    except ValueError:
+        raise Refusal("the site pin .conclave/wordpress-site.json is not valid: python3 scripts/site-access.py check "
+                      "says why", 2) from None
     return pin, pinned_user(pin)
 
 
@@ -260,14 +312,22 @@ def main(argv=None, out=None, err=None):
         return error.code if isinstance(error, Refusal) else 1
     try:
         store(pin, digest, user)
+    except KeyboardInterrupt:
+        _say(err, "interrupted")
+        _clean_up(pin, digest, err)   # the write may have landed
+        return 130
     except Exception as error:   # every failure is reported by `_failed`, never by its own text
         _say(err, _failed(error))
-        if not (isinstance(error, Refusal) and "not active" in str(error)):
+        if not (isinstance(error, Refusal) and not error.landed):
             _clean_up(pin, digest, err)   # the write may have landed though its reply was lost
         return 1
     if args.check:
         try:
             drop(pin, digest)
+        except KeyboardInterrupt:
+            _say(err, "interrupted")
+            _clean_up(pin, digest, err)
+            return 130
         except Exception as error:   # every failure is reported by `_failed`, never by its own text
             _say(err, _failed(error))
             _say(err, f"the ticket expires within {LIFETIME} seconds")
@@ -276,6 +336,10 @@ def main(argv=None, out=None, err=None):
         return 0
     try:
         open_browser(url)
+    except KeyboardInterrupt:
+        _say(err, "interrupted")
+        _clean_up(pin, digest, err)
+        return 130
     except Exception as error:   # every failure is reported by `_failed`, never by its own text
         _say(err, _failed(error))
         _clean_up(pin, digest, err)

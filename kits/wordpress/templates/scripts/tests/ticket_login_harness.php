@@ -14,7 +14,7 @@
  *
  * The opener's two programs (`STORE` and `DROP` in `open-dashboard.py`, D07 T02 section 2) run here as `wp eval`
  * runs them: the case names the file it is read from as the first argument, so standard input is left for the
- * digest the program reads, and `eval` holds the program. What it echoes is reported as `echo`, and the
+ * digest the program reads, and `eval` holds the program (`read_fails`: the table read fails, as wpdb reports it). What it echoes is reported as `echo`, and the
  * `autoload` each option was last written with as `autoload`.
  *
  * @package Conclave
@@ -78,7 +78,8 @@ function do_action( $hook, ...$args ) {
  * The two `$wpdb` calls the plugin makes, against the options table above.
  */
 class Harness_Wpdb {
-	public $options = 'wp_options';
+	public $options    = 'wp_options';
+	public $last_error = '';
 
 	public function prepare( $sql, ...$args ) {
 		return array( $sql, $args );
@@ -87,6 +88,10 @@ class Harness_Wpdb {
 	public function get_var( $query ) {
 		$name = $query[1][0];
 		harness_record( 'wpdb_get_var', array( $name ) );
+		if ( ! empty( $GLOBALS['harness_case']['read_fails'] ) ) {
+			$this->last_error = 'MySQL server has gone away';   // as wpdb reports a failed query: null and an error
+			return null;
+		}
 		return array_key_exists( $name, $GLOBALS['harness_options'] ) ? serialize( $GLOBALS['harness_options'][ $name ] ) : null;
 	}
 
