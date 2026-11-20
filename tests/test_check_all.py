@@ -466,6 +466,19 @@ class Shard(Stubs):
         # An unlisted file weighs the listed mean (515 here), so it never sits with the slow file either.
         self.assertEqual(forge.shard_weights(folder)["test_mid"], 515.0)
 
+    def test_a_systems_own_measurements_are_used_on_that_system(self):
+        # 2026-11-20: Windows' times put the shortcut tests (skipped on Linux) alone in Linux's first shard, 18 s
+        # against 14 minutes in its second.
+        suite = self.suite_of("suite", ["test_a", "test_b", "test_c"])
+        folder = self.dir / suite["path"]
+        (folder / "shard-seconds.json").write_text(json.dumps({
+            "seconds": {"test_a": 1000, "test_b": 10, "test_c": 10},
+            "seconds_posix": {"test_a": 5, "test_b": 500, "test_c": 400}}), encoding="utf-8")
+        self.assertEqual(forge.shard_weights(folder, "nt"), {"test_a": 1000.0, "test_b": 10.0, "test_c": 10.0})
+        self.assertEqual(forge.shard_weights(folder, "posix"), {"test_a": 5.0, "test_b": 500.0, "test_c": 400.0})
+        self.assertEqual([forge.shard_modules(folder, k, 2, "posix") for k in (1, 2)], [["test_b"], ["test_a", "test_c"]])
+        self.assertEqual([forge.shard_modules(folder, k, 2, "nt") for k in (1, 2)], [["test_a"], ["test_b", "test_c"]])
+
     def test_an_unreadable_measurement_falls_back_to_size(self):
         suite = self.suite_of("suite", ["test_a", "test_b"], sizes={"test_a": 50, "test_b": 10})
         folder = self.dir / suite["path"]
@@ -478,8 +491,10 @@ class Shard(Stubs):
     def test_the_sdks_measurements_name_only_files_that_exist(self):
         # A renamed or deleted file left in the table would weigh nothing real and skew the mean.
         folder = ROOT / "tests"
-        listed = json.loads((folder / "shard-seconds.json").read_text(encoding="utf-8"))["seconds"]
-        self.assertEqual(set(listed) - {f.stem for f in folder.glob("test*.py")}, set())
+        table = json.loads((folder / "shard-seconds.json").read_text(encoding="utf-8"))
+        for key in ("seconds", "seconds_posix"):
+            with self.subTest(key):
+                self.assertEqual(set(table.get(key, {})) - {f.stem for f in folder.glob("test*.py")}, set())
 
     def test_a_malformed_shard_is_refused(self):
         for text in ("0/2", "3/2", "1", "a/b", "1/0", ""):

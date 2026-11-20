@@ -3668,14 +3668,17 @@ def parse_shard(text: str) -> tuple[int, int]:
     return int(match[1]), int(match[2])
 
 
-def shard_weights(folder: Path) -> dict[str, float]:
-    """Each test file's weight for `shard_modules`: the seconds `<folder>/shard-seconds.json` measured for it
-    (`{"seconds": {"test_x": 12}}`), a file it does not list taking the listed files' mean; without that file, or
-    one that is unreadable, each file's size, as before (a byte count is no runtime: one 17-minute test held one
-    Windows runner for 38 minutes while its partner took 7, 2026-11-20)."""
+def shard_weights(folder: Path, system: str | None = None) -> dict[str, float]:
+    """Each test file's weight for `shard_modules`: the seconds `<folder>/shard-seconds.json` measured for it on this
+    system (`seconds_posix` or `seconds_nt`, by `os.name`), else in its shared `seconds` (`{"seconds": {"test_x":
+    12}}`), a file the table does not list taking the listed files' mean; without that file, or one that is
+    unreadable, each file's size, as before (a byte count is no runtime: one 17-minute test held one Windows runner
+    for 38 minutes while its partner took 7, 2026-11-20; and Windows' times left Linux's first shard 18 seconds long
+    while its second took 14 minutes, the shortcut tests being Windows's)."""
     files = sorted(folder.glob("test*.py"))
     try:
-        listed = json.loads((folder / "shard-seconds.json").read_text(encoding="utf-8"))["seconds"]
+        table = json.loads((folder / "shard-seconds.json").read_text(encoding="utf-8"))
+        listed = table.get(f"seconds_{system or os.name}") or table["seconds"]
         listed = {str(k): float(v) for k, v in listed.items() if float(v) >= 0}
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         listed = {}
@@ -3685,11 +3688,11 @@ def shard_weights(folder: Path) -> dict[str, float]:
     return {f.stem: listed.get(f.stem, mean) for f in files}
 
 
-def shard_modules(folder: Path, k: int, n: int) -> list[str]:
+def shard_modules(folder: Path, k: int, n: int, system: str | None = None) -> list[str]:
     """The module names of shard `k` of `n` of the test files (`test*.py`) in a suite's folder: the files assigned
     heaviest first (`shard_weights`) to the lightest shard, so the shards take about the same time,
     deterministically (equal weights go by name). Every file is in exactly one shard."""
-    weights = shard_weights(folder)
+    weights = shard_weights(folder, system)
     loads = [0.0] * n
     shards: list[list[str]] = [[] for _ in range(n)]
     for stem in sorted(weights, key=lambda s: (-weights[s], s)):
