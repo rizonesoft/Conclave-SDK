@@ -7,7 +7,7 @@
 
 `badge` draws, on every frame of the project's icon, a circle in the runner's colour with a white outline at the
 bottom right, and from 32 pixels up the runner's mark in white inside it: Claude Code's orange spark for `claude`,
-Antigravity's blue sparkle for `agy` (the Carbon runner), Codex's green for `codex`. The unattended run's Watch and
+Antigravity's blue sparkle for `agy` (the Gemini runner), Codex's green for `codex`. The unattended run's Watch and
 Stop links carry the same badge as `watch` (a white eye on violet) and `stop` (a white stop square on red). `frames`
 builds a Windows icon
 from two large renders of a project's icon, the detailed one for 96 pixels and up and the heavy one below.

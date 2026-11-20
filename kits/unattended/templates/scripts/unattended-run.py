@@ -1185,7 +1185,7 @@ def stop(root: Path, out=None) -> int:
 
 
 # The desktop entries `shortcut` writes (D02 T02 §10), one per runner: the name each runner's launcher carries.
-RUNNER_LABEL = {"claude": "Claude", "codex": "Codex", "agy": "Carbon"}
+RUNNER_LABEL = {"claude": "Claude", "codex": "Codex", "agy": "Gemini"}
 DESKTOP_MARK = "X-Conclave-Project"
 
 

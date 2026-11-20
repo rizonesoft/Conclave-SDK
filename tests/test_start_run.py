@@ -190,7 +190,7 @@ class StartRunTests(unittest.TestCase):
     @unittest.skipUnless(os.name == "nt", "a .lnk shortcut is a Windows file")
     def test_the_two_campaign_shortcuts_start_this_script_for_their_runner_with_a_badged_icon(self):
         # The owner's shape (2026-11-12), as Office's and Isotone's launchers have it: "<project> Claude campaign" and
-        # "<project> Carbon campaign", each with the project's mark and its runner's badge.
+        # "<project> Gemini campaign", each with the project's mark and its runner's badge.
         icons = self.folder / "icons"
         retired = self.folder / "Conclave-SDK unattended run.lnk"
         retired.write_bytes(b"the shortcut written before the runners split")
@@ -206,7 +206,7 @@ class StartRunTests(unittest.TestCase):
         self.assertFalse(retired.exists(), "the old shortcut was left on the desktop")
         self.assertFalse(codex_link.exists(), "Codex is reviewer only")
         for name, runner, ico in (("Conclave-SDK Claude campaign", "claude", "conclave-sdk-campaign-claude.ico"),
-                                  ("Conclave-SDK Carbon campaign", "agy", "conclave-sdk-campaign-carbon.ico")):
+                                  ("Conclave-SDK Gemini campaign", "agy", "conclave-sdk-campaign-carbon.ico")):
             with self.subTest(runner=runner):
                 link = self.folder / f"{name}.lnk"
                 self.assertTrue(link.is_file(), proc.stdout)
@@ -264,7 +264,7 @@ class CarbonRunnerTests(unittest.TestCase):
         self.assertNotIn("/goal", prompt)
         self.assertIn("sign-in: Antigravity uses its own Google sign-in", proc.stdout)
         self.assertEqual(pathlib.Path(got["folder"]).resolve(), ROOT)
-        self.assertEqual(got["title"], "Conclave-SDK Carbon campaign")
+        self.assertEqual(got["title"], "Conclave-SDK Gemini campaign")
 
 class WindowlessTests(unittest.TestCase):
     def test_every_process_this_file_starts_gets_no_window(self):

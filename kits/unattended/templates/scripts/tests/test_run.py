@@ -2280,7 +2280,7 @@ class DesktopEntryTest(unittest.TestCase):
         self.assertEqual(self.run.shortcut(self.project, "agy", self.apps, False, out), 0)
         entry = self.apps / "demo-agy-campaign.desktop"
         fields = dict(line.split("=", 1) for line in entry.read_text(encoding="utf-8").splitlines() if "=" in line)
-        self.assertEqual((fields["Name"], fields["Terminal"], fields["Path"]), ("demo Carbon campaign", "true",
+        self.assertEqual((fields["Name"], fields["Terminal"], fields["Path"]), ("demo Gemini campaign", "true",
                                                                                str(self.project)))
         done = self.activate(entry)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)

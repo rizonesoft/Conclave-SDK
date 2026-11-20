@@ -3,8 +3,8 @@
 # closes, it crashes or the machine restarts: nothing here, or anywhere in the SDK, starts or resumes it on its own.
 #
 #   pwsh scripts/start-run.ps1                    start the run in Claude Code (the latest Opus)
-#   pwsh scripts/start-run.ps1 -Runner agy        start it in Antigravity on Orchestrator (Carbon) (the Carbon runner)
-#   pwsh scripts/start-run.ps1 -InstallShortcut   put "Conclave-SDK Claude campaign" and "Conclave-SDK Carbon campaign"
+#   pwsh scripts/start-run.ps1 -Runner agy        start it in Antigravity on Orchestrator (Carbon) (the Gemini runner)
+#   pwsh scripts/start-run.ps1 -InstallShortcut   put "Conclave-SDK Claude campaign" and "Conclave-SDK Gemini campaign"
 #                                                 on the desktop, each running the line above for its runner
 #   pwsh scripts/start-run.ps1 -DryRun            print what would run or be written, and change nothing
 #   pwsh scripts/start-run.ps1 -Model sonnet      start on another model
@@ -26,7 +26,7 @@
 #
 # The Claude runner's model is the alias `opus`, which Claude Code resolves to the newest Opus, so the shortcut never
 # needs editing when a new one ships, and its effort is medium, passed as --effort so the user's own interactive default
-# (effortLevel in settings.json) never decides a campaign's cost. The Carbon runner's is gemini-pro-orchestrator
+# (effortLevel in settings.json) never decides a campaign's cost. The Gemini runner's is gemini-pro-orchestrator
 # (Orchestrator (Carbon)), which manages effort internally across its Carbon planning and Hydrogen execution turns.
 #
 # The session signs in with the long-lived token (`claude setup-token`, valid one year) kept in the user variable
@@ -68,7 +68,7 @@ if (-not $GuardFile) { $GuardFile = Join-Path $repo 'build\claude-campaign-guard
 $shortcuts = @(
   @{ Runner = 'claude'; Name = 'Conclave-SDK Claude campaign'; Icon = 'conclave-sdk-campaign-claude.ico'
      Description = 'Start the Conclave-SDK campaign in Claude Code (the latest Opus)' },
-  @{ Runner = 'agy'; Name = 'Conclave-SDK Carbon campaign'; Icon = 'conclave-sdk-campaign-carbon.ico'
+  @{ Runner = 'agy'; Name = 'Conclave-SDK Gemini campaign'; Icon = 'conclave-sdk-campaign-carbon.ico'
      Description = 'Start the Conclave-SDK campaign in Google Antigravity on Orchestrator (Carbon)' }
 )
 $title = ($shortcuts | Where-Object { $_.Runner -eq $Runner }).Name

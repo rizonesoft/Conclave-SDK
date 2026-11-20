@@ -205,7 +205,7 @@ function Get-Started([int]$id) {
   # Ticks, written as text: ConvertFrom-Json would turn a date into a DateTime, which then never equals the text.
   if ($process) { [string]$process.StartTime.ToUniversalTime().Ticks } else { '' }
 }
-$labels = @{ claude = 'Claude'; codex = 'Codex'; agy = 'Carbon' }
+$labels = @{ claude = 'Claude'; codex = 'Codex'; agy = 'Gemini' }
 
 # A link's fields, or nothing for a file the shell cannot load as one.
 function Get-Link([IO.FileSystemInfo]$file) {
