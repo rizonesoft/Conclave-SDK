@@ -179,11 +179,11 @@ Sections: 16 | Checklist items: 139
 
 ### Phase 9: Design and safety lenses across projects
 
-Sections: 21 | Checklist items: 131
+Sections: 21 | Checklist items: 133
 
 | Status | Reference   | Deliverable                                                | Needs        | Items |
 | ------ | ----------- | ---------------------------------------------------------- | ------------ | ----- |
-| [ ]    | D00 T01 §10 | Verify-only reconciliation trial in the SDK's own pin      | none         | 5     |
+| [ ]    | D00 T01 §10 | Verify-only reconciliation trial in the SDK's own pin      | none         | 7     |
 | [ ]    | D00 T03 §1  | Design Lens by Path and Fidelity on Every Prompt           | none         | 10    |
 | [ ]    | D00 T03 §2  | Thread-Safety and Memory-Safety Lenses in the Template Pin | none         | 6     |
 | [ ]    | D00 T03 §3  | Kit Refresh in Every Listed Project                        | windows-host | 7     |
@@ -218,4 +218,4 @@ Sections: 4 | Checklist items: 33
 
 Progress: 104/133 verified sections, 9 ready to run now.
 
-Checklist: 879/1032 items completed (includes Commit items).
+Checklist: 880/1034 items completed (includes Commit items).

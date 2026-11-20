@@ -55,13 +55,16 @@ policy = "three-pass"
 pass_cap = 33
 # P1 and P2 hold the stamp (owner, 2026-11-19: P1 alone would ship real P2 defects).
 blocking = ["P1", "P2"]
-# Verify-only trial (owner, 2026-11-19; this pin only, the kit template is unchanged): two reconciliations in a
-# row whose worst finding gets no less severe stop the chain, which then calls for a redesign, not another patch.
-no_progress_cap = 2
+# Repair-diff trial (owner, 2026-11-20; this pin only, the kit template is unchanged): no no_progress_cap. A
+# stall never shipped a section (P1 and P2 hold the stamp), but the owner wants no counted cap on a repair chain.
 
 # The trial's plan lens: an oversized design (D02 T02 §12) is what fed its 19 reconciliations.
+# The two repair lenses attack only the newest repair, so a bug a fix brings in is hunted without the whole
+# section being re-attacked on every pass (D07 T01 §7 took 15 passes, D02 T02 §12 took 19).
 [schedule.lenses]
 simplest = "What is the simplest design that meets this section in full, and which planned part could be cut?"
+repair-adversarial = "In the newest repair only (the last reviewed candidate to the repaired candidate, both named above): how does the newest repair fail on hostile input, races, aborts, cancellation, automation or links? Code an earlier pass reviewed and the repair left unchanged is out of scope."
+repair-integration = "In the newest repair only (the last reviewed candidate to the repaired candidate, both named above): what does the newest repair break in a caller, a contract, another kit or an installed copy?"
 
 [schedule.plan]
 effort = "medium"
@@ -76,11 +79,11 @@ lenses = ["adversarial", "integration", "source-defect", "consistency", "quality
 effort = "low"
 lenses = ["plan-delivery", "record"]
 
-# Verify-only trial: a reconciliation checks that the named gaps are closed and the repair broke nothing. Edge
-# cases are hunted once, in the round, not again on every repair (D07 T01 §7 took 15 passes, D02 T02 §12 took 19).
+# Repair-diff trial: a reconciliation checks that the named gaps are closed and attacks the newest repair's own
+# diff. Edge cases in the rest of the section are hunted once, in the round.
 [schedule.reconciliation]
-effort = "low"
-lenses = ["plan-delivery", "record"]
+effort = "medium"
+lenses = ["plan-delivery", "record", "repair-adversarial", "repair-integration"]
 
 # Optional keys, shown as examples.
 #
