@@ -219,9 +219,11 @@ def end_tree(proc):
     except OSError:
         pass
     try:
-        proc.wait(timeout=10)  # reaped, so no ended child is left behind as a running one
+        proc.wait(timeout=60)  # reaped, so no ended child is left behind as a running one
     except subprocess.TimeoutExpired:
-        pass
+        # A child still alive holds what it opened: the cleanup that follows would fail on its file instead
+        # (a busy CI runner took longer than the 10 seconds this once allowed, 2026-11-20).
+        raise AssertionError(f"process {proc.pid} still runs 60 seconds after it was ended") from None
 
 
 def run_tree(argv, *, timeout, input=None, check=False, **kwargs):
@@ -415,6 +417,20 @@ class ProcessTreeTest(unittest.TestCase):
                 self.assertNotIn(f" {pid} ", listed, "the grandchild outlived the timeout")
             else:
                 self.assertFalse(Path(f"/proc/{pid}").exists(), "the grandchild outlived the timeout")
+
+    def test_a_child_that_outlives_its_ending_is_reported_not_passed(self):
+        # CI 2026-11-20: end_tree gave up after 10 seconds in silence, and the cleanup after it failed on a file the
+        # still-running holder kept open. A child that will not end is now the failure itself.
+        class Undying:
+            pid = 4242
+            def poll(self):
+                return 0
+            def kill(self):
+                pass
+            def wait(self, timeout=None):
+                raise subprocess.TimeoutExpired("holder", timeout)
+        with self.assertRaisesRegex(AssertionError, "process 4242 still runs"):
+            end_tree(Undying())
 
     def test_every_process_this_file_starts_goes_through_the_tree_helpers(self):
         # The class, not the case: any later test that calls subprocess.run or Popen directly fails here, unless it
