@@ -200,7 +200,7 @@ Sections: 21 | Checklist items: 133
 | [ ]    | D00 T03 §14 | Sanitizer Test Configuration                               | windows-host | 5     |
 | [ ]    | D00 T03 §15 | Bounded C++ Hot-Spot Audit                                 | windows-host | 5     |
 | [ ]    | D00 T03 §16 | Read-Only Verification Across the Projects                 | windows-host | 7     |
-| [ ]    | D00 T03 §17 | One Opus Design Check Before a Surface Section's Review    | none         | 8     |
+| [x]    | D00 T03 §17 | One Opus Design Check Before a Surface Section's Review    | none         | 8     |
 | [x]    | D02 T02 §12 | Writable run windows, Watch and Stop links, finished stops | windows-host | 11    |
 | [ ]    | D04 T04 §1  | Interface tests split by whether they take the desk        | windows-host | 7     |
 | [ ]    | D04 T04 §2  | One owner of the visual desktop at a time                  | windows-host | 4     |
@@ -216,6 +216,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 104/133 verified sections, 9 ready to run now.
+Progress: 105/133 verified sections, 8 ready to run now.
 
 Checklist: 880/1034 items completed (includes Commit items).

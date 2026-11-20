@@ -52,7 +52,7 @@ title: "TODO-03 -- Design and safety lenses, held by path in every project"
 | 14 | §14 | Sanitizer test configuration | §13 | [ ] |
 | 15 | §15 | Bounded C++ hot-spot audit | §9 | [ ] |
 | 16 | §16 | Read-only verification across the projects | §6, §7, §9, §10, §11 | [ ] |
-| 17 | §17 | One Opus design check before a surface section's review | -- | [ ] |
+| 17 | §17 | One Opus design check before a surface section's review | -- | [x] |
 
 ## 1. Design Lens by Path and Fidelity on Every Prompt
 
@@ -440,6 +440,9 @@ Filed 2026-11-19 at the owner's request. Opus 5.5 is the strongest designer and 
 - [x] Commit: `todo: one Opus design check before a surface section's review` (061fdbe3)
 
 **Test checkpoint:** `python -m unittest tests.test_skill_copies` and `python -m unittest tests.test_forge -k self_sync` pass, `python forge.py update <project> todo --dry-run` lists `docs/design-check-prompt.md` and `process-todo-section` for a project on the older kit, `python forge.py skill-copies --check` exits 0, and the new test fails when the outcome lines are removed from the Claude file.
+
+> **Verified:** 2026-11-20 | §17 | e0f50c2ec7d9d59c1ce8a184493b0e3875649726
+> **Review:** `docs/reviews/d00-t03-s17.json`
 
 ## Verification
 
