@@ -42,7 +42,7 @@ A WordPress.com site uses the WordPress.com connector instead and gets no `mcp-a
 tools/phpcs/vendor/bin/phpcs
 ```
 
-`scripts/hooks/wordpress-phpcs-pre-push.sh` is the pre-push snippet. Wire it from the project's hook. A missing binary is SKIPPED, not a silent pass.
+`scripts/hooks/wordpress-phpcs-pre-push.sh` is the pre-push snippet. Run it from the project's hook as its own command (`bash scripts/hooks/wordpress-phpcs-pre-push.sh || exit 1`), never sourced, since it exits. A missing binary is SKIPPED, not a silent pass.
 
 ## Tests
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Source from the project's pre-push hook. A missing phpcs binary is SKIPPED,
-# not a pass.
+# Run from the project's pre-push hook as its own command
+# (`bash scripts/hooks/wordpress-phpcs-pre-push.sh || exit 1`), never sourced: it
+# exits. A missing phpcs binary is SKIPPED, not a pass.
 set -euo pipefail
 root=$(git rev-parse --show-toplevel)
 phpcs="$root/tools/phpcs/vendor/bin/phpcs"
