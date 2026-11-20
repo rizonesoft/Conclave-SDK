@@ -123,8 +123,9 @@ def pinned_user(pin):
 def _remote(pin, program, digest):
     """Run one of the two programs on the site with the digest on its standard input; its trimmed answer, or None
     when the connection did not finish cleanly."""
-    # --url: on a multisite every site shares ssh.wp_path, and WP-CLI acts on the main site unless told which.
-    done = site_ssh.wp(["eval", program, "--url=" + pin["url"]], input=digest + "\n", timeout=REMOTE_TIMEOUT, pin=pin)
+    # --url: on a multisite every site shares ssh.wp_path, and WP-CLI acts on the main site unless told which. It goes
+    # before the command: Pressable's wp refuses a global flag after `eval <code>` ("unknown --url parameter").
+    done = site_ssh.wp(["--url=" + pin["url"], "eval", program], input=digest + "\n", timeout=REMOTE_TIMEOUT, pin=pin)
     return (done.stdout or "").strip() if done.returncode == 0 else None
 
 

@@ -73,8 +73,9 @@ class PhpSite:
 
     def wp(self, arguments, *, input=None, timeout=None, pin=None):
         self.calls.append((list(arguments), input))
-        self.test.assertEqual(arguments[0], "eval")
-        case = {"plugins": [str(PLUGIN)] if self.plugin else [], "eval": arguments[1], **self.case}
+        # Pressable's wp refuses a global flag after the command ("unknown --url parameter"), so --url comes first.
+        self.test.assertEqual(arguments[:2], ["--url=https://example.com/blog", "eval"])
+        case = {"plugins": [str(PLUGIN)] if self.plugin else [], "eval": arguments[2], **self.case}
         if od.OPTION in self.options:
             case["option"] = self.options[od.OPTION]
         with tempfile.TemporaryDirectory() as tmp:
@@ -98,7 +99,7 @@ class FakeSite:
 
     def wp(self, arguments, *, input=None, timeout=None, pin=None):
         self.calls.append((list(arguments), input))
-        storing = arguments[1].startswith("if ( ! defined( 'CONCLAVE_TICKET_LOADED' )")
+        storing = arguments[2].startswith("if ( ! defined( 'CONCLAVE_TICKET_LOADED' )")
         if storing and self.lost:
             return subprocess.CompletedProcess(arguments, 255, "", "Connection reset")
         return subprocess.CompletedProcess(arguments, 0, self.store if storing else self.drop, "")
@@ -224,7 +225,7 @@ class StoreAndDropOnTheSiteTest(unittest.TestCase):
         self.assertTrue(before + od.LIFETIME <= stored["expires"] <= after + od.LIFETIME, stored["expires"])
         self.assertIs(site.autoload[od.OPTION], False)
         [(arguments, given)] = site.calls
-        self.assertEqual(arguments[2:], ["--url=https://example.com/blog"])   # the pinned site of a multisite
+        self.assertEqual(arguments[0], "--url=https://example.com/blog")   # the pinned site of a multisite, before eval
         self.assertEqual(given, digest + "\n")   # only the digest crosses, on standard input
         self.assertNotIn(token, json.dumps(site.calls))
         self.assertNotIn(digest, json.dumps(arguments))
@@ -253,7 +254,7 @@ class StoreAndDropOnTheSiteTest(unittest.TestCase):
             with self.assertRaisesRegex(od.Refusal, "^the site did not confirm that it removed the ticket$"):
                 od.drop(pin(), mine)
         self.assertEqual(site.options[od.OPTION]["hash"], mine)
-        self.assertEqual(site.calls[0][0][2:], ["--url=https://example.com/blog"])
+        self.assertEqual(site.calls[0][0][0], "--url=https://example.com/blog")
 
     def test_drop_removes_this_runs_ticket_and_never_another_runs(self):
         _, mine = od.ticket()
@@ -318,7 +319,7 @@ class CleanUpTest(unittest.TestCase):
         self.assertEqual((code, out), (1, ""))
         self.assertEqual(err, "open-dashboard: PowerShell could not open the browser\n"
                               "open-dashboard: the ticket was removed from the site\n")
-        self.assertEqual([call[0][1] == od.DROP % {"option": od.OPTION} for call in site.calls], [False, True])
+        self.assertEqual([call[0][2] == od.DROP % {"option": od.OPTION} for call in site.calls], [False, True])
 
     def test_a_lost_store_reply_takes_the_ticket_off_the_site(self):
         site = FakeSite(lost=True)
