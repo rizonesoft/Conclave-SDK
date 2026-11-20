@@ -1,7 +1,7 @@
 # The SDK's test suites, each run through `python forge.py check-all` (its SUITES table is the one list of them), in CI
 # so the local loop stays fast (AGENTS.md, "Test cadence"): the quick suite on
 # Windows, the full suite (the quick suite plus the stamp tests and the reviewer kit's suite) on Linux in three parallel
-# shards, and every kit's own suite on Linux, where tmux lets the unattended kit's run tests run.
+# shards, and every other kit's own suite on Linux (the unattended kit's runs from its installed copy in tests/).
 # scripts/ci_status.py --since-last reads these runs after every push and at every section boundary; a red main comes
 # first.
 name: tests
@@ -23,15 +23,17 @@ concurrency:
 
 jobs:
   quick-windows:
-    # The quick suite in two parallel shards (forge.py check-all --shard): whole it grew past its 45 minutes on
-    # GitHub's Windows runner (tests.yml runs 44456585125 and 44479400655, 2026-11-19); the run is red when either is.
+    # The quick suite in three parallel shards (forge.py check-all --shard), balanced by the seconds in
+    # tests/shard-seconds.json: by file size one shard took 38 minutes and the other 7 (2026-11-20). The installed
+    # unattended kit's shortcut tests, about 13 minutes here, are a file of their own, so a shard can hold them alone.
+    # The run is red when any shard is.
     name: quick suite (Windows) ${{ matrix.shard }}
     runs-on: windows-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        shard: ["1/2", "2/2"]
+        shard: ["1/3", "2/3", "3/3"]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,5 +92,7 @@ jobs:
           sudo apt-get install -y -q tmux
           git config --global user.email ci@example.invalid
           git config --global user.name ci
-      - name: Every suite but tests/ (each kit's own, the SDK's installed copy, the agent checks)
-        run: python forge.py check-all --full --skip tests
+      # kit-unattended is skipped: tests/test_unattended_installed*.py run the same suite, the kit's files byte for
+      # byte, from an installed copy in the full suite above, with tmux (once per OS, not twice on Linux).
+      - name: Every suite but tests/ and kit-unattended (each kit's own, the SDK's installed copy, the agent checks)
+        run: python forge.py check-all --full --skip tests --skip kit-unattended

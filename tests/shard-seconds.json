@@ -1,0 +1,31 @@
+{
+  "measured": "2026-11-20, Windows 11, python -m unittest tests.<file>, seconds (the two installed-kit files under load); CI's Windows runner takes about 1.6 times as long",
+  "seconds": {
+    "test_adoption_dry_run": 6,
+    "test_adoption_report": 12,
+    "test_agy_agents": 4,
+    "test_agy_plugins": 19,
+    "test_campaign_guard": 70,
+    "test_check_all": 23,
+    "test_check_pin_contract": 5,
+    "test_ci_status": 1,
+    "test_codex_hook": 83,
+    "test_forge": 130,
+    "test_kit_install": 12,
+    "test_laravel_kit": 13,
+    "test_lsp_kit": 25,
+    "test_merge_prs": 1,
+    "test_pre_commit_hook": 68,
+    "test_process_plan_guard": 13,
+    "test_reviewer_flags": 32,
+    "test_skill_copies": 1,
+    "test_start_run": 9,
+    "test_template_pin": 1,
+    "test_three_pass_install": 18,
+    "test_todo_graph": 71,
+    "test_toolchain_kits": 76,
+    "test_unattended_installed": 206,
+    "test_unattended_installed_shortcuts": 1041,
+    "test_verify_agent_tiers": 4
+  }
+}

@@ -3989,47 +3989,8 @@ class UnattendedKitTests(unittest.TestCase):
         self.assertIn("kit", todo["detail"])
         self.assertIn("todo", todo["detail"])
 
-    # The fresh-install test below runs the same suite from an installed copy (the kit's files byte for byte), so the
-    # quick suite runs it once: twice, with the shortcut tests D02 T02 §12 grew to about 20 minutes on GitHub's Windows
-    # runner, took the quick suite past its 45 minutes (tests.yml run 44456585125). The full suite still runs this.
-    @unittest.skipUnless(os.environ.get("CONCLAVE_FULL_TESTS"), "slow: set CONCLAVE_FULL_TESTS=1 for the full suite")
-    def test_the_kits_own_tests_pass(self):
-        tests = FORGE_ROOT / "kits/unattended/templates/scripts/tests"
-        result = run_kit_suite(tests, 2400)
-        self.assertTrue(result["passed"], suite_failure(result))
-
-    def test_a_fresh_install_set_up_as_the_page_says_passes_its_doctor_and_its_tests(self):
-        # D02 T02 §11: init with the todo kit (the run guard) and the unattended kit, the profile set as
-        # docs/unattended-run.md says, the doctor, then the kit's own tests in the installed copy.
-        self.assertEqual(forge.main(["init", str(self.target), "--kit", "todo", "--kit", "unattended"]), 0)
-        self.assertTrue((self.target / "docs/unattended-run.md").is_file(), "the operator's page is not installed")
-        path = self.target / ".conclave/unattended.json"
-        profile = json.loads(path.read_text(encoding="utf-8"))
-        (self.target / "docs/unattended-prompt.md").rename(self.target / "docs/project-run.md")
-        profile.update(name="demo-run", model="claude-opus-5-5", effort="max", idle_minutes=30, tick_seconds=120,
-                       prompt_file="docs/project-run.md", preflight=[{"name": "suite", "command": ["python3", "-m", "unittest"],
-                                                                "timeout_seconds": 900}])
-        path.write_text(json.dumps(profile), encoding="utf-8")
-        checks = self.checks()
-        for agent_dir in (".agents", ".claude", ".codex"):
-            self.assertEqual(checks[f"skill:unattended-run:{agent_dir}"]["status"], "ok", agent_dir)
-        # Every check passes; the one expected exception is tmux on Windows, where the run lives in WSL (and on a
-        # machine with no tmux at all, which the doctor says how to fix).
-        expected = {"tmux": "setup_required"} if os.name == "nt" or not shutil.which("tmux") else {}
-        self.assertEqual({n: c["status"] for n, c in checks.items() if c["status"] != "ok"}, expected)
-        if os.name == "nt":
-            self.assertIn("WSL", checks["tmux"]["detail"])
-        # The installed copy's whole suite: D07 T01 §7 took its shortcut tests from 9 to 71 (each drives pwsh), about
-        # 13 minutes on GitHub's Windows runner, which ran past the old 900 seconds (run 44300121637). The limit only
-        # catches a hang, and the whole process tree is ended when it trips, pwsh children included.
-        result = run_kit_suite(self.target / "scripts/tests", 2400)
-        self.assertTrue(result["passed"], suite_failure(result))
-        # A kit file removed afterwards is one the doctor reports missing.
-        (self.target / ".codex/skills/unattended-run/SKILL.md").unlink()
-        (self.target / "docs/unattended-run.md").unlink()
-        checks = self.checks()
-        self.assertEqual(checks["skill:unattended-run:.codex"]["status"], "missing")
-        self.assertEqual(checks["docs/unattended-run.md"]["status"], "missing")
+    # The kit's suite and the fresh install that passes its doctor and its tests run from an installed copy in
+    # tests/test_unattended_installed.py and tests/test_unattended_installed_shortcuts.py (2026-11-20).
 
     def test_an_update_of_the_link_commands_writes_the_recorded_links_again(self):
         # D02 T02 §12: links written before a kit update kept the old command until the script was run again.

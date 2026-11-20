@@ -3668,17 +3668,34 @@ def parse_shard(text: str) -> tuple[int, int]:
     return int(match[1]), int(match[2])
 
 
+def shard_weights(folder: Path) -> dict[str, float]:
+    """Each test file's weight for `shard_modules`: the seconds `<folder>/shard-seconds.json` measured for it
+    (`{"seconds": {"test_x": 12}}`), a file it does not list taking the listed files' mean; without that file, or
+    one that is unreadable, each file's size, as before (a byte count is no runtime: one 17-minute test held one
+    Windows runner for 38 minutes while its partner took 7, 2026-11-20)."""
+    files = sorted(folder.glob("test*.py"))
+    try:
+        listed = json.loads((folder / "shard-seconds.json").read_text(encoding="utf-8"))["seconds"]
+        listed = {str(k): float(v) for k, v in listed.items() if float(v) >= 0}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        listed = {}
+    if not listed:
+        return {f.stem: float(f.stat().st_size) for f in files}
+    mean = sum(listed.values()) / len(listed)
+    return {f.stem: listed.get(f.stem, mean) for f in files}
+
+
 def shard_modules(folder: Path, k: int, n: int) -> list[str]:
     """The module names of shard `k` of `n` of the test files (`test*.py`) in a suite's folder: the files assigned
-    largest first to the lightest shard by size, so the shards take about the same time, deterministically (equal
-    sizes go by name). Every file is in exactly one shard."""
-    files = sorted(folder.glob("test*.py"), key=lambda f: (-f.stat().st_size, f.name))
-    loads = [0] * n
+    heaviest first (`shard_weights`) to the lightest shard, so the shards take about the same time,
+    deterministically (equal weights go by name). Every file is in exactly one shard."""
+    weights = shard_weights(folder)
+    loads = [0.0] * n
     shards: list[list[str]] = [[] for _ in range(n)]
-    for path in files:
+    for stem in sorted(weights, key=lambda s: (-weights[s], s)):
         lightest = min(range(n), key=lambda i: (loads[i], i))
-        shards[lightest].append(path.stem)
-        loads[lightest] += path.stat().st_size
+        shards[lightest].append(stem)
+        loads[lightest] += weights[stem]
     return sorted(shards[k - 1])
 
 

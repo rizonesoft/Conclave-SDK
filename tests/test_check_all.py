@@ -1,6 +1,7 @@
 """`forge.py check-all` runs every suite the repository holds (D01 T02 §1), proven here on stub suites."""
 import contextlib
 import io
+import json
 import os
 from pathlib import Path
 import shutil
@@ -20,7 +21,7 @@ import forge  # noqa: E402  the SDK's own CLI, imported after the path insert as
 # A stub suite that starts a child (detached when --detach is given), records both PIDs and sleeps past any timeout a test gives it.
 HANG = r'''import os, subprocess, sys, time
 extra = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "CREATE_NO_WINDOW", 0)} if os.name == "nt" else {"start_new_session": True}
-child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"], **(extra if "--detach" in sys.argv else {}))
+child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)", sys.argv[1]], **(extra if "--detach" in sys.argv else {}))
 open(sys.argv[1], "w").write(f"{os.getpid()} {child.pid}")
 if "--leave" in sys.argv:
     sys.exit(0)  # the suite ends and its child lives on, holding the output pipe
@@ -40,16 +41,26 @@ class Gated(unittest.TestCase):
 '''
 
 
-def alive(pid):
+def command_line(pid):
+    """The command line of the running process `pid`, or None when no process has that ID."""
     if os.name == "nt":
-        out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True,
-                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
-        return str(pid) in out
+        out = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+                              f"(Get-CimInstance Win32_Process -Filter 'ProcessId={int(pid)}').CommandLine"],
+                             capture_output=True, text=True, timeout=60,
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.strip()
+        return out or None
     try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
+        return Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
+    except FileNotFoundError:
+        return None
+
+
+def alive(pid, marker):
+    """Whether the stub's process `pid` still runs. A process that has ended frees its ID at once, and with other
+    suites starting processes another one takes it within seconds (2026-11-20, four check-all suites at once), so the
+    process is known by `marker` in its command line (the stub's own folder), never by the number alone."""
+    line = command_line(pid)
+    return line is not None and marker in line
 
 
 class Stubs(unittest.TestCase):
@@ -127,9 +138,10 @@ class Stubs(unittest.TestCase):
 
     def assert_gone(self, pids):
         deadline = time.monotonic() + 10
-        while time.monotonic() < deadline and any(alive(pid) for pid in pids):
+        marker = str(self.dir)
+        while time.monotonic() < deadline and any(alive(pid, marker) for pid in pids):
             time.sleep(0.2)
-        self.assertEqual([pid for pid in pids if alive(pid)], [])
+        self.assertEqual([pid for pid in pids if alive(pid, marker)], [])
 
 
 class Runner(Stubs):
@@ -232,6 +244,22 @@ class Runner(Stubs):
         (result,) = self.run_all([self.hanging("slow")])
         self.assertEqual((result["passed"], result["exit"]), (False, None))
         self.assert_gone(self.pids("slow"))
+
+    def test_a_process_is_known_by_its_marker_not_by_a_reused_id(self):
+        # 2026-11-20: a PID freed by the stub and taken by another process read as the stub still running.
+        marker = str(self.dir / "marker")
+        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", marker],
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        try:
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline and not alive(proc.pid, marker):
+                time.sleep(0.2)
+            self.assertTrue(alive(proc.pid, marker), "the marked process was not seen running")
+            self.assertFalse(alive(proc.pid, str(self.dir / "another")), "a process without the marker read as ours")
+        finally:
+            proc.kill()
+            proc.wait(timeout=30)
+        self.assertFalse(alive(proc.pid, marker))
 
     def test_a_child_that_outlives_its_suite_does_not_hold_the_run(self):
         leaver = self.hanging("leaver", timeout=60)
@@ -424,6 +452,34 @@ class Shard(Stubs):
             self.assertEqual(sorted(flat), sorted(f"test_m{i}" for i in range(7)), n)
             self.assertEqual(len(flat), len(set(flat)), n)
             self.assertEqual(shards, [forge.shard_modules(folder, k, n) for k in range(1, n + 1)], "deterministic")
+
+    def test_measured_seconds_place_a_small_slow_file_alone(self):
+        # 2026-11-20: by size, the one 17-minute test shared a Windows runner (38 minutes) while its partner took 7.
+        suite = self.suite_of("suite", ["test_big", "test_mid", "test_slow"], sizes={"test_big": 9000, "test_mid": 8000,
+                                                                                    "test_slow": 0})
+        folder = self.dir / suite["path"]
+        by_size = [forge.shard_modules(folder, k, 2) for k in (1, 2)]
+        self.assertEqual(by_size, [["test_big"], ["test_mid", "test_slow"]], "without measurements, size decides")
+        (folder / "shard-seconds.json").write_text(json.dumps({"seconds": {"test_slow": 1000, "test_big": 30}}),
+                                                   encoding="utf-8")
+        self.assertEqual([forge.shard_modules(folder, k, 2) for k in (1, 2)], [["test_slow"], ["test_big", "test_mid"]])
+        # An unlisted file weighs the listed mean (515 here), so it never sits with the slow file either.
+        self.assertEqual(forge.shard_weights(folder)["test_mid"], 515.0)
+
+    def test_an_unreadable_measurement_falls_back_to_size(self):
+        suite = self.suite_of("suite", ["test_a", "test_b"], sizes={"test_a": 50, "test_b": 10})
+        folder = self.dir / suite["path"]
+        for text in ("{", "[]", '{"seconds": []}', '{"seconds": {"test_a": "x"}}', '{"other": 1}'):
+            with self.subTest(text):
+                (folder / "shard-seconds.json").write_text(text, encoding="utf-8")
+                self.assertEqual(forge.shard_weights(folder), {s: float((folder / f"{s}.py").stat().st_size)
+                                                                for s in ("test_a", "test_b")})
+
+    def test_the_sdks_measurements_name_only_files_that_exist(self):
+        # A renamed or deleted file left in the table would weigh nothing real and skew the mean.
+        folder = ROOT / "tests"
+        listed = json.loads((folder / "shard-seconds.json").read_text(encoding="utf-8"))["seconds"]
+        self.assertEqual(set(listed) - {f.stem for f in folder.glob("test*.py")}, set())
 
     def test_a_malformed_shard_is_refused(self):
         for text in ("0/2", "3/2", "1", "a/b", "1/0", ""):
@@ -747,10 +803,16 @@ class RealTable(unittest.TestCase):
     def test_the_workflow_runs_its_suites_through_check_all(self):
         text = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
         runs = [line.split("run:", 1)[1].strip() for line in text.splitlines() if "run:" in line and "forge.py check-all" in line]
-        # The full suite runs as three shards of one matrix job (D01 T02 §10), the quick suite as two.
+        # The full suite and the quick suite each run as three shards of one matrix job (D01 T02 §10, 2026-11-20).
+        # kit-unattended runs only from its installed copy in tests/, so kits-linux leaves it out.
         self.assertEqual(runs, ["python forge.py check-all --only tests --shard ${{ matrix.shard }}",
                                 "python forge.py check-all --full --only tests --shard ${{ matrix.shard }}",
-                                "python forge.py check-all --full --skip tests"])
+                                "python forge.py check-all --full --skip tests --skip kit-unattended"])
+        quick = text[text.index("  quick-windows:"):text.index("  full-linux:")]
+        self.assertRegex(quick, r'shard: \["1/3", "2/3", "3/3"\]')
+        self.assertTrue((ROOT / "tests/test_unattended_installed.py").is_file()
+                        and (ROOT / "tests/test_unattended_installed_shortcuts.py").is_file(),
+                        "kits-linux skips kit-unattended only because these run it")
         self.assertNotIn("unittest discover", text)
         self.assertNotIn("CONCLAVE_FULL_TESTS", text, "--full is the one place the full run is asked for")
 
