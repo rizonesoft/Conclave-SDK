@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import ctypes
+import hashlib
 import importlib.util
 import json
 import os
@@ -789,7 +790,8 @@ class ProjectShortcutsTest(unittest.TestCase):
     # --- Unicode links, ownership errors, and missing ShellLink.cs (D07 T01 section 9) ------------------------------
 
     def test_unicode_title_and_fields_persist_rerun_cleanup_rollback_and_remove(self):
-        project = self.make_project("プロジェクト東京", {
+        # Bracketed Unicode checkout path also verifies Add-Type -LiteralPath does not treat '[' as a wildcard.
+        project = self.make_project("プロジェクト [東京]", {
             "schema_version": 1, "title": "東京", "icon": "assets/icon.png",
             "agents": ["claude"], "skip_permissions": False,
             "links": [{"label": "Site 東京", "mark": "site", "url": "https://example.com/?q=東京"}],
@@ -802,21 +804,30 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(self.links(), ["Foreign.lnk", "東京 (Claude).lnk", "東京 (Site 東京).lnk"])
         self.assertEqual(self.leftovers(), [])
-        expected_mark = f"conclave-launcher: {str(project.resolve()).lower()}"
+        identity = str(project.resolve()).lower()
+        key = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:8]
+        expected_mark = f"conclave-launcher: {identity}"
         agent = self.read_named("東京 (Claude)")
         self.assertEqual(folder(agent["target"]), folder(self.wt_dir / "wt.exe"))
-        self.assertIn(str(project.resolve()), agent["arguments"])
         self.assertEqual(folder(agent["workdir"]), folder(project))
         self.assertEqual(agent["description"].lower(), expected_mark)
         self.assertEqual(folder(Path(agent["icon"]).parent), folder(icons))
+        self.assertEqual(Path(agent["icon"]).name, f"launcher-claude-{key}.ico")
         self.assertEqual(agent["icon_index"], 0)
         self.assertTrue(Path(agent["icon"]).is_file())
+        self.assertEqual(self.run_link(agent).returncode, 0)
+        (call,) = self.terminal_calls()
+        self.assertEqual(folder(call["cwd"]), folder(project))
+        self.assertEqual((call["argv"][0], folder(call["argv"][1])), ("-d", folder(project)))
+        self.assertEqual(Path(call["argv"][2]).name.lower(), "pwsh.exe")
+        self.assertEqual(call["argv"][3:], ["-NoLogo", "-NoExit", "-Command", "claude"])
         url_link = self.read_named("東京 (Site 東京)")
         self.assertEqual(folder(url_link["target"]), folder(Path(os.environ["SystemRoot"]) / "System32/rundll32.exe"))
         self.assertEqual(url_link["arguments"], "url.dll,FileProtocolHandler https://example.com/?q=東京")
         self.assertEqual(folder(url_link["workdir"]), folder(os.environ["USERPROFILE"]))
         self.assertEqual(url_link["description"].lower(), expected_mark)
         self.assertEqual(folder(Path(url_link["icon"]).parent), folder(icons))
+        self.assertEqual(Path(url_link["icon"]).name, f"launcher-site-{key}.ico")
         self.assertEqual(url_link["icon_index"], 0)
         self.assertTrue(Path(url_link["icon"]).is_file())
         # Rerun recognises its own Unicode links (not refused as another's).
@@ -917,6 +928,13 @@ class ProjectShortcutsTest(unittest.TestCase):
         finally:
             kernel32.CloseHandle(handle)
         self.assertEqual({p.name: p.read_bytes() for p in [*self.desk.iterdir(), *self.icons.iterdir()]}, before)
+        # Unreadable/non-directory ShortcutDir refuses -Remove and preserves IconDir.
+        not_a_dir = self.base / "desk-file"
+        not_a_dir.write_text("not a folder", encoding="utf-8")
+        bad_dir = self.run_script("-Remove", desk=not_a_dir)
+        self.assertEqual(bad_dir.returncode, 1, bad_dir.stdout + bad_dir.stderr)
+        self.assertIn("the shortcut folder cannot be read", bad_dir.stdout)
+        self.assertEqual(len(list(self.icons.iterdir())), 2)
         # Hidden owned link is still found and removed once unlocked.
         self.assertTrue(kernel32.SetFileAttributesW(str(locked), 0x02))
         removed = self.run_script("-Remove")
