@@ -187,6 +187,28 @@ def _page(url):
 
 DESKTOP_ID = re.compile(r"[A-Za-z0-9._-]+\.desktop")
 FIELD_RE = re.compile(r"%(%|f|F|u|U|c|k)")
+LOCALE_RE = re.compile(r"^([A-Za-z0-9-]+)(?:_([A-Za-z0-9-]+))?(?:\.[^@]*)?(?:@(.+))?$")
+
+
+def _localized(values):
+    """Pick the desktop-entry value matching the active locale (LC_ALL, LC_MESSAGES, LANG), falling back to unqualified."""
+    raw = os.environ.get("LC_ALL") or os.environ.get("LC_MESSAGES") or os.environ.get("LANG") or ""
+    if raw and raw not in ("C", "POSIX") and not raw.startswith(("C.", "POSIX.")):
+        match = LOCALE_RE.match(raw)
+        if match:
+            lang, country, modifier = match.groups()
+            candidates = []
+            if country and modifier:
+                candidates.append(f"{lang}_{country}@{modifier}")
+            if country:
+                candidates.append(f"{lang}_{country}")
+            if modifier:
+                candidates.append(f"{lang}@{modifier}")
+            candidates.append(lang)
+            for key in candidates:
+                if key in values:
+                    return values[key]
+    return values.get("", "")
 
 
 def _https_browser(page):
@@ -205,7 +227,7 @@ def _https_browser(page):
     found = next((Path(f) / "applications" / entry for f in folders if f and (Path(f) / "applications" / entry).is_file()), None)
     if found is None:
         raise Refusal(f"the browser's desktop entry {entry} is in no applications folder")
-    command, name, icon, group = None, "", "", None
+    command, names, icons, group = None, {}, {}, None
     for line in found.read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
@@ -217,16 +239,21 @@ def _https_browser(page):
             key, val = key.strip(), val.strip()
             if key == "Exec" and command is None:
                 command = val
-            elif key == "Name" and not name:
-                name = val
-            elif key == "Icon" and not icon:
-                icon = val
+            elif key == "Name":
+                names.setdefault("", val)
+            elif key.startswith("Name[") and key.endswith("]"):
+                names.setdefault(key[5:-1], val)
+            elif key == "Icon":
+                icons.setdefault("", val)
+            elif key.startswith("Icon[") and key.endswith("]"):
+                icons.setdefault(key[5:-1], val)
     try:
         words = shlex.split(command or "")
     except ValueError:
         words = []
     if not words:
         raise Refusal(f"the browser's desktop entry {entry} has no command to run")
+    name, icon = _localized(names), _localized(icons)
     argv, given = [], False
 
     def _expand(match):

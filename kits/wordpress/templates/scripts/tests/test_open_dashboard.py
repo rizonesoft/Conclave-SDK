@@ -428,7 +428,7 @@ class BrowserTest(unittest.TestCase):
         self.runs, self.started = [], []
 
     def open(self, *, wsl, which, mnt_c=True, code=0, handler="firefox.desktop", entry="Exec=firefox %u\n",
-             starts=None):
+             starts=None, extra_env=None):
         """open_browser with the platform faked: `which` the programs on PATH, `handler` what xdg-mime answers for
         https links, `entry` the lines of that desktop entry's [Desktop Entry] group, `starts` a Popen stand-in."""
         data = Path(self._tmp.name) / "data"
@@ -437,6 +437,8 @@ class BrowserTest(unittest.TestCase):
             (data / "applications" / "firefox.desktop").write_text("[Desktop Entry]\nName=Firefox\n" + entry,
                                                                     encoding="utf-8")
         environ = {"WSL_DISTRO_NAME": "Ubuntu"} if wsl else {"XDG_DATA_HOME": str(data), "XDG_DATA_DIRS": "/nowhere"}
+        if extra_env:
+            environ.update(extra_env)
 
         def run(argv, **kwargs):
             self.runs.append((list(argv), kwargs))
@@ -538,6 +540,26 @@ class BrowserTest(unittest.TestCase):
                 page = sorted(self.pages.glob("open-*.html"), key=lambda f: f.stat().st_mtime)[-1]
                 mapping = {"<path>": str(page), "<uri>": page.as_uri(), "<desktop>": desktop}
                 self.assertEqual(argv, [mapping.get(w, w) for w in expected])
+                self.assertNotIn("conclave_ticket", " ".join(argv))
+
+    def test_localized_desktop_entry_name_and_icon_follow_locale_precedence(self):
+        desktop = str(Path(self._tmp.name) / "data" / "applications" / "firefox.desktop")
+        entry = ("Name[fr]=Navigateur\nName[fr_CA]=Navigateur CA\nName[sr@latin]=Pregledac\n"
+                 "Icon=firefox-icon\nIcon[fr]=firefox-fr\n"
+                 "Exec=wrapper --name %c --desktop %k %i %u\n")
+        for label, extra_env, name, icon in (
+                ("LC_ALL matches language", {"LC_ALL": "fr_FR.UTF-8"}, "Navigateur", "firefox-fr"),
+                ("LC_ALL matches lang_COUNTRY over lang", {"LC_ALL": "fr_CA.UTF-8"}, "Navigateur CA", "firefox-fr"),
+                ("LC_MESSAGES matches modifier", {"LC_MESSAGES": "sr_RS.UTF-8@latin"}, "Pregledac", "firefox-icon"),
+                ("LANG falls back to unqualified", {"LANG": "de_DE.UTF-8"}, "Firefox", "firefox-icon"),
+                ("C locale uses unqualified", {"LC_ALL": "C"}, "Firefox", "firefox-icon")):
+            with self.subTest(label):
+                self.started.clear()
+                self.runs.clear()
+                self.open(wsl=False, which=self.LINUX, entry=entry, extra_env=extra_env)
+                [(argv, _)] = self.started
+                page = sorted(self.pages.glob("open-*.html"), key=lambda f: f.stat().st_mtime)[-1]
+                self.assertEqual(argv, ["wrapper", "--name", name, "--desktop", desktop, "--icon", icon, page.as_uri()])
                 self.assertNotIn("conclave_ticket", " ".join(argv))
 
     def test_two_launches_get_two_pages_and_only_dead_pages_are_removed(self):
