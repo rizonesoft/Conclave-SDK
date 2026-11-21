@@ -5122,8 +5122,16 @@ class WordPressDashboardLoginDocsTests(unittest.TestCase):
                     "option: absent",
                 ):
                     self.assertIn(token, step, f"{agent_dir}: missing {token!r}")
+                current_pos = step.find("If `plugin` is `current`")
                 install_step_pos = step.find("If `plugin` is `absent` or `differs`")
-                self.assertGreater(install_step_pos, -1)
+                self.assertGreater(current_pos, -1)
+                self.assertGreater(install_step_pos, current_pos)
+                current_branch = step[current_pos:install_step_pos]
+                cur_approval_pos = current_branch.lower().find("approval")
+                cur_check_pos = current_branch.find("`python3 scripts/open-dashboard.py --check`")
+                self.assertGreater(cur_approval_pos, -1, "missing owner approval in current-plugin branch")
+                self.assertLess(cur_approval_pos, cur_check_pos, "owner approval must precede --check when plugin is current")
+                self.assertIn("temporary ticket write", current_branch.lower())
                 install_branch = step[install_step_pos:]
                 approval_pos = install_branch.lower().find("approval")
                 install_pos = install_branch.find("`python3 scripts/ticket-login.py install --yes`")
@@ -5145,6 +5153,8 @@ class WordPressDashboardLoginDocsTests(unittest.TestCase):
         next_heading = page.find("\n## ", heading_pos + 1)
         section = page[heading_pos:next_heading] if next_heading > 0 else page[heading_pos:]
         for token in (
+            "one-use ticket",
+            "consumed on first redemption",
             "no standing login key",
             "SHA-256 hash",
             "conclave_login_ticket",
