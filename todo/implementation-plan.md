@@ -208,7 +208,7 @@ Sections: 22 | Checklist items: 145
 
 ### Phase 10: Public release: private overlay and the Neon writer
 
-Sections: 15 | Checklist items: 87
+Sections: 15 | Checklist items: 88
 
 | Status | Reference   | Deliverable                                                  | Needs | Items |
 | ------ | ----------- | ------------------------------------------------------------ | ----- | ----- |
@@ -223,7 +223,7 @@ Sections: 15 | Checklist items: 87
 | [ ]    | D06 T03 §4  | Pre-push leak guard over commits and messages                | none  | 8     |
 | [ ]    | D06 T03 §5  | Full-history secret scan in CI                               | none  | 4     |
 | [ ]    | D06 T03 §6  | Machine-wide rules and skills moved into the overlay         | none  | 6     |
-| [ ]    | D06 T03 §7  | Connection plugins moved into the overlay                    | none  | 6     |
+| [ ]    | D06 T03 §7  | Connection plugins moved into the overlay                    | none  | 7     |
 | [ ]    | D06 T03 §8  | Agent rules split into public and overlay halves             | none  | 5     |
 | [ ]    | D06 T03 §9  | Owner values in the core moved into overlay settings         | none  | 6     |
 | [ ]    | D06 T03 §10 | Live documents and plans scrubbed, deny list seeded          | none  | 6     |
@@ -241,4 +241,4 @@ Sections: 4 | Checklist items: 33
 
 Progress: 105/149 verified sections, 13 ready to run now.
 
-Checklist: 893/1138 items completed (includes Commit items).
+Checklist: 893/1139 items completed (includes Commit items).
