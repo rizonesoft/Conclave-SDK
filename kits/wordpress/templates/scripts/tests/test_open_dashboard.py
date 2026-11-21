@@ -215,10 +215,12 @@ class StoreAndDropOnTheSiteTest(unittest.TestCase):
     def test_store_writes_the_digest_the_user_and_an_expiry_on_the_sites_clock_with_autoload_off(self):
         site = PhpSite(self)
         token, digest = od.ticket()
-        before = int(time.time())
-        with mock.patch.object(od.site_ssh, "wp", site.wp):
+        real_time = time.time
+        before = int(real_time())
+        with mock.patch.object(od.time, "time", lambda: real_time() + 3600), \
+                mock.patch.object(od.site_ssh, "wp", site.wp):
             od.store(pin(), digest, 7)
-        after = int(time.time())
+        after = int(real_time())
         stored = site.options[od.OPTION]
         self.assertEqual((stored["hash"], stored["user"]), (digest, 7))
         self.assertIsInstance(stored["expires"], int)
@@ -229,6 +231,15 @@ class StoreAndDropOnTheSiteTest(unittest.TestCase):
         self.assertEqual(given, digest + "\n")   # only the digest crosses, on standard input
         self.assertNotIn(token, json.dumps(site.calls))
         self.assertNotIn(digest, json.dumps(arguments))
+
+    def test_store_refuses_boolean_user_id_with_no_remote_call(self):
+        _, digest = od.ticket()
+        site = PhpSite(self)
+        with mock.patch.object(od.site_ssh, "wp", site.wp):
+            with self.assertRaisesRegex(od.Refusal, "refused to store a malformed ticket"):
+                od.store(pin(), digest, True)
+        self.assertEqual(site.calls, [])
+        self.assertEqual(site.options, {})
 
     def test_a_site_without_the_plugin_a_bad_digest_and_a_wrong_read_back_are_refused(self):
         _, digest = od.ticket()
@@ -526,6 +537,9 @@ class BrowserTest(unittest.TestCase):
                 ("escaped percent before u appends path",
                  "Exec=browser --flag=%%u\n",
                  ["browser", "--flag=%u", "<path>"]),
+                ("desktop string unescaping and desktop quoting",
+                 r'Exec=browser "--profile=Work\sProfile" "\\$1" "\\`x\\`" "\\"q\\"" "\\\\" %u' + "\n",
+                 ["browser", "--profile=Work Profile", "$1", "`x`", '"q"', "\\", "<uri>"]),
                 ("another group first", "[Desktop Action new]\nExec=wrong %u\n", None)):
             with self.subTest(label):
                 self.started.clear()
@@ -567,6 +581,42 @@ class BrowserTest(unittest.TestCase):
                 [page] = set(self.pages.glob("open-*.html")) - before
                 self.assertEqual(argv, ["wrapper", "--name", name, "--desktop", desktop, "--icon", icon, page.as_uri()])
                 self.assertNotIn("conclave_ticket", " ".join(argv))
+
+    def test_nested_desktop_file_id_respects_xdg_root_precedence_and_refuses_traversal(self):
+        user_data = Path(self._tmp.name) / "xdg_home"
+        sys_data = Path(self._tmp.name) / "xdg_sys"
+        nested = user_data / "applications" / "vendor" / "team" / "work-browser.desktop"
+        nested.parent.mkdir(parents=True, exist_ok=True)
+        nested.write_text("[Desktop Entry]\nName=Work\nExec=user-work-browser %u\n", encoding="utf-8")
+        flat_sys = sys_data / "applications" / "vendor-team-work-browser.desktop"
+        flat_sys.parent.mkdir(parents=True, exist_ok=True)
+        flat_sys.write_text("[Desktop Entry]\nName=Sys\nExec=sys-flat-browser %u\n", encoding="utf-8")
+        outside = user_data / "outside.desktop"
+        outside.write_text("[Desktop Entry]\nName=Evil\nExec=evil-browser %u\n", encoding="utf-8")
+
+        before = set(self.pages.glob("open-*.html"))
+        self.open(wsl=False, which=self.LINUX, handler="vendor-team-work-browser.desktop", entry=None,
+                  extra_env={"XDG_DATA_HOME": str(user_data), "XDG_DATA_DIRS": str(sys_data)})
+        [(argv, _)] = self.started
+        [page] = set(self.pages.glob("open-*.html")) - before
+        self.assertEqual(argv, ["user-work-browser", page.as_uri()])
+        self.assertNotIn("conclave_ticket", " ".join(argv))
+
+        self.started.clear()
+        with self.assertRaisesRegex(od.Refusal, "is in no applications folder"):
+            self.open(wsl=False, which=self.LINUX, handler="..-outside.desktop", entry=None,
+                      extra_env={"XDG_DATA_HOME": str(user_data), "XDG_DATA_DIRS": str(sys_data)})
+        self.assertEqual(self.started, [])
+
+    def test_unknown_desktop_entry_field_code_is_refused_with_zero_launches(self):
+        for label, entry in (
+                ("unknown %x", "Exec=browser %x %u\n"),
+                ("trailing %", "Exec=browser --bad=%\n")):
+            with self.subTest(label):
+                self.started.clear()
+                with self.assertRaisesRegex(od.Refusal, "unsupported field code"):
+                    self.open(wsl=False, which=self.LINUX, entry=entry)
+                self.assertEqual(self.started, [])
 
     def test_two_launches_get_two_pages_and_only_dead_pages_are_removed(self):
         first, second = self.URL, "https://example.org/?conclave_ticket=" + "ef" * 32

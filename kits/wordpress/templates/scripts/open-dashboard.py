@@ -22,7 +22,6 @@ import os
 from pathlib import Path
 import re
 import secrets
-import shlex
 import shutil
 import subprocess
 import sys
@@ -131,7 +130,8 @@ def _remote(pin, program, digest):
 
 def store(pin, digest, user_id):
     """Store the ticket on the site; return only once the site read it back as written."""
-    if not isinstance(digest, str) or not HEX64.fullmatch(digest) or not isinstance(user_id, int) or user_id < 1:
+    if not isinstance(digest, str) or not HEX64.fullmatch(digest) \
+            or isinstance(user_id, bool) or not isinstance(user_id, int) or user_id < 1:
         raise Refusal("refused to store a malformed ticket")
     said = _remote(pin, STORE % {"lifetime": LIFETIME, "user": user_id, "option": OPTION}, digest)
     if said == "stored":
@@ -186,7 +186,7 @@ def _page(url):
 
 
 DESKTOP_ID = re.compile(r"[A-Za-z0-9._-]+\.desktop")
-FIELD_RE = re.compile(r"%(%|f|F|u|U|c|k|d|D|n|N|v|m)")
+ANY_PERCENT = re.compile(r"%(.)?")
 LOCALE_RE = re.compile(r"^([A-Za-z0-9-]+)(?:_([A-Za-z0-9-]+))?(?:\.[^@]*)?(?:@(.+))?$")
 DESKTOP_UNESCAPE = re.compile(r"\\([sntr\\])")
 DESKTOP_ESCAPES = {"s": " ", "n": "\n", "t": "\t", "r": "\r", "\\": "\\"}
@@ -195,6 +195,73 @@ DESKTOP_ESCAPES = {"s": " ", "n": "\n", "t": "\t", "r": "\r", "\\": "\\"}
 def _unescape_desktop(value):
     """Unescape desktop-entry string escapes (\\s, \\n, \\t, \\r, \\\\)."""
     return DESKTOP_UNESCAPE.sub(lambda m: DESKTOP_ESCAPES[m.group(1)], value)
+
+
+def _split_desktop_exec(command):
+    """Tokenize a Desktop Entry `Exec=` value after general string unescaping (`_unescape_desktop`)."""
+    text = _unescape_desktop(command)
+    words, current, in_word, quoted = [], [], False, False
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if quoted:
+            if ch == '"':
+                quoted = False
+            elif ch == "\\" and i + 1 < n and text[i + 1] in ('"', "`", "$", "\\"):
+                current.append(text[i + 1])
+                i += 1
+            else:
+                current.append(ch)
+        else:
+            if ch in (" ", "\t"):
+                if in_word:
+                    words.append("".join(current))
+                    current, in_word = [], False
+            elif ch == '"':
+                quoted = True
+                in_word = True
+            else:
+                current.append(ch)
+                in_word = True
+        i += 1
+    if quoted:
+        raise ValueError("unclosed quote")
+    if in_word:
+        words.append("".join(current))
+    return words
+
+
+def _find_in_apps(directory, remaining):
+    """Find `remaining` inside `directory` (flat first, then hyphen-to-slash subdirectories), never `.` or `..`."""
+    if not remaining or remaining in (".", "..") or "/" in remaining or "\\" in remaining:
+        return None
+    direct = directory / remaining
+    if direct.is_file():
+        return direct
+    pos = remaining.find("-")
+    while pos != -1:
+        head, tail = remaining[:pos], remaining[pos + 1:]
+        if head and head not in (".", "..") and "/" not in head and "\\" not in head:
+            sub = directory / head
+            if sub.is_dir():
+                found = _find_in_apps(sub, tail)
+                if found is not None:
+                    return found
+        pos = remaining.find("-", pos + 1)
+    return None
+
+
+def _find_desktop_entry(folders, entry):
+    """Search each XDG data root's `applications/` in order, exhausting flat and nested matches per root."""
+    for folder in folders:
+        if not folder:
+            continue
+        apps = Path(folder) / "applications"
+        if apps.is_dir():
+            found = _find_in_apps(apps, entry)
+            if found is not None:
+                return found
+    return None
 
 
 def _parse_locale(text):
@@ -280,12 +347,12 @@ def _https_browser(page):
         raise Refusal("no browser is set to open https links (xdg-mime query default x-scheme-handler/https)")
     home = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
     folders = [home, *(os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":")]
-    found = next((Path(f) / "applications" / entry for f in folders if f and (Path(f) / "applications" / entry).is_file()), None)
+    found = _find_desktop_entry(folders, entry)
     if found is None:
         raise Refusal(f"the browser's desktop entry {entry} is in no applications folder")
     command, name, icon = _parse_desktop_entry(found)
     try:
-        words = shlex.split(command or "")
+        words = _split_desktop_exec(command or "")
     except ValueError:
         words = []
     if not words:
@@ -307,7 +374,9 @@ def _https_browser(page):
             return name
         if code == "k":
             return str(found)
-        return ""   # deprecated field codes (%d, %D, %n, %N, %v, %m) are removed per Desktop Entry Spec
+        if code in ("d", "D", "n", "N", "v", "m"):
+            return ""   # deprecated field codes are removed per Desktop Entry Spec
+        raise Refusal(f"the browser's desktop entry {entry} has an unsupported field code")
 
     for word in words:
         if word == "%i":
@@ -316,7 +385,7 @@ def _https_browser(page):
         elif word in ("%d", "%D", "%n", "%N", "%v", "%m"):
             continue
         else:
-            argv.append(FIELD_RE.sub(_expand, word))
+            argv.append(ANY_PERCENT.sub(_expand, word))
     return argv if given else [*argv, str(page)]
 
 
