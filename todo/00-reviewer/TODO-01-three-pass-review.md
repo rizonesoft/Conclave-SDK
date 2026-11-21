@@ -427,18 +427,18 @@ The fix: severity is impact times likelihood, defined once in `review_pin.py` (`
 
 | Case | Source | Fix | Summary | Old | New |
 | --- | --- | --- | --- | --- | --- |
-| R1 | `D02-T02-s12.md:11` | `D02 T02 §12` | Named-path `traced` plan: upgrade skips old links | P1 | P1 |
-| R2 | `D07-T01-s9.md` | `1a843490` | `Add-Type -Path` fails on `[` in checkout path | P1 | P2 |
-| R3 | `D07-T01-s9.md:60` | `1a843490` | `Get-Owned` swallows directory enumeration error | P1 | P1 |
+| R1 | `D02-T02-s12.md:11` | `31dcb058` | Named-path `traced` plan: upgrade skips old links | P1 | P1 |
+| R2 | `D07-T01-s9.md:59` | `1a843490` | `Add-Type -Path` fails on `[` in checkout path | P2 | P2 |
+| R3 | `D07-T01-s9.md:60` | `1a843490` | `Get-Owned` swallows directory enumeration error | P2 | P1 |
 | R4 | `D07-T02-s2.md:43` | `bd98361c` | `POWERSHELL_OPEN` mangles Chrome `%1` launch | P1 | P1 |
 | R5 | `D07-T02-s8.md:43` | `4d6a58a5` | Relative `XDG_DATA_DIRS` picks repo desktop file | P1 | P1 |
-| R6 | `D07-T02-s3.md:230` | `19f431ca` | Recovery rejects parent-dir `wp-config.php` | P1 | P2 |
+| R6 | `D07-T02-s3.md:230` | `19f431ca` | Recovery rejects parent-dir `wp-config.php` | P2 | P2 |
 | R7 | `D07-T02-s4.md:52` | `5a6d5fd6` | Doctor crashes on user-edited `.mcp.json` list | P2 | P2 |
 | R8 | `D07-T02-s5.md:51` | `fe7931c9` | Forge writes `wsl` key to pre-`wsl` launchers | P1 | P1 |
 | R9 | `D07-T02-s5.md:53` | `fe7931c9` | `unattended` drops brought `launchers` failure | P1 | P1 |
 | R10 | `D07-T02-s6.md:45` | `84363bbe` | Setup Bash block includes `remove --yes` | P1 | P1 |
 
-**Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests` and `python -m unittest tests.test_forge -k "skill or markdown_table"` pass, `python scripts/review_pin.py --check --all` prints `ok`, and removing the rubric append from `review()` in `review-dispatch.py` makes the dispatcher test fail. Projects that install the reviewer kit take the rubric with their next kit refresh.
+**Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests` and `python -m unittest tests.test_forge -k skill -k markdown_table` pass, `python scripts/review_pin.py --check --all` prints `ok`, and removing the rubric append from `review()` in `review-dispatch.py` makes the dispatcher test fail. Projects that install the reviewer kit take the rubric with their next kit refresh.
 
 ## 12. Check resolution entries before reconciliation dispatch
 

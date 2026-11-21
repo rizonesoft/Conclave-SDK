@@ -1553,13 +1553,19 @@ class SeverityRubricDispatch(Harness):
                 self.assertEqual(res.returncode, 0, res.stderr)
                 (call,) = self.calls()
                 self.assertEqual(call["stdin"].count(rubric), 1)
-        # Writer contests the P2 in a ## Writer note:; reconciliation reassesses to P3 and summary reflects non-blocking P3.
+        # Writer contests the P2 in a ## Writer note:; reconciliation prompt points at the findings file and rubric.
         with open(tp_rec, "a", encoding="utf-8", newline="") as fh:
             fh.write("\n## Writer note: contested grade\n\n- Finding 1 has no real Path:; request re-grade under SEVERITY_RUBRIC.\n")
+        rec_prompt = self.repo / "reconcile-prompt.md"
+        rec_prompt.write_text(
+            f"Findings file: `{tp_rec.name}`.\n"
+            "An open gap the writer's `## Writer note:` contests on its grade is graded again under the rubric.\n",
+            encoding="utf-8",
+        )
         self.log.unlink(missing_ok=True)
         res, summary = self.dispatch(
             "--kind", "reconciliation", "--candidate", self.CANDIDATE, "--writer", "claude",
-            "--prompt", str(self.prompt), "--record", str(tp_rec), codex="say",
+            "--prompt", str(rec_prompt), "--record", str(tp_rec), codex="say",
             say="1. open · P3 (re-graded after Writer note: no real Path:)\nLENS plan-delivery: findings\nLENS record: clean\nHIGHEST: P3\nRECONCILIATION: gaps",
         )
         self.assertEqual(res.returncode, 0, res.stderr)
@@ -1567,6 +1573,9 @@ class SeverityRubricDispatch(Harness):
         self.assertIs(summary["blocking"], False)
         (call,) = self.calls()
         self.assertEqual(call["stdin"].count(rubric), 1)
+        self.assertIn(tp_rec.name, call["stdin"])
+        self.assertIn("## Writer note:", call["stdin"])
+        self.assertIn("## Writer note: contested grade", tp_rec.read_text(encoding="utf-8"))
 
 
 class RepositoryPin(unittest.TestCase):

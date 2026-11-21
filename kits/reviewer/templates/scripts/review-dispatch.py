@@ -572,9 +572,13 @@ def review(pin, writer, prompt_path, timeout, plan=None, kind="round"):
     tmp = Path(tempfile.mkdtemp())
     try:
         stdout_path, message_path = tmp / "stdout.txt", tmp / "last-message.md"
-        # Every dispatched pass has the severity rubric appended, so write the final prompt for file-based CLIs too.
-        prompt_file = tmp / "prompt.md"
-        prompt_file.write_text(prompt, encoding="utf-8", newline="\n")
+        prompt_file = Path(prompt_path).resolve()
+        if reviewer["cli"] == "agy":
+            # Only Antigravity reads prompt_file (codex and claude read stdin); write it atomically with the rubric.
+            prompt_file = tmp / "prompt.md"
+            stage = tmp / "prompt.md.tmp"
+            stage.write_text(prompt, encoding="utf-8", newline="\n")
+            os.replace(stage, prompt_file)
         argv, stdin_text = command(reviewer, executable, prompt, prompt_file, message_path, timeout, effort)
         if reviewer["cli"] == "agy":
             agy_settings_path(message_path).write_text(json.dumps(AGY_REVIEW_SETTINGS), encoding="utf-8")

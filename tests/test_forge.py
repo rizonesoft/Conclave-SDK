@@ -5206,9 +5206,9 @@ class SeverityRubricSkillAndReadmeTests(unittest.TestCase):
             with self.subTest(skill="review-todo-section", agent=agent_dir):
                 self.assertIn("Contesting a grade:", rts)
                 self.assertIn("never rewrite the reviewer's grade", rts)
-                self.assertIn("next reconciliation reassesses it", rts)
-                self.assertIn("completion review reads the note", rts)
-                self.assertIn("next rotation round", rts)
+                self.assertIn("the next reconciliation reads the findings file and reassesses the grade", rts)
+                self.assertIn("include the dispute context in the next pass's prompt", rts)
+                self.assertIn("next rotation round's prompt", rts)
                 self.assertNotIn("Severity is proportional:", rts)
         readme = (forge.FORGE_ROOT / "kits" / "reviewer" / "README.md").read_text(encoding="utf-8")
         for token in ("impact times likelihood", "SEVERITY_RUBRIC", "`Path:`", "`Evidence:`", "grades and never filters"):
