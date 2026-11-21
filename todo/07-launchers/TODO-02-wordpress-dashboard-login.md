@@ -45,7 +45,7 @@ title: "TODO-02 -- WordPress dashboard login by one-use ticket"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Ticket login plugin in the WordPress kit | -- | [x] |
-| 2 | §2 | Dashboard opener `scripts/open-dashboard.py` | §1 | [ ] |
+| 2 | §2 | Dashboard opener `scripts/open-dashboard.py` | §1 | [x] |
 | 3 | §3 | Plugin install, status and removal on the pinned site | §1 | [ ] |
 | 4 | §4 | Doctor rows and host refusals for the ticket login | §2, §3 | [ ] |
 | 5 | §5 | WordPress link in the launcher profile | §2, T01 §6 | [ ] |
@@ -119,11 +119,14 @@ The opener is the half that runs on the operator's machine. The first build open
 - [x] Run both paths of `main` end to end with `site_ssh.wp` replaced by the stand-ins: the default stores a ticket and opens exactly `<pinned url>/?conclave_ticket=<the stored token>` (a pin under a subpath included), and `--check` stores, confirms, drops, confirms the removal (`drop` must return `"dropped"`) and opens nothing. Done when: both tests pass and each prints its fixed success line, and a `--check` test where a newer ticket replaces this run's ticket before `drop` (`not ours`) leaves the newer ticket intact, exits 1 and prints a fixed refusal. **Planned 2026-11-21 (plan review, gap 4):** `--check` requires `dropped` to claim removal and refuses `not ours`/`absent`/`gone`.
 - [x] Print only fixed messages: each refusal is a sentence written in the opener, any other exception prints `open-dashboard: <exception type>: unexpected failure` and nothing of its text, and nothing prints the token, the digest or the link. Done when: tests make each step raise an exception whose text holds the token, a link fragment and a child's output, also with the cleanup failing, and compare stdout and stderr with the exact expected lines.
 - [x] Add to `scripts/tests/test_ticket_login.py` the agreement test: the plugin's two constants equal the opener's `OPTION` and `QUERY`. Done when: renaming either constant on one side makes it fail.
-- [ ] Commit: `wordpress: the dashboard opener, from WSL and Linux, refused on native Windows`
+- [x] Commit: `wordpress: the dashboard opener, from WSL and Linux, refused on native Windows`
 
 **Test checkpoint:** `python kits/wordpress/templates/scripts/tests/test_open_dashboard.py` and `python -m unittest discover -s kits/wordpress/templates/scripts/tests -p "test_ticket_login.py"` end `OK`, run where PHP is on the path (WSL or CI's Linux runner) so the stand-in tests run and are not skipped; changing `QUERY` in the opener alone makes the second fail. **Corrected 2026-11-20 (plan review gap 2):** a discovery run of the opener's tests could report `Ran 0 tests` and `OK`, so the file is run directly.
 
 > **Unstamped:** 2026-11-21: shadow audit found two P2 desktop-entry defects missed by repair-diff; repair -> XREF: D07 T02 §8 (revoked receipt `docs/reviews/d07-t02-s2.revoked-2026-11-21.json`)
+
+> **Verified:** 2026-11-21 | §2 | d86bc31a3853071a576539bfdc4c3e4f0d1c7f46
+> **Review:** `docs/reviews/d07-t02-s2.json`
 
 ## 3. Plugin install, status and removal on the pinned site
 
