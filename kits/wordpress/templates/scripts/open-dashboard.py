@@ -236,14 +236,21 @@ def _find_in_apps(directory, remaining):
     if not remaining or remaining in (".", "..") or "/" in remaining or "\\" in remaining:
         return None
     direct = directory / remaining
-    if direct.is_file():
-        return direct
+    try:
+        if direct.is_file():
+            return direct
+    except OSError:
+        pass
     pos = remaining.find("-")
     while pos != -1:
         head, tail = remaining[:pos], remaining[pos + 1:]
         if head and head not in (".", "..") and "/" not in head and "\\" not in head:
             sub = directory / head
-            if sub.is_dir():
+            try:
+                is_dir = sub.is_dir()
+            except OSError:
+                is_dir = False
+            if is_dir:
                 found = _find_in_apps(sub, tail)
                 if found is not None:
                     return found
@@ -252,12 +259,16 @@ def _find_in_apps(directory, remaining):
 
 
 def _find_desktop_entry(folders, entry):
-    """Search each XDG data root's `applications/` in order, exhausting flat and nested matches per root."""
+    """Search each absolute XDG data root's `applications/` in order, exhausting flat and nested matches per root."""
     for folder in folders:
-        if not folder:
+        if not folder or not Path(folder).is_absolute():
             continue
         apps = Path(folder) / "applications"
-        if apps.is_dir():
+        try:
+            is_dir = apps.is_dir()
+        except OSError:
+            is_dir = False
+        if is_dir:
             found = _find_in_apps(apps, entry)
             if found is not None:
                 return found
@@ -345,8 +356,16 @@ def _https_browser(page):
     entry = (done.stdout or "").strip()
     if done.returncode != 0 or not DESKTOP_ID.fullmatch(entry):
         raise Refusal("no browser is set to open https links (xdg-mime query default x-scheme-handler/https)")
-    home = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
-    folders = [home, *(os.environ.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":")]
+    raw_home = os.environ.get("XDG_DATA_HOME") or ""
+    if raw_home and Path(raw_home).is_absolute():
+        home = raw_home
+    else:
+        try:
+            home = str(Path.home() / ".local" / "share")
+        except RuntimeError:
+            home = ""
+    raw_dirs = [d for d in (os.environ.get("XDG_DATA_DIRS") or "").split(os.pathsep) if d and Path(d).is_absolute()]
+    folders = [home, *(raw_dirs or ["/usr/local/share", "/usr/share"])]
     found = _find_desktop_entry(folders, entry)
     if found is None:
         raise Refusal(f"the browser's desktop entry {entry} is in no applications folder")
@@ -364,10 +383,10 @@ def _https_browser(page):
         code = match.group(1)
         if code == "%":
             return "%"
-        if code in ("u", "U"):
+        if code == "u":
             given = True
             return page.as_uri()
-        if code in ("f", "F"):
+        if code == "f":
             given = True
             return str(page)
         if code == "c":
@@ -382,6 +401,12 @@ def _https_browser(page):
         if word == "%i":
             if icon:
                 argv.extend(["--icon", icon])
+        elif word == "%U":
+            argv.append(page.as_uri())
+            given = True
+        elif word == "%F":
+            argv.append(str(page))
+            given = True
         elif word in ("%d", "%D", "%n", "%N", "%v", "%m"):
             continue
         else:

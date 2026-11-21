@@ -611,12 +611,47 @@ class BrowserTest(unittest.TestCase):
     def test_unknown_desktop_entry_field_code_is_refused_with_zero_launches(self):
         for label, entry in (
                 ("unknown %x", "Exec=browser %x %u\n"),
-                ("trailing %", "Exec=browser --bad=%\n")):
+                ("trailing %", "Exec=browser --bad=%\n"),
+                ("embedded %U", "Exec=browser --profile=%U\n"),
+                ("embedded %F", "Exec=browser --file=%F\n")):
             with self.subTest(label):
                 self.started.clear()
                 with self.assertRaisesRegex(od.Refusal, "unsupported field code"):
                     self.open(wsl=False, which=self.LINUX, entry=entry)
                 self.assertEqual(self.started, [])
+
+    def test_relative_xdg_data_roots_are_ignored_and_overlong_flat_id_falls_through(self):
+        import errno
+        rel_cwd = Path(self._tmp.name) / "cwd"
+        decoy = rel_cwd / "applications" / "vendor-browser.desktop"
+        decoy.parent.mkdir(parents=True, exist_ok=True)
+        decoy.write_text("[Desktop Entry]\nName=Decoy\nExec=decoy-browser %u\n", encoding="utf-8")
+
+        sys_data = Path(self._tmp.name) / "xdg_sys"
+        real_entry = sys_data / "applications" / "vendor" / "browser.desktop"
+        real_entry.parent.mkdir(parents=True, exist_ok=True)
+        real_entry.write_text("[Desktop Entry]\nName=Real\nExec=real-browser %u\n", encoding="utf-8")
+
+        old_cwd = os.getcwd()
+        real_is_file = Path.is_file
+
+        def overlong_on_flat(path_obj):
+            if path_obj.name == "vendor-browser.desktop":
+                raise OSError(errno.ENAMETOOLONG, "File name too long")
+            return real_is_file(path_obj)
+
+        try:
+            os.chdir(rel_cwd)
+            before = set(self.pages.glob("open-*.html"))
+            with mock.patch.object(Path, "is_file", overlong_on_flat):
+                self.open(wsl=False, which=self.LINUX, handler="vendor-browser.desktop", entry=None,
+                          extra_env={"XDG_DATA_HOME": ".", "XDG_DATA_DIRS": f".{os.pathsep}{sys_data}"})
+        finally:
+            os.chdir(old_cwd)
+        [(argv, _)] = self.started
+        [page] = set(self.pages.glob("open-*.html")) - before
+        self.assertEqual(argv, ["real-browser", page.as_uri()])
+        self.assertNotIn("conclave_ticket", " ".join(argv))
 
     def test_two_launches_get_two_pages_and_only_dead_pages_are_removed(self):
         first, second = self.URL, "https://example.org/?conclave_ticket=" + "ef" * 32
