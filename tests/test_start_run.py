@@ -206,7 +206,7 @@ class StartRunTests(unittest.TestCase):
         self.assertFalse(retired.exists(), "the old shortcut was left on the desktop")
         self.assertFalse(codex_link.exists(), "Codex is reviewer only")
         for name, runner, ico in (("Conclave-SDK Claude campaign", "claude", "conclave-sdk-campaign-claude.ico"),
-                                  ("Conclave-SDK Gemini campaign", "agy", "conclave-sdk-campaign-carbon.ico")):
+                                  ("Conclave-SDK Gemini campaign", "agy", "conclave-sdk-campaign-gemini.ico")):
             with self.subTest(runner=runner):
                 link = self.folder / f"{name}.lnk"
                 self.assertTrue(link.is_file(), proc.stdout)
@@ -229,8 +229,8 @@ class StartRunTests(unittest.TestCase):
 
 
 @unittest.skipUnless(PWSH and os.name == "nt", "start-run.ps1 is the SDK's Windows launcher: PowerShell 7 on Windows")
-class CarbonRunnerTests(unittest.TestCase):
-    """-Runner agy starts the run in Antigravity on Orchestrator (Carbon), with the same goal."""
+class GeminiRunnerTests(unittest.TestCase):
+    """-Runner agy starts the run in Antigravity on Gemini 4 Neon at the campaign's effort, with the same goal."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -245,11 +245,11 @@ class CarbonRunnerTests(unittest.TestCase):
         return run("-Runner", "agy", "-AgyPath", str(self.stub), "-GuardFile", str(self.folder / "no-guard.json"),
                    *arguments, environment=env)
 
-    def test_a_dry_run_names_agy_on_carbon(self):
+    def test_a_dry_run_names_agy_on_neon(self):
         proc = self.launch("-DryRun")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         command = proc.stdout.strip().splitlines()[-1]
-        self.assertTrue(command.startswith('agy --model=gemini-pro-orchestrator --dangerously-skip-permissions '
+        self.assertTrue(command.startswith('agy --model=gemini-4-neon-medium --effort=medium --dangerously-skip-permissions '
                                            '"--prompt-interactive=Finish the Conclave-SDK implementation plan'), command)
         self.assertFalse(self.report.exists())
 
@@ -257,14 +257,26 @@ class CarbonRunnerTests(unittest.TestCase):
         proc = self.launch()
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         got = json.loads(self.report.read_text(encoding="utf-8-sig"))
-        model, skip, prompt = got["arguments"]
-        self.assertEqual((model, skip), ("--model=gemini-pro-orchestrator", "--dangerously-skip-permissions"))
+        model, effort, skip, prompt = got["arguments"]
+        self.assertEqual((model, effort, skip), ("--model=gemini-4-neon-medium", "--effort=medium", "--dangerously-skip-permissions"))
         self.assertTrue(prompt.startswith("--prompt-interactive=Finish the Conclave-SDK implementation plan"), prompt)
         self.assertIn("No run guard was held when this session was launched", prompt)
         self.assertNotIn("/goal", prompt)
         self.assertIn("sign-in: Antigravity uses its own Google sign-in", proc.stdout)
         self.assertEqual(pathlib.Path(got["folder"]).resolve(), ROOT)
         self.assertEqual(got["title"], "Conclave-SDK Gemini campaign")
+
+    def test_an_orchestrator_model_is_started_without_effort(self):
+        proc = self.launch("-Model", "gemini-pro-orchestrator", "-Effort", "high")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        got = json.loads(self.report.read_text(encoding="utf-8-sig"))
+        self.assertEqual(got["arguments"][:2], ["--model=gemini-pro-orchestrator", "--dangerously-skip-permissions"])
+
+    def test_effort_reaches_neon(self):
+        proc = self.launch("-Effort", "high")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        got = json.loads(self.report.read_text(encoding="utf-8-sig"))
+        self.assertEqual(got["arguments"][:2], ["--model=gemini-4-neon-medium", "--effort=high"])
 
 class WindowlessTests(unittest.TestCase):
     def test_every_process_this_file_starts_gets_no_window(self):

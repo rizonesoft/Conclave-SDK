@@ -3,12 +3,12 @@
 # closes, it crashes or the machine restarts: nothing here, or anywhere in the SDK, starts or resumes it on its own.
 #
 #   pwsh scripts/start-run.ps1                    start the run in Claude Code (the latest Opus)
-#   pwsh scripts/start-run.ps1 -Runner agy        start it in Antigravity on Orchestrator (Carbon) (the Gemini runner)
+#   pwsh scripts/start-run.ps1 -Runner agy        start it in Antigravity on Gemini 4 Neon (the Gemini runner)
 #   pwsh scripts/start-run.ps1 -InstallShortcut   put "Conclave-SDK Claude campaign" and "Conclave-SDK Gemini campaign"
 #                                                 on the desktop, each running the line above for its runner
 #   pwsh scripts/start-run.ps1 -DryRun            print what would run or be written, and change nothing
 #   pwsh scripts/start-run.ps1 -Model sonnet      start on another model
-#   pwsh scripts/start-run.ps1 -Effort high       start the Claude runner at another effort (default medium)
+#   pwsh scripts/start-run.ps1 -Effort high       start the run at another effort (default medium)
 #   pwsh scripts/start-run.ps1 -TakeOver          take over a held run guard without being asked
 #
 # Each shortcut's icon is the SDK's mark (assets/brand/conclave-sdk.ico) with its runner's badge in the corner, as
@@ -26,8 +26,9 @@
 #
 # The Claude runner's model is the alias `opus`, which Claude Code resolves to the newest Opus, so the shortcut never
 # needs editing when a new one ships, and its effort is medium, passed as --effort so the user's own interactive default
-# (effortLevel in settings.json) never decides a campaign's cost. The Gemini runner's is gemini-pro-orchestrator
-# (Orchestrator (Carbon)), which manages effort internally across its Carbon planning and Hydrogen execution turns.
+# (effortLevel in settings.json) never decides a campaign's cost. The Gemini runner's is gemini-4-neon-medium (Gemini 4
+# Neon, owner 2026-11-21, replacing Orchestrator (Carbon)), also given --effort; an Orchestrator model, which rejects
+# --effort, is still started without it when named with -Model.
 #
 # The session signs in with the long-lived token (`claude setup-token`, valid one year) kept in the user variable
 # CLAUDE_CODE_OAUTH_TOKEN. A window opened before the token was stored does not have it yet, so it is read from the
@@ -61,15 +62,15 @@ if ($env:CONCLAVE_AUTOMATION -and -not $InstallShortcut) {
 }
 $repo = Split-Path $PSScriptRoot
 $tokenName = 'CLAUDE_CODE_OAUTH_TOKEN'
-if (-not $Model) { $Model = if ($Runner -eq 'agy') { 'gemini-pro-orchestrator' } else { 'opus' } }
+if (-not $Model) { $Model = if ($Runner -eq 'agy') { 'gemini-4-neon-medium' } else { 'opus' } }
 if (-not $GuardFile) { $GuardFile = Join-Path $repo 'build\claude-campaign-guard.json' }
 
 # Each runner's shortcut: its name is also the window title, so the operator can tell the campaigns apart.
 $shortcuts = @(
   @{ Runner = 'claude'; Name = 'Conclave-SDK Claude campaign'; Icon = 'conclave-sdk-campaign-claude.ico'
      Description = 'Start the Conclave-SDK campaign in Claude Code (the latest Opus)' },
-  @{ Runner = 'agy'; Name = 'Conclave-SDK Gemini campaign'; Icon = 'conclave-sdk-campaign-carbon.ico'
-     Description = 'Start the Conclave-SDK campaign in Google Antigravity on Orchestrator (Carbon)' }
+  @{ Runner = 'agy'; Name = 'Conclave-SDK Gemini campaign'; Icon = 'conclave-sdk-campaign-gemini.ico'
+     Description = 'Start the Conclave-SDK campaign in Google Antigravity on Gemini 4 Neon (medium effort)' }
 )
 $title = ($shortcuts | Where-Object { $_.Runner -eq $Runner }).Name
 
@@ -139,7 +140,9 @@ if ($Runner -eq 'agy') {
   # Antigravity takes its flags as --name=value; --prompt-interactive runs the goal and keeps the session open. It
   # chooses its own conversation id, which the run guard records (agy --help, 1.5.6).
   $agent = 'agy'
-  $arguments = @("--model=$Model", '--dangerously-skip-permissions', "--prompt-interactive=$Goal")
+  # An Orchestrator model manages its own effort and rejects --effort; every other model gets the campaign's effort.
+  $agyEffort = if ($Model -match '^gemini-pro-orchestrator') { @() } else { @("--effort=$Effort") }
+  $arguments = @("--model=$Model") + $agyEffort + @('--dangerously-skip-permissions', "--prompt-interactive=$Goal")
 } else {
   $agent = 'claude'
   $session = [guid]::NewGuid().ToString()
