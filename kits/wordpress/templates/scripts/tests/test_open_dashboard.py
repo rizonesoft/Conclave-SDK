@@ -347,7 +347,7 @@ class StoreAndDropOnTheSiteTest(unittest.TestCase):
             script.write_text(f"import pathlib, sys\npathlib.Path({str(marker)!r}).write_text('ran', encoding='utf-8')\nsys.exit(1)\n",
                               encoding="utf-8")
             (apps / "fail.desktop").write_text(
-                f'[Desktop Entry]\nName=Fail\nExec="{sys.executable}" "{script}" %u\n',
+                f'[Desktop Entry]\nName=Fail\nExec="{Path(sys.executable).as_posix()}" "{script.as_posix()}" %u\n',
                 encoding="utf-8")
             env = {k: v for k, v in os.environ.items() if k != "WSL_DISTRO_NAME"}
             env.update({"XDG_DATA_HOME": str(data), "XDG_DATA_DIRS": "/nowhere"})
