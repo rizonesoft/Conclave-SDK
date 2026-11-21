@@ -19,6 +19,7 @@ title: "TODO-01 -- Imported material: plugins and retired repositories"
 - `global/README.md` and `global/deploy.py`: what is already deployed from this checkout.
 - `AGENTS.md` (Imported material): `global/` and `plugins/` are changed only on purpose, never to satisfy a formatter. §4 changes `global/deploy.py` on purpose, because the hooks it deploys do not run. **Corrected 2026-11-16 (D06 T01 §3 completion review):** this said §1 to §3 edit no file under either folder; they change these on purpose, each a defect or a stale statement the live work found: `global/codex/hooks/session_drift_check.py` and its test (§1, §3), `global/README.md` (§2), `plugins/README.md` (§1, §3), `plugins/codex/README.md` (§2, §3), `plugins/codex/outlook-graph/scripts/dpapi-store.ps1` and its test (§1), `plugins/codex/atera/README.md` and the seven Codex `plugin.json` files (§3).
 - -> XREF: D02 T01 §3 -- Codex's hook trust through its own app-server, which §4 applies to the global hooks
+- -> XREF: D06 T03 §6 -- moves the imported `global/` and `plugins/` from the public tree into the private overlay
 
 ## Outcome
 

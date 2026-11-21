@@ -2,6 +2,7 @@
 
 | File | Scope | Status |
 | ---- | ----- | ------ |
+| TODO-03-private-overlay.md | Public core, private overlay, and the owner material moved into it | active |
 
 ## Completed
 

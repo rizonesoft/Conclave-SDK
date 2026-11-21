@@ -12,6 +12,7 @@
     "7": "Operating directive",
     "8": "Project launchers",
     "9": "Design and safety lenses across projects",
+    "10": "Public core and private overlay",
     "99": "Manual, operator only"
   },
   "phase_list": [
@@ -25,6 +26,7 @@
     7,
     8,
     9,
+    10,
     99
   ]
 }

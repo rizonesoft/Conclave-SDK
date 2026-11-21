@@ -12,6 +12,7 @@ Governing plans: [docs/plans/2026-11-11-sdk-audit-and-roadmap.md](../docs/plans/
 | 04 | 04-tooling/TODO-04-desktop-interface-tests.md | Interface tests that never take the desk; one desktop lock |
 | 07 | 07-launchers/TODO-01-project-launchers.md | Launchers kit: profile, overlay icons, agent and site links |
 | 07 | 07-launchers/TODO-02-wordpress-dashboard-login.md | One-use ticket login: plugin, opener, install, removal |
+| 06 | 06-global/TODO-03-private-overlay.md | Public core, private overlay, and the owner material moved into it |
 
 ## Completed TODOs
 

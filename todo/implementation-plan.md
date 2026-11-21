@@ -206,6 +206,23 @@ Sections: 22 | Checklist items: 145
 | [ ]    | D04 T04 §1  | Interface tests split by whether they take the desk        | windows-host | 7     |
 | [ ]    | D04 T04 §2  | One owner of the visual desktop at a time                  | windows-host | 4     |
 
+### Phase 10: Public core and private overlay
+
+Sections: 10 | Checklist items: 63
+
+| Status | Reference   | Deliverable                                                  | Needs | Items |
+| ------ | ----------- | ------------------------------------------------------------ | ----- | ----- |
+| [ ]    | D06 T03 §1  | Overlay folder and the settings reader that falls back to it | none  | 8     |
+| [ ]    | D06 T03 §2  | Overlay clone in setup and pull after merge                  | none  | 7     |
+| [ ]    | D06 T03 §3  | One sync command for both repositories                       | none  | 7     |
+| [ ]    | D06 T03 §4  | Pre-push leak guard over commits and messages                | none  | 8     |
+| [ ]    | D06 T03 §5  | Full-history secret scan in CI                               | none  | 4     |
+| [ ]    | D06 T03 §6  | Machine-wide rules and skills moved into the overlay         | none  | 6     |
+| [ ]    | D06 T03 §7  | Connection plugins moved into the overlay                    | none  | 6     |
+| [ ]    | D06 T03 §8  | Agent rules split into public and overlay halves             | none  | 5     |
+| [ ]    | D06 T03 §9  | Owner values in the core moved into overlay settings         | none  | 6     |
+| [ ]    | D06 T03 §10 | Live documents and plans scrubbed, deny list seeded          | none  | 6     |
+
 ### Phase 99: Manual, operator only
 
 Sections: 4 | Checklist items: 33
@@ -217,6 +234,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 105/134 verified sections, 9 ready to run now.
+Progress: 105/144 verified sections, 10 ready to run now.
 
-Checklist: 893/1051 items completed (includes Commit items).
+Checklist: 893/1114 items completed (includes Commit items).
