@@ -14,6 +14,7 @@ Governing plans: [docs/plans/2026-11-11-sdk-audit-and-roadmap.md](../docs/plans/
 | 07 | 07-launchers/TODO-01-project-launchers.md | Launchers kit: profile, overlay icons, agent and site links |
 | 07 | 07-launchers/TODO-02-wordpress-dashboard-login.md | One-use ticket login: plugin, opener, install, removal |
 | 06 | 06-global/TODO-03-private-overlay.md | Public core, private overlay, and the owner material moved into it |
+| 06 | 06-global/TODO-04-findings-triage.md | Every open finding scheduled, fixed or closed with its reason |
 
 ## Completed TODOs
 

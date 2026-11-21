@@ -3,6 +3,7 @@
 | File | Scope | Status |
 | ---- | ----- | ------ |
 | TODO-03-private-overlay.md | Public core, private overlay, and the owner material moved into it | active |
+| TODO-04-findings-triage.md | Every open finding scheduled, fixed or closed with its reason | active |
 
 ## Completed
 

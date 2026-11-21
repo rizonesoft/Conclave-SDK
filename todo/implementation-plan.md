@@ -208,7 +208,7 @@ Sections: 22 | Checklist items: 145
 
 ### Phase 10: Public release: private overlay and the Neon writer
 
-Sections: 15 | Checklist items: 88
+Sections: 16 | Checklist items: 93
 
 | Status | Reference   | Deliverable                                                  | Needs | Items |
 | ------ | ----------- | ------------------------------------------------------------ | ----- | ----- |
@@ -227,6 +227,7 @@ Sections: 15 | Checklist items: 88
 | [ ]    | D06 T03 §8  | Agent rules split into public and overlay halves             | none  | 5     |
 | [ ]    | D06 T03 §9  | Owner values in the core moved into overlay settings         | none  | 6     |
 | [ ]    | D06 T03 §10 | Live documents and plans scrubbed, deny list seeded          | none  | 6     |
+| [ ]    | D06 T04 §1  | Every open finding scheduled, fixed or closed                | none  | 5     |
 
 ### Phase 99: Manual, operator only
 
@@ -239,6 +240,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 105/149 verified sections, 13 ready to run now.
+Progress: 105/150 verified sections, 13 ready to run now.
 
-Checklist: 893/1139 items completed (includes Commit items).
+Checklist: 893/1144 items completed (includes Commit items).
