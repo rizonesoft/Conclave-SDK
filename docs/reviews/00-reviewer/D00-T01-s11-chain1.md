@@ -168,3 +168,34 @@ RECONCILIATION: gaps
 
 - Implemented: replayed all six remaining damaged-record finding lines from reconciliations 11 and 12 (`D02-T02-s12.md:516`, `:517`, `:521`, `:551`, `:552`, `:556`) individually through `scripts/review-dispatch.py` (all 6 graded `P3`) and added explicit individual rows `F5a`..`F5d` and `F6a`..`F6d` to the false-alarm table in `todo/00-reviewer/TODO-01-three-pass-review.md` (with explicit accounting for rec 13-19 operational/security/lock defects such as R11) in a7e73419.
 - Implemented: substantiated the complete old-versus-new comparison across all 10 individual rec 10-19 damaged-record findings (`F3`, `F4`, `F5a`..`F5d`, `F6a`..`F6d`, plus rec 8-9 background `F1`..`F2` and pathless `F7`: 13/13 `P3`) alongside 12/12 real regression-backed recall rows (`R1`..`R12`: 12/12 `P1`/`P2`) in a7e73419.
+
+## Reconciliation review: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: agy
+- Run: 2026-11-21T22:52:24Z
+- Candidate: 3db09b9194edc340feb82cbfc1bf9bf1d17e9af2
+- Effort: medium
+- Lenses: plan-delivery, record, repair-adversarial, repair-integration
+- Lines: 20
+- Digest: c472450716f74fbd
+
+1. **Gap 1 closed.** F3 covers the missing `IconDir` at `todo/00-reviewer/TODO-01-three-pass-review.md:421`. The four findings still missing at the first reconciliation now have individual source lines and old and new grades at `todo/00-reviewer/TODO-01-three-pass-review.md:425`, `todo/00-reviewer/TODO-01-three-pass-review.md:426`, `todo/00-reviewer/TODO-01-three-pass-review.md:429`, and `todo/00-reviewer/TODO-01-three-pass-review.md:430`. They match the writer’s `Implemented` record at `docs/reviews/00-reviewer/D00-T01-s11.md:169`.
+
+2. **Gap 2 closed.** R1 cites `99a68267` at `todo/00-reviewer/TODO-01-three-pass-review.md:437`, matching `docs/reviews/00-reviewer/D00-T01-s11.md:141`. I inspected the commit. It adds the legacy-upgrade regression at `tests/test_forge.py:4159` and asserts that Forge requests `-Refresh`.
+
+3. **Gap 3 open, P3.** The checked item still says every pass writes `prompt.md` at `todo/00-reviewer/TODO-01-three-pass-review.md:407`. Only `agy` takes that branch at `kits/reviewer/templates/scripts/review-dispatch.py:576`. The writer acknowledges the discrepancy at `docs/reviews/00-reviewer/D00-T01-s11.md:143`. A dated `Corrected` suffix on the checklist line can document the accepted transports while preserving the original promise under `scripts/lib/todo_graph.py:808`.
+
+4. **Gap 4 closed.** The comparison now accounts for ten damaged-record findings in the required window, two earlier background cases, and one pathless control. The twelve recall rows retain blocking grades. The tables and the writer’s `Implemented` line agree at `todo/00-reviewer/TODO-01-three-pass-review.md:415`, `todo/00-reviewer/TODO-01-three-pass-review.md:433`, and `docs/reviews/00-reviewer/D00-T01-s11.md:170`.
+
+5. **New finding, P2. The repaired candidate cannot be stamped.** **Path:** After a complete reconciliation, the stamp compares the repaired candidate’s normalized section text with the failed completion’s text at `scripts/lib/todo_graph.py:919`. The newest repair edits the replay heading and adds ordinary table rows inside that text at `todo/00-reviewer/TODO-01-three-pass-review.md:415` and `todo/00-reviewer/TODO-01-three-pass-review.md:425`. **Evidence:** `ran` the following read-only check. It printed `False False`. The first result establishes that the stamp would refuse this candidate. The second confirms that the newest repair itself changed the normalized contract again.
+
+   ```powershell
+   python -B -c "from pathlib import Path; from scripts.lib.todo_graph import section_contract as f; p=Path.cwd(); k='D00 T01 §11'; print(f(p,'3fd5020',k)==f(p,'3db09b9',k), f(p,'e002e36',k)==f(p,'3db09b9',k))"
+   ```
+
+LENS plan-delivery: findings  
+LENS record: findings  
+LENS repair-adversarial: clean  
+LENS repair-integration: findings  
+HIGHEST: P2  
+RECONCILIATION: gaps
