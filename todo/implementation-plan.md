@@ -156,7 +156,7 @@ Sections: 6 | Checklist items: 32
 
 ### Phase 8: Project launchers
 
-Sections: 16 | Checklist items: 144
+Sections: 17 | Checklist items: 149
 
 | Status | Reference  | Deliverable                                                             | Needs        | Items |
 | ------ | ---------- | ----------------------------------------------------------------------- | ------------ | ----- |
@@ -171,11 +171,12 @@ Sections: 16 | Checklist items: 144
 | [ ]    | D07 T01 §8 | Operator page and `project-launchers` skill                             | none         | 6     |
 | [ ]    | D07 T01 §9 | Agent and declared links named outside the ANSI code page               | windows-host | 4     |
 | [x]    | D07 T02 §1 | Ticket login plugin in the WordPress kit                                | none         | 10    |
-| [x]    | D07 T02 §2 | Dashboard opener `scripts/open-dashboard.py`                            | none         | 13    |
+| [ ]    | D07 T02 §2 | Dashboard opener `scripts/open-dashboard.py`                            | none         | 13    |
 | [ ]    | D07 T02 §3 | Plugin install, status and removal on the pinned site                   | none         | 7     |
 | [ ]    | D07 T02 §4 | Doctor rows and host refusals for the ticket login                      | none         | 4     |
 | [ ]    | D07 T02 §5 | WordPress link in the launcher profile                                  | none         | 4     |
 | [ ]    | D07 T02 §6 | `wordpress-connect` step and tooling page                               | none         | 5     |
+| [ ]    | D07 T02 §8 | Desktop-entry ID lookup and Exec unescaping in `open-dashboard.py`      | none         | 5     |
 
 ### Phase 9: Design and safety lenses across projects
 
@@ -240,6 +241,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 106/150 verified sections, 13 ready to run now.
+Progress: 105/151 verified sections, 14 ready to run now.
 
-Checklist: 893/1144 items completed (includes Commit items).
+Checklist: 892/1149 items completed (includes Commit items).

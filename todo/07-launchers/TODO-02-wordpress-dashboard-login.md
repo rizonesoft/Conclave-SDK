@@ -45,12 +45,13 @@ title: "TODO-02 -- WordPress dashboard login by one-use ticket"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Ticket login plugin in the WordPress kit | -- | [x] |
-| 2 | §2 | Dashboard opener `scripts/open-dashboard.py` | §1 | [x] |
+| 2 | §2 | Dashboard opener `scripts/open-dashboard.py` | §1 | [ ] |
 | 3 | §3 | Plugin install, status and removal on the pinned site | §1 | [ ] |
 | 4 | §4 | Doctor rows and host refusals for the ticket login | §2, §3 | [ ] |
 | 5 | §5 | WordPress link in the launcher profile | §2, T01 §6 | [ ] |
 | 6 | §6 | `wordpress-connect` step and tooling page | §4, §5 | [ ] |
 | 7 | §7 | Live proof on a staging site | §6 | [ ] |
+| 8 | §8 | Desktop-entry ID lookup and Exec unescaping in `open-dashboard.py` | §1 | [ ] |
 
 ## 1. Ticket login plugin in the WordPress kit
 
@@ -114,12 +115,11 @@ The opener is the half that runs on the operator's machine. The first build open
 - [x] Run both paths of `main` end to end with `site_ssh.wp` replaced by the stand-ins: the default stores a ticket and opens exactly `<pinned url>/?conclave_ticket=<the stored token>` (a pin under a subpath included), and `--check` stores, confirms, drops, confirms the removal and opens nothing. Done when: both tests pass and each prints its fixed success line.
 - [x] Print only fixed messages: each refusal is a sentence written in the opener, any other exception prints `open-dashboard: <exception type>: unexpected failure` and nothing of its text, and nothing prints the token, the digest or the link. Done when: tests make each step raise an exception whose text holds the token, a link fragment and a child's output, also with the cleanup failing, and compare stdout and stderr with the exact expected lines.
 - [x] Add to `scripts/tests/test_ticket_login.py` the agreement test: the plugin's two constants equal the opener's `OPTION` and `QUERY`. Done when: renaming either constant on one side makes it fail.
-- [x] Commit: `wordpress: the dashboard opener, from WSL and Linux, refused on native Windows`
+- [ ] Commit: `wordpress: the dashboard opener, from WSL and Linux, refused on native Windows`
 
 **Test checkpoint:** `python kits/wordpress/templates/scripts/tests/test_open_dashboard.py` and `python -m unittest discover -s kits/wordpress/templates/scripts/tests -p "test_ticket_login.py"` end `OK`, run where PHP is on the path (WSL or CI's Linux runner) so the stand-in tests run and are not skipped; changing `QUERY` in the opener alone makes the second fail. **Corrected 2026-11-20 (plan review gap 2):** a discovery run of the opener's tests could report `Ran 0 tests` and `OK`, so the file is run directly.
 
-> **Verified:** 2026-11-21 | §2 | 09646718f6b6ed05c27f4232dbaf006488a98f4c
-> **Review:** `docs/reviews/d07-t02-s2.json`
+> **Unstamped:** 2026-11-21: shadow audit found two P2 desktop-entry defects missed by repair-diff; repair -> XREF: D07 T02 §8 (revoked receipt `docs/reviews/d07-t02-s2.revoked-2026-11-21.json`)
 
 ## 3. Plugin install, status and removal on the pinned site
 
@@ -224,6 +224,27 @@ No test without a network can show that a real WordPress accepts the right token
 - [ ] Commit: `wordpress: live proof of the ticket login on a staging site`
 
 **Test checkpoint:** `python scripts/open-dashboard.py --check` in the chosen project prints `login ticket stored and removed again` and exits 0; with the plugin removed by `ticket-login.py remove --yes`, the right token returns 200 or 404 and never 302.
+
+## 8. Desktop-entry ID lookup and Exec unescaping in `open-dashboard.py`
+
+Filed 2026-11-21 from the `D00 T01 §10` shadow audit of `D07 T02 §2` (`docs/reviews/07-launchers/audit-d07-t02-s2.md`). `_https_browser` in `kits/wordpress/templates/scripts/open-dashboard.py` was added in Round 1's fix commit (`f5ae9111`) and missed two Desktop Entry Specification rules: a desktop file ID with hyphens may resolve to a subdirectory under `applications/` (`vendor-browser.desktop` -> `applications/vendor/browser.desktop`), and `Exec=` undergoes desktop-entry string unescaping (`\s`, `\n`, `\t`, `\r`, `\\`) before argument splitting and field-code expansion. Also closes two P3 items from the same audit (`store` rejecting `bool` user IDs and the PHP harness testing expiry against a distinct site clock).
+
+**Phase:** 8
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Resolve desktop file IDs across `applications/` subdirectories and unescape `Exec=` strings in `open-dashboard.py`. Done when: the new recorder tests pass.
+2. Reject boolean `user_id` in `store` and test site-clock expiry in `test_open_dashboard.py`. Done when: the checkpoint passes.
+
+- [ ] Resolve desktop file IDs in `_https_browser` of `kits/wordpress/templates/scripts/open-dashboard.py` per the Desktop Entry Specification: check `applications/<id>` first, then try replacing hyphens in `<id>` with `/` (e.g. `vendor-browser.desktop` -> `applications/vendor/browser.desktop`, checking each split without escaping `applications/`). Done when: a test in `kits/wordpress/templates/scripts/tests/test_open_dashboard.py` sets `xdg-mime` to `vendor-browser.desktop` stored at `applications/vendor/browser.desktop` and verifies the browser launches with the redirect page; a traversal ID (`../evil.desktop`) is still refused. Cheaper substitute: replacing only the first hyphen or ignoring nested directories, which fails on multi-level vendor IDs.
+- [ ] Parse `Exec=` in `_https_browser` of `kits/wordpress/templates/scripts/open-dashboard.py` per the Desktop Entry Specification: apply desktop-entry string unescaping (`\s`, `\n`, `\t`, `\r`, `\\`) to the `Exec=` value before tokenizing desktop-entry double-quoted arguments (`\"`, `` \` ``, `\$`, `\\`) and expanding field codes. Done when: a test in `test_open_dashboard.py` verifies `Exec=browser "--profile=Work\sProfile" %u` passes `["browser", "--profile=Work Profile", page.as_uri()]` with zero ticket URLs in argv. Cheaper substitute: passing `Exec=` straight to `shlex.split` without desktop string unescaping, which leaves literal `\s` in the argument.
+- [ ] Reject `bool` in `store` of `kits/wordpress/templates/scripts/open-dashboard.py` (`isinstance(user_id, bool)`), matching `pinned_user`. Done when: a test in `test_open_dashboard.py` passes `user_id=True` to `store` and asserts `Refusal` with no remote call.
+- [ ] Prove site-clock expiry in `kits/wordpress/templates/scripts/tests/test_open_dashboard.py` using a distinct clock value in the PHP harness (offset from the Python caller's `time.time()`), so a Python-computed expiry fails the test. Done when: the store test asserts `expires == site_now + LIFETIME` against a site clock offset by +3600 seconds.
+- [ ] Commit: `wordpress: desktop-entry ID subdirectory lookup and Exec unescaping in open-dashboard.py`
+
+**Test checkpoint:** `python kits/wordpress/templates/scripts/tests/test_open_dashboard.py` and `python -m unittest discover -s kits/wordpress/templates/scripts/tests -p "test_ticket_login.py"` end `OK` under WSL with PHP, and `python forge.py check-all --only kit-wordpress` passes; removing the subdirectory ID fallback or the `Exec` unescaping makes its test fail.
 
 ## Verification
 
