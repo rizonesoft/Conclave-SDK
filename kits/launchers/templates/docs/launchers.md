@@ -67,7 +67,7 @@ Run the same script in PowerShell 7 (`pwsh`) with `-Remove`:
 pwsh scripts/project-shortcuts.ps1 -Remove
 ```
 
-Reuse the same `-ShortcutDir`, `-IconDir`, `-Distro`, and `-Project` arguments you used when writing the links so the script matches the same project identity and folders. Because `-Remove` uses only the project identity stored in each shortcut's description, it works even when `.conclave/launchers.json` is invalid, and it leaves shortcuts belonging to other projects untouched. If the project folder itself has already been deleted, run a surviving installed copy of `scripts/project-shortcuts.ps1` with `-Remove -Project <original absolute path>` and the original `-Distro`, `-ShortcutDir`, and `-IconDir` arguments.
+Reuse the same `-ShortcutDir`, `-IconDir`, `-Distro`, and `-Project` arguments you used when writing the links so the script matches the same project identity and folders. Because `-Remove` uses only the project identity stored in each shortcut's description, it works even when `.conclave/launchers.json` is invalid, and it leaves shortcuts belonging to other projects untouched. If the project folder itself has already been deleted, run a surviving installed copy of `scripts/project-shortcuts.ps1` (with `scripts/lib/ShellLink.cs` beside it) with `-Remove -Project <original absolute path>` and the original `-Distro`, `-ShortcutDir`, and `-IconDir` arguments.
 
 When the `unattended` kit is installed, `scripts/unattended-shortcut.ps1` owns the campaign (`<Title> <Runner> campaign`), Watch run, and Stop run shortcuts; everyday `-Remove` never touches those three. See [Unattended run shortcuts](unattended-run.md#shortcuts) to create or remove them.
 
@@ -89,7 +89,8 @@ When the profile is valid, `show` prints one line of JSON and exits 0. When it i
 - `project-shortcuts: python is not on PATH` / `wsl.exe is not on PATH`: install Python 3 or WSL and put it on `PATH`.
 - `project-shortcuts: the project folder does not exist: '<Project>'`: the Windows `-Project` path was mistyped or does not exist; pass an existing Windows folder path, or omit `-Project` to use the script's own project folder.
 - `project-shortcuts: a Linux path needs -Distro` / `the project is in distro ...` / `WSL has no distro ...` / `the project path ... does not exist`: pass a matching `-Distro` and existing Linux path in WSL.
-- `project-shortcuts: '<link>' is already there and is not this project's link`: another project or manual shortcut already holds that filename; move it or pick a different `title` or `label`.
+- `project-shortcuts: '<link>' is already there and is not this project's link`: another project or manual shortcut already holds that filename; move it or pick a different `title` or `label`. If an older shortcut written before Unicode support carries a lossy mark, inspect it to verify it is yours, move it aside, and rerun.
 - `project-shortcuts: pass either -Remove or -Inspect, not both`: choose one operation at a time.
-- `project-shortcuts: missing ...ShellLink.cs (install the launchers kit)`: restore the launchers kit's shortcut reader (`python forge.py kit <project> launchers`).
+- `project-shortcuts: missing ...ShellLink.cs (python forge.py kit <project> launchers installs it)`: restore the launchers kit's shortcut helper (`python forge.py kit <project> launchers`).
+- `project-shortcuts: could not read '...' to check ownership (close whatever holds it and retry)`: another program holds an exclusive lock on a `.lnk` file in the shortcut folder; close it and rerun.
 - `project-shortcuts: the shortcut folder cannot be read: '<ShortcutDir>'`: pass an existing, readable `-ShortcutDir` folder (or fix permissions on the Desktop folder).

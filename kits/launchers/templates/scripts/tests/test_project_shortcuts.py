@@ -111,9 +111,12 @@ def run_tree(command, timeout, **kwargs):
     inside a job object that kills every process in it when closed, elsewhere in a session of its own whose group is
     killed. The owner's rule: a child process never outlives its test (an orphaned child filled C: on 2026-11-08)."""
     stdin = kwargs.pop("input", None)
+    encoding = kwargs.pop("encoding", "utf-8")
+    errors = kwargs.pop("errors", "replace")
     if os.name != "nt":
         proc = subprocess.Popen(command, start_new_session=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, text=True, creationflags=NO_WINDOW, **kwargs)
+                                stderr=subprocess.PIPE, text=True, encoding=encoding, errors=errors,
+                                creationflags=NO_WINDOW, **kwargs)
         try:
             out, err = proc.communicate(stdin, timeout=timeout)
         finally:
@@ -135,7 +138,8 @@ def run_tree(command, timeout, **kwargs):
     kernel32.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits))
     try:
         proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                text=True, creationflags=NO_WINDOW | SUSPENDED, **kwargs)
+                                text=True, encoding=encoding, errors=errors,
+                                creationflags=NO_WINDOW | SUSPENDED, **kwargs)
         try:
             handle = ctypes.c_void_p(int(proc._handle))
             if not kernel32.AssignProcessToJobObject(job, handle):
@@ -268,7 +272,7 @@ class ProjectShortcutsTest(unittest.TestCase):
 
     def make_project(self, name, profile=PROFILE):
         project = self.base / name
-        for rel in ("project-shortcuts.ps1", "campaign-icon.py", "lib/launchers.py"):
+        for rel in ("project-shortcuts.ps1", "campaign-icon.py", "lib/launchers.py", "lib/ShellLink.cs"):
             (project / "scripts" / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(SCRIPTS / rel, project / "scripts" / rel)
         (project / "assets").mkdir()
@@ -293,14 +297,8 @@ class ProjectShortcutsTest(unittest.TestCase):
                    "-Python", sys.executable, *args]
         return run_tree(command, timeout=300, env=self.env(terminal, **extra))
 
-    def read_link(self, title="Example Site", agent="claude"):
-        path = self.desk / f"{title} ({LABELS[agent]}).lnk"
-        script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:LINK_PATH); "
-                  "@{target = $s.TargetPath; arguments = $s.Arguments; icon = $s.IconLocation; "
-                  "description = $s.Description; workdir = $s.WorkingDirectory} | ConvertTo-Json -Compress")
-        done = run_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], timeout=60,
-                        env={**os.environ, "LINK_PATH": str(path)})
-        return json.loads(done.stdout)
+    def read_link(self, title="Example Site", agent="claude", desk=None):
+        return self.read_named(f"{title} ({LABELS[agent]})", desk=desk)
 
     def run_link(self, link, terminal=True, stdin="", **extra):
         """Start the link's target with its arguments, as the shell would, from its working folder."""
@@ -372,7 +370,8 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(folder(link["target"]), folder(self.wt_dir / "wt.exe"))
         self.assertEqual(link["workdir"], os.environ["USERPROFILE"])
         self.assertEqual(link["description"], "conclave-launcher: wsl:debian:/home/me/site")
-        icon = Path(link["icon"].rsplit(",", 1)[0])
+        icon = Path(link["icon"])
+        self.assertEqual(link["icon_index"], 0)
         self.assertRegex(icon.name, r"^launcher-claude-[0-9a-f]{8}\.ico$")
         self.assertEqual(icon.parent, self.icons)
         self.assertTrue(icon.is_file())
@@ -632,12 +631,20 @@ class ProjectShortcutsTest(unittest.TestCase):
 
     # --- declared links (D07 T01 section 6) -------------------------------------------------------------------------
 
-    def read_named(self, name):
-        script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:LINK_PATH); "
-                  "@{target = $s.TargetPath; arguments = $s.Arguments; icon = $s.IconLocation; "
-                  "description = $s.Description; workdir = $s.WorkingDirectory} | ConvertTo-Json -Compress")
+    def read_named(self, name, desk=None):
+        path = (desk or self.desk) / f"{name}.lnk"
+        script = (
+            "[Console]::OutputEncoding = [Text.Encoding]::UTF8; "
+            "Add-Type -Path $env:SHELL_LINK_CS; "
+            "$s = [Conclave.ShellLink]::Read($env:LINK_PATH); "
+            "@{target = $s.Target; arguments = $s.Arguments; icon = $s.IconPath; icon_index = $s.IconIndex; "
+            "description = $s.Description; workdir = $s.WorkingDirectory} | ConvertTo-Json -Compress"
+        )
         done = run_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command", script], timeout=60,
-                        env={**os.environ, "LINK_PATH": str(self.desk / f"{name}.lnk")})
+                        encoding="utf-8",
+                        env={**os.environ, "LINK_PATH": str(path),
+                             "SHELL_LINK_CS": str(SCRIPTS / "lib/ShellLink.cs")})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         return json.loads(done.stdout)
 
     def declared_profile(self, links):
@@ -750,8 +757,8 @@ class ProjectShortcutsTest(unittest.TestCase):
         icons = {}
         for name, mark in (("Owner's Dashboard", "wordpress"), ("Site", "site"), ("Claude", "claude")):
             link = self.read_named(f"Example Site ({name})")
-            path, _, index = link["icon"].rpartition(",")
-            self.assertEqual(index, "0")
+            path = link["icon"]
+            self.assertEqual(link["icon_index"], 0)
             expected = self.base / f"expected-{mark}.ico"
             made = run_tree([sys.executable, "-B", str(SCRIPTS / "campaign-icon.py"), "overlay",
                              str(self.project / "assets/icon.png"), mark, str(expected)], timeout=120)
@@ -767,7 +774,7 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(self.run_script().returncode, 0)
         self.assertEqual(self.links(), ["Example Site (Claude).lnk", "Example Site (Owner's Dashboard).lnk",
                                         "Example Site (Site).lnk"])
-        kept = {name: self.read_named(f"Example Site ({name})")["icon"].rpartition(",")[0]
+        kept = {name: self.read_named(f"Example Site ({name})")["icon"]
                 for name in ("Claude", "Site")}
         self.declared_profile(DECLARED[1:])
         done = self.run_script()
@@ -777,6 +784,171 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(self.leftovers(), [])
         removed = self.run_script("-Remove")
         self.assertEqual(removed.returncode, 0, removed.stdout)
+        self.assertEqual((self.links(), list(self.icons.iterdir())), ([], []))
+
+    # --- Unicode links, ownership errors, and missing ShellLink.cs (D07 T01 section 9) ------------------------------
+
+    def test_unicode_title_and_fields_persist_rerun_cleanup_rollback_and_remove(self):
+        project = self.make_project("プロジェクト東京", {
+            "schema_version": 1, "title": "東京", "icon": "assets/icon.png",
+            "agents": ["claude"], "skip_permissions": False,
+            "links": [{"label": "Site 東京", "mark": "site", "url": "https://example.com/?q=東京"}],
+        })
+        icons = self.base / "icons-東京"
+        foreign = self.desk / "Foreign.lnk"
+        self.desk.mkdir(parents=True, exist_ok=True)
+        foreign.write_bytes(b"foreign")
+        done = self.run_script(project=project, icons=icons)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.links(), ["Foreign.lnk", "東京 (Claude).lnk", "東京 (Site 東京).lnk"])
+        self.assertEqual(self.leftovers(), [])
+        expected_mark = f"conclave-launcher: {str(project.resolve()).lower()}"
+        agent = self.read_named("東京 (Claude)")
+        self.assertEqual(folder(agent["target"]), folder(self.wt_dir / "wt.exe"))
+        self.assertIn(str(project.resolve()), agent["arguments"])
+        self.assertEqual(folder(agent["workdir"]), folder(project))
+        self.assertEqual(agent["description"].lower(), expected_mark)
+        self.assertEqual(folder(Path(agent["icon"]).parent), folder(icons))
+        self.assertEqual(agent["icon_index"], 0)
+        self.assertTrue(Path(agent["icon"]).is_file())
+        url_link = self.read_named("東京 (Site 東京)")
+        self.assertEqual(folder(url_link["target"]), folder(Path(os.environ["SystemRoot"]) / "System32/rundll32.exe"))
+        self.assertEqual(url_link["arguments"], "url.dll,FileProtocolHandler https://example.com/?q=東京")
+        self.assertEqual(folder(url_link["workdir"]), folder(os.environ["USERPROFILE"]))
+        self.assertEqual(url_link["description"].lower(), expected_mark)
+        self.assertEqual(folder(Path(url_link["icon"]).parent), folder(icons))
+        self.assertEqual(url_link["icon_index"], 0)
+        self.assertTrue(Path(url_link["icon"]).is_file())
+        # Rerun recognises its own Unicode links (not refused as another's).
+        again = self.run_script(project=project, icons=icons)
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertEqual(self.links(), ["Foreign.lnk", "東京 (Claude).lnk", "東京 (Site 東京).lnk"])
+        # Rename title and drop declared link: old Unicode filenames and obsolete icon are removed.
+        self.write_profile(project, {
+            "schema_version": 1, "title": "大阪", "icon": "assets/icon.png",
+            "agents": ["claude"], "skip_permissions": False, "links": [],
+        })
+        renamed = self.run_script(project=project, icons=icons)
+        self.assertEqual(renamed.returncode, 0, renamed.stdout + renamed.stderr)
+        self.assertEqual(self.links(), ["Foreign.lnk", "大阪 (Claude).lnk"])
+        self.assertEqual(len(list(icons.iterdir())), 1)
+        self.assertEqual(self.leftovers(), [])
+        # Locked-move rollback on a Unicode installation keeps old bytes and foreign link, then retry succeeds.
+        before = {p.name: p.read_bytes() for p in [*self.desk.iterdir(), *icons.iterdir()]}
+        self.write_profile(project, {
+            "schema_version": 1, "title": "東京", "icon": "assets/icon.png",
+            "agents": ["claude"], "skip_permissions": False,
+            "links": [{"label": "Site 東京", "mark": "site", "url": "https://example.com/?q=東京"}],
+        })
+        with open(self.desk / "大阪 (Claude).lnk", "rb"):
+            failed = self.run_script(project=project, icons=icons)
+        self.assertEqual(failed.returncode, 1, failed.stdout + failed.stderr)
+        self.assertIn("could not be put in place or removed", failed.stdout)
+        self.assertEqual({p.name: p.read_bytes() for p in [*self.desk.iterdir(), *icons.iterdir()]}, before)
+        self.assertEqual(self.leftovers(), [])
+        retried = self.run_script(project=project, icons=icons)
+        self.assertEqual(retried.returncode, 0, retried.stdout + retried.stderr)
+        self.assertEqual(self.links(), ["Foreign.lnk", "東京 (Claude).lnk", "東京 (Site 東京).lnk"])
+        self.assertEqual(len(list(icons.iterdir())), 2)
+        # -Remove removes both Unicode links and icons and keeps the foreign link.
+        removed = self.run_script("-Remove", project=project, icons=icons)
+        self.assertEqual(removed.returncode, 0, removed.stdout + removed.stderr)
+        self.assertEqual(self.links(), ["Foreign.lnk"])
+        self.assertEqual(list(icons.iterdir()), [])
+        self.assertEqual(foreign.read_bytes(), b"foreign")
+
+    def test_wscript_created_everyday_link_upgrades_cleanly(self):
+        self.assertEqual(self.run_script().returncode, 0)
+        mark = self.read_link()["description"]
+        link_path = self.desk / "Example Site (Claude).lnk"
+        link_path.unlink()
+        made = run_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command",
+                         "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:LINK_PATH); "
+                         "$s.TargetPath = $env:TARGET; $s.Description = $env:MARK; $s.Save()"],
+                        timeout=60, env={**os.environ, "LINK_PATH": str(link_path),
+                                         "TARGET": str(self.wt_dir / "wt.exe"), "MARK": mark})
+        self.assertEqual(made.returncode, 0, made.stdout + made.stderr)
+        upgraded = self.run_script()
+        self.assertEqual(upgraded.returncode, 0, upgraded.stdout + upgraded.stderr)
+        self.assertEqual(self.links(), ["Example Site (Claude).lnk"])
+        self.assertEqual(self.leftovers(), [])
+
+    def test_ownership_scan_skips_unrelated_corrupt_and_refuses_corrupt_destination_or_locked_link(self):
+        self.declared_profile(DECLARED[1:])
+        self.assertEqual(self.run_script().returncode, 0)
+        # Unrelated corrupt .lnk is skipped on rerun and -Remove.
+        junk = self.desk / "Not A Shortcut.lnk"
+        junk.write_bytes(b"corrupt-bytes")
+        rerun = self.run_script()
+        self.assertEqual(rerun.returncode, 0, rerun.stdout + rerun.stderr)
+        self.assertTrue(junk.is_file())
+        # Corrupt .lnk at a planned destination refuses before staging and leaves earlier links untouched.
+        before = {p.name: p.read_bytes() for p in [*self.desk.iterdir(), *self.icons.iterdir()]}
+        corrupt_dest = self.desk / "Example Site (Codex).lnk"
+        corrupt_dest.write_bytes(b"corrupt-dest")
+        before_with_dest = {**before, corrupt_dest.name: b"corrupt-dest"}
+        self.write_profile(self.project, dict(PROFILE, agents=["claude", "codex"], links=DECLARED[1:]))
+        bad = self.run_script()
+        self.assertEqual(bad.returncode, 1, bad.stdout + bad.stderr)
+        self.assertIn("is not this project's link; nothing was written", bad.stdout)
+        self.assertEqual({p.name: p.read_bytes() for p in [*self.desk.iterdir(), *self.icons.iterdir()]},
+                         before_with_dest)
+        self.assertEqual(self.leftovers(), [])
+        corrupt_dest.unlink()
+        self.write_profile(self.project, dict(PROFILE, agents=["claude"], links=DECLARED[1:]))
+        # Exclusively locked owned .lnk refuses both create and -Remove before any change, then succeeds after unlock.
+        locked = self.desk / "Example Site (Site).lnk"
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateFileW.restype = ctypes.c_void_p
+        kernel32.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p,
+                                         ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p]
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        handle = kernel32.CreateFileW(str(locked), 0x80000000, 0, None, 3, 0x80, None)
+        self.assertNotEqual(handle, ctypes.c_void_p(-1).value)
+        try:
+            for args in ((), ("-Remove",)):
+                with self.subTest(args=args):
+                    refused = self.run_script(*args)
+                    self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+                    self.assertIn(locked.name, refused.stdout)
+                    self.assertIn("nothing was written", refused.stdout)
+                    self.assertEqual(self.leftovers(), [])
+                    self.assertEqual(len(list(self.icons.iterdir())), 2)
+        finally:
+            kernel32.CloseHandle(handle)
+        self.assertEqual({p.name: p.read_bytes() for p in [*self.desk.iterdir(), *self.icons.iterdir()]}, before)
+        # Hidden owned link is still found and removed once unlocked.
+        self.assertTrue(kernel32.SetFileAttributesW(str(locked), 0x02))
+        removed = self.run_script("-Remove")
+        self.assertEqual(removed.returncode, 0, removed.stdout + removed.stderr)
+        self.assertEqual(self.links(), ["Not A Shortcut.lnk"])
+        self.assertEqual(list(self.icons.iterdir()), [])
+
+    def test_missing_shelllink_refuses_create_inspect_and_remove_and_recovers_on_restore(self):
+        self.declared_profile(DECLARED[1:])
+        self.assertEqual(self.run_script("-Project", "/srv/site", "-Distro", "Ubuntu").returncode, 0)
+        before = {p.name: p.read_bytes() for p in [*self.desk.iterdir(), *self.icons.iterdir()]}
+        helper = self.project / "scripts/lib/ShellLink.cs"
+        saved = helper.read_bytes()
+        helper.unlink()
+        # Conflicting switches still refuse ahead of the common ShellLink.cs load.
+        both = self.run_script("-Project", "/srv/site", "-Distro", "Ubuntu", "-Remove", "-Inspect")
+        self.assertEqual(both.returncode, 1, both.stdout + both.stderr)
+        self.assertIn("pass either -Remove or -Inspect, not both", both.stdout)
+        for args in ((), ("-Inspect",), ("-Remove",)):
+            with self.subTest(args=args):
+                refused = self.run_script("-Project", "/srv/site", "-Distro", "Ubuntu", *args)
+                self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+                self.assertIn("ShellLink.cs", refused.stdout)
+                self.assertIn("python forge.py kit <project> launchers", refused.stdout)
+                self.assertEqual({p.name: p.read_bytes() for p in [*self.desk.iterdir(), *self.icons.iterdir()]},
+                                 before)
+        # Restoring ShellLink.cs recovers -Remove even with a malformed profile and unavailable WSL.
+        helper.write_bytes(saved)
+        self.write_profile(self.project, {"broken": True})
+        removed = self.run_script("-Project", "/srv/site", "-Distro", "Ubuntu", "-Remove",
+                                  STUB_WSL_FAIL="1", PATH="")
+        self.assertEqual(removed.returncode, 0, removed.stdout + removed.stderr)
         self.assertEqual((self.links(), list(self.icons.iterdir())), ([], []))
 
 

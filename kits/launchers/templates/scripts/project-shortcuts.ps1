@@ -84,12 +84,16 @@ $key = -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($identity))[0..3] 
 
 if ($Remove -and $Inspect) { Refuse 'pass either -Remove or -Inspect, not both' }
 
+# Links are written and read through IShellLinkW (scripts/lib/ShellLink.cs), which keeps every field in Unicode at its
+# full length across create, -Remove, and -Inspect.
+$shellLink = Join-Path $here 'lib\ShellLink.cs'
+if (-not (Test-Path -LiteralPath $shellLink -PathType Leaf)) {
+  Refuse "missing $shellLink (python forge.py kit <project> launchers installs it)"
+}
+Add-Type -Path $shellLink
+
 # --- inspection: reads owned links through ShellLink.cs without launching any of them ----------------------------
 if ($Inspect) {
-  $shellLink = Join-Path $here 'lib\ShellLink.cs'
-  if (-not (Test-Path -LiteralPath $shellLink -PathType Leaf)) {
-    Refuse "missing $shellLink (install the launchers kit)"
-  }
   if (-not (Test-Path -LiteralPath $ShortcutDir -PathType Container)) {
     Refuse "the shortcut folder cannot be read: '$ShortcutDir'"
   }
@@ -98,7 +102,6 @@ if ($Inspect) {
   } catch {
     Refuse "the shortcut folder cannot be read: '$ShortcutDir' ($($_.Exception.Message))"
   }
-  Add-Type -Path $shellLink
   $lnkFiles | ForEach-Object {
     $f = $_
     try {
@@ -119,15 +122,38 @@ if ($Inspect) {
   exit 0
 }
 
+function Get-Mark([string]$path) {
+  try { [Conclave.ShellLink]::Read($path).Description } catch { '' }
+}
+
+# Every .lnk in the shortcut folder (hidden ones too) whose mark is this project's. Unrelated corrupt files are skipped;
+# a sharing or access error (0x80070020 or 0x80070005) may hide an owned link, so it is recorded in $unreadableLinks and
+# the caller stops before changing any link or icon.
+$unreadableLinks = [Collections.Generic.List[string]]::new()
 function Get-Owned {
-  $shell = New-Object -ComObject WScript.Shell
-  Get-ChildItem -LiteralPath $ShortcutDir -Filter '*.lnk' -File -ErrorAction Ignore |
-    Where-Object { $shell.CreateShortcut($_.FullName).Description -ceq $mark }
+  $script:unreadableLinks.Clear()
+  foreach ($file in @(Get-ChildItem -LiteralPath $ShortcutDir -Filter '*.lnk' -File -Force -ErrorAction Ignore)) {
+    try {
+      $data = [Conclave.ShellLink]::Read($file.FullName)
+    } catch {
+      $cause = $_.Exception
+      while ($cause.InnerException) { $cause = $cause.InnerException }
+      # 0x80070020 (ERROR_SHARING_VIOLATION) or 0x80070005 (E_ACCESSDENIED): may be this project's link.
+      if ($cause.HResult -in @(-2147024864, -2147024891)) {
+        if (-not $script:unreadableLinks.Contains($file.FullName)) { $script:unreadableLinks.Add($file.FullName) }
+      }
+      continue
+    }
+    if ($data.Description -ceq $mark) { $file }
+  }
 }
 
 # --- removal: needs nothing but the identity ----------------------------------------------------------------------
 if ($Remove) {
   $links = @(Get-Owned)
+  if ($unreadableLinks.Count -gt 0) {
+    Refuse "could not read '$($unreadableLinks -join "', '")' to check ownership (close whatever holds it and retry)"
+  }
   foreach ($link in $links) { Remove-Item -LiteralPath $link.FullName -Force; "removed: $($link.FullName)" }
   $icons = @(Get-ChildItem -LiteralPath $IconDir -Filter "launcher-*-$key.ico" -File -ErrorAction Ignore)
   foreach ($file in $icons) { Remove-Item -LiteralPath $file.FullName -Force; "removed: $($file.FullName)" }
@@ -178,14 +204,17 @@ function BashQuote([string]$text) { "'" + $text.Replace("'", "'\''") + "'" }
 
 $wt = (Get-Command wt.exe -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
 $pwshExe = (Get-Process -Id $PID).Path  # the PowerShell 7 that runs this script runs the links too
-$shell = New-Object -ComObject WScript.Shell
+$ownedBefore = @(Get-Owned)
+if ($unreadableLinks.Count -gt 0) {
+  Refuse "could not read '$($unreadableLinks -join "', '")' to check ownership (close whatever holds it and retry)"
+}
 $plan = @()
 foreach ($agent in $launch.agents) {
   $label = "$($launch.title) ($($labels[$agent]))"
   $link = Join-Path $ShortcutDir "$label.lnk"
   # A name another project or anything else holds is never written over.
   if (Test-Path -LiteralPath $link) {
-    $holder = if (Test-Path -LiteralPath $link -PathType Leaf) { $shell.CreateShortcut($link).Description } else { '' }
+    $holder = if (Test-Path -LiteralPath $link -PathType Leaf) { Get-Mark $link } else { '' }
     if ($holder -cne $mark) { Refuse "'$link' is already there and is not this project's link" }
   }
   $command = if ($launch.skip_permissions) { "$agent $($skipFlags[$agent])" } else { $agent }
@@ -217,7 +246,7 @@ foreach ($entry in @($launch.links)) {
   $label = "$($launch.title) ($($entry.label))"
   $link = Join-Path $ShortcutDir "$label.lnk"
   if (Test-Path -LiteralPath $link) {
-    $holder = if (Test-Path -LiteralPath $link -PathType Leaf) { $shell.CreateShortcut($link).Description } else { '' }
+    $holder = if (Test-Path -LiteralPath $link -PathType Leaf) { Get-Mark $link } else { '' }
     if ($holder -cne $mark) { Refuse "'$link' is already there and is not this project's link" }
   }
   # The icon's name: the label in lower case, each run of other characters one hyphen (launchers.py's slug).
@@ -268,13 +297,14 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "the icon for $($item.Label) could not be rendered: $(($out | Out-String).Trim())" }
     $linkTemp = Join-Path $ShortcutDir "$($item.Label).$PID.tmp.lnk"
     $staged.Add([pscustomobject]@{ Temp = $linkTemp; Dest = $item.Link })
-    $shortcut = $shell.CreateShortcut($linkTemp)
-    $shortcut.TargetPath = $item.Target
-    $shortcut.Arguments = $item.Arguments
-    $shortcut.WorkingDirectory = $item.Workdir
-    $shortcut.Description = $mark
-    $shortcut.IconLocation = "$($item.Icon),0"
-    $shortcut.Save()
+    $data = [Conclave.ShellLinkData]::new()
+    $data.Target = $item.Target
+    $data.Arguments = $item.Arguments
+    $data.WorkingDirectory = $item.Workdir
+    $data.Description = $mark
+    $data.IconPath = $item.Icon
+    $data.IconIndex = 0
+    [Conclave.ShellLink]::Write($linkTemp, $data)
   }
 } catch {
   Unstage
@@ -289,7 +319,7 @@ $moved = [System.Collections.Generic.List[object]]::new()   # (destination, back
 # after they were renamed into place the stale step could not find them, and the whole run rolled back.
 $written = @($plan | ForEach-Object { Split-Path $_.Link -Leaf }) + @($staged | ForEach-Object { Split-Path $_.Temp -Leaf })
 $kept = @($plan | ForEach-Object { Split-Path $_.Icon -Leaf })
-$stale = @(Get-Owned | Where-Object { $written -notcontains $_.Name } | ForEach-Object { $_.FullName }) +
+$stale = @($ownedBefore | Where-Object { $written -notcontains $_.Name } | ForEach-Object { $_.FullName }) +
          @(Get-ChildItem -LiteralPath $IconDir -Filter "launcher-*-$key.ico" -File -ErrorAction Ignore |
            Where-Object { $kept -notcontains $_.Name } | ForEach-Object { $_.FullName })
 try {
