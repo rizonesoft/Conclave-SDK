@@ -4290,5 +4290,221 @@ class NothingResumesARunTests(unittest.TestCase):
             self.assertEqual(resume_paths(tmp), [])
 
 
+def _minimal_rgba_png(size=256):
+    """Build a valid 8-bit non-interlaced RGBA square PNG using stdlib only."""
+    import struct
+    import zlib
+
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+    ihdr = struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0)
+    raw = b"".join(b"\x00" + (b"\x25\x63\xeb\xff" * size) for _ in range(size))
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+
+
+class LaunchersPageTests(unittest.TestCase):
+
+    def _provision_project(self, tmp):
+        target = pathlib.Path(tmp) / "laravel-app"
+        target.mkdir(parents=True)
+        forge.provision(target, agent="all", with_todo=True, overwrite_existing_docs=True)
+        forge.apply_kit(target, "unattended")
+        return target
+
+    def _extract_example_json(self, page_text):
+        match = re.search(r"```json\s*\n(.*?)\n```", page_text, re.S)
+        self.assertIsNotNone(match, "docs/launchers.md must include a fenced json worked example")
+        return match.group(1)
+
+    def test_launchers_page_topics_skills_links_and_worked_example(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._provision_project(tmp)
+            page = target / "docs/launchers.md"
+            self.assertTrue(page.is_file(), "launchers kit must install docs/launchers.md")
+            text = page.read_text(encoding="utf-8")
+            for required in (
+                "## What are project launcher links?",
+                "## How do I set title, icon, agents and skip_permissions?",
+                "## How do I declare a run or url link?",
+                "## How do I write the links?",
+                "## How do I remove the links?",
+                "## What does each refusal mean?",
+                "256 pixels or more",
+                "8-bit, non-interlaced PNG",
+                "readable PNG frame",
+                "re-export",
+                "skip_permissions",
+                "pwsh scripts/project-shortcuts.ps1",
+                r"\\wsl.localhost",
+                "-ShortcutDir",
+                "-IconDir",
+                "-Distro",
+                "-Project",
+                "relative to the script's own installed project folder",
+                "pwsh scripts/project-shortcuts.ps1 -Remove",
+                "unattended-shortcut.ps1",
+                "Watch run",
+                "Stop run",
+                "python scripts/lib/launchers.py show",
+            ):
+                self.assertIn(required, text, f"missing topic in docs/launchers.md: {required!r}")
+
+            # Worked Laravel example loads through load_profile and its run command executes in the documented shell.
+            example_text = self._extract_example_json(text)
+            example = json.loads(example_text)
+            icon_rel = example["icon"]
+            icon_path = target / icon_rel
+            icon_path.parent.mkdir(parents=True, exist_ok=True)
+            icon_path.write_bytes(_minimal_rgba_png(256))
+
+            # Diagnose fresh invalid profile first, then apply the worked example and verify show succeeds.
+            bad = subprocess.run([sys.executable, "scripts/lib/launchers.py", "show"], cwd=target,
+                                 capture_output=True, text=True, timeout=30,
+                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            self.assertEqual(bad.returncode, 1)
+            self.assertIn("title: must be set", bad.stdout + bad.stderr)
+
+            (target / ".conclave/launchers.json").write_text(example_text, encoding="utf-8")
+            good = subprocess.run([sys.executable, "scripts/lib/launchers.py", "show"], cwd=target,
+                                  capture_output=True, text=True, timeout=30,
+                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            self.assertEqual(good.returncode, 0, good.stdout + good.stderr)
+            loaded = json.loads(good.stdout)
+            self.assertEqual(loaded["title"], "Shop App")
+            self.assertIn({"label": "Site", "mark": "site", "url": "https://example.test"}, loaded["links"])
+            run_links = [lnk for lnk in loaded["links"] if "run" in lnk]
+            self.assertEqual(len(run_links), 1)
+            run_cmd = run_links[0]["run"]
+            if os.name == "nt":
+                pwsh = shutil.which("pwsh")
+                self.assertIsNotNone(pwsh, "pwsh required on Windows")
+                ran = subprocess.run([pwsh, "-NoProfile", "-Command", run_cmd], cwd=target,
+                                     capture_output=True, text=True, timeout=30,
+                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            else:
+                ran = subprocess.run(["bash", "-lc", run_cmd], cwd=target, capture_output=True, text=True, timeout=30,
+                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+            self.assertIn("laravel-ok", ran.stdout)
+
+            # Installed project-launchers skill in all three agent directories.
+            for agent_dir in (".agents", ".claude", ".codex"):
+                skill = target / agent_dir / "skills/project-launchers/SKILL.md"
+                self.assertTrue(skill.is_file(), f"missing skill in {agent_dir}")
+                st = skill.read_text(encoding="utf-8")
+                self.assertIn("name: project-launchers", st)
+                self.assertIn("description:", st)
+                self.assertIn("docs/launchers.md", st)
+                self.assertIn("-Remove", st)
+                self.assertIn("pwsh", st)
+                self.assertIn("Add-Type -Path 'scripts/lib/ShellLink.cs'", st)
+                self.assertIn("[Conclave.ShellLink]::Read", st)
+                self.assertIn("only ever started by the operator", st)
+                for forbidden in ("D:\\", "C:\\Users", "/home/derick"):
+                    self.assertNotIn(forbidden, st)
+
+            # Codex agents/openai.yaml metadata checked separately.
+            openai_yaml = target / ".codex/skills/project-launchers/agents/openai.yaml"
+            self.assertTrue(openai_yaml.is_file())
+            yt = openai_yaml.read_text(encoding="utf-8")
+            self.assertIn('display_name: "Project launchers"', yt)
+            self.assertIn("short_description:", yt)
+            self.assertIn("docs/launchers.md", yt)
+            self.assertIn("default_prompt:", yt)
+            self.assertIn("project-launchers", yt)
+
+            # All three documentation links resolve in their respective contexts.
+            readme = (FORGE_ROOT / "kits/launchers/README.md").read_text(encoding="utf-8")
+            m_readme = re.search(r"\[docs/launchers\.md\]\(([^)]+)\)", readme)
+            self.assertIsNotNone(m_readme)
+            self.assertTrue((FORGE_ROOT / "kits/launchers" / m_readme.group(1)).is_file())
+
+            unattended_doc = (target / "docs/unattended-run.md").read_text(encoding="utf-8")
+            m_unat = re.search(r"\[docs/launchers\.md\]\(([^)]+)\)", unattended_doc)
+            self.assertIsNotNone(m_unat)
+            self.assertTrue((target / "docs" / m_unat.group(1)).is_file())
+
+            m_back = re.search(r"\[Unattended run shortcuts\]\(([^)#]+)#([^)]+)\)", text)
+            self.assertIsNotNone(m_back)
+            back_target = target / "docs" / m_back.group(1)
+            self.assertTrue(back_target.is_file())
+            self.assertIn("### Shortcuts", back_target.read_text(encoding="utf-8"))
+
+    @unittest.skipUnless(os.name == "nt", "Windows shortcut creation, removal, and ShellLink read-back run on Windows")
+    def test_launchers_page_windows_creation_rerun_invalid_removal_and_readback(self):
+        pwsh = shutil.which("pwsh")
+        self.assertIsNotNone(pwsh, "PowerShell 7 (pwsh) must be on PATH on Windows")
+        no_win = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._provision_project(tmp)
+            page_text = (target / "docs/launchers.md").read_text(encoding="utf-8")
+            example_text = self._extract_example_json(page_text)
+            example = json.loads(example_text)
+            icon_path = target / example["icon"]
+            icon_path.parent.mkdir(parents=True, exist_ok=True)
+            icon_path.write_bytes(_minimal_rgba_png(256))
+            profile_path = target / ".conclave/launchers.json"
+            profile_path.write_text(example_text, encoding="utf-8")
+
+            shortcut_dir = pathlib.Path(tmp) / "shortcuts"
+            icon_dir = pathlib.Path(tmp) / "icons"
+            shortcut_dir.mkdir()
+            icon_dir.mkdir()
+            unrelated = shortcut_dir / "Keep Me.lnk"
+            unrelated.write_bytes(b"unrelated")
+
+            # 1. Create links with the command from docs/launchers.md.
+            created = subprocess.run(
+                [pwsh, "-NoProfile", "-File", "scripts/project-shortcuts.ps1",
+                 "-ShortcutDir", str(shortcut_dir), "-IconDir", str(icon_dir)],
+                cwd=target, capture_output=True, text=True, timeout=60, creationflags=no_win)
+            self.assertEqual(created.returncode, 0, created.stdout + created.stderr)
+            site_lnk = shortcut_dir / "Shop App (Site).lnk"
+            claude_lnk = shortcut_dir / "Shop App (Claude).lnk"
+            check_lnk = shortcut_dir / "Shop App (App Check).lnk"
+            for lnk in (site_lnk, claude_lnk, check_lnk):
+                self.assertTrue(lnk.is_file(), f"missing created shortcut: {lnk}")
+
+            # 2. Execute the skill's read-back command in a fresh pwsh process without launching the link.
+            skill_text = (target / ".claude/skills/project-launchers/SKILL.md").read_text(encoding="utf-8")
+            m_cmd = re.search(r"```powershell\s*\n(.*?)\n```", skill_text, re.S)
+            self.assertIsNotNone(m_cmd, "SKILL.md must include a PowerShell read-back command")
+            rb_line = m_cmd.group(1).strip().replace("<path-to-link.lnk>", str(site_lnk))
+            m_inner = re.search(r'-Command\s+"(.+)"$', rb_line)
+            self.assertIsNotNone(m_inner)
+            rb = subprocess.run([pwsh, "-NoProfile", "-Command", m_inner.group(1)],
+                                cwd=target, capture_output=True, text=True, timeout=60, creationflags=no_win)
+            self.assertEqual(rb.returncode, 0, rb.stdout + rb.stderr)
+            self.assertIn("Target", rb.stdout)
+            self.assertIn("rundll32.exe", rb.stdout.lower())
+            self.assertIn("https://example.test", rb.stdout)
+            self.assertIn("IconPath", rb.stdout)
+
+            # 3. Rename title and drop a link, rerun, and verify stale links disappear.
+            example["title"] = "Shop App Two"
+            example["links"] = [lnk for lnk in example["links"] if lnk["label"] == "Site"]
+            profile_path.write_text(json.dumps(example), encoding="utf-8")
+            rerun = subprocess.run(
+                [pwsh, "-NoProfile", "-File", "scripts/project-shortcuts.ps1",
+                 "-ShortcutDir", str(shortcut_dir), "-IconDir", str(icon_dir)],
+                cwd=target, capture_output=True, text=True, timeout=60, creationflags=no_win)
+            self.assertEqual(rerun.returncode, 0, rerun.stdout + rerun.stderr)
+            self.assertFalse(site_lnk.exists(), "stale shortcut was not removed on rerun")
+            self.assertFalse(check_lnk.exists(), "dropped link shortcut was not removed on rerun")
+            self.assertTrue((shortcut_dir / "Shop App Two (Site).lnk").is_file())
+            self.assertTrue(unrelated.is_file())
+
+            # 4. Invalidate the profile before running -Remove and verify owned files vanish while unrelated survives.
+            profile_path.write_text("{broken json", encoding="utf-8")
+            removed = subprocess.run(
+                [pwsh, "-NoProfile", "-File", "scripts/project-shortcuts.ps1",
+                 "-Remove", "-ShortcutDir", str(shortcut_dir), "-IconDir", str(icon_dir)],
+                cwd=target, capture_output=True, text=True, timeout=60, creationflags=no_win)
+            self.assertEqual(removed.returncode, 0, removed.stdout + removed.stderr)
+            self.assertEqual([p.name for p in shortcut_dir.iterdir()], ["Keep Me.lnk"])
+            self.assertEqual(list(icon_dir.glob("*.ico")), [])
+
+
 if __name__ == "__main__":
     unittest.main()

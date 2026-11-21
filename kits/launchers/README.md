@@ -11,6 +11,7 @@ It needs no other kit, and the `unattended` kit brings it with it, since that ki
 | File | What it is |
 | ---- | ---------- |
 | `.conclave/launchers.json` | The profile: the title, the icon, the agents that get a link, and further links |
+| [docs/launchers.md](templates/docs/launchers.md) | Operator page: profile, creation, removal, and refusals |
 | `scripts/campaign-icon.py` | The icon renderer: a runner's round badge or a link's rounded-square overlay (stdlib) |
 | `scripts/project-shortcuts.ps1` | Writes `<Title> (<Agent>)` desktop links per agent; `-Remove` takes them off |
 | `scripts/lib/launchers.py` | `load_profile`, `show` and `title`: the profile, every key checked (stdlib only) |
