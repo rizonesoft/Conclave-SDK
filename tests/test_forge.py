@@ -4737,6 +4737,8 @@ class WordPressTicketLoginDoctorTests(unittest.TestCase):
             rows, _ = self._doctor_rows(target)
             self.assertEqual(rows["ticket-login"][0], "setup_required")
             self.assertIn("site-pin", rows["ticket-login"][1])
+            self.assertEqual(rows["ticket-login-user"][0], "setup_required")
+            self.assertIn("site-pin", rows["ticket-login-user"][1])
 
             # 4. SSH-enabled pin lacking ssh.wp_path points to site-ssh.
             self._write_pin(target, {**atomic_pin, "ssh": {**base_ssh, "wp_path": None}})
@@ -4780,6 +4782,33 @@ class WordPressTicketLoginDoctorTests(unittest.TestCase):
                     rows, _ = self._doctor_rows(target)
                     self.assertEqual(rows["ticket-login-user"][0], want_status, rows["ticket-login-user"])
                     self.assertIn(want_needle, rows["ticket-login-user"][1])
+
+            # 7. Overflowing 64-bit PHP int user ID is refused by both wp_site.pinned_user and doctor.
+            wp_site = forge._wordpress_pin_module()
+            overflow_pin = {**pressable_base, "mcp": {"wp": {**basic_entry, "wordpress_user_id": 1 << 63}}}
+            with self.assertRaises(ValueError):
+                wp_site.pinned_user(overflow_pin)
+            self._write_pin(target, overflow_pin)
+            rows, _ = self._doctor_rows(target)
+            self.assertEqual(rows["site-pin"][0], "missing")
+            self.assertEqual(rows["ticket-login-user"][0], "setup_required")
+
+            # 8. Malformed .mcp.json ({"mcpServers": []}) does not crash doctor before reaching ticket rows.
+            self._write_pin(target, {**pressable_base, "mcp": {"wp": basic_entry}})
+            (target / ".mcp.json").write_text('{"mcpServers": []}', encoding="utf-8")
+            rows, _ = self._doctor_rows(target)
+            self.assertEqual(rows["mcp:wp"][0], "setup_required")
+            self.assertEqual(rows["ticket-login"][0], "ok")
+            self.assertEqual(rows["ticket-login-user"][0], "ok")
+
+            # 9. open-dashboard.py still resolves pinned_user when an older project-owned wp_site lacks it.
+            spec = importlib.util.spec_from_file_location("od_fallback", target / "scripts/open-dashboard.py")
+            od = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(od)
+            with unittest.mock.patch.object(od, "wp_site", object()):
+                self.assertEqual(od.pinned_user({**pressable_base, "mcp": {"wp": basic_entry}}), 7)
+                with self.assertRaises(od.Refusal):
+                    od.pinned_user(overflow_pin)
 
 
 if __name__ == "__main__":

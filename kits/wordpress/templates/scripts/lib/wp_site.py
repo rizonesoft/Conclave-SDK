@@ -71,10 +71,13 @@ def _optional(value, pattern, name):
         raise ValueError(f"invalid {name} in the site pin")
 
 
+MAX_PHP_INT = (1 << 63) - 1
+
+
 def _optional_id(value, name):
     if value is None:
         return
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0 or value > MAX_PHP_INT:
         raise ValueError(f"invalid {name} in the site pin")
 
 
@@ -189,7 +192,7 @@ def pinned_user(pin):
         raise ValueError("no basic entry under mcp in .conclave/wordpress-site.json names a wordpress_user_id")
     if any(user is None for user in named):
         raise ValueError("a basic entry under mcp in .conclave/wordpress-site.json names no wordpress_user_id")
-    if any(isinstance(user, bool) or not isinstance(user, int) or user < 1 for user in named):
+    if any(isinstance(user, bool) or not isinstance(user, int) or user < 1 or user > MAX_PHP_INT for user in named):
         raise ValueError("a wordpress_user_id in .conclave/wordpress-site.json is not a user")
     if len(set(named)) != 1:
         raise ValueError("the basic entries under mcp in .conclave/wordpress-site.json name different users")

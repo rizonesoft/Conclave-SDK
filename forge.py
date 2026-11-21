@@ -1834,9 +1834,10 @@ def _doctor_wordpress(target_root: Path, add_check) -> None:
             add_check("mcp-pinned", "ok" if servers else "setup_required",
                       ", ".join(sorted(servers)) if servers else "wordpress-connect step 3: pin the WordPress and Pressable connections")
         try:
-            registered = json.loads((target_root / ".mcp.json").read_text(encoding="utf-8")).get("mcpServers", {})
+            raw_mcp = json.loads((target_root / ".mcp.json").read_text(encoding="utf-8")).get("mcpServers", {})
         except (OSError, ValueError, AttributeError):
-            registered = {}
+            raw_mcp = {}
+        registered = raw_mcp if isinstance(raw_mcp, dict) else {}
         for name, entry in sorted(servers.items()):
             missing = wp_site.unset(pin, *(f"mcp.{name}.{key}" for key in wp_site.REQUIRED_MCP_KEYS[entry["scheme"]]))
             server = registered.get(name)
