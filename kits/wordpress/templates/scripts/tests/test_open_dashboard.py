@@ -717,8 +717,12 @@ class BrowserTest(unittest.TestCase):
         if os.name == "posix":
             with mock.patch.object(shutil, "which", side_effect=lambda name: str(pe) if name == "google-chrome" else (str(elf) if name == "chromium" else None)):
                 self.assertEqual(self._find_linux_browser(), str(elf))
+        fake_proc = mock.Mock()
+        fake_proc.poll.return_value = 0
+        with mock.patch.object(self, "_kill_windows_profile", side_effect=AssertionError("must not call Windows cleanup")):
+            self._kill_browser_tree(fake_proc)
 
-    def _kill_browser_tree(self, proc, browser, profile_arg):
+    def _kill_browser_tree(self, proc):
         if proc.poll() is None:
             if os.name == "nt":
                 subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
@@ -730,10 +734,6 @@ class BrowserTest(unittest.TestCase):
                 except ProcessLookupError:
                     pass
             proc.wait()
-        if browser.startswith("/mnt/") and os.name == "posix":
-            ps = shutil.which("pwsh.exe") or shutil.which("powershell.exe")
-            if ps:
-                self._kill_windows_profile(ps, profile_arg)
 
     def _windows_temp_profile(self, prefix):
         if os.name == "nt":
@@ -792,7 +792,7 @@ class BrowserTest(unittest.TestCase):
                 self.assertTrue(done_event.wait(timeout=15), "headless browser did not follow redirect via Linux open_browser")
         finally:
             for proc in spawned:
-                self._kill_browser_tree(proc, browser, str(profile))
+                self._kill_browser_tree(proc)
         self.assertEqual(len(recorded_argv), 1)
         self.assertEqual(recorded_argv[0][0], browser)
         self.assertNotIn(marker_val, " ".join(recorded_argv[0]))
