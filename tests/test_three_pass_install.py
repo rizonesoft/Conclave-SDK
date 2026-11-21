@@ -329,9 +329,10 @@ class FreshInstall(unittest.TestCase):
         self.assertEqual(((self.repo / kept).read_bytes(), (self.repo / RECORD).exists()), (kept_bytes, False))
         # The item is corrected (a dated note) and committed with the new Started: the new chain's plan candidate.
         text = todo.read_text(encoding="utf-8")
-        todo.write_text(text.replace("- [x] Write", "- [ ] Write the thing in full", 1).replace(
-            "**Test checkpoint:**", "**Corrected 2026-11-19:** the item said only 'Write'.\n\n**Test checkpoint:**", 1),
-            encoding="utf-8")
+        updated = text.replace("- [x] Write", "- [ ] Write the thing in full", 1).replace(
+            "**Test checkpoint:**", "**Corrected 2026-11-19:** the item said only 'Write'.\n\n**Test checkpoint:**", 1)
+        self.assertIn("- [ ] Write the thing in full", updated)
+        todo.write_text(updated, encoding="utf-8")
         self.start = self.commit("todo: re-plan D00 T01 §1")
         closed = self.run_script("scripts/review-dispatch.py", "--kind", "plan", "--candidate", self.start, "--writer",
                                  "claude", "--prompt", self.fill("plan-review-prompt.md", self.start),
@@ -340,8 +341,10 @@ class FreshInstall(unittest.TestCase):
         self.assertIn("is a kept earlier review chain", closed.stderr)
 
         self.review("plan", self.start, "plan-review-prompt.md", reply("plan", lenses["plan"]))
-        todo.write_text(todo.read_text(encoding="utf-8").replace("- [ ] Write the thing in full",
-                                                                 "- [x] Write the thing in full"), encoding="utf-8")
+        rebuilt_todo = todo.read_text(encoding="utf-8").replace("- [ ] Write the thing in full",
+                                                                "- [x] Write the thing in full")
+        self.assertIn("- [x] Write the thing in full", rebuilt_todo)
+        todo.write_text(rebuilt_todo, encoding="utf-8")
         (self.repo / "src/thing.py").write_text("THING = 2\n", encoding="utf-8")
         rebuilt = self.commit("x: the thing in full")
         self.review("round", rebuilt, "review-round-prompt.md", reply("round", lenses["round"]))

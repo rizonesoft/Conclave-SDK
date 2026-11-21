@@ -17,6 +17,7 @@ import re
 import subprocess
 import tempfile
 import threading
+import time
 
 ROOT = Path(__file__).resolve().parents[2]
 PLAN = "todo/implementation-plan.md"  # the default; a project names its own in todo/plan.json (`layout.plan`)
@@ -68,7 +69,7 @@ PLAN_KEYS = {"report", "candidate", "reviewer", "model", "effort", "lenses"}
 STARTED = re.compile(r"^> \*\*Started:\*\* .+$", re.M)
 # The Corrected note replan writes, naming the chain it kept: a retry finds it whatever day it ran.
 REPLANNED = re.compile(r"re-planned with `todo-graph\.py replan`; the build first began at [^;\n]+; its review chain is "
-                       r"kept as `([^`\n]+)`\.")
+                       r"kept as `([^`\n]+)`")
 REPLAN_LOCK_SECONDS = 60  # replan holds the section's review lock only while it moves a file and writes the note
 # A section's earlier review chain, kept beside its findings file when the section is re-planned (`replan`, D00 T01
 # §9): `D<NN>-T<NN>-s<N>-chain<k>.md`. It is closed: no pass is appended to it and no stamp takes it.
@@ -663,6 +664,10 @@ def plan_record(root, report, ref, commits=None, start=None):
         ancestor = _git(root, "merge-base", "--is-ancestor", candidate, start, timeout=30)
         require(ancestor.returncode == 0, f"the plan review's candidate {candidate} is not the commit the build began "
                                           f"at ({start}) or an ancestor of it: review the plan before the build: {ref}")
+        if kept_chain_files(root, ref):
+            require(candidate == start,
+                    f"the re-planned section's plan review must review the correction commit ({start}), not an "
+                    f"earlier commit ({candidate}): {ref}")
     return {"report": report, "candidate": candidate, "reviewer": entry["reviewer"], "model": entry["model"],
             "effort": entry["effort"], "lenses": entry["lenses"] or []}
 
@@ -2097,29 +2102,54 @@ def replan(root, ref, date, now):
     except dispatch.Refused as exc:
         raise Refused(f"{exc}: replan waits for it") from None
     try:
-        chains = kept_chain_files(root, ref)
-        moved = None
-        if own.exists():
-            number = max([int(KEPT_CHAIN.search(p.name)[1]) for p in chains], default=0) + 1
-            moved = own.with_name(f"{own.stem}-chain{number}.md")
-            require(not moved.exists(), f"{moved} exists: a kept chain is never written over")
-            os.replace(own, moved)
-            kept = moved
-        else:
-            require(bool(chains), f"{ref} has no findings file to keep: nothing to re-plan")
-            kept = chains[-1]
-        kept_rel = kept.relative_to(root).as_posix()
-        if REPLANNED.search(row.body) and any(m == kept_rel for m in REPLANNED.findall(row.body)):
-            return {"kept": kept_rel, "started": started.group(0), "done": "already"}
-        old = started.group(0)[len("> **Started:** "):]
-        body = row.body.replace(started.group(0),
-                                f"> **Started:** {now}\n\n**Corrected {date}:** re-planned with `todo-graph.py "
-                                f"replan`; the build first began at {old}; its review chain is kept as `{kept_rel}`.", 1)
         path = root / row.path
-        text = read_text(path)
-        require(text.count(row.body) == 1, f"section body is not unique in {row.path}")
-        atomic(path, text.replace(row.body, body))
-        return {"kept": kept_rel, "started": f"> **Started:** {now}", "done": "moved" if moved else "noted"}
+        todo_lock = dispatch.section_lock_path(path)
+        todo_owned = f"{os.getpid()} {time.time() + REPLAN_LOCK_SECONDS + dispatch.LOCK_GRACE_SECONDS:.0f} {os.urandom(8).hex()}"
+        locked_todo = False
+        deadline = time.monotonic() + 2.0
+        while True:
+            if dispatch._create_exclusive(todo_lock, todo_owned):
+                locked_todo = True
+                break
+            if dispatch._lock_free(todo_lock):
+                try:
+                    todo_lock.unlink()
+                except FileNotFoundError:
+                    pass
+                continue
+            if time.monotonic() >= deadline:
+                raise Refused(f"another replan is updating {row.path} (lock {todo_lock}): replan waits for it")
+            time.sleep(0.05)
+        try:
+            chains = kept_chain_files(root, ref)
+            moved = None
+            if own.exists():
+                number = max([int(KEPT_CHAIN.search(p.name)[1]) for p in chains], default=0) + 1
+                moved = own.with_name(f"{own.stem}-chain{number}.md")
+                require(not moved.exists(), f"{moved} exists: a kept chain is never written over")
+                os.replace(own, moved)
+                kept = moved
+            else:
+                require(bool(chains), f"{ref} has no findings file to keep: nothing to re-plan")
+                kept = chains[-1]
+            kept_rel = kept.relative_to(root).as_posix()
+            fresh_row = graph(root)[ref]
+            fresh_started = STARTED.search(fresh_row.body)
+            require(fresh_started is not None, f"{ref} has no '> **Started:**' line: re-plan a section whose build began")
+            if REPLANNED.search(fresh_row.body) and any(m == kept_rel for m in REPLANNED.findall(fresh_row.body)):
+                return {"kept": kept_rel, "started": fresh_started.group(0), "done": "already"}
+            old = fresh_started.group(0)[len("> **Started:** "):]
+            body = fresh_row.body.replace(
+                fresh_started.group(0),
+                f"> **Started:** {now}\n\n**Corrected {date}:** re-planned with `todo-graph.py "
+                f"replan`; the build first began at {old}; its review chain is kept as `{kept_rel}`.", 1)
+            text = read_text(path)
+            require(text.count(fresh_row.body) == 1, f"section body is not unique in {fresh_row.path}")
+            atomic(path, text.replace(fresh_row.body, body))
+            return {"kept": kept_rel, "started": f"> **Started:** {now}", "done": "moved" if moved else "noted"}
+        finally:
+            if locked_todo:
+                dispatch.release_section(todo_lock, todo_owned)
     finally:
         dispatch._release_held()
 

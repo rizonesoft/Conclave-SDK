@@ -2912,6 +2912,43 @@ class ThreePassStamp(Stamp):
         after = todo.read_bytes()
         self.assertEqual(tg.replan(self.root, "D00 T01 §1", "2026-10-26", "2026-10-26T09:00Z")["done"], "already")
         self.assertEqual(todo.read_bytes(), after)
+        # Round 1 finding 3: a parenthetical explanation after the archive path still counts as already re-planned.
+        with_note = todo.read_text(encoding="utf-8").replace(
+            "-chain1.md`.", "-chain1.md` (chain 1 red on CI).", 1)
+        todo.write_text(with_note, encoding="utf-8")
+        after_note = todo.read_bytes()
+        self.assertEqual(tg.replan(self.root, "D00 T01 §1", "2026-10-26", "2026-10-26T09:05Z")["done"], "already")
+        self.assertEqual(todo.read_bytes(), after_note)
+
+    def test_replanned_stamp_refuses_plan_review_of_obsolete_parent_commit(self):
+        # Round 1 finding 2: after replan, the new plan review must cover the correction commit, not its parent.
+        self.chain(completion=("P2", True))
+        before_replan = self.head()
+        self.replan_now()
+        self.start = self.commit("replan")
+        (self.root / self.FILE).write_text("# Review findings\n", encoding="utf-8")
+        self.passed("plan", before_replan)
+        sha = self.build("rebuild")
+        self.passed("round", sha)
+        self.passed("completion", sha)
+        self.stamp3_refuses(sha, f"must review the correction commit ({self.start})")
+
+    def test_replan_serializes_updates_to_shared_todo_file(self):
+        # Round 1 finding 1: a held TODO lock blocks concurrent replan from clobbering the shared TODO file.
+        self.chain(completion=("P2", True))
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        dispatch = tg.review_dispatch()
+        todo_lock = dispatch.section_lock_path(todo)
+        owned = f"{os.getpid()} {time.time() + 60:.0f} deadbeef"
+        self.assertTrue(dispatch._create_exclusive(todo_lock, owned))
+        self.addCleanup(dispatch.release_section, todo_lock, owned)
+        before_todo = todo.read_bytes()
+        own = self.root / self.FILE
+        before_own = own.read_bytes()
+        with self.assertRaises(tg.Refused) as ctx:
+            self.replan_now()
+        self.assertIn("another replan is updating", str(ctx.exception))
+        self.assertEqual((todo.read_bytes(), own.read_bytes()), (before_todo, before_own))
 
     def test_replan_waits_for_a_pass_that_holds_the_sections_lock(self):
         # Round 1: replan moved the file while a reviewer was answering, so the pass landed in a new canonical file.
