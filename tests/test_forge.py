@@ -4636,5 +4636,151 @@ class LaunchersPageTests(unittest.TestCase):
             self.assertEqual(list(icon_dir.glob("*.ico")), [])
 
 
+class WordPressTicketLoginDoctorTests(unittest.TestCase):
+    """Doctor rows and two-host installation checks for WordPress ticket login (D07 T02 §4)."""
+
+    TICKET_FILES = (
+        "scripts/open-dashboard.py",
+        "scripts/ticket-login.py",
+        "tools/ticket-login/conclave-ticket-login.php",
+    )
+
+    def _install(self, target: pathlib.Path, host: str) -> None:
+        forge.apply_kit(target, "wordpress", host=host)
+
+    def _write_pin(self, target: pathlib.Path, pin: dict) -> None:
+        (target / forge.WORDPRESS_PIN).write_text(json.dumps(pin), encoding="utf-8")
+
+    def _doctor_rows(self, target: pathlib.Path) -> tuple[dict[str, tuple[str, str]], dict]:
+        report = forge.doctor_repo(target, "wordpress")
+        rows = {c["name"]: (c["status"], c["detail"]) for c in report["checks"]}
+        return rows, report
+
+    def test_ticket_login_both_hosts_install_files_bytes_and_manifest(self):
+        templates = forge.FORGE_ROOT / "kits" / "wordpress" / "templates"
+        for host in ("pressable", "wpcom"):
+            with self.subTest(host=host), tempfile.TemporaryDirectory() as tmp:
+                target = pathlib.Path(tmp)
+                self._install(target, host)
+                manifest = json.loads((target / ".conclave" / "kits.json").read_text(encoding="utf-8"))
+                for rel in self.TICKET_FILES:
+                    installed = target / rel
+                    self.assertTrue(installed.is_file(), f"{host}: missing {rel}")
+                    self.assertEqual(installed.read_bytes(), (templates / rel).read_bytes(), f"{host}: {rel}")
+                    self.assertEqual(manifest["files"].get(rel, {}).get("kit"), "wordpress", f"{host}: {rel}")
+
+    def test_ticket_login_doctor_rows_offline_and_strict_cli(self):
+        base_ssh = {
+            "item": "abcdefghijklmnopqrstuvwxyz",
+            "ssh_host": "ssh.example.com",
+            "sftp_host": "sftp.example.com",
+            "port": "22",
+            "username": "wpuser",
+            "wp_path": "~/htdocs",
+        }
+        basic_entry = {
+            "item": "abcdefghijklmnopqrstuvwxyz",
+            "scheme": "basic",
+            "url": "https://example.com/wp-json/wp/v2",
+            "username": "admin",
+            "wordpress_user_id": 7,
+            "application_password_uuid": "11111111-1111-1111-1111-111111111111",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            target = pathlib.Path(tmp)
+            self._install(target, "wpcom")
+            # 1. WordPress.com Simple (no SSH): both rows optional, doctor --strict exits 0 with 0 failures.
+            simple_pin = {
+                "host": "wpcom", "site_id": 101, "url": "https://example.com", "environment": "production",
+                "ssh": {**base_ssh, "ssh_host": None, "sftp_host": None, "wp_path": None}, "mcp": {},
+            }
+            self._write_pin(target, simple_pin)
+            with unittest.mock.patch("subprocess.run", side_effect=AssertionError("offline doctor must not run subprocess")):
+                rows, report = self._doctor_rows(target)
+                self.assertEqual(rows["ticket-login"][0], "optional")
+                self.assertIn("SSH", rows["ticket-login"][1])
+                self.assertEqual(rows["ticket-login-user"][0], "optional")
+                self.assertEqual(report["missing_or_setup_required"], 0, report["checks"])
+                buf = io.StringIO()
+                with unittest.mock.patch("sys.stdout", buf):
+                    rc = forge.main(["doctor", str(target), "wordpress", "--strict"])
+                self.assertEqual(rc, 0, buf.getvalue())
+
+            # 2. WordPress.com Atomic (SSH enabled, connector alone): ticket-login ok, ticket-login-user optional, --strict 0.
+            atomic_pin = {
+                "host": "wpcom", "site_id": 102, "url": "https://example.com", "environment": "production",
+                "ssh": base_ssh, "mcp": {},
+            }
+            self._write_pin(target, atomic_pin)
+            with unittest.mock.patch("subprocess.run", side_effect=AssertionError("offline doctor must not run subprocess")), \
+                    unittest.mock.patch("shutil.which", return_value="/usr/bin/sshpass"):
+                rows, report = self._doctor_rows(target)
+                self.assertEqual(rows["ticket-login"][0], "ok")
+                self.assertIn("run python scripts/ticket-login.py status to check the site", rows["ticket-login"][1])
+                if os.name == "nt":
+                    self.assertIn("WSL", rows["ticket-login"][1])
+                self.assertEqual(rows["ticket-login-user"][0], "optional")
+                self.assertEqual(report["missing_or_setup_required"], 0, report["checks"])
+                buf = io.StringIO()
+                with unittest.mock.patch("sys.stdout", buf):
+                    rc = forge.main(["doctor", str(target), "wordpress", "--strict"])
+                self.assertEqual(rc, 0, buf.getvalue())
+
+            # 3. Missing and malformed pins point to site-pin.
+            (target / forge.WORDPRESS_PIN).unlink()
+            rows, _ = self._doctor_rows(target)
+            self.assertEqual(rows["ticket-login"][0], "setup_required")
+            self.assertIn("site-pin", rows["ticket-login"][1])
+            self.assertEqual(rows["ticket-login-user"][0], "setup_required")
+            self.assertIn("site-pin", rows["ticket-login-user"][1])
+            (target / forge.WORDPRESS_PIN).write_text("{bad json", encoding="utf-8")
+            rows, _ = self._doctor_rows(target)
+            self.assertEqual(rows["ticket-login"][0], "setup_required")
+            self.assertIn("site-pin", rows["ticket-login"][1])
+
+            # 4. SSH-enabled pin lacking ssh.wp_path points to site-ssh.
+            self._write_pin(target, {**atomic_pin, "ssh": {**base_ssh, "wp_path": None}})
+            rows, _ = self._doctor_rows(target)
+            self.assertEqual(rows["ticket-login"][0], "setup_required")
+            self.assertIn("site-ssh", rows["ticket-login"][1])
+            self.assertIn("ssh.wp_path", rows["ticket-login"][1])
+
+            # 5. Removing each of the three files independently reports setup_required naming that path.
+            self._write_pin(target, atomic_pin)
+            for rel in self.TICKET_FILES:
+                p = target / rel
+                saved = p.read_bytes()
+                p.unlink()
+                try:
+                    rows, _ = self._doctor_rows(target)
+                    self.assertEqual(rows["ticket-login"][0], "setup_required", rel)
+                    self.assertIn(rel, rows["ticket-login"][1])
+                finally:
+                    p.write_bytes(saved)
+
+            # 6. ticket-login-user combinations on Pressable (shared wp_site.pinned_user).
+            pressable_base = {
+                "host": "pressable", "site_id": 201, "url": "https://example.com", "environment": "staging",
+                "pressable": {"account_id": 99}, "ssh": base_ssh,
+            }
+            bearer_entry = {"item": "abcdefghijklmnopqrstuvwxyz", "scheme": "bearer", "url": "https://mcp.pressable.com"}
+            cases = [
+                ("one-basic", {"wp": basic_entry}, "ok", "7"),
+                ("two-same-id", {"wp1": basic_entry, "wp2": dict(basic_entry)}, "ok", "7"),
+                ("bearer-plus-basic", {"pressable": bearer_entry, "wp": basic_entry}, "ok", "7"),
+                ("none", {}, "setup_required", "no basic entry"),
+                ("two-different-ids", {"wp1": basic_entry, "wp2": {**basic_entry, "wordpress_user_id": 9}},
+                 "setup_required", "different users"),
+                ("valid-plus-missing-id", {"wp1": basic_entry, "wp2": {**basic_entry, "wordpress_user_id": None}},
+                 "setup_required", "names no wordpress_user_id"),
+            ]
+            for label, mcp_map, want_status, want_needle in cases:
+                with self.subTest(user_case=label):
+                    self._write_pin(target, {**pressable_base, "mcp": mcp_map})
+                    rows, _ = self._doctor_rows(target)
+                    self.assertEqual(rows["ticket-login-user"][0], want_status, rows["ticket-login-user"])
+                    self.assertIn(want_needle, rows["ticket-login-user"][1])
+
+
 if __name__ == "__main__":
     unittest.main()

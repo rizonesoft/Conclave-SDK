@@ -181,6 +181,21 @@ def ssh_enabled(pin):
     return not (pin["host"] == "wpcom" and value(pin, "ssh.ssh_host") is None)
 
 
+def pinned_user(pin):
+    """The one WordPress user every `basic` entry under `mcp` names; none, missing, invalid, or two is a ValueError."""
+    named = [entry.get("wordpress_user_id") for entry in (pin.get("mcp") or {}).values()
+             if isinstance(entry, dict) and entry.get("scheme") == "basic"]
+    if not named:
+        raise ValueError("no basic entry under mcp in .conclave/wordpress-site.json names a wordpress_user_id")
+    if any(user is None for user in named):
+        raise ValueError("a basic entry under mcp in .conclave/wordpress-site.json names no wordpress_user_id")
+    if any(isinstance(user, bool) or not isinstance(user, int) or user < 1 for user in named):
+        raise ValueError("a wordpress_user_id in .conclave/wordpress-site.json is not a user")
+    if len(set(named)) != 1:
+        raise ValueError("the basic entries under mcp in .conclave/wordpress-site.json name different users")
+    return named[0]
+
+
 def vault_fields(item_id):
     """Read one Conclave item by immutable id and return its fields keyed by label. Never prints anything."""
     if not ITEM_ID.fullmatch(item_id or ""):

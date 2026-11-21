@@ -1855,6 +1855,41 @@ def _doctor_wordpress(target_root: Path, add_check) -> None:
             add_check(f"mcp:{name}", "setup_required" if missing else "ok",
                       f"wordpress-connect step 3: {', '.join(missing)}" if missing else entry["url"])
 
+    ticket_files = (
+        "scripts/open-dashboard.py",
+        "scripts/ticket-login.py",
+        "tools/ticket-login/conclave-ticket-login.php",
+    )
+    if not pin:
+        add_check("ticket-login", "setup_required", f"see site-pin ({pin_state})")
+        add_check("ticket-login-user", "setup_required", f"see site-pin ({pin_state})")
+    elif not ssh_enabled:
+        add_check("ticket-login", "optional", "no SSH in site pin; ticket login needs SSH")
+        add_check("ticket-login-user", "optional", "no SSH in site pin; ticket login needs SSH")
+    else:
+        missing_files = [rel for rel in ticket_files if not (target_root / rel).is_file()]
+        if wp_site.unset(pin, "ssh.wp_path"):
+            add_check("ticket-login", "setup_required", "see site-ssh: missing ssh.wp_path")
+        elif missing_files:
+            add_check("ticket-login", "setup_required", "missing: " + ", ".join(missing_files))
+        else:
+            hint = "run python scripts/ticket-login.py status to check the site"
+            if os.name == "nt":
+                hint += " (run from WSL or Linux)"
+            add_check("ticket-login", "ok", hint)
+        basic_entries = [entry for entry in servers.values()
+                         if isinstance(entry, dict) and entry.get("scheme") == "basic"]
+        if host == "wpcom" and not basic_entries:
+            add_check("ticket-login-user", "optional",
+                      "WordPress.com connector alone: add a basic MCP entry with wordpress_user_id to enable ticket login")
+        else:
+            try:
+                uid = wp_site.pinned_user(pin)
+            except ValueError as error:
+                add_check("ticket-login-user", "setup_required", str(error))
+            else:
+                add_check("ticket-login-user", "ok", f"user ID {uid}")
+
 PROBE_SECONDS = 15  # how long doctor waits on one question to a reviewer CLI
 
 

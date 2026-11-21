@@ -141,17 +141,10 @@ def link(site_url, token):
 
 def pinned_user(pin):
     """The one WordPress user every `basic` entry under `mcp` names; none, an entry naming none, or two is a refusal."""
-    named = [entry.get("wordpress_user_id") for entry in (pin.get("mcp") or {}).values()
-             if isinstance(entry, dict) and entry.get("scheme") == "basic"]
-    if not named:
-        raise Refusal("no basic entry under mcp in .conclave/wordpress-site.json names a wordpress_user_id", 2)
-    if any(user is None for user in named):
-        raise Refusal("a basic entry under mcp in .conclave/wordpress-site.json names no wordpress_user_id", 2)
-    if any(isinstance(user, bool) or not isinstance(user, int) or user < 1 for user in named):
-        raise Refusal("a wordpress_user_id in .conclave/wordpress-site.json is not a user", 2)
-    if len(set(named)) != 1:
-        raise Refusal("the basic entries under mcp in .conclave/wordpress-site.json name different users", 2)
-    return named[0]
+    try:
+        return wp_site.pinned_user(pin)
+    except ValueError as error:
+        raise Refusal(str(error), 2) from None
 
 
 def _remote(pin, program, digest):
