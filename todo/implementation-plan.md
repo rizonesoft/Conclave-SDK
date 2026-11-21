@@ -206,12 +206,17 @@ Sections: 22 | Checklist items: 145
 | [ ]    | D04 T04 §1  | Interface tests split by whether they take the desk        | windows-host | 7     |
 | [ ]    | D04 T04 §2  | One owner of the visual desktop at a time                  | windows-host | 4     |
 
-### Phase 10: Public core and private overlay
+### Phase 10: Public release: private overlay and the Neon writer
 
-Sections: 10 | Checklist items: 63
+Sections: 15 | Checklist items: 87
 
 | Status | Reference   | Deliverable                                                  | Needs | Items |
 | ------ | ----------- | ------------------------------------------------------------ | ----- | ----- |
+| [ ]    | D00 T04 §1  | Base kit guidance names Gemini 4 Neon                        | none  | 6     |
+| [ ]    | D00 T04 §2  | Antigravity TODO skills without Carbon handoffs              | none  | 4     |
+| [ ]    | D00 T04 §3  | Reviewer pin accepts Neon with an effort                     | none  | 4     |
+| [ ]    | D00 T04 §4  | Unattended profile runs Neon with its effort                 | none  | 5     |
+| [ ]    | D00 T04 §5  | SDK copies, documents and tests follow the kits              | none  | 5     |
 | [ ]    | D06 T03 §1  | Overlay folder and the settings reader that falls back to it | none  | 8     |
 | [ ]    | D06 T03 §2  | Overlay clone in setup and pull after merge                  | none  | 7     |
 | [ ]    | D06 T03 §3  | One sync command for both repositories                       | none  | 7     |
@@ -234,6 +239,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 105/144 verified sections, 10 ready to run now.
+Progress: 105/149 verified sections, 13 ready to run now.
 
-Checklist: 893/1114 items completed (includes Commit items).
+Checklist: 893/1138 items completed (includes Commit items).

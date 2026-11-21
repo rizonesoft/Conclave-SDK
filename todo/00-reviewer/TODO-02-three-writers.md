@@ -19,6 +19,7 @@ title: "TODO-02 -- Antigravity and Codex as first-class writers"
 - The owner's rule that Claude writes and never reviews, and the 2026-11-14 architectural correction that Codex work routes to Gemini 4 Carbon and Antigravity uses native `Orchestrator (Carbon)` (`gemini-pro-orchestrator`) without manual `.agents/agents/` wrappers.
 - The pin rule in `AGENTS.md` (Review): a section keeps the pin committed at its plan review's candidate, so §1's pin change is committed before the next section starts.
 - -> XREF: D02 T01 §2 -- the run guard for Antigravity and Codex (the other half of recommendation 7) is wired there
+- -> XREF: D00 T04 §1 -- replaces the Orchestrator (Carbon) writer that §3 and §4 brought in with Gemini 4 Neon (owner, 2026-11-21)
 
 ## Outcome
 
