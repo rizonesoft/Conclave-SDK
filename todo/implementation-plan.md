@@ -168,7 +168,7 @@ Sections: 17 | Checklist items: 149
 | [x]    | D07 T01 §5 | Desktop links that open the project in an agent                         | windows-host | 19    |
 | [x]    | D07 T01 §6 | Declared links that run a command or open a URL                         | windows-host | 7     |
 | [x]    | D07 T01 §7 | Campaign links under the project's title, icon read from a share        | windows-host | 22    |
-| [ ]    | D07 T01 §8 | Operator page and `project-launchers` skill                             | none         | 6     |
+| [ ]    | D07 T01 §8 | Operator page and `project-launchers` skill                             | windows-host | 6     |
 | [ ]    | D07 T01 §9 | Agent and declared links named outside the ANSI code page               | windows-host | 4     |
 | [x]    | D07 T02 §1 | Ticket login plugin in the WordPress kit                                | none         | 10    |
 | [x]    | D07 T02 §2 | Dashboard opener `scripts/open-dashboard.py`                            | none         | 13    |
