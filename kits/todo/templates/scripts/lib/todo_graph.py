@@ -933,6 +933,9 @@ def receipt_data_ok(data, ref, stamp_sha, root=None, building=False, commits=Non
             f"stopped-low-severity is allowed only after round {SEVERITY_CUTOFF_ROUND}: {ref}")
     if root is not None:
         for r in rounds:
+            require(not KEPT_CHAIN.search(r["report"]),
+                    f"{r['report']} is a kept earlier review chain (`replan`): --review names the section's own "
+                    f"findings file: {ref}")
             report_ok(root, r["report"], ref)
     # Newer receipts record the rounds spent against the cap, and what was done when a review
     # stopped at the cap; earlier receipts carry neither field.

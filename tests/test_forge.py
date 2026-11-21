@@ -1069,10 +1069,14 @@ class ForgeProvisionTests(unittest.TestCase):
             # D00 T01 §9: recovery is planned before the build, and a chain that cannot settle is re-planned.
             for part in ("writes, moves or deletes files outside the repository", "the lock that keeps a second run out",
                          "the durable record of a change in progress", "the ownership check before a file is replaced",
-                         "when that record may be removed"):
+                         "when that record may be removed",
+                         "how a failure and a stop are recovered from that record"):
                 self.assertIn(part, pts_text, (agent_dir, part))
             rts_text = (self.target / agent_dir / "skills/review-todo-section/SKILL.md").read_text(encoding="utf-8")
-            for part in ("**When a chain cannot settle.**", "python scripts/todo-graph.py replan '<ref>'",
+            for part in ("**When a chain cannot settle.**",
+                         "When two passes in a row raise opposite demands on one checked item",
+                         "a finding is a checked item's own contradiction",
+                         "python scripts/todo-graph.py replan '<ref>'",
                          "`D<NN>-T<NN>-s<N>-chain<k>.md`", "correct the item with a dated", "replaces the section's "
                          "`Started:` line", "run a new plan review on it", "record the decision in the run file",
                          "**A gap reopened twice.**"):

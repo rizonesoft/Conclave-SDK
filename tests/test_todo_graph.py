@@ -1370,10 +1370,16 @@ class Stamp(Tree):
         shutil.copyfile(self.root / plan, self.root / chain_plan)
         chain_completion = self.COMPLETION.replace("-completion.md", "-chain1.md")
         shutil.copyfile(self.root / self.COMPLETION, self.root / chain_completion)
-        for kwargs in ({"plan": chain_plan}, {"completion": {"report": chain_completion, "verdict": "complete"}}):
-            with self.subTest(next(iter(kwargs))):
+        chain_review = self.reviews[0]["report"].replace(".md", "-chain1.md")
+        shutil.copyfile(self.root / self.reviews[0]["report"], self.root / chain_review)
+        chain_reviews = [{**self.reviews[0], "report": chain_review}, *self.reviews[1:]]
+        for label, reviews, kwargs in (
+                ("plan", self.reviews, {"plan": chain_plan}),
+                ("completion", self.reviews, {"completion": {"report": chain_completion, "verdict": "complete"}}),
+                ("review", chain_reviews, {})):
+            with self.subTest(label):
                 with self.assertRaises(tg.Refused) as ctx:
-                    self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-23", **kwargs)
+                    self.stamp("D00 T01 §1", self.sha, reviews, ["true -> ok"], "2026-10-23", **kwargs)
                 self.assertIn("is a kept earlier review chain", str(ctx.exception))
         self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-23")  # the own files stamp
 
@@ -2849,12 +2855,20 @@ class ThreePassStamp(Stamp):
         second = self.root / self.FILE.replace(".md", "-chain2.md")
         self.assertTrue(second.exists())
         self.assertEqual(first.read_bytes(), first_bytes, "a second replan wrote over the first chain")
-        # A stop after the move and before the TODO was written: the retry writes the note naming the new chain.
+        # A stop after the move and before the TODO was written: the first retry finishes Started and the note while
+        # preserving the archive, and a later retry leaves both files byte-identical.
         self.commit("replan 2")
         (self.root / self.FILE).write_text("# Review findings\n", encoding="utf-8")
-        os.replace(self.root / self.FILE, self.root / self.FILE.replace(".md", "-chain3.md"))
+        third = self.root / self.FILE.replace(".md", "-chain3.md")
+        os.replace(self.root / self.FILE, third)
+        third_bytes = third.read_bytes()
         self.assertEqual(self.replan_now("2026-10-27T00:00Z")["done"], "noted")
+        self.assertIn("> **Started:** 2026-10-27T00:00Z", tg.graph(self.root)["D00 T01 §1"].body)
         self.assertIn("-chain3.md`.", tg.graph(self.root)["D00 T01 §1"].body)
+        self.assertEqual(third.read_bytes(), third_bytes)
+        todo_after_noted = todo.read_bytes()
+        self.assertEqual(self.replan_now("2026-10-27T00:05Z")["done"], "already")
+        self.assertEqual((third.read_bytes(), todo.read_bytes()), (third_bytes, todo_after_noted))
 
     def test_query_rounds_lists_each_kept_chain_with_its_returned_passes(self):
         self.chain(completion=("P2", True))  # plan, round, completion: 3 returned
@@ -2935,11 +2949,14 @@ class ThreePassStamp(Stamp):
         sha = self.chain()
         chain = self.FILE.replace(".md", "-chain1.md")
         shutil.copyfile(self.root / self.FILE, self.root / chain)
-        for kwargs in ({"plan": chain}, {"completion": {"report": chain, "verdict": "complete"}}):
-            with self.subTest(next(iter(kwargs))):
+        for label, report_for_review, kwargs in (
+                ("plan", self.FILE, {"plan": chain}),
+                ("completion", self.FILE, {"completion": {"report": chain, "verdict": "complete"}}),
+                ("review", chain, {})):
+            with self.subTest(label):
                 args = {"completion": {"report": self.FILE, "verdict": "complete"}, "plan": self.FILE, **kwargs}
                 with self.assertRaises(tg.Refused) as ctx:
-                    tg.stamp(self.root, "D00 T01 §1", sha, [{"round": 1, "report": self.FILE, "verdict": "clean"}],
+                    tg.stamp(self.root, "D00 T01 §1", sha, [{"round": 1, "report": report_for_review, "verdict": "clean"}],
                              ["true -> ok"], "2026-10-24", **args)
                 self.assertIn("is a kept earlier review chain", str(ctx.exception))
         self.stamp3(sha)

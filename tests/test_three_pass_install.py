@@ -324,6 +324,8 @@ class FreshInstall(unittest.TestCase):
         self.assertEqual(replanned.returncode, 0, replanned.stdout + replanned.stderr)
         kept = RECORD.replace(".md", "-chain1.md")
         self.assertIn(f"review chain kept as {kept}", replanned.stdout)
+        for step in ("correct the item", "commit", "plan review"):
+            self.assertIn(step, replanned.stdout)
         self.assertEqual(((self.repo / kept).read_bytes(), (self.repo / RECORD).exists()), (kept_bytes, False))
         # The item is corrected (a dated note) and committed with the new Started: the new chain's plan candidate.
         text = todo.read_text(encoding="utf-8")
@@ -349,6 +351,8 @@ class FreshInstall(unittest.TestCase):
                                 "--completion", f"{RECORD}:complete", "--review", f"1:{RECORD}:clean",
                                 "--check", "true -> exit 0")
         self.assertEqual(stamp.returncode, 0, stamp.stdout + stamp.stderr)
+        receipt = json.loads((self.repo / "docs/reviews/d00-t01-s1.json").read_text(encoding="utf-8"))
+        self.assertEqual(receipt["plan"]["candidate"], self.start)
         self.assertEqual((self.repo / kept).read_bytes(), kept_bytes, "the new chain touched the kept one")
         rounds = self.run_script("scripts/todo-graph.py", "query", "rounds")
         self.assertEqual(rounds.returncode, 0, rounds.stdout + rounds.stderr)
