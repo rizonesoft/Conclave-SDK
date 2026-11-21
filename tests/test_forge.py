@@ -4914,6 +4914,13 @@ class WordPressLauncherLinksTests(unittest.TestCase):
             self.assertIn(forge.LAUNCHERS_PROFILE, res["merge_needed"])
             self.assertEqual((target / forge.LAUNCHERS_PROFILE).read_bytes(), before)
 
+    @staticmethod
+    def _tree_snapshot(root: pathlib.Path) -> dict[str, bytes | None]:
+        return {
+            p.relative_to(root).as_posix(): (p.read_bytes() if p.is_file() else None)
+            for p in sorted(root.rglob("*"))
+        }
+
     def test_launcher_links_dry_run_and_standalone_installs(self):
         # Standalone wordpress creates no launcher profile; standalone launchers adds no WordPress link.
         with tempfile.TemporaryDirectory() as tmp:
@@ -4922,24 +4929,24 @@ class WordPressLauncherLinksTests(unittest.TestCase):
             res_wp = forge.apply_kit(wp_only, "wordpress")
             self.assertNotIn("launcher_links", res_wp)
             self.assertFalse((wp_only / forge.LAUNCHERS_PROFILE).exists())
-            # Dry-run launchers after wordpress predicts the addition without writing the seed.
+            # Dry-run launchers after wordpress predicts the addition with zero disk changes anywhere in the tree.
+            wp_before = self._tree_snapshot(wp_only)
             dry_launchers = forge.apply_kit(wp_only, "launchers", dry_run=True)
             self.assertEqual(dry_launchers.get("launcher_links"), {"added": ["WordPress"]})
             self.assertEqual(dry_launchers["merge_needed"], [])
-            self.assertFalse((wp_only / forge.LAUNCHERS_PROFILE).exists())
+            self.assertEqual(self._tree_snapshot(wp_only), wp_before)
 
             l_only = pathlib.Path(tmp) / "launchers"
             l_only.mkdir()
             res_l = forge.apply_kit(l_only, "launchers")
             self.assertNotIn("launcher_links", res_l)
             self.assertEqual(self._load(l_only)["links"], [])
-            before = (l_only / forge.LAUNCHERS_PROFILE).read_bytes()
-            # Dry-run wordpress after launchers predicts the addition without modifying the profile.
+            l_before = self._tree_snapshot(l_only)
+            # Dry-run wordpress after launchers predicts the addition with zero disk changes anywhere in the tree.
             dry_wp = forge.apply_kit(l_only, "wordpress", dry_run=True)
             self.assertEqual(dry_wp.get("launcher_links"), {"added": ["WordPress"]})
             self.assertEqual(dry_wp["merge_needed"], [])
-            self.assertEqual((l_only / forge.LAUNCHERS_PROFILE).read_bytes(), before)
-            self.assertFalse((l_only / "scripts/open-dashboard.py").exists())
+            self.assertEqual(self._tree_snapshot(l_only), l_before)
 
     def test_launcher_links_conflicts_preserve_profile_and_report_merge_needed(self):
         conflicts = (

@@ -164,7 +164,11 @@ if os.environ.get("STUB_WSL_FAIL"):
     print("the stand-in WSL failed", file=sys.stderr)
     sys.exit(4)
 if args[:2] == ["-l", "-q"]:
-    print("Ubuntu\nDebian")
+    distros = os.environ.get("STUB_WSL_DISTROS")
+    if distros is None:
+        print("Ubuntu\nDebian")
+    elif distros:
+        print(distros)
     sys.exit(0)
 rest = args[args.index("--exec") + 1:] if "--exec" in args else []
 if rest[:2] == ["test", "-d"]:
@@ -1044,11 +1048,13 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(missing.returncode, 1, missing.stdout + missing.stderr)
         self.assertIn("wsl.exe is not on PATH", missing.stdout + missing.stderr)
         self.assertFalse(no_wsl_desk.exists() and list(no_wsl_desk.iterdir()))
-        # 2b. Windows-drive checkout with wsl: true refuses cleanly when WSL has no registered distro.
-        no_distro = self.run_script(desk=no_wsl_desk, icons=no_wsl_icons, STUB_WSL_FAIL="1")
-        self.assertEqual(no_distro.returncode, 1, no_distro.stdout + no_distro.stderr)
-        self.assertIn("WSL has no installed distro", no_distro.stdout + no_distro.stderr)
-        self.assertFalse(no_wsl_desk.exists() and list(no_wsl_desk.iterdir()))
+        # 2b. Windows-drive checkout with wsl: true refuses cleanly when wsl.exe -l -q fails OR succeeds with no distros.
+        for label, extra in (("wsl_fail", {"STUB_WSL_FAIL": "1"}), ("empty_distros", {"STUB_WSL_DISTROS": ""})):
+            with self.subTest(case=label):
+                no_distro = self.run_script(desk=no_wsl_desk, icons=no_wsl_icons, **extra)
+                self.assertEqual(no_distro.returncode, 1, no_distro.stdout + no_distro.stderr)
+                self.assertIn("WSL has no installed distro", no_distro.stdout + no_distro.stderr)
+                self.assertFalse(no_wsl_desk.exists() and list(no_wsl_desk.iterdir()))
         # 3. WSL checkout with wsl: true invokes wsl.exe -d Ubuntu --cd /home/me/site --exec bash -lc ...
         self.wsl_log.unlink(missing_ok=True)
         wsl_desk = self.base / "desk-wsl"
