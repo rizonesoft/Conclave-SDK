@@ -99,7 +99,7 @@ POWERSHELL_OPEN = (
     "else { $sp = $cmd.IndexOf(' '); if ($sp -lt 0) { $exe = $cmd; $rest = '' } "
     "else { $exe = $cmd.Substring(0, $sp); $rest = $cmd.Substring($sp + 1).Trim() } }; "
     "$uri = ([Uri]$p).AbsoluteUri; "
-    "$bargs = if ($rest -like '*%%1*') { $rest -replace '\"%%1\"', ('\"' + $uri + '\"') -replace '%%1', ('\"' + $uri + '\"') } "
+    "$bargs = if ($rest -like '*%%1*') { $rest.Replace('%%1', $uri) } "
     "else { ($rest + ' \"' + $uri + '\"').Trim() }; "
     "$psi = [Diagnostics.ProcessStartInfo]::new($exe, $bargs); $psi.UseShellExecute = $false; "
     "$proc = [Diagnostics.Process]::Start($psi); if (-not $proc) { throw 'no process' }; "

@@ -574,8 +574,19 @@ class BrowserTest(unittest.TestCase):
                               input=od._redirect_html(self.URL), capture_output=True, text=True, env=env,
                               timeout=30, creationflags=NO_WINDOW)
         self.assertNotEqual(done.returncode, 0)
-        # 2. Immediate non-zero browser exit: substitute a real failing Python command for the HTTPS registry lookup,
-        # verify PowerShell exits 1, leaves no redirect page behind, and never invokes any .html handler.
+        # 2. Failed rename after successful temp write: temp file must be removed and no browser started.
+        rename_dir = Path(self._tmp.name) / "local_app_rename"
+        rename_dir.mkdir(parents=True, exist_ok=True)
+        fail_rename = script.replace("[IO.File]::Move($tmp, $p)", "throw 'rename failed'", 1)
+        self.assertNotEqual(fail_rename, script)
+        done_rename = subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-Command", fail_rename],
+                                     input=od._redirect_html(self.URL), capture_output=True, text=True,
+                                     env={**os.environ, "LOCALAPPDATA": str(rename_dir)},
+                                     timeout=30, creationflags=NO_WINDOW)
+        self.assertNotEqual(done_rename.returncode, 0)
+        self.assertEqual(list((rename_dir / "conclave-dashboard").glob("*.tmp")), [])
+        self.assertEqual(list((rename_dir / "conclave-dashboard").glob("open-*.html")), [])
+        # 3. Immediate non-zero browser exit and unquoted/quoted %1 template preservation:
         local_app = Path(self._tmp.name) / "local_app"
         local_app.mkdir(parents=True, exist_ok=True)
         marker = Path(self._tmp.name) / "win-browser-argv.json"
@@ -590,18 +601,25 @@ class BrowserTest(unittest.TestCase):
             "$cmd = (Get-ItemProperty -Path ('Registry::HKEY_CLASSES_ROOT\\' + $prog + '\\shell\\open\\command') -ErrorAction Stop).'(default)';"
         )
         self.assertIn(reg_block, script)
-        ps_cmd = f'"{sys.executable}" "{helper}" "%1"'
-        test_script = script.replace(reg_block, f"$cmd = '{ps_cmd}';", 1)
-        done2 = subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-Command", test_script],
-                               input=od._redirect_html(self.URL), capture_output=True, text=True,
-                               env={**os.environ, "LOCALAPPDATA": str(local_app)},
-                               timeout=30, creationflags=NO_WINDOW)
-        self.assertNotEqual(done2.returncode, 0)
-        received = json.loads(marker.read_text(encoding="utf-8"))
-        self.assertNotIn("conclave_ticket", " ".join(received))
-        self.assertTrue(any(a.startswith("file:///") and a.endswith(".html") for a in received[1:]), received)
-        self.assertEqual(list((local_app / "conclave-dashboard").glob("*.tmp")), [])
-        self.assertEqual(list((local_app / "conclave-dashboard").glob("open-*.html")), [])
+        for label, tpl in (
+                ("Chrome unquoted %1", f'"{sys.executable}" "{helper}" --single-argument %1'),
+                ("Firefox quoted %1", f'"{sys.executable}" "{helper}" -url "%1"')):
+            with self.subTest(label):
+                if marker.exists():
+                    marker.unlink()
+                ps_lit = tpl.replace("'", "''")
+                test_script = script.replace(reg_block, f"$cmd = '{ps_lit}';", 1)
+                done2 = subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-Command", test_script],
+                                       input=od._redirect_html(self.URL), capture_output=True, text=True,
+                                       env={**os.environ, "LOCALAPPDATA": str(local_app)},
+                                       timeout=30, creationflags=NO_WINDOW)
+                self.assertNotEqual(done2.returncode, 0)
+                received = json.loads(marker.read_text(encoding="utf-8"))
+                self.assertNotIn("conclave_ticket", " ".join(received))
+                self.assertTrue(received[-1].startswith("file:///") and received[-1].endswith(".html"), received)
+                self.assertFalse(received[-1].startswith('"'), received)
+                self.assertEqual(list((local_app / "conclave-dashboard").glob("*.tmp")), [])
+                self.assertEqual(list((local_app / "conclave-dashboard").glob("open-*.html")), [])
 
     def test_headless_browser_follows_generated_redirect_page_without_marker_in_argv(self):
         import http.server
@@ -642,12 +660,35 @@ class BrowserTest(unittest.TestCase):
         target_url = f"http://127.0.0.1:{port}/?conclave_ticket={marker_val}"
         page = od._page(target_url)
         page_uri = page.as_uri()
+        profile = Path(self._tmp.name) / "chrome-profile"
+        profile_arg = str(profile)
         if browser.startswith("/mnt/c/"):
             win_path = subprocess.run(["wslpath", "-w", str(page)], capture_output=True, text=True, check=True).stdout.strip()
             page_uri = "file:///" + win_path.replace("\\", "/")
-        argv = [browser, "--headless=new", "--disable-gpu", "--no-first-run", "--dump-dom", page_uri]
+            profile_arg = subprocess.run(["wslpath", "-w", str(profile)], capture_output=True, text=True, check=True).stdout.strip()
+        argv = [browser, "--headless=new", "--disable-gpu", "--no-first-run", f"--user-data-dir={profile_arg}",
+                "--virtual-time-budget=2000", "--dump-dom", page_uri]
         self.assertNotIn(marker_val, " ".join(argv))
-        subprocess.run(argv, capture_output=True, text=True, timeout=30, creationflags=NO_WINDOW)
+        kwargs = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "text": True, "creationflags": NO_WINDOW}
+        if os.name == "posix" and not browser.startswith("/mnt/"):
+            kwargs["start_new_session"] = True
+        proc = subprocess.Popen(argv, **kwargs)
+        try:
+            proc.communicate(timeout=30)
+        finally:
+            if proc.poll() is None:
+                if os.name == "nt":
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=NO_WINDOW)
+                elif kwargs.get("start_new_session"):
+                    import signal
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                else:
+                    proc.kill()
+                proc.wait()
         self.assertTrue(done_event.wait(timeout=5), "headless browser did not follow redirect to loopback server")
         self.assertEqual(hits, [f"/?conclave_ticket={marker_val}"])
 
