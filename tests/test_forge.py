@@ -4348,6 +4348,9 @@ class LaunchersPageTests(unittest.TestCase):
                 "Stop run",
                 "python scripts/lib/launchers.py show",
                 "the project folder does not exist",
+                "pass either -Remove or -Inspect, not both",
+                "missing ...ShellLink.cs",
+                "the shortcut folder cannot be read",
             ):
                 self.assertIn(required, text, f"missing topic in docs/launchers.md: {required!r}")
 
@@ -4584,6 +4587,13 @@ class LaunchersPageTests(unittest.TestCase):
                  "-Distro", "Debian", "-Project", r"\\wsl.localhost\Ubuntu\home\me\site"], cwd=target)
             self.assertEqual(rb_conflict.returncode, 1)
             self.assertIn("is in distro 'Ubuntu', not 'Debian'", rb_conflict.stdout + rb_conflict.stderr)
+            rb_missing_dir = self._run_tree(
+                [*inspect_base, "-ShortcutDir", str(pathlib.Path(tmp) / "no-such-dir")], cwd=target)
+            self.assertEqual(rb_missing_dir.returncode, 1)
+            self.assertIn("the shortcut folder cannot be read", rb_missing_dir.stdout + rb_missing_dir.stderr)
+            rb_both = self._run_tree([*inspect_base, "-Remove", "-ShortcutDir", str(shortcut_dir)], cwd=target)
+            self.assertEqual(rb_both.returncode, 1)
+            self.assertIn("pass either -Remove or -Inspect, not both", rb_both.stdout + rb_both.stderr)
             wsl_lnk.unlink()
 
             # 3. Rename title to one with an apostrophe and $ (O'Brien $x), drop a link, rerun, and verify all records.

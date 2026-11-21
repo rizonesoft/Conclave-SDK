@@ -90,8 +90,16 @@ if ($Inspect) {
   if (-not (Test-Path -LiteralPath $shellLink -PathType Leaf)) {
     Refuse "missing $shellLink (install the launchers kit)"
   }
+  if (-not (Test-Path -LiteralPath $ShortcutDir -PathType Container)) {
+    Refuse "the shortcut folder cannot be read: '$ShortcutDir'"
+  }
+  try {
+    $lnkFiles = @(Get-ChildItem -LiteralPath $ShortcutDir -Filter '*.lnk' -File -ErrorAction Stop)
+  } catch {
+    Refuse "the shortcut folder cannot be read: '$ShortcutDir' ($($_.Exception.Message))"
+  }
   Add-Type -Path $shellLink
-  Get-ChildItem -LiteralPath $ShortcutDir -Filter '*.lnk' -File -ErrorAction Ignore | ForEach-Object {
+  $lnkFiles | ForEach-Object {
     $f = $_
     try {
       $l = [Conclave.ShellLink]::Read($f.FullName)

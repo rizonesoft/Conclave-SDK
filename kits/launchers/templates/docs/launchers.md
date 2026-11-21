@@ -90,3 +90,6 @@ When the profile is valid, `show` prints one line of JSON and exits 0. When it i
 - `project-shortcuts: the project folder does not exist: '<Project>'`: the Windows `-Project` path was mistyped or does not exist; pass an existing Windows folder path, or omit `-Project` to use the script's own project folder.
 - `project-shortcuts: a Linux path needs -Distro` / `the project is in distro ...` / `WSL has no distro ...` / `the project path ... does not exist`: pass a matching `-Distro` and existing Linux path in WSL.
 - `project-shortcuts: '<link>' is already there and is not this project's link`: another project or manual shortcut already holds that filename; move it or pick a different `title` or `label`.
+- `project-shortcuts: pass either -Remove or -Inspect, not both`: choose one operation at a time.
+- `project-shortcuts: missing ...ShellLink.cs (install the launchers kit)`: restore the launchers kit's shortcut reader (`python forge.py kit <project> launchers`).
+- `project-shortcuts: the shortcut folder cannot be read: '<ShortcutDir>'`: pass an existing, readable `-ShortcutDir` folder (or fix permissions on the Desktop folder).
