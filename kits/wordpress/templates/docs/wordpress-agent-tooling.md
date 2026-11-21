@@ -52,13 +52,25 @@ Dashboard login adds no standing login key anywhere: there is no extra password,
 
 This feature requires SSH and a pinned WordPress user (`ticket-login` and `ticket-login-user` doctor rows `ok`; WordPress.com Simple and connector-only Atomic sites without a pinned user skip it), runs from WSL or Linux (native Windows is refused), and refuses WordPress multisite installs or relocated MU-plugin directories. Installing or removing the MU-plugin is an owner-approved write on the live site.
 
+From WSL or Linux:
+
 ```bash
 python3 scripts/ticket-login.py status          # read-only check: plugin is absent, current, or differs
 python3 scripts/ticket-login.py install --yes   # owner-approved: install or replace the MU-plugin
 python3 scripts/open-dashboard.py --check       # prove ticket store and removal; opens no browser
 python3 scripts/open-dashboard.py               # open the dashboard directly from WSL or Linux
-pwsh scripts/project-shortcuts.ps1              # Windows desktop shortcut (after setting title and icon in .conclave/launchers.json)
-python3 scripts/ticket-login.py remove --yes    # owner-approved: remove MU-plugin and option (plugin: absent, option: absent)
+```
+
+On Windows, after setting `title` and `icon` in `.conclave/launchers.json`, create the desktop shortcut from Windows PowerShell 7 (see `docs/launchers.md` for WSL checkout invocation with `\\wsl.localhost` or `-Distro` and `-Project`):
+
+```powershell
+pwsh scripts/project-shortcuts.ps1
+```
+
+To uninstall the MU-plugin and remove any pending ticket option (owner-approved write; verifies `plugin: absent` and `option: absent`), run from WSL or Linux:
+
+```bash
+python3 scripts/ticket-login.py remove --yes
 ```
 
 ## Tests

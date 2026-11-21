@@ -5102,30 +5102,31 @@ class WordPressDashboardLoginDocsTests(unittest.TestCase):
                 self.assertGreater(record_pos, step_pos, "Dashboard login (optional) must come before Record it")
                 step = connect[step_pos:record_pos]
                 for token in (
-                    "ticket-login",
-                    "ticket-login-user",
-                    "optional",
-                    "setup_required",
-                    "declines",
+                    "both rows must be `ok` before installing",
+                    "Skip this step when either row is `optional`",
+                    "explain any `setup_required` result and do not install until it is resolved",
+                    "continue straight to \"Record it\" if the owner declines",
                     "WSL or Linux",
                     "multisite",
                     "MU-plugin",
-                    "python3 scripts/ticket-login.py status",
-                    "absent",
-                    "current",
-                    "differs",
-                    "python3 scripts/ticket-login.py install --yes",
-                    "python3 scripts/open-dashboard.py --check",
+                    "`python3 scripts/ticket-login.py status`",
+                    "If `plugin` is `current`, skip `install --yes`",
+                    "when `plugin` is `differs`, explicitly tell the owner that installing replaces",
+                    "`python3 scripts/ticket-login.py install --yes`",
+                    "`python3 scripts/open-dashboard.py --check`",
                     "opens no browser",
-                    "python3 scripts/open-dashboard.py",
-                    "pwsh scripts/project-shortcuts.ps1",
-                    "python3 scripts/ticket-login.py remove --yes",
+                    "`python3 scripts/open-dashboard.py`",
+                    "`pwsh scripts/project-shortcuts.ps1`",
+                    "`python3 scripts/ticket-login.py remove --yes`",
                     "plugin: absent",
                     "option: absent",
                 ):
                     self.assertIn(token, step, f"{agent_dir}: missing {token!r}")
-                approval_pos = step.lower().find("approval")
-                install_pos = step.find("python3 scripts/ticket-login.py install --yes")
+                install_step_pos = step.find("If `plugin` is `absent` or `differs`")
+                self.assertGreater(install_step_pos, -1)
+                install_branch = step[install_step_pos:]
+                approval_pos = install_branch.lower().find("approval")
+                install_pos = install_branch.find("`python3 scripts/ticket-login.py install --yes`")
                 self.assertGreater(approval_pos, -1, "missing owner approval before install")
                 self.assertLess(approval_pos, install_pos, "owner approval must precede install --yes")
 
@@ -5141,7 +5142,8 @@ class WordPressDashboardLoginDocsTests(unittest.TestCase):
         page = (wp_templates / "docs" / "wordpress-agent-tooling.md").read_text(encoding="utf-8")
         heading_pos = page.find("## How do I open the dashboard?")
         self.assertGreater(heading_pos, 0, "missing '## How do I open the dashboard?'")
-        section = page[heading_pos:]
+        next_heading = page.find("\n## ", heading_pos + 1)
+        section = page[heading_pos:next_heading] if next_heading > 0 else page[heading_pos:]
         for token in (
             "no standing login key",
             "SHA-256 hash",
@@ -5155,14 +5157,25 @@ class WordPressDashboardLoginDocsTests(unittest.TestCase):
             "WSL or Linux",
             "multisite",
             "MU-plugin",
-            "python3 scripts/ticket-login.py status",
-            "python3 scripts/ticket-login.py install --yes",
-            "python3 scripts/open-dashboard.py --check",
-            "python3 scripts/open-dashboard.py",
-            "pwsh scripts/project-shortcuts.ps1",
-            "python3 scripts/ticket-login.py remove --yes",
+            "docs/launchers.md",
+            "plugin: absent",
+            "option: absent",
         ):
             self.assertIn(token, section, f"tooling page missing {token!r}")
+        blocks = re.findall(r"```(\w+)\n(.*?)```", section, re.S)
+        bash_blocks = [body for lang, body in blocks if lang == "bash"]
+        ps_blocks = [body for lang, body in blocks if lang == "powershell"]
+        self.assertEqual(len(bash_blocks), 2, "setup/open and removal must be in separate bash blocks")
+        self.assertEqual(len(ps_blocks), 1, "Windows shortcut command must be in its own powershell block")
+        setup_block, remove_block = bash_blocks
+        self.assertRegex(setup_block, r"(?m)^python3 scripts/ticket-login\.py status(?:\s+#|$)")
+        self.assertRegex(setup_block, r"(?m)^python3 scripts/ticket-login\.py install --yes(?:\s+#|$)")
+        self.assertRegex(setup_block, r"(?m)^python3 scripts/open-dashboard\.py --check(?:\s+#|$)")
+        self.assertRegex(setup_block, r"(?m)^python3 scripts/open-dashboard\.py(?:\s+#|$)")
+        self.assertNotIn("remove --yes", setup_block)
+        self.assertNotIn("pwsh", setup_block)
+        self.assertRegex(ps_blocks[0], r"(?m)^pwsh scripts/project-shortcuts\.ps1(?:\s+#|$)")
+        self.assertRegex(remove_block, r"(?m)^python3 scripts/ticket-login\.py remove --yes(?:\s+#|$)")
 
 
 if __name__ == "__main__":
