@@ -2977,6 +2977,43 @@ class ThreePassStamp(Stamp):
             finally:
                 type(self).PIN_TEXT = THREE_PASS_PIN
 
+    def test_a_reconciliation_past_a_recurring_finding_is_refused(self):
+        self.tearDown()
+        type(self).PIN_TEXT = THREE_PASS_PIN.replace("pass_cap = 45", "pass_cap = 45\nrecurrence_cap = 3")
+        try:
+            self.setUp()
+            names = self.LENSES["reconciliation"]
+
+            def recon(times, mark):
+                lines = [f"LENS {n}: findings" for n in names] + ["HIGHEST: P2", f"RECURRING: {times}",
+                                                                  "RECONCILIATION: gaps"]
+                return "\n".join([f"1. P2 text (recurring: {mark})." if mark else "1. text.", *lines])
+            self.passed("plan", self.start)
+            self.tick_work()
+            sha = self.build()
+            self.passed("round", sha)
+            self.passed("completion", sha, "P2", True)
+            sha = self.build("repair 1")
+            self.passed("reconciliation", sha, review=recon(2, "completion"))
+            sha = self.build("repair 2")
+            self.passed("reconciliation", sha, review=recon(3, "completion, reconciliation 1"))
+            sha = self.build("repair 3")
+            self.passed("reconciliation", sha, review="\n".join(  # complete, but it should never have run
+                ["1. text.", *[f"LENS {n}: clean" for n in names], "HIGHEST: none", "RECURRING: none",
+                 "RECONCILIATION: complete"]))
+            self.stamp3_refuses(sha, "recurrence_cap of 3", verdict="reconciled")
+        finally:
+            type(self).PIN_TEXT = THREE_PASS_PIN
+
+    def test_a_reconciliation_without_its_recurring_line_does_not_stamp_under_the_cap(self):
+        self.tearDown()
+        type(self).PIN_TEXT = THREE_PASS_PIN.replace("pass_cap = 45", "pass_cap = 45\nrecurrence_cap = 3")
+        try:
+            self.setUp()
+            sha = self.chain(completion=("P2", True), reconciliations=[("none", False)])
+            self.stamp3_refuses(sha, "lacks its single RECURRING line", verdict="reconciled")
+        finally:
+            type(self).PIN_TEXT = THREE_PASS_PIN
     def filed_case(self, blocking, reconciled):
         """A chain whose last pass ends HIGHEST: P2 and gaps, its finding filed as §2, under `blocking`."""
         self.tearDown()

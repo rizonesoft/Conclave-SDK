@@ -337,6 +337,12 @@ def faults(path=PIN, data=None):
         elif type(stall) is not int or stall < 1:
             # pass_cap is already reported, so only what does not rest on it is said here.
             per["no_progress_cap"].append("[schedule] no_progress_cap needs a whole number of passes from 1 to pass_cap")
+    if "recurrence_cap" in schedule:
+        recur = schedule["recurrence_cap"]
+        if cap_sound:
+            into(per["recurrence_cap"], check_recurrence_cap, schedule)
+        elif type(recur) is not int or recur < 2:
+            per["recurrence_cap"].append("[schedule] recurrence_cap needs a whole number of passes from 2 to pass_cap")
     if "blocking" in schedule:
         into(per["blocking"], check_blocking, schedule)
     # The one-owner rule and a conditional entry's overlap read the steps' lens lists, not their efforts: a step
@@ -412,7 +418,7 @@ SURFACE_GATED = {"round": ("design",)}
 STEP_KEYS = {"effort", "lenses"}
 ROTATION_KEYS = {"plan", "completion", "rounds", "rotation", "escalation", "severity_stop_after"}
 THREE_PASS_KEYS = {"policy", "plan", "completion", "rounds", "reconciliation"}
-THREE_PASS_OPTIONAL = {"pass_cap", "no_progress_cap", "blocking", "lenses", "conditional"}
+THREE_PASS_OPTIONAL = {"pass_cap", "no_progress_cap", "recurrence_cap", "blocking", "lenses", "conditional"}
 CONDITIONAL_KEYS = {"lenses", "passes", "paths"}
 
 
@@ -590,6 +596,13 @@ def check_no_progress_cap(schedule):
                       f"({pass_cap(schedule)})")
 
 
+def check_recurrence_cap(schedule):
+    recur = schedule["recurrence_cap"]
+    if type(recur) is not int or not 2 <= recur <= pass_cap(schedule):
+        raise Refused(f"[schedule] recurrence_cap needs a whole number of passes from 2 to pass_cap "
+                      f"({pass_cap(schedule)})")
+
+
 def check_blocking(schedule):
     levels = schedule["blocking"]
     if not isinstance(levels, list) or not all(_one_of(level, SEVERITIES) for level in levels) \
@@ -676,6 +689,8 @@ def check_three_pass(schedule, efforts):
         check_pass_cap(schedule)
     if "no_progress_cap" in schedule:
         check_no_progress_cap(schedule)
+    if "recurrence_cap" in schedule:
+        check_recurrence_cap(schedule)
     if "blocking" in schedule:
         check_blocking(schedule)
     entries = schedule.get("conditional", [])
@@ -714,6 +729,83 @@ def no_progress_cap(schedule):
     """The most passes in a row that may return gaps without the worst finding getting less severe, or None when the
     pin sets no such limit."""
     return schedule.get("no_progress_cap")
+
+
+def recurrence_cap(schedule):
+    """The most passes of a section's completion chain one finding that holds the stamp may be reported open in
+    before the chain stops, or None when the pin sets no such limit."""
+    return schedule.get("recurrence_cap")
+
+
+# A finding the writer's repairs keep bringing back is a chain's real dead end. New findings at the same severity are
+# not: sections that ran 5 to 15 passes at one severity converged (Berth D05 T01 §4, Bosun D03 T02 §6), so a severity
+# plateau (no_progress_cap) stops sections that were about to pass. The reconciliation reviewer, who reads every
+# earlier pass, says how often its worst repeat has been reported: `RECURRING: <n>` counts the passes of the chain,
+# the completion review and each reconciliation, this one included, that reported one finding or gap that holds the
+# stamp open, or `RECURRING: none` when none repeats.
+RECURRING = re.compile(r"^[ \t]*RECURRING:[ \t]*(none|[1-9]\d{0,2})[ \t]*\r?$", re.IGNORECASE | re.MULTILINE)
+
+
+def declared_recurring(review):
+    """The passes a review's most repeated stamp-holding finding has been reported open in (1 when none repeats), or
+    None when the review does not declare exactly one valid `RECURRING:` line."""
+    found = RECURRING.findall(review or "")
+    if len(found) != 1:
+        return None
+    return 1 if found[0].lower() == "none" else int(found[0])
+
+
+# A recurring finding is marked `(recurring: completion, reconciliation 2)` with every earlier pass that reported it
+# open, reconciliations numbered in the findings file's order.
+RECURRING_MARK = re.compile(r"\(recurring:\s*((?:completion|reconciliation\s+[1-9]\d{0,2})"
+                            r"(?:\s*,\s*(?:completion|reconciliation\s+[1-9]\d{0,2}))*)\s*\)", re.IGNORECASE)
+
+
+def cited_recurrence(review, reconciliation):
+    """The most passes any one marked finding has been reported open in, counting this pass (reconciliation number
+    `reconciliation`) and the distinct earlier passes its mark cites; 1 when no mark cites an earlier pass."""
+    best = 1
+    for mark in RECURRING_MARK.findall(review or ""):
+        # By the pass each citation names, so one pass cited twice, however spaced, counts once.
+        cited = {0 if p.strip().lower() == "completion" else int(p.split()[-1]) for p in mark.split(",")}
+        earlier = {n for n in cited if n < reconciliation}
+        best = max(best, 1 + len(earlier))
+    return best
+
+
+def recurrence_stalled(schedule, chain):
+    """The count when the chain's last pass (the completion review first, then each reconciliation) reports a finding
+    that holds the stamp open in `recurrence_cap` passes or more, else None. The `RECURRING:` claim counts only as far
+    as the pass's own marks back it, citing distinct earlier passes of the chain, so a miscount cannot stop a
+    converging section; the completion review starts the chain and a pass whose worst finding does not block never
+    stalls."""
+    cap = recurrence_cap(schedule)
+    if cap is None or len(chain) < 2 or not blocks(schedule, declared_highest(chain[-1].get("review"))):
+        return None
+    review = chain[-1].get("review")
+    seen = declared_recurring(review)
+    if seen is None:
+        return None
+    seen = min(seen, cited_recurrence(review, len(chain) - 1))
+    return seen if seen >= cap else None
+
+
+def recurrence_block(schedule):
+    """The prompt section asking a reconciliation for its `RECURRING:` line, under a pin with recurrence_cap."""
+    levels = " or ".join(schedule.get("blocking", SEVERITIES))
+    return "\n".join(["", "", "## Recurring findings (asked for by scripts/review-dispatch.py)", "",
+                      f"For each {levels} gap or finding you report open, count the passes of this section's chain "
+                      "that reported it open: the completion review and each reconciliation in the findings file, "
+                      "this one included. It is the same finding when it has the same cause, even if its line moved "
+                      "or a repair only moved it; a new defect of the same kind, elsewhere or from another cause, is "
+                      "not. Mark each such finding `(recurring: completion, reconciliation 1, ...)`, naming every "
+                      "earlier pass that reported it open. Number the reconciliations by the `## Reconciliation "
+                      "review` headings that name a reviewer, in the findings file's order: a heading that reads "
+                      "`: none` is an attempt that returned no review and takes no number. "
+                      "Before the final verdict line, write one line `RECURRING: <n>` for the largest such count, or "
+                      "`RECURRING: none` when none repeats. A finding reported open in "
+                      f"{recurrence_cap(schedule)} passes stops the chain for a redesign, so count only true "
+                      "repeats."]) + "\n"
 
 
 def blocks(schedule, highest_declared):
@@ -882,6 +974,7 @@ def main(argv=None):
         else:
             print(f"pass_cap {pass_cap(schedule)}")
             print(f"no_progress_cap {no_progress_cap(schedule) or 'none'}")
+            print(f"recurrence_cap {recurrence_cap(schedule) or 'none'}")
     except Refused as exc:
         print(f"review-pin refused: {exc}", file=sys.stderr)
         return 2

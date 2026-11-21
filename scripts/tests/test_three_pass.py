@@ -699,6 +699,70 @@ class Caps(ThreePass):
         del last
 
 
+def recurring_reply(times, cite=True):
+    """A reconciliation that ends gaps with a P2 finding reported open in `times` passes, its mark citing the
+    completion and reconciliations 1 to times - 2 unless `cite` is False; `times` None leaves the line out."""
+    text = reply("reconciliation", LENSES["reconciliation"], "P2", True)
+    if times is None:
+        return text
+    body, last = text.rsplit("\n", 1)
+    cited = ", ".join(["completion", *(f"reconciliation {n}" for n in range(1, times - 1))])
+    mark = f"2. P2 b.py:4 again (recurring: {cited})\n" if cite and times > 1 else ""
+    return f"{mark}{body}\nRECURRING: {'none' if times == 1 else times}\n{last}"
+
+
+class Recurrence(ThreePass):
+    """A finding the repairs keep bringing back stops the chain; new findings at one severity never do."""
+
+    def setUp(self):
+        super().setUp()
+        self.base = self.commit("recurrence 3", {".conclave/reviewers.toml":
+                                                 PIN.replace("pass_cap = 5", "pass_cap = 30\nrecurrence_cap = 3")})
+
+    def reconcile(self, times, cite=True):
+        self.n = getattr(self, "n", 0) + 1
+        built = self.commit(f"repair {self.n}", {"src/app/a.py": f"x = {self.n + 1}\n"})
+        self.ok("reconciliation", built, say=recurring_reply(times, cite))
+        return built
+
+    def next_candidate(self):
+        return self.commit("repair next", {"src/app/a.py": "x = 99\n"})
+
+    def test_a_finding_open_in_three_passes_stops_the_chain(self):
+        self.to_completion()
+        self.reconcile(2)
+        self.reconcile(3)
+        self.refused("reconciliation", self.next_candidate(), "reported open in 3 passes (recurrence_cap 3)")
+
+    def test_new_findings_at_one_severity_keep_the_chain_running(self):
+        self.to_completion()
+        for _ in range(4):
+            self.reconcile(1)
+        self.ok("reconciliation", self.next_candidate(), say=recurring_reply(1))
+
+    def test_an_uncited_count_does_not_stop_the_chain(self):
+        self.to_completion()
+        self.reconcile(1)
+        self.reconcile(3, cite=False)
+        self.ok("reconciliation", self.next_candidate(), say=recurring_reply(1))
+
+    def test_a_reconciliation_without_its_line_is_incomplete_and_is_asked_for_it(self):
+        self.to_completion()
+        built = self.commit("repair", {"src/app/a.py": "x = 2\n"})
+        result, summary = self.run_pass("reconciliation", built, say=recurring_reply(None))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("no single RECURRING line", summary["failover"][0]["reason"])
+        self.assertIn("RECURRING: <n>", self.calls()[-1]["stdin"])
+        self.assertIn("takes no number", self.calls()[-1]["stdin"])
+
+        self.ok("reconciliation", built, say=recurring_reply(1))
+
+    def test_a_pin_without_the_cap_never_asks_for_the_line(self):
+        self.base = self.commit("no cap", {".conclave/reviewers.toml": PIN})
+        self.to_completion()
+        built = self.commit("repair", {"src/app/a.py": "x = 2\n"})
+        self.ok("reconciliation", built, say=recurring_reply(None))
+
 class Blocking(ThreePass):
     def setUp(self):
         super().setUp()

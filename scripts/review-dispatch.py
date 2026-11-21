@@ -49,8 +49,9 @@ after it, one completion review of the final candidate, and then `--kind reconci
 that returned gaps. For a findings file named for a section (`<receipts>/<NN-domain>/D<NN>-T<NN>-s<N>.md`, `<receipts>` being `todo/plan.json`'s `layout.receipts`, `docs/reviews` by default) that
 order is checked before a reviewer runs, each candidate must be a commit descending from the pass before, and a
 reconciliation is refused once the section has spent its `pass_cap` returned passes, after `no_progress_cap`
-reconciliations in a row with no less severe a worst finding, and after a pass whose worst finding is below the
-pin's `blocking` levels. A three-pass section runs under the pin committed at its plan review's candidate, schedule
+reconciliations in a row with no less severe a worst finding, after a pass that reports one stamp-holding finding
+open in `recurrence_cap` passes (its `RECURRING:` line, backed by the earlier passes its mark cites), and after a pass
+whose worst finding is below the pin's `blocking` levels. A three-pass section runs under the pin committed at its plan review's candidate, schedule
 and route both; when that three-pass pin no longer loads the pass is refused, never run under the working tree's,
 and a plan review is refused while the working tree's three-pass pin is not committed at its candidate. A rotation
 section follows the working tree's pin as it always did, with one exception that keeps it on the rules it began
@@ -551,6 +552,10 @@ def review(pin, writer, prompt_path, timeout, plan=None, kind="round"):
     appended = bool(lenses) or (three_pass and plan is not None)
     if appended:
         prompt = prompt.rstrip("\n") + lens_block(plan, schedule)
+    # A reconciliation under a recurrence_cap pin also says how often its worst repeat has been reported open.
+    recurrence = three_pass and kind == "reconciliation" and review_pin.recurrence_cap(schedule) is not None
+    if recurrence:
+        prompt = prompt.rstrip("\n") + review_pin.recurrence_block(schedule)
     scheduled_fields = {"effort": effort, "lenses": lenses} if plan else {}
 
     def none(reason):
@@ -604,10 +609,13 @@ def review(pin, writer, prompt_path, timeout, plan=None, kind="round"):
         # The severity line is what blocking levels, the no-progress count and the stamp read: without it the reply
         # says nothing they can act on.
         undeclared = worst is None
-        if not final or missing or contradicts or undeclared:
+        # Without its RECURRING line a reconciliation would hide a repeating finding from the recurrence stop.
+        unrecurring = recurrence and review_pin.declared_recurring(text) is None
+        if not final or missing or contradicts or undeclared or unrecurring:
             why = ([f"no final {kind} verdict line"] if not final else []) \
                 + ([f"no LENS verdict line for {', '.join(missing)}"] if missing else []) \
                 + (["no HIGHEST line"] if undeclared else []) \
+                + (["no single RECURRING line"] if unrecurring else []) \
                 + ([f"it ends {kind.upper()}: complete but declares HIGHEST: {worst}, which holds the stamp"]
                    if contradicts else [])
             return {**none(f"incomplete: {' and '.join(why)}"), "review": text.strip(), "incomplete": missing}
@@ -1353,6 +1361,11 @@ def check_three_pass_order(kind, record_path, candidate, schedule):
             if run >= stall:
                 raise Refused(f"the section's last {run} reconciliations made no progress (no_progress_cap {stall}); "
                               f"it stays blocked")
+        recurred = None if unsettled else review_pin.recurrence_stalled(schedule, chain)
+        if recurred:
+            raise Refused(f"a finding that holds the stamp has been reported open in {recurred} passes "
+                          f"(recurrence_cap {schedule['recurrence_cap']}), so repairing it again is not converging; "
+                          f"the section stays blocked for a redesign")
         if not descends(chain[-1]["candidate"], candidate):
             raise Refused(f"the reconciliation's candidate does not descend from the last pass's "
                           f"{chain[-1]['candidate']}")

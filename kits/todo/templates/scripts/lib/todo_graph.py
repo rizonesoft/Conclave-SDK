@@ -851,6 +851,11 @@ def three_pass_ok(root, data, ref, found):
     tail = [completion, *passed]
     worst = [dispatch.review_pin.declared_highest(e["review"]) for e in tail]
     stall = dispatch.review_pin.no_progress_cap(schedule)
+    recurrence = getattr(dispatch.review_pin, "recurrence_stalled", None)
+    if recurrence is not None and dispatch.review_pin.recurrence_cap(schedule) is not None:
+        # Every reconciliation under the cap carries its count, the last one too, or the stop could not see a repeat.
+        require(all(dispatch.review_pin.declared_recurring(e["review"]) is not None for e in passed),
+                f"a reconciliation under the pin's recurrence_cap lacks its single RECURRING line: {ref}")
     for i in range(len(passed)):
         # A reconciliation before this one that ended complete on a changed promise settled nothing; it is held to
         # neither the gaps rule nor the blocking levels, since it raised no finding to reconcile.
@@ -869,6 +874,10 @@ def three_pass_ok(root, data, ref, found):
                 run += 1
             require(run < stall, f"a reconciliation ran after {run} in a row made no progress, past the pin's "
                                  f"no_progress_cap of {stall}: {ref}")
+        # A reviewer kit from before recurrence_cap has no such stop, and its pins cannot set the key.
+        recurred = None if unsettled or recurrence is None else recurrence(schedule, tail[:i + 1])
+        require(not recurred, f"a reconciliation ran after a pass reported a finding open in {recurred} passes, "
+                              f"past the pin's recurrence_cap of {schedule.get('recurrence_cap')}: {ref}")
     chain = [("plan review", plan), ("round", round_entry), ("completion review", completion),
              *[("reconciliation", e) for e in passed]]
     for name, entry in chain:

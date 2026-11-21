@@ -41,7 +41,7 @@ The round's seven lenses are adversarial, integration, source-defect, consistenc
 - **One owner per lens.** A lens belongs to one of plan, the round and completion. Reconciliation may repeat lenses.
 - **One verdict per lens.** The dispatcher appends each scheduled lens with its question and requires a line `LENS <name>: clean` or `LENS <name>: findings` for each. A reply missing a lens line, or its final verdict lines, is recorded as no review with its text kept, and never counts as a pass.
 - **Blocking levels.** `blocking = ["P1", "P2"]`: only those severities hold the stamp. A pass whose worst finding is below them is filed as tracked work and takes no further pass. Without the key every finding holds the stamp.
-- **Caps.** `pass_cap` is the most returned passes a section may take in all (33 when absent). `no_progress_cap` (optional) stops a run of reconciliations whose worst finding gets no less severe.
+- **Caps.** `pass_cap` is the most returned passes a section may take in all (33 when absent). `recurrence_cap` (optional) stops the chain when one finding that holds the stamp has been reported open in that many passes: each reconciliation then ends with a `RECURRING:` line, and the count holds only as far as the passes its `(recurring: ...)` marks cite. `no_progress_cap` (optional) stops a run of reconciliations whose worst finding gets no less severe; it is blunter, since sections that ran many passes at one severity often went on to pass.
 - **Conditional lenses.** A `[[schedule.conditional]]` entry (`lenses`, `passes`, `paths`) adds its lenses to the named passes only when a file the section changed starts with one of its repository-relative paths. A plan review, and a review outside a section, take the files from `--paths`.
 - **Design by path.** The round's `design` is the one lens a conditional entry may repeat on the round, because the round has it only with `--surface`. A pin that names its UI, style, asset, icon and design contract folders in an entry with `lenses = ["design"]` and `passes = ["round", "reconciliation"]` gives the lens to any section that changed a file there, whatever its Surface field says, and the todo kit's stamp refuses such a section whose round or reconciliation was recorded without `LENS design:`. The plan review's counterpart is the built-in `design-plan` lens (`passes = ["plan"]`). The `design` and `source-defect` questions name no path: they point the reviewer at the design contract the candidate's Fidelity line names.
 - **Lenses of your own.** `[schedule.lenses]` declares extra lens names with their questions, so a project adds a lens without editing the dispatcher.
@@ -157,7 +157,7 @@ python3 scripts/review_pin.py --check                       # ok, or the refusal
 python3 scripts/review_pin.py --check --all                 # every independent fault, one line each
 python3 scripts/review_pin.py --lenses round --paths src/ui/a.c   # that pass's lenses with their questions
 python3 scripts/review_pin.py --lenses round --no-surface --paths src/ui/a.c   # as a Surface: no section gets them
-python3 scripts/review_pin.py --caps                        # pass_cap and no_progress_cap
+python3 scripts/review_pin.py --caps                        # pass_cap, no_progress_cap and recurrence_cap
 python3 scripts/review-dispatch.py --check-pin --json [--pin .conclave/reviewers.toml]
 ```
 

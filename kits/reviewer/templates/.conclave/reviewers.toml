@@ -76,8 +76,18 @@ lenses = ["adversarial", "integration", "plan-delivery", "record"]
 
 # Optional keys, shown as examples.
 #
+# recurrence_cap = 3       under [schedule]: stop a section's chain when a
+#                          finding that holds the stamp has been reported open
+#                          in three passes (the completion review and two
+#                          reconciliations whose repairs did not close it). Each
+#                          reconciliation then ends with a `RECURRING:` line and
+#                          marks each repeat with the passes it cites. New
+#                          findings at the same severity never trip it.
+#
 # no_progress_cap = 3      under [schedule]: stop after three reconciliations
 #                          in a row whose worst finding got no less severe.
+#                          Blunter: sections that ran 5 to 15 passes at one
+#                          severity went on to pass, so prefer recurrence_cap.
 #
 # A lens of the project's own, with the question the reviewer is given:
 #

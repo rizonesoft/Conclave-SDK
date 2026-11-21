@@ -800,9 +800,40 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(refused.returncode, 2)
         self.assertIn("--no-surface goes with --lenses", refused.stderr)
 
+    def test_recurrence_cap_is_checked_and_printed(self):
+        for value, ok in (("3", True), ("2", True), ("45", True), ("1", False), ("46", False), ('"3"', False),
+                          ("true", False)):
+            with self.subTest(value):
+                text = THREE_PASS.replace("pass_cap = 45", f"pass_cap = 45\nrecurrence_cap = {value}")
+                done = self.run_cli(text, "--caps")
+                if ok:
+                    self.assertEqual(done.stdout, f"pass_cap 45\nno_progress_cap 3\nrecurrence_cap {value}\n")
+                else:
+                    self.assertEqual(done.returncode, 2)
+                    self.assertIn("recurrence_cap needs a whole number of passes from 2 to pass_cap", done.stderr)
+
+    def test_a_recurrence_count_holds_only_as_far_as_its_marks_cite(self):
+        schedule = {"recurrence_cap": 3, "blocking": ["P1", "P2"]}
+        def chain(review):
+            return [{"review": "HIGHEST: P2\nCOMPLETION: gaps"}, {"review": "x"}, {"review": review}]
+        cited = "1. P2 (recurring: completion, reconciliation 1)\nHIGHEST: P2\nRECURRING: 3\nRECONCILIATION: gaps"
+        self.assertEqual(review_pin.recurrence_stalled(schedule, chain(cited)), 3)
+        self.assertEqual(review_pin.recurrence_stalled(schedule, chain(cited.replace("\n", "\r\n"))), 3)  # Windows replies
+        for label, review in (
+                ("uncited", "HIGHEST: P2\nRECURRING: 3\nRECONCILIATION: gaps"),
+                ("one pass cited twice", cited.replace("reconciliation 1", "completion")),
+                ("one pass cited twice, spaced apart", cited.replace("completion, reconciliation 1",
+                                                                     "reconciliation 1, reconciliation  1")),
+                ("split over two lines", cited.replace("RECURRING: 3", "RECURRING:\n3")),
+                ("a later pass cited", cited.replace("reconciliation 1", "reconciliation 2")),
+                ("below blocking", cited.replace("HIGHEST: P2", "HIGHEST: P3")),
+                ("two lines", cited.replace("RECURRING: 3", "RECURRING: 3\nRECURRING: none"))):
+            with self.subTest(label):
+                self.assertIsNone(review_pin.recurrence_stalled(schedule, chain(review)))
+        self.assertIsNone(review_pin.recurrence_stalled({}, chain(cited)))
     def test_caps_prints_the_configured_caps(self):
-        self.assertEqual(self.run_cli(THREE_PASS, "--caps").stdout, "pass_cap 45\nno_progress_cap 3\n")
-        self.assertEqual(self.run_cli(EARLIER_THREE_PASS, "--caps").stdout, "pass_cap 33\nno_progress_cap none\n")
+        self.assertEqual(self.run_cli(THREE_PASS, "--caps").stdout, "pass_cap 45\nno_progress_cap 3\nrecurrence_cap none\n")
+        self.assertEqual(self.run_cli(EARLIER_THREE_PASS, "--caps").stdout, "pass_cap 33\nno_progress_cap none\nrecurrence_cap none\n")
         rotation = self.run_cli(ROTATION, "--caps")
         self.assertEqual(rotation.returncode, 2)
         self.assertIn("three-pass", rotation.stderr)
