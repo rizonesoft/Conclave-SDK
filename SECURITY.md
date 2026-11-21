@@ -4,8 +4,7 @@
 
 Report it privately. Do not open a public issue for a vulnerability.
 
-- While the repository is internal, GitHub offers no private reporting for it: tell the repository owner directly, in a private message, not in an issue or a pull request.
-- If the repository is made public, turn on private vulnerability reporting (Settings, Code security) and use the **Security** tab, then **Report a vulnerability**.
+- Use GitHub private vulnerability reporting: open the **Security** tab and choose **Report a vulnerability**. Only the maintainers see the report.
 - Say what you found, where (a file and line, or a command), what an attacker gains, and the steps that show it.
 
 A confirmed vulnerability is fixed at the layer that owns it, with a test that fails before the fix, and the report is credited unless you ask otherwise.

@@ -15,7 +15,7 @@
   <img src="https://img.shields.io/badge/agents-Claude%20Code%20%7C%20Codex%20%7C%20Antigravity-00beff?style=flat-square&labelColor=0b1220" alt="Three agents">
   <img src="https://img.shields.io/badge/kits-6-00beff?style=flat-square&labelColor=0b1220" alt="Six kits">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20WSL-00beff?style=flat-square&labelColor=0b1220" alt="Windows, Linux and WSL">
-  <img src="https://img.shields.io/badge/license-proprietary-8fa6c4?style=flat-square&labelColor=0b1220" alt="Proprietary">
+  <img src="https://img.shields.io/badge/license-Apache--2.0-00beff?style=flat-square&labelColor=0b1220" alt="Apache-2.0">
 </p>
 
 <p align="center">
@@ -276,4 +276,4 @@ Report a vulnerability privately, as [`SECURITY.md`](SECURITY.md) describes. The
 
 ## License
 
-Copyright Rizonetech. All rights reserved. This repository is internal and carries no open-source license: no right to use, copy or distribute it is granted without written permission.
+Copyright 2026 Rizonetech. Licensed under the [Apache License 2.0](LICENSE). A project that copies a kit may keep its own licence, closed source included, as long as it keeps the kit's licence and attribution notices.
