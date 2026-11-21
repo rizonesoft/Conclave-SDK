@@ -412,24 +412,25 @@ The fix: severity is impact times likelihood, defined once in `review_pin.py` (`
 - [x] Update `D00 T01 §10` so each measured trial row records which rubric its actual review passes used (`old`, `new`, or `mixed` when a chain spans this commit), verified against the review candidates rather than stamp date alone. Done when: `§10` carries the rubric-tracking note and `python scripts/todo-graph.py validate` passes. **Planned 2026-11-21 (plan review, P2):** classify by pass candidates, not stamp date.
 - [ ] Commit: `reviewer: one severity rubric weighted by likelihood, appended to every pass`
 
-**False-alarm replay (2026-11-21T22:20Z, `astra` via synced `scripts/review-dispatch.py`, after refining user-edited config vs tool-owned internal state):**
+**False-alarm replay (2026-11-21T22:20Z and 22:34Z, `astra` via synced `scripts/review-dispatch.py`, after refining user-edited config vs tool-owned internal state; covers all damaged-record findings in reconciliations 10 to 19 plus reconciliations 8 to 9 background rows F1 and F2):**
 
 | Case | Source | Producer / Precondition | Old | New |
 | --- | --- | --- | --- | --- |
-| F1 | `D02-T02-s12.md:414` | Hand-edited `{"sets": 1}` in tool-owned record | P1 | P3 |
-| F2 | `D02-T02-s12.md:438` | Hand-edited `[{"sets":[]}]` in tool-owned record | P1 | P3 |
-| F3 | `D02-T02-s12.md:484` | Hand-edited `{"Sets":[]}` key case in tool record | P2 | P3 |
-| F4 | `D02-T02-s12.md:510` | Hand-edited trailing comma in tool-owned record | P2 | P3 |
-| F5 | `D02-T02-s12.md:545` | Corrupted UTF-8 byte in tool-owned record | P2 | P3 |
-| F6 | Synthetic control | Pathless `traced` claim with no real producer | P2 | P3 |
+| F1 | `D02-T02-s12.md:414` (rec 8) | Hand-edited `{"sets": 1}` in tool-owned record | P1 | P3 |
+| F2 | `D02-T02-s12.md:438` (rec 9) | Hand-edited `[{"sets":[]}]` in tool-owned record | P1 | P3 |
+| F3 | `D02-T02-s12.md:479` (rec 10) | Missing `IconDir` in tool-owned record | P2 | P3 |
+| F4 | `D02-T02-s12.md:484` (rec 10) | Hand-edited `{"Sets":[]}` key case in tool record | P2 | P3 |
+| F5 | `D02-T02-s12.md:510` (rec 11) | Hand-edited trailing comma (`:510`, `:516`) | P2 | P3 |
+| F6 | `D02-T02-s12.md:545` (rec 12) | Corrupted UTF-8 byte (`:545`, `:551`) | P2 | P3 |
+| F7 | Synthetic control | Pathless `traced` claim with no real producer | P2 | P3 |
 
-**Recall replay (2026-11-21T22:21Z, `astra` via synced `scripts/review-dispatch.py`; initial pass downgraded R7 to P3, exposing user-edited `.mcp.json` ambiguity, fixed in `SEVERITY_RUBRIC`, re-synced, and re-run to 10/10 recall):**
+**Recall replay (2026-11-21T22:40Z, `astra` via synced `scripts/review-dispatch.py`; initial pass downgraded R7 to P3, exposing user-edited `.mcp.json` ambiguity, and further tightened for crash/lock recovery on internal state files, hollow required tests, and public contracts; re-synced and re-run to 12/12 recall; R1 regression `test_an_update_that_replaces_the_shortcut_script_asks_it_for_links_from_before_the_record` in `tests/test_forge.py`):**
 
 | Case | Source | Fix | Summary | Old | New |
 | --- | --- | --- | --- | --- | --- |
-| R1 | `D02-T02-s12.md:11` | `31dcb058` | Named-path `traced` plan: upgrade skips old links | P1 | P1 |
+| R1 | `D02-T02-s12.md:11` | `99a68267` | Named-path `traced` plan: upgrade skips old links | P1 | P1 |
 | R2 | `D07-T01-s9.md:59` | `1a843490` | `Add-Type -Path` fails on `[` in checkout path | P2 | P2 |
-| R3 | `D07-T01-s9.md:60` | `1a843490` | `Get-Owned` swallows directory enumeration error | P2 | P1 |
+| R3 | `D07-T01-s9.md:60` | `1a843490` | `Get-Owned` swallows directory enumeration error | P2 | P2 |
 | R4 | `D07-T02-s2.md:43` | `bd98361c` | `POWERSHELL_OPEN` mangles Chrome `%1` launch | P1 | P1 |
 | R5 | `D07-T02-s8.md:43` | `4d6a58a5` | Relative `XDG_DATA_DIRS` picks repo desktop file | P1 | P1 |
 | R6 | `D07-T02-s3.md:230` | `19f431ca` | Recovery rejects parent-dir `wp-config.php` | P2 | P2 |
@@ -437,6 +438,8 @@ The fix: severity is impact times likelihood, defined once in `review_pin.py` (`
 | R8 | `D07-T02-s5.md:51` | `fe7931c9` | Forge writes `wsl` key to pre-`wsl` launchers | P1 | P1 |
 | R9 | `D07-T02-s5.md:53` | `fe7931c9` | `unattended` drops brought `launchers` failure | P1 | P1 |
 | R10 | `D07-T02-s6.md:45` | `84363bbe` | Setup Bash block includes `remove --yes` | P1 | P1 |
+| R11 | `D02-T02-s12.md:628` | `a22f50ba` | File lock on internal record gives bad advice | P2 | P2 |
+| R12 | `D07-T02-s6.md:131` | `9d399fbc` | Hollow required test passes on negated approval | P2 | P2 |
 
 **Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests` and `python -m unittest tests.test_forge -k skill -k markdown_table` pass, `python scripts/review_pin.py --check --all` prints `ok`, and removing the rubric append from `review()` in `review-dispatch.py` makes the dispatcher test fail. Projects that install the reviewer kit take the rubric with their next kit refresh.
 
