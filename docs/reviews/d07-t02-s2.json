@@ -1,0 +1,92 @@
+{
+  "ref": "D07 T02 \u00a72",
+  "title": "Dashboard opener `scripts/open-dashboard.py`",
+  "implementation_sha": "09646718f6b6ed05c27f4232dbaf006488a98f4c",
+  "date": "2026-11-21",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/07-launchers/D07-T02-s2.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "wsl python3 kits/wordpress/templates/scripts/tests/test_open_dashboard.py && unittest test_ticket_login.py -> Ran 29 tests OK; Ran 14 tests OK",
+    "python forge.py check-all --only kit-wordpress -> PASS kit-wordpress 71 tests",
+    "CI tests.yml run 44892325627 at 09646718f6b6ed05c27f4232dbaf006488a98f4c -> green (7/7 jobs)"
+  ],
+  "completion": {
+    "report": "docs/reviews/07-launchers/D07-T02-s2.md",
+    "verdict": "reconciled",
+    "candidate": "09646718f6b6ed05c27f4232dbaf006488a98f4c",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/07-launchers/D07-T02-s2.md",
+    "candidate": "c460e8b93bf1494666cf819185efb97eb219c6e8",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan",
+      "simplest"
+    ]
+  },
+  "schedule_sha": "c460e8b93bf1494666cf819185efb97eb219c6e8",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "lenses": {
+      "simplest": "What is the simplest design that meets this section in full, and which planned part could be cut?",
+      "repair-adversarial": "In the newest repair only (the last reviewed candidate to the repaired candidate, both named above): how does the newest repair fail on hostile input, races, aborts, cancellation, automation or links? Code an earlier pass reviewed and the repair left unchanged is out of scope.",
+      "repair-integration": "In the newest repair only (the last reviewed candidate to the repaired candidate, both named above): what does the newest repair break in a caller, a contract, another kit or an installed copy?"
+    },
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan",
+        "simplest"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record",
+        "repair-adversarial",
+        "repair-integration"
+      ]
+    }
+  },
+  "passes_spent": 6,
+  "pass_cap": 33
+}
