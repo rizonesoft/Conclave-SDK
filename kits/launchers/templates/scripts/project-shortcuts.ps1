@@ -192,12 +192,14 @@ if ($needsWsl) {
     $Wsl = (Get-Command wsl.exe -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
   }
   if (-not $Wsl) { Refuse 'wsl.exe is not on PATH: install WSL' }
+  $env:WSL_UTF8 = '1'  # wsl.exe lists its distros in UTF-16 otherwise
+  $listed = @(& $Wsl -l -q 2>$null | ForEach-Object { ($_ -replace "`0", '').Trim() } | Where-Object { $_ })
   if ($null -ne $linux -or $Distro) {
-    $env:WSL_UTF8 = '1'  # wsl.exe lists its distros in UTF-16 otherwise
-    $listed = @(& $Wsl -l -q 2>$null | ForEach-Object { ($_ -replace "`0", '').Trim() } | Where-Object { $_ })
     if ($LASTEXITCODE -ne 0 -or $listed -notcontains $Distro) {
       Refuse "WSL has no distro '$Distro' (it lists: $($listed -join ', '))"
     }
+  } elseif ($LASTEXITCODE -ne 0 -or $listed.Count -eq 0) {
+    Refuse 'WSL has no installed distro: install a WSL distribution'
   }
   if ($null -ne $linux) {
     & $Wsl -d $Distro --exec test -d $linux 2>$null

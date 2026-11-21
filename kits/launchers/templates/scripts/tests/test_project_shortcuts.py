@@ -1023,12 +1023,13 @@ class ProjectShortcutsTest(unittest.TestCase):
         ran = self.run_link(link)
         self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
         calls = [json.loads(line) for line in self.wsl_log.read_text(encoding="utf-8").splitlines()]
-        self.assertEqual(len(calls), 1, calls)
-        self.assertEqual(calls[0][0], "--cd")
-        self.assertEqual(folder(calls[0][1]), folder(self.project))
-        self.assertEqual(calls[0][2:5], ["--exec", "bash", "-lc"])
-        self.assertEqual(calls[0][5], declared_bash("WordPress"))
-        self.assertEqual(calls[0][6:], ["bash", "python3 scripts/open-dashboard.py"])
+        self.assertEqual(len(calls), 2, calls)
+        self.assertEqual(calls[0], ["-l", "-q"])
+        self.assertEqual(calls[1][0], "--cd")
+        self.assertEqual(folder(calls[1][1]), folder(self.project))
+        self.assertEqual(calls[1][2:5], ["--exec", "bash", "-lc"])
+        self.assertEqual(calls[1][5], declared_bash("WordPress"))
+        self.assertEqual(calls[1][6:], ["bash", "python3 scripts/open-dashboard.py"])
         # 2. Windows-drive checkout with wsl: true refuses cleanly when wsl.exe is unavailable on PATH.
         no_wsl_desk = self.base / "desk-no-wsl"
         no_wsl_icons = self.base / "icons-no-wsl"
@@ -1042,6 +1043,11 @@ class ProjectShortcutsTest(unittest.TestCase):
         )
         self.assertEqual(missing.returncode, 1, missing.stdout + missing.stderr)
         self.assertIn("wsl.exe is not on PATH", missing.stdout + missing.stderr)
+        self.assertFalse(no_wsl_desk.exists() and list(no_wsl_desk.iterdir()))
+        # 2b. Windows-drive checkout with wsl: true refuses cleanly when WSL has no registered distro.
+        no_distro = self.run_script(desk=no_wsl_desk, icons=no_wsl_icons, STUB_WSL_FAIL="1")
+        self.assertEqual(no_distro.returncode, 1, no_distro.stdout + no_distro.stderr)
+        self.assertIn("WSL has no installed distro", no_distro.stdout + no_distro.stderr)
         self.assertFalse(no_wsl_desk.exists() and list(no_wsl_desk.iterdir()))
         # 3. WSL checkout with wsl: true invokes wsl.exe -d Ubuntu --cd /home/me/site --exec bash -lc ...
         self.wsl_log.unlink(missing_ok=True)

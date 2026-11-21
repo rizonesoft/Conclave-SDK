@@ -24,6 +24,7 @@ installed copy of its kits.
 from __future__ import annotations
 
 import argparse
+import ast
 import ctypes
 import difflib
 import fnmatch
@@ -34,6 +35,7 @@ from pathlib import Path, PurePosixPath
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -836,6 +838,13 @@ def apply_kit(
         brought = BROUGHT_KITS[kit_name]
         with_brought = apply_kit(target_root, brought, agent=agent, dry_run=dry_run, include=include)
         result[brought] = {"installed": with_brought["installed"], "preserved": with_brought["preserved"]}
+        if with_brought.get("merge_needed"):
+            result[brought]["merge_needed"] = list(with_brought["merge_needed"])
+            for item in with_brought["merge_needed"]:
+                if item not in merge_needed:
+                    merge_needed.append(item)
+        if "launcher_links" in with_brought:
+            result["launcher_links"] = with_brought["launcher_links"]
     if kit_name in ("lsp", "toolchain-web", "toolchain-cpp", "laravel") and fill_table:
         servers = _fill_lsp_table(target_root, dry_run, installing=kit_name)
         if servers is not None:
@@ -849,7 +858,7 @@ def apply_kit(
         if links is not None:
             result["launcher_links"] = links
             if any(key in links for key in ("conflict", "refused", "failed")):
-                merge_needed.append(LAUNCHER_PROFILE)
+                merge_needed.append(LAUNCHERS_PROFILE)
     return result
 
 
@@ -2360,7 +2369,6 @@ def _lsp_table_module():
     return module
 
 
-LAUNCHER_PROFILE = ".conclave/launchers.json"
 WORDPRESS_OPENER = "scripts/open-dashboard.py"
 WORDPRESS_LAUNCHER_LINK = {
     "label": "WordPress",
@@ -2370,13 +2378,44 @@ WORDPRESS_LAUNCHER_LINK = {
 }
 
 
-def _launchers_module():
-    """The launchers kit's profile module, loaded from the kit so forge validates profiles under the kit's rules."""
-    path = FORGE_ROOT / "kits/launchers/templates/scripts/lib/launchers.py"
-    module = types.ModuleType("_forge_launchers")
-    module.__file__ = str(path)
-    exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), module.__dict__)
-    return module
+def _is_regular_file(path: Path) -> bool:
+    """True only when `path` itself is a regular file (never a symlink, FIFO, socket, or folder)."""
+    try:
+        return stat.S_ISREG(os.lstat(path).st_mode)
+    except OSError:
+        return False
+
+
+def _installed_launchers_supports_wsl(target_root: Path) -> bool:
+    """Whether any installed launchers scripts in `target_root` accept the `wsl` key on `run` links. Checked
+    statically (AST for `launchers.py`, text check for `project-shortcuts.ps1`) so target code is never executed."""
+    loader = target_root / "scripts/lib/launchers.py"
+    if os.path.lexists(loader):
+        if _has_unsafe_parent(target_root, "scripts/lib/launchers.py") or not _is_regular_file(loader):
+            return False
+        try:
+            tree = ast.parse(loader.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, SyntaxError):
+            return False
+        has_wsl_key = any(
+            isinstance(node, ast.Constant) and node.value == "wsl"
+            for fn in tree.body
+            if isinstance(fn, ast.FunctionDef) and fn.name == "load_profile"
+            for node in ast.walk(fn)
+        )
+        if not has_wsl_key:
+            return False
+    ps1 = target_root / "scripts/project-shortcuts.ps1"
+    if os.path.lexists(ps1):
+        if _has_unsafe_parent(target_root, "scripts/project-shortcuts.ps1") or not _is_regular_file(ps1):
+            return False
+        try:
+            text = ps1.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return False
+        if "'wsl'" not in text:
+            return False
+    return True
 
 
 def _merge_wordpress_launcher_link(target_root: Path, dry_run: bool, installing: str,
@@ -2384,18 +2423,29 @@ def _merge_wordpress_launcher_link(target_root: Path, dry_run: bool, installing:
     """Declare the WordPress dashboard link in `.conclave/launchers.json` when both the WordPress opener and a
     launcher profile are present (or being installed in this run), regardless of which kit was installed first."""
     opener = target_root / WORDPRESS_OPENER
-    has_opener = (WORDPRESS_OPENER in installed) or (opener.is_file() and not _is_link(opener))
+    has_opener = (WORDPRESS_OPENER in installed) or (
+        not _has_unsafe_parent(target_root, WORDPRESS_OPENER) and _is_regular_file(opener)
+    )
     if not has_opener:
         return None
-    profile_path = target_root / LAUNCHER_PROFILE
+    profile_path = target_root / LAUNCHERS_PROFILE
     profile_exists = os.path.lexists(profile_path)
-    seeding = (installing == "launchers") and (LAUNCHER_PROFILE in installed)
+    seeding = (installing == "launchers") and (LAUNCHERS_PROFILE in installed)
     if not profile_exists and not seeding:
         return None
-    if _has_unsafe_parent(target_root, LAUNCHER_PROFILE) or _is_link(profile_path):
-        return {"refused": f"{LAUNCHER_PROFILE}: refusing a profile that is a link or has an unsafe parent"}
-    launchers = _launchers_module()
-    source_path = profile_path if profile_exists else (FORGE_ROOT / "kits/launchers/templates" / LAUNCHER_PROFILE)
+    if _has_unsafe_parent(target_root, LAUNCHERS_PROFILE) or _is_link(profile_path):
+        return {"refused": f"{LAUNCHERS_PROFILE}: refusing a profile that is a link or has an unsafe parent"}
+    if profile_exists and not _is_regular_file(profile_path):
+        return {"refused": f"{LAUNCHERS_PROFILE}: not a regular file"}
+    if not _installed_launchers_supports_wsl(target_root):
+        return {
+            "refused": (
+                f"{LAUNCHERS_PROFILE}: installed launchers kit does not support wsl run links; "
+                f"run 'python forge.py update {target_root.as_posix()} launchers' first"
+            )
+        }
+    launchers = _toolchain_module("launchers", "lib/launchers.py")
+    source_path = profile_path if profile_exists else (FORGE_ROOT / "kits/launchers/templates" / LAUNCHERS_PROFILE)
     try:
         profile = launchers.load_profile(source_path, target_root, unset=True)
     except launchers.ProfileError as exc:
@@ -2407,14 +2457,14 @@ def _merge_wordpress_launcher_link(target_root: Path, dry_run: bool, installing:
         if entry == WORDPRESS_LAUNCHER_LINK:
             return {"kept": [target_label]}
         if entry["label"].lower() == target_lower or launchers.slug(entry["label"]) == target_slug:
-            return {"conflict": f"{LAUNCHER_PROFILE}: existing link {entry['label']!r} conflicts with {target_label!r}"}
+            return {"conflict": f"{LAUNCHERS_PROFILE}: existing link {entry['label']!r} conflicts with {target_label!r}"}
     profile["links"].append(dict(WORDPRESS_LAUNCHER_LINK))
     if dry_run:
         return {"added": [target_label]}
     try:
         atomic_write(profile_path, json.dumps(profile, indent=2) + "\n")
     except OSError as exc:
-        return {"failed": f"{LAUNCHER_PROFILE}: {exc.strerror or exc}"}
+        return {"failed": f"{LAUNCHERS_PROFILE}: {exc.strerror or exc}"}
     return {"added": [target_label]}
 
 
