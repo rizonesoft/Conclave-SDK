@@ -210,7 +210,9 @@ The desktop link is the launchers kit's to write (`T01 §6`). This section decla
 
 ## 6. `wordpress-connect` step and tooling page
 
-The setup runbook ends at "Record it" today. A project connected by it should be told that the dashboard login exists, that putting the plugin on the site is a write the owner approves, and how to take it off.
+> **Started:** 2026-11-21T21:12Z
+
+The setup runbook ends at "Record it" today. A project connected by it should be told that the dashboard login exists, how to check eligibility from `§4`'s doctor rows and existing plugin state, that putting or replacing the plugin on the site (and running `--check`) is an owner-approved write, how to open the dashboard directly or via `§5`'s launcher link, and how to remove the plugin.
 
 **Phase:** 8
 **Needs:** none
@@ -218,16 +220,15 @@ The setup runbook ends at "Record it" today. A project connected by it should be
 
 **Build order:**
 
-1. Add the step to the skill and generate its copies. Done when: the copies match.
-2. Add the section to the tooling page. Done when: the checkpoint passes.
+1. Update both Claude skill sources (`wordpress-connect` and `wordpress-site-safety`), then run `python forge.py skill-copies` once. Done when: `python forge.py skill-copies --check` exits 0.
+2. Add "How do I open the dashboard?" to `docs/wordpress-agent-tooling.md` and add `WordPressDashboardLoginDocsTests.test_dashboard_login_page_and_skills` in `tests/test_forge.py`. Done when: the full-path unittest and `skill-copies --check` pass.
 
-- [ ] Add a step "Dashboard login (optional)" to `kits/wordpress/templates/.claude/skills/wordpress-connect/SKILL.md` before "Record it": ask the owner once before `python scripts/ticket-login.py install --yes`, prove it with `python scripts/open-dashboard.py --check`, and add the desktop link through the launchers kit. Done when: the step names the three commands and the approval.
-- [ ] Run `python forge.py skill-copies`. Done when: `python forge.py skill-copies --check` exits 0.
-- [ ] Add "How do I open the dashboard?" to `kits/wordpress/templates/docs/wordpress-agent-tooling.md`: how the ticket works, what is stored where and for how long, that no key exists anywhere, the commands, how to remove it, and that it needs SSH. Done when: a test in `tests/test_forge.py` finds each of those topics on the page.
-- [ ] Add one rule to `kits/wordpress/templates/.claude/skills/wordpress-site-safety/SKILL.md`: a ticket link is a credential while it lives and is never printed, pasted or logged, and generate its copies. Done when: the copies match.
+- [ ] Add a step "Dashboard login (optional)" to `kits/wordpress/templates/.claude/skills/wordpress-connect/SKILL.md` before "Record it": read `§4`'s `ticket-login` and `ticket-login-user` doctor rows first (skip when `optional`, explain `setup_required`, continue to "Record it" if the owner declines), name WSL/Linux and the multisite and relocated MU-plugin refusals, run `python3 scripts/ticket-login.py status` (`absent`/`current`/`differs`; skip install when `current`, explicitly identify replacement on `differs`), ask owner approval before `python3 scripts/ticket-login.py install --yes` (covering `--check`'s temporary ticket write/removal), prove with `python3 scripts/open-dashboard.py --check` (opens no browser), give `pwsh scripts/project-shortcuts.ps1` (after setting profile `title`/`icon`) and direct `python3 scripts/open-dashboard.py`, and document approved `python3 scripts/ticket-login.py remove --yes` with `plugin: absent` and `option: absent` read-back. Done when: `WordPressDashboardLoginDocsTests.test_dashboard_login_page_and_skills` verifies step ordering, approval before install, skip path, status/removal read-back, and all commands across Claude, Antigravity, and Codex copies. **Planned 2026-11-21 (plan review, P1):** doctor eligibility, status/differs/remove flow, explicit third command and direct opener.
+- [ ] Add one rule to `kits/wordpress/templates/.claude/skills/wordpress-site-safety/SKILL.md`: a ticket link is a credential while it lives and is never printed, pasted or logged; then run `python forge.py skill-copies` once for both skills. Done when: `python forge.py skill-copies --check` exits 0 and the test asserts the rule in all three agent copies. **Planned 2026-11-21 (plan review, P1/P3):** single `skill-copies` pass and cross-agent rule assertion.
+- [ ] Add "How do I open the dashboard?" to `kits/wordpress/templates/docs/wordpress-agent-tooling.md`: how the one-use ticket works (no standing login key added; only the token's SHA-256 hash, pinned user ID, and 60-second expiry stored in `conclave_login_ticket`), the distinction between the 60-second ticket and an established WordPress session (removing the plugin prevents future ticket logins without signing out an active session), SSH + pinned user + WSL/Linux requirements and multisite/relocated MU-plugin refusals, and the exact `status`, `install --yes`, `--check`, `open-dashboard.py`, `pwsh scripts/project-shortcuts.ps1`, and `remove --yes` commands. Done when: `WordPressDashboardLoginDocsTests.test_dashboard_login_page_and_skills` verifies every topic and exact command on the page. **Planned 2026-11-21 (plan review, P1/P2):** accurate no-standing-key and ticket-vs-session wording and exact command checks.
 - [ ] Commit: `wordpress: the dashboard login in the connect runbook and the tooling page`
 
-**Test checkpoint:** `python -m unittest tests.test_forge -k dashboard_login_page` ends `OK`; removing the removal command from the page makes it fail.
+**Test checkpoint:** `python -m unittest tests.test_forge.WordPressDashboardLoginDocsTests.test_dashboard_login_page_and_skills -v` and `python forge.py skill-copies --check` end `OK`; removing the removal command, the safety rule, or moving approval after install makes it fail.
 
 ## 7. Live proof on a staging site
 
