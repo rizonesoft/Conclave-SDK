@@ -242,7 +242,17 @@ def _truthy_config(value) -> bool:
 
 
 def probe_layout_fallback(pin: dict) -> dict:
-    """Fallback layout check via `wp config list --format=json` when a broken MU-plugin stops WordPress bootstrap."""
+    """Fallback layout check via `wp config path` + `wp config list --format=json` when a broken MU-plugin stops bootstrap."""
+    try:
+        path_done = site_ssh.wp([f"--url={pin['url']}", "config", "path"], timeout=REMOTE_TIMEOUT, pin=pin)
+    except KeyboardInterrupt:
+        raise
+    except Exception:
+        raise Refusal("could not verify the site's WordPress layout before changing files", 1) from None
+    cfg_path = _last_line(path_done.stdout).replace("\\", "/")
+    if path_done.returncode != 0 or not cfg_path.endswith("/wp-config.php"):
+        raise Refusal("could not verify the site's WordPress layout before changing files", 1)
+    cfg_root = cfg_path[:-len("/wp-config.php")].rstrip("/")
     try:
         done = site_ssh.wp([f"--url={pin['url']}", "config", "list", "--format=json"], timeout=REMOTE_TIMEOUT, pin=pin)
     except KeyboardInterrupt:
@@ -266,28 +276,25 @@ def probe_layout_fallback(pin: dict) -> dict:
     else:
         multisite = any(name in constants for name in ("SUBDOMAIN_INSTALL", "VHOST", "SUNRISE"))
     relocated = "WPMU_PLUGIN_DIR" in constants or "WP_CONTENT_DIR" in constants
-    return {"multisite": multisite, "mu_match": not relocated, "mu_dir": ""}
+    return {"multisite": multisite, "mu_match": not relocated, "mu_dir": f"{cfg_root}/{MU_REL}" if cfg_root else ""}
 
 
 def check_supported_layout(pin: dict, *, allow_bootstrap_fallback: bool = False) -> None:
     """Refuse multisite installations and relocated/mismatched WPMU_PLUGIN_DIR before mutating MU-plugin files."""
-    used_fallback = False
     try:
         layout = probe_wp(pin)
     except Refusal as error:
         if not (allow_bootstrap_fallback and error.bootstrap_failed):
             raise
         layout = probe_layout_fallback(pin)
-        used_fallback = True
     if layout["multisite"]:
         raise Refusal("multisite installations are not supported for automatic MU-plugin mutation", 1)
     if not layout["mu_match"]:
         raise Refusal("WordPress loads MU-plugins from a relocated WPMU_PLUGIN_DIR; refusing to modify wp-content/mu-plugins", 1)
-    if not used_fallback and layout.get("mu_dir"):
-        wp_root = _remote_wp_root(pin)
-        expected_mu = f"{wp_root}/{MU_REL}"
-        if layout["mu_dir"] != expected_mu:
-            raise Refusal("WordPress WPMU_PLUGIN_DIR does not match ssh.wp_path/wp-content/mu-plugins; refusing to modify files", 1)
+    wp_root = _remote_wp_root(pin)
+    expected_mu = f"{wp_root}/{MU_REL}"
+    if not layout.get("mu_dir") or layout["mu_dir"] != expected_mu:
+        raise Refusal("WordPress WPMU_PLUGIN_DIR does not match ssh.wp_path/wp-content/mu-plugins; refusing to modify files", 1)
 
 
 def _cleanup_temp(pin: dict, tmp_rel: str) -> bool:
@@ -349,11 +356,11 @@ def cmd_install(pin: dict, yes: bool, out, err) -> int:
     except Exception:
         cleaned = _cleanup_temp(pin, tmp_rel)
         note = "staging file removed" if cleaned else "staging file cleanup could not be confirmed"
-        raise Refusal(f"failed to upload staging file ({note}); existing plugin untouched", 1) from None
+        raise Refusal(f"failed to upload staging file ({note}); existing plugin untouched; run status to confirm site state", 1) from None
     if staged.returncode != 0 or _last_line(staged.stdout) != "STAGED":
         cleaned = _cleanup_temp(pin, tmp_rel)
         note = "staging file removed" if cleaned else "staging file cleanup could not be confirmed"
-        raise Refusal(f"failed to stage {PLUGIN_NAME} ({note}); existing plugin untouched", 1)
+        raise Refusal(f"failed to stage {PLUGIN_NAME} ({note}); existing plugin untouched; run status to confirm site state", 1)
 
     try:
         staged_sha = probe_file(pin, tmp_rel)
@@ -363,8 +370,9 @@ def cmd_install(pin: dict, yes: bool, out, err) -> int:
         _say(err, f"interrupted while verifying staging file ({note}); run status to confirm site state")
         return 130
     except Refusal:
-        _cleanup_temp(pin, tmp_rel)
-        raise Refusal("could not verify staged upload digest; existing plugin untouched", 1) from None
+        cleaned = _cleanup_temp(pin, tmp_rel)
+        note = "staging file removed" if cleaned else "staging file cleanup could not be confirmed"
+        raise Refusal(f"could not verify staged upload digest ({note}); existing plugin untouched; run status to confirm site state", 1) from None
     if staged_sha != expected:
         _cleanup_temp(pin, tmp_rel)
         raise Refusal("staged upload digest did not match the kit copy; existing plugin untouched", 1)

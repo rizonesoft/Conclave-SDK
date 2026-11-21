@@ -409,6 +409,9 @@ class _FakeRemoteSite:
                 if callable(hook):
                     return hook(tokens, site_url)
                 return subprocess.CompletedProcess(["wp"], 0, json.dumps(self.config_constants), "")
+            if sub == "config" and tokens[2:3] == ["path"]:
+                cfg_root = (self.abspath_override or self._posix_path(self.wp_dir)).rstrip("/")
+                return subprocess.CompletedProcess(["wp"], 0, f"{cfg_root}/wp-config.php\n", "")
             return subprocess.CompletedProcess(["wp"], 1, "", f"unexpected wp subcommand: {tokens}")
 
         # Raw SSH shell command: run hooks, then execute emitted POSIX shell against real temp tree via bash.
@@ -712,6 +715,20 @@ class PluginOnSiteTest(unittest.TestCase):
         self.site.db_error = ""
         self.assertEqual(code, 1)
         self.assertFalse(any("config" in c[1][0] for c in self.site.calls))
+        # Broken bootstrap + WP-CLI path override: BOTH install --yes and remove --yes refuse with zero mutations.
+        installed.write_bytes(b"<?php syntax error !!!")
+        self.site.bootstrap_broken = True
+        self.site.abspath_override = self.site._posix_path(self.wp_dir) + "/src/"
+        self.site.config_constants = [{"name": "DB_NAME", "value": "wp", "type": "constant"}]
+        self.site.options[self.pin["url"]] = {"conclave_login_ticket": "keep-opt"}
+        for mut in ("install", "remove"):
+            with self.subTest(crossed=mut):
+                code, _out, err, _ = self.run_cli([mut, "--yes"])
+                self.assertEqual(code, 1)
+                self.assertIn("ssh.wp_path", err)
+                self.assertEqual(installed.read_bytes(), b"<?php syntax error !!!")
+                self.assertEqual(self.site.options[self.pin["url"]].get("conclave_login_ticket"), "keep-opt")
+        self.site.abspath_override = None
         # Broken MU-plugin stopping WordPress bootstrap: fallback mirrors WordPress is_multisite() exactly.
         installed.write_bytes(b"<?php syntax error !!!")
         self.site.bootstrap_broken = True
@@ -724,6 +741,21 @@ class PluginOnSiteTest(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(installed.read_bytes(), PLUGIN.read_bytes())
         self.site.bootstrap_broken = False
+        # Pre-publication transport failures report cleanup outcome and status instruction.
+        self.site.hooks["stage"] = lambda _cmd, _inp: (_ for _ in ()).throw(RuntimeError("lost ssh during stage"))
+        code, _out, err, _ = self.run_cli(["install", "--yes"])
+        self.site.hooks.clear()
+        self.assertEqual(code, 1)
+        self.assertIn("staging file removed", err)
+        self.assertIn("status", err)
+        self.site.hooks["probe_file"] = lambda cmd: (
+            subprocess.CompletedProcess(["ssh"], 255, "", "lost ssh") if ".tmp" in cmd else None
+        )
+        code, _out, err, _ = self.run_cli(["install", "--yes"])
+        self.site.hooks.clear()
+        self.assertEqual(code, 1)
+        self.assertIn("staging file removed", err)
+        self.assertIn("status", err)
         # Final read-back Refusal after publication keeps recovery guidance mentioning publication and status.
         self.site.hooks["probe_file"] = lambda cmd: (
             subprocess.CompletedProcess(["ssh"], 255, "", "lost connection") if ".tmp" not in cmd else None
