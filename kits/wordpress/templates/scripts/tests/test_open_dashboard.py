@@ -507,12 +507,23 @@ class BrowserTest(unittest.TestCase):
             self.assertEqual(made.stat().st_mode & 0o777, 0o600)
 
     def test_each_kind_of_desktop_entry_command_gets_the_page(self):
+        desktop = str(Path(self._tmp.name) / "data" / "applications" / "firefox.desktop")
         for label, entry, expected in (
                 ("a file code", "Exec=browser --new-window %f\n", ["browser", "--new-window", "<path>"]),
                 ("a quoted program and a list code", 'Exec="/opt/my browser/br" %U\n', ["/opt/my browser/br", "<uri>"]),
                 ("no code", "Exec=browser\n", ["browser", "<path>"]),
-                ("icon and name codes", "Exec=browser %i %c %u\n", ["browser", "<uri>"]),
-                ("a literal percent", "Exec=browser --zoom=100%% %u\n", ["browser", "--zoom=100%", "<uri>"]),
+                ("name, desktop location and icon codes",
+                 "Icon=firefox-icon\nExec=wrapper --name %c --desktop %k %i %u\n",
+                 ["wrapper", "--name", "Firefox", "--desktop", "<desktop>", "--icon", "firefox-icon", "<uri>"]),
+                ("missing icon omits %i while keeping %c position",
+                 "Exec=wrapper --name %c %i %u\n",
+                 ["wrapper", "--name", "Firefox", "<uri>"]),
+                ("inline field codes and literal percent",
+                 "Exec=browser --zoom=100%% --name=%c %u\n",
+                 ["browser", "--zoom=100%", "--name=Firefox", "<uri>"]),
+                ("escaped percent before u appends path",
+                 "Exec=browser --flag=%%u\n",
+                 ["browser", "--flag=%u", "<path>"]),
                 ("another group first", "[Desktop Action new]\nExec=wrong %u\n", None)):
             with self.subTest(label):
                 self.started.clear()
@@ -525,7 +536,9 @@ class BrowserTest(unittest.TestCase):
                 self.open(wsl=False, which=self.LINUX, entry=entry)
                 [(argv, _)] = self.started
                 page = sorted(self.pages.glob("open-*.html"), key=lambda f: f.stat().st_mtime)[-1]
-                self.assertEqual(argv, [{"<path>": str(page), "<uri>": page.as_uri()}.get(w, w) for w in expected])
+                mapping = {"<path>": str(page), "<uri>": page.as_uri(), "<desktop>": desktop}
+                self.assertEqual(argv, [mapping.get(w, w) for w in expected])
+                self.assertNotIn("conclave_ticket", " ".join(argv))
 
     def test_two_launches_get_two_pages_and_only_dead_pages_are_removed(self):
         first, second = self.URL, "https://example.org/?conclave_ticket=" + "ef" * 32

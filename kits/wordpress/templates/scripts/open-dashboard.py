@@ -186,7 +186,7 @@ def _page(url):
 
 
 DESKTOP_ID = re.compile(r"[A-Za-z0-9._-]+\.desktop")
-FIELD_CODES = {"%f", "%F", "%u", "%U"}
+FIELD_RE = re.compile(r"%(%|f|F|u|U|c|k)")
 
 
 def _https_browser(page):
@@ -205,14 +205,22 @@ def _https_browser(page):
     found = next((Path(f) / "applications" / entry for f in folders if f and (Path(f) / "applications" / entry).is_file()), None)
     if found is None:
         raise Refusal(f"the browser's desktop entry {entry} is in no applications folder")
-    command, group = None, None
+    command, name, icon, group = None, "", "", None
     for line in found.read_text(encoding="utf-8", errors="replace").splitlines():
         line = line.strip()
+        if not line or line.startswith("#"):
+            continue
         if line.startswith("[") and line.endswith("]"):
             group = line[1:-1]
-        elif group == "Desktop Entry" and line.startswith("Exec="):
-            command = line[len("Exec="):]
-            break
+        elif group == "Desktop Entry" and "=" in line:
+            key, _, val = line.partition("=")
+            key, val = key.strip(), val.strip()
+            if key == "Exec" and command is None:
+                command = val
+            elif key == "Name" and not name:
+                name = val
+            elif key == "Icon" and not icon:
+                icon = val
     try:
         words = shlex.split(command or "")
     except ValueError:
@@ -220,14 +228,28 @@ def _https_browser(page):
     if not words:
         raise Refusal(f"the browser's desktop entry {entry} has no command to run")
     argv, given = [], False
-    for word in words:
-        if word in FIELD_CODES:
-            argv.append(page.as_uri() if word in ("%u", "%U") else str(page))
+
+    def _expand(match):
+        nonlocal given
+        code = match.group(1)
+        if code == "%":
+            return "%"
+        if code in ("u", "U"):
             given = True
-        elif word in ("%i", "%c", "%k"):
-            continue
+            return page.as_uri()
+        if code in ("f", "F"):
+            given = True
+            return str(page)
+        if code == "c":
+            return name
+        return str(found)
+
+    for word in words:
+        if word == "%i":
+            if icon:
+                argv.extend(["--icon", icon])
         else:
-            argv.append(word.replace("%%", "%"))
+            argv.append(FIELD_RE.sub(_expand, word))
     return argv if given else [*argv, str(page)]
 
 
