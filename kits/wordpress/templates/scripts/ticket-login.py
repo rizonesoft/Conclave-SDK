@@ -42,14 +42,27 @@ WP_PROBE = (
     f"$c = $wpdb->get_var( $wpdb->prepare( \"SELECT COUNT(*) FROM {{$wpdb->options}} WHERE option_name = %s\", '{OPTION}' ) ); "
     "if ( '' !== (string) $wpdb->last_error || null === $c ) { "
     "echo 'CONCLAVE_WP:' . json_encode( array( 'error' => 'db' ) ); return; } "
-    "$mu = defined( 'WPMU_PLUGIN_DIR' ) ? rtrim( str_replace( '\\\\', '/', WPMU_PLUGIN_DIR ), '/' ) : ''; "
-    "$expected = defined( 'ABSPATH' ) ? rtrim( str_replace( '\\\\', '/', ABSPATH ), '/' ) . '/wp-content/mu-plugins' : ''; "
+    "$mu_raw = defined( 'WPMU_PLUGIN_DIR' ) ? WPMU_PLUGIN_DIR : ''; "
+    "$mu_real = ( '' !== $mu_raw && false !== realpath( $mu_raw ) ) ? realpath( $mu_raw ) : $mu_raw; "
+    "$mu = rtrim( str_replace( '\\\\', '/', (string) $mu_real ), '/' ); "
+    "$ab_raw = defined( 'ABSPATH' ) ? ABSPATH : ''; "
+    "$ab_real = ( '' !== $ab_raw && false !== realpath( $ab_raw ) ) ? realpath( $ab_raw ) : $ab_raw; "
+    "$expected = '' !== $ab_real ? rtrim( str_replace( '\\\\', '/', (string) $ab_real ), '/' ) . '/wp-content/mu-plugins' : ''; "
     "echo 'CONCLAVE_WP:' . json_encode( array( "
     "'option' => ( (int) $c > 0 ) ? 'present' : 'absent', "
     "'multisite' => function_exists( 'is_multisite' ) && is_multisite(), "
+    "'mu_dir' => $mu, "
     "'mu_match' => ( '' !== $mu && '' !== $expected && $mu === $expected ) "
     ") );"
 )
+
+_FILE_ERRORS = {
+    "not-dir": "could not inspect the remote plugin file (mu-plugins path is not a directory)",
+    "unreadable": "could not inspect the remote plugin file (permission denied or unreadable)",
+    "symlink": "could not inspect the remote plugin file (unexpected symbolic link)",
+    "directory": "could not inspect the remote plugin file (target path is a directory)",
+    "no-sha256": "could not inspect the remote plugin file (remote host lacks sha256sum and shasum)",
+}
 
 WP_DELETE_OPTION = (
     "global $wpdb; "
@@ -68,9 +81,10 @@ def native_windows() -> bool:
 class Refusal(Exception):
     """A failure explained in a single fixed sentence without leaking remote output or secrets."""
 
-    def __init__(self, message: str, code: int = 1):
+    def __init__(self, message: str, code: int = 1, *, bootstrap_failed: bool = False):
         super().__init__(message)
         self.code = code
+        self.bootstrap_failed = bootstrap_failed
 
 
 def _say(stream, text: str) -> None:
@@ -127,14 +141,16 @@ def probe_file(pin: dict, rel: str = PLUGIN_REL) -> str | None:
         f"cd {wp_path} || exit 20\n"
         f"p={qrel}\n"
         'd=$(dirname "$p")\n'
+        'c=$(dirname "$d")\n'
+        'if [ -L "$c" ]; then echo "ERR:symlink"; exit 0; fi\n'
+        'if [ -e "$c" ] && [ ! -d "$c" ]; then echo "ERR:not-dir"; exit 0; fi\n'
+        'if [ -d "$c" ] && { [ ! -x "$c" ] || [ ! -r "$c" ]; }; then echo "ERR:unreadable"; exit 0; fi\n'
+        'if [ -L "$d" ]; then echo "ERR:symlink"; exit 0; fi\n'
         'if [ -e "$d" ] && [ ! -d "$d" ]; then echo "ERR:not-dir"; exit 0; fi\n'
-        'if [ -e "$d" ] && [ ! -x "$d" ]; then echo "ERR:unreadable"; exit 0; fi\n'
+        'if [ -d "$d" ] && { [ ! -x "$d" ] || [ ! -r "$d" ]; }; then echo "ERR:unreadable"; exit 0; fi\n'
         'if [ -L "$p" ]; then echo "ERR:symlink"; exit 0; fi\n'
         'if [ -d "$p" ]; then echo "ERR:directory"; exit 0; fi\n'
-        'if [ ! -e "$p" ]; then\n'
-        '  if [ -d "$d" ] && [ ! -r "$d" ]; then echo "ERR:unreadable"; exit 0; fi\n'
-        '  echo "ABSENT"; exit 0\n'
-        'fi\n'
+        'if [ ! -e "$p" ]; then echo "ABSENT"; exit 0; fi\n'
         'if [ ! -f "$p" ] || [ ! -r "$p" ]; then echo "ERR:unreadable"; exit 0; fi\n'
         'if command -v sha256sum >/dev/null 2>&1; then\n'
         '  h=$(sha256sum "$p" | awk "{print \\$1}")\n'
@@ -161,9 +177,26 @@ def probe_file(pin: dict, rel: str = PLUGIN_REL) -> str | None:
         if HEX64.fullmatch(digest):
             return digest
     if line.startswith("ERR:"):
-        reason = line[4:]
-        raise Refusal(f"could not inspect the remote plugin file ({reason})", 1)
+        code = line[4:]
+        if code in _FILE_ERRORS:
+            raise Refusal(_FILE_ERRORS[code], 1)
     raise Refusal("unexpected reply while inspecting the remote plugin file", 1)
+
+
+def _remote_wp_root(pin: dict) -> str:
+    """Resolve the canonical POSIX path of ssh.wp_path on the remote host."""
+    wp_path = _wp_path(pin)
+    cmd = f"cd {wp_path} && pwd -P"
+    try:
+        done = site_ssh.run("ssh", [cmd], timeout=REMOTE_TIMEOUT, pin=pin)
+    except KeyboardInterrupt:
+        raise
+    except Exception:
+        raise Refusal("could not resolve ssh.wp_path on the remote host", 1) from None
+    root = _last_line(done.stdout).replace("\\", "/").rstrip("/")
+    if done.returncode != 0 or not root:
+        raise Refusal("could not resolve ssh.wp_path on the remote host", 1)
+    return root
 
 
 def probe_wp(pin: dict) -> dict:
@@ -174,13 +207,13 @@ def probe_wp(pin: dict) -> dict:
         raise
     except Exception:
         raise Refusal("could not inspect WordPress on the pinned site", 1) from None
-    if done.returncode != 0:
-        raise Refusal("could not inspect WordPress on the pinned site", 1)
     marker = None
     for line in (done.stdout or "").splitlines():
         if line.strip().startswith("CONCLAVE_WP:"):
             marker = line.strip()[len("CONCLAVE_WP:"):]
-    if not marker:
+    if done.returncode != 0 and not marker:
+        raise Refusal("could not inspect WordPress on the pinned site", 1, bootstrap_failed=True)
+    if done.returncode != 0 or not marker:
         raise Refusal("unexpected reply while inspecting WordPress on the pinned site", 1)
     try:
         data = json.loads(marker)
@@ -191,9 +224,11 @@ def probe_wp(pin: dict) -> dict:
     opt = data.get("option")
     multisite = data.get("multisite")
     mu_match = data.get("mu_match")
-    if opt not in ("present", "absent") or not isinstance(multisite, bool) or not isinstance(mu_match, bool):
+    mu_dir = data.get("mu_dir", "")
+    if (opt not in ("present", "absent") or not isinstance(multisite, bool)
+            or not isinstance(mu_match, bool) or not isinstance(mu_dir, str)):
         raise Refusal("unexpected reply while inspecting WordPress on the pinned site", 1)
-    return {"option": opt, "multisite": multisite, "mu_match": mu_match}
+    return {"option": opt, "multisite": multisite, "mu_match": mu_match, "mu_dir": mu_dir.rstrip("/")}
 
 
 def _truthy_config(value) -> bool:
@@ -224,23 +259,35 @@ def probe_layout_fallback(pin: dict) -> dict:
         raise Refusal("could not verify the site's WordPress layout before changing files", 1)
     constants = {entry.get("name"): entry.get("value") for entry in items
                  if isinstance(entry, dict) and entry.get("type") == "constant" and isinstance(entry.get("name"), str)}
-    multisite = _truthy_config(constants.get("MULTISITE")) or _truthy_config(constants.get("WP_ALLOW_MULTISITE"))
+    # Mirror WordPress core is_multisite(): MULTISITE decides when defined; otherwise SUBDOMAIN_INSTALL, VHOST, or
+    # SUNRISE being defined makes the installation multisite, while WP_ALLOW_MULTISITE alone does not.
+    if "MULTISITE" in constants:
+        multisite = _truthy_config(constants["MULTISITE"])
+    else:
+        multisite = any(name in constants for name in ("SUBDOMAIN_INSTALL", "VHOST", "SUNRISE"))
     relocated = "WPMU_PLUGIN_DIR" in constants or "WP_CONTENT_DIR" in constants
-    return {"multisite": multisite, "mu_match": not relocated}
+    return {"multisite": multisite, "mu_match": not relocated, "mu_dir": ""}
 
 
 def check_supported_layout(pin: dict, *, allow_bootstrap_fallback: bool = False) -> None:
-    """Refuse multisite installations and relocated WPMU_PLUGIN_DIR before mutating MU-plugin files."""
+    """Refuse multisite installations and relocated/mismatched WPMU_PLUGIN_DIR before mutating MU-plugin files."""
+    used_fallback = False
     try:
         layout = probe_wp(pin)
-    except Refusal:
-        if not allow_bootstrap_fallback:
+    except Refusal as error:
+        if not (allow_bootstrap_fallback and error.bootstrap_failed):
             raise
         layout = probe_layout_fallback(pin)
+        used_fallback = True
     if layout["multisite"]:
         raise Refusal("multisite installations are not supported for automatic MU-plugin mutation", 1)
     if not layout["mu_match"]:
         raise Refusal("WordPress loads MU-plugins from a relocated WPMU_PLUGIN_DIR; refusing to modify wp-content/mu-plugins", 1)
+    if not used_fallback and layout.get("mu_dir"):
+        wp_root = _remote_wp_root(pin)
+        expected_mu = f"{wp_root}/{MU_REL}"
+        if layout["mu_dir"] != expected_mu:
+            raise Refusal("WordPress WPMU_PLUGIN_DIR does not match ssh.wp_path/wp-content/mu-plugins; refusing to modify files", 1)
 
 
 def _cleanup_temp(pin: dict, tmp_rel: str) -> bool:
@@ -286,7 +333,8 @@ def cmd_install(pin: dict, yes: bool, out, err) -> int:
     stage_cmd = (
         f"cd {wp_path} || exit 20\n"
         f"if [ -e {qdir} ] && [ ! -d {qdir} ]; then echo 'ERR:not-dir'; exit 21; fi\n"
-        f"if [ ! -d {qdir} ]; then mkdir -p {qdir} && chmod 0755 {qdir} || exit 21; fi\n"
+        f"if [ ! -d {qdir} ]; then mkdir -p {qdir} || exit 21; fi\n"
+        f"chmod 0755 {qdir} || exit 21\n"
         f"if [ -d {qtarget} ]; then echo 'ERR:target-dir'; exit 22; fi\n"
         f"(umask 0022 && tr -d '\\r\\n' | base64 -d > {qtmp} && chmod 0644 {qtmp}) || {{ rm -f {qtmp}; exit 23; }}\n"
         "echo STAGED\n"
@@ -347,6 +395,8 @@ def cmd_install(pin: dict, yes: bool, out, err) -> int:
     except KeyboardInterrupt:
         _say(err, "interrupted after publication; run status to confirm site state")
         return 130
+    except Refusal:
+        raise Refusal("plugin was published, but final read-back failed; run status to confirm site state", 1) from None
     if final_sha != expected:
         raise Refusal("installed plugin read-back did not match the kit copy; run status to confirm site state", 1)
     print("plugin: current", file=out)
@@ -402,12 +452,13 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ticket-login.py",
         description="Install, inspect and remove the Conclave ticket login MU-plugin on the pinned site.",
+        allow_abbrev=False,
     )
     sub = parser.add_subparsers(dest="command")
-    sub.add_parser("status", help="show plugin state (absent, current, differs) and option presence")
-    p_install = sub.add_parser("install", help="stage, verify, publish and read back the MU-plugin")
+    sub.add_parser("status", help="show plugin state (absent, current, differs) and option presence", allow_abbrev=False)
+    p_install = sub.add_parser("install", help="stage, verify, publish and read back the MU-plugin", allow_abbrev=False)
     p_install.add_argument("--yes", action="store_true", help="confirm writing the MU-plugin on the pinned site")
-    p_remove = sub.add_parser("remove", help="delete the MU-plugin and ticket option and confirm both absent")
+    p_remove = sub.add_parser("remove", help="delete the MU-plugin and ticket option and confirm both absent", allow_abbrev=False)
     p_remove.add_argument("--yes", action="store_true", help="confirm deleting the MU-plugin and option on the site")
     return parser
 

@@ -289,6 +289,7 @@ class _FakeRemoteSite:
         self.options: dict[str, dict[str, object]] = {url: {}}
         self.multisite = False
         self.mu_dir_override: str | None = None
+        self.abspath_override: str | None = None
         self.db_error = ""
         self.raw_stderr = "RAW_REMOTE_DIAGNOSTIC_DO_NOT_LEAK"
         self.bootstrap_broken = False
@@ -296,11 +297,20 @@ class _FakeRemoteSite:
         self.umask: int | None = None
         self.hooks: dict[str, object] = {}
 
+    def _posix_path(self, path: Path) -> str:
+        resolved = path.resolve()
+        if os.name == "nt" and BASH:
+            r = subprocess.run([BASH, "-c", "pwd -P"], cwd=resolved, capture_output=True, text=True,
+                               timeout=15, creationflags=NO_WINDOW)
+            if r.returncode == 0 and r.stdout.strip():
+                return r.stdout.strip()
+        return resolved.as_posix()
+
     def _run_php_eval(self, code: str, site_url: str) -> subprocess.CompletedProcess:
         if self.bootstrap_broken:
             return subprocess.CompletedProcess(["wp"], 1, "", "PHP Fatal error: syntax error in mu-plugin\n")
         site_opts = self.options.setdefault(site_url, {})
-        abspath = str(self.wp_dir).replace("\\", "/") + "/"
+        abspath = (self.abspath_override or self._posix_path(self.wp_dir)).rstrip("/") + "/"
         mu_dir = self.mu_dir_override or (abspath.rstrip("/") + "/wp-content/mu-plugins")
         if PHP:
             state = {
@@ -351,21 +361,29 @@ class _FakeRemoteSite:
             payload = json.loads(res.stdout)
             self.options[site_url] = payload["options"]
             return subprocess.CompletedProcess(["wp"], 0, payload["out"], self.raw_stderr)
-        # Pure-Python fallback when PHP CLI is not installed (e.g., native Windows).
+        # Fallback when PHP CLI is absent (native Windows): extract the exact option name from the emitted PHP.
         if "SELECT COUNT(*)" in code:
             if self.db_error:
                 return subprocess.CompletedProcess(["wp"], 0, 'CONCLAVE_WP:{"error":"db"}\n', self.raw_stderr)
-            present = "present" if "conclave_login_ticket" in site_opts else "absent"
-            mu_match = mu_dir.rstrip("/") == abspath.rstrip("/") + "/wp-content/mu-plugins"
+            m = re.search(r"WHERE option_name = %s\",\s*'([^']+)'", code)
+            assert m is not None, f"could not parse option name from probe PHP: {code}"
+            opt_name = m.group(1)
+            present = "present" if opt_name in site_opts else "absent"
+            mu_norm = mu_dir.rstrip("/")
+            mu_match = mu_norm == abspath.rstrip("/") + "/wp-content/mu-plugins"
             return subprocess.CompletedProcess(
                 ["wp"], 0,
-                "CONCLAVE_WP:" + json.dumps({"option": present, "multisite": self.multisite, "mu_match": mu_match}) + "\n",
+                "CONCLAVE_WP:" + json.dumps({
+                    "option": present, "multisite": self.multisite, "mu_dir": mu_norm, "mu_match": mu_match
+                }) + "\n",
                 self.raw_stderr,
             )
         if "delete_option(" in code:
             if self.db_error:
                 return subprocess.CompletedProcess(["wp"], 0, "CONCLAVE_DEL:error\n", self.raw_stderr)
-            site_opts.pop("conclave_login_ticket", None)
+            m = re.search(r"delete_option\(\s*'([^']+)'\s*\)", code)
+            assert m is not None, f"could not parse option name from delete PHP: {code}"
+            site_opts.pop(m.group(1), None)
             return subprocess.CompletedProcess(["wp"], 0, "CONCLAVE_DEL:ok\n", self.raw_stderr)
         return subprocess.CompletedProcess(["wp"], 1, "", "unsupported eval")
 
@@ -420,7 +438,7 @@ class _FakeRemoteSite:
                     return out
 
         assert BASH is not None, "bash is required to execute emitted SSH shell commands"
-        env = {**os.environ, "HOME": self.home.as_posix()}
+        env = {**os.environ, "HOME": self._posix_path(self.home)}
         script = cmd
         if self.umask is not None:
             script = f"umask {self.umask:04o}\n" + script
@@ -433,7 +451,7 @@ class _FakeRemoteSite:
                 return m.group(0)
             script = re.sub(r"^cd ([A-Za-z]:[^\s&|;]+)", _to_posix, script, flags=re.M)
         res = subprocess.run([BASH, "-c", script], input=input, capture_output=True, text=True,
-                             cwd=self.home, env=env, timeout=30, creationflags=NO_WINDOW)
+                             cwd=self.home.resolve(), env=env, timeout=30, creationflags=NO_WINDOW)
         if "echo DELETED" in cmd and res.returncode == 0:
             self.bootstrap_broken = False
         return subprocess.CompletedProcess(["ssh"], res.returncode, res.stdout, res.stderr + self.raw_stderr)
@@ -522,13 +540,15 @@ class PluginOnSiteTest(unittest.TestCase):
                 self.assertEqual((code, self.site.calls, vault), (2, [], []), label)
                 if label in ("no-ssh", "no-wp-path"):
                     self.assertIn("SSH", err)
-        # Both mutators without --yes -> exit 2, print site URL and intended change, zero vault/remote calls.
+        # Both mutators without --yes (and abbreviated --y) -> exit 2, zero vault/remote calls.
         for cmd in ("install", "remove"):
             with self.subTest(mutator=cmd):
                 code, _out, err, vault = self.run_cli([cmd])
                 self.assertEqual((code, self.site.calls, vault), (2, [], []))
                 self.assertIn("https://example.com", err)
                 self.assertIn("--yes", err)
+                code, _out, _err, vault = self.run_cli([cmd, "--y"])
+                self.assertEqual((code, self.site.calls, vault), (2, [], []))
         # Valid SSH pin with NO dashboard user (mcp: {}) works even from another working directory.
         old_cwd = os.getcwd()
         try:
@@ -575,7 +595,7 @@ class PluginOnSiteTest(unittest.TestCase):
         code, out, _err, _ = self.run_cli(["status"])
         self.assertEqual((code, out), (1, ""))
         target.rmdir()
-        # Dangling symlink at target filename -> exit 1 (not absent).
+        # Dangling symlink at target filename or mu-plugins ancestor -> exit 1 (not absent).
         if os.name != "nt":
             target.symlink_to(mu / "nowhere.php")
             try:
@@ -583,6 +603,22 @@ class PluginOnSiteTest(unittest.TestCase):
                 self.assertEqual((code, out), (1, ""))
             finally:
                 target.unlink(missing_ok=True)
+            shutil.rmtree(mu)
+            mu.symlink_to(self.wp_dir / "wp-content" / "nowhere-dir")
+            try:
+                code, out, _err, _ = self.run_cli(["status"])
+                self.assertEqual((code, out), (1, ""))
+            finally:
+                mu.unlink(missing_ok=True)
+                mu.mkdir(parents=True)
+        # Arbitrary ERR: text from remote probe is never echoed to stderr/stdout.
+        self.site.hooks["probe_file"] = lambda _cmd: subprocess.CompletedProcess(
+            ["ssh"], 0, "ERR:private-diagnostic-marker\n", ""
+        )
+        code, out, err, _ = self.run_cli(["status"])
+        self.site.hooks.clear()
+        self.assertEqual((code, out), (1, ""))
+        self.assertNotIn("private-diagnostic-marker", out + err)
         # Missing local plugin copy -> exit 1.
         code, out, _err, _ = self.run_cli(["status"], local_plugin=self.home / "missing.php")
         self.assertEqual((code, out), (1, ""))
@@ -594,7 +630,7 @@ class PluginOnSiteTest(unittest.TestCase):
 
     def test_plugin_on_site_install_staged_paths_umask_crlf_and_recovery(self):
         # Test all three wp_path forms: ~/htdocs, htdocs, and absolute path.
-        abs_wp = self.wp_dir.as_posix()
+        abs_wp = self.site._posix_path(self.wp_dir)
         for wp_path in ("~/htdocs", "htdocs", abs_wp):
             with self.subTest(wp_path=wp_path):
                 mu = self.wp_dir / "wp-content" / "mu-plugins"
@@ -656,14 +692,47 @@ class PluginOnSiteTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("WPMU_PLUGIN_DIR", err)
         self.site.mu_dir_override = None
-        # Broken MU-plugin stopping WordPress bootstrap: fallback to wp config list recovers install.
+        # Pre-existing mu-plugins directory at mode 0700 is updated to 0755 on install (Linux/WSL).
+        if os.name != "nt":
+            mu = self.wp_dir / "wp-content" / "mu-plugins"
+            mu.chmod(0o700)
+            code, _out, err, _ = self.run_cli(["install", "--yes"])
+            self.assertEqual(code, 0, err)
+            self.assertEqual(mu.stat().st_mode & 0o777, 0o755)
+        # WP-CLI ABSPATH mismatch (e.g. wp-cli.yml path: src/) refuses before writing.
+        self.site.abspath_override = self.site._posix_path(self.wp_dir) + "/src/"
+        code, _out, err, _ = self.run_cli(["install", "--yes"])
+        self.site.abspath_override = None
+        self.assertEqual(code, 1)
+        self.assertIn("ssh.wp_path", err)
+        # Database error in probe_wp does NOT trigger config-list fallback.
+        self.site.db_error = "db gone"
+        self.site.calls.clear()
+        code, _out, _err, _ = self.run_cli(["install", "--yes"])
+        self.site.db_error = ""
+        self.assertEqual(code, 1)
+        self.assertFalse(any("config" in c[1][0] for c in self.site.calls))
+        # Broken MU-plugin stopping WordPress bootstrap: fallback mirrors WordPress is_multisite() exactly.
         installed.write_bytes(b"<?php syntax error !!!")
         self.site.bootstrap_broken = True
-        self.site.config_constants = [{"name": "DB_NAME", "value": "wp", "type": "constant"}]
+        self.site.config_constants = [{"name": "SUBDOMAIN_INSTALL", "value": False, "type": "constant"}]
+        code, _out, err, _ = self.run_cli(["install", "--yes"])
+        self.assertEqual(code, 1)
+        self.assertIn("multisite", err.lower())
+        self.site.config_constants = [{"name": "WP_ALLOW_MULTISITE", "value": True, "type": "constant"}]
         code, _out, err, _ = self.run_cli(["install", "--yes"])
         self.assertEqual(code, 0, err)
         self.assertEqual(installed.read_bytes(), PLUGIN.read_bytes())
         self.site.bootstrap_broken = False
+        # Final read-back Refusal after publication keeps recovery guidance mentioning publication and status.
+        self.site.hooks["probe_file"] = lambda cmd: (
+            subprocess.CompletedProcess(["ssh"], 255, "", "lost connection") if ".tmp" not in cmd else None
+        )
+        code, _out, err, _ = self.run_cli(["install", "--yes"])
+        self.site.hooks.clear()
+        self.assertEqual(code, 1)
+        self.assertIn("published", err.lower())
+        self.assertIn("status", err)
         # Lost reply at publication -> exit 1, advises status; KeyboardInterrupt before/at/after publication -> exit 130.
         self.site.hooks["stage"] = lambda _cmd, _inp: (_ for _ in ()).throw(KeyboardInterrupt())
         code, _out, err, _ = self.run_cli(["install", "--yes"])
@@ -686,10 +755,16 @@ class PluginOnSiteTest(unittest.TestCase):
         self.assertIn("status", err)
         code, _out, err, _ = self.run_cli(["install", "--yes"])
         self.assertEqual(code, 0, err)
-        # Directory permission error stops installation (Linux/WSL).
-        if os.name != "nt":
-            wp_content = self.wp_dir / "wp-content"
-            shutil.rmtree(wp_content / "mu-plugins")
+        # Directory creation/permission failure stops installation (root-safe via non-dir file + non-root chmod 0555).
+        wp_content = self.wp_dir / "wp-content"
+        shutil.rmtree(wp_content / "mu-plugins")
+        (wp_content / "mu-plugins").write_text("not a dir", encoding="utf-8")
+        try:
+            code, _out, _err, _ = self.run_cli(["install", "--yes"])
+            self.assertEqual(code, 1)
+        finally:
+            (wp_content / "mu-plugins").unlink(missing_ok=True)
+        if os.name != "nt" and hasattr(os, "geteuid") and os.geteuid() != 0:
             wp_content.chmod(0o555)
             try:
                 code, _out, _err, _ = self.run_cli(["install", "--yes"])
