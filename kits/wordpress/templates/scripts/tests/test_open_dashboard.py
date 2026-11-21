@@ -244,7 +244,8 @@ class StoreAndDropOnTheSiteTest(unittest.TestCase):
     def test_a_site_without_the_plugin_a_bad_digest_and_a_wrong_read_back_are_refused(self):
         _, digest = od.ticket()
         with mock.patch.object(od.site_ssh, "wp", PhpSite(self, plugin=False).wp):
-            with self.assertRaisesRegex(od.Refusal, "plugin is not active on the site: python3 scripts/ticket-login.py install"):
+            with self.assertRaisesRegex(od.Refusal,
+                                        "plugin is not active on the site: python3 scripts/ticket-login.py install --yes puts it on the pinned site"):
                 od.store(pin(), digest, 7)
         site = PhpSite(self)
         with mock.patch.object(od.site_ssh, "wp", site.wp):
@@ -388,6 +389,22 @@ class CleanUpTest(unittest.TestCase):
                               "open-dashboard: the ticket was removed from the site\n")
         self.assertEqual([call[0][2] == od.DROP % {"option": od.OPTION} for call in site.calls], [False, True])
 
+    def test_cleanup_reports_removed_only_on_dropped_and_no_longer_on_site_otherwise(self):
+        for reply, expected in (
+                ("dropped", "open-dashboard: the ticket was removed from the site\n"),
+                ("absent", "open-dashboard: the ticket was no longer on the site\n"),
+                ("gone", "open-dashboard: the ticket was no longer on the site\n"),
+                ("not ours", "open-dashboard: the ticket was no longer on the site\n")):
+            with self.subTest(reply=reply):
+                site = FakeSite(drop=reply)
+
+                def fails(url):
+                    raise od.Refusal("PowerShell could not open the browser")
+
+                code, out, err, _ = run_main(site=site, opener=fails)
+                self.assertEqual((code, out), (1, ""))
+                self.assertEqual(err, "open-dashboard: PowerShell could not open the browser\n" + expected)
+
     def test_a_lost_store_reply_takes_the_ticket_off_the_site(self):
         site = FakeSite(lost=True)
         code, out, err, opened = run_main(site=site)
@@ -411,7 +428,7 @@ class CleanUpTest(unittest.TestCase):
         code, out, err, opened = run_main(site=site)
         self.assertEqual((code, out, opened, len(site.calls)), (1, "", [], 1))
         self.assertEqual(err, "open-dashboard: the ticket login plugin is not active on the site: "
-                              "python3 scripts/ticket-login.py install puts it there\n")
+                              "python3 scripts/ticket-login.py install --yes puts it on the pinned site\n")
 
 
 class InterruptTest(unittest.TestCase):
@@ -526,7 +543,7 @@ class BrowserTest(unittest.TestCase):
                 mock.patch.object(od.subprocess, "run", run), mock.patch.object(od.subprocess, "Popen", popen):
             od.open_browser(self.URL)
 
-    def test_from_wsl_the_link_goes_to_powershell_on_stdin_and_start_process_opens_it(self):
+    def test_from_wsl_the_redirect_html_goes_to_powershell_on_stdin_with_no_html_fallback(self):
         for found, shell in (({"pwsh.exe": "/c/pwsh.exe", "powershell.exe": "/c/ps.exe"}, "/c/pwsh.exe"),
                              ({"powershell.exe": "/c/ps.exe"}, "/c/ps.exe")):
             with self.subTest(shell):
@@ -535,11 +552,104 @@ class BrowserTest(unittest.TestCase):
                 [(argv, kwargs)] = self.runs
                 self.assertEqual(argv[0], shell)
                 self.assertEqual(argv[1:4], ["-NoProfile", "-NonInteractive", "-Command"])
-                self.assertIn("[Console]::In.ReadLine()", argv[4])
-                self.assertIn("Start-Process -FilePath $u", argv[4])
-                self.assertEqual(kwargs["input"], self.URL + "\n")
+                self.assertIn("[Console]::In.ReadToEnd()", argv[4])
+                self.assertIn("[IO.File]::Move($tmp, $p)", argv[4])
+                self.assertIn("UrlAssociations\\https\\UserChoice", argv[4])
+                self.assertIn("WaitForExit(300)", argv[4])
+                self.assertNotIn("Start-Process", argv[4])
+                self.assertEqual(kwargs["input"], od._redirect_html(self.URL))
                 self.assertEqual(kwargs["cwd"], "/mnt/c")
                 self.assertNotIn("conclave_ticket", " ".join(argv))
+
+    def test_powershell_atomic_write_failure_and_immediate_exit_clean_up(self):
+        pwsh = shutil.which("pwsh") or shutil.which("pwsh.exe") or shutil.which("powershell.exe")
+        if not pwsh or os.name != "nt":
+            self.skipTest("real PowerShell execution requires Windows PowerShell/pwsh on Windows")
+        script = od.POWERSHELL_OPEN % {"lifetime": od.LIFETIME}
+        # 1. Write/directory failure: LOCALAPPDATA is a regular file, so no page is published and exit is non-zero.
+        blocker = Path(self._tmp.name) / "not-a-dir"
+        blocker.write_text("file", encoding="utf-8")
+        env = {**os.environ, "LOCALAPPDATA": str(blocker)}
+        done = subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-Command", script],
+                              input=od._redirect_html(self.URL), capture_output=True, text=True, env=env,
+                              timeout=30, creationflags=NO_WINDOW)
+        self.assertNotEqual(done.returncode, 0)
+        # 2. Immediate non-zero browser exit: substitute a real failing Python command for the HTTPS registry lookup,
+        # verify PowerShell exits 1, leaves no redirect page behind, and never invokes any .html handler.
+        local_app = Path(self._tmp.name) / "local_app"
+        local_app.mkdir(parents=True, exist_ok=True)
+        marker = Path(self._tmp.name) / "win-browser-argv.json"
+        helper = Path(self._tmp.name) / "win_browser.py"
+        helper.write_text(
+            f"import json, pathlib, sys\n"
+            f"pathlib.Path({str(marker)!r}).write_text(json.dumps(sys.argv), encoding='utf-8')\n"
+            f"sys.exit(1)\n", encoding="utf-8")
+        reg_block = (
+            "$prog = (Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice' -ErrorAction Stop).ProgId; "
+            "if (-not $prog) { throw 'no progid' }; "
+            "$cmd = (Get-ItemProperty -Path ('Registry::HKEY_CLASSES_ROOT\\' + $prog + '\\shell\\open\\command') -ErrorAction Stop).'(default)';"
+        )
+        self.assertIn(reg_block, script)
+        ps_cmd = f'"{sys.executable}" "{helper}" "%1"'
+        test_script = script.replace(reg_block, f"$cmd = '{ps_cmd}';", 1)
+        done2 = subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-Command", test_script],
+                               input=od._redirect_html(self.URL), capture_output=True, text=True,
+                               env={**os.environ, "LOCALAPPDATA": str(local_app)},
+                               timeout=30, creationflags=NO_WINDOW)
+        self.assertNotEqual(done2.returncode, 0)
+        received = json.loads(marker.read_text(encoding="utf-8"))
+        self.assertNotIn("conclave_ticket", " ".join(received))
+        self.assertTrue(any(a.startswith("file:///") and a.endswith(".html") for a in received[1:]), received)
+        self.assertEqual(list((local_app / "conclave-dashboard").glob("*.tmp")), [])
+        self.assertEqual(list((local_app / "conclave-dashboard").glob("open-*.html")), [])
+
+    def test_headless_browser_follows_generated_redirect_page_without_marker_in_argv(self):
+        import http.server
+        import threading
+        candidates = [
+            shutil.which("chrome"), shutil.which("chromium"), shutil.which("chromium-browser"),
+            shutil.which("google-chrome"), shutil.which("msedge"),
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
+            "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+        ]
+        browser = next((c for c in candidates if c and Path(c).is_file()), None)
+        if not browser:
+            self.skipTest("no headless Chromium/Chrome/Edge browser found for loopback redirect smoke check")
+        hits = []
+        done_event = threading.Event()
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path != "/favicon.ico":
+                    hits.append(self.path)
+                    done_event.set()
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"ok")
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        port = server.server_address[1]
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        marker_val = "smokemarker0123456789"
+        target_url = f"http://127.0.0.1:{port}/?conclave_ticket={marker_val}"
+        page = od._page(target_url)
+        page_uri = page.as_uri()
+        if browser.startswith("/mnt/c/"):
+            win_path = subprocess.run(["wslpath", "-w", str(page)], capture_output=True, text=True, check=True).stdout.strip()
+            page_uri = "file:///" + win_path.replace("\\", "/")
+        argv = [browser, "--headless=new", "--disable-gpu", "--no-first-run", "--dump-dom", page_uri]
+        self.assertNotIn(marker_val, " ".join(argv))
+        subprocess.run(argv, capture_output=True, text=True, timeout=30, creationflags=NO_WINDOW)
+        self.assertTrue(done_event.wait(timeout=5), "headless browser did not follow redirect to loopback server")
+        self.assertEqual(hits, [f"/?conclave_ticket={marker_val}"])
 
     def test_from_wsl_each_missing_piece_and_a_failed_child_is_refused(self):
         for label, kwargs, said in (

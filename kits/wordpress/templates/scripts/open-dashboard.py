@@ -72,8 +72,40 @@ echo ( 1 === $n ) ? 'dropped' : ( 0 === $n ? 'gone' : 'failed' );"""
 # What DROP may answer when the ticket this run stored is no longer on the site.
 REMOVED = {"dropped", "absent", "gone", "not ours"}
 
-# PowerShell reads the link from its standard input and starts it, so the link is in no argument.
-POWERSHELL_OPEN = "$u = [Console]::In.ReadLine(); Start-Process -FilePath $u"
+# PowerShell reads the private redirect HTML from its standard input, writes it atomically into
+# %LOCALAPPDATA%\conclave-dashboard, prunes stale pages, and starts only the registered Windows HTTPS browser on the
+# local file URI (no .html fallback, no ticket URL in PowerShell or browser arguments), propagating immediate exit.
+POWERSHELL_OPEN = (
+    "$ErrorActionPreference = 'Stop'; "
+    "$h = [Console]::In.ReadToEnd(); if (-not $h -or -not $env:LOCALAPPDATA) { exit 1 }; "
+    "$d = Join-Path $env:LOCALAPPDATA 'conclave-dashboard'; "
+    "New-Item -ItemType Directory -Force -Path $d | Out-Null; "
+    "$cut = [DateTime]::UtcNow.AddSeconds(-%(lifetime)d); "
+    "Get-ChildItem -LiteralPath $d -Filter 'open-*.html' -File -ErrorAction Ignore "
+    "| Where-Object { $_.LastWriteTimeUtc -lt $cut } | Remove-Item -Force -ErrorAction Ignore; "
+    "$id = [Guid]::NewGuid().ToString('N'); "
+    "$tmp = Join-Path $d ('.open-' + $id + '.tmp'); "
+    "$p = Join-Path $d ('open-' + $id + '.html'); "
+    "try { [IO.File]::WriteAllText($tmp, $h, [Text.UTF8Encoding]::new($false)); [IO.File]::Move($tmp, $p) } "
+    "catch { Remove-Item -LiteralPath $tmp -Force -ErrorAction Ignore; exit 1 }; "
+    "try { "
+    "$prog = (Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice' -ErrorAction Stop).ProgId; "
+    "if (-not $prog) { throw 'no progid' }; "
+    "$cmd = (Get-ItemProperty -Path ('Registry::HKEY_CLASSES_ROOT\\' + $prog + '\\shell\\open\\command') -ErrorAction Stop).'(default)'; "
+    "if (-not $cmd) { throw 'no command' }; "
+    "$cmd = $cmd.Trim(); "
+    "if ($cmd.StartsWith('\"')) { $q = $cmd.IndexOf('\"', 1); if ($q -lt 2) { throw 'bad command' }; "
+    "$exe = $cmd.Substring(1, $q - 1); $rest = $cmd.Substring($q + 1).Trim() } "
+    "else { $sp = $cmd.IndexOf(' '); if ($sp -lt 0) { $exe = $cmd; $rest = '' } "
+    "else { $exe = $cmd.Substring(0, $sp); $rest = $cmd.Substring($sp + 1).Trim() } }; "
+    "$uri = ([Uri]$p).AbsoluteUri; "
+    "$bargs = if ($rest -like '*%%1*') { $rest -replace '\"%%1\"', ('\"' + $uri + '\"') -replace '%%1', ('\"' + $uri + '\"') } "
+    "else { ($rest + ' \"' + $uri + '\"').Trim() }; "
+    "$psi = [Diagnostics.ProcessStartInfo]::new($exe, $bargs); $psi.UseShellExecute = $false; "
+    "$proc = [Diagnostics.Process]::Start($psi); if (-not $proc) { throw 'no process' }; "
+    "if ($proc.WaitForExit(300) -and $proc.ExitCode -ne 0) { throw 'browser failed' } "
+    "} catch { Remove-Item -LiteralPath $p -Force -ErrorAction Ignore; exit 1 }"
+)
 
 WINDOWS = ("the pinned SSH hands its password to sshpass, which native Windows has not: run "
            "python3 scripts/open-dashboard.py from WSL or Linux")
@@ -141,7 +173,7 @@ def store(pin, digest, user_id):
         return
     if said == "no plugin":
         raise Refusal("the ticket login plugin is not active on the site: python3 scripts/ticket-login.py install "
-                      "puts it there", landed=False)
+                      "--yes puts it on the pinned site", landed=False)
     raise Refusal("the site did not confirm that it stored the ticket")
 
 
@@ -153,6 +185,14 @@ def drop(pin, digest):
     if said in REMOVED:
         return said
     raise Refusal("the site did not confirm that it removed the ticket")
+
+
+def _redirect_html(url):
+    """The private redirect page carrying `url` without exposing it in any process argument."""
+    target = html.escape(url, quote=True)
+    return ("<!doctype html>\n<meta charset=\"utf-8\">\n<meta name=\"referrer\" content=\"no-referrer\">\n"
+            f"<meta http-equiv=\"refresh\" content=\"0;url={target}\">\n<title>Opening the dashboard</title>\n"
+            f"<script>location.replace({json.dumps(url)});</script>\n")
 
 
 def _page(url):
@@ -167,10 +207,7 @@ def _page(url):
                     old.unlink()
             except OSError:
                 pass   # a stale page that cannot go holds a dead ticket only; the next launch tries again
-        target = html.escape(url, quote=True)
-        text = ("<!doctype html>\n<meta charset=\"utf-8\">\n<meta name=\"referrer\" content=\"no-referrer\">\n"
-                f"<meta http-equiv=\"refresh\" content=\"0;url={target}\">\n<title>Opening the dashboard</title>\n"
-                f"<script>location.replace({json.dumps(url)});</script>\n")
+        text = _redirect_html(url)
         fd, temporary = tempfile.mkstemp(prefix=".open-", suffix=".tmp", dir=PAGES)   # mode 0600
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -448,8 +485,10 @@ def open_browser(url):
             raise Refusal("there is no pwsh.exe or powershell.exe to open the browser from WSL")
         if not os.path.isdir("/mnt/c"):
             raise Refusal("there is no Windows drive at /mnt/c to start PowerShell from")
-        done = subprocess.run([shell, "-NoProfile", "-NonInteractive", "-Command", POWERSHELL_OPEN],
-                              input=url + "\n", capture_output=True, text=True, cwd="/mnt/c", timeout=CHILD_TIMEOUT)
+        done = subprocess.run([shell, "-NoProfile", "-NonInteractive", "-Command",
+                               POWERSHELL_OPEN % {"lifetime": LIFETIME}],
+                              input=_redirect_html(url), capture_output=True, text=True, cwd="/mnt/c",
+                              timeout=CHILD_TIMEOUT)
         if done.returncode != 0:
             raise Refusal("PowerShell could not open the browser")
         return
@@ -482,11 +521,14 @@ def _failed(error):
 def _clean_up(pin, digest, err):
     """After a failure once a ticket may be on the site: remove it, and say whether that was confirmed."""
     try:
-        drop(pin, digest)
+        removed = drop(pin, digest)
     except Exception:   # any failure: reported by a fixed sentence, never its text, which may hold the token
         _say(err, f"the ticket could not be removed from the site; it expires within {LIFETIME} seconds")
         return
-    _say(err, "the ticket was removed from the site")
+    if removed == "dropped":
+        _say(err, "the ticket was removed from the site")
+    else:
+        _say(err, "the ticket was no longer on the site")
 
 
 def _pin():
