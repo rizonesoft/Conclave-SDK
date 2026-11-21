@@ -8,14 +8,19 @@ PHP. Nothing here reaches a site.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
+import io
 import json
+import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]   # the project, or the kit's templates/ folder
@@ -233,7 +238,7 @@ class LintTest(unittest.TestCase):
 
 
 class OpenerAgreementTest(unittest.TestCase):
-    """The opener (`scripts/open-dashboard.py`, D07 T02 section 2) and the plugin name the same option and query."""
+    """The opener (`scripts/open-dashboard.py`, D07 T02 §2), installer (`scripts/ticket-login.py`, §3) and plugin agree."""
 
     def test_the_plugin_and_the_opener_name_one_option_and_one_query(self):
         import importlib.util
@@ -241,9 +246,538 @@ class OpenerAgreementTest(unittest.TestCase):
         assert spec is not None and spec.loader is not None
         opener = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(opener)
+        spec_tl = importlib.util.spec_from_file_location("ticket_login_agreement", ROOT / "scripts" / "ticket-login.py")
+        assert spec_tl is not None and spec_tl.loader is not None
+        installer = importlib.util.module_from_spec(spec_tl)
+        spec_tl.loader.exec_module(installer)
         code = code_of(PLUGIN.read_text(encoding="utf-8"))
         defined = dict(re.findall(r"define\(\s*'(CONCLAVE_TICKET_(?:OPTION|QUERY))',\s*'([^']*)'\s*\)", code))
         self.assertEqual(defined, {"CONCLAVE_TICKET_OPTION": opener.OPTION, "CONCLAVE_TICKET_QUERY": opener.QUERY})
+        self.assertEqual(installer.OPTION, defined["CONCLAVE_TICKET_OPTION"])
+
+
+def _find_bash():
+    if os.name == "nt":
+        git = shutil.which("git")
+        if git:
+            cand = Path(git).resolve().parents[1] / "bin" / "bash.exe"
+            if cand.is_file():
+                return str(cand)
+        return None
+    return shutil.which("bash")
+
+
+BASH = _find_bash()
+
+
+def _load_ticket_login():
+    spec = importlib.util.spec_from_file_location("ticket_login_mod", ROOT / "scripts" / "ticket-login.py")
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class _FakeRemoteSite:
+    """Stateful remote SSH/WP-CLI stand-in executing emitted shell against a real temp tree and PHP via CLI/shim."""
+
+    def __init__(self, home: Path, wp_dir: Path, url: str = "https://example.com"):
+        self.home = home
+        self.wp_dir = wp_dir
+        self.url = url
+        self.calls: list[tuple[str, list[str], str | None]] = []
+        self.options: dict[str, dict[str, object]] = {url: {}}
+        self.multisite = False
+        self.mu_dir_override: str | None = None
+        self.db_error = ""
+        self.raw_stderr = "RAW_REMOTE_DIAGNOSTIC_DO_NOT_LEAK"
+        self.bootstrap_broken = False
+        self.config_constants: list[dict[str, object]] = []
+        self.umask: int | None = None
+        self.hooks: dict[str, object] = {}
+
+    def _run_php_eval(self, code: str, site_url: str) -> subprocess.CompletedProcess:
+        if self.bootstrap_broken:
+            return subprocess.CompletedProcess(["wp"], 1, "", "PHP Fatal error: syntax error in mu-plugin\n")
+        site_opts = self.options.setdefault(site_url, {})
+        abspath = str(self.wp_dir).replace("\\", "/") + "/"
+        mu_dir = self.mu_dir_override or (abspath.rstrip("/") + "/wp-content/mu-plugins")
+        if PHP:
+            state = {
+                "options": site_opts,
+                "db_error": self.db_error,
+                "multisite": self.multisite,
+                "abspath": abspath,
+                "mu_dir": mu_dir,
+            }
+            runner = (
+                "<?php\n"
+                "$state = json_decode(file_get_contents('php://stdin'), true);\n"
+                "define('ABSPATH', $state['abspath']);\n"
+                "define('WPMU_PLUGIN_DIR', $state['mu_dir']);\n"
+                "function is_multisite() { global $state; return (bool)$state['multisite']; }\n"
+                "function wp_cache_delete($k, $g = '') {}\n"
+                "function delete_option($name) { global $state; unset($state['options'][$name]); return true; }\n"
+                "class FakeWpdb {\n"
+                "  public $options = 'wp_options';\n"
+                "  public $last_error = '';\n"
+                "  public function prepare($sql, ...$args) { return array($sql, $args); }\n"
+                "  public function get_var($q) {\n"
+                "    global $state;\n"
+                "    if ($this->last_error !== '') return null;\n"
+                "    $name = $q[1][0];\n"
+                "    return array_key_exists($name, $state['options']) ? '1' : '0';\n"
+                "  }\n"
+                "}\n"
+                "$wpdb = new FakeWpdb();\n"
+                "$wpdb->last_error = $state['db_error'];\n"
+                "ob_start();\n"
+                "call_user_func(function() use (&$wpdb, &$state) {\n"
+                + code + "\n"
+                "});\n"
+                "$out = ob_get_clean();\n"
+                "echo json_encode(array('out' => $out, 'options' => $state['options']));\n"
+            )
+            with tempfile.NamedTemporaryFile("w", suffix=".php", delete=False, encoding="utf-8") as fh:
+                fh.write(runner)
+                php_file = fh.name
+            try:
+                res = subprocess.run([str(PHP), php_file], input=json.dumps(state), capture_output=True, text=True,
+                                     timeout=30, creationflags=NO_WINDOW)
+            finally:
+                Path(php_file).unlink(missing_ok=True)
+            if res.returncode != 0:
+                return subprocess.CompletedProcess(["wp"], res.returncode, res.stdout, res.stderr)
+            payload = json.loads(res.stdout)
+            self.options[site_url] = payload["options"]
+            return subprocess.CompletedProcess(["wp"], 0, payload["out"], self.raw_stderr)
+        # Pure-Python fallback when PHP CLI is not installed (e.g., native Windows).
+        if "SELECT COUNT(*)" in code:
+            if self.db_error:
+                return subprocess.CompletedProcess(["wp"], 0, 'CONCLAVE_WP:{"error":"db"}\n', self.raw_stderr)
+            present = "present" if "conclave_login_ticket" in site_opts else "absent"
+            mu_match = mu_dir.rstrip("/") == abspath.rstrip("/") + "/wp-content/mu-plugins"
+            return subprocess.CompletedProcess(
+                ["wp"], 0,
+                "CONCLAVE_WP:" + json.dumps({"option": present, "multisite": self.multisite, "mu_match": mu_match}) + "\n",
+                self.raw_stderr,
+            )
+        if "delete_option(" in code:
+            if self.db_error:
+                return subprocess.CompletedProcess(["wp"], 0, "CONCLAVE_DEL:error\n", self.raw_stderr)
+            site_opts.pop("conclave_login_ticket", None)
+            return subprocess.CompletedProcess(["wp"], 0, "CONCLAVE_DEL:ok\n", self.raw_stderr)
+        return subprocess.CompletedProcess(["wp"], 1, "", "unsupported eval")
+
+    def run(self, kind, arguments=(), *, input=None, timeout=90, pin=None):
+        self.calls.append((kind, list(arguments), input))
+        assert kind == "ssh", f"expected ssh transport, got {kind!r}"
+        cmd = arguments[0]
+        if " && wp " in cmd:
+            _, _, wp_part = cmd.partition(" && wp ")
+            tokens = shlex.split(wp_part)
+            assert tokens and tokens[0].startswith("--url="), f"--url must precede WP-CLI subcommand: {tokens}"
+            site_url = tokens[0].split("=", 1)[1]
+            sub = tokens[1]
+            if sub == "eval":
+                hook = self.hooks.get("eval")
+                if callable(hook):
+                    out = hook(tokens, site_url)
+                    if out is not None:
+                        return out
+                return self._run_php_eval(tokens[2], site_url)
+            if sub == "config" and tokens[2:4] == ["list", "--format=json"]:
+                hook = self.hooks.get("config")
+                if callable(hook):
+                    return hook(tokens, site_url)
+                return subprocess.CompletedProcess(["wp"], 0, json.dumps(self.config_constants), "")
+            return subprocess.CompletedProcess(["wp"], 1, "", f"unexpected wp subcommand: {tokens}")
+
+        # Raw SSH shell command: run hooks, then execute emitted POSIX shell against real temp tree via bash.
+        if "echo STAGED" in cmd:
+            hook = self.hooks.get("stage")
+            if callable(hook):
+                out = hook(cmd, input)
+                if out is not None:
+                    return out
+        elif "echo PUBLISHED" in cmd:
+            hook = self.hooks.get("publish")
+            if callable(hook):
+                out = hook(cmd)
+                if out is not None:
+                    return out
+        elif "echo DELETED" in cmd:
+            hook = self.hooks.get("delete_file")
+            if callable(hook):
+                out = hook(cmd)
+                if out is not None:
+                    return out
+        elif "SHA256:" in cmd:
+            hook = self.hooks.get("probe_file")
+            if callable(hook):
+                out = hook(cmd)
+                if out is not None:
+                    return out
+
+        assert BASH is not None, "bash is required to execute emitted SSH shell commands"
+        env = {**os.environ, "HOME": self.home.as_posix()}
+        script = cmd
+        if self.umask is not None:
+            script = f"umask {self.umask:04o}\n" + script
+        if os.name == "nt":
+            # Convert Windows drive paths in cd <abs> for Git Bash.
+            def _to_posix(m):
+                p = m.group(1)
+                if len(p) >= 2 and p[1] == ":":
+                    return f"cd /{p[0].lower()}{p[2:].replace(chr(92), '/')}"
+                return m.group(0)
+            script = re.sub(r"^cd ([A-Za-z]:[^\s&|;]+)", _to_posix, script, flags=re.M)
+        res = subprocess.run([BASH, "-c", script], input=input, capture_output=True, text=True,
+                             cwd=self.home, env=env, timeout=30, creationflags=NO_WINDOW)
+        if "echo DELETED" in cmd and res.returncode == 0:
+            self.bootstrap_broken = False
+        return subprocess.CompletedProcess(["ssh"], res.returncode, res.stdout, res.stderr + self.raw_stderr)
+
+
+@unittest.skipUnless(BASH, "bash is required to execute the emitted SSH shell commands")
+class PluginOnSiteTest(unittest.TestCase):
+    """Stateful command-boundary tests for `scripts/ticket-login.py` (D07 T02 section 3)."""
+
+    def setUp(self):
+        self.mod = _load_ticket_login()
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.home = Path(self._tmp.name) / "home"
+        self.home.mkdir()
+        self.wp_dir = self.home / "htdocs"
+        self.wp_dir.mkdir()
+        self.site = _FakeRemoteSite(self.home, self.wp_dir)
+        self.pin = {
+            "host": "pressable",
+            "site_id": 12345,
+            "url": "https://example.com",
+            "environment": "staging",
+            "ssh": {
+                "item": "abcdefghijklmnopqrstuvwxyz",
+                "ssh_host": "ssh.example.com",
+                "sftp_host": "sftp.example.com",
+                "port": "22",
+                "username": "wpuser",
+                "wp_path": "~/htdocs",
+            },
+            "mcp": {},
+        }
+
+    def run_cli(self, argv, *, pin=None, native_win=False, local_plugin=None):
+        out, err = io.StringIO(), io.StringIO()
+        active_pin = self.pin if pin is None else pin
+        vault_calls = []
+
+        def fake_vault(*a, **kw):
+            vault_calls.append((a, kw))
+            raise AssertionError("vault_fields must not be called")
+
+        def fake_load(*_a, **_kw):
+            if isinstance(active_pin, BaseException):
+                raise active_pin
+            return active_pin
+
+        patches = [
+            mock.patch.object(self.mod, "native_windows", return_value=native_win),
+            mock.patch.object(self.mod.wp_site, "load", side_effect=fake_load),
+            mock.patch.object(self.mod.wp_site, "vault_fields", side_effect=fake_vault),
+            mock.patch.object(self.mod.site_ssh, "run", side_effect=self.site.run),
+        ]
+        if local_plugin is not None:
+            patches.append(mock.patch.object(self.mod, "LOCAL_PLUGIN", local_plugin))
+        with patches[0], patches[1], patches[2], patches[3]:
+            if local_plugin is not None:
+                with patches[4]:
+                    code = self.mod.main(argv, out=out, err=err)
+            else:
+                code = self.mod.main(argv, out=out, err=err)
+        return code, out.getvalue(), err.getvalue(), vault_calls
+
+    def test_plugin_on_site_usage_cwd_and_refusal_guards(self):
+        # No command -> usage and exit 2, zero remote calls.
+        code, _out, err, vault = self.run_cli([])
+        self.assertEqual((code, self.site.calls, vault), (2, [], []))
+        self.assertIn("usage:", err.lower())
+        # Native Windows -> exit 2, zero vault/remote calls.
+        code, _out, err, vault = self.run_cli(["status"], native_win=True)
+        self.assertEqual((code, self.site.calls, vault), (2, [], []))
+        self.assertIn("WSL", err)
+        # Unreadable/invalid/no-SSH/incomplete pins -> exit 2, zero vault/remote calls.
+        bad_pins = [
+            ("unreadable", OSError("missing")),
+            ("invalid", ValueError("bad json")),
+            ("no-ssh", {**self.pin, "ssh": {**self.pin["ssh"], "ssh_host": None}}),
+            ("no-wp-path", {**self.pin, "ssh": {**self.pin["ssh"], "wp_path": None}}),
+            ("no-url", {**self.pin, "url": None}),
+            ("no-ssh-item", {**self.pin, "ssh": {**self.pin["ssh"], "item": None}}),
+        ]
+        for label, bad in bad_pins:
+            with self.subTest(case=label):
+                code, _out, err, vault = self.run_cli(["status"], pin=bad)
+                self.assertEqual((code, self.site.calls, vault), (2, [], []), label)
+                if label in ("no-ssh", "no-wp-path"):
+                    self.assertIn("SSH", err)
+        # Both mutators without --yes -> exit 2, print site URL and intended change, zero vault/remote calls.
+        for cmd in ("install", "remove"):
+            with self.subTest(mutator=cmd):
+                code, _out, err, vault = self.run_cli([cmd])
+                self.assertEqual((code, self.site.calls, vault), (2, [], []))
+                self.assertIn("https://example.com", err)
+                self.assertIn("--yes", err)
+        # Valid SSH pin with NO dashboard user (mcp: {}) works even from another working directory.
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(self._tmp.name)
+            code, out, _err, _vault = self.run_cli(["status"])
+        finally:
+            os.chdir(old_cwd)
+        self.assertEqual(code, 0)
+        self.assertIn("plugin: absent", out)
+        self.assertIn("option: absent", out)
+
+    def test_plugin_on_site_status_states_secrets_and_errors(self):
+        mu = self.wp_dir / "wp-content" / "mu-plugins"
+        mu.mkdir(parents=True)
+        target = mu / "conclave-ticket-login.php"
+        secret = "SECRET_TICKET_HASH_DO_NOT_LEAK_999"
+        # All 6 (absent|current|differs) x (present|absent), including falsey option value "".
+        for pstate in ("absent", "current", "differs"):
+            if pstate == "absent":
+                target.unlink(missing_ok=True)
+            elif pstate == "current":
+                target.write_bytes(PLUGIN.read_bytes())
+            else:
+                target.write_bytes(b"<?php // different\n")
+            for ostate, val in (("absent", None), ("present", ""), ("present", secret)):
+                with self.subTest(plugin=pstate, option=ostate, val=val):
+                    self.site.options[self.pin["url"]] = {} if val is None else {"conclave_login_ticket": val}
+                    code, out, err, _ = self.run_cli(["status"])
+                    self.assertEqual(code, 0, err)
+                    self.assertIn(f"plugin: {pstate}", out)
+                    self.assertIn(f"option: {ostate}", out)
+                    self.assertNotIn(secret, out + err)
+                    self.assertNotIn(self.site.raw_stderr, out + err)
+        # DB error with WP-CLI exit 0 -> exit 1, never prints absent/current.
+        self.site.db_error = "Lost connection to MySQL"
+        code, out, err, _ = self.run_cli(["status"])
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertNotIn("Lost connection", err)
+        self.site.db_error = ""
+        # Directory at target filename -> exit 1 (not absent).
+        target.unlink(missing_ok=True)
+        target.mkdir()
+        code, out, _err, _ = self.run_cli(["status"])
+        self.assertEqual((code, out), (1, ""))
+        target.rmdir()
+        # Dangling symlink at target filename -> exit 1 (not absent).
+        if os.name != "nt":
+            target.symlink_to(mu / "nowhere.php")
+            try:
+                code, out, _err, _ = self.run_cli(["status"])
+                self.assertEqual((code, out), (1, ""))
+            finally:
+                target.unlink(missing_ok=True)
+        # Missing local plugin copy -> exit 1.
+        code, out, _err, _ = self.run_cli(["status"], local_plugin=self.home / "missing.php")
+        self.assertEqual((code, out), (1, ""))
+        # Malformed WP-CLI reply -> exit 1.
+        self.site.hooks["eval"] = lambda *_: subprocess.CompletedProcess(["wp"], 0, "garbage\n", "")
+        code, out, _err, _ = self.run_cli(["status"])
+        self.assertEqual((code, out), (1, ""))
+        self.site.hooks.clear()
+
+    def test_plugin_on_site_install_staged_paths_umask_crlf_and_recovery(self):
+        # Test all three wp_path forms: ~/htdocs, htdocs, and absolute path.
+        abs_wp = self.wp_dir.as_posix()
+        for wp_path in ("~/htdocs", "htdocs", abs_wp):
+            with self.subTest(wp_path=wp_path):
+                mu = self.wp_dir / "wp-content" / "mu-plugins"
+                if mu.exists():
+                    shutil.rmtree(mu)
+                pin = {**self.pin, "ssh": {**self.pin["ssh"], "wp_path": wp_path}}
+                self.site.umask = 0o077
+                self.site.options[self.pin["url"]] = {"conclave_login_ticket": "keep-ambient"}
+                code, out, err, _ = self.run_cli(["install", "--yes"], pin=pin)
+                self.assertEqual(code, 0, err)
+                self.assertIn("plugin: current", out)
+                installed = mu / "conclave-ticket-login.php"
+                self.assertEqual(installed.read_bytes(), PLUGIN.read_bytes())
+                self.assertEqual(self.site.options[self.pin["url"]].get("conclave_login_ticket"), "keep-ambient")
+                if os.name != "nt":
+                    self.assertEqual(mu.stat().st_mode & 0o777, 0o755)
+                    self.assertEqual(installed.stat().st_mode & 0o777, 0o644)
+        self.site.umask = None
+        # CRLF byte-for-byte preservation through base64 stdin.
+        crlf_copy = self.home / "crlf-plugin.php"
+        crlf_bytes = PLUGIN.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+        crlf_copy.write_bytes(crlf_bytes)
+        code, _out, err, _ = self.run_cli(["install", "--yes"], local_plugin=crlf_copy)
+        self.assertEqual(code, 0, err)
+        self.assertEqual((self.wp_dir / "wp-content/mu-plugins/conclave-ticket-login.php").read_bytes(), crlf_bytes)
+        # Pre-publication hash mismatch leaves existing working plugin untouched and removes staging temp.
+        installed = self.wp_dir / "wp-content/mu-plugins/conclave-ticket-login.php"
+        installed.write_bytes(b"<?php // working\n")
+        self.site.hooks["probe_file"] = lambda cmd: (
+            subprocess.CompletedProcess(["ssh"], 0, "SHA256:" + "0" * 64 + "\n", "")
+            if ".tmp" in cmd else None
+        )
+        code, _out, err, _ = self.run_cli(["install", "--yes"])
+        self.site.hooks.clear()
+        self.assertEqual(code, 1)
+        self.assertIn("untouched", err)
+        self.assertEqual(installed.read_bytes(), b"<?php // working\n")
+        self.assertEqual(list((self.wp_dir / "wp-content/mu-plugins").glob("*.tmp")), [])
+        # Directory at target filename stays empty and exits 1.
+        installed.unlink()
+        installed.mkdir()
+        code, _out, _err, _ = self.run_cli(["install", "--yes"])
+        self.assertEqual(code, 1)
+        self.assertEqual(list(installed.iterdir()), [])
+        self.assertEqual(list((self.wp_dir / "wp-content/mu-plugins").glob("*.tmp")), [])
+        installed.rmdir()
+        # Multisite refusal leaves shared file and both options intact.
+        self.site.multisite = True
+        self.site.options["https://sub.example.com"] = {"conclave_login_ticket": "sub-ticket"}
+        code, _out, err, _ = self.run_cli(["install", "--yes"])
+        self.assertEqual(code, 1)
+        self.assertIn("multisite", err.lower())
+        self.assertFalse(installed.exists())
+        self.assertIn("conclave_login_ticket", self.site.options["https://sub.example.com"])
+        self.site.multisite = False
+        # Relocated WPMU_PLUGIN_DIR refusal.
+        self.site.mu_dir_override = "/custom/mu-plugins"
+        code, _out, err, _ = self.run_cli(["install", "--yes"])
+        self.assertEqual(code, 1)
+        self.assertIn("WPMU_PLUGIN_DIR", err)
+        self.site.mu_dir_override = None
+        # Broken MU-plugin stopping WordPress bootstrap: fallback to wp config list recovers install.
+        installed.write_bytes(b"<?php syntax error !!!")
+        self.site.bootstrap_broken = True
+        self.site.config_constants = [{"name": "DB_NAME", "value": "wp", "type": "constant"}]
+        code, _out, err, _ = self.run_cli(["install", "--yes"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(installed.read_bytes(), PLUGIN.read_bytes())
+        self.site.bootstrap_broken = False
+        # Lost reply at publication -> exit 1, advises status; KeyboardInterrupt before/at/after publication -> exit 130.
+        self.site.hooks["stage"] = lambda _cmd, _inp: (_ for _ in ()).throw(KeyboardInterrupt())
+        code, _out, err, _ = self.run_cli(["install", "--yes"])
+        self.assertEqual(code, 130)
+        self.assertIn("status", err)
+        self.site.hooks.clear()
+        self.site.hooks["publish"] = lambda _cmd: (_ for _ in ()).throw(RuntimeError("lost ssh"))
+        code, _out, err, _ = self.run_cli(["install", "--yes"])
+        self.assertEqual(code, 1)
+        self.assertIn("status", err)
+        self.site.hooks["publish"] = lambda _cmd: (_ for _ in ()).throw(KeyboardInterrupt())
+        code, _out, err, _ = self.run_cli(["install", "--yes"])
+        self.assertEqual(code, 130)
+        self.assertIn("status", err)
+        self.site.hooks.clear()
+        self.site.hooks["probe_file"] = lambda cmd: (_ for _ in ()).throw(KeyboardInterrupt()) if ".tmp" not in cmd else None
+        code, _out, err, _ = self.run_cli(["install", "--yes"])
+        self.site.hooks.clear()
+        self.assertEqual(code, 130)
+        self.assertIn("status", err)
+        code, _out, err, _ = self.run_cli(["install", "--yes"])
+        self.assertEqual(code, 0, err)
+        # Directory permission error stops installation (Linux/WSL).
+        if os.name != "nt":
+            wp_content = self.wp_dir / "wp-content"
+            shutil.rmtree(wp_content / "mu-plugins")
+            wp_content.chmod(0o555)
+            try:
+                code, _out, _err, _ = self.run_cli(["install", "--yes"])
+                self.assertEqual(code, 1)
+            finally:
+                wp_content.chmod(0o755)
+
+    def test_plugin_on_site_remove_partial_states_recovery_and_interrupt(self):
+        mu = self.wp_dir / "wp-content" / "mu-plugins"
+        mu.mkdir(parents=True)
+        target = mu / "conclave-ticket-login.php"
+        # All 4 partial states + missing local PHP source.
+        for has_file, has_opt in ((True, True), (True, False), (False, True), (False, False)):
+            with self.subTest(has_file=has_file, has_opt=has_opt):
+                if has_file:
+                    target.write_bytes(PLUGIN.read_bytes())
+                else:
+                    target.unlink(missing_ok=True)
+                self.site.options[self.pin["url"]] = {"conclave_login_ticket": "tok"} if has_opt else {}
+                code, out, err, _ = self.run_cli(["remove", "--yes"], local_plugin=self.home / "absent.php")
+                self.assertEqual(code, 0, err)
+                self.assertIn("plugin: absent", out)
+                self.assertIn("option: absent", out)
+                self.assertFalse(target.exists())
+                self.assertNotIn("conclave_login_ticket", self.site.options[self.pin["url"]])
+        # Multisite refusal leaves shared file and both options intact.
+        target.write_bytes(PLUGIN.read_bytes())
+        self.site.multisite = True
+        self.site.options[self.pin["url"]] = {"conclave_login_ticket": "main"}
+        self.site.options["https://sub.example.com"] = {"conclave_login_ticket": "sub"}
+        code, _out, _err, _ = self.run_cli(["remove", "--yes"])
+        self.assertEqual(code, 1)
+        self.assertTrue(target.exists())
+        self.assertIn("conclave_login_ticket", self.site.options[self.pin["url"]])
+        self.assertIn("conclave_login_ticket", self.site.options["https://sub.example.com"])
+        self.site.multisite = False
+        # Relocated WPMU_PLUGIN_DIR refusal leaves file intact.
+        self.site.mu_dir_override = "/custom/mu-plugins"
+        code, _out, err, _ = self.run_cli(["remove", "--yes"])
+        self.assertEqual(code, 1)
+        self.assertIn("WPMU_PLUGIN_DIR", err)
+        self.assertTrue(target.exists())
+        self.site.mu_dir_override = None
+        # Operational failure between deletions followed by retry remove --yes succeeds.
+        self.site.options[self.pin["url"]] = {"conclave_login_ticket": "retry-opt"}
+        self.site.hooks["eval"] = lambda tokens, _u: (
+            subprocess.CompletedProcess(["wp"], 1, "", "db down") if "delete_option(" in tokens[2] else None
+        )
+        code, _out, _err, _ = self.run_cli(["remove", "--yes"])
+        self.site.hooks.clear()
+        self.assertEqual(code, 1)
+        self.assertFalse(target.exists())
+        self.assertIn("conclave_login_ticket", self.site.options[self.pin["url"]])
+        code, _out, err, _ = self.run_cli(["remove", "--yes"])
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("conclave_login_ticket", self.site.options[self.pin["url"]])
+        # Broken MU-plugin stopping WordPress bootstrap: fallback recovers remove --yes.
+        target.write_bytes(b"<?php broken")
+        self.site.bootstrap_broken = True
+        self.site.config_constants = [{"name": "DB_NAME", "value": "wp", "type": "constant"}]
+        code, _out, err, _ = self.run_cli(["remove", "--yes"])
+        self.assertEqual(code, 0, err)
+        self.assertFalse(target.exists())
+        self.assertNotIn("conclave_login_ticket", self.site.options[self.pin["url"]])
+        # KeyboardInterrupt after file delete before option delete -> exit 130, then retry remove --yes succeeds.
+        target.write_bytes(PLUGIN.read_bytes())
+        self.site.options[self.pin["url"]] = {"conclave_login_ticket": "t"}
+        def interrupt_delete(tokens, _url):
+            if "delete_option(" in tokens[2]:
+                raise KeyboardInterrupt()
+            return None
+        self.site.hooks["eval"] = interrupt_delete
+        code, _out, _err, _ = self.run_cli(["remove", "--yes"])
+        self.site.hooks.clear()
+        self.assertEqual(code, 130)
+        self.assertFalse(target.exists())
+        self.assertIn("conclave_login_ticket", self.site.options[self.pin["url"]])
+        code, _out, err, _ = self.run_cli(["remove", "--yes"])
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("conclave_login_ticket", self.site.options[self.pin["url"]])
+        # Read-back seeing option still present -> exit 1.
+        self.site.options[self.pin["url"]] = {"conclave_login_ticket": "stuck"}
+        self.site.hooks["eval"] = lambda tokens, _u: (
+            subprocess.CompletedProcess(["wp"], 0, "CONCLAVE_DEL:ok\n", "") if "delete_option(" in tokens[2] else None
+        )
+        code, _out, _err, _ = self.run_cli(["remove", "--yes"])
+        self.site.hooks.clear()
+        self.assertEqual(code, 1)
 
 
 if __name__ == "__main__":
