@@ -5085,5 +5085,85 @@ class WordPressLauncherLinksTests(unittest.TestCase):
             self.assertEqual(profile_path.read_bytes(), before)
 
 
+class WordPressDashboardLoginDocsTests(unittest.TestCase):
+    """Connect runbook, site-safety rule, and tooling page for WordPress dashboard login (D07 T02 §6)."""
+
+    def test_dashboard_login_page_and_skills(self):
+        wp_templates = forge.FORGE_ROOT / "kits" / "wordpress" / "templates"
+        # 1. wordpress-connect across Claude, Antigravity, and Codex copies.
+        for agent_dir in (".claude", ".agents", ".codex"):
+            connect = (wp_templates / agent_dir / "skills" / "wordpress-connect" / "SKILL.md").read_text(encoding="utf-8")
+            with self.subTest(skill="wordpress-connect", agent=agent_dir):
+                step_match = re.search(r"^##\s+\d+\.\s+Dashboard login \(optional\)$", connect, re.M)
+                record_match = re.search(r"^##\s+\d+\.\s+Record it$", connect, re.M)
+                self.assertIsNotNone(step_match, "missing Dashboard login (optional) heading")
+                self.assertIsNotNone(record_match, "missing Record it heading")
+                step_pos, record_pos = step_match.start(), record_match.start()
+                self.assertGreater(record_pos, step_pos, "Dashboard login (optional) must come before Record it")
+                step = connect[step_pos:record_pos]
+                for token in (
+                    "ticket-login",
+                    "ticket-login-user",
+                    "optional",
+                    "setup_required",
+                    "declines",
+                    "WSL or Linux",
+                    "multisite",
+                    "MU-plugin",
+                    "python3 scripts/ticket-login.py status",
+                    "absent",
+                    "current",
+                    "differs",
+                    "python3 scripts/ticket-login.py install --yes",
+                    "python3 scripts/open-dashboard.py --check",
+                    "opens no browser",
+                    "python3 scripts/open-dashboard.py",
+                    "pwsh scripts/project-shortcuts.ps1",
+                    "python3 scripts/ticket-login.py remove --yes",
+                    "plugin: absent",
+                    "option: absent",
+                ):
+                    self.assertIn(token, step, f"{agent_dir}: missing {token!r}")
+                approval_pos = step.lower().find("approval")
+                install_pos = step.find("python3 scripts/ticket-login.py install --yes")
+                self.assertGreater(approval_pos, -1, "missing owner approval before install")
+                self.assertLess(approval_pos, install_pos, "owner approval must precede install --yes")
+
+        # 2. wordpress-site-safety across Claude, Antigravity, and Codex copies.
+        for agent_dir in (".claude", ".agents", ".codex"):
+            safety = (wp_templates / agent_dir / "skills" / "wordpress-site-safety" / "SKILL.md").read_text(encoding="utf-8")
+            with self.subTest(skill="wordpress-site-safety", agent=agent_dir):
+                self.assertIn("ticket link", safety.lower())
+                self.assertIn("credential", safety.lower())
+                self.assertRegex(safety.lower(), r"never\s+print,\s+paste,\s+or\s+log")
+
+        # 3. Tooling page docs/wordpress-agent-tooling.md.
+        page = (wp_templates / "docs" / "wordpress-agent-tooling.md").read_text(encoding="utf-8")
+        heading_pos = page.find("## How do I open the dashboard?")
+        self.assertGreater(heading_pos, 0, "missing '## How do I open the dashboard?'")
+        section = page[heading_pos:]
+        for token in (
+            "no standing login key",
+            "SHA-256 hash",
+            "conclave_login_ticket",
+            "60-second",
+            "60 seconds",
+            "WordPress browser session",
+            "does not sign out",
+            "SSH",
+            "pinned WordPress user",
+            "WSL or Linux",
+            "multisite",
+            "MU-plugin",
+            "python3 scripts/ticket-login.py status",
+            "python3 scripts/ticket-login.py install --yes",
+            "python3 scripts/open-dashboard.py --check",
+            "python3 scripts/open-dashboard.py",
+            "pwsh scripts/project-shortcuts.ps1",
+            "python3 scripts/ticket-login.py remove --yes",
+        ):
+            self.assertIn(token, section, f"tooling page missing {token!r}")
+
+
 if __name__ == "__main__":
     unittest.main()

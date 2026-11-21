@@ -11,3 +11,4 @@ description: "Bind WordPress work to one named site. Read-only first. Approval-g
 4. Credentials are SecretRefs. Never paste an application password into `.mcp.json`.
 5. WordPress MCP comes from the host: on Pressable the official `mcp-adapter`, enabled with Pressable `toggle_site_wordpress_mcp`; on WordPress.com the WordPress.com connector, never `mcp-adapter`. Novamira is discontinued: never install it, and ask before removing it from a site that still has it.
 6. PHPCS WordPress-Extra via `tools/phpcs/` is the style gate when that toolchain is installed.
+7. A dashboard login ticket link (`?conclave_ticket=...`) is a credential while it lives: never print, paste, or log it.

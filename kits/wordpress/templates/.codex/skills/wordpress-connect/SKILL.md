@@ -46,6 +46,16 @@ bin/ddev config --project-type=wordpress --docroot=public --php-version=<x.y> --
 
 `.ddev/providers/production.yaml` refuses every push. Port `scripts/production-sync.py` from the port source: keep its read-only command allowlist and pinned rsync, and rewrite its list of private post types, tables and upload folders for this site, so personal data stays on the server. Back up the local database (`bin/ddev snapshot`) before the first `bin/ddev pull production -y`.
 
-## 5. Record it
+## 5. Dashboard login (optional)
+
+Before offering this step, check the `ticket-login` and `ticket-login-user` rows in `python3 forge.py doctor <repo> wordpress`: skip this step when either row is `optional` (for example WordPress.com Simple without SSH, or WordPress.com Atomic using only the connector with no pinned WordPress user), explain any `setup_required` result, and continue straight to "Record it" if the owner declines. Run these commands from WSL or Linux (native Windows is refused because `sshpass` is needed); the installer also refuses WordPress multisite installs and sites with a relocated MU-plugin directory.
+
+1. Run `python3 scripts/ticket-login.py status` first and inspect its `plugin` field (`absent`, `current`, and `differs` all exit 0). Skip installation when `plugin` is `current`; when `plugin` is `differs`, explicitly tell the owner that installing replaces the existing differing copy.
+2. Ask the owner's approval before running `python3 scripts/ticket-login.py install --yes`, stating that approval covers both writing (or replacing) the MU-plugin and the temporary ticket write and removal performed by `python3 scripts/open-dashboard.py --check`.
+3. After approval, run `python3 scripts/ticket-login.py install --yes` and prove the ticket round-trip with `python3 scripts/open-dashboard.py --check` (`--check` opens no browser; it confirms the site stored and removed a ticket).
+4. To open the dashboard, run `python3 scripts/open-dashboard.py` directly on Linux or in projects without the launchers kit; on a Windows desktop with the launchers kit (where installing both kits already declared the `WordPress` entry in `.conclave/launchers.json`), set `title` and `icon` in `.conclave/launchers.json` and run `pwsh scripts/project-shortcuts.ps1` to write the desktop shortcut.
+5. To remove the plugin later (with the owner's approval), run `python3 scripts/ticket-login.py remove --yes` and verify its read-back reports `plugin: absent` and `option: absent`.
+
+## 6. Record it
 
 Write `docs/connections.md` the way the port source does: how the environments work, the verified site identity (with the date), the Conclave items by immutable id and what each is for, the MCP clients, the commands, and open findings with evidence. Finish with `python3 forge.py doctor <repo> wordpress` showing no `missing` and no `setup_required` other than what the doc says is pending.

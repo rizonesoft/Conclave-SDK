@@ -44,6 +44,23 @@ tools/phpcs/vendor/bin/phpcs
 
 `scripts/hooks/wordpress-phpcs-pre-push.sh` is the pre-push snippet. Run it from the project's hook as its own command (`bash scripts/hooks/wordpress-phpcs-pre-push.sh || exit 1`), never sourced, since it exits. A missing binary is SKIPPED, not a silent pass.
 
+## How do I open the dashboard?
+
+`scripts/open-dashboard.py` opens the pinned site's WordPress admin logged in as the pinned user through a one-use ticket. It generates a 64-character hex token locally, stores only the token's SHA-256 hash, the pinned WordPress user ID, and a 60-second expiry in the `conclave_login_ticket` option over the pinned SSH connection, and launches your browser on the one-use link without putting the token in process arguments or logs.
+
+Dashboard login adds no standing login key anywhere: there is no extra password, shared secret, or API key beyond the existing pinned SSH identity. The one-use link expires after 60 seconds and is consumed on first redemption, while an established WordPress browser session follows normal WordPress session rules. Removing the plugin prevents future ticket logins but does not sign out an already-open WordPress session.
+
+This feature requires SSH and a pinned WordPress user (`ticket-login` and `ticket-login-user` doctor rows `ok`; WordPress.com Simple and connector-only Atomic sites without a pinned user skip it), runs from WSL or Linux (native Windows is refused), and refuses WordPress multisite installs or relocated MU-plugin directories. Installing or removing the MU-plugin is an owner-approved write on the live site.
+
+```bash
+python3 scripts/ticket-login.py status          # read-only check: plugin is absent, current, or differs
+python3 scripts/ticket-login.py install --yes   # owner-approved: install or replace the MU-plugin
+python3 scripts/open-dashboard.py --check       # prove ticket store and removal; opens no browser
+python3 scripts/open-dashboard.py               # open the dashboard directly from WSL or Linux
+pwsh scripts/project-shortcuts.ps1              # Windows desktop shortcut (after setting title and icon in .conclave/launchers.json)
+python3 scripts/ticket-login.py remove --yes    # owner-approved: remove MU-plugin and option (plugin: absent, option: absent)
+```
+
 ## Tests
 
 ```bash
