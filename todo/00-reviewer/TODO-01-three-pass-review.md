@@ -45,6 +45,7 @@ title: "TODO-01 -- Three-pass review"
 | 9 | §9 | Re-plan route for a chain that cannot settle, recovery planned up front | §4 | [x] |
 | 10 | §10 | P2 gate by kind with two filing caps | §9 | [ ] |
 | 11 | §11 | One severity rubric weighted by likelihood | -- | [ ] |
+| 12 | §12 | Check resolution entries before reconciliation dispatch | -- | [ ] |
 
 ## 1. Pin loader module with the three-pass keys
 
@@ -414,6 +415,25 @@ The fix: severity is impact times likelihood, defined once in `review_pin.py` an
 - [ ] Commit: `reviewer: one severity rubric weighted by likelihood, appended to every pass`
 
 **Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests` and `python -m unittest tests.test_forge -k skill` pass, `python scripts/review_pin.py --check --all` prints `ok`, and removing the rubric append from `lens_block` makes the dispatcher test fail. Projects that install the reviewer kit take the rubric with their next kit refresh.
+
+## 12. Check resolution entries before reconciliation dispatch
+
+Filed 2026-11-21 from `D07 T01 §9` Reconciliation 1 (`docs/reviews/07-launchers/D07-T01-s9.md`, P3 `record`): the writer recorded its completion fixes without the `- Implemented:` prefix and repair commit SHA required by `docs/reconciliation-review-prompt.md`, spending a full reconciliation pass only to catch a missing prefix. Checking the findings file in `review-dispatch.py` before dispatching a reconciliation catches missing `- Implemented:` entries locally in milliseconds.
+
+**Phase:** 9
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Add the pre-dispatch resolution check to `kits/reviewer/templates/scripts/review-dispatch.py` (refusing `--kind reconciliation` when the notes after the last failed completion/reconciliation pass hold neither `- Implemented:` nor `## Writer note:`). Done when: `test_three_pass.py` verifies the refusal and acceptance cases.
+2. Refresh the SDK copy with `python forge.py self-sync` and verify `kit-reviewer`. Done when: the checkpoint passes.
+
+- [ ] Add a pre-dispatch check in `kits/reviewer/templates/scripts/review-dispatch.py` for `--kind reconciliation`: inspect the writer notes appended after the last returned `## Completion review` or `## Reconciliation review` in `--record`, and refuse before invoking the reviewer when neither a `- Implemented:` line nor a `## Writer note:` heading is present. Done when: a test in `kits/reviewer/templates/scripts/tests/test_three_pass.py` proves reconciliation refuses when notes omit `- Implemented:` and proceeds once `- Implemented:` or `## Writer note:` is present. Cheaper substitute: relying on the reviewer's `record` lens to catch missing prefixes after spending a pass.
+- [ ] Run `python forge.py self-sync`. Done when: `scripts/review-dispatch.py` equals the kit file and `python -m unittest discover -s kits/reviewer/templates/scripts/tests` passes.
+- [ ] Commit: `reviewer: check resolution entries before reconciliation dispatch`
+
+**Test checkpoint:** `python -m unittest discover -s kits/reviewer/templates/scripts/tests -p test_three_pass.py` passes; removing the `- Implemented:` check from `review-dispatch.py` makes the new refusal test fail.
 
 ## Verification
 

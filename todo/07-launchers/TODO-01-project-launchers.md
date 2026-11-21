@@ -329,6 +329,8 @@ A person or an agent in a project needs one place that says how to set the title
 
 ## 9. Agent and declared links named outside the ANSI code page
 
+> **Started:** 2026-11-21T16:41Z
+
 `scripts/project-shortcuts.ps1` still saves and reads everyday links during create, stale sweep, and `-Remove` through `WScript.Shell` (while `-Inspect`, added in §8, already reads through `ShellLink.cs`). `WScript.Shell` goes through the ANSI code page: a title outside it (`東京`, probed 2026-11-18 while building §7) cannot be saved (`Unable to save shortcut "...\?? x.lnk"`), and a link of that name reads back with an empty description, so its mark is never found and `-Remove` and the stale sweep miss it. §7 fixed the campaign links this way; this section does the same for the agent and declared links of §5 and §6.
 
 **Phase:** 8
