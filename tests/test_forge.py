@@ -4779,9 +4779,15 @@ class WordPressTicketLoginDoctorTests(unittest.TestCase):
             for label, mcp_map, want_status, want_needle in cases:
                 with self.subTest(user_case=label):
                     self._write_pin(target, {**pressable_base, "mcp": mcp_map})
-                    rows, _ = self._doctor_rows(target)
-                    self.assertEqual(rows["ticket-login-user"][0], want_status, rows["ticket-login-user"])
-                    self.assertIn(want_needle, rows["ticket-login-user"][1])
+                    buf = io.StringIO()
+                    with unittest.mock.patch("sys.stdout", buf):
+                        rc = forge.main(["doctor", str(target), "wordpress"])
+                    self.assertEqual(rc, 0, buf.getvalue())
+                    emitted = json.loads(buf.getvalue())
+                    user_rows = [c for c in emitted["checks"] if c["name"] == "ticket-login-user"]
+                    self.assertEqual(len(user_rows), 1, emitted)
+                    self.assertEqual(user_rows[0]["status"], want_status, user_rows[0])
+                    self.assertIn(want_needle, user_rows[0]["detail"])
 
             # 7. Overflowing 64-bit PHP int user ID is refused by both wp_site.pinned_user and doctor.
             wp_site = forge._wordpress_pin_module()
