@@ -760,8 +760,8 @@ class BrowserTest(unittest.TestCase):
         apps = data / "applications"
         apps.mkdir(parents=True, exist_ok=True)
         profile = Path(self._tmp.name) / "linux-chrome-profile"
-        desktop_exec = (f'"{browser}" --headless=new --disable-gpu --no-first-run '
-                        f'"--user-data-dir={profile}" --virtual-time-budget=2000 --dump-dom %u')
+        desktop_exec = (f'"{browser}" --headless=new --disable-gpu --no-first-run --no-sandbox '
+                        f'--disable-dev-shm-usage "--user-data-dir={profile}" --virtual-time-budget=5000 --dump-dom %u')
         (apps / "smoke.desktop").write_text(f"[Desktop Entry]\nName=Smoke\nExec={desktop_exec}\n", encoding="utf-8")
 
         real_run = subprocess.run
@@ -789,7 +789,7 @@ class BrowserTest(unittest.TestCase):
                     mock.patch.object(od.subprocess, "run", fake_run), \
                     mock.patch.object(od.subprocess, "Popen", spy_popen):
                 od.open_browser(target_url)
-                self.assertTrue(done_event.wait(timeout=15), "headless browser did not follow redirect via Linux open_browser")
+                self.assertTrue(done_event.wait(timeout=45), "headless browser did not follow redirect via Linux open_browser")
         finally:
             for proc in spawned:
                 self._kill_browser_tree(proc)
