@@ -186,17 +186,44 @@ def _page(url):
 
 
 DESKTOP_ID = re.compile(r"[A-Za-z0-9._-]+\.desktop")
-FIELD_RE = re.compile(r"%(%|f|F|u|U|c|k)")
+FIELD_RE = re.compile(r"%(%|f|F|u|U|c|k|d|D|n|N|v|m)")
 LOCALE_RE = re.compile(r"^([A-Za-z0-9-]+)(?:_([A-Za-z0-9-]+))?(?:\.[^@]*)?(?:@(.+))?$")
+DESKTOP_UNESCAPE = re.compile(r"\\([sntr\\])")
+DESKTOP_ESCAPES = {"s": " ", "n": "\n", "t": "\t", "r": "\r", "\\": "\\"}
+
+
+def _unescape_desktop(value):
+    """Unescape desktop-entry string escapes (\\s, \\n, \\t, \\r, \\\\)."""
+    return DESKTOP_UNESCAPE.sub(lambda m: DESKTOP_ESCAPES[m.group(1)], value)
+
+
+def _parse_locale(text):
+    """Parse a POSIX/desktop-entry locale `lang[_COUNTRY][.ENCODING][@MODIFIER]` ignoring ENCODING."""
+    match = LOCALE_RE.match(text.strip())
+    return match.groups() if match else None
+
+
+def _locale_key(text):
+    """Canonical desktop-entry locale key with any `.ENCODING` stripped, or None if invalid."""
+    parsed = _parse_locale(text)
+    if not parsed:
+        return None
+    lang, country, modifier = parsed
+    key = lang
+    if country:
+        key += "_" + country
+    if modifier:
+        key += "@" + modifier
+    return key
 
 
 def _localized(values):
-    """Pick the desktop-entry value matching the active locale (LC_ALL, LC_MESSAGES, LANG), falling back to unqualified."""
+    """Pick the desktop-entry value matching the active locale (LC_ALL, LC_MESSAGES, LANG), ignoring encodings."""
     raw = os.environ.get("LC_ALL") or os.environ.get("LC_MESSAGES") or os.environ.get("LANG") or ""
     if raw and raw not in ("C", "POSIX") and not raw.startswith(("C.", "POSIX.")):
-        match = LOCALE_RE.match(raw)
-        if match:
-            lang, country, modifier = match.groups()
+        parsed = _parse_locale(raw)
+        if parsed:
+            lang, country, modifier = parsed
             candidates = []
             if country and modifier:
                 candidates.append(f"{lang}_{country}@{modifier}")
@@ -209,6 +236,35 @@ def _localized(values):
                 if key in values:
                     return values[key]
     return values.get("", "")
+
+
+def _parse_desktop_entry(found):
+    """Read `Exec`, localized `Name` and localized `Icon` from `[Desktop Entry]`, normalizing locale keys."""
+    command, names, icons, group = None, {}, {}, None
+    for line in found.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            group = line[1:-1]
+        elif group == "Desktop Entry" and "=" in line:
+            key, _, val = line.partition("=")
+            key, val = key.strip(), val.strip()
+            if key == "Exec" and command is None:
+                command = val
+            elif key == "Name":
+                names.setdefault("", _unescape_desktop(val))
+            elif key.startswith("Name[") and key.endswith("]"):
+                loc = _locale_key(key[5:-1])
+                if loc is not None:
+                    names.setdefault(loc, _unescape_desktop(val))
+            elif key == "Icon":
+                icons.setdefault("", _unescape_desktop(val))
+            elif key.startswith("Icon[") and key.endswith("]"):
+                loc = _locale_key(key[5:-1])
+                if loc is not None:
+                    icons.setdefault(loc, _unescape_desktop(val))
+    return command, _localized(names), _localized(icons)
 
 
 def _https_browser(page):
@@ -227,33 +283,13 @@ def _https_browser(page):
     found = next((Path(f) / "applications" / entry for f in folders if f and (Path(f) / "applications" / entry).is_file()), None)
     if found is None:
         raise Refusal(f"the browser's desktop entry {entry} is in no applications folder")
-    command, names, icons, group = None, {}, {}, None
-    for line in found.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("[") and line.endswith("]"):
-            group = line[1:-1]
-        elif group == "Desktop Entry" and "=" in line:
-            key, _, val = line.partition("=")
-            key, val = key.strip(), val.strip()
-            if key == "Exec" and command is None:
-                command = val
-            elif key == "Name":
-                names.setdefault("", val)
-            elif key.startswith("Name[") and key.endswith("]"):
-                names.setdefault(key[5:-1], val)
-            elif key == "Icon":
-                icons.setdefault("", val)
-            elif key.startswith("Icon[") and key.endswith("]"):
-                icons.setdefault(key[5:-1], val)
+    command, name, icon = _parse_desktop_entry(found)
     try:
         words = shlex.split(command or "")
     except ValueError:
         words = []
     if not words:
         raise Refusal(f"the browser's desktop entry {entry} has no command to run")
-    name, icon = _localized(names), _localized(icons)
     argv, given = [], False
 
     def _expand(match):
@@ -269,12 +305,16 @@ def _https_browser(page):
             return str(page)
         if code == "c":
             return name
-        return str(found)
+        if code == "k":
+            return str(found)
+        return ""   # deprecated field codes (%d, %D, %n, %N, %v, %m) are removed per Desktop Entry Spec
 
     for word in words:
         if word == "%i":
             if icon:
                 argv.extend(["--icon", icon])
+        elif word in ("%d", "%D", "%n", "%N", "%v", "%m"):
+            continue
         else:
             argv.append(FIELD_RE.sub(_expand, word))
     return argv if given else [*argv, str(page)]

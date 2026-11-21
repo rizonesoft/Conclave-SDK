@@ -535,30 +535,36 @@ class BrowserTest(unittest.TestCase):
                         self.open(wsl=False, which=self.LINUX, entry=entry)
                     self.assertEqual(str(caught.exception), "the browser's desktop entry firefox.desktop has no command to run")
                     continue
+                before = set(self.pages.glob("open-*.html"))
                 self.open(wsl=False, which=self.LINUX, entry=entry)
                 [(argv, _)] = self.started
-                page = sorted(self.pages.glob("open-*.html"), key=lambda f: f.stat().st_mtime)[-1]
+                [page] = set(self.pages.glob("open-*.html")) - before
                 mapping = {"<path>": str(page), "<uri>": page.as_uri(), "<desktop>": desktop}
                 self.assertEqual(argv, [mapping.get(w, w) for w in expected])
                 self.assertNotIn("conclave_ticket", " ".join(argv))
 
     def test_localized_desktop_entry_name_and_icon_follow_locale_precedence(self):
         desktop = str(Path(self._tmp.name) / "data" / "applications" / "firefox.desktop")
-        entry = ("Name[fr]=Navigateur\nName[fr_CA]=Navigateur CA\nName[sr@latin]=Pregledac\n"
-                 "Icon=firefox-icon\nIcon[fr]=firefox-fr\n"
+        entry = ("Name[fr]=Navigateur\nName[fr_FR.UTF-8]=Navigateur FR\nName[fr_CA]=Navigateur CA\n"
+                 "Name[sr_RS.UTF-8@latin]=Pregledac RS\nName[sr@latin]=Pregledac\n"
+                 "Icon=firefox-icon\nIcon[fr_FR.UTF-8]=firefox-fr-utf8\nIcon[fr]=firefox-fr\n"
                  "Exec=wrapper --name %c --desktop %k %i %u\n")
         for label, extra_env, name, icon in (
-                ("LC_ALL matches language", {"LC_ALL": "fr_FR.UTF-8"}, "Navigateur", "firefox-fr"),
+                ("LC_ALL matches encoding-bearing key suffix", {"LC_ALL": "fr_FR.UTF-8"}, "Navigateur FR", "firefox-fr-utf8"),
+                ("LC_ALL strips encoding on both sides", {"LC_ALL": "fr_FR.ISO-8859-1"}, "Navigateur FR", "firefox-fr-utf8"),
                 ("LC_ALL matches lang_COUNTRY over lang", {"LC_ALL": "fr_CA.UTF-8"}, "Navigateur CA", "firefox-fr"),
-                ("LC_MESSAGES matches modifier", {"LC_MESSAGES": "sr_RS.UTF-8@latin"}, "Pregledac", "firefox-icon"),
+                ("LC_ALL falls back to lang", {"LC_ALL": "fr_BE.UTF-8"}, "Navigateur", "firefox-fr"),
+                ("LC_MESSAGES matches encoding-bearing modifier key", {"LC_MESSAGES": "sr_RS.UTF-8@latin"}, "Pregledac RS", "firefox-icon"),
+                ("LC_MESSAGES falls back to lang@modifier", {"LC_MESSAGES": "sr_ME.UTF-8@latin"}, "Pregledac", "firefox-icon"),
                 ("LANG falls back to unqualified", {"LANG": "de_DE.UTF-8"}, "Firefox", "firefox-icon"),
                 ("C locale uses unqualified", {"LC_ALL": "C"}, "Firefox", "firefox-icon")):
             with self.subTest(label):
                 self.started.clear()
                 self.runs.clear()
+                before = set(self.pages.glob("open-*.html"))
                 self.open(wsl=False, which=self.LINUX, entry=entry, extra_env=extra_env)
                 [(argv, _)] = self.started
-                page = sorted(self.pages.glob("open-*.html"), key=lambda f: f.stat().st_mtime)[-1]
+                [page] = set(self.pages.glob("open-*.html")) - before
                 self.assertEqual(argv, ["wrapper", "--name", name, "--desktop", desktop, "--icon", icon, page.as_uri()])
                 self.assertNotIn("conclave_ticket", " ".join(argv))
 
