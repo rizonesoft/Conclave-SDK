@@ -76,3 +76,42 @@ OVERALL: needs-attention
 ## Writer note: round 1 answered
 
 - Fixed: integration P1 (use `os.stat` + `stat.S_ISREG`/`stat.S_ISDIR` in `_is_file_or_miss`/`_is_dir_or_miss` so `EIO`/`EACCES` never get swallowed by Python 3.14's `Path.is_file`/`Path.is_dir`), source-defect P2 (strip only `\r\n` from `xdg-mime` stdout so leading spaces in nested desktop IDs survive), adversarial P3 (reject DEL `U+007F` and C1 `U+0080..U+009F` in `DESKTOP_ID`), quality P3 #1 (inject `EIO`/`EACCES`/`ENAMETOOLONG` at `os.stat` below the predicates), and quality P3 #2 (prove the real failing child process actually ran via a marker file before exiting 1).
+
+## Completion review: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: agy
+- Run: 2026-11-21T11:38:13Z
+- Candidate: bacac1f25f94d61bcbf89be0daf2d7b34b0c2861
+- Effort: low
+- Lenses: plan-delivery, record
+- Lines: 28
+- Digest: 1172b873142ef75f
+
+## Part 1. Completeness
+
+1. **present**. The CLI entry point, scratch-project `--help`, fresh token and digest, URL validation, pinned-user selection, native Windows refusal and invalid-pin refusals have executable coverage in `test_open_dashboard.py:129`, `:135`, `:153`, `:159`, `:178`, `:194`, `:204` and `:835`.
+2. **present**. Pinned SSH selects the site before `eval` and sends the digest on stdin. The PHP harness covers storage, site-clock expiry, read-back, missing plugin, failed reads and deletion that preserves a newer ticket. See `open-dashboard.py:125` and `test_open_dashboard.py:215`, `:244`, `:260`, `:270` and `:282`.
+3. **present**. The default command and `--check` have distinct success criteria. The replacement test verifies that `--check` exits unsuccessfully when another run replaces its ticket. See `test_open_dashboard.py:296`, `:311` and `:320`.
+4. **present**. WSL dispatch, Linux browser selection, private redirect pages, stale-page removal and host-specific refusals have recorder coverage. The immediate-exit test also verifies that a real child ran, exited unsuccessfully and triggered ticket removal. See `test_open_dashboard.py:337`, `:529`, `:544`, `:563`, `:683`, `:707`, `:729`, `:758`, `:783` and `:799`.
+5. **present**. Browser failure, a lost SSH reply, interruption, unconfirmed cleanup and exceptions containing sensitive text have tests. Cross-language constant agreement belongs to `test_ticket_login.py`, as specified by the §2 checkpoint. See `test_open_dashboard.py:379`, `:391`, `:399`, `:420`, `:448` and `:464`. These are source-coverage findings. I did not rerun the suites.
+6. **missing-in-scope, P1**. No cited run proves that a successful invocation reaches a browser destination on either supported host. The plan review requested that observation. Its disposition substituted recorders and a child that exits **unsuccessfully**. Section 7 exercises HTTP redemption directly and does not own the browser handoff. Record one harmless loopback request received through the configured browser on WSL and one on Linux. This can be an attended check without opening windows during automated tests. See `docs/reviews/07-launchers/D07-T02-s2.md:13` and `:30`.
+7. **missing-in-scope, P2**. The WSL test establishes that the URL is absent from PowerShell’s arguments. It stops before the registered Windows handler receives the URL from `Start-Process`. The recorded disposition cites one-use redemption, which supplies no evidence about arguments before redemption. Verify a cold launch with a disposable marker and require zero occurrences in the receiving handler’s arguments. See `open-dashboard.py:441`, `test_open_dashboard.py:529` and `docs/reviews/07-launchers/D07-T02-s2.md:19` and `:33`.
+8. **missing-in-scope, P2**. Failure recovery can tell the user “the ticket was removed from the site” when the remote operation returned `absent`, `gone` or `not ours`. This is reachable after a lost store reply or overlapping launches. `drop()` preserves the distinction, but `_clean_up()` discards it. Require a removal claim only for `dropped`, and exercise all four replies through cleanup. See `open-dashboard.py:148` and `:482`.
+
+## Part 2. Excellence
+
+The named alternative is the host’s one-click dashboard login, which opens the dashboard from the hosting account. The governing plan records the owner’s choice to retain the SSH-backed one-use ticket. It supplies no comparative timing or success measurements. See `docs/plans/2026-11-11-sdk-audit-and-roadmap.md:123`.
+
+1. **in-scope, P1**. The comparison lacks a verified successful dashboard handoff for the candidate’s common action. The measurable target is one invocation and one observed browser request on each supported host, with no manual URL transfer. This is the same evidence gap as Part 1 item 6. No separate speed or accessibility finding follows from the two assigned lenses.
+
+## Gap list
+
+1. **missing-in-scope, P1**. Successful browser delivery lacks an observed destination request on WSL and Linux.
+2. **missing-in-scope, P2**. WSL argument-secrecy evidence ends before the registered Windows handler.
+3. **missing-in-scope, P2**. Failure cleanup reports a confirmed deletion for three outcomes that do not establish one.
+4. **in-scope, P1**. The common-action comparison needs one observed browser request per host from a single invocation, the same proof as gap 1.
+
+LENS plan-delivery: findings  
+LENS record: findings  
+HIGHEST: P1  
+COMPLETION: gaps
