@@ -49,7 +49,7 @@ title: "TODO-02 -- WordPress dashboard login by one-use ticket"
 | 3 | §3 | Plugin install, status and removal on the pinned site | §1 | [x] |
 | 4 | §4 | Doctor rows and host refusals for the ticket login | §2, §3 | [x] |
 | 5 | §5 | WordPress link in the launcher profile | §2, T01 §6 | [x] |
-| 6 | §6 | `wordpress-connect` step and tooling page | §4, §5 | [ ] |
+| 6 | §6 | `wordpress-connect` step and tooling page | §4, §5 | [x] |
 | 7 | §7 | Live proof on a staging site | §6 | [ ] |
 | 8 | §8 | Desktop-entry ID lookup and Exec unescaping in `open-dashboard.py` | §1 | [x] |
 
@@ -226,9 +226,12 @@ The setup runbook ends at "Record it" today. A project connected by it should be
 - [x] Add a step "Dashboard login (optional)" to `kits/wordpress/templates/.claude/skills/wordpress-connect/SKILL.md` before "Record it": read `§4`'s `ticket-login` and `ticket-login-user` doctor rows first (skip when `optional`, explain `setup_required`, continue to "Record it" if the owner declines), name WSL/Linux and the multisite and relocated MU-plugin refusals, run `python3 scripts/ticket-login.py status` (`absent`/`current`/`differs`; skip install when `current`, explicitly identify replacement on `differs`), ask owner approval before `python3 scripts/ticket-login.py install --yes` (covering `--check`'s temporary ticket write/removal), prove with `python3 scripts/open-dashboard.py --check` (opens no browser), give `pwsh scripts/project-shortcuts.ps1` (after setting profile `title`/`icon`) and direct `python3 scripts/open-dashboard.py`, and document approved `python3 scripts/ticket-login.py remove --yes` with `plugin: absent` and `option: absent` read-back. Done when: `WordPressDashboardLoginDocsTests.test_dashboard_login_page_and_skills` verifies step ordering, approval before install, skip path, status/removal read-back, and all commands across Claude, Antigravity, and Codex copies. **Planned 2026-11-21 (plan review, P1):** doctor eligibility, status/differs/remove flow, explicit third command and direct opener.
 - [x] Add one rule to `kits/wordpress/templates/.claude/skills/wordpress-site-safety/SKILL.md`: a ticket link is a credential while it lives and is never printed, pasted or logged; then run `python forge.py skill-copies` once for both skills. Done when: `python forge.py skill-copies --check` exits 0 and the test asserts the rule in all three agent copies. **Planned 2026-11-21 (plan review, P1/P3):** single `skill-copies` pass and cross-agent rule assertion.
 - [x] Add "How do I open the dashboard?" to `kits/wordpress/templates/docs/wordpress-agent-tooling.md`: how the one-use ticket works (no standing login key added; only the token's SHA-256 hash, pinned user ID, and 60-second expiry stored in `conclave_login_ticket`), the distinction between the 60-second ticket and an established WordPress session (removing the plugin prevents future ticket logins without signing out an active session), SSH + pinned user + WSL/Linux requirements and multisite/relocated MU-plugin refusals, and the exact `status`, `install --yes`, `--check`, `open-dashboard.py`, `pwsh scripts/project-shortcuts.ps1`, and `remove --yes` commands. Done when: `WordPressDashboardLoginDocsTests.test_dashboard_login_page_and_skills` verifies every topic and exact command on the page. **Planned 2026-11-21 (plan review, P1/P2):** accurate no-standing-key and ticket-vs-session wording and exact command checks.
-- [ ] Commit: `wordpress: the dashboard login in the connect runbook and the tooling page`
+- [x] Commit: `wordpress: the dashboard login in the connect runbook and the tooling page`
 
 **Test checkpoint:** `python -m unittest tests.test_forge.WordPressDashboardLoginDocsTests.test_dashboard_login_page_and_skills -v` and `python forge.py skill-copies --check` end `OK`; removing the removal command, the safety rule, or moving approval after install makes it fail.
+
+> **Verified:** 2026-11-21 | §6 | decf3ecbcf445c01c149cf980b871d076ffc45d2
+> **Review:** `docs/reviews/d07-t02-s6.json`
 
 ## 7. Live proof on a staging site
 
