@@ -617,20 +617,35 @@ class BrowserTest(unittest.TestCase):
                 self.assertNotEqual(done2.returncode, 0)
                 received = json.loads(marker.read_text(encoding="utf-8"))
                 self.assertNotIn("conclave_ticket", " ".join(received))
-                self.assertTrue(received[-1].startswith("file:///") and received[-1].endswith(".html"), received)
+                self.assertTrue(received[-1].startswith("file://") and received[-1].endswith(".html"), received)
                 self.assertFalse(received[-1].startswith('"'), received)
                 self.assertEqual(list((local_app / "conclave-dashboard").glob("*.tmp")), [])
                 self.assertEqual(list((local_app / "conclave-dashboard").glob("open-*.html")), [])
 
-    def _find_headless_browser(self):
+    def _find_linux_browser(self):
         candidates = [
-            shutil.which("chrome"), shutil.which("chromium"), shutil.which("chromium-browser"),
-            shutil.which("google-chrome"), shutil.which("msedge"),
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-            "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
-            "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+            shutil.which("google-chrome"), shutil.which("chromium"), shutil.which("chromium-browser"),
+            shutil.which("chrome"), shutil.which("msedge"),
         ]
+        if os.name == "nt":
+            candidates += [
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            ]
+        return next((c for c in candidates if c and Path(c).is_file()), None)
+
+    def _find_windows_browser(self):
+        if os.name == "nt":
+            candidates = [
+                shutil.which("chrome"), shutil.which("msedge"),
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            ]
+        else:
+            candidates = [
+                "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe",
+                "/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+            ]
         return next((c for c in candidates if c and Path(c).is_file()), None)
 
     def _start_loopback(self):
@@ -659,22 +674,24 @@ class BrowserTest(unittest.TestCase):
         self.addCleanup(server.shutdown)
         return port, hits, done_event
 
+    def _kill_windows_profile(self, pwsh, win_profile):
+        """Terminate any surviving Windows browser tree for `win_profile` without killing the cleanup PowerShell."""
+        lit = win_profile.replace("'", "''")
+        kill_cmd = (f"Get-CimInstance Win32_Process | "
+                    f"Where-Object {{ $_.ProcessId -ne $PID -and $_.CommandLine -like '*{lit}*' }} | "
+                    f"ForEach-Object {{ taskkill.exe /F /T /PID $_.ProcessId 2>$null | Out-Null }}; "
+                    f"$left = @(Get-CimInstance Win32_Process | "
+                    f"Where-Object {{ $_.ProcessId -ne $PID -and $_.CommandLine -like '*{lit}*' }}); "
+                    f"if ($left.Count -gt 0) {{ exit 2 }}")
+        done = subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-Command", kill_cmd],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20, creationflags=NO_WINDOW)
+        self.assertEqual(done.returncode, 0, "Windows browser cleanup failed or left survivors")
+
     def _kill_browser_tree(self, proc, browser, profile_arg):
         if proc.poll() is None:
             if os.name == "nt":
                 subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=NO_WINDOW)
-            elif browser.startswith("/mnt/"):
-                # Windows executable launched from WSL: terminate the whole Windows process tree matching this
-                # test's unique --user-data-dir profile via PowerShell so no Windows browser descendants survive.
-                ps = shutil.which("pwsh.exe") or shutil.which("powershell.exe")
-                if ps:
-                    lit = profile_arg.replace("'", "''")
-                    kill_cmd = (f"Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -like '*{lit}*' }} | "
-                                "ForEach-Object { taskkill.exe /F /T /PID $_.ProcessId 2>$null | Out-Null }")
-                    subprocess.run([ps, "-NoProfile", "-NonInteractive", "-Command", kill_cmd],
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
-                proc.kill()
             else:
                 import signal
                 try:
@@ -682,15 +699,32 @@ class BrowserTest(unittest.TestCase):
                 except ProcessLookupError:
                     pass
             proc.wait()
+        if browser.startswith("/mnt/") and os.name == "posix":
+            ps = shutil.which("pwsh.exe") or shutil.which("powershell.exe")
+            if ps:
+                self._kill_windows_profile(ps, profile_arg)
+
+    def _windows_temp_profile(self, prefix):
+        if os.name == "nt":
+            return str(Path(self._tmp.name) / prefix)
+        ps = shutil.which("pwsh.exe") or shutil.which("powershell.exe")
+        if ps:
+            r = subprocess.run([ps, "-NoProfile", "-NonInteractive", "-Command", "[IO.Path]::GetTempPath()"],
+                               capture_output=True, text=True, timeout=15)
+            if r.returncode == 0 and r.stdout.strip():
+                posix_tmp = subprocess.run(["wslpath", "-u", r.stdout.strip()], capture_output=True, text=True, check=True).stdout.strip()
+                posix_dir = tempfile.mkdtemp(prefix=f"{prefix}-", dir=posix_tmp)
+                self.addCleanup(shutil.rmtree, posix_dir, True)
+                return subprocess.run(["wslpath", "-w", posix_dir], capture_output=True, text=True, check=True).stdout.strip()
+        return subprocess.run(["wslpath", "-w", str(Path(self._tmp.name) / prefix)], capture_output=True, text=True, check=True).stdout.strip()
 
     def test_headless_browser_follows_redirect_via_linux_open_browser(self):
-        browser = self._find_headless_browser()
-        if not browser:
+        browser = self._find_linux_browser()
+        win_fallback = None
+        if not browser and os.name == "posix":
+            win_fallback = self._find_windows_browser()
+        if not browser and not win_fallback:
             self.skipTest("no headless Chromium/Chrome/Edge browser found for Linux open_browser loopback check")
-        if browser.startswith("/mnt/") and os.name == "posix":
-            # Windows Chrome cannot open a Linux /tmp path directly; on Linux CI (native chromium) or Windows
-            # (native chrome.exe) open_browser's Linux desktop-entry path hands Chrome a native file:// URI.
-            self.skipTest("WSL host uses the WSL PowerShell open_browser test for Windows Chrome")
         port, hits, done_event = self._start_loopback()
         marker_val = "linuxsmokemarker0123456789"
         target_url = f"http://127.0.0.1:{port}/?conclave_ticket={marker_val}"
@@ -698,10 +732,31 @@ class BrowserTest(unittest.TestCase):
         apps = data / "applications"
         apps.mkdir(parents=True, exist_ok=True)
         profile = Path(self._tmp.name) / "linux-chrome-profile"
-        esc_browser = browser.replace("\\", "\\\\\\\\")
-        esc_profile = str(profile).replace("\\", "\\\\\\\\")
-        desktop_exec = (f'"{esc_browser}" --headless=new --disable-gpu --no-first-run '
-                        f'"--user-data-dir={esc_profile}" --virtual-time-budget=2000 --dump-dom %u')
+        cleanup_profile = str(profile)
+        cleanup_browser = browser or win_fallback
+
+        if browser:
+            esc_browser = browser.replace("\\", "\\\\\\\\")
+            esc_profile = str(profile).replace("\\", "\\\\\\\\")
+            desktop_exec = (f'"{esc_browser}" --headless=new --disable-gpu --no-first-run '
+                            f'"--user-data-dir={esc_profile}" --virtual-time-budget=2000 --dump-dom %u')
+        else:
+            # WSL host with no native Linux browser: wrap Windows Chrome in a POSIX executable so Linux open_browser
+            # still runs its full desktop-entry + start_new_session Popen path and real headless Chrome follows %u.
+            win_profile = self._windows_temp_profile("linux-chrome-profile")
+            cleanup_profile = win_profile
+            wrapper = Path(self._tmp.name) / "wsl_linux_browser.py"
+            wrapper.write_text(
+                "import subprocess, sys, urllib.parse\n"
+                "uri = sys.argv[1]\n"
+                "path = urllib.parse.unquote(urllib.parse.urlparse(uri).path)\n"
+                "win_p = subprocess.run(['wslpath', '-w', path], capture_output=True, text=True, check=True).stdout.strip()\n"
+                "win_uri = ('file://' + win_p.lstrip(chr(92)).replace(chr(92), '/')) if win_p.startswith(chr(92)*2) else ('file:///' + win_p.replace(chr(92), '/'))\n"
+                f"subprocess.run([{win_fallback!r}, '--headless=new', '--disable-gpu', '--no-first-run', "
+                f"{'--user-data-dir=' + win_profile!r}, '--virtual-time-budget=2000', '--dump-dom', win_uri], "
+                "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=25)\n",
+                encoding="utf-8")
+            desktop_exec = f'"{sys.executable}" "{wrapper}" %u'
         (apps / "smoke.desktop").write_text(f"[Desktop Entry]\nName=Smoke\nExec={desktop_exec}\n", encoding="utf-8")
 
         real_run = subprocess.run
@@ -734,40 +789,53 @@ class BrowserTest(unittest.TestCase):
                 self.assertTrue(done_event.wait(timeout=15), "headless browser did not follow redirect via Linux open_browser")
         finally:
             for proc in spawned:
-                self._kill_browser_tree(proc, browser, str(profile))
+                self._kill_browser_tree(proc, cleanup_browser, cleanup_profile)
         self.assertEqual(len(recorded_argv), 1)
         self.assertNotIn(marker_val, " ".join(recorded_argv[0]))
         self.assertEqual(hits, [f"/?conclave_ticket={marker_val}"])
 
     def test_headless_browser_follows_redirect_via_wsl_open_browser(self):
-        browser = self._find_headless_browser()
+        browser = self._find_windows_browser()
         pwsh = shutil.which("pwsh.exe") or shutil.which("powershell.exe") or shutil.which("pwsh")
         if not browser or not pwsh:
-            self.skipTest("headless browser and PowerShell required for WSL open_browser loopback check")
-        if os.name == "posix" and not browser.startswith("/mnt/"):
-            self.skipTest("WSL PowerShell open_browser check requires a Windows browser under /mnt/")
+            self.skipTest("Windows headless browser and PowerShell required for WSL open_browser loopback check")
         port, hits, done_event = self._start_loopback()
         marker_val = "wslsmokemarker0123456789"
         target_url = f"http://127.0.0.1:{port}/?conclave_ticket={marker_val}"
 
-        profile = Path(self._tmp.name) / "wsl-chrome-profile"
         local_app = Path(self._tmp.name) / "wsl-local-app"
         local_app.mkdir(parents=True, exist_ok=True)
+        argv_log = Path(self._tmp.name) / "wsl-browser-argv.json"
         win_browser = browser
-        win_profile = str(profile)
+        win_profile = self._windows_temp_profile("wsl-chrome-profile")
         win_local_app = str(local_app)
+        win_argv_log = str(argv_log)
         if os.name == "posix":
             win_browser = subprocess.run(["wslpath", "-w", browser], capture_output=True, text=True, check=True).stdout.strip()
-            win_profile = subprocess.run(["wslpath", "-w", str(profile)], capture_output=True, text=True, check=True).stdout.strip()
             win_local_app = subprocess.run(["wslpath", "-w", str(local_app)], capture_output=True, text=True, check=True).stdout.strip()
+            win_argv_log = subprocess.run(["wslpath", "-w", str(argv_log)], capture_output=True, text=True, check=True).stdout.strip()
+
+        # Tiny PowerShell wrapper acting as the registered Windows HTTPS browser: records the exact initial
+        # arguments PowerShell passed to it (proving zero ticket marker in browser argv), then launches headless Chrome.
+        spy_ps = Path(self._tmp.name) / "win_browser_spy.ps1"
+        spy_ps.write_text(
+            f"$args | ConvertTo-Json -Compress | Set-Content -LiteralPath '{win_argv_log.replace(chr(39), chr(39)*2)}' -Encoding utf8\n"
+            f"$u = $args[-1]\n"
+            f"& '{win_browser.replace(chr(39), chr(39)*2)}' --headless=new --disable-gpu --no-first-run "
+            f"'--user-data-dir={win_profile.replace(chr(39), chr(39)*2)}' --virtual-time-budget=2000 --dump-dom --single-argument $u | Out-Null\n",
+            encoding="utf-8")
+        win_spy_ps = str(spy_ps)
+        win_pwsh = pwsh
+        if os.name == "posix":
+            win_spy_ps = subprocess.run(["wslpath", "-w", str(spy_ps)], capture_output=True, text=True, check=True).stdout.strip()
+            win_pwsh = subprocess.run(["wslpath", "-w", pwsh], capture_output=True, text=True, check=True).stdout.strip()
 
         reg_block = (
             "$prog = (Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice' -ErrorAction Stop).ProgId; "
             "if (-not $prog) { throw 'no progid' }; "
             "$cmd = (Get-ItemProperty -Path ('Registry::HKEY_CLASSES_ROOT\\' + $prog + '\\shell\\open\\command') -ErrorAction Stop).'(default)';"
         )
-        chrome_cmd = (f'"{win_browser}" --headless=new --disable-gpu --no-first-run '
-                      f'"--user-data-dir={win_profile}" --virtual-time-budget=2000 --dump-dom --single-argument %1')
+        chrome_cmd = f'"{win_pwsh}" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{win_spy_ps}" --single-argument %1'
         ps_lit = chrome_cmd.replace("'", "''").replace("%", "%%")
         self.assertIn(reg_block, od.POWERSHELL_OPEN)
         patched_ps = od.POWERSHELL_OPEN.replace(reg_block, f"$cmd = '{ps_lit}';", 1)
@@ -780,26 +848,28 @@ class BrowserTest(unittest.TestCase):
             if os.name == "nt":
                 kwargs["cwd"] = str(local_app)
                 kwargs["creationflags"] = NO_WINDOW
-            kwargs["env"] = {**os.environ, "LOCALAPPDATA": win_local_app}
+            run_env = {**os.environ, "LOCALAPPDATA": win_local_app}
+            if os.name == "posix":
+                run_env["WSLENV"] = (run_env.get("WSLENV", "") + ":LOCALAPPDATA").lstrip(":")
+            kwargs["env"] = run_env
             return real_run(argv, **kwargs)
 
         env = {**os.environ, "WSL_DISTRO_NAME": "Ubuntu", "LOCALAPPDATA": win_local_app}
-        with mock.patch.dict(od.os.environ, env, clear=True), \
-                mock.patch.object(od, "POWERSHELL_OPEN", patched_ps), \
-                mock.patch.object(od.shutil, "which", side_effect=lambda name: pwsh if name in ("pwsh.exe", "powershell.exe") else None), \
-                mock.patch.object(od.os.path, "isdir", side_effect=lambda p: True if p == "/mnt/c" else REAL_ISDIR(p)), \
-                mock.patch.object(od.subprocess, "run", spy_run):
-            try:
+        try:
+            with mock.patch.dict(od.os.environ, env, clear=True), \
+                    mock.patch.object(od, "POWERSHELL_OPEN", patched_ps), \
+                    mock.patch.object(od.shutil, "which", side_effect=lambda name: pwsh if name in ("pwsh.exe", "powershell.exe") else None), \
+                    mock.patch.object(od.os.path, "isdir", side_effect=lambda p: True if p == "/mnt/c" else REAL_ISDIR(p)), \
+                    mock.patch.object(od.subprocess, "run", spy_run):
                 od.open_browser(target_url)
                 self.assertTrue(done_event.wait(timeout=15), "headless browser did not follow redirect via WSL open_browser")
-            finally:
-                lit = win_profile.replace("'", "''")
-                kill_cmd = (f"Get-CimInstance Win32_Process | Where-Object {{ $_.CommandLine -like '*{lit}*' }} | "
-                            "ForEach-Object { taskkill.exe /F /T /PID $_.ProcessId 2>$null | Out-Null }")
-                real_run([pwsh, "-NoProfile", "-NonInteractive", "-Command", kill_cmd],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, creationflags=NO_WINDOW)
+        finally:
+            self._kill_windows_profile(pwsh, win_profile)
         self.assertEqual(len(ps_calls), 1)
         self.assertNotIn(marker_val, " ".join(ps_calls[0][0]))
+        received = json.loads(argv_log.read_text(encoding="utf-8-sig"))
+        self.assertNotIn(marker_val, " ".join(received))
+        self.assertTrue(received[-1].startswith("file://") and received[-1].endswith(".html"), received)
         self.assertEqual(hits, [f"/?conclave_ticket={marker_val}"])
 
     def test_from_wsl_each_missing_piece_and_a_failed_child_is_refused(self):
