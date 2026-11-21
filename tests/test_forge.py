@@ -1078,7 +1078,8 @@ class ForgeProvisionTests(unittest.TestCase):
                          "a finding is a checked item's own contradiction",
                          "python scripts/todo-graph.py replan '<ref>'",
                          "`D<NN>-T<NN>-s<N>-chain<k>.md`", "correct the item with a dated", "replaces the section's "
-                         "`Started:` line", "run a new plan review on it", "record the decision in the run file",
+                         "`Started:` line", "commit the changed checklist with the new `Started:` in one commit",
+                         "run a new plan review on it", "record the decision in the run file",
                          "**A gap reopened twice.**"):
                 self.assertIn(part, rts_text, (agent_dir, part))
             groom_text = (self.target / agent_dir / "skills/groom-plan/SKILL.md").read_text(encoding="utf-8")
