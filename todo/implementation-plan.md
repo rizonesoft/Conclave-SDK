@@ -160,7 +160,7 @@ Sections: 17 | Checklist items: 149
 
 | Status | Reference  | Deliverable                                                             | Needs        | Items |
 | ------ | ---------- | ----------------------------------------------------------------------- | ------------ | ----- |
-| [ ]    | D00 T01 §9 | Re-plan route for a chain that cannot settle, recovery planned up front | none         | 6     |
+| [x]    | D00 T01 §9 | Re-plan route for a chain that cannot settle, recovery planned up front | none         | 6     |
 | [x]    | D07 T01 §1 | Launchers kit known to `forge.py`                                       | none         | 9     |
 | [x]    | D07 T01 §2 | Launcher profile `.conclave/launchers.json` and its loader              | none         | 7     |
 | [x]    | D07 T01 §3 | Icon renderer owned by the launchers kit                                | none         | 12    |
@@ -241,6 +241,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 107/151 verified sections, 13 ready to run now.
+Progress: 108/151 verified sections, 13 ready to run now.
 
-Checklist: 897/1149 items completed (includes Commit items).
+Checklist: 898/1149 items completed (includes Commit items).

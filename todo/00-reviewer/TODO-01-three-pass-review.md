@@ -42,7 +42,7 @@ title: "TODO-01 -- Three-pass review"
 | 6 | §6 | Reviewer process tree ended on Windows by a job object | §2 | [x] |
 | 7 | §7 | Review prompt filler | §2 | [x] |
 | 8 | §8 | Stamp that recovers from a write cut short | §3 | [x] |
-| 9 | §9 | Re-plan route for a chain that cannot settle, recovery planned up front | §4 | [ ] |
+| 9 | §9 | Re-plan route for a chain that cannot settle, recovery planned up front | §4 | [x] |
 | 10 | §10 | P2 gate by kind with two filing caps | §9 | [ ] |
 | 11 | §11 | One severity rubric weighted by likelihood | -- | [ ] |
 
@@ -344,9 +344,12 @@ Filed 2026-11-18 from `D07 T01 §7`, which spent 19 passes before a re-plan: its
 - [x] Add `replan <ref>` to `kits/todo/templates/scripts/lib/todo_graph.py`: it moves the section's findings file to the next unused `D<NN>-T<NN>-s<N>-chain<k>.md` (never over an archive; a retry after a stop between the archive move and the TODO write finishes the missing `Started:` and correction note while keeping the archive intact, and a later retry leaves both files byte-identical), replaces the section's `Started:` line with the current instant and keeps the old one in a dated `**Corrected YYYY-MM-DD:**` note, and prints the steps left (correct the item, commit, plan review). Done when: an end-to-end test runs the public `scripts/todo-graph.py replan` CLI, asserts its printed next steps, commits a real checklist correction with the archive and new `Started:`, runs `review-dispatch.py` with the stub reviewer and stamps with the plan candidate equal to that correction commit; a second `replan` writes `-chain2.md` and leaves `-chain1.md` byte-identical; both retry outcomes (mid-move completion and already-done no-op) are asserted.
 - [x] Teach `kits/reviewer/templates/scripts/review-dispatch.py` and `stamp` in `kits/todo/templates/scripts/lib/todo_graph.py` that a `-chain<k>.md` file beside a section's findings file is a kept earlier chain: the dispatcher refuses `--record` naming one before any reviewer runs, `stamp` refuses one as `--plan`, `--completion` or `--review` under both a three-pass and a rotation pin, and `review_rounds` (`query rounds`) lists each section's kept chains (`kept_chains`: each file and its returned passes). Done when: the dispatcher's test finds a kept chain refused with the stub reviewer never started and the file byte-identical; stamp tests refuse a chain file as `--plan`, `--completion` and `--review` under both schedules (including a valid rotation round that stamps from the active report and is refused when the same bytes are supplied from `-chain1.md`); a `query rounds` test names two chains with different counts (one holding an incomplete attempt that adds none) and finds a section without archives unchanged.
 - [x] Run `python forge.py skill-copies` and `python forge.py self-sync`. Done when: `python forge.py skill-copies --check` exits 0 and the self-sync test passes.
-- [ ] Commit: `todo: a chain that cannot settle is re-planned, and recovery is planned before the build`
+- [x] Commit: `todo: a chain that cannot settle is re-planned, and recovery is planned before the build`
 
 **Test checkpoint:** `python -m unittest tests.test_forge -k micro_todo_and_complete_plan_rules`, `CONCLAVE_FULL_TESTS=1 python -m unittest tests.test_todo_graph`, `python -m unittest tests.test_three_pass_install -k replan`, and `python forge.py check-all --only kit-reviewer` pass; removing the re-plan trigger conditions or failure/stop recovery clause from the skills, the chain refusal from `stamp` (`--plan`, `--completion`, `--review`) or the dispatcher, or the next-unused numbering from `replan` makes its test fail.
+
+> **Verified:** 2026-11-21 | §9 | 7bf101fd0de03aedc4a781b307d6a490dc4deaec
+> **Review:** `docs/reviews/d00-t01-s9.json`
 
 ## 10. Verify-only reconciliation trial in the SDK's own pin
 

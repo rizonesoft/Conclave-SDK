@@ -300,7 +300,9 @@ Two faults in the campaign link, both found on the first project that used the w
 
 ## 8. Operator page and `project-launchers` skill
 
-> **Started:** 2026-11-19T07:47Z
+> **Started:** 2026-11-21T14:57Z
+
+**Corrected 2026-11-21:** re-planned with `todo-graph.py replan`; the build first began at 2026-11-19T07:47Z; its review chain is kept as `docs/reviews/07-launchers/D07-T01-s8-chain1.md` (prior plan review ran under the retired P1-only pin; its 5 findings are folded into the checklist below).
 
 A person or an agent in a project needs one place that says how to set the title and icon, write the links and remove them. The page is the operator's; the skill points each agent at it.
 
@@ -310,17 +312,17 @@ A person or an agent in a project needs one place that says how to set the title
 
 **Build order:**
 
-1. Write the page. Done when: every command on it is one a test in this file runs.
-2. Write the skill and generate its copies. Done when: the checkpoint passes.
+1. Write `kits/launchers/templates/docs/launchers.md` with the worked Laravel example, `-ShortcutDir`/`-IconDir`/`-Distro`/`-Project` options, rerun/stale-sweep/invalid-profile removal rules, `unattended-shortcut.ps1` boundary, and refusal diagnosis. Done when: tests run the documented creation, removal, and profile-diagnosis commands against a scratch project.
+2. Write `project-launchers` skill + copies + `openai.yaml`, wire both doc links, and verify every acceptance test. Done when: `python -m unittest tests.test_forge -k launchers_page` and `python forge.py skill-copies --check` pass.
 
-- [ ] Write `kits/launchers/templates/docs/launchers.md` with question-shaped headings: what the links are; how to set `title`, `icon`, `agents` and `skip_permissions`; how to declare a `run` or `url` link; how to write the links (`pwsh scripts/project-shortcuts.ps1`, by its `\\wsl.localhost` path for a project in WSL); how to remove them; what each refusal means; and that the icon wants a square PNG of 256 pixels or more. Done when: a test in `tests/test_forge.py` finds each topic on the page and the Markdown format check passes.
-- [ ] Add the page's worked example for a web project that is not WordPress: a Laravel application with `{"label": "Site", "mark": "site", "url": "https://example.test"}`. Done when: the example loads through `load_profile` in a test.
-- [ ] Write `kits/launchers/templates/.claude/skills/project-launchers/SKILL.md`: when to use it (the operator asks for desktop shortcuts, or a project's title or icon changed), the steps (fill the profile, run the script from Windows PowerShell, read the printed links back), and the rule that a link is only ever started by the operator. Done when: the skill names no project and no machine path.
-- [ ] Run `python forge.py skill-copies` to write the Antigravity and Codex copies, and add Codex's `agents/openai.yaml` by hand. Done when: `python forge.py skill-copies --check` exits 0.
-- [ ] Point at the page from `kits/unattended/templates/docs/unattended-run.md` (the shortcuts section) and from the file table in `kits/launchers/README.md`. Done when: both links resolve in a test.
+- [ ] Write `kits/launchers/templates/docs/launchers.md` with question-shaped headings: what the links are; how to set `title`, `icon` (fresh install's unset `title`/`icon`, accepted PNG and ICO formats, square PNG of 256 pixels or more), `agents` and `skip_permissions` (default and effect); how to declare a `run` (identifying which shell interprets it on Windows and WSL) or `url` link; how to write the links (`pwsh scripts/project-shortcuts.ps1`, by its `\\wsl.localhost` path for a project in WSL, plus `-ShortcutDir`, `-IconDir`, `-Distro`, `-Project`, profile changes taking effect on rerun, stale everyday link removal); how to remove them (reusing `-ShortcutDir`/`-IconDir`/`-Distro`/`-Project`, `-Remove` working even with an invalid profile, and `unattended-shortcut.ps1` owning campaign links when `unattended` is installed); and what each refusal means plus how to diagnose (`python scripts/lib/launchers.py show`) and fix an invalid profile. Done when: a test in `tests/test_forge.py` finds each topic on the installed page, runs the creation and removal commands from the page against a scratch project and destination (verifying links and icons are created, then removed while preserving an unrelated link), runs the profile-diagnosis command on an invalid profile and verifies the documented fix makes it load, and the Markdown format check passes.
+- [ ] Add the page's worked example for a web project that is not WordPress: a Laravel application with `{"label": "Site", "mark": "site", "url": "https://example.test"}` and a working `run` link entry using a real project-relative icon. Done when: a test extracts the JSON example from the page, loads it through `load_profile` with a real project-relative icon, and verifies both `url` and `run` entries.
+- [ ] Write `kits/launchers/templates/.claude/skills/project-launchers/SKILL.md` with discovery metadata (`name`, `description`): when to use it (the operator asks for desktop shortcuts, or a project's title or icon changed), pointer to the installed `docs/launchers.md`, steps for creation and removal (fill the profile, run the script from Windows PowerShell, inspect saved target, arguments and icon via `[Conclave.ShellLink]::Read` without launching the link), and the rule that a link is only ever started by the operator. Done when: a test in `tests/test_forge.py` checks the installed skill in `.agents`, `.claude`, and `.codex` for discovery metadata, `docs/launchers.md` reference, creation/removal steps, read-back without launching, the operator-only rule, and zero project names or machine paths.
+- [ ] Run `python forge.py skill-copies` to write the Antigravity and Codex copies, and add Codex's `agents/openai.yaml` by hand. Done when: `python forge.py skill-copies --check` exits 0 and a test verifies the installed Codex `agents/openai.yaml` separately.
+- [ ] Point at the page from `kits/unattended/templates/docs/unattended-run.md` (the shortcuts section, linking to `launchers.md` beside it after install) and from the file table in `kits/launchers/README.md` (linking to `templates/docs/launchers.md` in the SDK checkout). Done when: a test follows the README link in the SDK checkout and the unattended guide link in a project provisioned with `unattended`.
 - [ ] Commit: `launchers: the operator's page and the project-launchers skill`
 
-**Test checkpoint:** `python -m unittest tests.test_forge -k launchers_page` ends `OK`; removing the removal heading from the page makes it fail.
+**Test checkpoint:** `python -m unittest tests.test_forge -k launchers_page` ends `OK`; removing the removal heading from the page, the `docs/launchers.md` reference or operator-only rule from the skill, or Codex's `agents/openai.yaml` makes it fail.
 
 ## 9. Agent and declared links named outside the ANSI code page
 
