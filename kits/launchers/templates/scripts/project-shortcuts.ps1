@@ -186,18 +186,23 @@ if ($LASTEXITCODE -ne 0) { Refuse "the launcher profile cannot be read: $(($read
 $launch = ($read | Select-Object -Last 1) | ConvertFrom-Json
 $brand = (Resolve-Path -LiteralPath (Join-Path $root $launch.icon)).ProviderPath
 
-if ($null -ne $linux) {
+$needsWsl = ($null -ne $linux) -or (@($launch.links | Where-Object { $_.PSObject.Properties['wsl'] -and $_.wsl -eq $true }).Count -gt 0)
+if ($needsWsl) {
   if (-not $Wsl) {
     $Wsl = (Get-Command wsl.exe -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source
   }
   if (-not $Wsl) { Refuse 'wsl.exe is not on PATH: install WSL' }
-  $env:WSL_UTF8 = '1'  # wsl.exe lists its distros in UTF-16 otherwise
-  $listed = @(& $Wsl -l -q 2>$null | ForEach-Object { ($_ -replace "`0", '').Trim() } | Where-Object { $_ })
-  if ($LASTEXITCODE -ne 0 -or $listed -notcontains $Distro) {
-    Refuse "WSL has no distro '$Distro' (it lists: $($listed -join ', '))"
+  if ($null -ne $linux -or $Distro) {
+    $env:WSL_UTF8 = '1'  # wsl.exe lists its distros in UTF-16 otherwise
+    $listed = @(& $Wsl -l -q 2>$null | ForEach-Object { ($_ -replace "`0", '').Trim() } | Where-Object { $_ })
+    if ($LASTEXITCODE -ne 0 -or $listed -notcontains $Distro) {
+      Refuse "WSL has no distro '$Distro' (it lists: $($listed -join ', '))"
+    }
   }
-  & $Wsl -d $Distro --exec test -d $linux 2>$null
-  if ($LASTEXITCODE -ne 0) { Refuse "the project path '$linux' does not exist in '$Distro'" }
+  if ($null -ne $linux) {
+    & $Wsl -d $Distro --exec test -d $linux 2>$null
+    if ($LASTEXITCODE -ne 0) { Refuse "the project path '$linux' does not exist in '$Distro'" }
+  }
 }
 
 $labels = [ordered]@{ claude = 'Claude'; codex = 'Codex'; agy = 'Antigravity' }
@@ -276,9 +281,11 @@ foreach ($entry in @($launch.links)) {
     $workdir = $env:USERPROFILE
   } else {
     $failed = "$($entry.label) did not start: the reason is above. Press Enter to close."
-    if ($null -ne $linux) {
+    $useWsl = ($null -ne $linux) -or ($entry.PSObject.Properties['wsl'] -and $entry.wsl -eq $true)
+    if ($useWsl) {
       $bash = "(eval `"`$1`") || { echo $(BashQuote $failed); read -r _; }"
-      $wslWords = @('-d', $Distro, '--cd', $linux, '--exec', 'bash', '-lc', $bash, 'bash', $entry.run)
+      $wslTargetDir = if ($null -ne $linux) { $linux } else { $Project }
+      $wslWords = @(if ($Distro) { '-d', $Distro }) + @('--cd', $wslTargetDir, '--exec', 'bash', '-lc', $bash, 'bash', $entry.run)
       $wslFailed = PSQuote "$($entry.label): WSL could not open the project (exit "
       # Standard passing, stated: the command reaches wsl.exe with its quotes whatever the default mode does to them.
       $code = "`$PSNativeCommandArgumentPassing = 'Standard'; " +

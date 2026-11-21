@@ -193,12 +193,14 @@ def load_profile(path, root=None, unset=False) -> dict:
         if not isinstance(link, dict):
             raise fault(here, "must be an object with label, mark and one of run or url")
         keys = set(link)
-        if keys not in ({"label", "mark", "run"}, {"label", "mark", "url"}):
-            extra = sorted(keys - {"label", "mark", "run", "url"})
+        if keys not in ({"label", "mark", "run"}, {"label", "mark", "run", "wsl"}, {"label", "mark", "url"}):
+            extra = sorted(keys - {"label", "mark", "run", "url", "wsl"})
             if extra:
                 raise fault(here, f"{extra[0]} is not a key of a link; a link has label, mark and one of run or url")
             if {"run", "url"} <= keys:
                 raise fault(here, "has both run and url; a link has one")
+            if "wsl" in keys and "url" in keys:
+                raise fault(here, "wsl is only for a run link, not a url link")
             lacking = next(key for key in ("label", "mark") if key not in keys) if not {"label", "mark"} <= keys \
                 else "run or url"
             raise fault(here, f"is missing {lacking}")
@@ -232,6 +234,8 @@ def load_profile(path, root=None, unset=False) -> dict:
                 raise fault(f"{here}.run", "must be a command on one line")
             if "\n" in run or "\r" in run or "\0" in run:
                 raise fault(f"{here}.run", "must be one line")
+            if "wsl" in link and type(link["wsl"]) is not bool:
+                raise fault(f"{here}.wsl", f"must be true or false, not {link['wsl']!r}")
         else:
             url = link["url"]
             if not isinstance(url, str) or not (HTTPS.fullmatch(url) or HTTP_LOCAL.fullmatch(url)):

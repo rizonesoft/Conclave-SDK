@@ -1013,6 +1013,52 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(list(self.icons.iterdir()), [])
         self.assertEqual(self.leftovers(), [])
 
+    def test_wsl_marked_run_entry_uses_wsl_on_windows_drive_and_wsl_checkouts_and_refuses_without_wsl(self):
+        wp_link = [{"label": "WordPress", "mark": "wordpress", "run": "python3 scripts/open-dashboard.py", "wsl": True}]
+        self.declared_profile(wp_link)
+        # 1. Windows-drive checkout with wsl: true invokes wsl.exe --cd <project> --exec bash -lc ...
+        done = self.run_script()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        link = self.read_named("Example Site (WordPress)")
+        ran = self.run_link(link)
+        self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+        calls = [json.loads(line) for line in self.wsl_log.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(len(calls), 1, calls)
+        self.assertEqual(calls[0][0], "--cd")
+        self.assertEqual(folder(calls[0][1]), folder(self.project))
+        self.assertEqual(calls[0][2:5], ["--exec", "bash", "-lc"])
+        self.assertEqual(calls[0][5], declared_bash("WordPress"))
+        self.assertEqual(calls[0][6:], ["bash", "python3 scripts/open-dashboard.py"])
+        # 2. Windows-drive checkout with wsl: true refuses cleanly when wsl.exe is unavailable on PATH.
+        no_wsl_desk = self.base / "desk-no-wsl"
+        no_wsl_icons = self.base / "icons-no-wsl"
+        no_wsl_path = os.pathsep.join(
+            p for p in self.plain_path.split(os.pathsep) if p and not (Path(p) / "wsl.exe").exists()
+        )
+        missing = run_tree(
+            [PWSH, "-NoProfile", "-NonInteractive", "-File", str(self.project / "scripts/project-shortcuts.ps1"),
+             "-ShortcutDir", str(no_wsl_desk), "-IconDir", str(no_wsl_icons), "-Python", sys.executable],
+            timeout=120, env={**self.env(terminal=False), "PATH": no_wsl_path},
+        )
+        self.assertEqual(missing.returncode, 1, missing.stdout + missing.stderr)
+        self.assertIn("wsl.exe is not on PATH", missing.stdout + missing.stderr)
+        self.assertFalse(no_wsl_desk.exists() and list(no_wsl_desk.iterdir()))
+        # 3. WSL checkout with wsl: true invokes wsl.exe -d Ubuntu --cd /home/me/site --exec bash -lc ...
+        self.wsl_log.unlink(missing_ok=True)
+        wsl_desk = self.base / "desk-wsl"
+        wsl_icons = self.base / "icons-wsl"
+        done_wsl = self.run_script("-Distro", "Ubuntu", "-Project", "/home/me/site", desk=wsl_desk, icons=wsl_icons)
+        self.assertEqual(done_wsl.returncode, 0, done_wsl.stdout + done_wsl.stderr)
+        wsl_link = self.read_named("Example Site (WordPress)", desk=wsl_desk)
+        ran_wsl = self.run_link(wsl_link)
+        self.assertEqual(ran_wsl.returncode, 0, ran_wsl.stdout + ran_wsl.stderr)
+        wsl_calls = [c for c in (json.loads(line) for line in self.wsl_log.read_text(encoding="utf-8").splitlines())
+                     if "--exec" in c and "bash" in c]
+        self.assertEqual(len(wsl_calls), 1, wsl_calls)
+        self.assertEqual(wsl_calls[0][:7], ["-d", "Ubuntu", "--cd", "/home/me/site", "--exec", "bash", "-lc"])
+        self.assertEqual(wsl_calls[0][7], declared_bash("WordPress"))
+        self.assertEqual(wsl_calls[0][8:], ["bash", "python3 scripts/open-dashboard.py"])
+
 
 
 @unittest.skipUnless(BASH, "the shell tests need a real bash (Git's on Windows)")

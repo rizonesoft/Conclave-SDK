@@ -208,6 +208,13 @@ class LinkTests(Fixture):
             with self.subTest(value=value):
                 self.refused(self.valid(links=[dict(run, run=value)]), "links[1].run:")
         self.assertEqual(self.load(self.valid(links=[dict(run, run="python3 x.py")]))["links"][0]["run"], "python3 x.py")
+        for flag in (True, False):
+            loaded = self.load(self.valid(links=[dict(run, run="python3 x.py", wsl=flag)]))["links"][0]
+            self.assertIs(loaded["wsl"], flag)
+        for bad in ("true", 1, None):
+            with self.subTest(wsl=bad):
+                self.refused(self.valid(links=[dict(run, run="python3 x.py", wsl=bad)]), "links[1].wsl:")
+        self.refused(self.link(wsl=True), "links[1]:", "only for a run link")
 
     def test_url_rules(self):
         for value in ("http://example.com", "ftp://example.com", "https://", "https://exa mple.com",

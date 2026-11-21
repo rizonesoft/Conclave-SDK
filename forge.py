@@ -844,6 +844,12 @@ def apply_kit(
                 merge_needed.append(LSP_TABLE)
             if "plugin_failed" in servers:
                 merge_needed.append(f"{_lsp_plugin_module().FOLDER}/{_lsp_plugin_module().SERVERS}")
+    if kit_name in ("wordpress", "launchers"):
+        links = _merge_wordpress_launcher_link(target_root, dry_run, installing=kit_name, installed=installed)
+        if links is not None:
+            result["launcher_links"] = links
+            if any(key in links for key in ("conflict", "refused", "failed")):
+                merge_needed.append(LAUNCHER_PROFILE)
     return result
 
 
@@ -2354,12 +2360,71 @@ def _lsp_table_module():
     return module
 
 
+LAUNCHER_PROFILE = ".conclave/launchers.json"
+WORDPRESS_OPENER = "scripts/open-dashboard.py"
+WORDPRESS_LAUNCHER_LINK = {
+    "label": "WordPress",
+    "mark": "wordpress",
+    "run": "python3 scripts/open-dashboard.py",
+    "wsl": True,
+}
+
+
+def _launchers_module():
+    """The launchers kit's profile module, loaded from the kit so forge validates profiles under the kit's rules."""
+    path = FORGE_ROOT / "kits/launchers/templates/scripts/lib/launchers.py"
+    module = types.ModuleType("_forge_launchers")
+    module.__file__ = str(path)
+    exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), module.__dict__)
+    return module
+
+
+def _merge_wordpress_launcher_link(target_root: Path, dry_run: bool, installing: str,
+                                   installed: list[str]) -> dict | None:
+    """Declare the WordPress dashboard link in `.conclave/launchers.json` when both the WordPress opener and a
+    launcher profile are present (or being installed in this run), regardless of which kit was installed first."""
+    opener = target_root / WORDPRESS_OPENER
+    has_opener = (WORDPRESS_OPENER in installed) or (opener.is_file() and not _is_link(opener))
+    if not has_opener:
+        return None
+    profile_path = target_root / LAUNCHER_PROFILE
+    profile_exists = os.path.lexists(profile_path)
+    seeding = (installing == "launchers") and (LAUNCHER_PROFILE in installed)
+    if not profile_exists and not seeding:
+        return None
+    if _has_unsafe_parent(target_root, LAUNCHER_PROFILE) or _is_link(profile_path):
+        return {"refused": f"{LAUNCHER_PROFILE}: refusing a profile that is a link or has an unsafe parent"}
+    launchers = _launchers_module()
+    source_path = profile_path if profile_exists else (FORGE_ROOT / "kits/launchers/templates" / LAUNCHER_PROFILE)
+    try:
+        profile = launchers.load_profile(source_path, target_root, unset=True)
+    except launchers.ProfileError as exc:
+        return {"refused": str(exc)}
+    target_label = WORDPRESS_LAUNCHER_LINK["label"]
+    target_lower = target_label.lower()
+    target_slug = launchers.slug(target_label)
+    for entry in profile["links"]:
+        if entry == WORDPRESS_LAUNCHER_LINK:
+            return {"kept": [target_label]}
+        if entry["label"].lower() == target_lower or launchers.slug(entry["label"]) == target_slug:
+            return {"conflict": f"{LAUNCHER_PROFILE}: existing link {entry['label']!r} conflicts with {target_label!r}"}
+    profile["links"].append(dict(WORDPRESS_LAUNCHER_LINK))
+    if dry_run:
+        return {"added": [target_label]}
+    try:
+        atomic_write(profile_path, json.dumps(profile, indent=2) + "\n")
+    except OSError as exc:
+        return {"failed": f"{LAUNCHER_PROFILE}: {exc.strerror or exc}"}
+    return {"added": [target_label]}
+
+
 def _lsp_write_failed(result: dict) -> bool:
-    """Whether a kit install could not write the server table, or the Claude Code plugin that follows it: the
-    files were installed, the result says what was left and how to retry, and the command line exits 1 so a
-    caller that reads only the exit code does not take a stale table or plugin for a finished install."""
+    """Whether a kit install could not write the server table, the Claude Code plugin that follows it, or the
+    launcher profile: the files were installed, the result says what was left, and the command line exits 1 so a
+    caller that reads only the exit code does not take a stale merge for a finished install."""
     servers = result.get("lsp_servers") or {}
-    return "failed" in servers or "plugin_failed" in servers
+    links = result.get("launcher_links") or {}
+    return "failed" in servers or "plugin_failed" in servers or "failed" in links
 
 
 def _lsp_plugin_module():

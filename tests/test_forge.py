@@ -4817,5 +4817,183 @@ class WordPressTicketLoginDoctorTests(unittest.TestCase):
                     od.pinned_user(overflow_pin)
 
 
+class WordPressLauncherLinksTests(unittest.TestCase):
+    """WordPress dashboard link merge in `.conclave/launchers.json` (D07 T02 §5)."""
+
+    EXPECTED_LINK = {
+        "label": "WordPress",
+        "mark": "wordpress",
+        "run": "python3 scripts/open-dashboard.py",
+        "wsl": True,
+    }
+
+    def _load(self, target: pathlib.Path) -> dict:
+        launchers = forge._launchers_module()
+        return launchers.load_profile(target / forge.LAUNCHER_PROFILE, target, unset=True)
+
+    def _seed_populated_profile(self, target: pathlib.Path, links: list[dict] | None = None) -> dict:
+        (target / ".conclave").mkdir(parents=True, exist_ok=True)
+        (target / "assets").mkdir(parents=True, exist_ok=True)
+        (target / "assets/icon.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        profile = {
+            "schema_version": 1,
+            "title": "Shop Site",
+            "icon": "assets/icon.png",
+            "agents": ["claude", "codex"],
+            "skip_permissions": True,
+            "links": list(links) if links is not None else [
+                {"label": "Site", "mark": "site", "url": "https://example.com/"},
+            ],
+        }
+        (target / forge.LAUNCHER_PROFILE).write_text(json.dumps(profile, indent=2) + "\n", encoding="utf-8")
+        return profile
+
+    def test_launcher_links_both_install_orders_idempotency_and_readback(self):
+        profiles = {}
+        for order in (("launchers", "wordpress"), ("wordpress", "launchers")):
+            with self.subTest(order=order), tempfile.TemporaryDirectory() as tmp:
+                target = pathlib.Path(tmp)
+                first = forge.apply_kit(target, order[0])
+                self.assertNotIn("launcher_links", first)
+                second = forge.apply_kit(target, order[1])
+                self.assertEqual(second.get("launcher_links"), {"added": ["WordPress"]})
+                self.assertEqual(second["merge_needed"], [])
+                self.assertTrue((target / "scripts/open-dashboard.py").is_file())
+                loaded = self._load(target)
+                self.assertIsNone(loaded["title"])
+                self.assertIsNone(loaded["icon"])
+                self.assertEqual(loaded["agents"], ["claude"])
+                self.assertIs(loaded["skip_permissions"], False)
+                self.assertEqual(loaded["links"], [self.EXPECTED_LINK])
+                profiles[order] = loaded
+                # Installing WordPress or launchers a second time keeps the single entry.
+                again = forge.apply_kit(target, "wordpress")
+                self.assertEqual(again.get("launcher_links"), {"kept": ["WordPress"]})
+                self.assertEqual(again["merge_needed"], [])
+                self.assertEqual(self._load(target)["links"], [self.EXPECTED_LINK])
+        self.assertEqual(profiles[("launchers", "wordpress")], profiles[("wordpress", "launchers")])
+
+    def test_launcher_links_existing_project_adoption_preserves_settings_and_links(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = pathlib.Path(tmp)
+            original = self._seed_populated_profile(target)
+            res = forge.apply_kit(target, "wordpress")
+            self.assertEqual(res.get("launcher_links"), {"added": ["WordPress"]})
+            self.assertEqual(res["merge_needed"], [])
+            loaded = self._load(target)
+            self.assertEqual(loaded["title"], original["title"])
+            self.assertEqual(loaded["icon"], original["icon"])
+            self.assertEqual(loaded["agents"], original["agents"])
+            self.assertIs(loaded["skip_permissions"], original["skip_permissions"])
+            self.assertEqual(loaded["links"], original["links"] + [self.EXPECTED_LINK])
+
+    def test_launcher_links_dry_run_and_standalone_installs(self):
+        # Standalone wordpress creates no launcher profile; standalone launchers adds no WordPress link.
+        with tempfile.TemporaryDirectory() as tmp:
+            wp_only = pathlib.Path(tmp) / "wp"
+            wp_only.mkdir()
+            res_wp = forge.apply_kit(wp_only, "wordpress")
+            self.assertNotIn("launcher_links", res_wp)
+            self.assertFalse((wp_only / forge.LAUNCHER_PROFILE).exists())
+            # Dry-run launchers after wordpress predicts the addition without writing the seed.
+            dry_launchers = forge.apply_kit(wp_only, "launchers", dry_run=True)
+            self.assertEqual(dry_launchers.get("launcher_links"), {"added": ["WordPress"]})
+            self.assertEqual(dry_launchers["merge_needed"], [])
+            self.assertFalse((wp_only / forge.LAUNCHER_PROFILE).exists())
+
+            l_only = pathlib.Path(tmp) / "launchers"
+            l_only.mkdir()
+            res_l = forge.apply_kit(l_only, "launchers")
+            self.assertNotIn("launcher_links", res_l)
+            self.assertEqual(self._load(l_only)["links"], [])
+            before = (l_only / forge.LAUNCHER_PROFILE).read_bytes()
+            # Dry-run wordpress after launchers predicts the addition without modifying the profile.
+            dry_wp = forge.apply_kit(l_only, "wordpress", dry_run=True)
+            self.assertEqual(dry_wp.get("launcher_links"), {"added": ["WordPress"]})
+            self.assertEqual(dry_wp["merge_needed"], [])
+            self.assertEqual((l_only / forge.LAUNCHER_PROFILE).read_bytes(), before)
+            self.assertFalse((l_only / "scripts/open-dashboard.py").exists())
+
+    def test_launcher_links_conflicts_preserve_profile_and_report_merge_needed(self):
+        conflicts = (
+            ("url_link", {"label": "WordPress", "mark": "wordpress", "url": "https://example.com/wp-admin/"}),
+            ("case_diff", {"label": "wordpress", "mark": "wordpress", "run": "echo custom"}),
+            ("same_slug", {"label": "WordPress!", "mark": "wordpress", "run": "echo custom"}),
+        )
+        for name, conflicting_entry in conflicts:
+            with self.subTest(conflict=name), tempfile.TemporaryDirectory() as tmp:
+                target = pathlib.Path(tmp)
+                self._seed_populated_profile(target, links=[conflicting_entry])
+                before = (target / forge.LAUNCHER_PROFILE).read_bytes()
+                res = forge.apply_kit(target, "wordpress")
+                self.assertIn("conflict", res.get("launcher_links", {}), res)
+                self.assertNotIn("added", res.get("launcher_links", {}))
+                self.assertNotIn("kept", res.get("launcher_links", {}))
+                self.assertIn(forge.LAUNCHER_PROFILE, res["merge_needed"])
+                self.assertEqual((target / forge.LAUNCHER_PROFILE).read_bytes(), before)
+
+    def test_launcher_links_malformed_schema_invalid_symlink_and_write_failure(self):
+        # 1. Malformed JSON and schema-invalid JSON preserve original bytes and report merge_needed.
+        bad_payloads = (
+            ("malformed_json", b"{not json\n"),
+            ("schema_invalid", json.dumps({
+                "schema_version": 99, "title": None, "icon": None,
+                "agents": ["claude"], "skip_permissions": False, "links": [],
+            }).encode("utf-8")),
+        )
+        for name, raw in bad_payloads:
+            with self.subTest(case=name), tempfile.TemporaryDirectory() as tmp:
+                target = pathlib.Path(tmp)
+                (target / ".conclave").mkdir(parents=True)
+                profile_path = target / forge.LAUNCHER_PROFILE
+                profile_path.write_bytes(raw)
+                res = forge.apply_kit(target, "wordpress")
+                self.assertIn("refused", res.get("launcher_links", {}), res)
+                self.assertIn(forge.LAUNCHER_PROFILE, res["merge_needed"])
+                self.assertEqual(profile_path.read_bytes(), raw)
+
+        # 2. Failed atomic_write preserves original bytes, reports failed + merge_needed, never claims added.
+        with tempfile.TemporaryDirectory() as tmp:
+            target = pathlib.Path(tmp)
+            self._seed_populated_profile(target)
+            profile_path = target / forge.LAUNCHER_PROFILE
+            before = profile_path.read_bytes()
+            real_atomic = forge.atomic_write
+
+            def fail_profile_write(path, data):
+                if pathlib.Path(path).resolve() == profile_path.resolve():
+                    raise OSError("disk full")
+                return real_atomic(path, data)
+
+            with unittest.mock.patch.object(forge, "atomic_write", side_effect=fail_profile_write):
+                res = forge.apply_kit(target, "wordpress")
+            self.assertIn("failed", res.get("launcher_links", {}), res)
+            self.assertNotIn("added", res.get("launcher_links", {}))
+            self.assertIn(forge.LAUNCHER_PROFILE, res["merge_needed"])
+            self.assertEqual(profile_path.read_bytes(), before)
+            self.assertTrue(forge._lsp_write_failed(res))
+
+        # 3. Symlinked profile destination is refused without altering its target.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = pathlib.Path(tmp)
+            outside = base / "outside.json"
+            outside_bytes = json.dumps({
+                "schema_version": 1, "title": None, "icon": None,
+                "agents": ["claude"], "skip_permissions": False, "links": [],
+            }).encode("utf-8")
+            outside.write_bytes(outside_bytes)
+            target = base / "project"
+            (target / ".conclave").mkdir(parents=True)
+            profile_path = target / forge.LAUNCHER_PROFILE
+            try:
+                profile_path.symlink_to(outside)
+            except OSError:
+                self.skipTest("symlinks require elevated privileges on this Windows host")
+            res = forge.apply_kit(target, "wordpress")
+            self.assertIn("refused", res.get("launcher_links", {}), res)
+            self.assertIn(forge.LAUNCHER_PROFILE, res["merge_needed"])
+            self.assertEqual(outside.read_bytes(), outside_bytes)
+
+
 if __name__ == "__main__":
     unittest.main()

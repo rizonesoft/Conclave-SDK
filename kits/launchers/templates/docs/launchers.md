@@ -22,7 +22,7 @@ Each entry in `links` is an object with `label`, `mark` (`site` or `wordpress`),
 
 - `label`: 1 to 30 characters under the `title` naming rule, unique case-insensitively and by icon file slug, never an agent name, and never ending in `campaign`.
 - `url`: an `https://` address, or an `http://` address on `localhost`, `.test`, or `.site`. The shortcut opens it with `rundll32.exe url.dll,FileProtocolHandler <url>` and no console window.
-- `run`: a single-line command. For a project on a Windows drive, the shortcut runs the command in a child PowerShell 7 (`pwsh.exe -EncodedCommand`) in the project directory. For a project in WSL, the shortcut runs it through `wsl.exe -d <distro> --cd <linux path> --exec bash -lc` in a subshell in the project directory. Either way, if the command fails, the window stays open until Enter.
+- `run`: a single-line command. For a project on a Windows drive, the shortcut runs the command in a child PowerShell 7 (`pwsh.exe -EncodedCommand`) in the project directory unless `"wsl": true` is set, in which case it runs through `wsl.exe --cd <project> --exec bash -lc` (requiring `wsl.exe` on `PATH`). For a project in WSL, the shortcut always runs it through `wsl.exe -d <distro> --cd <linux path> --exec bash -lc` in a subshell in the project directory. Either way, if the command fails, the window stays open until Enter.
 
 ### Worked example (Laravel application)
 
