@@ -202,6 +202,12 @@ def fully_qualified(directory):
     return drive.startswith(("\\\\", "//")) or (len(drive) == 2 and rest[:1] in ("\\", "/"))
 
 
+def _agy_uses_prompt_file(executable, prompt):
+    """Whether an Antigravity invocation passes a prompt-file pointer rather than inline `-p=` text."""
+    shim = Path(executable).suffix.lower() in (".cmd", ".bat")
+    return shim or len(prompt.encode()) > ARGV_PROMPT_LIMIT or len(prompt) > ARGV_PROMPT_LIMIT
+
+
 def command(reviewer, executable, prompt, prompt_path, output_path, timeout, effort=None):
     """The argv and stdin for one read-only review. The model comes only from the pin, and the effort from the pin's
     reviewer or, when the pin has a [schedule], from the step it schedules for this pass (Antigravity takes none).
@@ -216,8 +222,7 @@ def command(reviewer, executable, prompt, prompt_path, output_path, timeout, eff
     text = prompt
     # A Windows .cmd or .bat shim re-parses its arguments through cmd.exe, so prose there could become commands:
     # it only ever gets a pointer to the prompt file. So does a prompt too long for a command line.
-    shim = Path(executable).suffix.lower() in (".cmd", ".bat")
-    if shim or len(prompt.encode()) > ARGV_PROMPT_LIMIT or len(prompt) > ARGV_PROMPT_LIMIT:
+    if _agy_uses_prompt_file(executable, prompt):
         text = f"Follow the review instructions in the file {prompt_path} exactly. Do not modify any file."
     model_flag, sandbox_flag, settings_flag, timeout_flag, prompt_flag = AGY_FLAGS
     return [executable, model_flag, model, sandbox_flag, settings_flag, str(agy_settings_path(output_path)),
@@ -573,8 +578,8 @@ def review(pin, writer, prompt_path, timeout, plan=None, kind="round"):
     try:
         stdout_path, message_path = tmp / "stdout.txt", tmp / "last-message.md"
         prompt_file = Path(prompt_path).resolve()
-        if reviewer["cli"] == "agy":
-            # Only Antigravity reads prompt_file (codex and claude read stdin); write it atomically with the rubric.
+        if reviewer["cli"] == "agy" and _agy_uses_prompt_file(executable, prompt):
+            # Only file-pointer Antigravity invocations read prompt_file; write it atomically with the rubric.
             prompt_file = tmp / "prompt.md"
             stage = tmp / "prompt.md.tmp"
             stage.write_text(prompt, encoding="utf-8", newline="\n")

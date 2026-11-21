@@ -100,17 +100,22 @@ FAKE_CLI = textwrap.dedent('''\
             text = "OVERALL: blocked"
         else:
             rec_text = open(m.group(1), encoding="utf-8").read()
-            if "## Writer note:" in rec_text and "no real Path:" in rec_text and "Path: real" not in rec_text:
+            if "## Writer note:" in rec_text and "Path: real" in rec_text:
+                grade = "P2"
+            elif "## Writer note:" in rec_text and "no real Path:" in rec_text:
                 grade = "P3"
             else:
-                grade = "P2"
-            text = (
-                f"1. open ({grade} from {m.group(1)})\\n"
-                "LENS plan-delivery: findings\\n"
-                "LENS record: clean\\n"
-                f"HIGHEST: {grade}\\n"
-                "RECONCILIATION: gaps"
-            )
+                grade = None
+            if grade is None:
+                text = "OVERALL: blocked"
+            else:
+                text = (
+                    f"1. open ({grade} from {m.group(1)})\\n"
+                    "LENS plan-delivery: findings\\n"
+                    "LENS record: clean\\n"
+                    f"HIGHEST: {grade}\\n"
+                    "RECONCILIATION: gaps"
+                )
     if mode == "completionblocked":
         text = "I could not read the candidate commit.\\n\\nCOMPLETION: blocked"
     if name == "codex":
