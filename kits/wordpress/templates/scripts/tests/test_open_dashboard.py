@@ -622,6 +622,15 @@ class BrowserTest(unittest.TestCase):
                 self.assertEqual(list((local_app / "conclave-dashboard").glob("*.tmp")), [])
                 self.assertEqual(list((local_app / "conclave-dashboard").glob("open-*.html")), [])
 
+    @staticmethod
+    def _is_native_posix_executable(path):
+        try:
+            with open(path, "rb") as fh:
+                head = fh.read(4)
+        except OSError:
+            return False
+        return head.startswith(b"\x7fELF") or head.startswith(b"#!")
+
     def _find_linux_browser(self):
         if os.name != "posix":
             return None
@@ -629,7 +638,7 @@ class BrowserTest(unittest.TestCase):
             shutil.which("google-chrome"), shutil.which("chromium"), shutil.which("chromium-browser"),
             shutil.which("chrome"), shutil.which("msedge"),
         ]
-        return next((c for c in candidates if c and not c.startswith("/mnt/") and Path(c).is_file()), None)
+        return next((c for c in candidates if c and Path(c).is_file() and self._is_native_posix_executable(c)), None)
 
     def _find_windows_browser(self):
         if os.name == "nt":
@@ -671,18 +680,43 @@ class BrowserTest(unittest.TestCase):
         self.addCleanup(server.shutdown)
         return port, hits, done_event
 
-    def _kill_windows_profile(self, pwsh, win_profile):
+    def _kill_windows_profile(self, pwsh, win_profile, cim_class="Win32_Process"):
         """Terminate any surviving Windows browser tree for `win_profile` without killing the cleanup PowerShell."""
         lit = win_profile.replace("'", "''")
-        kill_cmd = (f"Get-CimInstance Win32_Process | "
+        kill_cmd = (f"$ErrorActionPreference = 'Stop'; "
+                    f"Get-CimInstance {cim_class} -ErrorAction Stop | "
                     f"Where-Object {{ $_.ProcessId -ne $PID -and $_.CommandLine -like '*{lit}*' }} | "
                     f"ForEach-Object {{ taskkill.exe /F /T /PID $_.ProcessId 2>$null | Out-Null }}; "
-                    f"$left = @(Get-CimInstance Win32_Process | "
+                    f"$left = @(Get-CimInstance {cim_class} -ErrorAction Stop | "
                     f"Where-Object {{ $_.ProcessId -ne $PID -and $_.CommandLine -like '*{lit}*' }}); "
                     f"if ($left.Count -gt 0) {{ exit 2 }}")
         done = subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-Command", kill_cmd],
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20, creationflags=NO_WINDOW)
-        self.assertEqual(done.returncode, 0, "Windows browser cleanup failed or left survivors")
+                              stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+                              timeout=20, creationflags=NO_WINDOW)
+        self.assertEqual(done.returncode, 0, f"Windows browser cleanup failed or left survivors: {done.stderr.strip()}")
+
+    def test_kill_windows_profile_fails_when_enumeration_fails(self):
+        with mock.patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "", "cim denied")):
+            with self.assertRaises(AssertionError):
+                self._kill_windows_profile("pwsh.exe", "conclave-profile")
+        pwsh = shutil.which("pwsh.exe") or shutil.which("powershell.exe") or shutil.which("pwsh")
+        if pwsh:
+            with self.assertRaises(AssertionError):
+                self._kill_windows_profile(pwsh, "conclave-profile", cim_class="Win32_NonExistentClass_Conclave")
+
+    def test_find_linux_browser_checks_executable_format_not_mount_prefix(self):
+        elf = Path(self._tmp.name) / "fake-linux-chrome"
+        elf.write_bytes(b"\x7fELF\x02\x01\x01\x00")
+        script = Path(self._tmp.name) / "fake-wrapper.sh"
+        script.write_bytes(b"#!/bin/sh\n")
+        pe = Path(self._tmp.name) / "fake-win-chrome.exe"
+        pe.write_bytes(b"MZ\x90\x00\x03\x00")
+        self.assertTrue(self._is_native_posix_executable(str(elf)))
+        self.assertTrue(self._is_native_posix_executable(str(script)))
+        self.assertFalse(self._is_native_posix_executable(str(pe)))
+        if os.name == "posix":
+            with mock.patch.object(shutil, "which", side_effect=lambda name: str(pe) if name == "google-chrome" else (str(elf) if name == "chromium" else None)):
+                self.assertEqual(self._find_linux_browser(), str(elf))
 
     def _kill_browser_tree(self, proc, browser, profile_arg):
         if proc.poll() is None:
