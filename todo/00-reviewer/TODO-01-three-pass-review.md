@@ -412,7 +412,7 @@ The fix: severity is impact times likelihood, defined once in `review_pin.py` (`
 - [x] Update `D00 T01 §10` so each measured trial row records which rubric its actual review passes used (`old`, `new`, or `mixed` when a chain spans this commit), verified against the review candidates rather than stamp date alone. Done when: `§10` carries the rubric-tracking note and `python scripts/todo-graph.py validate` passes. **Planned 2026-11-21 (plan review, P2):** classify by pass candidates, not stamp date.
 - [ ] Commit: `reviewer: one severity rubric weighted by likelihood, appended to every pass`
 
-**False-alarm replay (2026-11-21T22:20Z and 22:34Z, `astra` via synced `scripts/review-dispatch.py`, after refining user-edited config vs tool-owned internal state; covers all damaged-record findings in reconciliations 10 to 19 plus reconciliations 8 to 9 background rows F1 and F2):**
+**False-alarm replay (2026-11-21T22:20Z, 22:39Z, and 22:46Z, `astra` via synced `scripts/review-dispatch.py`; covers every damaged-record finding line in reconciliations 10 to 19 individually, plus rec 8-9 background rows F1-F2 and pathless control F7; rec 13-19 findings at `:578`-`:816` are operational/security/lock defects such as R11 below, not synthetic damaged-record false alarms):**
 
 | Case | Source | Producer / Precondition | Old | New |
 | --- | --- | --- | --- | --- |
@@ -420,8 +420,14 @@ The fix: severity is impact times likelihood, defined once in `review_pin.py` (`
 | F2 | `D02-T02-s12.md:438` (rec 9) | Hand-edited `[{"sets":[]}]` in tool-owned record | P1 | P3 |
 | F3 | `D02-T02-s12.md:479` (rec 10) | Missing `IconDir` in tool-owned record | P2 | P3 |
 | F4 | `D02-T02-s12.md:484` (rec 10) | Hand-edited `{"Sets":[]}` key case in tool record | P2 | P3 |
-| F5 | `D02-T02-s12.md:510` (rec 11) | Hand-edited trailing comma (`:510`, `:516`) | P2 | P3 |
-| F6 | `D02-T02-s12.md:545` (rec 12) | Corrupted UTF-8 byte (`:545`, `:551`) | P2 | P3 |
+| F5a | `D02-T02-s12.md:510` (rec 11) | Hand-edited trailing comma: record overwrite | P2 | P3 |
+| F5b | `D02-T02-s12.md:516` (rec 11) | Hand-edited trailing comma: shared badges | P2 | P3 |
+| F5c | `D02-T02-s12.md:517` (rec 11) | Hand-edited trailing comma: `-Check` diagnostic | P2 | P3 |
+| F5d | `D02-T02-s12.md:521` (rec 11) | Hand-edited trailing comma: test coverage gap | P2 | P3 |
+| F6a | `D02-T02-s12.md:545` (rec 12) | Corrupted UTF-8 byte: record rewrite | P2 | P3 |
+| F6b | `D02-T02-s12.md:551` (rec 12) | Corrupted UTF-8 byte: shared badges | P2 | P3 |
+| F6c | `D02-T02-s12.md:552` (rec 12) | Corrupted UTF-8 byte: `-Check` diagnostic | P2 | P3 |
+| F6d | `D02-T02-s12.md:556` (rec 12) | Corrupted UTF-8 byte: test coverage gap | P2 | P3 |
 | F7 | Synthetic control | Pathless `traced` claim with no real producer | P2 | P3 |
 
 **Recall replay (2026-11-21T22:40Z, `astra` via synced `scripts/review-dispatch.py`; initial pass downgraded R7 to P3, exposing user-edited `.mcp.json` ambiguity, and further tightened for crash/lock recovery on internal state files, hollow required tests, and public contracts; re-synced and re-run to 12/12 recall; R1 regression `test_an_update_that_replaces_the_shortcut_script_asks_it_for_links_from_before_the_record` in `tests/test_forge.py`):**
