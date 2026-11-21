@@ -12,7 +12,7 @@ A fresh install writes `.conclave/launchers.json` with `"title": null`, `"icon":
 
 - `schema_version`: must be `1`.
 - `title`: 1 to 60 characters valid in a Windows file name, with no leading or trailing space and no trailing dot.
-- `icon`: a project-relative `.png` or `.ico` file inside the project (no `..` and no symlink). Use a square PNG of 256 pixels or more so every icon frame stays crisp. `scripts/lib/launchers.py show` checks only the path, extension, and file readability; `scripts/campaign-icon.py` requires an 8-bit, non-interlaced PNG, or an ICO containing a readable PNG frame. If rendering fails on an unsupported PNG or ICO even though `show` succeeds, re-export the file as an 8-bit, non-interlaced RGBA square PNG (256x256 or larger).
+- `icon`: a project-relative `.png` or `.ico` file inside the project (no `..` and no symlink). Use a square PNG of 256 pixels or more so every icon frame stays crisp. `scripts/lib/launchers.py show` checks only the path, extension, and file metadata (`stat`); it does not open the file's bytes, while `scripts/campaign-icon.py` opens the file and requires an 8-bit, non-interlaced PNG, or an ICO containing a readable PNG frame. If rendering fails even though `show` succeeds, check file read permissions first, and if the file is readable, re-export it as an 8-bit, non-interlaced RGBA square PNG (256x256 or larger).
 - `agents`: a non-empty list naming one or more of `claude`, `codex`, and `agy`, each at most once.
 - `skip_permissions`: `true` or `false` (default `false`). When `true`, agent shortcuts pass the runner's permission-skip flag (`--dangerously-skip-permissions` for Claude Code, `--dangerously-bypass-approvals-and-sandbox` for Codex) when you open the shortcut.
 
@@ -67,7 +67,7 @@ Run the same script in PowerShell 7 (`pwsh`) with `-Remove`:
 pwsh scripts/project-shortcuts.ps1 -Remove
 ```
 
-Reuse the same `-ShortcutDir`, `-IconDir`, `-Distro`, and `-Project` arguments you used when writing the links so the script matches the same project identity and folders. Because `-Remove` uses only the project identity stored in each shortcut's description, it works even when `.conclave/launchers.json` is invalid or the project folder has been removed, and it leaves shortcuts belonging to other projects untouched.
+Reuse the same `-ShortcutDir`, `-IconDir`, `-Distro`, and `-Project` arguments you used when writing the links so the script matches the same project identity and folders. Because `-Remove` uses only the project identity stored in each shortcut's description, it works even when `.conclave/launchers.json` is invalid, and it leaves shortcuts belonging to other projects untouched. If the project folder itself has already been deleted, run a surviving installed copy of `scripts/project-shortcuts.ps1` with `-Remove -Project <original absolute path>` and the original `-Distro`, `-ShortcutDir`, and `-IconDir` arguments.
 
 When the `unattended` kit is installed, `scripts/unattended-shortcut.ps1` owns the campaign (`<Title> <Runner> campaign`), Watch run, and Stop run shortcuts; everyday `-Remove` never touches those three. See [Unattended run shortcuts](unattended-run.md#shortcuts) to create or remove them.
 
@@ -83,7 +83,7 @@ When the profile is valid, `show` prints one line of JSON and exits 0. When it i
 
 - `title: must be set` or `icon: must be set`: the fresh install leaves both `null`; set a valid title and project-relative `.png` or `.ico` path.
 - `icon: ... does not exist in the project` / `must stay inside the project` / `reached through a link`: place a real `.png` or `.ico` file inside the project and point `icon` at its relative path.
-- `campaign-icon.py` error after `show` succeeds: the file has a `.png` or `.ico` extension but is not an 8-bit, non-interlaced PNG or an ICO with a readable PNG frame; re-export it as an 8-bit, non-interlaced RGBA square PNG (256x256 or larger).
+- `campaign-icon.py` error after `show` succeeds: `show` checks only file metadata, so rendering can still fail if file-read permissions deny reading the icon bytes or if the file is not an 8-bit, non-interlaced PNG or an ICO with a readable PNG frame; check read permissions first, otherwise re-export it as an 8-bit, non-interlaced RGBA square PNG (256x256 or larger).
 - `agents: must name at least one of ...` / `is not an agent` / `is named twice`: list distinct values from `claude`, `codex`, `agy`.
 - `links[N].label` / `.mark` / `.run` / `.url` errors: keep labels 1 to 30 valid filename characters (not an agent name, not ending in `campaign`, unique by case and icon slug), use mark `site` or `wordpress`, keep `run` to one line, and use `https://` or `http://` on `localhost`, `.test`, or `.site`.
 - `project-shortcuts: python is not on PATH` / `wsl.exe is not on PATH`: install Python 3 or WSL and put it on `PATH`.

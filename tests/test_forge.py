@@ -4398,11 +4398,12 @@ class LaunchersPageTests(unittest.TestCase):
                 self.assertIn("docs/launchers.md", st)
                 self.assertIn("-Remove", st)
                 self.assertIn("pwsh", st)
-                self.assertIn("Add-Type -Path 'scripts/lib/ShellLink.cs'", st)
-                self.assertIn("[Conclave.ShellLink]::Read", st)
+                self.assertIn("Add-Type -Path scripts/lib/ShellLink.cs", st)
+                self.assertIn("[Conclave.ShellLink]::Read([Console]::In.ReadLine())", st)
+                self.assertIn("skip creation and removal", st)
                 self.assertIn("only ever started by the operator", st)
-                for forbidden in ("D:\\", "C:\\Users", "/home/derick"):
-                    self.assertNotIn(forbidden, st)
+                for pattern in (r"[A-Za-z]:\\", r"/home/[A-Za-z0-9._-]+/", r"/Users/[A-Za-z0-9._-]+/"):
+                    self.assertIsNone(re.search(pattern, st), f"machine path {pattern!r} in {agent_dir} SKILL.md")
 
             # Codex agents/openai.yaml metadata checked separately.
             openai_yaml = target / ".codex/skills/project-launchers/agents/openai.yaml"
@@ -4429,13 +4430,29 @@ class LaunchersPageTests(unittest.TestCase):
             self.assertIsNotNone(m_back)
             back_target = target / "docs" / m_back.group(1)
             self.assertTrue(back_target.is_file())
-            self.assertIn("### Shortcuts", back_target.read_text(encoding="utf-8"))
+            self.assertIsNotNone(re.search(rf"^#+\s+{re.escape(m_back.group(2))}\s*$",
+                                           back_target.read_text(encoding="utf-8"), re.M | re.I))
+
+    def _run_tree(self, argv, cwd, timeout=60, input_text=None):
+        no_win = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        proc = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, creationflags=no_win)
+        try:
+            out, err = proc.communicate(input=input_text, timeout=timeout)
+            return subprocess.CompletedProcess(argv, proc.returncode, out, err)
+        except subprocess.TimeoutExpired:
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=no_win)
+            else:
+                proc.kill()
+            proc.wait()
+            raise
 
     @unittest.skipUnless(os.name == "nt", "Windows shortcut creation, removal, and ShellLink read-back run on Windows")
     def test_launchers_page_windows_creation_rerun_invalid_removal_and_readback(self):
         pwsh = shutil.which("pwsh")
         self.assertIsNotNone(pwsh, "PowerShell 7 (pwsh) must be on PATH on Windows")
-        no_win = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         with tempfile.TemporaryDirectory() as tmp:
             target = self._provision_project(tmp)
             page_text = (target / "docs/launchers.md").read_text(encoding="utf-8")
@@ -4454,11 +4471,10 @@ class LaunchersPageTests(unittest.TestCase):
             unrelated = shortcut_dir / "Keep Me.lnk"
             unrelated.write_bytes(b"unrelated")
 
-            # 1. Create links with the command from docs/launchers.md.
-            created = subprocess.run(
+            # 1. Create links with the command from docs/launchers.md (under process-tree timeout cleanup).
+            created = self._run_tree(
                 [pwsh, "-NoProfile", "-File", "scripts/project-shortcuts.ps1",
-                 "-ShortcutDir", str(shortcut_dir), "-IconDir", str(icon_dir)],
-                cwd=target, capture_output=True, text=True, timeout=60, creationflags=no_win)
+                 "-ShortcutDir", str(shortcut_dir), "-IconDir", str(icon_dir)], cwd=target)
             self.assertEqual(created.returncode, 0, created.stdout + created.stderr)
             site_lnk = shortcut_dir / "Shop App (Site).lnk"
             claude_lnk = shortcut_dir / "Shop App (Claude).lnk"
@@ -4466,41 +4482,45 @@ class LaunchersPageTests(unittest.TestCase):
             for lnk in (site_lnk, claude_lnk, check_lnk):
                 self.assertTrue(lnk.is_file(), f"missing created shortcut: {lnk}")
 
-            # 2. Execute the skill's read-back command in a fresh pwsh process without launching the link.
+            # 2. Execute the skill's read-back command in a fresh pwsh process passing the path on stdin.
             skill_text = (target / ".claude/skills/project-launchers/SKILL.md").read_text(encoding="utf-8")
             m_cmd = re.search(r"```powershell\s*\n(.*?)\n```", skill_text, re.S)
             self.assertIsNotNone(m_cmd, "SKILL.md must include a PowerShell read-back command")
-            rb_line = m_cmd.group(1).strip().replace("<path-to-link.lnk>", str(site_lnk))
-            m_inner = re.search(r'-Command\s+"(.+)"$', rb_line)
-            self.assertIsNotNone(m_inner)
-            rb = subprocess.run([pwsh, "-NoProfile", "-Command", m_inner.group(1)],
-                                cwd=target, capture_output=True, text=True, timeout=60, creationflags=no_win)
+            m_inner = re.search(r"-Command\s+'([^']+)'", m_cmd.group(1).strip())
+            self.assertIsNotNone(m_inner, f"unexpected read-back command shape: {m_cmd.group(1)!r}")
+            rb = self._run_tree([pwsh, "-NoProfile", "-Command", m_inner.group(1)], cwd=target, input_text=f"{site_lnk}\n")
             self.assertEqual(rb.returncode, 0, rb.stdout + rb.stderr)
-            self.assertIn("Target", rb.stdout)
             self.assertIn("rundll32.exe", rb.stdout.lower())
             self.assertIn("https://example.test", rb.stdout)
-            self.assertIn("IconPath", rb.stdout)
+            clean_rb = re.sub(r"\x1b\[[0-9;]*m", "", rb.stdout)
+            m_icon = re.search(r"IconPath\s*:\s*([^\r\n]+)", clean_rb)
+            self.assertIsNotNone(m_icon, clean_rb)
+            saved_icon = pathlib.Path(m_icon.group(1).strip())
+            self.assertTrue(saved_icon.is_file(), f"IconPath does not exist: {saved_icon}")
+            self.assertEqual(saved_icon.parent.resolve(), icon_dir.resolve())
 
-            # 3. Rename title and drop a link, rerun, and verify stale links disappear.
-            example["title"] = "Shop App Two"
+            # 3. Rename title to one with an apostrophe and $ (O'Brien $x) and drop a link, rerun, and read back via stdin.
+            example["title"] = "O'Brien $x"
             example["links"] = [lnk for lnk in example["links"] if lnk["label"] == "Site"]
             profile_path.write_text(json.dumps(example), encoding="utf-8")
-            rerun = subprocess.run(
+            rerun = self._run_tree(
                 [pwsh, "-NoProfile", "-File", "scripts/project-shortcuts.ps1",
-                 "-ShortcutDir", str(shortcut_dir), "-IconDir", str(icon_dir)],
-                cwd=target, capture_output=True, text=True, timeout=60, creationflags=no_win)
+                 "-ShortcutDir", str(shortcut_dir), "-IconDir", str(icon_dir)], cwd=target)
             self.assertEqual(rerun.returncode, 0, rerun.stdout + rerun.stderr)
             self.assertFalse(site_lnk.exists(), "stale shortcut was not removed on rerun")
             self.assertFalse(check_lnk.exists(), "dropped link shortcut was not removed on rerun")
-            self.assertTrue((shortcut_dir / "Shop App Two (Site).lnk").is_file())
+            obrien_lnk = shortcut_dir / "O'Brien $x (Site).lnk"
+            self.assertTrue(obrien_lnk.is_file())
+            rb2 = self._run_tree([pwsh, "-NoProfile", "-Command", m_inner.group(1)], cwd=target, input_text=f"{obrien_lnk}\n")
+            self.assertEqual(rb2.returncode, 0, rb2.stdout + rb2.stderr)
+            self.assertIn("https://example.test", rb2.stdout)
             self.assertTrue(unrelated.is_file())
 
             # 4. Invalidate the profile before running -Remove and verify owned files vanish while unrelated survives.
             profile_path.write_text("{broken json", encoding="utf-8")
-            removed = subprocess.run(
+            removed = self._run_tree(
                 [pwsh, "-NoProfile", "-File", "scripts/project-shortcuts.ps1",
-                 "-Remove", "-ShortcutDir", str(shortcut_dir), "-IconDir", str(icon_dir)],
-                cwd=target, capture_output=True, text=True, timeout=60, creationflags=no_win)
+                 "-Remove", "-ShortcutDir", str(shortcut_dir), "-IconDir", str(icon_dir)], cwd=target)
             self.assertEqual(removed.returncode, 0, removed.stdout + removed.stderr)
             self.assertEqual([p.name for p in shortcut_dir.iterdir()], ["Keep Me.lnk"])
             self.assertEqual(list(icon_dir.glob("*.ico")), [])

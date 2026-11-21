@@ -9,12 +9,12 @@ Follow the installed [docs/launchers.md](../../../docs/launchers.md) for `.concl
 
 ## Steps
 
-1. Read `docs/launchers.md` and inspect `.conclave/launchers.json`, diagnosing any profile error with `python scripts/lib/launchers.py show`.
-2. Run the creation or `-Remove` command from `docs/launchers.md` in PowerShell 7 (`pwsh`) on Windows (reusing `-ShortcutDir`, `-IconDir`, `-Distro`, and `-Project` when removing).
-3. After writing shortcuts, read each generated `.lnk` back in a fresh PowerShell 7 (`pwsh`) process without launching it by loading `scripts/lib/ShellLink.cs` and inspecting `Target`, `Arguments`, and `IconPath`:
+1. When the operator asks only to inspect existing shortcuts, skip creation and removal and go straight to step 3 (read-back works even when `.conclave/launchers.json` is invalid).
+2. When creating, updating, or removing shortcuts, read `docs/launchers.md`, diagnose `.conclave/launchers.json` with `python scripts/lib/launchers.py show` when creating or updating, and run the documented creation or `-Remove` command in PowerShell 7 (`pwsh`) on Windows (reusing `-ShortcutDir`, `-IconDir`, `-Distro`, and `-Project` when removing).
+3. Read each `.lnk` back in a fresh PowerShell 7 (`pwsh`) process without launching it, passing the shortcut path on standard input (`[Console]::In.ReadLine()`, outside the command text so apostrophes and `$` characters are never interpolated):
 
 ```powershell
-pwsh -NoProfile -Command "Add-Type -Path 'scripts/lib/ShellLink.cs'; [Conclave.ShellLink]::Read('<path-to-link.lnk>') | Format-List Target, Arguments, IconPath, Description"
+'<path-to-link.lnk>' | pwsh -NoProfile -Command 'Add-Type -Path scripts/lib/ShellLink.cs; [Conclave.ShellLink]::Read([Console]::In.ReadLine()) | Format-List Target, Arguments, IconPath, Description'
 ```
 
 4. Report the verified link paths, targets, arguments, and icons to the operator.
