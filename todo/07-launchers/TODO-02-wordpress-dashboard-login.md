@@ -47,7 +47,7 @@ title: "TODO-02 -- WordPress dashboard login by one-use ticket"
 | 1 | §1 | Ticket login plugin in the WordPress kit | -- | [x] |
 | 2 | §2 | Dashboard opener `scripts/open-dashboard.py` | §1 | [x] |
 | 3 | §3 | Plugin install, status and removal on the pinned site | §1 | [x] |
-| 4 | §4 | Doctor rows and host refusals for the ticket login | §2, §3 | [ ] |
+| 4 | §4 | Doctor rows and host refusals for the ticket login | §2, §3 | [x] |
 | 5 | §5 | WordPress link in the launcher profile | §2, T01 §6 | [ ] |
 | 6 | §6 | `wordpress-connect` step and tooling page | §4, §5 | [ ] |
 | 7 | §7 | Live proof on a staging site | §6 | [ ] |
@@ -176,9 +176,12 @@ The first site got its plugin from a hand-typed SFTP command, and nothing takes 
 - [x] Add a `ticket-login` row to `_doctor_wordpress` in `forge.py`, read from files alone with no connection: `optional` when the pin has no SSH (`not ssh_enabled`); `setup_required` pointing to `site-pin` when the pin is missing or invalid; `setup_required` pointing to `site-ssh` when SSH is enabled but `ssh.wp_path` is unset; `setup_required` naming every missing file when any of `scripts/open-dashboard.py`, `scripts/ticket-login.py`, or `tools/ticket-login/conclave-ticket-login.php` is absent; and `ok` otherwise with `run python scripts/ticket-login.py status to check the site` (noting WSL/Linux on native Windows). Done when: offline tests in `tests/test_forge.py` cover no-SSH, missing/invalid pin, SSH pin missing `ssh.wp_path`, removing each of the three files independently, and healthy `ok` with zero credential/network calls. Cheaper substitute: a row that connects to the site or skips checking `scripts/ticket-login.py`. **Corrected 2026-11-21 (plan review):** dropped stale line number `1603`, added all three files and missing/invalid/incomplete pin states.
 - [x] Add a `ticket-login-user` row to `_doctor_wordpress` in `forge.py`: `optional` when the pin has no SSH or on a WordPress.com SSH site using the connector alone (no `basic` MCP entries, so `doctor --strict` exits 0); `setup_required` pointing to `site-pin` when the pin is missing or invalid; `ok` with the user ID when `wp_site.pinned_user(pin)` succeeds; and `setup_required` with the specific reason otherwise. Done when: CLI tests in `tests/test_forge.py` check both WordPress.com Simple (no SSH) and WordPress.com Atomic (connector alone) with `doctor --strict` exiting 0 (0 failures), plus one user, two same-ID `basic` entries, bearer+basic, none (Pressable), two different IDs, and valid+missing ID.
 - [x] Prove both `--host pressable` and `--host wpcom` install `scripts/open-dashboard.py`, `scripts/ticket-login.py`, and `tools/ticket-login/conclave-ticket-login.php` from the shared `kits/wordpress/templates/` tree. Done when: a test in `tests/test_forge.py` installs each host into a scratch project, compares each installed file's bytes against its template, and verifies `.conclave/kits.json` records all three under `wordpress`. **Corrected 2026-11-21 (plan review):** `kit_plan` already installs the shared template tree for both hosts; no install-list edit needed.
-- [ ] Commit: `wordpress: doctor rows for the ticket login`
+- [x] Commit: `wordpress: doctor rows for the ticket login`
 
 **Test checkpoint:** `python -m unittest tests.test_forge -k ticket_login -v` ends `OK`; making `ticket-login` report `ok` for a pin with no SSH, skipping `scripts/ticket-login.py`, or failing `doctor --strict` on WordPress.com Simple makes it fail.
+
+> **Verified:** 2026-11-21 | §4 | 8a31ccb2ba4b0d42ee820627f1e4bbcf635b7364
+> **Review:** `docs/reviews/d07-t02-s4.json`
 
 ## 5. WordPress link in the launcher profile
 
