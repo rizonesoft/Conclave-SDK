@@ -179,11 +179,12 @@ Sections: 16 | Checklist items: 144
 
 ### Phase 9: Design and safety lenses across projects
 
-Sections: 21 | Checklist items: 133
+Sections: 22 | Checklist items: 145
 
 | Status | Reference   | Deliverable                                                | Needs        | Items |
 | ------ | ----------- | ---------------------------------------------------------- | ------------ | ----- |
 | [ ]    | D00 T01 §10 | Verify-only reconciliation trial in the SDK's own pin      | none         | 7     |
+| [ ]    | D00 T01 §11 | One severity rubric weighted by likelihood                 | none         | 12    |
 | [ ]    | D00 T03 §1  | Design Lens by Path and Fidelity on Every Prompt           | none         | 10    |
 | [ ]    | D00 T03 §2  | Thread-Safety and Memory-Safety Lenses in the Template Pin | none         | 6     |
 | [ ]    | D00 T03 §3  | Kit Refresh in Every Listed Project                        | windows-host | 7     |
@@ -216,6 +217,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 105/133 verified sections, 8 ready to run now.
+Progress: 105/134 verified sections, 9 ready to run now.
 
-Checklist: 893/1039 items completed (includes Commit items).
+Checklist: 893/1051 items completed (includes Commit items).
