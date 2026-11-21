@@ -317,6 +317,56 @@ class StoreAndDropOnTheSiteTest(unittest.TestCase):
         self.assertEqual(len(site.calls), 2)
         self.assertEqual(site.calls[0][1], site.calls[1][1])   # the drop named the very digest the store wrote
 
+    def test_check_refuses_when_a_newer_ticket_replaces_ours_before_drop(self):
+        site = PhpSite(self)
+        newer = {"hash": "f" * 64, "expires": int(time.time()) + 60, "user": 7}
+        real_wp = site.wp
+
+        def replace_before_drop(arguments, *, input=None, timeout=600, pin=None):
+            result = real_wp(arguments, input=input, timeout=timeout, pin=pin)
+            if len(site.calls) == 1:
+                site.options[od.OPTION] = dict(newer)
+            return result
+
+        site.wp = replace_before_drop
+        code, out, err, opened = run_main(["--check"], site=site)
+        self.assertEqual((code, out, opened), (1, "", []))
+        self.assertEqual(err, "open-dashboard: the ticket was replaced or gone before --check could remove it\n")
+        self.assertEqual(site.options[od.OPTION], newer)
+
+    def test_linux_browser_immediate_nonzero_exit_revokes_ticket(self):
+        site = PhpSite(self)
+        with tempfile.TemporaryDirectory() as tmp:
+            pages = Path(tmp) / "cache" / "conclave-dashboard"
+            data = Path(tmp) / "data"
+            apps = data / "applications"
+            apps.mkdir(parents=True, exist_ok=True)
+            (apps / "fail.desktop").write_text(
+                f'[Desktop Entry]\nName=Fail\nExec="{sys.executable}" -c "import sys; sys.exit(1)" %u\n',
+                encoding="utf-8")
+            env = {"XDG_DATA_HOME": str(data), "XDG_DATA_DIRS": "/nowhere"}
+
+            real_run = subprocess.run
+
+            def fake_run(argv, **kwargs):
+                if argv and argv[0] == "/usr/bin/xdg-mime":
+                    return subprocess.CompletedProcess(argv, 0, "fail.desktop\n", "")
+                return real_run(argv, **kwargs)
+
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.object(od, "native_windows", return_value=False), \
+                    mock.patch.object(od, "PAGES", pages), \
+                    mock.patch.object(od.wp_site, "load", return_value=pin()), \
+                    mock.patch.object(od.site_ssh, "wp", site.wp), \
+                    mock.patch.dict(od.os.environ, env, clear=True), \
+                    mock.patch.object(od.shutil, "which", side_effect=lambda name: "/usr/bin/xdg-mime" if name == "xdg-mime" else None), \
+                    mock.patch.object(od.subprocess, "run", fake_run):
+                code = od.main([], out=out, err=err)
+        self.assertEqual((code, out.getvalue()), (1, ""))
+        self.assertEqual(err.getvalue(), "open-dashboard: the browser that opens https links could not be started\n"
+                                         "open-dashboard: the ticket was removed from the site\n")
+        self.assertEqual(site.options, {})
+
 
 class CleanUpTest(unittest.TestCase):
 
@@ -460,7 +510,9 @@ class BrowserTest(unittest.TestCase):
             self.started.append((list(argv), kwargs))
             if starts:
                 starts(argv)
-            return mock.Mock()
+            proc = mock.Mock()
+            proc.wait.side_effect = subprocess.TimeoutExpired(argv, od.LAUNCH_CHECK)
+            return proc
 
         with mock.patch.dict(od.os.environ, environ, clear=True), \
                 mock.patch.object(od.shutil, "which", side_effect=lambda name: which.get(name)), \
@@ -609,30 +661,50 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(self.started, [])
 
     def test_unknown_desktop_entry_field_code_is_refused_with_zero_launches(self):
-        for label, entry in (
-                ("unknown %x", "Exec=browser %x %u\n"),
-                ("trailing %", "Exec=browser --bad=%\n"),
-                ("embedded %U", "Exec=browser --profile=%U\n"),
-                ("embedded %F", "Exec=browser --file=%F\n")):
+        for label, entry, pattern in (
+                ("unknown %x", "Exec=browser %x %u\n", "unsupported field code"),
+                ("trailing %", "Exec=browser --bad=%\n", "unsupported field code"),
+                ("embedded %U", "Exec=browser --profile=%U\n", "unsupported field code"),
+                ("embedded %F", "Exec=browser --file=%F\n", "unsupported field code"),
+                ("multiple targets %u %F", "Exec=browser %u %F\n", "more than one target field code"),
+                ("multiple targets %f %u", "Exec=browser %f %u\n", "more than one target field code")):
             with self.subTest(label):
                 self.started.clear()
-                with self.assertRaisesRegex(od.Refusal, "unsupported field code"):
+                with self.assertRaisesRegex(od.Refusal, pattern):
                     self.open(wsl=False, which=self.LINUX, entry=entry)
                 self.assertEqual(self.started, [])
 
-    def test_relative_xdg_data_roots_are_ignored_and_overlong_flat_id_falls_through(self):
-        import errno
+    def test_relative_xdg_data_roots_are_ignored(self):
         rel_cwd = Path(self._tmp.name) / "cwd"
         decoy = rel_cwd / "applications" / "vendor-browser.desktop"
         decoy.parent.mkdir(parents=True, exist_ok=True)
         decoy.write_text("[Desktop Entry]\nName=Decoy\nExec=decoy-browser %u\n", encoding="utf-8")
 
         sys_data = Path(self._tmp.name) / "xdg_sys"
-        real_entry = sys_data / "applications" / "vendor" / "browser.desktop"
+        real_entry = sys_data / "applications" / "vendor-browser.desktop"
         real_entry.parent.mkdir(parents=True, exist_ok=True)
         real_entry.write_text("[Desktop Entry]\nName=Real\nExec=real-browser %u\n", encoding="utf-8")
 
         old_cwd = os.getcwd()
+        try:
+            os.chdir(rel_cwd)
+            before = set(self.pages.glob("open-*.html"))
+            self.open(wsl=False, which=self.LINUX, handler="vendor-browser.desktop", entry=None,
+                      extra_env={"XDG_DATA_HOME": ".", "XDG_DATA_DIRS": f".{os.pathsep}{sys_data}"})
+        finally:
+            os.chdir(old_cwd)
+        [(argv, _)] = self.started
+        [page] = set(self.pages.glob("open-*.html")) - before
+        self.assertEqual(argv, ["real-browser", page.as_uri()])
+        self.assertNotIn("conclave_ticket", " ".join(argv))
+
+    def test_overlong_flat_id_falls_through_to_nested(self):
+        import errno
+        sys_data = Path(self._tmp.name) / "xdg_sys_long"
+        real_entry = sys_data / "applications" / "vendor" / "browser.desktop"
+        real_entry.parent.mkdir(parents=True, exist_ok=True)
+        real_entry.write_text("[Desktop Entry]\nName=Real\nExec=nested-browser %u\n", encoding="utf-8")
+
         real_is_file = Path.is_file
 
         def overlong_on_flat(path_obj):
@@ -640,17 +712,56 @@ class BrowserTest(unittest.TestCase):
                 raise OSError(errno.ENAMETOOLONG, "File name too long")
             return real_is_file(path_obj)
 
-        try:
-            os.chdir(rel_cwd)
-            before = set(self.pages.glob("open-*.html"))
-            with mock.patch.object(Path, "is_file", overlong_on_flat):
-                self.open(wsl=False, which=self.LINUX, handler="vendor-browser.desktop", entry=None,
-                          extra_env={"XDG_DATA_HOME": ".", "XDG_DATA_DIRS": f".{os.pathsep}{sys_data}"})
-        finally:
-            os.chdir(old_cwd)
+        before = set(self.pages.glob("open-*.html"))
+        with mock.patch.object(Path, "is_file", overlong_on_flat):
+            self.open(wsl=False, which=self.LINUX, handler="vendor-browser.desktop", entry=None,
+                      extra_env={"XDG_DATA_HOME": str(sys_data), "XDG_DATA_DIRS": "/nowhere"})
         [(argv, _)] = self.started
         [page] = set(self.pages.glob("open-*.html")) - before
-        self.assertEqual(argv, ["real-browser", page.as_uri()])
+        self.assertEqual(argv, ["nested-browser", page.as_uri()])
+
+    def test_io_error_during_desktop_entry_lookup_refuses_with_zero_launches(self):
+        import errno
+        user_data = Path(self._tmp.name) / "xdg_eio_user"
+        (user_data / "applications" / "vendor").mkdir(parents=True, exist_ok=True)
+        sys_data = Path(self._tmp.name) / "xdg_eio_sys"
+        sys_entry = sys_data / "applications" / "vendor-browser.desktop"
+        sys_entry.parent.mkdir(parents=True, exist_ok=True)
+        sys_entry.write_text("[Desktop Entry]\nName=Sys\nExec=sys-browser %u\n", encoding="utf-8")
+
+        real_is_file = Path.is_file
+        real_is_dir = Path.is_dir
+        env = {"XDG_DATA_HOME": str(user_data), "XDG_DATA_DIRS": str(sys_data)}
+
+        for label, target, attr, fail_name in (
+                ("apps dir EIO", Path, "is_dir", "applications"),
+                ("direct file EIO", Path, "is_file", "vendor-browser.desktop"),
+                ("subdir EIO", Path, "is_dir", "vendor")):
+            with self.subTest(label):
+                self.started.clear()
+                orig = real_is_file if attr == "is_file" else real_is_dir
+
+                def raise_eio(path_obj, _orig=orig, _name=fail_name):
+                    if path_obj.name == _name and str(user_data) in str(path_obj):
+                        raise OSError(errno.EIO, "Input/output error")
+                    return _orig(path_obj)
+
+                with mock.patch.object(target, attr, raise_eio):
+                    with self.assertRaisesRegex(od.Refusal, "could not be read"):
+                        self.open(wsl=False, which=self.LINUX, handler="vendor-browser.desktop", entry=None, extra_env=env)
+                self.assertEqual(self.started, [])
+
+    def test_nested_desktop_directory_with_spaces_resolves(self):
+        user_data = Path(self._tmp.name) / "xdg_spaces"
+        spaced = user_data / "applications" / "Work Apps" / "org.example.Browser.desktop"
+        spaced.parent.mkdir(parents=True, exist_ok=True)
+        spaced.write_text("[Desktop Entry]\nName=Work Browser\nExec=work-apps-browser %u\n", encoding="utf-8")
+        before = set(self.pages.glob("open-*.html"))
+        self.open(wsl=False, which=self.LINUX, handler="Work Apps-org.example.Browser.desktop", entry=None,
+                  extra_env={"XDG_DATA_HOME": str(user_data), "XDG_DATA_DIRS": "/nowhere"})
+        [(argv, _)] = self.started
+        [page] = set(self.pages.glob("open-*.html")) - before
+        self.assertEqual(argv, ["work-apps-browser", page.as_uri()])
         self.assertNotIn("conclave_ticket", " ".join(argv))
 
     def test_two_launches_get_two_pages_and_only_dead_pages_are_removed(self):

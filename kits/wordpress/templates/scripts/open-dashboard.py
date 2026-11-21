@@ -15,6 +15,7 @@ has not, so there it refuses before it makes a ticket.
     python3 scripts/open-dashboard.py --check   prove the site stores and removes a ticket; open nothing
 """
 import argparse
+import errno
 import hashlib
 import html
 import json
@@ -38,6 +39,7 @@ LIFETIME = 60
 HEX64 = re.compile(r"[0-9a-f]{64}")
 REMOTE_TIMEOUT = 90
 CHILD_TIMEOUT = 60
+LAUNCH_CHECK = 0.3
 PAGES = Path.home() / ".cache" / "conclave-dashboard"
 
 # Both run through `wp eval` on the site with the digest on standard input. STORE writes the ticket only where the
@@ -185,7 +187,7 @@ def _page(url):
     return page
 
 
-DESKTOP_ID = re.compile(r"[A-Za-z0-9._-]+\.desktop")
+DESKTOP_ID = re.compile(r"[^\x00-\x1f/\\]+\.desktop")
 ANY_PERCENT = re.compile(r"%(.)?")
 LOCALE_RE = re.compile(r"^([A-Za-z0-9-]+)(?:_([A-Za-z0-9-]+))?(?:\.[^@]*)?(?:@(.+))?$")
 DESKTOP_UNESCAPE = re.compile(r"\\([sntr\\])")
@@ -231,26 +233,37 @@ def _split_desktop_exec(command):
     return words
 
 
+def _is_file_or_miss(path):
+    try:
+        return path.is_file()
+    except OSError as error:
+        if error.errno == errno.ENAMETOOLONG:
+            return False
+        raise
+
+
+def _is_dir_or_miss(path):
+    try:
+        return path.is_dir()
+    except OSError as error:
+        if error.errno == errno.ENAMETOOLONG:
+            return False
+        raise
+
+
 def _find_in_apps(directory, remaining):
     """Find `remaining` inside `directory` (flat first, then hyphen-to-slash subdirectories), never `.` or `..`."""
     if not remaining or remaining in (".", "..") or "/" in remaining or "\\" in remaining:
         return None
     direct = directory / remaining
-    try:
-        if direct.is_file():
-            return direct
-    except OSError:
-        pass
+    if _is_file_or_miss(direct):
+        return direct
     pos = remaining.find("-")
     while pos != -1:
         head, tail = remaining[:pos], remaining[pos + 1:]
         if head and head not in (".", "..") and "/" not in head and "\\" not in head:
             sub = directory / head
-            try:
-                is_dir = sub.is_dir()
-            except OSError:
-                is_dir = False
-            if is_dir:
+            if _is_dir_or_miss(sub):
                 found = _find_in_apps(sub, tail)
                 if found is not None:
                     return found
@@ -260,18 +273,17 @@ def _find_in_apps(directory, remaining):
 
 def _find_desktop_entry(folders, entry):
     """Search each absolute XDG data root's `applications/` in order, exhausting flat and nested matches per root."""
-    for folder in folders:
-        if not folder or not Path(folder).is_absolute():
-            continue
-        apps = Path(folder) / "applications"
-        try:
-            is_dir = apps.is_dir()
-        except OSError:
-            is_dir = False
-        if is_dir:
-            found = _find_in_apps(apps, entry)
-            if found is not None:
-                return found
+    try:
+        for folder in folders:
+            if not folder or not Path(folder).is_absolute():
+                continue
+            apps = Path(folder) / "applications"
+            if _is_dir_or_miss(apps):
+                found = _find_in_apps(apps, entry)
+                if found is not None:
+                    return found
+    except OSError:
+        raise Refusal(f"the browser's desktop entry {entry} could not be read") from None
     return None
 
 
@@ -384,9 +396,13 @@ def _https_browser(page):
         if code == "%":
             return "%"
         if code == "u":
+            if given:
+                raise Refusal(f"the browser's desktop entry {entry} has more than one target field code")
             given = True
             return page.as_uri()
         if code == "f":
+            if given:
+                raise Refusal(f"the browser's desktop entry {entry} has more than one target field code")
             given = True
             return str(page)
         if code == "c":
@@ -402,9 +418,13 @@ def _https_browser(page):
             if icon:
                 argv.extend(["--icon", icon])
         elif word == "%U":
+            if given:
+                raise Refusal(f"the browser's desktop entry {entry} has more than one target field code")
             argv.append(page.as_uri())
             given = True
         elif word == "%F":
+            if given:
+                raise Refusal(f"the browser's desktop entry {entry} has more than one target field code")
             argv.append(str(page))
             given = True
         elif word in ("%d", "%D", "%n", "%N", "%v", "%m"):
@@ -432,11 +452,18 @@ def open_browser(url):
     page = _page(url)
     argv = _https_browser(page)
     try:
-        # Not waited for: a browser started fresh runs until it is closed.
-        subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         start_new_session=True)
+        # Not waited for to completion: a browser started fresh runs until closed, but an immediate non-zero exit
+        # (e.g. no graphical display) is caught within LAUNCH_CHECK so the ticket is revoked.
+        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                start_new_session=True)
     except OSError:
         raise Refusal("the browser that opens https links could not be started") from None
+    try:
+        code = proc.wait(timeout=LAUNCH_CHECK)
+    except subprocess.TimeoutExpired:
+        return
+    if code != 0:
+        raise Refusal("the browser that opens https links could not be started")
 
 
 def _say(stream, text):
@@ -507,7 +534,7 @@ def main(argv=None, out=None, err=None):
         return 1
     if args.check:
         try:
-            drop(pin, digest)
+            removed = drop(pin, digest)
         except KeyboardInterrupt:
             _say(err, "interrupted")
             _clean_up(pin, digest, err)
@@ -515,6 +542,9 @@ def main(argv=None, out=None, err=None):
         except Exception as error:   # every failure is reported by `_failed`, never by its own text
             _say(err, _failed(error))
             _say(err, f"the ticket expires within {LIFETIME} seconds")
+            return 1
+        if removed != "dropped":
+            _say(err, "the ticket was replaced or gone before --check could remove it")
             return 1
         _say(out, "the site stored a ticket and removed it again; nothing was opened")
         return 0
